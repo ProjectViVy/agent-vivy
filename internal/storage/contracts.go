@@ -19,6 +19,9 @@ var (
 	// ErrCommitInvalid is returned for commits that violate invariants
 	// (empty, or containing more than one terminal event).
 	ErrCommitInvalid = errors.New("storage: invalid commit")
+	// ErrNotFound is returned when the requested session, message or run
+	// does not exist.
+	ErrNotFound = errors.New("storage: not found")
 )
 
 // Commit is one atomic batch of events for a single run. Events carry no
@@ -82,4 +85,32 @@ type LeaseStore interface {
 	Acquire(ctx context.Context, key, owner string, ttl time.Duration) (bool, error)
 	// Release drops the lease only if the caller still owns it.
 	Release(ctx context.Context, key, owner string) error
+}
+
+// SessionStore persists conversations. Deleting a session removes its
+// messages, runs and journal events in one transaction.
+type SessionStore interface {
+	CreateSession(ctx context.Context, s domain.Session) error
+	// ListSessions returns all sessions, newest first.
+	ListSessions(ctx context.Context) ([]domain.Session, error)
+	GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error)
+	RenameSession(ctx context.Context, id domain.SessionID, title string) error
+	DeleteSession(ctx context.Context, id domain.SessionID) error
+}
+
+// MessageStore persists the append-only conversation turns (FR-2).
+type MessageStore interface {
+	AppendMessage(ctx context.Context, m domain.Message) error
+	// ListMessages returns the session's messages in creation order.
+	ListMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error)
+}
+
+// RunStore tracks run lifecycle rows. Status transitions themselves are
+// validated by the domain state machine; the store only persists them.
+type RunStore interface {
+	CreateRun(ctx context.Context, r domain.Run) error
+	GetRun(ctx context.Context, id domain.RunID) (domain.Run, error)
+	SetRunStatus(ctx context.Context, id domain.RunID, status domain.RunStatus) error
+	// ListActiveRuns enumerates non-terminal runs (restart recovery, E2).
+	ListActiveRuns(ctx context.Context) ([]domain.Run, error)
 }
