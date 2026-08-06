@@ -11,5 +11,6 @@
 // (D-022..D-025), rewritten into Vivy's owned schema with a provenance
 // field. Secrets are read from env at request time, never persisted (D-010).
 //
-// Skeleton stage: empty. Implemented in tasks C1/C2 and A2.
+// Skeleton stage: mock implemented (C1); ProviderRef and the real bundles
+// land in C2. A2 bundles already ship under fixtures/provider/.
 package provider
