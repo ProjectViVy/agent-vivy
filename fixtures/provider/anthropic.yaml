@@ -1,0 +1,41 @@
+# Vivy provider bundle: anthropic (Anthropic Messages API).
+# Conforms to schemas/providers.bundle.schema.json.
+# Re-derived from the Diva providers catalog; NOT a verbatim copy (D-025).
+# Contains shape + defaults only. The API key is read from the environment
+# variable named by env_key at request time and is never persisted (D-010).
+
+name: anthropic
+api_type: anthropic
+keywords:
+  - anthropic
+  - claude
+env_key: ANTHROPIC_API_KEY
+display_name: Anthropic
+default_model: claude-sonnet-4-5
+gateway_prefix: ""
+skip_prefixes: []
+env_extras: []
+is_gateway: false
+is_local: false
+detect_by_key_prefix: ""
+detect_by_base_keyword: ""
+default_api_base: https://api.anthropic.com
+strip_model_prefix: false
+supports_prompt_caching: true
+models:
+  - claude-opus-4-6
+  - claude-opus-4-5
+  - claude-sonnet-4-5
+  - claude-haiku-4-5
+model_overrides: []
+backend: vivy/anthropic
+
+provenance:
+  source: agent-diva/agent-diva-providers/src/providers.yaml
+  entry: anthropic
+  derived_at: "2026-08-07"
+  note: >-
+    Re-derived into the Vivy bundle schema with a backend field. Backend is
+    the Vivy-owned thin Messages API adapter because no official Eino
+    Anthropic model component exists. Legacy claude-3 generation models
+    dropped from the V0 catalog; the four current-generation models retained.

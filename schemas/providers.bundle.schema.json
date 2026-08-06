@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy/schemas/providers.bundle.schema.json",
+  "title": "Vivy Provider Bundle",
+  "description": "Vivy-owned provider bundle document (D-022..D-025). Field vocabulary is adapted from the Diva providers.yaml schema (D-024) and re-derived; every bundle carries a mandatory provenance record citing the source entry (D-025). Bundles describe shape and defaults only: secrets are never stored here, they are read from the environment variable named by env_key at request time (D-010).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "api_type",
+    "env_key",
+    "display_name",
+    "default_model",
+    "default_api_base",
+    "backend",
+    "models",
+    "provenance"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Stable bundle identifier, e.g. openai, anthropic."
+    },
+    "api_type": {
+      "type": "string",
+      "enum": ["openai", "anthropic"],
+      "description": "Wire protocol family the provider speaks."
+    },
+    "keywords": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-text match tokens for provider detection heuristics."
+    },
+    "env_key": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "Name of the environment variable holding the API key. The key itself is read at request time and never persisted (D-010)."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "default_model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model id used when the caller does not pin one. Must appear in models."
+    },
+    "gateway_prefix": {
+      "type": "string",
+      "description": "Prefix prepended when routing through a gateway; empty for direct providers."
+    },
+    "skip_prefixes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "env_extras": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Additional environment variable names consulted for provider detection. Names only, never values."
+    },
+    "is_gateway": { "type": "boolean" },
+    "is_local": { "type": "boolean" },
+    "detect_by_key_prefix": { "type": "string" },
+    "detect_by_base_keyword": { "type": "string" },
+    "default_api_base": {
+      "type": "string",
+      "format": "uri",
+      "description": "Default HTTP base URL for the provider API."
+    },
+    "strip_model_prefix": { "type": "boolean" },
+    "supports_prompt_caching": { "type": "boolean" },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Curated model catalog for this bundle."
+    },
+    "model_overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model"],
+        "properties": {
+          "model": { "type": "string" },
+          "api_base": { "type": "string", "format": "uri" },
+          "supports_prompt_caching": { "type": "boolean" }
+        }
+      },
+      "description": "Per-model deviations from bundle defaults."
+    },
+    "backend": {
+      "type": "string",
+      "enum": ["eino-ext/openai", "vivy/anthropic"],
+      "description": "Implementation backing this bundle: the online eino-ext OpenAI component, or the Vivy-owned thin Anthropic Messages API adapter (no official Eino Anthropic component exists)."
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "entry", "derived_at"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Repository-relative path of the Diva document this bundle was re-derived from (D-025)."
+        },
+        "entry": {
+          "type": "string",
+          "description": "Entry name in the source document."
+        },
+        "derived_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "note": {
+          "type": "string",
+          "description": "What changed during re-derivation (dropped models, normalized defaults, etc.)."
+        }
+      }
+    }
+  }
+}
