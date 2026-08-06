@@ -11,6 +11,8 @@
 // (D-022..D-025), rewritten into Vivy's owned schema with a provenance
 // field. Secrets are read from env at request time, never persisted (D-010).
 //
-// Skeleton stage: mock implemented (C1); ProviderRef and the real bundles
-// land in C2. A2 bundles already ship under fixtures/provider/.
+// Implemented: mock provider (C1); ProviderRef boundary, bundle loading
+// and validation, the openai wiring over the eino-ext component, and the
+// catalog (C2). The Vivy-owned Anthropic Messages API adapter lands in a
+// later milestone; A2 bundles ship under fixtures/provider/.
 package provider
