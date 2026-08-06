@@ -16,13 +16,18 @@ accepted as **RISK ACCEPTED** with monitors, rather than closed first:
 | Item | Posture | Monitor |
 |---|---|---|
 | SR-1 ADR baseline missing (D-035) | RISK ACCEPTED | This plan + TODO board stand in until `AGENT-VIVY-ARCHITECTURE-V0.md` is authored |
-| SR-2 Eino §6 claims unverified (D-034) | RISK ACCEPTED | Closed early by task **A1** (first batch) |
+| SR-2 Eino §6 claims unverified (D-034) | CLOSED | Verified by task **A1** — see `eino-capability-verify.md` (2026-08-07) |
 | P0-3 PRD v0.5 final confirmation | RISK ACCEPTED | User sign-off tracked here; treat v0.5 as final until told otherwise |
 | P0-4 SR acceptance posture | RESOLVED | This table is the acceptance record |
 
 Gate rule: **A1 must pass before any C6 approval/interrupt work.** If A1 shows
 Eino interrupt/resume cannot meet the Vivy Run state machine, C6 switches to
 the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
+
+> **GATE CLEARED (2026-08-07):** A1 verdict is **GO** — checkpoint-bridge
+> approach verified against online Eino v0.9.13 (`docs/eino-capability-verify.md`,
+> commit `fe81075`). C6 may proceed once its remaining predecessors (B4, C3)
+> land; no outer-loop fallback needed.
 
 ## 1. Milestone map
 
@@ -159,3 +164,6 @@ This is the longest dependency chain; compressing it compresses V0. `B3`
 | Date | Item | Note |
 |---|---|---|
 | 2026-08-07 | B0, B1 (partial) | Repo initialized: `git init`, `go mod init agent-vivy`, GOPROXY persisted, online deps resolved, skeleton builds (`go build ./...` + `go vet ./...` clean) |
+| 2026-08-07 | A1 | M0 Eino capability spike (`spike/einoverify`, all 4 scenarios pass) + `docs/eino-capability-verify.md`: `CheckPointStore{Get,Set}` injection, gob payload pass-through, interrupt → `ResumeWithParams`, cancel — all VERIFIED; checkpoint-bridge GO/NO-GO = **GO**. Closes D-034/SR-2, clears the C6 gate. Commit `fe81075` |
+| 2026-08-07 | A2 | `schemas/providers.bundle.schema.json` + `fixtures/provider/{openai,anthropic}.yaml` (re-derived, provenance-tagged, no secrets) + `schemas/README.md`. Closes P1-2/OQ-8/D-018..D-025. Commit `d8351bd` |
+| 2026-08-07 | B2 | `internal/config` strict YAML load/validate with secret-boundary enforcement (env_key only, unknown fields rejected) + `internal/app` composition root (bounded graceful shutdown, storage/runtime/httpapi mount points reserved) + `cmd/vivy` config fallback + health endpoint; unit tests + live smoke pass. Closes FR-10 config side. Commit `b4888f5` |
