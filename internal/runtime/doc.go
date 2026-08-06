@@ -11,7 +11,7 @@
 // Eino types stop at this package boundary. Nothing outside runtime and
 // provider may import Eino.
 //
-// Implemented: engine wiring (C3). Pending: event mapping + journal
-// persistence (C4), checkpoint bridge and approval flow (C6), restart
+// Implemented: engine wiring (C3), event mapping + journal persistence
+// (C4). Pending: checkpoint bridge and approval flow (C6), restart
 // recovery (E1/E2).
 package runtime

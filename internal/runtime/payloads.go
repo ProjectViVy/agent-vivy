@@ -1,0 +1,64 @@
+package runtime
+
+// Event payload structs. Field names and shapes mirror
+// schemas/events/payloads/*.json (A3) field for field; PayloadVersion is
+// always 1 in V0.
+
+type payloadRunStarted struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+type payloadModelDelta struct {
+	Delta string `json:"delta"`
+}
+
+type payloadModelCompleted struct {
+	Content string `json:"content"`
+}
+
+type payloadToolRequested struct {
+	ToolCallID string         `json:"tool_call_id"`
+	ToolName   string         `json:"tool_name"`
+	Args       map[string]any `json:"args"`
+}
+
+type payloadToolStarted struct {
+	ToolCallID string `json:"tool_call_id"`
+	ToolName   string `json:"tool_name"`
+}
+
+// payloadToolFinished carries a non-empty Error only when the call failed.
+type payloadToolFinished struct {
+	ToolCallID string `json:"tool_call_id"`
+	ToolName   string `json:"tool_name"`
+	Result     string `json:"result"`
+	Error      string `json:"error,omitempty"`
+}
+
+type payloadRunCompleted struct {
+	Summary string `json:"summary,omitempty"`
+}
+
+// Cause categories for run.failed (FR-11; structured, never leaky).
+const (
+	causeProviderError = "provider_error"
+	causeToolError     = "tool_error"
+	causeInternalError = "internal_error"
+	causeCancelled     = "cancelled"
+)
+
+type payloadRunFailed struct {
+	CauseCategory string `json:"cause_category"`
+	Message       string `json:"message"`
+}
+
+// Cancel reasons for run.cancelled.
+const (
+	reasonUserRequested = "user_requested"
+	reasonRecovery      = "recovery"
+)
+
+type payloadRunCancelled struct {
+	Reason string `json:"reason"`
+}
