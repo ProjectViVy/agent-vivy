@@ -11,23 +11,25 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-// modelAdapter bridges a domain.ChatModel to Eino's
+// WrapModel bridges a domain.ChatModel to Eino's
 // model.ToolCallingChatModel. Messages cross the D-007 firewall only here;
-// the domain side never imports Eino.
+// the domain side never imports Eino. The app layer picks the bridge once
+// at wiring time: the mock path wraps provider.NewMock(), the openai path
+// passes the native eino-ext component straight through (no double wrap).
 //
 // V0 transports text content only (role + content). WithTools returns the
 // adapter unchanged: the domain model contract does not emit tool calls in
 // V0, which matches the spike's scriptedModel behavior
 // (docs/eino-capability-verify.md).
+func WrapModel(m domain.ChatModel) model.ToolCallingChatModel {
+	return &modelAdapter{inner: m}
+}
+
 type modelAdapter struct {
 	inner domain.ChatModel
 }
 
 var _ model.ToolCallingChatModel = (*modelAdapter)(nil)
-
-func newModelAdapter(m domain.ChatModel) *modelAdapter {
-	return &modelAdapter{inner: m}
-}
 
 func (a *modelAdapter) Generate(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
 	stream, err := a.Stream(ctx, input)

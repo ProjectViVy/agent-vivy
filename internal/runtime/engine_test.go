@@ -17,7 +17,7 @@ func newTestEngine(t *testing.T) *Engine {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, provider.NewMock(), ts, EngineConfig{
+	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
 		StreamBuffer:         8,
 		MaxEventPayloadBytes: 64 << 10,
 	})

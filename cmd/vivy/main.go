@@ -35,15 +35,15 @@ func main() {
 		cfg.Server.Addr = addr
 	}
 
-	a, err := app.New(cfg)
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	a, err := app.New(ctx, cfg)
 	if err != nil {
 		logger.Error("composition failed", "err", err)
 		os.Exit(1)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(),
-		os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	if err := a.Run(ctx); err != nil {
 		logger.Error("run failed", "err", err)

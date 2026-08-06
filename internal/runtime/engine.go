@@ -5,10 +5,10 @@ import (
 	"errors"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
-	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
 
@@ -28,12 +28,14 @@ type Engine struct {
 	cfg    EngineConfig
 }
 
-// NewEngine builds the ChatModelAgent and Runner over a domain model and
-// the resolved tool set. Streaming is always enabled; resume reuses the
+// NewEngine builds the ChatModelAgent and Runner over an Eino
+// tool-calling chat model and the resolved tool set. Domain models cross
+// the boundary via WrapModel at wiring time; native eino-ext components
+// are passed in directly. Streaming is always enabled; resume reuses the
 // mode persisted in the checkpoint (docs/eino-capability-verify.md 2.2).
 // The checkpoint bridge is wired in C6; until then the runner simply skips
 // persistence because no CheckPointStore is configured.
-func NewEngine(ctx context.Context, m domain.ChatModel, ts []tools.Tool, cfg EngineConfig) (*Engine, error) {
+func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Tool, cfg EngineConfig) (*Engine, error) {
 	if m == nil {
 		return nil, errors.New("runtime: nil model")
 	}
@@ -45,7 +47,7 @@ func NewEngine(ctx context.Context, m domain.ChatModel, ts []tools.Tool, cfg Eng
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
 		Instruction: "You are Vivy, a precise personal assistant.",
-		Model:       newModelAdapter(m),
+		Model:       m,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},
 		},

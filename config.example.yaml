@@ -16,6 +16,8 @@ providers:
   # Pre-baked bundle to activate. V0 ships exactly two bundles:
   # openai (OpenAI-compatible) and anthropic (D-018, D-023).
   active: openai
+  # Directory holding the pre-baked bundle YAML files (A2 fixtures).
+  bundle_dir: fixtures/provider
   openai:
     # Secret is read from this environment variable, never persisted.
     env_key: OPENAI_API_KEY
@@ -32,10 +34,9 @@ runtime:
   max_event_payload_bytes: 65536
 
 tools:
-  # V0 ships one read-only auto-execute tool and one effectful
-  # approval-gated tool (D-012).
+  # V0 ships one read-only auto-execute tool (D-012). write_note joins
+  # when its approval gate lands (C6).
   enabled:
     - echo_info        # read-only, auto-execute
-    - write_note       # effectful, approval-gated
   approval:
     expiration: 5m

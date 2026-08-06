@@ -6,7 +6,9 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -18,7 +20,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func newTestService(t *testing.T, model domain.ChatModel) (*Service, storage.Journal) {
+func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -32,19 +34,38 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, storage.Jou
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, model, ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	eng, err := NewEngine(ctx, WrapModel(model), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	return NewService(eng, backend, "mock", "mock-v0"), backend
+	sink := newTestSink()
+	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sink: sink,
+	})
+	return svc, backend, sink
 }
 
-func drainHandle(t *testing.T, h *RunHandle) []domain.RunEvent {
-	t.Helper()
-	var out []domain.RunEvent
-	for ev := range h.Events {
-		out = append(out, ev)
-	}
+// testSink collects published events. The bus never delivers terminal
+// events (it closes its subscribers instead), so the snapshot must stay
+// terminal-free; the journal remains the place to assert the close.
+type testSink struct {
+	mu     sync.Mutex
+	events []domain.RunEvent
+}
+
+func newTestSink() *testSink { return &testSink{} }
+
+func (s *testSink) Publish(ev domain.RunEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, ev)
+}
+
+func (s *testSink) snapshot() []domain.RunEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]domain.RunEvent, len(s.events))
+	copy(out, s.events)
 	return out
 }
 
@@ -58,14 +79,56 @@ func countTerminal(events []domain.RunEvent) int {
 	return n
 }
 
+// waitForRunStatus polls the run row until it reaches want (bounded).
+func waitForRunStatus(t *testing.T, runs storage.RunStore, runID domain.RunID, want domain.RunStatus) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		r, err := runs.GetRun(context.Background(), runID)
+		if err == nil && r.Status == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("run %s never reached status %s", runID, want)
+}
+
+// replayAll drains the journal for one run.
+func replayAll(t *testing.T, j storage.Journal, runID domain.RunID) []domain.RunEvent {
+	t.Helper()
+	it, err := j.Replay(context.Background(), runID, 0)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	defer it.Close()
+	var out []domain.RunEvent
+	for it.Next() {
+		out = append(out, it.Value().Event)
+	}
+	if err := it.Err(); err != nil {
+		t.Fatalf("replay iteration: %v", err)
+	}
+	return out
+}
+
 func TestServiceRunHappyPath(t *testing.T) {
-	svc, journal := newTestService(t, provider.NewMock())
-	h, err := svc.Run(context.Background(), "sess-1", "hello vivy")
+	svc, backend, sink := newTestService(t, provider.NewMock())
+	runID, err := svc.Run(context.Background(), "sess-1", "hello vivy")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	events := drainHandle(t, h)
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
+	live := sink.snapshot()
+	if len(live) == 0 || live[0].Type != domain.EventRunStarted {
+		t.Fatalf("first published event = %+v, want run.started", live)
+	}
+	if n := countTerminal(live); n != 0 {
+		t.Fatalf("terminal events published to the sink = %d, want 0", n)
+	}
+
+	// The journal holds the full sequence including the single terminal.
+	events := replayAll(t, backend, runID)
 	if len(events) < 4 {
 		t.Fatalf("expected at least 4 events, got %d", len(events))
 	}
@@ -111,30 +174,19 @@ func TestServiceRunHappyPath(t *testing.T) {
 		t.Fatalf("model.completed content = %q, want %q", completedContent, want)
 	}
 
-	// Replay from the journal must agree with the fanned-out channel.
-	it, err := journal.Replay(context.Background(), h.RunID, 0)
+	// The conversation log mirrors the user turn and the assistant reply.
+	msgs, err := backend.ListMessages(context.Background(), "sess-1")
 	if err != nil {
-		t.Fatalf("replay: %v", err)
+		t.Fatalf("list messages: %v", err)
 	}
-	defer it.Close()
-	var replayed []domain.RunEvent
-	for it.Next() {
-		replayed = append(replayed, it.Value().Event)
+	if len(msgs) != 2 {
+		t.Fatalf("messages = %d, want 2 (user + assistant)", len(msgs))
 	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("replay iteration: %v", err)
+	if msgs[0].Role != domain.RoleUser || msgs[0].Content != "hello vivy" || msgs[0].RunID != "" {
+		t.Fatalf("user message = %+v", msgs[0])
 	}
-	if len(replayed) != len(events) {
-		t.Fatalf("replay has %d events, channel had %d", len(replayed), len(events))
-	}
-	for i := range events {
-		if replayed[i].Type != events[i].Type || replayed[i].Seq != events[i].Seq {
-			t.Fatalf("replay/channel diverge at %d: %s/%d vs %s/%d",
-				i, replayed[i].Type, replayed[i].Seq, events[i].Type, events[i].Seq)
-		}
-		if string(replayed[i].Payload) != string(events[i].Payload) {
-			t.Fatalf("replay/channel payload diverge at %d", i)
-		}
+	if msgs[1].Role != domain.RoleAssistant || msgs[1].Content != want || msgs[1].RunID != runID {
+		t.Fatalf("assistant message = %+v", msgs[1])
 	}
 }
 
@@ -147,16 +199,21 @@ func (blockingModel) Stream(ctx context.Context, _ []*domain.Message) (domain.St
 }
 
 func TestServiceRunCancelled(t *testing.T) {
-	svc, journal := newTestService(t, blockingModel{})
-	ctx, cancel := context.WithCancel(context.Background())
-
-	h, err := svc.Run(ctx, "sess-1", "never finishes")
+	svc, backend, _ := newTestService(t, blockingModel{})
+	runID, err := svc.Run(context.Background(), "sess-1", "never finishes")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	cancel()
 
-	events := drainHandle(t, h)
+	if !svc.Cancel(runID) {
+		t.Fatal("cancel of an active run must report true")
+	}
+	if svc.Cancel("run-unknown") {
+		t.Fatal("cancel of an unknown run must report false")
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCancelled)
+
+	events := replayAll(t, backend, runID)
 	last := events[len(events)-1]
 	if last.Type != domain.EventRunCancelled {
 		t.Fatalf("last event = %s, want run.cancelled", last.Type)
@@ -167,20 +224,32 @@ func TestServiceRunCancelled(t *testing.T) {
 	if n := countTerminal(events); n != 1 {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
 	}
+}
 
-	// The journal must hold the same close.
-	it, err := journal.Replay(context.Background(), h.RunID, 0)
+// The request context must not own the run: cancelling it (SSE disconnect,
+// page refresh) leaves the run alive until Cancel is called (AS-7).
+func TestServiceRunSurvivesRequestCancellation(t *testing.T) {
+	svc, backend, _ := newTestService(t, blockingModel{})
+	ctx, cancel := context.WithCancel(context.Background())
+	runID, err := svc.Run(ctx, "sess-1", "keep going")
 	if err != nil {
-		t.Fatalf("replay: %v", err)
+		t.Fatalf("run: %v", err)
 	}
-	defer it.Close()
-	var lastType domain.EventType
-	for it.Next() {
-		lastType = it.Value().Event.Type
+	cancel()
+
+	time.Sleep(50 * time.Millisecond)
+	r, err := backend.GetRun(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
 	}
-	if lastType != domain.EventRunCancelled {
-		t.Fatalf("journal last event = %s, want run.cancelled", lastType)
+	if r.Status != domain.RunActive {
+		t.Fatalf("run status after request cancel = %s, want active", r.Status)
 	}
+
+	if !svc.Cancel(runID) {
+		t.Fatal("cancel of an active run must report true")
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCancelled)
 }
 
 // errorModel fails immediately, driving the run.failed path.
@@ -193,12 +262,14 @@ func (errorModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[
 }
 
 func TestServiceRunFailed(t *testing.T) {
-	svc, _ := newTestService(t, errorModel{})
-	h, err := svc.Run(context.Background(), "sess-1", "boom")
+	svc, backend, _ := newTestService(t, errorModel{})
+	runID, err := svc.Run(context.Background(), "sess-1", "boom")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	events := drainHandle(t, h)
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	events := replayAll(t, backend, runID)
 	last := events[len(events)-1]
 	if last.Type != domain.EventRunFailed {
 		t.Fatalf("last event = %s, want run.failed", last.Type)

@@ -26,6 +26,7 @@ storage:
     path: "tmp/vivy.db"
 providers:
   active: anthropic
+  bundle_dir: fixtures/provider
   openai:
     env_key: OPENAI_API_KEY
     default_model: gpt-4o-mini
@@ -39,7 +40,6 @@ runtime:
 tools:
   enabled:
     - echo_info
-    - write_note
   approval:
     expiration: 2m
 `
@@ -105,7 +105,7 @@ func TestInvalidValuesRejected(t *testing.T) {
 		"bad expiration": strings.Replace(validDoc,
 			"expiration: 2m", "expiration: soon", 1),
 		"empty tools": strings.Replace(validDoc,
-			"  enabled:\n    - echo_info\n    - write_note", "  enabled: []", 1),
+			"  enabled:\n    - echo_info", "  enabled: []", 1),
 	}
 	for name, doc := range cases {
 		if _, err := Load(writeConfig(t, doc)); err == nil {

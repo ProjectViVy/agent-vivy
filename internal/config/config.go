@@ -56,7 +56,10 @@ type SQLite struct {
 type Providers struct {
 	// Active is the pre-baked bundle to activate: "openai" or "anthropic"
 	// (D-018, D-023).
-	Active    string   `yaml:"active"`
+	Active string `yaml:"active"`
+	// BundleDir is the directory holding the pre-baked bundle YAML files
+	// (openai.yaml, anthropic.yaml; A2 fixtures).
+	BundleDir string   `yaml:"bundle_dir"`
 	OpenAI    Provider `yaml:"openai"`
 	Anthropic Provider `yaml:"anthropic"`
 }
@@ -123,12 +126,15 @@ func Default() Config {
 		Storage: Storage{Backend: "sqlite", SQLite: SQLite{Path: "data/vivy.db"}},
 		Providers: Providers{
 			Active:    "openai",
+			BundleDir: "fixtures/provider",
 			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
 		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note"},
+			// write_note joins when its approval gate lands (C6); until
+			// then an unknown registry name would abort startup.
+			Enabled:  []string{"echo_info"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 	}
@@ -176,6 +182,9 @@ func (c *Config) Validate() error {
 	case "openai", "anthropic":
 	default:
 		return fmt.Errorf("providers.active %q unsupported; V0 ships openai and anthropic only", c.Providers.Active)
+	}
+	if c.Providers.BundleDir == "" {
+		return errors.New("providers.bundle_dir must not be empty")
 	}
 	for name, p := range map[string]Provider{
 		"openai": c.Providers.OpenAI, "anthropic": c.Providers.Anthropic,
