@@ -11,5 +11,6 @@
 // domain code trusts it. Versioned migrations apply on startup and a
 // failure aborts startup (FR-8).
 //
-// Skeleton stage: empty. Implemented in tasks B4/B5.
+// Skeleton stage: contracts + SQLite backend implemented (B4); the
+// conformance suite (D-032) lands in B5.
 package storage
