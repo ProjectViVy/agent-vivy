@@ -1,0 +1,17 @@
+# Normalize line endings so gofmt / CI stay stable across platforms.
+# Go sources and module files must stay LF; gofmt rejects CRLF.
+* text=auto
+
+*.go   text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+justfile text eol=lf
+
+# Docs and data keep natural handling
+*.md   text
+*.yaml text
+*.json text
+
+# Never touch binary fixtures
+*.db   binary
+*.bin  binary
