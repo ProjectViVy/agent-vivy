@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/run-event.schema.json",
+  "title": "RunEvent envelope",
+  "description": "Vivy-owned contract for one durable journal event of a run (FR-5, D-017). Single contract shared by the Eino-side mapping (internal/runtime) and the UI-side stream (internal/httpapi). Payload shapes live in payloads/ keyed by type.",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Run this event belongs to."
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-run monotonic sequence number, starting at 1."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "run.started",
+        "model.delta",
+        "model.completed",
+        "tool.requested",
+        "tool.approval_required",
+        "tool.started",
+        "tool.finished",
+        "run.completed",
+        "run.failed",
+        "run.cancelled"
+      ],
+      "description": "Event vocabulary, mirrors internal/domain EventTypes (B3)."
+    },
+    "created_at": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix milliseconds."
+    },
+    "payload_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Version of the payload shape; consumers reject unknown versions."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Type-specific body; see payloads/<type>.json."
+    }
+  },
+  "required": ["run_id", "seq", "type", "created_at", "payload_version", "payload"],
+  "additionalProperties": false
+}

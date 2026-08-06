@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/run.completed.json",
+  "title": "run.completed payload (v1)",
+  "description": "Terminal event; exactly one terminal event per run (D-008).",
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "Optional short summary for session titles / lists."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/model.completed.json",
+  "title": "model.completed payload (v1)",
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string",
+      "description": "Full reassembled assistant text for this model turn."
+    },
+    "input_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional provider-reported usage."
+    },
+    "output_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional provider-reported usage."
+    }
+  },
+  "required": ["content"],
+  "additionalProperties": false
+}

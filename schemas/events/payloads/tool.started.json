@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.started.json",
+  "title": "tool.started payload (v1)",
+  "type": "object",
+  "properties": {
+    "tool_call_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": ["tool_call_id", "tool_name"],
+  "additionalProperties": false
+}

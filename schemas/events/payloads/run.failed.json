@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/run.failed.json",
+  "title": "run.failed payload (v1)",
+  "description": "Terminal event; exactly one terminal event per run (D-008). Cause category is structured (FR-11) and never leaks internals.",
+  "type": "object",
+  "properties": {
+    "cause_category": {
+      "type": "string",
+      "enum": ["provider_error", "tool_error", "internal_error", "cancelled"],
+      "description": "Structured cause category (IMPLEMENTATION-PLAN section 8)."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "User-visible message; no stack traces, no secrets."
+    }
+  },
+  "required": ["cause_category", "message"],
+  "additionalProperties": false
+}

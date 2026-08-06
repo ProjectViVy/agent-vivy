@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/model.delta.json",
+  "title": "model.delta payload (v1)",
+  "type": "object",
+  "properties": {
+    "delta": {
+      "type": "string",
+      "description": "Incremental assistant text chunk; bounded by runtime.max_event_payload_bytes."
+    }
+  },
+  "required": ["delta"],
+  "additionalProperties": false
+}

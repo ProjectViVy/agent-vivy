@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/run.started.json",
+  "title": "run.started payload (v1)",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "description": "Active provider bundle name (openai | anthropic | mock)."
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model id the run was started with."
+    }
+  },
+  "required": ["provider", "model"],
+  "additionalProperties": false
+}

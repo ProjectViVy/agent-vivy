@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.finished.json",
+  "title": "tool.finished payload (v1)",
+  "type": "object",
+  "properties": {
+    "tool_call_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "result": {
+      "type": "string",
+      "description": "Tool output text; empty string allowed when error is set."
+    },
+    "error": {
+      "type": "string",
+      "description": "Structured tool error; present only when the call failed."
+    }
+  },
+  "required": ["tool_call_id", "tool_name", "result"],
+  "additionalProperties": false
+}

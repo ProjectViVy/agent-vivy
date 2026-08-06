@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/run.cancelled.json",
+  "title": "run.cancelled payload (v1)",
+  "description": "Terminal event; exactly one terminal event per run (D-008). Emitted for user cancellation and for recovery-time definitive cancellation (AS-5, AS-6).",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string",
+      "enum": ["user_requested", "recovery"],
+      "description": "user_requested: API cancel; recovery: restart recovery closed a stranded run (E2)."
+    }
+  },
+  "required": ["reason"],
+  "additionalProperties": false
+}

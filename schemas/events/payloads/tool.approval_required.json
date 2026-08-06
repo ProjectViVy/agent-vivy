@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.approval_required.json",
+  "title": "tool.approval_required payload (v1)",
+  "description": "Emitted in the journal commit that follows a durable Eino checkpoint (D-029 write order); the UI may show the prompt only after this commit is durable.",
+  "type": "object",
+  "properties": {
+    "approval_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_call_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "args": {
+      "type": "object",
+      "description": "Arguments the UI shows the user before deciding."
+    },
+    "expires_at": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix milliseconds; server-side enforced (D-009)."
+    }
+  },
+  "required": ["approval_id", "tool_call_id", "tool_name", "args", "expires_at"],
+  "additionalProperties": false
+}
