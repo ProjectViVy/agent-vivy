@@ -7,5 +7,6 @@
 // the persisted Journal, which is the single source of truth for history
 // (D-017 logs-first).
 //
-// Skeleton stage: empty. Implemented in task D1.
+// Implemented in D1: the per-run Bus (live fan-out with drop-and-resync
+// semantics) and ServeSSE (replay-then-live over the A3 envelope).
 package events
