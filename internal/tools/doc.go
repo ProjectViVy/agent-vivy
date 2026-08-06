@@ -6,5 +6,6 @@
 // until a server-side Approval record exists for the exact run_id +
 // tool_call_id (FR-6, FR-7, D-009). Registration is Vivy-owned, not Eino's.
 //
-// Skeleton stage: empty. Implemented in tasks C5/C6/D2.
+// Skeleton stage: contract + read-only echo_info implemented (C5); the
+// effectful approval-gated tool lands in C6, server-side enforcement in D2.
 package tools
