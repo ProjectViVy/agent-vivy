@@ -1,0 +1,41 @@
+# agent-vivy example configuration.
+# Copy to config.yaml for local use. NEVER put real secrets here —
+# provider keys are read from environment variables at request time (D-010).
+
+server:
+  # HTTP API + SSE listen address for the UI.
+  addr: "127.0.0.1:8787"
+
+storage:
+  # V0 reference backend: SQLite (D-031). Path is relative to the data dir.
+  backend: sqlite
+  sqlite:
+    path: "data/vivy.db"
+
+providers:
+  # Pre-baked bundle to activate. V0 ships exactly two bundles:
+  # openai (OpenAI-compatible) and anthropic (D-018, D-023).
+  active: openai
+  openai:
+    # Secret is read from this environment variable, never persisted.
+    env_key: OPENAI_API_KEY
+    default_model: gpt-4o-mini
+  anthropic:
+    env_key: ANTHROPIC_API_KEY
+    default_model: claude-sonnet-4-5
+
+runtime:
+  # Deterministic mock provider for tests and offline development.
+  mock: false
+  # Max buffered stream chunks / event payload size bounds (NFR: bounded).
+  stream_buffer: 256
+  max_event_payload_bytes: 65536
+
+tools:
+  # V0 ships one read-only auto-execute tool and one effectful
+  # approval-gated tool (D-012).
+  enabled:
+    - echo_info        # read-only, auto-execute
+    - write_note       # effectful, approval-gated
+  approval:
+    expiration: 5m
