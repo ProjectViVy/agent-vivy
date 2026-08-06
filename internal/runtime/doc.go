@@ -11,5 +11,7 @@
 // Eino types stop at this package boundary. Nothing outside runtime and
 // provider may import Eino.
 //
-// Skeleton stage: empty. Implemented in tasks C3/C4/C6/E1/E2.
+// Implemented: engine wiring (C3). Pending: event mapping + journal
+// persistence (C4), checkpoint bridge and approval flow (C6), restart
+// recovery (E1/E2).
 package runtime
