@@ -1,7 +1,7 @@
 // Package app is the composition root of the vivy process. It owns the
-// startup order (storage -> providers -> runtime -> httpapi) and the
-// reverse shutdown order with a bounded grace period. Restart recovery
-// (E2) mounts here when it lands.
+// startup order (storage -> providers -> runtime -> httpapi), restart
+// recovery of non-terminal runs before the server listens (E2), and the
+// reverse shutdown order with a bounded grace period.
 //
 // The config is fully validated before New is called; app never re-reads
 // files or environment for non-secret settings (config boundary, FR-10).
@@ -150,11 +150,20 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("app: build http api: %w", err)
 	}
 
+	// Restart recovery before the server listens (E2, FR-8): every
+	// non-terminal run either re-registers on its pending approval or
+	// closes with a definitive run.failed. A listing failure means the
+	// storage truth is unreachable; startup aborts.
+	if err := svc.Recover(ctx); err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: restart recovery: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","stage":"d3-ui"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","stage":"e2-recovery"}`))
 	})
 	// Everything else is the embedded UI shell (single binary, D3).
 	mux.Handle("/", ui.Handler())

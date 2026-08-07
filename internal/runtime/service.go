@@ -188,6 +188,120 @@ func (s *Service) CancelAll() {
 	}
 }
 
+// Recover settles every non-terminal run left behind by a process
+// restart (FR-8, AS-6): a run suspended on a still-valid approval with a
+// readable checkpoint is rebuilt as pending so a later decision resumes
+// it through the ordinary DecideApproval path; every other run closes
+// with a definitive run.failed. No run is left dangling, and the
+// journal's exactly-one-terminal guard keeps the close idempotent
+// (D-008). Called once at startup before the server listens; a listing
+// failure aborts startup, per-run failures only log.
+func (s *Service) Recover(ctx context.Context) error {
+	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
+		return errors.New("runtime: service not wired")
+	}
+	runs, err := s.deps.Runs.ListActiveRuns(ctx)
+	if err != nil {
+		return fmt.Errorf("runtime: list active runs: %w", err)
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+
+	// Index the pending approvals by run; the listing is ordered by
+	// expiry descending, so the first row seen per run is the freshest.
+	pendingByRun := make(map[domain.RunID]domain.Approval)
+	if s.deps.Approvals != nil {
+		approvals, err := s.deps.Approvals.ListPendingApprovals(ctx)
+		if err != nil {
+			return fmt.Errorf("runtime: list pending approvals: %w", err)
+		}
+		for _, a := range approvals {
+			if _, exists := pendingByRun[a.RunID]; !exists {
+				pendingByRun[a.RunID] = a
+			}
+		}
+	}
+
+	now := time.Now().UnixMilli()
+	for _, run := range runs {
+		approval, hasApproval := pendingByRun[run.ID]
+		switch {
+		case !hasApproval:
+			s.failUnrecoverable(ctx, run.ID, "no pending approval")
+		case approval.ExpiresAt <= now:
+			s.failUnrecoverable(ctx, run.ID, "approval expired")
+		case !s.checkpointReadable(ctx, run.ID):
+			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+		default:
+			s.rebuildPending(ctx, run, approval)
+		}
+	}
+	return nil
+}
+
+// checkpointReadable mirrors the interrupt-time check: only a checkpoint
+// the versioned bridge can actually serve back may anchor a resume.
+func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bool {
+	if s.engine.cfg.Checkpoints == nil {
+		return false
+	}
+	_, ok, err := s.engine.cfg.Checkpoints.Get(ctx, checkpointIDFor(runID))
+	return err == nil && ok
+}
+
+// rebuildPending restores the in-memory suspend state of one run so the
+// next decision resumes it: a fresh mapper seeded with the interrupted
+// tool call (its name recovered from the journal's approval event) and a
+// pending registration. The run row stays active; no event is emitted.
+func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval domain.Approval) {
+	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	m.openCalls = append(m.openCalls, openToolCall{
+		id:   approval.ToolCallID,
+		name: s.approvalToolName(ctx, run.ID),
+	})
+	s.mu.Lock()
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m}
+	s.mu.Unlock()
+	slog.Info("restart recovery: run waits on its approval decision",
+		"run", string(run.ID), "approval", approval.ID)
+}
+
+// approvalToolName recovers the interrupted tool's name from the run's
+// last tool.approval_required event; an absent or undecodable payload
+// degrades to the empty name (the resume still replays the decision).
+func (s *Service) approvalToolName(ctx context.Context, runID domain.RunID) string {
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		slog.Warn("restart recovery: journal replay failed", "run", string(runID), "err", err)
+		return ""
+	}
+	defer func() { _ = it.Close() }()
+	name := ""
+	for it.Next() {
+		ev := it.Value().Event
+		if ev.Type != domain.EventToolApprovalRequired {
+			continue
+		}
+		var p payloadToolApprovalRequired
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			name = p.ToolName
+		}
+	}
+	return name
+}
+
+// failUnrecoverable closes one restart-orphaned run with a definitive
+// run.failed so no non-terminal row outlives the process (FR-8).
+func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, reason string) {
+	m := newEventMapper(runID, 0)
+	s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
+		CauseCategory: causeInternalError,
+		Message:       "The run was interrupted by a server restart and could not be recovered. Please try again.",
+	}))
+	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
+}
+
 func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string) {
 	// The checkpoint id is derived from the run id so Query and Resume
 	// always agree without a second assignment (spike §2.1: without
@@ -348,8 +462,10 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	delete(s.pending, approval.RunID)
 	s.mu.Unlock()
 	if !ok {
-		// The approval outlived its run in this process (cancelled or
-		// restarted): the decision stands, nothing resumes (E2 recovers).
+		// The approval outlived its run in this process (the run was
+		// cancelled, or the decision raced the close): the decision
+		// stands, nothing resumes. Restart-orphaned runs never land here:
+		// startup recovery re-registers their pending state (E2).
 		slog.Warn("approval decided without a pending run", "approval", approvalID, "run", string(approval.RunID))
 		return nil
 	}
