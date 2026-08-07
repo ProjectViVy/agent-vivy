@@ -119,12 +119,22 @@ func TestServiceRunHappyPath(t *testing.T) {
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
+	// The terminal publish lands right after the status flip; wait for it
+	// so the snapshot is complete.
+	deadline := time.Now().Add(5 * time.Second)
+	for countTerminal(sink.snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("terminal event was never published to the sink")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	live := sink.snapshot()
 	if len(live) == 0 || live[0].Type != domain.EventRunStarted {
 		t.Fatalf("first published event = %+v, want run.started", live)
 	}
-	if n := countTerminal(live); n != 0 {
-		t.Fatalf("terminal events published to the sink = %d, want 0", n)
+	if n := countTerminal(live); n != 1 {
+		t.Fatalf("terminal events published to the sink = %d, want 1", n)
 	}
 
 	// The journal holds the full sequence including the single terminal.

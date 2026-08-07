@@ -467,11 +467,12 @@ func (s *Service) appendAssistantMessage(ctx context.Context, sessionID domain.S
 }
 
 // emitTerminal persists the terminal event best-effort, flips the run row
-// to the matching status and unregisters the cancel handle. Persistence is
-// detached from the run context: a cancellation must not strand the run
-// without its terminal record (AS-5, FR-8). The terminal event is never
-// published to the sink: the bus closes its subscribers on terminals, and
-// SSE delivers the event from the journal replay.
+// to the matching status, publishes the event, and unregisters the cancel
+// handle. Persistence is detached from the run context: a cancellation
+// must not strand the run without its terminal record (AS-5, FR-8). The
+// publish carries no frame itself — the bus closes its live subscribers
+// on a terminal publish, which sends the SSE streams back to the journal
+// replay where the event is delivered exactly once (AS-7).
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
@@ -502,6 +503,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if err := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status); err != nil {
 		slog.Error("set terminal run status", "run", string(terminal.RunID), "status", string(status), "err", err)
 	}
+	s.deps.Sink.Publish(terminal)
 
 	s.mu.Lock()
 	if c, ok := s.active[terminal.RunID]; ok {
