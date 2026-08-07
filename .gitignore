@@ -26,6 +26,11 @@
 /ui/dist/*
 !/ui/dist/.keep
 
+# Playwright e2e runtime outputs (generated workdir, reports, traces)
+/ui/.e2e-workdir/
+/ui/test-results/
+/ui/playwright-report/
+
 # Editor / OS noise
 .idea/
 .vscode/
