@@ -18,6 +18,10 @@ type EngineConfig struct {
 	StreamBuffer int
 	// MaxEventPayloadBytes caps a single event payload (C4).
 	MaxEventPayloadBytes int
+	// Checkpoints wires the two-layer checkpoint bridge (C6). Nil leaves
+	// the runner without persistence, which is how the model-only tests
+	// run.
+	Checkpoints *VersionedCheckpointStore
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -33,8 +37,9 @@ type Engine struct {
 // the boundary via WrapModel at wiring time; native eino-ext components
 // are passed in directly. Streaming is always enabled; resume reuses the
 // mode persisted in the checkpoint (docs/eino-capability-verify.md 2.2).
-// The checkpoint bridge is wired in C6; until then the runner simply skips
-// persistence because no CheckPointStore is configured.
+// When cfg.Checkpoints is wired, the runner persists interrupt points
+// through the versioned blob bridge; a nil store keeps interrupts
+// non-resumable (eino skips persistence without a CheckPointStore).
 func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Tool, cfg EngineConfig) (*Engine, error) {
 	if m == nil {
 		return nil, errors.New("runtime: nil model")
@@ -55,10 +60,14 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if err != nil {
 		return nil, err
 	}
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{
+	runnerCfg := adk.RunnerConfig{
 		Agent:           agent,
 		EnableStreaming: true,
-	})
+	}
+	if cfg.Checkpoints != nil {
+		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
+	}
+	runner := adk.NewRunner(ctx, runnerCfg)
 	return &Engine{runner: runner, cfg: cfg}, nil
 }
 
@@ -66,4 +75,12 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 // Options such as adk.WithCheckPointID are supplied by the service (C4/C6).
 func (e *Engine) Query(ctx context.Context, text string, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
 	return e.runner.Query(ctx, text, opts...)
+}
+
+// Resume restarts a suspended run from its checkpoint, feeding the resume
+// payload (the approval decision) back to the interrupted tool via
+// params.Targets. The caller must pass the same checkpoint id the run was
+// started with (docs/eino-capability-verify.md §2.2).
+func (e *Engine) Resume(ctx context.Context, checkpointID string, params *adk.ResumeParams, opts ...adk.AgentRunOption) (*adk.AsyncIterator[*adk.AgentEvent], error) {
+	return e.runner.ResumeWithParams(ctx, checkpointID, params, opts...)
 }

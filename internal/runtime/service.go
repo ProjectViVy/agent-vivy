@@ -145,7 +145,10 @@ func (s *Service) CancelAll() {
 }
 
 func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string) {
-	iter := s.engine.Query(ctx, userText)
+	// The checkpoint id is derived from the run id so Query and Resume
+	// always agree without a second assignment (spike §2.1: without
+	// WithCheckPointID an interrupt persists no checkpoint).
+	iter := s.engine.Query(ctx, userText, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -282,6 +285,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 
 func newRunID() domain.RunID {
 	return domain.RunID(newPrefixedID("run_"))
+}
+
+// checkpointIDFor derives the run's checkpoint id; it is stable for the
+// run's lifetime so a later ResumeWithParams finds the exact checkpoint
+// the interrupt wrote (docs/eino-capability-verify.md §2.2).
+func checkpointIDFor(runID domain.RunID) string {
+	return "ckpt-" + string(runID)
 }
 
 func newMessageID() string {
