@@ -1,26 +1,34 @@
-// Entry point. Commit one boots the shell and renders the session list;
-// the remaining views (chat, approvals, event log) land next.
+// Entry point: wires static shell elements to the actions, subscribes the
+// renderer, and boots the initial loads plus the approval poll.
 
-import { listSessions } from "./api";
-import { notify, state, subscribe } from "./state";
+import { cancelCurrentRun, createNewSession, refreshApprovals, refreshSessions, sendMessage, toggleEventLog } from "./actions";
+import { renderAll } from "./render";
+import { subscribe } from "./state";
 
-function renderSessions(): void {
-  const list = document.getElementById("session-list");
-  if (!list) return;
-  list.textContent = "";
-  for (const sess of state.sessions) {
-    const li = document.createElement("li");
-    li.textContent = sess.title;
-    if (sess.id === state.currentSessionID) li.classList.add("selected");
-    list.appendChild(li);
-  }
+const APPROVAL_POLL_MS = 5000;
+
+function init(): void {
+  subscribe(renderAll);
+
+  document.getElementById("new-session")?.addEventListener("click", () => void createNewSession());
+  document.getElementById("cancel-run")?.addEventListener("click", () => void cancelCurrentRun());
+  document.getElementById("toggle-log")?.addEventListener("click", () => toggleEventLog());
+
+  const composer = document.getElementById("composer");
+  const input = document.getElementById("composer-input") as HTMLTextAreaElement | null;
+  composer?.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    if (!input) return;
+    const text = input.value.trim();
+    if (text === "") return;
+    input.value = "";
+    void sendMessage(text);
+  });
+
+  renderAll();
+  void refreshSessions();
+  void refreshApprovals();
+  window.setInterval(() => void refreshApprovals(), APPROVAL_POLL_MS);
 }
 
-async function loadSessions(): Promise<void> {
-  const { sessions } = await listSessions();
-  state.sessions = sessions;
-  notify();
-}
-
-subscribe(renderSessions);
-void loadSessions();
+init();

@@ -5,6 +5,21 @@
 import type { Approval, Message, Run, Session } from "./api";
 import type { EventEnvelope } from "./sse";
 
+// PendingApproval carries the fields of a tool.approval_required payload
+// the modal needs; the authoritative row stays server-side (D-009).
+export interface PendingApproval {
+  approval_id: string;
+  run_id: string;
+  tool_name: string;
+  args: Record<string, unknown>;
+  expires_at: number;
+}
+
+export interface Toast {
+  id: number;
+  message: string;
+}
+
 export interface AppState {
   sessions: Session[];
   currentSessionID: string | null;
@@ -13,7 +28,11 @@ export interface AppState {
   streamingText: string;
   run: Run | null;
   approvals: Approval[];
+  // Modal shown for the run the UI is currently watching, if any.
+  pendingApproval: PendingApproval | null;
   eventLog: EventEnvelope[];
+  eventLogVisible: boolean;
+  toasts: Toast[];
 }
 
 export const state: AppState = {
@@ -23,7 +42,10 @@ export const state: AppState = {
   streamingText: "",
   run: null,
   approvals: [],
+  pendingApproval: null,
   eventLog: [],
+  eventLogVisible: false,
+  toasts: [],
 };
 
 type Listener = () => void;
@@ -44,5 +66,7 @@ export function resetSession(): void {
   state.messages = [];
   state.streamingText = "";
   state.run = null;
+  state.pendingApproval = null;
   state.eventLog = [];
+  state.eventLogVisible = false;
 }
