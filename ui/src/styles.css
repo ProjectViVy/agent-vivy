@@ -1,0 +1,172 @@
+/* Vivy UI shell: plain CSS, single file, deliberately simple. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f6f7f9;
+  color: #1c1f24;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+#sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: #eceef2;
+  border-right: 1px solid #d8dbe2;
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid #d8dbe2;
+}
+
+.brand {
+  font-weight: 600;
+}
+
+#session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+#session-list li {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #e2e4ea;
+}
+
+#session-list li.selected {
+  background: #dfe6f5;
+}
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#run-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #d8dbe2;
+  min-height: 36px;
+}
+
+#chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bubble {
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: #2f6fed;
+  color: #fff;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid #d8dbe2;
+}
+
+.bubble.error {
+  align-self: flex-start;
+  background: #fdecec;
+  border: 1px solid #e6b3b3;
+}
+
+#event-log {
+  max-height: 30vh;
+  overflow-y: auto;
+  border-top: 1px solid #d8dbe2;
+  padding: 8px 12px;
+  background: #fff;
+  font-size: 12px;
+}
+
+#event-list {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+#composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #d8dbe2;
+}
+
+#composer-input {
+  flex: 1;
+  resize: none;
+  padding: 8px;
+}
+
+button {
+  cursor: pointer;
+}
+
+#modal-root .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#modal-root .modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  max-width: 480px;
+  width: 90%;
+}
+
+#toast-root {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: #26292f;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  max-width: 360px;
+}

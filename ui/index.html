@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vivy</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div id="sidebar-header">
+          <span class="brand">Vivy</span>
+          <button id="new-session" type="button">New session</button>
+        </div>
+        <ul id="session-list"></ul>
+      </aside>
+      <main id="main">
+        <header id="run-bar">
+          <span id="run-status"></span>
+          <button id="cancel-run" type="button" hidden>Cancel</button>
+        </header>
+        <section id="chat"></section>
+        <section id="event-log" hidden>
+          <h2>Event log</h2>
+          <ol id="event-list"></ol>
+        </section>
+        <form id="composer">
+          <textarea id="composer-input" rows="2" placeholder="Send a message"></textarea>
+          <button id="composer-send" type="submit">Send</button>
+        </form>
+      </main>
+    </div>
+    <div id="modal-root"></div>
+    <div id="toast-root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

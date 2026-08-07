@@ -19,9 +19,11 @@
 .env
 .env.*
 
-# UI build artifacts and deps
+# UI build artifacts and deps. ui/dist/.keep stays committed so go:embed
+# compiles before the first Vite build.
 /ui/node_modules/
-/ui/dist/
+/ui/dist/*
+!/ui/dist/.keep
 
 # Editor / OS noise
 .idea/
