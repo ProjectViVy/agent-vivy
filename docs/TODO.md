@@ -185,3 +185,33 @@ This is the longest dependency chain; compressing it compresses V0. `B3`
 | 2026-08-07 | E4 | Bounded graceful shutdown hardened (NFR bounded shutdown): `Service.wg` now tracks every drive/resume goroutine and `WaitIdle(ctx)` drains them; shutdown order is `CancelAll()` → `WaitIdle` (cancelled runs land their terminal while storage is still open) → `httpServer.Shutdown` → `backend.Close`, so storage never closes underneath a live run; `shutdownGrace` 10s → 5s to fit the Windows CTRL_CLOSE kill window. Drain/timeout branch tests in runtime plus a bounded app-level shutdown test. Commit `0562f61` |
 | 2026-08-07 | B5 | Backend conformance suite (D-032): `internal/storage/sqlite/conformance_test.go` with the sixteen named cases `CN-01`..`CN-16` from IMPLEMENTATION-PLAN §5.5 — atomic append, monotonic seq, version conflict, idempotent replay, payload-mismatch refusal, exactly-one-terminal, approval first-writer-wins, reopen view repair, torn-write replay fidelity, malformed-payload tolerance, orphan checkpoint recovery, post-kill approval decidability, storage-level secret canary, dual-handle write serialization, concurrent monotone replay, `after_seq` tail replay. Commit `e6bc395`. Closes D-032, RK-7 |
 | 2026-08-07 | D4 | Import-lint gate (D-007): AST-level guard keeps every `github.com/cloudwego/eino*` import inside `internal/runtime` + `internal/provider` and bans `agent-diva`/`.workspace` from ever entering the dependency graph (`0df06ac`). Playwright UI smoke against the real Go process: `ui/e2e` + `playwright.config.ts` boot `vivy.exe` in an isolated generated mock workdir on `127.0.0.1:8799`; the run covers shell render → new session → send → deterministic mock stream to `run completed` → reload with full history, PASSED (`2d4484e`). Closes FR-9, D-007, RK-1, RK-5; M4 complete, board clear, V0 closed |
+
+## 11. V1 entry — Minimal agent layer (first capability proposal)
+
+> V0 closed with a deliberately narrow surface. The next step is the
+> minimal agent layer, benchmarked against `.workspace/pi` (read-only;
+> `packages/agent` is the reference shape: a ~750-line turn loop +
+> AgentContext/AgentTool/AgentEvent protocol + a harness tier). Per
+> RK-2/RK-4 and IMPLEMENTATION-PLAN §9, this re-enters scope only as an
+> explicit capability proposal — architecture first (closes SR-1/D-035),
+> and no code is cloned from the reference (D-001/D-005).
+
+**Verified gap (anchor finding):** eino v0.9.13 `adk.Runner.Query` starts
+a fresh execution carrying only the single new user message; the Runner
+keeps no cross-Query memory. Vivy's `drive()` feeds exactly one `userText`
+per run, so the journal holds full history the model never sees — every
+turn is stateless today. MA-1 below closes this.
+
+| ID | Task | Depends | Acceptance |
+|---|---|---|---|
+| MA-1 | Session memory: `drive()` rebuilds `schema.Message` history from the journal and enters the engine via `runner.Run(ctx, messages)` instead of `Query(text)` | — | Multi-turn anaphora test passes ("save it again" resolves "it"); replay/recovery paths unaffected; mock + scripted suites stay green |
+| MA-2 | Prompt composition layer: persona + current date + tool guidance + notes digest, assembled per run (no secrets, D-010) | MA-1 | Prompt builder unit tests; redaction guards still green |
+| MA-3 | One real tool tier: notes trio (`list_notes`/`read_note`/`write_note`) + one read-only lookup tool, all through the existing approval policy (readonly auto-execute, effectful gated) | MA-2 | Tool contract tests; approval walkthrough on the real gateway |
+| MA-4 | Loop guardrails: per-run max tool turns + event budget, terminal cause `internal_error` on breach (pi's `shouldStopAfterTurn` analogue) | MA-1 | Bound tests with a scripted tool-loop model |
+
+Precondition: SR-1/D-035 — `AGENT-VIVY-ARCHITECTURE-V0.md` (ADR-001..008)
+records the current shape before MA-1 changes the D-007-side core
+contract, and the MA-1 decision itself earns an ADR.
+
+Out of scope for this entry (stay deferred per §10): context compaction,
+memory/RAG, multi-agent, MCP/plugins, extra providers, fsjournal backend.
