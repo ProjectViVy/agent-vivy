@@ -52,18 +52,69 @@ func TestEchoInfoRejectsBadArgs(t *testing.T) {
 	}
 }
 
+func TestWriteNoteSpec(t *testing.T) {
+	spec := NewWriteNote().Spec()
+	if spec.Name != WriteNoteName {
+		t.Errorf("name = %q", spec.Name)
+	}
+	if spec.Readonly {
+		t.Error("write_note must be effectful so the gate can interrupt it (D-012)")
+	}
+}
+
+func TestWriteNoteRun(t *testing.T) {
+	tool := NewWriteNote()
+	out, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"content":"buy milk"}`))
+	if err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	if out != "note saved (1 total)" {
+		t.Errorf("out = %q", out)
+	}
+	// The same registered instance accumulates notes.
+	out, err = tool.InvokableRun(context.Background(), json.RawMessage(`{"content":"call home"}`))
+	if err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	if out != "note saved (2 total)" {
+		t.Errorf("out = %q", out)
+	}
+}
+
+func TestWriteNoteRejectsBadArgs(t *testing.T) {
+	cases := map[string]string{
+		"missing content": `{}`,
+		"empty content":   `{"content":""}`,
+		"unknown field":   `{"content":"x","extra":1}`,
+		"not an object":   `"plain string"`,
+		"oversized":       `{"content":"` + strings.Repeat("a", noteContentLimit+1) + `"}`,
+	}
+	tool := NewWriteNote()
+	for name, args := range cases {
+		_, err := tool.InvokableRun(context.Background(), json.RawMessage(args))
+		if err == nil {
+			t.Errorf("%s: want error, got nil", name)
+			continue
+		}
+		var argErr *ArgError
+		if !errors.As(err, &argErr) {
+			t.Errorf("%s: error %T is not a structured *ArgError", name, err)
+		}
+	}
+}
+
 func TestRegistryResolve(t *testing.T) {
 	reg := Builtin()
 
-	got, err := reg.Resolve([]string{EchoInfoName})
+	got, err := reg.Resolve([]string{EchoInfoName, WriteNoteName})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(got) != 1 || got[0].Spec().Name != EchoInfoName {
+	if len(got) != 2 || got[0].Spec().Name != EchoInfoName || got[1].Spec().Name != WriteNoteName {
 		t.Errorf("Resolve = %+v", got)
 	}
 
-	if _, err := reg.Resolve([]string{"write_note"}); err == nil {
+	if _, err := reg.Resolve([]string{"send_email"}); err == nil {
 		t.Error("unknown tool must be a startup error")
 	}
 

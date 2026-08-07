@@ -114,3 +114,18 @@ type RunStore interface {
 	// ListActiveRuns enumerates non-terminal runs (restart recovery, E2).
 	ListActiveRuns(ctx context.Context) ([]domain.Run, error)
 }
+
+// ApprovalStore persists server-side approval decisions for effectful
+// tool calls (D-009, FR-6). Rows are created pending and settle exactly
+// once: DecideApproval is first-writer-wins.
+type ApprovalStore interface {
+	CreateApproval(ctx context.Context, a domain.Approval) error
+	// GetApproval returns the row; absent ids yield ErrNotFound.
+	GetApproval(ctx context.Context, id string) (domain.Approval, error)
+	// ListPendingApprovals returns pending rows, latest expiry first.
+	ListPendingApprovals(ctx context.Context) ([]domain.Approval, error)
+	// DecideApproval settles a pending row. decided=false means no
+	// pending row matched (already decided, or unknown id); the first
+	// writer wins.
+	DecideApproval(ctx context.Context, id, decision string) (bool, error)
+}

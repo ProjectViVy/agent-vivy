@@ -19,6 +19,22 @@ import (
 // the service turns it into a run.cancelled terminal event.
 var errRunCancelled = errors.New("runtime: run cancelled")
 
+// errRunInterrupted is the mapper's sentinel for an approval interrupt:
+// the service suspends the run on an approval instead of closing it.
+// The details live on the mapper (m.interrupt).
+var errRunInterrupted = errors.New("runtime: run interrupted for approval")
+
+// interruptDetails carries what the service needs to surface and later
+// resume an approval-gated tool call (C6).
+type interruptDetails struct {
+	// ResumeTarget is the root-cause interrupt id: the key ResumeWithParams
+	// targets (docs/eino-capability-verify.md §2.4).
+	ResumeTarget string
+	ToolCallID   string
+	ToolName     string
+	Args         map[string]any
+}
+
 // eventMapper converts Eino AgentEvents into Vivy domain.RunEvents
 // (IMPLEMENTATION-PLAN section 6 mapping table, A1 deviations included:
 // run.started and tool.requested are synthesized by Vivy, not the engine).
@@ -36,11 +52,16 @@ type eventMapper struct {
 	// openCalls tracks tool calls requested by the model whose results
 	// have not arrived yet, in request order.
 	openCalls []openToolCall
+
+	// interrupt holds the details of the latest interrupt action; set
+	// together with the errRunInterrupted sentinel.
+	interrupt *interruptDetails
 }
 
 type openToolCall struct {
 	id   string
 	name string
+	args map[string]any
 }
 
 func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
@@ -57,9 +78,11 @@ func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
 		}
 		return nil, fmt.Errorf("engine event error: %w", ev.Err)
 	}
-	// Interrupt actions are C6 territory; C4 ignores them.
+	// Interrupt actions suspend the run on an approval (C6); the details
+	// travel on the mapper, the sentinel on the error return.
 	if ev.Action != nil && ev.Action.Interrupted != nil {
-		return nil, nil
+		m.interrupt = m.extractInterrupt(ev.Action.Interrupted)
+		return nil, errRunInterrupted
 	}
 	if ev.Output == nil || ev.Output.MessageOutput == nil {
 		return nil, nil
@@ -74,6 +97,7 @@ func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
 func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]) ([]domain.RunEvent, error) {
 	var out []domain.RunEvent
 	var content strings.Builder
+	var callsMsg *schema.Message
 	for {
 		chunk, err := mv.MessageStream.Recv()
 		if err == io.EOF {
@@ -90,6 +114,9 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 			continue
 		}
 		content.WriteString(chunk.Content)
+		if len(chunk.ToolCalls) > 0 {
+			callsMsg = chunk // tool calls ride the accumulated chunk
+		}
 		if mv.Role == schema.Tool {
 			continue // assembled below as a tool result
 		}
@@ -99,6 +126,12 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 	}
 	if mv.Role == schema.Tool {
 		out = append(out, m.toolResultEvents(mv.ToolName, "", content.String(), "")...)
+		return out, nil
+	}
+	if callsMsg != nil {
+		// Streaming engines deliver tool calls as chunks; map them like a
+		// whole-message tool call turn.
+		out = append(out, m.toolCallEvents(callsMsg)...)
 	}
 	return out, nil
 }
@@ -154,9 +187,51 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 			ToolName:   tc.Function.Name,
 			Args:       args,
 		}))
-		m.openCalls = append(m.openCalls, openToolCall{id: tc.ID, name: tc.Function.Name})
+		m.openCalls = append(m.openCalls, openToolCall{id: tc.ID, name: tc.Function.Name, args: args})
 	}
 	return out
+}
+
+// extractInterrupt pulls the resume target and the affected tool call out
+// of the interrupt chain: the root-cause InterruptCtx carries the resume
+// key, and its tool-call address segment carries the call id (SubID) and
+// name. Args resolve against the tracked tool.requested records, falling
+// back to the most recent open call when the address names no id.
+func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetails {
+	d := &interruptDetails{}
+	for _, c := range info.InterruptContexts {
+		if !c.IsRootCause {
+			continue
+		}
+		d.ResumeTarget = c.ID
+		for _, seg := range c.Address {
+			if seg.SubID != "" {
+				d.ToolCallID = seg.SubID
+				d.ToolName = seg.ID
+			}
+		}
+		break
+	}
+	var matched *openToolCall
+	for i := len(m.openCalls) - 1; i >= 0; i-- {
+		if d.ToolCallID == "" || m.openCalls[i].id == d.ToolCallID {
+			matched = &m.openCalls[i]
+			break
+		}
+	}
+	if matched != nil {
+		if d.ToolCallID == "" {
+			d.ToolCallID = matched.id
+		}
+		if d.ToolName == "" {
+			d.ToolName = matched.name
+		}
+		d.Args = matched.args
+	}
+	if d.Args == nil {
+		d.Args = map[string]any{}
+	}
+	return d
 }
 
 // toolResultEvents emits tool.started immediately followed by

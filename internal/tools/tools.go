@@ -50,10 +50,10 @@ func NewRegistry(ts ...Tool) *Registry {
 	return r
 }
 
-// Builtin returns the registry of V0 shipped tools: exactly echo_info for
-// now; the effectful tool joins in C6 (D-012).
+// Builtin returns the registry of V0 shipped tools: one read-only
+// auto-execute tool and one effectful approval-gated tool (D-012).
 func Builtin() *Registry {
-	return NewRegistry(NewEchoInfo())
+	return NewRegistry(NewEchoInfo(), NewWriteNote())
 }
 
 // Resolve selects the enabled tools by name, preserving order. An unknown

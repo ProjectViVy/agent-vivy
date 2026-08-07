@@ -21,6 +21,7 @@ var migrations = []struct {
 	sql     string
 }{
 	{1, migration001},
+	{2, migration002},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -53,6 +54,7 @@ type Backend struct {
 var (
 	_ storage.Journal       = (*Backend)(nil)
 	_ storage.LeaseStore    = (*Backend)(nil)
+	_ storage.ApprovalStore = (*Backend)(nil)
 	_ storage.SnapshotStore = (*Snapshot)(nil)
 	_ storage.BlobStore     = (*Blobs)(nil)
 )
@@ -176,4 +178,10 @@ CREATE TABLE leases (
 	owner TEXT NOT NULL,
 	expires_at INTEGER NOT NULL
 );
+`
+
+// migration002 extends approvals with the eino resume target so a
+// decision can feed ResumeWithParams without re-deriving it (C6).
+const migration002 = `
+ALTER TABLE approvals ADD COLUMN resume_target TEXT NOT NULL DEFAULT '';
 `

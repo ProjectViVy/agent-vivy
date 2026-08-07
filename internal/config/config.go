@@ -132,9 +132,7 @@ func Default() Config {
 		},
 		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536},
 		Tools: Tools{
-			// write_note joins when its approval gate lands (C6); until
-			// then an unknown registry name would abort startup.
-			Enabled:  []string{"echo_info"},
+			Enabled:  []string{"echo_info", "write_note"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 	}

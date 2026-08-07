@@ -17,8 +17,10 @@ type ToolSpec struct {
 	Readonly    bool
 }
 
-// Approval decisions.
+// Approval decisions. ApprovalPending marks a row that has not been
+// decided yet; Decisions are exactly approved or denied (D-009).
 const (
+	ApprovalPending  = "pending"
 	ApprovalApproved = "approved"
 	ApprovalDenied   = "denied"
 )
@@ -29,6 +31,10 @@ type Approval struct {
 	ID         string
 	RunID      RunID
 	ToolCallID string
-	Decision   string // ApprovalApproved | ApprovalDenied
+	Decision   string // ApprovalPending | ApprovalApproved | ApprovalDenied
 	ExpiresAt  int64  // unix milli
+	// ResumeTarget is the eino interrupt key the decision feeds back to
+	// (ResumeWithParams target); persisted so a decision can resume even
+	// after bookkeeping restarts (C6).
+	ResumeTarget string
 }

@@ -34,9 +34,10 @@ runtime:
   max_event_payload_bytes: 65536
 
 tools:
-  # V0 ships one read-only auto-execute tool (D-012). write_note joins
-  # when its approval gate lands (C6).
+  # V0 ships one read-only auto-execute tool and one effectful
+  # approval-gated tool (D-012).
   enabled:
     - echo_info        # read-only, auto-execute
+    - write_note       # effectful, approval-gated
   approval:
     expiration: 5m
