@@ -35,6 +35,10 @@ func main() {
 		cfg.Server.Addr = addr
 	}
 
+	// os.Interrupt doubles as the Windows console-close signal: the Go
+	// runtime delivers CTRL_CLOSE_EVENT to this handler before the OS
+	// terminates the process (~5s window), so the bounded graceful
+	// shutdown still runs (E4).
 	ctx, stop := signal.NotifyContext(context.Background(),
 		os.Interrupt, syscall.SIGTERM)
 	defer stop()

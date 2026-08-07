@@ -30,9 +30,11 @@ import (
 	"agent-vivy/ui"
 )
 
-// shutdownGrace bounds the whole graceful shutdown window. Individual
-// components get a sub-budget inside it (E4 hardens per-component limits).
-const shutdownGrace = 10 * time.Second
+// shutdownGrace bounds the whole graceful shutdown window. It stays under
+// the ~5s Windows CTRL_CLOSE window: a console close lets the signal
+// handler run before the OS terminates the process, so the drain, the
+// HTTP shutdown and the storage close must all fit inside (E4).
+const shutdownGrace = 5 * time.Second
 
 // App is the composed process.
 type App struct {
@@ -221,11 +223,14 @@ func (a *App) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 
-	// Reverse startup order. Runs are cancelled first while storage is
-	// still open so their run.cancelled terminals can be persisted; E4
-	// hardens the ordering guarantees (a drive goroutine racing the
-	// backend close today only logs).
+	// Reverse startup order with hard ordering guarantees (E4): runs are
+	// cancelled and then drained while storage is still open, so every
+	// run.cancelled terminal persists before the journal closes; only
+	// then do the HTTP server and the backend shut down.
 	a.service.CancelAll()
+	if !a.service.WaitIdle(shutdownCtx) {
+		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
+	}
 	if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown http server: %w", err)
 	}

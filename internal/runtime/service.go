@@ -70,6 +70,10 @@ type Service struct {
 	// flight, the checkpoint is durable, and the run row stays active
 	// until a decision resumes it or Cancel closes it (C6).
 	pending map[domain.RunID]pendingRun
+	// wg tracks every drive/resume goroutine so shutdown can drain the
+	// service before closing storage (E4): terminal events must persist
+	// while the journal is still open.
+	wg sync.WaitGroup
 }
 
 type pendingRun struct {
@@ -137,7 +141,11 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 	s.active[runID] = cancel
 	s.mu.Unlock()
 
-	go s.drive(runCtx, m, sessionID, userText)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.drive(runCtx, m, sessionID, userText)
+	}()
 	return runID, nil
 }
 
@@ -167,8 +175,9 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 }
 
 // CancelAll cancels every in-flight run. Shutdown calls it before closing
-// storage so terminal events can still be persisted (E4 hardens the
-// ordering guarantees). Runs pending on approvals close the same way.
+// storage, then drains via WaitIdle so every run.cancelled terminal is
+// persisted while the journal is still open (E4). Runs pending on
+// approvals close the same way.
 func (s *Service) CancelAll() {
 	s.mu.Lock()
 	cancels := make([]context.CancelFunc, 0, len(s.active))
@@ -185,6 +194,24 @@ func (s *Service) CancelAll() {
 	}
 	for _, c := range cancels {
 		c()
+	}
+}
+
+// WaitIdle blocks until every drive/resume goroutine has exited or ctx
+// expires, reporting which happened. Shutdown uses it after CancelAll so
+// storage is never closed underneath a run still persisting its terminal
+// event (E4).
+func (s *Service) WaitIdle(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -480,7 +507,11 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 		}
 	}
 
-	go s.resumeRun(p.sessionID, toolName, approval, decision)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.resumeRun(p.sessionID, toolName, approval, decision)
+	}()
 	return nil
 }
 
