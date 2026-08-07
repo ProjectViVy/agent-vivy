@@ -8,5 +8,5 @@
 // server-side here; UI-only checks are never authoritative (D-009).
 //
 // D1 wires the session/message/run command and query endpoints plus the
-// SSE run stream; approval endpoints land in D2.
+// SSE run stream; D2 adds the approval listing and decision endpoints.
 package httpapi

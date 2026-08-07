@@ -31,18 +31,19 @@ const defaultSessionTitle = "New session"
 // Deps wires the handlers to the composed process. All fields are
 // mandatory; New validates them.
 type Deps struct {
-	Sessions storage.SessionStore
-	Messages storage.MessageStore
-	Runs     storage.RunStore
-	Journal  storage.Journal
-	Bus      *events.Bus
-	Service  *runtime.Service
+	Sessions  storage.SessionStore
+	Messages  storage.MessageStore
+	Runs      storage.RunStore
+	Journal   storage.Journal
+	Approvals storage.ApprovalStore
+	Bus       *events.Bus
+	Service   *runtime.Service
 }
 
 // New builds the /api handler tree. The app layer mounts it alongside
 // /healthz.
 func New(d Deps) (http.Handler, error) {
-	if d.Sessions == nil || d.Messages == nil || d.Runs == nil || d.Journal == nil || d.Bus == nil || d.Service == nil {
+	if d.Sessions == nil || d.Messages == nil || d.Runs == nil || d.Journal == nil || d.Approvals == nil || d.Bus == nil || d.Service == nil {
 		return nil, errors.New("httpapi: deps not wired")
 	}
 	s := &server{deps: d}
@@ -58,6 +59,8 @@ func New(d Deps) (http.Handler, error) {
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
 	mux.HandleFunc("GET /api/runs/{id}/events", s.streamRunEvents)
+	mux.HandleFunc("GET /api/approvals", s.listApprovals)
+	mux.HandleFunc("POST /api/approvals/{id}/decision", s.decideApproval)
 	return mux, nil
 }
 
@@ -111,6 +114,25 @@ type postMessageRequest struct {
 type postMessageResponse struct {
 	RunID  domain.RunID     `json:"run_id"`
 	Status domain.RunStatus `json:"status"`
+}
+
+// approvalDTO exposes the decision-critical fields only; tool_name and
+// args travel in the tool.approval_required event payload instead.
+type approvalDTO struct {
+	ID         string       `json:"id"`
+	RunID      domain.RunID `json:"run_id"`
+	ToolCallID string       `json:"tool_call_id"`
+	ExpiresAt  int64        `json:"expires_at"`
+}
+
+type decideApprovalRequest struct {
+	Decision string `json:"decision"`
+}
+
+type decideApprovalResponse struct {
+	ApprovalID string       `json:"approval_id"`
+	RunID      domain.RunID `json:"run_id"`
+	Decision   string       `json:"decision"`
 }
 
 // --- sessions ---
@@ -340,6 +362,63 @@ func (s *server) streamRunEvents(w http.ResponseWriter, r *http.Request) {
 		// frames are already on the wire. The journal keeps the truth.
 		slog.Warn("sse stream ended with error", "run", string(runID), "err", err)
 	}
+}
+
+// --- approvals ---
+
+// listApprovals returns every pending approval, latest expiry first. The
+// UI judges expiry itself off expires_at; the server re-checks on
+// decision (D-009).
+func (s *server) listApprovals(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.deps.Approvals.ListPendingApprovals(r.Context())
+	if err != nil {
+		writeInternal(w, "list approvals", err)
+		return
+	}
+	out := make([]approvalDTO, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, approvalDTO{ID: a.ID, RunID: a.RunID, ToolCallID: a.ToolCallID, ExpiresAt: a.ExpiresAt})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"approvals": out})
+}
+
+// decideApproval settles a pending approval and triggers the resume. All
+// refusals are 4xx with distinct messages so the UI can tell an already
+// decided row from an expired one (D-009 server-enforced).
+func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req decideApprovalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "body must be a JSON object")
+		return
+	}
+	// Read the row first so the success response can carry run_id;
+	// existence is re-checked inside the service call.
+	approval, err := s.deps.Approvals.GetApproval(r.Context(), id)
+	if errors.Is(err, storage.ErrNotFound) {
+		writeError(w, http.StatusNotFound, codeNotFound, "approval not found")
+		return
+	}
+	if err != nil {
+		writeInternal(w, "get approval", err)
+		return
+	}
+	if err := s.deps.Service.DecideApproval(r.Context(), id, req.Decision); err != nil {
+		switch {
+		case errors.Is(err, runtime.ErrApprovalNotFound):
+			writeError(w, http.StatusNotFound, codeNotFound, "approval not found")
+		case errors.Is(err, runtime.ErrApprovalInvalidDecision):
+			writeError(w, http.StatusConflict, codeConflict, "decision must be approved or denied")
+		case errors.Is(err, runtime.ErrApprovalAlreadyDecided):
+			writeError(w, http.StatusConflict, codeConflict, "approval already decided")
+		case errors.Is(err, runtime.ErrApprovalExpired):
+			writeError(w, http.StatusConflict, codeConflict, "approval expired")
+		default:
+			writeInternal(w, "decide approval", err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, decideApprovalResponse{ApprovalID: id, RunID: approval.RunID, Decision: req.Decision})
 }
 
 // --- response helpers ---

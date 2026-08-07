@@ -102,9 +102,23 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
 	}
+	// The checkpoint bridge fail-closes on its engine version, so an
+	// unknown build version aborts startup rather than suspend runs on
+	// unverifiable checkpoints (C6).
+	engineVersion := runtime.EinoEngineVersion()
+	if engineVersion == "" {
+		_ = backend.Close()
+		return nil, errors.New("app: eino engine version unavailable; checkpoint store cannot be anchored")
+	}
+	checkpoints, err := runtime.NewVersionedCheckpointStore(backend.Blobs(), engineVersion)
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
+	}
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
+		Checkpoints:          checkpoints,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -113,19 +127,22 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
 	svc := runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
-		Journal:  backend,
-		Runs:     backend,
-		Messages: backend,
-		Sink:     bus,
+		Journal:            backend,
+		Runs:               backend,
+		Messages:           backend,
+		Approvals:          backend,
+		ApprovalExpiration: cfg.Tools.Approval.Expiration,
+		Sink:               bus,
 	})
 
 	api, err := httpapi.New(httpapi.Deps{
-		Sessions: backend,
-		Messages: backend,
-		Runs:     backend,
-		Journal:  backend,
-		Bus:      bus,
-		Service:  svc,
+		Sessions:  backend,
+		Messages:  backend,
+		Runs:      backend,
+		Journal:   backend,
+		Approvals: backend,
+		Bus:       bus,
+		Service:   svc,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -136,7 +153,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mux.Handle("/", api)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","stage":"d1-httpapi"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","stage":"d2-approvals"}`))
 	})
 
 	return &App{
