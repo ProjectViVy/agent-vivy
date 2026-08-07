@@ -537,17 +537,16 @@ func causeCategoryOf(err error) string {
 
 // persistAndPublish appends the single event as its own commit and, only
 // on success, writes back the assigned seq and hands the event to the
-// sink. A journal failure converts to a run.failed terminal so the run
-// still closes exactly once.
+// sink. A journal failure closes the run via the classified terminal: a
+// cancellation racing the append must land as run.cancelled, not
+// run.failed (AS-5); any other failure is run.failed so the run still
+// closes exactly once.
 func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) bool {
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: re.RunID, Events: []domain.RunEvent{re}})
 	if err != nil {
 		slog.Error("journal append failed", "run", string(re.RunID), "type", string(re.Type), "err", err)
 		m := newEventMapper(re.RunID, 0)
-		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
-			CauseCategory: causeInternalError,
-			Message:       "The run could not be recorded. Please try again.",
-		}))
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return false
 	}
 	re.Seq = seq

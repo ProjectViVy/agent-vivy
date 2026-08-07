@@ -234,6 +234,13 @@ func TestServiceRunCancelled(t *testing.T) {
 	if n := countTerminal(events); n != 1 {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
 	}
+
+	// The journal freezes at the close: no event may be appended after the
+	// terminal lands (AS-5).
+	time.Sleep(100 * time.Millisecond)
+	if again := replayAll(t, backend, runID); len(again) != len(events) {
+		t.Fatalf("journal grew from %d to %d events after the terminal", len(events), len(again))
+	}
 }
 
 // The request context must not own the run: cancelling it (SSE disconnect,
