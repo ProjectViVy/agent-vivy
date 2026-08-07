@@ -1,6 +1,7 @@
 # Go build output
 /vivy
 /vivy.exe
+*.exe~
 /dist/
 *.exe
 *.test
