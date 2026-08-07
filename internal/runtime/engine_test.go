@@ -108,6 +108,42 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 		t.Fatal("tool description must not be empty")
 	}
 
+	// The argument schema must reach the model: without it real gateways
+	// hallucinate parameter names (AS-2 walkthrough).
+	if info.ParamsOneOf == nil {
+		t.Fatal("tool info must carry a parameter schema")
+	}
+	js, err := info.ParamsOneOf.ToJSONSchema()
+	if err != nil || js == nil {
+		t.Fatalf("parameter schema conversion: %v", err)
+	}
+	textSchema, ok := js.Properties.Get("text")
+	if !ok || textSchema.Type != "string" {
+		t.Fatalf("parameter schema for text = %+v, want required string", textSchema)
+	}
+	required := false
+	for _, name := range js.Required {
+		if name == "text" {
+			required = true
+		}
+	}
+	if !required {
+		t.Fatal("text parameter must be marked required")
+	}
+
+	// Effectful tools publish their schema too.
+	wnInfo, err := newToolAdapter(tools.NewWriteNote()).Info(ctx)
+	if err != nil {
+		t.Fatalf("write_note info: %v", err)
+	}
+	wnSchema, err := wnInfo.ParamsOneOf.ToJSONSchema()
+	if err != nil {
+		t.Fatalf("write_note schema conversion: %v", err)
+	}
+	if _, ok := wnSchema.Properties.Get("content"); !ok {
+		t.Fatal("write_note schema must declare the content parameter")
+	}
+
 	out, err := ad.InvokableRun(ctx, `{"text":"hi there"}`)
 	if err != nil {
 		t.Fatalf("invokable run: %v", err)

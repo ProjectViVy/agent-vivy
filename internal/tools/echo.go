@@ -29,6 +29,9 @@ func (echoInfo) Spec() domain.ToolSpec {
 		Name:        EchoInfoName,
 		Description: "Echoes the provided text back verbatim. Read-only, no approval needed.",
 		Readonly:    true,
+		Params: map[string]domain.ToolParam{
+			"text": {Desc: "The text to echo back verbatim.", Required: true},
+		},
 	}
 }
 

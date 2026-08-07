@@ -28,7 +28,21 @@ func newToolAdapter(t tools.Tool) *toolAdapter {
 
 func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 	spec := a.t.Spec()
-	return &schema.ToolInfo{Name: spec.Name, Desc: spec.Description}, nil
+	info := &schema.ToolInfo{Name: spec.Name, Desc: spec.Description}
+	// Real gateways need the argument schema to fill correct parameter
+	// names; without it the model guesses and calls fail (AS-2 walkthrough).
+	if len(spec.Params) > 0 {
+		params := make(map[string]*schema.ParameterInfo, len(spec.Params))
+		for name, p := range spec.Params {
+			params[name] = &schema.ParameterInfo{
+				Type:     schema.String,
+				Desc:     p.Desc,
+				Required: p.Required,
+			}
+		}
+		info.ParamsOneOf = schema.NewParamsOneOfByParams(params)
+	}
+	return info, nil
 }
 
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {

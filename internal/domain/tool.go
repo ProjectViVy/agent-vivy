@@ -10,11 +10,21 @@ type ToolCall struct {
 }
 
 // ToolSpec describes a registered tool. Readonly tools auto-execute;
-// effectful tools are approval-gated (D-012).
+// effectful tools are approval-gated (D-012). Params declares the
+// argument schema so the runtime can publish it to the model; without
+// it, real gateways hallucinate argument names.
 type ToolSpec struct {
 	Name        string
 	Description string
 	Readonly    bool
+	Params      map[string]ToolParam
+}
+
+// ToolParam describes one tool argument. V0 tools take only strings;
+// the type stays implicit until a richer tool set arrives.
+type ToolParam struct {
+	Desc     string
+	Required bool
 }
 
 // Approval decisions. ApprovalPending marks a row that has not been
