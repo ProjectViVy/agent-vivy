@@ -1,7 +1,7 @@
 // Package app is the composition root of the vivy process. It owns the
 // startup order (storage -> providers -> runtime -> httpapi) and the
-// reverse shutdown order with a bounded grace period. Approval endpoints
-// (D2), the UI (D3) and restart recovery (E2) mount here as they land.
+// reverse shutdown order with a bounded grace period. Restart recovery
+// (E2) mounts here when it lands.
 //
 // The config is fully validated before New is called; app never re-reads
 // files or environment for non-secret settings (config boundary, FR-10).
@@ -27,6 +27,7 @@ import (
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
+	"agent-vivy/ui"
 )
 
 // shutdownGrace bounds the whole graceful shutdown window. Individual
@@ -150,11 +151,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", api)
+	mux.Handle("/api/", api)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","stage":"d2-approvals"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","stage":"d3-ui"}`))
 	})
+	// Everything else is the embedded UI shell (single binary, D3).
+	mux.Handle("/", ui.Handler())
 
 	return &App{
 		cfg:     cfg,
