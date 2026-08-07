@@ -133,11 +133,25 @@ func decodeCheckpointEnvelope(blob []byte) (payload []byte, env checkpointEnvelo
 	return blob[4+n:], env, nil
 }
 
+// engineVersionOverride pins the eino version when build-info metadata is
+// unavailable. Release binaries get it from the embedded module info; go
+// test binaries lack it, so suites pin the version they were built
+// against (the go.mod pin) via SetEngineVersionOverride.
+var engineVersionOverride string
+
+// SetEngineVersionOverride pins the reported eino version for binaries
+// without embedded module metadata (go test suites). Empty restores the
+// build-info lookup. Production binaries never call this.
+func SetEngineVersionOverride(version string) { engineVersionOverride = version }
+
 // EinoEngineVersion reports the eino module version embedded in the
 // binary's build info, or "" when unavailable (source builds without
 // module metadata). App wiring must treat "" as a startup failure: an
 // unknown version cannot anchor the fail-closed checkpoint contract.
 func EinoEngineVersion() string {
+	if engineVersionOverride != "" {
+		return engineVersionOverride
+	}
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		return ""
