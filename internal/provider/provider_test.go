@@ -152,6 +152,26 @@ func TestOpenAIRefConstructsOffline(t *testing.T) {
 	}
 }
 
+// TestResolveAPIBase pins the gateway override: VIVY_API_BASE wins when
+// set, the bundle's default_api_base is the fallback (M4 smoke against
+// OpenAI-compatible gateways).
+func TestResolveAPIBase(t *testing.T) {
+	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
+	if err != nil {
+		t.Fatalf("load bundle: %v", err)
+	}
+
+	t.Setenv(APIBaseEnvVar, "")
+	if got := resolveAPIBase(b); got != b.DefaultAPIBase {
+		t.Fatalf("base without override = %q, want bundle default %q", got, b.DefaultAPIBase)
+	}
+
+	t.Setenv(APIBaseEnvVar, "https://gateway.example/v1")
+	if got := resolveAPIBase(b); got != "https://gateway.example/v1" {
+		t.Fatalf("base with override = %q, want the override", got)
+	}
+}
+
 func TestCatalogAnthropicNotWired(t *testing.T) {
 	b, err := LoadBundle(filepath.Join(fixturesDir, "anthropic.yaml"))
 	if err != nil {

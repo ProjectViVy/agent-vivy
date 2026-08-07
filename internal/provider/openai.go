@@ -22,6 +22,21 @@ func newOpenAIRef(b Bundle) Ref { return &openaiRef{bundle: b} }
 
 func (r *openaiRef) Name() string { return r.bundle.Name }
 
+// APIBaseEnvVar overrides the bundle's default_api_base when set, letting
+// one binary talk to any OpenAI-compatible gateway (M4 smoke) without a
+// bundle edit. It carries a URL, not a secret, and stays read inside this
+// package (D-010 boundary, E3 audit).
+const APIBaseEnvVar = "VIVY_API_BASE"
+
+// resolveAPIBase picks the effective base URL: environment override wins,
+// the bundle default is the fallback.
+func resolveAPIBase(b Bundle) string {
+	if base := os.Getenv(APIBaseEnvVar); base != "" {
+		return base
+	}
+	return b.DefaultAPIBase
+}
+
 func (r *openaiRef) Model(ctx context.Context, modelID string) (model.ToolCallingChatModel, error) {
 	if modelID == "" {
 		modelID = r.bundle.DefaultModel
@@ -32,7 +47,7 @@ func (r *openaiRef) Model(ctx context.Context, modelID string) (model.ToolCallin
 	}
 	cm, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 		APIKey:  key,
-		BaseURL: r.bundle.DefaultAPIBase,
+		BaseURL: resolveAPIBase(r.bundle),
 		Model:   modelID,
 	})
 	if err != nil {
