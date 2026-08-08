@@ -29,7 +29,7 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	}
 	t.Cleanup(func() { _ = backend.Close() })
 
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
@@ -45,7 +45,7 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
 		ApprovalExpiration: expiration, Sink: sink,
 	})
 	return svc, backend, sink
@@ -174,7 +174,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	if fin.ToolCallID != ApprovalFlowCallID {
 		t.Fatalf("tool.finished call id = %q, want %q", fin.ToolCallID, ApprovalFlowCallID)
 	}
-	if !strings.Contains(fin.Result, "note saved") {
+	if !strings.Contains(fin.Result, "saved (1 total)") || !strings.Contains(fin.Result, "note_") {
 		t.Fatalf("approved tool must execute: result = %q", fin.Result)
 	}
 	if n := countTerminal(events); n != 1 {
@@ -216,7 +216,7 @@ func TestServiceApprovalDenyFlow(t *testing.T) {
 	if !strings.Contains(fin.Result, "denied") {
 		t.Fatalf("denied tool must not execute: result = %q", fin.Result)
 	}
-	if strings.Contains(fin.Result, "note saved") {
+	if strings.Contains(fin.Result, "saved (") {
 		t.Fatalf("denied tool executed: result = %q", fin.Result)
 	}
 	// The model still closes the run afterwards.

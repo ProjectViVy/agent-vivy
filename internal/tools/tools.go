@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // Tool is the Vivy-owned callable contract. The Eino wrapping
@@ -50,10 +51,14 @@ func NewRegistry(ts ...Tool) *Registry {
 	return r
 }
 
-// Builtin returns the registry of V0 shipped tools: one read-only
-// auto-execute tool and one effectful approval-gated tool (D-012).
-func Builtin() *Registry {
-	return NewRegistry(NewEchoInfo(), NewWriteNote())
+// Builtin returns the registry of shipped tools: one read-only
+// auto-execute probe tool and the notebook trio (MA-3) — read-only
+// list/read tools plus the effectful approval-gated write tool (D-012).
+// notes backs the trio; a nil store keeps the tools resolvable but
+// failing fast at call time, which is how tests that only use other
+// tools wire it.
+func Builtin(notes storage.NoteStore) *Registry {
+	return NewRegistry(NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes))
 }
 
 // Resolve selects the enabled tools by name, preserving order. An unknown

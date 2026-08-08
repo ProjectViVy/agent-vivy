@@ -53,31 +53,12 @@ func TestEchoInfoRejectsBadArgs(t *testing.T) {
 }
 
 func TestWriteNoteSpec(t *testing.T) {
-	spec := NewWriteNote().Spec()
+	spec := NewWriteNote(nil).Spec()
 	if spec.Name != WriteNoteName {
 		t.Errorf("name = %q", spec.Name)
 	}
 	if spec.Readonly {
 		t.Error("write_note must be effectful so the gate can interrupt it (D-012)")
-	}
-}
-
-func TestWriteNoteRun(t *testing.T) {
-	tool := NewWriteNote()
-	out, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"content":"buy milk"}`))
-	if err != nil {
-		t.Fatalf("InvokableRun: %v", err)
-	}
-	if out != "note saved (1 total)" {
-		t.Errorf("out = %q", out)
-	}
-	// The same registered instance accumulates notes.
-	out, err = tool.InvokableRun(context.Background(), json.RawMessage(`{"content":"call home"}`))
-	if err != nil {
-		t.Fatalf("InvokableRun: %v", err)
-	}
-	if out != "note saved (2 total)" {
-		t.Errorf("out = %q", out)
 	}
 }
 
@@ -89,7 +70,7 @@ func TestWriteNoteRejectsBadArgs(t *testing.T) {
 		"not an object":   `"plain string"`,
 		"oversized":       `{"content":"` + strings.Repeat("a", noteContentLimit+1) + `"}`,
 	}
-	tool := NewWriteNote()
+	tool := NewWriteNote(&memNotes{})
 	for name, args := range cases {
 		_, err := tool.InvokableRun(context.Background(), json.RawMessage(args))
 		if err == nil {
@@ -104,7 +85,7 @@ func TestWriteNoteRejectsBadArgs(t *testing.T) {
 }
 
 func TestRegistryResolve(t *testing.T) {
-	reg := Builtin()
+	reg := Builtin(&memNotes{})
 
 	got, err := reg.Resolve([]string{EchoInfoName, WriteNoteName})
 	if err != nil {
@@ -112,6 +93,11 @@ func TestRegistryResolve(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Spec().Name != EchoInfoName || got[1].Spec().Name != WriteNoteName {
 		t.Errorf("Resolve = %+v", got)
+	}
+
+	// The notes trio is registered under its names (MA-3).
+	if _, err := reg.Resolve([]string{ListNotesName, ReadNoteName}); err != nil {
+		t.Errorf("notes tools must resolve: %v", err)
 	}
 
 	if _, err := reg.Resolve([]string{"send_email"}); err == nil {

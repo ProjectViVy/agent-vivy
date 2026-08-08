@@ -132,7 +132,7 @@ func Default() Config {
 		},
 		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note"},
+			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 	}

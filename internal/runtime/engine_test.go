@@ -13,7 +13,7 @@ import (
 func newTestEngine(t *testing.T) *Engine {
 	t.Helper()
 	ctx := context.Background()
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName})
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 	}
 
 	// Effectful tools publish their schema too.
-	wnInfo, err := newToolAdapter(tools.NewWriteNote()).Info(ctx)
+	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil)).Info(ctx)
 	if err != nil {
 		t.Fatalf("write_note info: %v", err)
 	}

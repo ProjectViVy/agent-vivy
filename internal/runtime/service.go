@@ -44,6 +44,9 @@ type ServiceDeps struct {
 	Journal  storage.Journal
 	Runs     storage.RunStore
 	Messages storage.MessageStore
+	// Notes feeds the preamble's notebook digest (MA-3); nil leaves the
+	// digest out.
+	Notes storage.NoteStore
 	// Approvals persists the approval rows behind the effectful tool
 	// gate (C6); nil leaves interrupts unable to suspend.
 	Approvals storage.ApprovalStore
@@ -347,9 +350,10 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // enter the feed: cross-turn context carries text pairs only.
 func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) []*schema.Message {
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
-	// static Instruction cannot (date, tool set, later the notes digest).
+	// static Instruction cannot (date, tool set, and the bounded notebook
+	// digest of MA-3).
 	msgs := []*schema.Message{
-		schema.SystemMessage(composeRunPreamble(time.Now(), s.engine.toolSpecs, "")),
+		schema.SystemMessage(composeRunPreamble(time.Now(), s.engine.toolSpecs, s.notesDigest(ctx))),
 	}
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
@@ -370,6 +374,21 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		msgs = append(msgs, schema.UserMessage(userText))
 	}
 	return msgs
+}
+
+// notesDigest builds the preamble's notebook section (MA-3). Any listing
+// failure degrades to no digest with a warning: the preamble stays
+// useful even when the notebook read fails.
+func (s *Service) notesDigest(ctx context.Context) string {
+	if s.deps.Notes == nil {
+		return ""
+	}
+	notes, err := s.deps.Notes.ListNotes(ctx)
+	if err != nil {
+		slog.Warn("notes digest skipped; listing failed", "err", err)
+		return ""
+	}
+	return formatNotesDigest(notes)
 }
 
 // consume maps engine events into the journal until the iterator closes,

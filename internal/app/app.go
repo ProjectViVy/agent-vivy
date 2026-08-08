@@ -100,7 +100,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		modelID = "bundle-default"
 	}
 
-	ts, err := tools.Builtin().Resolve(cfg.Tools.Enabled)
+	ts, err := tools.Builtin(backend).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
@@ -133,6 +133,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Journal:            backend,
 		Runs:               backend,
 		Messages:           backend,
+		Notes:              backend,
 		Approvals:          backend,
 		ApprovalExpiration: cfg.Tools.Approval.Expiration,
 		Sink:               bus,

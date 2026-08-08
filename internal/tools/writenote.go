@@ -3,11 +3,14 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sync"
+	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // WriteNoteName is the registered name of the effectful note tool
@@ -17,18 +20,16 @@ const WriteNoteName = "write_note"
 // noteContentLimit bounds one note (NFR: bounded).
 const noteContentLimit = 4096
 
-// writeNote appends a note to an in-memory list. It mutates state, so it
-// is not readonly: the runtime interrupts before InvokableRun and only
-// executes it after an approved decision (D-012). V0 keeps the list in
-// process memory; persistence joins a later batch.
+// writeNote appends a note to the persisted notebook (MA-3). It mutates
+// state, so it is not readonly: the runtime interrupts before
+// InvokableRun and only executes it after an approved decision (D-012).
 type writeNote struct {
-	mu    sync.Mutex
-	notes []string
+	store storage.NoteStore
 }
 
-// NewWriteNote returns the effectful write_note tool. Builtin registers
-// exactly one instance, so every call shares the same note list.
-func NewWriteNote() Tool { return &writeNote{} }
+// NewWriteNote returns the effectful write_note tool over the given note
+// store; Builtin registers exactly one instance.
+func NewWriteNote(store storage.NoteStore) Tool { return &writeNote{store: store} }
 
 func (w *writeNote) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
@@ -45,7 +46,10 @@ type noteArgs struct {
 	Content string `json:"content"`
 }
 
-func (w *writeNote) InvokableRun(_ context.Context, args json.RawMessage) (string, error) {
+func (w *writeNote) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	if w.store == nil {
+		return "", fmt.Errorf("tools: note store not wired")
+	}
 	var parsed noteArgs
 	dec := json.NewDecoder(bytes.NewReader(args))
 	dec.DisallowUnknownFields()
@@ -58,9 +62,27 @@ func (w *writeNote) InvokableRun(_ context.Context, args json.RawMessage) (strin
 	if len(parsed.Content) > noteContentLimit {
 		return "", &ArgError{Field: "content", Reason: fmt.Sprintf("exceeds %d bytes", noteContentLimit)}
 	}
-	w.mu.Lock()
-	w.notes = append(w.notes, parsed.Content)
-	total := len(w.notes)
-	w.mu.Unlock()
-	return fmt.Sprintf("note saved (%d total)", total), nil
+	note := domain.Note{
+		ID:        newNoteID(),
+		Content:   parsed.Content,
+		CreatedAt: time.Now().UnixMilli(),
+	}
+	if err := w.store.AppendNote(ctx, note); err != nil {
+		return "", fmt.Errorf("tools: save note: %w", err)
+	}
+	notes, err := w.store.ListNotes(ctx)
+	if err != nil {
+		return "", fmt.Errorf("tools: count notes: %w", err)
+	}
+	return fmt.Sprintf("note %s saved (%d total)", note.ID, len(notes)), nil
+}
+
+// newNoteID mints an identity-grade note id; like the runtime's prefixed
+// ids there is no safe fallback for randomness failures.
+func newNoteID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("tools: crypto/rand unavailable: %v", err))
+	}
+	return "note_" + hex.EncodeToString(b)
 }

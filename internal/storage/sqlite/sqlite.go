@@ -22,6 +22,7 @@ var migrations = []struct {
 }{
 	{1, migration001},
 	{2, migration002},
+	{3, migration003},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -55,6 +56,7 @@ var (
 	_ storage.Journal       = (*Backend)(nil)
 	_ storage.LeaseStore    = (*Backend)(nil)
 	_ storage.ApprovalStore = (*Backend)(nil)
+	_ storage.NoteStore     = (*Backend)(nil)
 	_ storage.SnapshotStore = (*Snapshot)(nil)
 	_ storage.BlobStore     = (*Blobs)(nil)
 )
@@ -184,4 +186,14 @@ CREATE TABLE leases (
 // decision can feed ResumeWithParams without re-deriving it (C6).
 const migration002 = `
 ALTER TABLE approvals ADD COLUMN resume_target TEXT NOT NULL DEFAULT '';
+`
+
+// migration003 adds the notebook (MA-3): write_note persists here and
+// the read-only notes tools list/read from it.
+const migration003 = `
+CREATE TABLE notes (
+	id TEXT PRIMARY KEY,
+	content BLOB NOT NULL,
+	created_at INTEGER NOT NULL
+);
 `

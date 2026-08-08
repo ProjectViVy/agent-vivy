@@ -24,7 +24,7 @@ func restartService(t *testing.T, backend *sqlite.Backend) (*Service, *testSink)
 	t.Helper()
 	ctx := context.Background()
 
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
@@ -41,7 +41,7 @@ func restartService(t *testing.T, backend *sqlite.Backend) (*Service, *testSink)
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
 	return svc, sink

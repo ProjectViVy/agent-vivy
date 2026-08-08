@@ -32,7 +32,7 @@ func TestSecretsNeverReachStorage(t *testing.T) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName})
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}

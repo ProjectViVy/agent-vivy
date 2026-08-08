@@ -31,7 +31,7 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	}
 	t.Cleanup(func() { _ = backend.Close() })
 
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName})
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
@@ -41,7 +41,7 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Sink: sink,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
 	})
 	return svc, backend, sink
 }
@@ -550,6 +550,39 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	last := feed[len(feed)-1]
 	if last.Role != domain.RoleUser || last.Content != "hello" {
 		t.Fatalf("feed must end with the user message, got %+v", last)
+	}
+}
+
+// Saved notes surface in the preamble as a bounded digest (MA-3): the
+// model sees recent note ids and first lines without asking.
+func TestServicePreambleCarriesNotesDigest(t *testing.T) {
+	cm := &capturingModel{}
+	svc, backend, _ := newTestService(t, cm)
+
+	if err := backend.AppendNote(context.Background(), domain.Note{
+		ID: "note_digest", Content: "code word is bluebird\nsecond line", CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+
+	runID, err := svc.Run(context.Background(), "sess-n", "hello")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	calls := cm.calls()
+	if len(calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(calls))
+	}
+	preamble := calls[0][1].Content
+	for _, marker := range []string{"Recent notes from the user's notebook:", "note_digest", "code word is bluebird"} {
+		if !strings.Contains(preamble, marker) {
+			t.Fatalf("preamble missing %q: %q", marker, preamble)
+		}
+	}
+	if strings.Contains(preamble, "second line") {
+		t.Fatalf("digest must collapse each note to its first line: %q", preamble)
 	}
 }
 

@@ -39,7 +39,7 @@ func newTestEnv(t *testing.T, model domain.ChatModel) *testEnv {
 	}
 	t.Cleanup(func() { _ = backend.Close() })
 
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName})
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
@@ -441,7 +441,7 @@ func newApprovalEnv(t *testing.T, expiration time.Duration) *testEnv {
 	}
 	t.Cleanup(func() { _ = backend.Close() })
 
-	ts, err := tools.Builtin().Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}

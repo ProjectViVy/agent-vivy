@@ -105,6 +105,17 @@ type MessageStore interface {
 	ListMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error)
 }
 
+// NoteStore persists the user's notebook (MA-3). Notes are append-only;
+// listing serves the newest entries first so digests stay bounded at the
+// head.
+type NoteStore interface {
+	AppendNote(ctx context.Context, n domain.Note) error
+	// ListNotes returns the notebook newest-first.
+	ListNotes(ctx context.Context) ([]domain.Note, error)
+	// GetNote fetches one entry by id; unknown ids yield ErrNotFound.
+	GetNote(ctx context.Context, id string) (domain.Note, error)
+}
+
 // RunStore tracks run lifecycle rows. Status transitions themselves are
 // validated by the domain state machine; the store only persists them.
 type RunStore interface {
