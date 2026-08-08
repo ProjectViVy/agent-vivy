@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -330,11 +331,40 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 }
 
 func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string) {
-	// The checkpoint id is derived from the run id so Query and Resume
+	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
-	iter := s.engine.Query(ctx, userText, adk.WithCheckPointID(checkpointIDFor(m.runID)))
+	iter := s.engine.RunHistory(ctx, s.runMessages(ctx, sessionID, userText), adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(ctx, m, sessionID, iter)
+}
+
+// runMessages rebuilds the session transcript for the engine (MA-1,
+// ADR-009): user/assistant text pairs in store order, with the current
+// turn's user message last (Run persists it before driving, so the store
+// already contains it). A listing failure degrades to the single new
+// message with a warning — the run proceeds exactly as before the feed
+// existed rather than failing on a bookkeeping read. Tool-role rows never
+// enter the feed: cross-turn context carries text pairs only.
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) []*schema.Message {
+	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	if err != nil {
+		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
+		return []*schema.Message{schema.UserMessage(userText)}
+	}
+	msgs := make([]*schema.Message, 0, len(stored))
+	for _, msg := range stored {
+		switch msg.Role {
+		case domain.RoleUser:
+			msgs = append(msgs, schema.UserMessage(msg.Content))
+		case domain.RoleAssistant:
+			msgs = append(msgs, schema.AssistantMessage(msg.Content, nil))
+		}
+	}
+	if len(msgs) == 0 {
+		// Empty store (or no feedable rows): keep the pre-feed shape.
+		msgs = append(msgs, schema.UserMessage(userText))
+	}
+	return msgs
 }
 
 // consume maps engine events into the journal until the iterator closes,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -377,6 +378,136 @@ func TestClampText(t *testing.T) {
 	got := clampText(long, 128)
 	if len(got) >= len(long) {
 		t.Fatal("clampText must shrink oversized input")
+	}
+}
+
+// capturingModel records the message list of every Stream call and
+// answers a fixed reply, so tests can assert exactly what the engine fed
+// the model (MA-1).
+type capturingModel struct {
+	mu     sync.Mutex
+	inputs [][]domain.Message
+}
+
+func (c *capturingModel) Stream(_ context.Context, in []*domain.Message) (domain.Stream[*domain.Message], error) {
+	c.mu.Lock()
+	cp := make([]domain.Message, 0, len(in))
+	for _, m := range in {
+		cp = append(cp, *m)
+	}
+	c.inputs = append(c.inputs, cp)
+	c.mu.Unlock()
+	return &captureStream{chunks: []*domain.Message{{Role: domain.RoleAssistant, Content: "captured reply"}}}, nil
+}
+
+func (c *capturingModel) calls() [][]domain.Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([][]domain.Message, len(c.inputs))
+	copy(out, c.inputs)
+	return out
+}
+
+// captureStream replays the fixed reply chunks (mockStream style).
+type captureStream struct {
+	chunks []*domain.Message
+	next   int
+}
+
+func (s *captureStream) Recv() (*domain.Message, error) {
+	if s.next >= len(s.chunks) {
+		return nil, io.EOF
+	}
+	chunk := s.chunks[s.next]
+	s.next++
+	return chunk, nil
+}
+
+// userAssistantPairs strips the static instruction (which the adapter
+// collapses to the assistant role) so assertions see only the feed.
+func userAssistantPairs(msgs []domain.Message) [][2]string {
+	var out [][2]string
+	for _, m := range msgs {
+		switch m.Role {
+		case domain.RoleUser, domain.RoleAssistant:
+			out = append(out, [2]string{string(m.Role), m.Content})
+		}
+	}
+	if len(out) > 0 && out[0] == [2]string{string(domain.RoleAssistant), "You are Vivy, a precise personal assistant."} {
+		out = out[1:]
+	}
+	return out
+}
+
+// The second run of a session must carry the first turn's transcript:
+// without the feed every turn is stateless (docs/v1-minimal-agent-proposal.md §1).
+func TestServiceFeedsSessionHistory(t *testing.T) {
+	cm := &capturingModel{}
+	svc, backend, _ := newTestService(t, cm)
+
+	run1, err := svc.Run(context.Background(), "sess-h", "remember the code word bluebird")
+	if err != nil {
+		t.Fatalf("run 1: %v", err)
+	}
+	waitForRunStatus(t, backend, run1, domain.RunCompleted)
+
+	run2, err := svc.Run(context.Background(), "sess-h", "what is the code word?")
+	if err != nil {
+		t.Fatalf("run 2: %v", err)
+	}
+	waitForRunStatus(t, backend, run2, domain.RunCompleted)
+
+	calls := cm.calls()
+	if len(calls) != 2 {
+		t.Fatalf("model calls = %d, want 2", len(calls))
+	}
+	first := userAssistantPairs(calls[0])
+	wantFirst := [][2]string{{"user", "remember the code word bluebird"}}
+	if len(first) != len(wantFirst) || first[0] != wantFirst[0] {
+		t.Fatalf("first run feed = %v, want %v", first, wantFirst)
+	}
+	second := userAssistantPairs(calls[1])
+	wantSecond := [][2]string{
+		{"user", "remember the code word bluebird"},
+		{"assistant", "captured reply"},
+		{"user", "what is the code word?"},
+	}
+	if len(second) != len(wantSecond) {
+		t.Fatalf("second run feed = %v, want %v", second, wantSecond)
+	}
+	for i := range wantSecond {
+		if second[i] != wantSecond[i] {
+			t.Fatalf("second run feed[%d] = %v, want %v", i, second[i], wantSecond[i])
+		}
+	}
+}
+
+// History feeds are per-session: another session's transcript must never
+// leak into the feed (multi-session isolation).
+func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
+	cm := &capturingModel{}
+	svc, backend, _ := newTestService(t, cm)
+
+	run1, err := svc.Run(context.Background(), "sess-a", "a speaks first")
+	if err != nil {
+		t.Fatalf("run sess-a: %v", err)
+	}
+	waitForRunStatus(t, backend, run1, domain.RunCompleted)
+
+	run2, err := svc.Run(context.Background(), "sess-b", "b speaks second")
+	if err != nil {
+		t.Fatalf("run sess-b: %v", err)
+	}
+	waitForRunStatus(t, backend, run2, domain.RunCompleted)
+
+	calls := cm.calls()
+	if len(calls) != 2 {
+		t.Fatalf("model calls = %d, want 2", len(calls))
+	}
+	second := userAssistantPairs(calls[1])
+	want := [][2]string{{"user", "b speaks second"}}
+	if len(second) != len(want) || second[0] != want[0] {
+		t.Fatalf("sess-b feed = %v, want exactly %v (no sess-a leakage)", second, want)
 	}
 }
 

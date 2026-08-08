@@ -8,6 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/tools"
 )
@@ -75,6 +76,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 // Options such as adk.WithCheckPointID are supplied by the service (C4/C6).
 func (e *Engine) Query(ctx context.Context, text string, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
 	return e.runner.Query(ctx, text, opts...)
+}
+
+// RunHistory starts a run over an explicit message list — the session
+// transcript the service rebuilds from the message store (MA-1, ADR-009).
+// eino's Runner.Query is exactly this call with a single fresh user
+// message, so the checkpoint/resume contract carries over unchanged
+// (docs/v1-minimal-agent-proposal.md §1).
+func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.Message, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
+	return e.runner.Run(ctx, msgs, opts...)
 }
 
 // Resume restarts a suspended run from its checkpoint, feeding the resume
