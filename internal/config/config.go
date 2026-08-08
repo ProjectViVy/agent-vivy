@@ -28,6 +28,11 @@ import (
 // Anything else (a literal key value) fails validation.
 var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
+// defaultMaxToolTurns bounds tool-call turns per run when config omits
+// runtime.max_tool_turns (MA-4): well above a healthy turn count, well
+// below eino's 20 default, so a runaway loop fails fast and classified.
+const defaultMaxToolTurns = 8
+
 // Config is the typed, validated configuration store.
 type Config struct {
 	Server    Server    `yaml:"server"`
@@ -80,6 +85,9 @@ type Runtime struct {
 	StreamBuffer int `yaml:"stream_buffer"`
 	// MaxEventPayloadBytes bounds a single event payload (NFR: bounded).
 	MaxEventPayloadBytes int `yaml:"max_event_payload_bytes"`
+	// MaxToolTurns caps tool-call turns per run (MA-4); omitted keeps the
+	// default.
+	MaxToolTurns int `yaml:"max_tool_turns"`
 }
 
 type Tools struct {
@@ -130,7 +138,7 @@ func Default() Config {
 			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
-		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536},
+		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536, MaxToolTurns: defaultMaxToolTurns},
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
@@ -201,6 +209,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxEventPayloadBytes <= 0 {
 		return errors.New("runtime.max_event_payload_bytes must be positive")
+	}
+	if c.Runtime.MaxToolTurns < 0 {
+		return errors.New("runtime.max_tool_turns must not be negative")
 	}
 
 	if len(c.Tools.Enabled) == 0 {

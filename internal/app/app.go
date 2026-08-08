@@ -121,6 +121,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
+		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
 		Checkpoints:          checkpoints,
 	})
 	if err != nil {

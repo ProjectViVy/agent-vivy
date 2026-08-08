@@ -602,6 +602,16 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 	if errors.Is(cause, errRunCancelled) || ctx.Err() != nil || errors.As(cause, &ce) {
 		return m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested})
 	}
+	if errors.Is(cause, adk.ErrExceedMaxIterations) {
+		// Loop guardrail (MA-4): the engine hit the tool-call turn cap.
+		// The cause stays structured and bounded — no engine internals
+		// leak into the user-visible message (FR-11).
+		slog.Warn("run failed: tool-call turn limit exceeded", "run", string(m.runID))
+		return m.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeInternalError,
+			Message:       "The run was stopped because it reached the limit of tool-call turns. Please try again with a simpler request.",
+		})
+	}
 	slog.Warn("run failed", "err", cause)
 	return m.build(domain.EventRunFailed, payloadRunFailed{
 		CauseCategory: causeCategoryOf(cause),

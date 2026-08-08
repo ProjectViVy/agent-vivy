@@ -20,6 +20,10 @@ type EngineConfig struct {
 	StreamBuffer int
 	// MaxEventPayloadBytes caps a single event payload (C4).
 	MaxEventPayloadBytes int
+	// MaxToolTurns caps the model's generation cycles per run (MA-4);
+	// exceeding it fails the run with a classified terminal. Zero keeps
+	// eino's own default.
+	MaxToolTurns int
 	// Checkpoints wires the two-layer checkpoint bridge (C6). Nil leaves
 	// the runner without persistence, which is how the model-only tests
 	// run.
@@ -55,7 +59,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		wrapped = append(wrapped, newToolAdapter(t))
 		specs = append(specs, t.Spec())
 	}
-	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
 		Instruction: "You are Vivy, a precise personal assistant.",
@@ -63,7 +67,14 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},
 		},
-	})
+	}
+	if cfg.MaxToolTurns > 0 {
+		// Loop guardrail (MA-4): eino counts one iteration per model
+		// generation cycle and surfaces ErrExceedMaxIterations past the
+		// cap, which the service classifies into a run.failed terminal.
+		agentCfg.MaxIterations = cfg.MaxToolTurns
+	}
+	agent, err := adk.NewChatModelAgent(ctx, agentCfg)
 	if err != nil {
 		return nil, err
 	}
