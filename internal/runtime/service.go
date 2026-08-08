@@ -346,12 +346,17 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // existed rather than failing on a bookkeeping read. Tool-role rows never
 // enter the feed: cross-turn context carries text pairs only.
 func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) []*schema.Message {
+	// The per-run preamble leads the feed (MA-2): it carries the facts the
+	// static Instruction cannot (date, tool set, later the notes digest).
+	msgs := []*schema.Message{
+		schema.SystemMessage(composeRunPreamble(time.Now(), s.engine.toolSpecs, "")),
+	}
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
-		return []*schema.Message{schema.UserMessage(userText)}
+		return append(msgs, schema.UserMessage(userText))
 	}
-	msgs := make([]*schema.Message, 0, len(stored))
+	head := len(msgs)
 	for _, msg := range stored {
 		switch msg.Role {
 		case domain.RoleUser:
@@ -360,7 +365,7 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 			msgs = append(msgs, schema.AssistantMessage(msg.Content, nil))
 		}
 	}
-	if len(msgs) == 0 {
+	if len(msgs) == head {
 		// Empty store (or no feedable rows): keep the pre-feed shape.
 		msgs = append(msgs, schema.UserMessage(userText))
 	}

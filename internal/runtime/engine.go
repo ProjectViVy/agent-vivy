@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
 
@@ -31,6 +32,9 @@ type EngineConfig struct {
 type Engine struct {
 	runner *adk.Runner
 	cfg    EngineConfig
+	// toolSpecs mirrors the resolved tool set for the per-run prompt
+	// composer (MA-2); the engine never needs the callables here.
+	toolSpecs []domain.ToolSpec
 }
 
 // NewEngine builds the ChatModelAgent and Runner over an Eino
@@ -46,8 +50,10 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		return nil, errors.New("runtime: nil model")
 	}
 	wrapped := make([]einotool.BaseTool, 0, len(ts))
+	specs := make([]domain.ToolSpec, 0, len(ts))
 	for _, t := range ts {
 		wrapped = append(wrapped, newToolAdapter(t))
+		specs = append(specs, t.Spec())
 	}
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "vivy",
@@ -69,7 +75,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg}, nil
+	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs}, nil
 }
 
 // Query starts one user turn and returns the raw engine event iterator.

@@ -423,8 +423,11 @@ func (s *captureStream) Recv() (*domain.Message, error) {
 	return chunk, nil
 }
 
-// userAssistantPairs strips the static instruction (which the adapter
-// collapses to the assistant role) so assertions see only the feed.
+// userAssistantPairs strips the leading run context: the static
+// instruction and the per-run preamble both cross the adapter boundary
+// as system messages, which the three-role domain vocabulary collapses
+// to the assistant role, so every assistant entry before the first user
+// message is leading context, not transcript.
 func userAssistantPairs(msgs []domain.Message) [][2]string {
 	var out [][2]string
 	for _, m := range msgs {
@@ -433,10 +436,11 @@ func userAssistantPairs(msgs []domain.Message) [][2]string {
 			out = append(out, [2]string{string(m.Role), m.Content})
 		}
 	}
-	if len(out) > 0 && out[0] == [2]string{string(domain.RoleAssistant), "You are Vivy, a precise personal assistant."} {
-		out = out[1:]
+	start := 0
+	for start < len(out) && out[start][0] == string(domain.RoleAssistant) {
+		start++
 	}
-	return out
+	return out[start:]
 }
 
 // The second run of a session must carry the first turn's transcript:
@@ -508,6 +512,44 @@ func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
 	want := [][2]string{{"user", "b speaks second"}}
 	if len(second) != len(want) || second[0] != want[0] {
 		t.Fatalf("sess-b feed = %v, want exactly %v (no sess-a leakage)", second, want)
+	}
+}
+
+// Every run's feed must be led by the per-run preamble (MA-2): persona,
+// current date, and the resolved tool set, ahead of any history.
+func TestServiceRunLeadsWithPreamble(t *testing.T) {
+	cm := &capturingModel{}
+	svc, backend, _ := newTestService(t, cm)
+
+	runID, err := svc.Run(context.Background(), "sess-p", "hello")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	calls := cm.calls()
+	if len(calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(calls))
+	}
+	feed := calls[0]
+	if len(feed) < 2 {
+		t.Fatalf("feed too short: %+v", feed)
+	}
+	// The adapter collapses the preamble's system role to assistant; it
+	// must sit between the static instruction and the first user message.
+	preamble := feed[1]
+	want := preamblePersona
+	if preamble.Role != domain.RoleAssistant || !strings.HasPrefix(preamble.Content, want) {
+		t.Fatalf("feed[1] = %+v, want the preamble leading with %q", preamble, want)
+	}
+	for _, marker := range []string{"Today's date: ", "echo_info", "read-only; runs automatically"} {
+		if !strings.Contains(preamble.Content, marker) {
+			t.Fatalf("preamble missing %q: %q", marker, preamble.Content)
+		}
+	}
+	last := feed[len(feed)-1]
+	if last.Role != domain.RoleUser || last.Content != "hello" {
+		t.Fatalf("feed must end with the user message, got %+v", last)
 	}
 }
 
