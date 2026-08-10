@@ -89,3 +89,61 @@ func TestRunBrokersToolCallsToParent(t *testing.T) {
 		t.Fatal("parent peer did not stop")
 	}
 }
+
+func TestRunTurnLoopUsesParentModelAndToolBroker(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- Run(ctx, serverConn, serverConn) }()
+
+	modelCalls := 0
+	parent := rpc.NewPeer(rpc.NewJSONLTransport(clientConn, clientConn, clientConn.Close), rpc.HandlerFunc(func(_ context.Context, _ *rpc.Peer, request rpc.Request) (any, *rpc.Error) {
+		switch request.Method {
+		case "model/complete":
+			modelCalls++
+			if modelCalls == 1 {
+				return ModelResponse{Status: "completed", Message: ChatMessage{Role: "assistant", ToolCalls: []ModelToolCall{{ID: "call-1", Name: "echo_info", Arguments: map[string]string{"text": "from-tool"}}}}}, nil
+			}
+			return ModelResponse{Status: "completed", Message: ChatMessage{Role: "assistant", Content: "done"}}, nil
+		case "tool/execute":
+			return ToolResult{Status: "completed", Result: "tool-result"}, nil
+		case "worker/event":
+			return nil, nil
+		default:
+			return nil, &rpc.Error{Code: rpc.MethodNotFound, Message: "unexpected method"}
+		}
+	}), rpc.Options{})
+	parentDone := make(chan error, 1)
+	go func() { parentDone <- parent.Serve(ctx) }()
+	if _, err := parent.Call(ctx, "initialize", map[string]string{"protocol_version": rpc.ProtocolVersion}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	result, err := parent.Call(ctx, "worker/run", RunRequest{
+		RunID: "child-loop", ParentRunID: "parent-1", PolicyProfile: "default", PolicyHash: "hash-1",
+		WorkspaceID: "workspace-1", Text: "complete task", MaxTurns: 4,
+	})
+	if err != nil {
+		t.Fatalf("worker/run: %v", err)
+	}
+	var runResult RunResult
+	if err := json.Unmarshal(result, &runResult); err != nil {
+		t.Fatalf("decode worker result: %v", err)
+	}
+	if runResult.Result != "done" || modelCalls != 2 {
+		t.Fatalf("result = %+v, model calls = %d", runResult, modelCalls)
+	}
+	cancel()
+	_ = serverConn.Close()
+	_ = clientConn.Close()
+	select {
+	case <-serverDone:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop")
+	}
+	select {
+	case <-parentDone:
+	case <-time.After(time.Second):
+		t.Fatal("parent peer did not stop")
+	}
+}

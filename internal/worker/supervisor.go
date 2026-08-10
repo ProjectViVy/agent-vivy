@@ -23,6 +23,8 @@ type Spec struct {
 	Text          string               `json:"text"`
 	ToolName      string               `json:"tool_name,omitempty"`
 	ToolArgs      any                  `json:"tool_args,omitempty"`
+	MaxTurns      int                  `json:"max_turns,omitempty"`
+	Tools         []ModelTool          `json:"tools,omitempty"`
 }
 
 type Authority struct {
@@ -62,11 +64,16 @@ type ToolCall struct {
 	PolicyHash    string
 	WorkspaceID   string
 	ToolName      string
+	CallID        string
+	ApprovalID    string
 	Args          any
 }
 
 type ToolResult struct {
-	Result string `json:"result"`
+	Status     string `json:"status,omitempty"`
+	Result     string `json:"result,omitempty"`
+	Error      string `json:"error,omitempty"`
+	ApprovalID string `json:"approval_id,omitempty"`
 }
 
 type ToolBroker interface {
@@ -90,6 +97,10 @@ type Supervisor struct {
 }
 
 func Start(ctx context.Context, authority Authority, broker ToolBroker, onEvent func(WorkerEvent)) (*Supervisor, error) {
+	return StartWithBrokers(ctx, authority, broker, nil, nil, onEvent)
+}
+
+func StartWithBrokers(ctx context.Context, authority Authority, broker ToolBroker, model ModelBroker, approvals ApprovalWaiter, onEvent func(WorkerEvent)) (*Supervisor, error) {
 	if authority.Snapshot.Profile == "" || authority.Snapshot.Hash == "" {
 		return nil, errors.New("worker: authority needs a policy snapshot")
 	}
@@ -115,7 +126,7 @@ func Start(ctx context.Context, authority Authority, broker ToolBroker, onEvent 
 		return nil, fmt.Errorf("worker: start process: %w", err)
 	}
 
-	handler := &supervisorHandler{authority: authority, broker: broker, onEvent: onEvent}
+	handler := &supervisorHandler{authority: authority, broker: broker, model: model, approvals: approvals, onEvent: onEvent}
 	transport := rpc.NewJSONLTransport(stdout, stdin, func() error {
 		_ = stdin.Close()
 		return stdout.Close()
@@ -163,6 +174,7 @@ func (s *Supervisor) Run(ctx context.Context, spec Spec) (string, error) {
 		RunID: string(spec.RunID), ParentRunID: string(spec.ParentRunID),
 		PolicyProfile: string(spec.PolicyProfile), PolicyHash: spec.PolicyHash,
 		WorkspaceID: spec.WorkspaceID, Text: spec.Text, ToolName: spec.ToolName, ToolArgs: spec.ToolArgs,
+		MaxTurns: spec.MaxTurns, Tools: spec.Tools,
 	})
 	if err != nil {
 		return "", err
@@ -195,6 +207,8 @@ func (s *Supervisor) Close() error {
 type supervisorHandler struct {
 	authority Authority
 	broker    ToolBroker
+	model     ModelBroker
+	approvals ApprovalWaiter
 	onEvent   func(WorkerEvent)
 }
 
@@ -220,6 +234,8 @@ func (h *supervisorHandler) Handle(ctx context.Context, _ *rpc.Peer, request rpc
 			PolicyHash    string `json:"policy_hash"`
 			WorkspaceID   string `json:"workspace_id"`
 			ToolName      string `json:"tool_name"`
+			ToolCallID    string `json:"tool_call_id,omitempty"`
+			ApprovalID    string `json:"approval_id,omitempty"`
 			Args          any    `json:"args"`
 		}
 		if err := json.Unmarshal(request.Params, &data); err != nil {
@@ -234,12 +250,46 @@ func (h *supervisorHandler) Handle(ctx context.Context, _ *rpc.Peer, request rpc
 		}
 		result, err := h.broker.Execute(ctx, ToolCall{
 			RunID: spec.RunID, ParentRunID: spec.ParentRunID, PolicyProfile: spec.PolicyProfile,
-			PolicyHash: spec.PolicyHash, WorkspaceID: spec.WorkspaceID, ToolName: data.ToolName, Args: data.Args,
+			PolicyHash: spec.PolicyHash, WorkspaceID: spec.WorkspaceID, ToolName: data.ToolName,
+			CallID: data.ToolCallID, ApprovalID: data.ApprovalID, Args: data.Args,
 		})
 		if err != nil {
 			return nil, &rpc.Error{Code: rpc.InternalError, Message: "tool broker rejected the request"}
 		}
+		if result.Status == "" {
+			result.Status = "completed"
+		}
 		return result, nil
+	case "model/complete":
+		if h.model == nil {
+			return nil, &rpc.Error{Code: rpc.MethodNotFound, Message: "model broker is not configured"}
+		}
+		var modelRequest ModelRequest
+		if err := json.Unmarshal(request.Params, &modelRequest); err != nil {
+			return nil, &rpc.Error{Code: rpc.InvalidParams, Message: "invalid model broker request"}
+		}
+		spec := Spec{RunID: domain.RunID(modelRequest.RunID), ParentRunID: domain.RunID(modelRequest.ParentRunID), PolicyProfile: domain.PolicyProfile(modelRequest.PolicyProfile), PolicyHash: modelRequest.PolicyHash, WorkspaceID: modelRequest.WorkspaceID}
+		if err := h.authority.Validate(spec); err != nil {
+			return nil, &rpc.Error{Code: rpc.InvalidParams, Message: err.Error()}
+		}
+		result, err := h.model.Complete(ctx, modelRequest)
+		if err != nil {
+			return nil, &rpc.Error{Code: rpc.InternalError, Message: "model broker rejected the request"}
+		}
+		return result, nil
+	case "approval/wait":
+		if h.approvals == nil {
+			return nil, &rpc.Error{Code: rpc.MethodNotFound, Message: "approval waiter is not configured"}
+		}
+		var waitRequest ApprovalWaitRequest
+		if err := json.Unmarshal(request.Params, &waitRequest); err != nil || waitRequest.RunID == "" || waitRequest.ApprovalID == "" {
+			return nil, &rpc.Error{Code: rpc.InvalidParams, Message: "invalid approval wait request"}
+		}
+		if result, err := h.approvals.Wait(ctx, waitRequest); err != nil {
+			return nil, &rpc.Error{Code: rpc.InternalError, Message: "approval wait failed"}
+		} else {
+			return result, nil
+		}
 	default:
 		return nil, &rpc.Error{Code: rpc.MethodNotFound, Message: "unknown worker request"}
 	}
