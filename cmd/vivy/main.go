@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/worker"
 )
 
 // configPath is the conventional location; absent file falls back to the
@@ -19,6 +21,18 @@ import (
 const configPath = "config.yaml"
 
 func main() {
+	// The worker protocol owns stdout. Keep this branch before the normal
+	// logger is installed so startup diagnostics can never corrupt JSONL.
+	if len(os.Args) > 1 && os.Args[1] == "worker" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := worker.Run(ctx, os.Stdin, os.Stdout); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
