@@ -701,6 +701,10 @@ func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
 			return err
 		}
 		switch re.Type {
+		case domain.EventProviderRetry:
+			if err := ledger.ReserveRetry(); err != nil {
+				return err
+			}
 		case domain.EventToolRequested:
 			modelCall = true
 			if err := ledger.ReserveToolCall(); err != nil {

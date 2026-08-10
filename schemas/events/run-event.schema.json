@@ -19,7 +19,11 @@
       "type": "string",
       "enum": [
         "run.started",
+        "provider.retry",
+        "provider.stall",
+        "model.reasoning_delta",
         "model.delta",
+        "model.usage",
         "model.completed",
         "tool.requested",
         "tool.approval_required",

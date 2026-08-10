@@ -205,6 +205,8 @@ func (l *BudgetLedger) ReplayEvent(ev domain.RunEvent) error {
 		}
 	}
 	switch ev.Type {
+	case domain.EventProviderRetry:
+		return l.ReserveRetry()
 	case domain.EventToolRequested:
 		if err := l.ReserveModelCall(); err != nil {
 			return err

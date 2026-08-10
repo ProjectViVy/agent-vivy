@@ -155,6 +155,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
 		},
 		Workspaces: workspaces,
+		Hooks:      []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
 		Sink:       bus,
 	})
 

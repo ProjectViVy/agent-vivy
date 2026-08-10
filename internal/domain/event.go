@@ -7,7 +7,11 @@ type EventType string
 
 const (
 	EventRunStarted           EventType = "run.started"
+	EventProviderRetry        EventType = "provider.retry"
+	EventProviderStall        EventType = "provider.stall"
+	EventModelReasoningDelta  EventType = "model.reasoning_delta"
 	EventModelDelta           EventType = "model.delta"
+	EventModelUsage           EventType = "model.usage"
 	EventModelCompleted       EventType = "model.completed"
 	EventToolRequested        EventType = "tool.requested"
 	EventToolApprovalRequired EventType = "tool.approval_required"
@@ -23,7 +27,11 @@ const (
 // EventTypes lists the full vocabulary in canonical order.
 var EventTypes = []EventType{
 	EventRunStarted,
+	EventProviderRetry,
+	EventProviderStall,
+	EventModelReasoningDelta,
 	EventModelDelta,
+	EventModelUsage,
 	EventModelCompleted,
 	EventToolRequested,
 	EventToolApprovalRequired,

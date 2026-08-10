@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/model.reasoning_delta.json",
+  "title": "model.reasoning_delta payload (v1)",
+  "type": "object",
+  "properties": {
+    "delta": {
+      "type": "string",
+      "description": "Bounded reasoning summary/content chunk from the provider stream."
+    }
+  },
+  "required": ["delta"],
+  "additionalProperties": false
+}

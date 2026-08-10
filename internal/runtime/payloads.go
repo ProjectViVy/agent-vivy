@@ -14,6 +14,25 @@ type payloadModelDelta struct {
 	Delta string `json:"delta"`
 }
 
+type payloadModelReasoningDelta struct {
+	Delta string `json:"delta"`
+}
+
+type payloadModelUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
+}
+
+type payloadProviderRetry struct {
+	Attempt int `json:"attempt"`
+}
+
+type payloadProviderStall struct {
+	ElapsedMs int64 `json:"elapsed_ms"`
+}
+
 type payloadModelCompleted struct {
 	Content string `json:"content"`
 }
