@@ -77,7 +77,11 @@ evidence -> Vivy proposal -> contract/tests -> implementation
 - H5: done in `bbcfc02`. Side-effect-free preflight returns
   `ready/warning/blocked` with selected tools, context bytes, policy warnings,
   and blockers; lifecycle hooks observe durable events after the live sink.
-- H6-H11: pending.
+- H6: done in `5856125`. Tool arguments now pass a fail-closed safety gate for
+  command/path hazards, prompt-injection signals become bounded preflight
+  warnings, and tool output is redacted and marked as untrusted data before it
+  enters model context or durable tool events. No memory behavior was added.
+- H7-H11: pending.
 
 ## Verification gate
 
@@ -114,6 +118,9 @@ H1 verification for `c3b8ac4`:
 - Preflight tests prove no message/run/provider/tool side effect occurs and
   approval warnings, Plan Mode blockers, and lifecycle event hooks are visible
   as deterministic evidence.
+- Safety tests prove prompt findings do not echo suspicious text, command and
+  traversal arguments are rejected before tool execution, and common secrets
+  and email addresses are redacted from untrusted tool output.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
