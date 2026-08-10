@@ -56,6 +56,7 @@ func New(d Deps) (http.Handler, error) {
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.renameSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
+	mux.HandleFunc("POST /api/sessions/{id}/preflight", s.preflight)
 	mux.HandleFunc("GET /api/sessions/{id}/messages", s.listMessages)
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
@@ -118,6 +119,20 @@ type postMessageRequest struct {
 type postMessageResponse struct {
 	RunID  domain.RunID     `json:"run_id"`
 	Status domain.RunStatus `json:"status"`
+}
+
+type preflightRequest struct {
+	Text string `json:"text"`
+	Mode string `json:"mode,omitempty"`
+}
+
+type preflightResponse struct {
+	Status        runtime.PreflightStatus `json:"status"`
+	Mode          domain.RunMode          `json:"mode"`
+	SelectedTools []string                `json:"selected_tools"`
+	ContextBytes  int                     `json:"context_bytes"`
+	Warnings      []string                `json:"warnings"`
+	Blockers      []string                `json:"blockers"`
 }
 
 // approvalDTO exposes the decision-critical fields only; tool_name and
@@ -300,6 +315,40 @@ func (s *server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, postMessageResponse{RunID: runID, Status: domain.RunAccepted})
+}
+
+// preflight performs the same context/tool policy checks as a run without
+// persisting a message, run row, event, or provider/tool call.
+func (s *server) preflight(w http.ResponseWriter, r *http.Request) {
+	id := domain.SessionID(r.PathValue("id"))
+	if _, err := s.deps.Sessions.GetSession(r.Context(), id); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, codeNotFound, "session not found")
+			return
+		}
+		writeInternal(w, "get session", err)
+		return
+	}
+	var req preflightRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "body must be a JSON object")
+		return
+	}
+	result, err := s.deps.Service.Preflight(r.Context(), id, req.Text, runtime.RunOptions{
+		Mode: domain.RunMode(req.Mode),
+	})
+	if errors.Is(err, runtime.ErrInvalidRunMode) {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "mode must be normal or plan")
+		return
+	}
+	if err != nil {
+		writeInternal(w, "preflight", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preflightResponse{
+		Status: result.Status, Mode: result.Mode, SelectedTools: result.SelectedTools,
+		ContextBytes: result.ContextBytes, Warnings: result.Warnings, Blockers: result.Blockers,
+	})
 }
 
 func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {

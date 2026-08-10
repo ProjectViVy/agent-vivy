@@ -329,6 +329,29 @@ func TestPostMessageRejectsUnknownRunModeBeforePersistence(t *testing.T) {
 	}
 }
 
+func TestPreflightEndpointDoesNotCreateRun(t *testing.T) {
+	env := newTestEnv(t, provider.NewMock())
+	sessID := createSession(t, env.handler, "preflight")
+	w := doJSON(t, env.handler, http.MethodPost, "/api/sessions/"+sessID+"/preflight", `{"text":"hello"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("preflight: status %d body %s", w.Code, w.Body.String())
+	}
+	var result struct {
+		Status string `json:"status"`
+		Mode   string `json:"mode"`
+	}
+	decodeBody(t, w, &result)
+	if result.Status != "ready" || result.Mode != "normal" {
+		t.Fatalf("preflight result = %+v", result)
+	}
+	if msgs, err := env.backend.ListMessages(context.Background(), domain.SessionID(sessID)); err != nil || len(msgs) != 0 {
+		t.Fatalf("preflight messages = %+v, err=%v", msgs, err)
+	}
+	if runs, err := env.backend.ListActiveRuns(context.Background()); err != nil || len(runs) != 0 {
+		t.Fatalf("preflight active runs = %+v, err=%v", runs, err)
+	}
+}
+
 func TestPlanModeIsAcceptedAndTaggedInRunStarted(t *testing.T) {
 	env := newTestEnv(t, provider.NewMock())
 	sessID := createSession(t, env.handler, "plan")

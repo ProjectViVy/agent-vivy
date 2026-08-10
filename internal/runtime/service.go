@@ -32,6 +32,12 @@ type EventSink interface {
 	Publish(domain.RunEvent)
 }
 
+// RunHook observes durable lifecycle events after they are handed to the
+// live sink. Hooks are advisory and cannot change run state.
+type RunHook interface {
+	OnRunEvent(context.Context, domain.RunEvent)
+}
+
 // DecideApproval error sentinels; the API layer maps them to HTTP
 // semantics (404 / 409; D-009 stays server-enforced).
 var (
@@ -61,6 +67,7 @@ type ServiceDeps struct {
 	ApprovalExpiration time.Duration
 	// Questions persists ask_user interactions separately from approvals.
 	Questions storage.QuestionStore
+	Hooks     []RunHook
 	Sink      EventSink
 }
 
@@ -157,7 +164,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", fmt.Errorf("runtime: persist run.started: %w", err)
 	}
 	started.Seq = seq
-	s.deps.Sink.Publish(started)
+	s.publish(ctx, started)
 
 	if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
 		return "", fmt.Errorf("runtime: activate run: %w", err)
@@ -459,7 +466,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
-	msgs, selection, err := s.runMessages(ctx, sessionID, userText)
+	msgs, selection, _, err := s.runMessages(ctx, sessionID, userText)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -476,7 +483,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // message with a warning — the run proceeds exactly as before the feed
 // existed rather than failing on a bookkeeping read. Tool-role rows never
 // enter the feed: cross-turn context carries text pairs only.
-func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, tools.Selection, error) {
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := s.engine.SelectTools(userText)
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, selected tool set, and the bounded notebook
@@ -492,7 +499,7 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		MaxHistoryMessages: s.engine.cfg.MaxHistoryMessages,
 	}, preamble, stored, userText)
 	if err != nil {
-		return nil, selection, err
+		return nil, selection, stats, err
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -502,7 +509,7 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 			"context_bytes", stats.Bytes,
 		)
 	}
-	return msgs, selection, nil
+	return msgs, selection, stats, nil
 }
 
 // notesDigest builds the preamble's notebook section (MA-3). Any listing
@@ -625,7 +632,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		return
 	}
 	ev.Seq = seq
-	s.deps.Sink.Publish(ev)
+	s.publish(persistCtx, ev)
 
 	if ctx.Err() != nil {
 		// Cancelled while suspending: close as cancelled. The approval
@@ -705,7 +712,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		return
 	}
 	ev.Seq = seq
-	s.deps.Sink.Publish(ev)
+	s.publish(persistCtx, ev)
 	if ctx.Err() != nil {
 		_ = s.deps.Questions.CancelQuestion(context.Background(), question.ID)
 		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
@@ -829,7 +836,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 		return fmt.Errorf("runtime: persist question answer: %w", err)
 	}
 	ev.Seq = seq
-	s.deps.Sink.Publish(ev)
+	s.publish(persistCtx, ev)
 	s.mu.Lock()
 	p, ok := s.pending[question.RunID]
 	if ok {
@@ -941,7 +948,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 		return false
 	}
 	re.Seq = seq
-	s.deps.Sink.Publish(re)
+	s.publish(ctx, re)
 
 	if re.Type == domain.EventModelCompleted {
 		s.appendAssistantMessage(ctx, sessionID, re)
@@ -1009,7 +1016,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if err := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status); err != nil {
 		slog.Error("set terminal run status", "run", string(terminal.RunID), "status", string(status), "err", err)
 	}
-	s.deps.Sink.Publish(terminal)
+	s.publish(persistCtx, terminal)
 
 	s.mu.Lock()
 	if c, ok := s.active[terminal.RunID]; ok {
@@ -1017,6 +1024,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		c() // idempotent: releases the detached run context
 	}
 	s.mu.Unlock()
+}
+
+func (s *Service) publish(ctx context.Context, ev domain.RunEvent) {
+	s.deps.Sink.Publish(ev)
+	for _, hook := range s.deps.Hooks {
+		hook.OnRunEvent(ctx, ev)
+	}
 }
 
 func newRunID() domain.RunID {
