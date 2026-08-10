@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -67,6 +68,19 @@ func TestToolAdapterValidatesSchemaBeforeInvocation(t *testing.T) {
 	}
 }
 
+func TestToolAdapterPlanModeBlocksEffectfulToolBeforeApproval(t *testing.T) {
+	tool := &planCountingTool{}
+	adapter := newToolAdapter(tool, 0)
+	ctx := withRunMode(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.RunModePlan)
+	_, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
+	if !errors.Is(err, ErrPlanModeToolDenied) {
+		t.Fatalf("plan mode error = %v, want %v", err, ErrPlanModeToolDenied)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("plan mode effectful calls = %d, want zero", tool.calls)
+	}
+}
+
 type longResultTool struct{}
 
 func (longResultTool) Spec() domain.ToolSpec {
@@ -79,6 +93,25 @@ func (longResultTool) InvokableRun(context.Context, json.RawMessage) (string, er
 
 type countingTool struct {
 	calls int
+}
+
+type planCountingTool struct {
+	calls int
+}
+
+func (t *planCountingTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name:     "plan_write",
+		Readonly: false,
+		Params: map[string]domain.ToolParam{
+			"value": {Required: true},
+		},
+	}
+}
+
+func (t *planCountingTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	t.calls++
+	return "mutated", nil
 }
 
 func (t *countingTool) Spec() domain.ToolSpec {

@@ -7,6 +7,7 @@ package runtime
 type payloadRunStarted struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+	Mode     string `json:"mode"`
 }
 
 type payloadModelDelta struct {
@@ -45,6 +46,7 @@ type payloadToolApprovalRequired struct {
 	Args          map[string]any `json:"args"`
 	ExpiresAt     int64          `json:"expires_at"`
 	SelectedTools []string       `json:"selected_tools,omitempty"`
+	Mode          string         `json:"mode,omitempty"`
 }
 
 type payloadRunCompleted struct {

@@ -202,6 +202,44 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	}
 }
 
+func TestServicePlanModeDoesNotOpenApprovalOrMutate(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+
+	runID, err := svc.RunWithOptions(ctx, "sess-plan", "note that I need milk", RunOptions{Mode: domain.RunModePlan})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	approvals, err := backend.ListPendingApprovals(ctx)
+	if err != nil {
+		t.Fatalf("list approvals: %v", err)
+	}
+	for _, approval := range approvals {
+		if approval.RunID == runID {
+			t.Fatalf("plan mode opened approval %+v", approval)
+		}
+	}
+	notes, err := backend.ListNotes(ctx)
+	if err != nil {
+		t.Fatalf("list notes: %v", err)
+	}
+	if len(notes) != 0 {
+		t.Fatalf("plan mode mutated notes: %+v", notes)
+	}
+
+	events := replayAll(t, backend, runID)
+	if indexOfType(events, domain.EventToolApprovalRequired) >= 0 {
+		t.Fatal("plan mode must not emit tool.approval_required")
+	}
+	var started payloadRunStarted
+	mustUnmarshal(t, events[0].Payload, &started)
+	if started.Mode != string(domain.RunModePlan) {
+		t.Fatalf("run.started mode = %q, want plan", started.Mode)
+	}
+}
+
 func TestServiceApprovalDenyFlow(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()

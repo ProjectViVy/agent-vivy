@@ -305,6 +305,50 @@ func TestFullFlowSessionMessageSSE(t *testing.T) {
 	}
 }
 
+func TestPostMessageRejectsUnknownRunModeBeforePersistence(t *testing.T) {
+	env := newTestEnv(t, provider.NewMock())
+	sessID := createSession(t, env.handler, "mode")
+
+	w := doJSON(t, env.handler, http.MethodPost, "/api/sessions/"+sessID+"/messages",
+		`{"text":"hello","mode":"execute"}`)
+	assertAPIError(t, w, http.StatusBadRequest, codeInvalidRequest)
+
+	msgs, err := env.backend.ListMessages(context.Background(), domain.SessionID(sessID))
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("invalid mode persisted messages: %+v", msgs)
+	}
+	active, err := env.backend.ListActiveRuns(context.Background())
+	if err != nil {
+		t.Fatalf("list active runs: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("invalid mode persisted runs: %+v", active)
+	}
+}
+
+func TestPlanModeIsAcceptedAndTaggedInRunStarted(t *testing.T) {
+	env := newTestEnv(t, provider.NewMock())
+	sessID := createSession(t, env.handler, "plan")
+	w := doJSON(t, env.handler, http.MethodPost, "/api/sessions/"+sessID+"/messages",
+		`{"text":"draft a response","mode":"plan"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("plan post: status %d body %s", w.Code, w.Body.String())
+	}
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	decodeBody(t, w, &accepted)
+	waitForRunStatus(t, env.handler, accepted.RunID, "completed")
+	frames := readSSE(t, env.handler, "/api/runs/"+accepted.RunID+"/events")
+	started, ok := frames[0].Payload["payload"].(map[string]any)
+	if !ok || started["mode"] != "plan" {
+		t.Fatalf("run.started payload = %v, want mode=plan", frames[0].Payload)
+	}
+}
+
 // TestCancelEndpoint drives the cancel endpoint against a parked run and
 // asserts the run closes as cancelled.
 func TestCancelEndpoint(t *testing.T) {

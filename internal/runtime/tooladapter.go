@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"unicode/utf8"
 
@@ -12,6 +13,10 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
+
+// ErrPlanModeToolDenied is returned before any effectful tool reaches its
+// implementation. Approval is deliberately not opened in Plan Mode.
+var ErrPlanModeToolDenied = errors.New("runtime: plan mode denies effectful tools")
 
 // toolAdapter exposes a Vivy tools.Tool to Eino's ToolsNode and enforces
 // the approval gate (D-012): readonly tools execute directly; effectful
@@ -54,6 +59,9 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		if _, ok := allowed[spec.Name]; !ok {
 			return "", fmt.Errorf("runtime: tool %q is not selected for this request", spec.Name)
 		}
+	}
+	if runMode(ctx) == domain.RunModePlan && !spec.Readonly {
+		return "", fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name)
 	}
 	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
 		return "", err

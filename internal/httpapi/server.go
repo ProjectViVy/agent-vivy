@@ -109,6 +109,7 @@ type renameSessionRequest struct {
 
 type postMessageRequest struct {
 	Text string `json:"text"`
+	Mode string `json:"mode,omitempty"`
 }
 
 type postMessageResponse struct {
@@ -266,8 +267,14 @@ func (s *server) postMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, "text must not be empty")
 		return
 	}
-	runID, err := s.deps.Service.Run(r.Context(), id, req.Text)
+	runID, err := s.deps.Service.RunWithOptions(r.Context(), id, req.Text, runtime.RunOptions{
+		Mode: domain.RunMode(req.Mode),
+	})
 	if err != nil {
+		if errors.Is(err, runtime.ErrInvalidRunMode) {
+			writeError(w, http.StatusBadRequest, codeInvalidRequest, "mode must be normal or plan")
+			return
+		}
 		writeInternal(w, "start run", err)
 		return
 	}

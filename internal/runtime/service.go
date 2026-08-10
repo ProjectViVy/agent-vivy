@@ -85,6 +85,12 @@ type pendingRun struct {
 	sessionID     domain.SessionID
 	mapper        *eventMapper
 	selectedTools []string
+	mode          domain.RunMode
+}
+
+// RunOptions controls the physical policy applied to one run.
+type RunOptions struct {
+	Mode domain.RunMode
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -105,8 +111,18 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 // in the journal -> run row (active). The engine drive then proceeds
 // asynchronously on a detached context.
 func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText string) (domain.RunID, error) {
+	return s.RunWithOptions(ctx, sessionID, userText, RunOptions{})
+}
+
+// RunWithOptions starts one run with an explicit harness policy. The mode is
+// validated before any user message, run row, or event is persisted.
+func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
+	}
+	mode, err := normalizeRunMode(options.Mode)
+	if err != nil {
+		return "", err
 	}
 	runID := newRunID()
 	now := time.Now().UnixMilli()
@@ -127,7 +143,7 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 	}
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
-	started := m.build(domain.EventRunStarted, payloadRunStarted{Provider: s.provider, Model: s.modelID})
+	started := m.build(domain.EventRunStarted, payloadRunStarted{Provider: s.provider, Model: s.modelID, Mode: string(mode)})
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
 	if err != nil {
 		return "", fmt.Errorf("runtime: persist run.started: %w", err)
@@ -150,7 +166,7 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText)
+		s.drive(runCtx, m, sessionID, userText, mode)
 	}()
 	return runID, nil
 }
@@ -289,7 +305,7 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 // pending registration. The run row stays active; no event is emitted.
 func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval domain.Approval) {
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
-	toolName, selectedTools := s.approvalDetails(ctx, run.ID)
+	toolName, selectedTools, mode := s.approvalDetails(ctx, run.ID)
 	if len(selectedTools) == 0 && toolName != "" {
 		// Events written before request-scoped selection existed remain
 		// recoverable, but only the interrupted tool is allowed on resume.
@@ -300,7 +316,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode}
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on its approval decision",
 		"run", string(run.ID), "approval", approval.ID)
@@ -309,15 +325,16 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 // approvalDetails recovers the interrupted tool and its request-scoped
 // manifest from the durable approval event. Missing selection data is
 // handled by rebuildPending for compatibility with pre-H2 events.
-func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string) {
+func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: journal replay failed", "run", string(runID), "err", err)
-		return "", nil
+		return "", nil, domain.RunModeNormal
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
 	var selected []string
+	mode := domain.RunModeNormal
 	for it.Next() {
 		ev := it.Value().Event
 		if ev.Type != domain.EventToolApprovalRequired {
@@ -327,9 +344,12 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 		if json.Unmarshal(ev.Payload, &p) == nil {
 			name = p.ToolName
 			selected = append([]string(nil), p.SelectedTools...)
+			if p.Mode != "" {
+				mode = domain.RunMode(p.Mode)
+			}
 		}
 	}
-	return name, selected
+	return name, selected, mode
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
@@ -343,7 +363,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
@@ -352,9 +372,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
-	runCtx := withSelectedTools(ctx, selection.Names())
+	runCtx := withRunMode(withSelectedTools(ctx, selection.Names()), mode)
 	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), iter)
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, iter)
 }
 
 // runMessages rebuilds the session transcript for the engine (MA-1,
@@ -413,7 +433,7 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, iter *adk.AsyncIterator[*adk.AgentEvent]) {
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -421,7 +441,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 		events, err := m.onEvent(ev)
 		if errors.Is(err, errRunInterrupted) {
-			s.handleInterrupt(ctx, m, sessionID, selectedTools)
+			s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 			return
 		}
 		if err != nil {
@@ -448,7 +468,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 // row, commit the single tool.approval_required event, publish it, and
 // register the run as pending. The run row stays active and no terminal
 // event is emitted; DecideApproval (or Cancel) closes it later.
-func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string) {
+func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) {
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("interrupt handling failed", "run", string(runID), "err", err)
@@ -501,6 +521,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Args:          details.Args,
 		ExpiresAt:     expiresAt,
 		SelectedTools: append([]string(nil), selectedTools...),
+		Mode:          string(mode),
 	})
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
@@ -519,7 +540,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	s.mu.Lock()
-	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...)}
+	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...), mode: mode}
 	s.mu.Unlock()
 }
 
@@ -582,14 +603,14 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, approval, decision)
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, approval, decision)
 	}()
 	return nil
 }
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, approval domain.Approval, decision string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, approval domain.Approval, decision string) {
 	runID := approval.RunID
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if approval.ToolCallID != "" {
@@ -597,7 +618,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		// call so reconstructed tool.started/finished keep the call id.
 		m.openCalls = append(m.openCalls, openToolCall{id: approval.ToolCallID, name: toolName})
 	}
-	ctx := withSelectedTools(context.Background(), selectedTools)
+	ctx := withRunMode(withSelectedTools(context.Background(), selectedTools), mode)
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{approval.ResumeTarget: decision},
 	})
@@ -609,7 +630,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, iter)
+	s.consume(ctx, m, sessionID, selectedTools, mode, iter)
 }
 
 // terminalEvent classifies the failure path: context cancellation and
