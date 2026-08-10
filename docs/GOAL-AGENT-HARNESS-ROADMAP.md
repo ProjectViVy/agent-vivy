@@ -85,7 +85,12 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   durable events, model calls, tool calls, and retry reservations. Approval and
   question recovery rebuild usage from the Journal; nested child scopes inherit
   the tightest ancestor cap; exhaustion emits one classified terminal event.
-- H8-H11: pending.
+- H8: done in `f45ca7e`. Background runs now expose list/attach/logs/recover
+  operations alongside the existing cancel and replay-safe SSE path. Every
+  configured run gets a deterministic private sandbox under `workspace_root`;
+  traversal and symlink escapes fail closed, and restart recovery reattaches
+  the same run-scoped directory without exposing a host path in durable events.
+- H9-H11: pending.
 
 ## Verification gate
 
@@ -128,6 +133,9 @@ H1 verification for `c3b8ac4`:
 - Budget tests prove concurrent reservations are atomic, nested scopes cannot
   widen parent or grandparent limits, durable replay preserves exhaustion, and
   a live tool loop closes with one bounded circuit-breaker failure.
+- Isolation and HTTP tests prove per-run sandbox separation, traversal/symlink
+  rejection, bounded background log replay, attach URLs, and recovery refusal
+  while this process still owns live work.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
