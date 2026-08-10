@@ -124,6 +124,10 @@ type RunStore interface {
 	SetRunStatus(ctx context.Context, id domain.RunID, status domain.RunStatus) error
 	// ListActiveRuns enumerates non-terminal runs (restart recovery, E2).
 	ListActiveRuns(ctx context.Context) ([]domain.Run, error)
+	// ListChildRuns returns direct children in creation order.
+	ListChildRuns(ctx context.Context, parentID domain.RunID) ([]domain.Run, error)
+	// ListRunTree returns all descendants of a root in creation order.
+	ListRunTree(ctx context.Context, rootID domain.RunID) ([]domain.Run, error)
 }
 
 // ApprovalStore persists server-side approval decisions for effectful

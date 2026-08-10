@@ -183,3 +183,35 @@ func TestRunStoreLifecycle(t *testing.T) {
 		t.Fatalf("active after cancel = %+v, %v", active, err)
 	}
 }
+
+func TestRunTreeQueriesAndChildApprovalKind(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-tree", Title: "tree", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "root", SessionID: "sess-tree", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "child", SessionID: "sess-tree", Status: domain.RunActive, CreatedAt: 2, Kind: domain.RunKindChild, ParentID: "root", RootID: "root", Depth: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "grandchild", SessionID: "sess-tree", Status: domain.RunActive, CreatedAt: 3, Kind: domain.RunKindChild, ParentID: "child", RootID: "root", Depth: 2}); err != nil {
+		t.Fatal(err)
+	}
+	children, err := b.ListChildRuns(ctx, "root")
+	if err != nil || len(children) != 1 || children[0].ID != "child" || children[0].Depth != 1 {
+		t.Fatalf("children = %+v, %v", children, err)
+	}
+	tree, err := b.ListRunTree(ctx, "root")
+	if err != nil || len(tree) != 2 || tree[1].ID != "grandchild" {
+		t.Fatalf("tree = %+v, %v", tree, err)
+	}
+	if err := b.CreateApproval(ctx, domain.Approval{ID: "apr-child", RunID: "child", ToolCallID: "tool-1", Decision: domain.ApprovalPending, ExpiresAt: 9999, Kind: domain.ApprovalKindChild}); err != nil {
+		t.Fatal(err)
+	}
+	approval, err := b.GetApproval(ctx, "apr-child")
+	if err != nil || approval.Kind != domain.ApprovalKindChild {
+		t.Fatalf("approval = %+v, %v", approval, err)
+	}
+}

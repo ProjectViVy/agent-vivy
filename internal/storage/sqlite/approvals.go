@@ -14,9 +14,9 @@ import (
 // and settle them via DecideApproval (FR-6).
 func (b *Backend) CreateApproval(ctx context.Context, a domain.Approval) error {
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO approvals (id, run_id, tool_call_id, decision, expires_at, resume_target)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		a.ID, a.RunID, a.ToolCallID, a.Decision, a.ExpiresAt, a.ResumeTarget); err != nil {
+		`INSERT INTO approvals (id, run_id, tool_call_id, decision, expires_at, resume_target, kind)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.RunID, a.ToolCallID, a.Decision, a.ExpiresAt, a.ResumeTarget, approvalKind(a.Kind)); err != nil {
 		return fmt.Errorf("storage: create approval %s: %w", a.ID, err)
 	}
 	return nil
@@ -27,9 +27,9 @@ func (b *Backend) GetApproval(ctx context.Context, id string) (domain.Approval, 
 	var a domain.Approval
 	var rid string
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target
+		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target, kind
 		 FROM approvals WHERE id = ?`, id).
-		Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget)
+		Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget, &a.Kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Approval{}, storage.ErrNotFound
 	}
@@ -44,7 +44,7 @@ func (b *Backend) GetApproval(ctx context.Context, id string) (domain.Approval, 
 // judges expiry itself off expires_at; D-009 stays server-enforced).
 func (b *Backend) ListPendingApprovals(ctx context.Context) ([]domain.Approval, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target
+		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target, kind
 		 FROM approvals WHERE decision = ? ORDER BY expires_at DESC, id`,
 		domain.ApprovalPending)
 	if err != nil {
@@ -56,13 +56,20 @@ func (b *Backend) ListPendingApprovals(ctx context.Context) ([]domain.Approval, 
 	for rows.Next() {
 		var a domain.Approval
 		var rid string
-		if err := rows.Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget); err != nil {
+		if err := rows.Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget, &a.Kind); err != nil {
 			return nil, fmt.Errorf("storage: scan approval: %w", err)
 		}
 		a.RunID = domain.RunID(rid)
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func approvalKind(kind string) string {
+	if kind == domain.ApprovalKindChild {
+		return domain.ApprovalKindChild
+	}
+	return domain.ApprovalKindRun
 }
 
 // DecideApproval settles a pending row; the pending-guard in the WHERE

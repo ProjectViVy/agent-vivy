@@ -49,6 +49,13 @@ const (
 	ApprovalDenied   = "denied"
 )
 
+// ApprovalKind identifies the execution owner that will receive a decision.
+// The existing run kind remains the default for backwards-compatible rows.
+const (
+	ApprovalKindRun   = "run"
+	ApprovalKindChild = "child"
+)
+
 // Approval records a server-side decision for an effectful tool call
 // (D-009). Authority is server-side only; ExpiresAt bounds validity.
 type Approval struct {
@@ -61,4 +68,5 @@ type Approval struct {
 	// (ResumeWithParams target); persisted so a decision can resume even
 	// after bookkeeping restarts (C6).
 	ResumeTarget string
+	Kind         string
 }

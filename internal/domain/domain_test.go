@@ -71,6 +71,17 @@ func TestStatusVocabulary(t *testing.T) {
 	}
 }
 
+func TestRunKindVocabulary(t *testing.T) {
+	for _, kind := range []RunKind{RunKindPrimary, RunKindChild} {
+		if !kind.Valid() {
+			t.Errorf("%q: Valid = false", kind)
+		}
+	}
+	if RunKind("other").Valid() {
+		t.Error("unknown run kind must be invalid")
+	}
+}
+
 func TestEventVocabulary(t *testing.T) {
 	if len(EventTypes) != 20 {
 		t.Fatalf("vocabulary size = %d, want 20", len(EventTypes))
