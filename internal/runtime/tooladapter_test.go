@@ -81,7 +81,28 @@ func TestToolAdapterPlanModeBlocksEffectfulToolBeforeApproval(t *testing.T) {
 	}
 }
 
+func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
+	adapter := newToolAdapter(secretResultTool{}, 0)
+	got, err := adapter.InvokableRun(context.Background(), `{}`)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.HasPrefix(got, untrustedToolResultHeader) || strings.Contains(got, "sk-live") || strings.Contains(got, "alice@example.com") {
+		t.Fatalf("secured result = %q", got)
+	}
+}
+
 type longResultTool struct{}
+
+type secretResultTool struct{}
+
+func (secretResultTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{Name: "secret_result", Description: "test tool", Readonly: true}
+}
+
+func (secretResultTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	return "sk-live-abcdefghijkl alice@example.com", nil
+}
 
 func (longResultTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{Name: "long_result", Description: "test tool", Readonly: true}

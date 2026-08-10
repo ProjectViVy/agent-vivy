@@ -148,8 +148,8 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokable run: %v", err)
 	}
-	if out != "hi there" {
-		t.Fatalf("tool output = %q, want %q", out, "hi there")
+	if !strings.Contains(out, "hi there") || !strings.HasPrefix(out, untrustedToolResultHeader) {
+		t.Fatalf("tool output = %q, want untrusted header and original data", out)
 	}
 
 	// Malformed args must surface as an error, never a panic.

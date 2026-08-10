@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
 )
 
 // PreflightStatus is the side-effect-free readiness result for one proposed
@@ -66,6 +67,9 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 		case !spec.Readonly:
 			result.Warnings = append(result.Warnings, spec.Name+" will require approval before execution")
 		}
+	}
+	for _, finding := range tools.ScanPrompt(userText) {
+		result.Warnings = append(result.Warnings, finding.Code+": "+finding.Message)
 	}
 	if len(result.Blockers) > 0 {
 		result.Status = PreflightBlocked
