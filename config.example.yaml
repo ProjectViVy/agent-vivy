@@ -41,6 +41,7 @@ runtime:
   max_model_calls: 32
   max_run_tool_calls: 64
   max_run_retries: 3
+  workspace_root: data/workspaces
 
 tools:
   # V0 ships one read-only auto-execute tool and one effectful

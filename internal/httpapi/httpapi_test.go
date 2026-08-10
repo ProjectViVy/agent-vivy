@@ -51,8 +51,13 @@ func newTestEnv(t *testing.T, model domain.ChatModel) *testEnv {
 		t.Fatalf("new engine: %v", err)
 	}
 	bus := events.NewBus(64)
+	workspaces, err := runtime.NewWorkspaceManager(filepath.Join(t.TempDir(), "workspaces"))
+	if err != nil {
+		t.Fatalf("workspace manager: %v", err)
+	}
 	svc := runtime.NewService(eng, "mock", "mock", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Workspaces: workspaces, Sink: bus,
 	})
 	h, err := New(Deps{
 		Sessions: backend, Messages: backend, Runs: backend,
@@ -302,6 +307,59 @@ func TestFullFlowSessionMessageSSE(t *testing.T) {
 		msgs.Messages[0].Role != "user" || msgs.Messages[0].Content != "hello vivy" ||
 		msgs.Messages[1].Role != "assistant" || msgs.Messages[1].Content != "mock reply to: hello vivy" {
 		t.Fatalf("messages = %+v", msgs.Messages)
+	}
+}
+
+func TestBackgroundRunAttachLogsAndRecovery(t *testing.T) {
+	env := newTestEnv(t, provider.NewMock())
+	sessID := createSession(t, env.handler, "background")
+	accepted := postMessage(t, env.handler, sessID, "background hello")
+	if accepted.Code != http.StatusAccepted {
+		t.Fatalf("post message: %d %s", accepted.Code, accepted.Body.String())
+	}
+	var started struct {
+		RunID string `json:"run_id"`
+	}
+	decodeBody(t, accepted, &started)
+	waitForRunStatus(t, env.handler, started.RunID, "completed")
+
+	w := doJSON(t, env.handler, http.MethodPost, "/api/background/runs/"+started.RunID+"/attach", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("attach: %d %s", w.Code, w.Body.String())
+	}
+	var attached struct {
+		WorkspaceID string `json:"workspace_id"`
+		EventsURL   string `json:"events_url"`
+		LogsURL     string `json:"logs_url"`
+	}
+	decodeBody(t, w, &attached)
+	if attached.WorkspaceID != started.RunID || attached.EventsURL == "" || attached.LogsURL == "" {
+		t.Fatalf("attach response = %+v", attached)
+	}
+
+	w = doJSON(t, env.handler, http.MethodGet, attached.LogsURL, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("logs: %d %s", w.Code, w.Body.String())
+	}
+	var logs struct {
+		RunID  string `json:"run_id"`
+		Events []struct {
+			Type string `json:"type"`
+		} `json:"events"`
+		Truncated bool `json:"truncated"`
+	}
+	decodeBody(t, w, &logs)
+	if logs.RunID != started.RunID || len(logs.Events) == 0 || logs.Truncated {
+		t.Fatalf("background logs = %+v", logs)
+	}
+
+	w = doJSON(t, env.handler, http.MethodGet, "/api/background/runs", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list background runs: %d %s", w.Code, w.Body.String())
+	}
+	w = doJSON(t, env.handler, http.MethodPost, "/api/background/recover", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("recover background runs: %d %s", w.Code, w.Body.String())
 	}
 }
 

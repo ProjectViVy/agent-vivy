@@ -38,6 +38,12 @@ type RunHook interface {
 	OnRunEvent(context.Context, domain.RunEvent)
 }
 
+// WorkspaceAllocator is the filesystem isolation seam for background runs.
+// The runtime never executes filesystem commands through this interface.
+type WorkspaceAllocator interface {
+	Ensure(context.Context, domain.RunID) (Workspace, error)
+}
+
 // DecideApproval error sentinels; the API layer maps them to HTTP
 // semantics (404 / 409; D-009 stays server-enforced).
 var (
@@ -49,6 +55,7 @@ var (
 	ErrQuestionInvalidAnswer   = errors.New("runtime: question answer must not be empty")
 	ErrQuestionAlreadyAnswered = errors.New("runtime: question already answered")
 	ErrQuestionExpired         = errors.New("runtime: question expired")
+	ErrRecoveryBusy            = errors.New("runtime: background runs are active")
 )
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
@@ -69,9 +76,10 @@ type ServiceDeps struct {
 	Questions storage.QuestionStore
 	// Budget bounds the complete run tree, including resumed work. A zero
 	// value uses DefaultBudgetPolicy so services stay fail-safe by default.
-	Budget BudgetPolicy
-	Hooks  []RunHook
-	Sink   EventSink
+	Budget     BudgetPolicy
+	Workspaces WorkspaceAllocator
+	Hooks      []RunHook
+	Sink       EventSink
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -98,7 +106,8 @@ type Service struct {
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
-	wg sync.WaitGroup
+	wg         sync.WaitGroup
+	recoveryMu sync.Mutex
 }
 
 type pendingRun struct {
@@ -158,6 +167,11 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	runID := newRunID()
+	if s.deps.Workspaces != nil {
+		if _, err := s.deps.Workspaces.Ensure(ctx, runID); err != nil {
+			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
+		}
+	}
 	now := time.Now().UnixMilli()
 
 	if err := s.deps.Messages.AppendMessage(ctx, domain.Message{
@@ -285,6 +299,27 @@ func (s *Service) WaitIdle(ctx context.Context) bool {
 // (D-008). Called once at startup before the server listens; a listing
 // failure aborts startup, per-run failures only log.
 func (s *Service) Recover(ctx context.Context) error {
+	s.recoveryMu.Lock()
+	defer s.recoveryMu.Unlock()
+	return s.recover(ctx)
+}
+
+// RecoverBackground is the operator-facing recovery entry point. It refuses
+// to reinterpret work owned by this process; startup recovery remains the
+// safe path when no live state exists after a restart.
+func (s *Service) RecoverBackground(ctx context.Context) error {
+	s.recoveryMu.Lock()
+	defer s.recoveryMu.Unlock()
+	s.mu.Lock()
+	busy := len(s.active) > 0 || len(s.pending) > 0
+	s.mu.Unlock()
+	if busy {
+		return ErrRecoveryBusy
+	}
+	return s.recover(ctx)
+}
+
+func (s *Service) recover(ctx context.Context) error {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
 		return errors.New("runtime: service not wired")
 	}
@@ -325,6 +360,12 @@ func (s *Service) Recover(ctx context.Context) error {
 
 	now := time.Now().UnixMilli()
 	for _, run := range runs {
+		if s.deps.Workspaces != nil {
+			if _, err := s.deps.Workspaces.Ensure(ctx, run.ID); err != nil {
+				s.failUnrecoverable(ctx, run.ID, "workspace isolation unavailable")
+				continue
+			}
+		}
 		approval, hasApproval := pendingByRun[run.ID]
 		question, hasQuestion := pendingQuestionsByRun[run.ID]
 		switch {
@@ -347,6 +388,19 @@ func (s *Service) Recover(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Workspace returns the deterministic sandbox for a durable run. Attach and
+// recovery callers use the same boundary, so a restart cannot silently fall
+// back to the host working directory.
+func (s *Service) Workspace(ctx context.Context, runID domain.RunID) (Workspace, error) {
+	if s.deps.Workspaces == nil {
+		return Workspace{}, errors.New("runtime: workspace isolation not wired")
+	}
+	if _, err := s.deps.Runs.GetRun(ctx, runID); err != nil {
+		return Workspace{}, err
+	}
+	return s.deps.Workspaces.Ensure(ctx, runID)
 }
 
 // checkpointReadable mirrors the interrupt-time check: only a checkpoint

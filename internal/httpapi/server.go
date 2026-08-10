@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -61,6 +62,10 @@ func New(d Deps) (http.Handler, error) {
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
 	mux.HandleFunc("GET /api/runs/{id}/events", s.streamRunEvents)
+	mux.HandleFunc("GET /api/background/runs", s.listBackgroundRuns)
+	mux.HandleFunc("POST /api/background/recover", s.recoverBackgroundRuns)
+	mux.HandleFunc("POST /api/background/runs/{id}/attach", s.attachBackgroundRun)
+	mux.HandleFunc("GET /api/background/runs/{id}/logs", s.backgroundRunLogs)
 	mux.HandleFunc("GET /api/approvals", s.listApprovals)
 	mux.HandleFunc("POST /api/approvals/{id}/decision", s.decideApproval)
 	mux.HandleFunc("GET /api/questions", s.listQuestions)
@@ -101,6 +106,23 @@ type runDTO struct {
 	SessionID domain.SessionID `json:"session_id"`
 	Status    domain.RunStatus `json:"status"`
 	CreatedAt int64            `json:"created_at"`
+}
+
+type backgroundRunDTO struct {
+	ID          domain.RunID     `json:"id"`
+	SessionID   domain.SessionID `json:"session_id"`
+	Status      domain.RunStatus `json:"status"`
+	CreatedAt   int64            `json:"created_at"`
+	WorkspaceID string           `json:"workspace_id,omitempty"`
+	EventsURL   string           `json:"events_url"`
+	LogsURL     string           `json:"logs_url"`
+}
+
+type backgroundLogDTO struct {
+	Seq       domain.EventSeq  `json:"seq"`
+	Type      domain.EventType `json:"type"`
+	CreatedAt int64            `json:"created_at"`
+	Payload   json.RawMessage  `json:"payload"`
 }
 
 type createSessionRequest struct {
@@ -438,6 +460,117 @@ func (s *server) streamRunEvents(w http.ResponseWriter, r *http.Request) {
 		// Mid-stream failures cannot become JSON errors: headers and
 		// frames are already on the wire. The journal keeps the truth.
 		slog.Warn("sse stream ended with error", "run", string(runID), "err", err)
+	}
+}
+
+// listBackgroundRuns lists non-terminal runs that survive the submitting
+// request. Completed history remains available through the session journal;
+// this endpoint is the operational background-run inbox.
+func (s *server) listBackgroundRuns(w http.ResponseWriter, r *http.Request) {
+	runs, err := s.deps.Runs.ListActiveRuns(r.Context())
+	if err != nil {
+		writeInternal(w, "list background runs", err)
+		return
+	}
+	out := make([]backgroundRunDTO, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, s.toBackgroundRunDTO(r.Context(), run))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+}
+
+// attachBackgroundRun is a read-only capability handshake. The client can
+// immediately consume the replay-safe SSE URL and bounded JSON log URL after
+// a refresh or process restart.
+func (s *server) attachBackgroundRun(w http.ResponseWriter, r *http.Request) {
+	runID := domain.RunID(r.PathValue("id"))
+	run, err := s.deps.Runs.GetRun(r.Context(), runID)
+	if errors.Is(err, storage.ErrNotFound) {
+		writeError(w, http.StatusNotFound, codeNotFound, "run not found")
+		return
+	}
+	if err != nil {
+		writeInternal(w, "get background run", err)
+		return
+	}
+	workspace, err := s.deps.Service.Workspace(r.Context(), runID)
+	if err != nil {
+		writeInternal(w, "attach background workspace", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.toBackgroundRunDTOWithWorkspace(run, workspace.ID))
+}
+
+// backgroundRunLogs returns the durable event log for headless workers that
+// cannot consume SSE. The cap keeps one response bounded; callers can use
+// the SSE after_seq cursor for a complete replay.
+func (s *server) backgroundRunLogs(w http.ResponseWriter, r *http.Request) {
+	runID := domain.RunID(r.PathValue("id"))
+	if _, err := s.deps.Runs.GetRun(r.Context(), runID); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, codeNotFound, "run not found")
+			return
+		}
+		writeInternal(w, "get background run", err)
+		return
+	}
+	const maxLogEvents = 1024
+	it, err := s.deps.Journal.Replay(r.Context(), runID, 0)
+	if err != nil {
+		writeInternal(w, "replay background run logs", err)
+		return
+	}
+	defer func() { _ = it.Close() }()
+	logs := make([]backgroundLogDTO, 0, 32)
+	truncated := false
+	for it.Next() {
+		if len(logs) == maxLogEvents {
+			truncated = true
+			break
+		}
+		ev := it.Value().Event
+		logs = append(logs, backgroundLogDTO{
+			Seq: ev.Seq, Type: ev.Type, CreatedAt: ev.CreatedAt,
+			Payload: append(json.RawMessage(nil), ev.Payload...),
+		})
+	}
+	if err := it.Err(); err != nil {
+		writeInternal(w, "replay background run logs", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run_id": runID, "events": logs, "truncated": truncated})
+}
+
+// recoverBackgroundRuns is the manual counterpart to startup recovery. It
+// refuses to run while this process owns live work, preventing an operator
+// refresh from reclassifying a healthy in-process run as an orphan.
+func (s *server) recoverBackgroundRuns(w http.ResponseWriter, r *http.Request) {
+	if err := s.deps.Service.RecoverBackground(r.Context()); err != nil {
+		if errors.Is(err, runtime.ErrRecoveryBusy) {
+			writeError(w, http.StatusConflict, codeConflict, "background runs are active in this process")
+			return
+		}
+		writeInternal(w, "recover background runs", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "recovered"})
+}
+
+func (s *server) toBackgroundRunDTO(ctx context.Context, run domain.Run) backgroundRunDTO {
+	workspaceID := ""
+	if workspace, err := s.deps.Service.Workspace(ctx, run.ID); err == nil {
+		workspaceID = workspace.ID
+	}
+	return s.toBackgroundRunDTOWithWorkspace(run, workspaceID)
+}
+
+func (s *server) toBackgroundRunDTOWithWorkspace(run domain.Run, workspaceID string) backgroundRunDTO {
+	id := string(run.ID)
+	return backgroundRunDTO{
+		ID: run.ID, SessionID: run.SessionID, Status: run.Status, CreatedAt: run.CreatedAt,
+		WorkspaceID: workspaceID,
+		EventsURL:   "/api/runs/" + id + "/events",
+		LogsURL:     "/api/background/runs/" + id + "/logs",
 	}
 }
 

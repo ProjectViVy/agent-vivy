@@ -40,6 +40,7 @@ const (
 	defaultMaxModelCalls      = 32
 	defaultMaxRunToolCalls    = 64
 	defaultMaxRunRetries      = 3
+	defaultWorkspaceRoot      = "data/workspaces"
 )
 
 // Config is the typed, validated configuration store.
@@ -111,6 +112,8 @@ type Runtime struct {
 	MaxRunToolCalls int `yaml:"max_run_tool_calls"`
 	// MaxRunRetries bounds explicit retry reservations for one run tree.
 	MaxRunRetries int `yaml:"max_run_retries"`
+	// WorkspaceRoot contains one private sandbox directory per background run.
+	WorkspaceRoot string `yaml:"workspace_root"`
 }
 
 type Tools struct {
@@ -173,6 +176,7 @@ func Default() Config {
 			MaxModelCalls:        defaultMaxModelCalls,
 			MaxRunToolCalls:      defaultMaxRunToolCalls,
 			MaxRunRetries:        defaultMaxRunRetries,
+			WorkspaceRoot:        defaultWorkspaceRoot,
 		},
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user"},
@@ -268,6 +272,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxRunRetries < 0 {
 		return errors.New("runtime.max_run_retries must not be negative")
+	}
+	if c.Runtime.WorkspaceRoot == "" {
+		return errors.New("runtime.workspace_root must not be empty")
 	}
 
 	if len(c.Tools.Enabled) == 0 {

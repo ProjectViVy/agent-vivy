@@ -118,6 +118,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
 	}
+	var workspaces runtime.WorkspaceAllocator
+	if cfg.Runtime.WorkspaceRoot != "" {
+		manager, err := runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build workspace isolation: %w", err)
+		}
+		workspaces = manager
+	}
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
@@ -145,7 +154,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
 		},
-		Sink: bus,
+		Workspaces: workspaces,
+		Sink:       bus,
 	})
 
 	api, err := httpapi.New(httpapi.Deps{
