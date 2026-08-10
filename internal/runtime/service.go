@@ -357,7 +357,7 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, tool set, and the bounded notebook
 	// digest of MA-3).
-	preamble := composeRunPreamble(time.Now(), s.engine.toolSpecs, s.notesDigest(ctx))
+	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx))
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)

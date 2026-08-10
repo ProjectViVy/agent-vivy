@@ -68,7 +68,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
-		Instruction: "You are Vivy, a precise personal assistant.",
+		Instruction: composeStaticInstruction(specs),
 		Model:       m,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},

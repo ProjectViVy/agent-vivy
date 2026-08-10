@@ -535,16 +535,19 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	if len(feed) < 2 {
 		t.Fatalf("feed too short: %+v", feed)
 	}
-	// The adapter collapses the preamble's system role to assistant; it
-	// must sit between the static instruction and the first user message.
-	preamble := feed[1]
-	want := preamblePersona
-	if preamble.Role != domain.RoleAssistant || !strings.HasPrefix(preamble.Content, want) {
-		t.Fatalf("feed[1] = %+v, want the preamble leading with %q", preamble, want)
+	// The adapter collapses system roles to assistant. The stable instruction
+	// must precede the dynamic per-run preamble and the first user message.
+	static := feed[0]
+	if static.Role != domain.RoleAssistant || !strings.HasPrefix(static.Content, preamblePersona) {
+		t.Fatalf("feed[0] = %+v, want stable instruction leading with %q", static, preamblePersona)
 	}
-	for _, marker := range []string{"Today's date: ", "echo_info", "read-only; runs automatically"} {
-		if !strings.Contains(preamble.Content, marker) {
-			t.Fatalf("preamble missing %q: %q", marker, preamble.Content)
+	dynamic := feed[1]
+	if !strings.Contains(dynamic.Content, "Today's date: ") {
+		t.Fatalf("dynamic preamble missing date: %q", dynamic.Content)
+	}
+	for _, marker := range []string{"echo_info", "read-only; runs automatically"} {
+		if !strings.Contains(static.Content, marker) {
+			t.Fatalf("static instruction missing %q: %q", marker, static.Content)
 		}
 	}
 	last := feed[len(feed)-1]
