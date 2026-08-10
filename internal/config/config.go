@@ -159,7 +159,7 @@ func Default() Config {
 			MaxToolResultBytes:   32 << 10,
 		},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note"},
+			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 	}

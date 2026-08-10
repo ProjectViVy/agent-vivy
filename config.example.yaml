@@ -43,5 +43,6 @@ tools:
   enabled:
     - echo_info        # read-only, auto-execute
     - write_note       # effectful, approval-gated
+    - ask_user         # user-input suspension, distinct from approval
   approval:
     expiration: 5m
