@@ -90,7 +90,11 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   configured run gets a deterministic private sandbox under `workspace_root`;
   traversal and symlink escapes fail closed, and restart recovery reattaches
   the same run-scoped directory without exposing a host path in durable events.
-- H9-H11: pending.
+- H9: done in `d115802`. Provider retry, observed stream stall, reasoning delta,
+  and token-usage events now use versioned Vivy schemas and reach the Journal,
+  SSE, background logs, and lifecycle hooks. AuditHook records only event
+  metadata plus a payload digest, never raw provider/tool content.
+- H10-H11: pending.
 
 ## Verification gate
 
@@ -136,6 +140,9 @@ H1 verification for `c3b8ac4`:
 - Isolation and HTTP tests prove per-run sandbox separation, traversal/symlink
   rejection, bounded background log replay, attach URLs, and recovery refusal
   while this process still owns live work.
+- Observability tests prove reasoning/usage/stall mapping, retry error-message
+  non-disclosure, and digest-only audit records; the full event vocabulary and
+  payload schemas remain synchronized.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
