@@ -70,7 +70,11 @@ evidence -> Vivy proposal -> contract/tests -> implementation
 - H3: done in `974ea45`. Runs carry an explicit `normal/plan` mode from API
   through the service, Eino context, approval event, and `run.started` event;
   Plan Mode physically rejects effectful tools before approval or invocation.
-- H4-H11: pending.
+- H4: done in `27b2370`, `a6a04e9`, and `40d74a3`. `ask_user` has an independent
+  QuestionStore, question-required/answered events, list/answer API endpoints,
+  first-writer-wins answers, cancellation, and restart recovery. Its answer
+  resumes Eino without touching ApprovalStore.
+- H5-H11: pending.
 
 ## Verification gate
 
@@ -101,6 +105,9 @@ H1 verification for `c3b8ac4`:
 - Plan-mode unit, service, and HTTP tests prove an effectful call produces no
   approval and no note mutation, invalid modes are rejected before persistence,
   and accepted plan runs are tagged in `run.started`.
+- Question storage, runtime, HTTP, and restart tests prove question state is
+  not represented as approval, answer races are first-writer-wins, the answer
+  resumes the checkpoint, and the question lifecycle reaches SSE.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
