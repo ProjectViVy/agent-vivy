@@ -57,9 +57,10 @@ evidence -> Vivy proposal -> contract/tests -> implementation
 ## Current progress
 
 - H0: done in `748cd38`.
-- H1: in progress. The bounded transient context sub-slice is done in
-  `c3b8ac4`; stable prompt-prefix layout is done in `9d7c8b3`; micro-
-  compaction remains.
+- H1: done in `c3b8ac4`, `9d7c8b3`, and `15c6eb9`. Transient context is
+  bounded, the stable prompt prefix is separated from dynamic run facts, and
+  tool results are compacted before entering model context. No durable memory
+  behavior was added.
 - H2-H11: pending.
 
 ## Verification gate
@@ -82,6 +83,8 @@ H1 verification for `c3b8ac4`:
   current-message retention, tool-row exclusion, and terminal failure.
 - Prompt tests prove dynamic date/Notes facts are excluded from the stable
   instruction prefix while tool guidance remains deterministic.
+- Tool-adapter tests prove oversized results retain a UTF-8-safe head/tail
+  with an explicit collapse marker and small results remain unchanged.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
