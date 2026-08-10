@@ -14,7 +14,8 @@ control-plane proposal, not a new agent runtime and not a Memory integration.
 - No remote tool execution or filesystem write is enabled.
 - No Memory, BML, Laputa, AutoDream, Evolution, or long-term memory injection
   is added.
-- The existing local HTTP/SSE API remains the only active control surface.
+- The existing local JSON-RPC/WebSocket control plane remains the only active
+  control surface.
 
 ## Proposed invariants
 
@@ -46,7 +47,7 @@ inventing a second run model:
 |---|---|---|
 | list sessions/background runs | read | authenticated principal + scope |
 | attach/replay event log | read | session/run ownership |
-| subscribe SSE/event stream | read | cursor + bounded reconnect |
+| subscribe event stream | read | cursor + bounded reconnect |
 | cancel run | write | command id + run ownership |
 | answer question | write | question expiry + first writer |
 | decide approval | write | approval expiry + first writer |

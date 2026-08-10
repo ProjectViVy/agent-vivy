@@ -11,7 +11,7 @@ This goal improves the complete Agent Harness path in Vivy:
 ```text
 prompt -> preflight -> context/budget -> tool selection -> run mode
        -> provider stream -> tool/approval/question -> durable events
-       -> API/SSE/UI -> cancel/recover/audit
+       -> JSON-RPC/UI -> cancel/recover/audit
 ```
 
 This phase does not implement Memory, BML, Laputa, AutoDream, Evolution,
@@ -44,7 +44,7 @@ full-strength Laputa integration will provide the long-term memory layer.
 | H7 | Budget ledger and circuit breaker | H3, H6 | Parent/child and retry budgets cannot be bypassed |
 | H8 | Background sessions and subagent isolation | H7 | list/logs/attach/cancel/recover with isolated worktrees |
 | H9 | Provider stream and audit observability | H1, H7 | retry/stall/reasoning/token events reach UI and logs |
-| H10 | API/SSE/CLI/UI closure | H3, H4, H8, H9 | Browser and headless flows recover after refresh/reconnect |
+| H10 | JSON-RPC/CLI/UI closure | H3, H4, H8, H9 | Browser and headless flows recover after refresh/reconnect |
 | H11 | ACP/remote control proposal | H10 | Proposal only unless separately approved |
 
 Every slice follows:
@@ -86,13 +86,13 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   question recovery rebuild usage from the Journal; nested child scopes inherit
   the tightest ancestor cap; exhaustion emits one classified terminal event.
 - H8: done in `f45ca7e`. Background runs now expose list/attach/logs/recover
-  operations alongside the existing cancel and replay-safe SSE path. Every
+  operations alongside the existing cancel and replay-safe event path. Every
   configured run gets a deterministic private sandbox under `workspace_root`;
   traversal and symlink escapes fail closed, and restart recovery reattaches
   the same run-scoped directory without exposing a host path in durable events.
 - H9: done in `d115802`. Provider retry, observed stream stall, reasoning delta,
   and token-usage events now use versioned Vivy schemas and reach the Journal,
-  SSE, background logs, and lifecycle hooks. AuditHook records only event
+  RPC subscriptions, background logs, and lifecycle hooks. AuditHook records only event
   metadata plus a payload digest, never raw provider/tool content.
 - H10: done in `9878495` (with the background API in `f45ca7e`). The typed UI
   client now performs preflight before send, exposes Plan Mode, reconnects all
@@ -117,12 +117,32 @@ the official Codex control-plane and governance shape as the benchmark.
   approval/question/run/session control methods, cursor-based event replay,
   startup token bootstrap, and UI migration to the WebSocket control plane.
 - GOAL-3 is complete in `170150f` and `e9ea47e`: the same-binary `vivy worker`
-  speaks stdio JSONL, the control plane exposes `worker/run`, and the parent
-  pins policy snapshot/workspace authority, shares the run-tree budget, and
-  brokers every child tool call through parent-side validation and hooks.
-- Legacy HTTP/SSE handlers remain mounted only as a migration/test surface;
-  they are not used by the embedded UI. Removal is a compatibility-cleanup
-  task after downstream HTTP/SSE consumers have moved to JSON-RPC.
+  speaks stdio JSONL, and the parent pins policy snapshot/workspace authority,
+  shares the run-tree budget, and brokers every child tool call through
+  parent-side validation and hooks.
+
+## Full child harness closure (2026-08-10)
+
+The next-stage implementation closes the complete parent-to-child execution
+path without adding Memory, BML, Laputa, AutoDream, Evolution, retrieval, or
+long-term memory behavior:
+
+- GOAL-4 is complete in `a3eedc7`: child runs are durable descendants with
+  `parent_id/root_id/depth/kind` metadata, bounded depth and sibling
+  concurrency, asynchronous start, wait/join, cancellation, and a
+  fail-closed `worker_lost_after_restart` recovery result.
+- GOAL-5 is complete in `5cdfb29`: a worker owns a bounded multi-turn loop,
+  while the parent owns the model broker, model-call budget, tool broker,
+  approval persistence, policy, workspace, and durable events. Approval
+  resumes the exact child tool call through the parent broker.
+- GOAL-6 is complete in `3f323ef`: the external control plane is JSON-RPC over
+  loopback WebSocket/bootstrap plus the same-binary stdio worker protocol.
+  The old HTTP API and SSE server packages are removed; the UI, real-provider
+  smoke, and Playwright smoke use JSON-RPC. Child lifecycle event schemas and
+  child control methods are part of the contract.
+
+The child tree remains an API/backend capability in this stage; a dedicated
+tree visualization is deferred until the control contract has downstream use.
 
 GOAL-3 verification:
 
@@ -163,9 +183,9 @@ H1 verification for `c3b8ac4`:
 - Plan-mode unit, service, and HTTP tests prove an effectful call produces no
   approval and no note mutation, invalid modes are rejected before persistence,
   and accepted plan runs are tagged in `run.started`.
-- Question storage, runtime, HTTP, and restart tests prove question state is
+- Question storage, runtime, RPC, and restart tests prove question state is
   not represented as approval, answer races are first-writer-wins, the answer
-  resumes the checkpoint, and the question lifecycle reaches SSE.
+  resumes the checkpoint, and the question lifecycle reaches RPC subscribers.
 - Preflight tests prove no message/run/provider/tool side effect occurs and
   approval warnings, Plan Mode blockers, and lifecycle event hooks are visible
   as deterministic evidence.
@@ -182,8 +202,8 @@ H1 verification for `c3b8ac4`:
   non-disclosure, and digest-only audit records; the full event vocabulary and
   payload schemas remain synchronized.
 - UI verification passes `npm run build`, `npm run e2e`, Go vet, and the full
-  race suite; no browser state is persisted outside the server-backed API and
-  Journal/SSE cursors.
+  race suite; no browser state is persisted outside the server-backed RPC and
+  Journal cursors.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 

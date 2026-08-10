@@ -204,10 +204,12 @@ dry-run and hook readiness.
 | Governance policy and hook chain | DONE | Commit `628a7f1`; full Go race/vet and UI build passed |
 | Local bidirectional JSON-RPC | DONE | Commit `562fa93`; protocol/WebSocket/control tests and Playwright passed |
 | Independent `vivy worker` supervisor | DONE | Commits `170150f`, `e9ea47e`; parent-owned journal/budget/policy/workspace authority |
+| Durable child run tree | DONE | Commit `a3eedc7`; bounded async lifecycle, tree persistence, recovery loss resultization |
+| Parent-brokered worker turn loop | DONE | Commit `5cdfb29`; model/tool/approval brokerage and bounded multi-turn worker loop |
+| JSON-RPC-only external surface | DONE | Commit `3f323ef`; HTTP/SSE removed, UI and smoke paths migrated |
 
-The legacy HTTP/SSE surface remains only as a compatibility-cleanup surface;
-the embedded UI already uses JSON-RPC. Downstream consumers must migrate before
-the old handlers are removed.
+No legacy HTTP/SSE server remains. The internal worker protocol retains
+`worker/run` only on the private parent/child stdio channel.
 
 ## 12. V1 entry — Minimal agent layer (first capability proposal)
 
