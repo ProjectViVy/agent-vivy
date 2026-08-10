@@ -67,7 +67,10 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   tools, and the adapter rejects unselected calls and invalid JSON schemas.
   Approval events persist the selection so restart recovery cannot widen the
   tool surface.
-- H3-H11: pending.
+- H3: done in `974ea45`. Runs carry an explicit `normal/plan` mode from API
+  through the service, Eino context, approval event, and `run.started` event;
+  Plan Mode physically rejects effectful tools before approval or invocation.
+- H4-H11: pending.
 
 ## Verification gate
 
@@ -95,6 +98,9 @@ H1 verification for `c3b8ac4`:
   requests; adapter tests prove unselected and schema-invalid calls do not
   reach the wrapped tool. Approval and recovery tests cover durable selection
   propagation.
+- Plan-mode unit, service, and HTTP tests prove an effectful call produces no
+  approval and no note mutation, invalid modes are rejected before persistence,
+  and accepted plan runs are tagged in `run.started`.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
