@@ -81,7 +81,11 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   command/path hazards, prompt-injection signals become bounded preflight
   warnings, and tool output is redacted and marked as untrusted data before it
   enters model context or durable tool events. No memory behavior was added.
-- H7-H11: pending.
+- H7: done in `d2095a1`. Run trees now share a bounded budget ledger for
+  durable events, model calls, tool calls, and retry reservations. Approval and
+  question recovery rebuild usage from the Journal; nested child scopes inherit
+  the tightest ancestor cap; exhaustion emits one classified terminal event.
+- H8-H11: pending.
 
 ## Verification gate
 
@@ -121,6 +125,9 @@ H1 verification for `c3b8ac4`:
 - Safety tests prove prompt findings do not echo suspicious text, command and
   traversal arguments are rejected before tool execution, and common secrets
   and email addresses are redacted from untrusted tool output.
+- Budget tests prove concurrent reservations are atomic, nested scopes cannot
+  widen parent or grandparent limits, durable replay preserves exhaustion, and
+  a live tool loop closes with one bounded circuit-breaker failure.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
