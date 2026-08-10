@@ -56,8 +56,9 @@ evidence -> Vivy proposal -> contract/tests -> implementation
 
 ## Current progress
 
-- H0: in progress.
-- H1: next implementation slice.
+- H0: done in `748cd38`.
+- H1: in progress. The bounded transient context sub-slice is done in
+  `c3b8ac4`; prompt-prefix protection and micro-compaction remain.
 - H2-H11: pending.
 
 ## Verification gate
@@ -72,6 +73,14 @@ go test -race -count=1 ./...
 
 UI slices additionally run `npm run build` and Playwright E2E. Real-provider
 and desktop checks are explicit human checkpoints; mocks cannot replace them.
+
+H1 verification for `c3b8ac4`:
+
+- `go test -race -count=1 ./...` passed.
+- Context unit tests cover recent-history retention, byte budget, mandatory
+  current-message retention, tool-row exclusion, and terminal failure.
+- Existing `TestServiceCancelPendingRun` was repeated five times under race;
+  all five passed after one transient full-suite timing failure.
 
 ## Anti-clone and non-memory gates
 
