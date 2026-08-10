@@ -74,7 +74,10 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   QuestionStore, question-required/answered events, list/answer API endpoints,
   first-writer-wins answers, cancellation, and restart recovery. Its answer
   resumes Eino without touching ApprovalStore.
-- H5-H11: pending.
+- H5: done in `bbcfc02`. Side-effect-free preflight returns
+  `ready/warning/blocked` with selected tools, context bytes, policy warnings,
+  and blockers; lifecycle hooks observe durable events after the live sink.
+- H6-H11: pending.
 
 ## Verification gate
 
@@ -108,6 +111,9 @@ H1 verification for `c3b8ac4`:
 - Question storage, runtime, HTTP, and restart tests prove question state is
   not represented as approval, answer races are first-writer-wins, the answer
   resumes the checkpoint, and the question lifecycle reaches SSE.
+- Preflight tests prove no message/run/provider/tool side effect occurs and
+  approval warnings, Plan Mode blockers, and lifecycle event hooks are visible
+  as deterministic evidence.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
