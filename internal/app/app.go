@@ -141,7 +141,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Approvals:          backend,
 		Questions:          backend,
 		ApprovalExpiration: cfg.Tools.Approval.Expiration,
-		Sink:               bus,
+		Budget: runtime.BudgetPolicy{
+			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
+			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
+		},
+		Sink: bus,
 	})
 
 	api, err := httpapi.New(httpapi.Deps{

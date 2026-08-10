@@ -58,7 +58,9 @@ func TestLoadValid(t *testing.T) {
 	}
 	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
-		cfg.Runtime.MaxToolResultBytes != 32<<10 {
+		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
+		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
+		cfg.Runtime.MaxRunRetries != 3 {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {

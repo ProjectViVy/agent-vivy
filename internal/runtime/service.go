@@ -67,8 +67,11 @@ type ServiceDeps struct {
 	ApprovalExpiration time.Duration
 	// Questions persists ask_user interactions separately from approvals.
 	Questions storage.QuestionStore
-	Hooks     []RunHook
-	Sink      EventSink
+	// Budget bounds the complete run tree, including resumed work. A zero
+	// value uses DefaultBudgetPolicy so services stay fail-safe by default.
+	Budget BudgetPolicy
+	Hooks  []RunHook
+	Sink   EventSink
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -89,6 +92,9 @@ type Service struct {
 	// flight, the checkpoint is durable, and the run row stays active
 	// until a decision resumes it or Cancel closes it (C6).
 	pending map[domain.RunID]pendingRun
+	// ledgers survive approval/question suspension and are shared by every
+	// resume of the same run.
+	ledgers map[domain.RunID]*BudgetLedger
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
@@ -101,6 +107,7 @@ type pendingRun struct {
 	selectedTools []string
 	mode          domain.RunMode
 	questionID    string
+	ledger        *BudgetLedger
 }
 
 // RunOptions controls the physical policy applied to one run.
@@ -111,6 +118,9 @@ type RunOptions struct {
 // NewService wires the run service over an engine and its dependencies.
 // provider and modelID label the run.started payload.
 func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Service {
+	if deps.Budget == (BudgetPolicy{}) {
+		deps.Budget = DefaultBudgetPolicy()
+	}
 	return &Service{
 		engine:   eng,
 		deps:     deps,
@@ -118,6 +128,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		modelID:  modelID,
 		active:   make(map[domain.RunID]context.CancelFunc),
 		pending:  make(map[domain.RunID]pendingRun),
+		ledgers:  make(map[domain.RunID]*BudgetLedger),
 	}
 }
 
@@ -137,6 +148,13 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	}
 	mode, err := normalizeRunMode(options.Mode)
 	if err != nil {
+		return "", err
+	}
+	ledger, err := NewBudgetLedger(s.deps.Budget)
+	if err != nil {
+		return "", err
+	}
+	if err := ledger.ReserveEvent(); err != nil {
 		return "", err
 	}
 	runID := newRunID()
@@ -176,6 +194,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.mu.Lock()
 	s.active[runID] = cancel
+	s.ledgers[runID] = ledger
 	s.mu.Unlock()
 
 	s.wg.Add(1)
@@ -345,6 +364,10 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 // tool call (its name recovered from the journal's approval event) and a
 // pending registration. The run row stays active; no event is emitted.
 func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval domain.Approval) {
+	ledger := s.recoverBudgetLedger(ctx, run.ID)
+	if ledger == nil {
+		return
+	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
 	toolName, selectedTools, mode := s.approvalDetails(ctx, run.ID)
 	if len(selectedTools) == 0 && toolName != "" {
@@ -357,7 +380,8 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, ledger: ledger}
+	s.ledgers[run.ID] = ledger
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on its approval decision",
 		"run", string(run.ID), "approval", approval.ID)
@@ -367,6 +391,10 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 // restart. The question remains distinct from approval and resumes with the
 // answer supplied to AnswerQuestion.
 func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, question domain.Question) {
+	ledger := s.recoverBudgetLedger(ctx, run.ID)
+	if ledger == nil {
+		return
+	}
 	toolName, selectedTools, mode, resumeTarget := s.questionDetails(ctx, run.ID)
 	if toolName == "" {
 		toolName = tools.AskUserName
@@ -382,11 +410,40 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
-		mode: mode, questionID: question.ID,
+		mode: mode, questionID: question.ID, ledger: ledger,
 	}
+	s.ledgers[run.ID] = ledger
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on user question",
 		"run", string(run.ID), "question", question.ID, "resume_target", resumeTarget)
+}
+
+// recoverBudgetLedger rebuilds the shared run-tree accounting from durable
+// events before a suspended run becomes resumable. If the current policy is
+// already exceeded, recovery fails closed instead of resetting the budget.
+func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *BudgetLedger {
+	ledger, err := NewBudgetLedger(s.deps.Budget)
+	if err != nil {
+		s.failUnrecoverable(ctx, runID, "invalid budget policy")
+		return nil
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		s.failUnrecoverable(ctx, runID, "budget replay failed")
+		return nil
+	}
+	defer func() { _ = it.Close() }()
+	for it.Next() {
+		if err := ledger.ReplayEvent(it.Value().Event); err != nil {
+			s.failUnrecoverable(ctx, runID, "budget exceeded before restart")
+			return nil
+		}
+	}
+	if err := it.Err(); err != nil {
+		s.failUnrecoverable(ctx, runID, "budget replay failed")
+		return nil
+	}
+	return ledger
 }
 
 // approvalDetails recovers the interrupted tool and its request-scoped
@@ -473,7 +530,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	runCtx := withRunMode(withSelectedTools(ctx, selection.Names()), mode)
 	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, iter)
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, s.ledgerForRun(m.runID), iter)
 }
 
 // runMessages rebuilds the session transcript for the engine (MA-1,
@@ -532,7 +589,15 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+	if ledger == nil {
+		var err error
+		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
+		if err != nil {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
+	}
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -547,6 +612,10 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			return
 		}
+		if err := reserveMappedBudget(ledger, events); err != nil {
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			return
+		}
 		for _, re := range events {
 			if !s.persistAndPublish(ctx, sessionID, re) {
 				return
@@ -554,12 +623,43 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 	}
 
-	for _, re := range m.onTurnEnd() {
+	turnEnd := m.onTurnEnd()
+	if err := reserveMappedBudget(ledger, turnEnd); err != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+		return
+	}
+	for _, re := range turnEnd {
 		if !s.persistAndPublish(ctx, sessionID, re) {
 			return
 		}
 	}
 	s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
+}
+
+// reserveMappedBudget charges durable non-terminal events and the logical
+// model/tool work represented by one mapper batch. A tool-call response may
+// contain several calls but is one model generation; the request event count
+// remains the exact tool-call count.
+func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
+	modelCall := false
+	for _, re := range events {
+		if err := ledger.ReserveEvent(); err != nil {
+			return err
+		}
+		switch re.Type {
+		case domain.EventToolRequested:
+			modelCall = true
+			if err := ledger.ReserveToolCall(); err != nil {
+				return err
+			}
+		case domain.EventModelCompleted:
+			modelCall = true
+		}
+	}
+	if modelCall {
+		return ledger.ReserveModelCall()
+	}
+	return nil
 }
 
 // handleInterrupt suspends the run on a server-side approval (D-029 write
@@ -642,8 +742,9 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		return
 	}
 
+	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
-	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...), mode: mode}
+	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...), mode: mode, ledger: ledger}
 	s.mu.Unlock()
 }
 
@@ -718,11 +819,12 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
 		return
 	}
+	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
 		sessionID: sessionID, mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
-		mode:          mode, questionID: question.ID,
+		mode:          mode, questionID: question.ID, ledger: ledger,
 	}
 	s.mu.Unlock()
 }
@@ -786,7 +888,7 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision)
 	}()
 	return nil
@@ -851,7 +953,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer)
 	}()
 	return nil
@@ -866,9 +968,15 @@ func pendingToolName(p pendingRun, callID string) string {
 	return ""
 }
 
+func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ledgers[runID]
+}
+
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, runID domain.RunID, toolCallID, resumeTarget, resumeValue string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string) {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
@@ -887,7 +995,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, selectedTools, mode, iter)
+	s.consume(ctx, m, sessionID, selectedTools, mode, ledger, iter)
 }
 
 // terminalEvent classifies the failure path: context cancellation and
@@ -913,6 +1021,16 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 		return m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run context exceeds the configured limit. Please start a shorter request or raise the context budget.",
+		})
+	}
+	if errors.Is(cause, ErrBudgetExceeded) {
+		var exceeded *BudgetExceededError
+		if errors.As(cause, &exceeded) {
+			slog.Warn("run budget circuit breaker opened", "run", string(m.runID), "kind", exceeded.Kind, "limit", exceeded.Limit)
+		}
+		return m.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeInternalError,
+			Message:       "The run was stopped because it reached a safety budget. Please try again with a smaller request.",
 		})
 	}
 	slog.Warn("run failed", "err", cause)
@@ -1023,6 +1141,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		delete(s.active, terminal.RunID)
 		c() // idempotent: releases the detached run context
 	}
+	delete(s.ledgers, terminal.RunID)
 	s.mu.Unlock()
 }
 

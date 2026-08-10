@@ -36,6 +36,10 @@ const defaultMaxToolTurns = 8
 const (
 	defaultMaxContextBytes    = 256 << 10
 	defaultMaxHistoryMessages = 64
+	defaultMaxRunEvents       = 512
+	defaultMaxModelCalls      = 32
+	defaultMaxRunToolCalls    = 64
+	defaultMaxRunRetries      = 3
 )
 
 // Config is the typed, validated configuration store.
@@ -99,6 +103,14 @@ type Runtime struct {
 	MaxHistoryMessages int `yaml:"max_history_messages"`
 	// MaxToolResultBytes bounds one tool result entering the model context.
 	MaxToolResultBytes int `yaml:"max_tool_result_bytes"`
+	// MaxRunEvents bounds non-terminal durable events in one run tree.
+	MaxRunEvents int `yaml:"max_run_events"`
+	// MaxModelCalls bounds model generations across initial and resumed work.
+	MaxModelCalls int `yaml:"max_model_calls"`
+	// MaxRunToolCalls bounds tool calls across initial and resumed work.
+	MaxRunToolCalls int `yaml:"max_run_tool_calls"`
+	// MaxRunRetries bounds explicit retry reservations for one run tree.
+	MaxRunRetries int `yaml:"max_run_retries"`
 }
 
 type Tools struct {
@@ -157,6 +169,10 @@ func Default() Config {
 			MaxContextBytes:      defaultMaxContextBytes,
 			MaxHistoryMessages:   defaultMaxHistoryMessages,
 			MaxToolResultBytes:   32 << 10,
+			MaxRunEvents:         defaultMaxRunEvents,
+			MaxModelCalls:        defaultMaxModelCalls,
+			MaxRunToolCalls:      defaultMaxRunToolCalls,
+			MaxRunRetries:        defaultMaxRunRetries,
 		},
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user"},
@@ -240,6 +256,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxToolResultBytes <= 0 {
 		return errors.New("runtime.max_tool_result_bytes must be positive")
+	}
+	if c.Runtime.MaxRunEvents <= 0 {
+		return errors.New("runtime.max_run_events must be positive")
+	}
+	if c.Runtime.MaxModelCalls <= 0 {
+		return errors.New("runtime.max_model_calls must be positive")
+	}
+	if c.Runtime.MaxRunToolCalls <= 0 {
+		return errors.New("runtime.max_run_tool_calls must be positive")
+	}
+	if c.Runtime.MaxRunRetries < 0 {
+		return errors.New("runtime.max_run_retries must not be negative")
 	}
 
 	if len(c.Tools.Enabled) == 0 {
