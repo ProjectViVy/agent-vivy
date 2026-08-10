@@ -25,6 +25,8 @@
         "tool.approval_required",
         "tool.started",
         "tool.finished",
+        "user.question_required",
+        "user.question_answered",
         "run.completed",
         "run.failed",
         "run.cancelled"

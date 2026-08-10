@@ -1,11 +1,10 @@
 // Package tools owns the Vivy ToolSpec registry and approval policy.
 //
-// V0 registers exactly two tools (D-012): one read-only tool that executes
-// automatically (still emitting tool.started/tool.finished), and one
-// effectful tool that emits tool.approval_required and must not execute
-// until a server-side Approval record exists for the exact run_id +
-// tool_call_id (FR-6, FR-7, D-009). Registration is Vivy-owned, not Eino's.
+// V0 registers read-only tools that execute automatically (still emitting
+// tool.started/tool.finished), an effectful tool that emits
+// tool.approval_required, and the ask_user control tool that emits a distinct
+// user.question_required lifecycle. Registration is Vivy-owned, not Eino's.
 //
-// Skeleton stage: contract + read-only echo_info implemented (C5); the
-// effectful approval-gated tool lands in C6, server-side enforcement in D2.
+// All tools cross the runtime policy gate before their implementations can
+// run; approval and question state are persisted separately.
 package tools

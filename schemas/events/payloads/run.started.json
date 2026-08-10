@@ -12,8 +12,13 @@
       "type": "string",
       "minLength": 1,
       "description": "Model id the run was started with."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["normal", "plan"],
+      "description": "Physical harness policy for this run."
     }
   },
-  "required": ["provider", "model"],
+  "required": ["provider", "model", "mode"],
   "additionalProperties": false
 }

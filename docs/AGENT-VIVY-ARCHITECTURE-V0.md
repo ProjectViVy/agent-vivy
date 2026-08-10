@@ -71,7 +71,7 @@ terminals impossible. Cancellation is formalized per phase (AS-5): mid-tool,
 pre-start, and concurrent idempotency; append races with cancel route
 through the classified terminal.
 
-## ADR-004 — Events: ten-type vocabulary as the single contract
+## ADR-004 — Events: versioned vocabulary as the single contract
 
 **Decision.** Ten `RunEvent` types form the locked vocabulary
 (`schemas/events/run-event.schema.json`); payload schemas per type carry
