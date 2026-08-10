@@ -24,10 +24,21 @@ const (
 type PreflightResult struct {
 	Status        PreflightStatus
 	Mode          domain.RunMode
+	PolicyProfile domain.PolicyProfile
+	PolicyHash    string
 	SelectedTools []string
+	ToolDecisions []PolicyPreview
 	ContextBytes  int
+	HookReady     bool
 	Warnings      []string
 	Blockers      []string
+	NextActions   []string
+}
+
+type PolicyPreview struct {
+	ToolName string
+	Decision domain.PolicyDecision
+	Reason   string
 }
 
 // Preflight validates context and policy without creating durable state or
@@ -37,11 +48,23 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 		return PreflightResult{}, errors.New("runtime: service not wired")
 	}
 	result := PreflightResult{Status: PreflightReady}
-	mode, err := normalizeRunMode(options.Mode)
+	if options.Profile == "" {
+		options.Profile = s.defaultProfile
+	}
+	mode, profile, err := normalizeRunPolicy(options.Mode, options.Profile)
 	if err != nil {
 		return PreflightResult{}, err
 	}
 	result.Mode = mode
+	result.PolicyProfile = profile
+	if s.engine.cfg.Policy != nil {
+		snapshot, snapshotErr := s.engine.cfg.Policy.Snapshot(profile)
+		if snapshotErr != nil {
+			return PreflightResult{}, snapshotErr
+		}
+		result.PolicyHash = snapshot.Hash
+	}
+	result.HookReady = s.engine.cfg.ToolHooks != nil
 	if strings.TrimSpace(userText) == "" {
 		result.Status = PreflightBlocked
 		result.Blockers = []string{"text must not be empty"}
@@ -59,13 +82,26 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 		return PreflightResult{}, err
 	}
 	for _, spec := range selection.Specs {
-		switch {
-		case mode == domain.RunModePlan && !spec.Readonly:
-			result.Blockers = append(result.Blockers, spec.Name+" is unavailable in plan mode")
-		case spec.Interaction == domain.ToolInteractionQuestion:
-			result.Warnings = append(result.Warnings, spec.Name+" will pause for a user answer")
-		case !spec.Readonly:
-			result.Warnings = append(result.Warnings, spec.Name+" will require approval before execution")
+		evaluation, evalErr := s.engine.cfg.Policy.Evaluate(profile, spec, nil)
+		if evalErr != nil {
+			return PreflightResult{}, evalErr
+		}
+		result.ToolDecisions = append(result.ToolDecisions, PolicyPreview{
+			ToolName: spec.Name, Decision: evaluation.Decision, Reason: evaluation.Reason,
+		})
+		switch evaluation.Decision {
+		case domain.PolicyDeny:
+			if mode == domain.RunModePlan && !spec.Readonly {
+				result.Blockers = append(result.Blockers, spec.Name+" is unavailable in plan mode")
+			} else {
+				result.Blockers = append(result.Blockers, spec.Name+" is denied by policy profile "+string(profile))
+			}
+		case domain.PolicyPrompt:
+			result.Warnings = append(result.Warnings, spec.Name+" requires approval before execution")
+		case domain.PolicyAllow:
+			if spec.Interaction == domain.ToolInteractionQuestion {
+				result.Warnings = append(result.Warnings, spec.Name+" will pause for a user answer")
+			}
 		}
 	}
 	for _, finding := range tools.ScanPrompt(userText) {
@@ -75,6 +111,12 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 		result.Status = PreflightBlocked
 	} else if len(result.Warnings) > 0 {
 		result.Status = PreflightWarning
+	}
+	if len(result.Warnings) > 0 {
+		result.NextActions = append(result.NextActions, "review warnings before starting the run")
+	}
+	if len(result.Blockers) > 0 {
+		result.NextActions = append(result.NextActions, "change the policy profile or request a safer tool set")
 	}
 	return result, nil
 }

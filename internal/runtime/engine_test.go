@@ -95,7 +95,7 @@ func TestEngineQueryIsDeterministic(t *testing.T) {
 
 func TestToolAdapterInfoAndRun(t *testing.T) {
 	ctx := context.Background()
-	ad := newToolAdapter(tools.NewEchoInfo(), 0)
+	ad := newToolAdapter(tools.NewEchoInfo(), 0, nil, nil)
 
 	info, err := ad.Info(ctx)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 	}
 
 	// Effectful tools publish their schema too.
-	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil), 0).Info(ctx)
+	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil), 0, nil, nil).Info(ctx)
 	if err != nil {
 		t.Fatalf("write_note info: %v", err)
 	}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/hook.completed.json",
+  "title": "hook.completed payload (v1)",
+  "type": "object",
+  "properties": {
+    "tool_name": { "type": "string", "minLength": 1 },
+    "hook_name": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "enum": ["pre", "post"] },
+    "decision": { "type": "string" },
+    "profile": { "type": "string" },
+    "reason": { "type": "string" },
+    "duration_ms": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["tool_name", "hook_name", "phase"],
+  "additionalProperties": false
+}

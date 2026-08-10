@@ -19,6 +19,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -45,11 +46,12 @@ const (
 
 // Config is the typed, validated configuration store.
 type Config struct {
-	Server    Server    `yaml:"server"`
-	Storage   Storage   `yaml:"storage"`
-	Providers Providers `yaml:"providers"`
-	Runtime   Runtime   `yaml:"runtime"`
-	Tools     Tools     `yaml:"tools"`
+	Server     Server     `yaml:"server"`
+	Storage    Storage    `yaml:"storage"`
+	Providers  Providers  `yaml:"providers"`
+	Runtime    Runtime    `yaml:"runtime"`
+	Tools      Tools      `yaml:"tools"`
+	Governance Governance `yaml:"governance"`
 }
 
 type Server struct {
@@ -131,6 +133,30 @@ type Approval struct {
 	expirationRaw string
 }
 
+// Governance contains the declarative execution profiles. Empty profile
+// defaults are interpreted by runtime from the tool's readonly flag, which
+// keeps the legacy configuration behavior stable.
+type Governance struct {
+	Profile        string                       `yaml:"profile"`
+	Profiles       map[string]GovernanceProfile `yaml:"profiles"`
+	HookTimeout    time.Duration                `yaml:"-"`
+	HookTimeoutRaw string                       `yaml:"hook_timeout"`
+}
+
+type GovernanceProfile struct {
+	Default string           `yaml:"default"`
+	Rules   []GovernanceRule `yaml:"rules"`
+}
+
+type GovernanceRule struct {
+	Tool     string `yaml:"tool"`
+	Field    string `yaml:"field"`
+	Equals   string `yaml:"equals"`
+	Prefix   string `yaml:"prefix"`
+	Decision string `yaml:"decision"`
+	Reason   string `yaml:"reason"`
+}
+
 // toolsDoc mirrors the tools mapping with expiration kept as a raw
 // string so that validation, not the decoder, owns duration parsing.
 type toolsDoc struct {
@@ -181,6 +207,17 @@ func Default() Config {
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
+		},
+		Governance: Governance{
+			Profile:        "default",
+			HookTimeout:    time.Second,
+			HookTimeoutRaw: "1s",
+			Profiles: map[string]GovernanceProfile{
+				"default":   {},
+				"plan":      {Default: "deny"},
+				"read_only": {Default: "deny"},
+				"full_auto": {Default: "allow"},
+			},
 		},
 	}
 }
@@ -291,5 +328,71 @@ func (c *Config) Validate() error {
 		return errors.New("tools.approval.expiration must be positive")
 	}
 
+	if c.Governance.Profile == "" {
+		c.Governance.Profile = "default"
+	}
+	if !validGovernanceProfile(c.Governance.Profile) {
+		return fmt.Errorf("governance.profile %q is unsupported", c.Governance.Profile)
+	}
+	if c.Governance.HookTimeoutRaw != "" {
+		d, err := time.ParseDuration(c.Governance.HookTimeoutRaw)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("governance.hook_timeout %q must be a positive duration", c.Governance.HookTimeoutRaw)
+		}
+		c.Governance.HookTimeout = d
+	}
+	if c.Governance.HookTimeout <= 0 {
+		return errors.New("governance.hook_timeout must be positive")
+	}
+	for name, profile := range c.Governance.Profiles {
+		if !validGovernanceProfile(name) {
+			return fmt.Errorf("governance.profiles.%s is unsupported", name)
+		}
+		if profile.Default != "" && !validGovernanceDecision(profile.Default) {
+			return fmt.Errorf("governance.profiles.%s.default %q is unsupported", name, profile.Default)
+		}
+		for i, rule := range profile.Rules {
+			if strings.TrimSpace(rule.Tool) == "" {
+				return fmt.Errorf("governance.profiles.%s.rules[%d].tool must not be empty", name, i)
+			}
+			if rule.Field != "" && !validGovernanceField(rule.Field) {
+				return fmt.Errorf("governance.profiles.%s.rules[%d].field %q is unsupported", name, i, rule.Field)
+			}
+			if rule.Equals != "" && rule.Prefix != "" {
+				return fmt.Errorf("governance.profiles.%s.rules[%d] cannot set both equals and prefix", name, i)
+			}
+			if !validGovernanceDecision(rule.Decision) {
+				return fmt.Errorf("governance.profiles.%s.rules[%d].decision %q is unsupported", name, i, rule.Decision)
+			}
+		}
+	}
+
 	return nil
+}
+
+func validGovernanceProfile(value string) bool {
+	switch value {
+	case "default", "plan", "read_only", "full_auto":
+		return true
+	default:
+		return false
+	}
+}
+
+func validGovernanceDecision(value string) bool {
+	switch value {
+	case "allow", "prompt", "deny":
+		return true
+	default:
+		return false
+	}
+}
+
+func validGovernanceField(value string) bool {
+	switch value {
+	case "command", "cmd", "path", "filepath", "file_path":
+		return true
+	default:
+		return false
+	}
 }

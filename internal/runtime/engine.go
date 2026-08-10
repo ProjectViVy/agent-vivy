@@ -37,6 +37,11 @@ type EngineConfig struct {
 	// the runner without persistence, which is how the model-only tests
 	// run.
 	Checkpoints *VersionedCheckpointStore
+	// Policy is the immutable governance engine shared by all tool adapters.
+	// Nil uses the built-in default profiles.
+	Policy *PolicyEngine
+	// ToolHooks is the in-process pre/post execution chain.
+	ToolHooks *ToolHookChain
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -63,10 +68,17 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if m == nil {
 		return nil, errors.New("runtime: nil model")
 	}
+	if cfg.Policy == nil {
+		var err error
+		cfg.Policy, err = NewPolicyEngine(nil)
+		if err != nil {
+			return nil, err
+		}
+	}
 	wrapped := make([]einotool.BaseTool, 0, len(ts))
 	specs := make([]domain.ToolSpec, 0, len(ts))
 	for _, t := range ts {
-		wrapped = append(wrapped, newToolAdapter(t, cfg.MaxToolResultBytes))
+		wrapped = append(wrapped, newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks))
 		specs = append(specs, t.Spec())
 	}
 	agentCfg := &adk.ChatModelAgentConfig{

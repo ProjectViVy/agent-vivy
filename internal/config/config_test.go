@@ -118,3 +118,47 @@ func TestInvalidValuesRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestGovernanceProfilesLoadAndValidate(t *testing.T) {
+	doc := validDoc + `
+governance:
+  profile: default
+  hook_timeout: 250ms
+  profiles:
+    default:
+      rules:
+        - tool: write_note
+          field: path
+          prefix: "data/"
+          decision: allow
+          reason: "private notes"
+    full_auto:
+      default: allow
+`
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Governance.HookTimeout != 250*time.Millisecond {
+		t.Fatalf("hook timeout = %v", cfg.Governance.HookTimeout)
+	}
+	rules := cfg.Governance.Profiles["default"].Rules
+	if len(rules) != 1 || rules[0].Decision != "allow" || rules[0].Prefix != "data/" {
+		t.Fatalf("governance rules = %+v", rules)
+	}
+}
+
+func TestGovernanceInvalidRuleRejected(t *testing.T) {
+	doc := validDoc + `
+governance:
+  profiles:
+    default:
+      rules:
+        - tool: write_note
+          field: network
+          decision: allow
+`
+	if _, err := Load(writeConfig(t, doc)); err == nil {
+		t.Fatal("want invalid governance field error")
+	}
+}

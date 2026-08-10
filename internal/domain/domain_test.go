@@ -72,8 +72,8 @@ func TestStatusVocabulary(t *testing.T) {
 }
 
 func TestEventVocabulary(t *testing.T) {
-	if len(EventTypes) != 16 {
-		t.Fatalf("vocabulary size = %d, want 16", len(EventTypes))
+	if len(EventTypes) != 20 {
+		t.Fatalf("vocabulary size = %d, want 20", len(EventTypes))
 	}
 	seen := map[EventType]bool{}
 	terminals := 0

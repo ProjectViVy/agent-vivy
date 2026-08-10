@@ -5,9 +5,11 @@ package runtime
 // always 1 in V0.
 
 type payloadRunStarted struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Mode     string `json:"mode"`
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
+	Mode          string `json:"mode"`
+	PolicyProfile string `json:"policy_profile,omitempty"`
+	PolicyHash    string `json:"policy_hash,omitempty"`
 }
 
 type payloadModelDelta struct {
@@ -66,6 +68,8 @@ type payloadToolApprovalRequired struct {
 	ExpiresAt     int64          `json:"expires_at"`
 	SelectedTools []string       `json:"selected_tools,omitempty"`
 	Mode          string         `json:"mode,omitempty"`
+	PolicyProfile string         `json:"policy_profile,omitempty"`
+	PolicyHash    string         `json:"policy_hash,omitempty"`
 }
 
 type payloadUserQuestionRequired struct {
@@ -76,6 +80,26 @@ type payloadUserQuestionRequired struct {
 	ResumeTarget  string   `json:"resume_target"`
 	SelectedTools []string `json:"selected_tools,omitempty"`
 	Mode          string   `json:"mode,omitempty"`
+	PolicyProfile string   `json:"policy_profile,omitempty"`
+	PolicyHash    string   `json:"policy_hash,omitempty"`
+}
+
+type payloadPolicyEvaluated struct {
+	ToolName string `json:"tool_name"`
+	Decision string `json:"decision"`
+	Profile  string `json:"profile"`
+	Hash     string `json:"policy_hash,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+type payloadHookLifecycle struct {
+	ToolName   string `json:"tool_name"`
+	HookName   string `json:"hook_name"`
+	Phase      string `json:"phase"`
+	Decision   string `json:"decision,omitempty"`
+	Profile    string `json:"profile,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
 }
 
 type payloadUserQuestionAnswered struct {

@@ -34,7 +34,7 @@ func TestCompactToolResultLeavesSmallResultsUntouched(t *testing.T) {
 
 func TestToolAdapterCompactsReadonlyResult(t *testing.T) {
 	tool := &longResultTool{}
-	adapter := newToolAdapter(tool, 48)
+	adapter := newToolAdapter(tool, 48, nil, nil)
 	got, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -46,7 +46,7 @@ func TestToolAdapterCompactsReadonlyResult(t *testing.T) {
 
 func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
 	tool := &countingTool{}
-	adapter := newToolAdapter(tool, 0)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withSelectedTools(context.Background(), []string{"another_tool"})
 	if _, err := adapter.InvokableRun(ctx, `{}`); err == nil || !strings.Contains(err.Error(), "not selected") {
 		t.Fatalf("unselected tool error = %v, want fail-closed rejection", err)
@@ -58,7 +58,7 @@ func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
 
 func TestToolAdapterValidatesSchemaBeforeInvocation(t *testing.T) {
 	tool := &countingTool{}
-	adapter := newToolAdapter(tool, 0)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withSelectedTools(context.Background(), []string{tool.Spec().Name})
 	if _, err := adapter.InvokableRun(ctx, `{}`); err == nil {
 		t.Fatal("missing required argument must fail")
@@ -70,7 +70,7 @@ func TestToolAdapterValidatesSchemaBeforeInvocation(t *testing.T) {
 
 func TestToolAdapterPlanModeBlocksEffectfulToolBeforeApproval(t *testing.T) {
 	tool := &planCountingTool{}
-	adapter := newToolAdapter(tool, 0)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withRunMode(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.RunModePlan)
 	_, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
 	if !errors.Is(err, ErrPlanModeToolDenied) {
@@ -82,7 +82,7 @@ func TestToolAdapterPlanModeBlocksEffectfulToolBeforeApproval(t *testing.T) {
 }
 
 func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
-	adapter := newToolAdapter(secretResultTool{}, 0)
+	adapter := newToolAdapter(secretResultTool{}, 0, nil, nil)
 	got, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err != nil {
 		t.Fatalf("run: %v", err)

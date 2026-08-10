@@ -134,8 +134,9 @@ type renameSessionRequest struct {
 }
 
 type postMessageRequest struct {
-	Text string `json:"text"`
-	Mode string `json:"mode,omitempty"`
+	Text          string `json:"text"`
+	Mode          string `json:"mode,omitempty"`
+	PolicyProfile string `json:"policy_profile,omitempty"`
 }
 
 type postMessageResponse struct {
@@ -144,17 +145,29 @@ type postMessageResponse struct {
 }
 
 type preflightRequest struct {
-	Text string `json:"text"`
-	Mode string `json:"mode,omitempty"`
+	Text          string `json:"text"`
+	Mode          string `json:"mode,omitempty"`
+	PolicyProfile string `json:"policy_profile,omitempty"`
 }
 
 type preflightResponse struct {
 	Status        runtime.PreflightStatus `json:"status"`
 	Mode          domain.RunMode          `json:"mode"`
+	PolicyProfile domain.PolicyProfile    `json:"policy_profile"`
+	PolicyHash    string                  `json:"policy_hash,omitempty"`
 	SelectedTools []string                `json:"selected_tools"`
+	ToolDecisions []policyPreviewDTO      `json:"tool_decisions"`
 	ContextBytes  int                     `json:"context_bytes"`
+	HookReady     bool                    `json:"hook_ready"`
 	Warnings      []string                `json:"warnings"`
 	Blockers      []string                `json:"blockers"`
+	NextActions   []string                `json:"next_actions"`
+}
+
+type policyPreviewDTO struct {
+	ToolName string                `json:"tool_name"`
+	Decision domain.PolicyDecision `json:"decision"`
+	Reason   string                `json:"reason"`
 }
 
 // approvalDTO exposes the decision-critical fields only; tool_name and
@@ -326,11 +339,15 @@ func (s *server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runID, err := s.deps.Service.RunWithOptions(r.Context(), id, req.Text, runtime.RunOptions{
-		Mode: domain.RunMode(req.Mode),
+		Mode: domain.RunMode(req.Mode), Profile: domain.PolicyProfile(req.PolicyProfile),
 	})
 	if err != nil {
 		if errors.Is(err, runtime.ErrInvalidRunMode) {
 			writeError(w, http.StatusBadRequest, codeInvalidRequest, "mode must be normal or plan")
+			return
+		}
+		if errors.Is(err, runtime.ErrInvalidPolicyProfile) {
+			writeError(w, http.StatusBadRequest, codeInvalidRequest, "policy_profile is invalid")
 			return
 		}
 		writeInternal(w, "start run", err)
@@ -357,10 +374,14 @@ func (s *server) preflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.deps.Service.Preflight(r.Context(), id, req.Text, runtime.RunOptions{
-		Mode: domain.RunMode(req.Mode),
+		Mode: domain.RunMode(req.Mode), Profile: domain.PolicyProfile(req.PolicyProfile),
 	})
 	if errors.Is(err, runtime.ErrInvalidRunMode) {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, "mode must be normal or plan")
+		return
+	}
+	if errors.Is(err, runtime.ErrInvalidPolicyProfile) {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "policy_profile is invalid")
 		return
 	}
 	if err != nil {
@@ -368,9 +389,20 @@ func (s *server) preflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, preflightResponse{
-		Status: result.Status, Mode: result.Mode, SelectedTools: result.SelectedTools,
-		ContextBytes: result.ContextBytes, Warnings: result.Warnings, Blockers: result.Blockers,
+		Status: result.Status, Mode: result.Mode, PolicyProfile: result.PolicyProfile,
+		PolicyHash: result.PolicyHash, SelectedTools: result.SelectedTools,
+		ToolDecisions: mapPolicyPreviews(result.ToolDecisions), ContextBytes: result.ContextBytes,
+		HookReady: result.HookReady, Warnings: result.Warnings, Blockers: result.Blockers,
+		NextActions: result.NextActions,
 	})
+}
+
+func mapPolicyPreviews(previews []runtime.PolicyPreview) []policyPreviewDTO {
+	out := make([]policyPreviewDTO, 0, len(previews))
+	for _, preview := range previews {
+		out = append(out, policyPreviewDTO{ToolName: preview.ToolName, Decision: preview.Decision, Reason: preview.Reason})
+	}
+	return out
 }
 
 func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {

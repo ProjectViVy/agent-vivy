@@ -23,6 +23,35 @@ func normalizeRunMode(mode domain.RunMode) (domain.RunMode, error) {
 	return mode, nil
 }
 
+func normalizeRunPolicy(mode domain.RunMode, profile domain.PolicyProfile) (domain.RunMode, domain.PolicyProfile, error) {
+	normalizedMode, err := normalizeRunMode(mode)
+	if err != nil {
+		return "", "", err
+	}
+	if profile == "" {
+		profile = domain.PolicyProfileDefault
+	}
+	if !profile.Valid() {
+		return "", "", ErrInvalidPolicyProfile
+	}
+	// Plan Mode is a physical safety boundary. A caller cannot combine it
+	// with full_auto and regain effectful execution.
+	if normalizedMode == domain.RunModePlan {
+		profile = domain.PolicyProfilePlan
+	}
+	return normalizedMode, profile, nil
+}
+
+func recoveredProfile(mode domain.RunMode, profile string) domain.PolicyProfile {
+	if profile != "" && domain.PolicyProfile(profile).Valid() {
+		return domain.PolicyProfile(profile)
+	}
+	if mode == domain.RunModePlan {
+		return domain.PolicyProfilePlan
+	}
+	return domain.PolicyProfileDefault
+}
+
 func withRunMode(ctx context.Context, mode domain.RunMode) context.Context {
 	return context.WithValue(ctx, runModeContextKey{}, mode)
 }

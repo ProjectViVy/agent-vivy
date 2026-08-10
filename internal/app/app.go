@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/httpapi"
 	"agent-vivy/internal/provider"
@@ -135,6 +136,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
 		MaxToolResultBytes:   cfg.Runtime.MaxToolResultBytes,
 		Checkpoints:          checkpoints,
+		Policy:               policyEngine(cfg),
+		ToolHooks:            runtime.NewToolHookChain(cfg.Governance.HookTimeout),
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -154,9 +157,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
 		},
-		Workspaces: workspaces,
-		Hooks:      []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
-		Sink:       bus,
+		Workspaces:           workspaces,
+		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
+		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
+		Sink:                 bus,
 	})
 
 	api, err := httpapi.New(httpapi.Deps{
@@ -203,6 +207,29 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}, nil
+}
+
+func policyEngine(cfg config.Config) *runtime.PolicyEngine {
+	definitions := make(map[domain.PolicyProfile]runtime.PolicyDefinition, len(cfg.Governance.Profiles))
+	for name, profile := range cfg.Governance.Profiles {
+		rules := make([]runtime.PolicyRule, 0, len(profile.Rules))
+		for _, rule := range profile.Rules {
+			rules = append(rules, runtime.PolicyRule{
+				Tool: rule.Tool, Field: rule.Field, Equals: rule.Equals, Prefix: rule.Prefix,
+				Decision: domain.PolicyDecision(rule.Decision), Reason: rule.Reason,
+			})
+		}
+		definitions[domain.PolicyProfile(name)] = runtime.PolicyDefinition{
+			Default: domain.PolicyDecision(profile.Default), Rules: rules,
+		}
+	}
+	engine, err := runtime.NewPolicyEngine(definitions)
+	if err != nil {
+		// Config.Validate already rejects invalid policy definitions. Keep
+		// composition fail-safe if a direct test bypasses that boundary.
+		panic(fmt.Sprintf("app: invalid governance policy: %v", err))
+	}
+	return engine
 }
 
 // defaultModelFor picks the configured default model of the active

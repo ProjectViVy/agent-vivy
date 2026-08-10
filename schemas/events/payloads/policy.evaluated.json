@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/policy.evaluated.json",
+  "title": "policy.evaluated payload (v1)",
+  "type": "object",
+  "properties": {
+    "tool_name": { "type": "string", "minLength": 1 },
+    "decision": { "type": "string", "enum": ["allow", "prompt", "deny"] },
+    "profile": { "type": "string", "minLength": 1 },
+    "policy_hash": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string" }
+  },
+  "required": ["tool_name", "decision", "profile"],
+  "additionalProperties": false
+}

@@ -8,7 +8,7 @@ Planned contents:
 
 Landed:
 
-- `events/run-event.schema.json` + `events/payloads/*.json` — the sixteen
+- `events/run-event.schema.json` + `events/payloads/*.json` — the twenty
   `RunEvent` types (PRD FR-5, task A3, done). This is the single contract
   that both the Eino event stream (via `internal/runtime`) and the UI event
   stream (via `internal/httpapi`) speak; the vocabulary mirrors

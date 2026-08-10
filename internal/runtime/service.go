@@ -76,10 +76,11 @@ type ServiceDeps struct {
 	Questions storage.QuestionStore
 	// Budget bounds the complete run tree, including resumed work. A zero
 	// value uses DefaultBudgetPolicy so services stay fail-safe by default.
-	Budget     BudgetPolicy
-	Workspaces WorkspaceAllocator
-	Hooks      []RunHook
-	Sink       EventSink
+	Budget               BudgetPolicy
+	Workspaces           WorkspaceAllocator
+	PolicyDefaultProfile domain.PolicyProfile
+	Hooks                []RunHook
+	Sink                 EventSink
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -89,10 +90,11 @@ type ServiceDeps struct {
 // disconnect or page refresh must never kill the run (AS-7); only
 // Cancel / CancelAll do.
 type Service struct {
-	engine   *Engine
-	deps     ServiceDeps
-	provider string
-	modelID  string
+	engine         *Engine
+	deps           ServiceDeps
+	provider       string
+	modelID        string
+	defaultProfile domain.PolicyProfile
 
 	mu     sync.Mutex
 	active map[domain.RunID]context.CancelFunc
@@ -115,13 +117,16 @@ type pendingRun struct {
 	mapper        *eventMapper
 	selectedTools []string
 	mode          domain.RunMode
+	profile       domain.PolicyProfile
+	snapshot      domain.PolicySnapshot
 	questionID    string
 	ledger        *BudgetLedger
 }
 
 // RunOptions controls the physical policy applied to one run.
 type RunOptions struct {
-	Mode domain.RunMode
+	Mode    domain.RunMode
+	Profile domain.PolicyProfile
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -130,14 +135,18 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 	if deps.Budget == (BudgetPolicy{}) {
 		deps.Budget = DefaultBudgetPolicy()
 	}
+	if !deps.PolicyDefaultProfile.Valid() {
+		deps.PolicyDefaultProfile = domain.PolicyProfileDefault
+	}
 	return &Service{
-		engine:   eng,
-		deps:     deps,
-		provider: provider,
-		modelID:  modelID,
-		active:   make(map[domain.RunID]context.CancelFunc),
-		pending:  make(map[domain.RunID]pendingRun),
-		ledgers:  make(map[domain.RunID]*BudgetLedger),
+		engine:         eng,
+		deps:           deps,
+		provider:       provider,
+		modelID:        modelID,
+		defaultProfile: deps.PolicyDefaultProfile,
+		active:         make(map[domain.RunID]context.CancelFunc),
+		pending:        make(map[domain.RunID]pendingRun),
+		ledgers:        make(map[domain.RunID]*BudgetLedger),
 	}
 }
 
@@ -155,7 +164,14 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
 	}
-	mode, err := normalizeRunMode(options.Mode)
+	if options.Profile == "" {
+		options.Profile = s.defaultProfile
+	}
+	mode, profile, err := normalizeRunPolicy(options.Mode, options.Profile)
+	if err != nil {
+		return "", err
+	}
+	snapshot, err := s.engine.cfg.Policy.Snapshot(profile)
 	if err != nil {
 		return "", err
 	}
@@ -190,7 +206,10 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	}
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
-	started := m.build(domain.EventRunStarted, payloadRunStarted{Provider: s.provider, Model: s.modelID, Mode: string(mode)})
+	started := m.build(domain.EventRunStarted, payloadRunStarted{
+		Provider: s.provider, Model: s.modelID, Mode: string(mode),
+		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
+	})
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
 	if err != nil {
 		return "", fmt.Errorf("runtime: persist run.started: %w", err)
@@ -214,7 +233,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot)
 	}()
 	return runID, nil
 }
@@ -423,7 +442,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		return
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
-	toolName, selectedTools, mode := s.approvalDetails(ctx, run.ID)
+	toolName, selectedTools, mode, profile, snapshot := s.approvalDetails(ctx, run.ID)
 	if len(selectedTools) == 0 && toolName != "" {
 		// Events written before request-scoped selection existed remain
 		// recoverable, but only the interrupted tool is allowed on resume.
@@ -434,7 +453,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, ledger: ledger}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, ledger: ledger}
 	s.ledgers[run.ID] = ledger
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on its approval decision",
@@ -449,7 +468,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	if ledger == nil {
 		return
 	}
-	toolName, selectedTools, mode, resumeTarget := s.questionDetails(ctx, run.ID)
+	toolName, selectedTools, mode, profile, snapshot, resumeTarget := s.questionDetails(ctx, run.ID)
 	if toolName == "" {
 		toolName = tools.AskUserName
 	}
@@ -464,7 +483,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
-		mode: mode, questionID: question.ID, ledger: ledger,
+		mode: mode, profile: profile, snapshot: snapshot, questionID: question.ID, ledger: ledger,
 	}
 	s.ledgers[run.ID] = ledger
 	s.mu.Unlock()
@@ -503,16 +522,18 @@ func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *
 // approvalDetails recovers the interrupted tool and its request-scoped
 // manifest from the durable approval event. Missing selection data is
 // handled by rebuildPending for compatibility with pre-H2 events.
-func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode) {
+func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: journal replay failed", "run", string(runID), "err", err)
-		return "", nil, domain.RunModeNormal
+		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
 	var selected []string
 	mode := domain.RunModeNormal
+	profile := domain.PolicyProfileDefault
+	snapshot := domain.PolicySnapshot{Profile: profile}
 	for it.Next() {
 		ev := it.Value().Event
 		if ev.Type != domain.EventToolApprovalRequired {
@@ -525,23 +546,27 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 			if p.Mode != "" {
 				mode = domain.RunMode(p.Mode)
 			}
+			profile = recoveredProfile(mode, p.PolicyProfile)
+			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
 		}
 	}
-	return name, selected, mode
+	return name, selected, mode, profile, snapshot
 }
 
 // questionDetails recovers the request-scoped selection and run mode from
 // the durable user.question_required event.
-func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, string) {
+func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot, string) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: question replay failed", "run", string(runID), "err", err)
-		return "", nil, domain.RunModeNormal, ""
+		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, ""
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
 	var selected []string
 	mode := domain.RunModeNormal
+	profile := domain.PolicyProfileDefault
+	snapshot := domain.PolicySnapshot{Profile: profile}
 	resumeTarget := ""
 	for it.Next() {
 		ev := it.Value().Event
@@ -556,10 +581,12 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 			if mode == "" {
 				mode = domain.RunModeNormal
 			}
+			profile = recoveredProfile(mode, p.PolicyProfile)
+			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
 			resumeTarget = p.ResumeTarget
 		}
 	}
-	return name, selected, mode, resumeTarget
+	return name, selected, mode, profile, snapshot, resumeTarget
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
@@ -573,7 +600,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
@@ -582,9 +609,11 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
-	runCtx := withRunMode(withSelectedTools(ctx, selection.Names()), mode)
+	ledger := s.ledgerForRun(m.runID)
+	runCtx := withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(ctx, selection.Names()), mode), profile), snapshot), m.runID)
+	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(runCtx, m, sessionID, selection.Names(), mode, s.ledgerForRun(m.runID), iter)
+	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
 }
 
 // runMessages rebuilds the session transcript for the engine (MA-1,
@@ -783,6 +812,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		ExpiresAt:     expiresAt,
 		SelectedTools: append([]string(nil), selectedTools...),
 		Mode:          string(mode),
+		PolicyProfile: string(policyProfile(ctx)),
+		PolicyHash:    policySnapshot(ctx).Hash,
 	})
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
@@ -802,7 +833,10 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
-	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...), mode: mode, ledger: ledger}
+	s.pending[runID] = pendingRun{
+		sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...),
+		mode: mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx), ledger: ledger,
+	}
 	s.mu.Unlock()
 }
 
@@ -864,6 +898,8 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		ResumeTarget:  question.ResumeTarget,
 		SelectedTools: append([]string(nil), selectedTools...),
 		Mode:          string(mode),
+		PolicyProfile: string(policyProfile(ctx)),
+		PolicyHash:    policySnapshot(ctx).Hash,
 	})
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
@@ -882,7 +918,8 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	s.pending[runID] = pendingRun{
 		sessionID: sessionID, mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
-		mode:          mode, questionID: question.ID, ledger: ledger,
+		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
+		questionID: question.ID, ledger: ledger,
 	}
 	s.mu.Unlock()
 }
@@ -946,7 +983,7 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision)
 	}()
 	return nil
@@ -1011,7 +1048,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer)
 	}()
 	return nil
@@ -1034,14 +1071,15 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string) {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
 		// call so reconstructed tool.started/finished keep the call id.
 		m.openCalls = append(m.openCalls, openToolCall{id: toolCallID, name: toolName})
 	}
-	ctx := withRunMode(withSelectedTools(context.Background(), selectedTools), mode)
+	ctx := withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(context.Background(), selectedTools), mode), profile), snapshot), runID)
+	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
 	})
@@ -1207,6 +1245,43 @@ func (s *Service) publish(ctx context.Context, ev domain.RunEvent) {
 	s.deps.Sink.Publish(ev)
 	for _, hook := range s.deps.Hooks {
 		hook.OnRunEvent(ctx, ev)
+	}
+}
+
+func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) GovernanceEventSink {
+	return func(ctx context.Context, event GovernanceEvent) error {
+		if event.Profile == "" {
+			event.Profile = policyProfile(ctx)
+		}
+		if event.PolicyHash == "" {
+			event.PolicyHash = policySnapshot(ctx).Hash
+		}
+		var payload any
+		switch event.Type {
+		case domain.EventPolicyEvaluated:
+			payload = payloadPolicyEvaluated{
+				ToolName: event.ToolName, Decision: event.Decision,
+				Profile: string(event.Profile), Hash: event.PolicyHash, Reason: event.Reason,
+			}
+		case domain.EventHookStarted, domain.EventHookCompleted, domain.EventHookBlocked:
+			payload = payloadHookLifecycle{
+				ToolName: event.ToolName, HookName: event.HookName, Phase: event.Phase,
+				Decision: event.Decision, Profile: string(event.Profile), Reason: event.Reason,
+				DurationMs: event.DurationMs,
+			}
+		default:
+			return fmt.Errorf("runtime: unsupported governance event %q", event.Type)
+		}
+		if ledger != nil {
+			if err := ledger.ReserveEvent(); err != nil {
+				return err
+			}
+		}
+		re := m.build(event.Type, payload)
+		if !s.persistAndPublish(ctx, sessionID, re) {
+			return errors.New("runtime: persist governance event")
+		}
+		return nil
 	}
 }
 

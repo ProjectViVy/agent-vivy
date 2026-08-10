@@ -169,6 +169,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		types = append(types, string(ev.Type))
 	}
 	want := []domain.EventType{
+		domain.EventPolicyEvaluated,
 		domain.EventToolStarted, domain.EventToolFinished,
 		domain.EventModelDelta, domain.EventModelCompleted, domain.EventRunCompleted,
 	}
@@ -181,7 +182,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		}
 	}
 	var fin payloadToolFinished
-	mustUnmarshal(t, events[ai+2].Payload, &fin)
+	mustUnmarshal(t, events[ai+3].Payload, &fin)
 	if fin.ToolCallID != ApprovalFlowCallID {
 		t.Fatalf("tool.finished call id = %q, want %q", fin.ToolCallID, ApprovalFlowCallID)
 	}
