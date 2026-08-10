@@ -105,6 +105,9 @@ type Service struct {
 	// ledgers survive approval/question suspension and are shared by every
 	// resume of the same run.
 	ledgers map[domain.RunID]*BudgetLedger
+	// snapshots pin the policy authority for active child workers. This is
+	// process state only; durable run.started remains the restart truth.
+	snapshots map[domain.RunID]domain.PolicySnapshot
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
@@ -147,6 +150,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		active:         make(map[domain.RunID]context.CancelFunc),
 		pending:        make(map[domain.RunID]pendingRun),
 		ledgers:        make(map[domain.RunID]*BudgetLedger),
+		snapshots:      make(map[domain.RunID]domain.PolicySnapshot),
 	}
 }
 
@@ -228,6 +232,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.mu.Lock()
 	s.active[runID] = cancel
 	s.ledgers[runID] = ledger
+	s.snapshots[runID] = snapshot
 	s.mu.Unlock()
 
 	s.wg.Add(1)
@@ -422,6 +427,42 @@ func (s *Service) Workspace(ctx context.Context, runID domain.RunID) (Workspace,
 	return s.deps.Workspaces.Ensure(ctx, runID)
 }
 
+// WorkerParentAuthority returns the immutable authority a child worker may
+// inherit from an active parent. It intentionally exposes a workspace ID,
+// never the host path, and returns the parent's shared budget ledger so a
+// child cannot reset the run-tree circuit breaker.
+func (s *Service) WorkerParentAuthority(ctx context.Context, runID domain.RunID) (domain.PolicySnapshot, *BudgetLedger, string, error) {
+	if s.deps.Runs == nil {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: run store not wired")
+	}
+	run, err := s.deps.Runs.GetRun(ctx, runID)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	if run.Status != domain.RunActive && run.Status != domain.RunAccepted {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: worker parent is not active")
+	}
+	s.mu.Lock()
+	snapshot := s.snapshots[runID]
+	ledger := s.ledgers[runID]
+	if pending, ok := s.pending[runID]; ok {
+		snapshot = pending.snapshot
+		ledger = pending.ledger
+	}
+	s.mu.Unlock()
+	if snapshot.Profile == "" || snapshot.Hash == "" || ledger == nil {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: worker parent authority is unavailable")
+	}
+	if s.deps.Workspaces == nil {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: worker workspace authority is unavailable")
+	}
+	workspace, err := s.deps.Workspaces.Ensure(ctx, runID)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	return snapshot, ledger, workspace.ID, nil
+}
+
 // checkpointReadable mirrors the interrupt-time check: only a checkpoint
 // the versioned bridge can actually serve back may anchor a resume.
 func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bool {
@@ -455,6 +496,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, ledger: ledger}
 	s.ledgers[run.ID] = ledger
+	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on its approval decision",
 		"run", string(run.ID), "approval", approval.ID)
@@ -486,6 +528,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		mode: mode, profile: profile, snapshot: snapshot, questionID: question.ID, ledger: ledger,
 	}
 	s.ledgers[run.ID] = ledger
+	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on user question",
 		"run", string(run.ID), "question", question.ID, "resume_target", resumeTarget)
@@ -1238,6 +1281,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		c() // idempotent: releases the detached run context
 	}
 	delete(s.ledgers, terminal.RunID)
+	delete(s.snapshots, terminal.RunID)
 	s.mu.Unlock()
 }
 

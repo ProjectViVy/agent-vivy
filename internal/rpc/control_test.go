@@ -20,6 +20,12 @@ type controlTestEnv struct {
 	handler Handler
 }
 
+type workerControllerStub struct{}
+
+func (workerControllerStub) Run(_ context.Context, request WorkerRequest) (WorkerResult, error) {
+	return WorkerResult{RunID: request.RunID, Status: "completed", Result: "stub-result"}, nil
+}
+
 func newControlTestEnv(t *testing.T) *controlTestEnv {
 	t.Helper()
 	ctx := context.Background()
@@ -44,7 +50,7 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	})
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service, Worker: workerControllerStub{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -156,5 +162,24 @@ func TestControlHandlerUnknownMethodAndInvalidParams(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, env.handler, "run/get", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
 		t.Fatalf("invalid params error = %+v", rpcErr)
+	}
+}
+
+func TestControlHandlerWorkerRunContract(t *testing.T) {
+	env := newControlTestEnv(t)
+	result, rpcErr := callControl(t, env.handler, "worker/run", map[string]string{
+		"run_id": "child-1", "parent_run_id": "parent-1", "policy_profile": "default",
+		"policy_hash": "hash-1", "workspace_id": "workspace-1", "text": "delegate",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var workerResult WorkerResult
+	encoded, _ := json.Marshal(result)
+	if err := json.Unmarshal(encoded, &workerResult); err != nil {
+		t.Fatal(err)
+	}
+	if workerResult.RunID != "child-1" || workerResult.Status != "completed" || workerResult.Result != "stub-result" {
+		t.Fatalf("worker result = %+v", workerResult)
 	}
 }

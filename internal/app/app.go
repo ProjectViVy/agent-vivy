@@ -130,6 +130,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 		workspaces = manager
 	}
+	policy := policyEngine(cfg)
+	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout)
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
@@ -138,8 +140,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
 		MaxToolResultBytes:   cfg.Runtime.MaxToolResultBytes,
 		Checkpoints:          checkpoints,
-		Policy:               policyEngine(cfg),
-		ToolHooks:            runtime.NewToolHookChain(cfg.Governance.HookTimeout),
+		Policy:               policy,
+		ToolHooks:            hooks,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -182,6 +184,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Bus: bus, Service: svc,
+		Worker: newWorkerController(svc, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes),
 	})
 	if err != nil {
 		_ = backend.Close()

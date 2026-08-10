@@ -29,6 +29,31 @@ type ControlDeps struct {
 	Questions storage.QuestionStore
 	Bus       *events.Bus
 	Service   *runtime.Service
+	Worker    WorkerController
+}
+
+// WorkerRequest is the narrow control-plane contract for one independent
+// child worker. The parent controller remains responsible for resolving its
+// policy, workspace, budget, and tool broker.
+type WorkerRequest struct {
+	RunID         string          `json:"run_id"`
+	ParentRunID   string          `json:"parent_run_id"`
+	PolicyProfile string          `json:"policy_profile"`
+	PolicyHash    string          `json:"policy_hash"`
+	WorkspaceID   string          `json:"workspace_id"`
+	Text          string          `json:"text"`
+	ToolName      string          `json:"tool_name,omitempty"`
+	ToolArgs      json.RawMessage `json:"tool_args,omitempty"`
+}
+
+type WorkerResult struct {
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
+	Result string `json:"result,omitempty"`
+}
+
+type WorkerController interface {
+	Run(context.Context, WorkerRequest) (WorkerResult, error)
 }
 
 func NewControlHandler(deps ControlDeps) (Handler, error) {
@@ -155,6 +180,8 @@ type backgroundResult struct {
 	WorkspaceID string           `json:"workspace_id,omitempty"`
 }
 
+type workerRunParams WorkerRequest
+
 func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request) (any, *Error) {
 	switch request.Method {
 	case "initialize", "capabilities":
@@ -162,6 +189,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"protocol_version": ProtocolVersion,
 			"capabilities": []string{
 				"session", "turn", "run", "preflight", "approval", "question", "run.subscribe",
+				"worker.run",
 			},
 		}, nil
 	case "session/create":
@@ -207,9 +235,29 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listBackground(ctx)
 	case "background/attach":
 		return h.attachBackground(ctx, request)
+	case "worker/run":
+		return h.runWorker(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
+}
+
+func (h *controlHandler) runWorker(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Worker == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "worker controller is not configured"}
+	}
+	var params workerRunParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.RunID == "" || params.ParentRunID == "" || params.PolicyProfile == "" || params.PolicyHash == "" || params.WorkspaceID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "run_id, parent_run_id, policy_profile, policy_hash, and workspace_id are required"}
+	}
+	result, err := h.deps.Worker.Run(ctx, WorkerRequest(params))
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
 }
 
 func (h *controlHandler) createSession(ctx context.Context, request Request) (any, *Error) {
