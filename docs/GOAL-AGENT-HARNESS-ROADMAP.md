@@ -58,7 +58,8 @@ evidence -> Vivy proposal -> contract/tests -> implementation
 
 - H0: done in `748cd38`.
 - H1: in progress. The bounded transient context sub-slice is done in
-  `c3b8ac4`; prompt-prefix protection and micro-compaction remain.
+  `c3b8ac4`; stable prompt-prefix layout is done in `9d7c8b3`; micro-
+  compaction remains.
 - H2-H11: pending.
 
 ## Verification gate
@@ -79,6 +80,8 @@ H1 verification for `c3b8ac4`:
 - `go test -race -count=1 ./...` passed.
 - Context unit tests cover recent-history retention, byte budget, mandatory
   current-message retention, tool-row exclusion, and terminal failure.
+- Prompt tests prove dynamic date/Notes facts are excluded from the stable
+  instruction prefix while tool guidance remains deterministic.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
