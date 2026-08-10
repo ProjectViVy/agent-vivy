@@ -1,7 +1,7 @@
 // Entry point: wires static shell elements to the actions, subscribes the
 // renderer, and boots the initial loads plus the approval poll.
 
-import { cancelCurrentRun, createNewSession, refreshApprovals, refreshSessions, sendMessage, toggleEventLog } from "./actions";
+import { cancelCurrentRun, createNewSession, refreshApprovals, refreshQuestions, refreshSessions, sendMessage, toggleEventLog } from "./actions";
 import { renderAll } from "./render";
 import { subscribe } from "./state";
 
@@ -28,7 +28,11 @@ function init(): void {
   renderAll();
   void refreshSessions();
   void refreshApprovals();
-  window.setInterval(() => void refreshApprovals(), APPROVAL_POLL_MS);
+  void refreshQuestions();
+  window.setInterval(() => {
+    void refreshApprovals();
+    void refreshQuestions();
+  }, APPROVAL_POLL_MS);
 }
 
 init();

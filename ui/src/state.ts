@@ -2,7 +2,7 @@
 // view re-renders from this state, and every field is reconstructable
 // from the API, which keeps refreshes lossless (FR-9, AS-7).
 
-import type { Approval, Message, Run, Session } from "./api";
+import type { Approval, Message, Question, Run, Session } from "./api";
 import type { EventEnvelope } from "./sse";
 
 // PendingApproval carries the fields of a tool.approval_required payload
@@ -30,6 +30,7 @@ export interface AppState {
   approvals: Approval[];
   // Modal shown for the run the UI is currently watching, if any.
   pendingApproval: PendingApproval | null;
+  pendingQuestion: Question | null;
   eventLog: EventEnvelope[];
   eventLogVisible: boolean;
   toasts: Toast[];
@@ -43,6 +44,7 @@ export const state: AppState = {
   run: null,
   approvals: [],
   pendingApproval: null,
+  pendingQuestion: null,
   eventLog: [],
   eventLogVisible: false,
   toasts: [],
@@ -67,6 +69,7 @@ export function resetSession(): void {
   state.streamingText = "";
   state.run = null;
   state.pendingApproval = null;
+  state.pendingQuestion = null;
   state.eventLog = [];
   state.eventLogVisible = false;
 }

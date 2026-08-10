@@ -2,7 +2,7 @@
 // single run subscription. Rendering happens via notify() -> renderAll.
 
 import * as api from "./api";
-import { ApiError, type Decision, type Message } from "./api";
+import { ApiError, type Decision, type Message, type RunMode } from "./api";
 import { notify, resetSession, state } from "./state";
 import { subscribeRun, TERMINAL_EVENT_TYPES, type EventEnvelope, type RunSubscription } from "./sse";
 
@@ -62,6 +62,7 @@ export async function selectSession(id: string): Promise<void> {
     state.messages = messages;
     notify();
     await recoverRun(messages);
+    await refreshQuestions();
   } catch (err) {
     toastOf(err);
   }
@@ -102,7 +103,17 @@ export async function sendMessage(text: string): Promise<void> {
     return;
   }
   try {
-    const accepted = await api.postMessage(sessionID, text);
+    const planToggle = document.getElementById("plan-mode") as HTMLInputElement | null;
+    const mode: RunMode = planToggle?.checked ? "plan" : "normal";
+    const check = await api.preflight(sessionID, text, mode);
+    if (check.status === "blocked") {
+      toast(`preflight blocked: ${check.blockers.join("; ")}`);
+      return;
+    }
+    if (check.warnings.length > 0 && !window.confirm(`Preflight warnings:\n\n${check.warnings.join("\n")}\n\nContinue?`)) {
+      return;
+    }
+    const accepted = await api.postMessage(sessionID, text, mode);
     state.run = {
       id: accepted.run_id,
       session_id: sessionID,
@@ -110,6 +121,7 @@ export async function sendMessage(text: string): Promise<void> {
       created_at: Date.now(),
     };
     state.streamingText = "";
+    state.pendingQuestion = null;
     state.eventLog = [];
     state.eventLogVisible = true;
     notify();
@@ -173,21 +185,40 @@ function handleEvent(env: EventEnvelope): void {
       };
       void refreshApprovals();
       break;
+    case "user.question_required":
+      state.pendingQuestion = {
+        id: String(env.payload["question_id"] ?? ""),
+        run_id: env.run_id,
+        tool_call_id: String(env.payload["tool_call_id"] ?? ""),
+        prompt: String(env.payload["prompt"] ?? ""),
+        expires_at: Number(env.payload["expires_at"] ?? 0),
+      };
+      void refreshQuestions();
+      break;
+    case "user.question_answered":
+      if (state.pendingQuestion?.id === String(env.payload["question_id"] ?? "")) {
+        state.pendingQuestion = null;
+      }
+      void refreshQuestions();
+      break;
     case "run.completed":
       state.run = { ...state.run, status: "completed" };
       state.streamingText = "";
       void refreshMessages();
       void refreshApprovals();
+      void refreshQuestions();
       break;
     case "run.failed":
       state.run = { ...state.run, status: "failed" };
       state.streamingText = "";
       void refreshApprovals();
+      void refreshQuestions();
       break;
     case "run.cancelled":
       state.run = { ...state.run, status: "cancelled" };
       state.streamingText = "";
       void refreshApprovals();
+      void refreshQuestions();
       break;
     default:
       break;
@@ -224,6 +255,7 @@ async function recoverRun(messages: Message[]): Promise<void> {
     const run = await api.getRun(runID);
     if (state.currentSessionID !== run.session_id) return;
     state.run = run;
+    await refreshQuestions();
     notify();
     if (!TERMINAL_EVENT_TYPES.has(`run.${run.status}`)) {
       state.eventLogVisible = true;
@@ -261,5 +293,33 @@ export async function refreshApprovals(): Promise<void> {
     notify();
   } catch {
     // Polling hiccup: the next tick retries; no toast spam.
+  }
+}
+
+export async function answerCurrentQuestion(answer: string): Promise<void> {
+  const question = state.pendingQuestion;
+  if (!question) return;
+  try {
+    await api.answerQuestion(question.id, answer);
+    state.pendingQuestion = null;
+    notify();
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 409)) {
+      state.pendingQuestion = null;
+      notify();
+    }
+    toastOf(err);
+  }
+  void refreshQuestions();
+}
+
+export async function refreshQuestions(): Promise<void> {
+  try {
+    const { questions } = await api.listQuestions();
+    const runID = state.run?.id;
+    state.pendingQuestion = runID ? questions.find((q) => q.run_id === runID) ?? null : null;
+    notify();
+  } catch {
+    // Polling hiccup: SSE or the next tick will repair the modal.
   }
 }

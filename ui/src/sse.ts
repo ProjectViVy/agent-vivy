@@ -6,12 +6,18 @@
 
 export const RUN_EVENT_TYPES = [
   "run.started",
+  "provider.retry",
+  "provider.stall",
+  "model.reasoning_delta",
   "model.delta",
+  "model.usage",
   "model.completed",
   "tool.requested",
   "tool.approval_required",
   "tool.started",
   "tool.finished",
+  "user.question_required",
+  "user.question_answered",
   "run.completed",
   "run.failed",
   "run.cancelled",

@@ -3,7 +3,7 @@
 // Event handlers live in actions.ts (no import cycle: actions never
 // imports this module).
 
-import { decideApproval, deleteSession, renameSessionPrompt, selectSession } from "./actions";
+import { answerCurrentQuestion, decideApproval, deleteSession, renameSessionPrompt, selectSession } from "./actions";
 import { state } from "./state";
 
 export function renderAll(): void {
@@ -12,6 +12,7 @@ export function renderAll(): void {
   renderChat();
   renderEventLog();
   renderApprovalModal();
+  renderQuestionModal();
   renderToasts();
 }
 
@@ -192,6 +193,50 @@ export function renderApprovalModal(): void {
   deny.addEventListener("click", () => void decideApproval(approval.approval_id, "denied"));
   modal.appendChild(deny);
 
+  backdrop.appendChild(modal);
+  root.appendChild(backdrop);
+}
+
+export function renderQuestionModal(): void {
+  const root = document.getElementById("modal-root");
+  if (!root) return;
+  if (state.pendingApproval) return;
+  // Preserve an approval modal if it is present; otherwise rebuild this
+  // independent user-input suspension from durable question state.
+  const existing = root.querySelector(".question-modal");
+  if (existing) existing.remove();
+  const question = state.pendingQuestion;
+  if (!question) return;
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop question-modal";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  const heading = document.createElement("h2");
+  heading.textContent = "Vivy needs an answer";
+  modal.appendChild(heading);
+  const prompt = document.createElement("p");
+  prompt.textContent = question.prompt;
+  modal.appendChild(prompt);
+  const form = document.createElement("form");
+  const input = document.createElement("textarea");
+  input.rows = 3;
+  input.required = true;
+  input.placeholder = "Type your answer";
+  form.appendChild(input);
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Answer";
+  form.appendChild(submit);
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const answer = input.value.trim();
+    if (answer !== "") void answerCurrentQuestion(answer);
+  });
+  modal.appendChild(form);
+  const expiry = document.createElement("p");
+  expiry.textContent = `Expires ${new Date(question.expires_at).toLocaleTimeString()}.`;
+  modal.appendChild(expiry);
   backdrop.appendChild(modal);
   root.appendChild(backdrop);
 }

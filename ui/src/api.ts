@@ -10,6 +10,8 @@ export type RunStatus =
   | "failed"
   | "cancelled";
 
+export type RunMode = "normal" | "plan";
+
 export interface Session {
   id: string;
   title: string;
@@ -31,11 +33,34 @@ export interface Run {
   created_at: number;
 }
 
+export interface Preflight {
+  status: "ready" | "warning" | "blocked";
+  mode: RunMode;
+  selected_tools: string[];
+  context_bytes: number;
+  warnings: string[];
+  blockers: string[];
+}
+
 export interface Approval {
   id: string;
   run_id: string;
   tool_call_id: string;
   expires_at: number;
+}
+
+export interface Question {
+  id: string;
+  run_id: string;
+  tool_call_id: string;
+  prompt: string;
+  expires_at: number;
+}
+
+export interface BackgroundRun extends Run {
+  workspace_id?: string;
+  events_url: string;
+  logs_url: string;
 }
 
 export type Decision = "approved" | "denied";
@@ -104,8 +129,12 @@ export function listMessages(sessionID: string): Promise<{ messages: Message[] }
 
 // --- runs ---
 
-export function postMessage(sessionID: string, text: string): Promise<{ run_id: string; status: RunStatus }> {
-  return request("POST", `/api/sessions/${sessionID}/messages`, { text });
+export function postMessage(sessionID: string, text: string, mode: RunMode): Promise<{ run_id: string; status: RunStatus }> {
+  return request("POST", `/api/sessions/${sessionID}/messages`, { text, mode });
+}
+
+export function preflight(sessionID: string, text: string, mode: RunMode): Promise<Preflight> {
+  return request("POST", `/api/sessions/${sessionID}/preflight`, { text, mode });
 }
 
 export function getRun(runID: string): Promise<Run> {
@@ -114,6 +143,14 @@ export function getRun(runID: string): Promise<Run> {
 
 export function cancelRun(runID: string): Promise<{ run_id: string; status: string }> {
   return request("POST", `/api/runs/${runID}/cancel`);
+}
+
+export function listBackgroundRuns(): Promise<{ runs: BackgroundRun[] }> {
+  return request("GET", "/api/background/runs");
+}
+
+export function attachBackgroundRun(runID: string): Promise<BackgroundRun> {
+  return request("POST", `/api/background/runs/${runID}/attach`);
 }
 
 // --- approvals ---
@@ -128,4 +165,16 @@ export function decideApproval(approvalID: string, decision: Decision): Promise<
   decision: Decision;
 }> {
   return request("POST", `/api/approvals/${approvalID}/decision`, { decision });
+}
+
+export function listQuestions(): Promise<{ questions: Question[] }> {
+  return request("GET", "/api/questions");
+}
+
+export function answerQuestion(questionID: string, answer: string): Promise<{
+  question_id: string;
+  run_id: string;
+  answer: string;
+}> {
+  return request("POST", `/api/questions/${questionID}/answer`, { answer });
 }
