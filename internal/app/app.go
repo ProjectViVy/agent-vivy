@@ -122,6 +122,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
 		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
+		MaxContextBytes:      cfg.Runtime.MaxContextBytes,
+		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
 		Checkpoints:          checkpoints,
 	})
 	if err != nil {

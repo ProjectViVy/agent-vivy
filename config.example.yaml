@@ -32,6 +32,9 @@ runtime:
   # Max buffered stream chunks / event payload size bounds (NFR: bounded).
   stream_buffer: 256
   max_event_payload_bytes: 65536
+  # Bounds the transient current-session context sent to the model.
+  max_context_bytes: 262144
+  max_history_messages: 64
 
 tools:
   # V0 ships one read-only auto-execute tool and one effectful

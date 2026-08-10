@@ -337,7 +337,12 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
-	iter := s.engine.RunHistory(ctx, s.runMessages(ctx, sessionID, userText), adk.WithCheckPointID(checkpointIDFor(m.runID)))
+	msgs, err := s.runMessages(ctx, sessionID, userText)
+	if err != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+		return
+	}
+	iter := s.engine.RunHistory(ctx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(ctx, m, sessionID, iter)
 }
 
@@ -348,32 +353,32 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // message with a warning — the run proceeds exactly as before the feed
 // existed rather than failing on a bookkeeping read. Tool-role rows never
 // enter the feed: cross-turn context carries text pairs only.
-func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) []*schema.Message {
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, error) {
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, tool set, and the bounded notebook
 	// digest of MA-3).
-	msgs := []*schema.Message{
-		schema.SystemMessage(composeRunPreamble(time.Now(), s.engine.toolSpecs, s.notesDigest(ctx))),
-	}
+	preamble := composeRunPreamble(time.Now(), s.engine.toolSpecs, s.notesDigest(ctx))
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
-		return append(msgs, schema.UserMessage(userText))
+		stored = nil
 	}
-	head := len(msgs)
-	for _, msg := range stored {
-		switch msg.Role {
-		case domain.RoleUser:
-			msgs = append(msgs, schema.UserMessage(msg.Content))
-		case domain.RoleAssistant:
-			msgs = append(msgs, schema.AssistantMessage(msg.Content, nil))
-		}
+	msgs, stats, err := buildRunContext(ContextPolicy{
+		MaxBytes:           s.engine.cfg.MaxContextBytes,
+		MaxHistoryMessages: s.engine.cfg.MaxHistoryMessages,
+	}, preamble, stored, userText)
+	if err != nil {
+		return nil, err
 	}
-	if len(msgs) == head {
-		// Empty store (or no feedable rows): keep the pre-feed shape.
-		msgs = append(msgs, schema.UserMessage(userText))
+	if stats.DroppedHistoryMessages > 0 {
+		slog.Warn("run context history bounded",
+			"session", string(sessionID),
+			"included_history_messages", stats.IncludedHistoryMessages,
+			"dropped_history_messages", stats.DroppedHistoryMessages,
+			"context_bytes", stats.Bytes,
+		)
 	}
-	return msgs
+	return msgs, nil
 }
 
 // notesDigest builds the preamble's notebook section (MA-3). Any listing
@@ -610,6 +615,13 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 		return m.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeInternalError,
 			Message:       "The run was stopped because it reached the limit of tool-call turns. Please try again with a simpler request.",
+		})
+	}
+	if errors.Is(cause, ErrContextBudgetExceeded) {
+		slog.Warn("run failed: context budget exceeded", "run", string(m.runID), "err", cause)
+		return m.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeInternalError,
+			Message:       "The run context exceeds the configured limit. Please start a shorter request or raise the context budget.",
 		})
 	}
 	slog.Warn("run failed", "err", cause)

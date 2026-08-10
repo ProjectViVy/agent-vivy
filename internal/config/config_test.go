@@ -56,7 +56,8 @@ func TestLoadValid(t *testing.T) {
 	if cfg.Providers.Active != "anthropic" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
-	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 {
+	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
+		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {

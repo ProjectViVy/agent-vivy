@@ -33,6 +33,11 @@ var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // below eino's 20 default, so a runaway loop fails fast and classified.
 const defaultMaxToolTurns = 8
 
+const (
+	defaultMaxContextBytes    = 256 << 10
+	defaultMaxHistoryMessages = 64
+)
+
 // Config is the typed, validated configuration store.
 type Config struct {
 	Server    Server    `yaml:"server"`
@@ -88,6 +93,10 @@ type Runtime struct {
 	// MaxToolTurns caps tool-call turns per run (MA-4); omitted keeps the
 	// default.
 	MaxToolTurns int `yaml:"max_tool_turns"`
+	// MaxContextBytes bounds transient current-session context.
+	MaxContextBytes int `yaml:"max_context_bytes"`
+	// MaxHistoryMessages bounds retained user/assistant history rows.
+	MaxHistoryMessages int `yaml:"max_history_messages"`
 }
 
 type Tools struct {
@@ -138,7 +147,14 @@ func Default() Config {
 			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
-		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536, MaxToolTurns: defaultMaxToolTurns},
+		Runtime: Runtime{
+			Mock:                 false,
+			StreamBuffer:         256,
+			MaxEventPayloadBytes: 65536,
+			MaxToolTurns:         defaultMaxToolTurns,
+			MaxContextBytes:      defaultMaxContextBytes,
+			MaxHistoryMessages:   defaultMaxHistoryMessages,
+		},
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
@@ -212,6 +228,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxToolTurns < 0 {
 		return errors.New("runtime.max_tool_turns must not be negative")
+	}
+	if c.Runtime.MaxContextBytes <= 0 {
+		return errors.New("runtime.max_context_bytes must be positive")
+	}
+	if c.Runtime.MaxHistoryMessages <= 0 {
+		return errors.New("runtime.max_history_messages must be positive")
 	}
 
 	if len(c.Tools.Enabled) == 0 {

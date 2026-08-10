@@ -24,6 +24,12 @@ type EngineConfig struct {
 	// exceeding it fails the run with a classified terminal. Zero keeps
 	// eino's own default.
 	MaxToolTurns int
+	// MaxContextBytes bounds the transient UTF-8 context sent to one run.
+	// Zero leaves the direct runtime test harness unbounded.
+	MaxContextBytes int
+	// MaxHistoryMessages bounds retained user/assistant transcript rows.
+	// Zero leaves the direct runtime test harness unbounded.
+	MaxHistoryMessages int
 	// Checkpoints wires the two-layer checkpoint bridge (C6). Nil leaves
 	// the runner without persistence, which is how the model-only tests
 	// run.
