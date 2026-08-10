@@ -140,3 +140,13 @@ type ApprovalStore interface {
 	// writer wins.
 	DecideApproval(ctx context.Context, id, decision string) (bool, error)
 }
+
+// QuestionStore persists ask_user suspensions separately from approvals.
+// Answers resume the interrupted run but never authorize a side effect.
+type QuestionStore interface {
+	CreateQuestion(ctx context.Context, q domain.Question) error
+	GetQuestion(ctx context.Context, id string) (domain.Question, error)
+	ListPendingQuestions(ctx context.Context) ([]domain.Question, error)
+	AnswerQuestion(ctx context.Context, id, answer string) (bool, error)
+	CancelQuestion(ctx context.Context, id string) error
+}

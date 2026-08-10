@@ -1,4 +1,4 @@
-// Package sqlite is the V0 reference backend for the four Vivy storage
+// Package sqlite is the V0 reference backend for the Vivy storage
 // contracts (D-026, D-031), built on modernc.org/sqlite (pure Go, no
 // CGO). SQLite specifics never leak above the contracts (D-027).
 package sqlite
@@ -23,6 +23,7 @@ var migrations = []struct {
 	{1, migration001},
 	{2, migration002},
 	{3, migration003},
+	{4, migration004},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -44,7 +45,7 @@ func Open(ctx context.Context, path string) (*Backend, error) {
 	return b, nil
 }
 
-// Backend bundles the four contracts over one database handle. Snapshot
+// Backend bundles the application contracts over one database handle. Snapshot
 // and blob accessors are separate handles because their Get/Put signatures
 // differ; all of them share the same underlying database.
 type Backend struct {
@@ -56,6 +57,7 @@ var (
 	_ storage.Journal       = (*Backend)(nil)
 	_ storage.LeaseStore    = (*Backend)(nil)
 	_ storage.ApprovalStore = (*Backend)(nil)
+	_ storage.QuestionStore = (*Backend)(nil)
 	_ storage.NoteStore     = (*Backend)(nil)
 	_ storage.SnapshotStore = (*Snapshot)(nil)
 	_ storage.BlobStore     = (*Blobs)(nil)
@@ -195,5 +197,21 @@ CREATE TABLE notes (
 	id TEXT PRIMARY KEY,
 	content BLOB NOT NULL,
 	created_at INTEGER NOT NULL
+);
+`
+
+// migration004 adds durable ask_user interactions without changing the
+// approval schema or conflating the two suspension types.
+const migration004 = `
+CREATE TABLE questions (
+	id TEXT PRIMARY KEY,
+	run_id TEXT NOT NULL,
+	tool_call_id TEXT NOT NULL,
+	prompt BLOB NOT NULL,
+	answer BLOB NOT NULL DEFAULT '',
+	status TEXT NOT NULL,
+	expires_at INTEGER NOT NULL,
+	resume_target TEXT NOT NULL DEFAULT '',
+	FOREIGN KEY(run_id) REFERENCES runs(id)
 );
 `

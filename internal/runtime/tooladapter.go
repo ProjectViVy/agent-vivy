@@ -66,6 +66,13 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
 		return "", err
 	}
+	if spec.Interaction == domain.ToolInteractionQuestion {
+		isTarget, hasData, answer := einotool.GetResumeContext[string](ctx)
+		if isTarget && hasData {
+			return answer, nil
+		}
+		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
+	}
 	if spec.Readonly {
 		return a.run(ctx, argumentsInJSON)
 	}

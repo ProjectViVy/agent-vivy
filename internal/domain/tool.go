@@ -22,7 +22,17 @@ type ToolSpec struct {
 	// are not sent to the provider as a second schema; the runtime uses them
 	// to select the smallest tool set for one run.
 	Keywords []string
+	// Interaction identifies a control-flow tool that suspends the run.
+	Interaction ToolInteraction
 }
+
+// ToolInteraction distinguishes ordinary calls from user-input suspension.
+type ToolInteraction string
+
+const (
+	ToolInteractionNone     ToolInteraction = ""
+	ToolInteractionQuestion ToolInteraction = "question"
+)
 
 // ToolParam describes one tool argument. V0 tools take only strings;
 // the type stays implicit until a richer tool set arrives.

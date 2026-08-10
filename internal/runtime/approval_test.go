@@ -46,6 +46,7 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Questions:          backend,
 		ApprovalExpiration: expiration, Sink: sink,
 	})
 	return svc, backend, sink

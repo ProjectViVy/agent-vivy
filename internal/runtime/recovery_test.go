@@ -41,7 +41,7 @@ func restartService(t *testing.T, backend *sqlite.Backend) (*Service, *testSink)
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
 	return svc, sink

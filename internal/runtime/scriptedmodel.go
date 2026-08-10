@@ -33,6 +33,9 @@ func NewScriptedModel(script ...*schema.Message) *ScriptedModel {
 // tests assert it end-to-end (tool.requested -> approval -> resume).
 const ApprovalFlowCallID = "call-note-1"
 
+// QuestionFlowCallID is the scripted ask_user call id used by H4 tests.
+const QuestionFlowCallID = "call-question-1"
+
 // NewApprovalFlowModel returns the scripted model for the write_note
 // approval flow (spike V3 shape): the first turn requests the effectful
 // tool call, and the resumed turn closes with a plain assistant reply.
@@ -43,6 +46,18 @@ func NewApprovalFlowModel() *ScriptedModel {
 			Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
 		}}),
 		schema.AssistantMessage("Done: the note has been handled.", nil),
+	)
+}
+
+// NewQuestionFlowModel requests one user answer and then closes with a
+// deterministic assistant reply after resume.
+func NewQuestionFlowModel() *ScriptedModel {
+	return NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       QuestionFlowCallID,
+			Function: schema.FunctionCall{Name: tools.AskUserName, Arguments: `{"question":"Which color should I use?"}`},
+		}}),
+		schema.AssistantMessage("Thanks, I will use your choice.", nil),
 	)
 }
 

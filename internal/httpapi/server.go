@@ -36,6 +36,7 @@ type Deps struct {
 	Runs      storage.RunStore
 	Journal   storage.Journal
 	Approvals storage.ApprovalStore
+	Questions storage.QuestionStore
 	Bus       *events.Bus
 	Service   *runtime.Service
 }
@@ -43,7 +44,7 @@ type Deps struct {
 // New builds the /api handler tree. The app layer mounts it alongside
 // /healthz.
 func New(d Deps) (http.Handler, error) {
-	if d.Sessions == nil || d.Messages == nil || d.Runs == nil || d.Journal == nil || d.Approvals == nil || d.Bus == nil || d.Service == nil {
+	if d.Sessions == nil || d.Messages == nil || d.Runs == nil || d.Journal == nil || d.Approvals == nil || d.Questions == nil || d.Bus == nil || d.Service == nil {
 		return nil, errors.New("httpapi: deps not wired")
 	}
 	s := &server{deps: d}
@@ -61,6 +62,8 @@ func New(d Deps) (http.Handler, error) {
 	mux.HandleFunc("GET /api/runs/{id}/events", s.streamRunEvents)
 	mux.HandleFunc("GET /api/approvals", s.listApprovals)
 	mux.HandleFunc("POST /api/approvals/{id}/decision", s.decideApproval)
+	mux.HandleFunc("GET /api/questions", s.listQuestions)
+	mux.HandleFunc("POST /api/questions/{id}/answer", s.answerQuestion)
 	return mux, nil
 }
 
@@ -134,6 +137,24 @@ type decideApprovalResponse struct {
 	ApprovalID string       `json:"approval_id"`
 	RunID      domain.RunID `json:"run_id"`
 	Decision   string       `json:"decision"`
+}
+
+type questionDTO struct {
+	ID         string       `json:"id"`
+	RunID      domain.RunID `json:"run_id"`
+	ToolCallID string       `json:"tool_call_id"`
+	Prompt     string       `json:"prompt"`
+	ExpiresAt  int64        `json:"expires_at"`
+}
+
+type answerQuestionRequest struct {
+	Answer string `json:"answer"`
+}
+
+type answerQuestionResponse struct {
+	QuestionID string       `json:"question_id"`
+	RunID      domain.RunID `json:"run_id"`
+	Answer     string       `json:"answer"`
 }
 
 // --- sessions ---
@@ -426,6 +447,57 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, decideApprovalResponse{ApprovalID: id, RunID: approval.RunID, Decision: req.Decision})
+}
+
+// listQuestions returns pending ask_user interactions. Questions have their
+// own endpoint and DTO so the UI cannot mistake an answer for approval.
+func (s *server) listQuestions(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.deps.Questions.ListPendingQuestions(r.Context())
+	if err != nil {
+		writeInternal(w, "list questions", err)
+		return
+	}
+	out := make([]questionDTO, 0, len(rows))
+	for _, q := range rows {
+		out = append(out, questionDTO{ID: q.ID, RunID: q.RunID, ToolCallID: q.ToolCallID, Prompt: q.Prompt, ExpiresAt: q.ExpiresAt})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"questions": out})
+}
+
+// answerQuestion validates and persists a user answer, then resumes the
+// suspended run through the runtime question path.
+func (s *server) answerQuestion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req answerQuestionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "body must be a JSON object")
+		return
+	}
+	question, err := s.deps.Questions.GetQuestion(r.Context(), id)
+	if errors.Is(err, storage.ErrNotFound) {
+		writeError(w, http.StatusNotFound, codeNotFound, "question not found")
+		return
+	}
+	if err != nil {
+		writeInternal(w, "get question", err)
+		return
+	}
+	if err := s.deps.Service.AnswerQuestion(r.Context(), id, req.Answer); err != nil {
+		switch {
+		case errors.Is(err, runtime.ErrQuestionNotFound):
+			writeError(w, http.StatusNotFound, codeNotFound, "question not found")
+		case errors.Is(err, runtime.ErrQuestionInvalidAnswer):
+			writeError(w, http.StatusBadRequest, codeInvalidRequest, "answer must not be empty")
+		case errors.Is(err, runtime.ErrQuestionAlreadyAnswered):
+			writeError(w, http.StatusConflict, codeConflict, "question already answered")
+		case errors.Is(err, runtime.ErrQuestionExpired):
+			writeError(w, http.StatusConflict, codeConflict, "question expired")
+		default:
+			writeInternal(w, "answer question", err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, answerQuestionResponse{QuestionID: id, RunID: question.RunID, Answer: strings.TrimSpace(req.Answer)})
 }
 
 // --- response helpers ---

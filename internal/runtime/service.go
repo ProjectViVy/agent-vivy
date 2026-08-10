@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +39,10 @@ var (
 	ErrApprovalInvalidDecision = errors.New("runtime: approval decision must be approved or denied")
 	ErrApprovalAlreadyDecided  = errors.New("runtime: approval already decided")
 	ErrApprovalExpired         = errors.New("runtime: approval expired")
+	ErrQuestionNotFound        = errors.New("runtime: question not found")
+	ErrQuestionInvalidAnswer   = errors.New("runtime: question answer must not be empty")
+	ErrQuestionAlreadyAnswered = errors.New("runtime: question already answered")
+	ErrQuestionExpired         = errors.New("runtime: question expired")
 )
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
@@ -54,7 +59,9 @@ type ServiceDeps struct {
 	// ApprovalExpiration bounds how long a pending approval stays valid
 	// (D-009).
 	ApprovalExpiration time.Duration
-	Sink               EventSink
+	// Questions persists ask_user interactions separately from approvals.
+	Questions storage.QuestionStore
+	Sink      EventSink
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -86,6 +93,7 @@ type pendingRun struct {
 	mapper        *eventMapper
 	selectedTools []string
 	mode          domain.RunMode
+	questionID    string
 }
 
 // RunOptions controls the physical policy applied to one run.
@@ -185,6 +193,11 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	s.mu.Unlock()
 
 	if isPending {
+		if p.questionID != "" && s.deps.Questions != nil {
+			if err := s.deps.Questions.CancelQuestion(context.Background(), p.questionID); err != nil {
+				slog.Warn("cancel question failed", "question", p.questionID, "err", err)
+			}
+		}
 		s.emitTerminal(context.Background(), p.mapper,
 			p.mapper.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
 		return true
@@ -271,19 +284,40 @@ func (s *Service) Recover(ctx context.Context) error {
 			}
 		}
 	}
+	pendingQuestionsByRun := make(map[domain.RunID]domain.Question)
+	if s.deps.Questions != nil {
+		questions, err := s.deps.Questions.ListPendingQuestions(ctx)
+		if err != nil {
+			return fmt.Errorf("runtime: list pending questions: %w", err)
+		}
+		for _, q := range questions {
+			if _, exists := pendingQuestionsByRun[q.RunID]; !exists {
+				pendingQuestionsByRun[q.RunID] = q
+			}
+		}
+	}
 
 	now := time.Now().UnixMilli()
 	for _, run := range runs {
 		approval, hasApproval := pendingByRun[run.ID]
+		question, hasQuestion := pendingQuestionsByRun[run.ID]
 		switch {
-		case !hasApproval:
-			s.failUnrecoverable(ctx, run.ID, "no pending approval")
-		case approval.ExpiresAt <= now:
+		case hasApproval && hasQuestion:
+			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
+		case hasApproval && approval.ExpiresAt <= now:
 			s.failUnrecoverable(ctx, run.ID, "approval expired")
-		case !s.checkpointReadable(ctx, run.ID):
+		case hasApproval && !s.checkpointReadable(ctx, run.ID):
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
-		default:
+		case hasApproval:
 			s.rebuildPending(ctx, run, approval)
+		case hasQuestion && question.ExpiresAt <= now:
+			s.failUnrecoverable(ctx, run.ID, "question expired")
+		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
+			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
+		case hasQuestion:
+			s.rebuildPendingQuestion(ctx, run, question)
+		default:
+			s.failUnrecoverable(ctx, run.ID, "no pending approval")
 		}
 	}
 	return nil
@@ -322,6 +356,32 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		"run", string(run.ID), "approval", approval.ID)
 }
 
+// rebuildPendingQuestion restores a durable ask_user suspension after a
+// restart. The question remains distinct from approval and resumes with the
+// answer supplied to AnswerQuestion.
+func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, question domain.Question) {
+	toolName, selectedTools, mode, resumeTarget := s.questionDetails(ctx, run.ID)
+	if toolName == "" {
+		toolName = tools.AskUserName
+	}
+	if len(selectedTools) == 0 {
+		selectedTools = []string{toolName}
+	}
+	if resumeTarget == "" {
+		resumeTarget = question.ResumeTarget
+	}
+	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	m.openCalls = append(m.openCalls, openToolCall{id: question.ToolCallID, name: toolName})
+	s.mu.Lock()
+	s.pending[run.ID] = pendingRun{
+		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
+		mode: mode, questionID: question.ID,
+	}
+	s.mu.Unlock()
+	slog.Info("restart recovery: run waits on user question",
+		"run", string(run.ID), "question", question.ID, "resume_target", resumeTarget)
+}
+
 // approvalDetails recovers the interrupted tool and its request-scoped
 // manifest from the durable approval event. Missing selection data is
 // handled by rebuildPending for compatibility with pre-H2 events.
@@ -350,6 +410,38 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 		}
 	}
 	return name, selected, mode
+}
+
+// questionDetails recovers the request-scoped selection and run mode from
+// the durable user.question_required event.
+func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, string) {
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		slog.Warn("restart recovery: question replay failed", "run", string(runID), "err", err)
+		return "", nil, domain.RunModeNormal, ""
+	}
+	defer func() { _ = it.Close() }()
+	name := ""
+	var selected []string
+	mode := domain.RunModeNormal
+	resumeTarget := ""
+	for it.Next() {
+		ev := it.Value().Event
+		if ev.Type != domain.EventUserQuestionRequired {
+			continue
+		}
+		var p payloadUserQuestionRequired
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			name = tools.AskUserName
+			selected = append([]string(nil), p.SelectedTools...)
+			mode = domain.RunMode(p.Mode)
+			if mode == "" {
+				mode = domain.RunModeNormal
+			}
+			resumeTarget = p.ResumeTarget
+		}
+	}
+	return name, selected, mode, resumeTarget
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
@@ -469,6 +561,10 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 // register the run as pending. The run row stays active and no terminal
 // event is emitted; DecideApproval (or Cancel) closes it later.
 func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) {
+	if m.interrupt != nil && m.interrupt.ToolName == tools.AskUserName {
+		s.handleQuestionInterrupt(ctx, m, sessionID, selectedTools, mode)
+		return
+	}
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("interrupt handling failed", "run", string(runID), "err", err)
@@ -544,6 +640,86 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	s.mu.Unlock()
 }
 
+// handleQuestionInterrupt persists the ask_user suspension and publishes a
+// question lifecycle event. It deliberately does not touch ApprovalStore.
+func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) {
+	runID := m.runID
+	fail := func(err error) {
+		slog.Warn("question handling failed", "run", string(runID), "err", err)
+		s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeInternalError,
+			Message:       "The run could not be paused for a user question. Please try again.",
+		}))
+	}
+	details := m.interrupt
+	if details == nil || details.ResumeTarget == "" {
+		fail(errors.New("question interrupt without a resume target"))
+		return
+	}
+	if s.engine.cfg.Checkpoints == nil {
+		fail(errors.New("checkpoint bridge not wired"))
+		return
+	}
+	if s.deps.Questions == nil {
+		fail(errors.New("question store not wired"))
+		return
+	}
+	prompt, _ := details.Args["question"].(string)
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" || len(prompt) > 4096 {
+		fail(errors.New("question prompt is empty or exceeds 4096 bytes"))
+		return
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+	defer cancel()
+	if _, ok, err := s.engine.cfg.Checkpoints.Get(persistCtx, checkpointIDFor(runID)); err != nil || !ok {
+		fail(fmt.Errorf("checkpoint not readable: ok=%v: %w", ok, err))
+		return
+	}
+	expiresAt := time.Now().Add(s.deps.ApprovalExpiration).UnixMilli()
+	question := domain.Question{
+		ID:           newPrefixedID("que_"),
+		RunID:        runID,
+		ToolCallID:   details.ToolCallID,
+		Prompt:       prompt,
+		Status:       domain.QuestionPending,
+		ExpiresAt:    expiresAt,
+		ResumeTarget: details.ResumeTarget,
+	}
+	if err := s.deps.Questions.CreateQuestion(persistCtx, question); err != nil {
+		fail(err)
+		return
+	}
+	ev := m.build(domain.EventUserQuestionRequired, payloadUserQuestionRequired{
+		QuestionID:    question.ID,
+		ToolCallID:    question.ToolCallID,
+		Prompt:        prompt,
+		ExpiresAt:     question.ExpiresAt,
+		ResumeTarget:  question.ResumeTarget,
+		SelectedTools: append([]string(nil), selectedTools...),
+		Mode:          string(mode),
+	})
+	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
+	if err != nil {
+		fail(err)
+		return
+	}
+	ev.Seq = seq
+	s.deps.Sink.Publish(ev)
+	if ctx.Err() != nil {
+		_ = s.deps.Questions.CancelQuestion(context.Background(), question.ID)
+		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		return
+	}
+	s.mu.Lock()
+	s.pending[runID] = pendingRun{
+		sessionID: sessionID, mapper: m,
+		selectedTools: append([]string(nil), selectedTools...),
+		mode:          mode, questionID: question.ID,
+	}
+	s.mu.Unlock()
+}
+
 // DecideApproval settles a pending approval and resumes the suspended run
 // with the decision (FR-6, FR-7). First-writer-wins: a concurrent second
 // decision loses with ErrApprovalAlreadyDecided. The resume runs in the
@@ -603,24 +779,98 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, approval, decision)
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode,
+			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision)
 	}()
 	return nil
 }
 
+// AnswerQuestion settles a pending ask_user interaction and resumes the
+// interrupted run with the answer. It never writes or changes ApprovalStore.
+func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string) error {
+	if s.deps.Questions == nil {
+		return errors.New("runtime: question store not wired")
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return ErrQuestionInvalidAnswer
+	}
+	question, err := s.deps.Questions.GetQuestion(ctx, questionID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return ErrQuestionNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("runtime: get question: %w", err)
+	}
+	if question.Status != domain.QuestionPending {
+		return ErrQuestionAlreadyAnswered
+	}
+	if time.Now().UnixMilli() >= question.ExpiresAt {
+		return ErrQuestionExpired
+	}
+	answered, err := s.deps.Questions.AnswerQuestion(ctx, questionID, answer)
+	if err != nil {
+		return fmt.Errorf("runtime: answer question: %w", err)
+	}
+	if !answered {
+		return ErrQuestionAlreadyAnswered
+	}
+
+	// Journal the answer before the resumed model work becomes visible.
+	m := newEventMapper(question.RunID, s.engine.cfg.MaxEventPayloadBytes)
+	ev := m.build(domain.EventUserQuestionAnswered, payloadUserQuestionAnswered{
+		QuestionID: question.ID,
+		Answer:     answer,
+	})
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+	defer cancel()
+	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: question.RunID, Events: []domain.RunEvent{ev}})
+	if err != nil {
+		return fmt.Errorf("runtime: persist question answer: %w", err)
+	}
+	ev.Seq = seq
+	s.deps.Sink.Publish(ev)
+	s.mu.Lock()
+	p, ok := s.pending[question.RunID]
+	if ok {
+		delete(s.pending, question.RunID)
+	}
+	s.mu.Unlock()
+	if !ok {
+		slog.Warn("question answered without a pending run", "question", questionID, "run", string(question.RunID))
+		return nil
+	}
+	toolName := pendingToolName(p, question.ToolCallID)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode,
+			question.RunID, question.ToolCallID, question.ResumeTarget, answer)
+	}()
+	return nil
+}
+
+func pendingToolName(p pendingRun, callID string) string {
+	for _, oc := range p.mapper.openCalls {
+		if oc.id == callID {
+			return oc.name
+		}
+	}
+	return ""
+}
+
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, approval domain.Approval, decision string) {
-	runID := approval.RunID
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, runID domain.RunID, toolCallID, resumeTarget, resumeValue string) {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
-	if approval.ToolCallID != "" {
+	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
 		// call so reconstructed tool.started/finished keep the call id.
-		m.openCalls = append(m.openCalls, openToolCall{id: approval.ToolCallID, name: toolName})
+		m.openCalls = append(m.openCalls, openToolCall{id: toolCallID, name: toolName})
 	}
 	ctx := withRunMode(withSelectedTools(context.Background(), selectedTools), mode)
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
-		Targets: map[string]any{approval.ResumeTarget: decision},
+		Targets: map[string]any{resumeTarget: resumeValue},
 	})
 	if err != nil {
 		slog.Warn("resume failed", "run", string(runID), "err", err)

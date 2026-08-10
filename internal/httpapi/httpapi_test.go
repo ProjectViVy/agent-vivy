@@ -52,11 +52,11 @@ func newTestEnv(t *testing.T, model domain.ChatModel) *testEnv {
 	}
 	bus := events.NewBus(64)
 	svc := runtime.NewService(eng, "mock", "mock", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Sink: bus,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
 	})
 	h, err := New(Deps{
 		Sessions: backend, Messages: backend, Runs: backend,
-		Journal: backend, Approvals: backend, Bus: bus, Service: svc,
+		Journal: backend, Approvals: backend, Questions: backend, Bus: bus, Service: svc,
 	})
 	if err != nil {
 		t.Fatalf("httpapi.New: %v", err)
@@ -501,12 +501,12 @@ func newApprovalEnv(t *testing.T, expiration time.Duration) *testEnv {
 	}
 	bus := events.NewBus(64)
 	svc := runtime.NewService(eng, "scripted", "scripted-v0", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		ApprovalExpiration: expiration, Sink: bus,
 	})
 	h, err := New(Deps{
 		Sessions: backend, Messages: backend, Runs: backend,
-		Journal: backend, Approvals: backend, Bus: bus, Service: svc,
+		Journal: backend, Approvals: backend, Questions: backend, Bus: bus, Service: svc,
 	})
 	if err != nil {
 		t.Fatalf("httpapi.New: %v", err)
@@ -629,6 +629,117 @@ func TestApprovalFlowApproveEndpoint(t *testing.T) {
 	// A second decision on the same row is a conflict (first-writer-wins).
 	assertAPIError(t, doJSON(t, h, http.MethodPost, "/api/approvals/"+approval.ID+"/decision",
 		`{"decision":"denied"}`), http.StatusConflict, codeConflict)
+}
+
+func newQuestionEnv(t *testing.T, expiration time.Duration) *testEnv {
+	t.Helper()
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "questions.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.AskUserName})
+	if err != nil {
+		t.Fatalf("resolve ask_user: %v", err)
+	}
+	checkpoints, err := runtime.NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	eng, err := runtime.NewEngine(ctx, runtime.NewQuestionFlowModel(), ts, runtime.EngineConfig{
+		StreamBuffer: 64, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	bus := events.NewBus(64)
+	svc := runtime.NewService(eng, "scripted", "scripted-v0", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
+		ApprovalExpiration: expiration, Sink: bus,
+	})
+	h, err := New(Deps{
+		Sessions: backend, Messages: backend, Runs: backend,
+		Journal: backend, Approvals: backend, Questions: backend, Bus: bus, Service: svc,
+	})
+	if err != nil {
+		t.Fatalf("httpapi.New: %v", err)
+	}
+	return &testEnv{backend: backend, bus: bus, svc: svc, handler: h}
+}
+
+type questionEntry struct {
+	ID         string `json:"id"`
+	RunID      string `json:"run_id"`
+	ToolCallID string `json:"tool_call_id"`
+	Prompt     string `json:"prompt"`
+	ExpiresAt  int64  `json:"expires_at"`
+}
+
+func listQuestions(t *testing.T, h http.Handler) []questionEntry {
+	t.Helper()
+	w := doJSON(t, h, http.MethodGet, "/api/questions", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list questions: status %d body %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Questions []questionEntry `json:"questions"`
+	}
+	decodeBody(t, w, &body)
+	return body.Questions
+}
+
+func waitForQuestion(t *testing.T, h http.Handler, runID string) questionEntry {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, q := range listQuestions(t, h) {
+			if q.RunID == runID {
+				return q
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("run %s never produced a pending question", runID)
+	return questionEntry{}
+}
+
+func TestQuestionFlowAnswerEndpoint(t *testing.T) {
+	env := newQuestionEnv(t, 5*time.Minute)
+	h := env.handler
+	if got := listQuestions(t, h); len(got) != 0 {
+		t.Fatalf("questions = %+v, want empty", got)
+	}
+	sessID := createSession(t, h, "")
+	w := postMessage(t, h, sessID, "ask me for a color")
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("post message: status %d body %s", w.Code, w.Body.String())
+	}
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	decodeBody(t, w, &accepted)
+	question := waitForQuestion(t, h, accepted.RunID)
+	if question.Prompt != "Which color should I use?" || question.ToolCallID != runtime.QuestionFlowCallID {
+		t.Fatalf("question = %+v", question)
+	}
+
+	w = doJSON(t, h, http.MethodPost, "/api/questions/"+question.ID+"/answer", `{"answer":"blue"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("answer: status %d body %s", w.Code, w.Body.String())
+	}
+	waitForRunStatus(t, h, accepted.RunID, "completed")
+	frames := readSSE(t, h, "/api/runs/"+accepted.RunID+"/events")
+	seenRequired, seenAnswered := false, false
+	for _, frame := range frames {
+		seenRequired = seenRequired || frame.Event == string(domain.EventUserQuestionRequired)
+		seenAnswered = seenAnswered || frame.Event == string(domain.EventUserQuestionAnswered)
+	}
+	if !seenRequired || !seenAnswered {
+		t.Fatalf("question lifecycle missing from SSE: %+v", frames)
+	}
+	assertAPIError(t, doJSON(t, h, http.MethodPost, "/api/questions/"+question.ID+"/answer", `{"answer":"green"}`),
+		http.StatusConflict, codeConflict)
 }
 
 // TestApprovalFlowDenyEndpoint checks the deny path resumes the model to a

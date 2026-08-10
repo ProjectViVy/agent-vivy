@@ -13,6 +13,8 @@ const (
 	EventToolApprovalRequired EventType = "tool.approval_required"
 	EventToolStarted          EventType = "tool.started"
 	EventToolFinished         EventType = "tool.finished"
+	EventUserQuestionRequired EventType = "user.question_required"
+	EventUserQuestionAnswered EventType = "user.question_answered"
 	EventRunCompleted         EventType = "run.completed"
 	EventRunFailed            EventType = "run.failed"
 	EventRunCancelled         EventType = "run.cancelled"
@@ -27,6 +29,8 @@ var EventTypes = []EventType{
 	EventToolApprovalRequired,
 	EventToolStarted,
 	EventToolFinished,
+	EventUserQuestionRequired,
+	EventUserQuestionAnswered,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,

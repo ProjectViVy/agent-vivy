@@ -204,7 +204,7 @@ func NewRegistry(ts ...Tool) *Registry {
 // failing fast at call time, which is how tests that only use other
 // tools wire it.
 func Builtin(notes storage.NoteStore) *Registry {
-	return NewRegistry(NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes))
+	return NewRegistry(NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser())
 }
 
 // Resolve selects the enabled tools by name, preserving order. An unknown

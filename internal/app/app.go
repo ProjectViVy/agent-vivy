@@ -139,6 +139,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Messages:           backend,
 		Notes:              backend,
 		Approvals:          backend,
+		Questions:          backend,
 		ApprovalExpiration: cfg.Tools.Approval.Expiration,
 		Sink:               bus,
 	})
@@ -149,6 +150,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Runs:      backend,
 		Journal:   backend,
 		Approvals: backend,
+		Questions: backend,
 		Bus:       bus,
 		Service:   svc,
 	})

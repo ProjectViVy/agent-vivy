@@ -49,6 +49,21 @@ type payloadToolApprovalRequired struct {
 	Mode          string         `json:"mode,omitempty"`
 }
 
+type payloadUserQuestionRequired struct {
+	QuestionID    string   `json:"question_id"`
+	ToolCallID    string   `json:"tool_call_id"`
+	Prompt        string   `json:"prompt"`
+	ExpiresAt     int64    `json:"expires_at"`
+	ResumeTarget  string   `json:"resume_target"`
+	SelectedTools []string `json:"selected_tools,omitempty"`
+	Mode          string   `json:"mode,omitempty"`
+}
+
+type payloadUserQuestionAnswered struct {
+	QuestionID string `json:"question_id"`
+	Answer     string `json:"answer"`
+}
+
 type payloadRunCompleted struct {
 	Summary string `json:"summary,omitempty"`
 }
