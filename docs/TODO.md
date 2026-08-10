@@ -203,10 +203,11 @@ dry-run and hook readiness.
 |---|---|---|
 | Governance policy and hook chain | DONE | Commit `628a7f1`; full Go race/vet and UI build passed |
 | Local bidirectional JSON-RPC | DONE | Commit `562fa93`; protocol/WebSocket/control tests and Playwright passed |
-| Independent `vivy worker` supervisor | IN PROGRESS | Parent-owned journal/budget/policy/workspace authority |
+| Independent `vivy worker` supervisor | DONE | Commits `170150f`, `e9ea47e`; parent-owned journal/budget/policy/workspace authority |
 
-The legacy HTTP/SSE surface remains only until GOAL-3 worker and protocol
-cutover tests are complete. The embedded UI already uses JSON-RPC.
+The legacy HTTP/SSE surface remains only as a compatibility-cleanup surface;
+the embedded UI already uses JSON-RPC. Downstream consumers must migrate before
+the old handlers are removed.
 
 ## 12. V1 entry — Minimal agent layer (first capability proposal)
 

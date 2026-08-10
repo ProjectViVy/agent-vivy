@@ -116,11 +116,23 @@ the official Codex control-plane and governance shape as the benchmark.
   and loopback WebSocket, bounded output queues with `-32001` overload errors,
   approval/question/run/session control methods, cursor-based event replay,
   startup token bootstrap, and UI migration to the WebSocket control plane.
-- GOAL-3 remains active: `vivy worker` subprocess supervision with parent-owned
-  Journal, budget, policy, approval, and workspace authority.
+- GOAL-3 is complete in `170150f` and `e9ea47e`: the same-binary `vivy worker`
+  speaks stdio JSONL, the control plane exposes `worker/run`, and the parent
+  pins policy snapshot/workspace authority, shares the run-tree budget, and
+  brokers every child tool call through parent-side validation and hooks.
 - Legacy HTTP/SSE handlers remain mounted only as a migration/test surface;
-  they are not used by the embedded UI and will be removed after the worker
-  protocol and compatibility tests are complete.
+  they are not used by the embedded UI. Removal is a compatibility-cleanup
+  task after downstream HTTP/SSE consumers have moved to JSON-RPC.
+
+GOAL-3 verification:
+
+- `gofmt -l .` is clean.
+- `go vet ./...` passed.
+- `go test -race -count=1 ./...` passed.
+- The built `vivy worker` process passed an initialize/run stdio smoke with no
+  non-protocol stdout output.
+- Worker tests cover bidirectional tool brokerage, authority widening refusal,
+  and the parent broker's default-profile approval boundary.
 
 ## Verification gate
 
