@@ -244,7 +244,7 @@ func TestServiceRunCancelled(t *testing.T) {
 	}
 }
 
-// The request context must not own the run: cancelling it (SSE disconnect,
+// The request context must not own the run: cancelling it (RPC disconnect,
 // page refresh) leaves the run alive until Cancel is called (AS-7).
 func TestServiceRunSurvivesRequestCancellation(t *testing.T) {
 	svc, backend, _ := newTestService(t, blockingModel{})

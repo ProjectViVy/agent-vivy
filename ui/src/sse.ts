@@ -22,6 +22,13 @@ export const RUN_EVENT_TYPES = [
   "hook.blocked",
   "user.question_required",
   "user.question_answered",
+  "child.requested",
+  "child.started",
+  "child.suspended",
+  "child.resumed",
+  "child.completed",
+  "child.failed",
+  "child.cancelled",
   "run.completed",
   "run.failed",
   "run.cancelled",
@@ -33,6 +40,9 @@ export const TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "run.completed",
   "run.failed",
   "run.cancelled",
+  "child.completed",
+  "child.failed",
+  "child.cancelled",
 ]);
 
 export interface EventEnvelope {

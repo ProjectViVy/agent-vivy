@@ -1,11 +1,11 @@
 # ui
 
-The browser-based UI shell (Vite), built against the Vivy HTTP API and SSE
-event stream only (FR-9, D-013).
+The browser-based UI shell (Vite), built against the Vivy local JSON-RPC
+control plane and journal-backed event notifications (FR-9, D-013).
 
 Ground rules:
 
-- Calls ONLY the Vivy HTTP API. Never imports Go types, Eino types, or
+- Calls ONLY the Vivy JSON-RPC control plane. Never imports Go types, Eino types, or
   reference-project types (D-007).
 - Consumes real session/run/tool/approval/recovery states. No mock domain
   records in any path exercised by users (PRD §6.2, RK-5).

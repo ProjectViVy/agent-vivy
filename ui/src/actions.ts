@@ -107,10 +107,11 @@ export async function sendMessage(text: string): Promise<void> {
     const mode: RunMode = planToggle?.checked ? "plan" : "normal";
     const check = await api.preflight(sessionID, text, mode);
     if (check.status === "blocked") {
-      toast(`preflight blocked: ${check.blockers.join("; ")}`);
+      toast(`preflight blocked: ${(check.blockers ?? []).join("; ")}`);
       return;
     }
-    if (check.warnings.length > 0 && !window.confirm(`Preflight warnings:\n\n${check.warnings.join("\n")}\n\nContinue?`)) {
+    const warnings = check.warnings ?? [];
+    if (warnings.length > 0 && !window.confirm(`Preflight warnings:\n\n${warnings.join("\n")}\n\nContinue?`)) {
       return;
     }
     const accepted = await api.postMessage(sessionID, text, mode);
@@ -150,7 +151,7 @@ export function toggleEventLog(): void {
   notify();
 }
 
-// --- SSE wiring ---
+// --- JSON-RPC event wiring ---
 
 function stopSubscription(): void {
   if (sub) {
@@ -240,7 +241,7 @@ async function refreshMessages(): Promise<void> {
 }
 
 // recoverRun reattaches after a refresh: the last message carrying a
-// run_id identifies the newest run; a non-terminal run gets a full SSE
+// run_id identifies the newest run; a non-terminal run gets a full RPC
 // replay (after_seq=0) so the event log rebuilds and live frames resume.
 async function recoverRun(messages: Message[]): Promise<void> {
   let runID = "";
@@ -320,6 +321,6 @@ export async function refreshQuestions(): Promise<void> {
     state.pendingQuestion = runID ? questions.find((q) => q.run_id === runID) ?? null : null;
     notify();
   } catch {
-    // Polling hiccup: SSE or the next tick will repair the modal.
+    // Polling hiccup: RPC notifications or the next tick will repair the modal.
   }
 }

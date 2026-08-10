@@ -28,10 +28,25 @@ export interface Message {
 }
 
 export interface Run {
-  id: string;
-  session_id: string;
-  status: RunStatus;
-  created_at: number;
+	id: string;
+	session_id: string;
+	status: RunStatus;
+	created_at: number;
+}
+
+// Child runs are durable descendants controlled through the same local RPC
+// plane. The tree UI is intentionally deferred to the follow-up slice.
+export interface ChildRun {
+	id: string;
+	parent_run_id: string;
+	root_run_id: string;
+	session_id: string;
+	status: RunStatus;
+	depth: number;
+	workspace_id?: string;
+	result?: string;
+	error?: string;
+	created_at: number;
 }
 
 export interface Preflight {
@@ -43,9 +58,9 @@ export interface Preflight {
   tool_decisions: Array<{ tool_name: string; decision: string; reason: string }>;
   context_bytes: number;
   hook_ready: boolean;
-  warnings: string[];
-  blockers: string[];
-  next_actions: string[];
+  warnings?: string[];
+  blockers?: string[];
+  next_actions?: string[];
 }
 
 export interface Approval {
@@ -160,6 +175,26 @@ export async function listBackgroundRuns(): Promise<{ runs: BackgroundRun[] }> {
 
 export async function attachBackgroundRun(runID: string): Promise<BackgroundRun> {
   return withBackgroundLinks(await request<Run & { workspace_id?: string }>("background/attach", { run_id: runID }));
+}
+
+export function startChild(childRequest: { parent_run_id: string; text: string; policy_profile?: string; tool_names?: string[] }): Promise<ChildRun> {
+  return request("child/start", childRequest);
+}
+
+export function getChild(runID: string): Promise<ChildRun> {
+  return request("child/get", { run_id: runID });
+}
+
+export function listChildren(parentRunID: string, tree = false): Promise<{ children: ChildRun[] }> {
+  return request("child/list", { parent_run_id: parentRunID, tree });
+}
+
+export function waitChild(runID: string): Promise<ChildRun> {
+  return request("child/wait", { run_id: runID });
+}
+
+export function cancelChild(runID: string): Promise<ChildRun> {
+  return request("child/cancel", { run_id: runID });
 }
 
 // --- approvals ---

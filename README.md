@@ -44,7 +44,7 @@ internal/provider/ openai-compatible / anthropic / mock; YAML bundles
 internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
-internal/httpapi/  UI-facing command/query/SSE event API
+internal/rpc/      UI-facing command/query/event JSON-RPC control plane
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
 ui/                browser UI shell (Vite), independent of runtime internals

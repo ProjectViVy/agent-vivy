@@ -8,10 +8,10 @@ Planned contents:
 
 Landed:
 
-- `events/run-event.schema.json` + `events/payloads/*.json` — the twenty
-  `RunEvent` types (PRD FR-5, task A3, done). This is the single contract
-  that both the Eino event stream (via `internal/runtime`) and the UI event
-  stream (via `internal/httpapi`) speak; the vocabulary mirrors
+- `events/run-event.schema.json` + `events/payloads/*.json` — the journal
+  `RunEvent` vocabulary, including parent-child worker lifecycle events. This
+  is the single contract that runtime, the JSON-RPC control plane, and the UI
+  speak; the vocabulary mirrors
   `internal/domain` EventTypes (B3).
 - `providers.bundle.schema.json` — the provider YAML bundle shape
   (D-022..D-025), with the mandatory `provenance` field (task A2, done).

@@ -13,7 +13,7 @@ import (
 
 // ScriptedModel replays a fixed script of assistant messages, one per
 // Generate/Stream call. It is exported so packages outside runtime (the
-// httpapi integration tests, which must not import eino themselves,
+// integration tests, which must not import eino themselves,
 // D-007) can drive interrupt/resume flows deterministically. Test-only:
 // production paths never use it (mirrors the provider.NewMock precedent).
 type ScriptedModel struct {

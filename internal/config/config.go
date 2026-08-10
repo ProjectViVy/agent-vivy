@@ -55,7 +55,7 @@ type Config struct {
 }
 
 type Server struct {
-	// Addr is the HTTP API + SSE listen address for the UI.
+	// Addr is the local HTTP bootstrap/WebSocket control-plane listen address.
 	Addr string `yaml:"addr"`
 }
 

@@ -3,7 +3,7 @@
 # provider keys are read from environment variables at request time (D-010).
 
 server:
-  # HTTP API + SSE listen address for the UI.
+  # Local HTTP bootstrap + WebSocket JSON-RPC listen address for the UI.
   addr: "127.0.0.1:8787"
 
 storage:

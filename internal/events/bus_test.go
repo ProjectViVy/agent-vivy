@@ -88,7 +88,7 @@ func TestBusTerminalBeforeSubscribe(t *testing.T) {
 	bus.Publish(runEv(domain.EventRunCompleted, 1))
 
 	// Late subscriber: no panic, empty stream is fine; history comes
-	// from the journal replay on the SSE path.
+	// from the journal replay on the RPC path.
 	_, cancel := bus.Subscribe("run-t")
 	defer cancel()
 	if n := bus.Subscribers("run-t"); n != 1 {
