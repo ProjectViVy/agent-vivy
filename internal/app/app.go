@@ -1,5 +1,5 @@
 // Package app is the composition root of the vivy process. It owns the
-// startup order (storage -> providers -> runtime -> httpapi), restart
+// startup order (storage -> providers -> runtime -> JSON-RPC control plane), restart
 // recovery of non-terminal runs before the server listens (E2), and the
 // reverse shutdown order with a bounded grace period.
 //
@@ -23,7 +23,6 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/events"
-	"agent-vivy/internal/httpapi"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
@@ -45,6 +44,7 @@ type App struct {
 
 	service *runtime.Service
 	backend *sqlite.Backend
+	worker  *workerManager
 
 	httpServer *http.Server
 	rpcToken   string
@@ -166,25 +166,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
 		Sink:                 bus,
 	})
+	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
+	svc.SetChildApprovalRouter(workerManager)
 
-	api, err := httpapi.New(httpapi.Deps{
-		Sessions:  backend,
-		Messages:  backend,
-		Runs:      backend,
-		Journal:   backend,
-		Approvals: backend,
-		Questions: backend,
-		Bus:       bus,
-		Service:   svc,
-	})
-	if err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: build http api: %w", err)
-	}
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Bus: bus, Service: svc,
-		Worker: newWorkerController(svc, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes),
+		Children: workerManager,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -202,7 +190,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api)
 	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken})
 	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -226,6 +213,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		logger:   logger,
 		service:  svc,
 		backend:  backend,
+		worker:   workerManager,
 		rpcToken: rpcToken,
 		httpServer: &http.Server{
 			Addr:              cfg.Server.Addr,
@@ -303,6 +291,11 @@ func (a *App) Run(ctx context.Context) error {
 	// run.cancelled terminal persists before the journal closes; only
 	// then do the HTTP server and the backend shut down.
 	a.service.CancelAll()
+	if a.worker != nil {
+		if err := a.worker.Close(shutdownCtx); err != nil {
+			a.logger.Warn("child worker drain timed out", "err", err)
+		}
+	}
 	if !a.service.WaitIdle(shutdownCtx) {
 		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
 	}

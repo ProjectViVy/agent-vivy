@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/child.requested.json",
+  "title": "child.requested payload (v1)",
+  "type": "object",
+  "properties": {"parent_run_id": {"type": "string", "minLength": 1}, "depth": {"type": "integer", "minimum": 1}, "text": {"type": "string", "minLength": 1}},
+  "required": ["parent_run_id", "depth", "text"],
+  "additionalProperties": false
+}

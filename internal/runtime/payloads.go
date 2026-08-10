@@ -133,3 +133,37 @@ const (
 type payloadRunCancelled struct {
 	Reason string `json:"reason"`
 }
+
+type payloadChildRequested struct {
+	ParentRunID string `json:"parent_run_id"`
+	Depth       int    `json:"depth"`
+	Text        string `json:"text"`
+}
+
+type payloadChildStarted struct {
+	ParentRunID string `json:"parent_run_id"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+}
+
+type payloadChildSuspended struct {
+	ApprovalID string `json:"approval_id"`
+	ToolCallID string `json:"tool_call_id"`
+}
+
+type payloadChildResumed struct {
+	ApprovalID string `json:"approval_id"`
+	Decision   string `json:"decision"`
+}
+
+type payloadChildCompleted struct {
+	Summary string `json:"summary,omitempty"`
+}
+
+type payloadChildFailed struct {
+	CauseCategory string `json:"cause_category"`
+	Message       string `json:"message"`
+}
+
+type payloadChildCancelled struct {
+	Reason string `json:"reason"`
+}

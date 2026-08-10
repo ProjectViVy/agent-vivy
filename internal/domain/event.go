@@ -23,6 +23,13 @@ const (
 	EventHookBlocked          EventType = "hook.blocked"
 	EventUserQuestionRequired EventType = "user.question_required"
 	EventUserQuestionAnswered EventType = "user.question_answered"
+	EventChildRequested       EventType = "child.requested"
+	EventChildStarted         EventType = "child.started"
+	EventChildSuspended       EventType = "child.suspended"
+	EventChildResumed         EventType = "child.resumed"
+	EventChildCompleted       EventType = "child.completed"
+	EventChildFailed          EventType = "child.failed"
+	EventChildCancelled       EventType = "child.cancelled"
 	EventRunCompleted         EventType = "run.completed"
 	EventRunFailed            EventType = "run.failed"
 	EventRunCancelled         EventType = "run.cancelled"
@@ -47,6 +54,13 @@ var EventTypes = []EventType{
 	EventHookBlocked,
 	EventUserQuestionRequired,
 	EventUserQuestionAnswered,
+	EventChildRequested,
+	EventChildStarted,
+	EventChildSuspended,
+	EventChildResumed,
+	EventChildCompleted,
+	EventChildFailed,
+	EventChildCancelled,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,
@@ -66,7 +80,8 @@ func (t EventType) Valid() bool {
 // must exist per run (D-008).
 func (t EventType) Terminal() bool {
 	switch t {
-	case EventRunCompleted, EventRunFailed, EventRunCancelled:
+	case EventRunCompleted, EventRunFailed, EventRunCancelled,
+		EventChildCompleted, EventChildFailed, EventChildCancelled:
 		return true
 	}
 	return false
@@ -76,11 +91,11 @@ func (t EventType) Terminal() bool {
 // Non-terminal events return ok=false.
 func (t EventType) RunStatus() (RunStatus, bool) {
 	switch t {
-	case EventRunCompleted:
+	case EventRunCompleted, EventChildCompleted:
 		return RunCompleted, true
-	case EventRunFailed:
+	case EventRunFailed, EventChildFailed:
 		return RunFailed, true
-	case EventRunCancelled:
+	case EventRunCancelled, EventChildCancelled:
 		return RunCancelled, true
 	}
 	return "", false

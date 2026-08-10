@@ -29,31 +29,38 @@ type ControlDeps struct {
 	Questions storage.QuestionStore
 	Bus       *events.Bus
 	Service   *runtime.Service
-	Worker    WorkerController
+	Children  ChildController
 }
 
-// WorkerRequest is the narrow control-plane contract for one independent
-// child worker. The parent controller remains responsible for resolving its
-// policy, workspace, budget, and tool broker.
-type WorkerRequest struct {
-	RunID         string          `json:"run_id"`
-	ParentRunID   string          `json:"parent_run_id"`
-	PolicyProfile string          `json:"policy_profile"`
-	PolicyHash    string          `json:"policy_hash"`
-	WorkspaceID   string          `json:"workspace_id"`
-	Text          string          `json:"text"`
-	ToolName      string          `json:"tool_name,omitempty"`
-	ToolArgs      json.RawMessage `json:"tool_args,omitempty"`
+// ChildRequest starts one durable, asynchronous child run under a parent.
+// The parent controller derives policy hash, workspace, and budget from the
+// durable parent; callers cannot supply a wider authority.
+type ChildRequest struct {
+	ParentRunID   string   `json:"parent_run_id"`
+	Text          string   `json:"text"`
+	PolicyProfile string   `json:"policy_profile,omitempty"`
+	ToolNames     []string `json:"tool_names,omitempty"`
 }
 
-type WorkerResult struct {
-	RunID  string `json:"run_id"`
-	Status string `json:"status"`
-	Result string `json:"result,omitempty"`
+type ChildResult struct {
+	ID          string `json:"id"`
+	ParentRunID string `json:"parent_run_id"`
+	RootRunID   string `json:"root_run_id"`
+	SessionID   string `json:"session_id"`
+	Status      string `json:"status"`
+	Depth       int    `json:"depth"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Result      string `json:"result,omitempty"`
+	Error       string `json:"error,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
-type WorkerController interface {
-	Run(context.Context, WorkerRequest) (WorkerResult, error)
+type ChildController interface {
+	StartChild(context.Context, ChildRequest) (ChildResult, error)
+	GetChild(context.Context, string) (ChildResult, error)
+	ListChildren(context.Context, string, bool) ([]ChildResult, error)
+	WaitChild(context.Context, string) (ChildResult, error)
+	CancelChild(context.Context, string) (ChildResult, error)
 }
 
 func NewControlHandler(deps ControlDeps) (Handler, error) {
@@ -180,8 +187,6 @@ type backgroundResult struct {
 	WorkspaceID string           `json:"workspace_id,omitempty"`
 }
 
-type workerRunParams WorkerRequest
-
 func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request) (any, *Error) {
 	switch request.Method {
 	case "initialize", "capabilities":
@@ -189,7 +194,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"protocol_version": ProtocolVersion,
 			"capabilities": []string{
 				"session", "turn", "run", "preflight", "approval", "question", "run.subscribe",
-				"worker.run",
+				"child.start", "child.get", "child.list", "child.wait", "child.cancel",
 			},
 		}, nil
 	case "session/create":
@@ -235,25 +240,120 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listBackground(ctx)
 	case "background/attach":
 		return h.attachBackground(ctx, request)
-	case "worker/run":
-		return h.runWorker(ctx, request)
+	case "child/start":
+		return h.startChild(ctx, request)
+	case "child/get":
+		return h.getChild(ctx, request)
+	case "child/list":
+		return h.listChildren(ctx, request)
+	case "child/wait":
+		return h.waitChild(ctx, request)
+	case "child/cancel":
+		return h.cancelChild(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
 }
 
-func (h *controlHandler) runWorker(ctx context.Context, request Request) (any, *Error) {
-	if h.deps.Worker == nil {
-		return nil, &Error{Code: MethodNotFound, Message: "worker controller is not configured"}
+func (h *controlHandler) childController() (ChildController, *Error) {
+	if h.deps.Children == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "child controller is not configured"}
 	}
-	var params workerRunParams
+	return h.deps.Children, nil
+}
+
+func (h *controlHandler) startChild(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var params ChildRequest
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	if params.RunID == "" || params.ParentRunID == "" || params.PolicyProfile == "" || params.PolicyHash == "" || params.WorkspaceID == "" {
-		return nil, &Error{Code: InvalidParams, Message: "run_id, parent_run_id, policy_profile, policy_hash, and workspace_id are required"}
+	if params.ParentRunID == "" || params.Text == "" {
+		return nil, &Error{Code: InvalidParams, Message: "parent_run_id and text are required"}
 	}
-	result, err := h.deps.Worker.Run(ctx, WorkerRequest(params))
+	result, err := controller.StartChild(ctx, params)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+func (h *controlHandler) getChild(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	params, rpcErr := parseRunParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	result, err := controller.GetChild(ctx, params.RunID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "child run not found"}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+func (h *controlHandler) listChildren(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var params struct {
+		ParentRunID string `json:"parent_run_id"`
+		Tree        bool   `json:"tree,omitempty"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ParentRunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "parent_run_id is required"}
+	}
+	result, err := controller.ListChildren(ctx, params.ParentRunID, params.Tree)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return map[string]any{"children": result}, nil
+}
+
+func (h *controlHandler) waitChild(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	params, rpcErr := parseRunParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	result, err := controller.WaitChild(ctx, params.RunID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "child run not found"}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+func (h *controlHandler) cancelChild(ctx context.Context, request Request) (any, *Error) {
+	controller, rpcErr := h.childController()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	params, rpcErr := parseRunParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	result, err := controller.CancelChild(ctx, params.RunID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "child run not found"}
+	}
 	if err != nil {
 		return nil, internalError(err)
 	}

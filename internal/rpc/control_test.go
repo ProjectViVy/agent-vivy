@@ -20,10 +20,26 @@ type controlTestEnv struct {
 	handler Handler
 }
 
-type workerControllerStub struct{}
+type childControllerStub struct{}
 
-func (workerControllerStub) Run(_ context.Context, request WorkerRequest) (WorkerResult, error) {
-	return WorkerResult{RunID: request.RunID, Status: "completed", Result: "stub-result"}, nil
+func (childControllerStub) StartChild(_ context.Context, request ChildRequest) (ChildResult, error) {
+	return ChildResult{ID: "child-stub", ParentRunID: request.ParentRunID, Status: "active", Depth: 1}, nil
+}
+
+func (childControllerStub) GetChild(context.Context, string) (ChildResult, error) {
+	return ChildResult{ID: "child-stub", Status: "completed", Result: "done"}, nil
+}
+
+func (childControllerStub) ListChildren(context.Context, string, bool) ([]ChildResult, error) {
+	return []ChildResult{{ID: "child-stub", Status: "completed"}}, nil
+}
+
+func (childControllerStub) WaitChild(context.Context, string) (ChildResult, error) {
+	return ChildResult{ID: "child-stub", Status: "completed", Result: "done"}, nil
+}
+
+func (childControllerStub) CancelChild(context.Context, string) (ChildResult, error) {
+	return ChildResult{ID: "child-stub", Status: "cancelled"}, nil
 }
 
 func newControlTestEnv(t *testing.T) *controlTestEnv {
@@ -50,7 +66,7 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	})
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Bus: bus, Service: service, Worker: workerControllerStub{},
+		Approvals: backend, Questions: backend, Bus: bus, Service: service, Children: childControllerStub{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,21 +181,31 @@ func TestControlHandlerUnknownMethodAndInvalidParams(t *testing.T) {
 	}
 }
 
-func TestControlHandlerWorkerRunContract(t *testing.T) {
+func TestControlHandlerChildLifecycleContract(t *testing.T) {
 	env := newControlTestEnv(t)
-	result, rpcErr := callControl(t, env.handler, "worker/run", map[string]string{
-		"run_id": "child-1", "parent_run_id": "parent-1", "policy_profile": "default",
-		"policy_hash": "hash-1", "workspace_id": "workspace-1", "text": "delegate",
-	})
+	started, rpcErr := callControl(t, env.handler, "child/start", ChildRequest{ParentRunID: "run-parent", Text: "delegate"})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	var workerResult WorkerResult
-	encoded, _ := json.Marshal(result)
-	if err := json.Unmarshal(encoded, &workerResult); err != nil {
-		t.Fatal(err)
+	var child ChildResult
+	encoded, _ := json.Marshal(started)
+	if err := json.Unmarshal(encoded, &child); err != nil || child.ID != "child-stub" || child.Status != "active" {
+		t.Fatalf("child/start result = %+v, err = %v", child, err)
 	}
-	if workerResult.RunID != "child-1" || workerResult.Status != "completed" || workerResult.Result != "stub-result" {
-		t.Fatalf("worker result = %+v", workerResult)
+	for _, method := range []string{"child/get", "child/wait", "child/cancel"} {
+		result, rpcErr := callControl(t, env.handler, method, map[string]string{"run_id": child.ID})
+		if rpcErr != nil {
+			t.Fatalf("%s: %v", method, rpcErr)
+		}
+		if result == nil {
+			t.Fatalf("%s returned nil", method)
+		}
+	}
+	result, rpcErr := callControl(t, env.handler, "child/list", map[string]any{"parent_run_id": "run-parent", "tree": true})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if result == nil {
+		t.Fatal("child/list returned nil")
 	}
 }

@@ -83,8 +83,8 @@ func TestRunKindVocabulary(t *testing.T) {
 }
 
 func TestEventVocabulary(t *testing.T) {
-	if len(EventTypes) != 20 {
-		t.Fatalf("vocabulary size = %d, want 20", len(EventTypes))
+	if len(EventTypes) != 27 {
+		t.Fatalf("vocabulary size = %d, want 27", len(EventTypes))
 	}
 	seen := map[EventType]bool{}
 	terminals := 0
@@ -106,8 +106,8 @@ func TestEventVocabulary(t *testing.T) {
 			t.Errorf("non-terminal event %q must not map to a status", et)
 		}
 	}
-	if terminals != 3 {
-		t.Errorf("terminal events = %d, want 3", terminals)
+	if terminals != 6 {
+		t.Errorf("terminal events = %d, want 6", terminals)
 	}
 	if EventType("run.paused").Valid() {
 		t.Error("unknown event type must be invalid")
@@ -116,9 +116,12 @@ func TestEventVocabulary(t *testing.T) {
 
 func TestTerminalEventStatusMapping(t *testing.T) {
 	cases := map[EventType]RunStatus{
-		EventRunCompleted: RunCompleted,
-		EventRunFailed:    RunFailed,
-		EventRunCancelled: RunCancelled,
+		EventRunCompleted:   RunCompleted,
+		EventRunFailed:      RunFailed,
+		EventRunCancelled:   RunCancelled,
+		EventChildCompleted: RunCompleted,
+		EventChildFailed:    RunFailed,
+		EventChildCancelled: RunCancelled,
 	}
 	for et, want := range cases {
 		if got, ok := et.RunStatus(); !ok || got != want {

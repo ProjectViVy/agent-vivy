@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/child.suspended.json",
+  "title": "child.suspended payload (v1)",
+  "type": "object",
+  "properties": {"approval_id": {"type": "string", "minLength": 1}, "tool_call_id": {"type": "string", "minLength": 1}},
+  "required": ["approval_id", "tool_call_id"],
+  "additionalProperties": false
+}

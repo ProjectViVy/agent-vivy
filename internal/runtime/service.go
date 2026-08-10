@@ -44,6 +44,13 @@ type WorkspaceAllocator interface {
 	Ensure(context.Context, domain.RunID) (Workspace, error)
 }
 
+// ChildApprovalRouter receives a durable decision for an approval owned by a
+// supervised child. The router is app-owned because it holds live worker
+// waiters; runtime still owns validation and first-writer-wins persistence.
+type ChildApprovalRouter interface {
+	ResolveChildApproval(context.Context, domain.Approval, string) error
+}
+
 // DecideApproval error sentinels; the API layer maps them to HTTP
 // semantics (404 / 409; D-009 stays server-enforced).
 var (
@@ -81,12 +88,13 @@ type ServiceDeps struct {
 	PolicyDefaultProfile domain.PolicyProfile
 	Hooks                []RunHook
 	Sink                 EventSink
+	ChildApprovals       ChildApprovalRouter
 }
 
 // Service orchestrates runs: it persists the user message and the
 // accepted run row, journals run.started before driving the engine, and
 // persists each mapped event BEFORE publishing it (durability precedes
-// visibility). The run's context is detached from the request: an SSE
+// visibility). The run's context is detached from the request: an RPC
 // disconnect or page refresh must never kill the run (AS-7); only
 // Cancel / CancelAll do.
 type Service struct {
@@ -152,6 +160,16 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		ledgers:        make(map[domain.RunID]*BudgetLedger),
 		snapshots:      make(map[domain.RunID]domain.PolicySnapshot),
 	}
+}
+
+// SetChildApprovalRouter wires the app-owned live worker registry after the
+// runtime service has been constructed. This avoids a composition cycle:
+// the manager depends on Service, while Service only calls the small router
+// seam when a child approval is decided.
+func (s *Service) SetChildApprovalRouter(router ChildApprovalRouter) {
+	s.mu.Lock()
+	s.deps.ChildApprovals = router
+	s.mu.Unlock()
 }
 
 // Run starts one run for the session and returns its id after the write
@@ -225,7 +243,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", fmt.Errorf("runtime: activate run: %w", err)
 	}
 
-	// Detach the run from the request lifecycle: SSE disconnects and page
+	// Detach the run from the request lifecycle: RPC disconnects and page
 	// refreshes must not cancel the work (AS-7). Cancel/CancelAll hold the
 	// only handles that end it early.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -384,6 +402,13 @@ func (s *Service) recover(ctx context.Context) error {
 
 	now := time.Now().UnixMilli()
 	for _, run := range runs {
+		// Child processes are intentionally not re-executed after restart:
+		// replaying a side-effecting child could duplicate an external action.
+		// Close it before considering approvals or checkpoints.
+		if run.Kind == domain.RunKindChild {
+			s.failUnrecoverable(ctx, run.ID, "worker_lost_after_restart")
+			continue
+		}
 		if s.deps.Workspaces != nil {
 			if _, err := s.deps.Workspaces.Ensure(ctx, run.ID); err != nil {
 				s.failUnrecoverable(ctx, run.ID, "workspace isolation unavailable")
@@ -461,6 +486,93 @@ func (s *Service) WorkerParentAuthority(ctx context.Context, runID domain.RunID)
 		return domain.PolicySnapshot{}, nil, "", err
 	}
 	return snapshot, ledger, workspace.ID, nil
+}
+
+// WorkerChildAuthority derives a child authority from its durable parent.
+// Children receive a nested ledger and a private workspace; they never get
+// the parent's host path or an independent budget circuit breaker.
+func (s *Service) WorkerChildAuthority(ctx context.Context, parentID, childID domain.RunID) (domain.PolicySnapshot, *BudgetLedger, string, error) {
+	if s.deps.Runs == nil {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: run store not wired")
+	}
+	parent, err := s.deps.Runs.GetRun(ctx, parentID)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	child, err := s.deps.Runs.GetRun(ctx, childID)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	if child.Kind != domain.RunKindChild || child.ParentID != parentID || child.Depth != parent.Depth+1 {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: invalid worker child relationship")
+	}
+	snapshot, parentLedger, _, err := s.WorkerParentAuthority(ctx, parentID)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	childLedger, err := parentLedger.Child(s.deps.Budget)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	if s.deps.Workspaces == nil {
+		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: worker workspace authority is unavailable")
+	}
+	workspace, err := s.deps.Workspaces.Ensure(ctx, childID)
+	if err != nil {
+		return domain.PolicySnapshot{}, nil, "", err
+	}
+	return snapshot, childLedger, workspace.ID, nil
+}
+
+// RegisterWorkerAuthority installs the in-process authority for a child so
+// that a grandchild can inherit from it without widening the parent tree.
+func (s *Service) RegisterWorkerAuthority(runID domain.RunID, snapshot domain.PolicySnapshot, ledger *BudgetLedger) error {
+	if runID == "" || snapshot.Profile == "" || snapshot.Hash == "" || ledger == nil {
+		return errors.New("runtime: invalid worker authority")
+	}
+	s.mu.Lock()
+	s.snapshots[runID] = snapshot
+	s.ledgers[runID] = ledger
+	s.mu.Unlock()
+	return nil
+}
+
+// UnregisterWorkerAuthority removes process-only child authority after its
+// terminal event is durable. The durable run and journal remain queryable.
+func (s *Service) UnregisterWorkerAuthority(runID domain.RunID) {
+	s.mu.Lock()
+	delete(s.snapshots, runID)
+	delete(s.ledgers, runID)
+	s.mu.Unlock()
+}
+
+// RecordExternalRunEvent persists an event produced by a supervised worker.
+// It is intentionally generic: the parent manager chooses the child event
+// payload, while Journal remains the single durability and terminal guard.
+func (s *Service) RecordExternalRunEvent(ctx context.Context, runID domain.RunID, typ domain.EventType, payload any) (domain.RunEvent, error) {
+	if s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
+		return domain.RunEvent{}, errors.New("runtime: service is not wired")
+	}
+	if !typ.Valid() {
+		return domain.RunEvent{}, fmt.Errorf("runtime: invalid external event type %q", typ)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("runtime: marshal external event: %w", err)
+	}
+	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: data}
+	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{event}})
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	event.Seq = seq
+	if status, ok := typ.RunStatus(); ok {
+		if err := s.deps.Runs.SetRunStatus(ctx, runID, status); err != nil {
+			return domain.RunEvent{}, err
+		}
+	}
+	s.publish(ctx, event)
+	return event, nil
 }
 
 // checkpointReadable mirrors the interrupt-time check: only a checkpoint
@@ -636,6 +748,23 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 // run.failed so no non-terminal row outlives the process (FR-8).
 func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, reason string) {
 	m := newEventMapper(runID, 0)
+	if run, err := s.deps.Runs.GetRun(ctx, runID); err == nil && run.Kind == domain.RunKindChild {
+		if s.deps.Approvals != nil {
+			if approvals, listErr := s.deps.Approvals.ListPendingApprovals(ctx); listErr == nil {
+				for _, approval := range approvals {
+					if approval.RunID == runID {
+						_, _ = s.deps.Approvals.DecideApproval(ctx, approval.ID, domain.ApprovalDenied)
+					}
+				}
+			}
+		}
+		s.emitTerminal(ctx, m, m.build(domain.EventChildFailed, payloadChildFailed{
+			CauseCategory: "worker_lost_after_restart",
+			Message:       "The child worker was lost during server restart. Retry explicitly to avoid duplicate side effects.",
+		}))
+		slog.Info("restart recovery: child worker failed closed", "run", string(runID), "reason", reason)
+		return
+	}
 	s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
 		CauseCategory: causeInternalError,
 		Message:       "The run was interrupted by a server restart and could not be recovered. Please try again.",
@@ -999,6 +1128,15 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 		// Lost the first-writer-wins race to a concurrent decision.
 		return ErrApprovalAlreadyDecided
 	}
+	if approval.Kind == domain.ApprovalKindChild {
+		if s.deps.ChildApprovals == nil {
+			return errors.New("runtime: child approval router is not wired")
+		}
+		if err := s.deps.ChildApprovals.ResolveChildApproval(ctx, approval, decision); err != nil {
+			return fmt.Errorf("runtime: resolve child approval: %w", err)
+		}
+		return nil
+	}
 
 	s.mu.Lock()
 	p, ok := s.pending[approval.RunID]
@@ -1241,7 +1379,7 @@ func (s *Service) appendAssistantMessage(ctx context.Context, sessionID domain.S
 // handle. Persistence is detached from the run context: a cancellation
 // must not strand the run without its terminal record (AS-5, FR-8). The
 // publish carries no frame itself — the bus closes its live subscribers
-// on a terminal publish, which sends the SSE streams back to the journal
+// on a terminal publish, which sends RPC subscribers back to the journal
 // replay where the event is delivered exactly once (AS-7).
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
@@ -1264,11 +1402,8 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	terminal.Seq = seq
 
 	status := domain.RunCompleted
-	switch terminal.Type {
-	case domain.EventRunFailed:
-		status = domain.RunFailed
-	case domain.EventRunCancelled:
-		status = domain.RunCancelled
+	if mapped, ok := terminal.Type.RunStatus(); ok {
+		status = mapped
 	}
 	if err := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status); err != nil {
 		slog.Error("set terminal run status", "run", string(terminal.RunID), "status", string(status), "err", err)
