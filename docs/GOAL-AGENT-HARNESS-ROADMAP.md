@@ -94,7 +94,14 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   and token-usage events now use versioned Vivy schemas and reach the Journal,
   SSE, background logs, and lifecycle hooks. AuditHook records only event
   metadata plus a payload digest, never raw provider/tool content.
-- H10-H11: pending.
+- H10: done in `9878495` (with the background API in `f45ca7e`). The typed UI
+  client now performs preflight before send, exposes Plan Mode, reconnects all
+  sixteen event types, restores Ask User state after refresh, and renders the
+  independent answer flow. Vite build and Playwright mock conversation smoke
+  pass; the existing `cmd/vivy` entrypoint remains the headless/server CLI.
+- H11: proposal complete in `docs/architecture/ACP-REMOTE-CONTROL-PROPOSAL.md`;
+  implementation remains deferred pending explicit transport/authentication
+  approval.
 
 ## Verification gate
 
@@ -143,6 +150,9 @@ H1 verification for `c3b8ac4`:
 - Observability tests prove reasoning/usage/stall mapping, retry error-message
   non-disclosure, and digest-only audit records; the full event vocabulary and
   payload schemas remain synchronized.
+- UI verification passes `npm run build`, `npm run e2e`, Go vet, and the full
+  race suite; no browser state is persisted outside the server-backed API and
+  Journal/SSE cursors.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
