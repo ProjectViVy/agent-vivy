@@ -62,7 +62,7 @@ func newLoopGuardService(t *testing.T, maxToolTurns int, script []*schema.Messag
 func TestServiceMaxToolTurnsBreached(t *testing.T) {
 	svc, backend, _ := newLoopGuardService(t, 2, loopCallScript(6))
 
-	runID, err := svc.Run(context.Background(), "sess-loop", "go round")
+	runID, err := svc.Run(context.Background(), "sess-loop", "echo round")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestServiceMaxToolTurnsWithinCap(t *testing.T) {
 	script := append(loopCallScript(2), schema.AssistantMessage("Done spinning.", nil))
 	svc, backend, _ := newLoopGuardService(t, 8, script)
 
-	runID, err := svc.Run(context.Background(), "sess-ok", "spin twice")
+	runID, err := svc.Run(context.Background(), "sess-ok", "echo spin twice")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

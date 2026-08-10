@@ -48,6 +48,7 @@ type Engine struct {
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
 	toolSpecs []domain.ToolSpec
+	selector  *tools.Selector
 }
 
 // NewEngine builds the ChatModelAgent and Runner over an Eino
@@ -71,8 +72,9 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
-		Instruction: composeStaticInstruction(specs),
+		Instruction: composeStaticInstruction(),
 		Model:       m,
+		Handlers:    []adk.ChatModelAgentMiddleware{newToolSelectionMiddleware()},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},
 		},
@@ -95,7 +97,17 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs}, nil
+	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs, selector: tools.NewSelector(ts)}, nil
+}
+
+// SelectTools chooses the request-scoped tool surface from the config-
+// filtered manifest. The engine still owns the Eino runner, while the
+// selection is enforced by the adapter through the run context.
+func (e *Engine) SelectTools(request string) tools.Selection {
+	if e.selector == nil {
+		return tools.Selection{}
+	}
+	return e.selector.Select(request)
 }
 
 // Query starts one user turn and returns the raw engine event iterator.

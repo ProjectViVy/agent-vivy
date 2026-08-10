@@ -521,7 +521,7 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
 
-	runID, err := svc.Run(context.Background(), "sess-p", "hello")
+	runID, err := svc.Run(context.Background(), "sess-p", "echo hello")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -545,13 +545,16 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	if !strings.Contains(dynamic.Content, "Today's date: ") {
 		t.Fatalf("dynamic preamble missing date: %q", dynamic.Content)
 	}
+	if strings.Contains(static.Content, "echo_info") {
+		t.Fatalf("static instruction must not contain request-scoped tool names: %q", static.Content)
+	}
 	for _, marker := range []string{"echo_info", "read-only; runs automatically"} {
-		if !strings.Contains(static.Content, marker) {
-			t.Fatalf("static instruction missing %q: %q", marker, static.Content)
+		if !strings.Contains(dynamic.Content, marker) {
+			t.Fatalf("dynamic preamble missing %q: %q", marker, dynamic.Content)
 		}
 	}
 	last := feed[len(feed)-1]
-	if last.Role != domain.RoleUser || last.Content != "hello" {
+	if last.Role != domain.RoleUser || last.Content != "echo hello" {
 		t.Fatalf("feed must end with the user message, got %+v", last)
 	}
 }

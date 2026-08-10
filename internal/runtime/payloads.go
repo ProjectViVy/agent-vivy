@@ -39,11 +39,12 @@ type payloadToolFinished struct {
 // payloadToolApprovalRequired is committed in the single journal commit
 // that follows a durable checkpoint (D-029 write order).
 type payloadToolApprovalRequired struct {
-	ApprovalID string         `json:"approval_id"`
-	ToolCallID string         `json:"tool_call_id"`
-	ToolName   string         `json:"tool_name"`
-	Args       map[string]any `json:"args"`
-	ExpiresAt  int64          `json:"expires_at"`
+	ApprovalID    string         `json:"approval_id"`
+	ToolCallID    string         `json:"tool_call_id"`
+	ToolName      string         `json:"tool_name"`
+	Args          map[string]any `json:"args"`
+	ExpiresAt     int64          `json:"expires_at"`
+	SelectedTools []string       `json:"selected_tools,omitempty"`
 }
 
 type payloadRunCompleted struct {

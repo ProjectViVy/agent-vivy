@@ -43,6 +43,30 @@ func TestToolAdapterCompactsReadonlyResult(t *testing.T) {
 	}
 }
 
+func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
+	tool := &countingTool{}
+	adapter := newToolAdapter(tool, 0)
+	ctx := withSelectedTools(context.Background(), []string{"another_tool"})
+	if _, err := adapter.InvokableRun(ctx, `{}`); err == nil || !strings.Contains(err.Error(), "not selected") {
+		t.Fatalf("unselected tool error = %v, want fail-closed rejection", err)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("unselected tool calls = %d, want zero", tool.calls)
+	}
+}
+
+func TestToolAdapterValidatesSchemaBeforeInvocation(t *testing.T) {
+	tool := &countingTool{}
+	adapter := newToolAdapter(tool, 0)
+	ctx := withSelectedTools(context.Background(), []string{tool.Spec().Name})
+	if _, err := adapter.InvokableRun(ctx, `{}`); err == nil {
+		t.Fatal("missing required argument must fail")
+	}
+	if tool.calls != 0 {
+		t.Fatalf("invalid argument calls = %d, want zero", tool.calls)
+	}
+}
+
 type longResultTool struct{}
 
 func (longResultTool) Spec() domain.ToolSpec {
@@ -51,4 +75,23 @@ func (longResultTool) Spec() domain.ToolSpec {
 
 func (longResultTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
 	return "head-" + strings.Repeat("x", 256) + "-tail", nil
+}
+
+type countingTool struct {
+	calls int
+}
+
+func (t *countingTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: "counting_tool",
+		Params: map[string]domain.ToolParam{
+			"value": {Required: true},
+		},
+		Readonly: true,
+	}
+}
+
+func (t *countingTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	t.calls++
+	return "called", nil
 }

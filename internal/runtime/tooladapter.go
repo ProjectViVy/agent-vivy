@@ -50,6 +50,14 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
 	spec := a.t.Spec()
+	if allowed, scoped := selectedToolSet(ctx); scoped {
+		if _, ok := allowed[spec.Name]; !ok {
+			return "", fmt.Errorf("runtime: tool %q is not selected for this request", spec.Name)
+		}
+	}
+	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
+		return "", err
+	}
 	if spec.Readonly {
 		return a.run(ctx, argumentsInJSON)
 	}

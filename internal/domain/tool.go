@@ -18,6 +18,10 @@ type ToolSpec struct {
 	Description string
 	Readonly    bool
 	Params      map[string]ToolParam
+	// Keywords are deterministic request-routing hints owned by Vivy. They
+	// are not sent to the provider as a second schema; the runtime uses them
+	// to select the smallest tool set for one run.
+	Keywords []string
 }
 
 // ToolParam describes one tool argument. V0 tools take only strings;

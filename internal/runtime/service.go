@@ -16,6 +16,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/tools"
 )
 
 // terminalPersistTimeout caps the detached persistence window for the
@@ -81,8 +82,9 @@ type Service struct {
 }
 
 type pendingRun struct {
-	sessionID domain.SessionID
-	mapper    *eventMapper
+	sessionID     domain.SessionID
+	mapper        *eventMapper
+	selectedTools []string
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -287,28 +289,35 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 // pending registration. The run row stays active; no event is emitted.
 func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval domain.Approval) {
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	toolName, selectedTools := s.approvalDetails(ctx, run.ID)
+	if len(selectedTools) == 0 && toolName != "" {
+		// Events written before request-scoped selection existed remain
+		// recoverable, but only the interrupted tool is allowed on resume.
+		selectedTools = []string{toolName}
+	}
 	m.openCalls = append(m.openCalls, openToolCall{
 		id:   approval.ToolCallID,
-		name: s.approvalToolName(ctx, run.ID),
+		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools}
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on its approval decision",
 		"run", string(run.ID), "approval", approval.ID)
 }
 
-// approvalToolName recovers the interrupted tool's name from the run's
-// last tool.approval_required event; an absent or undecodable payload
-// degrades to the empty name (the resume still replays the decision).
-func (s *Service) approvalToolName(ctx context.Context, runID domain.RunID) string {
+// approvalDetails recovers the interrupted tool and its request-scoped
+// manifest from the durable approval event. Missing selection data is
+// handled by rebuildPending for compatibility with pre-H2 events.
+func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: journal replay failed", "run", string(runID), "err", err)
-		return ""
+		return "", nil
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
+	var selected []string
 	for it.Next() {
 		ev := it.Value().Event
 		if ev.Type != domain.EventToolApprovalRequired {
@@ -317,9 +326,10 @@ func (s *Service) approvalToolName(ctx context.Context, runID domain.RunID) stri
 		var p payloadToolApprovalRequired
 		if json.Unmarshal(ev.Payload, &p) == nil {
 			name = p.ToolName
+			selected = append([]string(nil), p.SelectedTools...)
 		}
 	}
-	return name
+	return name, selected
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
@@ -337,13 +347,14 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
-	msgs, err := s.runMessages(ctx, sessionID, userText)
+	msgs, selection, err := s.runMessages(ctx, sessionID, userText)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
-	iter := s.engine.RunHistory(ctx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
-	s.consume(ctx, m, sessionID, iter)
+	runCtx := withSelectedTools(ctx, selection.Names())
+	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
+	s.consume(runCtx, m, sessionID, selection.Names(), iter)
 }
 
 // runMessages rebuilds the session transcript for the engine (MA-1,
@@ -353,11 +364,12 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // message with a warning — the run proceeds exactly as before the feed
 // existed rather than failing on a bookkeeping read. Tool-role rows never
 // enter the feed: cross-turn context carries text pairs only.
-func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, error) {
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, tools.Selection, error) {
+	selection := s.engine.SelectTools(userText)
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
-	// static Instruction cannot (date, tool set, and the bounded notebook
+	// static Instruction cannot (date, selected tool set, and the bounded notebook
 	// digest of MA-3).
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx))
+	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), selection.Specs)
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
@@ -368,7 +380,7 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		MaxHistoryMessages: s.engine.cfg.MaxHistoryMessages,
 	}, preamble, stored, userText)
 	if err != nil {
-		return nil, err
+		return nil, selection, err
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -378,7 +390,7 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 			"context_bytes", stats.Bytes,
 		)
 	}
-	return msgs, nil
+	return msgs, selection, nil
 }
 
 // notesDigest builds the preamble's notebook section (MA-3). Any listing
@@ -401,7 +413,7 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // event; any other error closes it via the matching terminal. Both the
 // first drive and approval resumes go through here, so every run closes
 // exactly once (D-008).
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, iter *adk.AsyncIterator[*adk.AgentEvent]) {
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, iter *adk.AsyncIterator[*adk.AgentEvent]) {
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -409,7 +421,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 		events, err := m.onEvent(ev)
 		if errors.Is(err, errRunInterrupted) {
-			s.handleInterrupt(ctx, m, sessionID)
+			s.handleInterrupt(ctx, m, sessionID, selectedTools)
 			return
 		}
 		if err != nil {
@@ -436,7 +448,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 // row, commit the single tool.approval_required event, publish it, and
 // register the run as pending. The run row stays active and no terminal
 // event is emitted; DecideApproval (or Cancel) closes it later.
-func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID) {
+func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string) {
 	runID := m.runID
 	fail := func(err error) {
 		slog.Warn("interrupt handling failed", "run", string(runID), "err", err)
@@ -483,11 +495,12 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	ev := m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
-		ApprovalID: approval.ID,
-		ToolCallID: details.ToolCallID,
-		ToolName:   details.ToolName,
-		Args:       details.Args,
-		ExpiresAt:  expiresAt,
+		ApprovalID:    approval.ID,
+		ToolCallID:    details.ToolCallID,
+		ToolName:      details.ToolName,
+		Args:          details.Args,
+		ExpiresAt:     expiresAt,
+		SelectedTools: append([]string(nil), selectedTools...),
 	})
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
@@ -506,7 +519,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	s.mu.Lock()
-	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m}
+	s.pending[runID] = pendingRun{sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...)}
 	s.mu.Unlock()
 }
 
@@ -569,14 +582,14 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, approval, decision)
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, approval, decision)
 	}()
 	return nil
 }
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, approval domain.Approval, decision string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, approval domain.Approval, decision string) {
 	runID := approval.RunID
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if approval.ToolCallID != "" {
@@ -584,7 +597,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, approva
 		// call so reconstructed tool.started/finished keep the call id.
 		m.openCalls = append(m.openCalls, openToolCall{id: approval.ToolCallID, name: toolName})
 	}
-	ctx := context.Background()
+	ctx := withSelectedTools(context.Background(), selectedTools)
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{approval.ResumeTarget: decision},
 	})
@@ -596,7 +609,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, approva
 		}))
 		return
 	}
-	s.consume(ctx, m, sessionID, iter)
+	s.consume(ctx, m, sessionID, selectedTools, iter)
 }
 
 // terminalEvent classifies the failure path: context cancellation and

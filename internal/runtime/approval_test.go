@@ -134,6 +134,16 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	if ap.ExpiresAt != approval.ExpiresAt {
 		t.Fatalf("payload expires_at = %d, want %d", ap.ExpiresAt, approval.ExpiresAt)
 	}
+	selectedWrite := false
+	for _, name := range ap.SelectedTools {
+		if name == tools.WriteNoteName {
+			selectedWrite = true
+			break
+		}
+	}
+	if !selectedWrite {
+		t.Fatalf("approval payload selected_tools = %v, want %q", ap.SelectedTools, tools.WriteNoteName)
+	}
 	// The sink saw the non-terminal approval event for live UI fan-out.
 	sawApproval := false
 	for _, ev := range sink.snapshot() {
