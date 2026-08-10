@@ -97,6 +97,8 @@ type Runtime struct {
 	MaxContextBytes int `yaml:"max_context_bytes"`
 	// MaxHistoryMessages bounds retained user/assistant history rows.
 	MaxHistoryMessages int `yaml:"max_history_messages"`
+	// MaxToolResultBytes bounds one tool result entering the model context.
+	MaxToolResultBytes int `yaml:"max_tool_result_bytes"`
 }
 
 type Tools struct {
@@ -154,6 +156,7 @@ func Default() Config {
 			MaxToolTurns:         defaultMaxToolTurns,
 			MaxContextBytes:      defaultMaxContextBytes,
 			MaxHistoryMessages:   defaultMaxHistoryMessages,
+			MaxToolResultBytes:   32 << 10,
 		},
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note"},
@@ -234,6 +237,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxHistoryMessages <= 0 {
 		return errors.New("runtime.max_history_messages must be positive")
+	}
+	if c.Runtime.MaxToolResultBytes <= 0 {
+		return errors.New("runtime.max_tool_result_bytes must be positive")
 	}
 
 	if len(c.Tools.Enabled) == 0 {

@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"unicode/utf8"
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -17,13 +19,14 @@ import (
 // delivers an approved decision. InvokableRun of the wrapped tool is only
 // ever reached for calls that already passed policy.
 type toolAdapter struct {
-	t tools.Tool
+	t              tools.Tool
+	maxResultBytes int
 }
 
 var _ einotool.InvokableTool = (*toolAdapter)(nil)
 
-func newToolAdapter(t tools.Tool) *toolAdapter {
-	return &toolAdapter{t: t}
+func newToolAdapter(t tools.Tool, maxResultBytes int) *toolAdapter {
+	return &toolAdapter{t: t, maxResultBytes: maxResultBytes}
 }
 
 func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -48,7 +51,7 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
 	spec := a.t.Spec()
 	if spec.Readonly {
-		return a.t.InvokableRun(ctx, json.RawMessage(argumentsInJSON))
+		return a.run(ctx, argumentsInJSON)
 	}
 	wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
 	if !wasInterrupted {
@@ -66,5 +69,70 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		// without executing the effectful call.
 		return spec.Name + " was denied by the user and did not run; continue without it.", nil
 	}
-	return a.t.InvokableRun(ctx, json.RawMessage(argumentsInJSON))
+	return a.run(ctx, argumentsInJSON)
+}
+
+func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, error) {
+	result, err := a.t.InvokableRun(ctx, json.RawMessage(argumentsInJSON))
+	if err != nil {
+		return "", err
+	}
+	return compactToolResult(result, a.maxResultBytes), nil
+}
+
+// compactToolResult keeps a bounded head and tail around an explicit
+// tombstone. The original result remains available to the tool's own durable
+// audit/event path only when that path chooses to retain it; the model never
+// receives an unbounded tool result.
+func compactToolResult(result string, budget int) string {
+	if budget <= 0 || len(result) <= budget {
+		return result
+	}
+	marker := fmt.Sprintf("\n[tool output collapsed: %d bytes removed]\n", len(result)-budget)
+	if len(marker) >= budget {
+		return truncateUTF8(marker, budget)
+	}
+	available := budget - len(marker)
+	headBudget := available / 2
+	tailBudget := available - headBudget
+	return takePrefixUTF8(result, headBudget) + marker + takeSuffixUTF8(result, tailBudget)
+}
+
+func truncateUTF8(value string, budget int) string {
+	return takePrefixUTF8(value, budget)
+}
+
+func takePrefixUTF8(value string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	used := 0
+	for _, r := range value {
+		size := utf8.RuneLen(r)
+		if used+size > budget {
+			break
+		}
+		used += size
+	}
+	return value[:used]
+}
+
+func takeSuffixUTF8(value string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	used := 0
+	start := len(value)
+	for start > 0 {
+		r, size := utf8.DecodeLastRuneInString(value[:start])
+		if used+size > budget {
+			break
+		}
+		used += size
+		start -= size
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+	}
+	return value[start:]
 }

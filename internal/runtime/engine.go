@@ -30,6 +30,9 @@ type EngineConfig struct {
 	// MaxHistoryMessages bounds retained user/assistant transcript rows.
 	// Zero leaves the direct runtime test harness unbounded.
 	MaxHistoryMessages int
+	// MaxToolResultBytes bounds a tool result before it is returned to Eino
+	// and therefore before it can consume the model's next context window.
+	MaxToolResultBytes int
 	// Checkpoints wires the two-layer checkpoint bridge (C6). Nil leaves
 	// the runner without persistence, which is how the model-only tests
 	// run.
@@ -62,7 +65,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	wrapped := make([]einotool.BaseTool, 0, len(ts))
 	specs := make([]domain.ToolSpec, 0, len(ts))
 	for _, t := range ts {
-		wrapped = append(wrapped, newToolAdapter(t))
+		wrapped = append(wrapped, newToolAdapter(t, cfg.MaxToolResultBytes))
 		specs = append(specs, t.Spec())
 	}
 	agentCfg := &adk.ChatModelAgentConfig{

@@ -35,6 +35,7 @@ runtime:
   # Bounds the transient current-session context sent to the model.
   max_context_bytes: 262144
   max_history_messages: 64
+  max_tool_result_bytes: 32768
 
 tools:
   # V0 ships one read-only auto-execute tool and one effectful

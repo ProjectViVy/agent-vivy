@@ -124,6 +124,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
 		MaxContextBytes:      cfg.Runtime.MaxContextBytes,
 		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
+		MaxToolResultBytes:   cfg.Runtime.MaxToolResultBytes,
 		Checkpoints:          checkpoints,
 	})
 	if err != nil {
