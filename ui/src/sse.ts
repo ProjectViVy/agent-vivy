@@ -1,8 +1,8 @@
-// SSE subscription with a reconnect cursor. The server replays from the
-// journal then streams live; reconnecting with after_seq=<last seen seq>
-// resumes without gaps or duplicates (AS-7). Reconnection is managed here
-// (not left to EventSource's built-in retry) because the cursor must move
-// with every delivered frame.
+// Run event subscriptions use the same bidirectional JSON-RPC connection as
+// commands. The public shape remains stable for the UI state layer while the
+// transport now supports server-initiated notifications and replay cursors.
+
+import { getRpcClient, resetRpcClient, type RpcClient } from "./rpc";
 
 export const RUN_EVENT_TYPES = [
   "run.started",
@@ -16,6 +16,10 @@ export const RUN_EVENT_TYPES = [
   "tool.approval_required",
   "tool.started",
   "tool.finished",
+  "policy.evaluated",
+  "hook.started",
+  "hook.completed",
+  "hook.blocked",
   "user.question_required",
   "user.question_answered",
   "run.completed",
@@ -31,7 +35,6 @@ export const TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "run.cancelled",
 ]);
 
-// EventEnvelope mirrors the A3 envelope written by events.writeFrame.
 export interface EventEnvelope {
   run_id: string;
   seq: number;
@@ -55,51 +58,76 @@ export function subscribeRun(
   onError?: (message: string) => void,
 ): RunSubscription {
   let closed = false;
-  let source: EventSource | null = null;
-  let retryTimer: number | undefined;
   let cursor = afterSeq;
+  let subscriptionID = "";
+  let client: RpcClient | null = null;
+  let removeEvent: (() => void) | undefined;
+  let removeClose: (() => void) | undefined;
+  let retryTimer: number | undefined;
 
-  const open = () => {
+  const cleanupListeners = () => {
+    removeEvent?.();
+    removeClose?.();
+    removeEvent = undefined;
+    removeClose = undefined;
+  };
+
+  const scheduleReconnect = () => {
+    if (closed || retryTimer !== undefined) return;
+    retryTimer = window.setTimeout(() => {
+      retryTimer = undefined;
+      void connect();
+    }, RECONNECT_DELAY_MS);
+    onError?.(`control plane interrupted; reconnecting from seq ${cursor}`);
+  };
+
+  const connect = async () => {
     if (closed) return;
-    const es = new EventSource(`/api/runs/${runID}/events?after_seq=${cursor}`);
-    source = es;
-    for (const type of RUN_EVENT_TYPES) {
-      es.addEventListener(type, (ev) => {
-        let env: EventEnvelope;
-        try {
-          env = JSON.parse((ev as MessageEvent).data) as EventEnvelope;
-        } catch {
-          return; // Undecodable frame: skip; the journal stays the truth.
-        }
-        cursor = env.seq;
-        onEvent(env);
-        if (TERMINAL_EVENT_TYPES.has(env.type)) {
-          shutdown();
-        }
+    cleanupListeners();
+    subscriptionID = "";
+    try {
+      client = await getRpcClient();
+      removeEvent = client.onNotification("run/event", (params) => {
+        const envelope = params as { subscription_id?: string; event?: EventEnvelope };
+        if (envelope.subscription_id !== subscriptionID || !envelope.event) return;
+        if (envelope.event.seq <= cursor) return;
+        cursor = envelope.event.seq;
+        onEvent(envelope.event);
+        if (TERMINAL_EVENT_TYPES.has(envelope.event.type)) close();
       });
+      removeClose = client.onClose(() => {
+        cleanupListeners();
+        resetRpcClient();
+        scheduleReconnect();
+      });
+      const response = await client.call<{ subscription_id: string }>("run/subscribe", {
+        run_id: runID,
+        after_seq: cursor,
+      });
+      if (closed) {
+        await client.call("run/unsubscribe", { subscription_id: response.subscription_id }).catch(() => undefined);
+        return;
+      }
+      subscriptionID = response.subscription_id;
+    } catch (error) {
+      cleanupListeners();
+      resetRpcClient();
+      scheduleReconnect();
+      if (!closed) onError?.(`subscription failed: ${error}`);
     }
-    es.onerror = () => {
-      es.close();
-      source = null;
-      if (closed) return;
-      // Network blip or server restart: reopen from the cursor shortly.
-      retryTimer = window.setTimeout(open, RECONNECT_DELAY_MS);
-      if (onError) onError(`event stream interrupted; reconnecting from seq ${cursor}`);
-    };
   };
 
-  const shutdown = () => {
+  const close = () => {
+    if (closed) return;
     closed = true;
+    cleanupListeners();
     if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    if (source) {
-      source.close();
-      source = null;
+    retryTimer = undefined;
+    if (client && subscriptionID) {
+      void client.call("run/unsubscribe", { subscription_id: subscriptionID }).catch(() => undefined);
     }
   };
 
-  open();
-  return {
-    close: shutdown,
-    lastSeq: () => cursor,
-  };
+  void connect();
+  return { close, lastSeq: () => cursor };
 }

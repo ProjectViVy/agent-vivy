@@ -25,6 +25,7 @@ import (
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/httpapi"
 	"agent-vivy/internal/provider"
+	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -46,6 +47,7 @@ type App struct {
 	backend *sqlite.Backend
 
 	httpServer *http.Server
+	rpcToken   string
 }
 
 // New builds the app from a validated config. It returns an error only
@@ -177,6 +179,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build http api: %w", err)
 	}
+	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: svc,
+	})
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
+	}
+	rpcToken := controlrpc.NewSessionToken()
 
 	// Restart recovery before the server listens (E2, FR-8): every
 	// non-terminal run either re-registers on its pending approval or
@@ -189,6 +200,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api)
+	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken})
+	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"protocol_version":%q,"websocket_path":"/rpc","token":%q}`, controlrpc.ProtocolVersion, rpcToken)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","stage":"e2-recovery"}`))
@@ -197,10 +219,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mux.Handle("/", ui.Handler())
 
 	return &App{
-		cfg:     cfg,
-		logger:  logger,
-		service: svc,
-		backend: backend,
+		cfg:      cfg,
+		logger:   logger,
+		service:  svc,
+		backend:  backend,
+		rpcToken: rpcToken,
 		httpServer: &http.Server{
 			Addr:              cfg.Server.Addr,
 			Handler:           mux,
