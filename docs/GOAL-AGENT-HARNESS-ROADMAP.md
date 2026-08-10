@@ -61,7 +61,13 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   bounded, the stable prompt prefix is separated from dynamic run facts, and
   tool results are compacted before entering model context. No durable memory
   behavior was added.
-- H2-H11: pending.
+- H2: done in `373927e`. Config-enabled tools now expose a Vivy-owned
+  keyword manifest; the request router selects a deterministic smallest
+  surface, Eino's agent boundary filters both model-visible and executable
+  tools, and the adapter rejects unselected calls and invalid JSON schemas.
+  Approval events persist the selection so restart recovery cannot widen the
+  tool surface.
+- H3-H11: pending.
 
 ## Verification gate
 
@@ -85,6 +91,10 @@ H1 verification for `c3b8ac4`:
   instruction prefix while tool guidance remains deterministic.
 - Tool-adapter tests prove oversized results retain a UTF-8-safe head/tail
   with an explicit collapse marker and small results remain unchanged.
+- Tool-selector tests cover echo, note write/list/read routing and unrelated
+  requests; adapter tests prove unselected and schema-invalid calls do not
+  reach the wrapped tool. Approval and recovery tests cover durable selection
+  propagation.
 - Existing `TestServiceCancelPendingRun` was repeated five times under race;
   all five passed after one transient full-suite timing failure.
 
