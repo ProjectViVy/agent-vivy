@@ -4,7 +4,7 @@
 > predecessor ordering and parallel-lane analysis.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-07
+> Updated: 2026-08-10
 
 ---
 
@@ -192,7 +192,23 @@ This is the longest dependency chain; compressing it compresses V0. `B3`
 | 2026-08-08 | MA-4 | Loop guardrails: `runtime.max_tool_turns` (default 8) maps to `ChatModelAgentConfig.MaxIterations`; breach is classified in `terminalEvent` as `run.failed` + `internal_error` with a bounded user-facing message (engine sentinel never leaks). Scripted tool-loop tests cover breach (cap=2) and within-cap completion (cap=8). Commit `6ca129a` |
 | 2026-08-08 | V1 close | Real-gateway walkthrough on the rebuilt `vivy.exe` (8790 demo): (1) MA-1 — codename saved in turn one and recalled in turn two of the same session; (2) MA-3 — "what notes do I have" auto-executed `list_notes` with no approval prompt; (3) MA-3 — `write_note` gated → approved → `note_... saved (1 total)`, and the note survived a process restart (visible via `list_notes` after reboot); (4) session history complete via `GET messages`. Full regression green (Go gate + `npm run e2e`). Commits `5b73e82`..`6ca129a` |
 
-## 11. V1 entry — Minimal agent layer (first capability proposal)
+## 11. Harness reinforcement — Codex benchmark
+
+This track is harness-only. It does not add Memory, BML, Laputa, AutoDream,
+Evolution, long-term memory injection, or retrieval. The official Codex CLI is
+the primary benchmark; `.workspace/OpenHarness` is a secondary reference for
+dry-run and hook readiness.
+
+| Goal | Status | Evidence |
+|---|---|---|
+| Governance policy and hook chain | DONE | Commit `628a7f1`; full Go race/vet and UI build passed |
+| Local bidirectional JSON-RPC | DONE | Commit `562fa93`; protocol/WebSocket/control tests and Playwright passed |
+| Independent `vivy worker` supervisor | IN PROGRESS | Parent-owned journal/budget/policy/workspace authority |
+
+The legacy HTTP/SSE surface remains only until GOAL-3 worker and protocol
+cutover tests are complete. The embedded UI already uses JSON-RPC.
+
+## 12. V1 entry — Minimal agent layer (first capability proposal)
 
 > V0 closed with a deliberately narrow surface. The next step is the
 > minimal agent layer, benchmarked against `.workspace/pi` (read-only;

@@ -103,6 +103,25 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   implementation remains deferred pending explicit transport/authentication
   approval.
 
+## Codex benchmark reinforcement (2026-08-10)
+
+The next harness work is explicitly separate from Memory/BML/Laputa and uses
+the official Codex control-plane and governance shape as the benchmark.
+
+- GOAL-1 is complete in `628a7f1`: configuration-backed `default/plan/read_only/full_auto`
+  policy profiles, deny/prompt/allow precedence, immutable policy hashes,
+  fail-closed in-process pre-tool hooks, fail-open post-tool hooks, durable
+  policy/hook events, and policy-aware preflight.
+- GOAL-2 is complete in `562fa93`: bidirectional JSON-RPC v1 over stdio JSONL
+  and loopback WebSocket, bounded output queues with `-32001` overload errors,
+  approval/question/run/session control methods, cursor-based event replay,
+  startup token bootstrap, and UI migration to the WebSocket control plane.
+- GOAL-3 remains active: `vivy worker` subprocess supervision with parent-owned
+  Journal, budget, policy, approval, and workspace authority.
+- Legacy HTTP/SSE handlers remain mounted only as a migration/test surface;
+  they are not used by the embedded UI and will be removed after the worker
+  protocol and compatibility tests are complete.
+
 ## Verification gate
 
 Each implementation slice must pass:
