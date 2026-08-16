@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	einotool "github.com/cloudwego/eino/components/tool"
@@ -49,10 +50,24 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 	if len(spec.Params) > 0 {
 		params := make(map[string]*schema.ParameterInfo, len(spec.Params))
 		for name, p := range spec.Params {
+			paramType := schema.String
+			switch p.Type {
+			case "integer":
+				paramType = schema.Integer
+			case "number":
+				paramType = schema.Number
+			case "boolean":
+				paramType = schema.Boolean
+			case "object":
+				paramType = schema.Object
+			case "array":
+				paramType = schema.Array
+			}
 			params[name] = &schema.ParameterInfo{
-				Type:     schema.String,
+				Type:     paramType,
 				Desc:     p.Desc,
 				Required: p.Required,
+				Enum:     append([]string(nil), p.Enum...),
 			}
 		}
 		info.ParamsOneOf = schema.NewParamsOneOfByParams(params)
@@ -148,13 +163,20 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 }
 
 func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, error) {
-	result, err := a.t.InvokableRun(ctx, json.RawMessage(argumentsInJSON))
+	// The runtime run identity is copied into the tools package context at the
+	// Eino boundary so workspace-backed tools cannot fall back to a host path.
+	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
+	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
+	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	if a.hooks != nil {
 		a.hooks.PostToolUse(ctx, ToolHookCall{
 			RunID: contextRunID(ctx), ToolName: a.t.Spec().Name, Arguments: json.RawMessage(argumentsInJSON), Profile: policyProfile(ctx),
 		}, tools.RedactSensitive(result), err)
 	}
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "proposal stale") || strings.Contains(strings.ToLower(err.Error()), "target changed after human review") {
+			tools.ReportProposalStale(ctx, err.Error())
+		}
 		return "", err
 	}
 	result = untrustedToolResultHeader + tools.RedactSensitive(result)

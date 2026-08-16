@@ -1,5 +1,7 @@
 package domain
 
+import "encoding/json"
+
 // ToolCall is one requested tool invocation inside a run. Args is JSON
 // whose shape is fixed by the tool's Spec.
 type ToolCall struct {
@@ -7,6 +9,19 @@ type ToolCall struct {
 	RunID RunID
 	Spec  ToolSpec
 	Args  []byte
+}
+
+// ToolProposal is the reviewable mutation plan prepared before an effectful
+// tool is allowed to continue. The payload is deliberately generic so file,
+// Skill, HTTP, MCP, and process tools can share the same HITL lifecycle while
+// keeping their domain validation in the owning adapter.
+type ToolProposal struct {
+	Action           string
+	Target           string
+	PreconditionHash string
+	Preview          string
+	RiskFindings     []string
+	Data             json.RawMessage
 }
 
 // ToolSpec describes a registered tool. Readonly tools auto-execute;
@@ -39,14 +54,21 @@ const (
 type ToolParam struct {
 	Desc     string
 	Required bool
+	// Type is a JSON Schema primitive/collection name. Empty preserves the
+	// V0 string contract for legacy tools.
+	Type string
+	Enum []string
 }
 
 // Approval decisions. ApprovalPending marks a row that has not been
 // decided yet; Decisions are exactly approved or denied (D-009).
 const (
-	ApprovalPending  = "pending"
-	ApprovalApproved = "approved"
-	ApprovalDenied   = "denied"
+	ApprovalPending   = "pending"
+	ApprovalApproved  = "approved"
+	ApprovalDenied    = "denied"
+	ApprovalExpired   = "expired"
+	ApprovalStale     = "stale"
+	ApprovalCancelled = "cancelled"
 )
 
 // ApprovalKind identifies the execution owner that will receive a decision.
@@ -59,14 +81,27 @@ const (
 // Approval records a server-side decision for an effectful tool call
 // (D-009). Authority is server-side only; ExpiresAt bounds validity.
 type Approval struct {
-	ID         string
-	RunID      RunID
-	ToolCallID string
-	Decision   string // ApprovalPending | ApprovalApproved | ApprovalDenied
-	ExpiresAt  int64  // unix milli
+	ID             string
+	RunID          RunID
+	ToolCallID     string
+	Decision       string // ApprovalPending | ApprovalApproved | ApprovalDenied
+	ExpiresAt      int64  // unix milli
+	CreatedAt      int64  // unix milli
+	DecidedAt      int64  // unix milli
+	Actor          string
+	DecisionReason string
 	// ResumeTarget is the eino interrupt key the decision feeds back to
 	// (ResumeWithParams target); persisted so a decision can resume even
 	// after bookkeeping restarts (C6).
 	ResumeTarget string
 	Kind         string
+	ToolName     string
+	// Proposal fields make the human review auditable and allow the resumed
+	// tool to fail closed when the approved target has changed.
+	Action           string
+	Target           string
+	PreconditionHash string
+	Preview          string
+	RiskFindings     []string
+	ProposalData     json.RawMessage
 }

@@ -7,6 +7,7 @@ import (
 )
 
 type runIDContextKey struct{}
+type sessionIDContextKey struct{}
 type policyProfileContextKey struct{}
 type policySnapshotContextKey struct{}
 
@@ -17,6 +18,15 @@ func withRunID(ctx context.Context, runID domain.RunID) context.Context {
 func contextRunID(ctx context.Context) domain.RunID {
 	runID, _ := ctx.Value(runIDContextKey{}).(domain.RunID)
 	return runID
+}
+
+func withSessionID(ctx context.Context, sessionID domain.SessionID) context.Context {
+	return context.WithValue(ctx, sessionIDContextKey{}, sessionID)
+}
+
+func contextSessionID(ctx context.Context) domain.SessionID {
+	sessionID, _ := ctx.Value(sessionIDContextKey{}).(domain.SessionID)
+	return sessionID
 }
 
 func withPolicyProfile(ctx context.Context, profile domain.PolicyProfile) context.Context {

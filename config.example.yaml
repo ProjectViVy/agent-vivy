@@ -29,6 +29,9 @@ providers:
 runtime:
   # Deterministic mock provider for tests and offline development.
   mock: false
+  # Test-only Eino tool-call scenario; valid only when mock is true.
+  # Supported values: hitl, approval, question, timeout, stale.
+  mock_scenario: ""
   # Max buffered stream chunks / event payload size bounds (NFR: bounded).
   stream_buffer: 256
   max_event_payload_bytes: 65536
@@ -42,13 +45,48 @@ runtime:
   max_run_tool_calls: 64
   max_run_retries: 3
   workspace_root: data/workspaces
+  # Trusted local Skill packages. Skill text is still treated as untrusted data.
+  skills_root: data/skills
+  # Explicit host surface for read-only http_request; add public hosts deliberately.
+  http_allowed_hosts:
+    - localhost
+    - 127.0.0.1
+    - ::1
+  http_max_response_bytes: 1048576
+  # Streamable HTTP MCP servers; credentials are env references only.
+  mcp_servers: []
+  execute_allowed_commands:
+    - go
+    - git
+    - rg
 
 tools:
-  # V0 ships one read-only auto-execute tool and one effectful
-  # approval-gated tool (D-012).
+  # Read-only tools auto-execute. Mutations and Skill management are always
+  # routed through the durable approval/HITL flow.
   enabled:
     - echo_info        # read-only, auto-execute
     - write_note       # effectful, approval-gated
+    - list_notes
+    - read_note
     - ask_user         # user-input suspension, distinct from approval
+    - read_file
+    - search_files
+    - write_file
+    - patch
+    - http_request  # GET/HEAD only; host allowlist and credential policy apply
+    - mcp_list_tools
+    - mcp_call       # always approval-gated with server/tool provenance
+    - sequential_thinking
+    - execute        # workspace-only, allowlisted process, always approval-gated
+    - commandline    # argv-oriented alias with the same policy
+    - skills_list
+    - skill_view
+    - skill_manage
+    - task_create
+    - task_get
+    - task_update
+    - task_list
+    - network_search  # API-backed text search; remote results are untrusted
+    - tool_search
   approval:
     expiration: 5m

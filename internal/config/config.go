@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -42,6 +43,7 @@ const (
 	defaultMaxRunToolCalls    = 64
 	defaultMaxRunRetries      = 3
 	defaultWorkspaceRoot      = "data/workspaces"
+	defaultSkillsRoot         = "data/skills"
 )
 
 // Config is the typed, validated configuration store.
@@ -93,6 +95,9 @@ type Runtime struct {
 	// Mock enables the deterministic mock provider for tests and offline
 	// development (FR-3).
 	Mock bool `yaml:"mock"`
+	// MockScenario selects a deterministic tool-calling scenario when Mock is
+	// enabled. It is test-only and intentionally has no production default.
+	MockScenario string `yaml:"mock_scenario"`
 	// StreamBuffer bounds buffered stream chunks (NFR: bounded).
 	StreamBuffer int `yaml:"stream_buffer"`
 	// MaxEventPayloadBytes bounds a single event payload (NFR: bounded).
@@ -116,6 +121,23 @@ type Runtime struct {
 	MaxRunRetries int `yaml:"max_run_retries"`
 	// WorkspaceRoot contains one private sandbox directory per background run.
 	WorkspaceRoot string `yaml:"workspace_root"`
+	// SkillsRoot is a trusted, non-executable directory containing SKILL.md
+	// packages. Skill content remains untrusted data at runtime.
+	SkillsRoot string `yaml:"skills_root"`
+	// HTTPAllowedHosts is the explicit host surface for the read-only HTTP tool.
+	HTTPAllowedHosts []string `yaml:"http_allowed_hosts"`
+	// HTTPMaxResponseBytes bounds one HTTP response entering the model context.
+	HTTPMaxResponseBytes int `yaml:"http_max_response_bytes"`
+	// MCPServers are explicitly configured Streamable HTTP JSON-RPC servers.
+	MCPServers []MCPServer `yaml:"mcp_servers"`
+	// ExecuteAllowedCommands is the executable allowlist for local process tools.
+	ExecuteAllowedCommands []string `yaml:"execute_allowed_commands"`
+}
+
+type MCPServer struct {
+	Name     string `yaml:"name"`
+	Endpoint string `yaml:"endpoint"`
+	AuthEnv  string `yaml:"auth_env"`
 }
 
 type Tools struct {
@@ -191,21 +213,26 @@ func Default() Config {
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
 		Runtime: Runtime{
-			Mock:                 false,
-			StreamBuffer:         256,
-			MaxEventPayloadBytes: 65536,
-			MaxToolTurns:         defaultMaxToolTurns,
-			MaxContextBytes:      defaultMaxContextBytes,
-			MaxHistoryMessages:   defaultMaxHistoryMessages,
-			MaxToolResultBytes:   32 << 10,
-			MaxRunEvents:         defaultMaxRunEvents,
-			MaxModelCalls:        defaultMaxModelCalls,
-			MaxRunToolCalls:      defaultMaxRunToolCalls,
-			MaxRunRetries:        defaultMaxRunRetries,
-			WorkspaceRoot:        defaultWorkspaceRoot,
+			Mock:                   false,
+			MockScenario:           "",
+			StreamBuffer:           256,
+			MaxEventPayloadBytes:   65536,
+			MaxToolTurns:           defaultMaxToolTurns,
+			MaxContextBytes:        defaultMaxContextBytes,
+			MaxHistoryMessages:     defaultMaxHistoryMessages,
+			MaxToolResultBytes:     32 << 10,
+			MaxRunEvents:           defaultMaxRunEvents,
+			MaxModelCalls:          defaultMaxModelCalls,
+			MaxRunToolCalls:        defaultMaxRunToolCalls,
+			MaxRunRetries:          defaultMaxRunRetries,
+			WorkspaceRoot:          defaultWorkspaceRoot,
+			SkillsRoot:             defaultSkillsRoot,
+			HTTPAllowedHosts:       []string{"localhost", "127.0.0.1", "::1"},
+			HTTPMaxResponseBytes:   1 << 20,
+			ExecuteAllowedCommands: []string{"go", "git", "rg"},
 		},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user"},
+			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 		Governance: Governance{
@@ -283,6 +310,16 @@ func (c *Config) Validate() error {
 	if c.Runtime.StreamBuffer <= 0 {
 		return errors.New("runtime.stream_buffer must be positive")
 	}
+	if c.Runtime.MockScenario != "" {
+		if !c.Runtime.Mock {
+			return errors.New("runtime.mock_scenario requires runtime.mock=true")
+		}
+		switch c.Runtime.MockScenario {
+		case "hitl", "approval", "question", "timeout", "stale":
+		default:
+			return fmt.Errorf("runtime.mock_scenario %q is unsupported", c.Runtime.MockScenario)
+		}
+	}
 	if c.Runtime.MaxEventPayloadBytes <= 0 {
 		return errors.New("runtime.max_event_payload_bytes must be positive")
 	}
@@ -312,6 +349,24 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.WorkspaceRoot == "" {
 		return errors.New("runtime.workspace_root must not be empty")
+	}
+	if c.Runtime.SkillsRoot == "" {
+		return errors.New("runtime.skills_root must not be empty")
+	}
+	if c.Runtime.HTTPMaxResponseBytes <= 0 {
+		return errors.New("runtime.http_max_response_bytes must be positive")
+	}
+	for i, server := range c.Runtime.MCPServers {
+		if server.Name == "" || server.Endpoint == "" {
+			return fmt.Errorf("runtime.mcp_servers[%d] requires name and endpoint", i)
+		}
+		parsed, err := url.Parse(server.Endpoint)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("runtime.mcp_servers[%d].endpoint must be an absolute HTTP(S) URL", i)
+		}
+		if server.AuthEnv != "" && !envKeyPattern.MatchString(server.AuthEnv) {
+			return fmt.Errorf("runtime.mcp_servers[%d].auth_env must be an environment variable name", i)
+		}
 	}
 
 	if len(c.Tools.Enabled) == 0 {

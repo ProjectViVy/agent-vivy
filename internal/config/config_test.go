@@ -35,6 +35,7 @@ providers:
     default_model: claude-sonnet-4-5
 runtime:
   mock: true
+  mock_scenario: hitl
   stream_buffer: 16
   max_event_payload_bytes: 1024
 tools:
@@ -57,6 +58,7 @@ func TestLoadValid(t *testing.T) {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
 	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
+		cfg.Runtime.MockScenario != "hitl" ||
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
@@ -111,6 +113,10 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"expiration: 2m", "expiration: soon", 1),
 		"empty tools": strings.Replace(validDoc,
 			"  enabled:\n    - echo_info\n    - write_note", "  enabled: []", 1),
+		"mock scenario without mock": strings.Replace(validDoc,
+			"  mock: true", "  mock: false", 1),
+		"unknown mock scenario": strings.Replace(validDoc,
+			"  mock_scenario: hitl", "  mock_scenario: unknown", 1),
 	}
 	for name, doc := range cases {
 		if _, err := Load(writeConfig(t, doc)); err == nil {

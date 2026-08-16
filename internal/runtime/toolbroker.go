@@ -80,7 +80,7 @@ func executeBrokerTool(ctx context.Context, tool tools.Tool, policy *PolicyEngin
 			}
 		}
 	}
-	result, toolErr := tool.InvokableRun(ctx, rawArgs)
+	result, toolErr := tool.InvokableRun(tools.WithRunID(ctx, runID), rawArgs)
 	redacted := tools.RedactSensitive(result)
 	if hooks != nil {
 		hooks.PostToolUse(ctx, ToolHookCall{RunID: runID, ToolName: spec.Name, Arguments: rawArgs, Profile: profile}, redacted, toolErr)
