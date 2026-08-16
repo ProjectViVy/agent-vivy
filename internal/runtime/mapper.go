@@ -107,6 +107,7 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 	var callsMsg *schema.Message
 	started := time.Now()
 	var usage *schema.TokenUsage
+	var toolParts []json.RawMessage
 	for {
 		chunk, err := mv.MessageStream.Recv()
 		if err == io.EOF {
@@ -128,6 +129,11 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 			continue
 		}
 		content.WriteString(chunk.Content)
+		for _, part := range chunk.UserInputMultiContent {
+			if data, marshalErr := json.Marshal(part); marshalErr == nil {
+				toolParts = append(toolParts, data)
+			}
+		}
 		if len(chunk.ToolCalls) > 0 {
 			callsMsg = chunk // tool calls ride the accumulated chunk
 		}
@@ -145,7 +151,7 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 		m.hasPending = true
 	}
 	if mv.Role == schema.Tool {
-		out = append(out, m.toolResultEvents(mv.ToolName, "", content.String(), "")...)
+		out = append(out, m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")...)
 		return out, nil
 	}
 	if elapsed := time.Since(started); m.stallThreshold >= 0 && elapsed >= m.stallThreshold {
@@ -172,7 +178,7 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 	case len(msg.ToolCalls) > 0:
 		return append(out, m.toolCallEvents(msg)...), nil
 	case msg.Role == schema.Tool:
-		return append(out, m.toolResultEvents(mv.ToolName, msg.ToolCallID, msg.Content, "")...), nil
+		return append(out, m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")...), nil
 	default:
 		// Final assistant message of the model turn.
 		content := msg.Content
@@ -304,13 +310,49 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 // tool.finished: the engine delivers tool results as a single event, so
 // the start boundary is reconstructed at result time.
 func (m *eventMapper) toolResultEvents(toolName, callID, result, errMsg string) []domain.RunEvent {
+	return m.toolResultEventsParts(toolName, callID, result, nil, errMsg)
+}
+
+func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) []domain.RunEvent {
 	if callID == "" {
 		callID, toolName = m.popOpenCall(toolName)
 	}
 	return []domain.RunEvent{
 		m.build(domain.EventToolStarted, payloadToolStarted{ToolCallID: callID, ToolName: toolName}),
-		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Error: errMsg}),
+		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}),
 	}
+}
+
+func toolMessageText(msg *schema.Message) string {
+	if msg == nil {
+		return ""
+	}
+	if msg.Content != "" {
+		return msg.Content
+	}
+	var out strings.Builder
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText {
+			out.WriteString(part.Text)
+		}
+	}
+	return out.String()
+}
+
+func toolMessageParts(msg *schema.Message) []json.RawMessage {
+	if msg == nil || len(msg.UserInputMultiContent) == 0 {
+		return nil
+	}
+	var out []json.RawMessage
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText {
+			continue
+		}
+		if data, err := json.Marshal(part); err == nil {
+			out = append(out, data)
+		}
+	}
+	return out
 }
 
 func (m *eventMapper) popOpenCall(toolName string) (string, string) {

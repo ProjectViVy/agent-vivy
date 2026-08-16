@@ -6,13 +6,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/studio"
 )
 
 const (
@@ -27,8 +30,12 @@ type ControlDeps struct {
 	Journal   storage.Journal
 	Approvals storage.ApprovalStore
 	Questions storage.QuestionStore
+	Reviews   storage.ReviewStore
 	Bus       *events.Bus
 	Service   *runtime.Service
+	Studio    *studio.Service
+	Live      studio.LiveView
+	Eval      eval.Starter
 	Children  ChildController
 }
 
@@ -101,11 +108,27 @@ type subscribeParams struct {
 type approvalParams struct {
 	ApprovalID string `json:"approval_id"`
 	Decision   string `json:"decision"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type questionParams struct {
 	QuestionID string `json:"question_id"`
 	Answer     string `json:"answer"`
+}
+
+type reviewListParams struct {
+	Kind      domain.ReviewKind   `json:"kind,omitempty"`
+	Status    domain.ReviewStatus `json:"status,omitempty"`
+	SessionID domain.SessionID    `json:"session_id,omitempty"`
+	Limit     int                 `json:"limit,omitempty"`
+}
+
+type reviewRespondParams struct {
+	ReviewID string `json:"review_id"`
+	Action   string `json:"action"`
+	Decision string `json:"decision,omitempty"`
+	Answer   string `json:"answer,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type unsubscribeParams struct {
@@ -179,6 +202,36 @@ type questionResult struct {
 	ExpiresAt  int64                 `json:"expires_at"`
 }
 
+type reviewResult struct {
+	ID               string              `json:"id"`
+	Kind             domain.ReviewKind   `json:"kind"`
+	Status           domain.ReviewStatus `json:"status"`
+	SessionID        domain.SessionID    `json:"session_id"`
+	SessionTitle     string              `json:"session_title,omitempty"`
+	RunID            domain.RunID        `json:"run_id"`
+	ToolCallID       string              `json:"tool_call_id,omitempty"`
+	ToolName         string              `json:"tool_name,omitempty"`
+	Source           string              `json:"source,omitempty"`
+	Actor            string              `json:"actor,omitempty"`
+	CreatedAt        int64               `json:"created_at"`
+	ExpiresAt        int64               `json:"expires_at"`
+	DecidedAt        int64               `json:"decided_at,omitempty"`
+	Action           string              `json:"action,omitempty"`
+	Target           string              `json:"target,omitempty"`
+	PreconditionHash string              `json:"precondition_hash,omitempty"`
+	Preview          string              `json:"preview,omitempty"`
+	RiskFindings     []string            `json:"risk_findings,omitempty"`
+	Arguments        json.RawMessage     `json:"arguments,omitempty"`
+	Prompt           string              `json:"prompt,omitempty"`
+	DecisionReason   string              `json:"decision_reason,omitempty"`
+	StaleReason      string              `json:"stale_reason,omitempty"`
+	Error            string              `json:"error,omitempty"`
+	Effect           string              `json:"effect,omitempty"`
+	Reversibility    string              `json:"reversibility,omitempty"`
+	Scope            string              `json:"scope,omitempty"`
+	Trust            string              `json:"trust,omitempty"`
+}
+
 type backgroundResult struct {
 	ID          domain.RunID     `json:"id"`
 	SessionID   domain.SessionID `json:"session_id"`
@@ -193,8 +246,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities": []string{
-				"session", "turn", "run", "preflight", "approval", "question", "run.subscribe",
+				"session", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
 				"child.start", "child.get", "child.list", "child.wait", "child.cancel",
+				"generations.list", "generations.get", "evals.list", "evals.start", "promotions.list", "promotions.promote",
+				"generations.reject", "species.inspect",
 			},
 		}, nil
 	case "session/create":
@@ -231,6 +286,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listQuestions(ctx)
 	case "question/respond":
 		return h.respondQuestion(ctx, request)
+	case "review/list":
+		return h.listReviews(ctx, request)
+	case "review/get":
+		return h.getReview(ctx, request)
+	case "review/respond":
+		return h.respondReview(ctx, request)
 	case "background/recover":
 		if err := h.deps.Service.Recover(ctx); err != nil {
 			return nil, internalError(err)
@@ -250,6 +311,26 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.waitChild(ctx, request)
 	case "child/cancel":
 		return h.cancelChild(ctx, request)
+	case "generations/list":
+		return h.listGenerations(ctx)
+	case "generations/get":
+		return h.getGeneration(ctx, request)
+	case "generations/create":
+		return h.createGeneration(ctx, request)
+	case "generations/reject":
+		return h.rejectGeneration(ctx, request)
+	case "evals/list":
+		return h.listEvals(ctx)
+	case "evals/record":
+		return h.recordEval(ctx, request)
+	case "evals/start":
+		return h.startEval(ctx, request)
+	case "promotions/list":
+		return h.listPromotions(ctx)
+	case "promotions/promote":
+		return h.promote(ctx, request)
+	case "species/inspect":
+		return h.inspectSpecies(ctx)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
@@ -593,7 +674,7 @@ func (h *controlHandler) respondApproval(ctx context.Context, request Request) (
 	if params.ApprovalID == "" || params.Decision == "" {
 		return nil, &Error{Code: InvalidParams, Message: "approval_id and decision are required"}
 	}
-	if err := h.deps.Service.DecideApproval(ctx, params.ApprovalID, params.Decision); err != nil {
+	if err := h.deps.Service.DecideApprovalWithReason(ctx, params.ApprovalID, params.Decision, params.Reason); err != nil {
 		return nil, runtimeError(err)
 	}
 	return map[string]any{"approval_id": params.ApprovalID, "decision": params.Decision}, nil
@@ -623,6 +704,117 @@ func (h *controlHandler) respondQuestion(ctx context.Context, request Request) (
 		return nil, runtimeError(err)
 	}
 	return map[string]any{"question_id": params.QuestionID, "answer": params.Answer}, nil
+}
+
+func (h *controlHandler) listReviews(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Reviews == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "review store is not configured"}
+	}
+	var params reviewListParams
+	if request.Params != nil {
+		if err := decodeParams(request, &params); err != nil {
+			return nil, err
+		}
+	}
+	items, err := h.deps.Reviews.ListReviews(ctx, storage.ReviewFilter{
+		Kind: params.Kind, Status: params.Status, SessionID: params.SessionID, Limit: params.Limit,
+	})
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]reviewResult, 0, len(items))
+	for _, item := range items {
+		out = append(out, toReviewResult(item))
+	}
+	return map[string]any{"reviews": out}, nil
+}
+
+func (h *controlHandler) getReview(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Reviews == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "review store is not configured"}
+	}
+	var params struct {
+		ReviewID string `json:"review_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ReviewID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "review_id is required"}
+	}
+	item, err := h.deps.Reviews.GetReview(ctx, params.ReviewID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "review not found"}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return toReviewResult(item), nil
+}
+
+func (h *controlHandler) respondReview(ctx context.Context, request Request) (any, *Error) {
+	var params reviewRespondParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ReviewID == "" || params.Action == "" {
+		return nil, &Error{Code: InvalidParams, Message: "review_id and action are required"}
+	}
+	if h.deps.Reviews == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "review store is not configured"}
+	}
+	item, err := h.deps.Reviews.GetReview(ctx, params.ReviewID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "review not found"}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	switch item.Kind {
+	case domain.ReviewKindApproval:
+		if params.Action != "approve" && params.Action != "deny" {
+			return nil, &Error{Code: InvalidParams, Message: "approval action must be approve or deny"}
+		}
+		decision := domain.ApprovalDenied
+		if params.Action == "approve" {
+			decision = domain.ApprovalApproved
+		}
+		if err := h.deps.Service.DecideApprovalWithReason(ctx, item.ID, decision, params.Reason); err != nil {
+			return nil, runtimeError(err)
+		}
+		return map[string]any{"review_id": item.ID, "status": decision}, nil
+	case domain.ReviewKindQuestion:
+		switch params.Action {
+		case "answer":
+			if strings.TrimSpace(params.Answer) == "" {
+				return nil, &Error{Code: InvalidParams, Message: "answer is required"}
+			}
+			if err := h.deps.Service.AnswerQuestion(ctx, item.ID, params.Answer); err != nil {
+				return nil, runtimeError(err)
+			}
+			return map[string]any{"review_id": item.ID, "status": domain.ReviewAnswered}, nil
+		case "cancel":
+			if err := h.deps.Service.CancelQuestion(ctx, item.ID, params.Reason); err != nil {
+				return nil, runtimeError(err)
+			}
+			return map[string]any{"review_id": item.ID, "status": domain.ReviewCancelled}, nil
+		default:
+			return nil, &Error{Code: InvalidParams, Message: "question action must be answer or cancel"}
+		}
+	default:
+		return nil, &Error{Code: InvalidParams, Message: "unsupported review kind"}
+	}
+}
+
+func toReviewResult(item domain.ReviewItem) reviewResult {
+	return reviewResult{
+		ID: item.ID, Kind: item.Kind, Status: item.Status, SessionID: item.SessionID, SessionTitle: item.SessionTitle,
+		RunID: item.RunID, ToolCallID: item.ToolCallID, ToolName: item.ToolName, Source: item.Source, Actor: item.Actor,
+		CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt, DecidedAt: item.DecidedAt, Action: item.Action, Target: item.Target,
+		PreconditionHash: item.PreconditionHash, Preview: item.Preview, RiskFindings: item.RiskFindings, Arguments: item.Arguments,
+		Prompt: item.Prompt, DecisionReason: item.DecisionReason, StaleReason: item.StaleReason, Error: item.Error,
+		Effect: item.Effect, Reversibility: item.Reversibility, Scope: item.Scope, Trust: item.Trust,
+	}
 }
 
 func (h *controlHandler) subscribe(ctx context.Context, peer *Peer, request Request) (any, *Error) {
@@ -811,9 +1003,270 @@ func toEventResult(event domain.RunEvent) eventResult {
 	return eventResult{RunID: event.RunID, Seq: event.Seq, Type: event.Type, CreatedAt: event.CreatedAt, PayloadVersion: event.PayloadVersion, Payload: json.RawMessage(append([]byte(nil), event.Payload...))}
 }
 
+type generationParams struct {
+	ID             string                `json:"id,omitempty"`
+	ParentID       string                `json:"parent_id,omitempty"`
+	ArtifactSHA256 string                `json:"artifact_sha256"`
+	SourceRef      string                `json:"source_ref,omitempty"`
+	Recipe         domain.AssemblyRecipe `json:"recipe"`
+}
+
+type evalParams struct {
+	CandidateID string `json:"candidate_id"`
+	BaselineID  string `json:"baseline_id,omitempty"`
+	Suite       string `json:"suite"`
+	Verdict     string `json:"verdict"`
+	JournalRef  string `json:"journal_ref,omitempty"`
+}
+
+type promoteParams struct {
+	FromID string `json:"from_id"`
+	ToID   string `json:"to_id"`
+	EvalID string `json:"eval_id,omitempty"`
+	Actor  string `json:"actor,omitempty"`
+}
+
+func (h *controlHandler) listGenerations(ctx context.Context) (any, *Error) {
+	if h.deps.Studio == nil {
+		return map[string]any{"generations": []generationResult{}}, nil
+	}
+	gens, err := h.deps.Studio.ListGenerations(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]generationResult, 0, len(gens))
+	for _, g := range gens {
+		out = append(out, toGenerationResult(g))
+	}
+	return map[string]any{"generations": out}, nil
+}
+
+func (h *controlHandler) getGeneration(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Studio == nil {
+		return nil, &Error{Code: CodeNotFound, Message: "generation not found"}
+	}
+	var params struct {
+		ID string `json:"id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	g, err := h.deps.Studio.GetGeneration(ctx, params.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "generation not found"}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return toGenerationResult(g), nil
+}
+
+func (h *controlHandler) createGeneration(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Studio == nil {
+		return nil, internalError(errors.New("studio is not configured"))
+	}
+	var params generationParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	g, err := h.deps.Studio.CreateGeneration(ctx, domain.Generation{
+		ID: params.ID, ParentID: params.ParentID, ArtifactSHA256: params.ArtifactSHA256,
+		SourceRef: params.SourceRef, Recipe: params.Recipe,
+	})
+	if err != nil {
+		return nil, studioError(err)
+	}
+	return toGenerationResult(g), nil
+}
+
+func (h *controlHandler) rejectGeneration(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Studio == nil {
+		return nil, internalError(errors.New("studio is not configured"))
+	}
+	var params struct {
+		ID string `json:"id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	g, err := h.deps.Studio.Reject(ctx, params.ID)
+	if err != nil {
+		return nil, studioError(err)
+	}
+	return toGenerationResult(g), nil
+}
+
+func (h *controlHandler) listEvals(ctx context.Context) (any, *Error) {
+	if h.deps.Studio == nil {
+		return map[string]any{"evals": []evalResult{}}, nil
+	}
+	evals, err := h.deps.Studio.ListEvalRuns(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]evalResult, 0, len(evals))
+	for _, e := range evals {
+		out = append(out, toEvalResult(e))
+	}
+	return map[string]any{"evals": out}, nil
+}
+
+func (h *controlHandler) recordEval(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Studio == nil {
+		return nil, internalError(errors.New("studio is not configured"))
+	}
+	var params evalParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	e, err := h.deps.Studio.RecordEval(ctx, domain.EvalRun{
+		CandidateID: params.CandidateID, BaselineID: params.BaselineID,
+		Suite: params.Suite, Verdict: domain.EvalVerdict(params.Verdict), JournalRef: params.JournalRef,
+	})
+	if err != nil {
+		return nil, studioError(err)
+	}
+	return toEvalResult(e), nil
+}
+
+func (h *controlHandler) startEval(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Eval == nil {
+		return nil, internalError(errors.New("eval is not configured"))
+	}
+	var params struct {
+		CandidateID string `json:"candidate_id"`
+		BaselineID  string `json:"baseline_id,omitempty"`
+		Suite       string `json:"suite"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	e, err := h.deps.Eval.Start(ctx, params.CandidateID, params.BaselineID, params.Suite)
+	if err != nil {
+		return nil, studioError(err)
+	}
+	return toEvalResult(e), nil
+}
+
+func (h *controlHandler) listPromotions(ctx context.Context) (any, *Error) {
+	if h.deps.Studio == nil {
+		return map[string]any{"promotions": []promotionResult{}}, nil
+	}
+	promos, err := h.deps.Studio.ListPromotions(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]promotionResult, 0, len(promos))
+	for _, p := range promos {
+		out = append(out, toPromotionResult(p))
+	}
+	return map[string]any{"promotions": out}, nil
+}
+
+func (h *controlHandler) promote(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Studio == nil {
+		return nil, internalError(errors.New("studio is not configured"))
+	}
+	var params promoteParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	p, err := h.deps.Studio.Promote(ctx, params.FromID, params.ToID, params.EvalID, params.Actor)
+	if err != nil {
+		return nil, studioError(err)
+	}
+	return toPromotionResult(p), nil
+}
+
+func (h *controlHandler) inspectSpecies(ctx context.Context) (any, *Error) {
+	svc := h.deps.Studio
+	if svc == nil {
+		svc = studio.NewService(nil)
+	}
+	rep, err := svc.Inspect(ctx, h.deps.Live)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	rep.ProtocolVersion = ProtocolVersion
+	return rep, nil
+}
+
+type generationResult struct {
+	ID             string                 `json:"id"`
+	ParentID       string                 `json:"parent_id,omitempty"`
+	ArtifactSHA256 string                 `json:"artifact_sha256"`
+	SourceRef      string                 `json:"source_ref,omitempty"`
+	Recipe         domain.AssemblyRecipe  `json:"recipe"`
+	Phase          domain.GenerationPhase `json:"phase"`
+	CreatedAt      int64                  `json:"created_at"`
+}
+
+type evalResult struct {
+	ID          string             `json:"id"`
+	CandidateID string             `json:"candidate_id"`
+	BaselineID  string             `json:"baseline_id,omitempty"`
+	Suite       string             `json:"suite"`
+	Verdict     domain.EvalVerdict `json:"verdict"`
+	JournalRef  string             `json:"journal_ref,omitempty"`
+	CreatedAt   int64              `json:"created_at"`
+}
+
+type promotionResult struct {
+	ID        string                `json:"id"`
+	FromID    string                `json:"from_id"`
+	ToID      string                `json:"to_id"`
+	EvalID    string                `json:"eval_id"`
+	Actor     string                `json:"actor"`
+	Phase     domain.PromotionPhase `json:"phase"`
+	AppliesAt string                `json:"applies_at"`
+	CreatedAt int64                 `json:"created_at"`
+}
+
+func toGenerationResult(g domain.Generation) generationResult {
+	return generationResult{
+		ID: g.ID, ParentID: g.ParentID, ArtifactSHA256: g.ArtifactSHA256,
+		SourceRef: g.SourceRef, Recipe: g.Recipe, Phase: g.Phase, CreatedAt: g.CreatedAt,
+	}
+}
+
+func toEvalResult(e domain.EvalRun) evalResult {
+	return evalResult{
+		ID: e.ID, CandidateID: e.CandidateID, BaselineID: e.BaselineID,
+		Suite: e.Suite, Verdict: e.Verdict, JournalRef: e.JournalRef, CreatedAt: e.CreatedAt,
+	}
+}
+
+func toPromotionResult(p domain.Promotion) promotionResult {
+	return promotionResult{
+		ID: p.ID, FromID: p.FromID, ToID: p.ToID, EvalID: p.EvalID,
+		Actor: p.Actor, Phase: p.Phase, AppliesAt: p.AppliesAt, CreatedAt: p.CreatedAt,
+	}
+}
+
+func studioError(err error) *Error {
+	switch {
+	case errors.Is(err, studio.ErrInvalid), errors.Is(err, studio.ErrNotHuman), errors.Is(err, eval.ErrInvalidSuite):
+		return &Error{Code: InvalidParams, Message: err.Error()}
+	case errors.Is(err, studio.ErrNotReady), errors.Is(err, studio.ErrAlreadyDecided), errors.Is(err, eval.ErrBlockedPath):
+		return &Error{Code: CodeConflict, Message: err.Error()}
+	case errors.Is(err, storage.ErrConflict):
+		return &Error{Code: CodeConflict, Message: err.Error()}
+	case errors.Is(err, storage.ErrNotFound):
+		return &Error{Code: CodeNotFound, Message: err.Error()}
+	default:
+		return internalError(err)
+	}
+}
+
 func runtimeError(err error) *Error {
 	switch {
-	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision):
+	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):
 		return &Error{Code: CodeConflict, Message: err.Error()}

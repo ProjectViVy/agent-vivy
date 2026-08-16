@@ -169,6 +169,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		types = append(types, string(ev.Type))
 	}
 	want := []domain.EventType{
+		domain.EventToolApprovalDecided,
 		domain.EventPolicyEvaluated,
 		domain.EventToolStarted, domain.EventToolFinished,
 		domain.EventModelDelta, domain.EventModelCompleted, domain.EventRunCompleted,
@@ -182,7 +183,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		}
 	}
 	var fin payloadToolFinished
-	mustUnmarshal(t, events[ai+3].Payload, &fin)
+	mustUnmarshal(t, events[ai+4].Payload, &fin)
 	if fin.ToolCallID != ApprovalFlowCallID {
 		t.Fatalf("tool.finished call id = %q, want %q", fin.ToolCallID, ApprovalFlowCallID)
 	}
@@ -322,6 +323,31 @@ func TestServiceApprovalExpired(t *testing.T) {
 		t.Fatal("cancel of a pending run must report true")
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCancelled)
+}
+
+func TestServiceExpirySweeperClosesPendingApproval(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, time.Millisecond)
+	ctx := context.Background()
+	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	time.Sleep(10 * time.Millisecond)
+	if err := svc.SweepExpired(ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+	stored, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Decision != domain.ApprovalExpired {
+		t.Fatalf("approval decision = %q, want expired", stored.Decision)
+	}
+	if indexOfType(replayAll(t, backend, runID), domain.EventToolApprovalExpired) < 0 {
+		t.Fatal("missing tool.approval_expired event")
+	}
 }
 
 func TestServiceCancelPendingRun(t *testing.T) {

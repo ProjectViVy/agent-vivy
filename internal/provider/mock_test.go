@@ -2,8 +2,11 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
 )
@@ -88,5 +91,54 @@ func TestMockCanceledContext(t *testing.T) {
 	cancel()
 	if _, err := NewMock().Stream(ctx, nil); err == nil {
 		t.Fatal("want error for canceled context")
+	}
+}
+
+func TestMockHITLScenarioEmitsToolCallThenCompletes(t *testing.T) {
+	ref := mockRef{}
+	model, err := ref.Model(context.Background(), "mock:hitl")
+	if err != nil {
+		t.Fatalf("Model: %v", err)
+	}
+	first, err := model.Generate(context.Background(), []*schema.Message{
+		schema.UserMessage("e2e approval"),
+	})
+	if err != nil {
+		t.Fatalf("first Generate: %v", err)
+	}
+	if len(first.ToolCalls) != 1 || first.ToolCalls[0].Function.Name != "write_note" {
+		t.Fatalf("first message = %+v", first)
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(first.ToolCalls[0].Function.Arguments), &args); err != nil {
+		t.Fatalf("tool args: %v", err)
+	}
+	if args["content"] != "e2e approval note" {
+		t.Fatalf("tool args = %+v", args)
+	}
+	second, err := model.Generate(context.Background(), []*schema.Message{
+		schema.UserMessage("e2e approval"),
+		{Role: schema.Tool, Content: "saved"},
+	})
+	if err != nil {
+		t.Fatalf("second Generate: %v", err)
+	}
+	if second.Content != "mock scenario completed: hitl" || len(second.ToolCalls) != 0 {
+		t.Fatalf("second message = %+v", second)
+	}
+}
+
+func TestMockHITLScenarioSeparatesQuestion(t *testing.T) {
+	ref := mockRef{}
+	model, err := ref.Model(context.Background(), "mock:hitl")
+	if err != nil {
+		t.Fatalf("Model: %v", err)
+	}
+	message, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("e2e question")})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(message.ToolCalls) != 1 || message.ToolCalls[0].Function.Name != "ask_user" {
+		t.Fatalf("message = %+v", message)
 	}
 }

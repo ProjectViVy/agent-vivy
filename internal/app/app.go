@@ -22,11 +22,15 @@ import (
 
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
+	genplugins "agent-vivy/internal/generated/plugins"
+	"agent-vivy/internal/pluginhost"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/ui"
 )
@@ -103,11 +107,61 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		modelID = "bundle-default"
 	}
 
-	ts, err := tools.Builtin(backend).Resolve(cfg.Tools.Enabled)
+	var workspaces runtime.WorkspaceAllocator
+	var fileOps tools.FileOperations
+	var skillOps tools.SkillOperations
+	var todoOps tools.TodoOperations
+	var searchOps tools.SearchOperations
+	var httpOps tools.HTTPOperations
+	var mcpOps tools.MCPOperations
+	var sequentialOps tools.SequentialThinkingOperations
+	var commandOps tools.CommandOperations
+	var workspaceManager *runtime.WorkspaceManager
+	if cfg.Runtime.WorkspaceRoot != "" {
+		manager, err := runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build workspace isolation: %w", err)
+		}
+		workspaces = manager
+		workspaceManager = manager
+		fileOps = runtime.NewEinoFilesystemBackend(manager)
+	}
+	if cfg.Runtime.SkillsRoot != "" {
+		skillBackend, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build skills backend: %w", err)
+		}
+		skillOps = skillBackend
+	}
+	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "todos"))
+	todoOps = todoBackend
+	searchOps = runtime.NewNetworkSearchService(nil, nil)
+	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes)
+	mcpConfigs := make([]runtime.MCPServerConfig, 0, len(cfg.Runtime.MCPServers))
+	for _, server := range cfg.Runtime.MCPServers {
+		mcpConfigs = append(mcpConfigs, runtime.MCPServerConfig{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+	}
+	mcpOps = runtime.NewEinoMCPBackend(mcpConfigs, nil)
+	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
+	commandOps = runtime.NewEinoCommandBackend(workspaceManager, cfg.Runtime.ExecuteAllowedCommands)
+	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
 	}
+	var lookup pluginhost.WorkspaceLookup
+	if workspaceManager != nil {
+		lookup = func(ctx context.Context) (string, error) {
+			ws, err := workspaceManager.Ensure(ctx, tools.RunIDFromContext(ctx))
+			if err != nil {
+				return "", err
+			}
+			return ws.Path, nil
+		}
+	}
+	ts = append(ts, pluginhost.Adapt(genplugins.Register(), lookup)...)
 	// The checkpoint bridge fail-closes on its engine version, so an
 	// unknown build version aborts startup rather than suspend runs on
 	// unverifiable checkpoints (C6).
@@ -120,15 +174,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
-	}
-	var workspaces runtime.WorkspaceAllocator
-	if cfg.Runtime.WorkspaceRoot != "" {
-		manager, err := runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
-		if err != nil {
-			_ = backend.Close()
-			return nil, fmt.Errorf("app: build workspace isolation: %w", err)
-		}
-		workspaces = manager
 	}
 	policy := policyEngine(cfg)
 	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout)
@@ -169,9 +214,50 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
 	svc.SetChildApprovalRouter(workerManager)
 
+	liveProfile := domain.PolicyProfile(cfg.Governance.Profile)
+	if !liveProfile.Valid() {
+		liveProfile = domain.PolicyProfileDefault
+	}
+	liveSnap, err := policy.Snapshot(liveProfile)
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
+	}
+	liveTools := make([]domain.ToolSpec, 0, len(ts))
+	for _, tool := range ts {
+		liveTools = append(liveTools, tool.Spec())
+	}
+	studioSvc := studio.NewService(backend)
+	executable, exeErr := os.Executable()
+	if exeErr != nil {
+		executable = ""
+	}
+	bundleDir := cfg.Providers.BundleDir
+	if abs, err := filepath.Abs(bundleDir); err == nil {
+		bundleDir = abs
+	}
+	evalRunner := eval.NewRunner(eval.Runner{
+		Studio:     studioSvc,
+		Executable: executable,
+		EvalRoot:   filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "evals"),
+		Isolation: eval.Isolation{
+			ProductionSQLite:    cfg.Storage.SQLite.Path,
+			ProductionWorkspace: cfg.Runtime.WorkspaceRoot,
+			ProductionListen:    cfg.Server.Addr,
+			BundleDir:           bundleDir,
+		},
+	})
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Bus: bus, Service: svc,
+		Approvals: backend, Questions: backend, Reviews: backend, Bus: bus, Service: svc,
+		Studio: studioSvc,
+		Live: studio.LiveView{
+			Provider:      providerName,
+			PolicyProfile: liveProfile,
+			PolicyHash:    liveSnap.Hash,
+			Tools:         liveTools,
+		},
+		Eval:     evalRunner,
 		Children: workerManager,
 	})
 	if err != nil {
@@ -252,6 +338,9 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 func defaultModelFor(cfg config.Config, providerName string) string {
 	switch providerName {
 	case "mock":
+		if cfg.Runtime.MockScenario != "" {
+			return "mock:" + cfg.Runtime.MockScenario
+		}
 		return "mock"
 	case "anthropic":
 		return cfg.Providers.Anthropic.DefaultModel
@@ -264,6 +353,8 @@ func defaultModelFor(cfg config.Config, providerName string) string {
 // it shuts down components in reverse startup order with a bounded grace
 // period and returns the shutdown error, if any.
 func (a *App) Run(ctx context.Context) error {
+	a.service.StartInteractionSweeper(context.Background(), time.Second)
+	defer a.service.StopInteractionSweeper()
 	errCh := make(chan error, 1)
 	go func() {
 		a.logger.Info("vivy starting", "addr", a.cfg.Server.Addr)
@@ -290,6 +381,7 @@ func (a *App) Run(ctx context.Context) error {
 	// cancelled and then drained while storage is still open, so every
 	// run.cancelled terminal persists before the journal closes; only
 	// then do the HTTP server and the backend shut down.
+	a.service.StopInteractionSweeper()
 	a.service.CancelAll()
 	if a.worker != nil {
 		if err := a.worker.Close(shutdownCtx); err != nil {

@@ -19,7 +19,6 @@ func TestBuildRunContextKeepsCurrentAndRecentHistory(t *testing.T) {
 		{Role: domain.RoleUser, Content: "recent question"},
 		{Role: domain.RoleAssistant, Content: "recent answer"},
 		{Role: domain.RoleUser, Content: "current"},
-		{Role: domain.RoleTool, Content: "tool output must not cross turns"},
 	}
 
 	msgs, stats, err := buildRunContext(ContextPolicy{MaxHistoryMessages: 2}, "preamble", stored, "current")
@@ -40,6 +39,47 @@ func TestBuildRunContextKeepsCurrentAndRecentHistory(t *testing.T) {
 	}
 	if msgs[1].Content != "recent question" || msgs[2].Content != "recent answer" || msgs[3].Content != "current" {
 		t.Fatalf("bounded context contents = %+v", msgs)
+	}
+}
+
+func TestBuildRunContextKeepsPairedToolTurns(t *testing.T) {
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "look up"},
+		{Role: domain.RoleAssistant, ToolCallID: "c1", ToolName: "echo_info", ToolArgs: []byte(`{"text":"hi"}`)},
+		{Role: domain.RoleTool, Content: "hi", ToolCallID: "c1", ToolName: "echo_info"},
+		{Role: domain.RoleAssistant, Content: "done"},
+		{Role: domain.RoleUser, Content: "again"},
+	}
+	msgs, stats, err := buildRunContext(ContextPolicy{}, "preamble", stored, "again")
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if stats.OriginalHistoryMessages != 4 {
+		t.Fatalf("original history = %d, want 4", stats.OriginalHistoryMessages)
+	}
+	if len(msgs) != 6 {
+		t.Fatalf("message count = %d, want preamble + user + assistant-call + tool + assistant + current", len(msgs))
+	}
+	if msgs[2].Role != "assistant" || len(msgs[2].ToolCalls) != 1 || msgs[2].ToolCalls[0].ID != "c1" {
+		t.Fatalf("assistant tool call = %+v", msgs[2])
+	}
+	if msgs[3].Role != "tool" || msgs[3].ToolCallID != "c1" || msgs[3].Content != "hi" {
+		t.Fatalf("tool result = %+v", msgs[3])
+	}
+}
+
+func TestBuildRunContextDropsUnpairedToolRows(t *testing.T) {
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "q"},
+		{Role: domain.RoleAssistant, ToolCallID: "orphan", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleUser, Content: "next"},
+	}
+	msgs, _, err := buildRunContext(ContextPolicy{}, "preamble", stored, "next")
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("message count = %d, want preamble + user + current (orphan call dropped)", len(msgs))
 	}
 }
 

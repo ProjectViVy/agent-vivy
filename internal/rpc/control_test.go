@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 )
 
@@ -64,9 +67,30 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
 	})
+	liveTools := make([]domain.ToolSpec, 0, len(ts))
+	for _, tool := range ts {
+		liveTools = append(liveTools, tool.Spec())
+	}
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Bus: bus, Service: service, Children: childControllerStub{},
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio: studio.NewService(backend),
+		Live: studio.LiveView{
+			Provider:      "mock",
+			PolicyProfile: domain.PolicyProfileDefault,
+			PolicyHash:    "policy-hash-test",
+			Tools:         liveTools,
+		},
+		Eval: eval.NewRunner(eval.Runner{
+			Studio:     studio.NewService(backend),
+			Executable: filepath.Join(t.TempDir(), "missing.exe"),
+			EvalRoot:   filepath.Join(t.TempDir(), "evals"),
+			Isolation: eval.Isolation{
+				ProductionSQLite: filepath.Join(t.TempDir(), "prod.db"),
+				BundleDir:        filepath.Join("..", "..", "fixtures", "provider"),
+			},
+		}),
+		Children: childControllerStub{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -208,4 +232,243 @@ func TestControlHandlerChildLifecycleContract(t *testing.T) {
 	if result == nil {
 		t.Fatal("child/list returned nil")
 	}
+}
+
+func TestStudioRPCEmptyListAndPromote(t *testing.T) {
+	env := newControlTestEnv(t)
+	listed, rpcErr := callControl(t, env.handler, "generations/list", map[string]any{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(listed)
+	var wrap struct {
+		Generations []generationResult `json:"generations"`
+	}
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		t.Fatal(err)
+	}
+	if wrap.Generations == nil || len(wrap.Generations) != 0 {
+		t.Fatalf("empty generations = %#v", listed)
+	}
+
+	from, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
+		"artifact_sha256": "aaa",
+		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	fromJSON, _ := json.Marshal(from)
+	var fromGen generationResult
+	if err := json.Unmarshal(fromJSON, &fromGen); err != nil {
+		t.Fatal(err)
+	}
+	to, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
+		"parent_id":       fromGen.ID,
+		"artifact_sha256": "bbb",
+		"recipe":          map[string]any{"loop": "eino", "world": "sandbox", "plugins": []string{"acme"}},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	toJSON, _ := json.Marshal(to)
+	var toGen generationResult
+	if err := json.Unmarshal(toJSON, &toGen); err != nil {
+		t.Fatal(err)
+	}
+
+	_, rpcErr = callControl(t, env.handler, "promotions/promote", map[string]any{
+		"from_id": fromGen.ID, "to_id": toGen.ID,
+	})
+	if rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("promote without eval = %+v, want conflict", rpcErr)
+	}
+
+	if _, rpcErr = callControl(t, env.handler, "evals/record", map[string]any{
+		"candidate_id": toGen.ID, "baseline_id": fromGen.ID, "suite": "s1", "verdict": "better",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	first, rpcErr := callControl(t, env.handler, "promotions/promote", map[string]any{
+		"from_id": fromGen.ID, "to_id": toGen.ID, "actor": "human",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if first == nil {
+		t.Fatal("promote returned nil")
+	}
+	_, rpcErr = callControl(t, env.handler, "promotions/promote", map[string]any{
+		"from_id": fromGen.ID, "to_id": toGen.ID, "actor": "human",
+	})
+	if rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("second promote = %+v, want conflict", rpcErr)
+	}
+}
+
+func TestSpeciesInspectBuiltinThenPromoted(t *testing.T) {
+	env := newControlTestEnv(t)
+	first, rpcErr := callControl(t, env.handler, "species/inspect", map[string]any{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	rep := decodeInspect(t, first)
+	if rep.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("protocol_version = %q", rep.ProtocolVersion)
+	}
+	if rep.BinaryID == "" || rep.GenerationID != studio.BuiltinGenerationID {
+		t.Fatalf("builtin inspect = %+v", rep)
+	}
+	if len(rep.Tools) == 0 {
+		t.Fatal("expected live tools")
+	}
+	assertInspectSafe(t, first)
+
+	from, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
+		"artifact_sha256": "from-sha",
+		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	fromGen := decodeGeneration(t, from)
+	to, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
+		"parent_id":       fromGen.ID,
+		"artifact_sha256": "to-sha",
+		"recipe":          map[string]any{"loop": "eino", "world": "sandbox", "tools": []string{"echo_info"}},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	toGen := decodeGeneration(t, to)
+	if _, rpcErr = callControl(t, env.handler, "evals/record", map[string]any{
+		"candidate_id": toGen.ID, "baseline_id": fromGen.ID, "suite": "s1", "verdict": "better",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if _, rpcErr = callControl(t, env.handler, "promotions/promote", map[string]any{
+		"from_id": fromGen.ID, "to_id": toGen.ID, "actor": "human",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+
+	second, rpcErr := callControl(t, env.handler, "species/inspect", map[string]any{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	promoted := decodeInspect(t, second)
+	if promoted.GenerationID != toGen.ID || promoted.ArtifactSHA256 != "to-sha" {
+		t.Fatalf("promoted inspect = %+v, want generation %s", promoted, toGen.ID)
+	}
+	if promoted.Recipe.Loop != "eino" {
+		t.Fatalf("promoted recipe = %+v", promoted.Recipe)
+	}
+	assertInspectSafe(t, second)
+}
+
+func TestGenerationsRejectRPC(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
+		"artifact_sha256": "cand",
+		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	gen := decodeGeneration(t, created)
+	rejected, rpcErr := callControl(t, env.handler, "generations/reject", map[string]any{"id": gen.ID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	got := decodeGeneration(t, rejected)
+	if got.Phase != domain.GenerationRejected {
+		t.Fatalf("rejected = %+v", got)
+	}
+	if _, rpcErr = callControl(t, env.handler, "generations/reject", map[string]any{"id": gen.ID}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("second reject = %+v", rpcErr)
+	}
+}
+
+func TestEvalsStartUnknownSuiteAndFailedProbe(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
+		"artifact_sha256": "cand",
+		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	gen := decodeGeneration(t, created)
+
+	_, rpcErr = callControl(t, env.handler, "evals/start", map[string]any{
+		"candidate_id": gen.ID, "suite": "not-a-suite",
+	})
+	if rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("unknown suite = %+v, want invalid params", rpcErr)
+	}
+
+	result, rpcErr := callControl(t, env.handler, "evals/start", map[string]any{
+		"candidate_id": gen.ID, "suite": eval.SuiteAirgapProbe,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got evalResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Verdict != domain.EvalFailedToRun || got.CandidateID != gen.ID {
+		t.Fatalf("failed probe = %+v", got)
+	}
+}
+
+func decodeInspect(t *testing.T, result any) studio.Report {
+	t.Helper()
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep studio.Report
+	if err := json.Unmarshal(raw, &rep); err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}
+
+func decodeGeneration(t *testing.T, result any) generationResult {
+	t.Helper()
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gen generationResult
+	if err := json.Unmarshal(raw, &gen); err != nil {
+		t.Fatal(err)
+	}
+	return gen
+}
+
+func assertInspectSafe(t *testing.T, result any) {
+	t.Helper()
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	if containsFold(body, "api_key") {
+		t.Fatalf("inspect leaked api_key: %s", body)
+	}
+	for i := 0; i+2 < len(body); i++ {
+		if ((body[i] >= 'A' && body[i] <= 'Z') || (body[i] >= 'a' && body[i] <= 'z')) && body[i+1] == ':' && (body[i+2] == '\\' || body[i+2] == '/') {
+			t.Fatalf("inspect leaked host path: %s", body)
+		}
+	}
+}
+
+func containsFold(s, sub string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/cloudwego/eino/adk"
@@ -52,8 +53,9 @@ type Engine struct {
 	cfg    EngineConfig
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
-	toolSpecs []domain.ToolSpec
-	selector  *tools.Selector
+	toolSpecs  []domain.ToolSpec
+	selector   *tools.Selector
+	toolByName map[string]tools.Tool
 }
 
 // NewEngine builds the ChatModelAgent and Runner over an Eino
@@ -77,9 +79,11 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	}
 	wrapped := make([]einotool.BaseTool, 0, len(ts))
 	specs := make([]domain.ToolSpec, 0, len(ts))
+	byName := make(map[string]tools.Tool, len(ts))
 	for _, t := range ts {
-		wrapped = append(wrapped, newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks))
+		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks)))
 		specs = append(specs, t.Spec())
+		byName[t.Spec().Name] = t
 	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
@@ -109,7 +113,22 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs, selector: tools.NewSelector(ts)}, nil
+	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs, selector: tools.NewSelector(ts), toolByName: byName}, nil
+}
+
+// PrepareProposal asks an effectful tool for a bounded review plan before the
+// runner is suspended. Tools that do not implement ProposalProvider retain the
+// legacy empty proposal shape.
+func (e *Engine) PrepareProposal(ctx context.Context, name string, args json.RawMessage) (domain.ToolProposal, error) {
+	t, ok := e.toolByName[name]
+	if !ok {
+		return domain.ToolProposal{}, nil
+	}
+	provider, ok := t.(tools.ProposalProvider)
+	if !ok {
+		return domain.ToolProposal{}, nil
+	}
+	return provider.PrepareProposal(tools.WithRunID(ctx, contextRunID(ctx)), args)
 }
 
 // SelectTools chooses the request-scoped tool surface from the config-

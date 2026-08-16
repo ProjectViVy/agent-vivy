@@ -69,9 +69,13 @@ func main() {
 	}
 }
 
-// loadConfig reads config.yaml when present; otherwise it falls back to
-// the built-in defaults with a warning. Invalid config aborts startup.
+// loadConfig reads VIVY_CONFIG when set, otherwise config.yaml when
+// present; otherwise it falls back to the built-in defaults. A set
+// VIVY_CONFIG never falls back to the working directory.
 func loadConfig(logger *slog.Logger) (config.Config, error) {
+	if path := os.Getenv("VIVY_CONFIG"); path != "" {
+		return config.Load(path)
+	}
 	if _, err := os.Stat(configPath); err == nil {
 		return config.Load(configPath)
 	}

@@ -123,6 +123,21 @@ func TestMessageAppendList(t *testing.T) {
 	if got[1].RunID != "run-9" || got[1].Role != domain.RoleAssistant {
 		t.Fatalf("assistant message fields wrong: %+v", got[1])
 	}
+	tool := domain.Message{
+		ID: "msg-c", SessionID: "sess-m", RunID: "run-9", Role: domain.RoleTool,
+		CreatedAt: 30, Content: "pong", ToolCallID: "call-1", ToolName: "echo_info",
+		ToolArgs: []byte(`{"text":"pong"}`),
+	}
+	if err := b.AppendMessage(ctx, tool); err != nil {
+		t.Fatalf("append tool: %v", err)
+	}
+	got, err = b.ListMessages(ctx, "sess-m")
+	if err != nil {
+		t.Fatalf("list after tool: %v", err)
+	}
+	if len(got) != 3 || got[2].ToolCallID != "call-1" || got[2].ToolName != "echo_info" || string(got[2].ToolArgs) != `{"text":"pong"}` {
+		t.Fatalf("tool message fields wrong: %+v", got[2])
+	}
 	if got[0].RunID != "" {
 		t.Fatalf("user message must carry empty run id: %+v", got[0])
 	}

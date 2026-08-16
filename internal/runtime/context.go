@@ -41,7 +41,7 @@ const contextMessageOverhead = 16
 // buildRunContext creates the exact message list sent to the engine. The
 // preamble and current user request are mandatory; older transcript rows are
 // retained from newest to oldest until the message and byte budgets are
-// reached. Tool-role rows remain excluded from cross-run history per ADR-009.
+// reached. Tool-call / tool-result pairs stay in the feed (ADR-010).
 func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
 	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 {
 		return nil, ContextStats{}, fmt.Errorf("%w: policy values must not be negative", ErrContextBudgetExceeded)
@@ -73,7 +73,7 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 	selected := make([]domain.Message, 0, maxHistory)
 	usedBytes := baseBytes
 	for i := len(history) - 1; i >= 0 && len(selected) < maxHistory; i-- {
-		cost := messageCost(history[i].Content, string(history[i].Role))
+		cost := messageCost(history[i].Content, string(history[i].Role)) + len(history[i].ToolArgs) + len(history[i].ToolCallID)
 		if policy.MaxBytes > 0 && usedBytes+cost > policy.MaxBytes {
 			break
 		}
@@ -84,20 +84,14 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 		selected[left], selected[right] = selected[right], selected[left]
 	}
 
+	selected = pairToolTurns(selected)
 	stats.IncludedHistoryMessages = len(selected)
-	stats.DroppedHistoryMessages = len(history) - len(selected)
+	stats.DroppedHistoryMessages = len(history) - stats.IncludedHistoryMessages
 	stats.Bytes = usedBytes
 
 	msgs := make([]*schema.Message, 0, len(selected)+2)
 	msgs = append(msgs, schema.SystemMessage(preamble))
-	for _, msg := range selected {
-		switch msg.Role {
-		case domain.RoleUser:
-			msgs = append(msgs, schema.UserMessage(msg.Content))
-		case domain.RoleAssistant:
-			msgs = append(msgs, schema.AssistantMessage(msg.Content, nil))
-		}
-	}
+	msgs = append(msgs, projectFeed(selected)...)
 	msgs = append(msgs, schema.UserMessage(current.Content))
 	return msgs, stats, nil
 }
@@ -105,8 +99,74 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 func feedableMessages(stored []domain.Message) []domain.Message {
 	out := make([]domain.Message, 0, len(stored))
 	for _, msg := range stored {
-		if msg.Role == domain.RoleUser || msg.Role == domain.RoleAssistant {
+		switch msg.Role {
+		case domain.RoleUser, domain.RoleAssistant, domain.RoleTool:
 			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+// pairToolTurns drops assistant tool-call rows without a matching tool
+// result in the same window, and tool results without a matching call.
+func pairToolTurns(in []domain.Message) []domain.Message {
+	haveResult := make(map[string]bool)
+	haveCall := make(map[string]bool)
+	for _, msg := range in {
+		if msg.ToolCallID == "" {
+			continue
+		}
+		switch msg.Role {
+		case domain.RoleTool:
+			haveResult[msg.ToolCallID] = true
+		case domain.RoleAssistant:
+			haveCall[msg.ToolCallID] = true
+		}
+	}
+	out := make([]domain.Message, 0, len(in))
+	for _, msg := range in {
+		if msg.ToolCallID == "" {
+			out = append(out, msg)
+			continue
+		}
+		if msg.Role == domain.RoleAssistant && !haveResult[msg.ToolCallID] {
+			continue
+		}
+		if msg.Role == domain.RoleTool && !haveCall[msg.ToolCallID] {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+func projectFeed(msgs []domain.Message) []*schema.Message {
+	out := make([]*schema.Message, 0, len(msgs))
+	for i := 0; i < len(msgs); {
+		msg := msgs[i]
+		switch {
+		case msg.Role == domain.RoleUser:
+			out = append(out, schema.UserMessage(msg.Content))
+			i++
+		case msg.Role == domain.RoleTool:
+			out = append(out, schema.ToolMessage(msg.Content, msg.ToolCallID))
+			i++
+		case msg.Role == domain.RoleAssistant && msg.ToolCallID != "":
+			var calls []schema.ToolCall
+			for i < len(msgs) && msgs[i].Role == domain.RoleAssistant && msgs[i].ToolCallID != "" {
+				calls = append(calls, schema.ToolCall{
+					ID: msgs[i].ToolCallID,
+					Function: schema.FunctionCall{
+						Name:      msgs[i].ToolName,
+						Arguments: string(msgs[i].ToolArgs),
+					},
+				})
+				i++
+			}
+			out = append(out, schema.AssistantMessage("", calls))
+		default:
+			out = append(out, schema.AssistantMessage(msg.Content, nil))
+			i++
 		}
 	}
 	return out

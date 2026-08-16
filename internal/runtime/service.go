@@ -56,6 +56,7 @@ type ChildApprovalRouter interface {
 var (
 	ErrApprovalNotFound        = errors.New("runtime: approval not found")
 	ErrApprovalInvalidDecision = errors.New("runtime: approval decision must be approved or denied")
+	ErrApprovalInvalidReason   = errors.New("runtime: approval reason is too long")
 	ErrApprovalAlreadyDecided  = errors.New("runtime: approval already decided")
 	ErrApprovalExpired         = errors.New("runtime: approval expired")
 	ErrQuestionNotFound        = errors.New("runtime: question not found")
@@ -119,8 +120,11 @@ type Service struct {
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
-	wg         sync.WaitGroup
-	recoveryMu sync.Mutex
+	wg          sync.WaitGroup
+	recoveryMu  sync.Mutex
+	sweepMu     sync.Mutex
+	sweepCancel context.CancelFunc
+	sweepWG     sync.WaitGroup
 }
 
 type pendingRun struct {
@@ -215,6 +219,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err := s.deps.Messages.AppendMessage(ctx, domain.Message{
 		ID:        newMessageID(),
 		SessionID: sessionID,
+		RunID:     runID,
 		Role:      domain.RoleUser,
 		CreatedAt: now,
 		Content:   userText,
@@ -269,17 +274,33 @@ func (s *Service) Cancel(runID domain.RunID) bool {
 	s.mu.Lock()
 	cancel, active := s.active[runID]
 	p, isPending := s.pending[runID]
-	if isPending {
-		delete(s.pending, runID)
-	}
 	s.mu.Unlock()
 
 	if isPending {
+		settled := true
 		if p.questionID != "" && s.deps.Questions != nil {
-			if err := s.deps.Questions.CancelQuestion(context.Background(), p.questionID); err != nil {
+			if err := s.cancelQuestion(context.Background(), p.questionID, "run cancelled"); err != nil {
 				slog.Warn("cancel question failed", "question", p.questionID, "err", err)
+				settled = false
+			}
+		} else if s.deps.Approvals != nil {
+			if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
+				if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
+					slog.Warn("cancel approval failed", "approval", approval.ID, "err", err)
+					settled = false
+				}
 			}
 		}
+		if !settled {
+			// A concurrent answer/decision won the durable conditional
+			// transition. Leave the in-memory suspension for that response.
+			return true
+		}
+		s.mu.Lock()
+		if current, ok := s.pending[runID]; ok && current.mapper == p.mapper {
+			delete(s.pending, runID)
+		}
+		s.mu.Unlock()
 		s.emitTerminal(context.Background(), p.mapper,
 			p.mapper.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
 		return true
@@ -330,6 +351,82 @@ func (s *Service) WaitIdle(ctx context.Context) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// StartInteractionSweeper runs the server-owned timeout transition. It is
+// separate from run workers because a suspended run has no model goroutine.
+func (s *Service) StartInteractionSweeper(parent context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	s.sweepMu.Lock()
+	if s.sweepCancel != nil {
+		s.sweepMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(parent)
+	s.sweepCancel = cancel
+	s.sweepWG.Add(1)
+	s.sweepMu.Unlock()
+	go func() {
+		defer s.sweepWG.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := s.SweepExpired(ctx); err != nil {
+					slog.Warn("interaction expiry sweep failed", "err", err)
+				}
+			}
+		}
+	}()
+}
+
+// StopInteractionSweeper drains the timeout worker before storage closes.
+func (s *Service) StopInteractionSweeper() {
+	s.sweepMu.Lock()
+	cancel := s.sweepCancel
+	s.sweepCancel = nil
+	s.sweepMu.Unlock()
+	if cancel != nil {
+		cancel()
+		s.sweepWG.Wait()
+	}
+}
+
+// SweepExpired settles all expired pending interactions. Conditional storage
+// transitions preserve first-writer-wins against a simultaneous response.
+func (s *Service) SweepExpired(ctx context.Context) error {
+	if s.deps.Approvals != nil {
+		approvals, err := s.deps.Approvals.ListPendingApprovals(ctx)
+		if err != nil {
+			return fmt.Errorf("runtime: list approvals for expiry: %w", err)
+		}
+		for _, approval := range approvals {
+			if approval.ExpiresAt > 0 && approval.ExpiresAt <= time.Now().UnixMilli() {
+				if err := s.expireApproval(ctx, approval, "human review timed out"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if s.deps.Questions != nil {
+		questions, err := s.deps.Questions.ListPendingQuestions(ctx)
+		if err != nil {
+			return fmt.Errorf("runtime: list questions for expiry: %w", err)
+		}
+		for _, question := range questions {
+			if question.ExpiresAt > 0 && question.ExpiresAt <= time.Now().UnixMilli() {
+				if err := s.expireQuestion(ctx, question, "user response timed out"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Recover settles every non-terminal run left behind by a process
@@ -421,13 +518,19 @@ func (s *Service) recover(ctx context.Context) error {
 		case hasApproval && hasQuestion:
 			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
 		case hasApproval && approval.ExpiresAt <= now:
-			s.failUnrecoverable(ctx, run.ID, "approval expired")
+			if err := s.expireApproval(ctx, approval, "human review timed out during restart"); err != nil {
+				slog.Warn("restart recovery: expire approval failed", "approval", approval.ID, "err", err)
+				s.failUnrecoverable(ctx, run.ID, "approval expiry could not be persisted")
+			}
 		case hasApproval && !s.checkpointReadable(ctx, run.ID):
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasApproval:
 			s.rebuildPending(ctx, run, approval)
 		case hasQuestion && question.ExpiresAt <= now:
-			s.failUnrecoverable(ctx, run.ID, "question expired")
+			if err := s.expireQuestion(ctx, question, "user response timed out during restart"); err != nil {
+				slog.Warn("restart recovery: expire question failed", "question", question.ID, "err", err)
+				s.failUnrecoverable(ctx, run.ID, "question expiry could not be persisted")
+			}
 		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
@@ -781,20 +884,23 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
+	if !s.persistAndPublish(ctx, sessionID, m.build(domain.EventModelRequest, digestModelRequest(msgs, selection.Names()))) {
+		return
+	}
 	ledger := s.ledgerForRun(m.runID)
-	runCtx := withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(ctx, selection.Names()), mode), profile), snapshot), m.runID)
+	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(ctx, selection.Names()), mode), profile), snapshot), m.runID), sessionID)
+	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
 }
 
-// runMessages rebuilds the session transcript for the engine (MA-1,
-// ADR-009): user/assistant text pairs in store order, with the current
+// runMessages rebuilds the session transcript for the engine (ADR-010):
+// user, assistant, and paired tool turns in store order, with the current
 // turn's user message last (Run persists it before driving, so the store
 // already contains it). A listing failure degrades to the single new
-// message with a warning — the run proceeds exactly as before the feed
-// existed rather than failing on a bookkeeping read. Tool-role rows never
-// enter the feed: cross-turn context carries text pairs only.
+// message with a warning — the run proceeds rather than failing on a
+// bookkeeping read.
 func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := s.engine.SelectTools(userText)
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
@@ -963,13 +1069,31 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	expiresAt := time.Now().Add(s.deps.ApprovalExpiration).UnixMilli()
+	proposalData, proposalErr := json.Marshal(details.Args)
+	if proposalErr != nil {
+		fail(proposalErr)
+		return
+	}
+	proposal, proposalErr := s.engine.PrepareProposal(ctx, details.ToolName, proposalData)
+	if proposalErr != nil {
+		fail(proposalErr)
+		return
+	}
 	approval := domain.Approval{
-		ID:           newPrefixedID("apr_"),
-		RunID:        runID,
-		ToolCallID:   details.ToolCallID,
-		Decision:     domain.ApprovalPending,
-		ExpiresAt:    expiresAt,
-		ResumeTarget: details.ResumeTarget,
+		ID:               newPrefixedID("apr_"),
+		RunID:            runID,
+		ToolCallID:       details.ToolCallID,
+		ToolName:         details.ToolName,
+		Decision:         domain.ApprovalPending,
+		ExpiresAt:        expiresAt,
+		CreatedAt:        time.Now().UnixMilli(),
+		ResumeTarget:     details.ResumeTarget,
+		Action:           proposal.Action,
+		Target:           proposal.Target,
+		PreconditionHash: proposal.PreconditionHash,
+		Preview:          proposal.Preview,
+		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
+		ProposalData:     append([]byte(nil), proposal.Data...),
 	}
 	if err := s.deps.Approvals.CreateApproval(persistCtx, approval); err != nil {
 		fail(err)
@@ -977,15 +1101,20 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	ev := m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
-		ApprovalID:    approval.ID,
-		ToolCallID:    details.ToolCallID,
-		ToolName:      details.ToolName,
-		Args:          details.Args,
-		ExpiresAt:     expiresAt,
-		SelectedTools: append([]string(nil), selectedTools...),
-		Mode:          string(mode),
-		PolicyProfile: string(policyProfile(ctx)),
-		PolicyHash:    policySnapshot(ctx).Hash,
+		ApprovalID:       approval.ID,
+		ToolCallID:       details.ToolCallID,
+		ToolName:         details.ToolName,
+		Args:             details.Args,
+		ExpiresAt:        expiresAt,
+		SelectedTools:    append([]string(nil), selectedTools...),
+		Mode:             string(mode),
+		PolicyProfile:    string(policyProfile(ctx)),
+		PolicyHash:       policySnapshot(ctx).Hash,
+		Action:           approval.Action,
+		Target:           approval.Target,
+		PreconditionHash: approval.PreconditionHash,
+		Preview:          approval.Preview,
+		RiskFindings:     append([]string(nil), approval.RiskFindings...),
 	})
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
@@ -1056,6 +1185,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		Prompt:       prompt,
 		Status:       domain.QuestionPending,
 		ExpiresAt:    expiresAt,
+		CreatedAt:    time.Now().UnixMilli(),
 		ResumeTarget: details.ResumeTarget,
 	}
 	if err := s.deps.Questions.CreateQuestion(persistCtx, question); err != nil {
@@ -1081,7 +1211,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	ev.Seq = seq
 	s.publish(persistCtx, ev)
 	if ctx.Err() != nil {
-		_ = s.deps.Questions.CancelQuestion(context.Background(), question.ID)
+		_ = s.cancelQuestion(context.Background(), question.ID, "run cancelled while suspending")
 		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
 		return
 	}
@@ -1101,8 +1231,18 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 // decision loses with ErrApprovalAlreadyDecided. The resume runs in the
 // background; the caller only learns whether the decision was accepted.
 func (s *Service) DecideApproval(ctx context.Context, approvalID, decision string) error {
+	return s.DecideApprovalWithReason(ctx, approvalID, decision, "")
+}
+
+// DecideApprovalWithReason records an optional bounded human rationale and
+// emits a durable decision event before any resumed model work is visible.
+func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, decision, reason string) error {
 	if decision != domain.ApprovalApproved && decision != domain.ApprovalDenied {
 		return ErrApprovalInvalidDecision
+	}
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 2000 {
+		return ErrApprovalInvalidReason
 	}
 	if s.deps.Approvals == nil {
 		return errors.New("runtime: approval store not wired")
@@ -1120,7 +1260,7 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	if time.Now().UnixMilli() >= approval.ExpiresAt {
 		return ErrApprovalExpired
 	}
-	decided, err := s.deps.Approvals.DecideApproval(ctx, approvalID, decision)
+	decided, err := s.decideApproval(ctx, approvalID, decision, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
 	}
@@ -1128,6 +1268,9 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 		// Lost the first-writer-wins race to a concurrent decision.
 		return ErrApprovalAlreadyDecided
 	}
+	s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
+		ApprovalID: approval.ID, Decision: decision, Actor: "local_user", Reason: reason, DecidedAt: time.Now().UnixMilli(),
+	})
 	if approval.Kind == domain.ApprovalKindChild {
 		if s.deps.ChildApprovals == nil {
 			return errors.New("runtime: child approval router is not wired")
@@ -1165,9 +1308,148 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.ledger,
-			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision)
+			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
 	}()
 	return nil
+}
+
+func (s *Service) decideApproval(ctx context.Context, id, decision, reason string) (bool, error) {
+	if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {
+		return lifecycle.DecideApprovalWithMetadata(ctx, id, decision, "local_user", reason)
+	}
+	return s.deps.Approvals.DecideApproval(ctx, id, decision)
+}
+
+func (s *Service) cancelApproval(ctx context.Context, approval domain.Approval, reason string) error {
+	lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore)
+	if !ok {
+		return nil
+	}
+	settled, err := lifecycle.CancelApproval(ctx, approval.ID, "local_user", reason)
+	if err != nil || !settled {
+		if err != nil {
+			return err
+		}
+		return ErrApprovalAlreadyDecided
+	}
+	s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalCancelled, payloadApprovalCancelled{
+		ApprovalID: approval.ID, Actor: "local_user", Reason: reason,
+	})
+	return nil
+}
+
+func (s *Service) cancelQuestion(ctx context.Context, questionID, reason string) error {
+	if lifecycle, ok := s.deps.Questions.(storage.QuestionLifecycleStore); ok {
+		question, err := s.deps.Questions.GetQuestion(ctx, questionID)
+		if err != nil {
+			return err
+		}
+		settled, err := lifecycle.CancelQuestionWithMetadata(ctx, questionID, "local_user", reason)
+		if err != nil {
+			return err
+		}
+		if !settled {
+			return ErrQuestionAlreadyAnswered
+		}
+		s.journalReviewEvent(ctx, question.RunID, domain.EventUserQuestionCancelled, payloadQuestionCancelled{
+			QuestionID: questionID, Actor: "local_user", Reason: reason,
+		})
+		return nil
+	}
+	return s.deps.Questions.CancelQuestion(ctx, questionID)
+}
+
+func (s *Service) approvalForRun(ctx context.Context, runID domain.RunID) (domain.Approval, error) {
+	approvals, err := s.deps.Approvals.ListPendingApprovals(ctx)
+	if err != nil {
+		return domain.Approval{}, err
+	}
+	for _, approval := range approvals {
+		if approval.RunID == runID {
+			return approval, nil
+		}
+	}
+	return domain.Approval{}, storage.ErrNotFound
+}
+
+func (s *Service) journalReviewEvent(ctx context.Context, runID domain.RunID, eventType domain.EventType, payload any) {
+	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	ev := m.build(eventType, payload)
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+	defer cancel()
+	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
+	if err != nil {
+		slog.Warn("review event persistence failed", "run", string(runID), "type", string(eventType), "err", err)
+		return
+	}
+	ev.Seq = seq
+	s.publish(persistCtx, ev)
+}
+
+func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, reason string) error {
+	lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore)
+	if !ok {
+		return nil
+	}
+	settled, err := lifecycle.ExpireApproval(ctx, approval.ID, reason)
+	if err != nil || !settled {
+		return err
+	}
+	s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalExpired, payloadInteractionExpired{
+		ReviewID: approval.ID, Kind: string(domain.ReviewKindApproval), ExpiresAt: approval.ExpiresAt, Reason: reason,
+	})
+	s.mu.Lock()
+	p, pending := s.pending[approval.RunID]
+	if pending {
+		delete(s.pending, approval.RunID)
+	}
+	s.mu.Unlock()
+	if pending {
+		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeHumanTimeout,
+			Message:       "The run stopped because human review timed out.",
+		}))
+	} else {
+		s.failHumanTimeout(ctx, approval.RunID, reason)
+	}
+	return nil
+}
+
+func (s *Service) expireQuestion(ctx context.Context, question domain.Question, reason string) error {
+	lifecycle, ok := s.deps.Questions.(storage.QuestionLifecycleStore)
+	if !ok {
+		return nil
+	}
+	settled, err := lifecycle.ExpireQuestion(ctx, question.ID, reason)
+	if err != nil || !settled {
+		return err
+	}
+	s.journalReviewEvent(ctx, question.RunID, domain.EventUserQuestionExpired, payloadInteractionExpired{
+		ReviewID: question.ID, Kind: string(domain.ReviewKindQuestion), ExpiresAt: question.ExpiresAt, Reason: reason,
+	})
+	s.mu.Lock()
+	p, pending := s.pending[question.RunID]
+	if pending {
+		delete(s.pending, question.RunID)
+	}
+	s.mu.Unlock()
+	if pending {
+		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeHumanTimeout,
+			Message:       "The run stopped because a user response timed out.",
+		}))
+	} else {
+		s.failHumanTimeout(ctx, question.RunID, reason)
+	}
+	return nil
+}
+
+func (s *Service) failHumanTimeout(ctx context.Context, runID domain.RunID, reason string) {
+	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
+		CauseCategory: causeHumanTimeout,
+		Message:       "The run stopped because human review timed out.",
+	}))
 }
 
 // AnswerQuestion settles a pending ask_user interaction and resumes the
@@ -1193,7 +1475,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	if time.Now().UnixMilli() >= question.ExpiresAt {
 		return ErrQuestionExpired
 	}
-	answered, err := s.deps.Questions.AnswerQuestion(ctx, questionID, answer)
+	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
 		return fmt.Errorf("runtime: answer question: %w", err)
 	}
@@ -1230,9 +1512,52 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.ledger,
-			question.RunID, question.ToolCallID, question.ResumeTarget, answer)
+			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
 	}()
 	return nil
+}
+
+// CancelQuestion explicitly closes a pending ask_user interaction and the
+// owning run. It is the Review Center equivalent of cancelling the run from
+// the conversation view.
+func (s *Service) CancelQuestion(ctx context.Context, questionID, reason string) error {
+	if s.deps.Questions == nil {
+		return errors.New("runtime: question store not wired")
+	}
+	question, err := s.deps.Questions.GetQuestion(ctx, questionID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return ErrQuestionNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("runtime: get question: %w", err)
+	}
+	if question.Status != domain.QuestionPending {
+		return ErrQuestionAlreadyAnswered
+	}
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 2000 {
+		return ErrApprovalInvalidReason
+	}
+	if err := s.cancelQuestion(ctx, questionID, reason); err != nil {
+		return fmt.Errorf("runtime: cancel question: %w", err)
+	}
+	s.mu.Lock()
+	p, ok := s.pending[question.RunID]
+	if ok {
+		delete(s.pending, question.RunID)
+	}
+	s.mu.Unlock()
+	if ok {
+		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+	}
+	return nil
+}
+
+func (s *Service) answerQuestion(ctx context.Context, questionID, answer string) (bool, error) {
+	if lifecycle, ok := s.deps.Questions.(storage.QuestionLifecycleStore); ok {
+		return lifecycle.AnswerQuestionWithMetadata(ctx, questionID, answer, "local_user", "")
+	}
+	return s.deps.Questions.AnswerQuestion(ctx, questionID, answer)
 }
 
 func pendingToolName(p pendingRun, callID string) string {
@@ -1252,14 +1577,29 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
 		// call so reconstructed tool.started/finished keep the call id.
 		m.openCalls = append(m.openCalls, openToolCall{id: toolCallID, name: toolName})
 	}
-	ctx := withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(context.Background(), selectedTools), mode), profile), snapshot), runID)
+	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(context.Background(), selectedTools), mode), profile), snapshot), runID), sessionID)
+	ctx = tools.WithSessionID(ctx, sessionID)
+	ctx = tools.WithProposalData(ctx, proposalData)
+	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
+	if approvalID != "" {
+		ctx = tools.WithProposalStaleReporter(ctx, func(reason string) {
+			if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {
+				if _, err := lifecycle.MarkApprovalStale(context.Background(), approvalID, reason); err != nil {
+					slog.Warn("mark stale approval failed", "approval", approvalID, "err", err)
+				}
+			}
+			s.journalReviewEvent(context.Background(), runID, domain.EventToolProposalStale, payloadProposalStale{
+				ApprovalID: approvalID, Reason: reason,
+			})
+		})
+	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
@@ -1348,6 +1688,12 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 	if re.Type == domain.EventModelCompleted {
 		s.appendAssistantMessage(ctx, sessionID, re)
 	}
+	if re.Type == domain.EventToolRequested {
+		s.appendToolCallMessage(ctx, sessionID, re)
+	}
+	if re.Type == domain.EventToolFinished {
+		s.appendToolResultMessage(ctx, sessionID, re)
+	}
 	return true
 }
 
@@ -1371,6 +1717,57 @@ func (s *Service) appendAssistantMessage(ctx context.Context, sessionID domain.S
 	}
 	if err := s.deps.Messages.AppendMessage(ctx, msg); err != nil {
 		slog.Error("append assistant message", "run", string(re.RunID), "err", err)
+	}
+}
+
+func (s *Service) appendToolCallMessage(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) {
+	var p payloadToolRequested
+	if err := json.Unmarshal(re.Payload, &p); err != nil {
+		slog.Error("decode tool.requested payload", "run", string(re.RunID), "err", err)
+		return
+	}
+	args, err := json.Marshal(p.Args)
+	if err != nil {
+		slog.Error("encode tool.requested args", "run", string(re.RunID), "err", err)
+		return
+	}
+	msg := domain.Message{
+		ID:         newMessageID(),
+		SessionID:  sessionID,
+		RunID:      re.RunID,
+		Role:       domain.RoleAssistant,
+		CreatedAt:  time.Now().UnixMilli(),
+		ToolCallID: p.ToolCallID,
+		ToolName:   p.ToolName,
+		ToolArgs:   args,
+	}
+	if err := s.deps.Messages.AppendMessage(ctx, msg); err != nil {
+		slog.Error("append tool-call message", "run", string(re.RunID), "err", err)
+	}
+}
+
+func (s *Service) appendToolResultMessage(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) {
+	var p payloadToolFinished
+	if err := json.Unmarshal(re.Payload, &p); err != nil {
+		slog.Error("decode tool.finished payload", "run", string(re.RunID), "err", err)
+		return
+	}
+	content := p.Result
+	if p.Error != "" {
+		content = p.Error
+	}
+	msg := domain.Message{
+		ID:         newMessageID(),
+		SessionID:  sessionID,
+		RunID:      re.RunID,
+		Role:       domain.RoleTool,
+		CreatedAt:  time.Now().UnixMilli(),
+		Content:    content,
+		ToolCallID: p.ToolCallID,
+		ToolName:   p.ToolName,
+	}
+	if err := s.deps.Messages.AppendMessage(ctx, msg); err != nil {
+		slog.Error("append tool-result message", "run", string(re.RunID), "err", err)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
@@ -169,6 +170,8 @@ func TestServiceRunHappyPath(t *testing.T) {
 	var completedContent string
 	for _, ev := range events[1 : len(events)-1] {
 		switch ev.Type {
+		case domain.EventModelRequest:
+			// Request digest is recorded before the model stream.
 		case domain.EventModelDelta:
 			deltas.WriteString(payloadDeltaOf(t, ev.Payload))
 		case domain.EventModelCompleted:
@@ -193,7 +196,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("messages = %d, want 2 (user + assistant)", len(msgs))
 	}
-	if msgs[0].Role != domain.RoleUser || msgs[0].Content != "hello vivy" || msgs[0].RunID != "" {
+	if msgs[0].Role != domain.RoleUser || msgs[0].Content != "hello vivy" || msgs[0].RunID != runID {
 		t.Fatalf("user message = %+v", msgs[0])
 	}
 	if msgs[1].Role != domain.RoleAssistant || msgs[1].Content != want || msgs[1].RunID != runID {
@@ -627,4 +630,164 @@ func mustUnmarshal(t *testing.T, b []byte, v any) {
 	if err := json.Unmarshal(b, v); err != nil {
 		t.Fatalf("decode payload %s: %v", b, err)
 	}
+}
+
+type recordingChatModel struct {
+	inner  model.ToolCallingChatModel
+	mu     sync.Mutex
+	inputs [][]*schema.Message
+}
+
+func (m *recordingChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	m.record(input)
+	return m.inner.Generate(ctx, input, opts...)
+}
+
+func (m *recordingChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	m.record(input)
+	return m.inner.Stream(ctx, input, opts...)
+}
+
+func (m *recordingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	next, err := m.inner.WithTools(tools)
+	if err != nil {
+		return nil, err
+	}
+	m.inner = next
+	return m, nil
+}
+
+func (m *recordingChatModel) record(input []*schema.Message) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]*schema.Message, 0, len(input))
+	for _, msg := range input {
+		if msg == nil {
+			continue
+		}
+		clone := *msg
+		if len(msg.ToolCalls) > 0 {
+			clone.ToolCalls = append([]schema.ToolCall(nil), msg.ToolCalls...)
+		}
+		cp = append(cp, &clone)
+	}
+	m.inputs = append(m.inputs, cp)
+}
+
+func (m *recordingChatModel) lastInput() []*schema.Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.inputs) == 0 {
+		return nil
+	}
+	return m.inputs[len(m.inputs)-1]
+}
+
+func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "tool-feed.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	recorder := &recordingChatModel{inner: NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "call-echo-1",
+			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"hi"}`},
+		}}),
+		schema.AssistantMessage("echoed", nil),
+		schema.AssistantMessage("second turn", nil),
+	)}
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, recorder, ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: newTestSink(),
+	})
+
+	run1, err := svc.Run(ctx, "sess-tools", "please echo")
+	if err != nil {
+		t.Fatalf("run 1: %v", err)
+	}
+	waitForRunStatus(t, backend, run1, domain.RunCompleted)
+
+	stored, err := backend.ListMessages(ctx, "sess-tools")
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	var sawCall, sawResult bool
+	for _, msg := range stored {
+		if msg.Role == domain.RoleAssistant && msg.ToolCallID == "call-echo-1" {
+			sawCall = true
+		}
+		if msg.Role == domain.RoleTool && msg.ToolCallID == "call-echo-1" {
+			sawResult = true
+		}
+	}
+	if !sawCall || !sawResult {
+		t.Fatalf("message projection missing tool turn: %+v", stored)
+	}
+
+	run2, err := svc.Run(ctx, "sess-tools", "what did you echo?")
+	if err != nil {
+		t.Fatalf("run 2: %v", err)
+	}
+	waitForRunStatus(t, backend, run2, domain.RunCompleted)
+
+	feed := recorder.lastInput()
+	var sawToolRole bool
+	for _, msg := range feed {
+		if msg.Role == schema.Tool && msg.ToolCallID == "call-echo-1" {
+			sawToolRole = true
+		}
+	}
+	if !sawToolRole {
+		t.Fatalf("second-run feed missing tool result: %+v", feed)
+	}
+
+	rebuilt, _, err := buildRunContext(ContextPolicy{}, "unused-preamble", stored, "what did you echo?")
+	if err != nil {
+		t.Fatalf("rebuild context: %v", err)
+	}
+
+	events := replayAll(t, backend, run2)
+	var req payloadModelRequest
+	found := false
+	for _, ev := range events {
+		if ev.Type == domain.EventModelRequest {
+			mustUnmarshal(t, ev.Payload, &req)
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("second run missing model.request")
+	}
+	gotBody := stripSystemRequestRows(req.Messages)
+	wantBody := stripSystemRequestRows(digestModelRequest(rebuilt, nil).Messages)
+	if len(gotBody) != len(wantBody) {
+		t.Fatalf("model.request body = %+v, want %+v", gotBody, wantBody)
+	}
+	for i := range wantBody {
+		if gotBody[i].Role != wantBody[i].Role || gotBody[i].ContentSHA256 != wantBody[i].ContentSHA256 || gotBody[i].ToolCallID != wantBody[i].ToolCallID {
+			t.Fatalf("model.request body[%d] = %+v, want %+v", i, gotBody[i], wantBody[i])
+		}
+	}
+}
+
+func stripSystemRequestRows(in []payloadModelRequestMessage) []payloadModelRequestMessage {
+	out := make([]payloadModelRequestMessage, 0, len(in))
+	for _, row := range in {
+		if row.Role == "system" {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }

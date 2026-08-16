@@ -25,6 +25,13 @@ var migrations = []struct {
 	{3, migration003},
 	{4, migration004},
 	{5, migration005},
+	{6, migration006},
+	{7, migration007},
+	{8, migration008},
+	{9, migration009},
+	{10, migration010},
+	{11, migration011},
+	{12, migration012},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -55,13 +62,17 @@ type Backend struct {
 
 // Compile-time proof that every contract is satisfied.
 var (
-	_ storage.Journal       = (*Backend)(nil)
-	_ storage.LeaseStore    = (*Backend)(nil)
-	_ storage.ApprovalStore = (*Backend)(nil)
-	_ storage.QuestionStore = (*Backend)(nil)
-	_ storage.NoteStore     = (*Backend)(nil)
-	_ storage.SnapshotStore = (*Snapshot)(nil)
-	_ storage.BlobStore     = (*Blobs)(nil)
+	_ storage.Journal            = (*Backend)(nil)
+	_ storage.LeaseStore         = (*Backend)(nil)
+	_ storage.ApprovalStore      = (*Backend)(nil)
+	_ storage.QuestionStore      = (*Backend)(nil)
+	_ storage.SkillRevisionStore = (*Backend)(nil)
+	_ storage.TodoStore          = (*Backend)(nil)
+	_ storage.ReviewStore        = (*Backend)(nil)
+	_ storage.NoteStore          = (*Backend)(nil)
+	_ storage.StudioStore        = (*Backend)(nil)
+	_ storage.SnapshotStore      = (*Snapshot)(nil)
+	_ storage.BlobStore          = (*Blobs)(nil)
 )
 
 // Snapshot returns the snapshot handle over this database.
@@ -228,4 +239,134 @@ UPDATE runs SET root_run_id = id WHERE root_run_id = '';
 CREATE INDEX runs_parent_idx ON runs(parent_run_id, created_at, id);
 CREATE INDEX runs_root_idx ON runs(root_run_id, created_at, id);
 ALTER TABLE approvals ADD COLUMN kind TEXT NOT NULL DEFAULT 'run';
+`
+
+// migration006 adds restart-safe staged Skill mutations. The payload remains
+// backend-owned JSON so storage does not become coupled to Skill semantics.
+const migration006 = `
+CREATE TABLE skill_revisions (
+	 id TEXT PRIMARY KEY,
+	 run_id TEXT NOT NULL,
+	 skill_name TEXT NOT NULL,
+	 action TEXT NOT NULL,
+	 target_path TEXT NOT NULL,
+	 payload BLOB NOT NULL,
+	 base_hash TEXT NOT NULL,
+	 content_hash TEXT NOT NULL,
+	 preview BLOB NOT NULL,
+	 warnings_json BLOB NOT NULL,
+	 status TEXT NOT NULL,
+	 created_at INTEGER NOT NULL,
+	 applied_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX skill_revisions_status_idx ON skill_revisions(status, created_at, id);
+`
+
+// migration007 extends approvals with the reviewable mutation proposal. All
+// columns have safe defaults so existing pending rows remain recoverable.
+const migration007 = `
+ALTER TABLE approvals ADD COLUMN action TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN target TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN precondition_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN preview BLOB NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN risk_findings_json BLOB NOT NULL DEFAULT '[]';
+ALTER TABLE approvals ADD COLUMN proposal_data BLOB NOT NULL DEFAULT '';
+`
+
+// migration008 adds the session-scoped durable plantask projection.
+const migration008 = `
+CREATE TABLE todos (
+	 id TEXT NOT NULL,
+	 session_id TEXT NOT NULL,
+	 subject TEXT NOT NULL,
+	 description TEXT NOT NULL,
+	 status TEXT NOT NULL,
+	 blocks_json BLOB NOT NULL,
+	 blocked_by_json BLOB NOT NULL,
+	 active_form TEXT NOT NULL,
+	 owner TEXT NOT NULL,
+	 metadata_json BLOB NOT NULL,
+	 position INTEGER NOT NULL,
+	 created_at INTEGER NOT NULL,
+	 updated_at INTEGER NOT NULL,
+	 PRIMARY KEY(session_id, id),
+	 FOREIGN KEY(session_id) REFERENCES sessions(id)
+);
+CREATE INDEX todos_session_position_idx ON todos(session_id, position, id);
+`
+
+// migration009 stores the exact pre-mutation bytes needed for an approved
+// Skill rollback. Older revisions remain non-rollbackable by design.
+const migration009 = `
+ALTER TABLE skill_revisions ADD COLUMN before_payload BLOB NOT NULL DEFAULT '';
+`
+
+// migration010 makes human interaction rows self-describing and queryable
+// after restart. Defaults keep all pre-Review-Center rows readable.
+const migration010 = `
+ALTER TABLE approvals ADD COLUMN tool_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE approvals ADD COLUMN decided_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE approvals ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN decision_reason BLOB NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN stale_reason BLOB NOT NULL DEFAULT '';
+ALTER TABLE questions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE questions ADD COLUMN answered_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE questions ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE questions ADD COLUMN decision_reason BLOB NOT NULL DEFAULT '';
+CREATE INDEX approvals_status_expiry_idx ON approvals(decision, expires_at, id);
+CREATE INDEX questions_status_expiry_idx ON questions(status, expires_at, id);
+`
+
+// migration011 projects model-visible tool turns onto the message log
+// (ADR-010). Empty defaults keep existing text rows valid.
+const migration011 = `
+ALTER TABLE messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN tool_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN tool_args BLOB NOT NULL DEFAULT '';
+`
+
+// migration012 is the studio object plane (ADR-011). Studio events are
+// not run journal rows.
+const migration012 = `
+CREATE TABLE generations (
+	id TEXT PRIMARY KEY,
+	parent_id TEXT NOT NULL DEFAULT '',
+	artifact_sha256 TEXT NOT NULL,
+	source_ref TEXT NOT NULL DEFAULT '',
+	recipe_json BLOB NOT NULL,
+	phase TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE TABLE eval_runs (
+	id TEXT PRIMARY KEY,
+	candidate_id TEXT NOT NULL,
+	baseline_id TEXT NOT NULL DEFAULT '',
+	suite TEXT NOT NULL,
+	verdict TEXT NOT NULL,
+	journal_ref TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL,
+	FOREIGN KEY(candidate_id) REFERENCES generations(id)
+);
+CREATE INDEX eval_runs_candidate_idx ON eval_runs(candidate_id, created_at, id);
+CREATE TABLE promotions (
+	id TEXT PRIMARY KEY,
+	from_id TEXT NOT NULL,
+	to_id TEXT NOT NULL,
+	eval_id TEXT NOT NULL,
+	actor TEXT NOT NULL,
+	phase TEXT NOT NULL,
+	applies_at TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	FOREIGN KEY(from_id) REFERENCES generations(id),
+	FOREIGN KEY(to_id) REFERENCES generations(id)
+);
+CREATE UNIQUE INDEX promotions_from_accepted_idx ON promotions(from_id) WHERE phase = 'accepted';
+CREATE TABLE studio_events (
+	seq INTEGER PRIMARY KEY AUTOINCREMENT,
+	type TEXT NOT NULL,
+	object_id TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	payload BLOB NOT NULL
+);
 `

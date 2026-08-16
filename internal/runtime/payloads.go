@@ -1,5 +1,7 @@
 package runtime
 
+import "encoding/json"
+
 // Event payload structs. Field names and shapes mirror
 // schemas/events/payloads/*.json (A3) field for field; PayloadVersion is
 // always 1 in V0.
@@ -39,6 +41,21 @@ type payloadModelCompleted struct {
 	Content string `json:"content"`
 }
 
+type payloadModelRequest struct {
+	SelectedTools  []string                     `json:"selected_tools"`
+	PreambleSHA256 string                       `json:"preamble_sha256"`
+	PreambleBytes  int                          `json:"preamble_bytes"`
+	Messages       []payloadModelRequestMessage `json:"messages"`
+}
+
+type payloadModelRequestMessage struct {
+	Role          string `json:"role"`
+	ToolName      string `json:"tool_name,omitempty"`
+	ToolCallID    string `json:"tool_call_id,omitempty"`
+	ContentSHA256 string `json:"content_sha256"`
+	ByteLen       int    `json:"byte_len"`
+}
+
 type payloadToolRequested struct {
 	ToolCallID string         `json:"tool_call_id"`
 	ToolName   string         `json:"tool_name"`
@@ -52,24 +69,30 @@ type payloadToolStarted struct {
 
 // payloadToolFinished carries a non-empty Error only when the call failed.
 type payloadToolFinished struct {
-	ToolCallID string `json:"tool_call_id"`
-	ToolName   string `json:"tool_name"`
-	Result     string `json:"result"`
-	Error      string `json:"error,omitempty"`
+	ToolCallID string            `json:"tool_call_id"`
+	ToolName   string            `json:"tool_name"`
+	Result     string            `json:"result"`
+	Parts      []json.RawMessage `json:"parts,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 // payloadToolApprovalRequired is committed in the single journal commit
 // that follows a durable checkpoint (D-029 write order).
 type payloadToolApprovalRequired struct {
-	ApprovalID    string         `json:"approval_id"`
-	ToolCallID    string         `json:"tool_call_id"`
-	ToolName      string         `json:"tool_name"`
-	Args          map[string]any `json:"args"`
-	ExpiresAt     int64          `json:"expires_at"`
-	SelectedTools []string       `json:"selected_tools,omitempty"`
-	Mode          string         `json:"mode,omitempty"`
-	PolicyProfile string         `json:"policy_profile,omitempty"`
-	PolicyHash    string         `json:"policy_hash,omitempty"`
+	ApprovalID       string         `json:"approval_id"`
+	ToolCallID       string         `json:"tool_call_id"`
+	ToolName         string         `json:"tool_name"`
+	Args             map[string]any `json:"args"`
+	ExpiresAt        int64          `json:"expires_at"`
+	SelectedTools    []string       `json:"selected_tools,omitempty"`
+	Mode             string         `json:"mode,omitempty"`
+	PolicyProfile    string         `json:"policy_profile,omitempty"`
+	PolicyHash       string         `json:"policy_hash,omitempty"`
+	Action           string         `json:"action,omitempty"`
+	Target           string         `json:"target,omitempty"`
+	PreconditionHash string         `json:"precondition_hash,omitempty"`
+	Preview          string         `json:"preview,omitempty"`
+	RiskFindings     []string       `json:"risk_findings,omitempty"`
 }
 
 type payloadUserQuestionRequired struct {
@@ -107,6 +130,39 @@ type payloadUserQuestionAnswered struct {
 	Answer     string `json:"answer"`
 }
 
+type payloadApprovalDecided struct {
+	ApprovalID string `json:"approval_id"`
+	Decision   string `json:"decision"`
+	Actor      string `json:"actor,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	DecidedAt  int64  `json:"decided_at"`
+}
+
+type payloadApprovalCancelled struct {
+	ApprovalID string `json:"approval_id"`
+	Actor      string `json:"actor,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type payloadInteractionExpired struct {
+	ReviewID  string `json:"review_id"`
+	Kind      string `json:"kind"`
+	ExpiresAt int64  `json:"expires_at"`
+	Reason    string `json:"reason"`
+}
+
+type payloadProposalStale struct {
+	ApprovalID string `json:"approval_id"`
+	Target     string `json:"target,omitempty"`
+	Reason     string `json:"reason"`
+}
+
+type payloadQuestionCancelled struct {
+	QuestionID string `json:"question_id"`
+	Actor      string `json:"actor,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 type payloadRunCompleted struct {
 	Summary string `json:"summary,omitempty"`
 }
@@ -117,6 +173,7 @@ const (
 	causeToolError     = "tool_error"
 	causeInternalError = "internal_error"
 	causeCancelled     = "cancelled"
+	causeHumanTimeout  = "human_timeout"
 )
 
 type payloadRunFailed struct {

@@ -94,7 +94,13 @@ func fromEinoMessages(ms []*schema.Message) []*domain.Message {
 		if m == nil {
 			continue
 		}
-		out = append(out, &domain.Message{Role: fromEinoRole(m.Role), Content: m.Content})
+		row := &domain.Message{Role: fromEinoRole(m.Role), Content: m.Content, ToolCallID: m.ToolCallID}
+		if len(m.ToolCalls) > 0 {
+			row.ToolCallID = m.ToolCalls[0].ID
+			row.ToolName = m.ToolCalls[0].Function.Name
+			row.ToolArgs = []byte(m.ToolCalls[0].Function.Arguments)
+		}
+		out = append(out, row)
 	}
 	return out
 }
