@@ -1,0 +1,20 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "hello-fs",
+  "version": "0.1.0",
+  "seam": "tool-world",
+  "module": ".",
+  "grants": ["fs.read"],
+  "tools": [
+    {
+      "name": "hello_stat",
+      "effect": "read",
+      "description": "stat a path inside the run workspace",
+      "schema": {
+        "type": "object",
+        "properties": { "path": { "type": "string" } },
+        "required": ["path"]
+      }
+    }
+  ]
+}
