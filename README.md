@@ -9,9 +9,13 @@ parent directory `../` (`diva-go/`) and is the contract this code must honor.
 
 ## Status
 
-Skeleton initialized. No functional code yet — see `docs/TODO.md` for the
-milestone plan (M0–M4) and `docs/IMPLEMENTATION-PLAN.md` for the architecture
-translation (package layout, key contracts, storage design).
+V0/V1 species runtime is assembled (see `docs/TODO.md`). **Vivy Studio
+is a separate application that does not exist yet.** It will own
+develop + distribute. After bootstrap ST-6, all further development
+happens inside Studio (`docs/architecture/VIVY-STUDIO.md`).
+
+Do not add a “open Studio” door to `vivy.exe`. The species-side Studio
+card is not Studio.
 
 ## Requirements
 
@@ -35,7 +39,9 @@ just run        # run the vivy process (health endpoint on :8787)
 ## Layout
 
 ```text
-cmd/vivy/          process entrypoint (startup, signals, health)
+cmd/vivy/          species entrypoint (daily gateway + worker)
+sdk/               vivy-sdk binary (verify/pack); invoked by Studio, not by vivy.exe
+sdk/plugin/        author import window
 internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)
 internal/domain/   Vivy-owned Session/Message/Run/RunEvent/... contract types

@@ -1,17 +1,35 @@
-# ui
+# Vivy UI
 
-The browser-based UI shell (Vite), built against the Vivy local JSON-RPC
-control plane and journal-backed event notifications (FR-9, D-013).
+The browser-based Vivy workbench is a zero-runtime-dependency Vite + TypeScript
+shell served by the Go binary. It talks only to the Vivy JSON-RPC control plane
+and its journal-backed run event stream.
 
-Ground rules:
+The surface is organized around four user tasks:
 
-- Calls ONLY the Vivy JSON-RPC control plane. Never imports Go types, Eino types, or
-  reference-project types (D-007).
-- Consumes real session/run/tool/approval/recovery states. No mock domain
-  records in any path exercised by users (PRD §6.2, RK-5).
-- Supports session list, message input, streaming display, approval
-  interactions, run status, error display, and refresh-without-state-loss
-  (AS-7).
+- sessions: identify, select, rename, create, and delete conversations;
+- live activity: discover active runs across sessions and attach to their
+  persisted state after navigation or refresh;
+- conversation: send one turn at a time, see streaming output, and preserve the
+  draft across preflight or network failures;
+- run inspector: inspect durable events, structured failures, scoped
+  approval/question tasks, and the durable parent/child run tree without
+  blocking unrelated session navigation. Child runs can be opened and cancelled
+  through the same backend-authoritative lifecycle controls.
+- review center: review pending approvals and user questions across sessions,
+  inspect redacted arguments/diffs and risk context, and make decisions from
+  the same renderer used by the inline run inspector.
 
-Skeleton stage: empty. Scaffolded in task D3, smoke-tested in D4
-(Playwright against the real Go process).
+The UI follows the system language and theme on first launch. The language
+toggle supports English and Simplified Chinese; the theme control cycles system,
+light, and dark modes. Preferences are non-sensitive local UI settings only.
+
+Build and verify from this directory:
+
+```powershell
+npx tsc --noEmit
+npm run build
+npx playwright test
+```
+
+The Playwright smoke starts the real Go process with the deterministic provider;
+it does not replace the production user path with mock domain records.

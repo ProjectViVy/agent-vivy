@@ -4,7 +4,8 @@
 > predecessor ordering and parallel-lane analysis.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-10
+> Updated: 2026-08-15
+> Studio venue: `docs/architecture/VIVY-STUDIO.md`. After ST-6, develop only in Studio.
 
 ---
 
@@ -159,10 +160,77 @@ This is the longest dependency chain; compressing it compresses V0. `B3`
 | P1-6 | Compose the 16-case conformance harness scaffolding | Folds into B5 |
 | P2-5 | Diva capability inventory | Before V1 |
 
+## 9.8 ADR-017 — vivy-sdk split (done 2026-08-15)
+
+Recorded. `vivy-sdk` is a separate binary under repo-root `sdk/`.
+`cmd/vivy` no longer dispatches `sdk`. The packer may later embed
+sources or a toolchain and must not ride in the daily install.
+
+## 9.9 Vivy Studio + development venue (2026-08-15)
+
+Canonical: `docs/architecture/VIVY-STUDIO.md`. ADR-018.
+
+Studio is an independent app (develop + distribute). Species-side S7
+card product meaning is void (NG-28). **After ST-6, all further
+development happens inside Studio (NG-26).** Bootstrap (ST-1..ST-4)
+is the only remaining outside work.
+
+| ID | Status | Note |
+|---|---|---|
+| ST-0 | done (docs) | This correction |
+| ST-1 | done (2026-08-16) | Independent `vivy-studio` profile + Fluorite identity UI |
+| ST-2 | done (2026-08-16) | Workspace pinned to `agent-vivy`; production Journal forbidden |
+| ST-3 | done (2026-08-16) | Launch PATH has Go / just / `vivy-sdk` |
+| ST-4 | done (2026-08-16) | Skills `vivy-plugin-five` + `vivy-kernel-ci` |
+| ST-6 | done (2026-08-16) | In-Studio `internal/buildinfo` comment + `just ci` green. Venue switch. |
+| ST-5 | done (2026-08-16) | `cmd/vivy-studio` + `internal/studiocore`: Studio execs `vivy-sdk pack`, spawns candidate EXE itself, ledger `data/studio-home/studio.db`; zero live-species participation |
+| ST-7 | done (2026-08-16) | Human-gated `release --actor human --yes`; `install` writes daily location, no hot-swap |
+| ST-8 | done (2026-08-16) | `rollback` restores previous release from Studio snapshot; tenant Journal untouched |
+
+## 9.7 S7 — studio card (superseded 2026-08-15)
+
+Claimed 2026-08-15, then voided the same day. ADR-016 remains as
+history; ADR-018 / NG-28 freeze the species-side card. Do not extend.
+
+## 9.6 S6 — sdk pack (done 2026-08-15)
+
+Done. ADR-015. `vivy-sdk pack` links named plugins into a new EXE via
+overlay and writes generation.json. No UI, no fitness suite.
+
+## 9.5 S5 — sdk verify (done 2026-08-15)
+
+Done. ADR-014. `vivy-sdk verify` plus `plugins/hello-fs`. No pack,
+no generated register, no live plugin load.
+
+## 9.4 S4 — air-gapped eval (done 2026-08-15)
+
+Done. ADR-013. `evals/start` launches a same-EXE candidate with an
+isolated data dir and records `EvalRun`. No pack, no fitness suite, no UI.
+
+## 9.3 S3 — species inspect (done 2026-08-15)
+
+Done. ADR-012. `species/inspect` reports builtin-or-promoted generation,
+policy hash, and tool names. No eval process, pack, or UI.
+
+## 9.2 S2 — studio object plane (done 2026-08-14)
+
+Done. ADR-011. Generation / EvalRun / Promotion stores, studio events,
+JSON-RPC list/get/create/record/promote. No inspect, pack, eval process, or UI.
+
+## 9.1 S1 — model-visible ≡ logged (done 2026-08-14)
+
+Done. ADR-010. Tool turns project onto the message log, enter the next-run
+feed, and each invocation records `model.request` digests. No Studio, no
+SDK pack, no DSH.
+
 ## 10. Completion log
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-16 | ST-5/ST-7/ST-8 | Studio lifecycle: `cmd/vivy-studio` + `internal/studiocore` (ledger `data/studio-home/studio.db`). Studio execs `vivy-sdk pack`, spawns candidate EXE itself, human-gated release, install to daily location, rollback from Studio snapshot. `just ci` green; `data/vivy.db` untouched. Skill `vivy-studio-lifecycle`. |
+| 2026-08-16 | ST-6 | Venue switch. Studio authored `internal/buildinfo` identity comment; `just ci` green; `data/vivy.db` untouched. justfile `fmt-check` quote fix required for the recipe to run on Windows. |
+| 2026-08-16 | ST-2..ST-4 | Workspace pin + air-gap AGENTS.md; launch toolchain; prefab skills. |
+| 2026-08-16 | ST-1 | Independent `dsh --profile vivy-studio` + Fluorite identity UI (title, wordmark, slogan, welcome). Token checklist 89/89. Browser walk on :3090. |
 | 2026-08-07 | B0, B1 (partial) | Repo initialized: `git init`, `go mod init agent-vivy`, GOPROXY persisted, online deps resolved, skeleton builds (`go build ./...` + `go vet ./...` clean) |
 | 2026-08-07 | A1 | M0 Eino capability spike (`spike/einoverify`, all 4 scenarios pass) + `docs/eino-capability-verify.md`: `CheckPointStore{Get,Set}` injection, gob payload pass-through, interrupt → `ResumeWithParams`, cancel — all VERIFIED; checkpoint-bridge GO/NO-GO = **GO**. Closes D-034/SR-2, clears the C6 gate. Commit `fe81075` |
 | 2026-08-07 | A2 | `schemas/providers.bundle.schema.json` + `fixtures/provider/{openai,anthropic}.yaml` (re-derived, provenance-tagged, no secrets) + `schemas/README.md`. Closes P1-2/OQ-8/D-018..D-025. Commit `d8351bd` |
@@ -191,6 +259,13 @@ This is the longest dependency chain; compressing it compresses V0. `B3`
 | 2026-08-08 | MA-3 | Notes trio persistence: migration 003 `notes(id, content, created_at)`, `storage.NoteStore` contract + SQLite implementation; `write_note` switched from in-memory to the store (still approval-gated); new readonly auto-executing `list_notes`/`read_note` tools with `*ArgError` branches; `tools.Builtin(notes)` injection wired at the app composition point; bounded notes digest (5 newest, 80-rune first lines) folded into the MA-2 preamble. Store CRUD + tool contract + approval-chain tests. Commit `7c88817` |
 | 2026-08-08 | MA-4 | Loop guardrails: `runtime.max_tool_turns` (default 8) maps to `ChatModelAgentConfig.MaxIterations`; breach is classified in `terminalEvent` as `run.failed` + `internal_error` with a bounded user-facing message (engine sentinel never leaks). Scripted tool-loop tests cover breach (cap=2) and within-cap completion (cap=8). Commit `6ca129a` |
 | 2026-08-08 | V1 close | Real-gateway walkthrough on the rebuilt `vivy.exe` (8790 demo): (1) MA-1 — codename saved in turn one and recalled in turn two of the same session; (2) MA-3 — "what notes do I have" auto-executed `list_notes` with no approval prompt; (3) MA-3 — `write_note` gated → approved → `note_... saved (1 total)`, and the note survived a process restart (visible via `list_notes` after reboot); (4) session history complete via `GET messages`. Full regression green (Go gate + `npm run e2e`). Commits `5b73e82`..`6ca129a` |
+| 2026-08-14 | S1 / ADR-010 | Model-visible ≡ logged: tool-call/result rows on the message projection, included in the Eino feed, plus `model.request` journal digests. `go test ./...` green. |
+| 2026-08-14 | S2 / ADR-011 | Studio object plane: Generation/EvalRun/Promotion tables, studio_events, RPC list/get/promote. Empty list, eval required, first-writer-wins. |
+| 2026-08-15 | S3 / ADR-012 | Live species inspect: `species/inspect` reports builtin identity or the latest accepted next-launch promotion, policy hash, and tool names. No secrets or host paths. |
+| 2026-08-15 | S4 / ADR-013 | Air-gapped eval: `evals/start` launches a same-EXE candidate with isolated sqlite/listen/env. Production sessions unchanged; missing binary is `failed_to_run`. |
+| 2026-08-15 | S5 / ADR-014 | `vivy-sdk verify` plus `plugins/hello-fs`. Contract window is `sdk/plugin`. Negatives fail for internal/eino/seam/name/main. No pack, no exe. |
+| 2026-08-15 | S6 / ADR-015 | `vivy-sdk pack --with hello-fs` overlays Register, writes exe + generation.json, leaves live register empty. eval uses `file:` artifacts. Production journal untouched. |
+| 2026-08-15 | ADR-017 | `vivy-sdk` is its own binary under repo-root `sdk/`. Daily `vivy.exe` no longer has an `sdk` subcommand. |
 
 ## 11. Harness reinforcement — Codex benchmark
 
@@ -240,8 +315,84 @@ contract, and the MA-1 decision itself earns an ADR.
 
 Out of scope for this entry (stay deferred per §10): context compaction,
 memory/RAG, multi-agent, MCP/plugins, extra providers, fsjournal backend.
+The Eino expansion backlog below is a separate follow-up capability proposal.
 
 **Entry status: CLOSED** — all four MA tasks delivered, walkthrough
 evidence logged in §10, regression green. The next capability proposal
 starts from a vivy that remembers its sessions, composes its own prompt,
 persists notes, and cannot loop forever.
+
+## 13. Eino tool expansion — scope locked
+
+> This is the follow-up capability backlog from the Hermes/Eino porting
+> research. All reviewed Eino core and EinoExt tool families are in scope
+> except Browser Use. Every effectful or external capability must pass through
+> the existing Vivy ToolAdapter, policy, audit, output limits, and HUMAN IN THE
+> LOOP gate.
+
+| ID | Task | Depends | Acceptance |
+|---|---|---|---|
+| ET-01 | Complete the Vivy filesystem Backend over Eino: `read_file`, `search_files`, `write_file`, and `patch` | C6, B4 | Workspace containment, protected paths, bounded output, atomic writes, diffs, precondition hashes, mutation approval, and restart tests pass |
+| ET-02 | Complete Skills support over Eino Skill Backend: list/view plus `skill_manage` staged revisions | ET-01, C6, B4 | Trusted root, provenance, untrusted-content warnings, human diff review, atomic apply, rollback, and restart recovery pass |
+| ET-03 | Add Eino `plantask` as durable Vivy todo tools (`task_create`, `task_get`, `task_update`, `task_list`) | B4 | Session/journal-backed storage, bounded content, dependency validation, and todo invariant tests pass |
+| ET-04 | Add Eino ToolSearch for progressive dynamic tool discovery | C5, ET-03 | Allowlisted tools only; Vivy selection/policy/audit remain authoritative; repeated selection and cache behavior are tested |
+| ET-05 | Add enhanced ToolResult mapping for text/image/audio/video/file outputs | C4, D3 | Structured outputs survive runtime events, redaction, size limits, JSON-RPC, UI rendering, and replay |
+| ET-06 | Build GraphTool conformance tests only | C6, B4, C3 | Nested workflow tool calls, interrupt propagation, checkpoint/resume, cancellation, and failure boundaries are tested; GraphTool is absent from the production catalog |
+| ET-07 | Define provider-neutral basic network search and add API-backed adapters for Bing, Google, DuckDuckGo, SearXNG, and Wikipedia | C5, D1 | Bounded normalized results, provider/source attribution, timeout/rate-limit handling, untrusted-result marking, and no browser automation |
+| ET-08 | Add EinoExt HTTP Request with host/credential/output policy | C6, D1 | Read-only allowlisted requests work; external writes and credential-bearing requests require HITL or are hard-denied; SSRF and size-limit tests pass |
+| ET-09 | Add EinoExt MCP tool integration | ET-04, C6, D1 | Server/tool provenance, dynamic catalog integration, timeout, disconnect/reconnect, output bounds, and per-call approval are covered |
+| ET-10 | Add EinoExt Sequential Thinking as a bounded local tool | C5 | State size, turn count, cancellation, redaction, and deterministic contract tests pass |
+| ET-11 | Add Eino filesystem `execute` / EinoExt commandline | C6, ET-01 | Workspace-only process policy, command/environment allowlists, cancellation, bounded stdout/stderr, process cleanup, audit, and HITL tests pass |
+| ET-12 | Add explicit guardrails excluding Browser Use | — | No `browseruse` dependency, tool, catalog entry, or browser automation path is present in build and import-lint checks |
+
+Implementation status (2026-08-11): ET-01 through ET-12 are implemented in
+the current worktree. The HTTP/MCP/command adapters are Vivy-owned wrappers
+around bounded standard-library transports/process APIs, while their Eino
+backend/tool shapes and existing ToolAdapter/HITL boundaries are preserved.
+GraphTool remains test-only; Browser Use remains explicitly denied.
+
+### ET sequencing
+
+```text
+C6/B4 -> ET-01 -> ET-02
+C5    -> ET-03 -> ET-04
+C4/D3 -> ET-05
+C3/C6/B4 -> ET-06 (test-only)
+C5/D1 -> ET-07 -> ET-08
+ET-04/C6/D1 -> ET-09
+C5 -> ET-10
+C6/ET-01 -> ET-11
+```
+
+GraphTool is intentionally a compatibility test surface, not a product
+surface. A future Vivy-native workflow engine may use ET-06 as its regression
+baseline without inheriting GraphTool's public semantics.
+
+## 14. Next stage — HITL Review Center and UI Foundations
+
+> Decision baseline from `docs/research/hitl-ui-2026-08-11/`. The next stage
+> is a product-contract and UI stage over the completed tool expansion. It
+> keeps Browser Use excluded and GraphTool test-only.
+
+| ID | Task | Depends | Acceptance |
+|---|---|---|---|
+| HITL-01 | Freeze the durable ReviewItem contract: proposal, question, source/actor, risk, expiry, stale state, and redacted view | ET-01..ET-12, C6 | Queue and inline surfaces consume one server-authoritative DTO |
+| HITL-02 | Expose cross-session review queue APIs and complete approval/question payloads | HITL-01, D1/D2 | Pending work is discoverable without opening the originating session; late decisions are conflict-safe |
+| HITL-03 | Add replayable decision, expiry, cancel, and stale lifecycle transitions | HITL-01, B4/B5 | Refresh, reconnect, restart, and timeout preserve one auditable outcome |
+| HITL-04 | Design and implement Review Center + run inspector Review tab | HITL-01, HITL-02 | Queue → detail → decision → execution/result works on desktop and narrow viewport |
+| HITL-05 | Add diff-first file/Skills review and structured command/HTTP/MCP/child renderers | HITL-01, ET-01/02/08/09/11 | Exact target, preview, risk, trust, and precondition are visible before approval |
+| HITL-06 | Separate question/elicitation UI from approval UI | HITL-02 | Answer supplies data only; cancel/expiry cannot authorize an effect |
+| HITL-07 | Verify HITL resilience and accessibility | HITL-03..06 | Playwright, race/restart/expiry tests, keyboard navigation, and secret-redaction checks pass |
+
+Implementation status (2026-08-12): HITL-01 through HITL-07 P0 are delivered
+and release-verified. The real-process evidence is recorded in
+`docs/logs/2026-08-12-hitl-release-closure/`.
+The Review Center and inline inspector consume the same redacted ReviewItem
+projection; file/Skills diffs and command/HTTP/MCP/child proposals use the
+shared structured preview fields. Specialized proposal editing, remember
+policies, structured MCP elicitation, assignment, history/search, and external
+notifications remain P1 follow-up work.
+
+Recommended P1 follow-up: specialized proposal editing, scoped remember/allow
+policies, structured MCP elicitation, reviewer assignment, history/search, and
+external notifications. Generic edit and bulk approval are not P0.
