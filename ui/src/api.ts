@@ -28,14 +28,24 @@ export interface Message {
 }
 
 export interface Run {
-	id: string;
-	session_id: string;
-	status: RunStatus;
-	created_at: number;
+  id: string;
+  session_id: string;
+  status: RunStatus;
+  created_at: number;
+}
+
+export interface RunLogEvent {
+  run_id: string;
+  seq: number;
+  type: string;
+  created_at: number;
+  payload_version: number;
+  payload: Record<string, unknown>;
 }
 
 // Child runs are durable descendants controlled through the same local RPC
-// plane. The tree UI is intentionally deferred to the follow-up slice.
+// plane. The UI keeps the wire shape backend-authoritative and exposes the
+// persisted tree from the run inspector.
 export interface ChildRun {
 	id: string;
 	parent_run_id: string;
@@ -75,7 +85,41 @@ export interface Question {
   run_id: string;
   tool_call_id: string;
   prompt: string;
+  status?: "pending" | "answered" | "expired";
   expires_at: number;
+}
+
+export type ReviewKind = "approval" | "question";
+export type ReviewStatus = "pending" | "approved" | "denied" | "answered" | "cancelled" | "expired" | "stale";
+
+export interface ReviewItem {
+  id: string;
+  kind: ReviewKind;
+  status: ReviewStatus;
+  session_id: string;
+  session_title?: string;
+  run_id: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  source?: string;
+  actor?: string;
+  created_at: number;
+  expires_at: number;
+  decided_at?: number;
+  action?: string;
+  target?: string;
+  precondition_hash?: string;
+  preview?: string;
+  risk_findings?: string[];
+  arguments?: Record<string, unknown>;
+  prompt?: string;
+  decision_reason?: string;
+  stale_reason?: string;
+  error?: string;
+  effect?: string;
+  reversibility?: string;
+  scope?: string;
+  trust?: string;
 }
 
 export interface BackgroundRun extends Run {
@@ -160,6 +204,10 @@ export function getRun(runID: string): Promise<Run> {
   return request("run/get", { run_id: runID });
 }
 
+export function getRunLog(runID: string, afterSeq = 0): Promise<{ events: RunLogEvent[] }> {
+  return request("run/log", { run_id: runID, after_seq: afterSeq });
+}
+
 export function cancelRun(runID: string): Promise<{ run_id: string; status: string }> {
   return request("run/cancel", { run_id: runID });
 }
@@ -221,4 +269,91 @@ export function answerQuestion(questionID: string, answer: string): Promise<{
   answer: string;
 }> {
   return request("question/respond", { question_id: questionID, answer });
+}
+
+export function listReviews(params: { kind?: ReviewKind; status?: ReviewStatus; session_id?: string; limit?: number } = {}): Promise<{ reviews: ReviewItem[] }> {
+  return request("review/list", params);
+}
+
+export function getReview(reviewID: string): Promise<ReviewItem> {
+  return request("review/get", { review_id: reviewID });
+}
+
+export function respondReview(reviewID: string, response: { action: "approve" | "deny" | "answer" | "cancel"; reason?: string; answer?: string }): Promise<{ review_id: string; status: string }> {
+  return request("review/respond", { review_id: reviewID, ...response });
+}
+
+export interface SpeciesInspect {
+  protocol_version: string;
+  binary_id: string;
+  generation_id: string;
+  artifact_sha256?: string;
+  recipe: { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] };
+  policy_profile: string;
+  policy_hash: string;
+  tools: Array<{ name: string; readonly: boolean }>;
+  grants: string[];
+}
+
+export interface Generation {
+  id: string;
+  parent_id?: string;
+  artifact_sha256: string;
+  source_ref?: string;
+  recipe: SpeciesInspect["recipe"];
+  phase: "built" | "evaluated" | "promoted" | "rejected";
+  created_at: number;
+}
+
+export interface EvalRun {
+  id: string;
+  candidate_id: string;
+  baseline_id?: string;
+  suite: string;
+  verdict: "better" | "worse" | "mixed" | "failed_to_run";
+  journal_ref?: string;
+  created_at: number;
+}
+
+export interface Promotion {
+  id: string;
+  from_id: string;
+  to_id: string;
+  eval_id: string;
+  actor: string;
+  phase: string;
+  applies_at: string;
+  created_at: number;
+}
+
+export function inspectSpecies(): Promise<SpeciesInspect> {
+  return request("species/inspect");
+}
+
+export function listGenerations(): Promise<{ generations: Generation[] }> {
+  return request("generations/list");
+}
+
+export function createGeneration(params: { artifact_sha256: string; parent_id?: string; recipe?: Generation["recipe"] }): Promise<Generation> {
+  return request("generations/create", params);
+}
+
+export function rejectGeneration(id: string): Promise<Generation> {
+  return request("generations/reject", { id });
+}
+
+export function listEvals(): Promise<{ evals: EvalRun[] }> {
+  return request("evals/list");
+}
+
+export function recordEval(params: { candidate_id: string; baseline_id?: string; suite: string; verdict: EvalRun["verdict"] }): Promise<EvalRun> {
+  return request("evals/record", params);
+}
+
+export function listPromotions(): Promise<{ promotions: Promotion[] }> {
+  return request("promotions/list");
+}
+
+export function promoteGeneration(params: { from_id: string; to_id: string; actor?: string }): Promise<Promotion> {
+  return request("promotions/promote", params);
 }
