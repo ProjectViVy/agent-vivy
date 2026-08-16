@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/model.request.json",
+  "title": "model.request payload (v1)",
+  "description": "Digest of the exact message list handed to the model for one invocation (ADR-010). Full text lives on the message projection and prior journal events; this event only records reconstructable fingerprints.",
+  "type": "object",
+  "properties": {
+    "selected_tools": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Tool names visible to this model request."
+    },
+    "preamble_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "description": "Hex SHA-256 of the leading system preamble."
+    },
+    "preamble_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["system", "user", "assistant", "tool"]
+          },
+          "tool_name": { "type": "string" },
+          "tool_call_id": { "type": "string" },
+          "content_sha256": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "byte_len": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["role", "content_sha256", "byte_len"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["selected_tools", "preamble_sha256", "preamble_bytes", "messages"],
+  "additionalProperties": false
+}

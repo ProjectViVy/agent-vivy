@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.approval_decided.json",
+  "title": "tool.approval_decided payload (v1)",
+  "type": "object",
+  "properties": {
+    "approval_id": {"type": "string", "minLength": 1},
+    "decision": {"type": "string", "enum": ["approved", "denied"]},
+    "actor": {"type": "string"},
+    "reason": {"type": "string"},
+    "decided_at": {"type": "integer", "minimum": 0}
+  },
+  "required": ["approval_id", "decision", "decided_at"],
+  "additionalProperties": false
+}

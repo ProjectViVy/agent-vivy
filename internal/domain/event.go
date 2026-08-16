@@ -6,33 +6,40 @@ package domain
 type EventType string
 
 const (
-	EventRunStarted           EventType = "run.started"
-	EventProviderRetry        EventType = "provider.retry"
-	EventProviderStall        EventType = "provider.stall"
-	EventModelReasoningDelta  EventType = "model.reasoning_delta"
-	EventModelDelta           EventType = "model.delta"
-	EventModelUsage           EventType = "model.usage"
-	EventModelCompleted       EventType = "model.completed"
-	EventToolRequested        EventType = "tool.requested"
-	EventToolApprovalRequired EventType = "tool.approval_required"
-	EventToolStarted          EventType = "tool.started"
-	EventToolFinished         EventType = "tool.finished"
-	EventPolicyEvaluated      EventType = "policy.evaluated"
-	EventHookStarted          EventType = "hook.started"
-	EventHookCompleted        EventType = "hook.completed"
-	EventHookBlocked          EventType = "hook.blocked"
-	EventUserQuestionRequired EventType = "user.question_required"
-	EventUserQuestionAnswered EventType = "user.question_answered"
-	EventChildRequested       EventType = "child.requested"
-	EventChildStarted         EventType = "child.started"
-	EventChildSuspended       EventType = "child.suspended"
-	EventChildResumed         EventType = "child.resumed"
-	EventChildCompleted       EventType = "child.completed"
-	EventChildFailed          EventType = "child.failed"
-	EventChildCancelled       EventType = "child.cancelled"
-	EventRunCompleted         EventType = "run.completed"
-	EventRunFailed            EventType = "run.failed"
-	EventRunCancelled         EventType = "run.cancelled"
+	EventRunStarted            EventType = "run.started"
+	EventProviderRetry         EventType = "provider.retry"
+	EventProviderStall         EventType = "provider.stall"
+	EventModelReasoningDelta   EventType = "model.reasoning_delta"
+	EventModelDelta            EventType = "model.delta"
+	EventModelUsage            EventType = "model.usage"
+	EventModelCompleted        EventType = "model.completed"
+	EventModelRequest          EventType = "model.request"
+	EventToolRequested         EventType = "tool.requested"
+	EventToolApprovalRequired  EventType = "tool.approval_required"
+	EventToolApprovalDecided   EventType = "tool.approval_decided"
+	EventToolApprovalExpired   EventType = "tool.approval_expired"
+	EventToolApprovalCancelled EventType = "tool.approval_cancelled"
+	EventToolProposalStale     EventType = "tool.proposal_stale"
+	EventToolStarted           EventType = "tool.started"
+	EventToolFinished          EventType = "tool.finished"
+	EventPolicyEvaluated       EventType = "policy.evaluated"
+	EventHookStarted           EventType = "hook.started"
+	EventHookCompleted         EventType = "hook.completed"
+	EventHookBlocked           EventType = "hook.blocked"
+	EventUserQuestionRequired  EventType = "user.question_required"
+	EventUserQuestionAnswered  EventType = "user.question_answered"
+	EventUserQuestionCancelled EventType = "user.question_cancelled"
+	EventUserQuestionExpired   EventType = "user.question_expired"
+	EventChildRequested        EventType = "child.requested"
+	EventChildStarted          EventType = "child.started"
+	EventChildSuspended        EventType = "child.suspended"
+	EventChildResumed          EventType = "child.resumed"
+	EventChildCompleted        EventType = "child.completed"
+	EventChildFailed           EventType = "child.failed"
+	EventChildCancelled        EventType = "child.cancelled"
+	EventRunCompleted          EventType = "run.completed"
+	EventRunFailed             EventType = "run.failed"
+	EventRunCancelled          EventType = "run.cancelled"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -44,8 +51,13 @@ var EventTypes = []EventType{
 	EventModelDelta,
 	EventModelUsage,
 	EventModelCompleted,
+	EventModelRequest,
 	EventToolRequested,
 	EventToolApprovalRequired,
+	EventToolApprovalDecided,
+	EventToolApprovalExpired,
+	EventToolApprovalCancelled,
+	EventToolProposalStale,
 	EventToolStarted,
 	EventToolFinished,
 	EventPolicyEvaluated,
@@ -54,6 +66,8 @@ var EventTypes = []EventType{
 	EventHookBlocked,
 	EventUserQuestionRequired,
 	EventUserQuestionAnswered,
+	EventUserQuestionCancelled,
+	EventUserQuestionExpired,
 	EventChildRequested,
 	EventChildStarted,
 	EventChildSuspended,

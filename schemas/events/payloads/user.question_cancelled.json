@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/user.question_cancelled.json",
+  "title": "user.question_cancelled payload (v1)",
+  "type": "object",
+  "properties": {
+    "question_id": {"type": "string", "minLength": 1},
+    "actor": {"type": "string"},
+    "reason": {"type": "string"}
+  },
+  "required": ["question_id"],
+  "additionalProperties": false
+}

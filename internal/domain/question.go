@@ -7,17 +7,22 @@ const (
 	QuestionPending   QuestionStatus = "pending"
 	QuestionAnswered  QuestionStatus = "answered"
 	QuestionCancelled QuestionStatus = "cancelled"
+	QuestionExpired   QuestionStatus = "expired"
 )
 
 // Question is a user-input suspension distinct from an effectful approval.
 // Answer is persisted only after the caller passes server-side validation.
 type Question struct {
-	ID           string
-	RunID        RunID
-	ToolCallID   string
-	Prompt       string
-	Answer       string
-	Status       QuestionStatus
-	ExpiresAt    int64
-	ResumeTarget string
+	ID             string
+	RunID          RunID
+	ToolCallID     string
+	Prompt         string
+	Answer         string
+	Status         QuestionStatus
+	ExpiresAt      int64
+	ResumeTarget   string
+	CreatedAt      int64
+	AnsweredAt     int64
+	Actor          string
+	DecisionReason string
 }
