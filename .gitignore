@@ -30,6 +30,10 @@
 /ui/.e2e-workdir/
 /ui/test-results/
 /ui/playwright-report/
+/test-results/
+
+# Archived superseded artifacts (old spike/smoke binaries)
+/archive/
 
 # Editor / OS noise
 .idea/
