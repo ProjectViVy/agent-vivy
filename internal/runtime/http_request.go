@@ -20,13 +20,14 @@ const defaultHTTPResponseBytes = 1 << 20
 
 type EinoHTTPBackend struct {
 	client       *http.Client
+	sandbox      *SandboxManager
 	allowedHosts []string
 	maxBodyBytes int
 }
 
 var _ tools.HTTPOperations = (*EinoHTTPBackend)(nil)
 
-func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int) *EinoHTTPBackend {
+func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int, sandbox *SandboxManager) *EinoHTTPBackend {
 	if maxBodyBytes <= 0 || maxBodyBytes > 8<<20 {
 		maxBodyBytes = defaultHTTPResponseBytes
 	}
@@ -45,6 +46,7 @@ func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int) *EinoHTTPBacken
 	}
 	return &EinoHTTPBackend{
 		client:       &http.Client{Transport: transport, Timeout: 10 * time.Second},
+		sandbox:      sandbox,
 		allowedHosts: hosts,
 		maxBodyBytes: maxBodyBytes,
 	}
@@ -61,6 +63,14 @@ func (b *EinoHTTPBackend) Request(ctx context.Context, _ domain.RunID, input too
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
 		return tools.HTTPResponse{}, errors.New("http request: URL must be an absolute HTTP(S) URL without credentials")
 	}
+
+	// Sandbox network policy check (D-021)
+	if b.sandbox != nil {
+		if err := b.sandbox.CheckNetwork(u.String()); err != nil {
+			return tools.HTTPResponse{}, fmt.Errorf("sandbox: %w", err)
+		}
+	}
+
 	if !b.hostAllowed(u.Hostname()) {
 		return tools.HTTPResponse{}, fmt.Errorf("http request: host %q is not allowlisted", u.Hostname())
 	}

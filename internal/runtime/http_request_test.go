@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
 
@@ -22,7 +23,17 @@ func TestEinoHTTPBackendAllowsBoundedReadOnlyRequests(t *testing.T) {
 	}))
 	defer server.Close()
 	u, _ := url.Parse(server.URL)
-	backend := NewEinoHTTPBackend([]string{u.Hostname()}, 64)
+	// Create permissive sandbox for tests
+	sandbox, err := NewSandboxManager(
+		domain.SandboxModeDangerFullAccess,
+		t.TempDir(), // Use temp dir as workspace root
+		nil,
+		&domain.NetworkPolicy{DenyPrivateIPs: false},
+	)
+	if err != nil {
+		t.Fatalf("new sandbox: %v", err)
+	}
+	backend := NewEinoHTTPBackend([]string{u.Hostname()}, 64, sandbox)
 
 	response, err := backend.Request(context.Background(), "", tools.HTTPRequest{URL: server.URL})
 	if err != nil {
@@ -54,7 +65,17 @@ func TestEinoHTTPBackendRejectsWritesCredentialsRedirectsAndBounds(t *testing.T)
 	}))
 	defer server.Close()
 	u, _ := url.Parse(server.URL)
-	backend := NewEinoHTTPBackend([]string{u.Hostname()}, 64)
+	// Create permissive sandbox for tests
+	sandbox, err := NewSandboxManager(
+		domain.SandboxModeDangerFullAccess,
+		t.TempDir(), // Use temp dir as workspace root
+		nil,
+		&domain.NetworkPolicy{DenyPrivateIPs: false},
+	)
+	if err != nil {
+		t.Fatalf("new sandbox: %v", err)
+	}
+	backend := NewEinoHTTPBackend([]string{u.Hostname()}, 64, sandbox)
 
 	cases := []struct {
 		name  string

@@ -5,8 +5,10 @@ description: Change Vivy kernel, Studio overlay, UI, or product-contract docs, t
 
 # Vivy kernel + just ci
 
-This is lane C: Studio can develop Vivy itself. Working directory is the
-`agent-vivy` repo root (or a worktree cut from it), never `data/`.
+This is lane C: Vivy can be developed from Vivy Studio or any other authorized
+developer tool. Work directly in the `agent-vivy` repo root (or a worktree cut
+from it), never `data/`. Do not hand work off to Studio solely to satisfy a
+venue convention.
 
 ## Air gap
 
@@ -28,5 +30,5 @@ when `just ci` exists.
 
 - Using daily `vivy.exe` as an IDE
 - Installing a plugin by editing `engine.go`
-- Declaring the ST-6 venue switch without this skill running **inside**
-  Vivy Studio (outer-loop kernel edits do not count)
+- Treating Vivy Studio as a mandatory execution venue for a tool that already
+  has authorized access to this workspace

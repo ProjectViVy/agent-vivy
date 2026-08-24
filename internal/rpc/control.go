@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
@@ -37,6 +38,15 @@ type ControlDeps struct {
 	Live      studio.LiveView
 	Eval      eval.Starter
 	Children  ChildController
+	// SettingsPath is the operator-managed model provider settings document.
+	// When empty the settings RPCs report the config defaults and reject
+	// updates (read-only mode).
+	SettingsPath string
+	// ConfigProvider is the production config default provider (non-secret),
+	// surfaced by settings/get so the UI can show the fallback.
+	ConfigProvider string
+	// ConfigModel is the production config default model (non-secret).
+	ConfigModel string
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -247,9 +257,11 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"protocol_version": ProtocolVersion,
 			"capabilities": []string{
 				"session", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
+				"background.recover", "background.list", "background.attach",
 				"child.start", "child.get", "child.list", "child.wait", "child.cancel",
-				"generations.list", "generations.get", "evals.list", "evals.start", "promotions.list", "promotions.promote",
+				"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 				"generations.reject", "species.inspect",
+				"settings.get", "settings.update",
 			},
 		}, nil
 	case "session/create":
@@ -331,6 +343,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.promote(ctx, request)
 	case "species/inspect":
 		return h.inspectSpecies(ctx)
+	case "settings/get":
+		return h.getSettings(ctx)
+	case "settings/update":
+		return h.updateSettings(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
@@ -1195,6 +1211,74 @@ func (h *controlHandler) inspectSpecies(ctx context.Context) (any, *Error) {
 	}
 	rep.ProtocolVersion = ProtocolVersion
 	return rep, nil
+}
+
+// settingsResult is the non-secret, operator-managed model provider
+// selection surfaced in the Settings UI. Secrets are never included.
+type settingsResult struct {
+	// Provider is the active bundle name (openai|anthropic|mock), or empty
+	// when the config default applies.
+	Provider string `json:"provider"`
+	// DefaultModel is the selected model id, or empty for bundle default.
+	DefaultModel string `json:"default_model"`
+	// BaseURL is an optional OpenAI-compatible gateway, or empty.
+	BaseURL string `json:"base_url"`
+	// ReadOnly reports whether updates are accepted. When the settings
+	// document path is not configured, the UI shows values but cannot save.
+	ReadOnly bool `json:"read_only"`
+	// ConfigProvider is the production config default provider, for display.
+	ConfigProvider string `json:"config_provider"`
+	// ConfigModel is the production config default model, for display.
+	ConfigModel string `json:"config_model"`
+}
+
+func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
+	out := settingsResult{
+		Provider:       "",
+		DefaultModel:   "",
+		BaseURL:        "",
+		ReadOnly:       h.deps.SettingsPath == "",
+		ConfigProvider: "",
+		ConfigModel:    "",
+	}
+	if h.deps.SettingsPath != "" {
+		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
+			out.Provider = s.Provider
+			out.DefaultModel = s.DefaultModel
+			out.BaseURL = s.BaseURL
+		}
+	}
+	// Reflect the production config defaults so the UI can show what a
+	// cleared field falls back to. The runtime never exposes secrets.
+	out.ConfigProvider = h.deps.ConfigProvider
+	out.ConfigModel = h.deps.ConfigModel
+	return out, nil
+}
+
+func (h *controlHandler) updateSettings(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		Provider     string `json:"provider"`
+		DefaultModel string `json:"default_model"`
+		BaseURL      string `json:"base_url"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL}
+	saved, err := settings.Save(h.deps.SettingsPath, s)
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	_ = ctx
+	return settingsResult{
+		Provider:     saved.Provider,
+		DefaultModel: saved.DefaultModel,
+		BaseURL:      saved.BaseURL,
+		ReadOnly:     false,
+	}, nil
 }
 
 type generationResult struct {

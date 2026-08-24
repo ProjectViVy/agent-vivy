@@ -454,16 +454,17 @@ into `vivy.exe`.
    installed species still starts.
 9. Two generations are comparable only through a Studio `EvalRun`
    against a named suite.
-10. After the ST-6 venue switch (`VIVY-STUDIO.md` §3), all further
-    Vivy development happens in Studio (NG-26).
+10. ST-6 proves that Studio is a complete first-party daily development IDE.
+    Other authorized developer tools may work directly in the source workspace
+    using their own native capabilities (NG-26).
 
 ---
 
 ## 13. Staging (one mission per slice)
 
 S0 adopted. S1–S6 species-side parts are done. S7 card product
-meaning is void (NG-28). S8/S9 move after the Studio venue switch
-and are implemented *inside* Studio.
+meaning is void (NG-28). S8/S9 proceed after Studio has proven its complete
+authoring path; their implementation venue is not exclusive.
 
 Studio slices ST-0..ST-8, bootstrap exception, and the ST-6 switch
 gate live in `VIVY-STUDIO.md` §3 and §10. Do not add species-side
@@ -494,14 +495,14 @@ studio work during bootstrap.
 | NG-17 | User capabilities are plain Go under plugin governance; first-party units are not called plugins | “I am developing a plugin” applies only to `plugins/` |
 | NG-18 | First-party units are named by what they are and assembled by recipe | Learn DSH naming and stacking, not live unload |
 | NG-19 | Remote MCP is a configured dependency, not a plugin | Calling out is not growing a limb |
-| NG-20 | Make Studio a usable development venue first (DSH inside Studio); skin later; release is human-only | Venue hard-constraint outranks species-side “doors” |
+| NG-20 | Make Studio a complete first-party development IDE (DSH inside Studio); skin later; release is human-only | First-party authoring capability outranks species-side “doors” |
 | NG-21 | Studio owns the develop + distribute lifecycle. `vivy.exe` is the product, not the host | User correction 2026-08-15 |
 | NG-22 | The species never launches Studio. No “open Studio” entry | Inverts the previous door metaphor |
 | NG-23 | Generation / EvalRun / Release / Install authority lives in Studio | Species tables are the wrong home |
 | NG-24 | Studio parents eval candidates. The live species does not | Air gap |
 | NG-25 | Release is a human-triggered install in Studio. No auto-release, no live hot-swap | Human remains the promoter |
-| NG-26 | **Development venue is Studio.** Bootstrap (ST-1..ST-4) is the only outside work; ST-6 closes the outside loop | Otherwise Studio never becomes real |
-| NG-27 | Studio down does not block an installed species. Species down is not a reason to develop outside Studio | Two trust roots for two jobs |
+| NG-26 | **Studio is the first-party daily development IDE, not an exclusive execution venue.** Other authorized tools work directly in the workspace with their own capabilities | Preserve Studio's product role without forcing tool handoff |
+| NG-27 | Studio down does not block an installed species or another authorized development tool | Two trust roots for two jobs |
 | NG-28 | Freeze species-side Studio card and Promote authority | Stop extending the wrong home |
 | NG-29 | Chrome is Vivy Studio: title, wordmark, onboarding, profile id. First-party complete token theme, not a community skin or pasted CSS | DSH hard-codes whale + “DeepSeek Harness”; community themes recolor only |
 
@@ -532,8 +533,8 @@ shell = DSH Web vs custom) are recorded as defaults in
   and installer of the next body.
 - **Plugin:** source that exists in the world only after `pack` into a
   Generation.
-- **Human:** the only releaser. After the venue switch, developers
-  (including agents) change Vivy only inside Studio.
+- **Human:** the only releaser. Developers (including agents) may change Vivy
+  in Studio or another authorized tool that works directly in this workspace.
 
 If a design needs two of those sentences to be false at once, it is
 not this architecture.

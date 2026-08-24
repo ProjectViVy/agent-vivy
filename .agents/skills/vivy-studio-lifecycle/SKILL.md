@@ -5,9 +5,11 @@ description: Drive the Studio lifecycle from inside Vivy Studio: pack a generati
 
 # Vivy Studio lifecycle
 
-Author path is **Vivy Studio**. The daily `vivy.exe` is a tenant product;
-it never packs, evaluates, releases, installs, or rolls back. The Studio
-owns the whole lifecycle (`docs/architecture/VIVY-STUDIO.md` §4, ST-5/7/8).
+Vivy Studio is the first-party daily authoring IDE. Other authorized developer
+tools may edit and verify this workspace directly, but the daily `vivy.exe` is
+a tenant product; it never packs, evaluates, releases, installs, or rolls back.
+Studio owns the distribution lifecycle (`docs/architecture/VIVY-STUDIO.md`
+§4, ST-5/7/8).
 
 ## Air gap
 

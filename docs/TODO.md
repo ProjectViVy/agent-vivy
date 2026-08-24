@@ -5,7 +5,7 @@
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
 > Updated: 2026-08-15
-> Studio venue: `docs/architecture/VIVY-STUDIO.md`. After ST-6, develop only in Studio.
+> Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
 
@@ -170,10 +170,10 @@ sources or a toolchain and must not ride in the daily install.
 
 Canonical: `docs/architecture/VIVY-STUDIO.md`. ADR-018.
 
-Studio is an independent app (develop + distribute). Species-side S7
-card product meaning is void (NG-28). **After ST-6, all further
-development happens inside Studio (NG-26).** Bootstrap (ST-1..ST-4)
-is the only remaining outside work.
+Studio is an independent app and the first-party daily development IDE.
+Species-side S7 card product meaning is void (NG-28). **Other authorized
+developer tools may work directly in this repository with their own native
+capabilities; no Studio handoff is required (NG-26).**
 
 | ID | Status | Note |
 |---|---|---|

@@ -27,6 +27,7 @@ const (
 
 type EinoCommandBackend struct {
 	manager        *WorkspaceManager
+	sandbox        *SandboxManager
 	allowed        map[string]struct{}
 	maxOutputBytes int
 }
@@ -36,7 +37,7 @@ var _ interface {
 	PrepareCommand(context.Context, domain.RunID, tools.CommandRequest) (domain.ToolProposal, error)
 } = (*EinoCommandBackend)(nil)
 
-func NewEinoCommandBackend(manager *WorkspaceManager, allowed []string) *EinoCommandBackend {
+func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string) *EinoCommandBackend {
 	if len(allowed) == 0 {
 		allowed = []string{"go", "git", "rg"}
 	}
@@ -46,7 +47,7 @@ func NewEinoCommandBackend(manager *WorkspaceManager, allowed []string) *EinoCom
 			commands[name] = struct{}{}
 		}
 	}
-	return &EinoCommandBackend{manager: manager, allowed: commands, maxOutputBytes: maxCommandOutput}
+	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput}
 }
 func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
 	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
@@ -117,6 +118,14 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 	if command == "" || strings.ContainsAny(command, " \t\r\n/\\;&|><$()") {
 		return "", nil, "", nil, 0, errors.New("command: command must be one allowlisted executable name without shell syntax")
 	}
+
+	// Sandbox validation: check command against sandbox policy (D-021)
+	if b.sandbox != nil {
+		if err := b.sandbox.ConfineCommand(command, request.Args); err != nil {
+			return "", nil, "", nil, 0, fmt.Errorf("sandbox: %w", err)
+		}
+	}
+
 	name := normalizeCommandName(command)
 	if _, ok := b.allowed[name]; !ok {
 		return "", nil, "", nil, 0, fmt.Errorf("command: executable %q is not allowlisted", command)

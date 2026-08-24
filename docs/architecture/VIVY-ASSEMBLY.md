@@ -123,7 +123,7 @@ plugins:
 | 接一个新模型出口 | `providers/<name>/` | 改 provider |
 | **给自己或客户加能力** | **`plugins/<name>/`** | **做插件** |
 
-Studio 预制流水线也按名词拆，不要一条「添加插件」包打天下。这些流水线住在独立 Studio 应用里（`VIVY-STUDIO.md`），切换之后只在那里开发：
+Studio 预制流水线也按名词拆，不要一条「添加插件」包打天下。这些流水线属于独立 Studio 应用（`VIVY-STUDIO.md`）；其他已获授权工具也可直接在源码工作区开发与验证：
 
 - 新工具（出厂贡献）
 - 新 provider

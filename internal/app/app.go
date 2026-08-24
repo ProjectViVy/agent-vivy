@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -59,6 +60,20 @@ type App struct {
 // by config.Load / config.Validate.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	logger := slog.Default()
+
+	// Operator-managed model provider selection (Settings page). It lives
+	// in an independent agent working dir, never the production config.yaml
+	// or the Journal, and stores no secrets. Overlay it onto the validated
+	// config before any provider/model is built, so a saved change takes
+	// effect on next launch (no live engine hot-swap).
+	cfg = applySettingsOverlay(ctx, logger, cfg)
+
+	// dataRoot is the process data directory; operator settings live in a
+	// subdir of it (an independent agent working dir, not the Journal).
+	dataRoot := "."
+	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
+		dataRoot = dir
+	}
 
 	// Storage first: every later component depends on it.
 	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
@@ -117,6 +132,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	var sequentialOps tools.SequentialThinkingOperations
 	var commandOps tools.CommandOperations
 	var workspaceManager *runtime.WorkspaceManager
+	var sandboxManager *runtime.SandboxManager
 	if cfg.Runtime.WorkspaceRoot != "" {
 		manager, err := runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
 		if err != nil {
@@ -125,7 +141,32 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 		workspaces = manager
 		workspaceManager = manager
-		fileOps = runtime.NewEinoFilesystemBackend(manager)
+
+		// Create SandboxManager with config (D-021)
+		sandboxMode := domain.SandboxMode(cfg.Runtime.Sandbox.DefaultMode)
+		if !sandboxMode.Valid() {
+			sandboxMode = domain.SandboxModeWorkspaceWrite
+		}
+		sandboxRoot := cfg.Runtime.Sandbox.WorkspaceRoot
+		if sandboxRoot == "" {
+			sandboxRoot = cfg.Runtime.WorkspaceRoot
+		}
+		netPolicy := &domain.NetworkPolicy{
+			AllowedDomains: cfg.Runtime.Sandbox.Network.AllowedDomains,
+			DenyPrivateIPs: cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
+		}
+		sandboxManager, err = runtime.NewSandboxManager(
+			sandboxMode,
+			sandboxRoot,
+			cfg.Runtime.ExecuteAllowedCommands,
+			netPolicy,
+		)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build sandbox manager: %w", err)
+		}
+
+		fileOps = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
 	}
 	if cfg.Runtime.SkillsRoot != "" {
 		skillBackend, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
@@ -138,14 +179,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "todos"))
 	todoOps = todoBackend
 	searchOps = runtime.NewNetworkSearchService(nil, nil)
-	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes)
+	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
 	mcpConfigs := make([]runtime.MCPServerConfig, 0, len(cfg.Runtime.MCPServers))
 	for _, server := range cfg.Runtime.MCPServers {
 		mcpConfigs = append(mcpConfigs, runtime.MCPServerConfig{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
 	}
 	mcpOps = runtime.NewEinoMCPBackend(mcpConfigs, nil)
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
-	commandOps = runtime.NewEinoCommandBackend(workspaceManager, cfg.Runtime.ExecuteAllowedCommands)
+	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands)
 	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
@@ -211,6 +252,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
 		Sink:                 bus,
 	})
+	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
 	svc.SetChildApprovalRouter(workerManager)
 
@@ -259,6 +301,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		},
 		Eval:     evalRunner,
 		Children: workerManager,
+		// Operator-managed model provider selection lives in an independent
+		// agent working dir, never the production config or Journal.
+		SettingsPath:   settings.Path(dataRoot),
+		ConfigProvider: providerName,
+		ConfigModel:    defaultModelFor(cfg, providerName),
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -330,6 +377,48 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 		panic(fmt.Sprintf("app: invalid governance policy: %v", err))
 	}
 	return engine
+}
+
+// applySettingsOverlay reads the operator-managed settings document and
+// overlays its non-secret values onto cfg. A missing or empty document is
+// a no-op: the config defaults stand. The base URL is applied through the
+// existing VIVY_API_BASE environment mechanism (provider.openai already
+// honors it), so no provider plumbing changes.
+func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
+	dataRoot := "."
+	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
+		dataRoot = dir
+	}
+	path := settings.Path(dataRoot)
+	s, err := settings.Load(path)
+	if err != nil {
+		// A corrupt settings file must not abort startup; log and ignore.
+		logger.Warn("settings overlay skipped", "path", path, "err", err)
+		return cfg
+	}
+	if s == (settings.Settings{}) {
+		return cfg
+	}
+	if s.Provider != "" {
+		if s.Provider == settings.ProviderMock {
+			cfg.Runtime.Mock = true
+		} else {
+			cfg.Providers.Active = s.Provider
+		}
+		switch s.Provider {
+		case settings.ProviderOpenAI:
+			cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
+		case settings.ProviderAnthropic:
+			cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
+		}
+	}
+	if s.BaseURL != "" {
+		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
+			logger.Warn("settings base_url not applied", "err", err)
+		}
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "")
+	return cfg
 }
 
 // defaultModelFor picks the configured default model of the active

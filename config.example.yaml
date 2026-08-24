@@ -59,6 +59,41 @@ runtime:
     - go
     - git
     - rg
+  # Sandbox controls the file-effect policy boundary (D-021).
+  # Mirrors the DeepSeek Harness three-tier permission model.
+  sandbox:
+    # Initial sandbox mode for new sessions:
+    #   read_only           - deny all writes, only allow reads in workspace
+    #   workspace_write     - allow reads/writes within workspace root (default)
+    #   danger_full_access  - bypass all sandbox restrictions (use with caution)
+    default_mode: workspace_write
+    # Optional override for sandbox workspace root (defaults to workspace_root above).
+    workspace_root: ""
+    # Approval behavior for effectful tools under different policies.
+    approval:
+      # Default approval policy:
+      #   ask   - require user approval for every effectful tool (default)
+      #   never - deny all effectful tools without asking
+      #   auto  - auto-approve readonly/whitelisted tools, ask for others
+      default_policy: ask
+      # Timeout in seconds before pending approvals are auto-expired and denied.
+      # Set to 0 to disable timeout (approvals expire based on expiration field only).
+      timeout_seconds: 300
+      # Tools that are auto-approved under the "auto" policy (typically readonly tools).
+      auto_approve_tools:
+        - read_file
+        - search_files
+        - list_notes
+        - read_note
+        - skills_list
+        - skill_view
+        - network_search
+    # Network access restrictions for HTTP requests.
+    network:
+      # Whitelist of allowed domains. Empty means no domain restriction.
+      allowed_domains: []
+      # Block RFC1918 private IP ranges when true.
+      deny_private_ips: true
 
 tools:
   # Read-only tools auto-execute. Mutations and Skill management are always

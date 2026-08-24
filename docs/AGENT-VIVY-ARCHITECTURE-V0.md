@@ -263,9 +263,10 @@ inside the personal-gateway install.
 **Decision.** Vivy Studio is a second product. It owns develop +
 distribute (worktree, verify, pack, eval, release, install, rollback).
 Daily `vivy.exe` is the installed body. The species never launches
-Studio. Lifecycle objects live in Studio's store. After bootstrap
-(ST-1..ST-4) and the ST-6 venue switch, all further Vivy development
-happens inside Studio (NG-21..NG-28).
+Studio. Lifecycle objects live in Studio's store. ST-6 proved that Studio can
+serve as the first-party daily development IDE. Other authorized developer
+tools may work directly in the same source workspace with their own native
+capabilities (NG-21..NG-28).
 
 **Guard tests.** None in this ADR: it records a product constraint.
 Acceptance is the ST-* evidence in `VIVY-STUDIO.md` §10.
@@ -285,6 +286,7 @@ Acceptance is the ST-* evidence in `VIVY-STUDIO.md` §10.
 - 2026-08-15: ADR-016 Studio card was claimed; product meaning voided
   the same day by ADR-018.
 - 2026-08-15: ADR-017 splits `vivy-sdk` into `sdk/` as its own binary.
-- 2026-08-15: ADR-018 — Studio is an independent app; development
-  venue switches to Studio after ST-6. Canonical: `docs/architecture/VIVY-STUDIO.md`.
+- 2026-08-15: ADR-018 — Studio is an independent app and first-party daily
+  development IDE. Other authorized tools may work directly in the workspace.
+  Canonical: `docs/architecture/VIVY-STUDIO.md`.
 </file_content>

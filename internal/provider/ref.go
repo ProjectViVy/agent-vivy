@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/cloudwego/eino/components/model"
+
+	"agent-vivy/internal/domain"
 )
 
 // Ref is the ProviderRef boundary (A1 finalized seam): the rest of Vivy
@@ -19,6 +21,12 @@ type Ref interface {
 	// Model builds a tool-calling chat model for modelID. An empty
 	// modelID falls back to the bundle's default_model.
 	Model(ctx context.Context, modelID string) (model.ToolCallingChatModel, error)
+
+	// ModelInfo returns capacity metadata for the given modelID. If
+	// modelID is empty, it uses the bundle's default_model. Returns
+	// domain.ModelInfo with zero ContextWindow when the information is
+	// unavailable; callers should use conservative defaults in that case.
+	ModelInfo(ctx context.Context, modelID string) (domain.ModelInfo, error)
 }
 
 // KeyMissingError reports that the environment variable holding the API

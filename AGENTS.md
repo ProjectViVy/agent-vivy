@@ -3,16 +3,27 @@
 Implementation home of the Vivy species (`vivy.exe`) and the first-party
 Studio overlay. Canonical product rules: `docs/architecture/VIVY-STUDIO.md`.
 
-## Venue
+## Scope Separation: Vivy vs Vivy Studio
 
-ST-6 is done (2026-08-16). All further Vivy development (species, Studio,
-skills, recipes, product-contract docs, tests) happens inside **Vivy
-Studio**. Do not use an external IDE / agent as the main implementation
-path. Daily `vivy.exe` is a tenant product, not an IDE.
+**Default scope is VIVY (the species/kernel).** When the user mentions "Vivy" without "Studio", develop the Vivy kernel/species itself — not the Studio overlay. Only when the user explicitly says "Studio", "Vivy Studio", or "工作室" should you work on the Studio overlay/shell.
 
-The only remaining outer-loop exception is Studio itself failing to
-start (`VIVY-STUDIO.md` §2.2): restore boot, write it down, do not
-slip in features.
+- **Vivy (default)**: Kernel, engine, UI, skills, recipes, plugins, product-contract docs. Use `just ci` for verification.
+- **Vivy Studio (explicit only)**: First-party IDE shell, skin, theme, lifecycle. Use `just studio` for builds. See `.agents/skills/vivy-studio-lifecycle`.
+
+This separation prevents accidental cross-contamination between the species runtime and its development environment.
+
+## Development environment
+
+**Vivy Studio is the first-party daily development IDE and the recommended
+author path. It is not an exclusive execution venue.** A developer tool or
+agent that has been authorized to read this workspace should use its own
+native editing, testing, and automation capabilities directly in the current
+workspace. Do not transfer or replay that work inside Vivy Studio merely to
+satisfy a venue rule.
+
+The same repository contracts and verification commands apply regardless of
+which authorized development tool performs the work. Daily `vivy.exe` remains
+a tenant product, not an IDE.
 
 ## Air gap (ST-2)
 
@@ -41,3 +52,20 @@ That directory is the engine's scratch, not the species Journal.
 
 Prefabricated Studio skills: `.agents/skills/vivy-plugin-five`,
 `.agents/skills/vivy-kernel-ci`, `.agents/skills/vivy-studio-lifecycle`.
+
+## DSH harness reference source
+
+DeepSeek Harness source lives in `.workspace/deepseek-harness/` (currently:
+`deepseek-harness/` working clone + `upstream/` mirror of
+`https://github.com/deepseek-ai/deepseek-harness.git`). It is reference
+material for engine internals — do not edit it as the implementation path.
+
+If the checkout is missing and you need it, clone it into `.workspace/`:
+
+```text
+git clone https://github.com/deepseek-ai/deepseek-harness.git .workspace/deepseek-harness/upstream
+```
+
+`.workspace/` is gitignored (see `.gitignore`) — never commit it. The
+installed `@deepseek-ai/dsh` npm package is built JS, not source; treat this
+tree, not `node_modules`, as the source of truth for harness behavior.

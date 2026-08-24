@@ -104,4 +104,8 @@ type Approval struct {
 	Preview          string
 	RiskFindings     []string
 	ProposalData     json.RawMessage
+	// Sandbox fields control permission boundaries (D-021).
+	SandboxMode    string // read_only | workspace_write | danger_full_access
+	ApprovalPolicy string // ask | never | auto
+	TimeoutAt      int64  // unix milli when this approval expires
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
@@ -103,6 +104,7 @@ type Service struct {
 	deps           ServiceDeps
 	provider       string
 	modelID        string
+	catalog        *provider.Catalog // optional; enables model metadata queries
 	defaultProfile domain.PolicyProfile
 
 	mu     sync.Mutex
@@ -174,6 +176,37 @@ func (s *Service) SetChildApprovalRouter(router ChildApprovalRouter) {
 	s.mu.Lock()
 	s.deps.ChildApprovals = router
 	s.mu.Unlock()
+}
+
+// SetCatalog wires the provider catalog so the service can query model
+// capacity metadata. This is optional; without it, GetModelInfo returns
+// conservative defaults.
+func (s *Service) SetCatalog(catalog *provider.Catalog) {
+	s.catalog = catalog
+}
+
+// GetModelInfo returns capacity metadata for the currently configured
+// provider and model. If no catalog is wired or the lookup fails, it
+// returns a ModelInfo with zero ContextWindow; callers should use
+// conservative defaults in that case.
+func (s *Service) GetModelInfo(ctx context.Context) domain.ModelInfo {
+	if s.catalog == nil || s.provider == "" || s.modelID == "" {
+		return domain.ModelInfo{
+			ID:            s.modelID,
+			Provider:      s.provider,
+			ContextWindow: 0, // unknown; caller uses default
+		}
+	}
+	info, err := s.catalog.ResolveModelInfo(ctx, s.provider, s.modelID)
+	if err != nil {
+		// Log but don't fail; fall back to zero window
+		return domain.ModelInfo{
+			ID:            s.modelID,
+			Provider:      s.provider,
+			ContextWindow: 0,
+		}
+	}
+	return info
 }
 
 // Run starts one run for the session and returns its id after the write

@@ -27,7 +27,17 @@ func newFilesystemTestBackend(t *testing.T) (*EinoFilesystemBackend, Workspace, 
 	if err != nil {
 		t.Fatalf("ensure workspace: %v", err)
 	}
-	return NewEinoFilesystemBackend(manager), workspace, runID
+	// Create a permissive sandbox for tests (danger_full_access to avoid blocking test operations)
+	sandbox, err := NewSandboxManager(
+		domain.SandboxModeDangerFullAccess,
+		workspace.Path,
+		[]string{"go", "git", "rg"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("new sandbox manager: %v", err)
+	}
+	return NewEinoFilesystemBackend(manager, sandbox), workspace, runID
 }
 
 func TestEinoFilesystemBackendReadWriteAndPatch(t *testing.T) {
