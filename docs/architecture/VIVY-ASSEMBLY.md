@@ -1,6 +1,7 @@
 # Vivy 怎么分、怎么装配
 
 > 状态：**提案**。服从重构世界、`SELF-EVOLVING-GATEWAY.md` 与 **`VIVY-STUDIO.md`**。
+> channel 作为一等装配单元见 **`VIVY-CHANNEL-PACK.md`**（提案；未采纳前本表不增加 `channels:` 行）。
 > 日期：2026-08-15（Studio 纠正：装配发生在独立 Studio 应用里，不在网关里）
 > 对照：DeepSeek Harness 的 profile / bundle / 按职责命名的包，不是对照它的热加载。
 

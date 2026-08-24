@@ -22,7 +22,6 @@ import type {
   RuntimeConfig,
   ToolsConfigShape,
   GatewayProcessStatus,
-  McpConnectionStatusDto,
   TokenStatsSnapshot,
   PersonaProfile,
   ChecklistItem,
@@ -36,8 +35,9 @@ import type {
   ReportPeriod,
   CronJobDto,
   PlanSidebarData,
-  DemoPetState,
   DemoDashboardSnapshot,
+  DemoTokenPeriod,
+  DemoTokenUsageSnapshot,
   DemoMemoryItem,
   DemoMcpServer,
   DemoComposerState,
@@ -61,7 +61,6 @@ const STORAGE_KEYS = {
   SKILL_REQUESTS: 'vivy.demo.skill-requests',
   APPROVALS: 'vivy.demo.approvals',
   PERSONA: 'vivy.demo.persona',
-  PET: 'vivy.demo.pet',
   DASHBOARD: 'vivy.demo.dashboard',
   MEMORY: 'vivy.demo.memory',
   MCP: 'vivy.demo.mcp',
@@ -662,18 +661,6 @@ export async function getGatewayStatus(): Promise<GatewayProcessStatus> {
 }
 
 /**
- * 获取 MCP 连接状态
- */
-export async function getMcpConnectionStatus(): Promise<McpConnectionStatusDto> {
-  await delay(200);
-  return {
-    state: 'disabled',
-    connected: false,
-    error: 'MCP 功能在示例模式中已禁用',
-  };
-}
-
-/**
  * 获取 Token 统计
  */
 export async function getTokenStats(sessionId: string): Promise<TokenStatsSnapshot | null> {
@@ -1219,12 +1206,6 @@ export async function generateNotebookReport(period: ReportPeriod): Promise<Note
 
 // ==================== Restored local demo surfaces ====================
 
-const DEFAULT_PET: DemoPetState = {
-  mood: 'curious',
-  energy: 82,
-  lastInteraction: 'Vivy 正在等待下一次互动',
-};
-
 const DEFAULT_DASHBOARD: DemoDashboardSnapshot = {
   sessionCount: 12,
   activeRuns: 2,
@@ -1244,8 +1225,8 @@ const DEFAULT_MEMORIES: DemoMemoryItem[] = [
 ];
 
 const DEFAULT_MCP_SERVERS: DemoMcpServer[] = [
-  { id: 'mcp-files', name: 'Workspace Files', transport: 'stdio', enabled: true, status: 'connected', toolCount: 8 },
-  { id: 'mcp-browser', name: 'Browser Tools', transport: 'http', enabled: false, status: 'disabled', toolCount: 5 },
+  { id: 'mcp-files', name: 'Workspace Files', transport: 'stdio', command: 'npx -y @modelcontextprotocol/server-filesystem .', enabled: true, toolCount: 8 },
+  { id: 'mcp-browser', name: 'Browser Tools', transport: 'http', url: 'http://127.0.0.1:9123/mcp', enabled: false, toolCount: 5 },
 ];
 
 const DEFAULT_COMPOSER: DemoComposerState = { mode: 'agent', secure: true, recording: false };
@@ -1265,20 +1246,140 @@ function writeDemoValue<T>(key: string, value: T): T {
   return value;
 }
 
-export async function getDemoPet(): Promise<DemoPetState> {
-  await delay(120);
-  return readDemoValue(STORAGE_KEYS.PET, DEFAULT_PET);
-}
-
-export async function interactWithDemoPet(mood: DemoPetState['mood']): Promise<DemoPetState> {
-  await delay(160);
-  const current = readDemoValue(STORAGE_KEYS.PET, DEFAULT_PET);
-  return writeDemoValue(STORAGE_KEYS.PET, { ...current, mood, energy: Math.min(100, current.energy + 4), lastInteraction: `互动完成 · ${now()}` });
-}
-
 export async function getDemoDashboard(): Promise<DemoDashboardSnapshot> {
   await delay(120);
   return readDemoValue(STORAGE_KEYS.DASHBOARD, DEFAULT_DASHBOARD);
+}
+
+const TOKEN_PERIOD_SCALE: Record<DemoTokenPeriod, number> = {
+  '1d': 1,
+  '3d': 2.4,
+  '1w': 4.8,
+  '1m': 16,
+  '6m': 72,
+  '1y': 130,
+};
+
+const BASE_TOKEN_SESSIONS = [
+  { id: 'session-1', title: '欢迎使用 Vivy 演示', model: 'deepseek-chat', request_count: 18, total_input: 9200, total_output: 4100, total_cost: 0.082 },
+  { id: 'session-2', title: '中控台设计讨论', model: 'claude-sonnet-4', request_count: 11, total_input: 6400, total_output: 2800, total_cost: 0.146 },
+  { id: 'session-3', title: '插件打包排障', model: 'gpt-4.1-mini', request_count: 9, total_input: 5100, total_output: 1900, total_cost: 0.037 },
+  { id: 'session-4', title: '人格文档整理', model: 'deepseek-chat', request_count: 7, total_input: 3600, total_output: 1500, total_cost: 0.028 },
+  { id: 'session-5', title: '定时任务验收', model: 'gpt-4.1-mini', request_count: 4, total_input: 1800, total_output: 700, total_cost: 0.012 },
+] as const;
+
+const BASE_TOKEN_ENDPOINTS = [
+  { key: '对话补全', total_tokens: 24100, total_cost: 0.198, request_count: 32 },
+  { key: '工具调用', total_tokens: 9800, total_cost: 0.072, request_count: 12 },
+  { key: '上下文压缩', total_tokens: 4200, total_cost: 0.035, request_count: 5 },
+] as const;
+
+const TOKEN_TIMELINE_LABELS: Record<DemoTokenPeriod, string[]> = {
+  '1d': ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'],
+  '3d': ['8/23', '8/24', '8/25'],
+  '1w': ['8/19', '8/20', '8/21', '8/22', '8/23', '8/24', '8/25'],
+  '1m': ['第1周', '第2周', '第3周', '第4周'],
+  '6m': ['3月', '4月', '5月', '6月', '7月', '8月'],
+  '1y': ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
+};
+
+function scaleCount(value: number, factor: number): number {
+  return Math.round(value * factor);
+}
+
+function scaleCost(value: number, factor: number): number {
+  return Math.round(value * factor * 10000) / 10000;
+}
+
+function buildDemoTokenUsage(period: DemoTokenPeriod): DemoTokenUsageSnapshot {
+  const factor = TOKEN_PERIOD_SCALE[period];
+  const sessions = BASE_TOKEN_SESSIONS.map((session) => {
+    const total_input = scaleCount(session.total_input, factor);
+    const total_output = scaleCount(session.total_output, factor);
+    return {
+      id: session.id,
+      title: session.title,
+      model: session.model,
+      request_count: scaleCount(session.request_count, factor),
+      total_input,
+      total_output,
+      total_tokens: total_input + total_output,
+      total_cost: scaleCost(session.total_cost, factor),
+    };
+  });
+  const total_input = sessions.reduce((sum, session) => sum + session.total_input, 0);
+  const total_output = sessions.reduce((sum, session) => sum + session.total_output, 0);
+  const total_tokens = total_input + total_output;
+  const total_cost = sessions.reduce((sum, session) => sum + session.total_cost, 0);
+  const request_count = sessions.reduce((sum, session) => sum + session.request_count, 0);
+  const modelTotals = new Map<string, number>();
+  for (const session of sessions) {
+    modelTotals.set(session.model, (modelTotals.get(session.model) ?? 0) + session.total_tokens);
+  }
+  const models = [...modelTotals.entries()]
+    .map(([model, tokens]) => ({
+      model,
+      total_tokens: tokens,
+      percentage: total_tokens === 0 ? 0 : Math.round((tokens / total_tokens) * 1000) / 10,
+    }))
+    .sort((left, right) => right.total_tokens - left.total_tokens);
+  const labels = TOKEN_TIMELINE_LABELS[period];
+  const weights = labels.map((_, index) => 0.35 + ((index * 7) % 10) / 12);
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+  const timeline = labels.map((label, index) => {
+    const share = weights[index] / weightSum;
+    const pointTokens = scaleCount(total_tokens * share, 1);
+    const inputShare = 0.62 + ((index % 5) - 2) * 0.03;
+    const total_input_point = scaleCount(pointTokens * inputShare, 1);
+    const total_output_point = Math.max(0, pointTokens - total_input_point);
+    return {
+      time_bucket: `${period}-${index}`,
+      label,
+      total_input: total_input_point,
+      total_output: total_output_point,
+      total_tokens: total_input_point + total_output_point,
+    };
+  });
+  return {
+    period,
+    total: {
+      total_input,
+      total_output,
+      total_tokens,
+      total_cache_creation: scaleCount(2400, factor),
+      total_cache_read: scaleCount(8600, factor),
+      request_count,
+      total_cost: Math.round(total_cost * 10000) / 10000,
+    },
+    models,
+    endpoints: BASE_TOKEN_ENDPOINTS.map((endpoint) => {
+      const share = endpoint.total_tokens / BASE_TOKEN_ENDPOINTS.reduce((sum, item) => sum + item.total_tokens, 0);
+      return {
+        key: endpoint.key,
+        total_tokens: scaleCount(total_tokens * share, 1),
+        total_cost: scaleCost(total_cost * share, 1),
+        request_count: scaleCount(request_count * share, 1),
+      };
+    }),
+    timeline,
+    sessions,
+  };
+}
+
+export function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
+}
+
+export function formatTokenCost(cost: number): string {
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+export async function getDemoTokenUsage(period: DemoTokenPeriod = '1d'): Promise<DemoTokenUsageSnapshot> {
+  await delay(120);
+  return buildDemoTokenUsage(period);
 }
 
 export async function getDemoMemories(): Promise<DemoMemoryItem[]> {
@@ -1291,33 +1392,76 @@ export async function getDemoMcpServers(): Promise<DemoMcpServer[]> {
   return readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
 }
 
+export interface DemoMcpServerInput {
+  name: string;
+  transport: DemoMcpServer['transport'];
+  command?: string;
+  url?: string;
+}
+
+function normalizeMcpInput(input: DemoMcpServerInput) {
+  const name = input.name.trim();
+  if (!name) throw new Error('请输入 MCP 服务名称');
+  if (input.transport === 'http') {
+    const url = (input.url ?? '').trim();
+    if (!url) throw new Error('请输入 HTTP 服务地址');
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error('HTTP 服务地址不是有效的 URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('HTTP 服务地址必须以 http:// 或 https:// 开头');
+    }
+    return { name, transport: 'http' as const, url, command: undefined };
+  }
+  const command = (input.command ?? '').trim();
+  if (!command) throw new Error('请输入 STDIO 启动命令');
+  return { name, transport: 'stdio' as const, command, url: undefined };
+}
+
+function assertMcpNameAvailable(servers: DemoMcpServer[], name: string, exceptId?: string) {
+  if (servers.some((server) => server.id !== exceptId && server.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error('已存在同名 MCP 服务');
+  }
+}
+
 export async function toggleDemoMcpServer(id: string): Promise<DemoMcpServer[]> {
   await delay(160);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS).map((server) => server.id === id ? { ...server, enabled: !server.enabled, status: server.enabled ? 'disabled' as const : 'connected' as const } : server);
+  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS).map((server) => server.id === id ? { ...server, enabled: !server.enabled } : server);
   return writeDemoValue(STORAGE_KEYS.MCP, servers);
 }
 
-export async function addDemoMcpServer(input: Pick<DemoMcpServer, 'name' | 'transport'>): Promise<DemoMcpServer[]> {
+export async function addDemoMcpServer(input: DemoMcpServerInput): Promise<DemoMcpServer[]> {
   await delay(180);
-  const name = input.name.trim();
-  if (!name) throw new Error('请输入 MCP 服务名称');
-
+  const normalized = normalizeMcpInput(input);
   const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  if (servers.some((server) => server.name.toLowerCase() === name.toLowerCase())) {
-    throw new Error('已存在同名 MCP 服务');
-  }
-
+  assertMcpNameAvailable(servers, normalized.name);
   return writeDemoValue(STORAGE_KEYS.MCP, [
     ...servers,
     {
       id: `mcp-${generateId()}`,
-      name,
-      transport: input.transport,
+      ...normalized,
       enabled: true,
-      status: 'connected',
       toolCount: 0,
     },
   ]);
+}
+
+export async function updateDemoMcpServer(id: string, input: DemoMcpServerInput): Promise<DemoMcpServer[]> {
+  await delay(180);
+  const normalized = normalizeMcpInput(input);
+  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
+  if (!servers.some((server) => server.id === id)) throw new Error('MCP 服务不存在');
+  assertMcpNameAvailable(servers, normalized.name, id);
+  return writeDemoValue(STORAGE_KEYS.MCP, servers.map((server) => server.id === id ? { ...server, ...normalized } : server));
+}
+
+export async function removeDemoMcpServer(id: string): Promise<DemoMcpServer[]> {
+  await delay(160);
+  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
+  return writeDemoValue(STORAGE_KEYS.MCP, servers.filter((server) => server.id !== id));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1326,7 +1470,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServer[]> {
   await delay(180);
-  const entries: Array<Pick<DemoMcpServer, 'name' | 'transport' | 'enabled' | 'toolCount'>> = [];
+  const entries: Array<Pick<DemoMcpServer, 'name' | 'transport' | 'command' | 'url' | 'enabled' | 'toolCount'>> = [];
 
   const appendEntry = (nameHint: string, value: unknown) => {
     const record = isRecord(value) ? value : {};
@@ -1339,7 +1483,16 @@ export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServe
     const toolCount = typeof record.toolCount === 'number' && Number.isFinite(record.toolCount)
       ? Math.max(0, Math.round(record.toolCount))
       : 0;
-    entries.push({ name, transport, enabled, toolCount });
+    const command = typeof record.command === 'string' && record.command.trim() ? record.command.trim() : undefined;
+    const url = typeof record.url === 'string' && record.url.trim() ? record.url.trim() : undefined;
+    entries.push({
+      name,
+      transport,
+      command: transport === 'stdio' ? command : undefined,
+      url: transport === 'http' ? url : undefined,
+      enabled,
+      toolCount,
+    });
   };
 
   if (Array.isArray(config)) {
@@ -1369,7 +1522,6 @@ export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServe
     const next = {
       id: index >= 0 ? merged[index].id : `mcp-${generateId()}`,
       ...entry,
-      status: entry.enabled ? 'connected' as const : 'disabled' as const,
     };
     if (index >= 0) merged[index] = next;
     else merged.push(next);
@@ -1384,8 +1536,9 @@ export async function exportDemoMcpConfig(): Promise<{ mcpServers: Record<string
   return {
     mcpServers: Object.fromEntries(
       servers.map((server) => [server.name, {
-        name: server.name,
         transport: server.transport,
+        ...(server.transport === 'stdio' && server.command ? { command: server.command } : {}),
+        ...(server.transport === 'http' && server.url ? { url: server.url } : {}),
         enabled: server.enabled,
         toolCount: server.toolCount,
       }]),

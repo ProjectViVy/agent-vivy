@@ -1,0 +1,18 @@
+# Container overlay on config.Default(). Keep allowed_origins empty so
+# server.addr may be 0.0.0.0; the image serves the embedded UI same-origin.
+# Journal, workspaces, and skills live on the /data volume.
+
+server:
+  addr: "0.0.0.0:8787"
+  allowed_origins: []
+
+storage:
+  backend: sqlite
+  sqlite:
+    path: /data/vivy.db
+
+runtime:
+  workspace_root: /data/workspaces
+  skills_root: /data/skills
+  sandbox:
+    workspace_root: /data/workspaces

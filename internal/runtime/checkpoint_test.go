@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 )
 
-func newCheckpointFixture(t *testing.T, engineVersion string) (*VersionedCheckpointStore, *sqlite.Blobs) {
+func newCheckpointFixture(t *testing.T, engineVersion string) (*VersionedCheckpointStore, storage.BlobStore) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "checkpoints.db"))

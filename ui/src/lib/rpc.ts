@@ -1,3 +1,5 @@
+import { loadRuntimeConfig, resolveControlPlaneOrigin } from './runtime-config';
+
 export interface RpcRequest {
   jsonrpc: '2.0';
   id?: string;
@@ -51,7 +53,22 @@ export class RpcClient {
   }
 
   static async connect(): Promise<RpcClient> {
-    const response = await fetch('/rpc/bootstrap', { cache: 'no-store' });
+    let runtimeConfig;
+    try {
+      runtimeConfig = await loadRuntimeConfig();
+    } catch (error) {
+      throw new RpcClientError(-32098, error instanceof Error ? error.message : 'Vivy runtime config 无法加载');
+    }
+    let controlPlaneOrigin: URL;
+    try {
+      controlPlaneOrigin = resolveControlPlaneOrigin(runtimeConfig.controlPlaneUrl);
+    } catch (error) {
+      throw new RpcClientError(-32098, error instanceof Error ? error.message : 'Vivy controlPlaneUrl 无效');
+    }
+    const bootstrapTarget = runtimeConfig.controlPlaneUrl.trim()
+      ? new URL('/rpc/bootstrap', controlPlaneOrigin).toString()
+      : '/rpc/bootstrap';
+    const response = await fetch(bootstrapTarget, { cache: 'no-store' });
     if (!response.ok) throw new RpcClientError(-32098, `无法连接 Vivy control plane（HTTP ${response.status}）`);
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.toLowerCase().includes('application/json')) {
@@ -66,10 +83,11 @@ export class RpcClient {
     if (!bootstrap.websocket_path || !bootstrap.token) {
       throw new RpcClientError(-32098, 'Vivy control plane bootstrap 响应缺少连接信息');
     }
-    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${scheme}//${window.location.host}${bootstrap.websocket_path}?token=${encodeURIComponent(bootstrap.token)}`;
+    const websocketURL = new URL(bootstrap.websocket_path, controlPlaneOrigin);
+    websocketURL.protocol = controlPlaneOrigin.protocol === 'https:' ? 'wss:' : 'ws:';
+    websocketURL.searchParams.set('token', bootstrap.token);
     const socket = await new Promise<WebSocket>((resolve, reject) => {
-      const candidate = new WebSocket(url);
+      const candidate = new WebSocket(websocketURL.toString());
       candidate.onopen = () => resolve(candidate);
       candidate.onerror = () => reject(new RpcClientError(-32098, '无法建立 Vivy control plane WebSocket'));
     });

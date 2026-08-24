@@ -2,7 +2,9 @@
 @source "../src";
 @import "tw-animate-css";
 
-/* 色值套数：纯深色或纯浅色只写 :root 一套，删除多余的 .dark 与下方 @custom-variant dark；非纯色默认写 :root + .dark 两套（数值须不同） */
+/* 皮肤套数：:root 即 default 主题；每套皮肤一个 [data-theme] 完整令牌块。
+   .dark 类只驱动 dark: 变体（深色皮肤由 applyThemeToDOM 同步挂上），
+   不再承载令牌值。预览色板字面量在 src/hooks/use-theme.ts。 */
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -86,7 +88,8 @@
   --sidebar-ring: oklch(0.58 0.2 255);
 }
 
-.dark {
+/* 深蓝夜色（default 的深色版） */
+[data-theme="dark"] {
   --background: oklch(0.2 0.025 255);
   --foreground: oklch(0.984 0.003 247.858);
   --card: oklch(0.225 0.03 255);
@@ -114,16 +117,91 @@
   --sidebar: oklch(0.215 0.04 255);
   --sidebar-foreground: oklch(0.984 0.003 247.858);
   --sidebar-primary: oklch(0.68 0.18 255);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary-foreground: oklch(0.99 0.005 250);
   --sidebar-accent: oklch(0.31 0.065 255);
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.68 0.18 255);
 }
 
+/* 简约粉白（浅色，移植自 Agent-Diva default 主题） */
+[data-theme="pink"] {
+  --background: #ffffff;
+  --foreground: #6b2737;
+  --card: #ffffff;
+  --card-foreground: #6b2737;
+  --popover: #ffffff;
+  --popover-foreground: #6b2737;
+  --primary: #ec4899;
+  --primary-foreground: #ffffff;
+  --secondary: #fdf2f7;
+  --secondary-foreground: #9d174d;
+  --muted: #fdf2f7;
+  --muted-foreground: #9b5a6a;
+  --accent: #fbe9f2;
+  --accent-foreground: #be185d;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #fbdaeb;
+  --input: #fad1e6;
+  --ring: #ec4899;
+  --sidebar: #fff5f7;
+  --sidebar-foreground: #6b2737;
+  --sidebar-primary: #ec4899;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fbe9f2;
+  --sidebar-accent-foreground: #be185d;
+  --sidebar-border: #fbdaeb;
+  --sidebar-ring: #ec4899;
+}
+
+/* Miku 青（深色，移植自 Agent-Diva miku 主题；GitHub Dark 底 + 应援青） */
+[data-theme="miku"] {
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --card: #161b22;
+  --card-foreground: #e6edf3;
+  --popover: #161b22;
+  --popover-foreground: #e6edf3;
+  --primary: #39c5bb;
+  --primary-foreground: #042f2e;
+  --secondary: #21262d;
+  --secondary-foreground: #e6edf3;
+  --muted: #161b22;
+  --muted-foreground: #7d8590;
+  --accent: #12272b;
+  --accent-foreground: #39c5bb;
+  --destructive: #f85149;
+  --destructive-foreground: #ffffff;
+  --border: #0b2f32;
+  --input: #0b393a;
+  --ring: #39c5bb;
+  --chart-1: #58a6ff;
+  --chart-2: #3fb950;
+  --chart-3: #d29922;
+  --chart-4: #f85149;
+  --chart-5: #bc8cff;
+  --sidebar: #161b22;
+  --sidebar-foreground: #e6edf3;
+  --sidebar-primary: #39c5bb;
+  --sidebar-primary-foreground: #042f2e;
+  --sidebar-accent: #12272b;
+  --sidebar-accent-foreground: #39c5bb;
+  --sidebar-border: #0b2f32;
+  --sidebar-ring: #39c5bb;
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
   }
 
   body {

@@ -61,6 +61,7 @@ func TestChildEnvStripsProviderSecrets(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test-anthropic")
 	t.Setenv("VIVY_ADDR", "127.0.0.1:1")
+	t.Setenv("VIVY_POSTGRES_DSN", "postgres://vivy:secret@postgres:5432/vivy")
 	env := ChildEnv(filepath.Join(t.TempDir(), "config.yaml"))
 	joined := strings.Join(env, "\n")
 	if strings.Contains(joined, "sk-test-openai") || strings.Contains(joined, "sk-test-anthropic") {
@@ -68,6 +69,9 @@ func TestChildEnvStripsProviderSecrets(t *testing.T) {
 	}
 	if strings.Contains(joined, "VIVY_ADDR=") {
 		t.Fatalf("child env inherited VIVY_ADDR: %s", joined)
+	}
+	if strings.Contains(joined, "VIVY_POSTGRES_DSN=") || strings.Contains(joined, "postgres://") {
+		t.Fatalf("child env inherited postgres DSN: %s", joined)
 	}
 	if !strings.Contains(joined, "VIVY_CONFIG=") {
 		t.Fatalf("child env missing VIVY_CONFIG: %s", joined)

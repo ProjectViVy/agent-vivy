@@ -1,18 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import {
-  BookOpenCheck,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Code2,
-  CircleDot,
-  Loader2,
-  PenLine,
-  Settings2,
-  Star,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2 } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
 import type { Settings } from '@/lib/api';
 import {
@@ -24,17 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-
-const ACTIVE_MASK_KEY = 'vivy.ui.activeMask';
-
-type MaskOption = {
-  id: string;
-  name: string;
-  description: string;
-  Icon: LucideIcon;
-  iconClassName: string;
-};
+import { MaskIdentity } from '@/components/masks/MaskIdentity';
+import { MASK_OPTIONS, setActiveMaskId, useActiveMask, type MaskOption } from '@/components/masks/mask-catalog';
 
 type ModelOption = {
   id: string;
@@ -42,37 +21,6 @@ type ModelOption = {
   model: string;
   description: string;
 };
-
-const MASK_OPTIONS: MaskOption[] = [
-  {
-    id: 'default',
-    name: '默认助手',
-    description: '通用问答与日常协作',
-    Icon: Star,
-    iconClassName: 'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300',
-  },
-  {
-    id: 'programmer',
-    name: '程序员',
-    description: '编码、调试与工程验证',
-    Icon: Code2,
-    iconClassName: 'bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300',
-  },
-  {
-    id: 'researcher',
-    name: '研究员',
-    description: '检索、归纳与证据整理',
-    Icon: BookOpenCheck,
-    iconClassName: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300',
-  },
-  {
-    id: 'writer',
-    name: '写作者',
-    description: '表达、改写与内容打磨',
-    Icon: PenLine,
-    iconClassName: 'bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300',
-  },
-];
 
 const MODEL_CATALOG: Record<string, ModelOption[]> = {
   openai: [
@@ -85,15 +33,6 @@ const MODEL_CATALOG: Record<string, ModelOption[]> = {
     { id: 'mock:mock', provider: 'mock', model: 'mock', description: '离线验证与 UI 测试' },
   ],
 };
-
-function readActiveMask(): string {
-  if (typeof window === 'undefined') return 'default';
-  try {
-    return window.localStorage.getItem(ACTIVE_MASK_KEY) || 'default';
-  } catch {
-    return 'default';
-  }
-}
 
 function displayProvider(provider: string): string {
   if (provider === 'openai') return 'OpenAI';
@@ -115,25 +54,20 @@ function modelOptionsFor(settings: Settings | null): ModelOption[] {
   return options.filter((option, index) => options.findIndex((item) => item.provider === option.provider && item.model === option.model) === index);
 }
 
-function SelectionIdentity({ option, compact = false }: { option: MaskOption; compact?: boolean }) {
-  const Icon = option.Icon;
-  return <span className={cn('flex shrink-0 items-center justify-center rounded-full', compact ? 'h-7 w-7' : 'h-9 w-9', option.iconClassName)}><Icon className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} /></span>;
-}
-
 function MaskMenu({ activeMask, onSelect }: { activeMask: MaskOption; onSelect: (id: string) => void }) {
   const navigate = useNavigate();
   return <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      <Button variant="ghost" className="h-9 max-w-[180px] gap-2 px-2.5 font-normal hover:bg-accent/70" aria-label={`切换面具，当前为${activeMask.name}`} title="切换面具">
-        <SelectionIdentity option={activeMask} compact />
-        <span className="truncate text-sm">{activeMask.name}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <Button variant="ghost" className="h-9 max-w-[180px] gap-2 px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={`切换面具，当前为${activeMask.name}`} title="切换面具">
+        <MaskIdentity option={activeMask} compact />
+        <span className="hidden truncate text-sm sm:inline">{activeMask.name}</span>
+        <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-1rem)] p-2">
       <DropdownMenuLabel className="px-2 pb-1 pt-0 text-xs font-normal text-muted-foreground">选择面具</DropdownMenuLabel>
       {MASK_OPTIONS.map((option) => <DropdownMenuItem key={option.id} className="cursor-pointer gap-3 rounded-lg p-2.5" onSelect={() => onSelect(option.id)}>
-        <SelectionIdentity option={option} />
+        <MaskIdentity option={option} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{option.name}</span>
           <span className="block truncate text-xs text-muted-foreground">{option.description}</span>
@@ -141,7 +75,7 @@ function MaskMenu({ activeMask, onSelect }: { activeMask: MaskOption; onSelect: 
         {activeMask.id === option.id ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
       </DropdownMenuItem>)}
       <DropdownMenuSeparator className="my-2" />
-      <DropdownMenuItem className="cursor-pointer gap-2 rounded-lg px-2.5 py-2 text-muted-foreground" onSelect={() => void navigate({ to: '/persona' })}>
+      <DropdownMenuItem className="cursor-pointer gap-2 rounded-lg px-2.5 py-2 text-muted-foreground" onSelect={() => void navigate({ to: '/masks' })}>
         <Settings2 className="h-4 w-4" />
         <span>管理面具</span>
         <ChevronRight className="ml-auto h-3.5 w-3.5" />
@@ -176,12 +110,12 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 
   return <DropdownMenu open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setError(null); }}>
     <DropdownMenuTrigger asChild>
-      <Button variant="ghost" className="h-9 max-w-[270px] gap-2 px-2.5 font-normal hover:bg-accent/70" aria-label={`切换模型，当前为${displayProvider(currentProvider)} ${currentModel || '默认模型'}`} title="切换模型">
+      <Button variant="ghost" className="h-9 max-w-[270px] gap-2 px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={`切换模型，当前为${displayProvider(currentProvider)} ${currentModel || '默认模型'}`} title="切换模型">
         {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : <CircleDot className="h-4 w-4 shrink-0 text-foreground" />}
-        <span className="min-w-0 truncate text-sm">{displayProvider(currentProvider)}</span>
-        <span className="shrink-0 text-muted-foreground">|</span>
-        <span className="min-w-0 truncate text-sm text-muted-foreground">{currentModel || '默认模型'}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="hidden min-w-0 truncate text-sm md:inline">{displayProvider(currentProvider)}</span>
+        <span className="hidden shrink-0 text-muted-foreground md:inline">|</span>
+        <span className="hidden min-w-0 truncate text-sm text-muted-foreground md:inline">{currentModel || '默认模型'}</span>
+        <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-1rem)] p-2">
@@ -221,17 +155,11 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 }
 
 export function MaskAndModelSwitcher() {
-  const [activeMaskId, setActiveMaskId] = useState(readActiveMask);
-  const activeMask = MASK_OPTIONS.find((option) => option.id === activeMaskId) || MASK_OPTIONS[0];
+  const activeMask = useActiveMask();
   const settings = useVivyStore((state) => state.settings);
 
-  const selectMask = (id: string) => {
-    setActiveMaskId(id);
-    try { window.localStorage.setItem(ACTIVE_MASK_KEY, id); } catch { /* local UI preference is best effort */ }
-  };
-
-  return <div className="flex min-w-0 items-center gap-1 rounded-xl border bg-background/70 p-0.5 shadow-sm">
-    <MaskMenu activeMask={activeMask} onSelect={selectMask} />
+  return <div className="flex min-w-0 max-w-full items-center gap-1 rounded-xl border bg-background/70 p-0.5 shadow-sm">
+    <MaskMenu activeMask={activeMask} onSelect={setActiveMaskId} />
     <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
     <ModelMenu settings={settings} />
   </div>;

@@ -1,6 +1,6 @@
 # Vivy UI
 
-Vivy 的唯一浏览器 UI，使用 React、Vite、TanStack Router 和 Zustand。生产构建由 Go 嵌入并与 Vivy control plane 同源运行。
+Vivy 的唯一浏览器 UI，使用 React、Vite、TanStack Router 和 Zustand。生产构建默认由 Go 嵌入并与 Vivy control plane 同源运行，也可作为静态目录连接 headless backend。
 
 ## 本地开发
 
@@ -14,6 +14,14 @@ pnpm dev
 ```
 
 打开 `http://localhost:3015`。Vite 会把 `/rpc` HTTP 与 WebSocket 请求代理到 `http://127.0.0.1:8787`。
+
+分离部署时，编辑构建输出中的 `vivy-config.json`：
+
+```json
+{ "controlPlaneUrl": "http://127.0.0.1:8787" }
+```
+
+后端的 `server.allowed_origins` 必须包含静态站点的精确 loopback origin。
 
 ## 数据边界
 

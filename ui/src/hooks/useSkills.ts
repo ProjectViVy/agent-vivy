@@ -76,6 +76,7 @@ export function useSkills() {
     error,
     loadSkills,
     loadSkillDocument,
+    clearSelectedSkill: () => setSelectedSkill(null),
     createRequest: handleCreateRequest,
     loadRequests,
   };

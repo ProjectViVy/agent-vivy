@@ -21,7 +21,7 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 | 5 | `REFERENCE-INDEX.md` | Per-project notes for all local reference projects (16 vendored + QwenPaw verified external); may-borrow / must-NOT-borrow rules | Before touching any reference code or schema |
 | 6 | `ARCHITECTURE-SOP.md` | How to run BMad `bmad-create-architecture` for V0; per-step adaptations | Before running the architecture workflow |
 | 7 | `GO-NOGO-PREFLIGHT.md` | Final pre-flight checklist; hard requirements, soft requirements, risk register, definition of "ready to start V0" | Before declaring V0 implementation GO |
-| 8 | `OPEN-ITEMS.md` | Living index of all open work items (P0/P1/P2/P3 + done archive) | During V0 implementation |
+| 8 | `OPEN-ITEMS.md` | Living index of remaining work (V0 archived 2026-08-25; see §0) | After V0; remaining HITL P1 / Channel / ACP |
 | 9 | `AGENT-VIVY-STORAGE-ARCHITECTURE-ADDENDUM.md` | Storage architecture proposal; treated as **proposal-only** until ADR baseline reconciles (D-035) | When discussing storage design |
 | — | `AGENT-VIVY-ARCHITECTURE-V0.md` | **MISSING — first work item**. ADR baseline ADR-001..008 v0 | (to be authored) |
 | — | `eino-capability-verify.md` | **MISSING — second work item**. Verification record for addendum §6 Eino claims | (to be authored) |
@@ -30,6 +30,7 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 | 12 | `agent-vivy/docs/architecture/VIVY-GATEWAY-AND-STUDIO.md` | Compact English decision table (NG-1..NG-28, ST-*) | When you need the decision ids, not the essay |
 | 13 | `agent-vivy/docs/architecture/VIVY-PLUGIN-SPEC.md` | User-plugin spec only (`plugins/`). First-party units are not plugins | When writing a user-defined capability |
 | 14 | `agent-vivy/docs/architecture/VIVY-ASSEMBLY.md` | How Vivy is divided and packed: nouns + generation recipe | When deciding what is a tool vs a plugin vs the kernel |
+| 14a | `agent-vivy/docs/architecture/VIVY-CHANNEL-PACK.md` | Proposal: first-party channels as cold-pluggable packed organs (kernel Host + `channels/` lib + config envelope) | When discussing Telegram/Feishu/etc. or "built-in plugins" |
 | 15 | `agent-vivy/docs/architecture/VIVY-WORLDVIEW.md` | Why the product philosophy and the Vivy namesake are structurally the same. Does not replace PRD §5.0 | When the name, slogan, or species/Studio split needs a why |
 | 16 | `agent-vivy/docs/research/DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md` | Capability comparison and gap analysis between DeepSeek Harness and agent-vivy (evidence-cited, dimension by dimension) | When deciding what the species should adopt, refuse, or defer from DSH |
 
