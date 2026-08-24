@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/child.failed.json",
+  "title": "child.failed payload (v1)",
+  "type": "object",
+  "properties": {"cause_category": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}},
+  "required": ["cause_category", "message"],
+  "additionalProperties": false
+}

@@ -33,7 +33,13 @@ func walkGoSources(t *testing.T, root string, dirs []string, visit func(relPath 
 			if err != nil {
 				return err
 			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			if d.IsDir() {
+				if d.Name() == "testdata" || d.Name() == "node_modules" {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") {
 				return nil
 			}
 			rel, err := filepath.Rel(root, path)
@@ -79,7 +85,7 @@ func importPaths(t *testing.T, rel string, src []byte) []string {
 // those two doors (D-007).
 func TestEinoImportsQuarantined(t *testing.T) {
 	var violations []string
-	walkGoSources(t, repoRoot(t), []string{"cmd", "internal"}, func(rel string, src []byte) {
+	walkGoSources(t, repoRoot(t), []string{"cmd", "internal", "sdk", "plugins"}, func(rel string, src []byte) {
 		if strings.HasSuffix(rel, "_test.go") {
 			return
 		}
@@ -102,7 +108,7 @@ func TestEinoImportsQuarantined(t *testing.T) {
 func TestNoReferenceMaterialDependencies(t *testing.T) {
 	banned := []string{"agent-diva", ".workspace"}
 	var violations []string
-	walkGoSources(t, repoRoot(t), []string{"cmd", "internal"}, func(rel string, src []byte) {
+	walkGoSources(t, repoRoot(t), []string{"cmd", "internal", "sdk", "plugins"}, func(rel string, src []byte) {
 		for _, p := range importPaths(t, rel, src) {
 			for _, b := range banned {
 				if strings.Contains(p, b) {
@@ -113,5 +119,20 @@ func TestNoReferenceMaterialDependencies(t *testing.T) {
 	})
 	if len(violations) > 0 {
 		t.Fatalf("reference material entered the dependency graph: %v", violations)
+	}
+}
+
+// User plugins and the public SDK window may not import the kernel.
+func TestPluginWindowCannotImportInternal(t *testing.T) {
+	var violations []string
+	walkGoSources(t, repoRoot(t), []string{"sdk/plugin", "plugins"}, func(rel string, src []byte) {
+		for _, p := range importPaths(t, rel, src) {
+			if strings.HasPrefix(p, "agent-vivy/internal/") {
+				violations = append(violations, rel+" imports "+p)
+			}
+		}
+	})
+	if len(violations) > 0 {
+		t.Fatalf("plugin window imported the kernel: %v", violations)
 	}
 }

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/child.cancelled.json",
+  "title": "child.cancelled payload (v1)",
+  "type": "object",
+  "properties": {"reason": {"type": "string", "minLength": 1}},
+  "required": ["reason"],
+  "additionalProperties": false
+}

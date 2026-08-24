@@ -36,6 +36,7 @@ func (w *writeNote) Spec() domain.ToolSpec {
 		Name:        WriteNoteName,
 		Description: "Saves a note for the user. Effectful: requires approval before executing.",
 		Readonly:    false,
+		Keywords:    []string{"write", "save", "append", "note"},
 		Params: map[string]domain.ToolParam{
 			"content": {Desc: "The note content to save.", Required: true},
 		},

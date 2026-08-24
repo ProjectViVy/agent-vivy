@@ -13,8 +13,8 @@ import (
 // CreateSession inserts one session row.
 func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at) VALUES (?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt); err != nil {
+		`INSERT INTO sessions (id, title, created_at, sandbox_mode, approval_policy) VALUES (?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.CreatedAt, s.SandboxMode, s.ApprovalPolicy); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
@@ -23,7 +23,7 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 // ListSessions returns all sessions, newest first.
 func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, title, created_at FROM sessions ORDER BY created_at DESC, id`)
+		`SELECT id, title, created_at, sandbox_mode, approval_policy FROM sessions ORDER BY created_at DESC, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list sessions: %w", err)
 	}
@@ -33,7 +33,7 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	for rows.Next() {
 		var s domain.Session
 		var id string
-		if err := rows.Scan(&id, &s.Title, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.SandboxMode, &s.ApprovalPolicy); err != nil {
 			return nil, fmt.Errorf("storage: scan session: %w", err)
 		}
 		s.ID = domain.SessionID(id)
@@ -46,8 +46,8 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error) {
 	var s domain.Session
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, title, created_at FROM sessions WHERE id = ?`, id).
-		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt)
+		`SELECT id, title, created_at, sandbox_mode, approval_policy FROM sessions WHERE id = ?`, id).
+		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.SandboxMode, &s.ApprovalPolicy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Session{}, storage.ErrNotFound
 	}

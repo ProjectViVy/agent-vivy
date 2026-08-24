@@ -1,0 +1,15 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "hello-fs",
+  "version": "0.1.0",
+  "seam": "tool",
+  "module": ".",
+  "grants": ["fs.read"],
+  "tools": [
+    {
+      "name": "x",
+      "effect": "read",
+      "schema": { "type": "object" }
+    }
+  ]
+}

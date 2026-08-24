@@ -1,0 +1,105 @@
+import { expect, test } from '@playwright/test';
+
+test('real control plane conversation, reload, review, settings and demos', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Vivy', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('还没有会话')).toHaveCount(0);
+  await expect(page.getByPlaceholder('输入消息... (Enter 发送)')).toBeVisible();
+  await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '画图' })).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: '上下文占用' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const restoreNavigation = page.getByRole('button', { name: '打开导航' });
+  if (await restoreNavigation.isVisible().catch(() => false)) await restoreNavigation.click();
+  const composer = page.getByPlaceholder('输入消息... (Enter 发送)');
+  await composer.fill('hello vivy');
+  await page.getByTitle('发送').click();
+  const continueButton = page.getByRole('button', { name: '继续' });
+  const continueIfNeeded = async () => {
+    if (await continueButton.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) await continueButton.click();
+  };
+  await continueIfNeeded();
+  await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
+  await page.reload();
+  await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole('button', { name: '新会话' }).first().click();
+  await expect(page.getByText('发送消息后，Vivy 会先进行预检。')).toBeVisible();
+  await page.getByPlaceholder('输入消息... (Enter 发送)').fill('e2e approval: save a note');
+  await page.getByTitle('发送').click();
+  await expect(continueButton).toBeVisible({ timeout: 5_000 });
+  await continueButton.click();
+  await page.getByRole('button', { name: '审批中心' }).click();
+  await expect(page.getByRole('dialog').getByText('审批中心', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const approvalDetails = page.getByText('审批详情');
+  await expect.poll(async () => {
+    if (await approvalDetails.isVisible().catch(() => false)) return true;
+    await page.getByRole('button', { name: '刷新' }).click();
+    return approvalDetails.isVisible().catch(() => false);
+  }, { timeout: 15_000 }).toBe(true);
+  await page.getByRole('button', { name: '批准' }).click();
+  await expect(page.getByText('已批准', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: '关闭' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const reopenNavigation = page.getByRole('button', { name: '打开导航' });
+  if (await reopenNavigation.isVisible().catch(() => false)) await reopenNavigation.click();
+
+  await page.getByText('设置', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Vivy 功能' }).click();
+  await page.getByRole('link', { name: '打开生命周期' }).click();
+  await expect(page.getByText('当前 Species')).toBeVisible();
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('vivy.demo.')))).toEqual([]);
+
+  await page.getByText('设置', { exact: true }).click();
+  await page.getByRole('tab', { name: '模型' }).click();
+  await expect(page.getByText('密钥只由运行环境管理')).toBeVisible();
+  await page.getByRole('tab', { name: 'Persona' }).click();
+  await expect(page.getByText('Persona 配置')).toBeVisible();
+  await page.getByRole('button', { name: '新会话' }).first().click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
+
+  await page.getByText('宠物', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Vivy 宠物' })).toBeVisible();
+  await page.getByRole('button', { name: '专注' }).click();
+  await expect(page.getByText('focused', { exact: true })).toBeVisible();
+  await page.getByText('中控台', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: '中控台' })).toBeVisible();
+  await page.getByText('记忆', { exact: true }).click();
+  await expect(page.getByText('回答偏好', { exact: true }).first()).toBeVisible();
+  await page.getByPlaceholder('搜索记忆').fill('不存在的记忆');
+  await expect(page.getByText('没有匹配的记忆')).toBeVisible();
+  await page.getByText('MCP', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'MCP' })).toBeVisible();
+  await page.getByRole('switch', { name: 'Browser Tools 启用状态' }).click();
+  await expect(page.getByText('connected', { exact: true }).last()).toBeVisible();
+
+  await page.getByText('记事本', { exact: true }).click();
+  const demoBanner = page.locator('main strong', { hasText: '演示 / 本地模拟' });
+  await expect(demoBanner).toBeVisible();
+  await page.getByRole('tab', { name: '搜索' }).click();
+  await page.getByPlaceholder('搜索会话内容...').fill('你好');
+  await page.getByRole('button', { name: '搜索' }).click();
+  await expect(page.getByText('你好', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '报告' }).click();
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some((key) => key.startsWith('vivy.demo.')))).toBe(true);
+  const keys = await page.evaluate(() => Object.keys(localStorage));
+  expect(keys.some((key) => key.startsWith('vivy.demo.'))).toBe(true);
+  expect(keys.every((key) => key === 'vivy.ui.activeSession' || key.startsWith('vivy.demo.'))).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(demoBanner).toBeVisible();
+  await expect(page.getByRole('heading', { name: /每日工作摘要/ })).toBeVisible();
+  const openNavigation = page.getByRole('button', { name: '打开导航' });
+  if (await openNavigation.isVisible().catch(() => false)) await openNavigation.click();
+  await page.getByText('设置', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Vivy 功能' }).click();
+  await page.getByRole('link', { name: '打开生命周期' }).click();
+  await expect(page.getByRole('tab', { name: 'Promotions' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

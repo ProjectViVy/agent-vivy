@@ -45,7 +45,7 @@ Vivy's equivalent is (or will be):
 | pi concept | pi location | Vivy today | Vivy after this batch |
 |---|---|---|---|
 | Turn loop (assistant → toolCalls → execute → result back → repeat) | `agent-loop.ts` (~750 lines) | eino `ChatModelAgent` + `Runner` already loop inside one run | Unchanged — the in-run loop stays Eino's (D-007) |
-| Message / tool / event protocol | `types.ts` (AgentContext / AgentTool / AgentEvent) | Vivy-owned `ToolSpec`, ten-type `RunEvent` vocabulary (ADR-004/006) | Unchanged |
+| Message / tool / event protocol | `types.ts` (AgentContext / AgentTool / AgentEvent) | Vivy-owned `ToolSpec`, versioned `RunEvent` vocabulary (ADR-004/006) | Unchanged |
 | Context transform hook | `transformContext` | None — single static `Instruction` | MA-2 per-run prompt preamble |
 | Stop hook | `shouldStopAfterTurn` | Implicit eino `MaxIterations` (default 20, unmapped) | MA-4 explicit `MaxToolTurns` with classified failure |
 | Session history | harness feeds conversation into each turn | Journal persists it; engine never receives it | MA-1 history rebuild feed (ADR-009) |

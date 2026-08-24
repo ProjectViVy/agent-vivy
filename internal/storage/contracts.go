@@ -116,6 +116,30 @@ type NoteStore interface {
 	GetNote(ctx context.Context, id string) (domain.Note, error)
 }
 
+// ErrConflict is returned when a first-writer-wins studio write loses.
+var ErrConflict = errors.New("storage: conflict")
+
+// StudioStore persists Generation / EvalRun / Promotion rows and the
+// append-only studio event log. These are not run journal events.
+type StudioStore interface {
+	CreateGeneration(ctx context.Context, g domain.Generation) error
+	GetGeneration(ctx context.Context, id string) (domain.Generation, error)
+	ListGenerations(ctx context.Context) ([]domain.Generation, error)
+	UpdateGenerationPhase(ctx context.Context, id string, phase domain.GenerationPhase) error
+
+	CreateEvalRun(ctx context.Context, e domain.EvalRun) error
+	GetEvalRun(ctx context.Context, id string) (domain.EvalRun, error)
+	ListEvalRuns(ctx context.Context) ([]domain.EvalRun, error)
+	ListEvalRunsFor(ctx context.Context, generationID string) ([]domain.EvalRun, error)
+
+	CreatePromotion(ctx context.Context, p domain.Promotion) error
+	ListPromotions(ctx context.Context) ([]domain.Promotion, error)
+	ListPromotionsFrom(ctx context.Context, fromID string) ([]domain.Promotion, error)
+
+	AppendStudioEvent(ctx context.Context, ev domain.StudioEvent) (int64, error)
+	ListStudioEvents(ctx context.Context) ([]domain.StudioEvent, error)
+}
+
 // RunStore tracks run lifecycle rows. Status transitions themselves are
 // validated by the domain state machine; the store only persists them.
 type RunStore interface {
@@ -124,6 +148,10 @@ type RunStore interface {
 	SetRunStatus(ctx context.Context, id domain.RunID, status domain.RunStatus) error
 	// ListActiveRuns enumerates non-terminal runs (restart recovery, E2).
 	ListActiveRuns(ctx context.Context) ([]domain.Run, error)
+	// ListChildRuns returns direct children in creation order.
+	ListChildRuns(ctx context.Context, parentID domain.RunID) ([]domain.Run, error)
+	// ListRunTree returns all descendants of a root in creation order.
+	ListRunTree(ctx context.Context, rootID domain.RunID) ([]domain.Run, error)
 }
 
 // ApprovalStore persists server-side approval decisions for effectful
@@ -139,4 +167,78 @@ type ApprovalStore interface {
 	// pending row matched (already decided, or unknown id); the first
 	// writer wins.
 	DecideApproval(ctx context.Context, id, decision string) (bool, error)
+}
+
+// ApprovalTimeoutStore is an optional extension that supports time-based
+// expiration of pending approvals (D-021). Backends that implement this
+// interface can be used with ApprovalScheduler for automatic cleanup.
+type ApprovalTimeoutStore interface {
+	// ListExpiredApprovals returns pending approvals past their timeout.
+	ListExpiredApprovals(ctx context.Context) ([]domain.Approval, error)
+	// SweepExpiredApprovals marks expired approvals as expired and returns
+	// the count of affected rows.
+	SweepExpiredApprovals(ctx context.Context) (int, error)
+	// CreateApprovalWithTimeout creates an approval with explicit timeout.
+	CreateApprovalWithTimeout(ctx context.Context, a domain.Approval, timeoutSeconds int) error
+}
+
+// ApprovalLifecycleStore is an optional extension implemented by durable
+// backends. Keeping it separate preserves compatibility with small test or
+// embedding stores that only implement the original approval contract.
+type ApprovalLifecycleStore interface {
+	DecideApprovalWithMetadata(context.Context, string, string, string, string) (bool, error)
+	ExpireApproval(context.Context, string, string) (bool, error)
+	CancelApproval(context.Context, string, string, string) (bool, error)
+	MarkApprovalStale(context.Context, string, string) (bool, error)
+}
+
+// QuestionStore persists ask_user suspensions separately from approvals.
+// Answers resume the interrupted run but never authorize a side effect.
+type QuestionStore interface {
+	CreateQuestion(ctx context.Context, q domain.Question) error
+	GetQuestion(ctx context.Context, id string) (domain.Question, error)
+	ListPendingQuestions(ctx context.Context) ([]domain.Question, error)
+	AnswerQuestion(ctx context.Context, id, answer string) (bool, error)
+	CancelQuestion(ctx context.Context, id string) error
+}
+
+// QuestionLifecycleStore carries reviewer metadata and durable expiry while
+// retaining QuestionStore's compatibility methods.
+type QuestionLifecycleStore interface {
+	AnswerQuestionWithMetadata(context.Context, string, string, string, string) (bool, error)
+	CancelQuestionWithMetadata(context.Context, string, string, string) (bool, error)
+	ExpireQuestion(context.Context, string, string) (bool, error)
+}
+
+// ReviewFilter selects the unified ReviewItem projection. Zero values mean
+// all kinds/statuses; callers that need the live queue pass pending.
+type ReviewFilter struct {
+	Kind      domain.ReviewKind
+	Status    domain.ReviewStatus
+	SessionID domain.SessionID
+	Limit     int
+}
+
+// ReviewStore serves the durable read model consumed by Review Center.
+type ReviewStore interface {
+	ListReviews(context.Context, ReviewFilter) ([]domain.ReviewItem, error)
+	GetReview(context.Context, string) (domain.ReviewItem, error)
+}
+
+// SkillRevisionStore persists staged Skill mutations. A revision is created
+// before HITL approval and transitions exactly once to an applied/rejected
+// terminal status.
+type SkillRevisionStore interface {
+	CreateSkillRevision(context.Context, domain.SkillRevision) error
+	GetSkillRevision(context.Context, string) (domain.SkillRevision, error)
+	ListPendingSkillRevisions(context.Context) ([]domain.SkillRevision, error)
+	SetSkillRevisionStatus(context.Context, string, domain.SkillRevisionStatus, int64) error
+}
+
+// TodoStore persists the session-scoped plantask projection.
+type TodoStore interface {
+	CreateTodo(context.Context, domain.Todo) error
+	GetTodo(context.Context, domain.SessionID, string) (domain.Todo, error)
+	ListTodos(context.Context, domain.SessionID) ([]domain.Todo, error)
+	UpdateTodo(context.Context, domain.Todo) error
 }

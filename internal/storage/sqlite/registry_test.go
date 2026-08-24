@@ -123,6 +123,21 @@ func TestMessageAppendList(t *testing.T) {
 	if got[1].RunID != "run-9" || got[1].Role != domain.RoleAssistant {
 		t.Fatalf("assistant message fields wrong: %+v", got[1])
 	}
+	tool := domain.Message{
+		ID: "msg-c", SessionID: "sess-m", RunID: "run-9", Role: domain.RoleTool,
+		CreatedAt: 30, Content: "pong", ToolCallID: "call-1", ToolName: "echo_info",
+		ToolArgs: []byte(`{"text":"pong"}`),
+	}
+	if err := b.AppendMessage(ctx, tool); err != nil {
+		t.Fatalf("append tool: %v", err)
+	}
+	got, err = b.ListMessages(ctx, "sess-m")
+	if err != nil {
+		t.Fatalf("list after tool: %v", err)
+	}
+	if len(got) != 3 || got[2].ToolCallID != "call-1" || got[2].ToolName != "echo_info" || string(got[2].ToolArgs) != `{"text":"pong"}` {
+		t.Fatalf("tool message fields wrong: %+v", got[2])
+	}
 	if got[0].RunID != "" {
 		t.Fatalf("user message must carry empty run id: %+v", got[0])
 	}
@@ -181,5 +196,37 @@ func TestRunStoreLifecycle(t *testing.T) {
 	active, err = b.ListActiveRuns(ctx)
 	if err != nil || len(active) != 0 {
 		t.Fatalf("active after cancel = %+v, %v", active, err)
+	}
+}
+
+func TestRunTreeQueriesAndChildApprovalKind(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-tree", Title: "tree", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "root", SessionID: "sess-tree", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "child", SessionID: "sess-tree", Status: domain.RunActive, CreatedAt: 2, Kind: domain.RunKindChild, ParentID: "root", RootID: "root", Depth: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "grandchild", SessionID: "sess-tree", Status: domain.RunActive, CreatedAt: 3, Kind: domain.RunKindChild, ParentID: "child", RootID: "root", Depth: 2}); err != nil {
+		t.Fatal(err)
+	}
+	children, err := b.ListChildRuns(ctx, "root")
+	if err != nil || len(children) != 1 || children[0].ID != "child" || children[0].Depth != 1 {
+		t.Fatalf("children = %+v, %v", children, err)
+	}
+	tree, err := b.ListRunTree(ctx, "root")
+	if err != nil || len(tree) != 2 || tree[1].ID != "grandchild" {
+		t.Fatalf("tree = %+v, %v", tree, err)
+	}
+	if err := b.CreateApproval(ctx, domain.Approval{ID: "apr-child", RunID: "child", ToolCallID: "tool-1", Decision: domain.ApprovalPending, ExpiresAt: 9999, Kind: domain.ApprovalKindChild}); err != nil {
+		t.Fatal(err)
+	}
+	approval, err := b.GetApproval(ctx, "apr-child")
+	if err != nil || approval.Kind != domain.ApprovalKindChild {
+		t.Fatalf("approval = %+v, %v", approval, err)
 	}
 }

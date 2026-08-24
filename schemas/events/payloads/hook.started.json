@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/hook.started.json",
+  "title": "hook.started payload (v1)",
+  "type": "object",
+  "properties": {
+    "tool_name": { "type": "string", "minLength": 1 },
+    "hook_name": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "enum": ["pre", "post"] },
+    "profile": { "type": "string" }
+  },
+  "required": ["tool_name", "hook_name", "phase"],
+  "additionalProperties": false
+}

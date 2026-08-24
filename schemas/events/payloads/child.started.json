@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/child.started.json",
+  "title": "child.started payload (v1)",
+  "type": "object",
+  "properties": {"parent_run_id": {"type": "string", "minLength": 1}, "workspace_id": {"type": "string", "minLength": 1}},
+  "required": ["parent_run_id"],
+  "additionalProperties": false
+}

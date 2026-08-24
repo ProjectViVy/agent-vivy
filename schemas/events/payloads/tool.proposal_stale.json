@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.proposal_stale.json",
+  "title": "tool.proposal_stale payload (v1)",
+  "type": "object",
+  "properties": {
+    "approval_id": {"type": "string", "minLength": 1},
+    "target": {"type": "string"},
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "required": ["approval_id", "reason"],
+  "additionalProperties": false
+}

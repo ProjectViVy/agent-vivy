@@ -24,6 +24,8 @@ var errRunCancelled = errors.New("runtime: run cancelled")
 // The details live on the mapper (m.interrupt).
 var errRunInterrupted = errors.New("runtime: run interrupted for approval")
 
+const defaultProviderStallThreshold = 15 * time.Second
+
 // interruptDetails carries what the service needs to surface and later
 // resume an approval-gated tool call (C6).
 type interruptDetails struct {
@@ -40,8 +42,9 @@ type interruptDetails struct {
 // run.started and tool.requested are synthesized by Vivy, not the engine).
 // Seq is left zero: the journal assigns it on append.
 type eventMapper struct {
-	runID      domain.RunID
-	maxPayload int
+	runID          domain.RunID
+	maxPayload     int
+	stallThreshold time.Duration
 
 	// pendingText accumulates the in-flight assistant turn so that
 	// model.completed can carry the reassembled text even when the engine
@@ -65,13 +68,17 @@ type openToolCall struct {
 }
 
 func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
-	return &eventMapper{runID: runID, maxPayload: maxPayload}
+	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold}
 }
 
 // onEvent maps one engine event. A non-nil error means the run cannot
 // continue; the service emits the terminal event.
 func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
 	if ev.Err != nil {
+		var retry *adk.WillRetryError
+		if errors.As(ev.Err, &retry) {
+			return []domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})}, nil
+		}
 		var ce *adk.CancelError
 		if errors.As(ev.Err, &ce) {
 			return nil, errRunCancelled
@@ -98,12 +105,20 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 	var out []domain.RunEvent
 	var content strings.Builder
 	var callsMsg *schema.Message
+	started := time.Now()
+	var usage *schema.TokenUsage
+	var toolParts []json.RawMessage
 	for {
 		chunk, err := mv.MessageStream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
+			var retry *adk.WillRetryError
+			if errors.As(err, &retry) {
+				out = append(out, m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt}))
+				return out, nil
+			}
 			var ce *adk.CancelError
 			if errors.As(err, &ce) {
 				return out, errRunCancelled
@@ -114,19 +129,36 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 			continue
 		}
 		content.WriteString(chunk.Content)
+		for _, part := range chunk.UserInputMultiContent {
+			if data, marshalErr := json.Marshal(part); marshalErr == nil {
+				toolParts = append(toolParts, data)
+			}
+		}
 		if len(chunk.ToolCalls) > 0 {
 			callsMsg = chunk // tool calls ride the accumulated chunk
 		}
+		if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
+			usage = chunk.ResponseMeta.Usage
+		}
 		if mv.Role == schema.Tool {
 			continue // assembled below as a tool result
+		}
+		if reasoning := reasoningText(chunk); reasoning != "" {
+			out = append(out, m.reasoningEvent(reasoning))
 		}
 		out = append(out, m.deltaEvent(chunk.Content))
 		m.pendingText.WriteString(chunk.Content)
 		m.hasPending = true
 	}
 	if mv.Role == schema.Tool {
-		out = append(out, m.toolResultEvents(mv.ToolName, "", content.String(), "")...)
+		out = append(out, m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")...)
 		return out, nil
+	}
+	if elapsed := time.Since(started); m.stallThreshold >= 0 && elapsed >= m.stallThreshold {
+		out = append(out, m.build(domain.EventProviderStall, payloadProviderStall{ElapsedMs: elapsed.Milliseconds()}))
+	}
+	if usage != nil {
+		out = append(out, m.usageEvent(usage))
 	}
 	if callsMsg != nil {
 		// Streaming engines deliver tool calls as chunks; map them like a
@@ -141,11 +173,12 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 	if msg == nil {
 		return nil, nil
 	}
+	out := m.messageMetaEvents(msg)
 	switch {
 	case len(msg.ToolCalls) > 0:
-		return m.toolCallEvents(msg), nil
+		return append(out, m.toolCallEvents(msg)...), nil
 	case msg.Role == schema.Tool:
-		return m.toolResultEvents(mv.ToolName, msg.ToolCallID, msg.Content, ""), nil
+		return append(out, m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")...), nil
 	default:
 		// Final assistant message of the model turn.
 		content := msg.Content
@@ -153,8 +186,47 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 			content = m.pendingText.String()
 		}
 		m.resetPending()
-		return []domain.RunEvent{m.build(domain.EventModelCompleted, payloadModelCompleted{Content: content})}, nil
+		return append(out, m.build(domain.EventModelCompleted, payloadModelCompleted{Content: content})), nil
 	}
+}
+
+func (m *eventMapper) messageMetaEvents(msg *schema.Message) []domain.RunEvent {
+	var out []domain.RunEvent
+	if reasoning := reasoningText(msg); reasoning != "" {
+		out = append(out, m.reasoningEvent(reasoning))
+	}
+	if msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
+		out = append(out, m.usageEvent(msg.ResponseMeta.Usage))
+	}
+	return out
+}
+
+func reasoningText(msg *schema.Message) string {
+	if msg == nil {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString(msg.ReasoningContent)
+	for _, part := range msg.AssistantGenMultiContent {
+		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
+			out.WriteString(part.Reasoning.Text)
+		}
+	}
+	return out.String()
+}
+
+func (m *eventMapper) reasoningEvent(text string) domain.RunEvent {
+	if m.maxPayload > 0 {
+		text = clampText(text, m.maxPayload)
+	}
+	return m.build(domain.EventModelReasoningDelta, payloadModelReasoningDelta{Delta: text})
+}
+
+func (m *eventMapper) usageEvent(usage *schema.TokenUsage) domain.RunEvent {
+	return m.build(domain.EventModelUsage, payloadModelUsage{
+		PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
+		TotalTokens: usage.TotalTokens, ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens,
+	})
 }
 
 // onTurnEnd flushes a pending model.completed when the engine closed the
@@ -238,13 +310,49 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 // tool.finished: the engine delivers tool results as a single event, so
 // the start boundary is reconstructed at result time.
 func (m *eventMapper) toolResultEvents(toolName, callID, result, errMsg string) []domain.RunEvent {
+	return m.toolResultEventsParts(toolName, callID, result, nil, errMsg)
+}
+
+func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) []domain.RunEvent {
 	if callID == "" {
 		callID, toolName = m.popOpenCall(toolName)
 	}
 	return []domain.RunEvent{
 		m.build(domain.EventToolStarted, payloadToolStarted{ToolCallID: callID, ToolName: toolName}),
-		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Error: errMsg}),
+		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}),
 	}
+}
+
+func toolMessageText(msg *schema.Message) string {
+	if msg == nil {
+		return ""
+	}
+	if msg.Content != "" {
+		return msg.Content
+	}
+	var out strings.Builder
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText {
+			out.WriteString(part.Text)
+		}
+	}
+	return out.String()
+}
+
+func toolMessageParts(msg *schema.Message) []json.RawMessage {
+	if msg == nil || len(msg.UserInputMultiContent) == 0 {
+		return nil
+	}
+	var out []json.RawMessage
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText {
+			continue
+		}
+		if data, err := json.Marshal(part); err == nil {
+			out = append(out, data)
+		}
+	}
+	return out
 }
 
 func (m *eventMapper) popOpenCall(toolName string) (string, string) {

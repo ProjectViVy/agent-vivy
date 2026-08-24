@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vivy HITL · Review Center Prototype</title>
+<link rel="stylesheet" href="vivy-hitl.css" />
+</head>
+<body>
+<div class="app-shell" id="app">
+
+  <!-- ===== Sidebar ===== -->
+  <aside class="sidebar">
+    <header class="sidebar-header">
+      <div class="brand-lockup"><span class="brand-mark">V</span><span class="brand-name">Vivy</span></div>
+    </header>
+    <div class="sidebar-actions">
+      <button class="btn btn-primary btn-wide" onclick="go('chat')">New session</button>
+      <div class="sidebar-actions-row">
+        <button class="btn btn-secondary btn-grow" onclick="go('review')">Review Center <span class="needs-review-badge" id="sidebar-count">3</span></button>
+        <button class="btn btn-secondary btn-grow" onclick="go('studio')">Studio</button>
+      </div>
+    </div>
+    <div class="sidebar-scroll">
+      <div class="section-heading">Sessions</div>
+      <ul class="session-list" id="session-list"></ul>
+    </div>
+    <footer class="sidebar-footer">
+      <button class="preference-button" onclick="cycleTheme()">🌗 Theme: <span id="theme-label">System</span></button>
+      <button class="preference-button" onclick="cycleLocale()">🌐 <span id="locale-label">English</span></button>
+    </footer>
+  </aside>
+
+  <!-- ===== Main column (router target) ===== -->
+  <main class="main-column" id="main"></main>
+
+  <!-- ===== Inspector (D) ===== -->
+  <aside class="inspector" id="inspector"></aside>
+</div>
+
+<script>
+/* =========================================================================
+   Vivy HITL Review Center — clickable prototype
+   五屏: chat(含 E inline 卡) / review(A) / approval(B) / question(C) /
+        inspector(D, Review tab) / studio(占位)
+   状态机: pending → submitting → approved/answered → executing → succeeded/failed
+           denied / cancelled / expired / stale
+   所有交互都是前端模拟, 仅用于视觉与设计走查。
+   ========================================================================= */
+
+let theme = "system";
+let locale = "en";
+let selectedReviewId = "r1";
+let route = "review";
+
+/* ---- mock data ---- */
+const reviews = [
+  {
+    id: "r1", kind: "approval", status: "pending", risk: "medium",
+    tool: "write_file", action: "Write file",
+    target: "workspace/src/server/handlers.go",
+    session: "Refactor HTTP layer", sessionId: "s1", runId: "run-7f3a",
+    age: "2m", expires: "4m",
+    effect: "Local file mutation", scope: "1 file", reversibility: "Recoverable", trust: "Model-generated",
+    preview: "unified diff", diffStats: { add: 14, del: 3 },
+    diff: [
+      { t: "ctx", ol: 41, nl: 41, s: "func (h *Handler) Health(w, r) {" },
+      { t: "del", ol: 42, nl: 42, s: "    w.Write([]byte(\"ok\"))" },
+      { t: "add", ol: 42, nl: 42, s: "    h.meter.Record(ctx, 1)" },
+      { t: "add", ol: 43, nl: 43, s: "    w.WriteHeader(200)" },
+      { t: "add", ol: 44, nl: 44, s: "    json.NewEncoder(w).Encode(map[string]any{\"status\":\"ok\"})" },
+      { t: "ctx", ol: 43, nl: 45, s: "}" },
+    ],
+    precondition: "unchanged",
+    warn: ["Target is inside the active workspace root."],
+    args: { path: "workspace/src/server/handlers.go", content: "<14 lines added>", mode: "0644" },
+  },
+  {
+    id: "r2", kind: "approval", status: "pending", risk: "high",
+    tool: "execute_command", action: "Run command",
+    target: "bash -c \"npm run migrate -- --force\"",
+    session: "DB migration", sessionId: "s2", runId: "run-9c1e",
+    age: "1m", expires: "2m",
+    effect: "Process / side effect", scope: "Database", reversibility: "Irreversible", trust: "Model-generated",
+    preview: "exact argv",
+    warn: ["Command can mutate the production database.", "Marked irreversible — no automatic rollback."],
+    args: { argv: ["bash", "-c", "npm run migrate -- --force"], cwd: "workspace", timeout_ms: 30000 },
+  },
+  {
+    id: "r3", kind: "question", status: "pending", risk: "low",
+    tool: "ask_user", action: "Answer question",
+    target: "Which color scheme should the report use?",
+    session: "Quarterly report", sessionId: "s3", runId: "run-2b8d",
+    age: "5m", expires: "10m",
+    effect: "Input only", scope: "Current run", reversibility: "n/a", trust: "Model-requested",
+    prompt: "Which color scheme should the exported report use? Options: blue, green, monochrome.",
+  },
+  {
+    id: "r4", kind: "approval", status: "stale", risk: "medium",
+    tool: "write_file", action: "Write file",
+    target: "workspace/config/router.ts",
+    session: "Refactor HTTP layer", sessionId: "s1", runId: "run-7f3a",
+    age: "12m", expires: "expired",
+    effect: "Local file mutation", scope: "1 file", reversibility: "Recoverable", trust: "Model-generated",
+    preview: "unified diff",
+    warn: ["Precondition hash no longer matches — target changed since proposal was created."],
+    args: { path: "workspace/config/router.ts", content: "<stale>", mode: "0644" },
+  },
+];
+
+const sessions = [
+  { id: "s1", title: "Refactor HTTP layer", meta: "3 reviews · active" },
+  { id: "s2", title: "DB migration", meta: "1 review · paused" },
+  { id: "s3", title: "Quarterly report", meta: "1 question · paused" },
+];
+
+/* ---- helpers ---- */
+function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function reviewById(id) { return reviews.find(r => r.id === id); }
+function statusGlyph(st) {
+  return { pending: "!", approved: "✓", answered: "✓", denied: "×", expired: "⏱", stale: "~", executing: "▸" }[st] || "•";
+}
+function statusClass(st) {
+  return ["approved", "answered"].includes(st) ? "approved"
+    : ["denied", "expired", "stale"].includes(st) ? st : st;
+}
+function riskPill(r) {
+  return `<span class="risk risk-${r}">${r === "low" ? "Low" : r === "medium" ? "Medium" : "High"} risk</span>`;
+}
+function kindBadge(k) {
+  return k === "approval"
+    ? `<span class="badge badge-approval"><span class="dot"></span> Approval</span>`
+    : `<span class="badge badge-question"><span class="dot"></span> Question</span>`;
+}
+function statusBadge(st) {
+  const cls = ["approved", "answered"].includes(st) ? "badge-resolved"
+    : ["denied", "expired", "stale"].includes(st) ? "badge-danger" : "badge-pending";
+  return `<span class="badge ${cls}"><span class="dot"></span> ${cap(st)}</span>`;
+}
+function statusLine(st) {
+  const cls = ["approved", "answered"].includes(st) ? "approved"
+    : ["denied", "expired", "stale"].includes(st) ? st : st;
+  return `<span class="status ${cls}"><span class="glyph">${statusGlyph(st)}</span> ${cap(st)}</span>`;
+}
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+/* ---- router ---- */
+function go(view, opts = {}) {
+  route = view;
+  selectedReviewId = opts.reviewId || selectedReviewId;
+  if (view === "approval" || view === "question" || view === "inspector") {
+    document.getElementById("app").classList.add("inspector-open");
+  } else {
+    document.getElementById("app").classList.remove("inspector-open");
+  }
+  render();
+}
+
+function render() {
+  const main = document.getElementById("main");
+  const insp = document.getElementById("inspector");
+  // session list (shared chrome)
+  document.getElementById("session-list").innerHTML = sessions.map(s =>
+    `<li class="session-item"><button class="session-row-main" onclick="go('chat',{sessionId:'${s.id}'})">
+       <strong>${esc(s.title)}</strong><span class="session-row-meta">${esc(s.meta)}</span></button></li>`).join("");
+  const pending = reviews.filter(r => r.status === "pending").length;
+  document.getElementById("sidebar-count").textContent = pending;
+
+  if (route === "chat") return renderChat(main);
+  if (route === "review") return renderReviewCenter(main);
+  if (route === "approval") return renderApprovalDetail(main);
+  if (route === "question") return renderQuestionDetail(main);
+  if (route === "inspector") return renderInspector(main, insp);
+  if (route === "studio") return renderStudio(main);
+}
+
+/* ===== Screen: Chat with inline (E) ===== */
+function renderChat(main) {
+  const r = reviewById("r1"); // paused run with inline card
+  main.innerHTML = `
+    <header class="main-header">
+      <div><h1>Refactor HTTP layer</h1><p>Created today · run run-7f3a paused</p></div>
+      <div class="header-actions"><span class="status pending"><span class="glyph">!</span> Waiting for approval</span></div>
+    </header>
+    <section class="chat-region">
+      <article class="message message-user"><div class="message-content">Add a health metric to the HTTP handler.</div>
+        <div class="message-meta-row"><span class="message-meta">you · just now</span></div></article>
+      <article class="message message-assistant"><div class="message-content">I'll update the handler. One change needs your approval before I continue.</div>
+        <div class="message-meta-row"><span class="message-meta">Vivy · 2m</span></div></article>
+      <div class="inline-card-host" id="inline-host"></div>
+    </section>
+    <form class="composer" onsubmit="event.preventDefault()">
+      <div class="composer-input-wrap"><textarea rows="2" placeholder="Write a message…" disabled></textarea></div>
+      <button class="btn btn-primary" disabled>Send</button>
+    </form>`;
+  renderInlineCard(document.getElementById("inline-host"), "r1", false);
+}
+
+/* inline card (E) — same renderer as queue, narrower context */
+function renderInlineCard(host, id, compact) {
+  const r = reviewById(id);
+  host.innerHTML = renderReviewCardInner(r, { compact, context: "inline", showBreadcrumb: false });
+  wireReviewCard(host, r);
+}
+
+/* ===== Screen A: Review Center ===== */
+function renderReviewCenter(main) {
+  const rows = reviews.map(r => `
+    <button class="review-list-item ${r.id === selectedReviewId ? "is-selected" : ""}" onclick="selectReview('${r.id}')">
+      <div class="review-list-top">
+        ${kindBadge(r.kind)}
+        <strong>${esc(r.tool === "ask_user" ? r.target : r.action + " · " + r.tool)}</strong>
+        ${statusBadge(r.status)}
+      </div>
+      <div class="review-list-meta">${esc(r.session)} · ${r.kind === "approval" ? esc(r.target) : esc(r.target)}</div>
+      <div class="review-list-preview">${esc(r.kind === "approval" ? (r.warn ? r.warn[0] : r.effect) : r.prompt)}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:2px">
+        ${riskPill(r.risk)}
+        <span class="muted">${r.status === "pending" ? "expires in " + r.expires : cap(r.status)}</span>
+      </div>
+    </button>`).join("");
+
+  main.innerHTML = `
+    <header class="main-header">
+      <div><h1>Review Center</h1><p>Pending human work across all sessions</p></div>
+      <div class="header-actions"><span class="review-count">${reviews.filter(r => r.status === "pending").length} pending</span></div>
+    </header>
+    <section class="review-center">
+      <div class="review-center-header">
+        <div><p class="eyebrow">Review Center</p><h2 id="rc-title" tabindex="-1">Items waiting for you</h2></div>
+        <div class="review-center-actions">
+          <button class="btn btn-secondary btn-small" onclick="refreshReviews()">Refresh</button>
+          <button class="btn btn-secondary btn-small" onclick="go('chat')">Back to chat</button>
+        </div>
+      </div>
+      <div class="filters">
+        <button class="chip-filter is-active" onclick="filterKind(this,'all')">All</button>
+        <button class="chip-filter" onclick="filterKind(this,'approval')">Approvals</button>
+        <button class="chip-filter" onclick="filterKind(this,'question')">Questions</button>
+        <button class="chip-filter" onclick="filterKind(this,'pending')">Pending</button>
+        <button class="chip-filter" onclick="filterKind(this,'stale')">Stale / Expired</button>
+      </div>
+      <div class="review-center-grid">
+        <div class="review-list" id="review-list" role="listbox" aria-label="Pending reviews">${rows}</div>
+        <div class="review-detail" id="review-detail" aria-live="polite"></div>
+      </div>
+    </section>`;
+  document.getElementById("rc-title").focus();
+  renderDetailPane();
+}
+
+let kindFilter = "all";
+function filterKind(btn, k) {
+  kindFilter = k;
+  document.querySelectorAll(".chip-filter").forEach(b => b.classList.remove("is-active"));
+  btn.classList.add("is-active");
+  const visible = reviews.filter(r => k === "all" || r.kind === k || (k === "pending" && r.status === "pending") || (k === "stale" && ["stale", "expired"].includes(r.status)));
+  document.getElementById("review-list").innerHTML = visible.length ? visible.map(r => `
+    <button class="review-list-item ${r.id === selectedReviewId ? "is-selected" : ""}" onclick="selectReview('${r.id}')">
+      <div class="review-list-top">${kindBadge(r.kind)}<strong>${esc(r.kind === "ask_user" ? r.target : r.action + " · " + r.tool)}</strong>${statusBadge(r.status)}</div>
+      <div class="review-list-meta">${esc(r.session)}</div>
+      <div class="review-list-preview">${esc(r.kind === "approval" ? (r.warn ? r.warn[0] : r.effect) : r.prompt)}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:2px">${riskPill(r.risk)}<span class="muted">${r.status === "pending" ? "expires " + r.expires : cap(r.status)}</span></div>
+    </button>`).join("") : `<div class="review-empty"><h3>No items</h3><p class="muted">This filter has no matching reviews.</p></div>`;
+}
+function selectReview(id) {
+  selectedReviewId = id;
+  document.querySelectorAll(".review-list-item").forEach(el => el.classList.remove("is-selected"));
+  event.currentTarget.classList.add("is-selected");
+  renderDetailPane();
+}
+function renderDetailPane() {
+  const host = document.getElementById("review-detail");
+  if (!host) return;
+  const r = reviewById(selectedReviewId);
+  if (!r) { host.innerHTML = `<div class="review-empty"><h3>Select an item</h3></div>`; return; }
+  host.innerHTML = renderReviewCardInner(r, { compact: false, context: "center", showBreadcrumb: true });
+  wireReviewCard(host, r);
+}
+function refreshReviews() { /* simulated */ }
+function requestFresh(id) { /* simulated: ask Vivy to create a fresh proposal */ }
+
+/* ===== Shared review card renderer (B/C/D/E all use this) ===== */
+function renderReviewCardInner(r, { compact, context, showBreadcrumb }) {
+  const isQ = r.kind === "question";
+  const cardCls = isQ ? "is-question" : "is-approval";
+  const stale = r.status === "stale";
+  const bc = showBreadcrumb ? `<div class="breadcrumb"><a onclick="go('review')">Review Center</a> › <span>${esc(r.session)}</span></div>` : "";
+
+  let facts = `
+    <div class="review-facts">
+      <div class="review-field"><span class="field-label">Effect</span><span class="review-field-value">${esc(r.effect || "—")}</span></div>
+      <div class="review-field"><span class="field-label">Scope</span><span class="review-field-value">${esc(r.scope || "—")}</span></div>
+      <div class="review-field"><span class="field-label">Reversibility</span><span class="review-field-value">${esc(r.reversibility || "—")}</span></div>
+      <div class="review-field"><span class="field-label">Trust</span><span class="review-field-value">${esc(r.trust || "—")}</span></div>
+    </div>`;
+
+  let preview = "";
+  if (!isQ && r.diff) {
+    const lines = r.diff.map(d => {
+      const sign = d.t === "add" ? "+" : d.t === "del" ? "−" : " ";
+      const ol = d.t === "add" ? "" : d.ol; const nl = d.t === "add" ? "" : d.nl;
+      return `<div class="diff-line ${d.t}"><span class="ln">${ol}</span><span class="ln">${nl}</span><span class="sign">${sign}</span><span class="code">${esc(d.s)}</span></div>`;
+    }).join("");
+    preview = `
+      <div class="diff">
+        <div class="diff-head"><span class="path">${esc(r.target)}</span>
+          <span class="diff-stats"><span class="add">+${r.diffStats.add}</span> <span class="del">−${r.diffStats.del}</span> ${esc(r.precondition === "unchanged" ? "precondition ok" : "precondition changed")}</span></div>
+        ${lines}
+        ${r.precondition !== "unchanged" ? `<div class="diff-note">⚠ Precondition hash no longer matches current file. Approve is disabled until Vivy proposes a fresh diff.</div>` : ""}
+      </div>`;
+  } else if (!isQ && r.preview === "exact argv") {
+    preview = `<div class="diff"><div class="diff-head"><span class="path">command</span></div>
+      <div class="diff-line ctx"><span class="ln"></span><span class="ln"></span><span class="sign"></span><span class="code">$ ${esc(r.args.argv.join(" "))}</span></div>
+      <div class="diff-line ctx"><span class="ln"></span><span class="ln"></span><span class="sign"></span><span class="code">cwd: ${esc(r.args.cwd)} · timeout: ${r.args.timeout_ms}ms</span></div></div>`;
+  }
+
+  let warns = "";
+  if (r.warn && r.warn.length) {
+    warns = r.warn.map(w => {
+      const danger = /production|irreversible|precondition|changed|remote/i.test(w);
+      return `<div class="review-risks ${danger ? "review-trust" : ""}">${esc(w)}</div>`;
+    }).join("");
+  }
+
+  let args = "";
+  if (!isQ) {
+    args = `<details class="review-arguments"><summary>Arguments (redacted)</summary>
+      <pre class="raw">${esc(JSON.stringify(r.args, null, 2))}</pre></details>`;
+  }
+
+  // decision controls
+  let controls = "";
+  if (r.status === "pending") {
+    const reason = `<textarea class="text-area" rows="2" placeholder="Optional reason (deny / cancel)…" id="reason-${r.id}" style="margin-top:12px"></textarea>`;
+    if (isQ) {
+      controls = `
+        <textarea class="text-area review-answer" rows="${compact ? 4 : 5}" id="answer-${r.id}" placeholder="Type your answer…"></textarea>
+        <div class="review-actions">
+          <button class="btn btn-ghost" id="cancel-${r.id}" onclick="decide('${r.id}','cancel')">Cancel</button>
+          <button class="btn btn-primary" id="submit-${r.id}" onclick="decide('${r.id}','answer')" disabled>Answer</button>
+        </div>`;
+    } else {
+      controls = `
+        ${reason}
+        <div class="review-actions">
+          <button class="btn btn-danger" id="deny-${r.id}" onclick="decide('${r.id}','deny')">Deny</button>
+          <button class="btn btn-primary" id="approve-${r.id}" onclick="decide('${r.id}','approve')" ${stale ? "disabled" : ""}>${stale ? "Cannot approve stale" : "Approve once"}</button>
+        </div>`;
+    }
+  } else if (r.status === "submitting") {
+    controls = `<div class="decision-recorded"><span class="glyph">⏳</span> Submitting decision…</div>`;
+  } else if (r.status === "approved" || r.status === "answered") {
+    controls = `<div class="decision-recorded"><span class="glyph">✓</span> Decision recorded — executing</div>`;
+  } else if (r.status === "executing") {
+    controls = `<div class="decision-recorded"><span class="glyph">▸</span> Executing…</div>`;
+  } else if (r.status === "succeeded") {
+    controls = `<div class="decision-recorded" style="background:var(--success-soft);border-color:color-mix(in srgb,var(--success) 30%,var(--border));color:var(--success)"><span class="glyph" style="background:var(--success)">✓</span> Succeeded</div>`;
+  } else if (r.status === "failed") {
+    controls = `<div class="decision-recorded" style="background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 30%,var(--border));color:var(--danger)"><span class="glyph" style="background:var(--danger)">×</span> Failed: bounded error</div>`;
+  } else if (r.status === "denied") {
+    controls = `<div class="decision-recorded" style="background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 30%,var(--border));color:var(--danger)"><span class="glyph" style="background:var(--danger)">×</span> Denied — run notified</div>`;
+  } else if (r.status === "cancelled") {
+    controls = `<div class="decision-recorded" style="background:var(--surface-subtle);border-color:var(--border);color:var(--text-muted)"><span class="glyph" style="background:var(--text-muted)">×</span> Cancelled</div>`;
+  } else if (r.status === "expired") {
+    controls = `<div class="review-empty" style="padding:18px 0"><h3 style="font-size:14px">Expired</h3><p class="muted">This proposal timed out. Reopen the run to request a fresh one.</p></div>`;
+  } else if (r.status === "stale") {
+    controls = `<div class="review-empty" style="padding:18px 0"><h3 style="font-size:14px">Stale — target changed</h3><p class="muted">Approve is unavailable. Open the run and ask Vivy to create a fresh proposal.</p>
+      <button class="btn btn-secondary btn-small" style="margin-top:10px" onclick="requestFresh('${r.id}')">Request fresh proposal</button></div>`;
+  }
+
+  const headTitle = isQ ? "Vivy needs your answer" : (stale ? "Stale proposal" : "Vivy wants your approval");
+  const summary = isQ ? r.prompt : `Action: ${r.action} on ${r.target}`;
+
+  return `
+    <article class="review-card ${cardCls} ${stale ? "is-stale" : ""}">
+      ${bc}
+      <div class="review-card-header">
+        <div>
+          <p class="eyebrow">${isQ ? "Question" : "Approval required"}</p>
+          <h3>${esc(headTitle)}</h3>
+        </div>
+        ${statusBadge(r.status)}
+      </div>
+      <p class="review-summary">${esc(summary)}</p>
+      ${facts}
+      ${preview}
+      ${warns}
+      ${args}
+      ${controls}
+    </article>`;
+}
+
+/* wire decision buttons after innerHTML */
+function wireReviewCard(host, r) {
+  const answer = host.querySelector(`#answer-${r.id}`);
+  if (answer) {
+    const submit = host.querySelector(`#submit-${r.id}`);
+    answer.addEventListener("input", () => { submit.disabled = !answer.value.trim(); });
+  }
+}
+
+/* simulated decision → lifecycle */
+function decide(id, action) {
+  const r = reviewById(id);
+  if (!r) return;
+  r.status = "submitting";
+  renderDetailPane(); renderInlineIfOpen(id);
+  const final = action === "approve" ? "approved" : action === "answer" ? "answered" : action === "deny" ? "denied" : "cancelled";
+  setTimeout(() => {
+    r.status = final;
+    renderDetailPane(); renderInlineIfOpen(id); renderReviewCenterIfOpen();
+    // simulate executor outcome for approve/answer
+    if (final === "approved" || final === "answered") {
+      setTimeout(() => {
+        r.status = "executing";
+        renderDetailPane(); renderInlineIfOpen(id);
+        setTimeout(() => {
+          r.status = "succeeded";
+          renderDetailPane(); renderInlineIfOpen(id); renderReviewCenterIfOpen();
+        }, 1400);
+      }, 900);
+    }
+  }, 800);
+}
+function renderInlineIfOpen(id) {
+  const host = document.getElementById("inline-host");
+  if (host && route === "chat") renderInlineCard(host, id, false);
+}
+function renderReviewCenterIfOpen() {
+  if (route === "review") renderReviewCenter(document.getElementById("main"));
+}
+
+/* ===== Screen B: Approval detail (full page route) ===== */
+function renderApprovalDetail(main) {
+  const r = reviewById(selectedReviewId) || reviews[0];
+  main.innerHTML = `
+    <header class="main-header">
+      <button class="btn btn-ghost btn-small" onclick="go('review')">‹ Review Center</button>
+      <div><h1>Approval · ${esc(r.tool)}</h1><p>${esc(r.session)} · ${esc(r.runId)}</p></div>
+      <div class="header-actions">${statusLine(r.status)} ${riskPill(r.risk)}</div>
+    </header>
+    <section class="review-center"><div class="review-detail" id="review-detail"></div></section>`;
+  document.getElementById("review-detail").innerHTML = renderReviewCardInner(r, { compact: false, context: "center", showBreadcrumb: false });
+  wireReviewCard(document.getElementById("review-detail"), r);
+}
+
+/* ===== Screen C: Question detail ===== */
+function renderQuestionDetail(main) {
+  const r = reviewById("r3");
+  main.innerHTML = `
+    <header class="main-header">
+      <button class="btn btn-ghost btn-small" onclick="go('review')">‹ Review Center</button>
+      <div><h1>Question · ask_user</h1><p>${esc(r.session)} · ${esc(r.runId)}</p></div>
+      <div class="header-actions">${statusLine(r.status)} ${riskPill(r.risk)}</div>
+    </header>
+    <section class="review-center"><div class="review-detail" id="review-detail"></div></section>`;
+  document.getElementById("review-detail").innerHTML = renderReviewCardInner(r, { compact: false, context: "center", showBreadcrumb: false });
+  wireReviewCard(document.getElementById("review-detail"), r);
+}
+
+/* ===== Screen D: Run inspector Review tab ===== */
+function renderInspector(main, insp) {
+  const r = reviewById("r1");
+  main.innerHTML = `
+    <header class="main-header">
+      <div><h1>Refactor HTTP layer</h1><p>run run-7f3a</p></div>
+      <div class="header-actions"><span class="status pending"><span class="glyph">!</span> Waiting for approval</span></div>
+    </header>
+    <section class="chat-region"><div class="muted" style="margin:auto">Open the inspector to see the run review and event timeline.</div></section>`;
+  insp.innerHTML = `
+    <div class="inspector-header"><div><p class="eyebrow">Run</p><h2>run-7f3a</h2></div>
+      <button class="icon-button" onclick="go('chat')">×</button></div>
+    <nav class="inspector-tabs">
+      <button class="inspector-tab" onclick="switchTab(this,'overview')">Overview</button>
+      <button class="inspector-tab is-active" onclick="switchTab(this,'review')">Review</button>
+      <button class="inspector-tab" onclick="switchTab(this,'events')">Events</button>
+    </nav>
+    <div class="inspector-body" id="insp-body"></div>`;
+  renderInspectorBody("review");
+}
+let inspTab = "review";
+function switchTab(btn, tab) {
+  inspTab = tab;
+  document.querySelectorAll(".inspector-tab").forEach(b => b.classList.remove("is-active"));
+  btn.classList.add("is-active");
+  renderInspectorBody(tab);
+}
+function renderInspectorBody(tab) {
+  const host = document.getElementById("insp-body");
+  if (tab === "review") {
+    const r = reviewById("r1");
+    host.innerHTML = `<div class="breadcrumb"><a onclick="go('review')">Review Center</a> › inline</div>` + renderReviewCardInner(r, { compact: true, context: "inline", showBreadcrumb: false });
+    wireReviewCard(host, r);
+  } else if (tab === "overview") {
+    host.innerHTML = `
+      <section class="inspector-card" style="background:var(--surface-panel);border:1px solid var(--border);border-radius:12px;padding:14px">
+        <p class="eyebrow">Run status</p>
+        <div class="status pending" style="margin-top:6px"><span class="glyph">!</span> Waiting for approval</div>
+        <dl class="review-facts" style="margin-top:14px">
+          <div class="review-field"><span class="field-label">Provider</span><span class="review-field-value">mock</span></div>
+          <div class="review-field"><span class="field-label">Model</span><span class="review-field-value">mock-model</span></div>
+          <div class="review-field"><span class="field-label">Mode</span><span class="review-field-value">normal</span></div>
+          <div class="review-field"><span class="field-label">Events</span><span class="review-field-value">9</span></div>
+        </dl>
+      </section>`;
+  } else {
+    const evs = [
+      ["run.started", "Run started"], ["model.delta", "Model output"],
+      ["tool.requested", "Tool requested: write_file"], ["tool.approval_required", "Approval required: write_file"],
+      ["tool.approval_decided", "Approval decided: pending"], ["user.question_required", "—"],
+      ["child.started", "Child run started"], ["model.completed", "Model output completed"],
+      ["run.completed", "Run completed"],
+    ];
+    host.innerHTML = `<ol class="event-timeline">` + evs.map((e, i) => `
+      <li class="event-item"><span class="event-marker"></span>
+        <div><div class="event-heading"><strong>${esc(e[1])}</strong><time>step ${i + 1}</time></div></div></li>`).join("") + `</ol>`;
+  }
+}
+
+/* ===== Studio placeholder ===== */
+function renderStudio(main) {
+  main.innerHTML = `<header class="main-header"><div><h1>Studio</h1><p>Generations & promotion</p></div></header>
+    <section class="review-center"><div class="review-empty"><h3>Studio placeholder</h3><p class="muted">Out of scope for this HITL visual sprint.</p></div></section>`;
+}
+
+/* ---- theme / locale ---- */
+function cycleTheme() {
+  theme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+  document.documentElement.dataset.theme = theme === "dark" ? "dark" : (theme === "light" ? "light" : "");
+  document.getElementById("theme-label").textContent = cap(theme);
+}
+function cycleLocale() {
+  locale = locale === "en" ? "zh-CN" : "en";
+  document.getElementById("locale-label").textContent = locale === "en" ? "English" : "中文";
+  document.documentElement.lang = locale;
+}
+
+/* ---- boot ---- */
+render();
+go("review");
+</script>
+</body>
+</html>

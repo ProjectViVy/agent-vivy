@@ -1,5 +1,5 @@
 // Package app is the composition root of the vivy process. It owns the
-// startup order (storage -> providers -> runtime -> httpapi), restart
+// startup order (storage -> providers -> runtime -> JSON-RPC control plane), restart
 // recovery of non-terminal runs before the server listens (E2), and the
 // reverse shutdown order with a bounded grace period.
 //
@@ -20,12 +20,18 @@ import (
 	"path/filepath"
 	"time"
 
+	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
-	"agent-vivy/internal/httpapi"
+	genplugins "agent-vivy/internal/generated/plugins"
+	"agent-vivy/internal/pluginhost"
 	"agent-vivy/internal/provider"
+	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/ui"
 )
@@ -43,8 +49,10 @@ type App struct {
 
 	service *runtime.Service
 	backend *sqlite.Backend
+	worker  *workerManager
 
 	httpServer *http.Server
+	rpcToken   string
 }
 
 // New builds the app from a validated config. It returns an error only
@@ -52,6 +60,20 @@ type App struct {
 // by config.Load / config.Validate.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	logger := slog.Default()
+
+	// Operator-managed model provider selection (Settings page). It lives
+	// in an independent agent working dir, never the production config.yaml
+	// or the Journal, and stores no secrets. Overlay it onto the validated
+	// config before any provider/model is built, so a saved change takes
+	// effect on next launch (no live engine hot-swap).
+	cfg = applySettingsOverlay(ctx, logger, cfg)
+
+	// dataRoot is the process data directory; operator settings live in a
+	// subdir of it (an independent agent working dir, not the Journal).
+	dataRoot := "."
+	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
+		dataRoot = dir
+	}
 
 	// Storage first: every later component depends on it.
 	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
@@ -100,11 +122,87 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		modelID = "bundle-default"
 	}
 
-	ts, err := tools.Builtin(backend).Resolve(cfg.Tools.Enabled)
+	var workspaces runtime.WorkspaceAllocator
+	var fileOps tools.FileOperations
+	var skillOps tools.SkillOperations
+	var todoOps tools.TodoOperations
+	var searchOps tools.SearchOperations
+	var httpOps tools.HTTPOperations
+	var mcpOps tools.MCPOperations
+	var sequentialOps tools.SequentialThinkingOperations
+	var commandOps tools.CommandOperations
+	var workspaceManager *runtime.WorkspaceManager
+	var sandboxManager *runtime.SandboxManager
+	if cfg.Runtime.WorkspaceRoot != "" {
+		manager, err := runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build workspace isolation: %w", err)
+		}
+		workspaces = manager
+		workspaceManager = manager
+
+		// Create SandboxManager with config (D-021)
+		sandboxMode := domain.SandboxMode(cfg.Runtime.Sandbox.DefaultMode)
+		if !sandboxMode.Valid() {
+			sandboxMode = domain.SandboxModeWorkspaceWrite
+		}
+		sandboxRoot := cfg.Runtime.Sandbox.WorkspaceRoot
+		if sandboxRoot == "" {
+			sandboxRoot = cfg.Runtime.WorkspaceRoot
+		}
+		netPolicy := &domain.NetworkPolicy{
+			AllowedDomains: cfg.Runtime.Sandbox.Network.AllowedDomains,
+			DenyPrivateIPs: cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
+		}
+		sandboxManager, err = runtime.NewSandboxManager(
+			sandboxMode,
+			sandboxRoot,
+			cfg.Runtime.ExecuteAllowedCommands,
+			netPolicy,
+		)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build sandbox manager: %w", err)
+		}
+
+		fileOps = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
+	}
+	if cfg.Runtime.SkillsRoot != "" {
+		skillBackend, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build skills backend: %w", err)
+		}
+		skillOps = skillBackend
+	}
+	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "todos"))
+	todoOps = todoBackend
+	searchOps = runtime.NewNetworkSearchService(nil, nil)
+	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
+	mcpConfigs := make([]runtime.MCPServerConfig, 0, len(cfg.Runtime.MCPServers))
+	for _, server := range cfg.Runtime.MCPServers {
+		mcpConfigs = append(mcpConfigs, runtime.MCPServerConfig{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+	}
+	mcpOps = runtime.NewEinoMCPBackend(mcpConfigs, nil)
+	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
+	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands)
+	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
 	}
+	var lookup pluginhost.WorkspaceLookup
+	if workspaceManager != nil {
+		lookup = func(ctx context.Context) (string, error) {
+			ws, err := workspaceManager.Ensure(ctx, tools.RunIDFromContext(ctx))
+			if err != nil {
+				return "", err
+			}
+			return ws.Path, nil
+		}
+	}
+	ts = append(ts, pluginhost.Adapt(genplugins.Register(), lookup)...)
 	// The checkpoint bridge fail-closes on its engine version, so an
 	// unknown build version aborts startup rather than suspend runs on
 	// unverifiable checkpoints (C6).
@@ -118,11 +216,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
 	}
+	policy := policyEngine(cfg)
+	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout)
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
 		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
+		MaxContextBytes:      cfg.Runtime.MaxContextBytes,
+		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
+		MaxToolResultBytes:   cfg.Runtime.MaxToolResultBytes,
 		Checkpoints:          checkpoints,
+		Policy:               policy,
+		ToolHooks:            hooks,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -136,23 +241,77 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Messages:           backend,
 		Notes:              backend,
 		Approvals:          backend,
+		Questions:          backend,
 		ApprovalExpiration: cfg.Tools.Approval.Expiration,
-		Sink:               bus,
+		Budget: runtime.BudgetPolicy{
+			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
+			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
+		},
+		Workspaces:           workspaces,
+		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
+		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
+		Sink:                 bus,
 	})
+	svc.SetCatalog(catalog)
+	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
+	svc.SetChildApprovalRouter(workerManager)
 
-	api, err := httpapi.New(httpapi.Deps{
-		Sessions:  backend,
-		Messages:  backend,
-		Runs:      backend,
-		Journal:   backend,
-		Approvals: backend,
-		Bus:       bus,
-		Service:   svc,
+	liveProfile := domain.PolicyProfile(cfg.Governance.Profile)
+	if !liveProfile.Valid() {
+		liveProfile = domain.PolicyProfileDefault
+	}
+	liveSnap, err := policy.Snapshot(liveProfile)
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
+	}
+	liveTools := make([]domain.ToolSpec, 0, len(ts))
+	for _, tool := range ts {
+		liveTools = append(liveTools, tool.Spec())
+	}
+	studioSvc := studio.NewService(backend)
+	executable, exeErr := os.Executable()
+	if exeErr != nil {
+		executable = ""
+	}
+	bundleDir := cfg.Providers.BundleDir
+	if abs, err := filepath.Abs(bundleDir); err == nil {
+		bundleDir = abs
+	}
+	evalRunner := eval.NewRunner(eval.Runner{
+		Studio:     studioSvc,
+		Executable: executable,
+		EvalRoot:   filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "evals"),
+		Isolation: eval.Isolation{
+			ProductionSQLite:    cfg.Storage.SQLite.Path,
+			ProductionWorkspace: cfg.Runtime.WorkspaceRoot,
+			ProductionListen:    cfg.Server.Addr,
+			BundleDir:           bundleDir,
+		},
+	})
+	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Reviews: backend, Bus: bus, Service: svc,
+		Studio: studioSvc,
+		Live: studio.LiveView{
+			Provider:      providerName,
+			PolicyProfile: liveProfile,
+			PolicyHash:    liveSnap.Hash,
+			Tools:         liveTools,
+		},
+		Eval:     evalRunner,
+		Children: workerManager,
+		// Operator-managed model provider selection lives in an independent
+		// agent working dir, never the production config or Journal.
+		SettingsPath:   settings.Path(dataRoot),
+		ConfigProvider: providerName,
+		ConfigModel:    defaultModelFor(cfg, providerName),
 	})
 	if err != nil {
 		_ = backend.Close()
-		return nil, fmt.Errorf("app: build http api: %w", err)
+		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
 	}
+	rpcToken := controlrpc.NewSessionToken()
 
 	// Restart recovery before the server listens (E2, FR-8): every
 	// non-terminal run either re-registers on its pending approval or
@@ -164,7 +323,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api)
+	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken})
+	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"protocol_version":%q,"websocket_path":"/rpc","token":%q}`, controlrpc.ProtocolVersion, rpcToken)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","stage":"e2-recovery"}`))
@@ -173,10 +342,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mux.Handle("/", ui.Handler())
 
 	return &App{
-		cfg:     cfg,
-		logger:  logger,
-		service: svc,
-		backend: backend,
+		cfg:      cfg,
+		logger:   logger,
+		service:  svc,
+		backend:  backend,
+		worker:   workerManager,
+		rpcToken: rpcToken,
 		httpServer: &http.Server{
 			Addr:              cfg.Server.Addr,
 			Handler:           mux,
@@ -185,12 +356,80 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}, nil
 }
 
+func policyEngine(cfg config.Config) *runtime.PolicyEngine {
+	definitions := make(map[domain.PolicyProfile]runtime.PolicyDefinition, len(cfg.Governance.Profiles))
+	for name, profile := range cfg.Governance.Profiles {
+		rules := make([]runtime.PolicyRule, 0, len(profile.Rules))
+		for _, rule := range profile.Rules {
+			rules = append(rules, runtime.PolicyRule{
+				Tool: rule.Tool, Field: rule.Field, Equals: rule.Equals, Prefix: rule.Prefix,
+				Decision: domain.PolicyDecision(rule.Decision), Reason: rule.Reason,
+			})
+		}
+		definitions[domain.PolicyProfile(name)] = runtime.PolicyDefinition{
+			Default: domain.PolicyDecision(profile.Default), Rules: rules,
+		}
+	}
+	engine, err := runtime.NewPolicyEngine(definitions)
+	if err != nil {
+		// Config.Validate already rejects invalid policy definitions. Keep
+		// composition fail-safe if a direct test bypasses that boundary.
+		panic(fmt.Sprintf("app: invalid governance policy: %v", err))
+	}
+	return engine
+}
+
+// applySettingsOverlay reads the operator-managed settings document and
+// overlays its non-secret values onto cfg. A missing or empty document is
+// a no-op: the config defaults stand. The base URL is applied through the
+// existing VIVY_API_BASE environment mechanism (provider.openai already
+// honors it), so no provider plumbing changes.
+func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
+	dataRoot := "."
+	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
+		dataRoot = dir
+	}
+	path := settings.Path(dataRoot)
+	s, err := settings.Load(path)
+	if err != nil {
+		// A corrupt settings file must not abort startup; log and ignore.
+		logger.Warn("settings overlay skipped", "path", path, "err", err)
+		return cfg
+	}
+	if s == (settings.Settings{}) {
+		return cfg
+	}
+	if s.Provider != "" {
+		if s.Provider == settings.ProviderMock {
+			cfg.Runtime.Mock = true
+		} else {
+			cfg.Providers.Active = s.Provider
+		}
+		switch s.Provider {
+		case settings.ProviderOpenAI:
+			cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
+		case settings.ProviderAnthropic:
+			cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
+		}
+	}
+	if s.BaseURL != "" {
+		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
+			logger.Warn("settings base_url not applied", "err", err)
+		}
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "")
+	return cfg
+}
+
 // defaultModelFor picks the configured default model of the active
 // provider; the mock and empty values fall back to the bundle default
 // inside the Ref.
 func defaultModelFor(cfg config.Config, providerName string) string {
 	switch providerName {
 	case "mock":
+		if cfg.Runtime.MockScenario != "" {
+			return "mock:" + cfg.Runtime.MockScenario
+		}
 		return "mock"
 	case "anthropic":
 		return cfg.Providers.Anthropic.DefaultModel
@@ -203,6 +442,8 @@ func defaultModelFor(cfg config.Config, providerName string) string {
 // it shuts down components in reverse startup order with a bounded grace
 // period and returns the shutdown error, if any.
 func (a *App) Run(ctx context.Context) error {
+	a.service.StartInteractionSweeper(context.Background(), time.Second)
+	defer a.service.StopInteractionSweeper()
 	errCh := make(chan error, 1)
 	go func() {
 		a.logger.Info("vivy starting", "addr", a.cfg.Server.Addr)
@@ -229,7 +470,13 @@ func (a *App) Run(ctx context.Context) error {
 	// cancelled and then drained while storage is still open, so every
 	// run.cancelled terminal persists before the journal closes; only
 	// then do the HTTP server and the backend shut down.
+	a.service.StopInteractionSweeper()
 	a.service.CancelAll()
+	if a.worker != nil {
+		if err := a.worker.Close(shutdownCtx); err != nil {
+			a.logger.Warn("child worker drain timed out", "err", err)
+		}
+	}
 	if !a.service.WaitIdle(shutdownCtx) {
 		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
 	}

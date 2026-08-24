@@ -12,8 +12,23 @@
       "type": "string",
       "minLength": 1,
       "description": "Model id the run was started with."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["normal", "plan"],
+      "description": "Physical harness policy for this run."
+    },
+    "policy_profile": {
+      "type": "string",
+      "enum": ["default", "plan", "read_only", "full_auto"],
+      "description": "Immutable governance profile selected for this run."
+    },
+    "policy_hash": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Digest of the policy definition used by the run."
     }
   },
-  "required": ["provider", "model"],
+  "required": ["provider", "model", "mode"],
   "additionalProperties": false
 }

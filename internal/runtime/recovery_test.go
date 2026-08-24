@@ -41,7 +41,7 @@ func restartService(t *testing.T, backend *sqlite.Backend) (*Service, *testSink)
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
 	return svc, sink
@@ -75,8 +75,14 @@ func lastRunFailed(t *testing.T, backend *sqlite.Backend, runID domain.RunID) {
 	if err := json.Unmarshal(last.Payload, &p); err != nil {
 		t.Fatalf("decode run.failed payload: %v", err)
 	}
+	if p.CauseCategory == causeHumanTimeout {
+		if !strings.Contains(p.Message, "human review") && !strings.Contains(p.Message, "user response") {
+			t.Fatalf("run.failed message = %q, want the timeout wording", p.Message)
+		}
+		return
+	}
 	if p.CauseCategory != causeInternalError {
-		t.Fatalf("cause_category = %q, want %q", p.CauseCategory, causeInternalError)
+		t.Fatalf("cause_category = %q, want %q or %q", p.CauseCategory, causeInternalError, causeHumanTimeout)
 	}
 	if !strings.Contains(p.Message, "server restart") {
 		t.Fatalf("run.failed message = %q, want the restart-recovery wording", p.Message)

@@ -35,6 +35,7 @@ providers:
     default_model: claude-sonnet-4-5
 runtime:
   mock: true
+  mock_scenario: hitl
   stream_buffer: 16
   max_event_payload_bytes: 1024
 tools:
@@ -56,7 +57,12 @@ func TestLoadValid(t *testing.T) {
 	if cfg.Providers.Active != "anthropic" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
-	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 {
+	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
+		cfg.Runtime.MockScenario != "hitl" ||
+		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
+		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
+		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
+		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != "data/workspaces" {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {
@@ -107,10 +113,58 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"expiration: 2m", "expiration: soon", 1),
 		"empty tools": strings.Replace(validDoc,
 			"  enabled:\n    - echo_info\n    - write_note", "  enabled: []", 1),
+		"mock scenario without mock": strings.Replace(validDoc,
+			"  mock: true", "  mock: false", 1),
+		"unknown mock scenario": strings.Replace(validDoc,
+			"  mock_scenario: hitl", "  mock_scenario: unknown", 1),
 	}
 	for name, doc := range cases {
 		if _, err := Load(writeConfig(t, doc)); err == nil {
 			t.Errorf("%s: want error, got nil", name)
 		}
+	}
+}
+
+func TestGovernanceProfilesLoadAndValidate(t *testing.T) {
+	doc := validDoc + `
+governance:
+  profile: default
+  hook_timeout: 250ms
+  profiles:
+    default:
+      rules:
+        - tool: write_note
+          field: path
+          prefix: "data/"
+          decision: allow
+          reason: "private notes"
+    full_auto:
+      default: allow
+`
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Governance.HookTimeout != 250*time.Millisecond {
+		t.Fatalf("hook timeout = %v", cfg.Governance.HookTimeout)
+	}
+	rules := cfg.Governance.Profiles["default"].Rules
+	if len(rules) != 1 || rules[0].Decision != "allow" || rules[0].Prefix != "data/" {
+		t.Fatalf("governance rules = %+v", rules)
+	}
+}
+
+func TestGovernanceInvalidRuleRejected(t *testing.T) {
+	doc := validDoc + `
+governance:
+  profiles:
+    default:
+      rules:
+        - tool: write_note
+          field: network
+          decision: allow
+`
+	if _, err := Load(writeConfig(t, doc)); err == nil {
+		t.Fatal("want invalid governance field error")
 	}
 }

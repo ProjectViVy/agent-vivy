@@ -62,7 +62,7 @@ func newLoopGuardService(t *testing.T, maxToolTurns int, script []*schema.Messag
 func TestServiceMaxToolTurnsBreached(t *testing.T) {
 	svc, backend, _ := newLoopGuardService(t, 2, loopCallScript(6))
 
-	runID, err := svc.Run(context.Background(), "sess-loop", "go round")
+	runID, err := svc.Run(context.Background(), "sess-loop", "echo round")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestServiceMaxToolTurnsWithinCap(t *testing.T) {
 	script := append(loopCallScript(2), schema.AssistantMessage("Done spinning.", nil))
 	svc, backend, _ := newLoopGuardService(t, 8, script)
 
-	runID, err := svc.Run(context.Background(), "sess-ok", "spin twice")
+	runID, err := svc.Run(context.Background(), "sess-ok", "echo spin twice")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -113,6 +113,32 @@ func TestServiceMaxToolTurnsWithinCap(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Type != domain.EventRunCompleted {
 		t.Fatalf("last event = %s, want run.completed", last.Type)
+	}
+	if n := countTerminal(events); n != 1 {
+		t.Fatalf("terminal events = %d, want exactly 1", n)
+	}
+}
+
+func TestServiceBudgetCircuitBreakerStopsToolTree(t *testing.T) {
+	svc, backend, _ := newLoopGuardService(t, 8, loopCallScript(4))
+	// Keep the Eino iteration cap permissive and trip Vivy's shared tool
+	// budget instead. A resumed/child scope would spend this same account.
+	svc.deps.Budget = BudgetPolicy{MaxToolCalls: 1}
+
+	runID, err := svc.Run(context.Background(), "sess-budget", "echo repeatedly")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	events := replayAll(t, backend, runID)
+	last := events[len(events)-1]
+	cat, msg := payloadFailureOf(t, last.Payload)
+	if last.Type != domain.EventRunFailed || cat != causeInternalError {
+		t.Fatalf("terminal = %s/%q, want internal run.failed", last.Type, cat)
+	}
+	if !strings.Contains(msg, "safety budget") {
+		t.Fatalf("failure message = %q, want bounded budget wording", msg)
 	}
 	if n := countTerminal(events); n != 1 {
 		t.Fatalf("terminal events = %d, want exactly 1", n)

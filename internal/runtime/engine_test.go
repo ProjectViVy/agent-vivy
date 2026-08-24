@@ -95,7 +95,7 @@ func TestEngineQueryIsDeterministic(t *testing.T) {
 
 func TestToolAdapterInfoAndRun(t *testing.T) {
 	ctx := context.Background()
-	ad := newToolAdapter(tools.NewEchoInfo())
+	ad := newToolAdapter(tools.NewEchoInfo(), 0, nil, nil)
 
 	info, err := ad.Info(ctx)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 	}
 
 	// Effectful tools publish their schema too.
-	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil)).Info(ctx)
+	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil), 0, nil, nil).Info(ctx)
 	if err != nil {
 		t.Fatalf("write_note info: %v", err)
 	}
@@ -148,8 +148,8 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokable run: %v", err)
 	}
-	if out != "hi there" {
-		t.Fatalf("tool output = %q, want %q", out, "hi there")
+	if !strings.Contains(out, "hi there") || !strings.HasPrefix(out, untrustedToolResultHeader) {
+		t.Fatalf("tool output = %q, want untrusted header and original data", out)
 	}
 
 	// Malformed args must surface as an error, never a panic.

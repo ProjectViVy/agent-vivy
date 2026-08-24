@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/provider.retry.json",
+  "title": "provider.retry payload (v1)",
+  "type": "object",
+  "properties": {
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Provider retry attempt number; error text is intentionally excluded."
+    }
+  },
+  "required": ["attempt"],
+  "additionalProperties": false
+}

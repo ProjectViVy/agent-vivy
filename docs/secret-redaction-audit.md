@@ -20,7 +20,7 @@ domain types:
 - `internal/provider/openai.go` is the single reader:
   `key := os.Getenv(r.bundle.EnvKey)`, passed straight into the eino-ext
   ChatModel config and dropped afterwards.
-- `domain`, `runtime`, `storage`, `events`, `httpapi` contain no key type,
+- `domain`, `runtime`, `storage`, `events`, `rpc` contain no key type,
   field, or reader.
 
 ## Domain 1: SQLite file and event payloads
@@ -51,14 +51,22 @@ Guard tests: `internal/provider/secret_audit_test.go`.
 
 ## Domain 3: UI local storage
 
-The UI keeps all state in memory and derives history from the API/SSE
-replay. Audit evidence (zero matches):
+The UI keeps product state in memory and derives history from JSON-RPC replies
+and cursor-based event replay. The only browser-persisted values are the
+non-sensitive locale and theme preferences (`vivy.locale`, `vivy.theme`):
 
 ```powershell
-Select-String -Path ui/src/* -Pattern 'localStorage|sessionStorage|indexedDB'
+Select-String -Path ui/src/app/preferences.ts -Pattern 'localStorage'
 ```
 
-Nothing is written to browser storage, so no secret can land there.
+These keys contain only an enum value and never session, run, prompt, event, or
+provider data. No other UI storage is used:
+
+```powershell
+Select-String -Path ui/src/* -Pattern 'sessionStorage|indexedDB'
+```
+
+No secret can land in browser storage through the preference path.
 
 ## Conclusion
 

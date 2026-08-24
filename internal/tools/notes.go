@@ -42,6 +42,7 @@ func (l *listNotes) Spec() domain.ToolSpec {
 		Name:        ListNotesName,
 		Description: "Lists the user's saved notes: count plus a short summary of the newest entries.",
 		Readonly:    true,
+		Keywords:    []string{"list", "notes", "notebook", "show"},
 	}
 }
 
@@ -114,6 +115,7 @@ func (r *readNote) Spec() domain.ToolSpec {
 		Name:        ReadNoteName,
 		Description: "Reads the full content of one saved note by its id (see list_notes).",
 		Readonly:    true,
+		Keywords:    []string{"read", "open"},
 		Params: map[string]domain.ToolParam{
 			"id": {Desc: "The note id to read, e.g. note_abc123.", Required: true},
 		},

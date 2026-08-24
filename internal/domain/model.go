@@ -5,6 +5,29 @@ import (
 	"io"
 )
 
+// ModelInfo carries metadata about a specific model route, including its
+// capacity limits. This is used by the compaction engine to make informed
+// decisions about when and how much to compress context.
+type ModelInfo struct {
+	// ID is the model identifier (e.g., "gpt-4", "claude-3-opus").
+	ID string
+	// Provider is the backend provider name (e.g., "openai", "anthropic").
+	Provider string
+	// ContextWindow is the maximum number of tokens this model can handle
+	// in a single request (including prompt and response). Zero means
+	// unknown; callers should use conservative defaults.
+	ContextWindow int
+	// MaxOutputTokens is the maximum response length. Zero means unbounded
+	// or unknown.
+	MaxOutputTokens int
+}
+
+// Valid reports whether the ModelInfo has been properly initialized with
+// at least an ID and Provider.
+func (m ModelInfo) Valid() bool {
+	return m.ID != "" && m.Provider != ""
+}
+
 // ChatModel is the only model shape the runtime needs. It is satisfied
 // by the mock provider (C1) and by real providers behind internal/provider
 // (C2); the Eino adapter seam lives in internal/runtime. Defined here so
