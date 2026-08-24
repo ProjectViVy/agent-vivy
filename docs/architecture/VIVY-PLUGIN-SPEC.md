@@ -1,7 +1,7 @@
 # Vivy Plugin Spec v0
 
 > 状态：**提案**。服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、**`VIVY-STUDIO.md`**。
-> 日期：2026-08-15（开发场地改为独立 Studio）
+> 日期：2026-08-23（Studio 为第一方日常 IDE，但不排他）
 >
 > **本规范只约束用户自定义能力：仓库里的 `plugins/<name>/`。**
 > 出厂的 loop / world / tool / provider **不叫插件**，不放在本目录，装配见 `VIVY-ASSEMBLY.md`。
@@ -178,7 +178,7 @@ vivy-sdk inspect-artifact dist/gen-...
 - 「先编一个 hello-fs.exe 再配置路径」
 - 改完刷新浏览器就当插件已装上
 
-Vivy Studio（独立应用）把上面三条做成预制 Skill。作者在 Studio 里的心理模型是 **当前插件 + 当前配方 + 下一代 EXE**。不在日常 `vivy.exe` 里做插件。切换门槛之后，插件开发也只在 Studio 进行（NG-26）。
+Vivy Studio（独立应用）把上面三条做成预制 Skill。作者在 Studio 里的心理模型是 **当前插件 + 当前配方 + 下一代 EXE**。不在日常 `vivy.exe` 里做插件。其他已获授权读取源码工作区的开发工具，可用自身能力直接开发与验证插件，无需把工作迁移到 Studio（NG-26）。
 
 ---
 

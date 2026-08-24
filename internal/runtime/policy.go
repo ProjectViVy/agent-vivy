@@ -200,3 +200,74 @@ func policyRank(decision domain.PolicyDecision) int {
 		return -1
 	}
 }
+
+// ApprovalEvaluation is the result of evaluating whether an effectful tool
+// call requires user approval under the current approval policy (D-021).
+type ApprovalEvaluation struct {
+	ShouldAsk   bool
+	AutoApprove bool
+	Reason      string
+}
+
+// EvaluateApprovalPolicy determines whether a tool call should trigger an
+// approval request based on the session's approval policy. The policy is:
+//   - ask: always require approval for effectful tools
+//   - never: never ask, deny all effectful tools
+//   - auto: auto-approve readonly and whitelisted tools, ask for others
+func (e *PolicyEngine) EvaluateApprovalPolicy(
+	policy domain.ApprovalPolicy,
+	spec domain.ToolSpec,
+	autoApproveTools []string,
+) ApprovalEvaluation {
+	// Readonly tools are always allowed without approval.
+	if spec.Readonly || spec.Interaction == domain.ToolInteractionQuestion {
+		return ApprovalEvaluation{
+			ShouldAsk:   false,
+			AutoApprove: true,
+			Reason:      "readonly or question tools do not require approval",
+		}
+	}
+
+	switch policy {
+	case domain.ApprovalPolicyNever:
+		return ApprovalEvaluation{
+			ShouldAsk:   false,
+			AutoApprove: false,
+			Reason:      "approval policy is 'never': all effectful tools are denied",
+		}
+
+	case domain.ApprovalPolicyAuto:
+		// Check if this tool is in the auto-approve whitelist.
+		for _, name := range autoApproveTools {
+			if strings.EqualFold(name, spec.Name) {
+				return ApprovalEvaluation{
+					ShouldAsk:   false,
+					AutoApprove: true,
+					Reason:      fmt.Sprintf("tool %q is in the auto-approve list", spec.Name),
+				}
+			}
+		}
+		// Not whitelisted, fall through to ask.
+		return ApprovalEvaluation{
+			ShouldAsk:   true,
+			AutoApprove: false,
+			Reason:      fmt.Sprintf("tool %q is not auto-approved; requires user approval", spec.Name),
+		}
+
+	case domain.ApprovalPolicyAsk, "":
+		// Default: always ask for effectful tools.
+		return ApprovalEvaluation{
+			ShouldAsk:   true,
+			AutoApprove: false,
+			Reason:      fmt.Sprintf("approval policy is 'ask': tool %q requires approval", spec.Name),
+		}
+
+	default:
+		// Unknown policy: fail closed by asking.
+		return ApprovalEvaluation{
+			ShouldAsk:   true,
+			AutoApprove: false,
+			Reason:      fmt.Sprintf("unknown approval policy %q; requiring approval for safety", policy),
+		}
+	}
+}

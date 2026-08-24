@@ -1,6 +1,11 @@
 package provider
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+
+	"agent-vivy/internal/domain"
+)
 
 // Catalog resolves provider names to live Refs (D-018): the pre-baked
 // bundles loaded at startup, plus the always-available deterministic
@@ -38,4 +43,16 @@ func (c *Catalog) For(name string) (Ref, error) {
 	default:
 		return nil, fmt.Errorf("provider %q: unknown backend %q", name, b.Backend)
 	}
+}
+
+// ResolveModelInfo looks up capacity metadata for a specific provider and
+// model combination. It delegates to the provider's Ref implementation,
+// which may return zero ContextWindow when the information is unavailable.
+// Callers should use conservative defaults in that case.
+func (c *Catalog) ResolveModelInfo(ctx context.Context, providerName, modelID string) (domain.ModelInfo, error) {
+	ref, err := c.For(providerName)
+	if err != nil {
+		return domain.ModelInfo{}, err
+	}
+	return ref.ModelInfo(ctx, modelID)
 }

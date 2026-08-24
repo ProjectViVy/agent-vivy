@@ -28,6 +28,21 @@ func (mockRef) Model(_ context.Context, modelID string) (model.ToolCallingChatMo
 	return &mockEinoModel{m: NewMock(), scenario: scenario}, nil
 }
 
+func (mockRef) ModelInfo(_ context.Context, modelID string) (domain.ModelInfo, error) {
+	// Mock provider uses a conservative default context window suitable
+	// for testing. In practice, tests don't need huge contexts.
+	info := domain.ModelInfo{
+		ID:              modelID,
+		Provider:        "mock",
+		ContextWindow:   128000, // 128K tokens as reasonable default
+		MaxOutputTokens: 4096,
+	}
+	if info.ID == "" {
+		info.ID = "mock-default"
+	}
+	return info, nil
+}
+
 // mockEinoModel bridges domain.ChatModel to Eino's ToolCallingChatModel.
 // It mirrors runtime.modelAdapter but stays provider-local: normal mock mode
 // emits plain text, while test-only scenario mode can emit fixed tool calls

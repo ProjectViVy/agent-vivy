@@ -32,6 +32,7 @@ var migrations = []struct {
 	{10, migration010},
 	{11, migration011},
 	{12, migration012},
+	{13, migration013},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -369,4 +370,14 @@ CREATE TABLE studio_events (
 	created_at INTEGER NOT NULL,
 	payload BLOB NOT NULL
 );
+`
+
+// migration013 adds sandbox mode and approval policy columns for
+// configurable permission boundaries (D-021).
+const migration013 = `
+ALTER TABLE approvals ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'workspace_write';
+ALTER TABLE approvals ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
+ALTER TABLE approvals ADD COLUMN timeout_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'workspace_write';
+ALTER TABLE sessions ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
 `

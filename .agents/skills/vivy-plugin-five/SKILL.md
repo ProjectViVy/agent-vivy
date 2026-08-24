@@ -5,7 +5,9 @@ description: Develop a user plugin under plugins/<name>. Verify, pack, and inspe
 
 # Vivy plugin five-step
 
-Author path is **Vivy Studio**. Do not develop plugins inside daily `vivy.exe`.
+Vivy Studio is the first-party daily authoring IDE. Other authorized developer
+tools may develop plugins directly in this workspace using their own native
+capabilities. Do not develop plugins inside daily `vivy.exe`.
 
 ## Air gap
 

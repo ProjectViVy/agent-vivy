@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
 
@@ -17,7 +18,17 @@ func TestEinoCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := NewEinoCommandBackend(manager, []string{"go"})
+	// Create permissive sandbox for tests
+	sandbox, err := NewSandboxManager(
+		domain.SandboxModeDangerFullAccess,
+		root,
+		[]string{"go"},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := NewEinoCommandBackend(manager, sandbox, []string{"go"})
 	result, err := backend.Execute(context.Background(), "run-command", tools.CommandRequest{Command: "go", Args: []string{"version"}, Env: map[string]string{"NO_COLOR": "1"}})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -39,7 +50,16 @@ func TestEinoCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := NewEinoCommandBackend(manager, []string{"go"})
+	sandbox, err := NewSandboxManager(
+		domain.SandboxModeDangerFullAccess,
+		t.TempDir(),
+		[]string{"go"},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := NewEinoCommandBackend(manager, sandbox, []string{"go"})
 	cases := []struct {
 		name    string
 		request tools.CommandRequest

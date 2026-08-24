@@ -169,6 +169,19 @@ type ApprovalStore interface {
 	DecideApproval(ctx context.Context, id, decision string) (bool, error)
 }
 
+// ApprovalTimeoutStore is an optional extension that supports time-based
+// expiration of pending approvals (D-021). Backends that implement this
+// interface can be used with ApprovalScheduler for automatic cleanup.
+type ApprovalTimeoutStore interface {
+	// ListExpiredApprovals returns pending approvals past their timeout.
+	ListExpiredApprovals(ctx context.Context) ([]domain.Approval, error)
+	// SweepExpiredApprovals marks expired approvals as expired and returns
+	// the count of affected rows.
+	SweepExpiredApprovals(ctx context.Context) (int, error)
+	// CreateApprovalWithTimeout creates an approval with explicit timeout.
+	CreateApprovalWithTimeout(ctx context.Context, a domain.Approval, timeoutSeconds int) error
+}
+
 // ApprovalLifecycleStore is an optional extension implemented by durable
 // backends. Keeping it separate preserves compatibility with small test or
 // embedding stores that only implement the original approval contract.

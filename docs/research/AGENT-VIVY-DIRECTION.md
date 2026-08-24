@@ -89,8 +89,9 @@ and independent **Vivy Studio** (develop + distribute; also the host
 for V2 Explore). Canonical Studio text:
 `agent-vivy/docs/architecture/VIVY-STUDIO.md` (corrected 2026-08-15).
 Narrative: `SELF-EVOLVING-GATEWAY.md`. Decision ids:
-`VIVY-GATEWAY-AND-STUDIO.md` (NG-1..NG-28). After Studio bootstrap
-ST-6, all further Vivy development happens inside Studio. It must not
+`VIVY-GATEWAY-AND-STUDIO.md` (NG-1..NG-28). Studio bootstrap ST-6
+proved the first-party daily IDE path. Other authorized developer tools may
+work directly in the repository with their own native capabilities. It must not
 collapse V1 Operate, V2 Explore, and V3 Rebuild into one sprint. V0
 ADRs remain in force. Studio is not opened from the gateway.
 

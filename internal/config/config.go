@@ -132,12 +132,47 @@ type Runtime struct {
 	MCPServers []MCPServer `yaml:"mcp_servers"`
 	// ExecuteAllowedCommands is the executable allowlist for local process tools.
 	ExecuteAllowedCommands []string `yaml:"execute_allowed_commands"`
+	// Sandbox controls the file-effect policy boundary (D-021).
+	Sandbox SandboxConfig `yaml:"sandbox"`
 }
 
 type MCPServer struct {
 	Name     string `yaml:"name"`
 	Endpoint string `yaml:"endpoint"`
 	AuthEnv  string `yaml:"auth_env"`
+}
+
+// SandboxConfig controls the file-effect policy boundary (D-021). It
+// mirrors the DeepSeek Harness three-tier permission model.
+type SandboxConfig struct {
+	// DefaultMode is the initial sandbox mode for new sessions.
+	DefaultMode string `yaml:"default_mode"`
+	// WorkspaceRoot overrides the global workspace root for sandbox enforcement.
+	WorkspaceRoot string `yaml:"workspace_root"`
+	// Approval controls approval behavior under different policies.
+	Approval SandboxApprovalConfig `yaml:"approval"`
+	// Network defines allowed network destinations for HTTP requests.
+	Network SandboxNetworkConfig `yaml:"network"`
+}
+
+// SandboxApprovalConfig controls approval behavior for effectful tools.
+type SandboxApprovalConfig struct {
+	// DefaultPolicy is the initial approval policy: ask, never, or auto.
+	DefaultPolicy string `yaml:"default_policy"`
+	// TimeoutSeconds bounds how long a pending approval stays valid before
+	// being automatically expired and denied.
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// AutoApproveTools lists tool names that are auto-approved under the
+	// "auto" policy (typically readonly tools).
+	AutoApproveTools []string `yaml:"auto_approve_tools"`
+}
+
+// SandboxNetworkConfig defines network access restrictions.
+type SandboxNetworkConfig struct {
+	// AllowedDomains is the whitelist of permitted domains for HTTP requests.
+	AllowedDomains []string `yaml:"allowed_domains"`
+	// DenyPrivateIPs blocks RFC1918 private IP ranges when true.
+	DenyPrivateIPs bool `yaml:"deny_private_ips"`
 }
 
 type Tools struct {
@@ -230,6 +265,19 @@ func Default() Config {
 			HTTPAllowedHosts:       []string{"localhost", "127.0.0.1", "::1"},
 			HTTPMaxResponseBytes:   1 << 20,
 			ExecuteAllowedCommands: []string{"go", "git", "rg"},
+			Sandbox: SandboxConfig{
+				DefaultMode:   "workspace_write",
+				WorkspaceRoot: defaultWorkspaceRoot,
+				Approval: SandboxApprovalConfig{
+					DefaultPolicy:    "ask",
+					TimeoutSeconds:   300, // 5 minutes
+					AutoApproveTools: []string{"read_file", "search_files", "list_notes", "read_note", "skills_list", "skill_view", "network_search"},
+				},
+				Network: SandboxNetworkConfig{
+					AllowedDomains: []string{},
+					DenyPrivateIPs: true,
+				},
+			},
 		},
 		Tools: Tools{
 			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
@@ -422,6 +470,34 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Sandbox configuration validation (D-021).
+	if c.Runtime.Sandbox.DefaultMode != "" {
+		switch c.Runtime.Sandbox.DefaultMode {
+		case "read_only", "workspace_write", "danger_full_access":
+		default:
+			return fmt.Errorf("runtime.sandbox.default_mode %q is unsupported; use read_only, workspace_write, or danger_full_access", c.Runtime.Sandbox.DefaultMode)
+		}
+	}
+	if c.Runtime.Sandbox.WorkspaceRoot != "" && c.Runtime.Sandbox.WorkspaceRoot != c.Runtime.WorkspaceRoot {
+		// Sandbox workspace root can override the global one, but must still be valid.
+		if err := validatePath(c.Runtime.Sandbox.WorkspaceRoot); err != nil {
+			return fmt.Errorf("runtime.sandbox.workspace_root: %w", err)
+		}
+	}
+	if c.Runtime.Sandbox.Approval.DefaultPolicy != "" {
+		switch c.Runtime.Sandbox.Approval.DefaultPolicy {
+		case "ask", "never", "auto":
+		default:
+			return fmt.Errorf("runtime.sandbox.approval.default_policy %q is unsupported; use ask, never, or auto", c.Runtime.Sandbox.Approval.DefaultPolicy)
+		}
+	}
+	if c.Runtime.Sandbox.Approval.TimeoutSeconds < 0 {
+		return errors.New("runtime.sandbox.approval.timeout_seconds must not be negative")
+	}
+	if c.Runtime.Sandbox.Network.DenyPrivateIPs {
+		// Validation only; actual enforcement happens at request time.
+	}
+
 	return nil
 }
 
@@ -450,4 +526,16 @@ func validGovernanceField(value string) bool {
 	default:
 		return false
 	}
+}
+
+// validatePath checks that a path is non-empty and does not contain
+// traversal sequences. It is used for sandbox configuration validation.
+func validatePath(path string) error {
+	if path == "" {
+		return errors.New("path must not be empty")
+	}
+	if strings.Contains(path, "..") {
+		return errors.New("path must not contain ..")
+	}
+	return nil
 }

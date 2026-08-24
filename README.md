@@ -10,9 +10,10 @@ parent directory `../` (`diva-go/`) and is the contract this code must honor.
 ## Status
 
 V0/V1 species runtime is assembled (see `docs/TODO.md`). **Vivy Studio
-is a separate application that does not exist yet.** It will own
-develop + distribute. After bootstrap ST-6, all further development
-happens inside Studio (`docs/architecture/VIVY-STUDIO.md`).
+is the first-party daily development IDE and the independent owner of the
+distribution lifecycle.** Other authorized developer tools may work directly
+in this repository with their own native capabilities; work does not need to
+be transferred into Studio (`docs/architecture/VIVY-STUDIO.md`).
 
 Do not add a “open Studio” door to `vivy.exe`. The species-side Studio
 card is not Studio.
@@ -23,6 +24,7 @@ card is not Studio.
   is not on PATH, use the full path or add it).
 - `GOPROXY` must be `https://goproxy.cn,direct` (proxy.golang.org is
   unreachable from this network). Already persisted via `go env -w`.
+- Node.js 22+ and pnpm for the embedded React UI.
 - Optional: [just](https://github.com/casey/just) for the task recipes in
   `justfile`. Without it, run the underlying `go` commands directly.
 
@@ -32,7 +34,7 @@ card is not Studio.
 just setup      # go mod download
 just build      # go build ./...
 just test       # go test ./...
-just ci         # gofmt check + go vet + go test
+just ci         # Go fmt/vet/test + UI install/typecheck/unit/build
 just run        # run the vivy process (health endpoint on :8787)
 ```
 
@@ -53,7 +55,7 @@ internal/events/   event fan-out and after_seq replay cursor
 internal/rpc/      UI-facing command/query/event JSON-RPC control plane
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
-ui/                browser UI shell (Vite), independent of runtime internals
+ui/                only browser UI (React + Vite + Zustand + TanStack Router)
 docs/              implementation plan + project TODO board
 ```
 

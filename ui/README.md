@@ -1,35 +1,33 @@
 # Vivy UI
 
-The browser-based Vivy workbench is a zero-runtime-dependency Vite + TypeScript
-shell served by the Go binary. It talks only to the Vivy JSON-RPC control plane
-and its journal-backed run event stream.
+Vivy 的唯一浏览器 UI，使用 React、Vite、TanStack Router 和 Zustand。生产构建由 Go 嵌入并与 Vivy control plane 同源运行。
 
-The surface is organized around four user tasks:
+## 本地开发
 
-- sessions: identify, select, rename, create, and delete conversations;
-- live activity: discover active runs across sessions and attach to their
-  persisted state after navigation or refresh;
-- conversation: send one turn at a time, see streaming output, and preserve the
-  draft across preflight or network failures;
-- run inspector: inspect durable events, structured failures, scoped
-  approval/question tasks, and the durable parent/child run tree without
-  blocking unrelated session navigation. Child runs can be opened and cancelled
-  through the same backend-authoritative lifecycle controls.
-- review center: review pending approvals and user questions across sessions,
-  inspect redacted arguments/diffs and risk context, and make decisions from
-  the same renderer used by the inline run inspector.
-
-The UI follows the system language and theme on first launch. The language
-toggle supports English and Simplified Chinese; the theme control cycles system,
-light, and dark modes. Preferences are non-sensitive local UI settings only.
-
-Build and verify from this directory:
+先在仓库根目录启动 Vivy 后端（默认 `127.0.0.1:8787`），再启动 UI：
 
 ```powershell
-npx tsc --noEmit
-npm run build
-npx playwright test
+just run
+cd ui
+pnpm install
+pnpm dev
 ```
 
-The Playwright smoke starts the real Go process with the deterministic provider;
-it does not replace the production user path with mock domain records.
+打开 `http://localhost:3015`。Vite 会把 `/rpc` HTTP 与 WebSocket 请求代理到 `http://127.0.0.1:8787`。
+
+## 数据边界
+
+- Session、Run、Review、Settings 与生命周期数据来自 Vivy JSON-RPC，不写入 localStorage。
+- 当前会话 ID 使用 `vivy.ui.activeSession` 保存。
+- Notebook、Persona、Cron、Skills 和计划侧栏尚无后端 API，是明确标记的本地演示，数据只能使用 `vivy.demo.*` key。
+- Provider 密钥永远不经过 UI；Settings 只管理 provider、默认模型与 base URL。
+
+## 验证
+
+```powershell
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+仓库级验证使用根目录的 `just ci`。

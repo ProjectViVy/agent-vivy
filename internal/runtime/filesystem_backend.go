@@ -36,6 +36,7 @@ var errSearchLimit = errors.New("filesystem search limit reached")
 // implementation.
 type EinoFilesystemBackend struct {
 	manager        *WorkspaceManager
+	sandbox        *SandboxManager
 	maxFileBytes   int
 	maxResults     int
 	maxSearchBytes int
@@ -48,16 +49,28 @@ var (
 
 // NewEinoFilesystemBackend binds file operations to the existing per-run
 // workspace allocator. A nil manager is accepted for unit construction but
-// every operation fails closed until a manager is supplied.
-func NewEinoFilesystemBackend(manager *WorkspaceManager) *EinoFilesystemBackend {
+// every operation fails closed until a manager is supplied. The sandbox
+// parameter controls permission boundaries (D-021).
+func NewEinoFilesystemBackend(manager *WorkspaceManager, sandbox *SandboxManager) *EinoFilesystemBackend {
 	return &EinoFilesystemBackend{
-		manager: manager, maxFileBytes: defaultFilesystemMaxBytes,
+		manager: manager, sandbox: sandbox, maxFileBytes: defaultFilesystemMaxBytes,
 		maxResults: defaultSearchMaxResults, maxSearchBytes: defaultSearchMaxBytes,
 	}
 }
 
 // ReadFile implements tools.FileOperations.
 func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID, req tools.FileReadRequest) (tools.FileReadResult, error) {
+	// Sandbox validation: check read permission
+	if b.sandbox != nil {
+		root, _, err := b.resolve(ctx, runID, req.Path, false)
+		if err == nil {
+			fullPath := filepath.Join(root, req.Path)
+			if err := b.sandbox.ValidatePath(fullPath, FileOpRead); err != nil {
+				return tools.FileReadResult{}, fmt.Errorf("sandbox: %w", err)
+			}
+		}
+	}
+
 	root, path, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
 		return tools.FileReadResult{}, err
@@ -179,6 +192,17 @@ func (b *EinoFilesystemBackend) SearchFiles(ctx context.Context, runID domain.Ru
 // WriteFile implements tools.FileOperations. The runtime adapter assumes the
 // caller has already passed policy/HITL; it still revalidates the target here.
 func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunID, req tools.FileWriteRequest) (tools.FileMutationResult, error) {
+	// Sandbox validation: check write permission
+	if b.sandbox != nil {
+		root, _, err := b.resolve(ctx, runID, req.Path, true)
+		if err == nil {
+			fullPath := filepath.Join(root, req.Path)
+			if err := b.sandbox.ValidatePath(fullPath, FileOpWrite); err != nil {
+				return tools.FileMutationResult{}, fmt.Errorf("sandbox: %w", err)
+			}
+		}
+	}
+
 	root, path, err := b.resolve(ctx, runID, req.Path, true)
 	if err != nil {
 		return tools.FileMutationResult{}, err

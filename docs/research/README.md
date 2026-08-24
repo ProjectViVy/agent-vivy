@@ -25,12 +25,13 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 | 9 | `AGENT-VIVY-STORAGE-ARCHITECTURE-ADDENDUM.md` | Storage architecture proposal; treated as **proposal-only** until ADR baseline reconciles (D-035) | When discussing storage design |
 | — | `AGENT-VIVY-ARCHITECTURE-V0.md` | **MISSING — first work item**. ADR baseline ADR-001..008 v0 | (to be authored) |
 | — | `eino-capability-verify.md` | **MISSING — second work item**. Verification record for addendum §6 Eino claims | (to be authored) |
-| 10 | `agent-vivy/docs/architecture/VIVY-STUDIO.md` | **Studio 正本（2026-08-15）。** 独立应用；开发与分发全生命周期；开发场地硬条件（NG-26） | Before any Studio or post-V1 implementation |
+| 10 | `agent-vivy/docs/architecture/VIVY-STUDIO.md` | **Studio 正本。** 独立应用；第一方日常开发 IDE；分发生命周期权威；其他获授权工具可直接开发（NG-26） | Before any Studio or post-V1 implementation |
 | 11 | `agent-vivy/docs/architecture/SELF-EVOLVING-GATEWAY.md` | Species / kernel / packing narrative. Studio shape defers to `VIVY-STUDIO.md`. | Post-V1 evolution, packing, user plugins |
 | 12 | `agent-vivy/docs/architecture/VIVY-GATEWAY-AND-STUDIO.md` | Compact English decision table (NG-1..NG-28, ST-*) | When you need the decision ids, not the essay |
 | 13 | `agent-vivy/docs/architecture/VIVY-PLUGIN-SPEC.md` | User-plugin spec only (`plugins/`). First-party units are not plugins | When writing a user-defined capability |
 | 14 | `agent-vivy/docs/architecture/VIVY-ASSEMBLY.md` | How Vivy is divided and packed: nouns + generation recipe | When deciding what is a tool vs a plugin vs the kernel |
 | 15 | `agent-vivy/docs/architecture/VIVY-WORLDVIEW.md` | Why the product philosophy and the Vivy namesake are structurally the same. Does not replace PRD §5.0 | When the name, slogan, or species/Studio split needs a why |
+| 16 | `agent-vivy/docs/research/DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md` | Capability comparison and gap analysis between DeepSeek Harness and agent-vivy (evidence-cited, dimension by dimension) | When deciding what the species should adopt, refuse, or defer from DSH |
 
 ## 3. Source artifacts in parent directories
 
@@ -80,3 +81,4 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 - v3 (2026-08-14): Linked next-generation Gateway + Studio architecture proposal (`agent-vivy/docs/architecture/VIVY-GATEWAY-AND-STUDIO.md`). Proposal only; V0 contracts unchanged.
 - v4 (2026-08-14): Added the full discussion write-up `agent-vivy/docs/architecture/SELF-EVOLVING-GATEWAY.md` as the narrative source; Studio file remains the compact decision record.
 - v5 (2026-08-15): Studio corrected to an independent application. Canonical `agent-vivy/docs/architecture/VIVY-STUDIO.md`. Development venue switches to Studio after ST-6. Species-side Studio card / Promote authority frozen.
+- v6 (2026-08-23): Studio remains the first-party daily development IDE, but is no longer an exclusive execution venue. Other authorized tools work directly in the repository with their own capabilities.

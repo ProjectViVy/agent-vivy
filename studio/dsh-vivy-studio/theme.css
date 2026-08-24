@@ -276,7 +276,7 @@ button:has(> svg[viewBox="0 0 182 24"])::before {
 }
 
 button:has(> svg[viewBox="0 0 182 24"])::after {
-  content: "Vivy Studio";
+  content: "Nierland";
   color: var(--dsw-alias-label-primary);
   font-family: var(--vivy-display);
   font-size: 17px;

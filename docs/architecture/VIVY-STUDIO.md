@@ -1,13 +1,13 @@
 # Vivy Studio
 
-> 状态：**方向已采纳**（2026-08-15 用户纠正并确认）。
-> 本文是 Studio 产品身份、生命周期和开发场地的正本。
+> 状态：**方向已采纳**（2026-08-15 用户纠正并确认；2026-08-23 修订开发环境策略）。
+> 本文是 Studio 产品身份、生命周期和开发环境策略的正本。
 > 若本文与 `SELF-EVOLVING-GATEWAY.md` / `VIVY-GATEWAY-AND-STUDIO.md` 在 Studio 形状上冲突，以本文为准，并应回写那两份。
-> 日期：2026-08-15
+> 日期：2026-08-23
 >
 > 相关：
 > - `SELF-EVOLVING-GATEWAY.md` — 物种 / 内核 / 装配 / 反热加载
-> - `VIVY-WORLDVIEW.md` — 产品哲学与世界观的结构同构（不取代场地硬条件）
+> - `VIVY-WORLDVIEW.md` — 产品哲学与世界观的结构同构（不取代开发环境策略）
 > - `VIVY-GATEWAY-AND-STUDIO.md` — 英文决策号（NG-*）
 > - `VIVY-ASSEMBLY.md` / `VIVY-PLUGIN-SPEC.md` — 配方与用户插件
 > - `.workspace/deepseek-harness/upstream` — 第一任开发发动机的证据源（官方克隆，`47f9438`）
@@ -53,32 +53,33 @@ Studio 要白日盖楼：改源码、跑测试、编 EXE、评测、把新身体
 
 ---
 
-## 2. 硬条件 — 开发场地是 Studio
+## 2. 开发环境 — Studio 是日常 IDE，但不是强制场地
 
-**自 Studio 达到 §3 的切换门槛起，Vivy 的后续开发全部在 Vivy Studio 里进行。** 这是场地约束，不是口号。
+**Vivy Studio 是第一方日常开发 IDE，也是推荐的作者路径。它不是排他的执行场地。**
 
-「开发」包括：改物种、改 Studio 自己、改 Skill / 配方 / 插件、改作为产品合同的架构文档与测试。作者和 coding agent 坐在 Studio 里，不坐在日常 `vivy.exe` 里，也不再把外部 IDE / 外部 agent 当主开发环。
+「开发」包括：改物种、改 Studio 自己、改 Skill / 配方 / 插件、改作为产品合同的架构文档与测试。任何已获授权读取当前工作区的开发工具或 coding agent，都应直接使用自身原生的编辑、测试与自动化能力完成工作；不必为了满足场地规则而把任务转交或复现在 Vivy Studio 里。
 
-### 2.1 切换之后禁止
+无论由 Studio 还是其他获授权工具执行，工作区边界、产品契约、air gap 与验证命令完全相同。日常 `vivy.exe` 仍是住户产品，不是 IDE。
 
-- 以 Cursor / Claude Code / 本机聊天 agent 等外部环路作为实现 Vivy 的主路径
+### 2.1 禁止
+
 - 在日常 `vivy.exe` 的会话里开发 Vivy（物种是住户产品，不是 IDE）
 - 以「Studio 还没做好」为由继续在物种进程里加换代 UI、Promote 权威、评测农场
-- 第二次「先在外面做完再搬进 Studio」——bootstrap 只有一次
+- 因为 Studio 是推荐作者路径，就要求另一个已获授权的工具中止工作、转交任务或在 Studio 里重复实现
+- 绕过当前工具与仓库既有的权限、安全边界、air gap 或验证命令
 
-### 2.2 切换之后仍允许、但不是开发环
+### 2.2 允许的开发方式
 
+- 日常开发者在 Vivy Studio 中使用 `pwsh`、`git`、`just`、`go` 等完整工具链
+- Cursor、Claude Code、本机 coding agent 或其他已获授权工具直接读取并修改当前工作区，使用自身原生能力完成实现与验证
 - 住户继续用 `vivy.exe` 过日子
 - 操作系统级安装、杀进程、看日志
-- Studio 内的 `pwsh` 调 `git` / `just` / `go`（这是 Studio 在干活，不是外环）
-- **唯一紧急例外：** Studio 自己起不来。只允许在外环做恢复 Studio 启动的最小改动，并留下书面记录。不得顺手做功能。
 
-### 2.3 为什么这条必须现在写死
+### 2.3 为什么保留 Studio 的第一方地位
 
-若开发场地仍留在外环，Studio 会永远排在「下一轮」。  
-若在 Studio 还不能改 Vivy 源码时就宣布已切换，场地标准是空的。
-
-所以：先用一次、也是唯一一次 bootstrap 把 Studio 做到能开发 Vivy；门槛一过，外环合上。
+Studio 必须具备完整的日常开发能力，才能成为可靠的第一方 IDE；ST-6
+已经证明了这一点。该能力证明不限制其他已获授权工具直接处理同一工作区，
+也不要求它们把实现过程迁移到 Studio。
 
 ---
 
@@ -95,14 +96,14 @@ Studio 还不存在时，无法在 Studio 里把它造出来。允许、且只�
 | ST-4 预制 Skill（插件五步 + 本体 `just ci`） | 自动 promote |
 | 做到 ST-6 能在 **Studio 内** 落地一次真实本体改动 | 任何「顺便」的物种功能 |
 
-**切换门槛（ST-6 完成即切换）：**
+**能力门槛（ST-6）：**
 
 1. Vivy Studio 作为独立进程启动，不经过 `vivy.exe`。
 2. 打开的工程是 `agent-vivy` 源码树（或从其切出的 worktree），不是 `data/`。
 3. 在 Studio 内能改一处本体（`internal/` / `cmd/` / `ui/` / 产品文档）、跑通 `just ci`。
-4. 这次改动的作者路径是 Studio，不是外环 agent。
+4. 这次改动证明 Studio 能独立承担真实作者路径。
 
-门槛达成之后：ST-5（Studio 自己 pack / 评测）、ST-7（发布 / 安装）、ST-8（回滚）、以及此后一切功能，都在 Studio 里开发。
+门槛达成之后：Studio 成为第一方日常 IDE；ST-5（Studio 自己 pack / 评测）、ST-7（发布 / 安装）、ST-8（回滚）继续由 Studio 掌握生命周期权威。其他已获授权的开发工具可直接在源码工作区实现与验证功能。
 
 bootstrap 没有第二次。若 Studio 长期起不来，走 §2.2 紧急例外，做完立刻回来。
 
@@ -306,24 +307,24 @@ status:
 
 S1–S6 已完成的物种侧缝（模型可见、inspect、verify、pack）仍是可用零件。  
 S7 工作室卡 **不再是主线**，产品含义作废。  
-S8（禁止生产实例无门自改写）仍要做，但是物种护栏，在 Studio 切换之后于 Studio 内实现。  
-S9（冻结评测套件）是 Studio 评测阶段的事，在切换后做。
+S8（禁止生产实例无门自改写）仍要做，但是物种护栏，可由任一已获授权的开发工具在源码工作区实现。
+S9（冻结评测套件）是 Studio 评测阶段的事。
 
 工位切片：
 
 | ID | 内容 | 场地 | 完成证据 |
 |---|---|---|---|
-| ST-0 | 本文纠偏：两应用、账本在 Studio、开发场地硬条件 | bootstrap（本次） | 架构文一致 |
+| ST-0 | 本文纠偏：两应用、账本在 Studio、Studio 具备第一方开发能力 | bootstrap（本次） | 架构文一致 |
 | ST-1 | Studio 独立进程（钉死 DSH + `vivy-studio` profile）+ §9.1 身份与主题 | bootstrap | 不经过 `vivy.exe`；标题/字标/欢迎词是 Vivy Studio |
 | ST-2 | 工程钉住源码树；与任何生产 `data/*.db` 隔离 | bootstrap（2026-08-16） | 启动钉 `agent-vivy`；禁读生产 Journal |
 | ST-3 | 工具链进 Studio | bootstrap（2026-08-16） | 启动环境 `go version`、`vivy-sdk verify plugins/hello-fs` |
 | ST-4 | Skill：插件五步 + 本体 `just ci` | bootstrap（2026-08-16） | `.agents/skills/vivy-plugin-five`、`vivy-kernel-ci` |
-| ST-6 | 在 Studio 内完成一次真实本体改动 + `just ci` | **切换事件（2026-08-16）** | `internal/buildinfo` + `just ci`；作者路径是 Studio |
-| ST-5 | Studio 自己 pack + 自己评测候选 | 切换后，在 Studio 里开发（**2026-08-16 done**） | `cmd/vivy-studio` + `internal/studiocore`：`pack` exec `vivy-sdk`，`eval` 由 Studio 拉起候选 EXE、独立数据目录，账本在 `data/studio-home/studio.db`；活物种进程零参与 |
-| ST-7 | 发布 → 安装到日常位 → 下次启动是新 EXE | 切换后（**2026-08-16 done**） | `release` 仅 `--actor human --yes`；`install` 写日常位 + `install.json`，不热换活进程 |
-| ST-8 | 回滚到上一 Release | 切换后（**2026-08-16 done**） | `rollback` 从 Studio 快照恢复上一 Release 文件；`data/vivy.db` 未被触碰 |
+| ST-6 | 在 Studio 内完成一次真实本体改动 + `just ci` | **能力证明（2026-08-16）** | `internal/buildinfo` + `just ci`；证明 Studio 可作为完整作者路径 |
+| ST-5 | Studio 自己 pack + 自己评测候选 | Studio 生命周期（**2026-08-16 done**） | `cmd/vivy-studio` + `internal/studiocore`：`pack` exec `vivy-sdk`，`eval` 由 Studio 拉起候选 EXE、独立数据目录，账本在 `data/studio-home/studio.db`；活物种进程零参与 |
+| ST-7 | 发布 → 安装到日常位 → 下次启动是新 EXE | Studio 生命周期（**2026-08-16 done**） | `release` 仅 `--actor human --yes`；`install` 写日常位 + `install.json`，不热换活进程 |
+| ST-8 | 回滚到上一 Release | Studio 生命周期（**2026-08-16 done**） | `rollback` 从 Studio 快照恢复上一 Release 文件；`data/vivy.db` 未被触碰 |
 
-ST-6 排在 ST-5 前：先证明能在 Studio 里改 Vivy，再在 Studio 里把评测和分发做完。这是场地硬条件的最小证据。
+ST-6 排在 ST-5 前：先证明 Studio 能独立修改 Vivy，再让 Studio 掌握评测和分发生命周期。这是第一方 IDE 能力的最小证据，不是其他开发工具的场地限制。
 
 ---
 
@@ -338,20 +339,20 @@ ST-6 排在 ST-5 前：先证明能在 Studio 里改 Vivy，再在 Studio 里把
 | NG-23 | Generation / EvalRun / Release / Install 的权威账本在 Studio。物种只保留只读 `inspect`。 |
 | NG-24 | 评测由 Studio 拉起候选。活物种不是评测家长。 |
 | NG-25 | 发布是人在 Studio 里触发的安装。禁止自动发布，禁止热换活进程。 |
-| NG-26 | **开发场地是 Studio。** bootstrap（ST-1..ST-4）是唯一外环；ST-6 完成即切换。之后外环不得作为实现主路径。 |
+| NG-26 | **Studio 是第一方日常开发 IDE，但不是排他的执行场地。** 已获授权读取工作区的其他开发工具应使用自身能力直接实现与验证，无需转交或复现到 Studio。 |
 | NG-27 | Studio 挂了不影响已安装物种过日子；物种挂了不是改代码的借口。 |
 | NG-28 | 物种侧工作室卡与 Promote 权威冻结，不再扩展产品语义。 |
 | NG-29 | 打开即为 Vivy Studio：标题、字标、欢迎词、profile 名。主题是第一方完整 token 集，不是社区皮、不是粘贴 CSS。 |
 
-NG-4、NG-16、NG-20 按本文修订：三扇门不再是物种上的 eval/promote；DSH 先于换皮进 Studio，因为开发场地要先切过去。
+NG-4、NG-16、NG-20 按本文修订：三扇门不再是物种上的 eval/promote；DSH 先于换皮进 Studio，以证明 Studio 具备完整的第一方开发能力。
 
 ---
 
 ## 12. 四句合同
 
 - **网关：** 过日子的唯一身体，产品真相（Journal）的唯一写入者。
-- **Studio：** 开发与分发的唯一应用，下一代身体的唯一作者与唯一安装者。
+- **Studio：** 第一方日常开发 IDE；分发生命周期的权威应用与下一代身体的安装者。
 - **人：** 唯一发布者，直到另立规则。
-- **开发者（含 agent）：** 切换之后只在 Studio 里改 Vivy。
+- **开发者（含 agent）：** 在 Studio 或其他已获授权的开发工具中直接改 Vivy；使用当前工具自身能力，不做强制场地迁移。
 
 一个设计若要其中两句同时作废，就不是这份架构。

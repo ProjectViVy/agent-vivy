@@ -472,3 +472,105 @@ func assertInspectSafe(t *testing.T, result any) {
 func containsFold(s, sub string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }
+
+func TestSettingsGetAndUpdate(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus(8)
+	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+	})
+	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
+	handler, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio:         studio.NewService(backend),
+		SettingsPath:   settingsPath,
+		ConfigProvider: "mock",
+		ConfigModel:    "mock",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Read-only path is rejected when no settings document is configured.
+	roHandler, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio: studio.NewService(backend),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, roHandler, "settings/update", map[string]any{
+		"provider": "openai",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("expected conflict when settings path is empty, got %v", rpcErr)
+	}
+
+	// Initial get reports config defaults and no overlay.
+	result, rpcErr := callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.ReadOnly {
+		t.Fatal("settings should be writable when path is configured")
+	}
+	if get.ConfigProvider != "mock" {
+		t.Fatalf("config_provider = %q, want mock", get.ConfigProvider)
+	}
+
+	// Invalid update is rejected (bad provider).
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider": "banana",
+	}); rpcErr == nil {
+		t.Fatal("expected invalid provider to be rejected")
+	}
+
+	// Valid update persists and is reflected on the next get.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":      "openai",
+		"default_model": "gpt-4o",
+		"base_url":      "https://gw.example.com/v1",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
+		t.Fatalf("settings not persisted: %+v", get)
+	}
+}
+
+func TestSettingsCapabilitiesAdvertised(t *testing.T) {
+	env := newControlTestEnv(t)
+	result, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") {
+		t.Fatalf("settings capabilities not advertised: %s", raw)
+	}
+}
