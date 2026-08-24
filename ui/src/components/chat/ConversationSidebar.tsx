@@ -1,10 +1,10 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Brain, Cat, Clock, Dna, LayoutDashboard, MessageSquare, NotebookPen, Plug, Plus, Settings, VenetianMask, Zap } from 'lucide-react';
+import { Brain, Clock, Dna, LayoutDashboard, MessageSquare, NotebookPen, Plug, Plus, Settings, UserRound, VenetianMask, Zap } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
-const NAV_ITEMS = [{ to: '/', icon: MessageSquare, label: '聊天', exact: true }, { to: '/pet', icon: Cat, label: '宠物' }, { to: '/dashboard', icon: LayoutDashboard, label: '中控台' }, { to: '/cron-tasks', icon: Clock, label: '定时任务' }] as const;
-const VIVY_ITEMS = [{ to: '/persona', icon: VenetianMask, label: '面具' }, { to: '/skills', icon: Dna, label: '进化' }, { to: '/memory', icon: Brain, label: '记忆' }, { to: '/notebook', icon: NotebookPen, label: '记事本' }] as const;
+const NAV_ITEMS = [{ to: '/', icon: MessageSquare, label: '聊天', exact: true }, { to: '/dashboard', icon: LayoutDashboard, label: '中控台' }, { to: '/cron-tasks', icon: Clock, label: '定时任务' }] as const;
+const VIVY_ITEMS = [{ to: '/persona', icon: UserRound, label: '人格' }, { to: '/masks', icon: VenetianMask, label: '面具' }, { to: '/skills', icon: Dna, label: '进化' }, { to: '/memory', icon: Brain, label: '记忆' }, { to: '/notebook', icon: NotebookPen, label: '记事本' }] as const;
 const TOOL_ITEMS = [{ to: '/mcp', icon: Plug, label: 'MCP' }, { to: '/skills', icon: Zap, label: 'Skill' }] as const;
 
 interface ConversationSidebarProps { onCreateSession: () => void; creating?: boolean; createError?: string | null }

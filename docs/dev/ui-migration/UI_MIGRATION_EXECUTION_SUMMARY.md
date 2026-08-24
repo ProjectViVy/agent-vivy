@@ -8,10 +8,10 @@
 
 | 任务 | 状态 | 产出物 |
 |------|------|--------|
-| RPC 端点审查 | ✅ 完成 | `docs/UI_MIGRATION_RPC_GAP_ANALYSIS.md` |
-| 国际化迁移计划 | ✅ 完成 | `docs/UI_MIGRATION_I18N_PLAN.md` |
-| 样式系统扩展计划 | ✅ 完成 | `docs/UI_MIGRATION_STYLES_PLAN.md` |
-| 基础设施审查报告 | ✅ 完成 | `docs/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md` |
+| RPC 端点审查 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_RPC_GAP_ANALYSIS.md` |
+| 国际化迁移计划 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_I18N_PLAN.md` |
+| 样式系统扩展计划 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_STYLES_PLAN.md` |
+| 基础设施审查报告 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md` |
 
 **本阶段结论：**
 - VIVY 现有 RPC 端点覆盖率 **39%**（22/56），核心缺口在**计划管理**（0%）
@@ -369,10 +369,10 @@
 
 ## 附录：参考文档
 
-1. **RPC 端点差距分析**：`docs/UI_MIGRATION_RPC_GAP_ANALYSIS.md`
-2. **国际化迁移计划**：`docs/UI_MIGRATION_I18N_PLAN.md`
-3. **样式系统扩展计划**：`docs/UI_MIGRATION_STYLES_PLAN.md`
-4. **基础设施审查报告**：`docs/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md`
+1. **RPC 端点差距分析**：`docs/dev/ui-migration/UI_MIGRATION_RPC_GAP_ANALYSIS.md`
+2. **国际化迁移计划**：`docs/dev/ui-migration/UI_MIGRATION_I18N_PLAN.md`
+3. **样式系统扩展计划**：`docs/dev/ui-migration/UI_MIGRATION_STYLES_PLAN.md`
+4. **基础设施审查报告**：`docs/dev/ui-migration/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md`
 5. **原始迁移计划**：（见 plan mode 退出时的完整计划）
 
 ---

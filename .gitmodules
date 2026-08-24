@@ -1,0 +1,3 @@
+[submodule ".agents/skills/oil-frontend"]
+	path = .agents/skills/oil-frontend
+	url = https://github.com/oil-oil/oil-frontend.git

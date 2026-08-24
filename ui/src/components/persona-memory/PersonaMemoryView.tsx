@@ -1,6 +1,6 @@
 /**
- * 角色记忆视图组件 - Persona Memory
- * 管理 7 份 Persona Markdown 文档，支持当前文档 / 待审变更 / 历史 三个视图
+ * 人格记忆视图组件 - Persona Memory
+ * 管理 7 份人格 Markdown 文档，支持当前文档 / 待审变更 / 历史 三个视图
  */
 
 import { useState, useMemo, useEffect } from 'react';
@@ -175,8 +175,8 @@ export function PersonaMemoryView() {
       {/* 内容区 */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex-1 flex flex-col">
-          <div className="px-4 pt-4 flex items-center justify-between">
-            <TabsList>
+          <div className="flex flex-col gap-3 px-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <TabsList className="w-full sm:w-auto">
               <TabsTrigger value="current">当前文档</TabsTrigger>
               <TabsTrigger value="pending" className="gap-1.5">
                 待审变更
@@ -189,7 +189,7 @@ export function PersonaMemoryView() {
               <TabsTrigger value="history">历史</TabsTrigger>
             </TabsList>
             {tab === 'current' && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant={mode === 'source' ? 'default' : 'outline'}
                   size="sm"
@@ -225,7 +225,7 @@ export function PersonaMemoryView() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 className="flex-1 font-mono text-sm resize-none h-full"
-                placeholder="编辑 Persona 文档内容..."
+                placeholder="编辑人格文档内容..."
               />
             ) : (
               <ScrollArea className="flex-1 border rounded-lg p-4 h-full">
@@ -249,7 +249,7 @@ export function PersonaMemoryView() {
                   {requests.map((req) => (
                     <Card key={req.id}>
                       <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-2">
                             <Badge
                               variant={

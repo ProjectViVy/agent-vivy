@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { Cat, Clock, GitBranch, Mic, Palette, Paperclip, Plus, Send, ShieldCheck, Sparkles, Square, Zap } from 'lucide-react';
+import { Clock, GitBranch, Mic, Palette, Paperclip, Plus, Send, ShieldCheck, Sparkles, Square, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useVivyStore } from '@/lib/store';
@@ -18,7 +17,6 @@ const ESTIMATED_CONTEXT_LIMIT_BYTES = 256 * 1024;
 const TEXT_ENCODER = new TextEncoder();
 
 export function ChatInput({ onSend, onCancel, disabled, running, placeholder, contextBytes = 0 }: ChatInputProps) {
-  const navigate = useNavigate();
   const [value, setValue] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState(true);
@@ -56,13 +54,12 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
     setValue('');
   };
 
-  return <div className="p-4 pt-2"><div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card shadow-sm">
+  return <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:p-4 sm:pb-4"><div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card shadow-sm">
     <div className="flex items-center gap-1 overflow-x-auto px-3 pb-1 pt-2.5 text-muted-foreground">
       <button type="button" aria-pressed={agentMode} onClick={() => { setAgentMode((current) => !current); showNotice(agentMode ? '已切换到普通模式' : '已切换到智能体模式'); }} className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors hover:bg-accent"><Zap className="h-3.5 w-3.5"/>智能体模式</button><span className="mx-1 h-4 w-px shrink-0 bg-border"/>
       <button type="button" onClick={() => showNotice('附件功能暂未接入')} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title="附件" aria-label="附件"><Paperclip className="h-4 w-4"/></button>
       <button type="button" onClick={() => showNotice('画图功能暂未接入')} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title="画图" aria-label="画图"><Palette className="h-4 w-4"/></button>
       <button type="button" onClick={() => showNotice('分支功能暂未接入')} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title="分支" aria-label="分支"><GitBranch className="h-4 w-4"/></button>
-      <button type="button" onClick={() => void navigate({ to: '/pet' })} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title="宠物" aria-label="宠物"><Cat className="h-4 w-4"/></button>
       <button type="button" onClick={() => showNotice('智能策略：自动')} className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors hover:bg-accent"><Sparkles className="h-3.5 w-3.5"/>智能</button>
       <div className="min-w-2 flex-1"/><button type="button" onClick={() => showNotice('会话历史请从右上角打开')} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title="历史" aria-label="历史"><Clock className="h-4 w-4"/></button><button type="button" aria-expanded={reviewCenterOpen} onClick={() => openReviewCenter(true)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title="审批中心" aria-label="审批中心"><ShieldCheck className="h-4 w-4"/>{pendingReviewCount ? <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-destructive" aria-hidden="true"/> : null}</button>
     </div>

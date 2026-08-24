@@ -21,6 +21,7 @@ import { CalendarClock, LoaderCircle, Pencil, Play, Plus, Trash2 } from 'lucide-
 import { cn } from '@/lib/utils';
 import type { CronJobDto, ScheduleKind } from '@/lib/types';
 import { createCronJob, deleteCronJob, getCronJobs, triggerCronJob, updateCronJob } from '@/lib/demo-api';
+import { MasterDetail } from '@/components/layout/MasterDetail';
 
 const HOUR_MS = 60 * 60 * 1000;
 const emptyForm = {
@@ -104,7 +105,7 @@ export function CronTaskManagementView() {
     try {
       const data = await getCronJobs();
       setJobs(data);
-      setSelectedId((current) => (data.some((job) => job.id === current) ? current : data[0]?.id || null));
+      setSelectedId((current) => (data.some((job) => job.id === current) ? current : null));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '无法加载定时任务');
     } finally {
@@ -187,7 +188,7 @@ export function CronTaskManagementView() {
     try {
       await deleteCronJob(selectedJob.id);
       const remaining = jobs.filter((job) => job.id !== selectedJob.id);
-      setJobs(remaining); setSelectedId(remaining[0]?.id || null); setShowDelete(false);
+      setJobs(remaining); setSelectedId(null); setShowDelete(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '无法删除任务');
     } finally { setBusyId(''); }
@@ -207,8 +208,9 @@ export function CronTaskManagementView() {
   }
 
   return (
-    <PageShell>
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex h-full min-h-0 flex-col p-4 sm:p-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-5">
+        <header className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">定时任务</h1>
             <p className="mt-1 text-sm text-muted-foreground">安排本地演示任务，并集中查看它们的运行状态。</p>
@@ -218,12 +220,17 @@ export function CronTaskManagementView() {
 
         {error ? <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</div> : null}
 
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <Card className="min-w-0">
+        <MasterDetail
+          className="min-h-0 flex-1"
+          columnsClassName="md:grid-cols-[minmax(0,1fr)_20rem] md:gap-4"
+          selected={selectedJob !== null}
+          onBack={() => setSelectedId(null)}
+          master={
+          <Card className="flex h-full min-h-0 min-w-0 flex-col">
             <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
               <CardTitle className="text-base">任务列表</CardTitle><span className="text-xs text-muted-foreground">{jobs.length} 个任务</span>
             </CardHeader>
-            <CardContent className="p-2">
+            <CardContent className="min-h-0 flex-1 overflow-auto p-2">
               {jobs.length === 0 ? (
                 <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
                   <div className="rounded-full bg-muted p-3 text-muted-foreground"><CalendarClock className="h-5 w-5" /></div>
@@ -260,8 +267,9 @@ export function CronTaskManagementView() {
               )}
             </CardContent>
           </Card>
-
-          <Card className="lg:sticky lg:top-4">
+          }
+          detail={
+          <Card className="flex h-full min-h-0 flex-col">
             {selectedJob ? (
               <>
                 <CardHeader className="space-y-3 border-b px-5 py-4">
@@ -298,9 +306,11 @@ export function CronTaskManagementView() {
               </CardContent>
             )}
           </Card>
-        </div>
+          }
+        />
+      </div>
       <Dialog open={showForm} onOpenChange={(open) => { if (busyId !== 'save') setShowForm(open); }}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>{editingJob ? '编辑任务' : '新建任务'}</DialogTitle><DialogDescription>设置任务内容和自动运行的时间。</DialogDescription></DialogHeader>
           <DialogBody className="space-y-4 py-2 pr-1">
             <div className="space-y-2"><Label htmlFor="cron-name">任务名称</Label><Input id="cron-name" value={formData.name} onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))} placeholder="例如：每日报告" autoFocus /></div>
@@ -338,6 +348,6 @@ export function CronTaskManagementView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageShell>
+    </div>
   );
 }

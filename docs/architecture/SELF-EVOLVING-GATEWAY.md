@@ -16,6 +16,7 @@
 - `../AGENT-VIVY-ARCHITECTURE-V0.md` — 已组装内核
 - `../GOAL-AGENT-HARNESS-ROADMAP.md` — 已完成的 harness 切片
 - `ACP-REMOTE-CONTROL-PROPOSAL.md` — 控制面草案；只借本地与准入，不借远程托管
+- `VIVY-CHANNEL-PACK.md` — 出厂 channel 冷拔插提案（Host 在内核；协议在 `channels/`；pack overlay）
 - `VIVY-STUDIO.md` — Studio 产品身份、生命周期、开发环境策略（正本）
 - `VIVY-WORLDVIEW.md` — 为何物种/实验室分裂和这个名字是同一根骨头
 - `.workspace/deepseek-harness/upstream` — 证据，不是物种依赖

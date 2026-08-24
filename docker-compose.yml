@@ -1,0 +1,32 @@
+# One Vivy organism. Do not `docker compose up --scale vivy=N`:
+# one Journal, one process, replica=1.
+# Do not publish 8787 on all host interfaces: /rpc/bootstrap has no user auth.
+# Optional Postgres is a compose overlay: docker-compose.postgres.yml.
+
+services:
+  vivy:
+    build:
+      context: .
+      args:
+        GOPROXY: https://goproxy.cn,direct
+        NPM_REGISTRY: https://registry.npmmirror.com
+    image: vivy:local
+    container_name: vivy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - vivy-data:/data
+    environment:
+      TZ: Asia/Shanghai
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--tries=1", "http://127.0.0.1:8787/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  vivy-data:

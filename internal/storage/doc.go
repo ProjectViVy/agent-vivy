@@ -1,6 +1,7 @@
 // Package storage defines the Vivy-owned durable contracts — Journal,
-// SnapshotStore, BlobStore, LeaseStore (D-026) — and the V0 SQLite
-// reference backend built on modernc.org/sqlite (pure Go, no CGO).
+// SnapshotStore, BlobStore, LeaseStore (D-026) — the V0 SQLite
+// reference backend (modernc.org/sqlite, pure Go, no CGO), and the
+// optional Postgres backend (ADR-020).
 //
 // Domain code must never depend on SQLite-specific surfaces: SQL
 // transactions as exposed types, partial indexes, FK cascades, AUTOINCREMENT,

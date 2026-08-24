@@ -371,12 +371,6 @@ export interface GatewayProcessStatus {
   details?: string | null;
 }
 
-export interface McpConnectionStatusDto {
-  state: 'connected' | 'degraded' | 'disabled' | 'invalid' | string;
-  connected: boolean;
-  error?: string | null;
-}
-
 // ==================== Token 统计相关 ====================
 
 export interface TokenStatsSnapshot {
@@ -541,18 +535,65 @@ export interface PlanSidebarData {
 
 // ==================== Restored local demo surfaces ====================
 
-export interface DemoPetState {
-  mood: 'calm' | 'focused' | 'curious';
-  energy: number;
-  lastInteraction: string;
-}
-
 export interface DemoDashboardSnapshot {
   sessionCount: number;
   activeRuns: number;
   pendingReviews: number;
   tokenUsage: number;
   recentActivity: Array<{ id: string; title: string; detail: string; occurredAt: string }>;
+}
+
+export type DemoTokenPeriod = '1d' | '3d' | '1w' | '1m' | '6m' | '1y';
+
+export interface DemoTokenUsageTotal {
+  total_input: number;
+  total_output: number;
+  total_tokens: number;
+  total_cache_creation: number;
+  total_cache_read: number;
+  request_count: number;
+  total_cost: number;
+}
+
+export interface DemoTokenUsageGroup {
+  key: string;
+  total_tokens: number;
+  total_cost: number;
+  request_count: number;
+}
+
+export interface DemoTokenTimelinePoint {
+  time_bucket: string;
+  label: string;
+  total_input: number;
+  total_output: number;
+  total_tokens: number;
+}
+
+export interface DemoTokenSessionUsage {
+  id: string;
+  title: string;
+  model: string;
+  request_count: number;
+  total_input: number;
+  total_output: number;
+  total_tokens: number;
+  total_cost: number;
+}
+
+export interface DemoTokenModelShare {
+  model: string;
+  percentage: number;
+  total_tokens: number;
+}
+
+export interface DemoTokenUsageSnapshot {
+  period: DemoTokenPeriod;
+  total: DemoTokenUsageTotal;
+  models: DemoTokenModelShare[];
+  endpoints: DemoTokenUsageGroup[];
+  timeline: DemoTokenTimelinePoint[];
+  sessions: DemoTokenSessionUsage[];
 }
 
 export interface DemoMemoryItem {
@@ -567,8 +608,11 @@ export interface DemoMcpServer {
   id: string;
   name: string;
   transport: 'stdio' | 'http';
+  /** stdio 本地进程的启动命令 */
+  command?: string;
+  /** http 远程服务地址 */
+  url?: string;
   enabled: boolean;
-  status: 'connected' | 'degraded' | 'disabled';
   toolCount: number;
 }
 

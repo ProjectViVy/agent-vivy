@@ -30,6 +30,8 @@ import (
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/postgres"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
@@ -48,7 +50,7 @@ type App struct {
 	logger *slog.Logger
 
 	service *runtime.Service
-	backend *sqlite.Backend
+	backend storage.Engine
 	worker  *workerManager
 
 	httpServer *http.Server
@@ -67,23 +69,21 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// config before any provider/model is built, so a saved change takes
 	// effect on next launch (no live engine hot-swap).
 	cfg = applySettingsOverlay(ctx, logger, cfg)
+	originPolicy, err := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
+	if err != nil {
+		return nil, fmt.Errorf("app: configure browser origins: %w", err)
+	}
 
 	// dataRoot is the process data directory; operator settings live in a
 	// subdir of it (an independent agent working dir, not the Journal).
-	dataRoot := "."
-	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
-		dataRoot = dir
+	dataRoot := cfg.DataDirectory()
+	if err := os.MkdirAll(dataRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("app: create data dir: %w", err)
 	}
 
-	// Storage first: every later component depends on it.
-	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("app: create storage dir: %w", err)
-		}
-	}
-	backend, err := sqlite.Open(ctx, cfg.Storage.SQLite.Path)
+	backend, err := openEngine(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("app: open storage: %w", err)
+		return nil, err
 	}
 
 	// Provider bundles from the A2 fixtures; missing files abort startup.
@@ -176,7 +176,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 		skillOps = skillBackend
 	}
-	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "todos"))
+	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(dataRoot, "todos"))
 	todoOps = todoBackend
 	searchOps = runtime.NewNetworkSearchService(nil, nil)
 	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
@@ -281,7 +281,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	evalRunner := eval.NewRunner(eval.Runner{
 		Studio:     studioSvc,
 		Executable: executable,
-		EvalRoot:   filepath.Join(filepath.Dir(cfg.Storage.SQLite.Path), "evals"),
+		EvalRoot:   filepath.Join(dataRoot, "evals"),
 		Isolation: eval.Isolation{
 			ProductionSQLite:    cfg.Storage.SQLite.Path,
 			ProductionWorkspace: cfg.Runtime.WorkspaceRoot,
@@ -323,13 +323,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken})
+	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken, Origins: originPolicy})
 	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		if !originPolicy.Allows(r) {
+			http.Error(w, "forbidden origin", http.StatusForbidden)
+			return
+		}
+		originPolicy.ApplyCORS(w, r)
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"protocol_version":%q,"websocket_path":"/rpc","token":%q}`, controlrpc.ProtocolVersion, rpcToken)
@@ -338,7 +343,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","stage":"e2-recovery"}`))
 	})
-	// Everything else is the embedded UI shell (single binary, D3).
+	// The default build serves the embedded UI; the vivy_headless build
+	// supplies a 404 handler while retaining the same control plane.
 	mux.Handle("/", ui.Handler())
 
 	return &App{
@@ -385,10 +391,7 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 // existing VIVY_API_BASE environment mechanism (provider.openai already
 // honors it), so no provider plumbing changes.
 func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
-	dataRoot := "."
-	if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
-		dataRoot = dir
-	}
+	dataRoot := cfg.DataDirectory()
 	path := settings.Path(dataRoot)
 	s, err := settings.Load(path)
 	if err != nil {
@@ -424,6 +427,32 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 // defaultModelFor picks the configured default model of the active
 // provider; the mock and empty values fall back to the bundle default
 // inside the Ref.
+func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) {
+	switch cfg.Storage.Backend {
+	case "postgres":
+		dsn := os.Getenv(cfg.Storage.Postgres.DSNEnv)
+		if dsn == "" {
+			return nil, fmt.Errorf("app: %s is empty; postgres DSN is read from the environment (D-010)", cfg.Storage.Postgres.DSNEnv)
+		}
+		backend, err := postgres.Open(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("app: open postgres storage: %w", err)
+		}
+		return backend, nil
+	default:
+		if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return nil, fmt.Errorf("app: create storage dir: %w", err)
+			}
+		}
+		backend, err := sqlite.Open(ctx, cfg.Storage.SQLite.Path)
+		if err != nil {
+			return nil, fmt.Errorf("app: open storage: %w", err)
+		}
+		return backend, nil
+	}
+}
+
 func defaultModelFor(cfg config.Config, providerName string) string {
 	switch providerName {
 	case "mock":

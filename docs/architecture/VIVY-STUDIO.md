@@ -53,9 +53,23 @@ Studio 要白日盖楼：改源码、跑测试、编 EXE、评测、把新身体
 
 ---
 
-## 2. 开发环境 — Studio 是日常 IDE，但不是强制场地
+## 2. 开发环境 — Vivy 功能开发推荐前后端分离
 
-**Vivy Studio 是第一方日常开发 IDE，也是推荐的作者路径。它不是排他的执行场地。**
+**Vivy 功能开发的推荐内循环是前后端两个进程：后端运行
+`vivy.exe`，前端运行 Vite。Studio 是第一方 Studio / 发布生命周期产品，
+但不是 Vivy 功能开发的强制入口。**
+
+推荐启动方式：
+
+```text
+terminal 1: just run
+terminal 2: cd ui; pnpm dev
+```
+
+后端提供 `127.0.0.1:8787` 的 JSON-RPC control plane，Vite 在
+`127.0.0.1:3015` 提供浏览器 UI 并代理 `/rpc`。这种方式让 Go 与 UI
+分别热更新；内嵌 UI 留给默认发布形态与 `just ci` 验证，`just build-split`
+用于打包 headless backend 和独立静态 UI。
 
 「开发」包括：改物种、改 Studio 自己、改 Skill / 配方 / 插件、改作为产品合同的架构文档与测试。任何已获授权读取当前工作区的开发工具或 coding agent，都应直接使用自身原生的编辑、测试与自动化能力完成工作；不必为了满足场地规则而把任务转交或复现在 Vivy Studio 里。
 
@@ -70,16 +84,17 @@ Studio 要白日盖楼：改源码、跑测试、编 EXE、评测、把新身体
 
 ### 2.2 允许的开发方式
 
-- 日常开发者在 Vivy Studio 中使用 `pwsh`、`git`、`just`、`go` 等完整工具链
+- 日常开发者在独立后端 + Vite 前端两个进程中使用 `pwsh`、`git`、`just`、`go` 等完整工具链
+- 需要 Studio 自身 UI、Studio lifecycle 或发布/安装/回滚时，在 Vivy Studio 中工作
 - Cursor、Claude Code、本机 coding agent 或其他已获授权工具直接读取并修改当前工作区，使用自身原生能力完成实现与验证
 - 住户继续用 `vivy.exe` 过日子
 - 操作系统级安装、杀进程、看日志
 
 ### 2.3 为什么保留 Studio 的第一方地位
 
-Studio 必须具备完整的日常开发能力，才能成为可靠的第一方 IDE；ST-6
-已经证明了这一点。该能力证明不限制其他已获授权工具直接处理同一工作区，
-也不要求它们把实现过程迁移到 Studio。
+Studio 必须具备完整的 Studio 自身开发、评测、发布和安装能力，才能成为
+可靠的第一方生命周期产品；ST-6 已经证明了这一点。该能力证明不限制
+其他已获授权工具直接处理同一工作区，也不要求 Vivy 功能实现迁移到 Studio。
 
 ---
 
@@ -103,7 +118,7 @@ Studio 还不存在时，无法在 Studio 里把它造出来。允许、且只�
 3. 在 Studio 内能改一处本体（`internal/` / `cmd/` / `ui/` / 产品文档）、跑通 `just ci`。
 4. 这次改动证明 Studio 能独立承担真实作者路径。
 
-门槛达成之后：Studio 成为第一方日常 IDE；ST-5（Studio 自己 pack / 评测）、ST-7（发布 / 安装）、ST-8（回滚）继续由 Studio 掌握生命周期权威。其他已获授权的开发工具可直接在源码工作区实现与验证功能。
+门槛达成之后：Studio 保持第一方 Studio / 生命周期工作台地位；ST-5（Studio 自己 pack / 评测）、ST-7（发布 / 安装）、ST-8（回滚）继续由 Studio 掌握生命周期权威。其他已获授权的开发工具可直接在源码工作区用前后端分离内循环实现与验证 Vivy 功能。
 
 bootstrap 没有第二次。若 Studio 长期起不来，走 §2.2 紧急例外，做完立刻回来。
 

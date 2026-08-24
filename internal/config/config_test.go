@@ -20,6 +20,8 @@ func writeConfig(t *testing.T, content string) string {
 const validDoc = `
 server:
   addr: "127.0.0.1:9090"
+  allowed_origins:
+    - "http://127.0.0.1:3015"
 storage:
   backend: sqlite
   sqlite:
@@ -54,6 +56,9 @@ func TestLoadValid(t *testing.T) {
 	if cfg.Server.Addr != "127.0.0.1:9090" {
 		t.Errorf("addr = %q", cfg.Server.Addr)
 	}
+	if len(cfg.Server.AllowedOrigins) != 1 || cfg.Server.AllowedOrigins[0] != "http://127.0.0.1:3015" {
+		t.Errorf("allowed origins = %#v", cfg.Server.AllowedOrigins)
+	}
 	if cfg.Providers.Active != "anthropic" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
@@ -81,6 +86,9 @@ func TestDefaultIsValid(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Default(): %v", err)
 	}
+	if cfg.Runtime.Sandbox.WorkspaceRoot != "" {
+		t.Fatalf("default sandbox workspace root = %q, want empty so overlays inherit runtime.workspace_root", cfg.Runtime.Sandbox.WorkspaceRoot)
+	}
 }
 
 // The secret boundary: a credential field that is not part of the shape
@@ -106,7 +114,7 @@ func TestInvalidValuesRejected(t *testing.T) {
 	cases := map[string]string{
 		"bad addr": strings.Replace(validDoc, `"127.0.0.1:9090"`, `"not-an-addr"`, 1),
 		"bad storage backend": strings.Replace(validDoc,
-			"backend: sqlite", "backend: postgres", 1),
+			"backend: sqlite", "backend: mariadb", 1),
 		"bad active provider": strings.Replace(validDoc,
 			"active: anthropic", "active: deepseek", 1),
 		"bad expiration": strings.Replace(validDoc,
@@ -117,11 +125,150 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"  mock: true", "  mock: false", 1),
 		"unknown mock scenario": strings.Replace(validDoc,
 			"  mock_scenario: hitl", "  mock_scenario: unknown", 1),
+		"non-loopback origin": strings.Replace(validDoc,
+			"http://127.0.0.1:3015", "http://example.test:3015", 1),
+		"origin path": strings.Replace(validDoc,
+			"http://127.0.0.1:3015", "http://127.0.0.1:3015/app", 1),
+		"non-loopback listen with origin": strings.Replace(validDoc,
+			`"127.0.0.1:9090"`, `"0.0.0.0:9090"`, 1),
 	}
 	for name, doc := range cases {
 		if _, err := Load(writeConfig(t, doc)); err == nil {
 			t.Errorf("%s: want error, got nil", name)
 		}
+	}
+}
+
+func TestDefaultAllowsSameOriginOnly(t *testing.T) {
+	cfg := Default()
+	if len(cfg.Server.AllowedOrigins) != 0 {
+		t.Fatalf("default allowed origins = %#v, want empty", cfg.Server.AllowedOrigins)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestZeroAddrAllowedWhenOriginsEmpty(t *testing.T) {
+	cfg := Default()
+	cfg.Server.Addr = "0.0.0.0:8787"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("0.0.0.0 with empty origins: %v", err)
+	}
+	cfg.Server.AllowedOrigins = []string{"http://127.0.0.1:3015"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("want error for 0.0.0.0 with allowed_origins")
+	}
+}
+
+func TestDevOverlayEnablesMock(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "config.dev.yaml"))
+	if err != nil {
+		t.Fatalf("dev overlay: %v", err)
+	}
+	if !cfg.Runtime.Mock {
+		t.Fatal("dev overlay must enable runtime.mock")
+	}
+	if cfg.Server.Addr != "127.0.0.1:8787" {
+		t.Fatalf("addr = %q", cfg.Server.Addr)
+	}
+}
+
+func TestDockerOverlayLoads(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "docker", "config.yaml"))
+	if err != nil {
+		t.Fatalf("docker overlay: %v", err)
+	}
+	if cfg.Server.Addr != "0.0.0.0:8787" {
+		t.Fatalf("addr = %q", cfg.Server.Addr)
+	}
+	if len(cfg.Server.AllowedOrigins) != 0 {
+		t.Fatalf("allowed origins = %#v, want empty", cfg.Server.AllowedOrigins)
+	}
+	if cfg.Storage.Backend != "sqlite" || cfg.Storage.SQLite.Path != "/data/vivy.db" {
+		t.Fatalf("storage = %+v", cfg.Storage)
+	}
+	if cfg.Runtime.WorkspaceRoot != "/data/workspaces" || cfg.Runtime.SkillsRoot != "/data/skills" {
+		t.Fatalf("runtime paths = %+v", cfg.Runtime)
+	}
+	sandboxRoot := cfg.Runtime.Sandbox.WorkspaceRoot
+	if sandboxRoot == "" {
+		sandboxRoot = cfg.Runtime.WorkspaceRoot
+	}
+	if sandboxRoot != "/data/workspaces" {
+		t.Fatalf("effective sandbox root = %q", sandboxRoot)
+	}
+}
+
+func TestDockerPostgresOverlayLoads(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "docker", "config.postgres.yaml"))
+	if err != nil {
+		t.Fatalf("postgres overlay: %v", err)
+	}
+	if cfg.Storage.Backend != "postgres" || cfg.Storage.Postgres.DSNEnv != "VIVY_POSTGRES_DSN" {
+		t.Fatalf("storage = %+v", cfg.Storage)
+	}
+	if cfg.DataDirectory() != "/data" {
+		t.Fatalf("data dir = %q", cfg.DataDirectory())
+	}
+	if cfg.Storage.Postgres.DSNEnv == "postgres://" || strings.Contains(cfg.Storage.Postgres.DSNEnv, "://") {
+		t.Fatal("dsn_env must be an env var name, not a DSN")
+	}
+}
+
+func TestDockerPackagingContracts(t *testing.T) {
+	root := filepath.Join("..", "..")
+	compose, err := os.ReadFile(filepath.Join(root, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(compose)
+	if !strings.Contains(text, `"127.0.0.1:8787:8787"`) {
+		t.Fatal("compose must publish 8787 on host loopback only")
+	}
+	if strings.Contains(text, `- "8787:8787"`) || strings.Contains(text, `- 8787:8787`) ||
+		strings.Contains(text, "0.0.0.0:8787:8787") {
+		t.Fatal("compose must not publish 8787 on all host interfaces")
+	}
+	for _, forbidden := range []string{"image: postgres", "image: redis", "image: mariadb", "image: mysql"} {
+		if strings.Contains(strings.ToLower(text), forbidden) {
+			t.Fatalf("compose must not add %s in this cut", forbidden)
+		}
+	}
+
+	dockerfile, err := os.ReadFile(filepath.Join(root, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	df := string(dockerfile)
+	if strings.Contains(df, "vivy_headless") {
+		t.Fatal("image must embed the UI; do not build vivy_headless")
+	}
+	if !strings.Contains(df, "VIVY_ADDR=0.0.0.0:8787") {
+		t.Fatal("image must listen on 0.0.0.0:8787")
+	}
+	if !strings.Contains(df, "fixtures/provider") {
+		t.Fatal("image must include provider fixtures")
+	}
+}
+
+func TestPostgresConfigRequiresDSNEnv(t *testing.T) {
+	doc := strings.Replace(validDoc, "backend: sqlite", "backend: postgres", 1)
+	if _, err := Load(writeConfig(t, doc)); err == nil {
+		t.Fatal("want error for postgres without dsn_env")
+	}
+	doc = strings.Replace(validDoc,
+		"backend: sqlite\n  sqlite:\n    path: \"tmp/vivy.db\"",
+		"backend: postgres\n  postgres:\n    dsn_env: VIVY_POSTGRES_DSN", 1)
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatalf("postgres overlay: %v", err)
+	}
+	if cfg.Storage.Backend != "postgres" || cfg.Storage.Postgres.DSNEnv != "VIVY_POSTGRES_DSN" {
+		t.Fatalf("storage = %+v", cfg.Storage)
+	}
+	if cfg.DataDirectory() != "data" {
+		t.Fatalf("data dir = %q", cfg.DataDirectory())
 	}
 }
 

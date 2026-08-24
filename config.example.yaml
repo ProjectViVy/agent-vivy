@@ -4,13 +4,21 @@
 
 server:
   # Local HTTP bootstrap + WebSocket JSON-RPC listen address for the UI.
+  # 0.0.0.0 is valid only when allowed_origins is empty (container listen).
   addr: "127.0.0.1:8787"
+  # Exact loopback origins for a separately hosted UI. Keep empty for the
+  # default embedded same-origin UI.
+  allowed_origins: []
 
 storage:
-  # V0 reference backend: SQLite (D-031). Path is relative to the data dir.
+  # sqlite is the default one-click Journal. postgres is the only optional
+  # server backend (DSN from dsn_env, never inlined here).
   backend: sqlite
+  data_dir: ""
   sqlite:
     path: "data/vivy.db"
+  postgres:
+    dsn_env: VIVY_POSTGRES_DSN
 
 providers:
   # Pre-baked bundle to activate. V0 ships exactly two bundles:

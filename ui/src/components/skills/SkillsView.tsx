@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MasterDetail } from '@/components/layout/MasterDetail';
 import { BookOpen, RefreshCw, Zap } from 'lucide-react';
 
 export function SkillsView() {
@@ -15,6 +16,7 @@ export function SkillsView() {
     error,
     loadSkills,
     loadSkillDocument,
+    clearSelectedSkill,
     loadRequests,
   } = useSkills();
 
@@ -41,8 +43,8 @@ export function SkillsView() {
   }
 
   return (
-    <Tabs defaultValue="skills" className="flex h-full min-h-0 flex-col p-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <Tabs defaultValue="skills" className="flex h-full min-h-0 flex-col p-4 sm:p-6">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
           <TabsTrigger value="skills">已安装技能</TabsTrigger>
           <TabsTrigger value="requests">变更请求 ({requests.length})</TabsTrigger>
@@ -69,36 +71,40 @@ export function SkillsView() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid h-full min-h-0 gap-4 md:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.6fr)]">
-            <ScrollArea className="min-h-0 rounded-xl border bg-card">
-              <div className="space-y-1 p-2">
-                {skills.map((skill) => (
-                  <button
-                    key={skill.slug}
-                    type="button"
-                    onClick={() => void loadSkillDocument(skill.slug)}
-                    className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-accent ${
-                      selectedSkill?.slug === skill.slug ? 'bg-accent' : ''
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium">{skill.name}</span>
-                      <Badge variant={skill.enabled ? 'default' : 'secondary'}>
-                        {skill.enabled ? '已启用' : '已停用'}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
-                    <p className="mt-2 text-xs text-muted-foreground">{skill.source === 'builtin' ? '内置' : '用户'}</p>
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-
-            <ScrollArea className="min-h-0 rounded-xl border bg-card">
-              {selectedSkill ? (
-                <article className="p-6">
+          <MasterDetail
+            selected={selectedSkill !== null}
+            onBack={clearSelectedSkill}
+            columnsClassName="md:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.6fr)] md:gap-4"
+            master={
+              <ScrollArea className="h-full min-h-0 rounded-xl border bg-card">
+                <div className="space-y-1 p-2">
+                  {skills.map((skill) => (
+                    <button
+                      key={skill.slug}
+                      type="button"
+                      onClick={() => void loadSkillDocument(skill.slug)}
+                      className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-accent ${
+                        selectedSkill?.slug === skill.slug ? 'bg-accent' : ''
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 font-medium">{skill.name}</span>
+                        <Badge variant={skill.enabled ? 'default' : 'secondary'}>
+                          {skill.enabled ? '已启用' : '已停用'}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{skill.source === 'builtin' ? '内置' : '用户'}</p>
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            }
+            detail={
+              selectedSkill ? (
+                <article className="h-full overflow-auto rounded-xl border bg-card p-4 sm:p-6">
                   <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <h2 className="text-xl font-semibold">{selectedSummary?.name ?? selectedSkill.slug}</h2>
                       <p className="mt-1 text-sm text-muted-foreground">{selectedSkill.description}</p>
                     </div>
@@ -108,25 +114,25 @@ export function SkillsView() {
                     </div>
                   </div>
                   <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-                    <p><span className="text-muted-foreground">标识：</span>{selectedSkill.slug}</p>
+                    <p className="min-w-0 break-all"><span className="text-muted-foreground">标识：</span>{selectedSkill.slug}</p>
                     <p><span className="text-muted-foreground">更新时间：</span>{new Date(selectedSkill.updated_at).toLocaleString()}</p>
                     <p><span className="text-muted-foreground">可用状态：</span>{selectedSkill.available ? '可用' : '不可用'}</p>
-                    <p><span className="text-muted-foreground">内容哈希：</span>{selectedSkill.content_hash}</p>
+                    <p className="min-w-0 break-all"><span className="text-muted-foreground">内容哈希：</span>{selectedSkill.content_hash}</p>
                   </div>
                   <div className="rounded-lg bg-muted p-4">
-                    <pre className="whitespace-pre-wrap font-sans text-sm leading-6">{selectedSkill.markdown}</pre>
+                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{selectedSkill.markdown}</pre>
                   </div>
                 </article>
               ) : (
-                <div className="flex h-full min-h-64 items-center justify-center p-6 text-center text-muted-foreground">
+                <div className="flex h-full min-h-64 items-center justify-center rounded-xl border bg-card p-6 text-center text-muted-foreground">
                   <div>
                     <BookOpen className="mx-auto mb-3 h-10 w-10 opacity-50" />
                     选择一个技能查看说明
                   </div>
                 </div>
-              )}
-            </ScrollArea>
-          </div>
+              )
+            }
+          />
         )}
       </TabsContent>
 
