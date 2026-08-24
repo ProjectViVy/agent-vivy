@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/user.question_expired.json",
+  "title": "user.question_expired payload (v1)",
+  "type": "object",
+  "properties": {
+    "review_id": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "const": "question"},
+    "expires_at": {"type": "integer", "minimum": 0},
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "required": ["review_id", "kind", "expires_at", "reason"],
+  "additionalProperties": false
+}

@@ -17,8 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -33,17 +35,29 @@ var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // below eino's 20 default, so a runaway loop fails fast and classified.
 const defaultMaxToolTurns = 8
 
+const (
+	defaultMaxContextBytes    = 256 << 10
+	defaultMaxHistoryMessages = 64
+	defaultMaxRunEvents       = 512
+	defaultMaxModelCalls      = 32
+	defaultMaxRunToolCalls    = 64
+	defaultMaxRunRetries      = 3
+	defaultWorkspaceRoot      = "data/workspaces"
+	defaultSkillsRoot         = "data/skills"
+)
+
 // Config is the typed, validated configuration store.
 type Config struct {
-	Server    Server    `yaml:"server"`
-	Storage   Storage   `yaml:"storage"`
-	Providers Providers `yaml:"providers"`
-	Runtime   Runtime   `yaml:"runtime"`
-	Tools     Tools     `yaml:"tools"`
+	Server     Server     `yaml:"server"`
+	Storage    Storage    `yaml:"storage"`
+	Providers  Providers  `yaml:"providers"`
+	Runtime    Runtime    `yaml:"runtime"`
+	Tools      Tools      `yaml:"tools"`
+	Governance Governance `yaml:"governance"`
 }
 
 type Server struct {
-	// Addr is the HTTP API + SSE listen address for the UI.
+	// Addr is the local HTTP bootstrap/WebSocket control-plane listen address.
 	Addr string `yaml:"addr"`
 }
 
@@ -81,6 +95,9 @@ type Runtime struct {
 	// Mock enables the deterministic mock provider for tests and offline
 	// development (FR-3).
 	Mock bool `yaml:"mock"`
+	// MockScenario selects a deterministic tool-calling scenario when Mock is
+	// enabled. It is test-only and intentionally has no production default.
+	MockScenario string `yaml:"mock_scenario"`
 	// StreamBuffer bounds buffered stream chunks (NFR: bounded).
 	StreamBuffer int `yaml:"stream_buffer"`
 	// MaxEventPayloadBytes bounds a single event payload (NFR: bounded).
@@ -88,6 +105,74 @@ type Runtime struct {
 	// MaxToolTurns caps tool-call turns per run (MA-4); omitted keeps the
 	// default.
 	MaxToolTurns int `yaml:"max_tool_turns"`
+	// MaxContextBytes bounds transient current-session context.
+	MaxContextBytes int `yaml:"max_context_bytes"`
+	// MaxHistoryMessages bounds retained user/assistant history rows.
+	MaxHistoryMessages int `yaml:"max_history_messages"`
+	// MaxToolResultBytes bounds one tool result entering the model context.
+	MaxToolResultBytes int `yaml:"max_tool_result_bytes"`
+	// MaxRunEvents bounds non-terminal durable events in one run tree.
+	MaxRunEvents int `yaml:"max_run_events"`
+	// MaxModelCalls bounds model generations across initial and resumed work.
+	MaxModelCalls int `yaml:"max_model_calls"`
+	// MaxRunToolCalls bounds tool calls across initial and resumed work.
+	MaxRunToolCalls int `yaml:"max_run_tool_calls"`
+	// MaxRunRetries bounds explicit retry reservations for one run tree.
+	MaxRunRetries int `yaml:"max_run_retries"`
+	// WorkspaceRoot contains one private sandbox directory per background run.
+	WorkspaceRoot string `yaml:"workspace_root"`
+	// SkillsRoot is a trusted, non-executable directory containing SKILL.md
+	// packages. Skill content remains untrusted data at runtime.
+	SkillsRoot string `yaml:"skills_root"`
+	// HTTPAllowedHosts is the explicit host surface for the read-only HTTP tool.
+	HTTPAllowedHosts []string `yaml:"http_allowed_hosts"`
+	// HTTPMaxResponseBytes bounds one HTTP response entering the model context.
+	HTTPMaxResponseBytes int `yaml:"http_max_response_bytes"`
+	// MCPServers are explicitly configured Streamable HTTP JSON-RPC servers.
+	MCPServers []MCPServer `yaml:"mcp_servers"`
+	// ExecuteAllowedCommands is the executable allowlist for local process tools.
+	ExecuteAllowedCommands []string `yaml:"execute_allowed_commands"`
+	// Sandbox controls the file-effect policy boundary (D-021).
+	Sandbox SandboxConfig `yaml:"sandbox"`
+}
+
+type MCPServer struct {
+	Name     string `yaml:"name"`
+	Endpoint string `yaml:"endpoint"`
+	AuthEnv  string `yaml:"auth_env"`
+}
+
+// SandboxConfig controls the file-effect policy boundary (D-021). It
+// mirrors the DeepSeek Harness three-tier permission model.
+type SandboxConfig struct {
+	// DefaultMode is the initial sandbox mode for new sessions.
+	DefaultMode string `yaml:"default_mode"`
+	// WorkspaceRoot overrides the global workspace root for sandbox enforcement.
+	WorkspaceRoot string `yaml:"workspace_root"`
+	// Approval controls approval behavior under different policies.
+	Approval SandboxApprovalConfig `yaml:"approval"`
+	// Network defines allowed network destinations for HTTP requests.
+	Network SandboxNetworkConfig `yaml:"network"`
+}
+
+// SandboxApprovalConfig controls approval behavior for effectful tools.
+type SandboxApprovalConfig struct {
+	// DefaultPolicy is the initial approval policy: ask, never, or auto.
+	DefaultPolicy string `yaml:"default_policy"`
+	// TimeoutSeconds bounds how long a pending approval stays valid before
+	// being automatically expired and denied.
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// AutoApproveTools lists tool names that are auto-approved under the
+	// "auto" policy (typically readonly tools).
+	AutoApproveTools []string `yaml:"auto_approve_tools"`
+}
+
+// SandboxNetworkConfig defines network access restrictions.
+type SandboxNetworkConfig struct {
+	// AllowedDomains is the whitelist of permitted domains for HTTP requests.
+	AllowedDomains []string `yaml:"allowed_domains"`
+	// DenyPrivateIPs blocks RFC1918 private IP ranges when true.
+	DenyPrivateIPs bool `yaml:"deny_private_ips"`
 }
 
 type Tools struct {
@@ -103,6 +188,30 @@ type Approval struct {
 	Expiration time.Duration `yaml:"-"`
 	// expirationRaw carries the YAML string ("5m"); parsed in Validate.
 	expirationRaw string
+}
+
+// Governance contains the declarative execution profiles. Empty profile
+// defaults are interpreted by runtime from the tool's readonly flag, which
+// keeps the legacy configuration behavior stable.
+type Governance struct {
+	Profile        string                       `yaml:"profile"`
+	Profiles       map[string]GovernanceProfile `yaml:"profiles"`
+	HookTimeout    time.Duration                `yaml:"-"`
+	HookTimeoutRaw string                       `yaml:"hook_timeout"`
+}
+
+type GovernanceProfile struct {
+	Default string           `yaml:"default"`
+	Rules   []GovernanceRule `yaml:"rules"`
+}
+
+type GovernanceRule struct {
+	Tool     string `yaml:"tool"`
+	Field    string `yaml:"field"`
+	Equals   string `yaml:"equals"`
+	Prefix   string `yaml:"prefix"`
+	Decision string `yaml:"decision"`
+	Reason   string `yaml:"reason"`
 }
 
 // toolsDoc mirrors the tools mapping with expiration kept as a raw
@@ -138,10 +247,52 @@ func Default() Config {
 			OpenAI:    Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
-		Runtime: Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536, MaxToolTurns: defaultMaxToolTurns},
+		Runtime: Runtime{
+			Mock:                   false,
+			MockScenario:           "",
+			StreamBuffer:           256,
+			MaxEventPayloadBytes:   65536,
+			MaxToolTurns:           defaultMaxToolTurns,
+			MaxContextBytes:        defaultMaxContextBytes,
+			MaxHistoryMessages:     defaultMaxHistoryMessages,
+			MaxToolResultBytes:     32 << 10,
+			MaxRunEvents:           defaultMaxRunEvents,
+			MaxModelCalls:          defaultMaxModelCalls,
+			MaxRunToolCalls:        defaultMaxRunToolCalls,
+			MaxRunRetries:          defaultMaxRunRetries,
+			WorkspaceRoot:          defaultWorkspaceRoot,
+			SkillsRoot:             defaultSkillsRoot,
+			HTTPAllowedHosts:       []string{"localhost", "127.0.0.1", "::1"},
+			HTTPMaxResponseBytes:   1 << 20,
+			ExecuteAllowedCommands: []string{"go", "git", "rg"},
+			Sandbox: SandboxConfig{
+				DefaultMode:   "workspace_write",
+				WorkspaceRoot: defaultWorkspaceRoot,
+				Approval: SandboxApprovalConfig{
+					DefaultPolicy:    "ask",
+					TimeoutSeconds:   300, // 5 minutes
+					AutoApproveTools: []string{"read_file", "search_files", "list_notes", "read_note", "skills_list", "skill_view", "network_search"},
+				},
+				Network: SandboxNetworkConfig{
+					AllowedDomains: []string{},
+					DenyPrivateIPs: true,
+				},
+			},
+		},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note"},
+			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
+		},
+		Governance: Governance{
+			Profile:        "default",
+			HookTimeout:    time.Second,
+			HookTimeoutRaw: "1s",
+			Profiles: map[string]GovernanceProfile{
+				"default":   {},
+				"plan":      {Default: "deny"},
+				"read_only": {Default: "deny"},
+				"full_auto": {Default: "allow"},
+			},
 		},
 	}
 }
@@ -207,11 +358,63 @@ func (c *Config) Validate() error {
 	if c.Runtime.StreamBuffer <= 0 {
 		return errors.New("runtime.stream_buffer must be positive")
 	}
+	if c.Runtime.MockScenario != "" {
+		if !c.Runtime.Mock {
+			return errors.New("runtime.mock_scenario requires runtime.mock=true")
+		}
+		switch c.Runtime.MockScenario {
+		case "hitl", "approval", "question", "timeout", "stale":
+		default:
+			return fmt.Errorf("runtime.mock_scenario %q is unsupported", c.Runtime.MockScenario)
+		}
+	}
 	if c.Runtime.MaxEventPayloadBytes <= 0 {
 		return errors.New("runtime.max_event_payload_bytes must be positive")
 	}
 	if c.Runtime.MaxToolTurns < 0 {
 		return errors.New("runtime.max_tool_turns must not be negative")
+	}
+	if c.Runtime.MaxContextBytes <= 0 {
+		return errors.New("runtime.max_context_bytes must be positive")
+	}
+	if c.Runtime.MaxHistoryMessages <= 0 {
+		return errors.New("runtime.max_history_messages must be positive")
+	}
+	if c.Runtime.MaxToolResultBytes <= 0 {
+		return errors.New("runtime.max_tool_result_bytes must be positive")
+	}
+	if c.Runtime.MaxRunEvents <= 0 {
+		return errors.New("runtime.max_run_events must be positive")
+	}
+	if c.Runtime.MaxModelCalls <= 0 {
+		return errors.New("runtime.max_model_calls must be positive")
+	}
+	if c.Runtime.MaxRunToolCalls <= 0 {
+		return errors.New("runtime.max_run_tool_calls must be positive")
+	}
+	if c.Runtime.MaxRunRetries < 0 {
+		return errors.New("runtime.max_run_retries must not be negative")
+	}
+	if c.Runtime.WorkspaceRoot == "" {
+		return errors.New("runtime.workspace_root must not be empty")
+	}
+	if c.Runtime.SkillsRoot == "" {
+		return errors.New("runtime.skills_root must not be empty")
+	}
+	if c.Runtime.HTTPMaxResponseBytes <= 0 {
+		return errors.New("runtime.http_max_response_bytes must be positive")
+	}
+	for i, server := range c.Runtime.MCPServers {
+		if server.Name == "" || server.Endpoint == "" {
+			return fmt.Errorf("runtime.mcp_servers[%d] requires name and endpoint", i)
+		}
+		parsed, err := url.Parse(server.Endpoint)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("runtime.mcp_servers[%d].endpoint must be an absolute HTTP(S) URL", i)
+		}
+		if server.AuthEnv != "" && !envKeyPattern.MatchString(server.AuthEnv) {
+			return fmt.Errorf("runtime.mcp_servers[%d].auth_env must be an environment variable name", i)
+		}
 	}
 
 	if len(c.Tools.Enabled) == 0 {
@@ -228,5 +431,111 @@ func (c *Config) Validate() error {
 		return errors.New("tools.approval.expiration must be positive")
 	}
 
+	if c.Governance.Profile == "" {
+		c.Governance.Profile = "default"
+	}
+	if !validGovernanceProfile(c.Governance.Profile) {
+		return fmt.Errorf("governance.profile %q is unsupported", c.Governance.Profile)
+	}
+	if c.Governance.HookTimeoutRaw != "" {
+		d, err := time.ParseDuration(c.Governance.HookTimeoutRaw)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("governance.hook_timeout %q must be a positive duration", c.Governance.HookTimeoutRaw)
+		}
+		c.Governance.HookTimeout = d
+	}
+	if c.Governance.HookTimeout <= 0 {
+		return errors.New("governance.hook_timeout must be positive")
+	}
+	for name, profile := range c.Governance.Profiles {
+		if !validGovernanceProfile(name) {
+			return fmt.Errorf("governance.profiles.%s is unsupported", name)
+		}
+		if profile.Default != "" && !validGovernanceDecision(profile.Default) {
+			return fmt.Errorf("governance.profiles.%s.default %q is unsupported", name, profile.Default)
+		}
+		for i, rule := range profile.Rules {
+			if strings.TrimSpace(rule.Tool) == "" {
+				return fmt.Errorf("governance.profiles.%s.rules[%d].tool must not be empty", name, i)
+			}
+			if rule.Field != "" && !validGovernanceField(rule.Field) {
+				return fmt.Errorf("governance.profiles.%s.rules[%d].field %q is unsupported", name, i, rule.Field)
+			}
+			if rule.Equals != "" && rule.Prefix != "" {
+				return fmt.Errorf("governance.profiles.%s.rules[%d] cannot set both equals and prefix", name, i)
+			}
+			if !validGovernanceDecision(rule.Decision) {
+				return fmt.Errorf("governance.profiles.%s.rules[%d].decision %q is unsupported", name, i, rule.Decision)
+			}
+		}
+	}
+
+	// Sandbox configuration validation (D-021).
+	if c.Runtime.Sandbox.DefaultMode != "" {
+		switch c.Runtime.Sandbox.DefaultMode {
+		case "read_only", "workspace_write", "danger_full_access":
+		default:
+			return fmt.Errorf("runtime.sandbox.default_mode %q is unsupported; use read_only, workspace_write, or danger_full_access", c.Runtime.Sandbox.DefaultMode)
+		}
+	}
+	if c.Runtime.Sandbox.WorkspaceRoot != "" && c.Runtime.Sandbox.WorkspaceRoot != c.Runtime.WorkspaceRoot {
+		// Sandbox workspace root can override the global one, but must still be valid.
+		if err := validatePath(c.Runtime.Sandbox.WorkspaceRoot); err != nil {
+			return fmt.Errorf("runtime.sandbox.workspace_root: %w", err)
+		}
+	}
+	if c.Runtime.Sandbox.Approval.DefaultPolicy != "" {
+		switch c.Runtime.Sandbox.Approval.DefaultPolicy {
+		case "ask", "never", "auto":
+		default:
+			return fmt.Errorf("runtime.sandbox.approval.default_policy %q is unsupported; use ask, never, or auto", c.Runtime.Sandbox.Approval.DefaultPolicy)
+		}
+	}
+	if c.Runtime.Sandbox.Approval.TimeoutSeconds < 0 {
+		return errors.New("runtime.sandbox.approval.timeout_seconds must not be negative")
+	}
+	if c.Runtime.Sandbox.Network.DenyPrivateIPs {
+		// Validation only; actual enforcement happens at request time.
+	}
+
+	return nil
+}
+
+func validGovernanceProfile(value string) bool {
+	switch value {
+	case "default", "plan", "read_only", "full_auto":
+		return true
+	default:
+		return false
+	}
+}
+
+func validGovernanceDecision(value string) bool {
+	switch value {
+	case "allow", "prompt", "deny":
+		return true
+	default:
+		return false
+	}
+}
+
+func validGovernanceField(value string) bool {
+	switch value {
+	case "command", "cmd", "path", "filepath", "file_path":
+		return true
+	default:
+		return false
+	}
+}
+
+// validatePath checks that a path is non-empty and does not contain
+// traversal sequences. It is used for sandbox configuration validation.
+func validatePath(path string) error {
+	if path == "" {
+		return errors.New("path must not be empty")
+	}
+	if strings.Contains(path, "..") {
+		return errors.New("path must not contain ..")
+	}
 	return nil
 }

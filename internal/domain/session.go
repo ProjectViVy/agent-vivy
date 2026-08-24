@@ -18,20 +18,27 @@ func (r Role) Valid() bool {
 	return false
 }
 
-// Session is one conversation.
+// Session is one conversation. Sandbox fields control the permission
+// boundary for all runs in this session (D-021).
 type Session struct {
-	ID        SessionID
-	Title     string
-	CreatedAt int64 // unix milli
+	ID             SessionID
+	Title          string
+	CreatedAt      int64  // unix milli
+	SandboxMode    string // read_only | workspace_write | danger_full_access
+	ApprovalPolicy string // ask | never | auto
 }
 
 // Message is one turn in a session. Content is append-only; there is no
-// silent mutation path (FR-2).
+// silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
+// model-visible tool turn (ADR-010); they are empty on ordinary text rows.
 type Message struct {
-	ID        string
-	SessionID SessionID
-	RunID     RunID // empty for user-authored messages
-	Role      Role
-	CreatedAt int64 // unix milli
-	Content   string
+	ID         string
+	SessionID  SessionID
+	RunID      RunID // empty for user-authored messages
+	Role       Role
+	CreatedAt  int64 // unix milli
+	Content    string
+	ToolCallID string
+	ToolName   string
+	ToolArgs   []byte
 }

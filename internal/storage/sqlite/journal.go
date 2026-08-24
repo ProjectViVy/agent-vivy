@@ -9,7 +9,7 @@ import (
 	"agent-vivy/internal/storage"
 )
 
-const terminalTypes = `('run.completed','run.failed','run.cancelled')`
+const terminalTypes = `('run.completed','run.failed','run.cancelled','child.completed','child.failed','child.cancelled')`
 
 // Append stores the commit atomically with a freshly assigned contiguous
 // seq range. The exactly-one-terminal invariant (D-008) is enforced here:

@@ -28,6 +28,20 @@ var validTransitions = map[RunStatus][]RunStatus{
 	RunActive:   {RunCompleted, RunFailed, RunCancelled},
 }
 
+// RunKind distinguishes the user-facing root run from an independently
+// supervised child run. Child runs use the same lifecycle state machine and
+// Journal contracts as root runs.
+type RunKind string
+
+const (
+	RunKindPrimary RunKind = "primary"
+	RunKindChild   RunKind = "child"
+)
+
+func (k RunKind) Valid() bool {
+	return k == RunKindPrimary || k == RunKindChild
+}
+
 // Terminal returns true for completed/failed/cancelled.
 func (s RunStatus) Terminal() bool {
 	switch s {
@@ -73,4 +87,8 @@ type Run struct {
 	SessionID SessionID
 	Status    RunStatus
 	CreatedAt int64 // unix milli
+	Kind      RunKind
+	ParentID  RunID
+	RootID    RunID
+	Depth     int
 }

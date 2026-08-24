@@ -11,7 +11,7 @@ import (
 // The journal remains the single source of truth (D-017): the bus is a
 // pure optimization that never owns history. Subscribers that fall
 // behind are dropped (their channel closes); recovery is to re-read the
-// journal from the last seen seq (the SSE path does exactly this), so a
+// journal from the last seen seq (the RPC path does exactly this), so a
 // slow consumer can never wedge a run or lose events.
 type Bus struct {
 	buffer int

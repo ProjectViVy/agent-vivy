@@ -18,7 +18,7 @@ guards remain green on every gate run below.
 `OPENAI_API_KEY` are set; otherwise it skips, keeping CI and the default
 gate offline. With the real gateway it PASSED (`-race -count=1`):
 
-- AS-1: session → message → SSE consumed to `run.completed` with
+- AS-1: session → turn → JSON-RPC notifications consumed to `run.completed` with
   gapless seq, then the messages endpoint returned the full user +
   assistant round trip (28 events, ~38s wall time).
 - AS-7: reconnect with `after_seq=1` replayed exactly the tail,
@@ -26,7 +26,7 @@ gate offline. With the real gateway it PASSED (`-race -count=1`):
 - AS-5: cancel issued right after the first `model.delta` of a long
   stream → exactly one terminal event, `run.cancelled`.
 
-## Manual walkthrough (real provider, API + browser)
+## Manual walkthrough (real provider, JSON-RPC + browser)
 
 | AS | Scenario | Result |
 |---|---|---|
@@ -42,8 +42,8 @@ gate offline. With the real gateway it PASSED (`-race -count=1`):
 
 UI walkthrough notes: page rendered with session list and chat pane,
 message sent → streamed reply → refresh kept full history; no console
-errors. The approval dialog was exercised through the API decision
-endpoint; SSE-driven dialog behavior stays covered by the scripted-model
+errors. The approval dialog was exercised through the JSON-RPC decision
+method; the same notification path is covered by the scripted-model
 integration tests.
 
 ## Defect found and fixed: tool parameter schemas (`200357b`)

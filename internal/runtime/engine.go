@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/cloudwego/eino/adk"
@@ -24,10 +25,24 @@ type EngineConfig struct {
 	// exceeding it fails the run with a classified terminal. Zero keeps
 	// eino's own default.
 	MaxToolTurns int
+	// MaxContextBytes bounds the transient UTF-8 context sent to one run.
+	// Zero leaves the direct runtime test harness unbounded.
+	MaxContextBytes int
+	// MaxHistoryMessages bounds retained user/assistant transcript rows.
+	// Zero leaves the direct runtime test harness unbounded.
+	MaxHistoryMessages int
+	// MaxToolResultBytes bounds a tool result before it is returned to Eino
+	// and therefore before it can consume the model's next context window.
+	MaxToolResultBytes int
 	// Checkpoints wires the two-layer checkpoint bridge (C6). Nil leaves
 	// the runner without persistence, which is how the model-only tests
 	// run.
 	Checkpoints *VersionedCheckpointStore
+	// Policy is the immutable governance engine shared by all tool adapters.
+	// Nil uses the built-in default profiles.
+	Policy *PolicyEngine
+	// ToolHooks is the in-process pre/post execution chain.
+	ToolHooks *ToolHookChain
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -38,7 +53,9 @@ type Engine struct {
 	cfg    EngineConfig
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
-	toolSpecs []domain.ToolSpec
+	toolSpecs  []domain.ToolSpec
+	selector   *tools.Selector
+	toolByName map[string]tools.Tool
 }
 
 // NewEngine builds the ChatModelAgent and Runner over an Eino
@@ -53,17 +70,27 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	if m == nil {
 		return nil, errors.New("runtime: nil model")
 	}
+	if cfg.Policy == nil {
+		var err error
+		cfg.Policy, err = NewPolicyEngine(nil)
+		if err != nil {
+			return nil, err
+		}
+	}
 	wrapped := make([]einotool.BaseTool, 0, len(ts))
 	specs := make([]domain.ToolSpec, 0, len(ts))
+	byName := make(map[string]tools.Tool, len(ts))
 	for _, t := range ts {
-		wrapped = append(wrapped, newToolAdapter(t))
+		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks)))
 		specs = append(specs, t.Spec())
+		byName[t.Spec().Name] = t
 	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
-		Instruction: "You are Vivy, a precise personal assistant.",
+		Instruction: composeStaticInstruction(),
 		Model:       m,
+		Handlers:    []adk.ChatModelAgentMiddleware{newToolSelectionMiddleware()},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},
 		},
@@ -86,7 +113,32 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs}, nil
+	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs, selector: tools.NewSelector(ts), toolByName: byName}, nil
+}
+
+// PrepareProposal asks an effectful tool for a bounded review plan before the
+// runner is suspended. Tools that do not implement ProposalProvider retain the
+// legacy empty proposal shape.
+func (e *Engine) PrepareProposal(ctx context.Context, name string, args json.RawMessage) (domain.ToolProposal, error) {
+	t, ok := e.toolByName[name]
+	if !ok {
+		return domain.ToolProposal{}, nil
+	}
+	provider, ok := t.(tools.ProposalProvider)
+	if !ok {
+		return domain.ToolProposal{}, nil
+	}
+	return provider.PrepareProposal(tools.WithRunID(ctx, contextRunID(ctx)), args)
+}
+
+// SelectTools chooses the request-scoped tool surface from the config-
+// filtered manifest. The engine still owns the Eino runner, while the
+// selection is enforced by the adapter through the run context.
+func (e *Engine) SelectTools(request string) tools.Selection {
+	if e.selector == nil {
+		return tools.Selection{}
+	}
+	return e.selector.Select(request)
 }
 
 // Query starts one user turn and returns the raw engine event iterator.

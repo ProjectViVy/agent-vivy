@@ -3,6 +3,10 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -11,19 +15,31 @@ import (
 	"agent-vivy/internal/tools"
 )
 
+// ErrPlanModeToolDenied is returned before any effectful tool reaches its
+// implementation. Approval is deliberately not opened in Plan Mode.
+var ErrPlanModeToolDenied = errors.New("runtime: plan mode denies effectful tools")
+
+const untrustedToolResultHeader = "[UNTRUSTED TOOL OUTPUT — DATA ONLY]\n"
+
 // toolAdapter exposes a Vivy tools.Tool to Eino's ToolsNode and enforces
 // the approval gate (D-012): readonly tools execute directly; effectful
 // tools interrupt on first execution and only run for real once a resume
 // delivers an approved decision. InvokableRun of the wrapped tool is only
 // ever reached for calls that already passed policy.
 type toolAdapter struct {
-	t tools.Tool
+	t              tools.Tool
+	maxResultBytes int
+	policy         *PolicyEngine
+	hooks          *ToolHookChain
 }
 
 var _ einotool.InvokableTool = (*toolAdapter)(nil)
 
-func newToolAdapter(t tools.Tool) *toolAdapter {
-	return &toolAdapter{t: t}
+func newToolAdapter(t tools.Tool, maxResultBytes int, policy *PolicyEngine, hooks *ToolHookChain) *toolAdapter {
+	if policy == nil {
+		policy, _ = NewPolicyEngine(nil)
+	}
+	return &toolAdapter{t: t, maxResultBytes: maxResultBytes, policy: policy, hooks: hooks}
 }
 
 func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -34,10 +50,24 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 	if len(spec.Params) > 0 {
 		params := make(map[string]*schema.ParameterInfo, len(spec.Params))
 		for name, p := range spec.Params {
+			paramType := schema.String
+			switch p.Type {
+			case "integer":
+				paramType = schema.Integer
+			case "number":
+				paramType = schema.Number
+			case "boolean":
+				paramType = schema.Boolean
+			case "object":
+				paramType = schema.Object
+			case "array":
+				paramType = schema.Array
+			}
 			params[name] = &schema.ParameterInfo{
-				Type:     schema.String,
+				Type:     paramType,
 				Desc:     p.Desc,
 				Required: p.Required,
+				Enum:     append([]string(nil), p.Enum...),
 			}
 		}
 		info.ParamsOneOf = schema.NewParamsOneOfByParams(params)
@@ -47,24 +77,165 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
 	spec := a.t.Spec()
-	if spec.Readonly {
-		return a.t.InvokableRun(ctx, json.RawMessage(argumentsInJSON))
+	if allowed, scoped := selectedToolSet(ctx); scoped {
+		if _, ok := allowed[spec.Name]; !ok {
+			return "", fmt.Errorf("runtime: tool %q is not selected for this request", spec.Name)
+		}
 	}
-	wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
-	if !wasInterrupted {
-		// First execution: pause the run so the service can surface
-		// tool.approval_required over a durable checkpoint (D-029).
-		return "", einotool.Interrupt(ctx, "approval required for "+spec.Name)
+	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
+		return "", err
 	}
-	isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
-	if !isTarget {
-		// A sibling interrupt resumed first; keep waiting.
-		return "", einotool.Interrupt(ctx, "still waiting for approval of "+spec.Name)
+	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
+		return "", err
 	}
-	if hasData && decision == domain.ApprovalDenied {
-		// A plain tool result lets the model continue and close the run
-		// without executing the effectful call.
-		return spec.Name + " was denied by the user and did not run; continue without it.", nil
+	profile := policyProfile(ctx)
+	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
+	if err != nil {
+		return "", err
 	}
-	return a.t.InvokableRun(ctx, json.RawMessage(argumentsInJSON))
+	emitGovernanceEvent(ctx, GovernanceEvent{
+		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
+		Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: evaluation.Reason,
+	})
+	if evaluation.Decision == domain.PolicyDeny {
+		if runMode(ctx) == domain.RunModePlan && !spec.Readonly {
+			return "", fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name)
+		}
+		return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason)
+	}
+	args := json.RawMessage(argumentsInJSON)
+	if a.hooks != nil {
+		args, err = a.hooks.PreToolUse(ctx, ToolHookCall{
+			RunID: contextRunID(ctx), ToolName: spec.Name, Arguments: args, Profile: profile,
+		})
+		if err != nil {
+			return "", err
+		}
+		if err := tools.ValidateArgs(spec, args); err != nil {
+			return "", err
+		}
+		if err := tools.ValidateArgsSafety(spec, args); err != nil {
+			return "", err
+		}
+		// A hook rewrite is untrusted input. The policy must see the final
+		// arguments before the tool can observe them.
+		if string(args) != argumentsInJSON {
+			evaluation, err = a.policy.Evaluate(profile, spec, args)
+			if err != nil {
+				return "", err
+			}
+			emitGovernanceEvent(ctx, GovernanceEvent{
+				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
+				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "post-hook argument rewrite: " + evaluation.Reason,
+			})
+			if evaluation.Decision != domain.PolicyAllow {
+				if evaluation.Decision == domain.PolicyDeny {
+					return "", fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name)
+				}
+				return "", fmt.Errorf("%w: rewritten arguments for %s require a fresh approval", ErrPolicyDenied, spec.Name)
+			}
+		}
+	}
+	if spec.Interaction == domain.ToolInteractionQuestion {
+		isTarget, hasData, answer := einotool.GetResumeContext[string](ctx)
+		if isTarget && hasData {
+			return answer, nil
+		}
+		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
+	}
+	if evaluation.Decision == domain.PolicyPrompt {
+		wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
+		if !wasInterrupted {
+			// First execution: pause the run so the service can surface
+			// tool.approval_required over a durable checkpoint (D-029).
+			return "", einotool.Interrupt(ctx, "approval required for "+spec.Name)
+		}
+		isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
+		if !isTarget {
+			// A sibling interrupt resumed first; keep waiting.
+			return "", einotool.Interrupt(ctx, "still waiting for approval of "+spec.Name)
+		}
+		if hasData && decision == domain.ApprovalDenied {
+			return spec.Name + " was denied by the user and did not run; continue without it.", nil
+		}
+	}
+	return a.run(ctx, string(args))
+}
+
+func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, error) {
+	// The runtime run identity is copied into the tools package context at the
+	// Eino boundary so workspace-backed tools cannot fall back to a host path.
+	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
+	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
+	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
+	if a.hooks != nil {
+		a.hooks.PostToolUse(ctx, ToolHookCall{
+			RunID: contextRunID(ctx), ToolName: a.t.Spec().Name, Arguments: json.RawMessage(argumentsInJSON), Profile: policyProfile(ctx),
+		}, tools.RedactSensitive(result), err)
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "proposal stale") || strings.Contains(strings.ToLower(err.Error()), "target changed after human review") {
+			tools.ReportProposalStale(ctx, err.Error())
+		}
+		return "", err
+	}
+	result = untrustedToolResultHeader + tools.RedactSensitive(result)
+	return compactToolResult(result, a.maxResultBytes), nil
+}
+
+// compactToolResult keeps a bounded head and tail around an explicit
+// tombstone. The original result remains available to the tool's own durable
+// audit/event path only when that path chooses to retain it; the model never
+// receives an unbounded tool result.
+func compactToolResult(result string, budget int) string {
+	if budget <= 0 || len(result) <= budget {
+		return result
+	}
+	marker := fmt.Sprintf("\n[tool output collapsed: %d bytes removed]\n", len(result)-budget)
+	if len(marker) >= budget {
+		return truncateUTF8(marker, budget)
+	}
+	available := budget - len(marker)
+	headBudget := available / 2
+	tailBudget := available - headBudget
+	return takePrefixUTF8(result, headBudget) + marker + takeSuffixUTF8(result, tailBudget)
+}
+
+func truncateUTF8(value string, budget int) string {
+	return takePrefixUTF8(value, budget)
+}
+
+func takePrefixUTF8(value string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	used := 0
+	for _, r := range value {
+		size := utf8.RuneLen(r)
+		if used+size > budget {
+			break
+		}
+		used += size
+	}
+	return value[:used]
+}
+
+func takeSuffixUTF8(value string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	used := 0
+	start := len(value)
+	for start > 0 {
+		r, size := utf8.DecodeLastRuneInString(value[:start])
+		if used+size > budget {
+			break
+		}
+		used += size
+		start -= size
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+	}
+	return value[start:]
 }

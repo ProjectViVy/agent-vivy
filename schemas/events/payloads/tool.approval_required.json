@@ -25,6 +25,14 @@
       "type": "integer",
       "minimum": 0,
       "description": "Unix milliseconds; server-side enforced (D-009)."
+    },
+    "selected_tools": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["normal", "plan"]
     }
   },
   "required": ["approval_id", "tool_call_id", "tool_name", "args", "expires_at"],

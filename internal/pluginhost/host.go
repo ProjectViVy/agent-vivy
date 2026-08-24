@@ -1,0 +1,165 @@
+// Package pluginhost adapts sdk/plugin tools onto the Vivy tool contract.
+// Plugins never import this package.
+package pluginhost
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/plugin"
+)
+
+// WorkspaceLookup returns the current run workspace. Missing lookups fail closed.
+type WorkspaceLookup func(ctx context.Context) (string, error)
+
+// Adapt turns compiled user plugins into first-class Vivy tools.
+func Adapt(plugins []plugin.Plugin, lookup WorkspaceLookup) []tools.Tool {
+	var out []tools.Tool
+	for _, p := range plugins {
+		if p == nil {
+			continue
+		}
+		for _, t := range p.Tools() {
+			if t == nil || t.Name() == "" {
+				continue
+			}
+			out = append(out, hostedTool{plugin: p, tool: t, lookup: lookup})
+		}
+	}
+	return out
+}
+
+type hostedTool struct {
+	plugin plugin.Plugin
+	tool   plugin.Tool
+	lookup WorkspaceLookup
+}
+
+func (h hostedTool) Spec() domain.ToolSpec {
+	readonly := h.tool.Effect() == plugin.EffectRead
+	spec := domain.ToolSpec{
+		Name:        h.tool.Name(),
+		Description: "User plugin tool " + h.tool.Name(),
+		Readonly:    readonly,
+		Keywords:    []string{h.plugin.Name(), h.tool.Name()},
+		Params:      schemaParams(h.tool.Schema()),
+	}
+	return spec
+}
+
+func (h hostedTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	env := hostedEnv{plugin: h.plugin, lookup: h.lookup, ctx: ctx}
+	return h.tool.Run(ctx, env, args)
+}
+
+type hostedEnv struct {
+	plugin plugin.Plugin
+	lookup WorkspaceLookup
+	ctx    context.Context
+}
+
+func (e hostedEnv) Workspace() string {
+	root, err := e.workspace()
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
+func (e hostedEnv) OpenRead(name string) (io.ReadCloser, error) {
+	if !e.has(plugin.GrantFSRead) {
+		return nil, plugin.ErrDenied
+	}
+	path, err := e.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(path)
+}
+
+func (e hostedEnv) OpenWrite(name string) (io.WriteCloser, error) {
+	if !e.has(plugin.GrantFSWrite) {
+		return nil, plugin.ErrDenied
+	}
+	path, err := e.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+}
+
+func (e hostedEnv) has(need plugin.Grant) bool {
+	for _, grant := range e.plugin.Grants() {
+		if grant == need {
+			return true
+		}
+	}
+	return false
+}
+
+func (e hostedEnv) workspace() (string, error) {
+	if e.lookup == nil {
+		return "", plugin.ErrDenied
+	}
+	root, err := e.lookup(e.ctx)
+	if err != nil || root == "" {
+		if err == nil {
+			err = plugin.ErrDenied
+		}
+		return "", err
+	}
+	return root, nil
+}
+
+func (e hostedEnv) resolve(name string) (string, error) {
+	if name == "" || path.IsAbs(name) || filepath.IsAbs(name) || strings.ContainsAny(name, `:\`) || strings.HasPrefix(name, "/") {
+		return "", plugin.ErrInvalidArgs
+	}
+	cleaned := path.Clean(name)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", plugin.ErrInvalidArgs
+	}
+	root, err := e.workspace()
+	if err != nil {
+		return "", err
+	}
+	full := filepath.Join(root, filepath.FromSlash(cleaned))
+	rel, err := filepath.Rel(root, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", plugin.ErrInvalidArgs
+	}
+	return full, nil
+}
+
+func schemaParams(raw json.RawMessage) map[string]domain.ToolParam {
+	var doc struct {
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil
+	}
+	req := map[string]struct{}{}
+	for _, name := range doc.Required {
+		req[name] = struct{}{}
+	}
+	out := make(map[string]domain.ToolParam, len(doc.Properties))
+	for name, prop := range doc.Properties {
+		_, required := req[name]
+		out[name] = domain.ToolParam{Desc: prop.Description, Required: required, Type: prop.Type}
+	}
+	return out
+}

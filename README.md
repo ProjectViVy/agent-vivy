@@ -9,9 +9,14 @@ parent directory `../` (`diva-go/`) and is the contract this code must honor.
 
 ## Status
 
-Skeleton initialized. No functional code yet — see `docs/TODO.md` for the
-milestone plan (M0–M4) and `docs/IMPLEMENTATION-PLAN.md` for the architecture
-translation (package layout, key contracts, storage design).
+V0/V1 species runtime is assembled (see `docs/TODO.md`). **Vivy Studio
+is the first-party daily development IDE and the independent owner of the
+distribution lifecycle.** Other authorized developer tools may work directly
+in this repository with their own native capabilities; work does not need to
+be transferred into Studio (`docs/architecture/VIVY-STUDIO.md`).
+
+Do not add a “open Studio” door to `vivy.exe`. The species-side Studio
+card is not Studio.
 
 ## Requirements
 
@@ -19,6 +24,7 @@ translation (package layout, key contracts, storage design).
   is not on PATH, use the full path or add it).
 - `GOPROXY` must be `https://goproxy.cn,direct` (proxy.golang.org is
   unreachable from this network). Already persisted via `go env -w`.
+- Node.js 22+ and pnpm for the embedded React UI.
 - Optional: [just](https://github.com/casey/just) for the task recipes in
   `justfile`. Without it, run the underlying `go` commands directly.
 
@@ -28,14 +34,16 @@ translation (package layout, key contracts, storage design).
 just setup      # go mod download
 just build      # go build ./...
 just test       # go test ./...
-just ci         # gofmt check + go vet + go test
+just ci         # Go fmt/vet/test + UI install/typecheck/unit/build
 just run        # run the vivy process (health endpoint on :8787)
 ```
 
 ## Layout
 
 ```text
-cmd/vivy/          process entrypoint (startup, signals, health)
+cmd/vivy/          species entrypoint (daily gateway + worker)
+sdk/               vivy-sdk binary (verify/pack); invoked by Studio, not by vivy.exe
+sdk/plugin/        author import window
 internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)
 internal/domain/   Vivy-owned Session/Message/Run/RunEvent/... contract types
@@ -44,10 +52,10 @@ internal/provider/ openai-compatible / anthropic / mock; YAML bundles
 internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
-internal/httpapi/  UI-facing command/query/SSE event API
+internal/rpc/      UI-facing command/query/event JSON-RPC control plane
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
-ui/                browser UI shell (Vite), independent of runtime internals
+ui/                only browser UI (React + Vite + Zustand + TanStack Router)
 docs/              implementation plan + project TODO board
 ```
 

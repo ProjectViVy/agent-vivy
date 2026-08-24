@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/user.question_required.json",
+  "title": "user.question_required payload (v1)",
+  "description": "A durable ask_user suspension. This lifecycle is distinct from tool approval.",
+  "type": "object",
+  "properties": {
+    "question_id": {"type": "string", "minLength": 1},
+    "tool_call_id": {"type": "string", "minLength": 1},
+    "prompt": {"type": "string", "minLength": 1},
+    "expires_at": {"type": "integer", "minimum": 0},
+    "resume_target": {"type": "string", "minLength": 1},
+    "selected_tools": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "mode": {"type": "string", "enum": ["normal", "plan"]}
+  },
+  "required": ["question_id", "tool_call_id", "prompt", "expires_at", "resume_target"],
+  "additionalProperties": false
+}

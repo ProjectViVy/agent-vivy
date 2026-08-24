@@ -75,7 +75,7 @@ func TestJournalAppendReplay(t *testing.T) {
 		t.Errorf("types = %v", types)
 	}
 
-	// after_seq filtering (SSE resume, AS-7).
+	// after_seq filtering (RPC resume, AS-7).
 	it2, err := b.Replay(ctx, "run-1", 2)
 	if err != nil {
 		t.Fatalf("Replay after 2: %v", err)

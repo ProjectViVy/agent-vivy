@@ -20,9 +20,11 @@
 .env
 .env.*
 
+# Dependencies and build artifacts for any nested JS workspace
+node_modules/
+
 # UI build artifacts and deps. ui/dist/.keep stays committed so go:embed
 # compiles before the first Vite build.
-/ui/node_modules/
 /ui/dist/*
 !/ui/dist/.keep
 
@@ -30,6 +32,17 @@
 /ui/.e2e-workdir/
 /ui/test-results/
 /ui/playwright-report/
+/test-results/
+
+# Archived superseded artifacts (old spike/smoke binaries)
+/archive/
+
+# Local package-manager caches and transient packaging artifacts
+/.pnpm-store/
+meoo_zip_*.zip
+
+# Local reference checkouts (deepseek-harness, eino, crush) — cloned on demand
+/.workspace/
 
 # Editor / OS noise
 .idea/

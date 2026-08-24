@@ -1,172 +1,134 @@
-/* Vivy UI shell: plain CSS, single file, deliberately simple. */
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
 
-* {
-  box-sizing: border-box;
+/* 色值套数：纯深色或纯浅色只写 :root 一套，删除多余的 .dark 与下方 @custom-variant dark；非纯色默认写 :root + .dark 两套（数值须不同） */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: var(--font-sans);
 }
 
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #f6f7f9;
-  color: #1c1f24;
+:root {
+  --radius: 0.75rem;
+  --font-sans: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --background: oklch(0.975 0.012 250);
+  --foreground: oklch(0.3 0.04 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.3 0.04 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.3 0.04 255);
+  --primary: oklch(0.58 0.2 255);
+  --primary-foreground: oklch(0.99 0.005 250);
+  --secondary: oklch(0.95 0.025 250);
+  --secondary-foreground: oklch(0.45 0.09 255);
+  --muted: oklch(0.95 0.018 250);
+  --muted-foreground: oklch(0.53 0.04 255);
+  --accent: oklch(0.92 0.055 250);
+  --accent-foreground: oklch(0.4 0.12 255);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.91 0.025 250);
+  --input: oklch(0.91 0.025 250);
+  --ring: oklch(0.58 0.2 255);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.95 0.025 250);
+  --sidebar-foreground: oklch(0.36 0.055 255);
+  --sidebar-primary: oklch(0.58 0.2 255);
+  --sidebar-primary-foreground: oklch(0.99 0.005 250);
+  --sidebar-accent: oklch(0.9 0.065 250);
+  --sidebar-accent-foreground: oklch(0.4 0.13 255);
+  --sidebar-border: oklch(0.91 0.025 250);
+  --sidebar-ring: oklch(0.58 0.2 255);
 }
 
-#app {
-  display: flex;
-  height: 100vh;
+.dark {
+  --background: oklch(0.2 0.025 255);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.225 0.03 255);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.225 0.035 255);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.68 0.18 255);
+  --primary-foreground: oklch(0.99 0.005 250);
+  --secondary: oklch(0.285 0.05 255);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.275 0.04 255);
+  --muted-foreground: oklch(0.804 0.008 256.9);
+  --accent: oklch(0.31 0.065 255);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.68 0.18 255);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.215 0.04 255);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.68 0.18 255);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.31 0.065 255);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.68 0.18 255);
 }
 
-#sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background: #eceef2;
-  border-right: 1px solid #d8dbe2;
-  display: flex;
-  flex-direction: column;
-}
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
 
-#sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  border-bottom: 1px solid #d8dbe2;
-}
-
-.brand {
-  font-weight: 600;
-}
-
-#session-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-}
-
-#session-list li {
-  padding: 8px 12px;
-  cursor: pointer;
-  border-bottom: 1px solid #e2e4ea;
-}
-
-#session-list li.selected {
-  background: #dfe6f5;
-}
-
-#main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-#run-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #d8dbe2;
-  min-height: 36px;
-}
-
-#chat {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.bubble {
-  max-width: 70%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.bubble.user {
-  align-self: flex-end;
-  background: #2f6fed;
-  color: #fff;
-}
-
-.bubble.assistant {
-  align-self: flex-start;
-  background: #fff;
-  border: 1px solid #d8dbe2;
-}
-
-.bubble.error {
-  align-self: flex-start;
-  background: #fdecec;
-  border: 1px solid #e6b3b3;
-}
-
-#event-log {
-  max-height: 30vh;
-  overflow-y: auto;
-  border-top: 1px solid #d8dbe2;
-  padding: 8px 12px;
-  background: #fff;
-  font-size: 12px;
-}
-
-#event-list {
-  margin: 4px 0 0;
-  padding-left: 20px;
-}
-
-#composer {
-  display: flex;
-  gap: 8px;
-  padding: 12px;
-  border-top: 1px solid #d8dbe2;
-}
-
-#composer-input {
-  flex: 1;
-  resize: none;
-  padding: 8px;
-}
-
-button {
-  cursor: pointer;
-}
-
-#modal-root .modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-#modal-root .modal {
-  background: #fff;
-  border-radius: 8px;
-  padding: 16px;
-  max-width: 480px;
-  width: 90%;
-}
-
-#toast-root {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.toast {
-  background: #26292f;
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  max-width: 360px;
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
 }

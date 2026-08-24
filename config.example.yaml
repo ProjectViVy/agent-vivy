@@ -3,7 +3,7 @@
 # provider keys are read from environment variables at request time (D-010).
 
 server:
-  # HTTP API + SSE listen address for the UI.
+  # Local HTTP bootstrap + WebSocket JSON-RPC listen address for the UI.
   addr: "127.0.0.1:8787"
 
 storage:
@@ -29,15 +29,99 @@ providers:
 runtime:
   # Deterministic mock provider for tests and offline development.
   mock: false
+  # Test-only Eino tool-call scenario; valid only when mock is true.
+  # Supported values: hitl, approval, question, timeout, stale.
+  mock_scenario: ""
   # Max buffered stream chunks / event payload size bounds (NFR: bounded).
   stream_buffer: 256
   max_event_payload_bytes: 65536
+  # Bounds the transient current-session context sent to the model.
+  max_context_bytes: 262144
+  max_history_messages: 64
+  max_tool_result_bytes: 32768
+  # Shared run-tree circuit breakers. Resumed work spends the same budget.
+  max_run_events: 512
+  max_model_calls: 32
+  max_run_tool_calls: 64
+  max_run_retries: 3
+  workspace_root: data/workspaces
+  # Trusted local Skill packages. Skill text is still treated as untrusted data.
+  skills_root: data/skills
+  # Explicit host surface for read-only http_request; add public hosts deliberately.
+  http_allowed_hosts:
+    - localhost
+    - 127.0.0.1
+    - ::1
+  http_max_response_bytes: 1048576
+  # Streamable HTTP MCP servers; credentials are env references only.
+  mcp_servers: []
+  execute_allowed_commands:
+    - go
+    - git
+    - rg
+  # Sandbox controls the file-effect policy boundary (D-021).
+  # Mirrors the DeepSeek Harness three-tier permission model.
+  sandbox:
+    # Initial sandbox mode for new sessions:
+    #   read_only           - deny all writes, only allow reads in workspace
+    #   workspace_write     - allow reads/writes within workspace root (default)
+    #   danger_full_access  - bypass all sandbox restrictions (use with caution)
+    default_mode: workspace_write
+    # Optional override for sandbox workspace root (defaults to workspace_root above).
+    workspace_root: ""
+    # Approval behavior for effectful tools under different policies.
+    approval:
+      # Default approval policy:
+      #   ask   - require user approval for every effectful tool (default)
+      #   never - deny all effectful tools without asking
+      #   auto  - auto-approve readonly/whitelisted tools, ask for others
+      default_policy: ask
+      # Timeout in seconds before pending approvals are auto-expired and denied.
+      # Set to 0 to disable timeout (approvals expire based on expiration field only).
+      timeout_seconds: 300
+      # Tools that are auto-approved under the "auto" policy (typically readonly tools).
+      auto_approve_tools:
+        - read_file
+        - search_files
+        - list_notes
+        - read_note
+        - skills_list
+        - skill_view
+        - network_search
+    # Network access restrictions for HTTP requests.
+    network:
+      # Whitelist of allowed domains. Empty means no domain restriction.
+      allowed_domains: []
+      # Block RFC1918 private IP ranges when true.
+      deny_private_ips: true
 
 tools:
-  # V0 ships one read-only auto-execute tool and one effectful
-  # approval-gated tool (D-012).
+  # Read-only tools auto-execute. Mutations and Skill management are always
+  # routed through the durable approval/HITL flow.
   enabled:
     - echo_info        # read-only, auto-execute
     - write_note       # effectful, approval-gated
+    - list_notes
+    - read_note
+    - ask_user         # user-input suspension, distinct from approval
+    - read_file
+    - search_files
+    - write_file
+    - patch
+    - http_request  # GET/HEAD only; host allowlist and credential policy apply
+    - mcp_list_tools
+    - mcp_call       # always approval-gated with server/tool provenance
+    - sequential_thinking
+    - execute        # workspace-only, allowlisted process, always approval-gated
+    - commandline    # argv-oriented alias with the same policy
+    - skills_list
+    - skill_view
+    - skill_manage
+    - task_create
+    - task_get
+    - task_update
+    - task_list
+    - network_search  # API-backed text search; remote results are untrusted
+    - tool_search
   approval:
     expiration: 5m

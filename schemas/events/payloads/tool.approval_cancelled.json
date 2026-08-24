@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/tool.approval_cancelled.json",
+  "title": "tool.approval_cancelled payload (v1)",
+  "type": "object",
+  "properties": {
+    "approval_id": {"type": "string", "minLength": 1},
+    "actor": {"type": "string"},
+    "reason": {"type": "string"}
+  },
+  "required": ["approval_id"],
+  "additionalProperties": false
+}

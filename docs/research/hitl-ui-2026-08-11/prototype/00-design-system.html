@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vivy HITL · Design System</title>
+<!--
+  =====================================================================
+  Vivy HITL Review Center — Visual Sprint · Design System (Junior pass)
+  =====================================================================
+  ASSUMPTIONS (待用户确认):
+  - 视觉方向: 沿现有 ui/ 工业 IDE 风延伸, 不另起炉灶。
+    现有 tokens 来自 ui/src/styles/tokens.css (#5b5bd6 violet, 中性面,
+    Inter 字体栈)。本原型直接复用这套语义, 并叠加"审查语义层"。
+  - 风险维度: 沿用 research-report §4 的多维风险 (effect / reversibility /
+    scope / trust / precondition), 但以现有 success/warning/danger 语义色
+    派生出 3 级风险 (low/medium/high), 不引入新色相, 避免 slop。
+  - 状态色: pending=warning(amber), approved/answered=success,
+    denied/cancelled/expired/stale=danger, executing=primary,
+    succeeded=success。状态用 形状+文字+色 三信号, 不只靠色。
+  - 字体: 沿用 Inter / PingFang SC 系统栈 (这是现有品牌签名, 非 slop 偷懒)。
+  - 这版是"从 existing context 长出来"的高保真原型, 不是空想风格。
+
+  下一步: 用户确认后, 我把这套系统铺到 5 个屏幕的真实交互原型里。
+  =====================================================================
+-->
+<style>
+  :root {
+    /* —— 沿用现有 ui/ tokens —— */
+    --primary: #5b5bd6;
+    --primary-strong: #4a4ac4;
+    --primary-soft: #ececff;
+    --text-strong: #1d1d22;
+    --text: #45454e;
+    --text-muted: #6f6f7a;
+    --text-faint: #9a9aa6;
+    --surface-canvas: #f5f6f8;
+    --surface-panel: #ffffff;
+    --surface-subtle: #eef0f3;
+    --surface-raised: #ffffff;
+    --surface-selected: #e9e9ff;
+    --border: #e2e4e9;
+    --border-strong: #cccfd6;
+    --danger: #d6455b;
+    --danger-soft: #fdecef;
+    --success: #2f9e6b;
+    --success-soft: #e6f6ee;
+    --warning: #c77d1e;
+    --warning-soft: #fbf0dc;
+    --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif;
+    --font-mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-pill: 999px;
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px;
+
+    /* —— 审查语义层 (派生, 不引入新色相) —— */
+    --risk-low: var(--success);
+    --risk-low-soft: var(--success-soft);
+    --risk-medium: var(--warning);
+    --risk-medium-soft: var(--warning-soft);
+    --risk-high: var(--danger);
+    --risk-high-soft: var(--danger-soft);
+    --shield: var(--primary);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface-canvas); color: var(--text);
+    font-family: var(--font-sans); font-size: 14px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased; padding: 40px clamp(20px, 6vw, 80px) 80px;
+  }
+  h1 { color: var(--text-strong); font-size: 26px; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h2 { color: var(--text-strong); font-size: 15px; text-transform: uppercase;
+       letter-spacing: 0.08em; font-weight: 700; margin: 36px 0 14px; }
+  .lede { color: var(--text-muted); max-width: 720px; margin: 0 0 8px; }
+  .eyebrow { color: var(--text-muted); font-size: 11px; font-weight: 700;
+             letter-spacing: 0.1em; text-transform: uppercase; }
+  .grid { display: grid; gap: var(--space-4); }
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 900px) { .grid.cols-3, .grid.cols-4 { grid-template-columns: repeat(2, 1fr); } }
+  .swatch { border: 1px solid var(--border); border-radius: var(--radius-md);
+            overflow: hidden; background: var(--surface-panel); }
+  .swatch .chip { height: 64px; }
+  .swatch .meta { padding: 10px 12px; }
+  .swatch .meta strong { color: var(--text-strong); display: block; font-size: 13px; }
+  .swatch .meta span { color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; }
+  .card { background: var(--surface-panel); border: 1px solid var(--border);
+           border-radius: var(--radius-md); padding: 16px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-pill);
+           font-size: 11px; font-weight: 650; padding: 4px 10px; border: 1px solid var(--border); }
+  .badge .dot { width: 7px; height: 7px; border-radius: 999px; }
+  .badge.pending { background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 40%, var(--border)); color: var(--warning); }
+  .badge.pending .dot { background: var(--warning); }
+  .badge.resolved { background: var(--success-soft); color: var(--success); }
+  .badge.resolved .dot { background: var(--success); }
+  .badge.danger { background: var(--danger-soft); color: var(--danger); }
+  .badge.danger .dot { background: var(--danger); }
+  .badge.primary { background: var(--primary-soft); color: var(--primary-strong); }
+  .badge.primary .dot { background: var(--primary); }
+
+  /* 风险三级 */
+  .risk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: var(--radius-pill); }
+  .risk-low { background: var(--risk-low-soft); color: var(--risk-low); }
+  .risk-medium { background: var(--risk-medium-soft); color: var(--risk-medium); }
+  .risk-high { background: var(--risk-high-soft); color: var(--risk-high); }
+  .risk-low::before, .risk-medium::before, .risk-high::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
+
+  /* 状态: 形状+文字+色 三信号 */
+  .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+  .status .glyph { width: 16px; height: 16px; border-radius: 5px; display: inline-grid; place-items: center;
+                   font-size: 11px; font-weight: 800; color: #fff; }
+  .status.pending .glyph { background: var(--warning); }
+  .status.approved .glyph, .status.answered .glyph { background: var(--success); }
+  .status.denied .glyph, .status.expired .glyph, .status.stale .glyph { background: var(--danger); }
+  .status.executing .glyph { background: var(--primary); }
+  .status.pending { color: var(--warning); }
+  .status.approved, .status.answered { color: var(--success); }
+  .status.denied, .status.expired, .status.stale { color: var(--danger); }
+  .status.executing { color: var(--primary-strong); }
+
+  /* 按钮 */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+          min-height: 38px; padding: 0 var(--space-4); border-radius: var(--radius-sm);
+          font-weight: 600; font-size: 13px; border: 1px solid transparent; cursor: pointer; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-secondary { background: var(--surface-panel); border-color: var(--border); color: var(--text-strong); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-ghost { background: transparent; color: var(--text-muted); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .field-label { color: var(--text-muted); font-size: 11px; margin-bottom: 4px; display: block; }
+  .fact { background: var(--surface-canvas); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; }
+  .fact .v { color: var(--text-strong); font-size: 12px; }
+  code { font-family: var(--font-mono); font-size: 12px; background: var(--surface-subtle);
+          padding: 1px 5px; border-radius: 5px; }
+  .note { background: var(--primary-soft); border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+          border-radius: var(--radius-md); padding: 14px 16px; color: var(--text); }
+  .note strong { color: var(--primary-strong); }
+</style>
+</head>
+<body>
+  <header>
+    <p class="eyebrow">Vivy HITL · Visual Sprint</p>
+    <h1>Design System — Review Center</h1>
+    <p class="lede">沿用现有 <code>ui/</code> 工业 IDE 设计语言（violet #5b5bd6 + 中性面），叠加审查语义层。这是五屏可点击原型的设计基底，所有屏幕共用同一套 tokens、风险层级、状态信号与组件。</p>
+  </header>
+
+  <div class="note">
+    <strong>Junior pass · 假设（待确认）。</strong> 视觉方向 = 沿现有品牌延伸；风险 = 3 级派生（不引入新色相）；状态 = 形状+文字+色三信号（无障碍，不靠色 alone）；字体 = 现有 Inter / PingFang SC 栈。确认后铺到五屏真实交互原型。
+  </div>
+
+  <h2>品牌基底 · 沿用 ui/ tokens</h2>
+  <div class="grid cols-4">
+    <div class="swatch"><div class="chip" style="background:var(--primary)"></div><div class="meta"><strong>Primary</strong><span>#5b5bd6</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--surface-canvas)"></div><div class="meta"><strong>Canvas</strong><span>#f5f6f8</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--surface-panel)"></div><div class="meta"><strong>Panel</strong><span>#ffffff</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--surface-subtle)"></div><div class="meta"><strong>Subtle</strong><span>#eef0f3</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--success)"></div><div class="meta"><strong>Success</strong><span>#2f9e6b</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--warning)"></div><div class="meta"><strong>Warning</strong><span>#c77d1e</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--danger)"></div><div class="meta"><strong>Danger</strong><span>#d6455b</span></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--border-strong)"></div><div class="meta"><strong>Border</strong><span>#cccfd6</span></div></div>
+  </div>
+
+  <h2>审查语义层 · 风险三级（派生，无新色相）</h2>
+  <div class="grid cols-3">
+    <div class="card">
+      <span class="risk risk-low">Low risk</span>
+      <p class="lede" style="margin-top:10px;font-size:13px">read-only · local · reversible · trusted source</p>
+    </div>
+    <div class="card">
+      <span class="risk risk-medium">Medium risk</span>
+      <p class="lede" style="margin-top:10px;font-size:13px">local mutation · recoverable · model-generated</p>
+    </div>
+    <div class="card">
+      <span class="risk risk-high">High risk</span>
+      <p class="lede" style="margin-top:10px;font-size:13px">process · network · remote · irreversible · protected path</p>
+    </div>
+  </div>
+
+  <h2>状态信号 · 形状 + 文字 + 色（不只靠色）</h2>
+  <div class="grid cols-3">
+    <div class="card">
+      <div class="status pending"><span class="glyph">!</span> Pending</div>
+      <div class="status executing" style="margin-top:10px"><span class="glyph">▸</span> Executing</div>
+    </div>
+    <div class="card">
+      <div class="status approved"><span class="glyph">✓</span> Approved</div>
+      <div class="status answered" style="margin-top:10px"><span class="glyph">✓</span> Answered</div>
+    </div>
+    <div class="card">
+      <div class="status denied"><span class="glyph">×</span> Denied</div>
+      <div class="status stale" style="margin-top:10px"><span class="glyph">~</span> Stale</div>
+      <div class="status expired" style="margin-top:10px"><span class="glyph">⏱</span> Expired</div>
+    </div>
+  </div>
+
+  <h2>组件 · 类型徽章与按钮</h2>
+  <div class="grid cols-2">
+    <div class="card">
+      <p class="field-label">Review kind badges</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge primary"><span class="dot"></span> Approval</span>
+        <span class="badge primary"><span class="dot"></span> Question</span>
+        <span class="badge pending"><span class="dot"></span> Needs review</span>
+      </div>
+    </div>
+    <div class="card">
+      <p class="field-label">Decision buttons</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary">Approve once</button>
+        <button class="btn btn-danger">Deny</button>
+        <button class="btn btn-secondary">Answer</button>
+        <button class="btn btn-ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>事实字段 · 审查信息层级（严格顺序）</h2>
+  <div class="card">
+    <p class="field-label">Hierarchy from research-report §5.3 — 1→5 自上而下</p>
+    <div class="grid cols-2" style="margin-top:6px">
+      <div class="fact"><span class="field-label">① Consequence & decision state</span><span class="v">"Vivy wants to write file X"</span></div>
+      <div class="fact"><span class="field-label">② Exact target & scope</span><span class="v">workspace/src/main.go · 1 file</span></div>
+      <div class="fact"><span class="field-label">③ Preview / diff</span><span class="v">unified diff, 12 added / 3 removed</span></div>
+      <div class="fact"><span class="field-label">④ Risk & trust</span><span class="v">Medium · model-generated · recoverable</span></div>
+      <div class="fact" style="grid-column:1/-1"><span class="field-label">⑤ Technical arguments & event details</span><span class="v">behind &lt;details&gt; disclosure, redacted</span></div>
+    </div>
+  </div>
+
+  <h2>下一步</h2>
+  <div class="card">
+    <p class="lede">确认本设计系统后，将铺到以下五屏真实交互原型（含状态切换）：</p>
+    <p class="lede">A · Review Center 全局队列 → B · Approval 详情（diff-first）→ C · Question 详情 → D · Run inspector Review tab → E · Inline 对话卡</p>
+  </div>
+</body>
+</html>

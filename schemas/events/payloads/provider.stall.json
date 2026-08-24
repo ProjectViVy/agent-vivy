@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/provider.stall.json",
+  "title": "provider.stall payload (v1)",
+  "type": "object",
+  "properties": {
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Observed model stream duration in milliseconds."
+    }
+  },
+  "required": ["elapsed_ms"],
+  "additionalProperties": false
+}

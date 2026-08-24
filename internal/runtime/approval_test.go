@@ -46,6 +46,7 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Questions:          backend,
 		ApprovalExpiration: expiration, Sink: sink,
 	})
 	return svc, backend, sink
@@ -134,6 +135,16 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	if ap.ExpiresAt != approval.ExpiresAt {
 		t.Fatalf("payload expires_at = %d, want %d", ap.ExpiresAt, approval.ExpiresAt)
 	}
+	selectedWrite := false
+	for _, name := range ap.SelectedTools {
+		if name == tools.WriteNoteName {
+			selectedWrite = true
+			break
+		}
+	}
+	if !selectedWrite {
+		t.Fatalf("approval payload selected_tools = %v, want %q", ap.SelectedTools, tools.WriteNoteName)
+	}
 	// The sink saw the non-terminal approval event for live UI fan-out.
 	sawApproval := false
 	for _, ev := range sink.snapshot() {
@@ -158,6 +169,8 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		types = append(types, string(ev.Type))
 	}
 	want := []domain.EventType{
+		domain.EventToolApprovalDecided,
+		domain.EventPolicyEvaluated,
 		domain.EventToolStarted, domain.EventToolFinished,
 		domain.EventModelDelta, domain.EventModelCompleted, domain.EventRunCompleted,
 	}
@@ -170,7 +183,7 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		}
 	}
 	var fin payloadToolFinished
-	mustUnmarshal(t, events[ai+2].Payload, &fin)
+	mustUnmarshal(t, events[ai+4].Payload, &fin)
 	if fin.ToolCallID != ApprovalFlowCallID {
 		t.Fatalf("tool.finished call id = %q, want %q", fin.ToolCallID, ApprovalFlowCallID)
 	}
@@ -189,6 +202,44 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != domain.RoleAssistant || last.Content != "Done: the note has been handled." {
 		t.Fatalf("assistant message = %+v", last)
+	}
+}
+
+func TestServicePlanModeDoesNotOpenApprovalOrMutate(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+
+	runID, err := svc.RunWithOptions(ctx, "sess-plan", "note that I need milk", RunOptions{Mode: domain.RunModePlan})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	approvals, err := backend.ListPendingApprovals(ctx)
+	if err != nil {
+		t.Fatalf("list approvals: %v", err)
+	}
+	for _, approval := range approvals {
+		if approval.RunID == runID {
+			t.Fatalf("plan mode opened approval %+v", approval)
+		}
+	}
+	notes, err := backend.ListNotes(ctx)
+	if err != nil {
+		t.Fatalf("list notes: %v", err)
+	}
+	if len(notes) != 0 {
+		t.Fatalf("plan mode mutated notes: %+v", notes)
+	}
+
+	events := replayAll(t, backend, runID)
+	if indexOfType(events, domain.EventToolApprovalRequired) >= 0 {
+		t.Fatal("plan mode must not emit tool.approval_required")
+	}
+	var started payloadRunStarted
+	mustUnmarshal(t, events[0].Payload, &started)
+	if started.Mode != string(domain.RunModePlan) {
+		t.Fatalf("run.started mode = %q, want plan", started.Mode)
 	}
 }
 
@@ -272,6 +323,31 @@ func TestServiceApprovalExpired(t *testing.T) {
 		t.Fatal("cancel of a pending run must report true")
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCancelled)
+}
+
+func TestServiceExpirySweeperClosesPendingApproval(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, time.Millisecond)
+	ctx := context.Background()
+	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	time.Sleep(10 * time.Millisecond)
+	if err := svc.SweepExpired(ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+	stored, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Decision != domain.ApprovalExpired {
+		t.Fatalf("approval decision = %q, want expired", stored.Decision)
+	}
+	if indexOfType(replayAll(t, backend, runID), domain.EventToolApprovalExpired) < 0 {
+		t.Fatal("missing tool.approval_expired event")
+	}
 }
 
 func TestServiceCancelPendingRun(t *testing.T) {

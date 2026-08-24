@@ -71,15 +71,16 @@ terminals impossible. Cancellation is formalized per phase (AS-5): mid-tool,
 pre-start, and concurrent idempotency; append races with cancel route
 through the classified terminal.
 
-## ADR-004 — Events: ten-type vocabulary as the single contract
+## ADR-004 — Events: versioned vocabulary as the single contract
 
-**Decision.** Ten `RunEvent` types form the locked vocabulary
-(`schemas/events/run-event.schema.json`); payload schemas per type carry
+**Decision.** The versioned `RunEvent` vocabulary
+(`schemas/events/run-event.schema.json`) and its payload schemas carry
 structured cause categories (`provider_error | tool_error | internal_error |
-cancelled`). The same events serve journal persistence, SSE fan-out, and UI
-re-rendering (FR-5): the UI rebuilds state from `after_seq` replay, never
-from in-memory state. Events carry `session_id` / `run_id` / `seq`
-correlation identity per the logs-as-first-class anchor (§5.0.2).
+cancelled`). The same events serve journal persistence, JSON-RPC
+notifications, and UI re-rendering (FR-5): the UI rebuilds state from
+`after_seq` replay, never from in-memory state. Events carry `session_id` /
+`run_id` / `seq` correlation identity per the logs-as-first-class anchor
+(§5.0.2), including durable child-run lifecycle events.
 
 ## ADR-005 — Provider: two pre-baked bundles, env-only secrets
 
@@ -106,15 +107,16 @@ two-layer checkpoint bridge (D-028): `EinoCheckpointAdapter` →
 (D-009). Checkpoint bytes never define product history: the journal is the
 record, the checkpoint only resumes it.
 
-## ADR-007 — UI: thin browser shell over the HTTP/SSE contract
+## ADR-007 — UI: thin browser shell over the JSON-RPC contract
 
 **Decision.** The UI is a zero-runtime-dependency Vite + TypeScript shell
 served by the Go binary (`go:embed` + SPA fallback). It consumes only the
-JSON API (`{"error":{"code","message"}}` envelope, FR-11) and the SSE
-stream with reconnect cursor; all state is rebuildable from the API after
-refresh (no hidden client state, no web storage). No Eino or engine type
-crosses into the UI contract (D-007, D-013). Smoke is automated with
-Playwright against the real Go process.
+JSON-RPC control plane and the journal-backed run event stream with reconnect
+cursor; all product state is rebuildable from the API after refresh. Only the
+non-sensitive locale/theme preferences are persisted in browser storage; no
+session, run, prompt, event, or provider data is stored there. No Eino or
+engine type crosses into the UI contract (D-007, D-013). Smoke is automated
+with Playwright against the real Go process.
 
 ## ADR-008 — Recovery: restart settles every run to a definitive state
 
@@ -143,8 +145,148 @@ sole history source; context compaction, summaries, and RAG remain deferred
 (IMPLEMENTATION-PLAN §10) and any change to this rule requires a further
 capability proposal (RK-2/RK-4).
 
+## ADR-010 — Model-visible ≡ logged (upgrades ADR-009)
+
+**Decision.** Everything that reaches a model request must be reconstructable
+from durable product records. Cross-turn context now carries the paired
+tool-call / tool-result exchange in addition to user/assistant text. Each
+model invocation appends a `model.request` journal event whose message
+digests (role, optional tool name, content SHA-256, byte length) match the
+exact `[]*schema.Message` handed to `Runner.Run`.
+
+The Message store is a projection of that trajectory (user rows, assistant
+rows with tool-call metadata, tool rows). The Journal remains the product
+source of truth. Compaction, summaries, and a journal-only rebuild (which
+would need a user-message event) stay out of this ADR.
+
+**Guard tests.** Context unit tests keep paired tool turns; a service test
+proves the second run of a tool session is fed the prior call/result; a
+digest test proves `model.request` matches the captured model input.
+
+## ADR-011 — Studio object plane (S2)
+
+**Decision.** Generation, EvalRun, and Promotion live as sibling SQLite
+tables, not as `RunEvent` types. A separate append-only `studio_events`
+log records `generation.created`, `evalrun.recorded`, and
+`promotion.accepted`. Promote is human-gated, requires at least one
+EvalRun on the candidate, and is first-writer-wins on the source
+generation (`from_id`). This slice only writes rows; it does not spawn a
+candidate process or change the next-launch binary.
+
+**Guard tests.** Empty list; create then list; promote without eval
+fails; a second promote from the same `from` conflicts.
+
+**Superseded as product home.** ADR-018: these tables are the wrong
+process. Keep the code frozen; Studio owns the ledger.
+
+## ADR-012 — Live species inspect (S3)
+
+**Decision.** `species/inspect` is a read-only JSON-RPC method. It reports
+build identity, the latest accepted next-launch promotion (or `builtin`),
+the assembly recipe, default policy profile/hash, and tool names with
+readonly flags. It never returns secrets, session bodies, or host paths.
+This slice does not hash the running EXE and does not write Journal.
+
+**Guard tests.** Empty studio store → `generation_id=builtin` and a
+non-empty tool list; after promote → `generation_id` equals `to`;
+payload contains no `api_key` and no drive-letter paths.
+
+## ADR-013 — Air-gapped eval (S4)
+
+**Decision.** `evals/start` launches a candidate species process with its
+own data directory, listen address, and stripped environment. This slice
+may reuse the live EXE bytes (config-only candidate). The only suite is
+`airgap.probe`: healthz then kill. Success is `mixed` (no fitness claim);
+a dead candidate is `failed_to_run`. The launcher refuses a layout that
+would open the production SQLite path. Eval journals stay in the
+candidate directory. `evals/record` remains the manual write.
+
+**Guard tests.** Production session/journal rows unchanged after start;
+candidate SQLite exists on a successful probe; feeding the production
+path is rejected; a missing binary records `failed_to_run`.
+
+## ADR-014 — SDK verify and plugin window (S5)
+
+**Decision.** `vivy-sdk verify` checks one `plugins/<name>/` source
+package against `sdk/plugin`. It reads the manifest and AST, optionally
+`go list`s the package, and never writes an executable. Authors may
+import only `agent-vivy/sdk/plugin`. Pack, generated registers, and live
+loading stay out of this slice. The packer is not a `vivy.exe` subcommand.
+
+**Guard tests.** `plugins/hello-fs` verifies clean; testdata cases fail
+for internal imports, Eino, forbidden seams, name mismatch, and
+`package main`.
+
+## ADR-015 — SDK pack into a new generation (S6)
+
+**Decision.** `vivy-sdk pack --with <plugin>` verifies each named source
+package, then `go build -overlay`s a generated `Register()` into a new
+species EXE. The live `zz_register.go` stays empty. The only pack
+outputs are the EXE and `generation.json` (`source_ref=file:<exe>`).
+Pack does not open the production Journal. `evals/start` launches that
+artifact when `source_ref` is a present `file:` path. Compiled plugin
+tools join the process tool set through `internal/pluginhost`, not
+`config.tools.enabled`.
+
+**Guard tests.** Pack hello-fs writes exe + generation.json and leaves
+the live register empty; pluginhost can `Run` `hello_stat`; eval of a
+`file:` generation uses that EXE; production sessions stay unchanged;
+missing `--with` / failed verify / missing `go` do not emit an exe.
+
+## ADR-016 — Studio card (S7) — product meaning void
+
+**Decision (historical, 2026-08-15).** The embedded UI grew a Studio
+surface beside Review Center. That implementation may remain in the
+tree.
+
+**Superseded.** ADR-018 / `VIVY-STUDIO.md`: Vivy Studio is an
+independent application. The gateway card is not Studio. Do not
+extend this surface's product semantics (NG-28).
+
+**Guard tests.** Existing Playwright may keep running as a regression
+on leftover UI; it is not Studio acceptance.
+
+## ADR-017 — vivy-sdk is its own binary (2026-08-15)
+
+**Decision.** The packer is `vivy-sdk.exe`, not `vivy sdk`. Source lives
+at repo-root `sdk/` (`plugin/` for authors, `internal/` for the packer,
+`main.go` for the entry). It is not under `cmd/`. The daily `vivy.exe`
+has no sdk subcommand. `vivy-sdk` may later ship species sources or a
+Go toolchain and is allowed to be large; that is why it cannot ride
+inside the personal-gateway install.
+
+**Guard tests.** `go build ./cmd/vivy` has no `sdk` import; `go build
+./sdk` is the packer; `plugins/` still imports only `agent-vivy/sdk/plugin`.
+
+## ADR-018 — Vivy Studio is an independent application (2026-08-15)
+
+**Decision.** Vivy Studio is a second product. It owns develop +
+distribute (worktree, verify, pack, eval, release, install, rollback).
+Daily `vivy.exe` is the installed body. The species never launches
+Studio. Lifecycle objects live in Studio's store. ST-6 proved that Studio can
+serve as the first-party daily development IDE. Other authorized developer
+tools may work directly in the same source workspace with their own native
+capabilities (NG-21..NG-28).
+
+**Guard tests.** None in this ADR: it records a product constraint.
+Acceptance is the ST-* evidence in `VIVY-STUDIO.md` §10.
+
 ## Status
 
 - v0 (2026-08-09): baseline recorded after V0 closure (M0..M4, AS-1..AS-9
   verified on mock and real provider paths). Closes SR-1 / D-035.
+- 2026-08-14: next-generation write-up lives at
+  `docs/architecture/SELF-EVOLVING-GATEWAY.md` (narrative) and
+  `docs/architecture/VIVY-GATEWAY-AND-STUDIO.md` (decision table).
+  Direction adopted the same day; ADR-010 is the first implementation slice.
+- 2026-08-15: ADR-012 live species inspect is implemented (`species/inspect`).
+- 2026-08-15: ADR-013 air-gapped eval is implemented (`evals/start`).
+- 2026-08-15: ADR-014 SDK verify is implemented (`vivy-sdk verify`).
+- 2026-08-15: ADR-015 SDK pack is implemented (`vivy-sdk pack`).
+- 2026-08-15: ADR-016 Studio card was claimed; product meaning voided
+  the same day by ADR-018.
+- 2026-08-15: ADR-017 splits `vivy-sdk` into `sdk/` as its own binary.
+- 2026-08-15: ADR-018 — Studio is an independent app and first-party daily
+  development IDE. Other authorized tools may work directly in the workspace.
+  Canonical: `docs/architecture/VIVY-STUDIO.md`.
 </file_content>
