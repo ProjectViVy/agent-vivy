@@ -27,6 +27,26 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   };
   await continueIfNeeded();
   await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
+  // 消息功能栏（对照 Agent-DIVA 移植）：助手消息有复制/重新生成，回退与分叉为占位
+  const assistantArticle = page.locator('article').filter({ hasText: 'mock reply to: hello vivy' }).last();
+  await expect(assistantArticle.getByRole('button', { name: '复制' })).toBeVisible();
+  await expect(assistantArticle.getByRole('button', { name: '重新生成' })).toBeEnabled();
+  await expect(assistantArticle.getByRole('button', { name: '回到这里' })).toBeDisabled();
+  await expect(assistantArticle.getByRole('button', { name: '从此分叉' })).toBeDisabled();
+  const userArticle = page.locator('article').filter({ hasText: 'hello vivy' }).first();
+  await expect(userArticle.getByRole('button', { name: '编辑' })).toBeDisabled();
+  // 用户消息操作栏（参考 ChatGPT）：复制 + 编辑，悬停浮现、平时隐藏；无回退 / 分叉
+  const userActions = userArticle.getByRole('button', { name: '复制' }).locator('..');
+  await expect(userActions).toHaveCSS('opacity', '0');
+  await userArticle.hover();
+  await expect(userActions).toHaveCSS('opacity', '1');
+  await expect(userArticle.getByRole('button', { name: '回到这里' })).toHaveCount(0);
+  await expect(userArticle.getByRole('button', { name: '从此分叉' })).toHaveCount(0);
+  // 复制：点击后按钮切换为「已复制」，剪贴板内容为该消息文本
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await assistantArticle.getByRole('button', { name: '复制' }).click();
+  await expect(assistantArticle.getByRole('button', { name: '已复制' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('mock reply to: hello vivy');
   await page.reload();
   await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
 
