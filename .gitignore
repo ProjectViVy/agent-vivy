@@ -44,6 +44,9 @@ meoo_zip_*.zip
 # Local reference checkouts (deepseek-harness, eino, crush) — cloned on demand
 /.workspace/
 
+# Tool-generated repo knowledge cache (repowiki)
+/.qoder/
+
 # Editor / OS noise
 .idea/
 .vscode/

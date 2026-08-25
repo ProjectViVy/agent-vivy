@@ -1,3 +1,5 @@
+//go:build !vivy_headless
+
 package ui
 
 import (

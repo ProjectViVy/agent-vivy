@@ -74,16 +74,37 @@ var (
 	_ storage.StudioStore        = (*Backend)(nil)
 	_ storage.SnapshotStore      = (*Snapshot)(nil)
 	_ storage.BlobStore          = (*Blobs)(nil)
+	_ storage.Engine             = (*Backend)(nil)
+	_ storage.CheckpointOrphaner = (*Backend)(nil)
 )
 
 // Snapshot returns the snapshot handle over this database.
-func (b *Backend) Snapshot() *Snapshot { return &Snapshot{db: b.db} }
+func (b *Backend) Snapshot() storage.SnapshotStore { return &Snapshot{db: b.db} }
 
 // Blobs returns the blob (checkpoint) handle over this database.
-func (b *Backend) Blobs() *Blobs { return &Blobs{db: b.db} }
+func (b *Backend) Blobs() storage.BlobStore { return &Blobs{db: b.db} }
 
 // Close releases the database handle.
 func (b *Backend) Close() error { return b.db.Close() }
+
+// DropCheckpointPointer is the CN-11 crash-shape hook.
+func (b *Backend) DropCheckpointPointer(ctx context.Context, id string) error {
+	_, err := b.db.ExecContext(ctx, `DELETE FROM checkpoints WHERE id = ?`, id)
+	return err
+}
+
+// CountCheckpointGenerations is the CN-11 crash-shape hook.
+func (b *Backend) CountCheckpointGenerations(ctx context.Context, id string) (int, error) {
+	var n int
+	err := b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM checkpoint_generations WHERE id = ?`, id).Scan(&n)
+	return n, err
+}
+
+// DeleteCheckpointGenerations is the CN-11 crash-shape hook.
+func (b *Backend) DeleteCheckpointGenerations(ctx context.Context, id string) error {
+	_, err := b.db.ExecContext(ctx, `DELETE FROM checkpoint_generations WHERE id = ?`, id)
+	return err
+}
 
 func (b *Backend) migrate(ctx context.Context) error {
 	if _, err := b.db.ExecContext(ctx,

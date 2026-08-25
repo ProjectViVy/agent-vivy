@@ -5,11 +5,13 @@ description: Drive the Studio lifecycle from inside Vivy Studio: pack a generati
 
 # Vivy Studio lifecycle
 
-Vivy Studio is the first-party daily authoring IDE. Other authorized developer
-tools may edit and verify this workspace directly, but the daily `vivy.exe` is
-a tenant product; it never packs, evaluates, releases, installs, or rolls back.
-Studio owns the distribution lifecycle (`docs/architecture/VIVY-STUDIO.md`
-§4, ST-5/7/8).
+Vivy application feature development starts the split pair (`just run` +
+`cd ui; pnpm dev`, open `http://127.0.0.1:3015`) when browser validation is
+needed. This skill is only the Studio distribution lifecycle: other
+authorized developer tools may edit and verify the workspace directly, but
+the daily `vivy.exe` is a tenant product; it never packs, evaluates,
+releases, installs, or rolls back. Studio owns the distribution lifecycle
+(`docs/architecture/VIVY-STUDIO.md` §4, ST-5/7/8).
 
 ## Air gap
 

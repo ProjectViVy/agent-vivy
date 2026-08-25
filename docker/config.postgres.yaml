@@ -1,0 +1,18 @@
+# Optional server Journal overlay. The DSN is read from VIVY_POSTGRES_DSN,
+# never from this file. replica=1: a second process on the same DSN fails.
+
+server:
+  addr: "0.0.0.0:8787"
+  allowed_origins: []
+
+storage:
+  backend: postgres
+  data_dir: /data
+  postgres:
+    dsn_env: VIVY_POSTGRES_DSN
+
+runtime:
+  workspace_root: /data/workspaces
+  skills_root: /data/skills
+  sandbox:
+    workspace_root: /data/workspaces

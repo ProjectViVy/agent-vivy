@@ -14,16 +14,35 @@ This separation prevents accidental cross-contamination between the species runt
 
 ## Development environment
 
-**Vivy Studio is the first-party daily development IDE and the recommended
-author path. It is not an exclusive execution venue.** A developer tool or
-agent that has been authorized to read this workspace should use its own
-native editing, testing, and automation capabilities directly in the current
-workspace. Do not transfer or replay that work inside Vivy Studio merely to
-satisfy a venue rule.
+**Vivy feature development starts the split pair.** Do not use the embedded
+UI in `vivy.exe`, Docker, or `just build-split` as the inner-loop server.
 
-The same repository contracts and verification commands apply regardless of
-which authorized development tool performs the work. Daily `vivy.exe` remains
-a tenant product, not an IDE.
+```text
+just dev                      # one-click: backend + Vite, Ctrl+C stops both
+# or two terminals:
+terminal 1: just run          # control plane 127.0.0.1:8787
+terminal 2: cd ui; pnpm dev   # Vite UI 127.0.0.1:3015, proxies /rpc
+```
+
+Open the app at `http://127.0.0.1:3015` (`.\dev.ps1` / `.\dev.cmd` /
+`just dev` also opens it). The Vite `/rpc` proxy keeps the same-origin
+browser contract while UI and Go reload independently.
+
+- Embedded UI (`http://127.0.0.1:8787` on the default binary) is the
+  release / `just ci` smoke path.
+- `just build-split` is the packaged headless-backend + standalone-static-UI
+  path; it remains loopback-only.
+- Docker (`just docker-up`) packages that same embedded-UI binary as one
+  container with SQLite on a volume and host bind `127.0.0.1:8787`; it is
+  not a replica set and not a second Journal. Optional Postgres
+  (`just docker-up-postgres` / `storage.backend: postgres`) is still one
+  organism and one lease; SQLite remains the default.
+
+Vivy Studio is still the first-party lifecycle and Studio-shell product, but
+it is not a mandatory venue for Vivy feature development. Authorized developer
+tools should edit and verify this workspace directly; do not transfer or
+replay work inside Studio merely to satisfy a venue rule. Daily `vivy.exe`
+remains a tenant product, not an IDE.
 
 ## Air gap (ST-2)
 
@@ -41,6 +60,8 @@ That directory is the engine's scratch, not the species Journal.
 
 ## How to verify
 
+- Browser UI during development: `http://127.0.0.1:3015` (split Vite), not
+  the embedded UI on `:8787`
 - Kernel / docs / UI: `just ci`
 - User plugin: `vivy-sdk verify plugins/<name>` then `vivy-sdk pack --with <name>`
 - Studio lifecycle (pack → eval → release → install → rollback):
@@ -69,3 +90,113 @@ git clone https://github.com/deepseek-ai/deepseek-harness.git .workspace/deepsee
 `.workspace/` is gitignored (see `.gitignore`) — never commit it. The
 installed `@deepseek-ai/dsh` npm package is built JS, not source; treat this
 tree, not `node_modules`, as the source of truth for harness behavior.
+
+## Documentation placement
+
+Ordinary design notes, research, reviews, plans, reports, and iteration
+records belong under `docs/`.
+
+Keep at the repository root only intentional entry points: `AGENTS.md`,
+`README.md`, `LICENSE`, `justfile`, `config.example.yaml`. Product-contract
+docs live in `docs/architecture/`. Research dossiers live in `docs/research/`.
+Iteration records live in `docs/logs/`. Crate-local or UI-local `AGENTS.md`
+files stay beside the code they govern (`ui/AGENTS.md`, `.agents/skills/`).
+
+Do not drop one-off plans on the repository root. Runtime data (`data/`),
+Studio scratch (`data/studio-home/`), and `.workspace/` are not documentation.
+
+## Iteration logs (`docs/logs`)
+
+Every deliverable change (kernel, UI, Studio, product-contract docs, or a
+closed TODO track) gets a new directory under `docs/logs/`.
+
+Naming: `YYYY-MM-DD-short-slug` (date of the delivery, hyphenated theme).
+Do not nest extra version directories unless one folder must hold several
+shipped cuts of the same theme.
+
+Required files in that directory:
+
+- `summary.md` — what changed, scope, what was explicitly not done
+- `verification.md` — commands run and results (`just ci` at minimum)
+- `acceptance.md` — how a human can tell it worked (product/user view)
+
+Optional: `notes.md` (discussion), `release.md` (how it ships; omit with a
+reason if not a release), `rollback.md`.
+
+Existing examples: `docs/logs/2026-08-12-hitl-release-closure/`,
+`docs/logs/2026-08-16-studio-lifecycle/`. Archives of closed boards also live
+here (see `docs/logs/2026-08-25-todo-board-archive/`).
+
+Counterexample: finishing a feature with only chat history and no log.
+
+## Backlog (`docs/TODO.md`)
+
+`docs/TODO.md` §0.1 is the living open board. Root `TODOLIST.md` is not used.
+
+When a bug, gap, or deferred item is found and not fixed in the same
+iteration, add it to §0.1 (status, short title, why it waits, related paths).
+When it is done, move it to §10 Completion log and/or `docs/logs/` — do not
+silently delete it.
+
+Closed tracks (V0, MA, ET, HITL P0, harness H0–H10, Studio ST-*) stay in the
+file as archive tables; do not pick new work from them.
+
+## Validation
+
+Default gate for kernel, UI, Studio overlay, and product-contract docs is
+**`just ci`** from the repository root. A hand-rolled `go test` is not the
+product path when `just ci` exists.
+
+User-visible or executable behavior also needs a minimum real-path smoke:
+
+- Browser UI: exercise the change at `http://127.0.0.1:3015` (split Vite),
+  not only a screenshot and not the embedded UI on `:8787`
+- Plugin: `vivy-sdk verify` then `vivy-sdk pack --with <name>`
+- Studio lifecycle: `just studio` and the skill `vivy-studio-lifecycle`
+
+Record the commands and outcomes in that iteration's `verification.md`.
+
+Tests should be deterministic (no live network in unit tests). Cover a
+representative failure path, not only the happy path. New config fields need
+parse/validate tests. Secrets stay out of fixtures, logs, and event payloads
+(D-010).
+
+## Secrets, errors, and logs in code
+
+- Never commit tokens. Config holds `env_key` names only.
+- Redact secrets in logs, errors, snapshots, and test fixtures.
+- Preserve error cause chains; do not discard the source error.
+- Structured logs: include run/session ids when useful; never include
+  provider keys, bot tokens, or raw Journal blobs.
+
+## Provider model IDs
+
+When calling a provider's native OpenAI-compatible endpoint, send that
+provider's raw model id. Do not auto-insert a gateway `provider/model`
+prefix. Prefix rewriting is only for a true aggregator gateway. Changing
+routing requires a test that asserts the outbound `model` field.
+
+## Rulebook (mandatory unless a rule states an exception)
+
+- **iteration-log-required** — Deliverable work writes `docs/logs/<date>-<slug>/`
+  with `summary.md`, `verification.md`, and `acceptance.md` before claiming
+  done. Maintainer: current delivery owner.
+- **just-ci-is-the-gate** — Kernel / UI / Studio / architecture-doc changes
+  run `just ci`. Skip a slice only with a reason in `verification.md`.
+  Maintainer: current delivery owner.
+- **smoke-for-user-visible-change** — UI or executable behavior is not done
+  after unit tests alone. Hit `http://127.0.0.1:3015` (or the plugin/Studio
+  path above) and record it. Maintainer: current delivery owner.
+- **todolist-capture-required** — Unfixed findings go in `docs/TODO.md` §0.1
+  in the same iteration. Maintainer: current assistant.
+- **air-gap-tenant-journal** — Do not read or write `data/vivy.db`,
+  `data/demo/`, or `data/workspaces/` from a Studio or agent session.
+  Maintainer: current assistant.
+- **no-plugin-via-engine-import** — Do not install a plugin by editing
+  `internal/runtime/engine.go`. Use `vivy-sdk pack`. Maintainer: current
+  assistant.
+
+Not ported from agent-diva on purpose: `LOCK.md` parallel mutex, root
+`TODOLIST.md`, `/new-command` index, auto-commit-every-update, and the
+`[I strictly follow the rules]` reply prefix. Vivy already has air-gap,
+`just ci`, and Studio venue rules; those stay as written above.

@@ -21,30 +21,36 @@ import { CalendarClock, LoaderCircle, Pencil, Play, Plus, Trash2 } from 'lucide-
 import { cn } from '@/lib/utils';
 import type { CronJobDto, ScheduleKind } from '@/lib/types';
 import { createCronJob, deleteCronJob, getCronJobs, triggerCronJob, updateCronJob } from '@/lib/demo-api';
+import { MasterDetail } from '@/components/layout/MasterDetail';
+import { useTranslation, dateTimeLocale, t } from '@/i18n';
 
 const HOUR_MS = 60 * 60 * 1000;
 const emptyForm = {
   name: '', enabled: true, scheduleKind: 'cron' as ScheduleKind,
   cronExpr: '0 9 * * *', everyHours: 24, message: '', kind: 'notebook_report',
 };
-const statusLabels: Record<string, string> = {
-  running: '运行中', scheduled: '已计划', paused: '已暂停', completed: '已完成', failed: '失败',
-};
+function cronStatusLabel(status: string): string {
+  const keys: Record<string, string> = {
+    running: 'cron.status.running', scheduled: 'cron.status.scheduled', paused: 'cron.status.paused',
+    completed: 'cron.status.completed', failed: 'cron.status.failed',
+  };
+  return keys[status] ? t(keys[status]) : status;
+}
 
 function formatSchedule(job: CronJobDto) {
-  if (job.schedule.kind === 'cron') return `${job.schedule.expr || '未设置'} · ${job.schedule.tz || '本地时区'}`;
+  if (job.schedule.kind === 'cron') return `${job.schedule.expr || t('cron.scheduleFormat.notSet')} · ${job.schedule.tz || t('cron.scheduleFormat.localTz')}`;
   if (job.schedule.kind === 'every') {
     const interval = job.schedule.everyMs || 0;
-    if (interval >= 24 * HOUR_MS && interval % (24 * HOUR_MS) === 0) return `每 ${interval / (24 * HOUR_MS)} 天`;
-    if (interval >= HOUR_MS && interval % HOUR_MS === 0) return `每 ${interval / HOUR_MS} 小时`;
-    return `每 ${Math.max(1, Math.round(interval / 60000))} 分钟`;
+    if (interval >= 24 * HOUR_MS && interval % (24 * HOUR_MS) === 0) return t('cron.scheduleFormat.everyDays', { count: interval / (24 * HOUR_MS) });
+    if (interval >= HOUR_MS && interval % HOUR_MS === 0) return t('cron.scheduleFormat.everyHours', { count: interval / HOUR_MS });
+    return t('cron.scheduleFormat.everyMinutes', { count: Math.max(1, Math.round(interval / 60000)) });
   }
-  return '单次执行';
+  return t('cron.scheduleFormat.once');
 }
 
 function formatTime(value?: number | null) {
   if (!value) return '—';
-  return new Date(value).toLocaleString('zh-CN', {
+  return new Date(value).toLocaleString(dateTimeLocale(), {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
 }
@@ -82,6 +88,7 @@ function CronPageSkeleton() {
 }
 
 export function CronTaskManagementView() {
+  const { t } = useTranslation();
   const [jobs, setJobs] = useState<CronJobDto[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,9 +111,9 @@ export function CronTaskManagementView() {
     try {
       const data = await getCronJobs();
       setJobs(data);
-      setSelectedId((current) => (data.some((job) => job.id === current) ? current : data[0]?.id || null));
+      setSelectedId((current) => (data.some((job) => job.id === current) ? current : null));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法加载定时任务');
+      setError(cause instanceof Error ? cause.message : t('cron.errors.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -135,10 +142,10 @@ export function CronTaskManagementView() {
   const handleSubmit = async () => {
     const name = formData.name.trim();
     const cronExpr = formData.cronExpr.trim();
-    if (!name) { setFormError('请输入任务名称。'); return; }
-    if (formData.scheduleKind === 'cron' && !cronExpr) { setFormError('请输入 Cron 表达式。'); return; }
+    if (!name) { setFormError(t('cron.errors.nameRequired')); return; }
+    if (formData.scheduleKind === 'cron' && !cronExpr) { setFormError(t('cron.errors.cronRequired')); return; }
     if (formData.scheduleKind === 'every' && (!Number.isFinite(formData.everyHours) || formData.everyHours <= 0)) {
-      setFormError('运行间隔必须大于 0 小时。'); return;
+      setFormError(t('cron.errors.intervalPositive')); return;
     }
     const schedule = formData.scheduleKind === 'cron'
       ? { kind: 'cron' as const, expr: cronExpr, tz: 'Asia/Shanghai' }
@@ -155,7 +162,7 @@ export function CronTaskManagementView() {
         : [...current, saved]);
       setSelectedId(saved.id); setShowForm(false); setEditingJob(null);
     } catch (cause) {
-      setFormError(cause instanceof Error ? cause.message : '无法保存任务');
+      setFormError(cause instanceof Error ? cause.message : t('cron.errors.saveFailed'));
     } finally {
       setBusyId('');
     }
@@ -167,7 +174,7 @@ export function CronTaskManagementView() {
       const updated = await updateCronJob(job.id, { enabled: !job.enabled });
       setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法更新任务状态');
+      setError(cause instanceof Error ? cause.message : t('cron.errors.toggleFailed'));
     } finally { setBusyId(''); }
   };
 
@@ -177,7 +184,7 @@ export function CronTaskManagementView() {
       await triggerCronJob(job.id);
       setJobs(await getCronJobs());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法运行任务');
+      setError(cause instanceof Error ? cause.message : t('cron.errors.triggerFailed'));
     } finally { setBusyId(''); }
   };
 
@@ -187,9 +194,9 @@ export function CronTaskManagementView() {
     try {
       await deleteCronJob(selectedJob.id);
       const remaining = jobs.filter((job) => job.id !== selectedJob.id);
-      setJobs(remaining); setSelectedId(remaining[0]?.id || null); setShowDelete(false);
+      setJobs(remaining); setSelectedId(null); setShowDelete(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法删除任务');
+      setError(cause instanceof Error ? cause.message : t('cron.errors.deleteFailed'));
     } finally { setBusyId(''); }
   };
 
@@ -198,8 +205,8 @@ export function CronTaskManagementView() {
     return (
       <PageShell>
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight">定时任务</h1>
-          <p className="mt-1 text-sm text-muted-foreground">安排本地演示任务，并集中查看它们的运行状态。</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('cron.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('cron.subtitle')}</p>
         </header>
         <DemoLoadError message={error} onRetry={() => void loadJobs()} />
       </PageShell>
@@ -207,28 +214,34 @@ export function CronTaskManagementView() {
   }
 
   return (
-    <PageShell>
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex h-full min-h-0 flex-col p-4 sm:p-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-5">
+        <header className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">定时任务</h1>
-            <p className="mt-1 text-sm text-muted-foreground">安排本地演示任务，并集中查看它们的运行状态。</p>
+            <h1 className="text-2xl font-semibold tracking-tight">{t('cron.title')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('cron.subtitle')}</p>
           </div>
-          <Button onClick={openCreate} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />新建任务</Button>
+          <Button onClick={openCreate} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />{t('cron.create')}</Button>
         </header>
 
         {error ? <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</div> : null}
 
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <Card className="min-w-0">
+        <MasterDetail
+          className="min-h-0 flex-1"
+          columnsClassName="md:grid-cols-[minmax(0,1fr)_20rem] md:gap-4"
+          selected={selectedJob !== null}
+          onBack={() => setSelectedId(null)}
+          master={
+          <Card className="flex h-full min-h-0 min-w-0 flex-col">
             <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
-              <CardTitle className="text-base">任务列表</CardTitle><span className="text-xs text-muted-foreground">{jobs.length} 个任务</span>
+              <CardTitle className="text-base">{t('cron.taskList')}</CardTitle><span className="text-xs text-muted-foreground">{t('cron.taskCount', { count: jobs.length })}</span>
             </CardHeader>
-            <CardContent className="p-2">
+            <CardContent className="min-h-0 flex-1 overflow-auto p-2">
               {jobs.length === 0 ? (
                 <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
                   <div className="rounded-full bg-muted p-3 text-muted-foreground"><CalendarClock className="h-5 w-5" /></div>
-                  <div><p className="font-medium">还没有定时任务</p><p className="mt-1 text-sm text-muted-foreground">创建一个任务来安排重复执行的工作。</p></div>
-                  <Button variant="outline" size="sm" onClick={openCreate}>创建任务</Button>
+                  <div><p className="font-medium">{t('cron.emptyTitle')}</p><p className="mt-1 text-sm text-muted-foreground">{t('cron.emptyHint')}</p></div>
+                  <Button variant="outline" size="sm" onClick={openCreate}>{t('cron.createTask')}</Button>
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -243,7 +256,7 @@ export function CronTaskManagementView() {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
                           <span className="truncate font-medium">{job.name}</span>
-                          <Badge variant="outline" className={cn('shrink-0 font-normal', statusClass(job.computedStatus))}>{statusLabels[job.computedStatus] || job.computedStatus}</Badge>
+                          <Badge variant="outline" className={cn('shrink-0 font-normal', statusClass(job.computedStatus))}>{cronStatusLabel(job.computedStatus)}</Badge>
                         </span>
                         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                           <CalendarClock className="h-3.5 w-3.5 shrink-0" />
@@ -251,7 +264,7 @@ export function CronTaskManagementView() {
                         </span>
                       </span>
                       <span className="w-20 shrink-0 text-right text-xs">
-                        <span className="block text-muted-foreground">下次运行</span>
+                        <span className="block text-muted-foreground">{t('cron.nextRun')}</span>
                         <span className="mt-0.5 block truncate">{formatTime(job.state.nextRunAtMs)}</span>
                       </span>
                     </button>
@@ -260,84 +273,87 @@ export function CronTaskManagementView() {
               )}
             </CardContent>
           </Card>
-
-          <Card className="lg:sticky lg:top-4">
+          }
+          detail={
+          <Card className="flex h-full min-h-0 flex-col">
             {selectedJob ? (
               <>
                 <CardHeader className="space-y-3 border-b px-5 py-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">任务详情</p><CardTitle className="mt-1 truncate text-lg">{selectedJob.name}</CardTitle></div>
-                    <Badge variant="outline" className={cn('shrink-0 font-normal', statusClass(selectedJob.computedStatus))}>{statusLabels[selectedJob.computedStatus] || selectedJob.computedStatus}</Badge>
+                    <div className="min-w-0"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('cron.taskDetail')}</p><CardTitle className="mt-1 truncate text-lg">{selectedJob.name}</CardTitle></div>
+                    <Badge variant="outline" className={cn('shrink-0 font-normal', statusClass(selectedJob.computedStatus))}>{cronStatusLabel(selectedJob.computedStatus)}</Badge>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2">
-                    <Label htmlFor="cron-enabled" className="text-sm">启用任务</Label>
+                    <Label htmlFor="cron-enabled" className="text-sm">{t('cron.enableTask')}</Label>
                     <Switch id="cron-enabled" checked={selectedJob.enabled} disabled={busyId === `toggle:${selectedJob.id}`} onCheckedChange={() => void handleToggle(selectedJob)} />
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-5 p-5">
                   <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-3 text-sm">
-                    <dt className="text-muted-foreground">运行计划</dt><dd className="break-words text-right">{formatSchedule(selectedJob)}</dd>
-                    <dt className="text-muted-foreground">下次运行</dt><dd className="text-right">{formatTime(selectedJob.state.nextRunAtMs)}</dd>
-                    <dt className="text-muted-foreground">上次运行</dt><dd className="text-right">{formatTime(selectedJob.state.lastRunAtMs)}</dd>
-                    <dt className="text-muted-foreground">上次状态</dt><dd className="text-right">{statusLabels[selectedJob.state.lastStatus || ''] || selectedJob.state.lastStatus || '—'}</dd>
+                    <dt className="text-muted-foreground">{t('cron.schedule')}</dt><dd className="break-words text-right">{formatSchedule(selectedJob)}</dd>
+                    <dt className="text-muted-foreground">{t('cron.nextRun')}</dt><dd className="text-right">{formatTime(selectedJob.state.nextRunAtMs)}</dd>
+                    <dt className="text-muted-foreground">{t('cron.lastRun')}</dt><dd className="text-right">{formatTime(selectedJob.state.lastRunAtMs)}</dd>
+                    <dt className="text-muted-foreground">{t('cron.lastStatus')}</dt><dd className="text-right">{selectedJob.state.lastStatus ? cronStatusLabel(selectedJob.state.lastStatus) : '—'}</dd>
                   </dl>
-                  <div className="space-y-1.5 border-t pt-4"><p className="text-xs font-medium text-muted-foreground">任务内容</p><p className="whitespace-pre-wrap break-words text-sm leading-6">{selectedJob.payload.message || '未设置任务说明'}</p></div>
+                  <div className="space-y-1.5 border-t pt-4"><p className="text-xs font-medium text-muted-foreground">{t('cron.messageLabel')}</p><p className="whitespace-pre-wrap break-words text-sm leading-6">{selectedJob.payload.message || t('cron.noDescription')}</p></div>
                   <div className="grid grid-cols-2 gap-2 border-t pt-4">
                     <Button className="col-span-2" disabled={Boolean(busyId) || selectedJob.computedStatus === 'running'} onClick={() => void handleTrigger(selectedJob)}>
                       {busyId === `trigger:${selectedJob.id}` ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-                      {selectedJob.computedStatus === 'running' ? '正在运行' : '立即运行'}
+                      {selectedJob.computedStatus === 'running' ? t('cron.running') : t('cron.runNow')}
                     </Button>
-                    <Button variant="outline" disabled={Boolean(busyId)} onClick={() => openEdit(selectedJob)}><Pencil className="mr-2 h-4 w-4" />编辑</Button>
-                    <Button variant="outline" disabled={Boolean(busyId)} onClick={() => setShowDelete(true)} className="text-destructive hover:text-destructive"><Trash2 className="mr-2 h-4 w-4" />删除</Button>
+                    <Button variant="outline" disabled={Boolean(busyId)} onClick={() => openEdit(selectedJob)}><Pencil className="mr-2 h-4 w-4" />{t('common.edit')}</Button>
+                    <Button variant="outline" disabled={Boolean(busyId)} onClick={() => setShowDelete(true)} className="text-destructive hover:text-destructive"><Trash2 className="mr-2 h-4 w-4" />{t('common.delete')}</Button>
                   </div>
                 </CardContent>
               </>
             ) : (
               <CardContent className="flex min-h-64 flex-col items-center justify-center px-6 text-center">
-                <CalendarClock className="mb-3 h-6 w-6 text-muted-foreground" /><p className="font-medium">选择一个任务</p><p className="mt-1 text-sm text-muted-foreground">任务的运行计划和操作会显示在这里。</p>
+                <CalendarClock className="mb-3 h-6 w-6 text-muted-foreground" /><p className="font-medium">{t('cron.selectTaskTitle')}</p><p className="mt-1 text-sm text-muted-foreground">{t('cron.selectTaskHint')}</p>
               </CardContent>
             )}
           </Card>
-        </div>
+          }
+        />
+      </div>
       <Dialog open={showForm} onOpenChange={(open) => { if (busyId !== 'save') setShowForm(open); }}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-lg">
-          <DialogHeader><DialogTitle>{editingJob ? '编辑任务' : '新建任务'}</DialogTitle><DialogDescription>设置任务内容和自动运行的时间。</DialogDescription></DialogHeader>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>{editingJob ? t('cron.formTitleEdit') : t('cron.formTitleCreate')}</DialogTitle><DialogDescription>{t('cron.formDescription')}</DialogDescription></DialogHeader>
           <DialogBody className="space-y-4 py-2 pr-1">
-            <div className="space-y-2"><Label htmlFor="cron-name">任务名称</Label><Input id="cron-name" value={formData.name} onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))} placeholder="例如：每日报告" autoFocus /></div>
+            <div className="space-y-2"><Label htmlFor="cron-name">{t('cron.nameLabel')}</Label><Input id="cron-name" value={formData.name} onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))} placeholder={t('cron.namePlaceholder')} autoFocus /></div>
             <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-              <div><Label htmlFor="cron-form-enabled">创建后启用</Label><p className="mt-0.5 text-xs text-muted-foreground">关闭后任务会保留，但不会自动运行。</p></div>
+              <div><Label htmlFor="cron-form-enabled">{t('cron.enableAfterCreate')}</Label><p className="mt-0.5 text-xs text-muted-foreground">{t('cron.enableAfterCreateHint')}</p></div>
               <Switch id="cron-form-enabled" checked={formData.enabled} onCheckedChange={(enabled) => setFormData((current) => ({ ...current, enabled }))} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>运行方式</Label><Select value={formData.scheduleKind} onValueChange={(scheduleKind) => setFormData((current) => ({ ...current, scheduleKind: scheduleKind as ScheduleKind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cron">Cron 表达式</SelectItem><SelectItem value="every">固定间隔</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>{t('cron.scheduleKind')}</Label><Select value={formData.scheduleKind} onValueChange={(scheduleKind) => setFormData((current) => ({ ...current, scheduleKind: scheduleKind as ScheduleKind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cron">{t('cron.cronOption')}</SelectItem><SelectItem value="every">{t('cron.everyOption')}</SelectItem></SelectContent></Select></div>
               {formData.scheduleKind === 'cron' ? (
-                <div className="space-y-2"><Label htmlFor="cron-expression">Cron 表达式</Label><Input id="cron-expression" value={formData.cronExpr} onChange={(event) => setFormData((current) => ({ ...current, cronExpr: event.target.value }))} placeholder="0 9 * * *" /></div>
+                <div className="space-y-2"><Label htmlFor="cron-expression">{t('cron.cronExprLabel')}</Label><Input id="cron-expression" value={formData.cronExpr} onChange={(event) => setFormData((current) => ({ ...current, cronExpr: event.target.value }))} placeholder="0 9 * * *" /></div>
               ) : (
-                <div className="space-y-2"><Label htmlFor="cron-hours">间隔（小时）</Label><Input id="cron-hours" type="number" min="0.25" step="0.25" value={formData.everyHours} onChange={(event) => setFormData((current) => ({ ...current, everyHours: Number(event.target.value) }))} /></div>
+                <div className="space-y-2"><Label htmlFor="cron-hours">{t('cron.intervalHours')}</Label><Input id="cron-hours" type="number" min="0.25" step="0.25" value={formData.everyHours} onChange={(event) => setFormData((current) => ({ ...current, everyHours: Number(event.target.value) }))} /></div>
               )}
             </div>
-            <div className="space-y-2"><Label>任务类型</Label><Select value={formData.kind} onValueChange={(kind) => setFormData((current) => ({ ...current, kind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="notebook_report">生成记事本报告</SelectItem><SelectItem value="cleanup">清理会话</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label htmlFor="cron-message">任务内容</Label><Textarea id="cron-message" value={formData.message} onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))} placeholder="描述任务运行时需要完成的工作" rows={4} /></div>
+            <div className="space-y-2"><Label>{t('cron.kindLabel')}</Label><Select value={formData.kind} onValueChange={(kind) => setFormData((current) => ({ ...current, kind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="notebook_report">{t('cron.kindNotebookReport')}</SelectItem><SelectItem value="cleanup">{t('cron.kindCleanup')}</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label htmlFor="cron-message">{t('cron.messageLabel')}</Label><Textarea id="cron-message" value={formData.message} onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))} placeholder={t('cron.messagePlaceholder')} rows={4} /></div>
             {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" disabled={busyId === 'save'} onClick={() => setShowForm(false)}>取消</Button>
-            <Button disabled={busyId === 'save'} onClick={() => void handleSubmit()}>{busyId === 'save' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}{editingJob ? '保存修改' : '创建任务'}</Button>
+            <Button variant="outline" disabled={busyId === 'save'} onClick={() => setShowForm(false)}>{t('common.cancel')}</Button>
+            <Button disabled={busyId === 'save'} onClick={() => void handleSubmit()}>{busyId === 'save' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}{editingJob ? t('cron.saveChanges') : t('cron.createTask')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={showDelete} onOpenChange={(open) => { if (!busyId) setShowDelete(open); }}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>删除“{selectedJob?.name}”？</AlertDialogTitle><AlertDialogDescription>该任务及其演示运行记录会被移除，此操作无法撤销。</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>{t('cron.deleteConfirm', { name: selectedJob?.name ?? '' })}</AlertDialogTitle><AlertDialogDescription>{t('cron.deleteDescription')}</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(busyId)}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={Boolean(busyId)}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction disabled={Boolean(busyId)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); void handleDelete(); }}>
-              {busyId.startsWith('delete:') ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}删除任务
+              {busyId.startsWith('delete:') ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}{t('cron.deleteAction')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageShell>
+    </div>
   );
 }

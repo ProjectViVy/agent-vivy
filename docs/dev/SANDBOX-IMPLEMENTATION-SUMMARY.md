@@ -102,7 +102,7 @@
 
 ### 4. 文档
 
-- **`docs/sandbox.md`** - 完整功能说明
+- **`docs/dev/sandbox.md`** - 完整功能说明
 - **`config.example.yaml`** - 包含沙箱配置示例
 
 ---
@@ -227,7 +227,7 @@ Vivy Studio 中需要：
 - `internal/domain/sandbox.go`
 - `internal/runtime/sandbox_manager.go`
 - `internal/runtime/approval_scheduler.go`
-- `docs/sandbox.md`
+- `docs/dev/sandbox.md`
 
 ### 修改文件
 - `internal/domain/session.go`

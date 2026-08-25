@@ -22,6 +22,12 @@ var (
 	// ErrNotFound is returned when the requested session, message or run
 	// does not exist.
 	ErrNotFound = errors.New("storage: not found")
+	// ErrLeaseHeld is returned when a second process tries to become the
+	// organism on a server database that already has a live instance lease.
+	ErrLeaseHeld = errors.New("storage: organism lease held")
+	// ErrLeaseLost is returned when a server backend can no longer renew
+	// exclusive ownership of the Journal.
+	ErrLeaseLost = errors.New("storage: organism lease lost")
 )
 
 // Commit is one atomic batch of events for a single run. Events carry no
@@ -241,4 +247,35 @@ type TodoStore interface {
 	GetTodo(context.Context, domain.SessionID, string) (domain.Todo, error)
 	ListTodos(context.Context, domain.SessionID) ([]domain.Todo, error)
 	UpdateTodo(context.Context, domain.Todo) error
+}
+
+// Engine is one organism's durable store. App composition talks to this
+// surface; SQLite remains the default implementation.
+type Engine interface {
+	Journal
+	SessionStore
+	MessageStore
+	NoteStore
+	RunStore
+	ApprovalStore
+	ApprovalTimeoutStore
+	ApprovalLifecycleStore
+	QuestionStore
+	QuestionLifecycleStore
+	ReviewStore
+	SkillRevisionStore
+	TodoStore
+	StudioStore
+	LeaseStore
+	Snapshot() SnapshotStore
+	Blobs() BlobStore
+	Close() error
+}
+
+// CheckpointOrphaner is a test-only crash-shape hook for CN-11. Production
+// code never calls it.
+type CheckpointOrphaner interface {
+	DropCheckpointPointer(ctx context.Context, id string) error
+	CountCheckpointGenerations(ctx context.Context, id string) (int, error)
+	DeleteCheckpointGenerations(ctx context.Context, id string) error
 }

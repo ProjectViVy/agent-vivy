@@ -1,3 +1,6 @@
+import { loadRuntimeConfig, resolveControlPlaneOrigin } from './runtime-config';
+import { t } from '@/i18n';
+
 export interface RpcRequest {
   jsonrpc: '2.0';
   id?: string;
@@ -51,27 +54,43 @@ export class RpcClient {
   }
 
   static async connect(): Promise<RpcClient> {
-    const response = await fetch('/rpc/bootstrap', { cache: 'no-store' });
-    if (!response.ok) throw new RpcClientError(-32098, `无法连接 Vivy control plane（HTTP ${response.status}）`);
+    let runtimeConfig;
+    try {
+      runtimeConfig = await loadRuntimeConfig();
+    } catch (error) {
+      throw new RpcClientError(-32098, error instanceof Error ? error.message : t('errors.runtimeConfigUnavailable'));
+    }
+    let controlPlaneOrigin: URL;
+    try {
+      controlPlaneOrigin = resolveControlPlaneOrigin(runtimeConfig.controlPlaneUrl);
+    } catch (error) {
+      throw new RpcClientError(-32098, error instanceof Error ? error.message : t('errors.controlPlaneUrlInvalid'));
+    }
+    const bootstrapTarget = runtimeConfig.controlPlaneUrl.trim()
+      ? new URL('/rpc/bootstrap', controlPlaneOrigin).toString()
+      : '/rpc/bootstrap';
+    const response = await fetch(bootstrapTarget, { cache: 'no-store' });
+    if (!response.ok) throw new RpcClientError(-32098, t('errors.controlPlaneHttp', { status: response.status }));
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.toLowerCase().includes('application/json')) {
-      throw new RpcClientError(-32098, '无法连接 Vivy control plane：/rpc/bootstrap 返回了非 JSON 响应，请确认后端已启动且开发代理配置正确');
+      throw new RpcClientError(-32098, t('errors.bootstrapNotJson'));
     }
     let bootstrap: Bootstrap;
     try {
       bootstrap = await response.json() as Bootstrap;
     } catch {
-      throw new RpcClientError(-32098, 'Vivy control plane bootstrap 响应不是有效 JSON');
+      throw new RpcClientError(-32098, t('errors.bootstrapInvalidJson'));
     }
     if (!bootstrap.websocket_path || !bootstrap.token) {
-      throw new RpcClientError(-32098, 'Vivy control plane bootstrap 响应缺少连接信息');
+      throw new RpcClientError(-32098, t('errors.bootstrapMissingInfo'));
     }
-    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${scheme}//${window.location.host}${bootstrap.websocket_path}?token=${encodeURIComponent(bootstrap.token)}`;
+    const websocketURL = new URL(bootstrap.websocket_path, controlPlaneOrigin);
+    websocketURL.protocol = controlPlaneOrigin.protocol === 'https:' ? 'wss:' : 'ws:';
+    websocketURL.searchParams.set('token', bootstrap.token);
     const socket = await new Promise<WebSocket>((resolve, reject) => {
-      const candidate = new WebSocket(url);
+      const candidate = new WebSocket(websocketURL.toString());
       candidate.onopen = () => resolve(candidate);
-      candidate.onerror = () => reject(new RpcClientError(-32098, '无法建立 Vivy control plane WebSocket'));
+      candidate.onerror = () => reject(new RpcClientError(-32098, t('errors.websocketFailed')));
     });
     const provisional = new RpcClient(socket, { protocol_version: bootstrap.protocol_version, capabilities: [] });
     const capabilities = await provisional.call<RpcCapabilities>('initialize', { protocol_version: bootstrap.protocol_version });

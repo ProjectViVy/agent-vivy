@@ -1,20 +1,116 @@
 import { useEffect, useState } from 'react';
-import { Activity, Clock3, MessageSquare, ShieldCheck, Waypoints } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AuditPanel } from '@/components/audit/AuditPanel';
 import { getDemoDashboard } from '@/lib/demo-api';
 import type { DemoDashboardSnapshot } from '@/lib/types';
+import { useTranslation } from '@/i18n';
 import { DemoLoadError } from './DemoBanner';
+import { TokenStatsPanel } from './TokenStatsPanel';
 
 export function DashboardDemoView() {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<DemoDashboardSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const load = async () => { setError(null); try { setSnapshot(await getDemoDashboard()); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
+  const load = async () => {
+    setError(null);
+    try {
+      setSnapshot(await getDemoDashboard());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
   useEffect(() => { void load(); }, []);
-  const metrics = snapshot ? [
-    { label: '会话', value: snapshot.sessionCount, icon: MessageSquare },
-    { label: '活跃运行', value: snapshot.activeRuns, icon: Activity },
-    { label: '待处理 Review', value: snapshot.pendingReviews, icon: ShieldCheck },
-    { label: 'Token 使用', value: snapshot.tokenUsage.toLocaleString(), icon: Waypoints },
-  ] : [];
-  return <div className="h-full overflow-auto p-6"><div className="mx-auto max-w-6xl"><div><h1 className="text-2xl font-bold">中控台</h1><p className="mt-1 text-sm text-muted-foreground">Vivy 运行概览的本地演示快照。</p></div>{error ? <div className="mt-6"><DemoLoadError message={error} onRetry={() => void load()}/></div> : <><div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{snapshot ? metrics.map(({ label, value, icon: Icon }) => <Card key={label}><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-bold">{value}</p></div><Icon className="h-7 w-7 text-primary"/></CardContent></Card>) : Array.from({ length: 4 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-xl bg-muted"/>)}</div><Card className="mt-6"><CardHeader><CardTitle>近期活动</CardTitle></CardHeader><CardContent className="divide-y">{snapshot?.recentActivity.map((item) => <div key={item.id} className="flex items-start gap-3 py-4 first:pt-0 last:pb-0"><Clock3 className="mt-0.5 h-4 w-4 text-muted-foreground"/><div className="min-w-0 flex-1"><p className="font-medium">{item.title}</p><p className="text-sm text-muted-foreground">{item.detail}</p></div><span className="text-xs text-muted-foreground">{item.occurredAt}</span></div>)}</CardContent></Card></>}</div></div>;
+
+  return (
+    <div className="h-full overflow-auto p-4 sm:p-6">
+      <div className="mx-auto max-w-4xl">
+        <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.subtitle')}</p>
+        <Tabs defaultValue="overview" className="mt-6">
+          <TabsList className="w-full justify-start overflow-x-auto">
+            <TabsTrigger value="overview">{t('dashboard.overview')}</TabsTrigger>
+            <TabsTrigger value="token">{t('dashboard.token')}</TabsTrigger>
+            <TabsTrigger value="audit">{t('dashboard.audit')}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-4">
+            {error ? (
+              <DemoLoadError message={error} onRetry={() => void load()} />
+            ) : (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{t('dashboard.statusTitle')}</CardTitle>
+                    <CardDescription>{t('dashboard.statusDesc')}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {snapshot ? (
+                      <div className="grid gap-4 text-sm sm:grid-cols-3">
+                        <div>
+                          <p className="text-muted-foreground">{t('dashboard.sessions')}</p>
+                          <p className="mt-1 text-lg font-semibold tabular-nums">{snapshot.sessionCount}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">{t('dashboard.activeRuns')}</p>
+                          <p className="mt-1 text-lg font-semibold tabular-nums">{snapshot.activeRuns}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">{t('dashboard.pendingReviews')}</p>
+                          <p className="mt-1 text-lg font-semibold tabular-nums">{snapshot.pendingReviews}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-16 animate-pulse rounded-md bg-muted" />
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{t('dashboard.activityTitle')}</CardTitle>
+                    <CardDescription>{t('dashboard.activityDesc')}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="divide-y">
+                    {snapshot?.recentActivity.map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3 py-4 first:pt-0 last:pb-0">
+                        <div className="min-w-0">
+                          <p className="font-medium">{item.title}</p>
+                          <p className="text-sm text-muted-foreground">{item.detail}</p>
+                        </div>
+                        <span className="shrink-0 text-xs text-muted-foreground">{item.occurredAt}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="token" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('dashboard.tokenTitle')}</CardTitle>
+                <CardDescription>{t('dashboard.tokenDesc')}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TokenStatsPanel />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="audit" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('dashboard.auditTitle')}</CardTitle>
+                <CardDescription>{t('dashboard.auditDesc')}</CardDescription>
+              </CardHeader>
+              <CardContent className="h-[480px] p-0">
+                <AuditPanel />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
 }

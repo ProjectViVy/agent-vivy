@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -13,6 +12,7 @@ import (
 type WebSocketServer struct {
 	Handler Handler
 	Token   string
+	Origins OriginPolicy
 	Options Options
 }
 
@@ -25,7 +25,7 @@ func NewSessionToken() string {
 }
 
 func (s WebSocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !sameLocalOrigin(r) {
+	if !s.Origins.Allows(r) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return
 	}
@@ -52,16 +52,4 @@ func validToken(r *http.Request, expected string) bool {
 	}
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")) == expected
-}
-
-func sameLocalOrigin(r *http.Request) bool {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	return strings.EqualFold(u.Host, r.Host)
 }

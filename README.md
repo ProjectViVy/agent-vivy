@@ -36,7 +36,34 @@ just build      # go build ./...
 just test       # go test ./...
 just ci         # Go fmt/vet/test + UI install/typecheck/unit/build
 just run        # run the vivy process (health endpoint on :8787)
+just dev        # one-click split loop: backend :8787 + Vite :3015
+just build-split # build a headless backend plus standalone ui under dist/
+just docker-up   # one-container image, SQLite on a volume, host 127.0.0.1:8787
 ```
+
+Docker is a packaging of the same organism (embedded UI, one process,
+replica=1). `docker compose up --build` publishes **only**
+`127.0.0.1:8787:8787` and stores the Journal on the named volume
+`vivy-data` (`/data/vivy.db` in the container). Do not scale the service
+and do not bind `8787` on all host interfaces. Provider keys stay in the
+environment (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`). Open
+`http://127.0.0.1:8787` after the container is healthy. The image does
+not ship `go` / `git` / `rg`; `execute` / `commandline` stay gated and
+unavailable until those binaries are present.
+
+Optional Postgres is a second Journal engine, not a replica set. Set
+`storage.backend: postgres` and `storage.postgres.dsn_env` (the
+environment variable *name*); put the DSN in that variable. A second
+process on the same DSN fails to start. `just docker-up-postgres` is the
+compose overlay; default `just docker-up` stays SQLite on a volume.
+
+For day-to-day Vivy feature work, run `just dev` (or `.\dev.ps1` /
+`.\dev.cmd`). That starts the backend on `:8787` and the Vite UI on
+`:3015` together. Or use two terminals: `just run`, then `cd ui; pnpm
+dev`. Open `http://127.0.0.1:3015`. The Vite server proxies `/rpc` to
+the backend, so UI and Go changes can be iterated independently. The
+embedded UI is the default release/CI path; use `just build-split` when
+you need the packaged headless backend and standalone static UI.
 
 ## Layout
 
@@ -58,6 +85,14 @@ fixtures/          provider / event / recovery fixtures
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)
 docs/              implementation plan + project TODO board
 ```
+
+The default `vivy.exe` remains a single-file, embedded-UI application. For a
+same-machine split deployment, `just build-split` produces
+`dist/vivy-backend.exe` and `dist/vivy-ui/`. Set `server.allowed_origins` in
+the backend config to the exact loopback origin serving the static UI, then
+set `controlPlaneUrl` in `dist/vivy-ui/vivy-config.json` to the backend URL.
+The split build is intentionally loopback-only; it is not a remote or
+multi-user deployment mode.
 
 ## Hard rules (from the dossier)
 
