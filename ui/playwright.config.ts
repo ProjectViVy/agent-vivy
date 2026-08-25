@@ -7,6 +7,6 @@ if (!process.env.VIVY_E2E_PREPARED) { prepareE2eWorkdir(); process.env.VIVY_E2E_
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const goExe = process.env.GO_EXE || 'C:\\Program Files\\Go\\bin\\go.exe';
 export default defineConfig({
-  testDir: './e2e', timeout: 60_000, workers: 1, retries: 0, reporter: 'list', use: { baseURL: `http://${E2E_ADDR}` },
+  testDir: './e2e', timeout: 60_000, workers: 1, retries: 0, reporter: 'list', use: { baseURL: `http://${E2E_ADDR}`, locale: 'zh-CN' },
   webServer: { command: `${JSON.stringify(goExe)} run ./cmd/vivy`, cwd: repoRoot, url: `http://${E2E_ADDR}/healthz`, env: { VIVY_ADDR: E2E_ADDR, VIVY_CONFIG: e2eConfig }, reuseExistingServer: false, timeout: 30_000 },
 });

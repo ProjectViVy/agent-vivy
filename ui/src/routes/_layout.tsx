@@ -7,10 +7,12 @@ import { ConversationSidebar } from '@/components/chat/ConversationSidebar';
 import { SessionDrawer } from '@/components/chat/SessionDrawer';
 import { PlanSidebarPanel } from '@/components/planning/PlanSidebarPanel';
 import { ApprovalsView } from '@/components/approvals/ApprovalsView';
+import { WelcomeWizard } from '@/components/layout/WelcomeWizard';
 import { getPlanSidebarData } from '@/lib/demo-api';
 import type { PlanSidebarData } from '@/lib/types';
 import { useVivyStore } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { isWelcomeCompleted, openWelcome } from '@/hooks/use-welcome';
 import { MaskAndModelSwitcher } from '@/components/chat/MaskAndModelSwitcher';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -39,9 +41,15 @@ function Layout() {
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const setReviewCenterOpen = useVivyStore((state) => state.setReviewCenterOpen);
   const reviewBusyId = useVivyStore((state) => state.reviewBusyId);
+  const initialized = useVivyStore((state) => state.initialized);
+  const initializationError = useVivyStore((state) => state.initializationError);
 
   useEffect(() => { getPlanSidebarData().then(setPlanData); }, []);
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
+  // 首次使用（完成标记未写入）且后端初始化成功时，自动弹出欢迎向导。
+  useEffect(() => {
+    if (initialized && !initializationError && !isWelcomeCompleted()) openWelcome();
+  }, [initialized, initializationError]);
 
   const connected = connection === 'connected';
   const navClosed = mobile ? !mobileNavOpen : desktopCollapsed;
@@ -172,6 +180,7 @@ function Layout() {
           </SheetBody>
         </SheetContent>
       </Sheet>
+      <WelcomeWizard />
     </div>
   );
 }
