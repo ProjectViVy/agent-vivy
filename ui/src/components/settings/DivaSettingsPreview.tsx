@@ -281,7 +281,7 @@ function NetworkPreview() {
           <ToggleRow title="启用网页抓取" checked={fetchEnabled} onCheckedChange={(checked) => { setFetchEnabled(checked); notify('网页抓取预览已更新。'); }} />
         </div>
       </PreviewCard>
-      <PreviewCard title="当前预览摘要">
+      <PreviewCard title="当前预览摘要" description="汇总上方选择结果，不代表真实网络工具配置。">
         <p className="text-sm text-muted-foreground">{provider} · 最多 {maxResults} 条 · 搜索 {searchEnabled ? '开启' : '关闭'} · 抓取 {fetchEnabled ? '开启' : '关闭'}</p>
       </PreviewCard>
     </PreviewFrame>
@@ -325,7 +325,7 @@ function CompactionPreview() {
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all ${shouldCompact ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} /></div>
         <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground"><Badge variant={shouldCompact ? 'secondary' : 'outline'}>{pressure}% 压力</Badge><span>{shouldCompact ? '达到压缩阈值' : '暂不需要压缩'}</span></div>
       </PreviewCard>
-      <PreviewCard title="压缩配置">
+      <PreviewCard title="压缩配置" description="调整只影响本页预览，不写入运行配置。">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2"><Label htmlFor="preview-compaction-max">最大 tokens</Label><Input id="preview-compaction-max" type="number" min={1} value={maxTokens} onChange={(event) => { setMaxTokens(Math.max(1, Number(event.target.value) || 1)); notify('最大 tokens 预览已更新。'); }} /></div>
           <div className="space-y-2"><Label htmlFor="preview-compaction-threshold">压缩阈值 (%)</Label><Input id="preview-compaction-threshold" type="number" min={10} max={100} value={thresholdPercent} onChange={(event) => { setThresholdPercent(Math.min(100, Math.max(10, Number(event.target.value) || 10))); notify('压缩阈值预览已更新。'); }} /></div>
