@@ -326,6 +326,75 @@ export interface CreateSkillRequestPayload {
   reason: string;
 }
 
+// ==================== 进化 / AutoDream 相关 ====================
+
+export type AutoDreamRunState = 'pending' | 'running' | 'cancelled' | 'completed' | 'failed';
+
+export type AutoDreamOrchestrationPhase =
+  | 'queued'
+  | 'gathering'
+  | 'reflecting'
+  | 'validating'
+  | 'publishing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type AutoDreamFailureCode =
+  | 'cancelled'
+  | 'input_unavailable'
+  | 'worker_timeout'
+  | 'worker_failed'
+  | 'report_generation_failed'
+  | 'provider_unavailable'
+  | 'provider_timeout'
+  | 'provider_failed'
+  | 'invalid_candidate';
+
+export interface AutoDreamInputSourceSummary {
+  source: string;
+  included_items: number;
+  total_bytes: number;
+  truncated: boolean;
+}
+
+export interface AutoDreamInputSummary {
+  total_items: number;
+  included_sources: AutoDreamInputSourceSummary[];
+  total_bytes: number;
+  truncated: boolean;
+}
+
+export interface AutoDreamOrchestrationRecord {
+  schema_version: number;
+  phase: AutoDreamOrchestrationPhase;
+  attempt: number;
+  deadline_at: string;
+  updated_at: string;
+}
+
+export interface AutoDreamRunRecord {
+  id: string;
+  started_at: string;
+  completed_at: string | null;
+  state: AutoDreamRunState;
+  trigger: string;
+  summary: string | null;
+  input_summary: AutoDreamInputSummary | null;
+  proposal_ids: string[];
+  orchestration: AutoDreamOrchestrationRecord | null;
+  failure_code: AutoDreamFailureCode | null;
+  error: string | null;
+}
+
+export interface AutoDreamRunEvent {
+  id: string;
+  run_id: string;
+  kind: string;
+  message: string;
+  created_at: string;
+}
+
 // ==================== 文件附件相关 ====================
 
 export interface FileAttachmentDto {

@@ -16,8 +16,13 @@ import type {
   ApprovalEventView,
   SkillDto,
   SkillDocument,
+  SkillWriteOutcome,
   SkillRequest,
+  SkillHistoryEntry,
+  SkillHistoryDocument,
   CreateSkillRequestPayload,
+  AutoDreamRunRecord,
+  AutoDreamRunEvent,
   FileAttachmentDto,
   RuntimeConfig,
   ToolsConfigShape,
@@ -60,6 +65,8 @@ const STORAGE_KEYS = {
   TOOLS_CONFIG: 'vivy.demo.tools-config',
   SKILLS: 'vivy.demo.skills',
   SKILL_REQUESTS: 'vivy.demo.skill-requests',
+  SKILL_DOCS: 'vivy.demo.skill-docs',
+  AUTODREAM: 'vivy.demo.autodream',
   APPROVALS: 'vivy.demo.approvals',
   PERSONA: 'vivy.demo.persona',
   DASHBOARD: 'vivy.demo.dashboard',
@@ -179,11 +186,325 @@ const MOCK_SKILLS: SkillDto[] = [
     active: false,
     content_hash: 'ghi789',
     updated_at: '2024-01-15T10:00:00Z',
-    can_hard_delete: true,
+    can_hard_delete: false,
     path: '/skills/web-design-guidelines',
+    can_delete: false,
+  },
+  {
+    slug: 'vivy-code-review',
+    name: t('demo.evolution.skillReviewName'),
+    description: t('demo.evolution.skillReviewDescription'),
+    source: 'home',
+    enabled: true,
+    always: false,
+    available: true,
+    active: true,
+    content_hash: 'evo-hash-review-2',
+    updated_at: '2026-08-24T09:30:00Z',
+    can_hard_delete: true,
+    evolution_managed: true,
+    path: '/skills/home/vivy-code-review',
+    can_delete: true,
+  },
+  {
+    slug: 'vivy-doc-sync',
+    name: t('demo.evolution.skillSyncName'),
+    description: t('demo.evolution.skillSyncDescription'),
+    source: 'home',
+    enabled: true,
+    always: false,
+    available: true,
+    active: true,
+    content_hash: 'evo-hash-sync-1',
+    updated_at: '2026-08-23T16:00:00Z',
+    can_hard_delete: true,
+    evolution_managed: true,
+    path: '/skills/home/vivy-doc-sync',
     can_delete: true,
   },
 ];
+
+// ==================== 进化治理（Skill 权威 / 待审请求 / AutoDream） ====================
+
+/** 历史快照项：SkillHistoryDocument 全文 + SkillHistoryEntry 时间信息（演示层私有） */
+export interface DemoSkillHistoryItem extends SkillHistoryDocument, SkillHistoryEntry {}
+
+/** 每个 Skill 的权威文档与历史快照（演进写入时保留旧版本） */
+export interface DemoSkillDocRecord {
+  markdown: string;
+  history: DemoSkillHistoryItem[];
+}
+
+const MOCK_SKILL_DOCS: Record<string, DemoSkillDocRecord> = {
+  'vivy-code-review': {
+    markdown: t('demo.evolution.skillReviewMarkdown'),
+    history: [
+      {
+        slug: 'vivy-code-review',
+        revision: 1,
+        content_hash: 'evo-hash-review-1',
+        updated_at: '2026-08-22T11:00:00Z',
+        markdown: t('demo.evolution.skillReviewMarkdownV1'),
+      },
+    ],
+  },
+  'vivy-doc-sync': {
+    markdown: t('demo.evolution.skillSyncMarkdown'),
+    history: [],
+  },
+};
+
+const MOCK_SKILL_REQUESTS: SkillRequest[] = [
+  {
+    id: 'req-demo-pending',
+    slug: 'vivy-doc-sync',
+    title: t('demo.evolution.pendingRequestTitle'),
+    proposed_markdown: t('demo.evolution.pendingRequestMarkdown'),
+    evidence: [{ autodream_run_id: 'run-demo-1', tool: 'autodream', artifact: null }],
+    attestation: null,
+    base_hash: 'evo-hash-sync-1',
+    source: 'autodream',
+    reason: t('demo.evolution.pendingRequestReason'),
+    status: 'pending',
+    created_at: '2026-08-24T10:06:00Z',
+    updated_at: '2026-08-24T10:06:00Z',
+  },
+  {
+    id: 'req-demo-accepted',
+    slug: 'vivy-code-review',
+    title: t('demo.evolution.acceptedRequestTitle'),
+    proposed_markdown: t('demo.evolution.skillReviewMarkdown'),
+    evidence: [],
+    attestation: t('demo.evolution.acceptedRequestAttestation'),
+    base_hash: 'evo-hash-review-1',
+    source: 'user_request',
+    reason: t('demo.evolution.acceptedRequestReason'),
+    status: 'accepted',
+    created_at: '2026-08-21T14:00:00Z',
+    updated_at: '2026-08-22T09:00:00Z',
+  },
+  {
+    id: 'req-demo-stale',
+    slug: 'vivy-code-review',
+    title: t('demo.evolution.staleRequestTitle'),
+    proposed_markdown: t('demo.evolution.skillReviewMarkdownV1'),
+    evidence: [{ autodream_run_id: 'run-demo-2', tool: 'autodream', artifact: null }],
+    attestation: null,
+    base_hash: 'evo-hash-review-0',
+    source: 'autodream',
+    reason: t('demo.evolution.staleRequestReason'),
+    status: 'stale',
+    created_at: '2026-08-21T09:00:00Z',
+    updated_at: '2026-08-22T09:00:00Z',
+  },
+];
+
+interface DemoAutoDreamStore {
+  runs: AutoDreamRunRecord[];
+  events: Record<string, AutoDreamRunEvent[]>;
+}
+
+function mockRunEvent(runId: string, kind: string, messageKey: string, createdAt: string): AutoDreamRunEvent {
+  return { id: `${runId}-ev-${kind}`, run_id: runId, kind, message: t(messageKey), created_at: createdAt };
+}
+
+const MOCK_AUTODREAM: DemoAutoDreamStore = {
+  runs: [
+    {
+      id: 'run-demo-1',
+      started_at: '2026-08-24T10:00:00Z',
+      completed_at: '2026-08-24T10:06:00Z',
+      state: 'completed',
+      trigger: 'manual',
+      summary: t('demo.evolution.run1Summary'),
+      input_summary: {
+        total_items: 24,
+        included_sources: [
+          { source: 'sessions', included_items: 18, total_bytes: 48210, truncated: false },
+          { source: 'actmem', included_items: 6, total_bytes: 12980, truncated: false },
+        ],
+        total_bytes: 61190,
+        truncated: false,
+      },
+      proposal_ids: ['req-demo-pending'],
+      orchestration: {
+        schema_version: 1,
+        phase: 'completed',
+        attempt: 1,
+        deadline_at: '2026-08-24T10:20:00Z',
+        updated_at: '2026-08-24T10:06:00Z',
+      },
+      failure_code: null,
+      error: null,
+    },
+    {
+      id: 'run-demo-2',
+      started_at: '2026-08-21T09:00:00Z',
+      completed_at: '2026-08-21T09:04:00Z',
+      state: 'completed',
+      trigger: 'session_threshold',
+      summary: t('demo.evolution.run2Summary'),
+      input_summary: {
+        total_items: 9,
+        included_sources: [{ source: 'sessions', included_items: 9, total_bytes: 17340, truncated: false }],
+        total_bytes: 17340,
+        truncated: false,
+      },
+      proposal_ids: [],
+      orchestration: {
+        schema_version: 1,
+        phase: 'completed',
+        attempt: 1,
+        deadline_at: '2026-08-21T09:15:00Z',
+        updated_at: '2026-08-21T09:04:00Z',
+      },
+      failure_code: null,
+      error: null,
+    },
+    {
+      id: 'run-demo-3',
+      started_at: '2026-08-18T15:00:00Z',
+      completed_at: '2026-08-18T15:02:00Z',
+      state: 'failed',
+      trigger: 'manual',
+      summary: t('demo.evolution.run3Summary'),
+      input_summary: null,
+      proposal_ids: [],
+      orchestration: {
+        schema_version: 1,
+        phase: 'failed',
+        attempt: 1,
+        deadline_at: '2026-08-18T15:15:00Z',
+        updated_at: '2026-08-18T15:02:00Z',
+      },
+      failure_code: 'worker_timeout',
+      error: t('demo.evolution.run3Error'),
+    },
+  ],
+  events: {
+    'run-demo-1': [
+      mockRunEvent('run-demo-1', 'run_started', 'demo.evolution.eventStarted', '2026-08-24T10:00:00Z'),
+      mockRunEvent('run-demo-1', 'inputs_gathered', 'demo.evolution.eventGathered', '2026-08-24T10:01:00Z'),
+      mockRunEvent('run-demo-1', 'reflecting_started', 'demo.evolution.eventReflecting', '2026-08-24T10:02:00Z'),
+      mockRunEvent('run-demo-1', 'candidate_validated', 'demo.evolution.eventValidated', '2026-08-24T10:05:00Z'),
+      mockRunEvent('run-demo-1', 'proposal_published', 'demo.evolution.eventPublished', '2026-08-24T10:06:00Z'),
+    ],
+    'run-demo-2': [
+      mockRunEvent('run-demo-2', 'run_started', 'demo.evolution.eventStarted', '2026-08-21T09:00:00Z'),
+      mockRunEvent('run-demo-2', 'inputs_gathered', 'demo.evolution.eventGathered', '2026-08-21T09:01:00Z'),
+      mockRunEvent('run-demo-2', 'run_completed', 'demo.evolution.eventCompleted', '2026-08-21T09:04:00Z'),
+    ],
+    'run-demo-3': [
+      mockRunEvent('run-demo-3', 'run_started', 'demo.evolution.eventStarted', '2026-08-18T15:00:00Z'),
+      mockRunEvent('run-demo-3', 'run_failed', 'demo.evolution.eventFailed', '2026-08-18T15:02:00Z'),
+    ],
+  },
+};
+
+const demoHash = () => `evo-hash-${generateId()}`;
+
+/** 播种时必须返回副本：治理操作会原地修改返回的记录，不能污染模块级种子 */
+function seedStore<T>(key: string, seed: T): T {
+  const copy = JSON.parse(JSON.stringify(seed)) as T;
+  localStorage.setItem(key, JSON.stringify(copy));
+  return copy;
+}
+
+function readSkillStore(): SkillDto[] {
+  const cached = localStorage.getItem(STORAGE_KEYS.SKILLS);
+  if (cached) {
+    return JSON.parse(cached) as SkillDto[];
+  }
+  return seedStore(STORAGE_KEYS.SKILLS, MOCK_SKILLS);
+}
+
+function writeSkillStore(skills: SkillDto[]) {
+  localStorage.setItem(STORAGE_KEYS.SKILLS, JSON.stringify(skills));
+}
+
+function readSkillDocStore(): Record<string, DemoSkillDocRecord> {
+  const cached = localStorage.getItem(STORAGE_KEYS.SKILL_DOCS);
+  if (cached) {
+    return JSON.parse(cached) as Record<string, DemoSkillDocRecord>;
+  }
+  const seeded: Record<string, DemoSkillDocRecord> = {};
+  for (const skill of MOCK_SKILLS) {
+    seeded[skill.slug] =
+      MOCK_SKILL_DOCS[skill.slug] ?? {
+        markdown: t('demo.skills.docTemplate', { name: skill.name, description: skill.description }),
+        history: [],
+      };
+  }
+  return seedStore(STORAGE_KEYS.SKILL_DOCS, seeded);
+}
+
+function writeSkillDocStore(docs: Record<string, DemoSkillDocRecord>) {
+  localStorage.setItem(STORAGE_KEYS.SKILL_DOCS, JSON.stringify(docs));
+}
+
+function readSkillRequests(): SkillRequest[] {
+  const cached = localStorage.getItem(STORAGE_KEYS.SKILL_REQUESTS);
+  if (cached) {
+    return JSON.parse(cached) as SkillRequest[];
+  }
+  return seedStore(STORAGE_KEYS.SKILL_REQUESTS, MOCK_SKILL_REQUESTS);
+}
+
+function writeSkillRequests(requests: SkillRequest[]) {
+  localStorage.setItem(STORAGE_KEYS.SKILL_REQUESTS, JSON.stringify(requests));
+}
+
+function readAutoDreamStore(): DemoAutoDreamStore {
+  const cached = localStorage.getItem(STORAGE_KEYS.AUTODREAM);
+  if (cached) {
+    return JSON.parse(cached) as DemoAutoDreamStore;
+  }
+  return seedStore(STORAGE_KEYS.AUTODREAM, MOCK_AUTODREAM);
+}
+
+/** 将提案写入 Skill 权威头并保留历史快照；返回新的 content_hash */
+function applyProposalToSkill(slug: string, markdown: string): string {
+  const skills = readSkillStore();
+  const docs = readSkillDocStore();
+  const skill = skills.find((s) => s.slug === slug);
+  const record = docs[slug] ?? { markdown: '', history: [] };
+  const newHash = demoHash();
+  if (skill) {
+    record.history.push({
+      slug,
+      revision: record.history.length + 1,
+      content_hash: skill.content_hash,
+      updated_at: now(),
+      markdown: record.markdown,
+    });
+    skill.content_hash = newHash;
+    skill.updated_at = now();
+    skill.evolution_managed = true;
+    skill.enabled = true;
+  } else {
+    skills.push({
+      slug,
+      name: slug,
+      description: '',
+      source: 'home',
+      enabled: true,
+      always: false,
+      available: true,
+      active: true,
+      content_hash: newHash,
+      updated_at: now(),
+      can_hard_delete: true,
+      evolution_managed: true,
+      path: `/skills/home/${slug}`,
+      can_delete: true,
+    });
+  }
+  record.markdown = markdown;
+  docs[slug] = record;
+  writeSkillStore(skills);
+  writeSkillDocStore(docs);
+  return newHash;
+}
 
 const MOCK_APPROVALS: ApprovalView[] = [
   {
@@ -492,22 +813,17 @@ export async function resolveCommandApproval(
  */
 export async function listSkills(): Promise<SkillDto[]> {
   await delay(200);
-  const cached = localStorage.getItem(STORAGE_KEYS.SKILLS);
-  if (cached) {
-    return JSON.parse(cached);
-  }
-  localStorage.setItem(STORAGE_KEYS.SKILLS, JSON.stringify(MOCK_SKILLS));
-  return MOCK_SKILLS;
+  return readSkillStore();
 }
 
 /**
- * 获取技能文档
+ * 获取技能文档（读取本地权威存储，与进化治理写入保持一致）
  */
 export async function getSkillDocument(slug: string): Promise<SkillDocument | null> {
   await delay(200);
-  const skill = MOCK_SKILLS.find((s) => s.slug === slug);
+  const skill = readSkillStore().find((s) => s.slug === slug);
   if (!skill) return null;
-
+  const record = readSkillDocStore()[slug];
   return {
     slug: skill.slug,
     description: skill.description,
@@ -519,8 +835,88 @@ export async function getSkillDocument(slug: string): Promise<SkillDocument | nu
     updated_at: skill.updated_at,
     can_hard_delete: skill.can_hard_delete,
     evolution_managed: skill.evolution_managed,
-    markdown: t('demo.skills.docTemplate', { name: skill.name, description: skill.description }),
+    markdown: record?.markdown ?? '',
   };
+}
+
+/**
+ * 编辑保存 Skill 文档（base_hash 冲突时拒绝，保留旧内容为历史快照）
+ */
+export async function updateSkillDocument(slug: string, markdown: string, baseHash: string): Promise<SkillWriteOutcome> {
+  await delay(300);
+  const skills = readSkillStore();
+  const skill = skills.find((s) => s.slug === slug);
+  if (!skill) throw new Error(t('evolution.errors.skillNotFound'));
+  if (skill.content_hash !== baseHash) throw new Error(t('evolution.errors.hashConflict'));
+  const docs = readSkillDocStore();
+  const record = docs[slug] ?? { markdown: '', history: [] };
+  const changed = record.markdown !== markdown;
+  if (changed) {
+    record.history.push({
+      slug,
+      revision: record.history.length + 1,
+      content_hash: skill.content_hash,
+      updated_at: now(),
+      markdown: record.markdown,
+    });
+    record.markdown = markdown;
+    docs[slug] = record;
+    skill.content_hash = demoHash();
+    skill.updated_at = now();
+    writeSkillStore(skills);
+    writeSkillDocStore(docs);
+  }
+  const document = await getSkillDocument(slug);
+  if (!document) throw new Error(t('evolution.errors.skillNotFound'));
+  return { document, changed };
+}
+
+/**
+ * 启用 / 停用 Skill
+ */
+export async function setSkillEnabled(slug: string, enabled: boolean): Promise<SkillDto> {
+  await delay(200);
+  const skills = readSkillStore();
+  const skill = skills.find((s) => s.slug === slug);
+  if (!skill) throw new Error(t('evolution.errors.skillNotFound'));
+  skill.enabled = enabled;
+  skill.updated_at = now();
+  writeSkillStore(skills);
+  return skill;
+}
+
+/**
+ * 硬删除 home Skill（仅 can_hard_delete，删除权威头与历史）
+ */
+export async function deleteSkill(slug: string): Promise<void> {
+  await delay(200);
+  const skills = readSkillStore();
+  const skill = skills.find((s) => s.slug === slug);
+  if (!skill) throw new Error(t('evolution.errors.skillNotFound'));
+  if (!skill.can_hard_delete) throw new Error(t('evolution.errors.cannotDelete'));
+  writeSkillStore(skills.filter((s) => s.slug !== slug));
+  const docs = readSkillDocStore();
+  delete docs[slug];
+  writeSkillDocStore(docs);
+}
+
+/**
+ * 获取 Skill 历史快照列表
+ */
+export async function getSkillHistory(slug: string): Promise<SkillHistoryEntry[]> {
+  await delay(150);
+  const record = readSkillDocStore()[slug];
+  if (!record) return [];
+  return record.history.map(({ revision, content_hash, updated_at }) => ({ revision, content_hash, updated_at }));
+}
+
+/**
+ * 获取指定历史快照全文
+ */
+export async function getSkillHistoryDocument(slug: string, revision: number): Promise<SkillHistoryDocument | null> {
+  await delay(150);
+  const record = readSkillDocStore()[slug];
+  return record?.history.find((entry) => entry.revision === revision) ?? null;
 }
 
 /**
@@ -528,7 +924,7 @@ export async function getSkillDocument(slug: string): Promise<SkillDocument | nu
  */
 export async function createSkillRequest(payload: CreateSkillRequestPayload): Promise<SkillRequest> {
   await delay(300);
-  const requests = JSON.parse(localStorage.getItem(STORAGE_KEYS.SKILL_REQUESTS) || '[]');
+  const requests = readSkillRequests();
   const newRequest: SkillRequest = {
     id: `req-${generateId()}`,
     slug: payload.slug,
@@ -544,7 +940,7 @@ export async function createSkillRequest(payload: CreateSkillRequestPayload): Pr
     updated_at: now(),
   };
   requests.push(newRequest);
-  localStorage.setItem(STORAGE_KEYS.SKILL_REQUESTS, JSON.stringify(requests));
+  writeSkillRequests(requests);
   return newRequest;
 }
 
@@ -553,7 +949,61 @@ export async function createSkillRequest(payload: CreateSkillRequestPayload): Pr
  */
 export async function getSkillRequests(): Promise<SkillRequest[]> {
   await delay(200);
-  return JSON.parse(localStorage.getItem(STORAGE_KEYS.SKILL_REQUESTS) || '[]');
+  return readSkillRequests();
+}
+
+/**
+ * 接受技能请求：base_hash 与当前权威头不一致时置为 stale 并拒绝
+ */
+export async function acceptSkillRequest(id: string): Promise<SkillRequest> {
+  await delay(300);
+  const requests = readSkillRequests();
+  const request = requests.find((r) => r.id === id);
+  if (!request) throw new Error(t('evolution.errors.requestNotFound'));
+  if (request.status !== 'pending') throw new Error(t('evolution.errors.requestNotPending'));
+  const skill = readSkillStore().find((s) => s.slug === request.slug);
+  if (skill && skill.content_hash !== request.base_hash) {
+    request.status = 'stale';
+    request.updated_at = now();
+    writeSkillRequests(requests);
+    throw new Error(t('evolution.errors.requestStale'));
+  }
+  applyProposalToSkill(request.slug, request.proposed_markdown);
+  request.status = 'accepted';
+  request.updated_at = now();
+  writeSkillRequests(requests);
+  return request;
+}
+
+/**
+ * 拒绝技能请求（仅 pending 可拒绝）
+ */
+export async function rejectSkillRequest(id: string): Promise<SkillRequest> {
+  await delay(300);
+  const requests = readSkillRequests();
+  const request = requests.find((r) => r.id === id);
+  if (!request) throw new Error(t('evolution.errors.requestNotFound'));
+  if (request.status !== 'pending') throw new Error(t('evolution.errors.requestNotPending'));
+  request.status = 'rejected';
+  request.updated_at = now();
+  writeSkillRequests(requests);
+  return request;
+}
+
+/**
+ * 获取 AutoDream 运行列表
+ */
+export async function listAutoDreamRuns(): Promise<AutoDreamRunRecord[]> {
+  await delay(200);
+  return readAutoDreamStore().runs;
+}
+
+/**
+ * 获取 AutoDream 运行的进度事件
+ */
+export async function getAutoDreamRunEvents(runId: string): Promise<AutoDreamRunEvent[]> {
+  await delay(150);
+  return readAutoDreamStore().events[runId] ?? [];
 }
 
 /**

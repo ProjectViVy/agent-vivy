@@ -14,6 +14,7 @@ import { Route as LayoutIndexRouteImport } from './routes/_layout.index'
 import { Route as LayoutApprovalsRouteImport } from './routes/_layout.approvals'
 import { Route as LayoutCronTasksRouteImport } from './routes/_layout.cron-tasks'
 import { Route as LayoutDashboardRouteImport } from './routes/_layout.dashboard'
+import { Route as LayoutEvolutionRouteImport } from './routes/_layout.evolution'
 import { Route as LayoutLifecycleRouteImport } from './routes/_layout.lifecycle'
 import { Route as LayoutMasksRouteImport } from './routes/_layout.masks'
 import { Route as LayoutMcpRouteImport } from './routes/_layout.mcp'
@@ -45,6 +46,11 @@ const LayoutCronTasksRoute = LayoutCronTasksRouteImport.update({
 const LayoutDashboardRoute = LayoutDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutEvolutionRoute = LayoutEvolutionRouteImport.update({
+  id: '/evolution',
+  path: '/evolution',
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutLifecycleRoute = LayoutLifecycleRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/approvals': typeof LayoutApprovalsRoute
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
+  '/evolution': typeof LayoutEvolutionRoute
   '/lifecycle': typeof LayoutLifecycleRoute
   '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/approvals': typeof LayoutApprovalsRoute
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
+  '/evolution': typeof LayoutEvolutionRoute
   '/lifecycle': typeof LayoutLifecycleRoute
   '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/_layout/approvals': typeof LayoutApprovalsRoute
   '/_layout/cron-tasks': typeof LayoutCronTasksRoute
   '/_layout/dashboard': typeof LayoutDashboardRoute
+  '/_layout/evolution': typeof LayoutEvolutionRoute
   '/_layout/lifecycle': typeof LayoutLifecycleRoute
   '/_layout/masks': typeof LayoutMasksRoute
   '/_layout/mcp': typeof LayoutMcpRoute
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/cron-tasks'
     | '/dashboard'
+    | '/evolution'
     | '/lifecycle'
     | '/masks'
     | '/mcp'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/cron-tasks'
     | '/dashboard'
+    | '/evolution'
     | '/lifecycle'
     | '/masks'
     | '/mcp'
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/_layout/approvals'
     | '/_layout/cron-tasks'
     | '/_layout/dashboard'
+    | '/_layout/evolution'
     | '/_layout/lifecycle'
     | '/_layout/masks'
     | '/_layout/mcp'
@@ -217,6 +229,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof LayoutDashboardRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/evolution': {
+      id: '/_layout/evolution'
+      path: '/evolution'
+      fullPath: '/evolution'
+      preLoaderRoute: typeof LayoutEvolutionRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/lifecycle': {
@@ -282,6 +301,7 @@ interface LayoutRouteChildren {
   LayoutApprovalsRoute: typeof LayoutApprovalsRoute
   LayoutCronTasksRoute: typeof LayoutCronTasksRoute
   LayoutDashboardRoute: typeof LayoutDashboardRoute
+  LayoutEvolutionRoute: typeof LayoutEvolutionRoute
   LayoutLifecycleRoute: typeof LayoutLifecycleRoute
   LayoutMasksRoute: typeof LayoutMasksRoute
   LayoutMcpRoute: typeof LayoutMcpRoute
@@ -297,6 +317,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutApprovalsRoute: LayoutApprovalsRoute,
   LayoutCronTasksRoute: LayoutCronTasksRoute,
   LayoutDashboardRoute: LayoutDashboardRoute,
+  LayoutEvolutionRoute: LayoutEvolutionRoute,
   LayoutLifecycleRoute: LayoutLifecycleRoute,
   LayoutMasksRoute: LayoutMasksRoute,
   LayoutMcpRoute: LayoutMcpRoute,

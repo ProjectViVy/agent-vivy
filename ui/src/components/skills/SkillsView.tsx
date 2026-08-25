@@ -153,7 +153,7 @@ export function SkillsView() {
                       <CardTitle className="text-base">{request.title}</CardTitle>
                       <CardDescription>{request.slug} · {request.reason}</CardDescription>
                     </div>
-                    <Badge variant={request.status === 'pending' ? 'default' : 'secondary'}>{request.status}</Badge>
+                    <Badge variant={request.status === 'pending' ? 'default' : 'secondary'}>{t(`skills.status.${request.status}`)}</Badge>
                   </div>
                 </CardHeader>
               </Card>
