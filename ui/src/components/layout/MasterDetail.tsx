@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/i18n';
 
 type MasterDetailProps = {
   selected: boolean;
@@ -19,9 +20,11 @@ export function MasterDetail({
   master,
   detail,
   columnsClassName = 'md:grid-cols-[20rem_minmax(0,1fr)]',
-  backLabel = '返回列表',
+  backLabel,
   className,
 }: MasterDetailProps) {
+  const { t } = useTranslation();
+  const label = backLabel ?? t('common.back');
   return (
     <div className={cn('grid h-full min-h-0 grid-rows-[minmax(0,1fr)]', columnsClassName, className)}>
       <section className={cn('flex min-h-0 min-w-0 flex-col', selected ? 'hidden md:flex' : 'flex')}>
@@ -32,7 +35,7 @@ export function MasterDetail({
           <div className="shrink-0 border-b px-2 py-2 md:hidden">
             <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={onBack}>
               <ChevronLeft className="h-4 w-4" />
-              {backLabel}
+              {label}
             </Button>
           </div>
         ) : null}

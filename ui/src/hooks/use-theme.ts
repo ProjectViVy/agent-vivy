@@ -2,16 +2,14 @@ import { useSyncExternalStore } from 'react';
 
 // 界面皮肤单一入口：主题注册表、data-theme 应用、localStorage 持久化。
 // 主题色值本体在 ./../styles.css 的 [data-theme="..."] 块中，本文件只持有
-// 选择卡所需的展示数据（预览色板为字面量：选择卡需同时展示所有皮肤，
-// 不能跟随当前主题 token）。
+// 选择卡所需的结构数据；选择卡展示文案经 i18n 词条 themes.<id>.* 解析
+// （预览色板为字面量：选择卡需同时展示所有皮肤，不能跟随当前主题 token）。
 export const THEME_IDS = ['default', 'pink', 'dark', 'miku'] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export type ThemeAppearance = 'light' | 'dark';
 
 export type VivyTheme = {
   id: ThemeId;
-  label: string;
-  description: string;
   appearance: ThemeAppearance;
   /** 选择卡预览背景（CSS background 字面量） */
   preview: string;
@@ -22,32 +20,24 @@ export type VivyTheme = {
 export const THEMES: readonly VivyTheme[] = [
   {
     id: 'default',
-    label: 'Vivy 蓝',
-    description: '默认的浅色蓝白界面。',
     appearance: 'light',
-    preview: 'linear-gradient(135deg, #f6f7fb 0%, #e7ebf8 55%, #d9e1f6 100%)',
-    accent: '#3e63dd',
+    preview: 'linear-gradient(135deg, #f4f8fa 0%, #dfeff4 55%, #cce6ef 100%)',
+    accent: '#008fca',
   },
   {
     id: 'pink',
-    label: '简约粉白',
-    description: '白底细粉线的轻量界面，移植自 Agent-Diva。',
     appearance: 'light',
     preview: 'linear-gradient(135deg, #ffffff 0%, #fff5f7 45%, #ffe4ef 100%)',
     accent: '#ec4899',
   },
   {
     id: 'dark',
-    label: '深蓝夜色',
-    description: '低亮度蓝黑的深色界面。',
     appearance: 'dark',
-    preview: 'linear-gradient(135deg, #14172a 0%, #1e2542 55%, #2a3355 100%)',
-    accent: '#6f8dff',
+    preview: 'linear-gradient(135deg, #001d25 0%, #002d3a 55%, #003c4b 100%)',
+    accent: '#00aee4',
   },
   {
     id: 'miku',
-    label: 'Miku 青',
-    description: '青绿应援色的深色界面，移植自 Agent-Diva。',
     appearance: 'dark',
     preview: 'linear-gradient(135deg, #0d1117 0%, #122129 45%, #123b39 100%)',
     accent: '#39c5bb',

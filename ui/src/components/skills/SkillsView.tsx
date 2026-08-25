@@ -5,9 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MasterDetail } from '@/components/layout/MasterDetail';
+import { useTranslation } from '@/i18n';
 import { BookOpen, RefreshCw, Zap } from 'lucide-react';
 
 export function SkillsView() {
+  const { t } = useTranslation();
   const {
     skills,
     selectedSkill,
@@ -23,7 +25,7 @@ export function SkillsView() {
   const selectedSummary = skills.find((skill) => skill.slug === selectedSkill?.slug);
 
   if (isLoading && skills.length === 0) {
-    return <div className="p-6 text-sm text-muted-foreground">正在加载技能…</div>;
+    return <div className="p-6 text-sm text-muted-foreground">{t('skills.loading')}</div>;
   }
 
   if (error && skills.length === 0) {
@@ -31,11 +33,11 @@ export function SkillsView() {
       <div className="flex h-full items-center justify-center p-6">
         <Card className="max-w-md">
           <CardHeader>
-            <CardTitle>无法加载技能</CardTitle>
+            <CardTitle>{t('skills.loadFailed')}</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => void Promise.all([loadSkills(), loadRequests()])}>重试</Button>
+            <Button onClick={() => void Promise.all([loadSkills(), loadRequests()])}>{t('common.retry')}</Button>
           </CardContent>
         </Card>
       </div>
@@ -46,8 +48,8 @@ export function SkillsView() {
     <Tabs defaultValue="skills" className="flex h-full min-h-0 flex-col p-4 sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
-          <TabsTrigger value="skills">已安装技能</TabsTrigger>
-          <TabsTrigger value="requests">变更请求 ({requests.length})</TabsTrigger>
+          <TabsTrigger value="skills">{t('skills.installed')}</TabsTrigger>
+          <TabsTrigger value="requests">{t('skills.changeRequests', { count: requests.length })}</TabsTrigger>
         </TabsList>
         <Button
           variant="outline"
@@ -56,7 +58,7 @@ export function SkillsView() {
           onClick={() => void Promise.all([loadSkills(), loadRequests()])}
         >
           <RefreshCw className="mr-2 h-4 w-4" />
-          刷新
+          {t('common.refresh')}
         </Button>
       </div>
 
@@ -67,7 +69,7 @@ export function SkillsView() {
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <Zap className="mx-auto mb-3 h-10 w-10 opacity-50" />
-              暂无可用技能
+              {t('skills.empty')}
             </CardContent>
           </Card>
         ) : (
@@ -90,11 +92,11 @@ export function SkillsView() {
                       <div className="flex items-start justify-between gap-2">
                         <span className="min-w-0 font-medium">{skill.name}</span>
                         <Badge variant={skill.enabled ? 'default' : 'secondary'}>
-                          {skill.enabled ? '已启用' : '已停用'}
+                          {skill.enabled ? t('common.enabled') : t('common.disabled')}
                         </Badge>
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">{skill.source === 'builtin' ? '内置' : '用户'}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{skill.source === 'builtin' ? t('skills.builtin') : t('skills.user')}</p>
                     </button>
                   ))}
                 </div>
@@ -109,15 +111,15 @@ export function SkillsView() {
                       <p className="mt-1 text-sm text-muted-foreground">{selectedSkill.description}</p>
                     </div>
                     <div className="flex gap-2">
-                      <Badge variant="outline">{selectedSkill.source === 'builtin' ? '内置' : '用户'}</Badge>
-                      {selectedSkill.always && <Badge variant="secondary">始终加载</Badge>}
+                      <Badge variant="outline">{selectedSkill.source === 'builtin' ? t('skills.builtin') : t('skills.user')}</Badge>
+                      {selectedSkill.always && <Badge variant="secondary">{t('skills.alwaysLoaded')}</Badge>}
                     </div>
                   </div>
                   <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-                    <p className="min-w-0 break-all"><span className="text-muted-foreground">标识：</span>{selectedSkill.slug}</p>
-                    <p><span className="text-muted-foreground">更新时间：</span>{new Date(selectedSkill.updated_at).toLocaleString()}</p>
-                    <p><span className="text-muted-foreground">可用状态：</span>{selectedSkill.available ? '可用' : '不可用'}</p>
-                    <p className="min-w-0 break-all"><span className="text-muted-foreground">内容哈希：</span>{selectedSkill.content_hash}</p>
+                    <p className="min-w-0 break-all"><span className="text-muted-foreground">{t('skills.slug')}</span>{selectedSkill.slug}</p>
+                    <p><span className="text-muted-foreground">{t('skills.updatedAt')}</span>{new Date(selectedSkill.updated_at).toLocaleString()}</p>
+                    <p><span className="text-muted-foreground">{t('skills.availableStatus')}</span>{selectedSkill.available ? t('skills.available') : t('skills.unavailable')}</p>
+                    <p className="min-w-0 break-all"><span className="text-muted-foreground">{t('skills.contentHash')}</span>{selectedSkill.content_hash}</p>
                   </div>
                   <div className="rounded-lg bg-muted p-4">
                     <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{selectedSkill.markdown}</pre>
@@ -127,7 +129,7 @@ export function SkillsView() {
                 <div className="flex h-full min-h-64 items-center justify-center rounded-xl border bg-card p-6 text-center text-muted-foreground">
                   <div>
                     <BookOpen className="mx-auto mb-3 h-10 w-10 opacity-50" />
-                    选择一个技能查看说明
+                    {t('skills.selectHint')}
                   </div>
                 </div>
               )
@@ -139,7 +141,7 @@ export function SkillsView() {
       <TabsContent value="requests" className="mt-0 min-h-0 flex-1 overflow-auto">
         {requests.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">暂无技能变更请求</CardContent>
+            <CardContent className="py-12 text-center text-muted-foreground">{t('skills.noRequests')}</CardContent>
           </Card>
         ) : (
           <div className="space-y-3">

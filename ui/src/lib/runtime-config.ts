@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 export interface VivyRuntimeConfig {
   /** Absolute HTTP(S) origin of the Vivy control plane; empty means same-origin. */
   controlPlaneUrl: string;
@@ -13,7 +15,7 @@ export async function loadRuntimeConfig(): Promise<VivyRuntimeConfig> {
     return defaultRuntimeConfig;
   }
   if (!response.ok) {
-    throw new Error(`Vivy runtime config 请求失败（HTTP ${response.status}）`);
+    throw new Error(t('errors.runtimeConfigHttp', { status: response.status }));
   }
   if (!(response.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
     return defaultRuntimeConfig;
@@ -22,10 +24,10 @@ export async function loadRuntimeConfig(): Promise<VivyRuntimeConfig> {
   try {
     raw = await response.json();
   } catch {
-    throw new Error('Vivy runtime config 不是有效 JSON');
+    throw new Error(t('errors.runtimeConfigNotJson'));
   }
   if (!raw || typeof raw !== 'object' || typeof (raw as { controlPlaneUrl?: unknown }).controlPlaneUrl !== 'string') {
-    throw new Error('Vivy runtime config 缺少 controlPlaneUrl');
+    throw new Error(t('errors.runtimeConfigMissingUrl'));
   }
   return { controlPlaneUrl: (raw as { controlPlaneUrl: string }).controlPlaneUrl.trim() };
 }
@@ -34,10 +36,10 @@ export function resolveControlPlaneOrigin(controlPlaneUrl: string, pageOrigin = 
   const value = controlPlaneUrl.trim();
   const origin = new URL(value || pageOrigin);
   if (origin.protocol !== 'http:' && origin.protocol !== 'https:') {
-    throw new Error('Vivy controlPlaneUrl 必须使用 http 或 https');
+    throw new Error(t('errors.controlPlaneScheme'));
   }
   if (origin.username || origin.password || origin.search || origin.hash || (origin.pathname !== '' && origin.pathname !== '/')) {
-    throw new Error('Vivy controlPlaneUrl 只能包含协议、主机和端口');
+    throw new Error(t('errors.controlPlaneHostOnly'));
   }
   origin.pathname = '/';
   return origin;

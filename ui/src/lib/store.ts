@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from './api';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
+import { t } from '@/i18n';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -110,7 +111,7 @@ async function refreshAfterTerminal(runId: string): Promise<void> {
     if (sessionId) await loadMessagesIntoStore(sessionId, sessionEpoch);
     messagesRefreshed = true;
   } catch (error) {
-    if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ runError: `运行已结束，但消息刷新失败：${errorMessage(error)}` });
+    if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ runError: t('errors.refreshAfterRunFailed', { error: errorMessage(error) }) });
   }
   await Promise.all([state.loadBackgroundRuns(), state.loadChildren(runId), state.loadReviews()]);
   if (messagesRefreshed && useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ streamingText: '', streamingReasoning: '' });
@@ -170,7 +171,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         let sessionItems = sessions.sessions;
         let initialSessionError: string | null = null;
         if (!sessionItems.length) {
-          try { sessionItems = [await api.createSession('新会话')]; }
+          try { sessionItems = [await api.createSession(t('errors.newSessionDefault'))]; }
           catch (error) { initialSessionError = errorMessage(error); }
         }
         const saved = localStorage.getItem(ACTIVE_SESSION_KEY);
@@ -190,7 +191,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     try { const result = await api.listSessions(); set({ sessions: result.sessions, sessionsPhase: result.sessions.length ? 'ready' : 'empty' }); }
     catch (error) { set((state) => ({ sessionsPhase: state.sessions.length ? 'ready' : 'error', sessionsError: errorMessage(error) })); }
   },
-  createSession: async (title = '新会话') => {
+  createSession: async (title = t('errors.newSessionDefault')) => {
     set({ sessionBusyId: 'create', sessionsError: null });
     try { const created = await api.createSession(title); set((state) => ({ sessions: [created, ...state.sessions], sessionsPhase: 'ready' })); await get().selectSession(created.id); return created; }
     catch (error) { set((state) => ({ sessionsError: errorMessage(error), sessionsPhase: state.sessions.length ? state.sessionsPhase : 'error' })); throw error; } finally { set({ sessionBusyId: null }); }

@@ -12,6 +12,7 @@ import type { PlanSidebarData } from '@/lib/types';
 import { useVivyStore } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { MaskAndModelSwitcher } from '@/components/chat/MaskAndModelSwitcher';
+import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/_layout')({ component: Layout });
@@ -20,6 +21,7 @@ function Layout() {
   const mobile = useIsMobile();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const { t } = useTranslation();
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
@@ -81,8 +83,8 @@ function Layout() {
             <Button
               variant="ghost"
               size="icon"
-              aria-label={navClosed ? '打开导航' : '收起导航'}
-              title={navClosed ? '打开导航' : '收起导航'}
+              aria-label={navClosed ? t('layout.openNav') : t('layout.closeNav')}
+              title={navClosed ? t('layout.openNav') : t('layout.closeNav')}
               onClick={toggleNav}
             >
               <Menu className="h-5 w-5" />
@@ -91,17 +93,17 @@ function Layout() {
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-lg">😊</div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold leading-tight">Vivy</div>
-                <div className="hidden truncate text-xs leading-tight text-muted-foreground sm:block">{run ? run.status : '开心'}</div>
+                <div className="hidden truncate text-xs leading-tight text-muted-foreground sm:block">{run ? run.status : t('layout.idleMood')}</div>
               </div>
               <span
                 className={cn(
                   'ml-1 flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs',
                   connected ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600',
                 )}
-                title={connected ? '在线' : connection}
+                title={connected ? t('layout.online') : connection}
               >
                 {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                <span className="hidden sm:inline">{connected ? '在线' : connection}</span>
+                <span className="hidden sm:inline">{connected ? t('layout.online') : connection}</span>
               </span>
             </div>
           </div>
@@ -111,11 +113,11 @@ function Layout() {
           <div className="flex shrink-0 items-center gap-1">
             <Sheet open={sessionOpen} onOpenChange={setSessionOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" title="会话" aria-label="会话"><MessageSquare className="h-5 w-5" /></Button>
+                <Button variant="ghost" size="icon" title={t('layout.sessions')} aria-label={t('layout.sessions')}><MessageSquare className="h-5 w-5" /></Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-[360px]">
                 <SheetHeader className="border-b">
-                  <SheetTitle>会话</SheetTitle>
+                  <SheetTitle>{t('layout.sessions')}</SheetTitle>
                 </SheetHeader>
                 <SheetBody className="overflow-hidden">
                   <SessionDrawer
@@ -132,11 +134,11 @@ function Layout() {
             </Sheet>
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" title="待办事项" aria-label="待办事项"><ListTodo className="h-5 w-5" /></Button>
+                <Button variant="ghost" size="icon" title={t('layout.todos')} aria-label={t('layout.todos')}><ListTodo className="h-5 w-5" /></Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-[400px]">
                 <SheetHeader className="border-b">
-                  <SheetTitle>待办事项</SheetTitle>
+                  <SheetTitle>{t('layout.todos')}</SheetTitle>
                 </SheetHeader>
                 <SheetBody className="p-4">
                   <PlanSidebarPanel plan={planData?.plan ?? null} todos={planData?.todos ?? []} validationIssues={planData?.validation_issues} />
@@ -163,7 +165,7 @@ function Layout() {
           onPointerDownOutside={(event) => { if (reviewBusyId) event.preventDefault(); }}
         >
           <SheetHeader className="border-b">
-            <SheetTitle>审批中心</SheetTitle>
+            <SheetTitle>{t('layout.reviewCenter')}</SheetTitle>
           </SheetHeader>
           <SheetBody className="overflow-hidden">
             <ApprovalsView panel />

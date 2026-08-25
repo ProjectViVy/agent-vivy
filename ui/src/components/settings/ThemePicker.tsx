@@ -1,10 +1,12 @@
 import { CheckCircle2, Palette } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
 
 /** 设置页的真实主题选择卡：点击立即切换全局皮肤并持久化到当前浏览器。 */
 export function ThemePicker() {
   const { theme, themes, setTheme } = useTheme();
+  const { t } = useTranslation();
 
   return (
     <Card>
@@ -12,11 +14,11 @@ export function ThemePicker() {
         <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Palette className="h-5 w-5" aria-hidden="true" />
         </div>
-        <CardTitle>主题</CardTitle>
-        <CardDescription>选择界面皮肤，立即生效并保存在当前浏览器。</CardDescription>
+        <CardTitle>{t('settings.themesTitle')}</CardTitle>
+        <CardDescription>{t('settings.themesDescription')}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="界面主题">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label={t('settings.themesGroupAria')}>
           {themes.map((item) => (
             <button
               key={item.id}
@@ -35,10 +37,10 @@ export function ThemePicker() {
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium" style={{ color: item.accent }}>{item.label}</span>
-                  {theme === item.id ? <CheckCircle2 className="h-4 w-4 text-primary" aria-label="已选中" /> : null}
+                  <span className="font-medium" style={{ color: item.accent }}>{t(`themes.${item.id}.label`)}</span>
+                  {theme === item.id ? <CheckCircle2 className="h-4 w-4 text-primary" aria-label={t('settings.themeSelected')} /> : null}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{t(`themes.${item.id}.description`)}</p>
               </div>
             </button>
           ))}

@@ -8,15 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { generateNotebookReport, getNotebookReports, searchSessions } from '@/lib/demo-api';
 import type { NotebookReport, ReportPeriod, SessionSearchHit } from '@/lib/types';
+import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
-const PERIODS: Array<{ value: ReportPeriod; label: string }> = [
-  { value: 'daily', label: '日报' },
-  { value: 'weekly', label: '周报' },
-  { value: 'monthly', label: '月报' },
-];
+const PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly'];
 
 export function NotebookView() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'reports' | 'search'>('reports');
   const [period, setPeriod] = useState<ReportPeriod>('daily');
   const [reports, setReports] = useState<NotebookReport[]>([]);
@@ -89,18 +87,18 @@ export function NotebookView() {
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="flex min-h-0 flex-1 flex-col">
             <div className="border-b p-3">
               <TabsList className="w-full">
-                <TabsTrigger value="reports" className="flex-1">报告</TabsTrigger>
-                <TabsTrigger value="search" className="flex-1">搜索</TabsTrigger>
+                <TabsTrigger value="reports" className="flex-1">{t('notebook.reports')}</TabsTrigger>
+                <TabsTrigger value="search" className="flex-1">{t('notebook.search')}</TabsTrigger>
               </TabsList>
             </div>
             <TabsContent value="reports" className="m-0 flex min-h-0 flex-1 flex-col">
               <div className="flex items-center gap-2 border-b p-3">
                 <Tabs value={period} onValueChange={(value) => setPeriod(value as ReportPeriod)} className="min-w-0 flex-1">
                   <TabsList className="w-full">
-                    {PERIODS.map((item) => <TabsTrigger key={item.value} value={item.value} className="flex-1 text-xs">{item.label}</TabsTrigger>)}
+                    {PERIODS.map((item) => <TabsTrigger key={item} value={item} className="flex-1 text-xs">{t(`notebook.periods.${item}`)}</TabsTrigger>)}
                   </TabsList>
                 </Tabs>
-                <Button size="icon" variant="outline" title={`生成${PERIODS.find((item) => item.value === period)?.label}`} disabled={generating} onClick={() => void generate()}>
+                <Button size="icon" variant="outline" title={t('notebook.generate', { period: t(`notebook.periods.${period}`) })} disabled={generating} onClick={() => void generate()}>
                   <Sparkles className="h-4 w-4" />
                 </Button>
               </div>
@@ -108,7 +106,7 @@ export function NotebookView() {
                 {reportError ? (
                   <div className="p-3 text-sm text-destructive">
                     <p>{reportError}</p>
-                    <Button className="mt-2" size="sm" variant="outline" onClick={() => setReloadKey((value) => value + 1)}>重试</Button>
+                    <Button className="mt-2" size="sm" variant="outline" onClick={() => setReloadKey((value) => value + 1)}>{t('common.retry')}</Button>
                   </div>
                 ) : loadingReports ? (
                   <div className="space-y-2 p-2">
@@ -129,13 +127,13 @@ export function NotebookView() {
                     <p className="mt-1 truncate text-xs text-muted-foreground">{report.summary}</p>
                     <Badge variant="outline" className="mt-2">{report.date}</Badge>
                   </button>
-                )) : <p className="py-10 text-center text-sm text-muted-foreground">暂无报告</p>}
+                )) : <p className="py-10 text-center text-sm text-muted-foreground">{t('notebook.emptyReports')}</p>}
               </ScrollArea>
             </TabsContent>
             <TabsContent value="search" className="m-0 flex min-h-0 flex-1 flex-col">
               <div className="flex gap-2 border-b p-3">
-                <Input value={query} placeholder="搜索会话内容..." onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search(); }} />
-                <Button size="icon" title="搜索" disabled={searching || !query.trim()} onClick={() => void search()}>
+                <Input value={query} placeholder={t('notebook.searchPlaceholder')} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search(); }} />
+                <Button size="icon" title={t('notebook.searchButton')} disabled={searching || !query.trim()} onClick={() => void search()}>
                   <Search className="h-4 w-4" />
                 </Button>
               </div>
@@ -143,7 +141,7 @@ export function NotebookView() {
                 {searchError ? (
                   <div className="p-3 text-sm text-destructive">
                     <p>{searchError}</p>
-                    <Button className="mt-2" size="sm" variant="outline" onClick={() => void search()}>重试</Button>
+                    <Button className="mt-2" size="sm" variant="outline" onClick={() => void search()}>{t('common.retry')}</Button>
                   </div>
                 ) : searching ? (
                   <div className="space-y-2 p-2">
@@ -159,9 +157,9 @@ export function NotebookView() {
                     <p className="mt-2 text-sm">{hit.snippet}</p>
                   </article>
                 )) : submittedQuery ? (
-                  <p className="py-10 text-center text-sm text-muted-foreground">未找到“{submittedQuery}”</p>
+                  <p className="py-10 text-center text-sm text-muted-foreground">{t('notebook.noResults', { query: submittedQuery })}</p>
                 ) : (
-                  <p className="py-10 text-center text-sm text-muted-foreground">输入关键词搜索本地演示会话</p>
+                  <p className="py-10 text-center text-sm text-muted-foreground">{t('notebook.searchHint')}</p>
                 )}
               </ScrollArea>
             </TabsContent>
@@ -176,9 +174,9 @@ export function NotebookView() {
               <h1 className="min-w-0 text-xl font-bold">{selectedReport.title}</h1>
             </div>
             <div className="my-4 flex flex-wrap gap-2">
-              <Badge>{PERIODS.find((item) => item.value === selectedReport.period)?.label}</Badge>
+              <Badge>{t(`notebook.periods.${selectedReport.period}`)}</Badge>
               <Badge variant="secondary">{selectedReport.date}</Badge>
-              {selectedReport.generatedBy ? <Badge variant="outline">生成者: {selectedReport.generatedBy}</Badge> : null}
+              {selectedReport.generatedBy ? <Badge variant="outline">{t('notebook.generatedBy', { name: selectedReport.generatedBy })}</Badge> : null}
             </div>
             <article className="rounded-xl border bg-card p-4 sm:p-6">
               <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7">{selectedReport.content}</pre>
@@ -188,7 +186,7 @@ export function NotebookView() {
           <div className="flex h-full items-center justify-center p-6 text-muted-foreground">
             <div className="text-center">
               <BookOpen className="mx-auto mb-2 h-12 w-12 opacity-40" />
-              <p>选择一份报告查看详情，或搜索会话内容</p>
+              <p>{t('notebook.selectHint')}</p>
             </div>
           </div>
         )

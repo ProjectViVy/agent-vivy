@@ -58,11 +58,17 @@ describe('theme registry', () => {
     expect(new Set(THEME_IDS).size).toBe(THEME_IDS.length);
     expect(DEFAULT_THEME_ID).toBe('default');
     for (const theme of THEMES) {
-      expect(theme.label.length).toBeGreaterThan(0);
-      expect(theme.description.length).toBeGreaterThan(0);
       expect(['light', 'dark']).toContain(theme.appearance);
       expect(theme.preview).toMatch(/linear-gradient/);
       expect(theme.accent).toMatch(/^#/);
+    }
+  });
+
+  it('provides a display label and description for every theme through i18n', async () => {
+    const { t } = await import('../i18n');
+    for (const id of THEME_IDS) {
+      expect(t(`themes.${id}.label`).length).toBeGreaterThan(0);
+      expect(t(`themes.${id}.description`).length).toBeGreaterThan(0);
     }
   });
 

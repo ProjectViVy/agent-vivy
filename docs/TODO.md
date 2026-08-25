@@ -61,6 +61,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-TOKEN | 中控台 Token 统计接真实用量账本 | OPEN | 2026-08-25 UI 只放了 `getDemoTokenUsage` 假数据；Diva 侧权威在 Manager token ledger |
 | UI-MCP | MCP 面板接真实后端管理 | OPEN | 2026-08-25 面板已按 oil-frontend 重做但仍为 `vivy.demo.mcp` 演示数据；内核 MCP 由 `config.yaml` `runtime.mcp_servers` 驱动，无管理 RPC |
 | UI-TITLE | `ui/index.html` 标题仍是旧演示名 | OPEN | `<title>Agent Diva 前端演示</title>`；产品现为 Vivy，改名需产品命名确认，未随皮肤迭代顺手改 |
+| UI-SET-I18N | 设置页 i18n 接线未完成 | OPEN | i18n 主体已完成（`ui/src/i18n/` 基础设施 + zh/en 词典 + 全视图/lib 文案迁移 + 测试，`just ci` 绿，见 `docs/logs/2026-08-25-i18n-support/`）。剩余：在 `SettingsView.tsx` 语言页挂载已建好的 `<LanguagePicker />`（3 行，点击即 `setLocale` 全局切换 + 持久化）。`SettingsView`/`DivaSettingsPreview` 由他人负责，挂载需与之协调；当前「语言 预览」标签为预览实现，不改变全局文案 |
 
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
