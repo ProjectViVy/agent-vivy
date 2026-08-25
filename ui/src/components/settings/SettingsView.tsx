@@ -102,7 +102,12 @@ export function SettingsView() {
             <TabsTrigger value="persona">人格</TabsTrigger>
             <TabsTrigger value="tools">工具</TabsTrigger>
             <TabsTrigger value="vivy">Vivy 功能</TabsTrigger>
-            {DIVA_ADDITIONAL_SECTIONS.map((section) => <TabsTrigger key={section} value={section}>{DIVA_TAB_LABELS[section]}</TabsTrigger>)}
+            {DIVA_ADDITIONAL_SECTIONS.map((section) => (
+              <TabsTrigger key={section} value={section}>
+                {DIVA_TAB_LABELS[section]}
+                <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">预览</span>
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {demoError ? <div className="mt-4"><DemoLoadError message={demoError} onRetry={() => void loadDemos()} /></div> : null}
@@ -118,7 +123,6 @@ export function SettingsView() {
               </CardContent>
             </Card>
             <ThemePicker />
-            <DemoNote />
             <DivaSettingsPreview section="general" />
           </TabsContent>
 
@@ -176,7 +180,7 @@ export function SettingsView() {
 
           <TabsContent value="vivy" className="space-y-4">
             <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>生命周期</CardTitle><CardDescription>查看 Species、Generation、评测与晋升。</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">打开生命周期<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
-            <Card><CardHeader><div className="mb-2 flex items-center gap-2"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="h-5 w-5" aria-hidden="true" /></div><div><CardTitle>Run Inspector</CardTitle><CardDescription>查看当前、后台与子 Run。</CardDescription></div></div></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] overflow-hidden p-0"><RunInspector /></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>Run Inspector</CardTitle><CardDescription>查看当前、后台与子 Run。</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] overflow-hidden p-0"><RunInspector /></CardContent></Card>
           </TabsContent>
 
           {DIVA_ADDITIONAL_SECTIONS.map((section) => (
