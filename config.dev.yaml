@@ -1,0 +1,5 @@
+# Offline overlay on config.Default() for the split-loop script (dev.ps1 /
+# just dev) when no provider API key is set. Secrets never go here.
+
+runtime:
+  mock: true

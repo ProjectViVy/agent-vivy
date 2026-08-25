@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChevronDown, ChevronUp, Target, ListTodo, AlertCircle } from 'lucide-react';
 import type { PlanRuntimeState, PlanRuntimeTodo } from '@/lib/types';
+import { useTranslation } from '@/i18n';
 
 interface PlanSidebarPanelProps {
   plan: PlanRuntimeState | null;
@@ -18,6 +19,7 @@ interface PlanSidebarPanelProps {
 }
 
 export function PlanSidebarPanel({ plan, todos, validationIssues }: PlanSidebarPanelProps) {
+  const { t } = useTranslation();
   const [todosOpen, setTodosOpen] = useState(true);
   const [issuesOpen, setIssuesOpen] = useState(true);
 
@@ -26,7 +28,7 @@ export function PlanSidebarPanel({ plan, todos, validationIssues }: PlanSidebarP
       <Card className="border-dashed">
         <CardContent className="py-8 text-center text-muted-foreground text-sm">
           <Target className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p>暂无活跃计划</p>
+          <p>{t('planning.noPlan')}</p>
         </CardContent>
       </Card>
     );
@@ -89,7 +91,7 @@ export function PlanSidebarPanel({ plan, todos, validationIssues }: PlanSidebarP
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <ListTodo className="h-4 w-4" />
-                    待办事项 ({todos.length})
+                    {t('planning.todos', { count: todos.length })}
                   </CardTitle>
                   {todosOpen ? (
                     <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -146,7 +148,7 @@ export function PlanSidebarPanel({ plan, todos, validationIssues }: PlanSidebarP
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm flex items-center gap-2 text-destructive">
                     <AlertCircle className="h-4 w-4" />
-                    验证问题 ({validationIssues.length})
+                    {t('planning.validationIssues', { count: validationIssues.length })}
                   </CardTitle>
                   {issuesOpen ? (
                     <ChevronUp className="h-4 w-4 text-muted-foreground" />

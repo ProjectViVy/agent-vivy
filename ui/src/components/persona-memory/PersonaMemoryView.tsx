@@ -1,6 +1,6 @@
 /**
- * 角色记忆视图组件 - Persona Memory
- * 管理 7 份 Persona Markdown 文档，支持当前文档 / 待审变更 / 历史 三个视图
+ * 人格记忆视图组件 - Persona Memory
+ * 管理 7 份人格 Markdown 文档，支持当前文档 / 待审变更 / 历史 三个视图
  */
 
 import { useState, useMemo, useEffect } from 'react';
@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useTranslation, dateTimeLocale } from '@/i18n';
 import { Save, Eye, Code2, History, Loader2, Check, X, GitPullRequest } from 'lucide-react';
 
 const PERSONA_KINDS: PersonaKind[] = ['identity', 'relationship', 'redline', 'user', 'world', 'dream', 'dark'];
@@ -35,6 +36,7 @@ const KIND_LABELS: Record<PersonaKind, string> = {
 };
 
 export function PersonaMemoryView() {
+  const { t } = useTranslation();
   const [selectedKind, setSelectedKind] = useState<PersonaKind>('identity');
   const [tab, setTab] = useState<'current' | 'pending' | 'history'>('current');
   const [mode, setMode] = useState<'source' | 'preview'>('source');
@@ -75,7 +77,7 @@ export function PersonaMemoryView() {
       const reqs = await listPersonaRequests(kind);
       setRequests(reqs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败');
+      setError(err instanceof Error ? err.message : t('persona.errors.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -83,7 +85,7 @@ export function PersonaMemoryView() {
 
   const handleSelectKind = async (kind: PersonaKind) => {
     if (kind === selectedKind) return;
-    if (dirty && !confirm('当前有未保存的更改，是否放弃？')) return;
+    if (dirty && !confirm(t('persona.dirtyConfirm'))) return;
     setSelectedKind(kind);
     setTab('current');
     setMode('source');
@@ -101,7 +103,7 @@ export function PersonaMemoryView() {
       const hist = await listPersonaHistory(selectedKind);
       setHistory(hist);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败');
+      setError(err instanceof Error ? err.message : t('persona.errors.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -113,7 +115,7 @@ export function PersonaMemoryView() {
       setDraft(rev.content);
       setMode('preview');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载历史版本失败');
+      setError(err instanceof Error ? err.message : t('persona.errors.historyLoadFailed'));
     }
   };
 
@@ -123,7 +125,7 @@ export function PersonaMemoryView() {
       const reqs = await listPersonaRequests(selectedKind);
       setRequests(reqs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '接受失败');
+      setError(err instanceof Error ? err.message : t('persona.errors.acceptFailed'));
     }
   };
 
@@ -133,7 +135,7 @@ export function PersonaMemoryView() {
       const reqs = await listPersonaRequests(selectedKind);
       setRequests(reqs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '拒绝失败');
+      setError(err instanceof Error ? err.message : t('persona.errors.rejectFailed'));
     }
   };
 
@@ -175,28 +177,28 @@ export function PersonaMemoryView() {
       {/* 内容区 */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex-1 flex flex-col">
-          <div className="px-4 pt-4 flex items-center justify-between">
-            <TabsList>
-              <TabsTrigger value="current">当前文档</TabsTrigger>
+          <div className="flex flex-col gap-3 px-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="current">{t('persona.current')}</TabsTrigger>
               <TabsTrigger value="pending" className="gap-1.5">
-                待审变更
+                {t('persona.pending')}
                 {requests.filter((r) => r.state === 'pending').length > 0 && (
                   <Badge variant="secondary" className="h-4 px-1 text-[10px]">
                     {requests.filter((r) => r.state === 'pending').length}
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="history">历史</TabsTrigger>
+              <TabsTrigger value="history">{t('persona.history')}</TabsTrigger>
             </TabsList>
             {tab === 'current' && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant={mode === 'source' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setMode('source')}
                 >
                   <Code2 className="h-4 w-4 mr-1" />
-                  源码
+                  {t('persona.source')}
                 </Button>
                 <Button
                   variant={mode === 'preview' ? 'default' : 'outline'}
@@ -204,12 +206,12 @@ export function PersonaMemoryView() {
                   onClick={() => setMode('preview')}
                 >
                   <Eye className="h-4 w-4 mr-1" />
-                  预览
+                  {t('persona.preview')}
                 </Button>
                 {dirty && (
                   <Button onClick={handleSave} disabled={saving} size="sm">
                     {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-                    保存
+                    {t('common.save')}
                   </Button>
                 )}
               </div>
@@ -225,7 +227,7 @@ export function PersonaMemoryView() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 className="flex-1 font-mono text-sm resize-none h-full"
-                placeholder="编辑 Persona 文档内容..."
+                placeholder={t('persona.editorPlaceholder')}
               />
             ) : (
               <ScrollArea className="flex-1 border rounded-lg p-4 h-full">
@@ -242,14 +244,14 @@ export function PersonaMemoryView() {
               {requests.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                   <GitPullRequest className="h-10 w-10 mb-3 opacity-40" />
-                  <p className="text-sm">暂无待审变更</p>
+                  <p className="text-sm">{t('persona.emptyPending')}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {requests.map((req) => (
                     <Card key={req.id}>
                       <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-2">
                             <Badge
                               variant={
@@ -260,27 +262,31 @@ export function PersonaMemoryView() {
                                     : 'destructive'
                               }
                             >
-                              {req.state === 'pending' ? '待审' : req.state === 'accepted' ? '已接受' : '已拒绝'}
+                              {req.state === 'pending'
+                                ? t('persona.pendingState.pending')
+                                : req.state === 'accepted'
+                                  ? t('persona.pendingState.accepted')
+                                  : t('persona.pendingState.rejected')}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(req.created_at).toLocaleString()}
+                              {new Date(req.created_at).toLocaleString(dateTimeLocale())}
                             </span>
                           </div>
                           {req.state === 'pending' && (
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline" onClick={() => handleAcceptRequest(req.id)}>
                                 <Check className="h-4 w-4 mr-1" />
-                                接受
+                                {t('common.accept')}
                               </Button>
                               <Button size="sm" variant="outline" onClick={() => handleRejectRequest(req.id)}>
                                 <X className="h-4 w-4 mr-1" />
-                                拒绝
+                                {t('common.reject')}
                               </Button>
                             </div>
                           )}
                         </div>
                         {req.reason && (
-                          <p className="text-sm text-muted-foreground mb-2">原因：{req.reason}</p>
+                          <p className="text-sm text-muted-foreground mb-2">{t('persona.reasonLabel', { reason: req.reason })}</p>
                         )}
                         <pre className="text-xs bg-muted p-3 rounded-lg whitespace-pre-wrap overflow-x-auto">
                           {req.proposed_content}
@@ -297,19 +303,19 @@ export function PersonaMemoryView() {
             <ScrollArea className="h-full">
               <div className="space-y-2">
                 {history.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-8">暂无历史记录</p>
+                  <p className="text-muted-foreground text-center py-8">{t('persona.emptyHistory')}</p>
                 ) : (
                   history.map((entry) => (
                     <Card key={entry.revision}>
                       <CardContent className="p-3 flex items-center justify-between">
                         <div>
-                          <p className="font-medium">版本 r{entry.revision}</p>
+                          <p className="font-medium">{t('persona.version', { revision: entry.revision })}</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(entry.updated_at).toLocaleString()}
+                            {new Date(entry.updated_at).toLocaleString(dateTimeLocale())}
                           </p>
                         </div>
                         <Button variant="outline" size="sm" onClick={() => handleViewHistory(entry.revision)}>
-                          查看
+                          {t('common.view')}
                         </Button>
                       </CardContent>
                     </Card>

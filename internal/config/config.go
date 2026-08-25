@@ -19,7 +19,9 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,17 +61,31 @@ type Config struct {
 type Server struct {
 	// Addr is the local HTTP bootstrap/WebSocket control-plane listen address.
 	Addr string `yaml:"addr"`
+	// AllowedOrigins lists exact loopback browser origins that may use the
+	// control plane when the UI is served separately. Empty keeps same-origin
+	// access only.
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type Storage struct {
-	// Backend selects the storage implementation. V0 supports exactly
-	// "sqlite" (D-031).
+	// Backend selects the storage implementation: "sqlite" (default) or
+	// "postgres" (optional server Journal).
 	Backend string `yaml:"backend"`
-	SQLite  SQLite `yaml:"sqlite"`
+	// DataDir holds settings, evals, and other non-Journal files. Empty
+	// means dirname(sqlite.path) for sqlite, or "data" for postgres.
+	DataDir  string   `yaml:"data_dir"`
+	SQLite   SQLite   `yaml:"sqlite"`
+	Postgres Postgres `yaml:"postgres"`
 }
 
 type SQLite struct {
 	Path string `yaml:"path"`
+}
+
+// Postgres names the environment variable that holds the server DSN.
+// The DSN itself never appears in config (D-010).
+type Postgres struct {
+	DSNEnv string `yaml:"dsn_env"`
 }
 
 type Providers struct {
@@ -267,7 +283,7 @@ func Default() Config {
 			ExecuteAllowedCommands: []string{"go", "git", "rg"},
 			Sandbox: SandboxConfig{
 				DefaultMode:   "workspace_write",
-				WorkspaceRoot: defaultWorkspaceRoot,
+				WorkspaceRoot: "",
 				Approval: SandboxApprovalConfig{
 					DefaultPolicy:    "ask",
 					TimeoutSeconds:   300, // 5 minutes
@@ -327,12 +343,22 @@ func (c *Config) Validate() error {
 	if err != nil || host == "" || port == "" {
 		return fmt.Errorf("server.addr %q is not a valid host:port", c.Server.Addr)
 	}
-
-	if c.Storage.Backend != "sqlite" {
-		return fmt.Errorf("storage.backend %q unsupported; V0 supports only sqlite", c.Storage.Backend)
+	if err := validateServerOrigins(host, c.Server.AllowedOrigins); err != nil {
+		return err
 	}
-	if c.Storage.SQLite.Path == "" {
-		return errors.New("storage.sqlite.path must not be empty")
+
+	switch c.Storage.Backend {
+	case "sqlite":
+		if c.Storage.SQLite.Path == "" {
+			return errors.New("storage.sqlite.path must not be empty")
+		}
+	case "postgres":
+		if !envKeyPattern.MatchString(c.Storage.Postgres.DSNEnv) {
+			return fmt.Errorf("storage.postgres.dsn_env %q is not an environment variable name; "+
+				"the DSN must never appear in config (D-010)", c.Storage.Postgres.DSNEnv)
+		}
+	default:
+		return fmt.Errorf("storage.backend %q unsupported; V0 supports sqlite and postgres", c.Storage.Backend)
 	}
 
 	switch c.Providers.Active {
@@ -501,6 +527,23 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// DataDirectory is the process working directory for settings, evals, and
+// sidecar files. The Journal itself may live in SQLite under this tree or
+// in Postgres; this path is never a DSN.
+func (c Config) DataDirectory() string {
+	if dir := strings.TrimSpace(c.Storage.DataDir); dir != "" {
+		return dir
+	}
+	if c.Storage.Backend == "postgres" {
+		return "data"
+	}
+	dir := filepath.Dir(c.Storage.SQLite.Path)
+	if dir != "" && dir != "." {
+		return dir
+	}
+	return "data"
+}
+
 func validGovernanceProfile(value string) bool {
 	switch value {
 	case "default", "plan", "read_only", "full_auto":
@@ -538,4 +581,61 @@ func validatePath(path string) error {
 		return errors.New("path must not contain ..")
 	}
 	return nil
+}
+
+func validateServerOrigins(serverHost string, origins []string) error {
+	if len(origins) == 0 {
+		return nil
+	}
+	if !isLoopbackHost(serverHost) {
+		return fmt.Errorf("server.addr host %q must be loopback when server.allowed_origins is configured", serverHost)
+	}
+	seen := make(map[string]struct{}, len(origins))
+	for i, raw := range origins {
+		origin, err := normalizeOrigin(raw)
+		if err != nil {
+			return fmt.Errorf("server.allowed_origins[%d] %q: %w", i, raw, err)
+		}
+		if _, ok := seen[origin]; ok {
+			return fmt.Errorf("server.allowed_origins[%d] %q is duplicated", i, raw)
+		}
+		seen[origin] = struct{}{}
+		parsed, _ := url.Parse(origin)
+		if !isLoopbackHost(parsed.Hostname()) {
+			return fmt.Errorf("server.allowed_origins[%d] %q must use a loopback host", i, raw)
+		}
+	}
+	return nil
+}
+
+func normalizeOrigin(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("must be an absolute HTTP(S) origin")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("must use http or https")
+	}
+	if parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return "", errors.New("must not include credentials, path, query, or fragment")
+	}
+	if parsed.Hostname() == "" {
+		return "", errors.New("must include a host")
+	}
+	if port := parsed.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "", errors.New("contains an invalid port")
+		}
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), nil
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

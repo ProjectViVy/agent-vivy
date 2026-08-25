@@ -1,0 +1,34 @@
+# Optional overlay: docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+# Default compose remains volume SQLite. Do not --scale: one Journal, one lease.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: vivy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vivy
+      POSTGRES_PASSWORD: vivy
+      POSTGRES_DB: vivy
+    volumes:
+      - vivy-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vivy -d vivy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  vivy:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      VIVY_CONFIG: /app/docker/config.postgres.yaml
+      VIVY_POSTGRES_DSN: postgres://vivy:vivy@postgres:5432/vivy?sslmode=disable
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+volumes:
+  vivy-postgres:

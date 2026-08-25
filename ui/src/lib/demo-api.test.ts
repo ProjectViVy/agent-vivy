@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { addDemoMcpServer, exportDemoMcpConfig, getDemoDashboard, getDemoMemories, getDemoMcpServers, getDemoPet, getDemoComposerState, importDemoMcpConfig, interactWithDemoPet, searchSessions, toggleDemoMcpServer, updateDemoComposerState } from './demo-api';
+import { addDemoMcpServer, exportDemoMcpConfig, formatTokenCost, formatTokenCount, getDemoDashboard, getDemoMemories, getDemoMcpServers, getDemoComposerState, getDemoTokenUsage, importDemoMcpConfig, removeDemoMcpServer, searchSessions, toggleDemoMcpServer, updateDemoComposerState, updateDemoMcpServer } from './demo-api';
 
 const values = new Map<string, string>();
 
@@ -25,13 +25,11 @@ async function settle<T>(promise: Promise<T>): Promise<T> {
 
 describe('restored local demo API', () => {
   it('initializes every restored surface under vivy.demo.* keys', async () => {
-    await settle(Promise.all([getDemoPet(), getDemoDashboard(), getDemoMemories(), getDemoMcpServers()]));
-    expect([...values.keys()].sort()).toEqual(['vivy.demo.dashboard', 'vivy.demo.mcp', 'vivy.demo.memory', 'vivy.demo.pet']);
+    await settle(Promise.all([getDemoDashboard(), getDemoMemories(), getDemoMcpServers()]));
+    expect([...values.keys()].sort()).toEqual(['vivy.demo.dashboard', 'vivy.demo.mcp', 'vivy.demo.memory']);
   });
 
-  it('persists pet, MCP and composer interactions', async () => {
-    const pet = await settle(interactWithDemoPet('focused'));
-    expect(pet.mood).toBe('focused');
+  it('persists MCP and composer interactions', async () => {
     const servers = await settle(toggleDemoMcpServer('mcp-browser'));
     expect(servers.find((server) => server.id === 'mcp-browser')?.enabled).toBe(true);
     await getDemoComposerState();
@@ -41,8 +39,8 @@ describe('restored local demo API', () => {
   });
 
   it('adds MCP servers and round-trips nested tools.mcpServers config', async () => {
-    const added = await settle(addDemoMcpServer({ name: 'Local Search', transport: 'stdio' }));
-    expect(added.find((server) => server.name === 'Local Search')).toMatchObject({ enabled: true, status: 'connected' });
+    const added = await settle(addDemoMcpServer({ name: 'Local Search', transport: 'stdio', command: 'mcp-local-search' }));
+    expect(added.find((server) => server.name === 'Local Search')).toMatchObject({ enabled: true, command: 'mcp-local-search' });
 
     const imported = await settle(importDemoMcpConfig({
       tools: {
@@ -51,17 +49,63 @@ describe('restored local demo API', () => {
         },
       },
     }));
-    expect(imported.find((server) => server.name === 'Remote Docs')).toMatchObject({ transport: 'http', enabled: false, status: 'disabled', toolCount: 3 });
+    expect(imported.find((server) => server.name === 'Remote Docs')).toMatchObject({ transport: 'http', url: 'https://example.test/mcp', enabled: false, toolCount: 3 });
 
     const exported = await settle(exportDemoMcpConfig());
-    expect(exported.mcpServers['Remote Docs']).toMatchObject({ transport: 'http', enabled: false, toolCount: 3 });
+    expect(exported.mcpServers['Remote Docs']).toMatchObject({ transport: 'http', url: 'https://example.test/mcp', enabled: false, toolCount: 3 });
+    expect(exported.mcpServers['Local Search']).toMatchObject({ transport: 'stdio', command: 'mcp-local-search', enabled: true });
+  });
+
+  it('updates, removes and validates MCP servers', async () => {
+    const updated = await settle(updateDemoMcpServer('mcp-browser', { name: 'Browser Tools', transport: 'http', url: 'https://browser.test/mcp' }));
+    expect(updated.find((server) => server.id === 'mcp-browser')).toMatchObject({ url: 'https://browser.test/mcp', enabled: false, toolCount: 5 });
+
+    const invalidUrl = addDemoMcpServer({ name: 'Broken', transport: 'http', url: 'not a url' });
+    const missingCommand = addDemoMcpServer({ name: 'No Command', transport: 'stdio' });
+    const duplicate = addDemoMcpServer({ name: 'Workspace Files', transport: 'stdio', command: 'dup' });
+    const assertions = [
+      expect(invalidUrl).rejects.toThrow('HTTP 服务地址不是有效的 URL'),
+      expect(missingCommand).rejects.toThrow('请输入 STDIO 启动命令'),
+      expect(duplicate).rejects.toThrow('已存在同名 MCP 服务'),
+    ];
+    await vi.runAllTimersAsync();
+    await Promise.all(assertions);
+
+    const removed = await settle(removeDemoMcpServer('mcp-files'));
+    expect(removed.map((server) => server.id)).toEqual(['mcp-browser']);
   });
 
   it('recovers a restored surface from malformed local data', async () => {
-    values.set('vivy.demo.pet', '{not-json');
-    const pet = await settle(getDemoPet());
-    expect(pet.mood).toBe('curious');
-    expect(() => JSON.parse(values.get('vivy.demo.pet') ?? '')).not.toThrow();
+    values.set('vivy.demo.dashboard', '{not-json');
+    const dashboard = await settle(getDemoDashboard());
+    expect(dashboard.sessionCount).toBe(12);
+    expect(() => JSON.parse(values.get('vivy.demo.dashboard') ?? '')).not.toThrow();
+  });
+
+  it('returns a period-scoped token snapshot without writing localStorage', async () => {
+    const day = await settle(getDemoTokenUsage('1d'));
+    const week = await settle(getDemoTokenUsage('1w'));
+    expect(day.period).toBe('1d');
+    expect(week.period).toBe('1w');
+    expect(week.total.total_tokens).toBeGreaterThan(day.total.total_tokens);
+    expect(day.total.total_tokens).toBe(day.sessions.reduce((sum, session) => sum + session.total_tokens, 0));
+    expect(day.sessions.map((session) => session.title)).toEqual([
+      '欢迎使用 Vivy 演示',
+      '中控台设计讨论',
+      '插件打包排障',
+      '人格文档整理',
+      '定时任务验收',
+    ]);
+    expect(day.models[0]?.model).toBe('deepseek-chat');
+    expect(day.endpoints.map((endpoint) => endpoint.key)).toEqual(['对话补全', '工具调用', '上下文压缩']);
+    expect([...values.keys()]).not.toContain('vivy.demo.tokens');
+  });
+
+  it('formats token counts and costs for the dashboard', () => {
+    expect(formatTokenCount(42860)).toBe('42.9K');
+    expect(formatTokenCount(1_250_000)).toBe('1.25M');
+    expect(formatTokenCost(0.0042)).toBe('$0.0042');
+    expect(formatTokenCost(1.2)).toBe('$1.20');
   });
 
   it('searches only the local demo session collection', async () => {

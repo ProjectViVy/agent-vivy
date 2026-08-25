@@ -1,10 +1,10 @@
 # AGENT-VIVY V0 — Project TODO Board
 
-> Status: executable work breakdown for the V0 assembly slice, with tight
-> predecessor ordering and parallel-lane analysis.
+> Status: living board. V0–Studio tracks are **closed**; remaining work is §0.1.
+> Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-15
+> Updated: 2026-08-25
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -16,7 +16,7 @@ accepted as **RISK ACCEPTED** with monitors, rather than closed first:
 
 | Item | Posture | Monitor |
 |---|---|---|
-| SR-1 ADR baseline missing (D-035) | RISK ACCEPTED | This plan + TODO board stand in until `AGENT-VIVY-ARCHITECTURE-V0.md` is authored |
+| SR-1 ADR baseline missing (D-035) | CLOSED | `docs/AGENT-VIVY-ARCHITECTURE-V0.md` authored 2026-08-08 |
 | SR-2 Eino §6 claims unverified (D-034) | CLOSED | Verified by task **A1** — see `eino-capability-verify.md` (2026-08-07) |
 | P0-3 PRD v0.5 final confirmation | RISK ACCEPTED | User sign-off tracked here; treat v0.5 as final until told otherwise |
 | P0-4 SR acceptance posture | RESOLVED | This table is the acceptance record |
@@ -30,7 +30,43 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 > commit `fe81075`). C6 may proceed once its remaining predecessors (B4, C3)
 > land; no outer-loop fallback needed.
 
-## 1. Milestone map
+## 0.1 Open remaining (2026-08-25)
+
+Everything in §1–§8, §9.1–§9.9, §11–§13, and HITL-01..07 P0 is **done**.
+Do not pick work from those tables. Closed-track filing:
+`docs/logs/2026-08-25-todo-board-archive/summary.md`.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
+| CH-A | ChannelHost + telegram + dingtalk | OPEN | Depends on CH-0; first ABI + first domestic ear |
+| CH-B | feishu / qq / discord (text, no voice) | OPEN | Separate pack per package |
+| CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker |
+| ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
+| HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
+| HITL-P1-2 | Scoped remember / allow policies | OPEN | |
+| HITL-P1-3 | Structured MCP elicitation | OPEN | |
+| HITL-P1-4 | Reviewer assignment | OPEN | |
+| HITL-P1-5 | Review history / search | OPEN | |
+| HITL-P1-6 | External notifications | OPEN | |
+| HITL-P1-7 | Generic edit + bulk approval | DEFERRED | Explicitly not P0 |
+| MEM-1 | Memory / BML / Laputa / AutoDream / Evolution / RAG | DEFERRED | Direction non-goal until a capability proposal |
+| P2-1 | Full Diva capability inventory (Keep/Adapt/Defer/Drop) | OPEN | `AGENT-VIVY-ASSEMBLY-OPTIONS.md` is only a V0 stand-in |
+| P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; needs SR-4 first |
+| SR-4 | QwenPaw vendor vs external | OPEN | Before any fsjournal probe |
+| P2-4 | Long-term 板块 map for V3 | DEFERRED | |
+| P3-1 | claude-code upstream LICENSE | OPEN | Ambient; before any reuse |
+| P3-2 | Human review of `rig` LICENSE | OPEN | Ambient; before any reuse |
+| UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
+| UI-TOKEN | 中控台 Token 统计接真实用量账本 | OPEN | 2026-08-25 UI 只放了 `getDemoTokenUsage` 假数据；Diva 侧权威在 Manager token ledger |
+| UI-MCP | MCP 面板接真实后端管理 | OPEN | 2026-08-25 面板已按 oil-frontend 重做但仍为 `vivy.demo.mcp` 演示数据；内核 MCP 由 `config.yaml` `runtime.mcp_servers` 驱动，无管理 RPC |
+| UI-TITLE | `ui/index.html` 标题仍是旧演示名 | OPEN | `<title>Agent Diva 前端演示</title>`；产品现为 Vivy，改名需产品命名确认，未随皮肤迭代顺手改 |
+| UI-SET-I18N | 设置页 i18n 接线未完成 | OPEN | i18n 主体已完成（`ui/src/i18n/` 基础设施 + zh/en 词典 + 全视图/lib 文案迁移 + 测试，`just ci` 绿，见 `docs/logs/2026-08-25-i18n-support/`）。剩余：在 `SettingsView.tsx` 语言页挂载已建好的 `<LanguagePicker />`（3 行，点击即 `setLocale` 全局切换 + 持久化）。`SettingsView`/`DivaSettingsPreview` 由他人负责，挂载需与之协调；当前「语言 预览」标签为预览实现，不改变全局文案 |
+
+Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
+are **not** on this board; they need their own capability proposal.
+
+## 1. Milestone map (archived — V0 closed 2026-08-07)
 
 | Milestone | PRD §11 | Tasks | Exit criteria |
 |---|---|---|---|
@@ -40,7 +76,7 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 | M3 Recovery & cancel | M3 | E1, E2, E3 | AS-5, AS-6, AS-9 pass |
 | M4 Polish & smoke | M4 | D4, E4, real-provider smoke | All AS-1..AS-9 pass on real provider — **DONE 2026-08-07** |
 
-## 2. Lane A — Documents & contracts
+## 2. Lane A — Documents & contracts (archived)
 
 | ID | Task | Depends | Closes / Anchor |
 |---|---|---|---|
@@ -48,7 +84,7 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 | A2 | Provider bundle spec + two YAML bundles (`openai.yaml`, `anthropic.yaml`) with `provenance` field, D-024 field list | B1 | P1-2, OQ-8, D-018/D-022..D-025 |
 | A3 | Vivy-owned JSON Schema for the ten `RunEvent` types; single contract for Eino-side and UI-side streams | B3 | P1-3, FR-5 |
 
-## 3. Lane B — Foundation
+## 3. Lane B — Foundation (archived)
 
 | ID | Task | Depends | Closes / Anchor |
 |---|---|---|---|
@@ -59,7 +95,7 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 | B4 | `internal/storage` four contracts + SQLite backend + versioned migrations | B3 | D-026..D-027, FR-8 |
 | B5 | Backend conformance suite (≥16 cases, D-032); red at M0, green by M2/M3 | B4 | D-032, RK-7 |
 
-## 4. Lane C — Runtime (the Eino door)
+## 4. Lane C — Runtime (the Eino door) (archived)
 
 | ID | Task | Depends | Closes / Anchor |
 |---|---|---|---|
@@ -70,7 +106,7 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 | C5 | Read-only auto-execute tool (`tool.started`/`tool.finished` without approval) | B3 | FR-6, AS-2 |
 | C6 | Effectful approval-gated tool via interrupt/resume + two-layer checkpoint bridge | **A1**, B4, C3 | D-028..D-030, FR-6, AS-3/AS-4 |
 
-## 5. Lane D — API & UI
+## 5. Lane D — API & UI (archived)
 
 | ID | Task | Depends | Closes / Anchor |
 |---|---|---|---|
@@ -79,7 +115,7 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 | D3 | Vite UI shell: sessions, streaming chat, approval prompt, run-detail/event-log, error display, refresh-safe | D1 | FR-9, D-013, AS-7 |
 | D4 | Playwright smoke against the real Go process; add Eino/`agent-diva` import-lint gate to CI | D3 | FR-9, D-007, RK-1, RK-5 |
 
-## 6. Lane E — Correctness
+## 6. Lane E — Correctness (archived)
 
 | ID | Task | Depends | Closes / Anchor |
 |---|---|---|---|
@@ -150,15 +186,15 @@ This is the longest dependency chain; compressing it compresses V0. `B3`
 
 ## 9. Risk-accepted backlog (not in the critical path)
 
-| Ref | Item | When |
+Living remainder is §0.1. Closed rows from this table:
+
+| Ref | Item | Outcome |
 |---|---|---|
-| SR-1 / D-035 | Author `AGENT-VIVY-ARCHITECTURE-V0.md` (ADR-001..008) to supersede this plan's stand-in | Before V1 |
-| SR-4 / RI-OQ-5 | Decide QwenPaw vendor vs external | Before any fsjournal probe (V1+) |
-| SR-5 / RI-OQ-1 | Confirm claude-code upstream license | Before any reuse |
-| SR-6 / RI-OQ-2 | Human review of `rig` license | Before any reuse |
-| RI-OQ-4 | `.workspace/` versioning policy (commit vs .gitignore) | Before M1 |
-| P1-6 | Compose the 16-case conformance harness scaffolding | Folds into B5 |
-| P2-5 | Diva capability inventory | Before V1 |
+| SR-1 / D-035 | Author `AGENT-VIVY-ARCHITECTURE-V0.md` | CLOSED 2026-08-08 |
+| P1-6 | 16-case conformance harness | CLOSED as B5 2026-08-07 |
+| RI-OQ-4 | `.workspace/` versioning | CLOSED 2026-08-25 — `/.workspace/` is gitignored |
+
+Still open (copied into §0.1): SR-4 QwenPaw vendor; P3-1/P3-2 licenses; P2-1 inventory.
 
 ## 9.8 ADR-017 — vivy-sdk split (done 2026-08-15)
 
@@ -227,6 +263,9 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-25 | 移除恋粉（love）主题 | 用户反馈不好看，整主题删除（注册表/CSS 令牌块/反闪烁脚本/测试）；残留 `vivy.theme=love` 存储值白名单回落默认。皮肤功能现为 4 套。`just ci` 绿 + 3015 实走。Filing: `docs/logs/2026-08-25-remove-love-theme/`. |
+| 2026-08-25 | UI 皮肤（主题）功能 | 5 套主题（default/love/pink/dark/miku，后三套移植 Agent-Diva）统一为 shadcn 语义 Token 的 `[data-theme]` 块；设置→通用新增真实 ThemePicker，`vivy.theme` localStorage 持久化 + index.html 反闪烁引导；删除迁移预览假主题卡。`just ci` 绿 + 3015 实走。Filing: `docs/logs/2026-08-25-vivy-ui-themes/`.（love 后续移除，见上一行） |
+| 2026-08-25 | Board archive | Closed V0/MA/ET/HITL-P0/H0–H10/S1–S6/ST-0..ST-8/SR-1/P1-6/RI-OQ-4. Remaining work listed in §0.1. Filing: `docs/logs/2026-08-25-todo-board-archive/`. Channel pack is a written proposal only (`VIVY-CHANNEL-PACK.md`); C0 not adopted. |
 | 2026-08-16 | ST-5/ST-7/ST-8 | Studio lifecycle: `cmd/vivy-studio` + `internal/studiocore` (ledger `data/studio-home/studio.db`). Studio execs `vivy-sdk pack`, spawns candidate EXE itself, human-gated release, install to daily location, rollback from Studio snapshot. `just ci` green; `data/vivy.db` untouched. Skill `vivy-studio-lifecycle`. |
 | 2026-08-16 | ST-6 | Venue switch. Studio authored `internal/buildinfo` identity comment; `just ci` green; `data/vivy.db` untouched. justfile `fmt-check` quote fix required for the recipe to run on Windows. |
 | 2026-08-16 | ST-2..ST-4 | Workspace pin + air-gap AGENTS.md; launch toolchain; prefab skills. |
@@ -393,6 +432,5 @@ shared structured preview fields. Specialized proposal editing, remember
 policies, structured MCP elicitation, assignment, history/search, and external
 notifications remain P1 follow-up work.
 
-Recommended P1 follow-up: specialized proposal editing, scoped remember/allow
-policies, structured MCP elicitation, reviewer assignment, history/search, and
-external notifications. Generic edit and bulk approval are not P0.
+Recommended P1 follow-up is **still open** — tracked as HITL-P1-1..7 in §0.1.
+Generic edit and bulk approval are not P0.

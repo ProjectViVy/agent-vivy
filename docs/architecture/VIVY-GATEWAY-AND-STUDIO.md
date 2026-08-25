@@ -18,6 +18,8 @@
 > - `../GOAL-AGENT-HARNESS-ROADMAP.md` — harness slices already built
 > - `ACP-REMOTE-CONTROL-PROPOSAL.md` — unused control-plane draft; Studio
 >   reuses its local-first and admission stance, not its remote scope
+> - `VIVY-CHANNEL-PACK.md` — proposal: first-party channels as packed
+>   organs (kernel Host; `channels/` lib; config cannot grow new adapters)
 > - `.workspace/deepseek-harness/` — evidence source, not a dependency
 
 ---
@@ -33,8 +35,9 @@ coding engine inside Studio may be DeepSeek Harness. The engine is
 replaceable. Studio is not a door on the gateway. The species never
 launches Studio.
 
-The resident faces the gateway. The author faces Studio. Mixing those
-entries is a bug.
+The resident faces the gateway. Vivy feature authors use the local backend +
+Vite frontend loop; Studio owns Studio development and distribution. Mixing
+those entries is a bug.
 
 This split is the architecture. Everything else is a consequence.
 

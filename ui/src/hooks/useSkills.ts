@@ -5,6 +5,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { SkillDto, SkillDocument, SkillRequest, CreateSkillRequestPayload } from '@/lib/types';
 import { listSkills, getSkillDocument, createSkillRequest, getSkillRequests } from '@/lib/demo-api';
+import { t } from '@/i18n';
 
 export function useSkills() {
   const [skills, setSkills] = useState<SkillDto[]>([]);
@@ -21,7 +22,7 @@ export function useSkills() {
       const data = await listSkills();
       setSkills(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载技能失败');
+      setError(err instanceof Error ? err.message : t('skills.errors.loadSkillsFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -34,7 +35,7 @@ export function useSkills() {
       const doc = await getSkillDocument(slug);
       setSelectedSkill(doc);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载技能文档失败');
+      setError(err instanceof Error ? err.message : t('skills.errors.loadDocumentFailed'));
     }
   }, []);
 
@@ -46,7 +47,7 @@ export function useSkills() {
       setRequests((prev) => [...prev, request]);
       return request;
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建请求失败');
+      setError(err instanceof Error ? err.message : t('skills.errors.createRequestFailed'));
       throw err;
     }
   }, []);
@@ -58,7 +59,7 @@ export function useSkills() {
       const data = await getSkillRequests();
       setRequests(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载请求失败');
+      setError(err instanceof Error ? err.message : t('skills.errors.loadRequestsFailed'));
     }
   }, []);
 
@@ -76,6 +77,7 @@ export function useSkills() {
     error,
     loadSkills,
     loadSkillDocument,
+    clearSelectedSkill: () => setSelectedSkill(null),
     createRequest: handleCreateRequest,
     loadRequests,
   };

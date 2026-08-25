@@ -42,11 +42,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Ops override for the listen address. It bypasses file validation on
-	// purpose: an invalid value fails fast at listen time.
+	// Ops override for the listen address. Revalidate the effective config so
+	// a split UI's loopback exposure policy cannot be bypassed by the env var.
 	if addr := os.Getenv("VIVY_ADDR"); addr != "" {
 		logger.Warn("VIVY_ADDR overrides server.addr", "addr", addr)
 		cfg.Server.Addr = addr
+		if err := cfg.Validate(); err != nil {
+			logger.Error("startup aborted", "err", err)
+			os.Exit(1)
+		}
 	}
 
 	// os.Interrupt doubles as the Windows console-close signal: the Go

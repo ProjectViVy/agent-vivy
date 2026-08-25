@@ -22,7 +22,6 @@ import type {
   RuntimeConfig,
   ToolsConfigShape,
   GatewayProcessStatus,
-  McpConnectionStatusDto,
   TokenStatsSnapshot,
   PersonaProfile,
   ChecklistItem,
@@ -36,12 +35,14 @@ import type {
   ReportPeriod,
   CronJobDto,
   PlanSidebarData,
-  DemoPetState,
   DemoDashboardSnapshot,
+  DemoTokenPeriod,
+  DemoTokenUsageSnapshot,
   DemoMemoryItem,
   DemoMcpServer,
   DemoComposerState,
 } from './types';
+import { t } from '@/i18n';
 
 // ==================== 工具函数 ====================
 
@@ -61,7 +62,6 @@ const STORAGE_KEYS = {
   SKILL_REQUESTS: 'vivy.demo.skill-requests',
   APPROVALS: 'vivy.demo.approvals',
   PERSONA: 'vivy.demo.persona',
-  PET: 'vivy.demo.pet',
   DASHBOARD: 'vivy.demo.dashboard',
   MEMORY: 'vivy.demo.memory',
   MCP: 'vivy.demo.mcp',
@@ -73,27 +73,27 @@ const STORAGE_KEYS = {
 const MOCK_SESSIONS: Session[] = [
   {
     id: 'session-1',
-    title: '欢迎使用 Vivy 演示',
+    title: t('demo.sessions.welcomeTitle'),
     created_at: '2024-01-15T10:00:00Z',
     updated_at: '2024-01-15T10:30:00Z',
     message_count: 5,
-    last_message_preview: '你好！我是你的 AI 助手...',
+    last_message_preview: t('demo.sessions.welcomePreview'),
   },
   {
     id: 'session-2',
-    title: '项目规划讨论',
+    title: t('demo.sessions.planningTitle'),
     created_at: '2024-01-14T14:00:00Z',
     updated_at: '2024-01-14T15:30:00Z',
     message_count: 12,
-    last_message_preview: '我们可以先制定一个详细的计划...',
+    last_message_preview: t('demo.sessions.planningPreview'),
   },
   {
     id: 'session-3',
-    title: '代码审查',
+    title: t('demo.sessions.reviewTitle'),
     created_at: '2024-01-13T09:00:00Z',
     updated_at: '2024-01-13T09:45:00Z',
     message_count: 8,
-    last_message_preview: '这段代码有几个可以优化的地方...',
+    last_message_preview: t('demo.sessions.reviewPreview'),
   },
 ];
 
@@ -102,25 +102,25 @@ const MOCK_MESSAGES: Record<string, Message[]> = {
     {
       id: 'msg-1',
       role: 'user',
-      content: '你好',
+      content: t('demo.sessions.msgHello'),
       timestamp: Date.now() - 300000,
     },
     {
       id: 'msg-2',
       role: 'agent',
-      content: '你好！这是 Vivy 的本地演示数据。',
+      content: t('demo.sessions.msgWelcomeReply'),
       timestamp: Date.now() - 299000,
     },
     {
       id: 'msg-3',
       role: 'user',
-      content: '帮我创建一个 React 项目',
+      content: t('demo.sessions.msgProjectRequest'),
       timestamp: Date.now() - 200000,
     },
     {
       id: 'msg-4',
       role: 'agent',
-      content: '好的，我来帮你创建一个 React 项目。我会使用 Vite 作为构建工具，并配置好 TypeScript 支持。\n\n首先，让我检查一下当前的环境...',
+      content: t('demo.sessions.msgProjectReply'),
       isThinking: false,
       timestamp: Date.now() - 199000,
     },
@@ -141,7 +141,7 @@ const MOCK_SKILLS: SkillDto[] = [
   {
     slug: 'react-design',
     name: 'React Design',
-    description: 'React 19 + Vite + TanStack Router + shadcn/ui 脚手架的工程规范',
+    description: t('demo.skills.reactDescription'),
     source: 'builtin',
     enabled: true,
     always: false,
@@ -155,8 +155,8 @@ const MOCK_SKILLS: SkillDto[] = [
   },
   {
     slug: 'meoo-cloud',
-    name: '本地演示 Provider',
-    description: '提供云服务后端能力（数据库、认证、文件存储、Edge Functions）',
+    name: t('demo.skills.meooName'),
+    description: t('demo.skills.meooDescription'),
     source: 'builtin',
     enabled: true,
     always: false,
@@ -171,7 +171,7 @@ const MOCK_SKILLS: SkillDto[] = [
   {
     slug: 'web-design-guidelines',
     name: 'Web Design Guidelines',
-    description: '根据 Web 界面设计规范审查 UI 代码',
+    description: t('demo.skills.webDescription'),
     source: 'builtin',
     enabled: true,
     always: false,
@@ -208,8 +208,8 @@ const MOCK_APPROVALS: ApprovalView[] = [
     reason_code: null,
     actions: ['allow', 'deny'],
     presentation: {
-      title: '允许写入文件',
-      description: 'Agent 请求修改 src/App.tsx 文件',
+      title: t('demo.approval.title'),
+      description: t('demo.approval.description'),
     },
   },
 ];
@@ -217,53 +217,29 @@ const MOCK_APPROVALS: ApprovalView[] = [
 const MOCK_PLAN: PlanRuntimeState = {
   plan_id: 'plan-1',
   revision: 1,
-  title: '创建 React 示例项目',
-  goal: '创建一个功能完整的 React 前端示例项目，包含聊天界面和设置页面',
+  title: t('demo.plan.title'),
+  goal: t('demo.plan.goal'),
   phase: 'planning',
   status: 'draft',
-  strategy: '分阶段实施，先建立基础架构，再实现核心功能',
-  summary: '本地演示计划，不代表 Vivy 服务端状态',
-  markdown: `# 创建 React 示例项目
-
-## 目标
-创建一个功能完整的 React 前端示例项目
-
-## 范围
-- 聊天界面
-- 会话管理
-- 设置页面
-- 技能管理
-
-## 计划步骤
-1. 建立类型系统
-2. 实现 Mock API 层
-3. 创建自定义 Hooks
-4. 转换核心组件
-
-## 风险与假设
-- 假设：Vue 到 React 的转换不会丢失核心功能
-- 风险：部分复杂组件可能需要简化
-
-## 验证方法
-- 构建通过
-- 基本交互可用
-`,
+  strategy: t('demo.plan.strategy'),
+  summary: t('demo.plan.summary'),
+  markdown: t('demo.plan.markdown'),
   validation_issues: [],
   steps: [
     {
       id: 'step-1',
       ordinal: 1,
-      title: '建立类型系统',
-      rationale: '为项目提供完整的类型定义',
-      expected_output: 'types.ts 文件',
+      title: t('demo.plan.step1Title'),
+      rationale: t('demo.plan.step1Rationale'),
+      expected_output: t('demo.plan.step1Output'),
       status: 'completed',
     },
     {
       id: 'step-2',
       ordinal: 2,
-      title: '实现 Mock API 层',
-      rationale: '模拟后端接口',
-      expected_output: '演示数据文件',
+      title: t('demo.plan.step2Title'),
+      rationale: t('demo.plan.step2Rationale'),
+      expected_output: t('demo.plan.step2Output'),
       status: 'in_progress',
     },
   ],
@@ -271,8 +247,8 @@ const MOCK_PLAN: PlanRuntimeState = {
     {
       id: 'todo-1',
       plan_step_id: 'step-1',
-      title: '提取核心类型定义',
-      detail: '从原项目提取 Message、Session、Plan 等类型',
+      title: t('demo.plan.todo1Title'),
+      detail: t('demo.plan.todo1Detail'),
       status: 'completed',
       priority: 'high',
       evidence_ref: null,
@@ -282,8 +258,8 @@ const MOCK_PLAN: PlanRuntimeState = {
     {
       id: 'todo-2',
       plan_step_id: 'step-2',
-      title: '创建模拟数据',
-      detail: '生成合理的模拟数据用于演示',
+      title: t('demo.plan.todo2Title'),
+      detail: t('demo.plan.todo2Detail'),
       status: 'in_progress',
       priority: 'high',
       evidence_ref: null,
@@ -318,9 +294,9 @@ const MOCK_TOOLS_CONFIG: ToolsConfigShape = {
 
 const MOCK_PERSONA: PersonaProfile = {
   id: 'persona-default',
-  name: '默认助手',
+  name: t('demo.personaProfile.name'),
   avatar_url: null,
-  system_prompt: '你是一个专业的 AI 助手，能够帮助用户完成各种任务。',
+  system_prompt: t('demo.personaProfile.systemPrompt'),
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-15T10:00:00Z',
 };
@@ -335,9 +311,9 @@ export async function sendMessage(sessionId: string, content: string): Promise<A
 
   // 简单的模拟回复逻辑
   const responses: Record<string, string> = {
-    '你好': '你好！这是 Vivy 的本地演示回复。',
-    '帮我创建一个项目': '好的，我来帮你创建一个项目。请告诉我你想要创建什么类型的项目？',
-    '默认': '我理解你的需求。让我来处理这个问题...\n\n我已经完成了相关操作。如果你还有其他问题，请随时告诉我。',
+    '你好': t('demo.sessions.replyHello'),
+    '帮我创建一个项目': t('demo.sessions.replyProject'),
+    '默认': t('demo.sessions.replyDefault'),
   };
 
   let replyContent = responses['默认'];
@@ -350,7 +326,7 @@ export async function sendMessage(sessionId: string, content: string): Promise<A
 
   return {
     content: replyContent,
-    reasoning: '基于用户输入的内容，我生成了相应的回复。',
+    reasoning: t('demo.sessions.reasoning'),
   };
 }
 
@@ -375,7 +351,7 @@ export async function createSession(title?: string): Promise<Session> {
   const sessions = await getSessions();
   const newSession: Session = {
     id: `session-${generateId()}`,
-    title: title || '新会话',
+    title: title || t('errors.newSessionDefault'),
     created_at: now(),
     updated_at: now(),
     message_count: 0,
@@ -543,7 +519,7 @@ export async function getSkillDocument(slug: string): Promise<SkillDocument | nu
     updated_at: skill.updated_at,
     can_hard_delete: skill.can_hard_delete,
     evolution_managed: skill.evolution_managed,
-    markdown: `# ${skill.name}\n\n${skill.description}\n\n## 使用说明\n\n这是一个模拟的技能文档内容。在实际项目中，这里会包含详细的技能说明和使用指南。`,
+    markdown: t('demo.skills.docTemplate', { name: skill.name, description: skill.description }),
   };
 }
 
@@ -657,19 +633,7 @@ export async function getGatewayStatus(): Promise<GatewayProcessStatus> {
     running: false,
     pid: null,
     executable_path: null,
-    details: '网关未启动（示例模式）',
-  };
-}
-
-/**
- * 获取 MCP 连接状态
- */
-export async function getMcpConnectionStatus(): Promise<McpConnectionStatusDto> {
-  await delay(200);
-  return {
-    state: 'disabled',
-    connected: false,
-    error: 'MCP 功能在示例模式中已禁用',
+    details: t('demo.gateway.notRunning'),
   };
 }
 
@@ -741,22 +705,9 @@ const MOCK_NOTEBOOK_REPORTS: NotebookReport[] = [
     id: 'report-1',
     period: 'daily',
     date: '2024-01-15',
-    title: '每日工作摘要 - 2024/01/15',
-    summary: '今天完成了项目初始化和核心功能开发',
-    content: `# 每日工作摘要
-
-## 完成的工作
-- 建立了类型系统
-- 实现了 Mock API 层
-- 创建了自定义 Hooks
-
-## 明日计划
-- 转换核心组件
-- 设计路由结构
-
-## 遇到的问题
-暂无
-`,
+    title: t('demo.notebook.dailyTitle'),
+    summary: t('demo.notebook.dailySummary'),
+    content: t('demo.notebook.dailyContent'),
     generatedAt: '2024-01-15T23:00:00Z',
     generatedBy: 'vivy-demo',
     generationMode: 'llm_curated',
@@ -765,19 +716,9 @@ const MOCK_NOTEBOOK_REPORTS: NotebookReport[] = [
     id: 'report-2',
     period: 'weekly',
     date: '2024-01-14',
-    title: '周度总结 - 第2周',
-    summary: '本周主要聚焦于前端架构搭建',
-    content: `# 周度总结
-
-## 本周成果
-- 完成技术选型
-- 搭建项目脚手架
-- 实现基础功能模块
-
-## 下周目标
-- 完善用户界面
-- 添加更多交互功能
-`,
+    title: t('demo.notebook.weeklyTitle'),
+    summary: t('demo.notebook.weeklySummary'),
+    content: t('demo.notebook.weeklyContent'),
     generatedAt: '2024-01-14T23:00:00Z',
     generatedBy: 'vivy-demo',
     generationMode: 'deterministic_fallback',
@@ -846,43 +787,43 @@ const PERSONA_KINDS: PersonaKind[] = ['identity', 'relationship', 'redline', 'us
 const MOCK_PERSONA_DOCS: Record<PersonaKind, PersonaDocument> = {
   identity: {
     kind: 'identity',
-    content: '# IDENTITY.MD\n\n这是 Vivy Persona 的本地演示文档。\n\n## 核心特质\n- 专业且友好\n- 善于分析和解决问题\n- 注重细节和准确性',
+    content: t('demo.personaDocs.identity'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
   relationship: {
     kind: 'relationship',
-    content: '# RELATIONSHIP.MD\n\n## 与用户的关系\n- 助手与协作者\n- 尊重用户的决策权\n- 主动提供建议但不越界',
+    content: t('demo.personaDocs.relationship'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
   redline: {
     kind: 'redline',
-    content: '# REDLINE.MD\n\n## 行为红线\n- 不执行危险操作\n- 不泄露敏感信息\n- 不生成有害内容',
+    content: t('demo.personaDocs.redline'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
   user: {
     kind: 'user',
-    content: '# USER.MD\n\n## 用户偏好\n- 喜欢简洁明了的回答\n- 偏好代码示例\n- 重视实用性',
+    content: t('demo.personaDocs.user'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
   world: {
     kind: 'world',
-    content: '# WORLD.MD\n\n## 世界观\n- 技术驱动进步\n- 开放协作\n- 持续学习',
+    content: t('demo.personaDocs.world'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
   dream: {
     kind: 'dream',
-    content: '# DREAM.MD\n\n## 愿景\n成为最懂你的 AI 伙伴',
+    content: t('demo.personaDocs.dream'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
   dark: {
     kind: 'dark',
-    content: '# DARK.MD\n\n## 注意事项\n此文档包含敏感设定，请谨慎编辑',
+    content: t('demo.personaDocs.dark'),
     revision: 1,
     updated_at: '2024-01-15T10:00:00Z',
   },
@@ -999,7 +940,7 @@ export async function getPersonaHistoryRevision(
   await delay(200);
   return {
     revision,
-    content: `# 历史版本 ${revision}\n\n这是 ${kind} 的第 ${revision} 个版本的内容快照。`,
+    content: t('demo.personaDocs.historySnapshot', { revision, kind }),
     updated_at: '2024-01-15T10:00:00Z',
   };
 }
@@ -1009,10 +950,10 @@ export async function getPersonaHistoryRevision(
 const MOCK_CRON_JOBS: CronJobDto[] = [
   {
     id: 'cron-1',
-    name: '每日报告生成',
+    name: t('demo.cron.dailyReport'),
     enabled: true,
     schedule: { kind: 'cron', expr: '0 9 * * *', tz: 'Asia/Shanghai' },
-    payload: { kind: 'notebook_report', message: '生成每日工作摘要', deliver: true, channel: 'chat' },
+    payload: { kind: 'notebook_report', message: t('demo.cron.dailyReportMessage'), deliver: true, channel: 'chat' },
     state: {
       nextRunAtMs: Date.now() + 86400000,
       lastRunAtMs: Date.now() - 86400000,
@@ -1028,10 +969,10 @@ const MOCK_CRON_JOBS: CronJobDto[] = [
   },
   {
     id: 'cron-2',
-    name: '会话清理',
+    name: t('demo.cron.cleanup'),
     enabled: false,
     schedule: { kind: 'every', everyMs: 604800000 },
-    payload: { kind: 'cleanup', message: '清理过期会话', deliver: false },
+    payload: { kind: 'cleanup', message: t('demo.cron.cleanupMessage'), deliver: false },
     state: {
       nextRunAtMs: null,
       lastRunAtMs: Date.now() - 604800000,
@@ -1165,7 +1106,7 @@ export async function generateNotebookReport(period: ReportPeriod): Promise<Note
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
 
-  const periodLabel = period === 'daily' ? '日报' : period === 'weekly' ? '周报' : '月报';
+  const periodLabel = t(`demo.notebook.periodLabel.${period}`);
   const title = `${periodLabel} - ${dateStr}`;
 
   // 汇总会话消息作为报告素材
@@ -1177,31 +1118,20 @@ export async function generateNotebookReport(period: ReportPeriod): Promise<Note
     if (session.title) topics.push(session.title);
   }
 
-  const content = `# ${title}
-
-## 概览
-- 会话数量：${sessions.length}
-- 消息总数：${totalMessages}
-- 涉及主题：${topics.length > 0 ? topics.join('、') : '暂无'}
-
-## 主要进展
-- 完成了与 AI 助手的多轮对话
-- 围绕 ${topics[0] || '日常交流'} 展开了讨论
-
-## 待办事项
-- 继续推进当前计划
-- 关注后续任务进展
-
-## 备注
-本报告由 Vivy 本地演示生成，不使用真实会话数据。
-`;
+  const content = t('demo.notebook.reportContent', {
+    title,
+    sessions: sessions.length,
+    messages: totalMessages,
+    topics: topics.length > 0 ? topics.join('、') : t('demo.notebook.noTopics'),
+    firstTopic: topics[0] || t('demo.notebook.defaultTopic'),
+  });
 
   const report: NotebookReport = {
     id: generateId(),
     period,
     date: dateStr,
     title,
-    summary: `共 ${sessions.length} 个会话、${totalMessages} 条消息的自动归纳`,
+    summary: t('demo.notebook.generatedSummary', { sessions: sessions.length, messages: totalMessages }),
     content,
     generatedAt: now(),
     generatedBy: 'vivy-demo',
@@ -1219,33 +1149,27 @@ export async function generateNotebookReport(period: ReportPeriod): Promise<Note
 
 // ==================== Restored local demo surfaces ====================
 
-const DEFAULT_PET: DemoPetState = {
-  mood: 'curious',
-  energy: 82,
-  lastInteraction: 'Vivy 正在等待下一次互动',
-};
-
 const DEFAULT_DASHBOARD: DemoDashboardSnapshot = {
   sessionCount: 12,
   activeRuns: 2,
   pendingReviews: 1,
   tokenUsage: 42860,
   recentActivity: [
-    { id: 'activity-1', title: '日报已生成', detail: '汇总了 3 个演示会话', occurredAt: '今天 09:30' },
-    { id: 'activity-2', title: '技能变更待处理', detail: 'react-design 请求更新', occurredAt: '昨天 18:10' },
-    { id: 'activity-3', title: '定时任务完成', detail: '会话清理运行成功', occurredAt: '昨天 12:00' },
+    { id: 'activity-1', title: t('demo.dashboard.activityReportTitle'), detail: t('demo.dashboard.activityReportDetail'), occurredAt: t('demo.dashboard.activityReportAt') },
+    { id: 'activity-2', title: t('demo.dashboard.activitySkillTitle'), detail: t('demo.dashboard.activitySkillDetail'), occurredAt: t('demo.dashboard.activitySkillAt') },
+    { id: 'activity-3', title: t('demo.dashboard.activityCronTitle'), detail: t('demo.dashboard.activityCronDetail'), occurredAt: t('demo.dashboard.activityCronAt') },
   ],
 };
 
 const DEFAULT_MEMORIES: DemoMemoryItem[] = [
-  { id: 'memory-1', title: '回答偏好', category: 'preference', content: '偏好简洁、可执行并带验证结果的回答。', updatedAt: '2024-01-15T10:00:00Z' },
-  { id: 'memory-2', title: 'Vivy UI 重构', category: 'project', content: '当前界面采用 React、TanStack Router 与蓝色主题。', updatedAt: '2024-01-14T16:30:00Z' },
-  { id: 'memory-3', title: '演示数据边界', category: 'decision', content: '没有后端 API 的页面只使用 vivy.demo.* 本地数据。', updatedAt: '2024-01-13T09:20:00Z' },
+  { id: 'memory-1', title: t('demo.memories.preferenceTitle'), category: 'preference', content: t('demo.memories.preferenceContent'), updatedAt: '2024-01-15T10:00:00Z' },
+  { id: 'memory-2', title: t('demo.memories.projectTitle'), category: 'project', content: t('demo.memories.projectContent'), updatedAt: '2024-01-14T16:30:00Z' },
+  { id: 'memory-3', title: t('demo.memories.decisionTitle'), category: 'decision', content: t('demo.memories.decisionContent'), updatedAt: '2024-01-13T09:20:00Z' },
 ];
 
 const DEFAULT_MCP_SERVERS: DemoMcpServer[] = [
-  { id: 'mcp-files', name: 'Workspace Files', transport: 'stdio', enabled: true, status: 'connected', toolCount: 8 },
-  { id: 'mcp-browser', name: 'Browser Tools', transport: 'http', enabled: false, status: 'disabled', toolCount: 5 },
+  { id: 'mcp-files', name: 'Workspace Files', transport: 'stdio', command: 'npx -y @modelcontextprotocol/server-filesystem .', enabled: true, toolCount: 8 },
+  { id: 'mcp-browser', name: 'Browser Tools', transport: 'http', url: 'http://127.0.0.1:9123/mcp', enabled: false, toolCount: 5 },
 ];
 
 const DEFAULT_COMPOSER: DemoComposerState = { mode: 'agent', secure: true, recording: false };
@@ -1265,20 +1189,140 @@ function writeDemoValue<T>(key: string, value: T): T {
   return value;
 }
 
-export async function getDemoPet(): Promise<DemoPetState> {
-  await delay(120);
-  return readDemoValue(STORAGE_KEYS.PET, DEFAULT_PET);
-}
-
-export async function interactWithDemoPet(mood: DemoPetState['mood']): Promise<DemoPetState> {
-  await delay(160);
-  const current = readDemoValue(STORAGE_KEYS.PET, DEFAULT_PET);
-  return writeDemoValue(STORAGE_KEYS.PET, { ...current, mood, energy: Math.min(100, current.energy + 4), lastInteraction: `互动完成 · ${now()}` });
-}
-
 export async function getDemoDashboard(): Promise<DemoDashboardSnapshot> {
   await delay(120);
   return readDemoValue(STORAGE_KEYS.DASHBOARD, DEFAULT_DASHBOARD);
+}
+
+const TOKEN_PERIOD_SCALE: Record<DemoTokenPeriod, number> = {
+  '1d': 1,
+  '3d': 2.4,
+  '1w': 4.8,
+  '1m': 16,
+  '6m': 72,
+  '1y': 130,
+};
+
+const BASE_TOKEN_SESSIONS = [
+  { id: 'session-1', title: t('demo.sessions.tokenOverview'), model: 'deepseek-chat', request_count: 18, total_input: 9200, total_output: 4100, total_cost: 0.082 },
+  { id: 'session-2', title: t('demo.sessions.tokenDesign'), model: 'claude-sonnet-4', request_count: 11, total_input: 6400, total_output: 2800, total_cost: 0.146 },
+  { id: 'session-3', title: t('demo.sessions.tokenPlugin'), model: 'gpt-4.1-mini', request_count: 9, total_input: 5100, total_output: 1900, total_cost: 0.037 },
+  { id: 'session-4', title: t('demo.sessions.tokenPersona'), model: 'deepseek-chat', request_count: 7, total_input: 3600, total_output: 1500, total_cost: 0.028 },
+  { id: 'session-5', title: t('demo.sessions.tokenCron'), model: 'gpt-4.1-mini', request_count: 4, total_input: 1800, total_output: 700, total_cost: 0.012 },
+];
+
+const BASE_TOKEN_ENDPOINTS = [
+  { key: t('demo.tokens.endpoints.chatCompletion'), total_tokens: 24100, total_cost: 0.198, request_count: 32 },
+  { key: t('demo.tokens.endpoints.toolCalls'), total_tokens: 9800, total_cost: 0.072, request_count: 12 },
+  { key: t('demo.tokens.endpoints.compaction'), total_tokens: 4200, total_cost: 0.035, request_count: 5 },
+];
+
+const TOKEN_TIMELINE_LABELS: Record<DemoTokenPeriod, string[]> = {
+  '1d': ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'],
+  '3d': ['8/23', '8/24', '8/25'],
+  '1w': ['8/19', '8/20', '8/21', '8/22', '8/23', '8/24', '8/25'],
+  '1m': Array.from({ length: 4 }, (_, index) => t('demo.tokens.timeline.weekN', { count: index + 1 })),
+  '6m': Array.from({ length: 6 }, (_, index) => t(`demo.tokens.timeline.months.${2 + index}`)),
+  '1y': Array.from({ length: 12 }, (_, index) => t(`demo.tokens.timeline.months.${index}`)),
+};
+
+function scaleCount(value: number, factor: number): number {
+  return Math.round(value * factor);
+}
+
+function scaleCost(value: number, factor: number): number {
+  return Math.round(value * factor * 10000) / 10000;
+}
+
+function buildDemoTokenUsage(period: DemoTokenPeriod): DemoTokenUsageSnapshot {
+  const factor = TOKEN_PERIOD_SCALE[period];
+  const sessions = BASE_TOKEN_SESSIONS.map((session) => {
+    const total_input = scaleCount(session.total_input, factor);
+    const total_output = scaleCount(session.total_output, factor);
+    return {
+      id: session.id,
+      title: session.title,
+      model: session.model,
+      request_count: scaleCount(session.request_count, factor),
+      total_input,
+      total_output,
+      total_tokens: total_input + total_output,
+      total_cost: scaleCost(session.total_cost, factor),
+    };
+  });
+  const total_input = sessions.reduce((sum, session) => sum + session.total_input, 0);
+  const total_output = sessions.reduce((sum, session) => sum + session.total_output, 0);
+  const total_tokens = total_input + total_output;
+  const total_cost = sessions.reduce((sum, session) => sum + session.total_cost, 0);
+  const request_count = sessions.reduce((sum, session) => sum + session.request_count, 0);
+  const modelTotals = new Map<string, number>();
+  for (const session of sessions) {
+    modelTotals.set(session.model, (modelTotals.get(session.model) ?? 0) + session.total_tokens);
+  }
+  const models = [...modelTotals.entries()]
+    .map(([model, tokens]) => ({
+      model,
+      total_tokens: tokens,
+      percentage: total_tokens === 0 ? 0 : Math.round((tokens / total_tokens) * 1000) / 10,
+    }))
+    .sort((left, right) => right.total_tokens - left.total_tokens);
+  const labels = TOKEN_TIMELINE_LABELS[period];
+  const weights = labels.map((_, index) => 0.35 + ((index * 7) % 10) / 12);
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+  const timeline = labels.map((label, index) => {
+    const share = weights[index] / weightSum;
+    const pointTokens = scaleCount(total_tokens * share, 1);
+    const inputShare = 0.62 + ((index % 5) - 2) * 0.03;
+    const total_input_point = scaleCount(pointTokens * inputShare, 1);
+    const total_output_point = Math.max(0, pointTokens - total_input_point);
+    return {
+      time_bucket: `${period}-${index}`,
+      label,
+      total_input: total_input_point,
+      total_output: total_output_point,
+      total_tokens: total_input_point + total_output_point,
+    };
+  });
+  return {
+    period,
+    total: {
+      total_input,
+      total_output,
+      total_tokens,
+      total_cache_creation: scaleCount(2400, factor),
+      total_cache_read: scaleCount(8600, factor),
+      request_count,
+      total_cost: Math.round(total_cost * 10000) / 10000,
+    },
+    models,
+    endpoints: BASE_TOKEN_ENDPOINTS.map((endpoint) => {
+      const share = endpoint.total_tokens / BASE_TOKEN_ENDPOINTS.reduce((sum, item) => sum + item.total_tokens, 0);
+      return {
+        key: endpoint.key,
+        total_tokens: scaleCount(total_tokens * share, 1),
+        total_cost: scaleCost(total_cost * share, 1),
+        request_count: scaleCount(request_count * share, 1),
+      };
+    }),
+    timeline,
+    sessions,
+  };
+}
+
+export function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
+}
+
+export function formatTokenCost(cost: number): string {
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+export async function getDemoTokenUsage(period: DemoTokenPeriod = '1d'): Promise<DemoTokenUsageSnapshot> {
+  await delay(120);
+  return buildDemoTokenUsage(period);
 }
 
 export async function getDemoMemories(): Promise<DemoMemoryItem[]> {
@@ -1291,33 +1335,76 @@ export async function getDemoMcpServers(): Promise<DemoMcpServer[]> {
   return readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
 }
 
+export interface DemoMcpServerInput {
+  name: string;
+  transport: DemoMcpServer['transport'];
+  command?: string;
+  url?: string;
+}
+
+function normalizeMcpInput(input: DemoMcpServerInput) {
+  const name = input.name.trim();
+  if (!name) throw new Error(t('mcp.errors.nameRequired'));
+  if (input.transport === 'http') {
+    const url = (input.url ?? '').trim();
+    if (!url) throw new Error(t('mcp.errors.urlRequired'));
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(t('mcp.errors.urlInvalid'));
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(t('mcp.errors.urlScheme'));
+    }
+    return { name, transport: 'http' as const, url, command: undefined };
+  }
+  const command = (input.command ?? '').trim();
+  if (!command) throw new Error(t('mcp.errors.commandRequired'));
+  return { name, transport: 'stdio' as const, command, url: undefined };
+}
+
+function assertMcpNameAvailable(servers: DemoMcpServer[], name: string, exceptId?: string) {
+  if (servers.some((server) => server.id !== exceptId && server.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(t('mcp.errors.duplicateName'));
+  }
+}
+
 export async function toggleDemoMcpServer(id: string): Promise<DemoMcpServer[]> {
   await delay(160);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS).map((server) => server.id === id ? { ...server, enabled: !server.enabled, status: server.enabled ? 'disabled' as const : 'connected' as const } : server);
+  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS).map((server) => server.id === id ? { ...server, enabled: !server.enabled } : server);
   return writeDemoValue(STORAGE_KEYS.MCP, servers);
 }
 
-export async function addDemoMcpServer(input: Pick<DemoMcpServer, 'name' | 'transport'>): Promise<DemoMcpServer[]> {
+export async function addDemoMcpServer(input: DemoMcpServerInput): Promise<DemoMcpServer[]> {
   await delay(180);
-  const name = input.name.trim();
-  if (!name) throw new Error('请输入 MCP 服务名称');
-
+  const normalized = normalizeMcpInput(input);
   const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  if (servers.some((server) => server.name.toLowerCase() === name.toLowerCase())) {
-    throw new Error('已存在同名 MCP 服务');
-  }
-
+  assertMcpNameAvailable(servers, normalized.name);
   return writeDemoValue(STORAGE_KEYS.MCP, [
     ...servers,
     {
       id: `mcp-${generateId()}`,
-      name,
-      transport: input.transport,
+      ...normalized,
       enabled: true,
-      status: 'connected',
       toolCount: 0,
     },
   ]);
+}
+
+export async function updateDemoMcpServer(id: string, input: DemoMcpServerInput): Promise<DemoMcpServer[]> {
+  await delay(180);
+  const normalized = normalizeMcpInput(input);
+  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
+  if (!servers.some((server) => server.id === id)) throw new Error(t('mcp.errors.notFound'));
+  assertMcpNameAvailable(servers, normalized.name, id);
+  return writeDemoValue(STORAGE_KEYS.MCP, servers.map((server) => server.id === id ? { ...server, ...normalized } : server));
+}
+
+export async function removeDemoMcpServer(id: string): Promise<DemoMcpServer[]> {
+  await delay(160);
+  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
+  return writeDemoValue(STORAGE_KEYS.MCP, servers.filter((server) => server.id !== id));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1326,7 +1413,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServer[]> {
   await delay(180);
-  const entries: Array<Pick<DemoMcpServer, 'name' | 'transport' | 'enabled' | 'toolCount'>> = [];
+  const entries: Array<Pick<DemoMcpServer, 'name' | 'transport' | 'command' | 'url' | 'enabled' | 'toolCount'>> = [];
 
   const appendEntry = (nameHint: string, value: unknown) => {
     const record = isRecord(value) ? value : {};
@@ -1339,7 +1426,16 @@ export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServe
     const toolCount = typeof record.toolCount === 'number' && Number.isFinite(record.toolCount)
       ? Math.max(0, Math.round(record.toolCount))
       : 0;
-    entries.push({ name, transport, enabled, toolCount });
+    const command = typeof record.command === 'string' && record.command.trim() ? record.command.trim() : undefined;
+    const url = typeof record.url === 'string' && record.url.trim() ? record.url.trim() : undefined;
+    entries.push({
+      name,
+      transport,
+      command: transport === 'stdio' ? command : undefined,
+      url: transport === 'http' ? url : undefined,
+      enabled,
+      toolCount,
+    });
   };
 
   if (Array.isArray(config)) {
@@ -1360,7 +1456,7 @@ export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServe
     }
   }
 
-  if (!entries.length) throw new Error('JSON 中没有可导入的 MCP 服务');
+  if (!entries.length) throw new Error(t('mcp.errors.emptyImport'));
 
   const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
   const merged = [...servers];
@@ -1369,7 +1465,6 @@ export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServe
     const next = {
       id: index >= 0 ? merged[index].id : `mcp-${generateId()}`,
       ...entry,
-      status: entry.enabled ? 'connected' as const : 'disabled' as const,
     };
     if (index >= 0) merged[index] = next;
     else merged.push(next);
@@ -1384,8 +1479,9 @@ export async function exportDemoMcpConfig(): Promise<{ mcpServers: Record<string
   return {
     mcpServers: Object.fromEntries(
       servers.map((server) => [server.name, {
-        name: server.name,
         transport: server.transport,
+        ...(server.transport === 'stdio' && server.command ? { command: server.command } : {}),
+        ...(server.transport === 'http' && server.url ? { url: server.url } : {}),
         enabled: server.enabled,
         toolCount: server.toolCount,
       }]),

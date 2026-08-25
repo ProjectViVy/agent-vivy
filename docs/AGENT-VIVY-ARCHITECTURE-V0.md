@@ -39,8 +39,10 @@ vendored copies and `replace` directives are prohibited. All Eino types are
 quarantined inside `internal/runtime` and `internal/provider` (D-007),
 enforced at build time by an AST-level import-lint test. SQLite access uses
 `modernc.org/sqlite` (pure Go, no CGO) so the single binary builds and runs
-on Windows without a toolchain. The UI is Vite + native TypeScript embedded
-via `go:embed`, so one executable is the product.
+on Windows without a toolchain. The default UI is Vite + native TypeScript
+embedded via `go:embed`, so one executable remains the product. An opt-in
+`vivy_headless` build omits those assets for a same-machine static-UI split;
+both variants expose the same in-process JSON-RPC control plane.
 
 **Guard tests.** import-lint gate (D-007); secret-boundary audit (E3).
 
@@ -55,7 +57,7 @@ SQLite-specific surfaces (D-027). Journal appends are atomic with monotonic
 generation-based with an atomic pointer flip so a same-ID overwrite is never
 in place (D-030). The backend is trusted only after passing the 16-case
 conformance suite (D-032, `CN-01..CN-16`); the filesystem-journal backend
-remains a V1+ probe.
+remains a V1+ probe. Optional Postgres is ADR-020.
 
 **Reconciliation.** This ADR realizes addendum §1–§3, §5 as implemented
 code; the addendum stays proposal-only elsewhere per D-035 until superseded.
@@ -110,9 +112,10 @@ record, the checkpoint only resumes it.
 ## ADR-007 — UI: thin browser shell over the JSON-RPC contract
 
 **Decision.** The UI is a zero-runtime-dependency Vite + TypeScript shell
-served by the Go binary (`go:embed` + SPA fallback). It consumes only the
-JSON-RPC control plane and the journal-backed run event stream with reconnect
-cursor; all product state is rebuildable from the API after refresh. Only the
+served by the Go binary (`go:embed` + SPA fallback) by default, or served as a
+standalone static directory by the opt-in headless backend build. It consumes
+only the JSON-RPC control plane and the journal-backed run event stream with
+reconnect cursor; all product state is rebuildable from the API after refresh. Only the
 non-sensitive locale/theme preferences are persisted in browser storage; no
 session, run, prompt, event, or provider data is stored there. No Eino or
 engine type crosses into the UI contract (D-007, D-013). Smoke is automated
@@ -260,16 +263,48 @@ inside the personal-gateway install.
 
 ## ADR-018 — Vivy Studio is an independent application (2026-08-15)
 
-**Decision.** Vivy Studio is a second product. It owns develop +
-distribute (worktree, verify, pack, eval, release, install, rollback).
-Daily `vivy.exe` is the installed body. The species never launches
+**Decision.** Vivy Studio is a second product. It owns Studio development and
+species distribution (worktree, verify, pack, eval, release, install,
+rollback). Daily `vivy.exe` is the installed body. The species never launches
 Studio. Lifecycle objects live in Studio's store. ST-6 proved that Studio can
-serve as the first-party daily development IDE. Other authorized developer
-tools may work directly in the same source workspace with their own native
-capabilities (NG-21..NG-28).
+serve as the first-party lifecycle development environment; Vivy feature
+authors use the backend + Vite frontend inner loop by default. Other
+authorized developer tools may work directly in the same source workspace
+with their own native capabilities (NG-21..NG-28).
 
 **Guard tests.** None in this ADR: it records a product constraint.
 Acceptance is the ST-* evidence in `VIVY-STUDIO.md` §10.
+
+## ADR-019 — Container packaging is the same organism (2026-08-24)
+
+**Decision.** Docker is a packaging of the default `vivy` binary (embedded
+UI, in-process JSON-RPC, SQLite Journal). One container is one organism:
+replica=1, one volume-backed Journal at `/data/vivy.db`, listen
+`0.0.0.0:8787` inside the container, host publish `127.0.0.1:8787` only.
+`server.allowed_origins` stays empty so the origin policy remains
+same-origin. The split UI (`vivy_headless`) stays a same-machine
+non-container path. Optional Postgres, Redis, and remote origins are not
+this ADR.
+
+**Guard tests.** Config accepts `0.0.0.0` only with empty origins;
+`docker/config.yaml` loads as a Default overlay; compose must not publish
+8787 on all interfaces.
+
+## ADR-020 — Optional Postgres Journal (2026-08-24)
+
+**Decision.** SQLite remains the default one-click Journal. Postgres is
+the only optional server backend. Selection is `storage.backend:
+postgres` plus `storage.postgres.dsn_env` (an environment variable name;
+the DSN never sits in yaml). One process owns one DSN via an instance
+lease; a second `Open` returns `ErrLeaseHeld` (CN-14 exclusive mode).
+The CN-01..16 suite lives on `storage.Engine` (`internal/storage/conformance`).
+Eval air-gap stays SQLite and must not inherit the production DSN.
+MariaDB, Redis, GORM, and replica sets are out of this ADR. `just ci`
+does not require a Postgres server.
+
+**Guard tests.** Config rejects a missing `dsn_env` and `mariadb`;
+sqlite CN suite runs in `just ci`; postgres CN suite runs when
+`VIVY_POSTGRES_TEST_DSN` is set.
 
 ## Status
 
@@ -286,7 +321,12 @@ Acceptance is the ST-* evidence in `VIVY-STUDIO.md` §10.
 - 2026-08-15: ADR-016 Studio card was claimed; product meaning voided
   the same day by ADR-018.
 - 2026-08-15: ADR-017 splits `vivy-sdk` into `sdk/` as its own binary.
-- 2026-08-15: ADR-018 — Studio is an independent app and first-party daily
-  development IDE. Other authorized tools may work directly in the workspace.
+- 2026-08-15: ADR-018 — Studio is an independent app and first-party
+  lifecycle development environment. Other authorized tools may work directly
+  in the workspace; Vivy feature development now recommends the split loop.
   Canonical: `docs/architecture/VIVY-STUDIO.md`.
+- 2026-08-24: ADR-019 — Docker packages the same embedded-UI organism
+  (replica=1, volume SQLite, host-loopback publish).
+- 2026-08-24: ADR-020 — optional Postgres Journal, instance lease,
+  CN suite on storage contracts.
 </file_content>

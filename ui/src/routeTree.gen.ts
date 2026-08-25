@@ -15,11 +15,11 @@ import { Route as LayoutApprovalsRouteImport } from './routes/_layout.approvals'
 import { Route as LayoutCronTasksRouteImport } from './routes/_layout.cron-tasks'
 import { Route as LayoutDashboardRouteImport } from './routes/_layout.dashboard'
 import { Route as LayoutLifecycleRouteImport } from './routes/_layout.lifecycle'
+import { Route as LayoutMasksRouteImport } from './routes/_layout.masks'
 import { Route as LayoutMcpRouteImport } from './routes/_layout.mcp'
 import { Route as LayoutMemoryRouteImport } from './routes/_layout.memory'
 import { Route as LayoutNotebookRouteImport } from './routes/_layout.notebook'
 import { Route as LayoutPersonaRouteImport } from './routes/_layout.persona'
-import { Route as LayoutPetRouteImport } from './routes/_layout.pet'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout.settings'
 import { Route as LayoutSkillsRouteImport } from './routes/_layout.skills'
 
@@ -52,6 +52,11 @@ const LayoutLifecycleRoute = LayoutLifecycleRouteImport.update({
   path: '/lifecycle',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutMasksRoute = LayoutMasksRouteImport.update({
+  id: '/masks',
+  path: '/masks',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutMcpRoute = LayoutMcpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
@@ -72,11 +77,6 @@ const LayoutPersonaRoute = LayoutPersonaRouteImport.update({
   path: '/persona',
   getParentRoute: () => LayoutRoute,
 } as any)
-const LayoutPetRoute = LayoutPetRouteImport.update({
-  id: '/pet',
-  path: '/pet',
-  getParentRoute: () => LayoutRoute,
-} as any)
 const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -94,11 +94,11 @@ export interface FileRoutesByFullPath {
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
   '/lifecycle': typeof LayoutLifecycleRoute
+  '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
   '/memory': typeof LayoutMemoryRoute
   '/notebook': typeof LayoutNotebookRoute
   '/persona': typeof LayoutPersonaRoute
-  '/pet': typeof LayoutPetRoute
   '/settings': typeof LayoutSettingsRoute
   '/skills': typeof LayoutSkillsRoute
 }
@@ -107,11 +107,11 @@ export interface FileRoutesByTo {
   '/cron-tasks': typeof LayoutCronTasksRoute
   '/dashboard': typeof LayoutDashboardRoute
   '/lifecycle': typeof LayoutLifecycleRoute
+  '/masks': typeof LayoutMasksRoute
   '/mcp': typeof LayoutMcpRoute
   '/memory': typeof LayoutMemoryRoute
   '/notebook': typeof LayoutNotebookRoute
   '/persona': typeof LayoutPersonaRoute
-  '/pet': typeof LayoutPetRoute
   '/settings': typeof LayoutSettingsRoute
   '/skills': typeof LayoutSkillsRoute
   '/': typeof LayoutIndexRoute
@@ -123,11 +123,11 @@ export interface FileRoutesById {
   '/_layout/cron-tasks': typeof LayoutCronTasksRoute
   '/_layout/dashboard': typeof LayoutDashboardRoute
   '/_layout/lifecycle': typeof LayoutLifecycleRoute
+  '/_layout/masks': typeof LayoutMasksRoute
   '/_layout/mcp': typeof LayoutMcpRoute
   '/_layout/memory': typeof LayoutMemoryRoute
   '/_layout/notebook': typeof LayoutNotebookRoute
   '/_layout/persona': typeof LayoutPersonaRoute
-  '/_layout/pet': typeof LayoutPetRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/skills': typeof LayoutSkillsRoute
   '/_layout/': typeof LayoutIndexRoute
@@ -140,11 +140,11 @@ export interface FileRouteTypes {
     | '/cron-tasks'
     | '/dashboard'
     | '/lifecycle'
+    | '/masks'
     | '/mcp'
     | '/memory'
     | '/notebook'
     | '/persona'
-    | '/pet'
     | '/settings'
     | '/skills'
   fileRoutesByTo: FileRoutesByTo
@@ -153,11 +153,11 @@ export interface FileRouteTypes {
     | '/cron-tasks'
     | '/dashboard'
     | '/lifecycle'
+    | '/masks'
     | '/mcp'
     | '/memory'
     | '/notebook'
     | '/persona'
-    | '/pet'
     | '/settings'
     | '/skills'
     | '/'
@@ -168,11 +168,11 @@ export interface FileRouteTypes {
     | '/_layout/cron-tasks'
     | '/_layout/dashboard'
     | '/_layout/lifecycle'
+    | '/_layout/masks'
     | '/_layout/mcp'
     | '/_layout/memory'
     | '/_layout/notebook'
     | '/_layout/persona'
-    | '/_layout/pet'
     | '/_layout/settings'
     | '/_layout/skills'
     | '/_layout/'
@@ -226,6 +226,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutLifecycleRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/masks': {
+      id: '/_layout/masks'
+      path: '/masks'
+      fullPath: '/masks'
+      preLoaderRoute: typeof LayoutMasksRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/mcp': {
       id: '/_layout/mcp'
       path: '/mcp'
@@ -254,13 +261,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutPersonaRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_layout/pet': {
-      id: '/_layout/pet'
-      path: '/pet'
-      fullPath: '/pet'
-      preLoaderRoute: typeof LayoutPetRouteImport
-      parentRoute: typeof LayoutRoute
-    }
     '/_layout/settings': {
       id: '/_layout/settings'
       path: '/settings'
@@ -283,11 +283,11 @@ interface LayoutRouteChildren {
   LayoutCronTasksRoute: typeof LayoutCronTasksRoute
   LayoutDashboardRoute: typeof LayoutDashboardRoute
   LayoutLifecycleRoute: typeof LayoutLifecycleRoute
+  LayoutMasksRoute: typeof LayoutMasksRoute
   LayoutMcpRoute: typeof LayoutMcpRoute
   LayoutMemoryRoute: typeof LayoutMemoryRoute
   LayoutNotebookRoute: typeof LayoutNotebookRoute
   LayoutPersonaRoute: typeof LayoutPersonaRoute
-  LayoutPetRoute: typeof LayoutPetRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutSkillsRoute: typeof LayoutSkillsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
@@ -298,11 +298,11 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutCronTasksRoute: LayoutCronTasksRoute,
   LayoutDashboardRoute: LayoutDashboardRoute,
   LayoutLifecycleRoute: LayoutLifecycleRoute,
+  LayoutMasksRoute: LayoutMasksRoute,
   LayoutMcpRoute: LayoutMcpRoute,
   LayoutMemoryRoute: LayoutMemoryRoute,
   LayoutNotebookRoute: LayoutNotebookRoute,
   LayoutPersonaRoute: LayoutPersonaRoute,
-  LayoutPetRoute: LayoutPetRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutSkillsRoute: LayoutSkillsRoute,
   LayoutIndexRoute: LayoutIndexRoute,

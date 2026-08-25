@@ -5,9 +5,12 @@ description: Develop a user plugin under plugins/<name>. Verify, pack, and inspe
 
 # Vivy plugin five-step
 
-Vivy Studio is the first-party daily authoring IDE. Other authorized developer
-tools may develop plugins directly in this workspace using their own native
-capabilities. Do not develop plugins inside daily `vivy.exe`.
+Vivy feature development starts the split pair (`just run` + `cd ui; pnpm
+dev`, open `http://127.0.0.1:3015`) when browser validation is needed.
+Studio is not a mandatory authoring venue. Other authorized developer tools
+may develop plugins directly in this workspace using their own native
+capabilities. Do not develop plugins inside daily `vivy.exe` or against the
+embedded UI.
 
 ## Air gap
 
