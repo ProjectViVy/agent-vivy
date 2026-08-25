@@ -60,6 +60,14 @@ export const zh = {
     toolResult: '工具结果',
     thinking: '思考过程',
     thinkingStreaming: '思考过程（进行中）',
+    // 消息操作（对照 Agent-DIVA msg-actions）
+    copy: '复制',
+    copied: '已复制',
+    edit: '编辑',
+    regenerate: '重新生成',
+    rewind: '回到这里',
+    fork: '从此分叉',
+    pending: '待实现',
   },
   chatInput: {
     placeholder: '输入消息... (Enter 发送)',

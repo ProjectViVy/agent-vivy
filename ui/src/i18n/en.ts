@@ -62,6 +62,14 @@ export const en: Dictionary = {
     toolResult: 'Tool result',
     thinking: 'Reasoning',
     thinkingStreaming: 'Reasoning (in progress)',
+    // Message actions (ported from Agent-DIVA msg-actions)
+    copy: 'Copy',
+    copied: 'Copied',
+    edit: 'Edit',
+    regenerate: 'Regenerate',
+    rewind: 'Rewind to here',
+    fork: 'Fork from here',
+    pending: 'Not yet available',
   },
   chatInput: {
     placeholder: 'Type a message... (Enter to send)',
