@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArrowRight, FlaskConical, GitBranch } from 'lucide-react';
+import { Activity, ArrowRight, FlaskConical, GitBranch, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,11 +13,19 @@ import type { PersonaProfile, RuntimeConfig, ToolsConfigShape } from '@/lib/type
 import { useVivyStore } from '@/lib/store';
 import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { RunInspector } from '@/components/chat/RunInspector';
+import { openWelcome } from '@/hooks/use-welcome';
+import { useTranslation } from '@/i18n';
 import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewSection } from './diva-preview-data';
 import { DivaSettingsPreview } from './DivaSettingsPreview';
 import { ThemePicker } from './ThemePicker';
 
-type SettingsTab = 'general' | 'model' | 'persona' | 'tools' | 'vivy' | DivaPreviewSection;
+const SETTINGS_TAB_VALUES = ['general', 'model', 'persona', 'tools', 'vivy', ...DIVA_ADDITIONAL_SECTIONS] as const;
+export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
+
+/** 路由 search 参数的白名单校验（?tab=…深链）。 */
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return typeof value === 'string' && (SETTINGS_TAB_VALUES as readonly string[]).includes(value);
+}
 
 const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
   channels: '通道',
@@ -38,13 +46,14 @@ function DemoNote() {
   );
 }
 
-export function SettingsView() {
+export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const settings = useVivyStore((state) => state.settings);
   const phase = useVivyStore((state) => state.settingsPhase);
   const error = useVivyStore((state) => state.settingsError);
   const connection = useVivyStore((state) => state.connection);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
+  const { t } = useTranslation();
   const [form, setForm] = useState({ provider: '', default_model: '', base_url: '' });
   const [demoConfig, setDemoConfig] = useState<RuntimeConfig | null>(null);
   const [persona, setPersona] = useState<PersonaProfile | null>(null);
@@ -52,7 +61,7 @@ export function SettingsView() {
   const [demoBusy, setDemoBusy] = useState<'model' | 'persona' | 'tools' | null>(null);
   const [demoSaved, setDemoSaved] = useState<string | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'general');
 
   const loadDemos = async () => {
     setDemoError(null);
@@ -68,6 +77,8 @@ export function SettingsView() {
   useEffect(() => {
     if (activeTab === 'model' || activeTab === 'persona' || activeTab === 'tools') void loadDemos();
   }, [activeTab]);
+  // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区。
+  useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
   useEffect(() => {
     if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url });
   }, [settings]);
@@ -123,6 +134,14 @@ export function SettingsView() {
               </CardContent>
             </Card>
             <ThemePicker />
+            <Card>
+              <CardHeader>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+                <CardTitle>{t('welcome.rerunTitle')}</CardTitle>
+                <CardDescription>{t('welcome.rerunDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent><Button variant="outline" onClick={() => openWelcome()}>{t('welcome.rerunAction')}</Button></CardContent>
+            </Card>
             <DivaSettingsPreview section="general" />
           </TabsContent>
 

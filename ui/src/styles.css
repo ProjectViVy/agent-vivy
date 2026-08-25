@@ -210,3 +210,26 @@
     font-family: var(--font-sans);
   }
 }
+
+/* 欢迎向导背景装饰：漂浮光点（跟随主题 primary 令牌） */
+@keyframes welcome-float {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateY(-16px) scale(1.08);
+    opacity: 0.9;
+  }
+}
+
+.welcome-float {
+  animation: welcome-float 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-float {
+    animation: none;
+  }
+}

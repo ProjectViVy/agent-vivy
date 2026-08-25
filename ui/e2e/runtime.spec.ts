@@ -8,6 +8,11 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
   await expect(page.getByRole('button', { name: '画图' })).toBeVisible();
   await expect(page.getByRole('progressbar', { name: '上下文占用' })).toBeVisible();
+  // 全新上下文会自动弹出欢迎向导，跳过后才不影响后续点击
+  const welcomeDialog = page.getByRole('dialog', { name: '欢迎使用 Vivy' });
+  await expect(welcomeDialog).toBeVisible();
+  await welcomeDialog.getByRole('button', { name: '跳过向导' }).click();
+  await expect(welcomeDialog).toBeHidden();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -94,21 +99,21 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some((key) => key.startsWith('vivy.demo.')))).toBe(true);
   const keys = await page.evaluate(() => Object.keys(localStorage));
   expect(keys.some((key) => key.startsWith('vivy.demo.'))).toBe(true);
-  expect(keys.every((key) => key === 'vivy.ui.activeSession' || key.startsWith('vivy.demo.'))).toBe(true);
+  expect(keys.every((key) => key === 'vivy.ui.activeSession' || key === 'vivy.ui.welcome.completed' || key.startsWith('vivy.demo.'))).toBe(true);
   await page.getByRole('button', { name: /每日工作摘要/ }).click();
   await expect(page.getByRole('heading', { name: /每日工作摘要/ })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(demoBanner).toBeVisible();
   await expect(page.getByRole('heading', { name: /每日工作摘要/ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole('button', { name: '返回列表' }).click();
+  await page.getByRole('button', { name: '返回' }).click();
   await expect(page.getByRole('tab', { name: '报告' })).toBeVisible();
   const openNavigation = page.getByRole('button', { name: '打开导航' });
   if (await openNavigation.isVisible().catch(() => false)) await openNavigation.click();
   await page.getByRole('link', { name: '记忆' }).click();
   await page.getByRole('button', { name: /回答偏好/ }).click();
-  await expect(page.getByRole('button', { name: '返回列表' })).toBeVisible();
-  await page.getByRole('button', { name: '返回列表' }).click();
+  await expect(page.getByRole('button', { name: '返回' })).toBeVisible();
+  await page.getByRole('button', { name: '返回' }).click();
   await expect(page.getByPlaceholder('搜索记忆')).toBeVisible();
   if (await openNavigation.isVisible().catch(() => false)) await openNavigation.click();
   await page.getByRole('link', { name: '设置' }).click();
