@@ -141,6 +141,24 @@ silently delete it.
 Closed tracks (V0, MA, ET, HITL P0, harness H0–H10, Studio ST-*) stay in the
 file as archive tables; do not pick new work from them.
 
+## Parallel lanes (worktree isolation, hard requirement)
+
+The shared root working tree hosts at most one active write lane. Parallel
+work is isolated by structure, not by coordination — there is no `LOCK.md`.
+
+- A second concurrent lane (another agent session, a Studio session, or
+  manual edits) must develop in its own `git worktree` on its own branch
+  (`git worktree add ../agent-vivy-<slug> -b feat/<slug>` from this root)
+  and must not edit the root tree while another lane is active.
+- A new feature started while the root tree is not clean also goes to a
+  worktree; do not stack unrelated themes in the root tree.
+- A lane lands back through its branch (merge or PR), never by piling
+  files into the root tree.
+- Ignored runtime state (`data/`, `data/studio-home/`, `.workspace/`) is
+  per-checkout; a worktree starts with its own empty scratch.
+- If two lanes must touch the same files, they are one lane — sequence
+  them on a single branch.
+
 ## Validation
 
 Default gate for kernel, UI, Studio overlay, and product-contract docs is
@@ -195,8 +213,23 @@ routing requires a test that asserts the outbound `model` field.
 - **no-plugin-via-engine-import** — Do not install a plugin by editing
   `internal/runtime/engine.go`. Use `vivy-sdk pack`. Maintainer: current
   assistant.
+- **parallel-worktree-isolation** (hard requirement) — The shared root
+  working tree hosts at most one active write lane. A second concurrent
+  lane, or a new feature started on a dirty root tree, must develop in its
+  own `git worktree` on its own branch and land via merge/PR. See
+  "Parallel lanes". Maintainer: current assistant.
+- **commit-one-concern-per-deliverable** — Every completed deliverable is
+  committed on completion as one focused commit: stage only that
+  deliverable's explicit paths, keep unrelated pre-existing dirty changes
+  and other lanes' files out, and remove scratch artifacts first. Never
+  mix features, docs, and cleanup in one commit. Pushing still requires
+  explicit user authorization. Maintainer: current delivery owner.
 
 Not ported from agent-diva on purpose: `LOCK.md` parallel mutex, root
-`TODOLIST.md`, `/new-command` index, auto-commit-every-update, and the
-`[I strictly follow the rules]` reply prefix. Vivy already has air-gap,
-`just ci`, and Studio venue rules; those stay as written above.
+`TODOLIST.md`, `/new-command` index, per-update auto-commit, and the
+`[I strictly follow the rules]` reply prefix. Concurrency and commit
+hygiene are handled natively by `parallel-worktree-isolation` (structural
+worktree separation replaces the lock file) and
+`commit-one-concern-per-deliverable` (commits follow deliverables, not
+raw updates). Vivy already has air-gap, `just ci`, and Studio venue
+rules; those stay as written above.
