@@ -1,5 +1,6 @@
 import { getRpcClient, resetRpcClient, type RpcClient } from './rpc';
 import type { RunLogEvent } from './api';
+import { t } from '@/i18n';
 
 export type RunEvent = RunLogEvent;
 export interface RunSubscription { close(): void; lastSeq(): number }
@@ -18,7 +19,7 @@ export function subscribeRun(runId: string, afterSeq: number, onEvent: (event: R
   const clearListeners = () => { removeEvent?.(); removeStreamError?.(); removeClose?.(); removeEvent = undefined; removeStreamError = undefined; removeClose = undefined; };
   const reconnect = () => {
     if (closed || timer !== undefined) return;
-    onError?.(`连接中断，正从事件 ${cursor} 继续`);
+    onError?.(t('errors.reconnecting', { cursor }));
     timer = window.setTimeout(() => { timer = undefined; void connect(); }, 1000);
   };
   const connect = async () => {
@@ -41,7 +42,7 @@ export function subscribeRun(runId: string, afterSeq: number, onEvent: (event: R
         subscriptionId = '';
         clearListeners();
         if (client && failedSubscription) void client.call('run/unsubscribe', { subscription_id: failedSubscription }).catch(() => undefined);
-        onError?.(envelope.message || 'Run 事件回放失败');
+        onError?.(envelope.message || t('errors.runReplayFailed'));
         reconnect();
       });
       removeClose = client.onClose(() => { clearListeners(); resetRpcClient(); reconnect(); });

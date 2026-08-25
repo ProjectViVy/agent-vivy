@@ -3,20 +3,15 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatTokenCost, formatTokenCount, getDemoTokenUsage } from '@/lib/demo-api';
+import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { DemoTokenPeriod, DemoTokenUsageSnapshot } from '@/lib/types';
 import { DemoLoadError } from './DemoBanner';
 
-const PERIODS: Array<{ id: DemoTokenPeriod; label: string }> = [
-  { id: '1d', label: '1天' },
-  { id: '3d', label: '3天' },
-  { id: '1w', label: '1周' },
-  { id: '1m', label: '1月' },
-  { id: '6m', label: '6月' },
-  { id: '1y', label: '1年' },
-];
+const PERIODS: DemoTokenPeriod[] = ['1d', '3d', '1w', '1m', '6m', '1y'];
 
 export function TokenStatsPanel() {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<DemoTokenPeriod>('1d');
   const [reloadKey, setReloadKey] = useState(0);
   const [view, setView] = useState<'overview' | 'detail'>('overview');
@@ -70,45 +65,45 @@ export function TokenStatsPanel() {
   return (
     <div className="space-y-6">
       {view === 'detail' ? (
-        <Button type="button" variant="ghost" size="sm" onClick={() => setView('overview')}>返回</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setView('overview')}>{t('common.back')}</Button>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="统计周期">
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t('token.periodGroupLabel')}>
             {PERIODS.map((item) => (
               <Button
-                key={item.id}
+                key={item}
                 type="button"
                 size="sm"
-                variant={period === item.id ? 'default' : 'outline'}
-                aria-pressed={period === item.id}
-                disabled={loading && period === item.id}
-                onClick={() => setPeriod(item.id)}
+                variant={period === item ? 'default' : 'outline'}
+                aria-pressed={period === item}
+                disabled={loading && period === item}
+                onClick={() => setPeriod(item)}
               >
-                {item.label}
+                {t(`token.periods.${item}`)}
               </Button>
             ))}
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={exportSnapshot} disabled={!snapshot}>导出</Button>
+          <Button type="button" variant="outline" size="sm" onClick={exportSnapshot} disabled={!snapshot}>{t('token.export')}</Button>
         </div>
       )}
 
       {view === 'overview' ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="总 Token" value={formatTokenCount(snapshot.total.total_tokens)} />
-            <Metric label="输入" value={formatTokenCount(snapshot.total.total_input)} />
-            <Metric label="输出" value={formatTokenCount(snapshot.total.total_output)} />
-            <Metric label="预估费用" value={formatTokenCost(snapshot.total.total_cost)} />
+            <Metric label={t('token.totalTokens')} value={formatTokenCount(snapshot.total.total_tokens)} />
+            <Metric label={t('token.input')} value={formatTokenCount(snapshot.total.total_input)} />
+            <Metric label={t('token.output')} value={formatTokenCount(snapshot.total.total_output)} />
+            <Metric label={t('token.estimatedCost')} value={formatTokenCost(snapshot.total.total_cost)} />
           </div>
 
           <section>
-            <h3 className="mb-3 text-sm font-semibold">模型分布</h3>
+            <h3 className="mb-3 text-sm font-semibold">{t('token.modelDistribution')}</h3>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>模型</TableHead>
-                  <TableHead>占比</TableHead>
-                  <TableHead className="text-right">Token</TableHead>
+                  <TableHead>{t('token.model')}</TableHead>
+                  <TableHead>{t('token.share')}</TableHead>
+                  <TableHead className="text-right">{t('token.tokenColumn')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -132,20 +127,20 @@ export function TokenStatsPanel() {
 
           <SessionTable sessions={visibleSessions} columns="overview" />
           <div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setView('detail')}>查看详细统计</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setView('detail')}>{t('token.viewDetails')}</Button>
           </div>
         </>
       ) : (
         <>
           <section>
-            <h3 className="mb-3 text-sm font-semibold">缓存 Token</h3>
+            <h3 className="mb-3 text-sm font-semibold">{t('token.cacheTokens')}</h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Metric label="缓存创建" value={formatTokenCount(snapshot.total.total_cache_creation)} />
-              <Metric label="缓存读取" value={formatTokenCount(snapshot.total.total_cache_read)} />
+              <Metric label={t('token.cacheCreation')} value={formatTokenCount(snapshot.total.total_cache_creation)} />
+              <Metric label={t('token.cacheRead')} value={formatTokenCount(snapshot.total.total_cache_read)} />
             </div>
           </section>
           <section>
-            <h3 className="mb-3 text-sm font-semibold">端点</h3>
+            <h3 className="mb-3 text-sm font-semibold">{t('token.endpoints')}</h3>
             <ul className="space-y-3">
               {snapshot.endpoints.map((endpoint) => {
                 const share = snapshot.total.total_tokens === 0 ? 0 : (endpoint.total_tokens / snapshot.total.total_tokens) * 100;
@@ -167,11 +162,12 @@ export function TokenStatsPanel() {
 }
 
 function UsageTrendChart({ timeline }: { timeline: DemoTokenUsageSnapshot['timeline'] }) {
+  const { t } = useTranslation();
   const maxTimeline = Math.max(...timeline.map((point) => point.total_tokens), 1);
   const fewBars = timeline.length <= 4;
   return (
     <section>
-      <h3 className="mb-3 text-sm font-semibold">使用趋势</h3>
+      <h3 className="mb-3 text-sm font-semibold">{t('token.usageTrend')}</h3>
       <div className="rounded-lg bg-muted/50 px-3 pb-3 pt-4">
         <div className={cn('flex h-40 items-end gap-2 border-b border-border', fewBars && 'justify-center')}>
           {timeline.map((point) => {
@@ -183,8 +179,8 @@ function UsageTrendChart({ timeline }: { timeline: DemoTokenUsageSnapshot['timel
                 <div
                   className="flex w-full flex-col justify-end overflow-hidden rounded-t-lg transition-opacity hover:opacity-80"
                   style={{ height: `${height}%` }}
-                  title={`${point.label}\n输入 ${formatTokenCount(point.total_input)}\n输出 ${formatTokenCount(point.total_output)}`}
-                  aria-label={`${point.label} 共 ${formatTokenCount(point.total_tokens)} Token`}
+                  title={t('token.trendTooltip', { label: point.label, input: formatTokenCount(point.total_input), output: formatTokenCount(point.total_output) })}
+                  aria-label={t('token.trendAria', { label: point.label, total: formatTokenCount(point.total_tokens) })}
                 >
                   <div className="w-full bg-primary/40" style={{ height: `${outputShare}%` }} />
                   <div className="w-full bg-primary" style={{ height: `${inputShare}%` }} />
@@ -200,10 +196,10 @@ function UsageTrendChart({ timeline }: { timeline: DemoTokenUsageSnapshot['timel
       </div>
       <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-primary" aria-hidden="true" />输入
+          <span className="h-2.5 w-2.5 rounded-sm bg-primary" aria-hidden="true" />{t('token.input')}
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-primary/40" aria-hidden="true" />输出
+          <span className="h-2.5 w-2.5 rounded-sm bg-primary/40" aria-hidden="true" />{t('token.output')}
         </span>
       </div>
     </section>
@@ -226,25 +222,26 @@ function SessionTable({
   sessions: DemoTokenUsageSnapshot['sessions'];
   columns: 'overview' | 'detail';
 }) {
+  const { t } = useTranslation();
   return (
     <section>
-      <h3 className="mb-3 text-sm font-semibold">会话明细</h3>
+      <h3 className="mb-3 text-sm font-semibold">{t('token.sessionDetails')}</h3>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>会话</TableHead>
-            <TableHead>模型</TableHead>
+            <TableHead>{t('token.session')}</TableHead>
+            <TableHead>{t('token.model')}</TableHead>
             {columns === 'overview' ? (
               <>
-                <TableHead className="text-right">请求</TableHead>
-                <TableHead className="text-right">Token</TableHead>
-                <TableHead className="text-right">费用</TableHead>
+                <TableHead className="text-right">{t('token.requests')}</TableHead>
+                <TableHead className="text-right">{t('token.tokenColumn')}</TableHead>
+                <TableHead className="text-right">{t('token.cost')}</TableHead>
               </>
             ) : (
               <>
-                <TableHead className="text-right">输入</TableHead>
-                <TableHead className="text-right">输出</TableHead>
-                <TableHead className="text-right">费用</TableHead>
+                <TableHead className="text-right">{t('token.input')}</TableHead>
+                <TableHead className="text-right">{t('token.output')}</TableHead>
+                <TableHead className="text-right">{t('token.cost')}</TableHead>
               </>
             )}
           </TableRow>

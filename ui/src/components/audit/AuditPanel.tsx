@@ -5,18 +5,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DIVA_AUDIT_EVENTS, type DivaAuditTab } from '@/components/settings/diva-preview-data';
-
-const TAB_LABELS: Record<DivaAuditTab, string> = {
-  structured: '结构化事件',
-  gateway: '网关日志',
-  gui: '界面日志',
-};
+import { useTranslation } from '@/i18n';
 
 /** Audit panel embedded in the dashboard (中控台), moved from the top-bar drawer. */
 export function AuditPanel() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<DivaAuditTab>('structured');
   const [date, setDate] = useState('2026-08-24');
-  const [feedback, setFeedback] = useState('控件只改变当前面板的临时预览，不会写入运行配置。');
+  const [feedback, setFeedback] = useState(t('audit.initialFeedback'));
   const events = DIVA_AUDIT_EVENTS[activeTab];
 
   return (
@@ -25,33 +21,33 @@ export function AuditPanel() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
-            <strong>Agent-Diva 迁移预览</strong>
+            <strong>{t('audit.migrationNoticeTitle')}</strong>
             {' '}
-            · 日志为静态示例，不会保存或影响 Vivy 运行时。
+            {t('audit.migrationNoticeBody')}
           </span>
         </div>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="space-y-2">
-            <Label htmlFor="audit-panel-date">日期</Label>
+            <Label htmlFor="audit-panel-date">{t('audit.date')}</Label>
             <Input
               id="audit-panel-date"
               type="date"
               value={date}
               onChange={(event) => {
                 setDate(event.target.value);
-                setFeedback('审计日期预览已更新。');
+                setFeedback(t('audit.dateUpdated'));
               }}
             />
           </div>
           <Button
             type="button"
             variant="outline"
-            onClick={() => setFeedback(`已刷新 ${date} 的审计日志预览。`)}
+            onClick={() => setFeedback(t('audit.refreshed', { date }))}
           >
-            刷新预览
+            {t('audit.refreshPreview')}
           </Button>
         </div>
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="审计日志类型">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('audit.tablistLabel')}>
           {(['structured', 'gateway', 'gui'] as const).map((tab) => (
             <Button
               key={tab}
@@ -62,10 +58,10 @@ export function AuditPanel() {
               aria-selected={activeTab === tab}
               onClick={() => {
                 setActiveTab(tab);
-                setFeedback('审计日志类型预览已切换。');
+                setFeedback(t('audit.tabSwitched'));
               }}
             >
-              {TAB_LABELS[tab]}
+              {t(`audit.tabs.${tab}`)}
             </Button>
           ))}
         </div>

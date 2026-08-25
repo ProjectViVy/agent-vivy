@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { useTranslation } from '@/i18n';
 import { Download, FileUp, Globe, LoaderCircle, PackageOpen, Pencil, Plus, Search, Terminal, Trash2 } from 'lucide-react';
 import {
   addDemoMcpServer,
@@ -36,8 +37,8 @@ const emptyForm = {
   url: '',
 };
 
-function serverTarget(server: DemoMcpServer) {
-  return server.transport === 'http' ? server.url ?? '未设置服务地址' : server.command ?? '未设置启动命令';
+function serverTarget(server: DemoMcpServer, t: ReturnType<typeof useTranslation>['t']) {
+  return server.transport === 'http' ? server.url ?? t('mcp.unsetUrl') : server.command ?? t('mcp.unsetCommand');
 }
 
 function PageShell({ children }: { children: ReactNode }) {
@@ -66,6 +67,7 @@ function McpPageSkeleton() {
 }
 
 export function McpDemoView() {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [servers, setServers] = useState<DemoMcpServer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,11 +88,11 @@ export function McpDemoView() {
     try {
       setServers(await getDemoMcpServers());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法加载 MCP 服务');
+      setError(cause instanceof Error ? cause.message : t('mcp.errors.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void loadServers(); }, [loadServers]);
 
@@ -98,9 +100,9 @@ export function McpDemoView() {
     const needle = query.trim().toLowerCase();
     return servers
       .filter((server) => filter === 'all' || server.enabled === (filter === 'enabled'))
-      .filter((server) => !needle || `${server.name} ${serverTarget(server)}`.toLowerCase().includes(needle))
+      .filter((server) => !needle || `${server.name} ${serverTarget(server, t)}`.toLowerCase().includes(needle))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [servers, filter, query]);
+  }, [servers, filter, query, t]);
 
   const enabledCount = useMemo(() => servers.filter((server) => server.enabled).length, [servers]);
 
@@ -127,7 +129,7 @@ export function McpDemoView() {
       setServers(editingId ? await updateDemoMcpServer(editingId, input) : await addDemoMcpServer(input));
       setFormOpen(false); setEditingId(null);
     } catch (cause) {
-      setFormError(cause instanceof Error ? cause.message : '无法保存 MCP 服务');
+      setFormError(cause instanceof Error ? cause.message : t('mcp.errors.saveFailed'));
     } finally {
       setBusyId('');
     }
@@ -138,7 +140,7 @@ export function McpDemoView() {
     try {
       setServers(await toggleDemoMcpServer(server.id));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法更新启用状态');
+      setError(cause instanceof Error ? cause.message : t('mcp.errors.toggleFailed'));
     } finally {
       setBusyId('');
     }
@@ -151,7 +153,7 @@ export function McpDemoView() {
       setServers(await removeDemoMcpServer(deleting.id));
       setDeleting(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法删除 MCP 服务');
+      setError(cause instanceof Error ? cause.message : t('mcp.errors.deleteFailed'));
     } finally {
       setBusyId('');
     }
@@ -167,7 +169,7 @@ export function McpDemoView() {
       setServers(await importDemoMcpConfig(config));
       setQuery(''); setFilter('all');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'JSON 文件无法导入');
+      setError(cause instanceof Error ? cause.message : t('mcp.errors.importFailed'));
     } finally {
       setImporting(false);
     }
@@ -187,7 +189,7 @@ export function McpDemoView() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法导出 MCP 配置');
+      setError(cause instanceof Error ? cause.message : t('mcp.errors.exportFailed'));
     }
   };
 
@@ -198,8 +200,8 @@ export function McpDemoView() {
     return (
       <PageShell>
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight">MCP 服务</h1>
-          <p className="mt-1 text-sm text-muted-foreground">配置 MCP 服务器，决定哪些服务参与工具调用。</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('mcp.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
         </header>
         <DemoLoadError message={error} onRetry={() => void loadServers()} />
       </PageShell>
@@ -210,24 +212,24 @@ export function McpDemoView() {
     <PageShell>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">MCP 服务</h1>
-          <p className="mt-1 text-sm text-muted-foreground">配置 MCP 服务器，决定哪些服务参与工具调用。</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('mcp.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <input ref={fileInputRef} className="hidden" type="file" accept="application/json,.json" onChange={(event) => void handleImport(event)} />
           <Button
             variant="outline"
             disabled={importing}
-            title="支持单个 MCP 对象、服务字典或包含 tools.mcpServers 的完整配置"
+            title={t('mcp.importTitle')}
             onClick={() => fileInputRef.current?.click()}
           >
             {importing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-            导入 JSON
+            {t('mcp.importJson')}
           </Button>
           <Button variant="outline" disabled={servers.length === 0} onClick={() => void handleExport()}>
-            <Download className="mr-2 h-4 w-4" />导出 JSON
+            <Download className="mr-2 h-4 w-4" />{t('mcp.exportJson')}
           </Button>
-          <Button onClick={openCreate} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />添加服务</Button>
+          <Button onClick={openCreate} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />{t('mcp.addService')}</Button>
         </div>
       </header>
 
@@ -235,23 +237,23 @@ export function McpDemoView() {
 
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
-          <CardTitle className="text-base">服务列表</CardTitle>
-          <span className="text-xs text-muted-foreground">{servers.length} 个服务 · {enabledCount} 个启用</span>
+          <CardTitle className="text-base">{t('mcp.listTitle')}</CardTitle>
+          <span className="text-xs text-muted-foreground">{t('mcp.countLabel', { total: servers.length, enabled: enabledCount })}</span>
         </CardHeader>
         {servers.length > 0 ? (
           <div className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder="搜索名称或连接目标" aria-label="搜索 MCP 服务" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder={t('mcp.searchPlaceholder')} aria-label={t('mcp.searchAria')} />
             </div>
             <Select value={filter} onValueChange={(value) => setFilter(value as McpFilter)}>
-              <SelectTrigger className="sm:w-36" aria-label="按启用状态筛选">
+              <SelectTrigger className="sm:w-36" aria-label={t('mcp.filterAria')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部状态</SelectItem>
-                <SelectItem value="enabled">已启用</SelectItem>
-                <SelectItem value="disabled">已停用</SelectItem>
+                <SelectItem value="all">{t('mcp.filterAll')}</SelectItem>
+                <SelectItem value="enabled">{t('mcp.filterEnabled')}</SelectItem>
+                <SelectItem value="disabled">{t('mcp.filterDisabled')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -260,16 +262,16 @@ export function McpDemoView() {
           {servers.length === 0 ? (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
               <div className="rounded-full bg-muted p-3 text-muted-foreground"><PackageOpen className="h-5 w-5" /></div>
-              <div><p className="font-medium">尚未配置 MCP 服务</p><p className="mt-1 text-sm text-muted-foreground">添加一个服务，或从 JSON 配置导入已有服务。</p></div>
+              <div><p className="font-medium">{t('mcp.emptyTitle')}</p><p className="mt-1 text-sm text-muted-foreground">{t('mcp.emptyHint')}</p></div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>导入 JSON</Button>
-                <Button size="sm" onClick={openCreate}>添加服务</Button>
+                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>{t('mcp.importJson')}</Button>
+                <Button size="sm" onClick={openCreate}>{t('mcp.addService')}</Button>
               </div>
             </div>
           ) : visibleServers.length === 0 ? (
             <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-6 text-center">
-              <p className="font-medium">没有符合条件的 MCP 服务</p>
-              <Button variant="ghost" size="sm" onClick={resetFilters}>清除筛选</Button>
+              <p className="font-medium">{t('mcp.noMatchTitle')}</p>
+              <Button variant="ghost" size="sm" onClick={resetFilters}>{t('mcp.clearFilters')}</Button>
             </div>
           ) : (
             <div className="space-y-1">
@@ -280,7 +282,7 @@ export function McpDemoView() {
                     <Switch
                       checked={server.enabled}
                       disabled={busyId === `toggle:${server.id}`}
-                      aria-label={`${server.name} 启用状态`}
+                      aria-label={t('mcp.toggleAria', { name: server.name })}
                       onCheckedChange={() => void handleToggle(server)}
                     />
                     <div className="min-w-0 flex-1">
@@ -290,14 +292,14 @@ export function McpDemoView() {
                       </div>
                       <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                         <TargetIcon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{serverTarget(server)}</span>
-                        <span className="shrink-0">· {server.toolCount} 个工具</span>
+                        <span className="truncate">{serverTarget(server, t)}</span>
+                        <span className="shrink-0">· {t('mcp.toolCount', { count: server.toolCount })}</span>
                       </span>
                     </div>
-                    <Button variant="ghost" size="icon" aria-label={`编辑 ${server.name}`} title="编辑" disabled={Boolean(busyId)} onClick={() => openEdit(server)}>
+                    <Button variant="ghost" size="icon" aria-label={t('mcp.editAria', { name: server.name })} title={t('mcp.editTitle')} disabled={Boolean(busyId)} onClick={() => openEdit(server)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" aria-label={`删除 ${server.name}`} title="删除" className="text-destructive hover:text-destructive" disabled={Boolean(busyId)} onClick={() => setDeleting(server)}>
+                    <Button variant="ghost" size="icon" aria-label={t('mcp.deleteAria', { name: server.name })} title={t('mcp.deleteTitle')} className="text-destructive hover:text-destructive" disabled={Boolean(busyId)} onClick={() => setDeleting(server)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -311,43 +313,43 @@ export function McpDemoView() {
       <Dialog open={formOpen} onOpenChange={(open) => { if (busyId !== 'save') { setFormOpen(open); if (!open) setEditingId(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingId ? '编辑 MCP 服务' : '添加 MCP 服务'}</DialogTitle>
-            <DialogDescription>配置服务名称、传输方式与连接目标。</DialogDescription>
+            <DialogTitle>{editingId ? t('mcp.formTitleEdit') : t('mcp.formTitleAdd')}</DialogTitle>
+            <DialogDescription>{t('mcp.formDescription')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={(event) => void handleSubmit(event)} className="contents">
             <DialogBody className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label htmlFor="mcp-name">服务名称</Label>
-                <Input id="mcp-name" value={formData.name} onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))} placeholder="例如：Workspace Files" autoFocus />
+                <Label htmlFor="mcp-name">{t('mcp.nameLabel')}</Label>
+                <Input id="mcp-name" value={formData.name} onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))} placeholder={t('mcp.namePlaceholder')} autoFocus />
               </div>
               <div className="space-y-2">
-                <Label>传输方式</Label>
+                <Label>{t('mcp.transportLabel')}</Label>
                 <Select value={formData.transport} onValueChange={(transport) => setFormData((current) => ({ ...current, transport: transport as DemoMcpServer['transport'] }))}>
-                  <SelectTrigger aria-label="传输方式"><SelectValue /></SelectTrigger>
+                  <SelectTrigger aria-label={t('mcp.transportLabel')}><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="stdio">STDIO · 本地进程</SelectItem>
-                    <SelectItem value="http">HTTP · 远程服务</SelectItem>
+                    <SelectItem value="stdio">{t('mcp.transportStdio')}</SelectItem>
+                    <SelectItem value="http">{t('mcp.transportHttp')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {formData.transport === 'stdio' ? (
                 <div className="space-y-2">
-                  <Label htmlFor="mcp-command">启动命令</Label>
+                  <Label htmlFor="mcp-command">{t('mcp.commandLabel')}</Label>
                   <Input id="mcp-command" value={formData.command} onChange={(event) => setFormData((current) => ({ ...current, command: event.target.value }))} placeholder="npx -y @modelcontextprotocol/server-filesystem ." />
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <Label htmlFor="mcp-url">服务地址</Label>
+                  <Label htmlFor="mcp-url">{t('mcp.urlLabel')}</Label>
                   <Input id="mcp-url" value={formData.url} onChange={(event) => setFormData((current) => ({ ...current, url: event.target.value }))} placeholder="https://example.com/mcp" />
                 </div>
               )}
               {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
             </DialogBody>
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={busyId === 'save'} onClick={() => { setFormOpen(false); setEditingId(null); }}>取消</Button>
+              <Button type="button" variant="outline" disabled={busyId === 'save'} onClick={() => { setFormOpen(false); setEditingId(null); }}>{t('common.cancel')}</Button>
               <Button type="submit" disabled={busyId === 'save'}>
                 {busyId === 'save' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {editingId ? '保存修改' : '添加服务'}
+                {editingId ? t('mcp.saveChanges') : t('mcp.addService')}
               </Button>
             </DialogFooter>
           </form>
@@ -357,17 +359,17 @@ export function McpDemoView() {
       <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!busyId && !open) setDeleting(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除“{deleting?.name}”？</AlertDialogTitle>
-            <AlertDialogDescription>该服务配置会从列表中移除，此操作无法撤销。</AlertDialogDescription>
+            <AlertDialogTitle>{t('mcp.deleteConfirm', { name: deleting?.name ?? '' })}</AlertDialogTitle>
+            <AlertDialogDescription>{t('mcp.deleteDescription')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(busyId)}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={Boolean(busyId)}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               disabled={Boolean(busyId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={(event) => { event.preventDefault(); void handleDelete(); }}
             >
-              {busyId.startsWith('delete:') ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}删除服务
+              {busyId.startsWith('delete:') ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}{t('mcp.deleteAction')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

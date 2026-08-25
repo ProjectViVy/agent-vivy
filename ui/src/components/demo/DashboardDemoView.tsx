@@ -4,10 +4,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AuditPanel } from '@/components/audit/AuditPanel';
 import { getDemoDashboard } from '@/lib/demo-api';
 import type { DemoDashboardSnapshot } from '@/lib/types';
+import { useTranslation } from '@/i18n';
 import { DemoLoadError } from './DemoBanner';
 import { TokenStatsPanel } from './TokenStatsPanel';
 
 export function DashboardDemoView() {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<DemoDashboardSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = async () => {
@@ -23,13 +25,13 @@ export function DashboardDemoView() {
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-2xl font-bold">中控台</h1>
-        <p className="mt-1 text-sm text-muted-foreground">运行状态、Token 用量与审计分区展示。</p>
+        <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.subtitle')}</p>
         <Tabs defaultValue="overview" className="mt-6">
           <TabsList className="w-full justify-start overflow-x-auto">
-            <TabsTrigger value="overview">概览</TabsTrigger>
-            <TabsTrigger value="token">Token</TabsTrigger>
-            <TabsTrigger value="audit">审计</TabsTrigger>
+            <TabsTrigger value="overview">{t('dashboard.overview')}</TabsTrigger>
+            <TabsTrigger value="token">{t('dashboard.token')}</TabsTrigger>
+            <TabsTrigger value="audit">{t('dashboard.audit')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -39,22 +41,22 @@ export function DashboardDemoView() {
               <>
                 <Card>
                   <CardHeader>
-                    <CardTitle>运行状态</CardTitle>
-                    <CardDescription>当前会话、运行与待审批数量。</CardDescription>
+                    <CardTitle>{t('dashboard.statusTitle')}</CardTitle>
+                    <CardDescription>{t('dashboard.statusDesc')}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {snapshot ? (
                       <div className="grid gap-4 text-sm sm:grid-cols-3">
                         <div>
-                          <p className="text-muted-foreground">会话</p>
+                          <p className="text-muted-foreground">{t('dashboard.sessions')}</p>
                           <p className="mt-1 text-lg font-semibold tabular-nums">{snapshot.sessionCount}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">活跃运行</p>
+                          <p className="text-muted-foreground">{t('dashboard.activeRuns')}</p>
                           <p className="mt-1 text-lg font-semibold tabular-nums">{snapshot.activeRuns}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">待处理 Review</p>
+                          <p className="text-muted-foreground">{t('dashboard.pendingReviews')}</p>
                           <p className="mt-1 text-lg font-semibold tabular-nums">{snapshot.pendingReviews}</p>
                         </div>
                       </div>
@@ -65,8 +67,8 @@ export function DashboardDemoView() {
                 </Card>
                 <Card>
                   <CardHeader>
-                    <CardTitle>近期活动</CardTitle>
-                    <CardDescription>最近完成的演示任务。</CardDescription>
+                    <CardTitle>{t('dashboard.activityTitle')}</CardTitle>
+                    <CardDescription>{t('dashboard.activityDesc')}</CardDescription>
                   </CardHeader>
                   <CardContent className="divide-y">
                     {snapshot?.recentActivity.map((item) => (
@@ -87,8 +89,8 @@ export function DashboardDemoView() {
           <TabsContent value="token" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Token 统计</CardTitle>
-                <CardDescription>当前周期的用量、模型分布、趋势和会话明细。</CardDescription>
+                <CardTitle>{t('dashboard.tokenTitle')}</CardTitle>
+                <CardDescription>{t('dashboard.tokenDesc')}</CardDescription>
               </CardHeader>
               <CardContent>
                 <TokenStatsPanel />
@@ -99,8 +101,8 @@ export function DashboardDemoView() {
           <TabsContent value="audit" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>审计日志</CardTitle>
-                <CardDescription>按类型查看演示日志。</CardDescription>
+                <CardTitle>{t('dashboard.auditTitle')}</CardTitle>
+                <CardDescription>{t('dashboard.auditDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="h-[480px] p-0">
                 <AuditPanel />

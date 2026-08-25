@@ -8,24 +8,33 @@ import { Textarea } from '@/components/ui/textarea';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/i18n';
 
-const STATUS_LABELS: Record<ReviewStatus, string> = {
-  pending: '待处理',
-  approved: '已批准',
-  denied: '已拒绝',
-  answered: '已回答',
-  cancelled: '已取消',
-  expired: '已过期',
-  stale: '已失效',
-};
+type Translate = ReturnType<typeof useTranslation>['t'];
 
-const VALUE_LABELS: Record<string, string> = {
-  reversible: '可逆', irreversible: '不可逆', conditionally_reversible: '有条件可逆', unknown: '未知',
-  workspace: '工作区', session: '会话', run: '运行', global: '全局',
-  trusted: '可信', untrusted: '不可信', restricted: '受限',
-};
+function statusLabel(t: Translate, status: ReviewStatus): string {
+  return t(`approvals.status.${status}`);
+}
 
-function localizeValue(value: string): string { return VALUE_LABELS[value.toLowerCase()] ?? value; }
+/** 审批详情里的枚举值（可逆性/范围/信任）显示为本地化词条，未收录时保留原值。 */
+function localizeValue(t: Translate, value: string): string {
+  const normalized = value.toLowerCase();
+  const keyMap: Record<string, string> = {
+    reversible: 'approvals.values.reversible',
+    irreversible: 'approvals.values.irreversible',
+    conditionally_reversible: 'approvals.values.conditionally_reversible',
+    unknown: 'approvals.values.unknown',
+    workspace: 'approvals.values.workspace',
+    session: 'approvals.values.session',
+    run: 'approvals.values.runScope',
+    global: 'approvals.values.global',
+    trusted: 'approvals.values.trusted',
+    untrusted: 'approvals.values.untrusted',
+    restricted: 'approvals.values.restricted',
+  };
+  const key = keyMap[normalized];
+  return key ? t(key) : value;
+}
 
 export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   const reviews = useVivyStore((state) => state.reviews);
@@ -34,6 +43,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   const busyId = useVivyStore((state) => state.reviewBusyId);
   const load = useVivyStore((state) => state.loadReviews);
   const respond = useVivyStore((state) => state.respondReview);
+  const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState('');
 
@@ -65,8 +75,8 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
           )}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-medium">{review.kind === 'approval' ? review.tool_name || review.action || '工具审批' : '用户问题'}</span>
-            <Badge variant={review.status === 'pending' ? 'default' : 'secondary'}>{STATUS_LABELS[review.status]}</Badge>
+            <span className="truncate font-medium">{review.kind === 'approval' ? review.tool_name || review.action || t('approvals.toolApproval') : t('approvals.userQuestion')}</span>
+            <Badge variant={review.status === 'pending' ? 'default' : 'secondary'}>{statusLabel(t, review.status)}</Badge>
           </div>
           <p className="mt-1 truncate text-xs text-muted-foreground">{review.session_title || review.session_id}</p>
         </button>
@@ -78,48 +88,48 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2">
-          <span>{selected.kind === 'approval' ? '审批详情' : '问题详情'}</span>
-          <Badge>{STATUS_LABELS[selected.status]}</Badge>
+          <span>{selected.kind === 'approval' ? t('approvals.approvalDetail') : t('approvals.questionDetail')}</span>
+          <Badge>{statusLabel(t, selected.status)}</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-2">
-          <dt className="text-muted-foreground">运行</dt>
+          <dt className="text-muted-foreground">{t('approvals.run')}</dt>
           <dd className="min-w-0 break-all"><code>{selected.run_id}</code></dd>
-          {selected.action ? <><dt className="text-muted-foreground">动作</dt><dd className="min-w-0 break-words">{selected.action}</dd></> : null}
-          {selected.target ? <><dt className="text-muted-foreground">目标</dt><dd className="min-w-0 break-words">{selected.target}</dd></> : null}
-          {selected.effect ? <><dt className="text-muted-foreground">影响</dt><dd className="min-w-0 break-words">{localizeValue(selected.effect)}</dd></> : null}
-          {selected.reversibility ? <><dt className="text-muted-foreground">可逆性</dt><dd className="min-w-0 break-words">{localizeValue(selected.reversibility)}</dd></> : null}
-          {selected.scope ? <><dt className="text-muted-foreground">作用范围</dt><dd className="min-w-0 break-words">{localizeValue(selected.scope)}</dd></> : null}
-          {selected.trust ? <><dt className="text-muted-foreground">信任状态</dt><dd className="min-w-0 break-words">{localizeValue(selected.trust)}</dd></> : null}
+          {selected.action ? <><dt className="text-muted-foreground">{t('approvals.action')}</dt><dd className="min-w-0 break-words">{selected.action}</dd></> : null}
+          {selected.target ? <><dt className="text-muted-foreground">{t('approvals.target')}</dt><dd className="min-w-0 break-words">{selected.target}</dd></> : null}
+          {selected.effect ? <><dt className="text-muted-foreground">{t('approvals.effect')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.effect)}</dd></> : null}
+          {selected.reversibility ? <><dt className="text-muted-foreground">{t('approvals.reversibility')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.reversibility)}</dd></> : null}
+          {selected.scope ? <><dt className="text-muted-foreground">{t('approvals.scope')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.scope)}</dd></> : null}
+          {selected.trust ? <><dt className="text-muted-foreground">{t('approvals.trust')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.trust)}</dd></> : null}
         </dl>
         {selected.prompt ? <div className="rounded-lg bg-muted p-3">{selected.prompt}</div> : null}
         {selected.preview ? <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">{selected.preview}</pre> : null}
         {selected.risk_findings?.length ? (
           <div>
-            <div className="font-medium text-destructive">风险</div>
+            <div className="font-medium text-destructive">{t('approvals.risk')}</div>
             <ul className="mt-1 list-disc pl-5 text-muted-foreground">{selected.risk_findings.map((risk) => <li key={risk}>{risk}</li>)}</ul>
           </div>
         ) : null}
         {selected.arguments ? (
           <details>
-            <summary className="cursor-pointer text-muted-foreground">脱敏参数</summary>
+            <summary className="cursor-pointer text-muted-foreground">{t('approvals.redactedArgs')}</summary>
             <pre className="mt-2 overflow-auto rounded bg-muted p-3 text-xs">{JSON.stringify(selected.arguments, null, 2)}</pre>
           </details>
         ) : null}
         {selected.status === 'pending' ? (
           <div className="space-y-2 border-t pt-4">
-            <Textarea value={text} disabled={busy} onChange={(event) => setText(event.target.value)} placeholder={selected.kind === 'question' ? '输入回答' : '拒绝理由（拒绝时可选）'} />
+            <Textarea value={text} disabled={busy} onChange={(event) => setText(event.target.value)} placeholder={selected.kind === 'question' ? t('approvals.answerPlaceholder') : t('approvals.denyReasonPlaceholder')} />
             <div className="flex flex-wrap gap-2">
               {selected.kind === 'approval' ? (
                 <>
-                  <Button disabled={busy} onClick={() => void act('approve')}>{busyId === selected.id ? '处理中…' : '批准'}</Button>
-                  <Button disabled={busy} variant="destructive" onClick={() => void act('deny')}>拒绝</Button>
+                  <Button disabled={busy} onClick={() => void act('approve')}>{busyId === selected.id ? t('approvals.processing') : t('approvals.approve')}</Button>
+                  <Button disabled={busy} variant="destructive" onClick={() => void act('deny')}>{t('approvals.deny')}</Button>
                 </>
               ) : (
                 <>
-                  <Button disabled={busy || !text.trim()} onClick={() => void act('answer')}>{busyId === selected.id ? '提交中…' : '提交回答'}</Button>
-                  <Button disabled={busy} variant="outline" onClick={() => void act('cancel')}>取消问题</Button>
+                  <Button disabled={busy || !text.trim()} onClick={() => void act('answer')}>{busyId === selected.id ? t('approvals.submitting') : t('approvals.submitAnswer')}</Button>
+                  <Button disabled={busy} variant="outline" onClick={() => void act('cancel')}>{t('approvals.cancelQuestion')}</Button>
                 </>
               )}
             </div>
@@ -133,11 +143,11 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
     <div className={cn('flex items-center justify-between gap-3', panel ? 'mb-4 justify-end' : 'mb-6')}>
       {!panel ? (
         <div className="min-w-0">
-          <h1 className="flex items-center gap-2 text-2xl font-bold"><ShieldCheck className="h-6 w-6 shrink-0" />审批中心</h1>
-          <p className="mt-1 text-sm text-muted-foreground">统一处理工具审批和运行中的问题。</p>
+          <h1 className="flex items-center gap-2 text-2xl font-bold"><ShieldCheck className="h-6 w-6 shrink-0" />{t('approvals.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('approvals.subtitle')}</p>
         </div>
       ) : null}
-      <Button variant="outline" disabled={busy || phase === 'loading' || phase === 'refreshing'} onClick={() => void load()}>{phase === 'refreshing' ? '刷新中…' : '刷新'}</Button>
+      <Button variant="outline" disabled={busy || phase === 'loading' || phase === 'refreshing'} onClick={() => void load()}>{phase === 'refreshing' ? t('approvals.refreshing') : t('common.refresh')}</Button>
     </div>
   );
 
@@ -151,7 +161,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
       );
     }
     if (reviews.length === 0) {
-      return <Card><CardContent className="py-16 text-center text-muted-foreground">暂无审批或问题记录</CardContent></Card>;
+      return <Card><CardContent className="py-16 text-center text-muted-foreground">{t('approvals.empty')}</CardContent></Card>;
     }
     if (panel) {
       return <div className="space-y-4">{list}{detail}</div>;
@@ -162,7 +172,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
         onBack={() => setSelectedId(null)}
         columnsClassName="md:grid-cols-[320px_minmax(0,1fr)] md:gap-4"
         master={list}
-        detail={detail ?? <Card><CardContent className="py-16 text-center text-muted-foreground">选择一条记录查看详情</CardContent></Card>}
+        detail={detail ?? <Card><CardContent className="py-16 text-center text-muted-foreground">{t('approvals.selectHint')}</CardContent></Card>}
       />
     );
   })();
