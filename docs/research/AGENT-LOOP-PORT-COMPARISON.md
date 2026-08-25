@@ -4,11 +4,13 @@
 > 日期：2026-08-26
 > 目的：对照 `agent-diva` 的 AGENT-LOOP（`agent-diva-agent` 的回合循环实现），
 > 逐机制评估哪些值得移植到 Vivy 的循环（`internal/runtime` 背后的 Eino 接线）。
-> 分析主透镜：**每个机制是 Eino 原生就有（接线即得），还是要我们自己实现**。
-> 本文只做对照与结论，不做实现。
+> 两个透镜：**① 每个机制是 Eino 原生就有（接线即得），还是要我们自己实现**；
+> **② 反向清单——Eino 原生提供、但 agent-diva 没有且 Vivy 也没用的能力，
+> 哪些值得白捡（§4）**。本文只做对照与结论，不做实现。
 > 证据来源：两侧源码与文档的直接阅读（见附录 A 证据索引）；agent-diva 取
 > `agent-diva-agent/src/agent_loop.rs`（3609 行）与 `src/agent_loop/` 模块族；
-> Vivy 取 `internal/runtime/` 与 Eino v0.9.13（`github.com/cloudwego/eino@v0.9.13`）。
+> Vivy 取 `internal/runtime/` 与 Eino v0.9.13（`github.com/cloudwego/eino@v0.9.13`，
+> adk 全目录普查 + callbacks / components / flow / compose 逐包核对）。
 > 相关：`v1-minimal-agent-proposal.md`、`VIVY-ASSEMBLY.md`、
 > `SELF-EVOLVING-GATEWAY.md`、`DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md`。
 
@@ -22,21 +24,29 @@ agent-diva 的 AGENT-LOOP 是一套**受管回合生命周期**：准入 → 上
 Eino `ChatModelAgent` 的 ReAct 内循环，外层由 Service 治理：预算账本、审批
 人闸、政策门、预检都已就位，但**循环内部**只有 `MaxToolTurns` 一个硬上限。
 
-按"Eino 原生 / 需自行实现"主透镜（§3）归类：
+三个透镜的结论：
 
-- **Eino 原生就有、只需接线**：迭代上限（D3）、审批中断/恢复屏障（D11）。
-  这两项 Vivy 已经接好线，无需任何工作。
-- **Eino 没有、需要我们自己实现**：summary-only 奖励轮（D4）、空输出兜底
-  （D5）、循环内微压缩（D7）、循环可观测事件。这四个是移植重点（§5.1 首批）。
+- **Eino 原生就有、只需接线（零工作）**：迭代上限（D3）、审批中断/恢复屏障
+  （D11）。这两项 Vivy 已经接好线。
+- **Eino 没有、需要我们自己实现（= DIVA 移植清单）**：summary-only 奖励轮
+  （D4）、空输出兜底（D5）、循环内微压缩（D7）、循环可观测事件。四个构成
+  首批（§7.1）。
+- **Eino 原生有、但 DIVA 与 Vivy 都没用（反向清单 §4）**：真正值得白捡的是
+  **`UnknownToolsHandler`**——现在模型幻觉一个不存在的工具名会让整个 run
+  硬失败，配一个 handler 就能变成可自我纠正的工具结果（并入首批 P5）。
+  其次是 `ModelRetryConfig` 语义重试、`ReturnDirectly` 工具直答、
+  `WithCallbacks` 组件级遥测（候选/按需）。Eino 自带的
+  `summarization`/`reduction` 压缩中间件经评估**不采纳为主路径**：摘要调用
+  不经 Journal/预算账本，违反"模型可见 ≡ 已记录"。
 - **Eino 没有、Vivy 已有对等实现**：上下文装配（D8）、token 预算账本（D18）、
-  admission 类入口限流（D2，预算账本 + 预检）。方向一致，不移植。
+  admission 类入口限流（D2）。
 - **记忆族（MEMRULES/ACTMEM/经验日志）**：**完全不做**。Vivy 的记忆设计
   （MEM-1）比 agent-diva 的记忆机制更高级，不属于 AGENT-LOOP 范围，也不作为
   后续候选。
 
 一句话结论：**Vivy 不移植 agent-diva 的循环骨架（stage-contract turn 管线），
-它自行实现 agent-diva 在循环内部积累的四个治理机制**（奖励轮 / 空输出兜底 /
-微压缩 / 可观测事件）。骨架不同（Eino ReAct vs 自研 stage），机制相同。
+它自行实现 agent-diva 在循环内部积累的四个治理机制，外加白捡 Eino 的
+UnknownToolsHandler。** 骨架不同（Eino ReAct vs 自研 stage），机制相同。
 
 ---
 
@@ -78,7 +88,7 @@ agent_loop.rs (facade, 3609 行)
 | D17 | 经验日志 | 记忆子系统 | 会话后经验沉淀 |
 | D18 | token 预算账本 | 循环内部 | 回合 token 记账 |
 
-Vivy 侧对应现状（详细对照见 §5）：
+Vivy 侧对应现状（详细对照见 §6）：
 
 - 循环骨架：Eino `adk.ChatModelAgent` + `adk.Runner` 的 ReAct 内循环
   （`internal/runtime/engine.go:88-116`），由 Service 驱动
@@ -116,6 +126,8 @@ run-internal loop behind the quarantine"）与 `VIVY-ASSEMBLY.md` 的
 
 - **移植**：缺口真实（agent-diva 有、Vivy 无且有害）、Eino 接缝已验证可行、
   切片可独立交付、不违反 Journal / 政策不变式。
+- **白捡（§4 专用）**：Eino 原生提供、DIVA 与 Vivy 都没有、接线成本低且
+  不违反不变式。
 - **暂缓**：机制本身有价值，但受接缝约束、收益证据不足、或依赖独立切片
   （换代 / 多租户）先行。
 - **拒绝 / 完全不做**：属于其他切片（记忆族，Vivy 有更高级设计）、与 Vivy
@@ -123,20 +135,20 @@ run-internal loop behind the quarantine"）与 `VIVY-ASSEMBLY.md` 的
 
 ---
 
-## 3. 主透镜：Eino 原生有 vs 需要我们自行实现
+## 3. 主透镜一：Eino 原生有 vs 需要我们自行实现（DIVA 机制分类）
 
 对照的核心问题是：**agent-diva 的每个机制，Eino v0.9.13 原生就有（接线即得），
-还是必须我们自己写代码？** 下表是全部机制的归类（依据见 §4 接缝验证与
+还是必须我们自己写代码？** 下表是全部机制的归类（依据见 §5 接缝验证与
 附录 A 证据）。
 
 | # | 机制 | Eino v0.9.13 原生? | Vivy 现状 / 结论 |
 |---|---|---|---|
 | D3 | 迭代上限 | **原生**：`MaxIterations`、内部 State 的 `RemainingIterations`、超限 `ErrExceedMaxIterations` | 已接线（`MaxToolTurns`→`MaxIterations`，`engine.go:98-103`）。**零工作** |
 | D11 | 审批中断/恢复屏障 | **原生**：interrupt（InterruptCtx/AwaitingApproval）+ `ResumeWithParams` + CheckPointStore | 已接线（mapper extractInterrupt、service handleInterrupt、engine Resume）。**零工作** |
-| D4 | summary-only 奖励轮 | **无原生**（迭代上限只有硬失败，没有"奖励轮"概念） | **需自行实现**：middleware（§5.1 P1）→ 移植 |
-| D5 | 空输出兜底分类 | **无原生**（终态消息语义归消费方） | **需自行实现**：mapper/service（§5.1 P2）→ 移植 |
-| D7 | 工具结果微压缩 | **无原生**（工具结果原样进 state.Messages，无裁剪） | **需自行实现**：复用未接线的 `compaction` 包（§5.1 P3）→ 移植 |
-| D9 | 循环可观测事件 | **无原生事件面**（仅 `CustomizedOutput` 通道，语义自定） | **需自行实现**：mapper 新分支 + 新事件类型（§5.1 P4）→ 移植 |
+| D4 | summary-only 奖励轮 | **无原生**（迭代上限只有硬失败，没有"奖励轮"概念） | **需自行实现**：middleware（§6.1 P1）→ 移植 |
+| D5 | 空输出兜底分类 | **无原生**（终态消息语义归消费方） | **需自行实现**：mapper/service（§6.1 P2）→ 移植 |
+| D7 | 工具结果微压缩 | **无原生**（工具结果原样进 state.Messages，无裁剪；官方 `summarization`/`reduction` 中间件评估见 §4.3-E3） | **需自行实现**：复用未接线的 `compaction` 包（§6.1 P3）→ 移植 |
+| D9 | 循环可观测事件 | **无原生事件面**（仅 `CustomizedOutput` 通道，语义自定） | **需自行实现**：mapper 新分支 + 新事件类型（§6.1 P4）→ 移植 |
 | D6 | 上下文超限反应式重试 | **无原生** | **需自行实现**（middleware 改写历史）→ 暂缓（收益证据不足） |
 | D10 | 运行时控制通道 | **无原生** | **需自行实现**（RPC + 运行中干预）→ 暂缓（依赖 P1/P3 落地） |
 | D12 | plan 阶段能力矩阵 | **无原生**：工具集在装配时静态绑定（ToolsConfig）；运行时换工具面需 `TurnLoop`（未启用）。有原生接缝 `BeforeModelRewriteState` + `state.ToolInfos` 可做逐轮过滤 | 已有对等（policy.go 按 profile 门控，plan→Deny）→ 暂缓（现状更严、白名单价值待证） |
@@ -161,7 +173,129 @@ run-internal loop behind the quarantine"）与 `VIVY-ASSEMBLY.md` 的
 
 ---
 
-## 4. Eino v0.9.13 接缝可行性（移植前提）
+## 4. 主透镜二（反向清单）：Eino 原生有、DIVA 与 Vivy 都未用的能力
+
+本节反过来看：**Eino v0.9.13 原生提供、且不在 §1 D1–D18 机制清单里的能力，
+哪些值得 Vivy 白捡。** 依据：adk 全目录普查（含 `adk/middlewares/*`、
+`adk/prebuilt/*`）+ callbacks / components / flow / compose 逐包核对（附录 A）。
+
+### 4.1 基线：Vivy 已经在用的 Eino 面
+
+为避免误判"没用"，先列 Vivy 的实际用量（grep 全仓非测试源）：
+
+- adk 核心：`NewChatModelAgent`/`NewRunner`/`ToolsConfig`/`WithCheckPointID`/
+  `ResumeParams`/`AgentEvent` 流消费/`CancelError` 分类
+  （`engine.go`、`service.go`、`mapper.go`、`checkpointadapter.go`）。
+- adk 官方中间件已用三个：`middlewares/filesystem` + `middlewares/plantask`
+  （`todo_backend.go`）、`middlewares/skill`（`skills_backend.go`）；
+  `adk/filesystem` Backend（`filesystem_backend.go`）。
+- 自有中间件一个：toolSelection（BeforeAgent 整轮工具过滤，
+  `toolselection_middleware.go`）。
+
+其余 adk 面（下述全部）当前未用。
+
+### 4.2 值得白捡（推荐）
+
+#### E1. `UnknownToolsHandler` —— 幻觉工具名的优雅回退（强烈推荐，并入首批）
+
+| 项 | 内容 |
+|---|---|
+| 是什么 | `compose.ToolsNodeConfig.UnknownToolsHandler`（`compose/tool_node.go:206`，`adk.ToolsConfig` 直接内嵌，Vivy 可在 `engine.go` 一处配置） |
+| 不配会怎样 | 模型调用一个不在清单里的工具名时，整个 ToolsNode 失败（`"tool %s not found in toolsNode indexes"`，`tool_node.go:819-824`），**run 硬失败** |
+| 配了会怎样 | handler 的字符串返回值作为**正常工具结果**喂回模型（`tool_node.go:868`），模型下一轮自我纠正——比如回一句"该工具不存在，可用工具有 …" |
+| 两侧现状 | DIVA 自研循环无此原生件；Vivy 未配置（`engine.go:94-96` 只设 `Tools: wrapped`） |
+| 判定 | **白捡，并入首批（§7.1 P5）**。一处配置 + 提示文案设计 + 确定性测试；韧性收益直接（模型幻觉工具名从"run 失败"变成"一轮自我纠正"） |
+
+#### E2. `ModelRetryConfig` / `ModelFailoverConfig` —— 语义重试与模型切换（候选切片）
+
+| 项 | 内容 |
+|---|---|
+| 是什么 | `adk.ModelRetryConfig`（`retry_chatmodel.go:222`）：`ShouldRetry` 收 `RetryContext`，返回 `RetryDecision`——可改写给模型看的错误、修改输入消息、按尝试次数附加模型选项（如加 MaxTokens）、自定义退避；`ModelFailoverConfig`（`failover_chatmodel.go:128`）：失败时切换模型并改写输入 |
+| 两侧现状 | DIVA 无对应原生件；Vivy 只**消费** `WillRetryError` 事件（provider.retry，`mapper.go:78-81`），engine 层没配置任何重试策略——现有重试来自 provider 实现内部，Vivy 治理面看不见、改不了 |
+| 判定 | **候选（provider 韧性切片）**。把重试决策挪进 Vivy 可治理的层：哪些错可重试、重试时对模型说什么、几次退避——都是 Vivy 该有的决定权。不是首批（现有 WillRetryError 通路已可用），列为后续候选 |
+
+#### E3. `ToolsConfig.ReturnDirectly` —— 工具直答（按需评估）
+
+| 项 | 内容 |
+|---|---|
+| 是什么 | 按工具声明"此结果即最终答案"（`ToolsConfig.ReturnDirectly`，`react.go:520-553`）：工具返回后循环直接走 END，省一次模型合成 |
+| 两侧现状 | DIVA 无对应原生件；Vivy 未用——所有工具结果都回模型合成最终回复 |
+| 判定 | **按需评估**。对查询型工具（读一条笔记、查一个状态）可省一跳模型调用、降时延；但 Vivy 的人设是"模型合成最终回复"，逐工具放开需要产品决策。适合作为配置项设计，不急 |
+
+### 4.3 评估后不采纳的 Eino 原生件（含理由）
+
+#### E4. `adk/middlewares/summarization` 与 `reduction` —— 官方压缩中间件
+
+Eino 自带两个上下文压缩中间件（`adk/middlewares/summarization`、`reduction`），
+与首批 P3（微压缩）直接相关，**评估后不作为主路径**：
+
+- **summarization**：token 触发的对话压缩，需要一个**摘要模型**再调用。问题：
+  摘要调用发生在 Eino 内部 state，**不经过 Vivy 的 Journal 与预算账本**——
+  违反"模型可见 ≡ 已记录"与 MaxModelCalls 记账。桥接成本（把内部摘要调用
+  映射成 Vivy 事件）高于自研接线。**不采纳。**
+- **reduction**：工具结果确定性截断 + 全量转存 Backend。确定性没问题，但
+  "全量内容离开 Journal 存到别处"与 D16 被拒的理由同款（Journal 逐事件回放
+  要求结果内联）。**不采纳主路径**，P3 仍用 Vivy 自己的 `compaction` 包
+  （`domain.Message` 原生、纯函数、可发 `context.compacted` 事件入账）。
+
+这条评估结论已并入 §6.1 P3 的"Eino 原生件评估"行。
+
+#### E5. `patchtoolcalls` 中间件 —— 未应答 tool call 的占位消息
+
+为没被执行的 tool call 插占位 Tool 消息，防止消息历史畸变。Vivy 在 **feed 装配层**
+已有对等处理（`buildRunContext` 的 `pairToolTurns` 丢弃未配对工具行，
+`context.go`），且中断/恢复路径由 checkpoint 保证配对。**与现状部分重复，
+不采纳**；若未来发现 Eino state 内畸变案例再评估。
+
+#### E6. `NewAgentTool` 原生子代理 —— 与 service 级 child workers 重叠
+
+adk 的子代理委托（`agent_tool.go`，含 `EmitInternalEvents` 子代理事件上流）。
+Vivy 已有自己的子代理体系：service 级 child workers（预算账本父子作用域、
+child.* 事件、审批权威、`rpc/control.go` 的 child/start|get|wait|cancel）。
+原生件没有 Vivy 的治理面（Journal/预算/审批），**用它会绕开治理，不采纳**；
+Vivy 的子代理继续走 service 层。
+
+#### E7. 整装 prebuilt 与多 agent 编排件 —— 产品形状不符
+
+- `prebuilt/deep`（DeepAgent：agent+文件工具+todos+task 子代理）、
+  `prebuilt/planexecute`、`prebuilt/supervisor`：整装 agent 产品，整体引入与
+  Vivy 自我物种定位冲突（D-001/D-005 反克隆）。**不整体采纳**（个别思想如
+  write_todos 已由 plantask 覆盖）。
+- transfer 族（`SetSubAgents`/`transfer_to_agent`/deterministic_transfer）与
+  `SequentialAgent`/`ParallelAgent`/`LoopAgent`：Eino 自己标注 NOT RECOMMENDED，
+  且超出 Vivy 单 agent 形状。**不采纳。**
+
+#### E8. `TurnLoop` —— 推送式对话与抢占（换代候选）
+
+推送式回合循环（`Push` + `WithPreempt` 抢占、优雅/立即 Stop、断点续跑），
+是最接近"用户打断进行中的回合"的原生件。DIVA 无对应件，Vivy 未用。这是
+**交互模型升级**（对话中插话/改指令），不是缺口修补，与 D10（运行时控制
+通道）同属换代候选，**暂缓**。
+
+#### E9. 小件与重复件（不采纳或低优先）
+
+| 件 | 结论 |
+|---|---|
+| `WithChatModelOptions`（`WithModel` 名切/`WithToolChoice`+allowedToolNames） | 按 run 切模型不重建 agent。与 modelbroker 的选型职责重叠；若做按会话切模型再评估 |
+| `WithCallbacks` + `utils/callbacks.NewHandlerHelper` | 组件级时延遥测 seam（每组件 OnStart/OnEnd）。Vivy 已有自己的事件流遥测（provider.stall、model.usage）；需要更细的组件级时延时再接 |
+| `ExitTool` / `SendToolGenAction`+`NewExitAction` | 模型显式收尾/工具触发循环动作。与 P1 奖励轮语义重叠（P1 是治理驱动的收尾，ExitTool 是模型自主收尾），P1 优先，此件观望 |
+| `agentsmd` / `dynamictool`（toolsearch）中间件 | 与现有 preamble notes digest、`tools.Selector` 职责重复，不采纳 |
+| prompt 模板（FString/GoTemplate/Jinja2 + MessagesPlaceholder） | Vivy 的 Go 侧 composer（prompt.go）已够用，不引入模板层 |
+
+### 4.4 确认不存在的能力（避免重复寻找）
+
+本轮普查确认 Eino v0.9.13 **没有**以下件（不要再花时间找）：
+
+- 独立 tokenizer / token 计数包——只有 summarization 中间件的 `TokenCounterFunc`
+  钩子，其默认实现就是"~4 字符/token"估算，与 Vivy 自研 `compaction/meter.go`
+  的启发式同款。P3 的估算口径自研即可。
+- cache 辅助包（无任何缓存层）。
+- `WithJSONResponse` / ResponseFormat 通用选项（响应格式控制在 eino-ext 各
+  provider 实现里，不在核心包）。
+
+---
+
+## 5. Eino v0.9.13 接缝可行性（移植前提）
 
 本轮已直接阅读 Eino v0.9.13 源码验证以下接缝（均为移植候选的落点）：
 
@@ -182,20 +316,19 @@ run-internal loop behind the quarantine"）与 `VIVY-ASSEMBLY.md` 的
    `ErrExceedMaxIterations`（`adk/react.go`），当前被 Service 归类为
    `run.failed`（MA-4）——奖励轮必须**早于**该错误触发（在倒数第二次生成后
    接管），否则预算耗尽即失败、没有奖励轮机会。
-5. **`UnknownToolsHandler`** 与 **`adk.TurnLoop`** 存在但当前未用；TurnLoop 是
-   "运行中替换实际可调工具集 / 逐轮重建 agent"才需要的通道——plan 阶段能力
-   矩阵（D12）若要换实际工具面只能走这条路；若只做逐轮过滤，
-   `BeforeModelRewriteState` + `state.ToolInfos` 已够（见 §3 表 D12 行）。
+5. **`UnknownToolsHandler`**（`compose/tool_node.go`）：不配则未知工具名使
+   ToolsNode 整体失败（§4.2-E1）；配则 handler 返回值作为工具结果回模型。
 6. **middleware 链可叠加**：`engine.go:93` 现有 `newToolSelectionMiddleware()`
-   只做 BeforeAgent 整轮工具过滤，新 middleware 可与它共存。
+   只做 BeforeAgent 整轮工具过滤，新 middleware 可与它共存；官方中间件
+   （filesystem/skill/plantask）已验证可与自有链共存（todo/skills backend）。
 
-这些验证结论记录在 §5 各"可行性"列，供实现批直接引用；本文不做实现。
+这些验证结论记录在 §6 各"可行性"列，供实现批直接引用；本文不做实现。
 
 ---
 
-## 5. 逐机制对照与判定
+## 6. 逐机制对照与判定
 
-### 5.1 移植（首批：turn 生命周期治理批）
+### 6.1 移植（首批：turn 生命周期治理批）
 
 #### P1. summary-only 奖励轮（agent-diva D4）
 
@@ -224,10 +357,10 @@ run-internal loop behind the quarantine"）与 `VIVY-ASSEMBLY.md` 的
 | 项 | 内容 |
 |---|---|
 | agent-diva | `turn/context.rs`：长工具结果按比例裁剪后进下一轮上下文 |
-| Eino 原生? | **无原生**。工具结果由 ToolNode 原样追加为 Tool 消息，无裁剪 → **需自行实现** |
+| Eino 原生? | **无原生裁剪**；官方 `summarization`/`reduction` 中间件经评估不采纳主路径（§4.3-E4：摘要调用不入 Journal/预算；全量转存 Backend 与 D16 同款冲突）→ **需自行实现** |
 | Vivy 现状 | 工具结果已做**单次** head/tail/tombstone 压缩（`tooladapter.go` 的 `compactToolResult`，受 `MaxToolResultBytes` 约束），但**没有跨迭代的累积压缩**：长会话中历史工具结果总量持续增长，`buildRunContext` 只按字节从新到旧截断（`context.go`），可能把早期有用的工具结果整段丢掉 |
 | 缺口 | 上下文超限的缓解手段只有"整体截断"，没有"对已内联的工具结果做瘦身保留"；`internal/runtime/compaction/` 包（meter.go + pruner.go，纯函数、已测试）**已存在但未接线**（grep 无任何 import） |
-| 可行性 | 已验证：`BeforeModelRewriteState` 里对 `state.Messages` 中的工具消息调用 compaction 包的 `CompactToolResult` / `Pruner`，改写随 checkpoint 持久化；现有包直接复用 |
+| 可行性 | 已验证：`BeforeModelRewriteState` 里对 `state.Messages` 中的工具消息调用 compaction 包的 `CompactToolResult` / `Pruner`，改写随 checkpoint 持久化；现有包直接复用。**设计约束**：压缩必须可审计——发 `context.compacted` 事件（P4）记录被裁消息 id 与前后规模，保住"模型可见 ≡ 已记录"的可回放口径 |
 | 判定 | **移植**。把已写好、已测试、零引用的 compaction 包接进循环，是低风险高收益的接线项 |
 
 #### P4. 循环可观测事件（agent-diva D10 的事件面 / D9 的可见性）
@@ -241,7 +374,15 @@ run-internal loop behind the quarantine"）与 `VIVY-ASSEMBLY.md` 的
 | 可行性 | 已验证：`adk.SendEvent` + `AgentOutput.CustomizedOutput` 注入自定义事件；`mapper.go:94-96` 目前忽略这类事件，新增分支映射为 `loop.summary_pass` / `context.compacted`（domain 新增事件类型 + payload，RPC/UI 订阅面随事件流自动获得） |
 | 判定 | **移植**。与 P1/P3 同批落地（没有 P1/P3 就没有事件源），事件类型增量小 |
 
-### 5.2 暂缓（有方向，先不做）
+#### P5. 幻觉工具名优雅回退（Eino 原生白捡，无 DIVA 对应）
+
+| 项 | 内容 |
+|---|---|
+| 是什么 | §4.2-E1 的 `UnknownToolsHandler`：未知工具名从"run 硬失败"变为"回一句纠正性工具结果，模型自我纠正" |
+| Vivy 现状 | `engine.go:94-96` 未配置 handler；模型调错工具名直接 `run.failed` |
+| 判定 | **白捡并入首批**。与 P1–P4 同批交付（同一份配置与测试载体），实现量最小 |
+
+### 6.2 暂缓（有方向，先不做）
 
 #### D6. context-overflow 反应式重试（重建一次）
 
@@ -269,7 +410,7 @@ review、child），实现的是"回合外控制"（中断、审批、恢复）�
 两者职责不同：Vivy 的 RPC 控制面已覆盖人闸需求（approval/question/review），
 缺的是"运行中压缩/改预算/停止会话"这类命令。**暂缓理由**：这是一个独立切片
 （新 RPC 方法 + 运行中干预通道 + 恢复语义），且依赖 P3/P1 先把循环内治理做实，
-否则控制通道没有可控制的对象。列入换代候选。
+否则控制通道没有可控制的对象。列入换代候选（与 §4.3-E8 TurnLoop 同族）。
 
 #### D12. plan 阶段工具能力矩阵
 
@@ -283,7 +424,7 @@ Vivy 的"plan 阶段不给工具"是比"plan 阶段给指定工具"更严格的�
 达成；细化到 per-phase 白名单需要产品证据（什么时候 plan 阶段该保留某工具），
 属骨架级/策略级改动。列入换代候选，先不做。
 
-### 5.3 拒绝 / 完全不做
+### 6.3 拒绝 / 完全不做
 
 | # | 机制 | 判定理由 |
 |---|---|---|
@@ -300,42 +441,54 @@ Vivy 的"plan 阶段不给工具"是比"plan 阶段给指定工具"更严格的�
 
 ---
 
-## 6. 建议批次与优先级
+## 7. 建议批次与优先级
 
-### 6.1 首批（turn 生命周期治理批）——本次调研之后唯一建议立即做的切片
+### 7.1 首批（turn 生命周期治理批）——本次调研之后唯一建议立即做的切片
 
 | 项 | 内容 | 落点 | 性质 |
 |---|---|---|---|
 | P1 | summary-only 奖励轮 | 新 middleware（`BeforeModelRewriteState` + run-local 计数器 + `ToolInfos=nil`） | 自行实现 |
 | P2 | 空输出兜底 | `mapper.go` 最终消息分支 + `service.go` consume 分类 | 自行实现 |
-| P3 | 循环内微压缩 | 新 middleware 复用 `internal/runtime/compaction`（`CompactToolResult`/`Pruner`） | 自行实现（复用已有包） |
+| P3 | 循环内微压缩 | 新 middleware 复用 `internal/runtime/compaction`（`CompactToolResult`/`Pruner`） | 自行实现（复用已有包；Eino 官方中间件已评估排除，§4.3-E4） |
 | P4 | 循环可观测事件 | `mapper.go` 自定义事件分支 + domain 新增 `loop.summary_pass`/`context.compacted` | 自行实现 |
+| P5 | 幻觉工具名优雅回退 | `engine.go` 配 `UnknownToolsHandler` + 纠正文案 + 测试 | **Eino 原生白捡** |
 | 配套 | `config.yaml` runtime 新增 `loop.*` 开关（summary 奖励轮开关/阈值、微压缩开关） | `internal/config/config.go` + `config.example.yaml` | 自行实现 |
 
-配置新增即需解析/校验测试；四机制全部需要确定性脚本化模型测试（失败路径 +
+配置新增即需解析/校验测试；全部机制需要确定性脚本化模型测试（失败路径 +
 正常路径），验证走 `just ci`，UI 冒烟走 `http://127.0.0.1:3015`（split Vite）。
 
-### 6.2 后续候选（换代 / 独立切片）
+### 7.2 后续候选（换代 / 独立切片）
 
+- **E2 语义重试/模型切换**（`ModelRetryConfig`/`ModelFailoverConfig`）：把重试
+  决策权收进 Vivy 治理层（provider 韧性切片）。
+- **E3 工具直答**（`ReturnDirectly`）：查询型工具省一跳模型合成，需逐工具
+  产品决策。
 - context-overflow 反应式重试（D6）：P3 上线后评估残留缺口。
-- 运行时控制通道（D10）：依赖 P1/P3，列换代候选。
-- plan 阶段工具能力矩阵（D12）：骨架级（TurnLoop）或策略级，列换代候选。
+- 运行时控制通道（D10）+ **E8 TurnLoop 抢占式对话**：同族换代候选，依赖
+  P1/P3 落地。
+- plan 阶段工具能力矩阵（D12）：骨架级或策略级，列换代候选。
 - admission 限流（D2）：仅在多租户 / 批量评测出现时以 `budget.go` 为底座扩展。
 
-### 6.3 明确不做
+### 7.3 明确不做
 
 - **记忆族（D13/D14/D17）→ 完全不做**：Vivy 有更高级的记忆设计（MEM-1），
   记忆机制不属于 AGENT-LOOP 范围，也不作为后续候选。
+- **E4 官方压缩中间件**（summarization/reduction）：摘要调用不入账 / 全量
+  转存与 Journal 冲突（§4.3-E4）。
+- **E6 原生子代理**（NewAgentTool）：绕开 Vivy 的 child worker 治理面
+  （§4.3-E6）。
+- **E7 整装 prebuilt 与多 agent 编排件**（DeepAgent/planexecute/supervisor/
+  transfer 族/Sequential-Parallel-LoopAgent）：产品形状不符（§4.3-E7）。
 - 媒体（D15）、artifact 结果（D16）→ 独立能力切片，需产品决策。
 - stage-contract 骨架（D1）→ 保持 `loop: eino` 出厂。
 
 ---
 
-## 7. 交付纪律
+## 8. 交付纪律
 
 - 本文档为调研记录，落入 `docs/logs/2026-08-26-agent-loop-port-comparison/`
   对应迭代日志时以 `summary.md` 记录结论、以本文件为附件。
-- 实现批（§6.1）单独开迭代日志，遵循 `just ci` 门与 UI 冒烟门。
+- 实现批（§7.1）单独开迭代日志，遵循 `just ci` 门与 UI 冒烟门。
 - 不触碰 `data/vivy.db`、`data/demo/`、`data/workspaces/`（air-gap）。
 - 本文不新增决策，`docs/TODO.md` §0.1 维持现状；若实现批被接受，届时按
   待办项登记。
@@ -361,28 +514,40 @@ Vivy 的"plan 阶段不给工具"是比"plan 阶段给指定工具"更严格的�
 
 ### Vivy（`internal/runtime/`）
 
-- `engine.go:88-116` — Eino ChatModelAgent/Runner 装配；`98-103` MaxToolTurns→MaxIterations
-- `service.go` — 回合编排、预算账本、terminalEvent 分类、恢复、中断
+- `engine.go:88-116` — Eino ChatModelAgent/Runner 装配；`98-103` MaxToolTurns→MaxIterations；`94-96` ToolsConfig（未配 UnknownToolsHandler）
+- `service.go` — 回合编排、预算账本、terminalEvent 分类、恢复、中断、child workers
 - `mapper.go:94-96` — 自定义事件当前被忽略；`184-189`/`234-241` 空输出分支
-- `context.go` — buildRunContext 按字节/条数截断、工具消息配对
+- `context.go` — buildRunContext 按字节/条数截断、工具消息配对（pairToolTurns）
 - `tooladapter.go` — InvokableRun 门与 compactToolResult 单点压缩
 - `policy.go` — 按 profile 的政策引擎（plan→Deny）
 - `budget.go` — 预算账本（MaxEvents/MaxModelCalls/MaxToolCalls/MaxRetries）
 - `preflight.go` — 回合前 ready/warning/blocked
 - `compaction/meter.go`、`compaction/pruner.go` — 未接线的压缩包（纯函数、已测试）
-- `toolselection_middleware.go` — 现有唯一 middleware
+- `toolselection_middleware.go` — 现有自有 middleware
+- `todo_backend.go`（middlewares/filesystem + plantask）、`skills_backend.go`
+  （middlewares/skill）、`filesystem_backend.go`（adk/filesystem）— 已用的官方件
 - `domain/event.go` — 34 个 RunEvent 类型
 - `config/config.go`、`config.example.yaml` — runtime 配置段（max_tool_turns 等）
 - `rpc/control.go`、`rpc/protocol.go` — 控制面方法清单
 
-### Eino v0.9.13（`github.com/cloudwego/eino@v0.9.13/adk/`）
+### Eino v0.9.13（`github.com/cloudwego/eino@v0.9.13/adk/` 等）
 
-- `chatmodel.go` — ChatModelAgentMiddleware 钩子（BeforeModelRewriteState 等）
-- `react.go` — ReAct 循环、RemainingIterations、ErrExceedMaxIterations、SetRunLocalValue
-- `interface.go` — AgentOutput.CustomizedOutput、adk.SendEvent
-- `handler.go` — 事件流、WillRetryError/CancelError
-- `wrappers.go`、`utils.go` — model.WithTools 等包装
-- `compose/tool_node.go`、`compose/state.go` — ToolsNode、State 结构
+- `adk/chatmodel.go` — ChatModelAgentMiddleware 钩子、ToolsConfig（内嵌
+  ToolsNodeConfig：UnknownToolsHandler/ToolAliases/ToolCallMiddlewares 等）、
+  WithChatModelOptions、ModelRetryConfig/ModelFailoverConfig 挂点
+- `adk/react.go` — ReAct 循环、RemainingIterations、ErrExceedMaxIterations、
+  SetRunLocalValue、ReturnDirectly 分支、SendToolGenAction
+- `adk/handler.go` — AgentOutput.CustomizedOutput、adk.SendEvent
+- `adk/retry_chatmodel.go` / `failover_chatmodel.go` — RetryDecision/FailoverContext
+- `adk/agent_tool.go` — NewAgentTool 子代理委托
+- `adk/turn_loop.go` — TurnLoop 推送/抢占
+- `adk/middlewares/{summarization,reduction,plantask,skill,filesystem,agentsmd,dynamictool,patchtoolcalls}` — 官方中间件族
+- `adk/prebuilt/{deep,planexecute,supervisor}` — 整装 agent
+- `compose/tool_node.go:206,819-824,868` — UnknownToolsHandler 语义
+- `callbacks/` + `utils/callbacks/template.go` — 回调面与类型化 handler builder
+- `components/model/option.go` — WithToolChoice/WithModel/WithMaxTokens 等（无
+  WithJSONResponse）
+- `flow/` — agent/react（legacy）、retriever/indexer 辅助（无 agentops、无 rag）
 
 ### 决策锚
 
