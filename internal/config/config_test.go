@@ -40,6 +40,7 @@ runtime:
   mock_scenario: hitl
   stream_buffer: 16
   max_event_payload_bytes: 1024
+  execute_max_timeout_seconds: 210
 tools:
   enabled:
     - echo_info
@@ -67,7 +68,8 @@ func TestLoadValid(t *testing.T) {
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
-		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != "data/workspaces" {
+		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != "data/workspaces" ||
+		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {
@@ -88,6 +90,9 @@ func TestDefaultIsValid(t *testing.T) {
 	}
 	if cfg.Runtime.Sandbox.WorkspaceRoot != "" {
 		t.Fatalf("default sandbox workspace root = %q, want empty so overlays inherit runtime.workspace_root", cfg.Runtime.Sandbox.WorkspaceRoot)
+	}
+	if cfg.Runtime.ExecuteMaxTimeoutSeconds != 30 {
+		t.Fatalf("default execute_max_timeout_seconds = %d, want 30", cfg.Runtime.ExecuteMaxTimeoutSeconds)
 	}
 }
 
@@ -131,11 +136,28 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"http://127.0.0.1:3015", "http://127.0.0.1:3015/app", 1),
 		"non-loopback listen with origin": strings.Replace(validDoc,
 			`"127.0.0.1:9090"`, `"0.0.0.0:9090"`, 1),
+		"zero execute timeout": strings.Replace(validDoc,
+			"execute_max_timeout_seconds: 210", "execute_max_timeout_seconds: 0", 1),
+		"negative execute timeout": strings.Replace(validDoc,
+			"execute_max_timeout_seconds: 210", "execute_max_timeout_seconds: -5", 1),
+		"execute timeout above hard cap": strings.Replace(validDoc,
+			"execute_max_timeout_seconds: 210", "execute_max_timeout_seconds: 601", 1),
 	}
 	for name, doc := range cases {
 		if _, err := Load(writeConfig(t, doc)); err == nil {
 			t.Errorf("%s: want error, got nil", name)
 		}
+	}
+}
+
+func TestExecuteTimeoutOmittedKeepsDefault(t *testing.T) {
+	doc := strings.Replace(validDoc, "  execute_max_timeout_seconds: 210\n", "", 1)
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Runtime.ExecuteMaxTimeoutSeconds != 30 {
+		t.Fatalf("execute_max_timeout_seconds = %d, want default 30", cfg.Runtime.ExecuteMaxTimeoutSeconds)
 	}
 }
 
