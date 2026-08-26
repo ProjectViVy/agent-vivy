@@ -89,6 +89,7 @@ runtime:
       timeout_seconds: 300
       # Tools that are auto-approved under the "auto" policy (typically readonly tools).
       auto_approve_tools:
+        - list_dir
         - read_file
         - search_files
         - list_notes
@@ -112,6 +113,7 @@ tools:
     - list_notes
     - read_note
     - ask_user         # user-input suspension, distinct from approval
+    - list_dir         # read-only workspace tree exploration
     - read_file
     - search_files
     - write_file

@@ -11,11 +11,35 @@ import (
 )
 
 const (
+	ListDirName     = "list_dir"
 	ReadFileName    = "read_file"
 	SearchFilesName = "search_files"
 	WriteFileName   = "write_file"
 	PatchName       = "patch"
 )
+
+// DirListRequest is the Vivy-owned listing contract. Depth applies only when
+// Recursive is set; zero lets the backend pick its default. Ignored
+// directories (.git, node_modules, ...) are listed but never traversed.
+type DirListRequest struct {
+	Path       string
+	Recursive  bool
+	Depth      int
+	MaxEntries int
+}
+
+type DirEntry struct {
+	Path       string `json:"path"`
+	IsDir      bool   `json:"is_dir"`
+	Size       int64  `json:"size,omitempty"`
+	ModifiedAt string `json:"modified_at,omitempty"`
+}
+
+type DirListResult struct {
+	Path      string     `json:"path"`
+	Entries   []DirEntry `json:"entries"`
+	Truncated bool       `json:"truncated"`
+}
 
 // FileReadRequest is the Vivy-owned read contract. The runtime filesystem
 // adapter maps it to Eino's filesystem.Backend request types.
@@ -82,6 +106,7 @@ type FileMutationResult struct {
 // FileOperations is the non-Eino contract consumed by Vivy tools. Runtime
 // implements it with an Eino filesystem.Backend adapter.
 type FileOperations interface {
+	ListDir(context.Context, domain.RunID, DirListRequest) (DirListResult, error)
 	ReadFile(context.Context, domain.RunID, FileReadRequest) (FileReadResult, error)
 	SearchFiles(context.Context, domain.RunID, FileSearchRequest) (FileSearchResult, error)
 	WriteFile(context.Context, domain.RunID, FileWriteRequest) (FileMutationResult, error)
@@ -93,15 +118,62 @@ type fileMutationPreview interface {
 	PreparePatchFile(context.Context, domain.RunID, FilePatchRequest) (domain.ToolProposal, error)
 }
 
+type listDirTool struct{ ops FileOperations }
 type readFileTool struct{ ops FileOperations }
 type searchFilesTool struct{ ops FileOperations }
 type writeFileTool struct{ ops FileOperations }
 type patchTool struct{ ops FileOperations }
 
+func NewListDir(ops FileOperations) Tool     { return &listDirTool{ops: ops} }
 func NewReadFile(ops FileOperations) Tool    { return &readFileTool{ops: ops} }
 func NewSearchFiles(ops FileOperations) Tool { return &searchFilesTool{ops: ops} }
 func NewWriteFile(ops FileOperations) Tool   { return &writeFileTool{ops: ops} }
 func NewPatch(ops FileOperations) Tool       { return &patchTool{ops: ops} }
+
+func (t *listDirTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name: ListDirName, Description: "Lists directory entries in the current run workspace; optional bounded recursion for exploring an unfamiliar tree.", Readonly: true,
+		Keywords: []string{"list", "directory", "dir", "ls", "explore", "workspace", "tree"},
+		Params: map[string]domain.ToolParam{
+			"path":        {Desc: "Workspace-relative directory path.", Required: true},
+			"recursive":   {Desc: "Optional true/false; include nested entries below the directory.", Required: false},
+			"depth":       {Desc: "Optional max levels below path when recursive.", Required: false},
+			"max_entries": {Desc: "Optional entry limit.", Required: false},
+		},
+	}
+}
+
+func (t *listDirTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
+	var input struct {
+		Path       string `json:"path"`
+		Recursive  string `json:"recursive"`
+		Depth      string `json:"depth"`
+		MaxEntries string `json:"max_entries"`
+	}
+	if err := decodeStringArgs(args, &input); err != nil {
+		return "", err
+	}
+	recursive, err := optionalBool("recursive", input.Recursive)
+	if err != nil {
+		return "", err
+	}
+	depth, err := optionalInt("depth", input.Depth)
+	if err != nil {
+		return "", err
+	}
+	maxEntries, err := optionalInt("max_entries", input.MaxEntries)
+	if err != nil {
+		return "", err
+	}
+	if t.ops == nil {
+		return "", fmt.Errorf("tools: filesystem backend not wired")
+	}
+	result, err := t.ops.ListDir(ctx, RunIDFromContext(ctx), DirListRequest{Path: input.Path, Recursive: recursive, Depth: depth, MaxEntries: maxEntries})
+	if err != nil {
+		return "", err
+	}
+	return marshalToolResult(result)
+}
 
 func (t *readFileTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{

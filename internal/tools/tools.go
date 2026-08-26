@@ -253,7 +253,7 @@ func Builtin(notes storage.NoteStore) *Registry {
 func BuiltinWithFileOps(notes storage.NoteStore, files FileOperations) *Registry {
 	return NewRegistry(
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
-		NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
+		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
 	)
 }
 
@@ -293,7 +293,7 @@ func BuiltinWithSequential(notes storage.NoteStore, files FileOperations, skills
 func BuiltinWithCommands(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) *Registry {
 	registered := []Tool{
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
-		NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
+		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
 		NewSkillsList(skills), NewSkillView(skills), NewSkillManage(skills),
 		NewTaskCreate(todos), NewTaskGet(todos), NewTaskUpdate(todos), NewTaskList(todos),
 	}
@@ -319,7 +319,7 @@ func BuiltinWithCommands(notes storage.NoteStore, files FileOperations, skills S
 func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) []Tool {
 	registered := []Tool{
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
-		NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files), NewSkillsList(skills), NewSkillView(skills), NewSkillManage(skills),
+		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files), NewSkillsList(skills), NewSkillView(skills), NewSkillManage(skills),
 		NewTaskCreate(todos), NewTaskGet(todos), NewTaskUpdate(todos), NewTaskList(todos),
 	}
 	if search != nil {

@@ -65,6 +65,7 @@ runtime:
       default_policy: ask
       timeout_seconds: 300  # 5 minutes
       auto_approve_tools:
+        - list_dir
         - read_file
         - search_files
         - list_notes

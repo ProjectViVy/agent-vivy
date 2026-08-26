@@ -144,6 +144,100 @@ func TestEinoFilesystemBackendSearchAndEinoMethods(t *testing.T) {
 	}
 }
 
+func TestEinoFilesystemBackendListDir(t *testing.T) {
+	backend, workspace, runID := newFilesystemTestBackend(t)
+	for name, content := range map[string]string{
+		"a.txt":               "top",
+		"nested/b.go":         "b",
+		"nested/deep/c.txt":   "c",
+		"node_modules/pkg.js": "x",
+		".git/config":         "g",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(workspace.Path, filepath.FromSlash(name))), 0o700); err != nil {
+			t.Fatalf("mkdir fixture %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(workspace.Path, filepath.FromSlash(name)), []byte(content), 0o600); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+	ctx := context.Background()
+
+	flat, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: "."})
+	if err != nil {
+		t.Fatalf("list flat: %v", err)
+	}
+	if len(flat.Entries) != 4 || flat.Truncated {
+		t.Fatalf("flat entries = %+v", flat.Entries)
+	}
+	byPath := make(map[string]tools.DirEntry, len(flat.Entries))
+	for _, entry := range flat.Entries {
+		byPath[entry.Path] = entry
+	}
+	if entry := byPath["a.txt"]; entry.IsDir || entry.Size != int64(len("top")) || entry.ModifiedAt == "" {
+		t.Fatalf("file entry = %+v", entry)
+	}
+	for _, dir := range []string{".git", "nested", "node_modules"} {
+		if entry := byPath[dir]; !entry.IsDir {
+			t.Fatalf("dir entry %s = %+v", dir, entry)
+		}
+	}
+
+	nested, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: "nested"})
+	if err != nil {
+		t.Fatalf("list nested: %v", err)
+	}
+	if len(nested.Entries) != 2 || nested.Entries[0].Path != "nested/b.go" || nested.Entries[1].Path != "nested/deep" {
+		t.Fatalf("nested entries = %+v", nested.Entries)
+	}
+
+	shallow, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: ".", Recursive: true, Depth: 1})
+	if err != nil {
+		t.Fatalf("list shallow: %v", err)
+	}
+	if len(shallow.Entries) != 4 {
+		t.Fatalf("depth-1 entries = %+v", shallow.Entries)
+	}
+
+	recursive, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: ".", Recursive: true})
+	if err != nil {
+		t.Fatalf("list recursive: %v", err)
+	}
+	want := []string{".git", "a.txt", "nested", "nested/b.go", "nested/deep", "nested/deep/c.txt", "node_modules"}
+	if len(recursive.Entries) != len(want) || recursive.Truncated {
+		t.Fatalf("recursive entries = %+v", recursive.Entries)
+	}
+	for i, path := range want {
+		if recursive.Entries[i].Path != path {
+			t.Fatalf("recursive entry %d = %s, want %s", i, recursive.Entries[i].Path, path)
+		}
+	}
+
+	depthTwo, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: ".", Recursive: true, Depth: 2})
+	if err != nil {
+		t.Fatalf("list depth two: %v", err)
+	}
+	for _, entry := range depthTwo.Entries {
+		if entry.Path == "nested/deep/c.txt" {
+			t.Fatal("depth 2 should not reach nested/deep/c.txt")
+		}
+	}
+
+	capped, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: ".", Recursive: true, MaxEntries: 3})
+	if err != nil {
+		t.Fatalf("list capped: %v", err)
+	}
+	if len(capped.Entries) != 3 || !capped.Truncated {
+		t.Fatalf("capped entries = %+v (truncated=%v)", capped.Entries, capped.Truncated)
+	}
+
+	if _, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: "a.txt"}); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("file target error = %v", err)
+	}
+	if _, err := backend.ListDir(ctx, runID, tools.DirListRequest{Path: "../outside"}); err == nil {
+		t.Fatal("path escape should be rejected")
+	}
+}
+
 func TestEinoFilesystemBackendRejectsUnsafePathsAndPatchAmbiguity(t *testing.T) {
 	backend, workspace, runID := newFilesystemTestBackend(t)
 	outside := filepath.Join(t.TempDir(), "outside.txt")

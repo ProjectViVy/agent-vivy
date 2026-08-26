@@ -25,10 +25,16 @@ const (
 	defaultFilesystemMaxBytes = 1 << 20
 	defaultSearchMaxResults   = 100
 	defaultSearchMaxBytes     = 128 << 10
+	defaultListDepth          = 4
+	maxListDepthLimit         = 10
+	maxListEntriesLimit       = 200
 	maxDiffBytes              = 32 << 10
 )
 
-var errSearchLimit = errors.New("filesystem search limit reached")
+var (
+	errSearchLimit = errors.New("filesystem search limit reached")
+	errListLimit   = errors.New("filesystem list limit reached")
+)
 
 // EinoFilesystemBackend is the Vivy filesystem boundary. It implements both
 // Eino's filesystem.Backend and the Eino-independent tools.FileOperations
@@ -40,6 +46,8 @@ type EinoFilesystemBackend struct {
 	maxFileBytes   int
 	maxResults     int
 	maxSearchBytes int
+	maxListDepth   int
+	maxListEntries int
 }
 
 var (
@@ -55,7 +63,98 @@ func NewEinoFilesystemBackend(manager *WorkspaceManager, sandbox *SandboxManager
 	return &EinoFilesystemBackend{
 		manager: manager, sandbox: sandbox, maxFileBytes: defaultFilesystemMaxBytes,
 		maxResults: defaultSearchMaxResults, maxSearchBytes: defaultSearchMaxBytes,
+		maxListDepth: maxListDepthLimit, maxListEntries: maxListEntriesLimit,
 	}
+}
+
+// ListDir implements tools.FileOperations with a bounded directory listing.
+// Recursive walks list ignored directories (.git, node_modules, ...) but
+// never traverse them, mirroring the search walk policy.
+func (b *EinoFilesystemBackend) ListDir(ctx context.Context, runID domain.RunID, req tools.DirListRequest) (tools.DirListResult, error) {
+	if b.sandbox != nil {
+		root, _, err := b.resolve(ctx, runID, req.Path, false)
+		if err == nil {
+			fullPath := filepath.Join(root, req.Path)
+			if err := b.sandbox.ValidatePath(fullPath, FileOpRead); err != nil {
+				return tools.DirListResult{}, fmt.Errorf("sandbox: %w", err)
+			}
+		}
+	}
+	root, path, err := b.resolve(ctx, runID, req.Path, false)
+	if err != nil {
+		return tools.DirListResult{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return tools.DirListResult{}, fmt.Errorf("filesystem: list %s: %w", displayPath(root, path), err)
+	}
+	if !info.IsDir() {
+		return tools.DirListResult{}, fmt.Errorf("filesystem: list target %s is not a directory", displayPath(root, path))
+	}
+	maxEntries := req.MaxEntries
+	if maxEntries <= 0 || maxEntries > b.maxListEntries {
+		maxEntries = b.maxListEntries
+	}
+	result := tools.DirListResult{Path: displayPath(root, path)}
+	appendEntry := func(entryPath string, entry fs.DirEntry) error {
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return nil
+		}
+		if len(result.Entries) >= maxEntries {
+			result.Truncated = true
+			return errListLimit
+		}
+		result.Entries = append(result.Entries, tools.DirEntry{
+			Path: displayPath(root, entryPath), IsDir: entryInfo.IsDir(), Size: entryInfo.Size(),
+			ModifiedAt: entryInfo.ModTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
+		})
+		return nil
+	}
+	if !req.Recursive {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return tools.DirListResult{}, fmt.Errorf("filesystem: list %s: %w", displayPath(root, path), err)
+		}
+		for _, entry := range entries {
+			if err := appendEntry(filepath.Join(path, entry.Name()), entry); err != nil {
+				break
+			}
+		}
+		return result, nil
+	}
+	depth := req.Depth
+	if depth <= 0 {
+		depth = defaultListDepth
+	}
+	if depth > b.maxListDepth {
+		depth = b.maxListDepth
+	}
+	walkErr := filepath.WalkDir(path, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if current == path {
+			return nil
+		}
+		if err := appendEntry(current, entry); err != nil {
+			return err
+		}
+		if entry.IsDir() && (entryDepth(path, current) >= depth || isIgnoredDirectory(entry.Name())) {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, errListLimit) {
+		return tools.DirListResult{}, fmt.Errorf("filesystem: list: %w", walkErr)
+	}
+	return result, nil
 }
 
 // ReadFile implements tools.FileOperations.
@@ -689,6 +788,16 @@ func isIgnoredDirectory(name string) bool {
 	default:
 		return false
 	}
+}
+
+// entryDepth counts separator-delimited levels below base; direct children
+// of base are depth 1.
+func entryDepth(base, path string) int {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return 0
+	}
+	return strings.Count(filepath.ToSlash(rel), "/") + 1
 }
 
 func matchesGlob(pattern, relative, base string) bool {
