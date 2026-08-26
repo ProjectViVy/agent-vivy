@@ -23,7 +23,7 @@ describe('Vivy store integrity', () => {
     api.initialize.mockResolvedValue({ protocol_version: 'vivy.rpc.v1', capabilities: ['session', 'run.subscribe'] });
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
-    api.getSettings.mockResolvedValue({ provider: 'mock', default_model: 'mock', base_url: '', read_only: false, config_provider: '', config_model: '' });
+    api.getSettings.mockResolvedValue({ provider: 'mock', default_model: 'mock', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30 });
     api.listReviews.mockResolvedValue({ reviews: [] });
   });
 

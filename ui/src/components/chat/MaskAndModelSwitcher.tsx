@@ -105,7 +105,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
     if (!settings || !canChange || (option.provider === currentProvider && option.model === currentModel)) return;
     setError(null);
     try {
-      await saveSettings({ provider: option.provider, default_model: option.model, base_url: settings.base_url });
+      await saveSettings({ provider: option.provider, default_model: option.model, base_url: settings.base_url, execute_max_timeout_seconds: settings.execute_max_timeout_seconds });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

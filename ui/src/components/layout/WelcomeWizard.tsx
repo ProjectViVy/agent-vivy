@@ -82,7 +82,7 @@ export function WelcomeWizard() {
         setSaving(true);
         setError(null);
         try {
-          await saveSettings({ provider: form.provider, default_model: form.default_model, base_url: form.base_url });
+          await saveSettings({ provider: form.provider, default_model: form.default_model, base_url: form.base_url, execute_max_timeout_seconds: settings?.execute_max_timeout_seconds ?? 0 });
         } catch (cause) {
           setSaving(false);
           setError(t('welcome.saveFailed', { error: cause instanceof Error ? cause.message : String(cause) }));
