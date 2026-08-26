@@ -192,11 +192,22 @@ type SandboxNetworkConfig struct {
 }
 
 type Tools struct {
-	// Enabled lists the registered tool names. V0 ships exactly one
-	// read-only auto-execute tool and one effectful approval-gated tool
-	// (D-012).
-	Enabled  []string `yaml:"enabled"`
-	Approval Approval `yaml:"approval"`
+	// Enabled lists the registered tool names. echo_info stays registered
+	// for verification and tests but is off by default (it is a plumbing
+	// probe, not a runtime capability).
+	Enabled []string `yaml:"enabled"`
+	// NetworkSearch is the non-secret network_search preference. Provider
+	// credentials are environment-only (D-010).
+	NetworkSearch NetworkSearchConfig `yaml:"network_search"`
+	Approval      Approval            `yaml:"approval"`
+}
+
+// NetworkSearchConfig selects the preferred network_search provider for
+// requests that do not name one. Empty means automatic: the first usable
+// provider wins, degrading to the keyless duckduckgo/wikipedia providers
+// when no API key is configured.
+type NetworkSearchConfig struct {
+	Provider string `yaml:"provider"`
 }
 
 type Approval struct {
@@ -233,7 +244,10 @@ type GovernanceRule struct {
 // toolsDoc mirrors the tools mapping with expiration kept as a raw
 // string so that validation, not the decoder, owns duration parsing.
 type toolsDoc struct {
-	Enabled  []string `yaml:"enabled"`
+	Enabled       []string `yaml:"enabled"`
+	NetworkSearch struct {
+		Provider string `yaml:"provider"`
+	} `yaml:"network_search"`
 	Approval struct {
 		Expiration string `yaml:"expiration"`
 	} `yaml:"approval"`
@@ -247,6 +261,7 @@ func (t *Tools) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("tools: %w", err)
 	}
 	t.Enabled = doc.Enabled
+	t.NetworkSearch.Provider = doc.NetworkSearch.Provider
 	t.Approval.expirationRaw = doc.Approval.Expiration
 	return nil
 }
@@ -296,8 +311,9 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
-			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
+			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
+			NetworkSearch: NetworkSearchConfig{Provider: ""},
+			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 		Governance: Governance{
 			Profile:        "default",
@@ -445,6 +461,13 @@ func (c *Config) Validate() error {
 
 	if len(c.Tools.Enabled) == 0 {
 		return errors.New("tools.enabled must list at least one tool")
+	}
+	if provider := c.Tools.NetworkSearch.Provider; provider != "" {
+		switch provider {
+		case "bing", "google", "duckduckgo", "searxng", "wikipedia":
+		default:
+			return fmt.Errorf("tools.network_search.provider %q unsupported; want bing, google, duckduckgo, searxng, or wikipedia", provider)
+		}
 	}
 	if c.Tools.Approval.expirationRaw != "" {
 		d, err := time.ParseDuration(c.Tools.Approval.expirationRaw)

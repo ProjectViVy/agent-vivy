@@ -105,7 +105,9 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
     if (!settings || !canChange || (option.provider === currentProvider && option.model === currentModel)) return;
     setError(null);
     try {
-      await saveSettings({ provider: option.provider, default_model: option.model, base_url: settings.base_url });
+      // settings/update replaces the whole document: pass the loaded
+      // network_search preference through unchanged.
+      await saveSettings({ provider: option.provider, default_model: option.model, base_url: settings.base_url, network_search: { provider: settings.network_search?.provider ?? '' } });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

@@ -51,7 +51,7 @@ func TestFilesystemToolsForwardTypedArgumentsAndRunIdentity(t *testing.T) {
 	if err := json.Unmarshal([]byte(read), &readResult); err != nil {
 		t.Fatalf("decode read result: %v", err)
 	}
-	if readResult.Path != "src/main.go" || readResult.Content != "ok" {
+	if readResult.Path != "src/main.go" || readResult.Content != "1\tok" {
 		t.Fatalf("read result = %s", read)
 	}
 	if ops.readRunID != "run_tool_test" || ops.readReq.StartLine != 2 || ops.readReq.EndLine != 4 || ops.readReq.MaxBytes != 100 {
@@ -78,6 +78,54 @@ func TestFilesystemToolsForwardTypedArgumentsAndRunIdentity(t *testing.T) {
 	if ops.patchRunID != "run_tool_test" || !ops.patchReq.ReplaceAll || ops.patchReq.OldString != "hello" {
 		t.Fatalf("patch forwarding = %q/%+v", ops.patchRunID, ops.patchReq)
 	}
+}
+
+func TestReadFileNumbersContentLines(t *testing.T) {
+	ctx := context.Background()
+	run := func(result FileReadResult) FileReadResult {
+		ops := &staticReadOps{result: result}
+		raw, err := NewReadFile(ops).InvokableRun(ctx, json.RawMessage(`{"path":"a.txt"}`))
+		if err != nil {
+			t.Fatalf("read tool: %v", err)
+		}
+		var decoded FileReadResult
+		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+			t.Fatalf("decode read result: %v", err)
+		}
+		return decoded
+	}
+
+	// Full read starts numbering at 1; a trailing newline survives intact.
+	if got := run(FileReadResult{Content: "alpha\nbeta\n", TotalLines: 3}).Content; got != "1\talpha\n2\tbeta\n" {
+		t.Fatalf("numbered content = %q", got)
+	}
+	// Range reads number from the requested first line, not from 1.
+	if got := run(FileReadResult{Content: "beta\ngamma", StartLine: 2, EndLine: 3}).Content; got != "2\tbeta\n3\tgamma" {
+		t.Fatalf("range numbered content = %q", got)
+	}
+	// Binary payloads are returned untouched.
+	if got := run(FileReadResult{Content: "\x00\x01", Binary: true, Bytes: 2}).Content; got != "\x00\x01" {
+		t.Fatalf("binary content = %q", got)
+	}
+	// Empty content stays empty.
+	if got := run(FileReadResult{Bytes: 0}).Content; got != "" {
+		t.Fatalf("empty content = %q", got)
+	}
+}
+
+type staticReadOps struct{ result FileReadResult }
+
+func (s *staticReadOps) ReadFile(_ context.Context, _ domain.RunID, _ FileReadRequest) (FileReadResult, error) {
+	return s.result, nil
+}
+func (s *staticReadOps) SearchFiles(context.Context, domain.RunID, FileSearchRequest) (FileSearchResult, error) {
+	return FileSearchResult{}, nil
+}
+func (s *staticReadOps) WriteFile(context.Context, domain.RunID, FileWriteRequest) (FileMutationResult, error) {
+	return FileMutationResult{}, nil
+}
+func (s *staticReadOps) PatchFile(context.Context, domain.RunID, FilePatchRequest) (FileMutationResult, error) {
+	return FileMutationResult{}, nil
 }
 
 func TestFilesystemToolArgumentErrorsAndSpecs(t *testing.T) {

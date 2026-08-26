@@ -40,7 +40,8 @@ const (
 // URL, not a secret, but is still validated before use.
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
-// Settings is the persisted, non-secret model provider selection.
+// Settings is the persisted, non-secret model provider selection plus the
+// network_search provider preference.
 type Settings struct {
 	// Provider is the active bundle name; empty means "use config default".
 	Provider string `yaml:"provider"`
@@ -51,6 +52,16 @@ type Settings struct {
 	// bundle default". It is applied through the existing VIVY_API_BASE
 	// mechanism.
 	BaseURL string `yaml:"base_url"`
+	// NetworkSearch overrides tools.network_search.provider from the
+	// Settings UI; empty keeps the config value.
+	NetworkSearch NetworkSearchSettings `yaml:"network_search"`
+}
+
+// NetworkSearchSettings is the UI-managed network_search preference.
+// Provider credentials stay environment-only (D-010).
+type NetworkSearchSettings struct {
+	// Provider is the preferred provider name, or empty for automatic.
+	Provider string `yaml:"provider"`
 }
 
 // Path returns the absolute settings file path for the given data root.
@@ -102,6 +113,13 @@ func (s Settings) Validate() error {
 	}
 	if s.BaseURL != "" && !apiBasePattern.MatchString(s.BaseURL) {
 		return fmt.Errorf("settings: base_url %q must be an http(s) absolute URL", s.BaseURL)
+	}
+	switch s.NetworkSearch.Provider {
+	case "":
+		// empty => automatic; allowed
+	case "bing", "google", "duckduckgo", "searxng", "wikipedia":
+	default:
+		return fmt.Errorf("settings: network_search.provider %q unsupported; want bing, google, duckduckgo, searxng, or wikipedia", s.NetworkSearch.Provider)
 	}
 	return nil
 }

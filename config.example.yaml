@@ -106,8 +106,9 @@ runtime:
 tools:
   # Read-only tools auto-execute. Mutations and Skill management are always
   # routed through the durable approval/HITL flow.
+  # echo_info stays registered (verification tool for tests) but is not
+  # enabled by default; add it back explicitly if you need the probe.
   enabled:
-    - echo_info        # read-only, auto-execute
     - write_note       # effectful, approval-gated
     - list_notes
     - read_note
@@ -131,5 +132,15 @@ tools:
     - task_list
     - network_search  # API-backed text search; remote results are untrusted
     - tool_search
+  # network_search reads provider credentials from environment variables
+  # only — never from this file (D-010):
+  #   BING_SEARCH_API_KEY     enables provider "bing"
+  #   GOOGLE_SEARCH_API_KEY   enables "google" (also needs GOOGLE_SEARCH_CX)
+  #   SEARXNG_SEARCH_URL      enables "searxng" (self-hosted JSON endpoint)
+  # With no key set, network_search automatically degrades to the keyless
+  # duckduckgo / wikipedia providers. Preferred provider for requests that
+  # do not name one; empty = automatic. Also settable from the Settings UI.
+  network_search:
+    provider: ""
   approval:
     expiration: 5m

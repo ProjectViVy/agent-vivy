@@ -82,6 +82,101 @@ func TestNetworkSearchServiceDefaultsToSafePublicProvider(t *testing.T) {
 	}
 }
 
+// A configured preferred provider wins for requests that do not name one;
+// an unusable preference (missing key) degrades to the keyless walk, and an
+// explicit provider argument still wins over the preference.
+func TestNetworkSearchServiceHonorsPreferredProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/duckduckgo":
+			_, _ = w.Write([]byte(`{"Heading":"Go","AbstractURL":"https://go.dev/","AbstractText":"A language"}`))
+		case "/wikipedia":
+			_, _ = w.Write([]byte(`{"query":{"search":[{"title":"Go","pageid":1,"snippet":"language"}]}}`))
+		case "/bing":
+			_, _ = w.Write([]byte(`{"webPages":{"value":[{"name":"Go","url":"https://go.dev/","snippet":"A language"}]}}`))
+		default:
+			t.Errorf("unexpected provider path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	endpoints := map[string]string{
+		"duckduckgo": server.URL + "/duckduckgo",
+		"wikipedia":  server.URL + "/wikipedia",
+		"bing":       server.URL + "/bing",
+	}
+
+	// Keyless preference is honored.
+	t.Setenv("BING_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_CX", "")
+	keyless := NewNetworkSearchService(server.Client(), endpoints)
+	keyless.SetPreferredProvider("wikipedia")
+	response, err := keyless.Search(context.Background(), "", tools.SearchRequest{Query: "golang"})
+	if err != nil || response.Provider != "wikipedia" || len(response.Results) != 1 {
+		t.Fatalf("keyless preferred response=%#v err=%v", response, err)
+	}
+
+	// Keyed preference is honored when the key is present.
+	t.Setenv("BING_SEARCH_API_KEY", "test-bing-key")
+	keyed := NewNetworkSearchService(server.Client(), endpoints)
+	keyed.SetPreferredProvider("bing")
+	response, err = keyed.Search(context.Background(), "", tools.SearchRequest{Query: "golang"})
+	if err != nil || response.Provider != "bing" || len(response.Results) != 1 {
+		t.Fatalf("keyed preferred response=%#v err=%v", response, err)
+	}
+
+	// A preference whose key is missing degrades to the keyless walk.
+	t.Setenv("BING_SEARCH_API_KEY", "")
+	degraded := NewNetworkSearchService(server.Client(), endpoints)
+	degraded.SetPreferredProvider("bing")
+	response, err = degraded.Search(context.Background(), "", tools.SearchRequest{Query: "golang"})
+	if err != nil || response.Provider != "duckduckgo" {
+		t.Fatalf("degraded response=%#v err=%v", response, err)
+	}
+
+	// An explicit provider argument still wins over the preference.
+	response, err = degraded.Search(context.Background(), "", tools.SearchRequest{Query: "golang", Provider: "wikipedia"})
+	if err != nil || response.Provider != "wikipedia" {
+		t.Fatalf("explicit provider response=%#v err=%v", response, err)
+	}
+}
+
+func TestNetworkSearchProviderAvailability(t *testing.T) {
+	t.Setenv("BING_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_CX", "")
+	t.Setenv("SEARXNG_SEARCH_URL", "")
+	for _, info := range NetworkSearchProviderAvailability() {
+		if info.Name == "duckduckgo" || info.Name == "wikipedia" {
+			if !info.Keyless || !info.Configured {
+				t.Fatalf("%s must be keyless and configured: %+v", info.Name, info)
+			}
+			continue
+		}
+		if info.Configured {
+			t.Fatalf("%s reported configured without its env key: %+v", info.Name, info)
+		}
+	}
+
+	t.Setenv("BING_SEARCH_API_KEY", "k")
+	t.Setenv("SEARXNG_SEARCH_URL", "http://searx.local/search")
+	byName := map[string]NetworkSearchProviderInfo{}
+	for _, info := range NetworkSearchProviderAvailability() {
+		byName[info.Name] = info
+	}
+	if !byName["bing"].Configured || byName["bing"].Keyless {
+		t.Fatalf("bing availability = %+v", byName["bing"])
+	}
+	if !byName["searxng"].Configured {
+		t.Fatalf("searxng availability = %+v", byName["searxng"])
+	}
+	if byName["google"].Configured {
+		t.Fatalf("google must require key and cx: %+v", byName["google"])
+	}
+}
+
 func TestNetworkSearchServiceRejectsInvalidAndOversizedResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Activity, ArrowRight, FlaskConical, GitBranch, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -55,6 +57,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const save = useVivyStore((state) => state.saveSettings);
   const { t } = useTranslation();
   const [form, setForm] = useState({ provider: '', default_model: '', base_url: '' });
+  const [nsProvider, setNsProvider] = useState('auto');
   const [demoConfig, setDemoConfig] = useState<RuntimeConfig | null>(null);
   const [persona, setPersona] = useState<PersonaProfile | null>(null);
   const [tools, setTools] = useState<ToolsConfigShape | null>(null);
@@ -82,8 +85,17 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   useEffect(() => {
     if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url });
   }, [settings]);
+  useEffect(() => {
+    if (settings) setNsProvider(settings.network_search?.provider || 'auto');
+  }, [settings]);
 
   const locked = settings?.read_only || phase === 'processing';
+
+  // settings/update replaces the whole settings document: every save path
+  // sends the model form plus the network_search preference together.
+  const saveAll = async () => {
+    await save({ ...form, network_search: { provider: nsProvider === 'auto' ? '' : nsProvider } });
+  };
 
   const persistDemo = async (kind: 'model' | 'persona' | 'tools') => {
     setDemoBusy(kind);
@@ -150,7 +162,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               <CardHeader><CardTitle>Vivy 模型配置</CardTitle><CardDescription>真实设置。密钥只由运行环境管理；保存后在下次启动时生效。</CardDescription></CardHeader>
               <CardContent>
                 {phase === 'loading' && !settings ? <div className="space-y-3"><div className="h-10 animate-pulse rounded bg-muted" /><div className="h-10 animate-pulse rounded bg-muted" /><div className="h-10 animate-pulse rounded bg-muted" /></div> : (
-                  <form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); await save(form); }}>
+                  <form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); await saveAll(); }}>
                     <div className="space-y-2"><Label htmlFor="provider">Provider</Label><Input id="provider" value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })} placeholder={settings?.config_provider || '配置默认值'} disabled={locked} /></div>
                     <div className="space-y-2"><Label htmlFor="model">默认模型</Label><Input id="model" value={form.default_model} onChange={(event) => setForm({ ...form, default_model: event.target.value })} placeholder={settings?.config_model || 'Provider 默认值'} disabled={locked} /></div>
                     <div className="space-y-2"><Label htmlFor="base-url">Base URL</Label><Input id="base-url" type="url" value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} placeholder="https://api.example.com/v1" disabled={locked} /></div>
@@ -185,7 +197,49 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             </Card>
           </TabsContent>
 
-          <TabsContent value="tools">
+          <TabsContent value="tools" className="space-y-4">
+            <Card>
+              <CardHeader><CardTitle>网络搜索</CardTitle><CardDescription>真实设置。选择 network_search 未指定 provider 时的默认来源；API 密钥只由环境变量提供，保存后下次启动生效。</CardDescription></CardHeader>
+              <CardContent>
+                {phase === 'loading' && !settings ? <div className="h-24 animate-pulse rounded bg-muted" /> : (
+                  <form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); await saveAll(); }}>
+                    <div className="space-y-2">
+                      <Label htmlFor="network-search-provider">默认 Provider</Label>
+                      <Select value={nsProvider} onValueChange={setNsProvider} disabled={locked}>
+                        <SelectTrigger id="network-search-provider" className="w-full sm:w-72"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">自动（按可用性回退）</SelectItem>
+                          {(settings?.network_search?.providers ?? []).map((info) => (
+                            <SelectItem key={info.name} value={info.name} disabled={!info.configured}>
+                              {info.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {nsProvider === 'auto'
+                          ? '未指定时按 bing → google → duckduckgo → searxng → wikipedia 顺序取第一个可用项；无任何密钥时自动降级到免密钥的 DuckDuckGo / Wikipedia。'
+                          : `指定 provider 后 network_search 优先使用它；当前不可用时回退到自动选择。`}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Provider 可用性</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {(settings?.network_search?.providers ?? []).map((info) => (
+                          <Badge key={info.name} variant={info.configured ? 'default' : 'secondary'} className="gap-1 font-normal">
+                            {info.name}
+                            {info.configured ? ' · 已配置' : ` · 未配置（需 ${info.env_key ?? '密钥'}）`}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">密钥只在运行环境设置：BING_SEARCH_API_KEY、GOOGLE_SEARCH_API_KEY（另需 GOOGLE_SEARCH_CX）、SEARXNG_SEARCH_URL。duckduckgo 与 wikipedia 免密钥。</p>
+                    </div>
+                    {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? '保存中…' : '保存网络搜索设置'}</Button>}
+                    {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+                  </form>
+                )}
+              </CardContent>
+            </Card>
             <DemoNote />
             <Card>
               <CardHeader><CardTitle>工具配置</CardTitle><CardDescription>本地演示沙箱和命令审批规则。</CardDescription></CardHeader>
