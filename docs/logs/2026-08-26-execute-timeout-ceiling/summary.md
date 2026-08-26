@@ -30,13 +30,26 @@ in the runtime so a single execute call can never hang a run for hours.
   (request clamped by ceiling, default fallback, hard-cap clamp) and
   parse/validate tests in `config_test.go` (parse, omitted-keeps-default,
   zero / negative / above-cap rejected, default asserted).
+- **Settings → 通用 (General) makes the ceiling editable from the UI**: the
+  settings document (`data/settings.yaml` in the dev data root) gained
+  `execute_max_timeout_seconds` with the same 1–600 bounds, validated in
+  `internal/app/settings`. `settings/get` now reports the effective override
+  plus the config fallback (`config_execute_max_timeout_seconds`), and
+  `settings/update` accepts the field as part of the full-document replace.
+  On the next startup `applySettingsOverlay` overlays the persisted value
+  onto `cfg.Runtime.ExecuteMaxTimeoutSeconds` and logs it. The update echo
+  also carries the config fallbacks so the UI keeps its display values
+  consistent right after a save. The SettingsView 通用 tab renders a
+  "执行超时上限" card (0–600, empty = config default); the model tab and the
+  two other `saveSettings` call sites pass the field through so the
+  full-document replace never clobbers it.
 
 ## Explicitly not done
 
 - No mock-provider scenario that drives an execute tool call end to end;
   recorded as TEST-1 in `docs/TODO.md` §0.1. The real-path smoke therefore
-  covers startup config acceptance/rejection on the real binary, and the
-  clamping matrix is covered at the backend unit level.
+  covers startup config acceptance/rejection on the real binary, the
+  clamping matrix at the backend unit level, and the UI→settings document
+  round trip through the live split-loop (see `verification.md`).
 - Per-command timeout overrides (e.g. long allowlist entries with their own
   ceilings) — one global ceiling is enough for the current pain.
-- No UI surface for the knob; it is an operator config field.
