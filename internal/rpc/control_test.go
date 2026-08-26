@@ -498,10 +498,11 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
-		Studio:         studio.NewService(backend),
-		SettingsPath:   settingsPath,
-		ConfigProvider: "mock",
-		ConfigModel:    "mock",
+		Studio:                         studio.NewService(backend),
+		SettingsPath:                   settingsPath,
+		ConfigProvider:                 "mock",
+		ConfigModel:                    "mock",
+		ConfigExecuteMaxTimeoutSeconds: 30,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -557,6 +558,54 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	get = result.(settingsResult)
 	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
+	}
+
+	// Execute ceiling: config fallback reported, override persisted and
+	// echoed, out-of-bounds rejected without clobbering the document.
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 {
+		t.Fatalf("config_execute_max_timeout_seconds = %d, want 30", get.ConfigExecuteMaxTimeoutSeconds)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":                    "openai",
+		"default_model":               "gpt-4o",
+		"base_url":                    "https://gw.example.com/v1",
+		"execute_max_timeout_seconds": 300,
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	// The update echo must carry the config fallbacks so the UI keeps its
+	// display values consistent right after a save.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":                    "openai",
+		"default_model":               "gpt-4o",
+		"base_url":                    "https://gw.example.com/v1",
+		"execute_max_timeout_seconds": 300,
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.ExecuteMaxTimeoutSeconds != 300 {
+		t.Fatalf("execute_max_timeout_seconds not persisted: %+v", get)
+	}
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "mock" || get.ConfigModel != "mock" {
+		t.Fatalf("update echo must include config fallbacks: %+v", get)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"execute_max_timeout_seconds": 601,
+	}); rpcErr == nil {
+		t.Fatal("expected execute_max_timeout_seconds above hard cap to be rejected")
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.ExecuteMaxTimeoutSeconds != 300 {
+		t.Fatalf("rejected update must not clobber the document: %+v", get)
 	}
 }
 

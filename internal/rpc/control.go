@@ -47,6 +47,9 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
+	// ConfigExecuteMaxTimeoutSeconds is the config execute ceiling after the
+	// settings overlay, surfaced by settings/get as the UI placeholder.
+	ConfigExecuteMaxTimeoutSeconds int
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -1223,6 +1226,9 @@ type settingsResult struct {
 	DefaultModel string `json:"default_model"`
 	// BaseURL is an optional OpenAI-compatible gateway, or empty.
 	BaseURL string `json:"base_url"`
+	// ExecuteMaxTimeoutSeconds is the effective execute/commandline ceiling;
+	// 0 means the config value applies. Editable in Settings → General.
+	ExecuteMaxTimeoutSeconds int `json:"execute_max_timeout_seconds"`
 	// ReadOnly reports whether updates are accepted. When the settings
 	// document path is not configured, the UI shows values but cannot save.
 	ReadOnly bool `json:"read_only"`
@@ -1230,6 +1236,9 @@ type settingsResult struct {
 	ConfigProvider string `json:"config_provider"`
 	// ConfigModel is the production config default model, for display.
 	ConfigModel string `json:"config_model"`
+	// ConfigExecuteMaxTimeoutSeconds is the config execute ceiling the UI
+	// falls back to when the override is cleared, for display.
+	ConfigExecuteMaxTimeoutSeconds int `json:"config_execute_max_timeout_seconds"`
 }
 
 func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
@@ -1246,12 +1255,14 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
+			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
 	// cleared field falls back to. The runtime never exposes secrets.
 	out.ConfigProvider = h.deps.ConfigProvider
 	out.ConfigModel = h.deps.ConfigModel
+	out.ConfigExecuteMaxTimeoutSeconds = h.deps.ConfigExecuteMaxTimeoutSeconds
 	return out, nil
 }
 
@@ -1260,24 +1271,32 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
 	var params struct {
-		Provider     string `json:"provider"`
-		DefaultModel string `json:"default_model"`
-		BaseURL      string `json:"base_url"`
+		Provider                 string `json:"provider"`
+		DefaultModel             string `json:"default_model"`
+		BaseURL                  string `json:"base_url"`
+		ExecuteMaxTimeoutSeconds int    `json:"execute_max_timeout_seconds"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL}
+	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL, ExecuteMaxTimeoutSeconds: params.ExecuteMaxTimeoutSeconds}
 	saved, err := settings.Save(h.deps.SettingsPath, s)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	_ = ctx
+	// Echo the config fallbacks too so the UI keeps its display values
+	// (provider/model/execute ceiling) consistent right after a save,
+	// instead of flashing empty/zero until the next settings/get.
 	return settingsResult{
-		Provider:     saved.Provider,
-		DefaultModel: saved.DefaultModel,
-		BaseURL:      saved.BaseURL,
-		ReadOnly:     false,
+		Provider:                       saved.Provider,
+		DefaultModel:                   saved.DefaultModel,
+		BaseURL:                        saved.BaseURL,
+		ExecuteMaxTimeoutSeconds:       saved.ExecuteMaxTimeoutSeconds,
+		ReadOnly:                       false,
+		ConfigProvider:                 h.deps.ConfigProvider,
+		ConfigModel:                    h.deps.ConfigModel,
+		ConfigExecuteMaxTimeoutSeconds: h.deps.ConfigExecuteMaxTimeoutSeconds,
 	}, nil
 }
 

@@ -303,9 +303,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Children: workerManager,
 		// Operator-managed model provider selection lives in an independent
 		// agent working dir, never the production config or Journal.
-		SettingsPath:   settings.Path(dataRoot),
-		ConfigProvider: providerName,
-		ConfigModel:    defaultModelFor(cfg, providerName),
+		SettingsPath:                   settings.Path(dataRoot),
+		ConfigProvider:                 providerName,
+		ConfigModel:                    defaultModelFor(cfg, providerName),
+		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -420,7 +421,10 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 			logger.Warn("settings base_url not applied", "err", err)
 		}
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "")
+	if s.ExecuteMaxTimeoutSeconds > 0 {
+		cfg.Runtime.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds)
 	return cfg
 }
 

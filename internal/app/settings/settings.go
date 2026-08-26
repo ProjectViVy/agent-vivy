@@ -40,6 +40,11 @@ const (
 // URL, not a secret, but is still validated before use.
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
+// maxExecuteTimeoutSeconds mirrors config.maxExecuteTimeoutSeconds and the
+// runtime hard cap (10m): a settings override above it would be silently
+// clamped, so it is rejected here up front.
+const maxExecuteTimeoutSeconds = 600
+
 // Settings is the persisted, non-secret model provider selection.
 type Settings struct {
 	// Provider is the active bundle name; empty means "use config default".
@@ -51,6 +56,10 @@ type Settings struct {
 	// bundle default". It is applied through the existing VIVY_API_BASE
 	// mechanism.
 	BaseURL string `yaml:"base_url"`
+	// ExecuteMaxTimeoutSeconds overrides the execute/commandline ceiling
+	// (config runtime.execute_max_timeout_seconds); 0 means "use config
+	// value". Same bounds as config: 1–600, mirroring the runtime hard cap.
+	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
 }
 
 // Path returns the absolute settings file path for the given data root.
@@ -102,6 +111,11 @@ func (s Settings) Validate() error {
 	}
 	if s.BaseURL != "" && !apiBasePattern.MatchString(s.BaseURL) {
 		return fmt.Errorf("settings: base_url %q must be an http(s) absolute URL", s.BaseURL)
+	}
+	// 0 keeps the config value; anything else shares the config bounds so a
+	// UI override can never exceed the runtime hard cap.
+	if s.ExecuteMaxTimeoutSeconds < 0 || s.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
+		return fmt.Errorf("settings: execute_max_timeout_seconds must be 0 (config default) or between 1 and %d", maxExecuteTimeoutSeconds)
 	}
 	return nil
 }
