@@ -54,7 +54,8 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
   const { t } = useTranslation();
-  const [form, setForm] = useState({ provider: '', default_model: '', base_url: '' });
+  const [form, setForm] = useState({ provider: '', default_model: '', base_url: '', execute_max_timeout: '' });
+  const [formError, setFormError] = useState<string | null>(null);
   const [demoConfig, setDemoConfig] = useState<RuntimeConfig | null>(null);
   const [persona, setPersona] = useState<PersonaProfile | null>(null);
   const [tools, setTools] = useState<ToolsConfigShape | null>(null);
@@ -80,10 +81,23 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区。
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
   useEffect(() => {
-    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url });
+    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url, execute_max_timeout: settings.execute_max_timeout_seconds ? String(settings.execute_max_timeout_seconds) : '' });
   }, [settings]);
 
   const locked = settings?.read_only || phase === 'processing';
+
+  // settings/update 是整文档替换：两个页签共用一份表单状态，保存时带上全部
+  // 字段，避免模型页保存把通用页的执行超时覆盖值清掉。
+  const submitSettings = async () => {
+    const raw = form.execute_max_timeout.trim();
+    const timeoutSeconds = raw === '' ? 0 : Number(raw);
+    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 0 || timeoutSeconds > 600) {
+      setFormError('执行超时上限必须留空(用配置默认值)或 0–600 之间的整数秒。');
+      return;
+    }
+    setFormError(null);
+    await save({ provider: form.provider, default_model: form.default_model, base_url: form.base_url, execute_max_timeout_seconds: timeoutSeconds });
+  };
 
   const persistDemo = async (kind: 'model' | 'persona' | 'tools') => {
     setDemoBusy(kind);
@@ -125,6 +139,21 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
           <TabsContent value="general" className="space-y-4">
             <Card>
+              <CardHeader><CardTitle>执行超时上限</CardTitle><CardDescription>execute / commandline 单次运行的最长等待。真实设置，保存后下次启动生效。</CardDescription></CardHeader>
+              <CardContent>
+                <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void submitSettings(); }}>
+                  <div className="space-y-2">
+                    <Label htmlFor="execute-max-timeout">最长等待(秒)</Label>
+                    <Input id="execute-max-timeout" type="number" min={0} max={600} step={1} value={form.execute_max_timeout} onChange={(event) => setForm({ ...form, execute_max_timeout: event.target.value })} placeholder={String(settings?.config_execute_max_timeout_seconds ?? 30)} disabled={locked} />
+                    <p className="text-xs text-muted-foreground">留空或 0 使用运行配置默认值;范围 0–600,硬顶 600 秒(10 分钟)。跑 go test、git clone 等慢命令时调大。</p>
+                  </div>
+                  {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读,请通过运行配置修改。</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? '保存中…' : '保存通用设置'}</Button>}
+                  {formError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
+                  {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+                </form>
+              </CardContent>
+            </Card>
+            <Card>
               <CardHeader><CardTitle>应用信息</CardTitle><CardDescription>当前 Vivy 应用状态与演示内容范围。</CardDescription></CardHeader>
               <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
                 <div><p className="text-muted-foreground">应用</p><p className="mt-1 font-medium">Vivy</p></div>
@@ -150,11 +179,12 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               <CardHeader><CardTitle>Vivy 模型配置</CardTitle><CardDescription>真实设置。密钥只由运行环境管理；保存后在下次启动时生效。</CardDescription></CardHeader>
               <CardContent>
                 {phase === 'loading' && !settings ? <div className="space-y-3"><div className="h-10 animate-pulse rounded bg-muted" /><div className="h-10 animate-pulse rounded bg-muted" /><div className="h-10 animate-pulse rounded bg-muted" /></div> : (
-                  <form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); await save(form); }}>
+                  <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void submitSettings(); }}>
                     <div className="space-y-2"><Label htmlFor="provider">Provider</Label><Input id="provider" value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })} placeholder={settings?.config_provider || '配置默认值'} disabled={locked} /></div>
                     <div className="space-y-2"><Label htmlFor="model">默认模型</Label><Input id="model" value={form.default_model} onChange={(event) => setForm({ ...form, default_model: event.target.value })} placeholder={settings?.config_model || 'Provider 默认值'} disabled={locked} /></div>
                     <div className="space-y-2"><Label htmlFor="base-url">Base URL</Label><Input id="base-url" type="url" value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} placeholder="https://api.example.com/v1" disabled={locked} /></div>
                     {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? '保存中…' : '保存真实设置'}</Button>}
+                    {formError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
                     {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
                   </form>
                 )}
