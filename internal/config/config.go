@@ -37,6 +37,11 @@ var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // below eino's 20 default, so a runaway loop fails fast and classified.
 const defaultMaxToolTurns = 8
 
+// maxExecuteTimeoutSeconds mirrors the runtime hard cap
+// (runtime.hardMaxCommandTimeout = 10m): a configured execute ceiling above
+// it would be silently clamped, so Validate rejects it up front.
+const maxExecuteTimeoutSeconds = 600
+
 const (
 	defaultMaxContextBytes    = 256 << 10
 	defaultMaxHistoryMessages = 64
@@ -148,6 +153,11 @@ type Runtime struct {
 	MCPServers []MCPServer `yaml:"mcp_servers"`
 	// ExecuteAllowedCommands is the executable allowlist for local process tools.
 	ExecuteAllowedCommands []string `yaml:"execute_allowed_commands"`
+	// ExecuteMaxTimeoutSeconds bounds one execute/commandline run. Requests
+	// asking for more are clamped to it. Raise it (up to 600) for real work
+	// such as go test or git clone; values above the runtime hard cap are
+	// rejected so a typo cannot silently re-clamp the ceiling.
+	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
 	// Sandbox controls the file-effect policy boundary (D-021).
 	Sandbox SandboxConfig `yaml:"sandbox"`
 }
@@ -264,23 +274,24 @@ func Default() Config {
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
 		Runtime: Runtime{
-			Mock:                   false,
-			MockScenario:           "",
-			StreamBuffer:           256,
-			MaxEventPayloadBytes:   65536,
-			MaxToolTurns:           defaultMaxToolTurns,
-			MaxContextBytes:        defaultMaxContextBytes,
-			MaxHistoryMessages:     defaultMaxHistoryMessages,
-			MaxToolResultBytes:     32 << 10,
-			MaxRunEvents:           defaultMaxRunEvents,
-			MaxModelCalls:          defaultMaxModelCalls,
-			MaxRunToolCalls:        defaultMaxRunToolCalls,
-			MaxRunRetries:          defaultMaxRunRetries,
-			WorkspaceRoot:          defaultWorkspaceRoot,
-			SkillsRoot:             defaultSkillsRoot,
-			HTTPAllowedHosts:       []string{"localhost", "127.0.0.1", "::1"},
-			HTTPMaxResponseBytes:   1 << 20,
-			ExecuteAllowedCommands: []string{"go", "git", "rg"},
+			Mock:                     false,
+			MockScenario:             "",
+			StreamBuffer:             256,
+			MaxEventPayloadBytes:     65536,
+			MaxToolTurns:             defaultMaxToolTurns,
+			MaxContextBytes:          defaultMaxContextBytes,
+			MaxHistoryMessages:       defaultMaxHistoryMessages,
+			MaxToolResultBytes:       32 << 10,
+			MaxRunEvents:             defaultMaxRunEvents,
+			MaxModelCalls:            defaultMaxModelCalls,
+			MaxRunToolCalls:          defaultMaxRunToolCalls,
+			MaxRunRetries:            defaultMaxRunRetries,
+			WorkspaceRoot:            defaultWorkspaceRoot,
+			SkillsRoot:               defaultSkillsRoot,
+			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
+			HTTPMaxResponseBytes:     1 << 20,
+			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
+			ExecuteMaxTimeoutSeconds: 30,
 			Sandbox: SandboxConfig{
 				DefaultMode:   "workspace_write",
 				WorkspaceRoot: "",
@@ -429,6 +440,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.HTTPMaxResponseBytes <= 0 {
 		return errors.New("runtime.http_max_response_bytes must be positive")
+	}
+	if c.Runtime.ExecuteMaxTimeoutSeconds <= 0 || c.Runtime.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
+		return fmt.Errorf("runtime.execute_max_timeout_seconds must be between 1 and %d seconds", maxExecuteTimeoutSeconds)
 	}
 	for i, server := range c.Runtime.MCPServers {
 		if server.Name == "" || server.Endpoint == "" {

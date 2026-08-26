@@ -186,7 +186,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	mcpOps = runtime.NewEinoMCPBackend(mcpConfigs, nil)
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
-	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands)
+	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
 	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()

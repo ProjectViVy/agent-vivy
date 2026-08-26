@@ -20,7 +20,13 @@ import (
 
 const (
 	defaultCommandTimeout = 5 * time.Second
-	maxCommandTimeout     = 30 * time.Second
+	// defaultMaxCommandTimeout is the execute ceiling used when the caller
+	// passes a non-positive maxTimeout (direct backend construction in tests).
+	defaultMaxCommandTimeout = 30 * time.Second
+	// hardMaxCommandTimeout is the unconfigurable ceiling: a configured
+	// ceiling above it is clamped so one execute call can never hang a run
+	// for hours even under a misconfigured config.
+	hardMaxCommandTimeout = 10 * time.Minute
 	maxCommandOutput      = 64 << 10
 	maxCommandArgsBytes   = 64 << 10
 )
@@ -30,6 +36,7 @@ type EinoCommandBackend struct {
 	sandbox        *SandboxManager
 	allowed        map[string]struct{}
 	maxOutputBytes int
+	maxTimeout     time.Duration
 }
 
 var _ tools.CommandOperations = (*EinoCommandBackend)(nil)
@@ -37,9 +44,19 @@ var _ interface {
 	PrepareCommand(context.Context, domain.RunID, tools.CommandRequest) (domain.ToolProposal, error)
 } = (*EinoCommandBackend)(nil)
 
-func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string) *EinoCommandBackend {
+// NewEinoCommandBackend wires the local process backend. maxTimeout bounds a
+// single execute/commandline run (from runtime.execute_max_timeout_seconds);
+// non-positive falls back to the 30s default and values above
+// hardMaxCommandTimeout are clamped to it.
+func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string, maxTimeout time.Duration) *EinoCommandBackend {
 	if len(allowed) == 0 {
 		allowed = []string{"go", "git", "rg"}
+	}
+	if maxTimeout <= 0 {
+		maxTimeout = defaultMaxCommandTimeout
+	}
+	if maxTimeout > hardMaxCommandTimeout {
+		maxTimeout = hardMaxCommandTimeout
 	}
 	commands := make(map[string]struct{}, len(allowed))
 	for _, command := range allowed {
@@ -47,7 +64,7 @@ func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, a
 			commands[name] = struct{}{}
 		}
 	}
-	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput}
+	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout}
 }
 func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
 	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
@@ -190,8 +207,8 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 	if request.TimeoutMS > 0 {
 		timeout = time.Duration(request.TimeoutMS) * time.Millisecond
 	}
-	if timeout > maxCommandTimeout {
-		timeout = maxCommandTimeout
+	if timeout > b.maxTimeout {
+		timeout = b.maxTimeout
 	}
 	return command, append([]string(nil), request.Args...), realCwd, env, timeout, nil
 }
