@@ -9,14 +9,21 @@ import (
 )
 
 type recordingFileOps struct {
+	listRunID   domain.RunID
 	readRunID   domain.RunID
 	searchRunID domain.RunID
 	writeRunID  domain.RunID
 	patchRunID  domain.RunID
+	listReq     DirListRequest
 	readReq     FileReadRequest
 	searchReq   FileSearchRequest
 	writeReq    FileWriteRequest
 	patchReq    FilePatchRequest
+}
+
+func (r *recordingFileOps) ListDir(_ context.Context, runID domain.RunID, req DirListRequest) (DirListResult, error) {
+	r.listRunID, r.listReq = runID, req
+	return DirListResult{Path: req.Path}, nil
 }
 
 func (r *recordingFileOps) ReadFile(_ context.Context, runID domain.RunID, req FileReadRequest) (FileReadResult, error) {
@@ -42,6 +49,21 @@ func (r *recordingFileOps) PatchFile(_ context.Context, runID domain.RunID, req 
 func TestFilesystemToolsForwardTypedArgumentsAndRunIdentity(t *testing.T) {
 	ops := &recordingFileOps{}
 	ctx := WithRunID(context.Background(), domain.RunID("run_tool_test"))
+
+	list, err := NewListDir(ops).InvokableRun(ctx, json.RawMessage(`{"path":"src","recursive":"true","depth":"3","max_entries":"50"}`))
+	if err != nil {
+		t.Fatalf("list tool: %v", err)
+	}
+	var listResult DirListResult
+	if err := json.Unmarshal([]byte(list), &listResult); err != nil {
+		t.Fatalf("decode list result: %v", err)
+	}
+	if listResult.Path != "src" {
+		t.Fatalf("list result = %s", list)
+	}
+	if ops.listRunID != "run_tool_test" || ops.listReq.Path != "src" || !ops.listReq.Recursive || ops.listReq.Depth != 3 || ops.listReq.MaxEntries != 50 {
+		t.Fatalf("list forwarding = %q/%+v", ops.listRunID, ops.listReq)
+	}
 
 	read, err := NewReadFile(ops).InvokableRun(ctx, json.RawMessage(`{"path":"src/main.go","start_line":"2","end_line":"4","max_bytes":"100"}`))
 	if err != nil {
@@ -88,11 +110,14 @@ func TestFilesystemToolArgumentErrorsAndSpecs(t *testing.T) {
 	if _, err := NewSearchFiles(ops).InvokableRun(context.Background(), json.RawMessage(`{"query":"x","case_sensitive":"maybe"}`)); err == nil {
 		t.Fatal("invalid boolean should fail")
 	}
+	if _, err := NewListDir(ops).InvokableRun(context.Background(), json.RawMessage(`{"path":"src","recursive":"maybe"}`)); err == nil {
+		t.Fatal("invalid list boolean should fail")
+	}
 	if _, err := NewPatch(ops).InvokableRun(context.Background(), json.RawMessage(`{"path":"a.txt","old_string":"x","unknown":"y"}`)); err == nil {
 		t.Fatal("unknown argument should fail")
 	}
 
-	for _, tool := range []Tool{NewReadFile(ops), NewSearchFiles(ops), NewWriteFile(ops), NewPatch(ops)} {
+	for _, tool := range []Tool{NewListDir(ops), NewReadFile(ops), NewSearchFiles(ops), NewWriteFile(ops), NewPatch(ops)} {
 		spec := tool.Spec()
 		if spec.Name == "" || len(spec.Params) == 0 {
 			t.Fatalf("invalid filesystem spec: %+v", spec)

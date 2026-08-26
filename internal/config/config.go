@@ -287,7 +287,7 @@ func Default() Config {
 				Approval: SandboxApprovalConfig{
 					DefaultPolicy:    "ask",
 					TimeoutSeconds:   300, // 5 minutes
-					AutoApproveTools: []string{"read_file", "search_files", "list_notes", "read_note", "skills_list", "skill_view", "network_search"},
+					AutoApproveTools: []string{"list_dir", "read_file", "search_files", "list_notes", "read_note", "skills_list", "skill_view", "network_search"},
 				},
 				Network: SandboxNetworkConfig{
 					AllowedDomains: []string{},
@@ -296,7 +296,7 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
+			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
 			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 		Governance: Governance{
