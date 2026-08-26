@@ -67,3 +67,38 @@ func TestEmptyProviderAllowed(t *testing.T) {
 		t.Fatalf("empty settings should validate: %v", err)
 	}
 }
+
+func TestValidateExecuteMaxTimeoutBounds(t *testing.T) {
+	if err := (Settings{ExecuteMaxTimeoutSeconds: 0}).Validate(); err != nil {
+		t.Fatalf("0 (config default) should validate: %v", err)
+	}
+	if err := (Settings{ExecuteMaxTimeoutSeconds: 1}).Validate(); err != nil {
+		t.Fatalf("1 should validate: %v", err)
+	}
+	if err := (Settings{ExecuteMaxTimeoutSeconds: 600}).Validate(); err != nil {
+		t.Fatalf("600 should validate: %v", err)
+	}
+	for _, value := range []int{-1, 601, 3600} {
+		if err := (Settings{ExecuteMaxTimeoutSeconds: value}).Validate(); err == nil {
+			t.Fatalf("expected error for execute_max_timeout_seconds=%d", value)
+		}
+	}
+}
+
+func TestSaveAndLoadExecuteMaxTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	saved, err := Save(path, Settings{ExecuteMaxTimeoutSeconds: 300})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.ExecuteMaxTimeoutSeconds != 300 || loaded != saved {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+	if _, err := Save(path, Settings{ExecuteMaxTimeoutSeconds: 601}); err == nil {
+		t.Fatal("expected save to reject execute_max_timeout_seconds above hard cap")
+	}
+}
