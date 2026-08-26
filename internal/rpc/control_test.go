@@ -558,6 +558,44 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
 	}
+
+	// Availability roster is always present and keyless providers are
+	// reported configured.
+	if len(get.NetworkSearch.Providers) == 0 {
+		t.Fatalf("network_search providers roster missing: %+v", get.NetworkSearch)
+	}
+	keyless := map[string]bool{}
+	for _, info := range get.NetworkSearch.Providers {
+		if info.Name == "duckduckgo" || info.Name == "wikipedia" {
+			keyless[info.Name] = info.Keyless && info.Configured
+		}
+	}
+	if !keyless["duckduckgo"] || !keyless["wikipedia"] {
+		t.Fatalf("keyless providers must be configured: %+v", get.NetworkSearch.Providers)
+	}
+
+	// Invalid network_search provider is rejected.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"network_search": map[string]any{"provider": "alta vista"},
+	}); rpcErr == nil {
+		t.Fatal("expected invalid network_search provider to be rejected")
+	}
+
+	// network_search preference persists and is echoed back.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":       "openai",
+		"network_search": map[string]any{"provider": "searxng"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.NetworkSearch.Provider != "searxng" {
+		t.Fatalf("network_search preference not persisted: %+v", get.NetworkSearch)
+	}
 }
 
 func TestSettingsCapabilitiesAdvertised(t *testing.T) {

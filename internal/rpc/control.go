@@ -47,6 +47,9 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
+	// ConfigNetworkSearchProvider is the config.yaml network_search
+	// preference (non-secret), surfaced by settings/get.
+	ConfigNetworkSearchProvider string
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -1230,6 +1233,25 @@ type settingsResult struct {
 	ConfigProvider string `json:"config_provider"`
 	// ConfigModel is the production config default model, for display.
 	ConfigModel string `json:"config_model"`
+	// NetworkSearch is the network_search provider preference plus the
+	// per-provider availability (env key presence, never values).
+	NetworkSearch networkSearchSettingsResult `json:"network_search"`
+}
+
+// networkSearchSettingsResult is the non-secret network_search section of
+// settings/get. Providers is the availability roster in preference order.
+type networkSearchSettingsResult struct {
+	Provider       string                              `json:"provider"`
+	ConfigProvider string                              `json:"config_provider"`
+	Providers      []runtime.NetworkSearchProviderInfo `json:"providers"`
+}
+
+func networkSearchView(saved, configDefault string) networkSearchSettingsResult {
+	return networkSearchSettingsResult{
+		Provider:       saved,
+		ConfigProvider: configDefault,
+		Providers:      runtime.NetworkSearchProviderAvailability(),
+	}
 }
 
 func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
@@ -1241,17 +1263,20 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 		ConfigProvider: "",
 		ConfigModel:    "",
 	}
+	savedSearchProvider := ""
 	if h.deps.SettingsPath != "" {
 		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
+			savedSearchProvider = s.NetworkSearch.Provider
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
 	// cleared field falls back to. The runtime never exposes secrets.
 	out.ConfigProvider = h.deps.ConfigProvider
 	out.ConfigModel = h.deps.ConfigModel
+	out.NetworkSearch = networkSearchView(savedSearchProvider, h.deps.ConfigNetworkSearchProvider)
 	return out, nil
 }
 
@@ -1260,24 +1285,33 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
 	var params struct {
-		Provider     string `json:"provider"`
-		DefaultModel string `json:"default_model"`
-		BaseURL      string `json:"base_url"`
+		Provider      string `json:"provider"`
+		DefaultModel  string `json:"default_model"`
+		BaseURL       string `json:"base_url"`
+		NetworkSearch struct {
+			Provider string `json:"provider"`
+		} `json:"network_search"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL}
+	// The request replaces the whole settings document, mirroring the
+	// provider fields' semantics.
+	s := settings.Settings{
+		Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL,
+		NetworkSearch: settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider},
+	}
 	saved, err := settings.Save(h.deps.SettingsPath, s)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	_ = ctx
 	return settingsResult{
-		Provider:     saved.Provider,
-		DefaultModel: saved.DefaultModel,
-		BaseURL:      saved.BaseURL,
-		ReadOnly:     false,
+		Provider:      saved.Provider,
+		DefaultModel:  saved.DefaultModel,
+		BaseURL:       saved.BaseURL,
+		ReadOnly:      false,
+		NetworkSearch: networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
 	}, nil
 }
 

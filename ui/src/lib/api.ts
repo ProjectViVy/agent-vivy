@@ -24,7 +24,11 @@ export interface ChildRun { id: string; parent_run_id: string; root_run_id: stri
 export type ReviewKind = 'approval' | 'question';
 export type ReviewStatus = 'pending' | 'approved' | 'denied' | 'answered' | 'cancelled' | 'expired' | 'stale';
 export interface ReviewItem { id: string; kind: ReviewKind; status: ReviewStatus; session_id: string; session_title?: string; run_id: string; tool_call_id?: string; tool_name?: string; source?: string; actor?: string; created_at: number; expires_at: number; decided_at?: number; action?: string; target?: string; precondition_hash?: string; preview?: string; risk_findings?: string[]; arguments?: Record<string, unknown>; prompt?: string; decision_reason?: string; stale_reason?: string; error?: string; effect?: string; reversibility?: string; scope?: string; trust?: string }
-export interface Settings { provider: string; default_model: string; base_url: string; read_only: boolean; config_provider: string; config_model: string }
+export interface NetworkSearchProviderInfo { name: string; keyless: boolean; configured: boolean; env_key?: string }
+export interface NetworkSearchSettingsView { provider: string; config_provider: string; providers: NetworkSearchProviderInfo[] }
+export interface Settings { provider: string; default_model: string; base_url: string; read_only: boolean; config_provider: string; config_model: string; network_search?: NetworkSearchSettingsView }
+/** settings/update replaces the whole settings document, network_search included. */
+export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & { network_search: { provider: string } };
 export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
 export interface Recipe { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] }
 export type GenerationPhase = 'built' | 'eval_pending' | 'evaluated' | 'promoted' | 'released' | 'rejected';
@@ -87,4 +91,4 @@ export const startEval = (params: { candidate_id: string; baseline_id?: string; 
 export const listPromotions = () => request<{ promotions: Promotion[] }>('promotions/list');
 export const promoteGeneration = (params: { from_id: string; to_id: string; eval_id?: string; actor?: string }) => request<Promotion>('promotions/promote', params);
 export const getSettings = () => request<Settings>('settings/get');
-export const updateSettings = (params: Pick<Settings, 'provider' | 'default_model' | 'base_url'>) => request<Settings>('settings/update', params);
+export const updateSettings = (params: SettingsUpdate) => request<Settings>('settings/update', params);
