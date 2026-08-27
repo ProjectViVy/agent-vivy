@@ -1,8 +1,8 @@
+// 'language' 已升级为真实设置分区（LanguagePicker + src/i18n），不再是迁移预览。
 export const DIVA_PREVIEW_SECTIONS = [
   'general',
   'channels',
   'network',
-  'language',
   'compaction',
   'self-evolution',
   'sandbox',

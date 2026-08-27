@@ -61,11 +61,11 @@ Do not pick work from those tables. Closed-track filing:
 | UI-TOKEN | 中控台 Token 统计接真实用量账本 | OPEN | 2026-08-25 UI 只放了 `getDemoTokenUsage` 假数据；Diva 侧权威在 Manager token ledger |
 | UI-MCP | MCP 面板接真实后端管理 | OPEN | 2026-08-25 面板已按 oil-frontend 重做但仍为 `vivy.demo.mcp` 演示数据；内核 MCP 由 `config.yaml` `runtime.mcp_servers` 驱动，无管理 RPC |
 | UI-TITLE | `ui/index.html` 标题仍是旧演示名 | OPEN | `<title>Agent Diva 前端演示</title>`；产品现为 Vivy，改名需产品命名确认，未随皮肤迭代顺手改 |
-| UI-SET-I18N | 设置页 i18n 接线未完成 | OPEN | i18n 主体已完成（`ui/src/i18n/` 基础设施 + zh/en 词典 + 全视图/lib 文案迁移 + 测试，`just ci` 绿，见 `docs/logs/2026-08-25-i18n-support/`）。剩余：在 `SettingsView.tsx` 语言页挂载已建好的 `<LanguagePicker />`（3 行，点击即 `setLocale` 全局切换 + 持久化）。`SettingsView`/`DivaSettingsPreview` 由他人负责，挂载需与之协调；当前「语言 预览」标签为预览实现，不改变全局文案 |
 | UI-EVO | 进化页接真实 Evolution/AutoDream 后端 | OPEN | 2026-08-25 页面已按 agent-diva 结构落地为 `vivy.demo.*` 演示数据页（`/evolution`，三 Tab 治理闭环 + 跨页跳转，见 `docs/logs/2026-08-25-evolution-page/`）；内核 AutoDream/Evolution 能力本身见 MEM-1（DEFERRED），有能力提案后需把 `demo-api.ts` 换成 `api.ts` 真实 RPC 并登记方法 |
 | UI-CHAT-ACT | 消息编辑 / 回退 / 分叉启用 + 截断式重新生成 | OPEN | 2026-08-26 功能栏已移植（复制启用 + 重新生成=重发上一条用户输入开新回合，见 `docs/logs/2026-08-26-chat-message-actions/`）；编辑/回退/分叉为禁用占位。真正的就地覆盖需内核 Journal 提供消息截断/分支 RPC（现为追加式事实源），属内核能力提案 |
 | UI-PROV-RPC | 供应商目录接真实后端（模型在线刷新） | OPEN | 2026-08-27 前端已移植 diva 静态供应商目录+折叠（`ui/src/components/settings/provider-catalog.ts`，由 `ui/scripts/gen-provider-catalog.py` 从 agent-diva yaml 生成，见 `docs/logs/2026-08-27-provider-catalog-fold/`）。diva 的 `get_provider_models` 运行时拉取在 vivy 无对应 RPC，目录为静态快照，会随厂商上新漂移；接真实数据需新增 provider/model 目录 RPC 并让前端目录退化为展示层 |
 | UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | OPEN | 2026-08-27 模型密钥端到端落地（`docs/logs/2026-08-27-model-api-key/`）后，`api_key` 覆盖层按运行束 env_key 注入（启动时 `os.Setenv`），同一束（如 openai）下不同 base_url 网关共用一把钥；多网关多密钥需 provider 层按 base_url 解析密钥（当前 `internal/provider/openai.go` 走 `os.Getenv(bundle.EnvKey)` 单 env） |
+| UI-E2E-STALE | `just ui-e2e` 两条既有规格断言已过期文案（非本次改动引入） | OPEN | `runtime.spec.ts:84` 断言「密钥只由运行环境管理」、`welcome-wizard.spec.ts:33` 断言「API 密钥通过运行环境变量注入，不在界面中填写或保存。」——两串文案在 `ui/src` 均已不存在，密钥提示曾被 i18n 改写（现文案见 `ui/src/i18n/zh.ts` 的 `catalogKeyHint`/`secretNote` 等键）。2026-08-27 e2e 复跑确认：新增的 `language-setting.spec.ts` 通过，这两条为过期规格失败，与语言分区改动无关；需按现文案同步断言后恢复全绿，本次范围外未改 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
@@ -266,6 +266,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-27 | UI-SET-I18N 设置页 i18n 接线 | 设置→语言 从迁移预览升级为真实分区：挂载既有 `<LanguagePicker />`（点击即 `setLocale` 全局切换界面语言并持久化 `localStorage['vivy.language']`），删除 `DivaSettingsPreview` 的假 `LanguagePreview` 与 `language` 分支，`SettingsTab` 纳入 `'language'` 支持深链。`just ci` 全绿；新增 `ui/e2e/language-setting.spec.ts` 真实路径通过。Filing: `docs/logs/2026-08-27-settings-language/`. |
 | 2026-08-26 | PROC-COMMIT | 根树三个已完成交付按主题拆分入库为独立提交：evolution 页 `a857976` / welcome wizard `9a11370` / chat message actions `1a3f0c7`，各自携带 `docs/logs/` 与 §0.1 登记（UI-EVO、UI-CHAT-ACT）；共享文件（`i18n/zh.ts`、`i18n/en.ts`、`runtime.spec.ts`、`TODO.md`）按主题 hunk 分块 stage，无混合提交。拆分前对整树复跑 `just ci` 全绿。Filing: `docs/logs/2026-08-26-proc-commit/`. |
 | 2026-08-25 | 移除恋粉（love）主题 | 用户反馈不好看，整主题删除（注册表/CSS 令牌块/反闪烁脚本/测试）；残留 `vivy.theme=love` 存储值白名单回落默认。皮肤功能现为 4 套。`just ci` 绿 + 3015 实走。Filing: `docs/logs/2026-08-25-remove-love-theme/`. |
 | 2026-08-25 | UI 皮肤（主题）功能 | 5 套主题（default/love/pink/dark/miku，后三套移植 Agent-Diva）统一为 shadcn 语义 Token 的 `[data-theme]` 块；设置→通用新增真实 ThemePicker，`vivy.theme` localStorage 持久化 + index.html 反闪烁引导；删除迁移预览假主题卡。`just ci` 绿 + 3015 实走。Filing: `docs/logs/2026-08-25-vivy-ui-themes/`.（love 后续移除，见上一行） |

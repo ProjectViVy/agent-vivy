@@ -19,8 +19,9 @@ import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewS
 import { DivaSettingsPreview } from './DivaSettingsPreview';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
+import { LanguagePicker } from './LanguagePicker';
 
-const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', ...DIVA_ADDITIONAL_SECTIONS] as const;
+const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', ...DIVA_ADDITIONAL_SECTIONS] as const;
 export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
 
 /** 路由 search 参数的白名单校验（?tab=…深链）。 */
@@ -31,7 +32,6 @@ export function isSettingsTab(value: unknown): value is SettingsTab {
 const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
   channels: '通道',
   network: '网络',
-  language: '语言',
   compaction: '压缩',
   'self-evolution': '自进化',
   sandbox: '沙箱',
@@ -98,6 +98,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             <TabsTrigger value="model">模型</TabsTrigger>
             <TabsTrigger value="tools">工具</TabsTrigger>
             <TabsTrigger value="vivy">Vivy 功能</TabsTrigger>
+            <TabsTrigger value="language">语言</TabsTrigger>
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
               <TabsTrigger key={section} value={section}>
                 {DIVA_TAB_LABELS[section]}
@@ -206,6 +207,10 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsContent value="vivy" className="space-y-4">
             <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>生命周期</CardTitle><CardDescription>查看 Species、Generation、评测与晋升。</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">打开生命周期<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
             <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>Run Inspector</CardTitle><CardDescription>查看当前、后台与子 Run。</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] overflow-hidden p-0"><RunInspector /></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="language" className="space-y-4">
+            <LanguagePicker />
           </TabsContent>
 
           {DIVA_ADDITIONAL_SECTIONS.map((section) => (

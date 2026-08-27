@@ -5,7 +5,6 @@ import {
   Bot,
   FlaskConical,
   Globe2,
-  Languages,
   MessageSquare,
   Minimize2,
   RadioTower,
@@ -288,27 +287,6 @@ function NetworkPreview() {
   );
 }
 
-function LanguagePreview() {
-  const [language, setLanguage] = useState<'zh' | 'en'>('zh');
-  const { feedback, notify } = usePreviewFeedback();
-  const options = [{ id: 'zh' as const, label: '简体中文', code: 'CN' }, { id: 'en' as const, label: 'English', code: 'EN' }];
-
-  return (
-    <PreviewFrame icon={Languages} title="语言" description="预览 Agent-Diva 的语言切换入口。当前不会改变 Vivy 全局文案。" feedback={feedback}>
-      <PreviewCard title="界面语言" description="选择后只更新本页的预览状态。">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {options.map((option) => (
-            <button key={option.id} type="button" aria-pressed={language === option.id} className={`cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-accent ${language === option.id ? 'border-primary bg-primary/5' : ''}`} onClick={() => { setLanguage(option.id); notify(`语言预览已切换为 ${option.label}。`); }}>
-              <div className="flex items-center justify-between"><span className="font-medium">{option.label}</span><span className="rounded bg-muted px-2 py-1 text-xs font-semibold">{option.code}</span></div>
-              <p className="mt-2 text-sm text-muted-foreground">{language === option.id ? '当前预览语言' : '点击查看预览'}</p>
-            </button>
-          ))}
-        </div>
-      </PreviewCard>
-    </PreviewFrame>
-  );
-}
-
 function CompactionPreview() {
   const [maxTokens, setMaxTokens] = useState(8192);
   const [thresholdPercent, setThresholdPercent] = useState(80);
@@ -403,7 +381,6 @@ export function DivaSettingsPreview({ section }: { section: DivaPreviewSection }
       return <GeneralPreview />;
     case 'channels': return <ChannelsPreview />;
     case 'network': return <NetworkPreview />;
-    case 'language': return <LanguagePreview />;
     case 'compaction': return <CompactionPreview />;
     case 'self-evolution': return <SelfEvolutionPreview />;
     case 'sandbox': return <SandboxPreview />;
