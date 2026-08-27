@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2, X } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
 import type { Settings } from '@/lib/api';
-import { matchProviderEntry } from '@/components/settings/provider-catalog';
 import {
   removeSavedModel,
   savedModelVendorLabel,
@@ -24,8 +23,9 @@ import { maskOptions, setActiveMaskId, useActiveMask, type MaskOption } from '@/
 import { useTranslation } from '@/i18n';
 
 function displayProvider(provider: string, baseUrl: string, t: ReturnType<typeof useTranslation>['t']): string {
-  // 目录命中时显示厂商名（如 provider=openai + DeepSeek 网关 → “DeepSeek”）。
-  return matchProviderEntry(provider, baseUrl)?.displayName || provider || t('maskSwitcher.defaultProvider');
+  // 目录/注册表命中时显示厂商名（如 provider=openai + DeepSeek 网关 → “DeepSeek”；
+  // 自定义网关 → 注册的显示名，未注册 → baseUrl 主机名）。
+  return savedModelVendorLabel({ provider, baseUrl, model: '' }) || t('maskSwitcher.defaultProvider');
 }
 
 function MaskMenu({ activeMask, onSelect }: { activeMask: MaskOption; onSelect: (id: string) => void }) {
