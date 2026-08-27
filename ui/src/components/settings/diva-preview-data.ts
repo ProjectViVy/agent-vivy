@@ -1,9 +1,9 @@
 // 'language' 已升级为真实设置分区（LanguagePicker + src/i18n），不再是迁移预览。
+// 'compaction' 已并入通用分区（DivaSettingsPreview 的 GeneralPreview），不再是独立设置分区。
 export const DIVA_PREVIEW_SECTIONS = [
   'general',
   'channels',
   'network',
-  'compaction',
   'self-evolution',
   'sandbox',
 ] as const;

@@ -6,7 +6,6 @@ import {
   FlaskConical,
   Globe2,
   MessageSquare,
-  Minimize2,
   RadioTower,
   ShieldCheck,
   SlidersHorizontal,
@@ -134,6 +133,13 @@ function GeneralPreview() {
     showRawMetaByDefault: false,
   });
   const [cacheCleared, setCacheCleared] = useState(false);
+  // 压缩配置随「压缩」分区移除，并入通用分区（DivaSettingsPreview 的 GeneralPreview）。
+  const [maxTokens, setMaxTokens] = useState(8192);
+  const [thresholdPercent, setThresholdPercent] = useState(80);
+  const [keepRecent, setKeepRecent] = useState(12);
+  const [historyTokens, setHistoryTokens] = useState(6340);
+  const pressure = Math.min(100, Math.round((historyTokens / Math.max(1, maxTokens)) * 100));
+  const shouldCompact = pressure >= thresholdPercent;
   const { feedback, notify } = usePreviewFeedback();
 
   const updatePref = (key: keyof ChatPreviewPrefs, value: boolean) => {
@@ -145,7 +151,7 @@ function GeneralPreview() {
     <PreviewFrame
       icon={SlidersHorizontal}
       title="通用与关于"
-      description="迁移聊天显示偏好、缓存状态和项目归属信息。"
+      description="迁移聊天显示偏好、上下文压缩、缓存状态和项目归属信息。"
       feedback={cacheCleared ? '界面缓存清理已模拟完成，真实浏览器数据未被删除。' : feedback}
     >
       <PreviewCard title="聊天显示" description="这些开关只模拟 Agent-Diva 的消息展示偏好。">
@@ -175,6 +181,18 @@ function GeneralPreview() {
             onCheckedChange={(checked) => updatePref('showRawMetaByDefault', checked)}
           />
         </div>
+      </PreviewCard>
+
+      <PreviewCard title="上下文压缩" description="预览历史消息预算、阈值和手动压缩入口，调整只影响本页预览，不写入运行配置。">
+        <div className="flex items-center justify-between text-sm"><span>历史消息占用</span><span className="font-medium">{historyTokens.toLocaleString()} / {maxTokens.toLocaleString()} tokens</span></div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all ${shouldCompact ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} /></div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground"><Badge variant={shouldCompact ? 'secondary' : 'outline'}>{pressure}% 压力</Badge><span>{shouldCompact ? '达到压缩阈值' : '暂不需要压缩'}</span></div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="space-y-2"><Label htmlFor="preview-compaction-max">最大 tokens</Label><Input id="preview-compaction-max" type="number" min={1} value={maxTokens} onChange={(event) => { setMaxTokens(Math.max(1, Number(event.target.value) || 1)); notify('最大 tokens 预览已更新。'); }} /></div>
+          <div className="space-y-2"><Label htmlFor="preview-compaction-threshold">压缩阈值 (%)</Label><Input id="preview-compaction-threshold" type="number" min={10} max={100} value={thresholdPercent} onChange={(event) => { setThresholdPercent(Math.min(100, Math.max(10, Number(event.target.value) || 10))); notify('压缩阈值预览已更新。'); }} /></div>
+          <div className="space-y-2"><Label htmlFor="preview-compaction-recent">保留最近消息</Label><Input id="preview-compaction-recent" type="number" min={1} value={keepRecent} onChange={(event) => { setKeepRecent(Math.max(1, Number(event.target.value) || 1)); notify('保留消息数预览已更新。'); }} /></div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="button" onClick={() => { setHistoryTokens(keepRecent * 240); notify('已模拟执行一次上下文压缩预览。'); }}>执行压缩预览</Button><Button type="button" variant="outline" onClick={() => { setMaxTokens(8192); setThresholdPercent(80); setKeepRecent(12); setHistoryTokens(6340); notify('压缩配置已恢复为预览默认值。'); }}>恢复预览默认值</Button></div>
       </PreviewCard>
 
       <PreviewCard title="缓存与运行状态" description="用静态状态展示 DIVA 通用设置中的运行摘要。">
@@ -287,34 +305,6 @@ function NetworkPreview() {
   );
 }
 
-function CompactionPreview() {
-  const [maxTokens, setMaxTokens] = useState(8192);
-  const [thresholdPercent, setThresholdPercent] = useState(80);
-  const [keepRecent, setKeepRecent] = useState(12);
-  const [historyTokens, setHistoryTokens] = useState(6340);
-  const { feedback, notify } = usePreviewFeedback();
-  const pressure = Math.min(100, Math.round((historyTokens / Math.max(1, maxTokens)) * 100));
-  const shouldCompact = pressure >= thresholdPercent;
-
-  return (
-    <PreviewFrame icon={Minimize2} title="上下文压缩" description="预览历史消息预算、阈值和手动压缩入口。" feedback={feedback}>
-      <PreviewCard title="预算状态" description="数值来自假会话，不代表当前 Vivy 会话。">
-        <div className="flex items-center justify-between text-sm"><span>历史消息占用</span><span className="font-medium">{historyTokens.toLocaleString()} / {maxTokens.toLocaleString()} tokens</span></div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all ${shouldCompact ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} /></div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground"><Badge variant={shouldCompact ? 'secondary' : 'outline'}>{pressure}% 压力</Badge><span>{shouldCompact ? '达到压缩阈值' : '暂不需要压缩'}</span></div>
-      </PreviewCard>
-      <PreviewCard title="压缩配置" description="调整只影响本页预览，不写入运行配置。">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2"><Label htmlFor="preview-compaction-max">最大 tokens</Label><Input id="preview-compaction-max" type="number" min={1} value={maxTokens} onChange={(event) => { setMaxTokens(Math.max(1, Number(event.target.value) || 1)); notify('最大 tokens 预览已更新。'); }} /></div>
-          <div className="space-y-2"><Label htmlFor="preview-compaction-threshold">压缩阈值 (%)</Label><Input id="preview-compaction-threshold" type="number" min={10} max={100} value={thresholdPercent} onChange={(event) => { setThresholdPercent(Math.min(100, Math.max(10, Number(event.target.value) || 10))); notify('压缩阈值预览已更新。'); }} /></div>
-          <div className="space-y-2"><Label htmlFor="preview-compaction-recent">保留最近消息</Label><Input id="preview-compaction-recent" type="number" min={1} value={keepRecent} onChange={(event) => { setKeepRecent(Math.max(1, Number(event.target.value) || 1)); notify('保留消息数预览已更新。'); }} /></div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="button" onClick={() => { setHistoryTokens(keepRecent * 240); notify('已模拟执行一次上下文压缩预览。'); }}>执行压缩预览</Button><Button type="button" variant="outline" onClick={() => { setMaxTokens(8192); setThresholdPercent(80); setKeepRecent(12); setHistoryTokens(6340); notify('压缩配置已恢复为预览默认值。'); }}>恢复预览默认值</Button></div>
-      </PreviewCard>
-    </PreviewFrame>
-  );
-}
-
 function SelfEvolutionPreview() {
   const [enabled, setEnabled] = useState(true);
   const [frequency, setFrequency] = useState<EvolutionFrequency>('weekly');
@@ -381,7 +371,6 @@ export function DivaSettingsPreview({ section }: { section: DivaPreviewSection }
       return <GeneralPreview />;
     case 'channels': return <ChannelsPreview />;
     case 'network': return <NetworkPreview />;
-    case 'compaction': return <CompactionPreview />;
     case 'self-evolution': return <SelfEvolutionPreview />;
     case 'sandbox': return <SandboxPreview />;
   }
