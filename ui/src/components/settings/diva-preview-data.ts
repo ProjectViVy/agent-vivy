@@ -39,21 +39,3 @@ export const DIVA_EVOLUTION_ACTIONS = [
 ] as const;
 
 export type DivaEvolutionAction = (typeof DIVA_EVOLUTION_ACTIONS)[number]['id'];
-
-export const DIVA_AUDIT_EVENTS = {
-  structured: [
-    { at: '10:42:18', level: 'info', source: 'settings', message: '加载设置预览数据' },
-    { at: '10:41:52', level: 'info', source: 'session', message: '会话 s-demo 已打开' },
-    { at: '10:40:07', level: 'warn', source: 'provider', message: '示例 Provider 尚未配置密钥' },
-  ],
-  gateway: [
-    { at: '10:39:31', level: 'info', source: 'gateway', message: '控制面连接状态：connected' },
-    { at: '10:38:44', level: 'info', source: 'rpc', message: 'settings/get 请求完成' },
-  ],
-  gui: [
-    { at: '10:42:20', level: 'info', source: 'ui', message: '切换到审计预览' },
-    { at: '10:41:03', level: 'info', source: 'ui', message: '打开模型设置' },
-  ],
-} as const;
-
-export type DivaAuditTab = keyof typeof DIVA_AUDIT_EVENTS;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AuditPanel } from '@/components/audit/AuditPanel';
+import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
 import { getDemoDashboard } from '@/lib/demo-api';
 import type { DemoDashboardSnapshot } from '@/lib/types';
 import { useTranslation } from '@/i18n';
@@ -31,7 +31,7 @@ export function DashboardDemoView() {
           <TabsList className="w-full justify-start overflow-x-auto">
             <TabsTrigger value="overview">{t('dashboard.overview')}</TabsTrigger>
             <TabsTrigger value="token">{t('dashboard.token')}</TabsTrigger>
-            <TabsTrigger value="audit">{t('dashboard.audit')}</TabsTrigger>
+            <TabsTrigger value="trajectory">{t('dashboard.trajectory')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -98,14 +98,14 @@ export function DashboardDemoView() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="audit" className="space-y-4">
+          <TabsContent value="trajectory" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>{t('dashboard.auditTitle')}</CardTitle>
-                <CardDescription>{t('dashboard.auditDesc')}</CardDescription>
+                <CardTitle>{t('dashboard.trajectoryTitle')}</CardTitle>
+                <CardDescription>{t('dashboard.trajectoryDesc')}</CardDescription>
               </CardHeader>
-              <CardContent className="h-[480px] p-0">
-                <AuditPanel />
+              <CardContent className="h-[520px] p-0">
+                <TrajectoryPanel />
               </CardContent>
             </Card>
           </TabsContent>
