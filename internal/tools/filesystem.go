@@ -177,7 +177,7 @@ func (t *listDirTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 
 func (t *readFileTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: ReadFileName, Description: "Reads a bounded text file from the current run workspace.", Readonly: true,
+		Name: ReadFileName, Description: "Reads a bounded text file from the current run workspace. Text content lines are prefixed with 1-based file line numbers (\"N\\tline\") so patch and start_line/end_line targets can be located exactly.", Readonly: true,
 		Keywords: []string{"read", "file", "source", "cat"},
 		Params: map[string]domain.ToolParam{
 			"path":       {Desc: "Workspace-relative file path.", Required: true},
@@ -217,7 +217,34 @@ func (t *readFileTool) InvokableRun(ctx context.Context, args json.RawMessage) (
 	if err != nil {
 		return "", err
 	}
+	if !result.Binary {
+		result.Content = numberFileLines(result.Content, result.StartLine)
+	}
 	return marshalToolResult(result)
+}
+
+// numberFileLines prefixes every content line with its 1-based file line
+// number ("N\tline", cat -n style), starting at startLine (1 when unset).
+// The numbering is display metadata for locating patch and range targets;
+// patch old_string/new_string still operate on the un-numbered file bytes.
+func numberFileLines(content string, startLine int) string {
+	if content == "" {
+		return ""
+	}
+	if startLine <= 0 {
+		startLine = 1
+	}
+	trailing := strings.HasSuffix(content, "\n")
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	numbered := make([]string, len(lines))
+	for i, line := range lines {
+		numbered[i] = strconv.Itoa(startLine+i) + "\t" + line
+	}
+	out := strings.Join(numbered, "\n")
+	if trailing {
+		out += "\n"
+	}
+	return out
 }
 
 func (t *searchFilesTool) Spec() domain.ToolSpec {

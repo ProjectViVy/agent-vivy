@@ -178,7 +178,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(dataRoot, "todos"))
 	todoOps = todoBackend
-	searchOps = runtime.NewNetworkSearchService(nil, nil)
+	searchService := runtime.NewNetworkSearchService(nil, nil)
+	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
+	searchOps = searchService
 	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
 	mcpConfigs := make([]runtime.MCPServerConfig, 0, len(cfg.Runtime.MCPServers))
 	for _, server := range cfg.Runtime.MCPServers {
@@ -303,9 +305,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Children: workerManager,
 		// Operator-managed model provider selection lives in an independent
 		// agent working dir, never the production config or Journal.
-		SettingsPath:   settings.Path(dataRoot),
-		ConfigProvider: providerName,
-		ConfigModel:    defaultModelFor(cfg, providerName),
+		SettingsPath:                settings.Path(dataRoot),
+		ConfigProvider:              providerName,
+		ConfigModel:                 defaultModelFor(cfg, providerName),
+		// Non-secret network_search preference for the Settings UI display.
+		ConfigNetworkSearchProvider: cfg.Tools.NetworkSearch.Provider,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -422,7 +426,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 			logger.Warn("settings base_url not applied", "err", err)
 		}
 	}
-	// Optional api_key overlay: apply to the active bundle's env_key so the
+// Optional api_key overlay: apply to the active bundle's env_key so the
 	// provider resolves it like any other env-injected credential. Empty
 	// means "no overlay" — the bundle's environment variable stands, so
 	// catalog/default flows keep using their env key. The value is never
@@ -439,7 +443,13 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 			logger.Warn("settings api_key not applied", "err", err)
 		}
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", s.ApiKey != "")
+	// Network tool preference overlay: the UI-managed network_search
+	// provider overrides the config default (empty keeps the config value).
+	// Provider credentials stay environment-only; this field is a name.
+	if s.NetworkSearch.Provider != "" {
+		cfg.Tools.NetworkSearch.Provider = s.NetworkSearch.Provider
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", s.ApiKey != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider)
 	return cfg
 }
 

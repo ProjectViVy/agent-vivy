@@ -498,10 +498,11 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
-		Studio:         studio.NewService(backend),
-		SettingsPath:   settingsPath,
-		ConfigProvider: "mock",
-		ConfigModel:    "mock",
+		Studio:                      studio.NewService(backend),
+		SettingsPath:                settingsPath,
+		ConfigProvider:              "mock",
+		ConfigModel:                 "mock",
+		ConfigNetworkSearchProvider: "duckduckgo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -558,8 +559,26 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
 	}
-	if get.APIKeySet {
+if get.APIKeySet {
 		t.Fatal("api_key_set should be false before any key overlay")
+	}
+	// Network search section reflects the config default until overridden.
+	if get.NetworkSearch.Provider != "" || get.NetworkSearch.ConfigProvider != "duckduckgo" {
+		t.Fatalf("network_search defaults = %+v", get.NetworkSearch)
+	}
+	if len(get.NetworkSearch.Providers) != 5 {
+		t.Fatalf("network_search provider roster = %d, want 5", len(get.NetworkSearch.Providers))
+	}
+	// Availability roster is always present and keyless providers are
+	// reported configured.
+	keyless := map[string]bool{}
+	for _, info := range get.NetworkSearch.Providers {
+		if info.Name == "duckduckgo" || info.Name == "wikipedia" {
+			keyless[info.Name] = info.Keyless && info.Configured
+		}
+	}
+	if !keyless["duckduckgo"] || !keyless["wikipedia"] {
+		t.Fatalf("keyless providers must be configured: %+v", get.NetworkSearch.Providers)
 	}
 
 	// Update with an api_key overlay: the flag is set but the value is
@@ -601,6 +620,30 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	get = result.(settingsResult)
 	if get.APIKeySet {
 		t.Fatal("api_key_set should be false after a keyless update")
+	}
+
+	// Network search preference persists: update with a provider, then the
+	// next get echoes it back alongside the config default. An unsupported
+	// provider is rejected (validation) without overwriting the saved one.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":       "mock",
+		"network_search": map[string]any{"provider": "searxng"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":       "mock",
+		"network_search": map[string]any{"provider": "yandex"},
+	}); rpcErr == nil {
+		t.Fatal("expected unsupported network_search provider to be rejected")
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.NetworkSearch.Provider != "searxng" || get.NetworkSearch.ConfigProvider != "duckduckgo" {
+		t.Fatalf("network_search after update = %+v", get.NetworkSearch)
 	}
 }
 
