@@ -167,7 +167,7 @@ export const zh = {
     removeAria: '删除 {{name}}',
     apiKey: 'API Key',
     apiKeyPlaceholder: 'sk-…（留空=应用时清除已配置密钥）',
-    apiKeyHint: '只保存在本机运行数据（data/agent-home/settings.yaml），不会回传界面或写入日志。',
+    apiKeyHint: '写入本机运行数据（data/agent-home/settings.yaml）并同步环境变量；值不会回传界面或写入日志。',
     apiKeyConfigured: '已配置 API Key（值不会回传界面）',
     addModel: '新增模型',
     addModelPlaceholder: '输入模型 id，回车应用',
@@ -178,6 +178,7 @@ export const zh = {
       baseUrlRequired: '请填写 Base URL',
       baseUrlInvalid: 'Base URL 必须以 http:// 或 https:// 开头',
       duplicateBaseUrl: '该 Base URL 已存在于目录或自定义供应商',
+      saveFailed: '保存失败，请重试',
     },
   },
   runInspector: {

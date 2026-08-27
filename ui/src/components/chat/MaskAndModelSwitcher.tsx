@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2, X } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
 import type { Settings } from '@/lib/api';
-import { customApiKeyFor } from '@/components/settings/custom-providers';
+import type { ProviderEntry } from '@/components/settings/custom-providers';
 import {
   removeSavedModel,
   savedModelVendorLabel,
@@ -23,10 +23,10 @@ import { MaskIdentity } from '@/components/masks/MaskIdentity';
 import { maskOptions, setActiveMaskId, useActiveMask, type MaskOption } from '@/components/masks/mask-catalog';
 import { useTranslation } from '@/i18n';
 
-function displayProvider(provider: string, baseUrl: string, t: ReturnType<typeof useTranslation>['t']): string {
+function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], t: ReturnType<typeof useTranslation>['t']): string {
   // 目录/注册表命中时显示厂商名（如 provider=openai + DeepSeek 网关 → “DeepSeek”；
   // 自定义网关 → 注册的显示名，未注册 → baseUrl 主机名）。
-  return savedModelVendorLabel({ provider, baseUrl, model: '' }) || t('maskSwitcher.defaultProvider');
+  return savedModelVendorLabel({ provider, baseUrl, model: '' }, providers) || t('maskSwitcher.defaultProvider');
 }
 
 function MaskMenu({ activeMask, onSelect }: { activeMask: MaskOption; onSelect: (id: string) => void }) {
@@ -65,6 +65,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const { t } = useTranslation();
   const saveSettings = useVivyStore((state) => state.saveSettings);
   const settingsPhase = useVivyStore((state) => state.settingsPhase);
+  const providers = useVivyStore((state) => state.providers);
   const savedModels = useSavedModels();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +74,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const currentModel = settings?.default_model || settings?.config_model || '';
   const saving = settingsPhase === 'processing';
   const canChange = !!settings && !settings.read_only && !saving;
-  const providerLabel = displayProvider(currentProvider, currentBaseUrl, t);
+  const providerLabel = displayProvider(currentProvider, currentBaseUrl, providers, t);
   const savedOptions = savedModels.filter(
     (entry) => !(entry.provider === currentProvider && entry.baseUrl === currentBaseUrl && entry.model === currentModel),
   );
@@ -83,9 +84,10 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
     setError(null);
     try {
 // settings/update replaces the whole document: carry the loaded
-      // network_search preference and execute ceiling through unchanged
-      // alongside the key overlay.
-      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl), network_search: { provider: settings.network_search?.provider ?? '' }, execute_max_timeout_seconds: settings.execute_max_timeout_seconds });
+      // network_search preference and execute ceiling through unchanged;
+      // the key overlay is resolved by the backend from the registry, so it
+      // is never sent or echoed on select.
+      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, network_search: { provider: settings.network_search?.provider ?? '' }, execute_max_timeout_seconds: settings.execute_max_timeout_seconds });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -126,7 +128,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><Bookmark className="h-4 w-4" /></span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{entry.model}</span>
-              <span className="block truncate text-xs text-muted-foreground">{savedModelVendorLabel(entry)}</span>
+              <span className="block truncate text-xs text-muted-foreground">{savedModelVendorLabel(entry, providers)}</span>
             </span>
             <button
               type="button"

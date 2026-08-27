@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { matchMergedProviderEntry } from './custom-providers';
+import { matchMergedProviderEntry, type ProviderEntry } from './custom-providers';
 
 /**
  * 「已选模型」快捷切换列表（Agent-Diva savedModels 移植）。
@@ -106,9 +106,10 @@ export function removeSavedModel(provider: string, baseUrl: string, model: strin
  * 快捷列表条目的厂商标签：
  * 目录/自定义注册表命中 → displayName；否则带 Base URL → 主机名（含端口）；
  * 再否则回退原始 provider 束名。标签经 baseUrl 关联，注册表重命名即全局生效。
+ * providers 为后端权威的注册表快照（wire 形态，无密钥）。
  */
-export function savedModelVendorLabel(entry: SavedModelEntry): string {
-  const merged = matchMergedProviderEntry(entry.provider, entry.baseUrl);
+export function savedModelVendorLabel(entry: SavedModelEntry, providers: readonly ProviderEntry[]): string {
+  const merged = matchMergedProviderEntry(providers, entry.provider, entry.baseUrl);
   if (merged) return merged.displayName;
   if (entry.baseUrl) {
     try {

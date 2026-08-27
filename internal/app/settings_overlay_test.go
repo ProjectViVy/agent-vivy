@@ -118,9 +118,59 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	}
 }
 
-// TestApplySettingsOverlayExecuteTimeout pins the execute ceiling path: a
-// persisted execute_max_timeout_seconds override wins over the config value,
-// and a missing document leaves the config default standing.
+// TestApplySettingsEnvUsesRegistryKey pins the write-time env path: the
+// active selection resolves its key from the registry entry (bundle+base_url
+// match) rather than the legacy api_key overlay, so a provider save updates
+// the environment immediately with the entry's key.
+func TestApplySettingsEnvUsesRegistryKey(t *testing.T) {
+	keyEnv := "VIVY_TEST_API_KEY_REGISTRY"
+	t.Setenv(keyEnv, "")
+	t.Setenv(providerEnvBaseURL, "")
+
+	cfg := config.Config{
+		Providers: config.Providers{OpenAI: config.Provider{EnvKey: keyEnv}},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	applySettingsEnv(logger, cfg, settings.Settings{
+		Provider: settings.ProviderOpenAI,
+		BaseURL:  "https://gateway.example.com/v1",
+		ApiKey:   "sk-legacy-overlay",
+		Providers: []settings.ProviderEntry{{
+			ID: "custom-1", DisplayName: "Gateway", Bundle: settings.ProviderOpenAI,
+			BaseURL: "https://gateway.example.com/v1", ApiKey: "sk-registry-entry",
+		}},
+	})
+	if got := os.Getenv(keyEnv); got != "sk-registry-entry" {
+		t.Fatalf("env key = %q, want registry entry key", got)
+	}
+	if got := os.Getenv(providerEnvBaseURL); got != "https://gateway.example.com/v1" {
+		t.Fatalf("VIVY_API_BASE = %q, want gateway", got)
+	}
+}
+
+// TestApplySettingsEnvFallsBackToLegacyKey pins the fallback: when no
+// registry entry matches the active selection, the legacy api_key overlay
+// still supplies the env value (older documents / catalog selections).
+func TestApplySettingsEnvFallsBackToLegacyKey(t *testing.T) {
+	keyEnv := "VIVY_TEST_API_KEY_LEGACY"
+	t.Setenv(keyEnv, "")
+
+	cfg := config.Config{
+		Providers: config.Providers{OpenAI: config.Provider{EnvKey: keyEnv}},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	applySettingsEnv(logger, cfg, settings.Settings{
+		Provider: settings.ProviderOpenAI,
+		BaseURL:  "",
+		ApiKey:   "sk-legacy-overlay",
+	})
+	if got := os.Getenv(keyEnv); got != "sk-legacy-overlay" {
+		t.Fatalf("env key = %q, want legacy overlay", got)
+	}
+}
+
+const providerEnvBaseURL = "VIVY_API_BASE"
+
 func TestApplySettingsOverlayExecuteTimeout(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	base := config.Default()

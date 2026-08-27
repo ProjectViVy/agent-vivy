@@ -50,6 +50,7 @@ tools:
 `
 
 func TestLoadValid(t *testing.T) {
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
 	cfg, err := Load(writeConfig(t, validDoc))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -68,7 +69,7 @@ func TestLoadValid(t *testing.T) {
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
-		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != "data/workspaces" ||
+		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != filepath.Join(userDataRoot(), "workspace") ||
 		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
@@ -171,7 +172,7 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"http://127.0.0.1:3015", "http://127.0.0.1:3015/app", 1),
 		"non-loopback listen with origin": strings.Replace(validDoc,
 			`"127.0.0.1:9090"`, `"0.0.0.0:9090"`, 1),
-"unsupported network_search provider": strings.Replace(validDoc,
+		"unsupported network_search provider": strings.Replace(validDoc,
 			"  approval:\n    expiration: 2m", "  approval:\n    expiration: 2m\n  network_search:\n    provider: yandex", 1),
 		"zero execute timeout": strings.Replace(validDoc,
 			"execute_max_timeout_seconds: 210", "execute_max_timeout_seconds: 0", 1),
@@ -328,6 +329,7 @@ func TestDockerPackagingContracts(t *testing.T) {
 }
 
 func TestPostgresConfigRequiresDSNEnv(t *testing.T) {
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
 	doc := strings.Replace(validDoc, "backend: sqlite", "backend: postgres", 1)
 	if _, err := Load(writeConfig(t, doc)); err == nil {
 		t.Fatal("want error for postgres without dsn_env")
@@ -342,7 +344,7 @@ func TestPostgresConfigRequiresDSNEnv(t *testing.T) {
 	if cfg.Storage.Backend != "postgres" || cfg.Storage.Postgres.DSNEnv != "VIVY_POSTGRES_DSN" {
 		t.Fatalf("storage = %+v", cfg.Storage)
 	}
-	if cfg.DataDirectory() != "data" {
+	if cfg.DataDirectory() != userDataRoot() {
 		t.Fatalf("data dir = %q", cfg.DataDirectory())
 	}
 }

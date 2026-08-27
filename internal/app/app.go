@@ -305,13 +305,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Children: workerManager,
 		// Operator-managed model provider selection lives in an independent
 		// agent working dir, never the production config or Journal.
-SettingsPath:                settings.Path(dataRoot),
-		ConfigProvider:              providerName,
-		ConfigModel:                 defaultModelFor(cfg, providerName),
+		SettingsPath:   settings.Path(dataRoot),
+		ConfigProvider: providerName,
+		ConfigModel:    defaultModelFor(cfg, providerName),
 		// Non-secret network_search preference for the Settings UI display.
 		ConfigNetworkSearchProvider: cfg.Tools.NetworkSearch.Provider,
 		// Non-secret execute ceiling, editable from Settings → General.
 		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
+		// Write-time env apply: a settings/providers save updates the
+		// running process environment (base_url → VIVY_API_BASE, resolved
+		// api_key → active bundle env_key) immediately; the startup overlay
+		// replays the same document on the next launch.
+		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -391,6 +396,35 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 	return engine
 }
 
+// applySettingsEnv applies the non-secret base URL and the active bundle
+// api_key overlays to the process environment. It is shared between the
+// startup overlay (next-launch semantics) and the write-time path, so a
+// settings save updates the environment immediately AND the next start
+// replays the same document. An empty base_url/api_key means "no overlay" —
+// the existing environment (bundle default / env_key) stands. Secret values
+// are never logged.
+func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Settings) {
+	if s.BaseURL != "" {
+		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
+			logger.Warn("settings base_url not applied", "err", err)
+		}
+	}
+	keyEnv := ""
+	switch s.Provider {
+	case settings.ProviderOpenAI:
+		keyEnv = cfg.Providers.OpenAI.EnvKey
+	case settings.ProviderAnthropic:
+		keyEnv = cfg.Providers.Anthropic.EnvKey
+	}
+	if keyEnv != "" {
+		if key := settings.ActiveKey(s, s.Provider, s.BaseURL); key != "" {
+			if err := os.Setenv(keyEnv, key); err != nil {
+				logger.Warn("settings api_key not applied", "err", err)
+			}
+		}
+	}
+}
+
 // applySettingsOverlay reads the operator-managed settings document and
 // overlays its values onto cfg. A missing or empty document is a no-op: the
 // config defaults stand. The base URL is applied through the existing
@@ -407,7 +441,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 		logger.Warn("settings overlay skipped", "path", path, "err", err)
 		return cfg
 	}
-	if s == (settings.Settings{}) {
+	if s.IsZero() {
 		return cfg
 	}
 	if s.Provider != "" {
@@ -423,28 +457,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 			cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
 		}
 	}
-	if s.BaseURL != "" {
-		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
-			logger.Warn("settings base_url not applied", "err", err)
-		}
-	}
-// Optional api_key overlay: apply to the active bundle's env_key so the
-	// provider resolves it like any other env-injected credential. Empty
-	// means "no overlay" — the bundle's environment variable stands, so
-	// catalog/default flows keep using their env key. The value is never
-	// logged.
-	keyEnv := ""
-	switch s.Provider {
-	case settings.ProviderOpenAI:
-		keyEnv = cfg.Providers.OpenAI.EnvKey
-	case settings.ProviderAnthropic:
-		keyEnv = cfg.Providers.Anthropic.EnvKey
-	}
-	if s.ApiKey != "" && keyEnv != "" {
-		if err := os.Setenv(keyEnv, s.ApiKey); err != nil {
-			logger.Warn("settings api_key not applied", "err", err)
-		}
-	}
+	applySettingsEnv(logger, cfg, s)
 	// Network tool preference overlay: the UI-managed network_search
 	// provider overrides the config default (empty keeps the config value).
 	// Provider credentials stay environment-only; this field is a name.
@@ -456,7 +469,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 	if s.ExecuteMaxTimeoutSeconds > 0 {
 		cfg.Runtime.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", s.ApiKey != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds)
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", settings.ActiveKey(s, s.Provider, s.BaseURL) != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds)
 	return cfg
 }
 
