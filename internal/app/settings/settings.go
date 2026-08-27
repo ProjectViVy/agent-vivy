@@ -1,10 +1,11 @@
-// Package settings holds the operator-managed model provider selection for
-// Vivy itself. These are user-facing preferences (which provider bundle is
-// active, which default model, an optional OpenAI-compatible base URL, and an
-// optional API key overlay). They live in an independent agent working
-// directory (data/agent-home/settings.yaml) so the running species never
-// rewrites its own production config.yaml and never touches the Journal
-// (data/vivy.db).
+// Package settings holds the operator-managed model provider selection and
+// network tool preferences for Vivy itself. These are user-facing
+// preferences (which provider bundle is active, which default model, an
+// optional OpenAI-compatible base URL, an optional API key overlay, and the
+// preferred network_search provider). They live in an independent agent
+// working directory (data/agent-home/settings.yaml) so the running species
+// never rewrites its own production config.yaml and never touches the
+// Journal (data/vivy.db).
 //
 // Secrets: committed config still holds env_key names only (D-010). This
 // runtime settings document may additionally hold an optional plaintext
@@ -47,7 +48,8 @@ const (
 // URL, not a secret, but is still validated before use.
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
-// Settings is the persisted, non-secret model provider selection.
+// Settings is the persisted, non-secret model provider selection plus the
+// network_search preference.
 type Settings struct {
 	// Provider is the active bundle name; empty means "use config default".
 	Provider string `yaml:"provider"`
@@ -62,6 +64,17 @@ type Settings struct {
 	// doc: plaintext runtime data only, never logged or returned). Empty
 	// means "no overlay" — the bundle's env_key environment variable stands.
 	ApiKey string `yaml:"api_key"`
+	// NetworkSearch overrides tools.network_search.provider from the
+	// Settings UI; empty keeps the config value. Provider credentials stay
+	// environment-only (D-010).
+	NetworkSearch NetworkSearchSettings `yaml:"network_search"`
+}
+
+// NetworkSearchSettings is the UI-managed network_search preference.
+// Provider credentials stay environment-only (D-010).
+type NetworkSearchSettings struct {
+	// Provider is the preferred provider name, or empty for automatic.
+	Provider string `yaml:"provider"`
 }
 
 // Path returns the absolute settings file path for the given data root.
@@ -114,8 +127,15 @@ func (s Settings) Validate() error {
 	if s.BaseURL != "" && !apiBasePattern.MatchString(s.BaseURL) {
 		return fmt.Errorf("settings: base_url %q must be an http(s) absolute URL", s.BaseURL)
 	}
-	if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
+if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
 		return errors.New("settings: api_key must not contain newlines")
+	}
+	switch s.NetworkSearch.Provider {
+	case "":
+		// empty => automatic; allowed
+	case "bing", "google", "duckduckgo", "searxng", "wikipedia":
+	default:
+		return fmt.Errorf("settings: network_search.provider %q unsupported; want bing, google, duckduckgo, searxng, or wikipedia", s.NetworkSearch.Provider)
 	}
 	return nil
 }

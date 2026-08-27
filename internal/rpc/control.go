@@ -47,6 +47,9 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
+// ConfigNetworkSearchProvider is the production config network_search
+	// preference (non-secret), surfaced by settings/get.
+	ConfigNetworkSearchProvider string
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -1213,9 +1216,9 @@ func (h *controlHandler) inspectSpecies(ctx context.Context) (any, *Error) {
 	return rep, nil
 }
 
-// settingsResult is the operator-managed model provider selection surfaced
-// in the Settings UI. Secret values are never included: only the
-// api_key_set flag is exposed.
+// settingsResult is the operator-managed model provider selection and
+// network tool preferences surfaced in the Settings UI. Secret values are
+// never included: only the api_key_set flag is exposed.
 type settingsResult struct {
 	// Provider is the active bundle name (openai|anthropic|mock), or empty
 	// when the config default applies.
@@ -1234,6 +1237,28 @@ type settingsResult struct {
 	ConfigProvider string `json:"config_provider"`
 	// ConfigModel is the production config default model, for display.
 	ConfigModel string `json:"config_model"`
+	// NetworkSearch is the network_search provider preference plus the
+	// per-provider availability (env key presence, never values).
+	NetworkSearch networkSearchSettingsResult `json:"network_search"`
+}
+
+// networkSearchSettingsResult is the non-secret network_search section of
+// settings/get. Providers is the availability roster in preference order.
+type networkSearchSettingsResult struct {
+// Provider is the saved preference, or empty for automatic.
+	Provider string `json:"provider"`
+	// ConfigProvider is the production config network_search default.
+	ConfigProvider string `json:"config_provider"`
+	// Providers is the allowlisted roster with env-key presence status.
+	Providers []runtime.NetworkSearchProviderInfo `json:"providers"`
+}
+
+func networkSearchView(saved, configDefault string) networkSearchSettingsResult {
+	return networkSearchSettingsResult{
+		Provider:       saved,
+		ConfigProvider: configDefault,
+		Providers:      runtime.NetworkSearchProviderAvailability(),
+	}
 }
 
 func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
@@ -1246,18 +1271,21 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 		ConfigProvider: "",
 		ConfigModel:    "",
 	}
+	savedSearchProvider := ""
 	if h.deps.SettingsPath != "" {
 		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
-			out.APIKeySet = s.ApiKey != ""
+out.APIKeySet = s.ApiKey != ""
+			savedSearchProvider = s.NetworkSearch.Provider
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
 	// cleared field falls back to. The runtime never exposes secret values.
 	out.ConfigProvider = h.deps.ConfigProvider
 	out.ConfigModel = h.deps.ConfigModel
+	out.NetworkSearch = networkSearchView(savedSearchProvider, h.deps.ConfigNetworkSearchProvider)
 	return out, nil
 }
 
@@ -1274,22 +1302,34 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		// carries the full (possibly empty) key state. The value is never
 		// echoed back.
 		ApiKey string `json:"api_key"`
+		// NetworkSearch carries the network_search provider preference;
+		// empty clears it back to automatic.
+		NetworkSearch struct {
+			Provider string `json:"provider"`
+		} `json:"network_search"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL, ApiKey: params.ApiKey}
+s := settings.Settings{
+		Provider:      params.Provider,
+		DefaultModel:  params.DefaultModel,
+		BaseURL:       params.BaseURL,
+		ApiKey:        params.ApiKey,
+		NetworkSearch: settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider},
+	}
 	saved, err := settings.Save(h.deps.SettingsPath, s)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	_ = ctx
 	return settingsResult{
-		Provider:     saved.Provider,
-		DefaultModel: saved.DefaultModel,
-		BaseURL:      saved.BaseURL,
-		APIKeySet:    saved.ApiKey != "",
-		ReadOnly:     false,
+		Provider:      saved.Provider,
+		DefaultModel:  saved.DefaultModel,
+		BaseURL:       saved.BaseURL,
+		APIKeySet:     saved.ApiKey != "",
+		ReadOnly:      false,
+		NetworkSearch: networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
 	}, nil
 }
 

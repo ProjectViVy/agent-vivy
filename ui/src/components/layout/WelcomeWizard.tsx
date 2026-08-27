@@ -82,7 +82,14 @@ export function WelcomeWizard() {
         setSaving(true);
         setError(null);
         try {
-          await saveSettings({ provider: form.provider, default_model: form.default_model, base_url: form.base_url });
+          // settings/update replaces the whole document: pass the loaded
+          // network_search preference through unchanged.
+          await saveSettings({
+            provider: form.provider,
+            default_model: form.default_model,
+            base_url: form.base_url,
+            network_search: { provider: settings?.network_search?.provider ?? '' },
+          });
         } catch (cause) {
           setSaving(false);
           setError(t('welcome.saveFailed', { error: cause instanceof Error ? cause.message : String(cause) }));
