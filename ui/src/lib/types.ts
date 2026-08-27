@@ -595,6 +595,12 @@ export interface PlanSidebarData {
 
 // ==================== Restored local demo surfaces ====================
 
+/** 单个模型独立保存的演示生成参数（vivy.demo.gen-params，绝不传给真实 Provider）。 */
+export interface DemoGenParams {
+  temperature: number;
+  max_tokens: number;
+}
+
 export interface DemoDashboardSnapshot {
   sessionCount: number;
   activeRuns: number;

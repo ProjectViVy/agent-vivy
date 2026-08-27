@@ -45,6 +45,7 @@ import type {
   DemoMemoryItem,
   DemoMcpServer,
   DemoComposerState,
+  DemoGenParams,
 } from './types';
 import { t } from '@/i18n';
 
@@ -71,6 +72,8 @@ const STORAGE_KEYS = {
   MEMORY: 'vivy.demo.memory',
   MCP: 'vivy.demo.mcp',
   COMPOSER: 'vivy.demo.composer',
+  /** 按模型键名（provider/baseUrl/model）独立保存的演示生成参数 */
+  GEN_PARAMS: 'vivy.demo.gen-params',
 };
 
 // ==================== 模拟数据生成器 ====================
@@ -610,6 +613,59 @@ const MOCK_TOOLS_CONFIG: ToolsConfigShape = {
     { command: 'bash', enabled: true, approval_required: true },
   ],
 };
+
+// ==================== 按模型独立的演示生成参数 ====================
+
+/** 新模型的演示生成参数默认值（与 MOCK_CONFIG 一致）。 */
+const DEFAULT_DEMO_GEN_PARAMS: DemoGenParams = { temperature: 0.7, max_tokens: 4096 };
+
+/** 逐条校验并归一化存储中的模型参数；非法条目回落到默认值。 */
+function normalizeDemoGenParams(value: unknown): DemoGenParams {
+  if (typeof value !== 'object' || value === null) return { ...DEFAULT_DEMO_GEN_PARAMS };
+  const entry = value as Record<string, unknown>;
+  const temperature = typeof entry.temperature === 'number' ? Math.min(2, Math.max(0, entry.temperature)) : DEFAULT_DEMO_GEN_PARAMS.temperature;
+  const max_tokens = typeof entry.max_tokens === 'number' ? Math.max(1, Math.round(entry.max_tokens)) : DEFAULT_DEMO_GEN_PARAMS.max_tokens;
+  return { temperature, max_tokens };
+}
+
+function readDemoGenParamsStore(): Record<string, DemoGenParams> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.GEN_PARAMS);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, normalizeDemoGenParams(value)]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 读取某模型的演示生成参数；未保存过或数据损坏时返回默认值，不写 localStorage
+ * （编辑并保存参数才会落 vivy.demo.gen-params）。
+ */
+export function getDemoGenParams(modelKey: string): DemoGenParams {
+  return readDemoGenParamsStore()[modelKey] ?? { ...DEFAULT_DEMO_GEN_PARAMS };
+}
+
+/**
+ * 保存某模型的演示生成参数（vivy.demo.gen-params，键为模型运行三元组
+ * `provider/baseUrl/model`，各模型独立存储互不覆盖；绝不传给真实 Provider）。
+ * 返回归一化后的已保存值。
+ */
+export function saveDemoGenParams(modelKey: string, params: DemoGenParams): DemoGenParams {
+  const normalized = normalizeDemoGenParams(params);
+  const store = readDemoGenParamsStore();
+  store[modelKey] = normalized;
+  try {
+    localStorage.setItem(STORAGE_KEYS.GEN_PARAMS, JSON.stringify(store));
+  } catch {
+    // Demo persistence is best effort.
+  }
+  return { ...normalized };
+}
 
 // ==================== API 函数实现 ====================
 
