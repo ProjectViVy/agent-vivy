@@ -188,7 +188,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	mcpOps = runtime.NewEinoMCPBackend(mcpConfigs, nil)
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
-	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands)
+	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
 	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
@@ -305,11 +305,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Children: workerManager,
 		// Operator-managed model provider selection lives in an independent
 		// agent working dir, never the production config or Journal.
-		SettingsPath:                settings.Path(dataRoot),
+SettingsPath:                settings.Path(dataRoot),
 		ConfigProvider:              providerName,
 		ConfigModel:                 defaultModelFor(cfg, providerName),
 		// Non-secret network_search preference for the Settings UI display.
 		ConfigNetworkSearchProvider: cfg.Tools.NetworkSearch.Provider,
+		// Non-secret execute ceiling, editable from Settings → General.
+		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -449,7 +451,12 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 	if s.NetworkSearch.Provider != "" {
 		cfg.Tools.NetworkSearch.Provider = s.NetworkSearch.Provider
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", s.ApiKey != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider)
+	// Execute ceiling overlay: the UI-managed timeout overrides the config
+	// default (positive values only; zero keeps the config value).
+	if s.ExecuteMaxTimeoutSeconds > 0 {
+		cfg.Runtime.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", s.ApiKey != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds)
 	return cfg
 }
 
