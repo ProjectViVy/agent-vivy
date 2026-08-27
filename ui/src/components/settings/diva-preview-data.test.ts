@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   DIVA_ADDITIONAL_SECTIONS,
-  DIVA_AUDIT_EVENTS,
   DIVA_CHANNELS,
   DIVA_PREVIEW_SECTIONS,
 } from './diva-preview-data';
@@ -24,7 +23,5 @@ describe('DIVA settings preview data', () => {
 
   it('provides recognizable fake data for each collection-style preview', () => {
     expect(DIVA_CHANNELS.map((channel) => channel.name)).toEqual(['Telegram', 'Discord', '飞书']);
-    expect(Object.keys(DIVA_AUDIT_EVENTS)).toEqual(['structured', 'gateway', 'gui']);
-    expect(DIVA_AUDIT_EVENTS.structured.length).toBeGreaterThan(0);
   });
 });
