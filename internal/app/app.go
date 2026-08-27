@@ -308,6 +308,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		SettingsPath:                settings.Path(dataRoot),
 		ConfigProvider:              providerName,
 		ConfigModel:                 defaultModelFor(cfg, providerName),
+		// Non-secret network_search preference for the Settings UI display.
 		ConfigNetworkSearchProvider: cfg.Tools.NetworkSearch.Provider,
 	})
 	if err != nil {
@@ -425,7 +426,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 			logger.Warn("settings base_url not applied", "err", err)
 		}
 	}
-	// Optional api_key overlay: apply to the active bundle's env_key so the
+// Optional api_key overlay: apply to the active bundle's env_key so the
 	// provider resolves it like any other env-injected credential. Empty
 	// means "no overlay" — the bundle's environment variable stands, so
 	// catalog/default flows keep using their env key. The value is never

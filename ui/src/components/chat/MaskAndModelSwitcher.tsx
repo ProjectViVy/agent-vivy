@@ -82,7 +82,9 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
     if (!settings || !canChange || (entry.provider === currentProvider && entry.baseUrl === currentBaseUrl && entry.model === currentModel)) return;
     setError(null);
     try {
-      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl) });
+// settings/update replaces the whole document: carry the loaded
+      // network_search preference through unchanged alongside the key overlay.
+      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl), network_search: { provider: settings.network_search?.provider ?? '' } });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

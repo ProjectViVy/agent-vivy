@@ -47,7 +47,7 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
-	// ConfigNetworkSearchProvider is the production config network_search
+// ConfigNetworkSearchProvider is the production config network_search
 	// preference (non-secret), surfaced by settings/get.
 	ConfigNetworkSearchProvider string
 }
@@ -1245,7 +1245,7 @@ type settingsResult struct {
 // networkSearchSettingsResult is the non-secret network_search section of
 // settings/get. Providers is the availability roster in preference order.
 type networkSearchSettingsResult struct {
-	// Provider is the saved preference, or empty for automatic.
+// Provider is the saved preference, or empty for automatic.
 	Provider string `json:"provider"`
 	// ConfigProvider is the production config network_search default.
 	ConfigProvider string `json:"config_provider"`
@@ -1277,7 +1277,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
-			out.APIKeySet = s.ApiKey != ""
+out.APIKeySet = s.ApiKey != ""
 			savedSearchProvider = s.NetworkSearch.Provider
 		}
 	}
@@ -1311,7 +1311,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s := settings.Settings{
+s := settings.Settings{
 		Provider:      params.Provider,
 		DefaultModel:  params.DefaultModel,
 		BaseURL:       params.BaseURL,

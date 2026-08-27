@@ -192,7 +192,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             </Card>
           </TabsContent>
 
-          <TabsContent value="tools">
+          <TabsContent value="tools" className="space-y-4">
             <DemoNote />
             <Card>
               <CardHeader><CardTitle>工具配置</CardTitle><CardDescription>本地演示沙箱和命令审批规则。</CardDescription></CardHeader>
