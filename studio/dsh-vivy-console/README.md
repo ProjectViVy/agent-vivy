@@ -53,7 +53,8 @@ Air gap: backend data lives only under `data/studio-home/vivy-console/`
 Hand-authored client module in the DSH client-modules handoff format
 (`window.__ModuleLoader__.load({id, factory})`, React via the injected
 `require`) — no build step. It registers `conversation.view` id
-`vivy-console` order 30 label 「Vivy 控制台」 with three sections:
+`vivy-console` order 30 label 「Vivy 控制台」 with three sections, in order:
+**总控台 / 日志 / 打包与版本**:
 
 - **总控台** — one consolidated screen: an overall state line (全部运行中 /
   后端运行中 · 前端未运行 / …), and **▶ 一键启动 / ■ 一键停止 / ⟳ 一键重启**

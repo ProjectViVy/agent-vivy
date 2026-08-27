@@ -411,8 +411,8 @@
       // ---- Root view ----
       const SECTIONS = [
         ["overview", "总控台"],
-        ["package", "打包与版本"],
         ["logs", "日志"],
+        ["package", "打包与版本"],
       ]
 
       function VivyConsoleView() {

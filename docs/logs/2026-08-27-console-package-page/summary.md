@@ -60,6 +60,15 @@ in the console as its own page — **clearly separated from the dev mode**:
 - Pack/eval/release/install/rollback remain human-driven from the page; no
   automation or auto-release added.
 
+## Follow-up (same delivery)
+
+Per user feedback, the tab order is corrected to **总控台 / 日志 / 打包与版本**
+(the packaging page comes after the log page). Client-only change
+(`SECTIONS` order in `client.js` + README section list); the installed copy
+was re-synced — no host change, no Studio restart needed, visible after a
+browser refresh. Committed as a small follow-up commit on top of this
+deliverable.
+
 ## Notes
 
 - The lifecycle page intentionally does not show backend/frontend dev state
