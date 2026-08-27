@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Server, X } from 'lucide-react';
+import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, RefreshCw, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -42,18 +42,6 @@ import {
 } from './saved-models';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
-
-type ModelFormValue = { provider: string; default_model: string; base_url: string; api_key: string };
-
-/** 选中目录/注册表条目：厂商差异落到 base_url，provider 保持运行束名，模型沿用原始 id。
- *  api_key 由调用方经 customApiKeyFor 按所选条目解析（纯函数不读注册表）。 */
-function applyProviderEntry(form: ModelFormValue, entry: ProviderCatalogEntry): Omit<ModelFormValue, 'api_key'> {
-  return {
-    provider: entry.bundle,
-    base_url: entry.baseUrl,
-    default_model: entry.models.includes(form.default_model) ? form.default_model : entry.defaultModel,
-  };
-}
 
 function ProviderRow({
   entry,
@@ -109,12 +97,12 @@ function ProviderRow({
   return (
     <div className="group flex items-center gap-1">
       <div className="min-w-0 flex-1">{row}</div>
-      <div className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">{actions}</div>
+      <div className="flex shrink-0 items-center gap-0.5 pr-1">{actions}</div>
     </div>
   );
 }
 
-/** 新增/编辑自定义供应商的对话框：显示名 + 运行束 + Base URL + 默认模型 + 模型列表。 */
+/** 新增/编辑自定义供应商的对话框：显示名（别名）+ 运行束 + Base URL（地址）+ 默认模型 + 模型列表 + API Key。 */
 function CustomProviderDialog({
   open,
   editing,
@@ -250,11 +238,11 @@ function CustomProviderDialog({
 }
 
 /**
- * 设置页「模型」Tab 的真实配置卡：Agent-Diva 供应商目录移植 + 「已选模型」快捷切换
- * + 自定义供应商注册表。顶部是已选模型 chips（点击=立即选用并保存，行内 X=仅移除）；
- * 左栏供应商列表（静态目录 + 自定义供应商，自定义行带「自定义」标记与编辑/删除）,
- * 右栏模型列表；模型行点击=填表单 + 加入快捷列表 + 立即保存。
- * 三输入框 + 「保存真实设置」保留为自定义组合的显式提交边界。
+ * 设置页「模型」Tab 的真实配置卡：顶部是已选模型 chips；左栏供应商列表
+ * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏所选
+ * 供应商的模型列表（头部「从官方同步」刷新 + 「新增」手加模型），模型列表上方
+ * 是 API Key 填写（自定义供应商可编辑，目录厂商禁用并提示环境变量注入）。
+ * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
  */
 export function ModelSettingsCard() {
   const settings = useVivyStore((state) => state.settings);
@@ -265,54 +253,53 @@ export function ModelSettingsCard() {
   const savedModels = useSavedModels();
   const customProviders = useCustomProviders();
   const { t } = useTranslation();
-  const [form, setForm] = useState<ModelFormValue>({ provider: '', default_model: '', base_url: '', api_key: '' });
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isMoreExpanded, setMoreExpanded] = useState(false);
   const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProvider | null }>({ open: false, editing: null });
+  const [addingModel, setAddingModel] = useState(false);
+  const [newModelId, setNewModelId] = useState('');
+  const [panelKey, setPanelKey] = useState('');
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url, api_key: customApiKeyFor(settings.provider, settings.base_url) });
-  }, [settings, customProviders]);
 
+  const allMerged = useMemo(() => allProviderEntries(), [customProviders]);
   const searching = searchTerm.trim().length > 0;
   const { visible, custom, more } = useMemo(
-    () => splitMergedByFold(searching ? searchMergedProviders(searchTerm) : allProviderEntries(), searching),
-    [searchTerm, searching, customProviders],
+    () => splitMergedByFold(searching ? searchMergedProviders(searchTerm) : allMerged, searching),
+    [searching, searchTerm, allMerged],
   );
-  const selectedEntry = matchMergedProviderEntry(form.provider, form.base_url);
   const savedEntry = settings ? matchMergedProviderEntry(settings.provider, settings.base_url) : undefined;
+  const selectedEntry = (selectedName ? allMerged.find((entry) => entry.name === selectedName) : undefined) ?? savedEntry;
+  const selectedRegistry = selectedEntry?.custom && selectedEntry.registryId
+    ? customProviders.find((provider) => provider.id === selectedEntry.registryId) ?? null
+    : null;
 
-  // Agent-Diva 折叠移植：当前选中的供应商被折叠时自动展开，选中项永远可见（自定义永不折叠）。
+  // 默认选中当前运行配置对应的供应商（运行供应商折叠时自动展开，保证可见）。
+  useEffect(() => {
+    if (selectedName === null && savedEntry) setSelectedName(savedEntry.name);
+  }, [selectedName, savedEntry]);
   useEffect(() => {
     if (selectedEntry && !selectedEntry.custom && isFoldedProvider(selectedEntry.name) && !searching) setMoreExpanded(true);
   }, [selectedEntry, searching]);
 
+  // 面板 API Key 跟随所选供应商：自定义回显注册密钥；目录清空（提交即清覆盖层）。
+  useEffect(() => {
+    setPanelKey(selectedRegistry?.apiKey ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
+  }, [selectedEntry?.name, customProviders]);
+
   const locked = settings?.read_only || phase === 'processing';
 
-  const selectProvider = (entry: ProviderCatalogEntry) => {
-    if (locked) return;
-    setForm((current) => {
-      const next = applyProviderEntry(current, entry);
-      const same = next.provider === current.provider && next.base_url === current.base_url && next.default_model === current.default_model;
-      // 表单密钥跟随所选条目：自定义供应商显示其注册密钥，目录条目清空（提交即清覆盖层）。
-      return same && current.api_key === customApiKeyFor(next.provider, next.base_url)
-        ? current
-        : { ...next, api_key: customApiKeyFor(next.provider, next.base_url) };
-    });
-  };
-
-  /** 所选供应商目录模型行：填表单 + 加入快捷列表（幂等）+ 立即保存（diva 式一步到位；自定义条目带其密钥）。 */
+  /** 所选供应商的模型（含「新增」手加）：立即选用并保存（自定义条目带其密钥）。 */
   const applyModelNow = async (entry: ProviderCatalogEntry, model: string) => {
     if (locked) return;
-    const next = applyProviderEntry(form, entry);
-    const triple = { provider: next.provider, default_model: model, base_url: next.base_url, api_key: customApiKeyFor(next.provider, next.base_url) };
-    setForm({ ...next, default_model: model, api_key: customApiKeyFor(next.provider, next.base_url) });
-    addSavedModel({ provider: next.provider, baseUrl: next.base_url, model });
+    addSavedModel({ provider: entry.bundle, baseUrl: entry.baseUrl, model });
     try {
-      await save(triple);
+      await save({ provider: entry.bundle, default_model: model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.bundle, entry.baseUrl) });
     } catch {
-      // settingsError 已由 store 记录并渲染在下方 error 段；保留已填表单与已加入列表。
+      // settingsError 已由 store 记录并渲染；已加入快捷列表保留。
     }
   };
 
@@ -322,7 +309,7 @@ export function ModelSettingsCard() {
     try {
       await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl) });
     } catch {
-      // settingsError 已由 store 记录并渲染在下方 error 段。
+      // settingsError 已由 store 记录并渲染。
     }
   };
 
@@ -346,6 +333,47 @@ export function ModelSettingsCard() {
     return addCustomProvider(input) !== null;
   };
 
+  /** 面板 API Key：自定义供应商在失焦时写回注册表，随模型点击应用；目录条目禁用。 */
+  const commitPanelKey = () => {
+    if (!selectedRegistry) return;
+    updateCustomProvider(selectedRegistry.id, {
+      displayName: selectedRegistry.displayName,
+      bundle: selectedRegistry.bundle,
+      baseUrl: selectedRegistry.baseUrl,
+      defaultModel: selectedRegistry.defaultModel,
+      models: selectedRegistry.models,
+      apiKey: panelKey.trim(),
+    });
+  };
+
+  /** 从官方目录同步：重新载入合并视图并给出反馈。真实在线同步见 UI-PROV-RPC（静态快照）。 */
+  const handleRefresh = () => {
+    setRefreshNote(t('settingsModel.refreshedModels'));
+    window.setTimeout(() => setRefreshNote(null), 1800);
+  };
+
+  /** 「新增」手加模型：自定义供应商同时持久化进注册表列表；随后与点击模型同语义立即应用。 */
+  const confirmAddModel = () => {
+    const id = newModelId.trim();
+    if (!id || !selectedEntry || locked) return;
+    if (selectedEntry.custom && selectedEntry.registryId) {
+      const registry = customProviders.find((provider) => provider.id === selectedEntry.registryId);
+      if (registry) {
+        updateCustomProvider(registry.id, {
+          displayName: registry.displayName,
+          bundle: registry.bundle,
+          baseUrl: registry.baseUrl,
+          defaultModel: registry.defaultModel,
+          models: [...registry.models, id],
+          apiKey: registry.apiKey,
+        });
+      }
+    }
+    void applyModelNow(selectedEntry, id);
+    setNewModelId('');
+    setAddingModel(false);
+  };
+
   const renderRow = (entry: MergedProviderEntry) => (
     <ProviderRow
       key={entry.name}
@@ -355,7 +383,7 @@ export function ModelSettingsCard() {
       disabled={locked}
       currentBadge={t('settingsModel.currentBadge')}
       customBadge={entry.custom ? t('settingsModel.customBadge') : undefined}
-      onSelect={() => selectProvider(entry)}
+      onSelect={() => setSelectedName(entry.name)}
       actions={entry.custom ? (
         <>
           <button
@@ -372,7 +400,7 @@ export function ModelSettingsCard() {
             onClick={() => removeCustomProvider(entry.registryId!)}
             aria-label={t('settingsModel.removeAria', { name: entry.displayName })}
             title={t('settingsModel.removeAria', { name: entry.displayName })}
-            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+            className="cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
@@ -390,13 +418,7 @@ export function ModelSettingsCard() {
           <div className="h-10 animate-pulse rounded bg-muted" />
         </div>
       ) : (
-        <form
-          className="space-y-4"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            await save(form).catch(() => undefined);
-          }}
-        >
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <p className="text-sm font-medium">{t('settingsModel.savedTitle')}</p>
             {savedModels.length ? (
@@ -432,6 +454,9 @@ export function ModelSettingsCard() {
               <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">{t('settingsModel.savedEmpty')}</p>
             )}
           </div>
+          {settings?.read_only ? (
+            <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
             <div className="space-y-2">
               <Input
@@ -487,11 +512,82 @@ export function ModelSettingsCard() {
                       <p className="truncate text-sm font-medium">{selectedEntry.displayName}</p>
                       <p className="truncate text-xs text-muted-foreground">{selectedEntry.baseUrl || '—'}</p>
                     </div>
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                      {selectedEntry.bundle}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                        {selectedEntry.bundle}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRefresh}
+                        aria-label={t('settingsModel.refreshModels')}
+                        title={t('settingsModel.refreshModels')}
+                        className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddingModel((adding) => !adding)}
+                        aria-label={t('settingsModel.addModel')}
+                        title={t('settingsModel.addModel')}
+                        className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 border-b px-3 py-2">
+                    <Label htmlFor="panel-api-key" className="text-xs text-muted-foreground">{t('settingsModel.apiKey')}</Label>
+                    <Input
+                      id="panel-api-key"
+                      type="password"
+                      value={panelKey}
+                      onChange={(event) => setPanelKey(event.target.value)}
+                      onBlur={commitPanelKey}
+                      placeholder={selectedEntry.custom ? t('settingsModel.apiKeyPlaceholder') : t('settingsModel.catalogKeyHint')}
+                      autoComplete="off"
+                      disabled={locked || !selectedEntry.custom}
+                    />
+                    <p className="text-xs text-muted-foreground">{selectedEntry.custom ? t('settingsModel.apiKeyHint') : t('settingsModel.catalogKeyHint')}</p>
+                    {selectedEntry.name === savedEntry?.name && settings?.api_key_set ? (
+                      <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</p>
+                    ) : null}
                   </div>
                   <div className="max-h-72 space-y-1 overflow-y-auto p-1.5">
+                    {addingModel ? (
+                      <div className="flex items-center gap-1 px-0.5">
+                        <Input
+                          autoFocus
+                          value={newModelId}
+                          onChange={(event) => setNewModelId(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') confirmAddModel();
+                            if (event.key === 'Escape') { setAddingModel(false); setNewModelId(''); }
+                          }}
+                          placeholder={t('settingsModel.addModelPlaceholder')}
+                          aria-label={t('settingsModel.addModel')}
+                          className="h-8 font-mono text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={confirmAddModel}
+                          aria-label={t('settingsModel.addModelConfirm')}
+                          title={t('settingsModel.addModelConfirm')}
+                          className="cursor-pointer rounded p-1 text-primary transition-colors hover:bg-accent"
+                        >
+                          <Check className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setAddingModel(false); setNewModelId(''); }}
+                          aria-label={t('common.cancel')}
+                          title={t('common.cancel')}
+                          className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent"
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    ) : null}
                     {selectedEntry.models.length ? (
                       selectedEntry.models.map((model) => {
                         const isCurrent = isCurrentModelRow(selectedEntry, model);
@@ -502,7 +598,7 @@ export function ModelSettingsCard() {
                             type="button"
                             disabled={locked}
                             onClick={() => void applyModelNow(selectedEntry, model)}
-                            aria-pressed={form.default_model === model}
+                            aria-pressed={isCurrent}
                             title={isSaved && !isCurrent ? t('settingsModel.added') : undefined}
                             className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
                           >
@@ -518,6 +614,7 @@ export function ModelSettingsCard() {
                     ) : (
                       <p className="px-2.5 py-3 text-xs text-muted-foreground">{t('settingsModel.noModels')}</p>
                     )}
+                    {refreshNote ? <p className="px-2.5 py-1 text-[11px] text-muted-foreground">{refreshNote}</p> : null}
                   </div>
                 </div>
               ) : (
@@ -527,62 +624,8 @@ export function ModelSettingsCard() {
               )}
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="provider">Provider</Label>
-              <Input
-                id="provider"
-                value={form.provider}
-                onChange={(event) => setForm({ ...form, provider: event.target.value })}
-                placeholder={settings?.config_provider || '配置默认值'}
-                disabled={locked}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="model">默认模型</Label>
-              <Input
-                id="model"
-                value={form.default_model}
-                onChange={(event) => setForm({ ...form, default_model: event.target.value })}
-                placeholder={settings?.config_model || 'Provider 默认值'}
-                disabled={locked}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="base-url">Base URL</Label>
-              <Input
-                id="base-url"
-                type="url"
-                value={form.base_url}
-                onChange={(event) => setForm({ ...form, base_url: event.target.value })}
-                placeholder="https://api.example.com/v1"
-                disabled={locked}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="model-api-key">{t('settingsModel.apiKey')}</Label>
-              <Input
-                id="model-api-key"
-                type="password"
-                value={form.api_key}
-                onChange={(event) => setForm({ ...form, api_key: event.target.value })}
-                placeholder={t('settingsModel.apiKeyPlaceholder')}
-                autoComplete="off"
-                disabled={locked}
-              />
-              <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyHint')}</p>
-            </div>
-          </div>
-          {settings?.read_only ? (
-            <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p>
-          ) : (
-            <Button type="submit" disabled={phase === 'processing'}>
-              {phase === 'processing' ? '保存中…' : '保存真实设置'}
-            </Button>
-          )}
-          {settings?.api_key_set ? <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</p> : null}
           {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
-        </form>
+        </div>
       )}
       <CustomProviderDialog
         open={customDialog.open}
