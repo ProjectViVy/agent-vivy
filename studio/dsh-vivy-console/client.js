@@ -2,12 +2,15 @@
 //
 // Registers a "Vivy 控制台" tab in the conversation view ring
 // (`conversation.view` slot, beside Chat / Trajectory / Context) and renders
-// the unified development loop: the pure-API backend (vivy_headless, no
-// embedded frontend), the DEV dev server (pnpm dev in ui/, :3015) as the
-// single frontend, and one unified log timeline for both processes.
+// the unified development loop as a **总控台** (main console): one-click
+// start/stop/restart for both sides, backend status and frontend status on
+// one screen so nothing feels split, plus the unified log timeline.
 //
-// There is intentionally no VIVY WEB debug pane: the only app is the dev
-// server at http://127.0.0.1:3015 — open it in the normal browser.
+// The unified model (one dev server only):
+//   * backend = pure-API vivy binary (vivy_headless, no embedded frontend),
+//     auto-compiled into Studio scratch on start
+//   * frontend = the DEV dev server (pnpm dev in ui/, :3015) — the sole app
+// Frontend debugging happens in the normal browser at http://127.0.0.1:3015.
 //
 // Hand-authored module in the client-modules handoff format
 // (`window.__ModuleLoader__.load({id, factory})`); the injected `require`
@@ -44,6 +47,17 @@
         const text = String(value ?? "")
         return text.length > n ? text.slice(0, n) + "…" : text
       }
+      function row(key, value) {
+        return h("div", { className: "vc-row" }, [
+          h("span", { className: "vc-key" }, key),
+          h("span", { className: "vc-val" }, value),
+        ])
+      }
+      function stateText(running, managed, listening) {
+        if (running) return "运行中 " + (managed ? "(本控制台管理)" : "(外部进程)")
+        if (listening) return "已停止（端口仍被监听）"
+        return "已停止"
+      }
 
       // ---- styles ----
       if (!document.getElementById("dsh-vivy-console-style")) {
@@ -58,6 +72,7 @@
           ".vc-tab.on{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}",
           ".vc-pane{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px}",
           ".vc-card{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px}",
+          ".vc-card-title{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--dsw-alias-label-secondary)}",
           ".vc-row{display:flex;gap:6px;padding:2px 0;font-size:12px}",
           ".vc-key{color:var(--dsw-alias-label-secondary);min-width:84px;flex:none}",
           ".vc-val{word-break:break-all}",
@@ -79,20 +94,74 @@
         document.head.appendChild(style)
       }
 
-      // ---- Backend pane (pure API, no embedded frontend) ----
-      function BackendPane({ status }) {
+      // ---- 总控台 (main console) ----
+      function OverviewPane({ status }) {
         const [busy, setBusy] = useState("")
         const [msg, setMsg] = useState("")
         const [exe, setExe] = useState("")
         useEffect(() => {
           if (!exe && status && status.exe) setExe(status.exe)
         }, [status && status.exe]) // eslint-disable-line react-hooks/exhaustive-deps
-        function act(name, label) {
+
+        const bk = !!(status && status.running)
+        const fe = !!(status && status.frontend && status.frontend.running)
+        const allRunning = bk && fe
+        const overall = allRunning
+          ? "全部运行中"
+          : bk
+            ? "后端运行中 · 前端未运行"
+            : fe
+              ? "前端运行中 · 后端未运行"
+              : "未运行"
+
+        function runAction(label, fn) {
           setBusy(label)
           setMsg("")
-          call("POST", "/" + name).then((r) => {
-            setMsg((r && r.message) || label + " 完成")
+          Promise.resolve(fn()).then((text) => {
+            setMsg(text || label + " 完成")
             setBusy("")
+          })
+        }
+        function act(prefix, name, label) {
+          runAction(label, () =>
+            call("POST", "/" + prefix + name).then((r) => (r && r.message) || label + " 完成"),
+          )
+        }
+
+        function startAll() {
+          runAction("一键启动", async () => {
+            const b = await call("POST", "/start")
+            if (b && b.ok) {
+              const f = await call("POST", "/frontend/start")
+              return f && f.ok ? "一键启动完成：后端 + 前端均已启动" : "后端已启动；前端启动失败：" + ((f && f.message) || "")
+            }
+            if (b && !b.ok && (b.message || "").indexOf("已在运行") >= 0) {
+              const f = await call("POST", "/frontend/start")
+              return f && f.ok ? "后端已在运行；前端已启动" : "后端已在运行；前端启动失败：" + ((f && f.message) || "")
+            }
+            return "一键启动失败（后端）：" + ((b && b.message) || "")
+          })
+        }
+        function stopAll() {
+          runAction("一键停止", async () => {
+            const f = await call("POST", "/frontend/stop")
+            const b = await call("POST", "/stop")
+            return [
+              f && f.ok ? "前端已停止" : (f && f.message) || "前端停止失败",
+              b && b.ok ? "后端已停止" : (b && b.message) || "后端停止失败",
+            ].join("；")
+          })
+        }
+        function restartAll() {
+          runAction("一键重启", async () => {
+            await call("POST", "/stop")
+            await call("POST", "/frontend/stop")
+            const b = await call("POST", "/start")
+            if (!(b && b.ok)) return "一键重启失败（后端）：" + ((b && b.message) || "")
+            const f = await call("POST", "/frontend/start")
+            return f && f.ok
+              ? "一键重启完成：后端 + 前端均重新启动"
+              : "后端已重启；前端启动失败：" + ((f && f.message) || "")
           })
         }
         function applyExe() {
@@ -100,82 +169,58 @@
             setMsg((r && r.ok && "已应用 EXE 路径") || "设置失败")
           })
         }
-        const running = !!(status && status.running)
-        const listening = !!(status && status.listening)
-        const stateText = running
-          ? "运行中 " + (status.managed ? "(本控制台管理)" : "(外部进程)")
-          : listening
-            ? "已停止（端口仍被监听）"
-            : "已停止"
-        return h("div", { className: "vc-pane" }, [
-          h("div", { className: "vc-card" }, [
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "状态"), h("span", { className: "vc-val" }, stateText)]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "PID"), h("span", { className: "vc-val" }, String((status && status.pid) || "—"))]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "监听"), h("span", { className: "vc-val" }, String((status && status.addr) || "—") + "（/rpc 控制面）")]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "启动于"), h("span", { className: "vc-val" }, status && status.startedAtMs ? fmtTime(status.startedAtMs) : "—")]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "EXE"), h("span", { className: "vc-val" }, trunc((status && status.exe) || "…", 120))]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "形态"), h("span", { className: "vc-val" }, "纯 API 后端（vivy_headless 编译，无内嵌前端）")]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "编译"), h("span", { className: "vc-val" }, (status && status.autoBuild) === false ? "使用指定 EXE，不自动编译" : "go build -tags vivy_headless（每次启动增量编译）")]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "配置"), h("span", { className: "vc-val" }, trunc((status && status.configPath) || "…", 120))]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "数据隔离"), h("span", { className: "vc-val" }, "data/studio-home/vivy-console，不触碰生产 Journal")]),
-          ]),
-          h("div", { className: "vc-card" }, [
-            h("div", { style: { display: "flex", gap: 8 } }, [
-              h("button", { className: "vc-btn primary", disabled: !!busy || running, onClick: () => act("start", "启动") }, busy === "启动" ? "启动中…" : "▶ 启动"),
-              h("button", { className: "vc-btn", disabled: !!busy || !running, onClick: () => act("stop", "停止") }, busy === "停止" ? "停止中…" : "■ 停止"),
-              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("restart", "重启") }, busy === "重启" ? "重启中…" : "⟳ 重启"),
+
+        const feStatus = (status && status.frontend) || {}
+        const cards = [
+          h("div", { className: "vc-card", style: { flex: "1 1 260px", minWidth: 260 } }, [
+            h("div", { className: "vc-card-title" }, "后端状态"),
+            row("状态", stateText(bk, !!(status && status.managed), !!(status && status.listening))),
+            row("PID", String((status && status.pid) || "—")),
+            row("监听", String((status && status.addr) || "—") + "（/rpc 控制面）"),
+            row("启动于", status && status.startedAtMs ? fmtTime(status.startedAtMs) : "—"),
+            row("EXE", trunc((status && status.exe) || "…", 100)),
+            row("形态", "纯 API（vivy_headless，无内嵌前端）"),
+            row("编译", (status && status.autoBuild) === false ? "指定 EXE，不自动编译" : "go build -tags vivy_headless（每次启动增量编译）"),
+            h("div", { style: { display: "flex", gap: 8, marginTop: 8 } }, [
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("", "start", "后端启动") }, busy === "后端启动" ? "启动中…" : "▶ 启动"),
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("", "stop", "后端停止") }, busy === "后端停止" ? "停止中…" : "■ 停止"),
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("", "restart", "后端重启") }, busy === "后端重启" ? "重启中…" : "⟳ 重启"),
             ]),
             h("div", { style: { display: "flex", gap: 8, marginTop: 8 } }, [
-              h("input", { className: "vc-input", style: { flex: 1 }, value: exe, placeholder: "后端 EXE 路径（留空自动编译 vivy_headless 后端）", onChange: (e) => setExe(e.target.value) }),
+              h("input", { className: "vc-input", style: { flex: 1 }, value: exe, placeholder: "后端 EXE 路径（留空自动编译 vivy_headless）", onChange: (e) => setExe(e.target.value) }),
               h("button", { className: "vc-btn", onClick: applyExe }, "应用 EXE"),
             ]),
-            h("div", { className: "vc-msg", style: { marginTop: 6 } }, msg),
-            h("div", { className: "vc-msg", style: { marginTop: 6 } }, "启动后，前端在「前端」页启动 pnpm dev（:3015），其 /rpc 代理指向本后端。"),
           ]),
-        ])
-      }
+          h("div", { className: "vc-card", style: { flex: "1 1 260px", minWidth: 260 } }, [
+            h("div", { className: "vc-card-title" }, "前端状态"),
+            row("状态", stateText(fe, !!(feStatus && feStatus.managed), !!(feStatus && feStatus.listening))),
+            row("PID", String((feStatus && feStatus.pid) || "—")),
+            row("入口", String((feStatus && feStatus.addr) || "127.0.0.1:3015") + "（Vite DEV 开发服务器，唯一前端）"),
+            row("启动于", feStatus && feStatus.startedAtMs ? fmtTime(feStatus.startedAtMs) : "—"),
+            row("命令", String((feStatus && feStatus.command) || "pnpm dev") + " @ " + trunc((feStatus && feStatus.cwd) || "…", 100)),
+            row("代理", "/rpc → " + String((feStatus && feStatus.rpcTarget) || "…") + "（Vite 代理到纯 API 后端）"),
+            h("div", { style: { display: "flex", gap: 8, marginTop: 8 } }, [
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("frontend/", "start", "前端启动") }, busy === "前端启动" ? "启动中…" : "▶ 启动"),
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("frontend/", "stop", "前端停止") }, busy === "前端停止" ? "停止中…" : "■ 停止"),
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("frontend/", "restart", "前端重启") }, busy === "前端重启" ? "重启中…" : "⟳ 重启"),
+              h("button", { className: "vc-btn", disabled: !(feStatus && feStatus.url), onClick: () => window.open(feStatus.url, "vivy-dev") }, "打开 " + String((feStatus && feStatus.addr) || "127.0.0.1:3015")),
+            ]),
+          ]),
+        ]
 
-      // ---- Frontend dev server pane (the one DEV frontend) ----
-      function FrontendPane({ status }) {
-        const [busy, setBusy] = useState("")
-        const [msg, setMsg] = useState("")
-        const fe = (status && status.frontend) || {}
-        function act(name, label) {
-          setBusy(label)
-          setMsg("")
-          call("POST", "/frontend/" + name).then((r) => {
-            setMsg((r && r.message) || label + " 完成")
-            setBusy("")
-          })
-        }
-        const running = !!(fe && fe.running)
-        const listening = !!(fe && fe.listening)
-        const stateText = running
-          ? "运行中 " + (fe.managed ? "(本控制台管理)" : "(外部进程)")
-          : listening
-            ? "已停止（端口仍被监听）"
-            : fe.dirReady
-              ? "已停止"
-              : "未就绪（缺少 ui/package.json）"
         return h("div", { className: "vc-pane" }, [
           h("div", { className: "vc-card" }, [
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "状态"), h("span", { className: "vc-val" }, stateText)]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "PID"), h("span", { className: "vc-val" }, String((fe && fe.pid) || "—"))]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "入口"), h("span", { className: "vc-val" }, String((fe && fe.addr) || "—") + "（Vite DEV 开发服务器，唯一前端入口）")]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "启动于"), h("span", { className: "vc-val" }, fe && fe.startedAtMs ? fmtTime(fe.startedAtMs) : "—")]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "命令"), h("span", { className: "vc-val" }, String((fe && fe.command) || "—") + " @ " + trunc((fe && fe.cwd) || "…", 120))]),
-            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "代理"), h("span", { className: "vc-val" }, "/rpc → " + String((fe && fe.rpcTarget) || "…") + "（Vite 代理到纯 API 后端）")]),
-          ]),
-          h("div", { className: "vc-card" }, [
-            h("div", { style: { display: "flex", gap: 8 } }, [
-              h("button", { className: "vc-btn primary", disabled: !!busy || running, onClick: () => act("start", "启动") }, busy === "启动" ? "启动中…" : "▶ 启动"),
-              h("button", { className: "vc-btn", disabled: !!busy || !running, onClick: () => act("stop", "停止") }, busy === "停止" ? "停止中…" : "■ 停止"),
-              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("restart", "重启") }, busy === "重启" ? "重启中…" : "⟳ 重启"),
-              h("button", { className: "vc-btn", disabled: !(fe && fe.url), onClick: () => window.open(fe.url, "vivy-dev") }, "打开 " + String((fe && fe.addr) || "127.0.0.1:3015")),
+            h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } }, [
+              h("span", { className: "vc-key" }, "总览"),
+              h("span", { className: "vc-val", style: { fontWeight: 600 } }, overall),
+              h("span", { style: { flex: 1 } }, null),
+              h("button", { className: "vc-btn primary", disabled: !!busy || allRunning, onClick: startAll }, busy === "一键启动" ? "启动中…" : "▶ 一键启动"),
+              h("button", { className: "vc-btn danger", disabled: !!busy || (!bk && !fe), onClick: stopAll }, busy === "一键停止" ? "停止中…" : "■ 一键停止"),
+              h("button", { className: "vc-btn", disabled: !!busy || !bk, onClick: restartAll }, busy === "一键重启" ? "重启中…" : "⟳ 一键重启"),
             ]),
-            h("div", { className: "vc-msg", style: { marginTop: 6 } }, msg),
-            h("div", { className: "vc-msg", style: { marginTop: 6 } }, "前端 dev 日志与后端日志在「日志」页统一时间线显示。"),
+            msg ? h("div", { className: "vc-msg", style: { marginTop: 8 } }, msg) : null,
           ]),
+          h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" } }, cards),
         ])
       }
 
@@ -222,13 +267,12 @@
 
       // ---- Root view ----
       const SECTIONS = [
-        ["backend", "后端"],
-        ["frontend", "前端"],
+        ["overview", "总控台"],
         ["logs", "日志"],
       ]
 
       function VivyConsoleView() {
-        const [section, setSection] = useState("backend")
+        const [section, setSection] = useState("overview")
         const [status, setStatus] = useState(null)
         useEffect(() => {
           let alive = true
@@ -244,8 +288,7 @@
           h("div", { className: "vc-tabs" }, SECTIONS.map(([id, label]) =>
             h("button", { className: "vc-tab" + (id === section ? " on" : ""), key: id, onClick: () => setSection(id) }, label),
           )),
-          section === "backend" ? h(BackendPane, { status }) : null,
-          section === "frontend" ? h(FrontendPane, { status }) : null,
+          section === "overview" ? h(OverviewPane, { status }) : null,
           section === "logs" ? h(LogsPane, null) : null,
         ])
       }

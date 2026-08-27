@@ -1,7 +1,7 @@
 {
   "name": "dsh-vivy-console",
   "version": "0.1.0",
-  "description": "Vivy Studio first-party console: unified development loop — pure-API backend (vivy_headless, no embedded frontend) + the DEV dev server (Vite pnpm dev, :3015) with one unified log timeline. No embedded/standalone UI debugging. Development loop only — Studio distribution stays on vivy-sdk/vivy-studio.exe CLI",
+  "description": "Vivy Studio first-party console: 总控台 (main console) — one-click start/stop/restart of the unified development loop, backend status + frontend status side by side, and one unified log timeline. Backend is a pure-API vivy build (vivy_headless, no embedded frontend); frontend is the DEV dev server (Vite pnpm dev, :3015). Development loop only — Studio distribution stays on vivy-sdk/vivy-studio.exe CLI",
   "type": "module",
   "main": "index.js",
   "exports": {

@@ -52,9 +52,21 @@ Air gap: backend data lives only under `data/studio-home/vivy-console/`
 Hand-authored client module in the DSH client-modules handoff format
 (`window.__ModuleLoader__.load({id, factory})`, React via the injected
 `require`) — no build step. It registers `conversation.view` id
-`vivy-console` order 30 label 「Vivy 控制台」 with three sections:
-后端 / 前端 / 日志. The 「前端」 section includes an「打开」button that opens
-`http://127.0.0.1:3015` in a new tab (the dev server is the app).
+`vivy-console` order 30 label 「Vivy 控制台」 with two sections:
+
+- **总控台** — one consolidated screen: an overall state line (全部运行中 /
+  后端运行中 · 前端未运行 / …), and **▶ 一键启动 / ■ 一键停止 / ⟳ 一键重启**
+  (orchestrates backend + frontend sequentially), and two side-by-side
+  status cards:
+  - **后端状态**: 状态 / PID / 监听 / 启动于 / EXE / 形态（纯 API …
+    vivy_headless）/ 编译方式, plus individual 启动/停止/重启 and the EXE
+    override input (留空自动编译).
+  - **前端状态**: 状态 / PID / 入口（127.0.0.1:3015 Vite DEV 开发服务器，
+    唯一前端）/ 启动于 / 命令 / 代理（/rpc → 后端）, plus individual
+    启动/停止/重启 and a「打开」button that opens
+    `http://127.0.0.1:3015` in a new tab (the dev server is the app).
+- **日志** — one unified timeline of 后端 + 前端 lines with source chips,
+  pause, clear.
 
 ## Install
 
