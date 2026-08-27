@@ -1,7 +1,7 @@
 {
   "name": "dsh-vivy-console",
   "version": "0.1.0",
-  "description": "Vivy Studio first-party console: gateway lifecycle (status/logs/start/stop/restart), VIVY WEB embedding with a frontend debug bridge (console/RPC capture, evaluate), and the Studio distribution ledger (pack/eval/release/install/rollback via vivy-studio.exe)",
+  "description": "Vivy Studio first-party console: gateway lifecycle (status/logs/start/stop/restart), VIVY WEB embedding with a frontend debug bridge (console/RPC capture, evaluate). Development loop only — Studio distribution stays on vivy-sdk/vivy-studio.exe CLI",
   "type": "module",
   "main": "index.js",
   "exports": {

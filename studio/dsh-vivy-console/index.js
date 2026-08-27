@@ -3,10 +3,13 @@
 // Runs as a profile bundle plugin inside the Studio server process (real
 // Node, no vm sandbox). Supersedes dsh-vivy-debugger: it manages the
 // vivy.exe gateway child process (status/logs/start/stop/restart/exe
-// override), serves a same-origin facade of the VIVY WEB UI at /vivy-web/
-// with a frontend-debug bridge injected into the proxied HTML, and drives
-// the Studio distribution ledger through vivy-studio.exe
-// (pack/eval/release/reject/install/rollback/inspect/list).
+// override) and serves a same-origin facade of the VIVY WEB UI at /vivy-web/
+// with a frontend-debug bridge injected into the proxied HTML.
+//
+// Scope (2026-08-27): the development loop only — gateway + logs + VIVY WEB
+// debugging. Studio distribution (pack/eval/release/install/rollback) is
+// deliberately NOT in the Studio UI; it stays on the vivy-sdk /
+// vivy-studio.exe command line.
 //
 // Air gap: all gateway data lives under
 // <root>/data/studio-home/vivy-console (Studio's own scratch). The
@@ -16,7 +19,7 @@
 // Routes registered on the Studio webServer:
 //   GET  /vivy-config.json            -> {"controlPlaneUrl":"http://127.0.0.1:<port>"}
 //   GET  /vivy-console/hook.js        -> the frontend-debug bridge script
-//   *    /vivy-console/api/*          -> JSON API (gateway + lifecycle)
+//   *    /vivy-console/api/*          -> JSON API (gateway lifecycle)
 //   *    /vivy-web/*                  -> same-origin proxy of the VIVY WEB UI
 //                                        (HTML rewritten: asset paths + hook)
 
@@ -56,7 +59,6 @@ const norm = (p) => String(p || "").replace(/\\/g, "/")
 
 const apiPrefix = "/vivy-console/api"
 const webPrefix = "/vivy-web"
-const MAX_JOB_LINES = 500
 
 let exeOverride = ""
 let resolvedExe = ""
@@ -64,10 +66,6 @@ let currentAddr = "127.0.0.1:8787"
 let child = null // ChildProcess of the managed gateway, null once exited
 let startedAtMs = 0
 let studioPort = 0
-
-// ---- lifecycle jobs (one concurrent, killed with the plugin) ----
-const jobs = new Map()
-let jobSeq = 0
 
 function resolveExePath() {
   const candidates = []
@@ -81,16 +79,6 @@ function resolveExePath() {
       resolvedExe = norm(candidate)
       return resolvedExe
     }
-  }
-  return ""
-}
-
-function resolveStudioExe() {
-  const candidates = []
-  if (process.env.VIVY_STUDIO) candidates.push(process.env.VIVY_STUDIO)
-  candidates.push(join(root, "vivy-studio.exe"))
-  for (const candidate of candidates) {
-    if (candidate && existsSync(candidate)) return norm(candidate)
   }
   return ""
 }
@@ -372,174 +360,6 @@ function proxyWebRequest(req, res, targetOrigin) {
   req.pipe(proxy)
 }
 
-// ---- lifecycle (vivy-studio.exe) ----
-
-function lifecycleList(kind) {
-  const exe = resolveStudioExe()
-  if (!exe) {
-    return Promise.resolve({ ok: false, message: "未找到 vivy-studio.exe（先运行 just studio）" })
-  }
-  // Worktrees live under the workspace subcommand, not `list`.
-  const argv = kind === "worktrees" ? ["--worktree", root, "workspace", "list"] : ["--worktree", root, "list", kind]
-  return new Promise((resolve) => {
-    const proc = spawn(exe, argv, {
-      windowsHide: true,
-      env: process.env,
-    })
-    let stdout = ""
-    let stderr = ""
-    proc.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8")
-    })
-    proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8")
-    })
-    proc.on("error", (error) => {
-      resolve({ ok: false, message: "vivy-studio: " + error.message })
-    })
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        resolve({ ok: false, message: stderr.trim() || `vivy-studio exited ${code}` })
-        return
-      }
-      try {
-        resolve({ ok: true, value: JSON.parse(stdout) })
-      } catch (error) {
-        resolve({ ok: false, message: "解析失败: " + (error instanceof Error ? error.message : error) })
-      }
-    })
-  })
-}
-
-function lifecycleRun(body) {
-  const exe = resolveStudioExe()
-  if (!exe) return { ok: false, message: "未找到 vivy-studio.exe（先运行 just studio）" }
-  for (const job of jobs.values()) {
-    if (job.status === "running") {
-      return { ok: false, message: "已有生命周期任务在运行（并发上限 1）" }
-    }
-  }
-  const action = typeof body.action === "string" ? body.action : ""
-  const args = ["--worktree", root, action]
-  const push = (value) => {
-    if (typeof value === "string" && value !== "") args.push(value)
-  }
-  switch (action) {
-    case "pack": {
-      const withList = Array.isArray(body.with) ? body.with : []
-      for (const name of withList) {
-        push("--with")
-        push(name)
-      }
-      if (body.out) {
-        push("--out")
-        push(body.out)
-      }
-      break
-    }
-    case "eval":
-      push("--candidate")
-      push(body.candidate)
-      if (body.baseline) {
-        push("--baseline")
-        push(body.baseline)
-      }
-      if (body.suite) {
-        push("--suite")
-        push(body.suite)
-      }
-      break
-    case "release": {
-      // Human gate (NG-25): only an explicit UI confirmation may forward
-      // --actor human --yes. The CLI refuses any other actor / missing --yes.
-      if (body.confirm !== true) {
-        return { ok: false, message: "发布必须由人显式确认（NG-25）" }
-      }
-      push("--generation")
-      push(body.generation)
-      if (body.eval) {
-        push("--eval")
-        push(body.eval)
-      }
-      args.push("--actor", "human", "--yes")
-      break
-    }
-    case "reject":
-      push("--generation")
-      push(body.generation)
-      break
-    case "install":
-      push("--release")
-      push(body.release)
-      if (body.target) {
-        push("--target")
-        push(body.target)
-      }
-      break
-    case "rollback":
-      if (body.target) {
-        push("--target")
-        push(body.target)
-      }
-      break
-    case "inspect":
-      if (body.target) {
-        push("--target")
-        push(body.target)
-      }
-      break
-    default:
-      return { ok: false, message: "未知生命周期动作: " + action }
-  }
-  const id = "job_" + String(++jobSeq)
-  const job = {
-    id,
-    action,
-    status: "running",
-    output: [],
-    exitCode: null,
-    child: null,
-    startedAtMs: Date.now(),
-  }
-  jobs.set(id, job)
-  const proc = spawn(exe, args, { windowsHide: true, env: process.env })
-  job.child = proc
-  const onData = (chunk) => {
-    for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-      if (line === "") continue
-      job.output.push(line)
-    }
-    if (job.output.length > MAX_JOB_LINES) {
-      job.output.splice(0, job.output.length - MAX_JOB_LINES)
-    }
-  }
-  proc.stdout.on("data", onData)
-  proc.stderr.on("data", onData)
-  proc.on("error", (error) => {
-    job.status = "failed"
-    job.exitCode = -1
-    job.child = null
-    job.output.push("spawn error: " + error.message)
-  })
-  proc.on("close", (code) => {
-    job.status = code === 0 ? "ok" : "failed"
-    job.exitCode = code
-    job.child = null
-  })
-  return { ok: true, id, action }
-}
-
-function jobSnapshot(job) {
-  return {
-    id: job.id,
-    action: job.action,
-    status: job.status,
-    exitCode: job.exitCode,
-    startedAtMs: job.startedAtMs,
-    output: job.output.slice(-MAX_JOB_LINES),
-  }
-}
-
 // ---- HTTP plumbing ----
 
 function readBody(req) {
@@ -588,7 +408,6 @@ async function handleConsoleApi(req, res, route) {
     case "GET /resolve":
       payload = {
         exe: resolveExePath(),
-        studio: resolveStudioExe(),
         configPath: norm(cfgPath),
         logPath: norm(outLogPath),
         root: norm(root),
@@ -609,21 +428,6 @@ async function handleConsoleApi(req, res, route) {
       payload = { ok: true, exe: exeOverride }
       break
     default:
-      if (method === "GET" && route.startsWith("/lifecycle/list")) {
-        const kind = new URL(req.url || "/", "http://x").searchParams.get("kind") || "generations"
-        payload = await lifecycleList(kind)
-        break
-      }
-      if (method === "POST" && route === "/lifecycle/run") {
-        payload = lifecycleRun(body)
-        break
-      }
-      if (method === "GET" && route.startsWith("/lifecycle/jobs/")) {
-        const id = route.slice("/lifecycle/jobs/".length)
-        const job = jobs.get(id)
-        payload = job ? { ok: true, job: jobSnapshot(job) } : { ok: false, message: "任务不存在" }
-        break
-      }
       res.writeHead(404, { "content-type": "application/json" })
       res.end(JSON.stringify({ ok: false, message: `no route: ${method} ${route}` }))
       return
@@ -672,18 +476,6 @@ function dispose() {
     }
     child = null
   }
-  for (const job of jobs.values()) {
-    if (job.child !== null) {
-      try {
-        job.child.kill()
-      } catch {
-        /* best effort */
-      }
-      job.child = null
-      job.status = "failed"
-      job.output.push("插件卸载，任务已终止")
-    }
-  }
 }
 
 export function apply(ctx) {
@@ -704,7 +496,7 @@ export function apply(ctx) {
         path: "/vivy-console",
         handler: handleConsoleRoute,
       }),
-    "vivy-console: hook + gateway/lifecycle JSON API",
+    "vivy-console: hook + gateway JSON API",
   )
   ctx.effect(
     () =>
@@ -717,6 +509,6 @@ export function apply(ctx) {
   )
   ctx.effect(
     () => dispose,
-    "vivy-console: stop gateway and lifecycle jobs",
+    "vivy-console: stop gateway child process",
   )
 }

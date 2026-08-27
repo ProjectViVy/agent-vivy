@@ -2,10 +2,9 @@
 //
 // Registers a "Vivy 控制台" tab in the conversation view ring
 // (`conversation.view` slot, beside Chat / Trajectory / Context) and renders
-// the console: gateway lifecycle (status/logs/start/stop/restart), a
+// the console: gateway lifecycle (status/logs/start/stop/restart) and a
 // same-origin VIVY WEB iframe with a frontend-debug bridge (console + RPC
-// capture, evaluate), and the Studio distribution ledger driven through
-// /vivy-console/api/* (which shells out to vivy-studio.exe).
+// capture, evaluate).
 //
 // Hand-authored module in the client-modules handoff format
 // (`window.__ModuleLoader__.load({id, factory})`); the injected `require`
@@ -17,7 +16,7 @@
       var module = { exports: {} }
       const React = require("react")
       const h = React.createElement
-      const { useState, useEffect, useRef, useCallback } = React
+      const { useState, useEffect, useRef } = React
 
       const NS = "dsh-vivy-console"
       const API = "/vivy-console/api"
@@ -78,8 +77,6 @@
           ".vc-msg{min-height:16px;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:pre-wrap;word-break:break-all}",
           ".vc-input{height:28px;padding:0 8px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);",
           "border-radius:6px;color:var(--dsw-alias-label-primary);font-size:12px;box-sizing:border-box}",
-          ".vc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px}",
-          ".vc-field{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--dsw-alias-label-secondary)}",
           ".vc-pre{flex:1;min-height:120px;max-height:40vh;overflow:auto;margin:0;padding:8px 10px;",
           "background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;",
           "font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all}",
@@ -92,9 +89,6 @@
           ".vc-crow.err{color:var(--dsw-alias-state-error-primary)}",
           ".vc-crow.warn{color:var(--dsw-alias-state-warn-primary)}",
           ".vc-crow.ok{color:var(--dsw-alias-state-success-primary)}",
-          ".vc-tbl{width:100%;border-collapse:collapse;font-size:12px}",
-          ".vc-tbl th,.vc-tbl td{border:1px solid var(--dsw-alias-border-l1);padding:4px 6px;text-align:left;vertical-align:top}",
-          ".vc-tbl th{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:600;position:sticky;top:0}",
           ".vc-chip{background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:1px 10px;",
           "color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:11px}",
           ".vc-chip.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}",
@@ -311,141 +305,11 @@
         ])
       }
 
-      // ---- Lifecycle pane ----
-      const LEDGER_KINDS = ["generations", "evals", "releases", "installs", "events", "worktrees"]
-      const ACTION_LABELS = {
-        pack: "打包 pack",
-        eval: "评测 eval",
-        release: "发布 release",
-        reject: "拒绝 reject",
-        install: "安装 install",
-        rollback: "回滚 rollback",
-        inspect: "检查 inspect",
-      }
-
-      function LifecyclePane() {
-        const [kind, setKind] = useState("generations")
-        const [data, setData] = useState(null)
-        const [err, setErr] = useState("")
-        const [job, setJob] = useState(null)
-        const [form, setForm] = useState({
-          with: "", candidate: "", baseline: "", suite: "",
-          generation: "", eval: "", release: "", target: "", confirm: false,
-        })
-        const preRef = useRef(null)
-
-        const refresh = useCallback(() => {
-          call("GET", "/lifecycle/list?kind=" + encodeURIComponent(kind)).then((r) => {
-            if (r && r.ok) { setData(r.value); setErr("") }
-            else { setData(null); setErr((r && r.message) || "读取失败") }
-          })
-        }, [kind])
-        useEffect(() => { refresh() }, [refresh])
-
-        useEffect(() => {
-          if (!job || job.status !== "running") return
-          const timer = setInterval(() => {
-            call("GET", "/lifecycle/jobs/" + encodeURIComponent(job.id)).then((r) => {
-              if (r && r.ok) setJob(r.job)
-            })
-          }, 1000)
-          return () => clearInterval(timer)
-        }, [job ? job.id : null, job ? job.status : null]) // eslint-disable-line react-hooks/exhaustive-deps
-
-        useEffect(() => {
-          if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
-        }, [job ? job.output.length : 0]) // eslint-disable-line react-hooks/exhaustive-deps
-
-        function set(field, value) { setForm((f) => ({ ...f, [field]: value })) }
-        function run(action) {
-          const body = { action: action, ...form }
-          if (action === "pack") body.with = form.with.split(",").map((s) => s.trim()).filter(Boolean)
-          call("POST", "/lifecycle/run", body).then((r) => {
-            if (r && r.ok) { setJob({ id: r.id, action: action, status: "running", output: [], exitCode: null }); setErr("") }
-            else setErr((r && r.message) || "任务启动失败")
-          })
-        }
-
-        const rows = Array.isArray(data) ? data : data && Array.isArray(data.worktrees) ? data.worktrees : []
-        const columns = []
-        for (const row of rows) {
-          if (row && typeof row === "object") {
-            for (const key of Object.keys(row)) if (!columns.includes(key)) columns.push(key)
-          }
-        }
-
-        const fields = [
-          { key: "with", label: "插件(逗号分隔)" },
-          { key: "candidate", label: "候选 gen" },
-          { key: "baseline", label: "基线 gen" },
-          { key: "suite", label: "套件" },
-          { key: "generation", label: "Generation" },
-          { key: "eval", label: "EvalRun" },
-          { key: "release", label: "Release" },
-          { key: "target", label: "安装位(默认 VIVY_INSTALL_DIR)" },
-        ]
-
-        return h("div", { className: "vc-pane" }, [
-          h("div", { style: { display: "flex", gap: 6, alignItems: "center", flex: "none", flexWrap: "wrap" } }, [
-            h("span", { className: "vc-key" }, "账本"),
-            ...LEDGER_KINDS.map((k) =>
-              h("button", { className: "vc-chip" + (k === kind ? " on" : ""), key: k, onClick: () => setKind(k) }, k),
-            ),
-            h("button", { className: "vc-btn", onClick: refresh }, "⟳ 刷新"),
-          ]),
-          err ? h("div", { className: "vc-msg" }, err) : null,
-          rows.length === 0 && !err
-            ? h("div", { className: "vc-empty" }, "（暂无记录）")
-            : h("div", { style: { overflow: "auto", flex: "none", maxHeight: "30vh" } }, [
-                h("table", { className: "vc-tbl" }, [
-                  h("thead", null, [h("tr", null, columns.map((c) => h("th", { key: c }, c)))]),
-                  h("tbody", null, rows.map((row, i) =>
-                    h("tr", { key: i }, columns.map((c) => h("td", { key: c }, trunc(row && row[c], 80)))),
-                  )),
-                ]),
-              ]),
-          h("div", { className: "vc-card" }, [
-            h("div", { className: "vc-grid" }, fields.map((f) =>
-              h("label", { className: "vc-field", key: f.key }, [
-                f.label,
-                h("input", { className: "vc-input", value: form[f.key], onChange: (e) => set(f.key, e.target.value) }),
-              ]),
-            )),
-            h("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" } }, [
-              ...Object.keys(ACTION_LABELS).map((a) =>
-                h("button", {
-                  className: "vc-btn" + (a === "release" ? " danger" : ""),
-                  key: a,
-                  disabled: !!job && job.status === "running",
-                  onClick: () => run(a),
-                }, ACTION_LABELS[a]),
-              ),
-              h("label", { style: { display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: "var(--dsw-alias-state-warn-primary)" } }, [
-                h("input", { type: "checkbox", checked: form.confirm, onChange: (e) => set("confirm", e.target.checked) }),
-                "我确认发布：人工操作（--actor human --yes）",
-              ]),
-            ]),
-            h("div", { className: "vc-msg", style: { marginTop: 6 } }, "发布必须勾选人工确认；install/rollback 目标由 vivy-studio.exe 拒绝源码树与 data/ 目录。"),
-          ]),
-          job
-            ? h("div", { className: "vc-card" }, [
-                h("div", { className: "vc-row" }, [
-                  h("span", { className: "vc-key" }, "任务"),
-                  h("span", { className: "vc-val" }, job.id + " · " + job.action + " · " + (job.status === "running" ? "运行中" : job.status === "ok" ? "成功" : "失败" + (job.exitCode != null ? " (exit " + job.exitCode + ")" : ""))),
-                ]),
-                h("pre", { ref: preRef, className: "vc-pre" }, job.output.length ? job.output.join("\n") : "（等待输出…）"),
-                job.status !== "running" ? h("button", { className: "vc-btn", onClick: () => { setJob(null); refresh() } }, "关闭") : null,
-              ])
-            : null,
-        ])
-      }
-
       // ---- Root view ----
       const SECTIONS = [
         ["gateway", "网关"],
         ["web", "VIVY WEB"],
         ["logs", "日志"],
-        ["lifecycle", "生命周期"],
       ]
 
       function VivyConsoleView() {
@@ -468,7 +332,6 @@
           section === "gateway" ? h(GatewayPane, { status }) : null,
           section === "web" ? h(WebPane, { status }) : null,
           section === "logs" ? h(LogsPane, null) : null,
-          section === "lifecycle" ? h(LifecyclePane, null) : null,
         ])
       }
 
