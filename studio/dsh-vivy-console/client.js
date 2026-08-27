@@ -2,9 +2,10 @@
 //
 // Registers a "Vivy 控制台" tab in the conversation view ring
 // (`conversation.view` slot, beside Chat / Trajectory / Context) and renders
-// the console: gateway lifecycle (status/logs/start/stop/restart) and a
-// same-origin VIVY WEB iframe with a frontend-debug bridge (console + RPC
-// capture, evaluate).
+// the console: gateway lifecycle (status/logs/start/stop/restart), the Vite
+// frontend dev server (status/start/stop/restart), a VIVY WEB standalone tab
+// with a frontend-debug bridge (console + RPC capture, evaluate), and one
+// unified log timeline for both backend and frontend.
 //
 // Hand-authored module in the client-modules handoff format
 // (`window.__ModuleLoader__.load({id, factory})`); the injected `require`
@@ -81,7 +82,6 @@
           "background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;",
           "font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all}",
           ".vc-web{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}",
-          ".vc-frame{flex:1;min-height:0;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:#fff}",
           ".vc-capture{flex:1;min-height:0;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;",
           "background:var(--dsw-alias-bg-base);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5}",
           ".vc-crow{padding:3px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;word-break:break-all}",
@@ -150,24 +150,75 @@
         ])
       }
 
-      // ---- VIVY WEB pane ----
+      // ---- Frontend dev pane ----
+      function FrontendPane({ status }) {
+        const [busy, setBusy] = useState("")
+        const [msg, setMsg] = useState("")
+        const fe = (status && status.frontend) || {}
+        function act(name, label) {
+          setBusy(label)
+          setMsg("")
+          call("POST", "/frontend/" + name).then((r) => {
+            setMsg((r && r.message) || label + " 完成")
+            setBusy("")
+          })
+        }
+        const running = !!(fe && fe.running)
+        const listening = !!(fe && fe.listening)
+        const stateText = running
+          ? "运行中 " + (fe.managed ? "(本控制台管理)" : "(外部进程)")
+          : listening
+            ? "已停止（端口仍被监听）"
+            : fe.dirReady
+              ? "已停止"
+              : "未就绪（缺少 ui/package.json）"
+        return h("div", { className: "vc-pane" }, [
+          h("div", { className: "vc-card" }, [
+            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "状态"), h("span", { className: "vc-val" }, stateText)]),
+            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "PID"), h("span", { className: "vc-val" }, String((fe && fe.pid) || "—"))]),
+            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "监听"), h("span", { className: "vc-val" }, String((fe && fe.addr) || "—") + "（Vite）")]),
+            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "启动于"), h("span", { className: "vc-val" }, fe && fe.startedAtMs ? fmtTime(fe.startedAtMs) : "—")]),
+            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "命令"), h("span", { className: "vc-val" }, String((fe && fe.command) || "—") + " @ " + trunc((fe && fe.cwd) || "…", 120))]),
+            h("div", { className: "vc-row" }, [h("span", { className: "vc-key" }, "代理"), h("span", { className: "vc-val" }, "/rpc → 网关（需先启动网关）")]),
+          ]),
+          h("div", { className: "vc-card" }, [
+            h("div", { style: { display: "flex", gap: 8 } }, [
+              h("button", { className: "vc-btn primary", disabled: !!busy || running, onClick: () => act("start", "启动") }, busy === "启动" ? "启动中…" : "▶ 启动"),
+              h("button", { className: "vc-btn", disabled: !!busy || !running, onClick: () => act("stop", "停止") }, busy === "停止" ? "停止中…" : "■ 停止"),
+              h("button", { className: "vc-btn", disabled: !!busy, onClick: () => act("restart", "重启") }, busy === "重启" ? "重启中…" : "⟳ 重启"),
+            ]),
+            h("div", { className: "vc-msg", style: { marginTop: 6 } }, msg),
+            h("div", { className: "vc-msg", style: { marginTop: 6 } }, "前端 dev 日志与后端日志在「日志」页统一时间线显示。"),
+          ]),
+        ])
+      }
+
+      // ---- VIVY WEB pane (standalone tab) ----
       function WebPane({ status }) {
         const running = !!(status && status.running)
         const [mode, setMode] = useState("proxy")
-        const [frameKey, setFrameKey] = useState(0)
         const [events, setEvents] = useState([])
         const [filter, setFilter] = useState("all")
         const [expr, setExpr] = useState("")
         const [result, setResult] = useState("")
-        const iframeRef = useRef(null)
+        const [msg, setMsg] = useState("")
+        const winRef = useRef(null)
         const seqRef = useRef(0)
-        const lastAddrRef = useRef("")
 
         const src = mode === "proxy" ? "/vivy-web/" : "http://127.0.0.1:3015/"
 
+        function openTab() {
+          if (!running && mode === "proxy") {
+            setMsg("网关未运行 — 请先在「网关」页启动，再打开 VIVY WEB。")
+            return
+          }
+          winRef.current = window.open(src, "vivy-console-web")
+          setMsg(winRef.current ? "已在独立标签页打开：" + src : "弹窗被拦截 — 请在浏览器允许本站弹窗后重试。")
+        }
+
         useEffect(() => {
           function onMessage(ev) {
-            if (iframeRef.current && ev.source !== iframeRef.current.contentWindow) return
+            if (winRef.current && ev.source !== winRef.current) return
             const d = ev.data
             if (!d || d.__vivyConsole !== true) return
             if (d.type === "ready" || d.type === "pong" || d.type === "ws") return
@@ -181,18 +232,8 @@
           return () => window.removeEventListener("message", onMessage)
         }, [])
 
-        // Reload the proxied iframe when the gateway addr changes.
-        useEffect(() => {
-          if (mode !== "proxy") return
-          const addr = status && status.addr
-          if (addr && addr !== lastAddrRef.current) {
-            lastAddrRef.current = addr
-            setFrameKey((k) => k + 1)
-          }
-        }, [status, mode])
-
         function evaluate() {
-          const win = iframeRef.current && iframeRef.current.contentWindow
+          const win = winRef.current
           if (!win || !expr.trim()) return
           const id = "ev" + String(++seqRef.current)
           setResult("…")
@@ -209,33 +250,24 @@
 
         return h("div", { className: "vc-web" }, [
           h("div", { style: { display: "flex", gap: 8, alignItems: "center", flex: "none" } }, [
-            h("button", { className: "vc-btn", onClick: () => setFrameKey((k) => k + 1) }, "⟳ 刷新"),
-            h("button", {
-              className: "vc-btn",
-              onClick: () => window.open(src, "_blank"),
-            }, "新标签打开"),
             h("span", { className: "vc-key" }, "目标"),
             h("select", { className: "vc-input", value: mode, onChange: (e) => setMode(e.target.value) }, [
-              h("option", { value: "proxy" }, "内嵌（网关 UI，同源调试）"),
-              h("option", { value: "dev" }, "开发（Vite 3015，直接显示）"),
+              h("option", { value: "proxy" }, "内嵌代理（网关 UI，同源调试）"),
+              h("option", { value: "dev" }, "开发（Vite 3015，直连）"),
             ]),
+            h("button", { className: "vc-btn primary", onClick: openTab }, "打开独立页面"),
+            h("button", { className: "vc-btn", onClick: () => { winRef.current = null; setEvents([]) } }, "断开捕获"),
             h("button", { className: "vc-chip" + (filter === "all" ? " on" : ""), onClick: () => setFilter("all") }, "全部"),
             h("button", { className: "vc-chip" + (filter === "console" ? " on" : ""), onClick: () => setFilter("console") }, "控制台"),
             h("button", { className: "vc-chip" + (filter === "rpc" ? " on" : ""), onClick: () => setFilter("rpc") }, "RPC"),
             h("button", { className: "vc-chip" + (filter === "err" ? " on" : ""), onClick: () => setFilter("err") }, "错误"),
             h("button", { className: "vc-btn", onClick: () => setEvents([]) }, "清空"),
           ]),
-          !running && mode === "proxy"
-            ? h("div", { className: "vc-card", style: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dsw-alias-label-secondary)" } }, "网关未运行 — 请先在「网关」页启动，再回到这里查看 VIVY WEB。")
-            : h("iframe", {
-                ref: iframeRef,
-                key: String(frameKey) + ":" + mode,
-                className: "vc-frame",
-                src: src,
-                title: "VIVY WEB",
-              }),
+          msg ? h("div", { className: "vc-msg" }, msg) : null,
           h("div", { className: "vc-capture" }, filtered.length === 0
-            ? h("div", { className: "vc-empty" }, mode === "proxy" ? "等待捕获（VIVY WEB 的控制台与 RPC 流量会显示在这里）…" : "开发（直连）模式下无法注入调试桥，无捕获。")
+            ? h("div", { className: "vc-empty" }, mode === "proxy"
+              ? "打开独立页面后，VIVY WEB 的控制台与 RPC 流量会经调试桥回传到这里…"
+              : "开发（直连 Vite）模式无法注入调试桥，无捕获。")
             : filtered.map((e, i) => {
                 if (e.type === "console") {
                   return h("div", { className: "vc-crow" + (e.payload && e.payload.level === "error" ? " err" : e.payload && e.payload.level === "warn" ? " warn" : ""), key: i }, [
@@ -263,7 +295,7 @@
               className: "vc-input",
               style: { flex: 1 },
               value: expr,
-              placeholder: "在 VIVY WEB 页面中求值表达式，如 document.title",
+              placeholder: "在打开的 VIVY WEB 页面中求值表达式，如 document.title",
               onChange: (e) => setExpr(e.target.value),
               onKeyDown: (e) => { if (e.key === "Enter") evaluate() },
             }),
@@ -273,10 +305,11 @@
         ])
       }
 
-      // ---- Logs pane ----
+      // ---- Logs pane (unified timeline) ----
       function LogsPane() {
         const [lines, setLines] = useState([])
         const [paused, setPaused] = useState(false)
+        const [srcFilter, setSrcFilter] = useState("all")
         const [msg, setMsg] = useState("")
         const preRef = useRef(null)
         useEffect(() => {
@@ -295,12 +328,20 @@
         useEffect(() => {
           if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
         }, [lines])
+        const visible = lines.filter((l) => srcFilter === "all" || (l && l.src === srcFilter))
         return h("div", { className: "vc-pane" }, [
-          h("div", { style: { display: "flex", gap: 8, alignItems: "center", flex: "none" } }, [
+          h("div", { style: { display: "flex", gap: 8, alignItems: "center", flex: "none", flexWrap: "wrap" } }, [
             h("button", { className: "vc-btn", onClick: () => setPaused(!paused) }, paused ? "▶ 继续" : "❚❚ 暂停"),
-            h("span", { className: "vc-key" }, "尾随网关 stdout/stderr（最多 300 行）"),
+            h("button", { className: "vc-btn", onClick: () => setLines([]) }, "清空"),
+            h("span", { className: "vc-key" }, "来源"),
+            h("button", { className: "vc-chip" + (srcFilter === "all" ? " on" : ""), onClick: () => setSrcFilter("all") }, "全部"),
+            h("button", { className: "vc-chip" + (srcFilter === "backend" ? " on" : ""), onClick: () => setSrcFilter("backend") }, "后端"),
+            h("button", { className: "vc-chip" + (srcFilter === "frontend" ? " on" : ""), onClick: () => setSrcFilter("frontend") }, "前端"),
+            h("span", { className: "vc-key" }, "后端日志尾随 " + (lines.filter((l) => l && l.src === "backend").length) + " 行 / 前端 " + (lines.filter((l) => l && l.src === "frontend").length) + " 行"),
           ]),
-          h("pre", { ref: preRef, className: "vc-pre" }, lines.length ? lines.join("\n") : "（暂无日志）"),
+          h("pre", { ref: preRef, className: "vc-pre" }, visible.length
+            ? visible.map((l) => "[" + (l.src === "frontend" ? "前端" : "后端") + "] " + l.text).join("\n")
+            : "（暂无日志）"),
           msg ? h("div", { className: "vc-msg" }, msg) : null,
         ])
       }
@@ -308,6 +349,7 @@
       // ---- Root view ----
       const SECTIONS = [
         ["gateway", "网关"],
+        ["frontend", "前端"],
         ["web", "VIVY WEB"],
         ["logs", "日志"],
       ]
@@ -330,6 +372,7 @@
             h("button", { className: "vc-tab" + (id === section ? " on" : ""), key: id, onClick: () => setSection(id) }, label),
           )),
           section === "gateway" ? h(GatewayPane, { status }) : null,
+          section === "frontend" ? h(FrontendPane, { status }) : null,
           section === "web" ? h(WebPane, { status }) : null,
           section === "logs" ? h(LogsPane, null) : null,
         ])

@@ -1,14 +1,17 @@
 // Vivy Studio first-party console (Host half).
 //
 // Runs as a profile bundle plugin inside the Studio server process (real
-// Node, no vm sandbox). Supersedes dsh-vivy-debugger: it manages the
-// vivy.exe gateway child process (status/logs/start/stop/restart/exe
-// override) and serves a same-origin facade of the VIVY WEB UI at /vivy-web/
-// with a frontend-debug bridge injected into the proxied HTML.
+// Node, no vm sandbox). Supersedes dsh-vivy-debugger: it manages two child
+// processes of the development loop —
+//   * the vivy.exe gateway (status/logs/start/stop/restart/exe override)
+//   * the Vite frontend dev server (pnpm dev in ui/, :3015)
+// — serves a same-origin facade of the VIVY WEB UI at /vivy-web/ with a
+// frontend-debug bridge injected into the proxied HTML, and exposes both
+// processes' logs as one unified timeline.
 //
-// Scope (2026-08-27): the development loop only — gateway + logs + VIVY WEB
-// debugging. Studio distribution (pack/eval/release/install/rollback) is
-// deliberately NOT in the Studio UI; it stays on the vivy-sdk /
+// Scope (2026-08-27): the development loop only — gateway + frontend dev +
+// logs + VIVY WEB debugging. Studio distribution (pack/eval/release/install/
+// rollback) is deliberately NOT in the Studio UI; it stays on the vivy-sdk /
 // vivy-studio.exe command line.
 //
 // Air gap: all gateway data lives under
@@ -19,7 +22,7 @@
 // Routes registered on the Studio webServer:
 //   GET  /vivy-config.json            -> {"controlPlaneUrl":"http://127.0.0.1:<port>"}
 //   GET  /vivy-console/hook.js        -> the frontend-debug bridge script
-//   *    /vivy-console/api/*          -> JSON API (gateway lifecycle)
+//   *    /vivy-console/api/*          -> JSON API (gateway + frontend + logs)
 //   *    /vivy-web/*                  -> same-origin proxy of the VIVY WEB UI
 //                                        (HTML rewritten: asset paths + hook)
 
@@ -54,17 +57,23 @@ const consoleDir = join(root, "data", "studio-home", "vivy-console")
 const cfgPath = join(consoleDir, "config.yaml")
 const outLogPath = join(consoleDir, "gateway.out.log")
 const errLogPath = join(consoleDir, "gateway.err.log")
+const feOutLogPath = join(consoleDir, "frontend.out.log")
+const feErrLogPath = join(consoleDir, "frontend.err.log")
+const uiDir = join(root, "ui")
 
 const norm = (p) => String(p || "").replace(/\\/g, "/")
 
 const apiPrefix = "/vivy-console/api"
 const webPrefix = "/vivy-web"
+const FE_PORT = 3015
 
 let exeOverride = ""
 let resolvedExe = ""
 let currentAddr = "127.0.0.1:8787"
 let child = null // ChildProcess of the managed gateway, null once exited
 let startedAtMs = 0
+let feChild = null // ChildProcess of the Vite dev server, null once exited
+let feStartedAtMs = 0
 let studioPort = 0
 
 function resolveExePath() {
@@ -161,16 +170,29 @@ function tailFile(path, maxBytes) {
 }
 
 function readLogs() {
-  const out = tailFile(outLogPath, 512 * 1024)
-  const err = tailFile(errLogPath, 256 * 1024)
-  const tagged = err.map((line) => (line ? "[err] " + line : line))
-  const lines = [...out, ...tagged]
-  const tail = lines.slice(-300)
+  // Unified timeline: backend (gateway) lines + frontend (Vite dev) lines,
+  // each tagged with its source so the client can render one feed with
+  // source chips and filter by source.
+  const gwOut = tailFile(outLogPath, 512 * 1024)
+  const gwErr = tailFile(errLogPath, 256 * 1024)
+  const feOut = tailFile(feOutLogPath, 512 * 1024)
+  const feErr = tailFile(feErrLogPath, 256 * 1024)
+  const gwLines = [...gwOut, ...gwErr.map((line) => (line ? "[err] " + line : line))]
+  const feLines = [...feOut, ...feErr.map((line) => (line ? "[err] " + line : line))]
+  const lines = [
+    ...gwLines.slice(-300).map((line) => ({ src: "backend", text: line })),
+    ...feLines.slice(-300).map((line) => ({ src: "frontend", text: line })),
+  ]
   return {
-    lines: tail,
-    truncated: lines.length > 300,
-    logPath: norm(outLogPath),
-    running: child !== null && child.exitCode === null,
+    lines,
+    backend: {
+      logPath: norm(outLogPath),
+      running: child !== null && child.exitCode === null,
+    },
+    frontend: {
+      logPath: norm(feOutLogPath),
+      running: feChild !== null && feChild.exitCode === null,
+    },
   }
 }
 
@@ -290,7 +312,97 @@ async function status() {
     studioPort,
     webPath: webPrefix + "/",
     studioOrigin: `http://127.0.0.1:${studioPort}`,
+    frontend: await frontendStatus(),
   }
+}
+
+// ---- frontend dev server (Vite, ui/) ----
+
+async function frontendStatus() {
+  const managed = feChild !== null && feChild.exitCode === null
+  const listening = await portInUse(FE_PORT)
+  return {
+    running: managed,
+    managed,
+    pid: managed ? feChild.pid : null,
+    startedAtMs: managed ? feStartedAtMs : null,
+    addr: `127.0.0.1:${FE_PORT}`,
+    listening,
+    cwd: norm(uiDir),
+    command: "pnpm dev",
+    logPath: norm(feOutLogPath),
+    dirReady: existsSync(join(uiDir, "package.json")),
+  }
+}
+
+async function startFrontend() {
+  if (feChild !== null && feChild.exitCode === null) {
+    return { ok: false, message: "前端 dev server 已在运行（本控制台管理）" }
+  }
+  if (!existsSync(join(uiDir, "package.json"))) {
+    return { ok: false, message: `未找到 ui/package.json（${norm(uiDir)}）` }
+  }
+  if (await portInUse(FE_PORT)) {
+    return { ok: false, message: `端口 ${FE_PORT} 已被占用（可能外部 vite 已在运行）` }
+  }
+  const outFd = openSync(feOutLogPath, "a")
+  const errFd = openSync(feErrLogPath, "a")
+  try {
+    feChild = spawn("pnpm", ["dev"], {
+      cwd: uiDir,
+      shell: process.platform === "win32",
+      env: process.env,
+      stdio: ["ignore", outFd, errFd],
+      windowsHide: true,
+    })
+  } catch (error) {
+    closeSync(outFd)
+    closeSync(errFd)
+    feChild = null
+    return {
+      ok: false,
+      message: "启动失败: " + (error instanceof Error ? error.message : String(error)),
+    }
+  }
+  feStartedAtMs = Date.now()
+  feChild.on("exit", () => {
+    feChild = null
+  })
+  feChild.on("error", () => {
+    feChild = null
+  })
+  return {
+    ok: true,
+    pid: feChild.pid,
+    message: `前端 dev server 已启动 (PID ${feChild.pid})，监听 ${FE_PORT}（Vite，代理 /rpc → 网关）`,
+  }
+}
+
+async function stopFrontend() {
+  if (feChild !== null && feChild.exitCode === null) {
+    const pid = feChild.pid
+    // On Windows the child is cmd.exe (shell: true); tree-kill so the Vite
+    // process underneath cannot be orphaned.
+    if (process.platform === "win32") {
+      try {
+        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+          windowsHide: true,
+          timeout: 10000,
+        })
+      } catch {
+        /* best effort */
+      }
+    } else {
+      try {
+        feChild.kill("SIGTERM")
+      } catch {
+        /* best effort */
+      }
+    }
+    feChild = null
+    return { ok: true, message: `前端 dev server 已停止 (PID ${pid})` }
+  }
+  return { ok: false, message: "前端 dev server 未在运行" }
 }
 
 // ---- VIVY WEB same-origin facade ----
@@ -427,6 +539,19 @@ async function handleConsoleApi(req, res, route) {
       exeOverride = body && typeof body.path === "string" ? body.path.trim() : ""
       payload = { ok: true, exe: exeOverride }
       break
+    case "GET /frontend/status":
+      payload = await frontendStatus()
+      break
+    case "POST /frontend/start":
+      payload = await startFrontend()
+      break
+    case "POST /frontend/stop":
+      payload = await stopFrontend()
+      break
+    case "POST /frontend/restart":
+      await stopFrontend()
+      payload = await startFrontend()
+      break
     default:
       res.writeHead(404, { "content-type": "application/json" })
       res.end(JSON.stringify({ ok: false, message: `no route: ${method} ${route}` }))
@@ -476,6 +601,14 @@ function dispose() {
     }
     child = null
   }
+  if (feChild !== null) {
+    try {
+      feChild.kill()
+    } catch {
+      /* best effort */
+    }
+    feChild = null
+  }
 }
 
 export function apply(ctx) {
@@ -496,7 +629,7 @@ export function apply(ctx) {
         path: "/vivy-console",
         handler: handleConsoleRoute,
       }),
-    "vivy-console: hook + gateway JSON API",
+    "vivy-console: hook + gateway/frontend JSON API",
   )
   ctx.effect(
     () =>
@@ -509,6 +642,6 @@ export function apply(ctx) {
   )
   ctx.effect(
     () => dispose,
-    "vivy-console: stop gateway child process",
+    "vivy-console: stop gateway + frontend dev child processes",
   )
 }
