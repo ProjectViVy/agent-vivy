@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArrowRight, FlaskConical, GitBranch, Sparkles } from 'lucide-react';
+import { Activity, ArrowRight, Check, Cpu, FlaskConical, GitBranch, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { getConfig, getPersonaProfile, getToolsConfig, updateConfig, updatePersonaProfile, updateToolsConfig } from '@/lib/demo-api';
-import type { PersonaProfile, RuntimeConfig, ToolsConfigShape } from '@/lib/types';
+import { getConfig, getToolsConfig, updateConfig, updateToolsConfig } from '@/lib/demo-api';
+import type { RuntimeConfig, ToolsConfigShape } from '@/lib/types';
 import { useVivyStore } from '@/lib/store';
 import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { RunInspector } from '@/components/chat/RunInspector';
@@ -20,7 +20,7 @@ import { DivaSettingsPreview } from './DivaSettingsPreview';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 
-const SETTINGS_TAB_VALUES = ['general', 'model', 'persona', 'tools', 'vivy', ...DIVA_ADDITIONAL_SECTIONS] as const;
+const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', ...DIVA_ADDITIONAL_SECTIONS] as const;
 export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
 
 /** 路由 search 参数的白名单校验（?tab=…深链）。 */
@@ -51,36 +51,33 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const connection = useVivyStore((state) => state.connection);
   const { t } = useTranslation();
   const [demoConfig, setDemoConfig] = useState<RuntimeConfig | null>(null);
-  const [persona, setPersona] = useState<PersonaProfile | null>(null);
   const [tools, setTools] = useState<ToolsConfigShape | null>(null);
-  const [demoBusy, setDemoBusy] = useState<'model' | 'persona' | 'tools' | null>(null);
+  const [demoBusy, setDemoBusy] = useState<'model' | 'tools' | null>(null);
   const [demoSaved, setDemoSaved] = useState<string | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'general');
 
   const loadDemos = async () => {
     setDemoError(null);
-    const results = await Promise.allSettled([getConfig(), getPersonaProfile(), getToolsConfig()]);
+    const results = await Promise.allSettled([getConfig(), getToolsConfig()]);
     if (results[0].status === 'fulfilled') setDemoConfig(results[0].value);
-    if (results[1].status === 'fulfilled') setPersona(results[1].value);
-    if (results[2].status === 'fulfilled') setTools(results[2].value);
+    if (results[1].status === 'fulfilled') setTools(results[1].value);
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (failures.length) setDemoError(failures.map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)).join('；'));
   };
 
   useEffect(() => {
-    if (activeTab === 'model' || activeTab === 'persona' || activeTab === 'tools') void loadDemos();
+    if (activeTab === 'model' || activeTab === 'tools') void loadDemos();
   }, [activeTab]);
   // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区。
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
 
-  const persistDemo = async (kind: 'model' | 'persona' | 'tools') => {
+  const persistDemo = async (kind: 'model' | 'tools') => {
     setDemoBusy(kind);
     setDemoSaved(null);
     setDemoError(null);
     try {
       if (kind === 'model' && demoConfig) setDemoConfig(await updateConfig(demoConfig));
-      if (kind === 'persona' && persona) setPersona(await updatePersonaProfile(persona));
       if (kind === 'tools' && tools) setTools(await updateToolsConfig(tools));
       setDemoSaved(kind);
     } catch (cause) {
@@ -99,7 +96,6 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsList className="w-full justify-start overflow-x-auto">
             <TabsTrigger value="general">通用</TabsTrigger>
             <TabsTrigger value="model">模型</TabsTrigger>
-            <TabsTrigger value="persona">人格</TabsTrigger>
             <TabsTrigger value="tools">工具</TabsTrigger>
             <TabsTrigger value="vivy">Vivy 功能</TabsTrigger>
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
@@ -136,31 +132,62 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
           <TabsContent value="model" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>Vivy 模型配置</CardTitle><CardDescription>真实设置。可选 API Key 保存在本机运行数据中，生效于下次启动；密钥值不会回传界面或写入日志。</CardDescription></CardHeader>
+              <CardHeader>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Cpu className="h-5 w-5" aria-hidden="true" /></div>
+                <CardTitle>{t('settings.modelConfigTitle')}</CardTitle>
+                <CardDescription>{t('settings.modelConfigDescription')}</CardDescription>
+              </CardHeader>
               <CardContent><ModelSettingsCard /></CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>生成参数</CardTitle><CardDescription>恢复的示例参数，不会传给真实 Provider。</CardDescription></CardHeader>
-              <CardContent>
-                <DemoNote />
-                {demoConfig ? <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label htmlFor="temperature">Temperature</Label><Input id="temperature" type="number" min="0" max="2" step="0.1" value={demoConfig.temperature} disabled={demoBusy === 'model'} onChange={(event) => setDemoConfig({ ...demoConfig, temperature: Number(event.target.value) })} /></div>
-                  <div className="space-y-2"><Label htmlFor="max-tokens">Max Tokens</Label><Input id="max-tokens" type="number" min="1" value={demoConfig.max_tokens} disabled={demoBusy === 'model'} onChange={(event) => setDemoConfig({ ...demoConfig, max_tokens: Number(event.target.value) })} /></div>
-                  <div className="sm:col-span-2"><Button type="button" variant="outline" disabled={demoBusy === 'model'} onClick={() => void persistDemo('model')}>{demoBusy === 'model' ? '保存中…' : '保存演示参数'}</Button>{demoSaved === 'model' ? <span className="ml-3 text-sm text-muted-foreground">已保存到本地</span> : null}</div>
-                </div> : <div className="h-24 animate-pulse rounded bg-muted" />}
+              <CardHeader>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><SlidersHorizontal className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="flex items-center gap-2">
+                  <CardTitle>{t('settings.generationParamsTitle')}</CardTitle>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">{t('settings.demoBadge')}</span>
+                </div>
+                <CardDescription>{t('settings.generationParamsDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {demoConfig ? (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label>{t('settings.temperature')}</Label>
+                          <span className="font-mono text-xs tabular-nums text-muted-foreground">{demoConfig.temperature?.toFixed(1)}</span>
+                        </div>
+                        <Slider
+                          value={[demoConfig.temperature ?? 0.7]}
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          disabled={demoBusy === 'model'}
+                          onValueChange={([value]) => setDemoConfig({ ...demoConfig, temperature: value })}
+                          aria-label={t('settings.temperature')}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max-tokens">{t('settings.maxTokens')}</Label>
+                        <Input id="max-tokens" type="number" min={1} value={demoConfig.max_tokens} disabled={demoBusy === 'model'} onChange={(event) => setDemoConfig({ ...demoConfig, max_tokens: Number(event.target.value) })} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Button type="button" disabled={demoBusy === 'model'} onClick={() => void persistDemo('model')}>
+                        {demoBusy === 'model' ? t('settings.saving') : t('settings.saveDemoParams')}
+                      </Button>
+                      {demoSaved === 'model' ? (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                          {t('settings.savedLocally')}
+                        </span>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-24 animate-pulse rounded bg-muted" />
+                )}
               </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="persona">
-            <DemoNote />
-            <Card>
-              <CardHeader><CardTitle>人格配置</CardTitle><CardDescription>助手名称和系统提示词示例。</CardDescription></CardHeader>
-              <CardContent>{persona ? <div className="space-y-4">
-                <div className="space-y-2"><Label htmlFor="persona-name">名称</Label><Input id="persona-name" value={persona.name} disabled={demoBusy === 'persona'} onChange={(event) => setPersona({ ...persona, name: event.target.value })} /></div>
-                <div className="space-y-2"><Label htmlFor="system-prompt">系统提示词</Label><Textarea id="system-prompt" rows={8} value={persona.system_prompt ?? ''} disabled={demoBusy === 'persona'} onChange={(event) => setPersona({ ...persona, system_prompt: event.target.value })} /></div>
-                <Button type="button" disabled={demoBusy === 'persona'} onClick={() => void persistDemo('persona')}>{demoBusy === 'persona' ? '保存中…' : '保存人格演示'}</Button>{demoSaved === 'persona' ? <span className="ml-3 text-sm text-muted-foreground">已保存到本地</span> : null}
-              </div> : <div className="h-56 animate-pulse rounded bg-muted" />}</CardContent>
             </Card>
           </TabsContent>
 
