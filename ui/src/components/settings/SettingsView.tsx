@@ -20,8 +20,9 @@ import { DivaSettingsPreview } from './DivaSettingsPreview';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 import { LanguagePicker } from './LanguagePicker';
+import { NetworkToolsCard } from './NetworkToolsCard';
 
-const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', ...DIVA_ADDITIONAL_SECTIONS] as const;
+const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', 'network', ...DIVA_ADDITIONAL_SECTIONS] as const;
 export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
 
 /** 路由 search 参数的白名单校验（?tab=…深链）。 */
@@ -31,7 +32,6 @@ export function isSettingsTab(value: unknown): value is SettingsTab {
 
 const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
   channels: '通道',
-  network: '网络',
   'self-evolution': '自进化',
   sandbox: '沙箱',
 };
@@ -98,6 +98,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             <TabsTrigger value="tools">工具</TabsTrigger>
             <TabsTrigger value="vivy">Vivy 功能</TabsTrigger>
             <TabsTrigger value="language">语言</TabsTrigger>
+            <TabsTrigger value="network">网络工具</TabsTrigger>
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
               <TabsTrigger key={section} value={section}>
                 {DIVA_TAB_LABELS[section]}
@@ -210,6 +211,10 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
           <TabsContent value="language" className="space-y-4">
             <LanguagePicker />
+          </TabsContent>
+
+          <TabsContent value="network" className="space-y-4">
+            <NetworkToolsCard />
           </TabsContent>
 
           {DIVA_ADDITIONAL_SECTIONS.map((section) => (

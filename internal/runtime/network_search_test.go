@@ -82,6 +82,92 @@ func TestNetworkSearchServiceDefaultsToSafePublicProvider(t *testing.T) {
 	}
 }
 
+// TestNetworkSearchServicePrefersConfiguredProvider pins the config/settings
+// preferred-provider hook: a usable preference wins when the request names
+// no provider, and an unusable preference falls back to the automatic
+// keyless walk instead of failing the search.
+func TestNetworkSearchServicePrefersConfiguredProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/searxng":
+			_, _ = w.Write([]byte(`{"results":[{"title":"Go","url":"https://go.dev/","content":"A language"}]}`))
+		case "/duckduckgo":
+			_, _ = w.Write([]byte(`{"Heading":"Go","AbstractURL":"https://go.dev/","AbstractText":"A language"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	service := NewNetworkSearchService(server.Client(), map[string]string{
+		"searxng":    server.URL + "/searxng",
+		"duckduckgo": server.URL + "/duckduckgo",
+	})
+
+	// Keyless preference: searxng is usable without any env setup.
+	t.Setenv("SEARXNG_SEARCH_URL", server.URL+"/searxng")
+	service.SetPreferredProvider("searxng")
+	response, err := service.Search(context.Background(), "", tools.SearchRequest{Query: "golang"})
+	if err != nil || response.Provider != "searxng" || len(response.Results) != 1 {
+		t.Fatalf("preferred searxng response=%#v err=%v", response, err)
+	}
+
+	// Unusable preference (bing has no key configured): must degrade to the
+	// keyless duckduckgo walk, not fail.
+	t.Setenv("BING_SEARCH_API_KEY", "")
+	service.SetPreferredProvider("bing")
+	response, err = service.Search(context.Background(), "", tools.SearchRequest{Query: "golang"})
+	if err != nil || response.Provider != "duckduckgo" || len(response.Results) != 1 {
+		t.Fatalf("unusable bing fallback response=%#v err=%v", response, err)
+	}
+
+	// An explicit request provider always wins over the preference.
+	service.SetPreferredProvider("searxng")
+	response, err = service.Search(context.Background(), "", tools.SearchRequest{Query: "golang", Provider: "duckduckgo"})
+	if err != nil || response.Provider != "duckduckgo" {
+		t.Fatalf("explicit provider response=%#v err=%v", response, err)
+	}
+}
+
+// TestNetworkSearchProviderAvailability pins the D-010 surface: the roster
+// reports env-key presence only, never values, and keyless providers are
+// always configured.
+func TestNetworkSearchProviderAvailability(t *testing.T) {
+	t.Setenv("BING_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_CX", "")
+	t.Setenv("SEARXNG_SEARCH_URL", "")
+	roster := NetworkSearchProviderAvailability()
+	byName := make(map[string]NetworkSearchProviderInfo, len(roster))
+	for _, info := range roster {
+		byName[info.Name] = info
+	}
+	if len(roster) != 5 {
+		t.Fatalf("roster = %d providers, want 5", len(roster))
+	}
+	if info := byName["bing"]; info.Keyless || info.Configured || info.EnvKey != "BING_SEARCH_API_KEY" {
+		t.Fatalf("bing (no key) = %+v", info)
+	}
+	for _, name := range []string{"duckduckgo", "wikipedia"} {
+		if info := byName[name]; !info.Keyless || !info.Configured || info.EnvKey != "" {
+			t.Fatalf("%s = %+v, want keyless+configured", name, info)
+		}
+	}
+
+	t.Setenv("BING_SEARCH_API_KEY", "only-presence-matters")
+	if info := byName["bing"]; !info.Configured {
+		// Fresh roster to re-read env presence.
+		for _, fresh := range NetworkSearchProviderAvailability() {
+			if fresh.Name == "bing" {
+				info = fresh
+			}
+		}
+		if !info.Configured {
+			t.Fatalf("bing with key present = %+v", info)
+		}
+	}
+}
+
 func TestNetworkSearchServiceRejectsInvalidAndOversizedResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

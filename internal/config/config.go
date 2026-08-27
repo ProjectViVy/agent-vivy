@@ -195,8 +195,20 @@ type Tools struct {
 	// Enabled lists the registered tool names. V0 ships exactly one
 	// read-only auto-execute tool and one effectful approval-gated tool
 	// (D-012).
-	Enabled  []string `yaml:"enabled"`
-	Approval Approval `yaml:"approval"`
+	Enabled []string `yaml:"enabled"`
+	// NetworkSearch is the preferred network_search provider for requests
+	// that do not name one (bing, google, duckduckgo, searxng, wikipedia).
+	// Empty means automatic: the first usable provider wins, degrading to
+	// the keyless duckduckgo/wikipedia providers. Provider credentials are
+	// environment-only (D-010) — this field never holds them.
+	NetworkSearch NetworkSearchConfig `yaml:"network_search"`
+	Approval      Approval            `yaml:"approval"`
+}
+
+// NetworkSearchConfig selects the preferred network_search provider.
+type NetworkSearchConfig struct {
+	// Provider is an allowlisted provider name, or empty for automatic.
+	Provider string `yaml:"provider"`
 }
 
 type Approval struct {
@@ -237,6 +249,9 @@ type toolsDoc struct {
 	Approval struct {
 		Expiration string `yaml:"expiration"`
 	} `yaml:"approval"`
+	NetworkSearch struct {
+		Provider string `yaml:"provider"`
+	} `yaml:"network_search"`
 }
 
 // UnmarshalYAML reads the tools mapping and stashes the approval
@@ -248,6 +263,7 @@ func (t *Tools) UnmarshalYAML(node *yaml.Node) error {
 	}
 	t.Enabled = doc.Enabled
 	t.Approval.expirationRaw = doc.Approval.Expiration
+	t.NetworkSearch.Provider = doc.NetworkSearch.Provider
 	return nil
 }
 
@@ -296,8 +312,9 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:  []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
-			Approval: Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
+			Enabled:       []string{"echo_info", "write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
+			NetworkSearch: NetworkSearchConfig{Provider: ""},
+			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
 		Governance: Governance{
 			Profile:        "default",
@@ -445,6 +462,13 @@ func (c *Config) Validate() error {
 
 	if len(c.Tools.Enabled) == 0 {
 		return errors.New("tools.enabled must list at least one tool")
+	}
+	if provider := c.Tools.NetworkSearch.Provider; provider != "" {
+		switch provider {
+		case "bing", "google", "duckduckgo", "searxng", "wikipedia":
+		default:
+			return fmt.Errorf("tools.network_search.provider %q unsupported; want bing, google, duckduckgo, searxng, or wikipedia", provider)
+		}
 	}
 	if c.Tools.Approval.expirationRaw != "" {
 		d, err := time.ParseDuration(c.Tools.Approval.expirationRaw)
