@@ -32,7 +32,6 @@ export function isSettingsTab(value: unknown): value is SettingsTab {
 const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
   channels: '通道',
   network: '网络',
-  compaction: '压缩',
   'self-evolution': '自进化',
   sandbox: '沙箱',
 };
@@ -55,7 +54,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const [demoBusy, setDemoBusy] = useState<'model' | 'tools' | null>(null);
   const [demoSaved, setDemoSaved] = useState<string | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'general');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'general');
 
   const loadDemos = async () => {
     setDemoError(null);
@@ -69,8 +68,8 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   useEffect(() => {
     if (activeTab === 'model' || activeTab === 'tools') void loadDemos();
   }, [activeTab]);
-  // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区。
-  useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
+  // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区；非法值回落到「通用」。
+  useEffect(() => { if (isSettingsTab(initialTab)) setActiveTab(initialTab); }, [initialTab]);
 
   const persistDemo = async (kind: 'model' | 'tools') => {
     setDemoBusy(kind);
