@@ -498,11 +498,11 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
-Studio:                      studio.NewService(backend),
-		SettingsPath:                settingsPath,
-		ConfigProvider:              "mock",
-		ConfigModel:                 "mock",
-		ConfigNetworkSearchProvider: "duckduckgo",
+		Studio:                         studio.NewService(backend),
+		SettingsPath:                   settingsPath,
+		ConfigProvider:                 "mock",
+		ConfigModel:                    "mock",
+		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
 	})
 	if err != nil {
@@ -560,7 +560,7 @@ Studio:                      studio.NewService(backend),
 	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
 	}
-if get.APIKeySet {
+	if get.APIKeySet {
 		t.Fatal("api_key_set should be false before any key overlay")
 	}
 	// Network search section reflects the config default until overridden.

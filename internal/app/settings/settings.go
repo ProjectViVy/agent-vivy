@@ -136,7 +136,7 @@ func (s Settings) Validate() error {
 	if s.BaseURL != "" && !apiBasePattern.MatchString(s.BaseURL) {
 		return fmt.Errorf("settings: base_url %q must be an http(s) absolute URL", s.BaseURL)
 	}
-if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
+	if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
 		return errors.New("settings: api_key must not contain newlines")
 	}
 	switch s.NetworkSearch.Provider {

@@ -47,7 +47,7 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
-// ConfigNetworkSearchProvider is the production config network_search
+	// ConfigNetworkSearchProvider is the production config network_search
 	// preference (non-secret), surfaced by settings/get.
 	ConfigNetworkSearchProvider string
 	// ConfigExecuteMaxTimeoutSeconds is the config execute ceiling after the
@@ -1230,7 +1230,7 @@ type settingsResult struct {
 	DefaultModel string `json:"default_model"`
 	// BaseURL is an optional OpenAI-compatible gateway, or empty.
 	BaseURL string `json:"base_url"`
-// APIKeySet reports whether an api_key overlay is stored. The value
+	// APIKeySet reports whether an api_key overlay is stored. The value
 	// itself is never returned.
 	APIKeySet bool `json:"api_key_set"`
 	// ExecuteMaxTimeoutSeconds is the effective execute/commandline ceiling;
@@ -1286,7 +1286,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
-out.APIKeySet = s.ApiKey != ""
+			out.APIKeySet = s.ApiKey != ""
 			savedSearchProvider = s.NetworkSearch.Provider
 			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 		}
@@ -1305,7 +1305,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
 	var params struct {
-Provider     string `json:"provider"`
+		Provider     string `json:"provider"`
 		DefaultModel string `json:"default_model"`
 		BaseURL      string `json:"base_url"`
 		// ApiKey replaces the optional api_key overlay; empty clears it.
@@ -1326,11 +1326,11 @@ Provider     string `json:"provider"`
 		return nil, err
 	}
 	s := settings.Settings{
-		Provider:               params.Provider,
-		DefaultModel:           params.DefaultModel,
-		BaseURL:                params.BaseURL,
-		ApiKey:                 params.ApiKey,
-		NetworkSearch:          settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider},
+		Provider:                 params.Provider,
+		DefaultModel:             params.DefaultModel,
+		BaseURL:                  params.BaseURL,
+		ApiKey:                   params.ApiKey,
+		NetworkSearch:            settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider},
 		ExecuteMaxTimeoutSeconds: params.ExecuteMaxTimeoutSeconds,
 	}
 	saved, err := settings.Save(h.deps.SettingsPath, s)

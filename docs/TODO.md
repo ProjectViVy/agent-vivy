@@ -71,6 +71,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-TRAJ | 中控台轨迹面板接真实运行轨迹 | OPEN | 2026-08-25 轨迹面板（`ui/src/components/trajectory/`）为纯演示静态数据（复刻 DSH `ui-trajectory` 设计：工具栏/三泳道时间轴/账本/详情），未接后端；接真实轨迹需内核提供会话日志/回放事件 RPC（当前 Journal 事件流在 Go 侧，UI 无轨迹类端点），见 `docs/logs/2026-08-25-trajectory-panel/` |
 | UI-CI-BOOTSTRAP | 全新 checkout 直接 `just ci` 在 `go vet ./...` 失败 | OPEN | `ui/embed.go` 的 `go:embed all:dist` 需要 `ui/dist` 存在；`.gitignore` 允许 `ui/dist/.keep` 常驻但该文件从未入库。正常开发树依赖历史 `pnpm build` 残留。2026-08-25 在空 worktree 复现：先 `pnpm build` 再 `just ci` 即全绿。修复选项：入库 `ui/dist/.keep` 或让 `ui-ci` 先于 Go 侧 vet 执行 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
+| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | 2026-08-27 已移植 Agent-Diva 完整通道配置 UI（`ui/src/components/settings/ChannelsSettings.tsx` 等，见 `docs/logs/2026-08-27-channels-ui-port/`）：数据层仅落 `vivy.ui.channels` localStorage（wire 形状对齐 Diva `get_channels`，便于直接换读写层）；就绪状态按 schema 必填字段近似，替代服务端 `getConfigStatus` 通道报告；向导省略「测试连接」步（Diva 源码该步为不可达死代码）。接真实后端需新增 `get_channels` / `update_channel`（或等价 settings RPC）与通道就绪报告并替换 `channel-store.ts` 读写层 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
