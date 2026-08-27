@@ -28,7 +28,6 @@ import type {
   ToolsConfigShape,
   GatewayProcessStatus,
   TokenStatsSnapshot,
-  PersonaProfile,
   ChecklistItem,
   NotebookReport,
   SessionSearchResponse,
@@ -68,7 +67,6 @@ const STORAGE_KEYS = {
   SKILL_DOCS: 'vivy.demo.skill-docs',
   AUTODREAM: 'vivy.demo.autodream',
   APPROVALS: 'vivy.demo.approvals',
-  PERSONA: 'vivy.demo.persona',
   DASHBOARD: 'vivy.demo.dashboard',
   MEMORY: 'vivy.demo.memory',
   MCP: 'vivy.demo.mcp',
@@ -613,15 +611,6 @@ const MOCK_TOOLS_CONFIG: ToolsConfigShape = {
   ],
 };
 
-const MOCK_PERSONA: PersonaProfile = {
-  id: 'persona-default',
-  name: t('demo.personaProfile.name'),
-  avatar_url: null,
-  system_prompt: t('demo.personaProfile.systemPrompt'),
-  created_at: '2024-01-01T00:00:00Z',
-  updated_at: '2024-01-15T10:00:00Z',
-};
-
 // ==================== API 函数实现 ====================
 
 /**
@@ -1100,30 +1089,6 @@ export async function getTokenStats(sessionId: string): Promise<TokenStatsSnapsh
     cached_tokens: 2000,
     updated_at: now(),
   };
-}
-
-/**
- * 获取 Persona 配置
- */
-export async function getPersonaProfile(): Promise<PersonaProfile> {
-  await delay(200);
-  const cached = localStorage.getItem(STORAGE_KEYS.PERSONA);
-  if (cached) {
-    return JSON.parse(cached);
-  }
-  localStorage.setItem(STORAGE_KEYS.PERSONA, JSON.stringify(MOCK_PERSONA));
-  return MOCK_PERSONA;
-}
-
-/**
- * 更新 Persona 配置
- */
-export async function updatePersonaProfile(profile: Partial<PersonaProfile>): Promise<PersonaProfile> {
-  await delay(200);
-  const current = await getPersonaProfile();
-  const updated = { ...current, ...profile, updated_at: now() };
-  localStorage.setItem(STORAGE_KEYS.PERSONA, JSON.stringify(updated));
-  return updated;
 }
 
 /**
