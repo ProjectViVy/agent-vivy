@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Activity, ArrowRight, Cpu, FlaskConical, GitBranch, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -47,7 +48,13 @@ function DemoNote() {
 
 export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const connection = useVivyStore((state) => state.connection);
+  const settings = useVivyStore((state) => state.settings);
+  const phase = useVivyStore((state) => state.settingsPhase);
+  const error = useVivyStore((state) => state.settingsError);
+  const save = useVivyStore((state) => state.saveSettings);
   const { t } = useTranslation();
+  const [form, setForm] = useState({ provider: '', default_model: '', base_url: '', execute_max_timeout: '' });
+  const [formError, setFormError] = useState<string | null>(null);
   const [tools, setTools] = useState<ToolsConfigShape | null>(null);
   const [demoBusy, setDemoBusy] = useState<'tools' | null>(null);
   const [demoSaved, setDemoSaved] = useState<string | null>(null);
@@ -68,6 +75,27 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   }, [activeTab]);
   // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区；非法值回落到「通用」。
   useEffect(() => { if (isSettingsTab(initialTab)) setActiveTab(initialTab); }, [initialTab]);
+
+  // 执行超时表单跟随 settings 载入（settings/update 是整文档替换）。
+  useEffect(() => {
+    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url, execute_max_timeout: settings.execute_max_timeout_seconds ? String(settings.execute_max_timeout_seconds) : '' });
+  }, [settings]);
+
+  const locked = settings?.read_only || phase === 'processing';
+
+  // settings/update 会整份覆盖：保存时带上网络搜索偏好与执行超时，避免清掉
+  // 其他分区的设置（api_key 由 api.ts 归一为空串=清除覆盖层，与该接口的
+  // wholesale 语义一致）。
+  const submitSettings = async () => {
+    const raw = form.execute_max_timeout.trim();
+    const timeoutSeconds = raw === '' ? 0 : Number(raw);
+    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 0 || timeoutSeconds > 600) {
+      setFormError('执行超时上限必须留空(用配置默认值)或 0–600 之间的整数秒。');
+      return;
+    }
+    setFormError(null);
+    await save({ provider: form.provider, default_model: form.default_model, base_url: form.base_url, execute_max_timeout_seconds: timeoutSeconds, network_search: { provider: settings?.network_search?.provider ?? '' } });
+  };
 
   const persistTools = async () => {
     setDemoBusy('tools');
@@ -107,6 +135,21 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           {demoError ? <div className="mt-4"><DemoLoadError message={demoError} onRetry={() => void loadTools()} /></div> : null}
 
           <TabsContent value="general" className="space-y-4">
+            <Card>
+              <CardHeader><CardTitle>执行超时上限</CardTitle><CardDescription>execute / commandline 单次运行的最长等待。真实设置，保存后下次启动生效。</CardDescription></CardHeader>
+              <CardContent>
+                <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void submitSettings(); }}>
+                  <div className="space-y-2">
+                    <Label htmlFor="execute-max-timeout">最长等待(秒)</Label>
+                    <Input id="execute-max-timeout" type="number" min={0} max={600} step={1} value={form.execute_max_timeout} onChange={(event) => setForm({ ...form, execute_max_timeout: event.target.value })} placeholder={String(settings?.config_execute_max_timeout_seconds ?? 30)} disabled={locked} />
+                    <p className="text-xs text-muted-foreground">留空或 0 使用运行配置默认值;范围 0–600,硬顶 600 秒(10 分钟)。跑 go test、git clone 等慢命令时调大。</p>
+                  </div>
+                  {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读,请通过运行配置修改。</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? '保存中…' : '保存通用设置'}</Button>}
+                  {formError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
+                  {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+                </form>
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader><CardTitle>应用信息</CardTitle><CardDescription>当前 Vivy 应用状态与演示内容范围。</CardDescription></CardHeader>
               <CardContent className="grid gap-4 text-sm sm:grid-cols-2">

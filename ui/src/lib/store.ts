@@ -89,7 +89,7 @@ interface RuntimeState {
   setReviewCenterOpen: (open: boolean) => void;
   setSessionDrawerOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
-  saveSettings: (value: api.SettingsUpdate) => Promise<void>;
+saveSettings: (value: api.SettingsUpdate) => Promise<void>;
   loadLifecycle: () => Promise<void>;
   createGeneration: (params: Parameters<typeof api.createGeneration>[0]) => Promise<void>;
   rejectGeneration: (id: string) => Promise<void>;

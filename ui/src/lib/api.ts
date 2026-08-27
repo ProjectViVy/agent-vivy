@@ -33,6 +33,8 @@ export interface Settings {
   config_model: string;
   api_key_set?: boolean;
   network_search?: NetworkSearchSettingsView;
+  execute_max_timeout_seconds?: number;
+  config_execute_max_timeout_seconds?: number;
 }
 export interface NetworkSearchProviderInfo {
   name: string;
@@ -46,7 +48,7 @@ export interface NetworkSearchSettingsView {
   providers: NetworkSearchProviderInfo[];
 }
 /** settings/update 载荷：api_key 缺省由 api.ts 归一为 ''（清除覆盖层），有值则写入。 */
-export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & { api_key?: string; network_search?: { provider: string } };
+export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & { api_key?: string; network_search?: { provider: string }; execute_max_timeout_seconds?: number };
 export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
 export interface Recipe { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] }
 export type GenerationPhase = 'built' | 'eval_pending' | 'evaluated' | 'promoted' | 'released' | 'rejected';

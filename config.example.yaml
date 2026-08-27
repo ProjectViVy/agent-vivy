@@ -63,10 +63,19 @@ runtime:
   http_max_response_bytes: 1048576
   # Streamable HTTP MCP servers; credentials are env references only.
   mcp_servers: []
+  # Executable allowlist for execute/commandline. Extend per project, e.g.:
+  #   - node / pnpm   (frontend builds, pnpm test)
+  #   - python / uv   (scripts, test suites)
+  #   - just          (justfile task runner)
+  # Each entry is an executable basename (no paths, no shell syntax).
   execute_allowed_commands:
     - go
     - git
     - rg
+  # Ceiling for one execute/commandline run in seconds (requests above it are
+  # clamped). 30s is too short for real work such as `go test ./...` or
+  # `git clone`; raise it for heavyweight commands. Hard cap: 600 (10m).
+  execute_max_timeout_seconds: 30
   # Sandbox controls the file-effect policy boundary (D-021).
   # Mirrors the DeepSeek Harness three-tier permission model.
   sandbox:

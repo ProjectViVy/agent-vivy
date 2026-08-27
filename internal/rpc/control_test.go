@@ -498,11 +498,12 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
-		Studio:                      studio.NewService(backend),
+Studio:                      studio.NewService(backend),
 		SettingsPath:                settingsPath,
 		ConfigProvider:              "mock",
 		ConfigModel:                 "mock",
 		ConfigNetworkSearchProvider: "duckduckgo",
+		ConfigExecuteMaxTimeoutSeconds: 30,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -580,6 +581,10 @@ if get.APIKeySet {
 	if !keyless["duckduckgo"] || !keyless["wikipedia"] {
 		t.Fatalf("keyless providers must be configured: %+v", get.NetworkSearch.Providers)
 	}
+	// Execute ceiling: config fallback reported.
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 {
+		t.Fatalf("config_execute_max_timeout_seconds = %d, want 30", get.ConfigExecuteMaxTimeoutSeconds)
+	}
 
 	// Update with an api_key overlay: the flag is set but the value is
 	// never echoed back (settingsResult has no key field; JSON must too).
@@ -620,6 +625,42 @@ if get.APIKeySet {
 	get = result.(settingsResult)
 	if get.APIKeySet {
 		t.Fatal("api_key_set should be false after a keyless update")
+	}
+
+	// Execute ceiling: override persisted and echoed with the config
+	// fallbacks; an out-of-bounds value is rejected without clobbering the
+	// saved document.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":                    "openai",
+		"default_model":               "gpt-4o",
+		"base_url":                    "https://gw.example.com/v1",
+		"execute_max_timeout_seconds": 300,
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.ExecuteMaxTimeoutSeconds != 300 {
+		t.Fatalf("execute_max_timeout_seconds not persisted: %+v", get)
+	}
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "mock" || get.ConfigModel != "mock" {
+		t.Fatalf("update echo must include config fallbacks: %+v", get)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"execute_max_timeout_seconds": 601,
+	}); rpcErr == nil {
+		t.Fatal("expected execute_max_timeout_seconds above hard cap to be rejected")
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.ExecuteMaxTimeoutSeconds != 300 {
+		t.Fatalf("rejected update must not clobber the document: %+v", get)
 	}
 
 	// Network search preference persists: update with a provider, then the

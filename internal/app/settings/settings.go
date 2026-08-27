@@ -48,8 +48,13 @@ const (
 // URL, not a secret, but is still validated before use.
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
+// maxExecuteTimeoutSeconds mirrors config.maxExecuteTimeoutSeconds and the
+// runtime hard cap (10m): a settings override above it would be silently
+// clamped, so it is rejected here up front.
+const maxExecuteTimeoutSeconds = 600
+
 // Settings is the persisted, non-secret model provider selection plus the
-// network_search preference.
+// network_search preference and the execute ceiling override.
 type Settings struct {
 	// Provider is the active bundle name; empty means "use config default".
 	Provider string `yaml:"provider"`
@@ -68,6 +73,10 @@ type Settings struct {
 	// Settings UI; empty keeps the config value. Provider credentials stay
 	// environment-only (D-010).
 	NetworkSearch NetworkSearchSettings `yaml:"network_search"`
+	// ExecuteMaxTimeoutSeconds overrides the execute/commandline ceiling
+	// (config runtime.execute_max_timeout_seconds); 0 means "use config
+	// value". Same bounds as config: 1–600, mirroring the runtime hard cap.
+	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
 }
 
 // NetworkSearchSettings is the UI-managed network_search preference.
@@ -136,6 +145,11 @@ if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
 	case "bing", "google", "duckduckgo", "searxng", "wikipedia":
 	default:
 		return fmt.Errorf("settings: network_search.provider %q unsupported; want bing, google, duckduckgo, searxng, or wikipedia", s.NetworkSearch.Provider)
+	}
+	// 0 keeps the config value; anything else shares the config bounds so a
+	// UI override can never exceed the runtime hard cap.
+	if s.ExecuteMaxTimeoutSeconds < 0 || s.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
+		return fmt.Errorf("settings: execute_max_timeout_seconds must be 0 (config default) or between 1 and %d", maxExecuteTimeoutSeconds)
 	}
 	return nil
 }

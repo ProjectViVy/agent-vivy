@@ -82,13 +82,14 @@ export function WelcomeWizard() {
         setSaving(true);
         setError(null);
         try {
-          // settings/update replaces the whole document: pass the loaded
-          // network_search preference through unchanged.
+// settings/update replaces the whole document: pass the loaded
+          // network_search preference and execute ceiling through unchanged.
           await saveSettings({
             provider: form.provider,
             default_model: form.default_model,
             base_url: form.base_url,
             network_search: { provider: settings?.network_search?.provider ?? '' },
+            execute_max_timeout_seconds: settings?.execute_max_timeout_seconds ?? 0,
           });
         } catch (cause) {
           setSaving(false);
