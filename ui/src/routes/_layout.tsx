@@ -26,7 +26,6 @@ function Layout() {
   const { t } = useTranslation();
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [sessionOpen, setSessionOpen] = useState(false);
   const [planData, setPlanData] = useState<PlanSidebarData | null>(null);
   const sessions = useVivyStore((state) => state.sessions);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
@@ -40,6 +39,8 @@ function Layout() {
   const run = useVivyStore((state) => state.currentRun);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const setReviewCenterOpen = useVivyStore((state) => state.setReviewCenterOpen);
+  const sessionDrawerOpen = useVivyStore((state) => state.sessionDrawerOpen);
+  const setSessionDrawerOpen = useVivyStore((state) => state.setSessionDrawerOpen);
   const reviewBusyId = useVivyStore((state) => state.reviewBusyId);
   const initialized = useVivyStore((state) => state.initialized);
   const initializationError = useVivyStore((state) => state.initializationError);
@@ -56,14 +57,14 @@ function Layout() {
   const createAndOpen = async () => {
     try {
       await createSession();
-      setSessionOpen(false);
+      setSessionDrawerOpen(false);
       setMobileNavOpen(false);
       await navigate({ to: '/' });
     } catch { /* store exposes the error beside the action */ }
   };
   const selectAndOpen = async (id: string) => {
     await selectSession(id);
-    setSessionOpen(false);
+    setSessionDrawerOpen(false);
     setMobileNavOpen(false);
     await navigate({ to: '/' });
   };
@@ -119,7 +120,7 @@ function Layout() {
             <MaskAndModelSwitcher />
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Sheet open={sessionOpen} onOpenChange={setSessionOpen}>
+            <Sheet open={sessionDrawerOpen} onOpenChange={setSessionDrawerOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" title={t('layout.sessions')} aria-label={t('layout.sessions')}><MessageSquare className="h-5 w-5" /></Button>
               </SheetTrigger>
