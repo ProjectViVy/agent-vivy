@@ -43,6 +43,9 @@ import {
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
+/** 对话框「新增」模式的预填字段（目录条目克隆为自定义时带入原地址/模型）。 */
+type CustomProviderPreset = Pick<CustomProvider, 'displayName' | 'bundle' | 'baseUrl' | 'defaultModel' | 'models'>;
+
 function ProviderRow({
   entry,
   selected,
@@ -106,11 +109,14 @@ function ProviderRow({
 function CustomProviderDialog({
   open,
   editing,
+  preset,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
   editing: CustomProvider | null;
+  /** 新增模式的预填内容（如目录条目克隆为自定义）；editing 优先。 */
+  preset?: CustomProviderPreset | null;
   onOpenChange: (open: boolean) => void;
   onSave: (input: CustomProviderInput) => boolean;
 }) {
@@ -126,15 +132,15 @@ function CustomProviderDialog({
 
   useEffect(() => {
     if (!open) return;
-    setDisplayName(editing?.displayName ?? '');
-    setBundle(editing?.bundle ?? 'openai');
-    setBaseUrl(editing?.baseUrl ?? '');
-    setDefaultModel(editing?.defaultModel ?? '');
+    setDisplayName(editing?.displayName ?? preset?.displayName ?? '');
+    setBundle(editing?.bundle ?? preset?.bundle ?? 'openai');
+    setBaseUrl(editing?.baseUrl ?? preset?.baseUrl ?? '');
+    setDefaultModel(editing?.defaultModel ?? preset?.defaultModel ?? '');
     setApiKey(editing?.apiKey ?? '');
-    setModelsText(editing?.models.join('\n') ?? '');
+    setModelsText(editing?.models.join('\n') ?? preset?.models.join('\n') ?? '');
     setFieldError({});
     setSubmitError(null);
-  }, [open, editing]);
+  }, [open, editing, preset]);
 
   const submit = () => {
     const name = displayName.trim();
@@ -239,8 +245,9 @@ function CustomProviderDialog({
 
 /**
  * 设置页「模型」Tab 的真实配置卡：顶部是已选模型 chips；左栏供应商列表
- * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏所选
- * 供应商的模型列表（头部「从官方同步」刷新 + 「新增」手加模型），模型列表上方
+ * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏头部
+ * 地址旁常驻编辑按钮（自定义=打开编辑对话框；目录=预填克隆为自定义后改地址），
+ * 下方模型列表（头部「从官方同步」刷新 + 「新增」手加模型），模型列表上方
  * 是 API Key 填写（自定义供应商可编辑，目录厂商禁用并提示环境变量注入）。
  * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
  */
@@ -256,7 +263,11 @@ export function ModelSettingsCard() {
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isMoreExpanded, setMoreExpanded] = useState(false);
-  const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProvider | null }>({ open: false, editing: null });
+  const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProvider | null; preset: CustomProviderPreset | null }>({
+    open: false,
+    editing: null,
+    preset: null,
+  });
   const [addingModel, setAddingModel] = useState(false);
   const [newModelId, setNewModelId] = useState('');
   const [panelKey, setPanelKey] = useState('');
@@ -322,10 +333,26 @@ export function ModelSettingsCard() {
     ) && !isCurrentModelRow(entry, model);
 
   const openCustomProviderDialog = (entry?: MergedProviderEntry) => {
-    const editing = entry?.custom && entry.registryId
-      ? customProviders.find((provider) => provider.id === entry.registryId) ?? null
-      : null;
-    setCustomDialog({ open: true, editing });
+    if (entry?.custom && entry.registryId) {
+      const editing = customProviders.find((provider) => provider.id === entry.registryId) ?? null;
+      setCustomDialog({ open: true, editing, preset: null });
+      return;
+    }
+    setCustomDialog(
+      entry
+        ? {
+            open: true,
+            editing: null,
+            preset: {
+              displayName: entry.displayName,
+              bundle: entry.bundle,
+              baseUrl: entry.baseUrl,
+              defaultModel: entry.defaultModel,
+              models: entry.models,
+            },
+          }
+        : { open: true, editing: null, preset: null },
+    );
   };
 
   const saveCustomProvider = (input: CustomProviderInput): boolean => {
@@ -508,9 +535,20 @@ export function ModelSettingsCard() {
               {selectedEntry ? (
                 <div className="overflow-hidden rounded-lg border">
                   <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{selectedEntry.displayName}</p>
-                      <p className="truncate text-xs text-muted-foreground">{selectedEntry.baseUrl || '—'}</p>
+                      <div className="flex min-w-0 items-center gap-1">
+                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{selectedEntry.baseUrl || '—'}</p>
+                        <button
+                          type="button"
+                          onClick={() => openCustomProviderDialog(selectedEntry)}
+                          aria-label={t('settingsModel.editAddressAria')}
+                          title={t('settingsModel.editAddressAria')}
+                          className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          <Pencil className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
                       <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
@@ -630,7 +668,8 @@ export function ModelSettingsCard() {
       <CustomProviderDialog
         open={customDialog.open}
         editing={customDialog.editing}
-        onOpenChange={(open) => setCustomDialog({ open, editing: open ? customDialog.editing : null })}
+        preset={customDialog.preset}
+        onOpenChange={(open) => setCustomDialog({ open, editing: open ? customDialog.editing : null, preset: open ? customDialog.preset : null })}
         onSave={saveCustomProvider}
       />
     </>
