@@ -42,6 +42,27 @@ const defaultMaxToolTurns = 8
 // it would be silently clamped, so Validate rejects it up front.
 const maxExecuteTimeoutSeconds = 600
 
+// envUserHome optionally overrides the user data root. Without it the root
+// resolves to the OS user home (diva-style), and without a home at all it
+// falls back to the repo-relative dev layout.
+const envUserHome = "VIVY_USER_HOME"
+
+// userDataRoot returns the system-level default data root for a single-user
+// install: VIVY_USER_HOME when set, else <os-user-home>/.vivy (diva-style,
+// per-user and independent of the working directory), else "data" when the
+// OS cannot name a home directory (CI/dev fallback). Explicit config paths
+// (config.yaml, VIVY_CONFIG, docker overlays) always take precedence over
+// this derived root.
+func userDataRoot() string {
+	if v := strings.TrimSpace(os.Getenv(envUserHome)); v != "" {
+		return v
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".vivy")
+	}
+	return "data"
+}
+
 const (
 	defaultMaxContextBytes    = 256 << 10
 	defaultMaxHistoryMessages = 64
@@ -49,8 +70,6 @@ const (
 	defaultMaxModelCalls      = 32
 	defaultMaxRunToolCalls    = 64
 	defaultMaxRunRetries      = 3
-	defaultWorkspaceRoot      = "data/workspaces"
-	defaultSkillsRoot         = "data/skills"
 )
 
 // Config is the typed, validated configuration store.
@@ -280,11 +299,15 @@ func (t *Tools) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // Default returns the built-in configuration used when no config file is
-// present. It mirrors config.example.yaml.
+// present. It mirrors config.example.yaml. All data paths resolve under the
+// user data root (diva-style user home), so a fresh single-user install owns
+// its workspace, settings, skills, and Journal regardless of the working
+// directory. An explicit config.yaml / VIVY_CONFIG always overrides these.
 func Default() Config {
+	root := userDataRoot()
 	return Config{
 		Server:  Server{Addr: "127.0.0.1:8787"},
-		Storage: Storage{Backend: "sqlite", SQLite: SQLite{Path: "data/vivy.db"}},
+		Storage: Storage{Backend: "sqlite", SQLite: SQLite{Path: filepath.Join(root, "vivy.db")}},
 		Providers: Providers{
 			Active:    "openai",
 			BundleDir: "fixtures/provider",
@@ -304,8 +327,8 @@ func Default() Config {
 			MaxModelCalls:            defaultMaxModelCalls,
 			MaxRunToolCalls:          defaultMaxRunToolCalls,
 			MaxRunRetries:            defaultMaxRunRetries,
-			WorkspaceRoot:            defaultWorkspaceRoot,
-			SkillsRoot:               defaultSkillsRoot,
+			WorkspaceRoot:            filepath.Join(root, "workspace"),
+			SkillsRoot:               filepath.Join(root, "skills"),
 			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
 			HTTPMaxResponseBytes:     1 << 20,
 			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
@@ -569,19 +592,21 @@ func (c *Config) Validate() error {
 
 // DataDirectory is the process working directory for settings, evals, and
 // sidecar files. The Journal itself may live in SQLite under this tree or
-// in Postgres; this path is never a DSN.
+// in Postgres; this path is never a DSN. The fallback resolves under the
+// user data root so a config without explicit paths still lands in the
+// per-user layout (settings.yaml beside the Journal and workspace).
 func (c Config) DataDirectory() string {
 	if dir := strings.TrimSpace(c.Storage.DataDir); dir != "" {
 		return dir
 	}
 	if c.Storage.Backend == "postgres" {
-		return "data"
+		return userDataRoot()
 	}
 	dir := filepath.Dir(c.Storage.SQLite.Path)
 	if dir != "" && dir != "." {
 		return dir
 	}
-	return "data"
+	return userDataRoot()
 }
 
 func validGovernanceProfile(value string) bool {

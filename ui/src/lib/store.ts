@@ -61,6 +61,9 @@ interface RuntimeState {
   settings: api.Settings | null;
   settingsPhase: Phase;
   settingsError: string | null;
+  providers: api.ProviderEntry[];
+  providersPhase: Phase;
+  providersError: string | null;
   species: api.SpeciesInspect | null;
   generations: api.Generation[];
   evals: api.EvalRun[];
@@ -89,7 +92,10 @@ interface RuntimeState {
   setReviewCenterOpen: (open: boolean) => void;
   setSessionDrawerOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
-saveSettings: (value: api.SettingsUpdate) => Promise<void>;
+  saveSettings: (value: api.SettingsUpdate) => Promise<void>;
+  loadProviders: () => Promise<void>;
+  saveProvider: (input: api.ProviderEntryInput) => Promise<void>;
+  removeProvider: (id: string) => Promise<void>;
   loadLifecycle: () => Promise<void>;
   createGeneration: (params: Parameters<typeof api.createGeneration>[0]) => Promise<void>;
   rejectGeneration: (id: string) => Promise<void>;
@@ -160,6 +166,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
   reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyId: null, reviewCenterOpen: false, sessionDrawerOpen: false,
   settings: null, settingsPhase: 'idle', settingsError: null,
+  providers: [], providersPhase: 'idle', providersError: null,
   species: null, generations: [], evals: [], promotions: [], lifecyclePhase: 'idle', lifecycleError: null, lifecycleBusy: false,
 
   initialize: async () => {
@@ -169,7 +176,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       try {
         const capabilities = await api.initialize();
         await api.recoverBackgroundRuns().catch(() => undefined);
-        const [sessions, background, settings] = await Promise.all([api.listSessions(), api.listBackgroundRuns(), api.getSettings().catch(() => null)]);
+        const [sessions, background, settings, providers] = await Promise.all([api.listSessions(), api.listBackgroundRuns(), api.getSettings().catch(() => null), api.listProviders().catch(() => null)]);
         let sessionItems = sessions.sessions;
         let initialSessionError: string | null = null;
         if (!sessionItems.length) {
@@ -178,7 +185,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         }
         const saved = localStorage.getItem(ACTIVE_SESSION_KEY);
         const activeId = sessionItems.some((item) => item.id === saved) ? saved : sessionItems[0]?.id ?? null;
-        set({ initialized: true, connection: 'connected', capabilities: capabilities.capabilities, sessions: sessionItems, sessionsPhase: initialSessionError ? 'error' : sessionItems.length ? 'ready' : 'empty', sessionsError: initialSessionError, backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty', settings, settingsPhase: settings ? 'ready' : 'error' });
+        set({ initialized: true, connection: 'connected', capabilities: capabilities.capabilities, sessions: sessionItems, sessionsPhase: initialSessionError ? 'error' : sessionItems.length ? 'ready' : 'empty', sessionsError: initialSessionError, backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty', settings, settingsPhase: settings ? 'ready' : 'error', providers: providers?.entries ?? [], providersPhase: providers ? 'ready' : 'error' });
         if (activeId) await get().selectSession(activeId);
         void get().loadReviews();
       } catch (error) {
@@ -301,6 +308,23 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   setSessionDrawerOpen: (open) => set({ sessionDrawerOpen: open }),
   loadSettings: async () => { set({ settingsPhase: 'loading', settingsError: null }); try { set({ settings: await api.getSettings(), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); } },
   saveSettings: async (value) => { set({ settingsPhase: 'processing', settingsError: null }); try { set({ settings: await api.updateSettings(value), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); throw error; } },
+  loadProviders: async () => { set({ providersPhase: 'loading', providersError: null }); try { const view = await api.listProviders(); set({ providers: view.entries, providersPhase: 'ready' }); } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); } },
+  saveProvider: async (input) => {
+    set({ providersPhase: 'processing', providersError: null });
+    try {
+      await api.upsertProvider(input);
+      set({ providersPhase: 'ready' });
+      await get().loadProviders();
+    } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); throw error; }
+  },
+  removeProvider: async (id) => {
+    set({ providersPhase: 'processing', providersError: null });
+    try {
+      await api.deleteProvider(id);
+      set({ providersPhase: 'ready' });
+      await get().loadProviders();
+    } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); throw error; }
+  },
   loadLifecycle: async () => {
     set({ lifecyclePhase: 'loading', lifecycleError: null });
     try { const [species, generations, evals, promotions] = await Promise.all([api.inspectSpecies(), api.listGenerations(), api.listEvals(), api.listPromotions()]); set({ species, generations: generations.generations, evals: evals.evals, promotions: promotions.promotions, lifecyclePhase: 'ready' }); }

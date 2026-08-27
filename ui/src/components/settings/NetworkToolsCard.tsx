@@ -7,7 +7,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
-import { customApiKeyFor } from './custom-providers';
 
 /**
  * 设置页的真实网络工具卡：展示 EINO 原生网络工具（network_search 各 provider
@@ -43,13 +42,12 @@ export function NetworkToolsCard() {
   const applyPreferred = async (provider: string) => {
     if (locked) return;
     try {
-      // settings/update 整体替换设置文档：透传现有 provider 字段与密钥覆盖层
-      // （自定义注册表回显），只更新 network_search.provider。
+      // settings/update 只改 active 选择与 network_search 偏好；密钥覆盖层由
+      // 后端按注册表解析（settings/update 不发送、不回传密钥）。
       await save({
         provider: settings?.provider ?? '',
         default_model: settings?.default_model ?? '',
         base_url: settings?.base_url ?? '',
-        api_key: customApiKeyFor(settings?.provider ?? '', settings?.base_url ?? ''),
         network_search: { provider },
       });
       setSavedFlash(true);

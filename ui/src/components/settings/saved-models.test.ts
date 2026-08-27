@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CUSTOM_PROVIDERS_KEY } from './custom-providers';
+import type { ProviderEntry } from './custom-providers';
 import {
   SAVED_MODELS_KEY,
   addSavedModel,
@@ -158,33 +158,33 @@ describe('removeSavedModel 按三元组过滤', () => {
 });
 
 describe('savedModelVendorLabel 厂商标签解析', () => {
+  const NONE: ProviderEntry[] = [];
+
   it('目录命中返回厂商 displayName（base_url 精确匹配）', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })).toBe('DeepSeek');
-    expect(savedModelVendorLabel({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' })).toBe('Anthropic');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }, NONE)).toBe('DeepSeek');
+    expect(savedModelVendorLabel({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' }, NONE)).toBe('Anthropic');
   });
 
   it('base_url 空且与运行束同名的目录条目也命中', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' })).toBe('OpenAI');
-    expect(savedModelVendorLabel({ provider: 'mock', baseUrl: '', model: 'mock' })).toBe('Mock');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' }, NONE)).toBe('OpenAI');
+    expect(savedModelVendorLabel({ provider: 'mock', baseUrl: '', model: 'mock' }, NONE)).toBe('Mock');
   });
 
   it('目录未命中但带 Base URL：回退到主机名（含端口）', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'custom-model' })).toBe('my-gateway.example.com');
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'http://localhost:11435/v1', model: 'm' })).toBe('localhost:11435');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'custom-model' }, NONE)).toBe('my-gateway.example.com');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'http://localhost:11435/v1', model: 'm' }, NONE)).toBe('localhost:11435');
   });
 
   it('非法 URL 或空 Base URL 回退到原始 provider', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'not-a-url', model: 'm' })).toBe('openai');
-    expect(savedModelVendorLabel({ provider: 'my-bundle', baseUrl: '', model: 'm' })).toBe('my-bundle');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'not-a-url', model: 'm' }, NONE)).toBe('openai');
+    expect(savedModelVendorLabel({ provider: 'my-bundle', baseUrl: '', model: 'm' }, NONE)).toBe('my-bundle');
   });
 
-  it('自定义注册表命中 → 注册的 displayName（单一权威来源）', () => {
-    stubWindow({
-      [CUSTOM_PROVIDERS_KEY]: JSON.stringify([
-        { id: 'custom-x', displayName: '我家网关', bundle: 'openai', baseUrl: 'https://my-gateway.example.com/v1', defaultModel: 'm', models: ['m'] },
-      ]),
-    });
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'm' })).toBe('我家网关');
+  it('注册表命中 → 注册的 display_name（单一权威来源）', () => {
+    const providers: ProviderEntry[] = [
+      { id: 'custom-x', display_name: '我家网关', bundle: 'openai', base_url: 'https://my-gateway.example.com/v1', default_model: 'm', models: ['m'], api_key_set: false },
+    ];
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'm' }, providers)).toBe('我家网关');
   });
 });
 
