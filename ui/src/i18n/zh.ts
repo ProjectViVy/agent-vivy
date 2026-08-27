@@ -128,6 +128,15 @@ export const zh = {
       offline: '离线验证与 UI 测试',
     },
   },
+  settingsModel: {
+    searchPlaceholder: '搜索供应商',
+    moreProviders: '更多供应商',
+    currentBadge: '当前',
+    noMatch: '没有匹配的供应商',
+    modelsTitle: '{{provider}} 模型',
+    noModels: '目录没有该供应商的静态模型列表，请直接填写默认模型。',
+    customProviderHint: '当前 Provider / Base URL 组合不在目录中，将按下方输入的原始值保存。',
+  },
   runInspector: {
     currentRun: '当前 Run',
     background: '后台 {{count}}',

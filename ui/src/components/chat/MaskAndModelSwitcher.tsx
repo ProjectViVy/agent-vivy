@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2 } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
 import type { Settings } from '@/lib/api';
+import { matchProviderEntry, type ProviderCatalogEntry } from '@/components/settings/provider-catalog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,31 +19,28 @@ import { useTranslation } from '@/i18n';
 
 type ModelOption = {
   id: string;
+  /** Vivy 运行束名（保存到 settings.provider 的值） */
   provider: string;
   model: string;
-  /** 描述词条 key（模型目录是静态数据，文案经 i18n 解析） */
-  descriptionKey: string;
+  /** 描述词条 key（目录是静态数据，文案经 i18n 解析）；未收录的模型无副标题 */
+  descriptionKey?: string;
 };
 
-const MODEL_CATALOG: Record<string, ModelOption[]> = {
-  openai: [
-    { id: 'openai:gpt-4o', provider: 'openai', model: 'gpt-4o', descriptionKey: 'maskSwitcher.models.balanced' },
-    { id: 'openai:gpt-4o-mini', provider: 'openai', model: 'gpt-4o-mini', descriptionKey: 'maskSwitcher.models.lighter' },
-    { id: 'openai:gpt-5', provider: 'openai', model: 'gpt-5', descriptionKey: 'maskSwitcher.models.complex' },
-    { id: 'openai:gpt-5-mini', provider: 'openai', model: 'gpt-5-mini', descriptionKey: 'maskSwitcher.models.lightTasks' },
-  ],
-  mock: [
-    { id: 'mock:mock', provider: 'mock', model: 'mock', descriptionKey: 'maskSwitcher.models.offline' },
-  ],
+/** 目录模型的精选描述（沿用原有文案）。 */
+const MODEL_DESCRIPTION_KEYS: Record<string, string> = {
+  'openai:gpt-4o': 'maskSwitcher.models.balanced',
+  'openai:gpt-4o-mini': 'maskSwitcher.models.lighter',
+  'openai:gpt-5': 'maskSwitcher.models.complex',
+  'openai:gpt-5-mini': 'maskSwitcher.models.lightTasks',
+  'mock:mock': 'maskSwitcher.models.offline',
 };
 
-function displayProvider(provider: string, t: ReturnType<typeof useTranslation>['t']): string {
-  if (provider === 'openai') return 'OpenAI';
-  if (provider === 'mock') return 'Mock';
-  return provider || t('maskSwitcher.defaultProvider');
+function displayProvider(provider: string, baseUrl: string, t: ReturnType<typeof useTranslation>['t']): string {
+  // 目录命中时显示厂商名（如 provider=openai + DeepSeek 网关 → “DeepSeek”）。
+  return matchProviderEntry(provider, baseUrl)?.displayName || provider || t('maskSwitcher.defaultProvider');
 }
 
-function modelOptionsFor(settings: Settings | null): ModelOption[] {
+function modelOptionsFor(settings: Settings | null, vendorEntry: ProviderCatalogEntry | undefined): ModelOption[] {
   const provider = settings?.provider || settings?.config_provider || '';
   const model = settings?.default_model || settings?.config_model || '';
   const current: ModelOption = {
@@ -51,7 +49,14 @@ function modelOptionsFor(settings: Settings | null): ModelOption[] {
     model,
     descriptionKey: 'maskSwitcher.currentRuntimeConfig',
   };
-  const catalog = MODEL_CATALOG[provider] || [];
+  const catalog: ModelOption[] = vendorEntry
+    ? vendorEntry.models.map((modelId) => ({
+        id: `${vendorEntry.bundle}:${modelId}`,
+        provider: vendorEntry.bundle,
+        model: modelId,
+        descriptionKey: MODEL_DESCRIPTION_KEYS[`${vendorEntry.bundle}:${modelId}`],
+      }))
+    : [];
   const options = [current, ...catalog];
   return options.filter((option, index) => options.findIndex((item) => item.provider === option.provider && item.model === option.model) === index);
 }
@@ -94,12 +99,15 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const settingsPhase = useVivyStore((state) => state.settingsPhase);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const options = useMemo(() => modelOptionsFor(settings), [settings]);
   const currentProvider = settings?.provider || settings?.config_provider || '';
+  const currentBaseUrl = settings?.base_url ?? '';
+  const vendorEntry = useMemo(() => matchProviderEntry(currentProvider, currentBaseUrl), [currentProvider, currentBaseUrl]);
+  const options = useMemo(() => modelOptionsFor(settings, vendorEntry), [settings, vendorEntry]);
   const currentModel = settings?.default_model || settings?.config_model || '';
   const currentOption = options.find((option) => option.provider === currentProvider && option.model === currentModel) || options[0];
   const saving = settingsPhase === 'processing';
   const canChange = !!settings && !settings.read_only && !saving;
+  const providerLabel = displayProvider(currentProvider, currentBaseUrl, t);
 
   const selectModel = async (option: ModelOption) => {
     if (!settings || !canChange || (option.provider === currentProvider && option.model === currentModel)) return;
@@ -114,9 +122,9 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 
   return <DropdownMenu open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setError(null); }}>
     <DropdownMenuTrigger asChild>
-      <Button variant="ghost" className="h-9 max-w-[270px] gap-2 px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={t('maskSwitcher.switchModelAria', { provider: displayProvider(currentProvider, t), model: currentModel || t('maskSwitcher.defaultModel') })} title={t('maskSwitcher.switchModelTitle')}>
+      <Button variant="ghost" className="h-9 max-w-[270px] gap-2 px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={t('maskSwitcher.switchModelAria', { provider: providerLabel, model: currentModel || t('maskSwitcher.defaultModel') })} title={t('maskSwitcher.switchModelTitle')}>
         {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : <CircleDot className="h-4 w-4 shrink-0 text-foreground" />}
-        <span className="hidden min-w-0 truncate text-sm md:inline">{displayProvider(currentProvider, t)}</span>
+        <span className="hidden min-w-0 truncate text-sm md:inline">{providerLabel}</span>
         <span className="hidden shrink-0 text-muted-foreground md:inline">|</span>
         <span className="hidden min-w-0 truncate text-sm text-muted-foreground md:inline">{currentModel || t('maskSwitcher.defaultModel')}</span>
         <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
@@ -129,19 +137,19 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
         {currentOption ? <DropdownMenuItem className="cursor-default gap-3 rounded-lg bg-accent/50 p-2.5" disabled>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground"><CircleDot className="h-4 w-4" /></span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{displayProvider(currentOption.provider, t)} <span className="font-normal text-muted-foreground">| {currentOption.model || t('maskSwitcher.defaultModel')}</span></span>
-            <span className="block truncate text-xs text-muted-foreground">{t(currentOption.descriptionKey)}</span>
+            <span className="block truncate text-sm font-medium">{displayProvider(currentOption.provider, currentBaseUrl, t)} <span className="font-normal text-muted-foreground">| {currentOption.model || t('maskSwitcher.defaultModel')}</span></span>
+            <span className="block truncate text-xs text-muted-foreground">{currentOption.descriptionKey ? t(currentOption.descriptionKey) : null}</span>
           </span>
           <Check className="h-4 w-4 shrink-0 text-primary" />
         </DropdownMenuItem> : null}
         {options.filter((option) => option.provider !== currentOption?.provider || option.model !== currentOption?.model).length ? <>
           <DropdownMenuSeparator className="my-2" />
-          <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('maskSwitcher.optionalModels', { provider: displayProvider(currentProvider, t) })}</DropdownMenuLabel>
+          <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('maskSwitcher.optionalModels', { provider: providerLabel })}</DropdownMenuLabel>
           {options.filter((option) => option.provider !== currentOption?.provider || option.model !== currentOption?.model).map((option) => <DropdownMenuItem key={option.id} disabled={!canChange} className="cursor-pointer gap-3 rounded-lg p-2.5" onSelect={(event) => { event.preventDefault(); void selectModel(option); }}>
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><CircleDot className="h-4 w-4" /></span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{option.model}</span>
-              <span className="block truncate text-xs text-muted-foreground">{t(option.descriptionKey)}</span>
+              {option.descriptionKey ? <span className="block truncate text-xs text-muted-foreground">{t(option.descriptionKey)}</span> : null}
             </span>
           </DropdownMenuItem>)}
         </> : null}

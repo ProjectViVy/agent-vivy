@@ -17,6 +17,7 @@ import { openWelcome } from '@/hooks/use-welcome';
 import { useTranslation } from '@/i18n';
 import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewSection } from './diva-preview-data';
 import { DivaSettingsPreview } from './DivaSettingsPreview';
+import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 
 const SETTINGS_TAB_VALUES = ['general', 'model', 'persona', 'tools', 'vivy', ...DIVA_ADDITIONAL_SECTIONS] as const;
@@ -47,14 +48,8 @@ function DemoNote() {
 }
 
 export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
-  const settings = useVivyStore((state) => state.settings);
-  const phase = useVivyStore((state) => state.settingsPhase);
-  const error = useVivyStore((state) => state.settingsError);
   const connection = useVivyStore((state) => state.connection);
-  const load = useVivyStore((state) => state.loadSettings);
-  const save = useVivyStore((state) => state.saveSettings);
   const { t } = useTranslation();
-  const [form, setForm] = useState({ provider: '', default_model: '', base_url: '' });
   const [demoConfig, setDemoConfig] = useState<RuntimeConfig | null>(null);
   const [persona, setPersona] = useState<PersonaProfile | null>(null);
   const [tools, setTools] = useState<ToolsConfigShape | null>(null);
@@ -73,17 +68,11 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
     if (failures.length) setDemoError(failures.map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)).join('；'));
   };
 
-  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (activeTab === 'model' || activeTab === 'persona' || activeTab === 'tools') void loadDemos();
   }, [activeTab]);
   // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区。
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
-  useEffect(() => {
-    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url });
-  }, [settings]);
-
-  const locked = settings?.read_only || phase === 'processing';
 
   const persistDemo = async (kind: 'model' | 'persona' | 'tools') => {
     setDemoBusy(kind);
@@ -148,17 +137,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsContent value="model" className="space-y-4">
             <Card>
               <CardHeader><CardTitle>Vivy 模型配置</CardTitle><CardDescription>真实设置。密钥只由运行环境管理；保存后在下次启动时生效。</CardDescription></CardHeader>
-              <CardContent>
-                {phase === 'loading' && !settings ? <div className="space-y-3"><div className="h-10 animate-pulse rounded bg-muted" /><div className="h-10 animate-pulse rounded bg-muted" /><div className="h-10 animate-pulse rounded bg-muted" /></div> : (
-                  <form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); await save(form); }}>
-                    <div className="space-y-2"><Label htmlFor="provider">Provider</Label><Input id="provider" value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })} placeholder={settings?.config_provider || '配置默认值'} disabled={locked} /></div>
-                    <div className="space-y-2"><Label htmlFor="model">默认模型</Label><Input id="model" value={form.default_model} onChange={(event) => setForm({ ...form, default_model: event.target.value })} placeholder={settings?.config_model || 'Provider 默认值'} disabled={locked} /></div>
-                    <div className="space-y-2"><Label htmlFor="base-url">Base URL</Label><Input id="base-url" type="url" value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} placeholder="https://api.example.com/v1" disabled={locked} /></div>
-                    {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? '保存中…' : '保存真实设置'}</Button>}
-                    {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
-                  </form>
-                )}
-              </CardContent>
+              <CardContent><ModelSettingsCard /></CardContent>
             </Card>
             <Card>
               <CardHeader><CardTitle>生成参数</CardTitle><CardDescription>恢复的示例参数，不会传给真实 Provider。</CardDescription></CardHeader>

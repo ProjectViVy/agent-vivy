@@ -130,6 +130,15 @@ export const en: Dictionary = {
       offline: 'Offline checks and UI tests',
     },
   },
+  settingsModel: {
+    searchPlaceholder: 'Search providers',
+    moreProviders: 'More providers',
+    currentBadge: 'Current',
+    noMatch: 'No matching providers',
+    modelsTitle: '{{provider}} models',
+    noModels: 'No static model list for this provider; type the default model directly.',
+    customProviderHint: 'This Provider / Base URL combination is not in the catalog; values below are saved as typed.',
+  },
   runInspector: {
     currentRun: 'Current Run',
     background: 'Background {{count}}',
