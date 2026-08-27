@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const api = vi.hoisted(() => ({
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
+  listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
 vi.mock('./api', () => api);
@@ -24,6 +25,7 @@ describe('Vivy store integrity', () => {
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
     api.getSettings.mockResolvedValue({ provider: 'mock', default_model: 'mock', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30 });
+    api.listProviders.mockResolvedValue({ entries: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
   });
 

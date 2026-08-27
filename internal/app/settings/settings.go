@@ -1,18 +1,21 @@
-// Package settings holds the operator-managed model provider selection and
-// network tool preferences for Vivy itself. These are user-facing
-// preferences (which provider bundle is active, which default model, an
-// optional OpenAI-compatible base URL, an optional API key overlay, and the
-// preferred network_search provider). They live in an independent agent
-// working directory (data/agent-home/settings.yaml) so the running species
-// never rewrites its own production config.yaml and never touches the
-// Journal (data/vivy.db).
+// Package settings holds the operator-managed runtime configuration for
+// Vivy itself: the active model provider selection (bundle, default model,
+// optional OpenAI-compatible base URL, optional API key overlay), the
+// user-defined provider registry (custom providers with their own base URL,
+// model list, and optional API key), the network_search preference, and the
+// execute ceiling override. These are user-facing preferences that live in
+// an independent agent working directory (data/agent-home/settings.yaml) so
+// the running species never rewrites its own production config.yaml and
+// never touches the Journal (data/vivy.db).
 //
 // Secrets: committed config still holds env_key names only (D-010). This
 // runtime settings document may additionally hold an optional plaintext
-// api_key overlay (file mode 0600, data dir is gitignored runtime state); it
-// is applied to the bundle's env_key environment variable at startup, and is
-// never logged and never returned by the control plane. An empty api_key
-// means "no overlay" — the environment variable stands.
+// api_key overlay and api_key per registered provider (file mode 0600, data
+// dir is gitignored runtime state); values are applied to the corresponding
+// environment variable when the document is written and again at startup,
+// and are never logged and never returned by the control plane (only
+// api_key_set booleans cross the wire). An empty api_key means "no overlay"
+// — the environment variable stands.
 // On startup, app overlays these values onto the validated config before the
 // provider/model are built, so a save takes effect on the next launch (no
 // live hot-swap of the running engine).
@@ -30,8 +33,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultDir is the independent agent working directory under the process
-// data root. It is not data/ and not the tenant Journal.
+// DefaultDir is the independent agent working directory under the user data
+// root when no explicit data directory is configured. It is not data/ and
+// not the tenant Journal. App resolves the actual root from config
+// DataDirectory (see config.UserDataDir); this constant is the fallback used
+// by Path with an empty root.
 const DefaultDir = "data/agent-home"
 
 // FileName is the settings document name inside DefaultDir.
@@ -69,6 +75,10 @@ type Settings struct {
 	// doc: plaintext runtime data only, never logged or returned). Empty
 	// means "no overlay" — the bundle's env_key environment variable stands.
 	ApiKey string `yaml:"api_key"`
+	// Providers is the user-defined provider registry. Entries hold a base
+	// URL, a model list, and an optional API key (write-only on the wire);
+	// the UI creates, edits, and deletes them through the control plane.
+	Providers []ProviderEntry `yaml:"providers"`
 	// NetworkSearch overrides tools.network_search.provider from the
 	// Settings UI; empty keeps the config value. Provider credentials stay
 	// environment-only (D-010).
@@ -77,6 +87,32 @@ type Settings struct {
 	// (config runtime.execute_max_timeout_seconds); 0 means "use config
 	// value". Same bounds as config: 1–600, mirroring the runtime hard cap.
 	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
+}
+
+// ProviderEntry is one user-defined provider in the registry. The API key is
+// plaintext runtime data (same boundary as Settings.ApiKey): 0600 document,
+// never logged, never returned by the control plane — the wire carries
+// api_key_set only. Runtime key resolution matches the active selection to an
+// entry by (bundle, base_url).
+type ProviderEntry struct {
+	// ID is a stable UI-generated key (e.g. custom-<uuid>); rename/edit
+	// keeps it so the UI can address the entry without restating its key.
+	ID string `yaml:"id"`
+	// DisplayName is the user-facing alias shown in the Settings UI.
+	DisplayName string `yaml:"display_name"`
+	// Bundle is the runtime bundle: openai or anthropic (mock is built-in
+	// offline and cannot be registered).
+	Bundle string `yaml:"bundle"`
+	// BaseURL is the OpenAI-compatible gateway address for this entry.
+	BaseURL string `yaml:"base_url"`
+	// DefaultModel is the entry's preferred model; empty means "use bundle
+	// default".
+	DefaultModel string `yaml:"default_model"`
+	// Models is the model list shown in the Settings UI (raw model ids).
+	Models []string `yaml:"models"`
+	// ApiKey optionally overlays the bundle's env_key when this entry is the
+	// active selection; empty means "no overlay".
+	ApiKey string `yaml:"api_key"`
 }
 
 // NetworkSearchSettings is the UI-managed network_search preference.
@@ -100,6 +136,19 @@ func Default() Settings {
 	return Settings{}
 }
 
+// IsZero reports whether the document carries no runtime overlay at all: no
+// active selection, no legacy key, no registry, no network/execute override.
+// A missing document and an empty document are equivalent for the overlay.
+func (s Settings) IsZero() bool {
+	return s.Provider == "" &&
+		s.DefaultModel == "" &&
+		s.BaseURL == "" &&
+		s.ApiKey == "" &&
+		len(s.Providers) == 0 &&
+		s.NetworkSearch == (NetworkSearchSettings{}) &&
+		s.ExecuteMaxTimeoutSeconds == 0
+}
+
 // Load reads and validates the settings document at path. A missing file is
 // not an error: it returns the zero Settings so the config defaults stand.
 func Load(path string) (Settings, error) {
@@ -114,6 +163,11 @@ func Load(path string) (Settings, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&s); err != nil {
 		return Settings{}, fmt.Errorf("settings: parse %s: %w", path, err)
+	}
+	// Normalize a decoded empty registry to nil so a document round-trip is
+	// stable (yaml marshals nil and empty slices identically).
+	if len(s.Providers) == 0 {
+		s.Providers = nil
 	}
 	if err := s.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)
@@ -139,6 +193,9 @@ func (s Settings) Validate() error {
 	if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
 		return errors.New("settings: api_key must not contain newlines")
 	}
+	if err := validateProviderEntries(s.Providers); err != nil {
+		return err
+	}
 	switch s.NetworkSearch.Provider {
 	case "":
 		// empty => automatic; allowed
@@ -152,6 +209,88 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("settings: execute_max_timeout_seconds must be 0 (config default) or between 1 and %d", maxExecuteTimeoutSeconds)
 	}
 	return nil
+}
+
+// validateProviderEntries checks every registry entry. Entries are optional;
+// when present, all structural fields must be valid and no two entries may
+// share the same (bundle, base_url) — that pair is the runtime identity the
+// active selection resolves its key from.
+func validateProviderEntries(entries []ProviderEntry) error {
+	seen := make(map[string]string, len(entries))
+	for i, e := range entries {
+		if strings.TrimSpace(e.ID) == "" {
+			return fmt.Errorf("settings: providers[%d].id must not be empty", i)
+		}
+		if strings.TrimSpace(e.DisplayName) == "" {
+			return fmt.Errorf("settings: providers[%d].display_name must not be empty", i)
+		}
+		switch e.Bundle {
+		case ProviderOpenAI, ProviderAnthropic:
+		default:
+			return fmt.Errorf("settings: providers[%d].bundle %q unsupported; want openai or anthropic", i, e.Bundle)
+		}
+		if !apiBasePattern.MatchString(e.BaseURL) {
+			return fmt.Errorf("settings: providers[%d].base_url %q must be an http(s) absolute URL", i, e.BaseURL)
+		}
+		for j, m := range e.Models {
+			if strings.TrimSpace(m) == "" {
+				return fmt.Errorf("settings: providers[%d].models[%d] must not be empty", i, j)
+			}
+		}
+		if e.ApiKey != "" && strings.ContainsAny(e.ApiKey, "\r\n") {
+			return fmt.Errorf("settings: providers[%d].api_key must not contain newlines", i)
+		}
+		key := e.Bundle + "\x00" + e.BaseURL
+		if prev, ok := seen[key]; ok {
+			return fmt.Errorf("settings: providers[%d] (%s, %s) duplicates providers entry %q", i, e.Bundle, e.BaseURL, prev)
+		}
+		seen[key] = e.DisplayName
+	}
+	return nil
+}
+
+// FindProvider returns the registry entry whose (bundle, base_url) matches
+// the live selection, and whether a match exists. The active selection
+// resolves its API key from this entry (authoritative over the legacy
+// Settings.ApiKey overlay when the UI writes the registry).
+func (s Settings) FindProvider(bundle, baseURL string) (ProviderEntry, bool) {
+	for _, e := range s.Providers {
+		if e.Bundle == bundle && e.BaseURL == baseURL {
+			return e, true
+		}
+	}
+	return ProviderEntry{}, false
+}
+
+// ActiveKey resolves the environment overlay key for the active selection:
+// the registry entry matching (bundle, base_url) carries the key
+// authoritatively (the UI no longer echoes secrets on select), and the
+// legacy Settings.ApiKey overlay remains the fallback for older documents
+// and non-registry selections. Empty means "no overlay" — the bundle's
+// env_key environment variable stands.
+func ActiveKey(s Settings, provider, baseURL string) string {
+	if e, ok := s.FindProvider(provider, baseURL); ok && e.ApiKey != "" {
+		return e.ApiKey
+	}
+	return s.ApiKey
+}
+
+// UpsertProvider inserts or replaces one registry entry by id. When the id
+// already exists the whole entry is replaced (keeping the id stable, so the
+// UI can address it without restating secrets); otherwise it is appended.
+// The returned Settings is the candidate with the entry applied; validation
+// happens in Save.
+func (s Settings) UpsertProvider(entry ProviderEntry) Settings {
+	for i, e := range s.Providers {
+		if e.ID == entry.ID {
+			next := append([]ProviderEntry(nil), s.Providers...)
+			next[i] = entry
+			s.Providers = next
+			return s
+		}
+	}
+	s.Providers = append(append([]ProviderEntry(nil), s.Providers...), entry)
+	return s
 }
 
 // Save writes the settings atomically to path, creating parent directories.

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
@@ -700,5 +701,215 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	}
 	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") {
 		t.Fatalf("settings capabilities not advertised: %s", raw)
+	}
+	for _, method := range []string{"settings.providers", "settings.providers.upsert", "settings.providers.delete"} {
+		if !containsFold(string(raw), method) {
+			t.Fatalf("provider capability %s not advertised: %s", method, raw)
+		}
+	}
+}
+
+// newSettingsHandlerEnv builds a control handler with a writable settings
+// document under a temp dir and an ApplySettingsEnv probe recording applied
+// settings for write-through assertions.
+func newSettingsHandlerEnv(t *testing.T, probe *settingsApplierProbe) (*controlTestEnv, string) {
+	t.Helper()
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus(8)
+	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+	})
+	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
+	deps := ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio:                         studio.NewService(backend),
+		SettingsPath:                   settingsPath,
+		ConfigProvider:                 "mock",
+		ConfigModel:                    "mock",
+		ConfigNetworkSearchProvider:    "duckduckgo",
+		ConfigExecuteMaxTimeoutSeconds: 30,
+	}
+	if probe != nil {
+		deps.ApplySettingsEnv = func(s settings.Settings) { probe.applied = append(probe.applied, s) }
+	}
+	handler, err := NewControlHandler(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &controlTestEnv{backend: backend, handler: handler}, settingsPath
+}
+
+type settingsApplierProbe struct {
+	applied []settings.Settings
+}
+
+func TestProviderRegistryRPC(t *testing.T) {
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnv(t, probe)
+	ctx := context.Background()
+	_ = ctx
+
+	// Empty registry lists nothing with config defaults.
+	result, rpcErr := callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+	if len(view.Entries) != 0 || view.ConfigProvider != "mock" || view.ReadOnly {
+		t.Fatalf("empty registry view = %+v", view)
+	}
+
+	// Upsert an entry with an api_key; the response is redacted.
+	result, rpcErr = callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "display_name": "My Gateway", "bundle": "openai",
+		"base_url": "https://gateway.example.com/v1", "default_model": "deepseek-chat",
+		"models": []string{"deepseek-chat", "deepseek-v4-pro"}, "api_key": "sk-entry",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	entry := result.(providerEntryResult)
+	if entry.ID != "custom-1" || entry.DisplayName != "My Gateway" || !entry.APIKeySet {
+		t.Fatalf("upsert echo = %+v", entry)
+	}
+	body, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "sk-entry") {
+		t.Fatalf("provider upsert response leaked api_key: %s", body)
+	}
+
+	// The document persisted the entry with the key.
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Providers) != 1 || loaded.Providers[0].ApiKey != "sk-entry" {
+		t.Fatalf("registry not persisted: %+v", loaded)
+	}
+	// Write-through applied the document to the env probe (key is inactive
+	// so no env change, but the applier still saw the saved doc).
+	if len(probe.applied) != 1 {
+		t.Fatalf("ApplySettingsEnv calls = %d, want 1", len(probe.applied))
+	}
+
+	// List now reports the redacted entry.
+	result, rpcErr = callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view = result.(providersResult)
+	if len(view.Entries) != 1 || !view.Entries[0].APIKeySet || view.Entries[0].BaseURL != "https://gateway.example.com/v1" {
+		t.Fatalf("registry list = %+v", view)
+	}
+	body, _ = json.Marshal(view)
+	if strings.Contains(string(body), "sk-entry") {
+		t.Fatalf("registry list leaked api_key: %s", body)
+	}
+
+	// Upsert an invalid entry (bad bundle) is rejected and does not persist.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-2", "display_name": "Bad", "bundle": "banana", "base_url": "https://bad.example.com/v1",
+	}); rpcErr == nil {
+		t.Fatal("expected invalid bundle to be rejected")
+	}
+	loaded, _ = settings.Load(settingsPath)
+	if len(loaded.Providers) != 1 {
+		t.Fatalf("rejected upsert must not persist: %+v", loaded)
+	}
+
+	// Duplicate (bundle, base_url) is rejected.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-2", "display_name": "Dup", "bundle": "openai", "base_url": "https://gateway.example.com/v1",
+	}); rpcErr == nil {
+		t.Fatal("expected duplicate (bundle, base_url) to be rejected")
+	}
+
+	// Delete removes the entry and the write-through applies the cleared doc.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/delete", map[string]any{"id": "custom-1"}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view = result.(providersResult)
+	if len(view.Entries) != 0 {
+		t.Fatalf("registry after delete = %+v", view)
+	}
+	if len(probe.applied) != 2 {
+		t.Fatalf("ApplySettingsEnv calls = %d, want 2 (upsert + delete; rejected upserts are no-ops)", len(probe.applied))
+	}
+
+	// Deleting a missing entry is a not-found error.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/delete", map[string]any{"id": "nope"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("expected not-found on missing delete, got %v", rpcErr)
+	}
+
+	// Read-only deployment rejects provider writes.
+	roEnv := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, roEnv.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "display_name": "A", "bundle": "openai", "base_url": "https://a.example.com/v1",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("expected conflict on read-only upsert, got %v", rpcErr)
+	}
+}
+
+func TestSettingsUpdatePreservesRegistry(t *testing.T) {
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnv(t, probe)
+
+	// Register a provider, then select it plus its model without repeating
+	// the key. The registry entry must survive the update.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "display_name": "My Gateway", "bundle": "openai",
+		"base_url": "https://gateway.example.com/v1", "default_model": "deepseek-chat",
+		"models": []string{"deepseek-chat"}, "api_key": "sk-entry",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "openai", "default_model": "deepseek-chat", "base_url": "https://gateway.example.com/v1",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Providers) != 1 {
+		t.Fatalf("update must preserve the registry: %+v", loaded)
+	}
+	if loaded.Provider != "openai" || loaded.DefaultModel != "deepseek-chat" {
+		t.Fatalf("active selection not saved: %+v", loaded)
+	}
+	// The resolved active key now comes from the registry entry.
+	if key := settings.ActiveKey(loaded, "openai", "https://gateway.example.com/v1"); key != "sk-entry" {
+		t.Fatalf("active key resolution = %q, want sk-entry", key)
+	}
+	// The write-through env probe saw a doc whose active key resolves.
+	if len(probe.applied) != 2 {
+		t.Fatalf("ApplySettingsEnv calls = %d, want 2", len(probe.applied))
+	}
+	last := probe.applied[len(probe.applied)-1]
+	if settings.ActiveKey(last, last.Provider, last.BaseURL) != "sk-entry" {
+		t.Fatalf("applied settings must resolve the registry key, got %+v", last)
 	}
 }
