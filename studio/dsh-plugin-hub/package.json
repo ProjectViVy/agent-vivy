@@ -1,0 +1,105 @@
+{
+  "name": "dsh-plugin",
+  "version": "1.3.5",
+  "description": "VIVY-STUDIO-PLUGIN-HUB — Vivy Studio plugin marketplace. Sealed fork of dsh-plugin-hub (original authors: DSH Plugin Hub contributors, MIT): no ads, no update/self-upgrade paths, GitHub plugins install into the Vivy source tree. · Vivy Studio 插件中心：基于 dsh-plugin-hub 魔改（原作者 DSH Plugin Hub contributors），去除广告与更新路径，GitHub 插件安装到 Vivy 源码树。",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dshplugin/dsh-plugin-hub.git"
+  },
+  "homepage": "https://dsh-plugin.org",
+  "bugs": {
+    "url": "https://github.com/dshplugin/dsh-plugin-hub/issues"
+  },
+  "author": "DSH Plugin Hub contributors",
+  "funding": {
+    "type": "custom",
+    "url": "https://dsh-plugin.org"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin-marketplace",
+    "plugin-hub",
+    "community-plugins",
+    "plugins",
+    "marketplace",
+    "ai",
+    "agent",
+    "cli",
+    "typescript",
+    "open-source"
+  ],
+  "scripts": {
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "rm -rf lib && tsc -p tsconfig.server.json",
+    "build:client": "tsdown && node scripts/tools/normalize-client-banner.mjs",
+    "readme:stats": "node scripts/tools/sync-readme-stats.mjs",
+    "reload": "bash scripts/run/reload-dsh.sh",
+    "dev": "bash scripts/run/dev-dsh.sh",
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "typecheck": "npm run typecheck:client && npm run typecheck:server && npm run typecheck:test",
+    "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
+    "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "verify:release": "node scripts/tools/verify-release.mjs",
+    "prepublishOnly": "npm run verify:release",
+    "prepack": "npm run build"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "client",
+    "cordis.patch.yml",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/react": "18.3.31",
+    "lightningcss": "1.33.0",
+    "react": "18.3.1",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Vivy Studio first-party gateway debugger bundle patch: one plugin row
+# registered on the profile root next to the skin row.
+- insert:
+    - id: vivy-debugger
+      name: dsh-vivy-debugger
