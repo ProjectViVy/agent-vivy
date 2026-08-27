@@ -4,7 +4,6 @@ import {
   Activity,
   Bot,
   FlaskConical,
-  Globe2,
   MessageSquare,
   RadioTower,
   ShieldCheck,
@@ -33,7 +32,6 @@ type ChatPreviewPrefs = {
   showRawMetaByDefault: boolean;
 };
 
-type NetworkProvider = 'bocha' | 'brave' | 'zhipu';
 type EvolutionFrequency = 'daily' | 'weekly' | 'manual';
 type SandboxMode = 'danger_full_access' | 'workspace_write' | 'read_only';
 type ApprovalPolicy = 'never' | 'on_failure' | 'on_request' | 'unless_trusted';
@@ -265,46 +263,6 @@ function ChannelsPreview() {
   );
 }
 
-function NetworkPreview() {
-  const [provider, setProvider] = useState<NetworkProvider>('bocha');
-  const [maxResults, setMaxResults] = useState(10);
-  const [searchEnabled, setSearchEnabled] = useState(true);
-  const [fetchEnabled, setFetchEnabled] = useState(false);
-  const { feedback, notify } = usePreviewFeedback();
-
-  return (
-    <PreviewFrame icon={Globe2} title="网络工具" description="预览 Agent-Diva 的网页搜索与抓取开关，不读取或保存 API Key。" feedback={feedback}>
-      <PreviewCard title="搜索服务" description="修改只影响当前设置页的假数据。">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="preview-network-provider">搜索 Provider</Label>
-            <Select value={provider} onValueChange={(value: NetworkProvider) => { setProvider(value); notify('搜索 Provider 预览已更新。'); }}>
-              <SelectTrigger id="preview-network-provider"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="bocha">Bocha</SelectItem>
-                <SelectItem value="brave">Brave Search</SelectItem>
-                <SelectItem value="zhipu">智谱搜索</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="preview-network-limit">最大结果数</Label>
-            <Input id="preview-network-limit" type="number" min={1} max={50} value={maxResults} onChange={(event) => { setMaxResults(Math.max(1, Number(event.target.value) || 1)); notify('最大结果数预览已更新。'); }} />
-          </div>
-        </div>
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="font-medium">API Key</p><p className="text-sm text-muted-foreground">未接入真实密钥</p></div><Badge variant="outline">仅占位</Badge></div>
-          <ToggleRow title="启用网页搜索" checked={searchEnabled} onCheckedChange={(checked) => { setSearchEnabled(checked); notify('网页搜索预览已更新。'); }} />
-          <ToggleRow title="启用网页抓取" checked={fetchEnabled} onCheckedChange={(checked) => { setFetchEnabled(checked); notify('网页抓取预览已更新。'); }} />
-        </div>
-      </PreviewCard>
-      <PreviewCard title="当前预览摘要" description="汇总上方选择结果，不代表真实网络工具配置。">
-        <p className="text-sm text-muted-foreground">{provider} · 最多 {maxResults} 条 · 搜索 {searchEnabled ? '开启' : '关闭'} · 抓取 {fetchEnabled ? '开启' : '关闭'}</p>
-      </PreviewCard>
-    </PreviewFrame>
-  );
-}
-
 function SelfEvolutionPreview() {
   const [enabled, setEnabled] = useState(true);
   const [frequency, setFrequency] = useState<EvolutionFrequency>('weekly');
@@ -370,7 +328,6 @@ export function DivaSettingsPreview({ section }: { section: DivaPreviewSection }
     case 'general':
       return <GeneralPreview />;
     case 'channels': return <ChannelsPreview />;
-    case 'network': return <NetworkPreview />;
     case 'self-evolution': return <SelfEvolutionPreview />;
     case 'sandbox': return <SandboxPreview />;
   }

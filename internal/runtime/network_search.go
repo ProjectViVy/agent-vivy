@@ -36,6 +36,7 @@ type NetworkSearchService struct {
 	client    *http.Client
 	providers map[string]SearchProvider
 	order     []string
+	preferred string
 }
 
 var _ tools.SearchOperations = (*NetworkSearchService)(nil)
@@ -53,12 +54,83 @@ func NewNetworkSearchService(client *http.Client, endpoints map[string]string) *
 	return &NetworkSearchService{client: client, providers: providers, order: []string{"bing", "google", "duckduckgo", "searxng", "wikipedia"}}
 }
 
+// SetPreferredProvider sets the provider used when a request does not name
+// one (config tools.network_search.provider / Settings UI). An unusable
+// preference — e.g. bing without BING_SEARCH_API_KEY — silently falls back
+// to the automatic keyless walk instead of failing the search.
+func (s *NetworkSearchService) SetPreferredProvider(name string) {
+	s.preferred = strings.ToLower(strings.TrimSpace(name))
+}
+
+// NetworkSearchProviderInfo is the non-secret per-provider status surfaced
+// to the Settings UI: whether it needs a key, whether that key (or the
+// searxng URL) is present, and which environment variable to set.
+type NetworkSearchProviderInfo struct {
+	Name       string `json:"name"`
+	Keyless    bool   `json:"keyless"`
+	Configured bool   `json:"configured"`
+	EnvKey     string `json:"env_key,omitempty"`
+}
+
+// searchProviderEnvNames carries environment variable NAMES only; the
+// presence check reads emptiness, never values (D-010: no literal key
+// Getenv outside internal/provider).
+var searchProviderEnvNames = map[string][]string{
+	"bing":    {"BING_SEARCH_API_KEY"},
+	"google":  {"GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_CX"},
+	"searxng": {"SEARXNG_SEARCH_URL"},
+}
+
+// NetworkSearchProviderAvailability reports the provider roster in
+// preference order. It reads only environment variable presence, never
+// values (D-010).
+func NetworkSearchProviderAvailability() []NetworkSearchProviderInfo {
+	roster := []NetworkSearchProviderInfo{
+		{Name: "bing", EnvKey: "BING_SEARCH_API_KEY"},
+		{Name: "google", EnvKey: "GOOGLE_SEARCH_API_KEY"},
+		{Name: "duckduckgo", Keyless: true, Configured: true},
+		{Name: "searxng", EnvKey: "SEARXNG_SEARCH_URL"},
+		{Name: "wikipedia", Keyless: true, Configured: true},
+	}
+	for i := range roster {
+		envNames := searchProviderEnvNames[roster[i].Name]
+		if len(envNames) == 0 {
+			continue
+		}
+		configured := true
+		for _, name := range envNames {
+			if os.Getenv(name) == "" {
+				configured = false
+				break
+			}
+		}
+		roster[i].Configured = configured
+	}
+	return roster
+}
+
+// usable reports whether the named provider can serve a request right now.
+func (s *NetworkSearchService) usable(name string) bool {
+	if p := s.providers[name]; p == nil {
+		return false
+	}
+	for _, info := range NetworkSearchProviderAvailability() {
+		if info.Name == name {
+			return info.Configured
+		}
+	}
+	return false
+}
+
 func (s *NetworkSearchService) Search(ctx context.Context, _ domain.RunID, req tools.SearchRequest) (tools.SearchResponse, error) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		return tools.SearchResponse{}, errors.New("network search: query must not be empty")
 	}
 	providerName := strings.ToLower(strings.TrimSpace(req.Provider))
+	if providerName == "" && s.preferred != "" && s.usable(s.preferred) {
+		providerName = s.preferred
+	}
 	if providerName == "" {
 		for _, name := range s.order {
 			if p := s.providers[name]; p != nil && (name == "duckduckgo" || name == "wikipedia" || os.Getenv(apiKeyEnvFor(name)) != "") {

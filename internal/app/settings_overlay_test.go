@@ -78,3 +78,41 @@ func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 		t.Fatalf("missing settings document must not change cfg, active = %q", applied.Providers.Active)
 	}
 }
+
+// TestApplySettingsOverlayAppliesNetworkSearchProvider pins the network tool
+// preference path: a network_search.provider saved in the settings overlay
+// is applied to cfg.Tools.NetworkSearch.Provider at startup, and an empty
+// preference keeps the config value (auto).
+func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{
+		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
+		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_NS"}},
+		Tools:     config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "bing"}},
+	}
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{
+		NetworkSearch: settings.NetworkSearchSettings{Provider: "searxng"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	applied := applySettingsOverlay(context.Background(), logger, cfg)
+	if applied.Tools.NetworkSearch.Provider != "searxng" {
+		t.Fatalf("network_search provider = %q, want searxng (settings override)", applied.Tools.NetworkSearch.Provider)
+	}
+
+	// Empty overlay preference keeps the config default.
+	dir2 := t.TempDir()
+	cfg2 := config.Config{
+		Storage:   config.Storage{DataDir: dir2, Backend: "sqlite"},
+		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_NS2"}},
+		Tools:     config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "wikipedia"}},
+	}
+	if _, err := settings.Save(settings.Path(dir2), settings.Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	applied2 := applySettingsOverlay(context.Background(), logger, cfg2)
+	if applied2.Tools.NetworkSearch.Provider != "wikipedia" {
+		t.Fatalf("network_search provider = %q, want config default wikipedia", applied2.Tools.NetworkSearch.Provider)
+	}
+}
