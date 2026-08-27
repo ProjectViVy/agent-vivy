@@ -44,7 +44,10 @@ export default defineConfig({
     hmr: false,
     proxy: {
       "/rpc": {
-        target: "http://127.0.0.1:8787",
+        // VIVY_BACKEND_ADDR lets the Studio console point the dev server at
+        // its managed headless backend's live port; the default matches the
+        // standard split pair (just run at 127.0.0.1:8787).
+        target: process.env.VIVY_BACKEND_ADDR || "http://127.0.0.1:8787",
         ws: true,
       },
     },
