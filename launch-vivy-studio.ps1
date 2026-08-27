@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $plugin = Join-Path $PSScriptRoot "studio\dsh-vivy-studio"
+$debugger = Join-Path $PSScriptRoot "studio\dsh-vivy-debugger"
+$pluginHub = Join-Path $PSScriptRoot "studio\dsh-plugin-hub"
 $homeDir = Join-Path $root "data\studio-home"
 $profileDir = Join-Path $homeDir "profiles\vivy-studio"
 $storageDir = Join-Path $homeDir "storages"
@@ -54,36 +56,67 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText((Join-Path $storageDir "workspace.json"), ($workspaceDoc | ConvertTo-Json -Depth 6), $utf8NoBom)
 
 $pluginUnix = ($plugin -replace "\\", "/")
+$debuggerUnix = ($debugger -replace "\\", "/")
+$pluginHubUnix = ($pluginHub -replace "\\", "/")
 $profilePkg = Join-Path $profileDir "package.json"
-$needSeal = $true
-if (Test-Path $profilePkg) {
-  $needSeal = (Get-Content -Raw -Path $profilePkg) -notmatch "dsh-vivy-studio"
+$vivyRoot = $root
+$env:VIVY_ROOT = $vivyRoot
+
+# Build the profile manifest from the canonical first-party bundles, then merge
+# any Vivy-source plugins installed by dsh-plugin-hub so they survive restarts.
+$deps = [ordered]@{
+  "dsh-vivy-studio"   = "file:$pluginUnix"
+  "dsh-vivy-debugger" = "file:$debuggerUnix"
+  "dsh-plugin"        = "file:$pluginHubUnix"
+}
+$bundles = [System.Collections.Generic.List[string]]::new()
+@("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-vivy-studio", "dsh-vivy-debugger", "dsh-plugin") | ForEach-Object { $bundles.Add($_) }
+
+$registryPath = Join-Path $profileDir "vivy-source-plugins.json"
+if (Test-Path $registryPath) {
+  try {
+    $registry = Get-Content -Raw -Path $registryPath | ConvertFrom-Json -ErrorAction Stop
+    foreach ($entry in $registry.plugins) {
+      $localPath = ($entry.localPath -replace "\\", "/")
+      if (-not [System.IO.Path]::IsPathRooted($localPath)) {
+        $localPath = Join-Path $vivyRoot $localPath
+      }
+      $localPath = ($localPath -replace "\\", "/")
+      $deps[$entry.name] = "file:$localPath"
+      if (-not $bundles.Contains($entry.name)) { $bundles.Add($entry.name) }
+    }
+  } catch {
+    Write-Host "warning: failed to merge vivy-source-plugins.json: $_"
+  }
 }
 
-# Official web-app resolves from the dsh install, not npm. Do not
-# `dsh plugin add @deepseek-ai/dsh-web-app` — that 404s on dsh-frontend.
-@"
-{
-  "name": "dsh-profile-vivy-studio",
-  "private": true,
-  "dependencies": {
-    "dsh-vivy-studio": "file:$pluginUnix"
-  },
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "dsh-vivy-studio"
-      ]
+$manifest = [ordered]@{
+  name         = "dsh-profile-vivy-studio"
+  private      = $true
+  dependencies = $deps
+  dsh          = [ordered]@{
+    profile = [ordered]@{
+      bundles = $bundles
     }
   }
 }
-"@ | ForEach-Object { [System.IO.File]::WriteAllText($profilePkg, $_, $utf8NoBom) }
+
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$manifestJson = $manifest | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText($profilePkg, $manifestJson, $utf8NoBom)
+
+$needSeal = $true
+if (Test-Path $profilePkg) {
+  $profileText = Get-Content -Raw -Path $profilePkg
+  $needSeal = ($profileText -notmatch '"dsh-vivy-studio"') -or ($profileText -notmatch '"dsh-vivy-debugger"') -or ($profileText -notmatch '"dsh-plugin"')
+}
 
 if ($needSeal) {
-  Write-Host "linking first-party skin"
-  & $dsh plugin --profile vivy-studio add "file:$plugin"
+  Write-Host "linking first-party skin + debugger + plugin-hub"
+  & $dsh plugin --profile vivy-studio add "file:$plugin" "file:$debugger" "file:$pluginHub"
+} else {
+  # Ensure any merged vivy-source file: dependencies are materialized.
+  & pnpm install --dir $profileDir | Out-Null
 }
 
 Write-Host "DSH_HOME=$env:DSH_HOME"

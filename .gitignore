@@ -47,6 +47,9 @@ meoo_zip_*.zip
 # Tool-generated repo knowledge cache (repowiki)
 /.qoder/
 
+# Local agent scratch (plans, transient state)
+/.zcode/
+
 # Editor / OS noise
 .idea/
 .vscode/

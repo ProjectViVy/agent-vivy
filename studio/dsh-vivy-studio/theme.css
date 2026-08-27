@@ -365,3 +365,72 @@ ellipse[fill="#6187D8"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Turn status (running-turn indicator): replace "Deep diving..." copy with
+   "Seeking.....", recolor to Vivy fluorite, and rewrite the shimmer so the
+   sweep is explicit and smooth. CSS Modules mangles the class names, so match
+   by prefix; the clock span keeps its own readable size. */
+div[class*="turnStatus"] {
+  font-size: 0 !important;
+  background: linear-gradient(
+    90deg,
+    var(--vivy-fluorite) 0%,
+    var(--vivy-fluorite) 40%,
+    var(--vivy-fluorite-hot) 50%,
+    var(--vivy-fluorite) 60%,
+    var(--vivy-fluorite) 100%
+  ) !important;
+  background-position: 100% 0 !important;
+  background-size: 250% 100% !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  animation: vivy-seeking-shimmer 1.8s linear infinite !important;
+}
+
+div[class*="turnStatus"]::after {
+  content: "Seeking.....";
+  font: var(--dsw-font-s-strong-14);
+  background: linear-gradient(
+    90deg,
+    var(--vivy-fluorite) 0%,
+    var(--vivy-fluorite) 40%,
+    var(--vivy-fluorite-hot) 50%,
+    var(--vivy-fluorite) 60%,
+    var(--vivy-fluorite) 100%
+  );
+  background-position: 100% 0;
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: vivy-seeking-shimmer 1.8s linear infinite;
+}
+
+/* Elapsed-time clock (appears once the turn has run >15s) stays legible. */
+span[class*="turnStatusClock"] {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: var(--dsw-alias-label-caption) !important;
+  -webkit-text-fill-color: var(--dsw-alias-label-caption) !important;
+}
+
+@keyframes vivy-seeking-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  div[class*="turnStatus"],
+  div[class*="turnStatus"]::after {
+    background-position: 0 0 !important;
+    background-size: 100% 100% !important;
+    animation: none !important;
+  }
+}
