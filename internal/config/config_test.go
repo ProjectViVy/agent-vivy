@@ -171,7 +171,7 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"http://127.0.0.1:3015", "http://127.0.0.1:3015/app", 1),
 		"non-loopback listen with origin": strings.Replace(validDoc,
 			`"127.0.0.1:9090"`, `"0.0.0.0:9090"`, 1),
-"unsupported network_search provider": strings.Replace(validDoc,
+		"unsupported network_search provider": strings.Replace(validDoc,
 			"  approval:\n    expiration: 2m", "  approval:\n    expiration: 2m\n  network_search:\n    provider: yandex", 1),
 		"zero execute timeout": strings.Replace(validDoc,
 			"execute_max_timeout_seconds: 210", "execute_max_timeout_seconds: 0", 1),

@@ -16,13 +16,14 @@ import { openWelcome } from '@/hooks/use-welcome';
 import { useTranslation } from '@/i18n';
 import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewSection } from './diva-preview-data';
 import { DivaSettingsPreview } from './DivaSettingsPreview';
+import { ChannelsSettings } from './ChannelsSettings';
 import { GenerationParamsCard } from './GenerationParamsCard';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 import { LanguagePicker } from './LanguagePicker';
 import { NetworkToolsCard } from './NetworkToolsCard';
 
-const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', 'network', ...DIVA_ADDITIONAL_SECTIONS] as const;
+const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', 'channels', 'network', ...DIVA_ADDITIONAL_SECTIONS] as const;
 export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
 
 /** 路由 search 参数的白名单校验（?tab=…深链）。 */
@@ -31,7 +32,6 @@ export function isSettingsTab(value: unknown): value is SettingsTab {
 }
 
 const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
-  channels: '通道',
   'self-evolution': '自进化',
   sandbox: '沙箱',
 };
@@ -122,7 +122,8 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             <TabsTrigger value="model">模型</TabsTrigger>
             <TabsTrigger value="tools">工具</TabsTrigger>
             <TabsTrigger value="vivy">Vivy 功能</TabsTrigger>
-            <TabsTrigger value="language">语言</TabsTrigger>
+<TabsTrigger value="language">{t('settings.tabs.language')}</TabsTrigger>
+            <TabsTrigger value="channels">{t('settings.tabs.channels')}</TabsTrigger>
             <TabsTrigger value="network">网络工具</TabsTrigger>
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
               <TabsTrigger key={section} value={section}>
@@ -202,6 +203,10 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
           <TabsContent value="language" className="space-y-4">
             <LanguagePicker />
+          </TabsContent>
+
+<TabsContent value="channels" className="space-y-4">
+            <ChannelsSettings />
           </TabsContent>
 
           <TabsContent value="network" className="space-y-4">
