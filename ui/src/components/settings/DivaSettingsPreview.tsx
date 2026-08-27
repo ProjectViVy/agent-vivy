@@ -5,7 +5,6 @@ import {
   Bot,
   FlaskConical,
   Globe2,
-  MessageSquare,
   Minimize2,
   RadioTower,
   ShieldCheck,
@@ -21,7 +20,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  DIVA_CHANNELS,
   DIVA_EVOLUTION_ACTIONS,
   type DivaEvolutionAction,
   type DivaPreviewSection,
@@ -199,54 +197,6 @@ function GeneralPreview() {
   );
 }
 
-function ChannelsPreview() {
-  const [channels, setChannels] = useState(() => DIVA_CHANNELS.map((channel) => ({ ...channel })));
-  const [selectedId, setSelectedId] = useState(channels[0]?.id ?? '');
-  const { feedback, notify } = usePreviewFeedback();
-  const selected = channels.find((channel) => channel.id === selectedId) ?? channels[0];
-
-  const toggleChannel = (id: string, enabled: boolean) => {
-    setChannels((current) => current.map((channel) => channel.id === id ? { ...channel, enabled } : channel));
-    notify(`${channels.find((channel) => channel.id === id)?.name ?? '通道'} 的启用状态已更新为预览值。`);
-  };
-
-  return (
-    <PreviewFrame icon={MessageSquare} title="通道" description="展示 Telegram、Discord、飞书等通道的配置入口和就绪状态。" feedback={feedback}>
-      <PreviewCard title="已配置通道" description="凭证字段和真实连接测试暂不接入，避免伪造保存结果。">
-        <div className="space-y-2">
-          {channels.map((channel) => (
-            <div key={channel.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-              <button type="button" className="min-w-0 flex-1 cursor-pointer text-left hover:text-primary" onClick={() => { setSelectedId(channel.id); notify(`已查看 ${channel.name} 的配置预览。`); }}>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{channel.name}</span>
-                  <Badge variant={channel.ready ? 'default' : 'secondary'}>{channel.ready ? '就绪' : '待配置'}</Badge>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{channel.transport}</p>
-              </button>
-              <div className="flex items-center gap-3">
-                <Switch checked={channel.enabled} onCheckedChange={(checked) => toggleChannel(channel.id, checked)} aria-label={`${channel.name} 启用状态`} />
-                <Button type="button" size="sm" variant={selectedId === channel.id ? 'default' : 'outline'} onClick={() => { setSelectedId(channel.id); notify(`已查看 ${channel.name} 的配置预览。`); }}>
-                  查看预览
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </PreviewCard>
-
-      {selected ? (
-        <PreviewCard title={`${selected.name} 配置预览`} description="以下字段仅说明 DIVA 向导的结构，不接收真实凭证。">
-          <div className="grid gap-3 text-sm sm:grid-cols-3">
-            <div><p className="text-muted-foreground">平台</p><p className="mt-1 font-medium">{selected.name}</p></div>
-            <div><p className="text-muted-foreground">接入方式</p><p className="mt-1 font-medium">{selected.transport}</p></div>
-            <div><p className="text-muted-foreground">凭证状态</p><p className="mt-1 font-medium">仅预览</p></div>
-          </div>
-        </PreviewCard>
-      ) : null}
-    </PreviewFrame>
-  );
-}
-
 function NetworkPreview() {
   const [provider, setProvider] = useState<NetworkProvider>('bocha');
   const [maxResults, setMaxResults] = useState(10);
@@ -379,7 +329,6 @@ export function DivaSettingsPreview({ section }: { section: DivaPreviewSection }
   switch (section) {
     case 'general':
       return <GeneralPreview />;
-    case 'channels': return <ChannelsPreview />;
     case 'network': return <NetworkPreview />;
     case 'compaction': return <CompactionPreview />;
     case 'self-evolution': return <SelfEvolutionPreview />;
