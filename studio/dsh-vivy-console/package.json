@@ -1,7 +1,7 @@
 {
   "name": "dsh-vivy-console",
   "version": "0.1.0",
-  "description": "Vivy Studio first-party console: gateway lifecycle (status/logs/start/stop/restart), VIVY WEB embedding with a frontend debug bridge (console/RPC capture, evaluate). Development loop only — Studio distribution stays on vivy-sdk/vivy-studio.exe CLI",
+  "description": "Vivy Studio first-party console: gateway (vivy.exe) + frontend dev server (Vite) lifecycle with one unified log timeline, and VIVY WEB opened as a standalone tab with a debug bridge (console/RPC capture, evaluate). Development loop only — Studio distribution stays on vivy-sdk/vivy-studio.exe CLI",
   "type": "module",
   "main": "index.js",
   "exports": {
