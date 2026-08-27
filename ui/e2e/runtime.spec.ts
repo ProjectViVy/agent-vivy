@@ -82,8 +82,6 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await page.getByRole('link', { name: '设置' }).click();
   await page.getByRole('tab', { name: '模型' }).click();
   await expect(page.getByText('密钥只由运行环境管理')).toBeVisible();
-  await page.getByRole('tab', { name: '人格' }).click();
-  await expect(page.getByText('人格配置')).toBeVisible();
   await page.getByRole('link', { name: '人格' }).click();
   await expect(page.getByRole('heading', { name: '人格' })).toBeVisible();
   await expect(page.getByRole('button', { name: /IDENTITY\.MD/ })).toBeVisible();

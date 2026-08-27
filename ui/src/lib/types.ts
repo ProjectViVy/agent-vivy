@@ -451,16 +451,7 @@ export interface TokenStatsSnapshot {
   updated_at: string;
 }
 
-// ==================== Persona 相关 ====================
-
-export interface PersonaProfile {
-  id: string;
-  name: string;
-  avatar_url?: string | null;
-  system_prompt?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+// ==================== Checklist 相关 ====================
 
 export interface ChecklistItem {
   id: string;
