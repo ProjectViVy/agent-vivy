@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from 'react';
-import { matchProviderEntry } from './provider-catalog';
+import { matchMergedProviderEntry } from './custom-providers';
 
 /**
  * 「已选模型」快捷切换列表（Agent-Diva savedModels 移植）。
  *
  * - 唯一存储于 localStorage key `vivy.ui.savedModels`（真实功能，禁用 vivy.demo.*）。
  * - 模型是运行三元组 (provider, base_url, model) 的扁平数组：无密钥、无冗余 displayName，
- *   显示名渲染时经 savedModelVendorLabel / matchProviderEntry 解析，单一权威来源。
+ *   显示名渲染时经 savedModelVendorLabel / matchMergedProviderEntry 解析，单一权威来源。
  * - 与 mask-catalog.ts 同款持久化样板：模块级缓存 + useSyncExternalStore +
  *   自定义事件 / storage 事件广播，不进 zustand store。
  * - 移除只动本地列表，不会改写运行配置（不移植 Agent-Diva 的移除即清理副作用）。
@@ -102,9 +102,23 @@ export function removeSavedModel(provider: string, baseUrl: string, model: strin
   writeSavedModels(next);
 }
 
-/** 快捷列表条目的厂商标签：目录命中 → 厂商 displayName；否则原始 provider。 */
+/**
+ * 快捷列表条目的厂商标签：
+ * 目录/自定义注册表命中 → displayName；否则带 Base URL → 主机名（含端口）；
+ * 再否则回退原始 provider 束名。标签经 baseUrl 关联，注册表重命名即全局生效。
+ */
 export function savedModelVendorLabel(entry: SavedModelEntry): string {
-  return matchProviderEntry(entry.provider, entry.baseUrl)?.displayName || entry.provider;
+  const merged = matchMergedProviderEntry(entry.provider, entry.baseUrl);
+  if (merged) return merged.displayName;
+  if (entry.baseUrl) {
+    try {
+      const host = new URL(entry.baseUrl).host;
+      if (host) return host;
+    } catch {
+      // 非法 URL 回退到原始 provider。
+    }
+  }
+  return entry.provider;
 }
 
 function subscribeToSavedModels(onChange: () => void): () => void {

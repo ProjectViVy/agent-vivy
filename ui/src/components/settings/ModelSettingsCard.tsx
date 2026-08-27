@@ -1,15 +1,37 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Server, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import {
   isFoldedProvider,
-  matchProviderEntry,
-  searchProviders,
-  splitByFold,
   type ProviderCatalogEntry,
+  type ProviderRuntimeBundle,
 } from './provider-catalog';
+import {
+  addCustomProvider,
+  allProviderEntries,
+  matchMergedProviderEntry,
+  parseCustomModels,
+  removeCustomProvider,
+  searchMergedProviders,
+  splitMergedByFold,
+  updateCustomProvider,
+  useCustomProviders,
+  type CustomProvider,
+  type CustomProviderInput,
+  type MergedProviderEntry,
+} from './custom-providers';
 import {
   addSavedModel,
   removeSavedModel,
@@ -22,7 +44,7 @@ import { useTranslation } from '@/i18n';
 
 type ModelFormValue = { provider: string; default_model: string; base_url: string };
 
-/** 选中目录条目：厂商差异落到 base_url，provider 保持运行束名，模型沿用原始 id。 */
+/** 选中目录/注册表条目：厂商差异落到 base_url，provider 保持运行束名，模型沿用原始 id。 */
 function applyProviderEntry(form: ModelFormValue, entry: ProviderCatalogEntry): ModelFormValue {
   return {
     provider: entry.bundle,
@@ -37,6 +59,8 @@ function ProviderRow({
   isCurrent,
   disabled,
   currentBadge,
+  customBadge,
+  actions,
   onSelect,
 }: {
   entry: ProviderCatalogEntry;
@@ -44,9 +68,12 @@ function ProviderRow({
   isCurrent: boolean;
   disabled: boolean;
   currentBadge: string;
+  customBadge?: string;
+  /** 自定义行的编辑/删除等行内动作；存在时行根改为外层分组容器（避免 button 内嵌 button）。 */
+  actions?: ReactNode;
   onSelect: () => void;
 }) {
-  return (
+  const row = (
     <button
       type="button"
       disabled={disabled}
@@ -64,6 +91,11 @@ function ProviderRow({
         <Server className="h-4 w-4" aria-hidden="true" />
       </span>
       <span className="min-w-0 flex-1 truncate">{entry.displayName}</span>
+      {customBadge ? (
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
+          {customBadge}
+        </span>
+      ) : null}
       {isCurrent ? (
         <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary">
           {currentBadge}
@@ -71,12 +103,140 @@ function ProviderRow({
       ) : null}
     </button>
   );
+  if (!actions) return row;
+  return (
+    <div className="group flex items-center gap-1">
+      <div className="min-w-0 flex-1">{row}</div>
+      <div className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">{actions}</div>
+    </div>
+  );
+}
+
+/** 新增/编辑自定义供应商的对话框：显示名 + 运行束 + Base URL + 默认模型 + 模型列表。 */
+function CustomProviderDialog({
+  open,
+  editing,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  editing: CustomProvider | null;
+  onOpenChange: (open: boolean) => void;
+  onSave: (input: CustomProviderInput) => boolean;
+}) {
+  const { t } = useTranslation();
+  const [displayName, setDisplayName] = useState('');
+  const [bundle, setBundle] = useState<ProviderRuntimeBundle>('openai');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [defaultModel, setDefaultModel] = useState('');
+  const [modelsText, setModelsText] = useState('');
+  const [fieldError, setFieldError] = useState<Partial<Record<'displayName' | 'baseUrl', string>>>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDisplayName(editing?.displayName ?? '');
+    setBundle(editing?.bundle ?? 'openai');
+    setBaseUrl(editing?.baseUrl ?? '');
+    setDefaultModel(editing?.defaultModel ?? '');
+    setModelsText(editing?.models.join('\n') ?? '');
+    setFieldError({});
+    setSubmitError(null);
+  }, [open, editing]);
+
+  const submit = () => {
+    const name = displayName.trim();
+    const url = baseUrl.trim();
+    const errors: typeof fieldError = {};
+    if (!name) errors.displayName = t('settingsModel.errors.displayNameRequired');
+    if (!url) errors.baseUrl = t('settingsModel.errors.baseUrlRequired');
+    else {
+      let valid = false;
+      try {
+        const parsed = new URL(url);
+        valid = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        valid = false;
+      }
+      if (!valid) errors.baseUrl = t('settingsModel.errors.baseUrlInvalid');
+    }
+    setFieldError(errors);
+    if (Object.keys(errors).length) return;
+    const saved = onSave({
+      displayName: name,
+      bundle,
+      baseUrl: url,
+      defaultModel: defaultModel.trim(),
+      models: parseCustomModels(modelsText),
+    });
+    if (!saved) {
+      setSubmitError(t('settingsModel.errors.duplicateBaseUrl'));
+      return;
+    }
+    setSubmitError(null);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{editing ? t('settingsModel.customDialogTitleEdit') : t('settingsModel.customDialogTitleNew')}</DialogTitle>
+          <DialogDescription>{t('settingsModel.customDialogHint')}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="custom-display-name">{t('settingsModel.displayName')}</Label>
+            <Input id="custom-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            {fieldError.displayName ? <p className="text-xs text-destructive">{fieldError.displayName}</p> : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t('settingsModel.bundle')}</Label>
+            <Select value={bundle} onValueChange={(value) => setBundle(value as ProviderRuntimeBundle)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">{t('settingsModel.bundleOpenai')}</SelectItem>
+                <SelectItem value="anthropic">{t('settingsModel.bundleAnthropic')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="custom-base-url">{t('settingsModel.baseUrl')}</Label>
+            <Input
+              id="custom-base-url"
+              type="url"
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder="https://api.example.com/v1"
+            />
+            {fieldError.baseUrl ? <p className="text-xs text-destructive">{fieldError.baseUrl}</p> : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="custom-default-model">{t('settingsModel.defaultModel')}</Label>
+            <Input id="custom-default-model" value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="custom-models">{t('settingsModel.modelsList')}</Label>
+            <Textarea id="custom-models" rows={5} value={modelsText} onChange={(event) => setModelsText(event.target.value)} placeholder={t('settingsModel.modelsListHint')} />
+          </div>
+          {submitError ? <p className="rounded bg-destructive/10 p-2.5 text-sm text-destructive">{submitError}</p> : null}
+        </div>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('settingsModel.cancel')}</Button>
+          <Button type="button" onClick={submit}>{t('settingsModel.save')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /**
- * 设置页「模型」Tab 的真实配置卡：Agent-Diva 供应商目录移植 + 「已选模型」快捷切换。
- * 顶部是已选模型 chips（点击=立即选用并保存，行内 X=仅移除本地列表）；
- * 左栏供应商列表、右栏模型列表；模型行点击=填表单 + 加入快捷列表 + 立即保存。
+ * 设置页「模型」Tab 的真实配置卡：Agent-Diva 供应商目录移植 + 「已选模型」快捷切换
+ * + 自定义供应商注册表。顶部是已选模型 chips（点击=立即选用并保存，行内 X=仅移除）；
+ * 左栏供应商列表（静态目录 + 自定义供应商，自定义行带「自定义」标记与编辑/删除）,
+ * 右栏模型列表；模型行点击=填表单 + 加入快捷列表 + 立即保存。
  * 三输入框 + 「保存真实设置」保留为自定义组合的显式提交边界。
  */
 export function ModelSettingsCard() {
@@ -86,10 +246,12 @@ export function ModelSettingsCard() {
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
   const savedModels = useSavedModels();
+  const customProviders = useCustomProviders();
   const { t } = useTranslation();
   const [form, setForm] = useState<ModelFormValue>({ provider: '', default_model: '', base_url: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [isMoreExpanded, setMoreExpanded] = useState(false);
+  const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProvider | null }>({ open: false, editing: null });
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -97,16 +259,16 @@ export function ModelSettingsCard() {
   }, [settings]);
 
   const searching = searchTerm.trim().length > 0;
-  const { visible, more } = useMemo(
-    () => splitByFold(searchProviders(searchTerm), searching),
-    [searchTerm, searching],
+  const { visible, custom, more } = useMemo(
+    () => splitMergedByFold(searching ? searchMergedProviders(searchTerm) : allProviderEntries(), searching),
+    [searchTerm, searching, customProviders],
   );
-  const selectedEntry = matchProviderEntry(form.provider, form.base_url);
-  const savedEntry = settings ? matchProviderEntry(settings.provider, settings.base_url) : undefined;
+  const selectedEntry = matchMergedProviderEntry(form.provider, form.base_url);
+  const savedEntry = settings ? matchMergedProviderEntry(settings.provider, settings.base_url) : undefined;
 
-  // Agent-Diva 折叠移植：当前选中的供应商被折叠时自动展开，选中项永远可见。
+  // Agent-Diva 折叠移植：当前选中的供应商被折叠时自动展开，选中项永远可见（自定义永不折叠）。
   useEffect(() => {
-    if (selectedEntry && isFoldedProvider(selectedEntry.name) && !searching) setMoreExpanded(true);
+    if (selectedEntry && !selectedEntry.custom && isFoldedProvider(selectedEntry.name) && !searching) setMoreExpanded(true);
   }, [selectedEntry, searching]);
 
   const locked = settings?.read_only || phase === 'processing';
@@ -152,6 +314,53 @@ export function ModelSettingsCard() {
     savedModels.some(
       (item) => item.provider === entry.bundle && item.baseUrl === entry.baseUrl && item.model === model,
     ) && !isCurrentModelRow(entry, model);
+
+  const openCustomProviderDialog = (entry?: MergedProviderEntry) => {
+    const editing = entry?.custom && entry.registryId
+      ? customProviders.find((provider) => provider.id === entry.registryId) ?? null
+      : null;
+    setCustomDialog({ open: true, editing });
+  };
+
+  const saveCustomProvider = (input: CustomProviderInput): boolean => {
+    if (customDialog.editing) return updateCustomProvider(customDialog.editing.id, input);
+    return addCustomProvider(input) !== null;
+  };
+
+  const renderRow = (entry: MergedProviderEntry) => (
+    <ProviderRow
+      key={entry.name}
+      entry={entry}
+      selected={entry.name === selectedEntry?.name}
+      isCurrent={entry.name === savedEntry?.name}
+      disabled={locked}
+      currentBadge={t('settingsModel.currentBadge')}
+      customBadge={entry.custom ? t('settingsModel.customBadge') : undefined}
+      onSelect={() => selectProvider(entry)}
+      actions={entry.custom ? (
+        <>
+          <button
+            type="button"
+            onClick={() => openCustomProviderDialog(entry)}
+            aria-label={t('settingsModel.editAria', { name: entry.displayName })}
+            title={t('settingsModel.editAria', { name: entry.displayName })}
+            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => removeCustomProvider(entry.registryId!)}
+            aria-label={t('settingsModel.removeAria', { name: entry.displayName })}
+            title={t('settingsModel.removeAria', { name: entry.displayName })}
+            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </>
+      ) : undefined}
+    />
+  );
 
   return (
     <>
@@ -214,17 +423,8 @@ export function ModelSettingsCard() {
                 className="h-9"
               />
               <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border bg-muted/30 p-1.5">
-                {visible.map((entry) => (
-                  <ProviderRow
-                    key={entry.name}
-                    entry={entry}
-                    selected={entry.name === selectedEntry?.name}
-                    isCurrent={entry.name === savedEntry?.name}
-                    disabled={locked}
-                    currentBadge={t('settingsModel.currentBadge')}
-                    onSelect={() => selectProvider(entry)}
-                  />
-                ))}
+                {visible.map(renderRow)}
+                {custom.map(renderRow)}
                 {more.length > 0 ? (
                   <button
                     type="button"
@@ -244,22 +444,20 @@ export function ModelSettingsCard() {
                     )}
                   </button>
                 ) : null}
-                {isMoreExpanded
-                  ? more.map((entry) => (
-                      <ProviderRow
-                        key={entry.name}
-                        entry={entry}
-                        selected={entry.name === selectedEntry?.name}
-                        isCurrent={entry.name === savedEntry?.name}
-                        disabled={locked}
-                        currentBadge={t('settingsModel.currentBadge')}
-                        onSelect={() => selectProvider(entry)}
-                      />
-                    ))
-                  : null}
+                {isMoreExpanded ? more.map(renderRow) : null}
                 {visible.length + more.length === 0 ? (
                   <p className="px-2.5 py-3 text-xs text-muted-foreground">{t('settingsModel.noMatch')}</p>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => openCustomProviderDialog()}
+                  className="flex w-full items-center gap-2.5 rounded-md border border-dashed border-border border-l-4 border-l-transparent px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{t('settingsModel.addCustomProvider')}</span>
+                </button>
               </div>
             </div>
             <div className="min-w-0">
@@ -353,6 +551,12 @@ export function ModelSettingsCard() {
           {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
         </form>
       )}
+      <CustomProviderDialog
+        open={customDialog.open}
+        editing={customDialog.editing}
+        onOpenChange={(open) => setCustomDialog({ open, editing: open ? customDialog.editing : null })}
+        onSave={saveCustomProvider}
+      />
     </>
   );
 }

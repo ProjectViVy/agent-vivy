@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CUSTOM_PROVIDERS_KEY } from './custom-providers';
 import {
   SAVED_MODELS_KEY,
   addSavedModel,
@@ -167,9 +168,23 @@ describe('savedModelVendorLabel 厂商标签解析', () => {
     expect(savedModelVendorLabel({ provider: 'mock', baseUrl: '', model: 'mock' })).toBe('Mock');
   });
 
-  it('目录未命中（自定义网关/未知束名）回退到原始 provider', () => {
-    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'custom-model' })).toBe('openai');
+  it('目录未命中但带 Base URL：回退到主机名（含端口）', () => {
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'custom-model' })).toBe('my-gateway.example.com');
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'http://localhost:11435/v1', model: 'm' })).toBe('localhost:11435');
+  });
+
+  it('非法 URL 或空 Base URL 回退到原始 provider', () => {
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'not-a-url', model: 'm' })).toBe('openai');
     expect(savedModelVendorLabel({ provider: 'my-bundle', baseUrl: '', model: 'm' })).toBe('my-bundle');
+  });
+
+  it('自定义注册表命中 → 注册的 displayName（单一权威来源）', () => {
+    stubWindow({
+      [CUSTOM_PROVIDERS_KEY]: JSON.stringify([
+        { id: 'custom-x', displayName: '我家网关', bundle: 'openai', baseUrl: 'https://my-gateway.example.com/v1', defaultModel: 'm', models: ['m'] },
+      ]),
+    });
+    expect(savedModelVendorLabel({ provider: 'openai', baseUrl: 'https://my-gateway.example.com/v1', model: 'm' })).toBe('我家网关');
   });
 });
 
