@@ -10,8 +10,9 @@ import {
  * 自定义供应商注册表（Agent-Diva custom provider CRUD 的 vivy 适配）。
  *
  * - 唯一存储于 localStorage key `vivy.ui.customProviders`（真实功能，禁用 vivy.demo.*）。
- * - 自定义供应商保存显示名 + 运行束 + Base URL + 默认模型 + 模型列表；不存密钥
- *   （vivy 规则：secrets 不属于 UI）。
+ * - 自定义供应商保存显示名 + 运行束 + Base URL + 默认模型 + 模型列表 + 可选
+ *   API Key（本地副本 vivy.ui.*；应用时随 settings/update 提交，后端落
+ *   data/agent-home/settings.yaml，不回传界面、不打日志）。
  * - 与 saved-models.ts 同款持久化样板：模块级缓存 + useSyncExternalStore +
  *   自定义事件 / storage 事件广播，不进 zustand store。
  * - 注册表只改本地结构；点模型/选模型等运行配置变更仍走 ModelSettingsCard 的
@@ -31,12 +32,17 @@ export type CustomProvider = {
   baseUrl: string;
   defaultModel: string;
   models: string[];
+  /** 可选 API Key（本地副本）；应用时提交给 settings/update，空串=清除覆盖层 */
+  apiKey: string;
 };
 
-export type CustomProviderInput = Pick<CustomProvider, 'displayName' | 'bundle' | 'baseUrl' | 'defaultModel' | 'models'>;
+export type CustomProviderInput = Pick<CustomProvider, 'displayName' | 'bundle' | 'baseUrl' | 'defaultModel' | 'models' | 'apiKey'>;
+
+/** 读侧形态：apiKey 可选——兼容字段引入前已保存的旧条目。 */
+type StoredCustomProvider = Omit<CustomProvider, 'apiKey'> & { apiKey?: string };
 
 /** 逐条校验：坏数据（缺字段/空白显示名/非法束名/模型列表非字符串数组）整条丢弃。 */
-function isValidCustomProvider(value: unknown): value is CustomProvider {
+function isValidCustomProvider(value: unknown): value is StoredCustomProvider {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
   if (typeof entry.id !== 'string' || entry.id.trim().length === 0) return false;
@@ -45,6 +51,7 @@ function isValidCustomProvider(value: unknown): value is CustomProvider {
   if (typeof entry.baseUrl !== 'string' || entry.baseUrl.trim().length === 0) return false;
   if (typeof entry.defaultModel !== 'string') return false;
   if (!Array.isArray(entry.models) || !entry.models.every((model) => typeof model === 'string')) return false;
+  if (entry.apiKey !== undefined && typeof entry.apiKey !== 'string') return false;
   return true;
 }
 
@@ -66,6 +73,7 @@ function normalizeInput(input: CustomProviderInput): CustomProviderInput {
     baseUrl: input.baseUrl.trim(),
     defaultModel: input.defaultModel.trim(),
     models: parseCustomModels(input.models.join('\n')),
+    apiKey: (input.apiKey ?? '').trim(),
   };
 }
 
@@ -100,7 +108,9 @@ function readCustomProviders(): CustomProvider[] {
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    cachedCustomProviders = Array.isArray(parsed) ? parsed.filter(isValidCustomProvider) : [];
+    cachedCustomProviders = Array.isArray(parsed)
+      ? parsed.filter(isValidCustomProvider).map((entry) => ({ ...entry, apiKey: entry.apiKey ?? '' }))
+      : [];
   } catch {
     cachedCustomProviders = [];
   }
@@ -213,6 +223,13 @@ export function matchMergedProviderEntry(bundle: string, baseUrl: string): Merge
   }
   const catalog = PROVIDER_CATALOG.find((entry) => entry.name === bundle && entry.bundle === bundle);
   return catalog ? { ...catalog, custom: false } : undefined;
+}
+
+/** 目标三元组命中的自定义供应商 API Key：未命中或目录条目返回 ''（应用时随 settings/update 提交）。 */
+export function customApiKeyFor(bundle: string, baseUrl: string): string {
+  const merged = matchMergedProviderEntry(bundle, baseUrl);
+  if (!merged?.custom || !merged.registryId) return '';
+  return readCustomProviders().find((entry) => entry.id === merged.registryId)?.apiKey ?? '';
 }
 
 export type MergedFoldGroups = {

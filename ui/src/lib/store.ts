@@ -87,7 +87,7 @@ interface RuntimeState {
   respondReview: (id: string, response: { action: 'approve' | 'deny' | 'answer' | 'cancel'; reason?: string; answer?: string }) => Promise<void>;
   setReviewCenterOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
-  saveSettings: (value: Pick<api.Settings, 'provider' | 'default_model' | 'base_url'>) => Promise<void>;
+  saveSettings: (value: api.SettingsUpdate) => Promise<void>;
   loadLifecycle: () => Promise<void>;
   createGeneration: (params: Parameters<typeof api.createGeneration>[0]) => Promise<void>;
   rejectGeneration: (id: string) => Promise<void>;

@@ -65,6 +65,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-EVO | 进化页接真实 Evolution/AutoDream 后端 | OPEN | 2026-08-25 页面已按 agent-diva 结构落地为 `vivy.demo.*` 演示数据页（`/evolution`，三 Tab 治理闭环 + 跨页跳转，见 `docs/logs/2026-08-25-evolution-page/`）；内核 AutoDream/Evolution 能力本身见 MEM-1（DEFERRED），有能力提案后需把 `demo-api.ts` 换成 `api.ts` 真实 RPC 并登记方法 |
 | UI-CHAT-ACT | 消息编辑 / 回退 / 分叉启用 + 截断式重新生成 | OPEN | 2026-08-26 功能栏已移植（复制启用 + 重新生成=重发上一条用户输入开新回合，见 `docs/logs/2026-08-26-chat-message-actions/`）；编辑/回退/分叉为禁用占位。真正的就地覆盖需内核 Journal 提供消息截断/分支 RPC（现为追加式事实源），属内核能力提案 |
 | UI-PROV-RPC | 供应商目录接真实后端（模型在线刷新） | OPEN | 2026-08-27 前端已移植 diva 静态供应商目录+折叠（`ui/src/components/settings/provider-catalog.ts`，由 `ui/scripts/gen-provider-catalog.py` 从 agent-diva yaml 生成，见 `docs/logs/2026-08-27-provider-catalog-fold/`）。diva 的 `get_provider_models` 运行时拉取在 vivy 无对应 RPC，目录为静态快照，会随厂商上新漂移；接真实数据需新增 provider/model 目录 RPC 并让前端目录退化为展示层 |
+| UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | OPEN | 2026-08-27 模型密钥端到端落地（`docs/logs/2026-08-27-model-api-key/`）后，`api_key` 覆盖层按运行束 env_key 注入（启动时 `os.Setenv`），同一束（如 openai）下不同 base_url 网关共用一把钥；多网关多密钥需 provider 层按 base_url 解析密钥（当前 `internal/provider/openai.go` 走 `os.Getenv(bundle.EnvKey)` 单 env） |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 

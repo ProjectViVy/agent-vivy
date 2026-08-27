@@ -4,6 +4,7 @@ import {
   CUSTOM_PROVIDERS_KEY,
   addCustomProvider,
   allProviderEntries,
+  customApiKeyFor,
   getCustomProviders,
   matchMergedProviderEntry,
   newCustomProviderId,
@@ -44,6 +45,7 @@ const INPUT = {
   baseUrl: 'https://my-gateway.example.com/v1',
   defaultModel: 'my-model',
   models: ['my-model', 'my-model-2'],
+  apiKey: '',
 };
 
 afterEach(() => {
@@ -94,14 +96,15 @@ describe('addCustomProvider / updateCustomProvider / removeCustomProvider', () =
       baseUrl: ' https://my-gateway.example.com/v1 ',
       defaultModel: ' my-model ',
       models: ['my-model', ' my-model ', 'my-model-2'],
+      apiKey: '',
     });
     expect(created).not.toBeNull();
     expect(created!.id.startsWith('custom-')).toBe(true);
     const next = addCustomProvider({ ...INPUT, displayName: '网关二', baseUrl: 'https://gateway2.example.com/v1' });
     expect(next?.id).not.toBe(created!.id);
     expect(getCustomProviders()).toEqual([
-      { id: created!.id, displayName: '我的网关', bundle: 'openai', baseUrl: 'https://my-gateway.example.com/v1', defaultModel: 'my-model', models: ['my-model', 'my-model-2'] },
-      { id: next!.id, displayName: '网关二', bundle: 'openai', baseUrl: 'https://gateway2.example.com/v1', defaultModel: 'my-model', models: ['my-model', 'my-model-2'] },
+      { id: created!.id, displayName: '我的网关', bundle: 'openai', baseUrl: 'https://my-gateway.example.com/v1', defaultModel: 'my-model', models: ['my-model', 'my-model-2'], apiKey: '' },
+      { id: next!.id, displayName: '网关二', bundle: 'openai', baseUrl: 'https://gateway2.example.com/v1', defaultModel: 'my-model', models: ['my-model', 'my-model-2'], apiKey: '' },
     ]);
     expect(storage.get(CUSTOM_PROVIDERS_KEY)).toBe(JSON.stringify(getCustomProviders()));
   });
@@ -121,7 +124,7 @@ describe('addCustomProvider / updateCustomProvider / removeCustomProvider', () =
     const { storage } = stubWindow();
     const created = addCustomProvider(INPUT)!;
     expect(updateCustomProvider(created.id, { ...INPUT, displayName: '新名字', models: ['x'] })).toBe(true);
-    expect(getCustomProviders()[0]).toEqual({ id: created.id, displayName: '新名字', bundle: 'openai', baseUrl: 'https://my-gateway.example.com/v1', defaultModel: 'my-model', models: ['x'] });
+    expect(getCustomProviders()[0]).toEqual({ id: created.id, displayName: '新名字', bundle: 'openai', baseUrl: 'https://my-gateway.example.com/v1', defaultModel: 'my-model', models: ['x'], apiKey: '' });
     // 冲突：改成另一个已存在条目的 baseUrl（openai 目录里的 deepseek 网关）。
     expect(updateCustomProvider(created.id, { ...INPUT, baseUrl: 'https://api.deepseek.com/v1' })).toBe(false);
     expect(updateCustomProvider('custom-nope', INPUT)).toBe(false);
@@ -137,6 +140,37 @@ describe('addCustomProvider / updateCustomProvider / removeCustomProvider', () =
     expect(getCustomProviders().map((entry) => entry.id)).toEqual([b.id]);
     removeCustomProvider('custom-nope');
     expect(getCustomProviders().map((entry) => entry.id)).toEqual([b.id]);
+  });
+});
+
+describe('apiKey 与 customApiKeyFor', () => {
+  it('apiKey 随注册表存取：新增/编辑保留，写回包含 trim 后的值', () => {
+    const { storage } = stubWindow();
+    const created = addCustomProvider({ ...INPUT, apiKey: ' sk-abc ' })!;
+    expect(getCustomProviders()[0].apiKey).toBe('sk-abc');
+    expect(updateCustomProvider(created.id, { ...INPUT, apiKey: 'sk-new' })).toBe(true);
+    expect(getCustomProviders()[0].apiKey).toBe('sk-new');
+    expect(storage.get(CUSTOM_PROVIDERS_KEY)).toBe(JSON.stringify(getCustomProviders()));
+  });
+
+  it('字段引入前保存的旧条目（无 apiKey）仍有效并补空串', () => {
+    stubWindow({
+      [CUSTOM_PROVIDERS_KEY]: JSON.stringify([
+        { id: 'custom-old', displayName: '旧网关', bundle: 'openai', baseUrl: 'https://old.example/v1', defaultModel: '', models: [] },
+      ]),
+    });
+    expect(getCustomProviders()).toEqual([
+      { id: 'custom-old', displayName: '旧网关', bundle: 'openai', baseUrl: 'https://old.example/v1', defaultModel: '', models: [], apiKey: '' },
+    ]);
+  });
+
+  it('customApiKeyFor：自定义命中返回密钥，目录/未知/空 baseUrl 返回空串', () => {
+    stubWindow();
+    addCustomProvider({ ...INPUT, apiKey: 'sk-custom' });
+    expect(customApiKeyFor('openai', 'https://my-gateway.example.com/v1')).toBe('sk-custom');
+    expect(customApiKeyFor('openai', 'https://api.deepseek.com/v1')).toBe('');
+    expect(customApiKeyFor('openai', 'https://unknown.example/v1')).toBe('');
+    expect(customApiKeyFor('mock', '')).toBe('');
   });
 });
 

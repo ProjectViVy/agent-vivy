@@ -17,7 +17,9 @@
 - `src/lib/store.ts` 是 Session、Run、Review、Settings 与生命周期状态的唯一来源。
 - 真实功能不得导入 `src/lib/demo-api.ts`。
 - `demo-api.ts` 只服务带“演示 / 本地模拟”标识的 Notebook、Persona、Cron、Skills 和计划页面，并且只能使用 `vivy.demo.*` localStorage key。
-- Provider secrets 不属于 UI Settings。
+- Provider 密钥默认由运行环境注入（config `env_key`）；「设置 → 模型」的自定义
+  供应商可配置可选 API Key——仅落于本机运行数据（`data/agent-home/settings.yaml`
+  与 `vivy.ui.*`），绝不写入日志、绝不回传控制面；`vivy.demo.*` 仍禁用密钥字段。
 - UI 修改完成后在仓库根目录运行 `just ci`。用户可见行为还要在
   `http://127.0.0.1:3015` 实走过一遍，并按根目录 `AGENTS.md` 写
   `docs/logs/YYYY-MM-DD-slug/`（`summary.md` / `verification.md` /

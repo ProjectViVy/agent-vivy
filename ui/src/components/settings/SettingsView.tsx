@@ -136,7 +136,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
           <TabsContent value="model" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>Vivy 模型配置</CardTitle><CardDescription>真实设置。密钥只由运行环境管理；保存后在下次启动时生效。</CardDescription></CardHeader>
+              <CardHeader><CardTitle>Vivy 模型配置</CardTitle><CardDescription>真实设置。可选 API Key 保存在本机运行数据中，生效于下次启动；密钥值不会回传界面或写入日志。</CardDescription></CardHeader>
               <CardContent><ModelSettingsCard /></CardContent>
             </Card>
             <Card>
