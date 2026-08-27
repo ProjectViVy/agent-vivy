@@ -73,8 +73,9 @@ type NetworkSearchProviderInfo struct {
 }
 
 // searchProviderEnvNames carries environment variable NAMES only; the
-// presence check reads emptiness, never values (D-010: no literal key
-// Getenv outside internal/provider).
+// presence check reads emptiness, never values. Credential values are read
+// exclusively by the provider implementations (D-010 secret audit: no
+// literal key Getenv outside internal/provider).
 var searchProviderEnvNames = map[string][]string{
 	"bing":    {"BING_SEARCH_API_KEY"},
 	"google":  {"GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_CX"},

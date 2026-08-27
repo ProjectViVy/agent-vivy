@@ -91,6 +91,41 @@ func TestDefaultIsValid(t *testing.T) {
 	}
 }
 
+// echo_info stays registered for verification and tests but must not be
+// enabled by default.
+func TestDefaultEnabledOmitsEchoInfo(t *testing.T) {
+	for _, name := range Default().Tools.Enabled {
+		if name == "echo_info" {
+			t.Fatal("echo_info must not be enabled by default; it is a verification tool")
+		}
+	}
+}
+
+// The network_search provider preference parses, defaults to auto, and
+// rejects unknown provider names.
+func TestNetworkSearchProviderConfig(t *testing.T) {
+	doc := strings.Replace(validDoc,
+		"  approval:\n    expiration: 2m",
+		"  network_search:\n    provider: searxng\n  approval:\n    expiration: 2m", 1)
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatalf("network_search provider: %v", err)
+	}
+	if cfg.Tools.NetworkSearch.Provider != "searxng" {
+		t.Fatalf("provider = %q", cfg.Tools.NetworkSearch.Provider)
+	}
+	if Default().Tools.NetworkSearch.Provider != "" {
+		t.Fatal("default network_search provider must be empty (automatic)")
+	}
+
+	bad := strings.Replace(validDoc,
+		"  approval:\n    expiration: 2m",
+		"  network_search:\n    provider: alta vista\n  approval:\n    expiration: 2m", 1)
+	if _, err := Load(writeConfig(t, bad)); err == nil {
+		t.Fatal("want error for unsupported network_search provider")
+	}
+}
+
 // The secret boundary: a credential field that is not part of the shape
 // must be rejected by strict decoding, and a literal secret in env_key
 // must be rejected by validation (D-010).

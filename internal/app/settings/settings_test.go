@@ -114,3 +114,28 @@ func TestEmptyProviderAllowed(t *testing.T) {
 		t.Fatalf("empty settings should validate: %v", err)
 	}
 }
+
+func TestNetworkSearchPreference(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	saved, err := Save(path, Settings{NetworkSearch: NetworkSearchSettings{Provider: "searxng"}})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.NetworkSearch.Provider != "searxng" {
+		t.Fatalf("network_search round trip = %+v", loaded)
+	}
+	if saved.NetworkSearch.Provider != "searxng" {
+		t.Fatalf("saved echo = %+v", saved)
+	}
+
+	if err := (Settings{NetworkSearch: NetworkSearchSettings{Provider: "alta vista"}}).Validate(); err == nil {
+		t.Fatal("expected error for unsupported network_search provider")
+	}
+	if err := (Settings{NetworkSearch: NetworkSearchSettings{Provider: "wikipedia"}}).Validate(); err != nil {
+		t.Fatalf("valid network_search provider rejected: %v", err)
+	}
+}
