@@ -180,8 +180,20 @@ function CustomProviderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{editing ? t('settingsModel.customDialogTitleEdit') : t('settingsModel.customDialogTitleNew')}</DialogTitle>
-          <DialogDescription>{t('settingsModel.customDialogHint')}</DialogDescription>
+          <DialogTitle>
+            {editing
+              ? t('settingsModel.customDialogTitleEdit')
+              : preset
+                ? t('settingsModel.customDialogTitleManage')
+                : t('settingsModel.customDialogTitleNew')}
+          </DialogTitle>
+          <DialogDescription>
+            {editing
+              ? t('settingsModel.customDialogHint')
+              : preset
+                ? t('settingsModel.customDialogHintManage')
+                : t('settingsModel.customDialogHint')}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="space-y-1.5">
@@ -246,9 +258,10 @@ function CustomProviderDialog({
 /**
  * 设置页「模型」Tab 的真实配置卡：顶部是已选模型 chips；左栏供应商列表
  * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏头部
- * 地址旁常驻编辑按钮（自定义=打开编辑对话框；目录=预填克隆为自定义后改地址），
- * 下方模型列表（头部「从官方同步」刷新 + 「新增」手加模型），模型列表上方
- * 是 API Key 填写（自定义供应商可编辑，目录厂商禁用并提示环境变量注入）。
+ * 编辑/刷新/新增三个等大图标按钮同排（编辑：自定义=打开编辑对话框；
+ * 目录=预填克隆为自定义后改地址），下方模型列表（「从官方同步」刷新 +
+ * 「新增」手加模型），模型列表上方是 API Key 填写（自定义供应商可编辑，
+ * 目录厂商禁用并提示环境变量注入）。
  * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
  */
 export function ModelSettingsCard() {
@@ -537,18 +550,7 @@ export function ModelSettingsCard() {
                   <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{selectedEntry.displayName}</p>
-                      <div className="flex min-w-0 items-center gap-1">
-                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{selectedEntry.baseUrl || '—'}</p>
-                        <button
-                          type="button"
-                          onClick={() => openCustomProviderDialog(selectedEntry)}
-                          aria-label={t('settingsModel.editAddressAria')}
-                          title={t('settingsModel.editAddressAria')}
-                          className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        >
-                          <Pencil className="h-3 w-3" aria-hidden="true" />
-                        </button>
-                      </div>
+                      <p className="truncate text-xs text-muted-foreground">{selectedEntry.baseUrl || '—'}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
                       <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
@@ -556,21 +558,30 @@ export function ModelSettingsCard() {
                       </span>
                       <button
                         type="button"
+                        onClick={() => openCustomProviderDialog(selectedEntry)}
+                        aria-label={t('settingsModel.editAddressAria')}
+                        title={t('settingsModel.editAddressAria')}
+                        className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={handleRefresh}
                         aria-label={t('settingsModel.refreshModels')}
                         title={t('settingsModel.refreshModels')}
-                        className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       >
-                        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                        <RefreshCw className="h-4 w-4" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
                         onClick={() => setAddingModel((adding) => !adding)}
                         aria-label={t('settingsModel.addModel')}
                         title={t('settingsModel.addModel')}
-                        className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       >
-                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                        <Plus className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>
                   </div>
