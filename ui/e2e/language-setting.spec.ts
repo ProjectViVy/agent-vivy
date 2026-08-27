@@ -22,9 +22,9 @@ test('settings language tab switches interface language and persists', async ({ 
   expect(await page.evaluate(() => localStorage.getItem('vivy.language'))).toBe('en');
   expect(await page.evaluate(() => document.documentElement.lang)).toBe('en');
 
-  // 刷新后保持英文（localStorage 持久化生效）
+  // 刷新后保持英文（localStorage 持久化生效）；语言 tab 标签随界面语言翻译。
   await page.reload();
-  await expect(page.getByRole('tab', { name: '语言' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Language' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText(/Pick the interface language/)).toBeVisible();
 
   // 切回简体中文，恢复中文文案
