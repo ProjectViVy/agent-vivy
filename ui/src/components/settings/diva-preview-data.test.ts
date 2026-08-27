@@ -12,10 +12,10 @@ describe('DIVA settings preview data', () => {
     expect(DIVA_ADDITIONAL_SECTIONS).not.toContain('general');
     expect(DIVA_PREVIEW_SECTIONS).not.toContain('theme');
     expect(DIVA_PREVIEW_SECTIONS).not.toContain('audit');
+    expect(DIVA_PREVIEW_SECTIONS).not.toContain('language');
     expect(DIVA_ADDITIONAL_SECTIONS).toEqual([
       'channels',
       'network',
-      'language',
       'compaction',
       'self-evolution',
       'sandbox',
