@@ -1,0 +1,7 @@
+# Vivy Studio first-party console bundle patch: one plugin row registered on
+# the profile root next to the skin row. Supersedes dsh-vivy-debugger (the
+# floating bottom-right gateway button is retired; the console lives in the
+# conversation view ring beside Trajectory / Context).
+- insert:
+    - id: vivy-console
+      name: dsh-vivy-console
