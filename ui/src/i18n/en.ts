@@ -153,6 +153,7 @@ export const en: Dictionary = {
     save: 'Save',
     cancel: 'Cancel',
     editAria: 'Edit {{name}}',
+    editAddressAria: 'Edit address and alias',
     removeAria: 'Delete {{name}}',
     apiKey: 'API Key',
     apiKeyPlaceholder: 'sk-… (leave empty to clear the configured key on apply)',

@@ -151,6 +151,7 @@ export const zh = {
     save: '保存',
     cancel: '取消',
     editAria: '编辑 {{name}}',
+    editAddressAria: '编辑地址与别名',
     removeAria: '删除 {{name}}',
     apiKey: 'API Key',
     apiKeyPlaceholder: 'sk-…（留空=应用时清除已配置密钥）',
