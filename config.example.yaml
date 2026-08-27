@@ -1,6 +1,11 @@
 # agent-vivy example configuration.
 # Copy to config.yaml for local use. NEVER put real secrets here —
 # provider keys are read from environment variables at request time (D-010).
+#
+# Default data root (when nothing below is set): the OS user home, e.g.
+#   ~/.vivy  (Windows %USERPROFILE%\.vivy, override with VIVY_USER_HOME)
+# holding workspace/, skills/, settings.yaml and vivy.db — one per user,
+# diva-style. Everything written here is explicit and wins over that root.
 
 server:
   # Local HTTP bootstrap + WebSocket JSON-RPC listen address for the UI.
@@ -14,8 +19,11 @@ storage:
   # sqlite is the default one-click Journal. postgres is the only optional
   # server backend (DSN from dsn_env, never inlined here).
   backend: sqlite
+  # Empty = derive from sqlite.path (sqlite) or the user data root
+  # (postgres). Settings live at <data_dir>/settings.yaml.
   data_dir: ""
   sqlite:
+    # Empty default: <user data root>/vivy.db under the OS user home.
     path: "data/vivy.db"
   postgres:
     dsn_env: VIVY_POSTGRES_DSN
@@ -52,8 +60,11 @@ runtime:
   max_model_calls: 32
   max_run_tool_calls: 64
   max_run_retries: 3
+  # Default: <user data root>/workspace (under the OS user home). One
+  # private sandbox directory per background run lives under this root.
   workspace_root: data/workspaces
   # Trusted local Skill packages. Skill text is still treated as untrusted data.
+  # Default: <user data root>/skills.
   skills_root: data/skills
   # Explicit host surface for read-only http_request; add public hosts deliberately.
   http_allowed_hosts:

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -47,12 +48,19 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
-// ConfigNetworkSearchProvider is the production config network_search
+	// ConfigNetworkSearchProvider is the production config network_search
 	// preference (non-secret), surfaced by settings/get.
 	ConfigNetworkSearchProvider string
 	// ConfigExecuteMaxTimeoutSeconds is the config execute ceiling after the
 	// settings overlay, surfaced by settings/get as the UI placeholder.
 	ConfigExecuteMaxTimeoutSeconds int
+	// ApplySettingsEnv applies a persisted settings document's non-secret
+	// overlays to the running process environment (VIVY_API_BASE for
+	// base_url, the active bundle's env_key for the resolved api_key). It is
+	// wired by the composition root so a settings/providers write updates the
+	// environment immediately; the startup overlay replays the same document
+	// on the next launch. Nil means no live apply (read-only deployments).
+	ApplySettingsEnv func(settings.Settings)
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -268,6 +276,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 				"generations.reject", "species.inspect",
 				"settings.get", "settings.update",
+				"settings.providers", "settings.providers.upsert", "settings.providers.delete",
 			},
 		}, nil
 	case "session/create":
@@ -353,6 +362,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.getSettings(ctx)
 	case "settings/update":
 		return h.updateSettings(ctx, request)
+	case "settings/providers":
+		return h.listProviders(ctx)
+	case "settings/providers/upsert":
+		return h.upsertProvider(ctx, request)
+	case "settings/providers/delete":
+		return h.deleteProvider(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
@@ -1230,7 +1245,7 @@ type settingsResult struct {
 	DefaultModel string `json:"default_model"`
 	// BaseURL is an optional OpenAI-compatible gateway, or empty.
 	BaseURL string `json:"base_url"`
-// APIKeySet reports whether an api_key overlay is stored. The value
+	// APIKeySet reports whether an api_key overlay is stored. The value
 	// itself is never returned.
 	APIKeySet bool `json:"api_key_set"`
 	// ExecuteMaxTimeoutSeconds is the effective execute/commandline ceiling;
@@ -1270,6 +1285,13 @@ func networkSearchView(saved, configDefault string) networkSearchSettingsResult 
 	}
 }
 
+// settingsActiveKey reports whether the persisted document resolves a key
+// overlay for the given selection (registry entry match wins, the legacy
+// api_key overlay falls back). The value itself is never returned.
+func settingsActiveKey(s settings.Settings, provider, baseURL string) bool {
+	return settings.ActiveKey(s, provider, baseURL) != ""
+}
+
 func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out := settingsResult{
 		Provider:       "",
@@ -1286,7 +1308,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
-out.APIKeySet = s.ApiKey != ""
+			out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
 			savedSearchProvider = s.NetworkSearch.Provider
 			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 		}
@@ -1305,13 +1327,12 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
 	var params struct {
-Provider     string `json:"provider"`
+		Provider     string `json:"provider"`
 		DefaultModel string `json:"default_model"`
 		BaseURL      string `json:"base_url"`
 		// ApiKey replaces the optional api_key overlay; empty clears it.
-		// The settings document is overwritten wholesale, so every update
-		// carries the full (possibly empty) key state. The value is never
-		// echoed back.
+		// The value is never echoed back. The registry (providers list) is
+		// preserved as-is: this method selects, it does not redefine.
 		ApiKey string `json:"api_key"`
 		// NetworkSearch carries the network_search provider preference;
 		// empty clears it back to automatic.
@@ -1325,17 +1346,27 @@ Provider     string `json:"provider"`
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s := settings.Settings{
-		Provider:               params.Provider,
-		DefaultModel:           params.DefaultModel,
-		BaseURL:                params.BaseURL,
-		ApiKey:                 params.ApiKey,
-		NetworkSearch:          settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider},
-		ExecuteMaxTimeoutSeconds: params.ExecuteMaxTimeoutSeconds,
+	// Load-then-merge keeps the registry entries and any other section the
+	// UI did not send; only the active selection fields are replaced.
+	cur, err := settings.Load(h.deps.SettingsPath)
+	if err != nil {
+		return nil, internalError(err)
 	}
-	saved, err := settings.Save(h.deps.SettingsPath, s)
+	cur.Provider = params.Provider
+	cur.DefaultModel = params.DefaultModel
+	cur.BaseURL = params.BaseURL
+	cur.ApiKey = params.ApiKey
+	cur.NetworkSearch = settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider}
+	cur.ExecuteMaxTimeoutSeconds = params.ExecuteMaxTimeoutSeconds
+	saved, err := settings.Save(h.deps.SettingsPath, cur)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	// Write-through env apply: the resolved active key (registry entry
+	// wins, legacy overlay falls back) and base_url reach the running
+	// process now; the startup overlay replays the same document.
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
 	}
 	_ = ctx
 	// Echo the config fallbacks too so the UI keeps its display values
@@ -1345,7 +1376,7 @@ Provider     string `json:"provider"`
 		Provider:                       saved.Provider,
 		DefaultModel:                   saved.DefaultModel,
 		BaseURL:                        saved.BaseURL,
-		APIKeySet:                      saved.ApiKey != "",
+		APIKeySet:                      settingsActiveKey(saved, saved.Provider, saved.BaseURL),
 		ExecuteMaxTimeoutSeconds:       saved.ExecuteMaxTimeoutSeconds,
 		ReadOnly:                       false,
 		ConfigProvider:                 h.deps.ConfigProvider,
@@ -1353,6 +1384,186 @@ Provider     string `json:"provider"`
 		ConfigExecuteMaxTimeoutSeconds: h.deps.ConfigExecuteMaxTimeoutSeconds,
 		NetworkSearch:                  networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
 	}, nil
+}
+
+// providerEntryResult is one registry entry surfaced in the Settings UI.
+// Secret values are never included: only the api_key_set flag is exposed.
+type providerEntryResult struct {
+	ID           string   `json:"id"`
+	DisplayName  string   `json:"display_name"`
+	Bundle       string   `json:"bundle"`
+	BaseURL      string   `json:"base_url"`
+	DefaultModel string   `json:"default_model"`
+	Models       []string `json:"models"`
+	APIKeySet    bool     `json:"api_key_set"`
+}
+
+func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
+	return providerEntryResult{
+		ID:           e.ID,
+		DisplayName:  e.DisplayName,
+		Bundle:       e.Bundle,
+		BaseURL:      e.BaseURL,
+		DefaultModel: e.DefaultModel,
+		Models:       append([]string(nil), e.Models...),
+		APIKeySet:    e.ApiKey != "",
+	}
+}
+
+// providersResult is the full registry view: entries (redacted), the active
+// selection, and the config defaults the UI falls back to.
+type providersResult struct {
+	Entries        []providerEntryResult `json:"entries"`
+	ActiveProvider string                `json:"active_provider"`
+	ActiveModel    string                `json:"active_model"`
+	ActiveBaseURL  string                `json:"active_base_url"`
+	ReadOnly       bool                  `json:"read_only"`
+	ConfigProvider string                `json:"config_provider"`
+	ConfigModel    string                `json:"config_model"`
+}
+
+func (h *controlHandler) providersView(s settings.Settings) providersResult {
+	entries := make([]providerEntryResult, 0, len(s.Providers))
+	for _, e := range s.Providers {
+		entries = append(entries, toProviderEntryResult(e))
+	}
+	return providersResult{
+		Entries:        entries,
+		ActiveProvider: s.Provider,
+		ActiveModel:    s.DefaultModel,
+		ActiveBaseURL:  s.BaseURL,
+		ReadOnly:       h.deps.SettingsPath == "",
+		ConfigProvider: h.deps.ConfigProvider,
+		ConfigModel:    h.deps.ConfigModel,
+	}
+}
+
+func (h *controlHandler) loadSettingsOrError() (settings.Settings, *Error) {
+	s, err := settings.Load(h.deps.SettingsPath)
+	if err != nil {
+		return settings.Settings{}, internalError(err)
+	}
+	return s, nil
+}
+
+// listProviders returns the registry plus the active selection and config
+// defaults. Read-only deployments report read_only=true with an empty list.
+func (h *controlHandler) listProviders(ctx context.Context) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return h.providersView(settings.Settings{}), nil
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return h.providersView(s), nil
+}
+
+// upsertProvider creates or updates one registry entry by id. The api_key is
+// write-only: it is persisted into the runtime document and applied to the
+// environment when this entry is the active selection, but never returned.
+func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		ID           string   `json:"id"`
+		DisplayName  string   `json:"display_name"`
+		Bundle       string   `json:"bundle"`
+		BaseURL      string   `json:"base_url"`
+		DefaultModel string   `json:"default_model"`
+		Models       []string `json:"models"`
+		ApiKey       string   `json:"api_key"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	entry := settings.ProviderEntry{
+		ID:           params.ID,
+		DisplayName:  params.DisplayName,
+		Bundle:       params.Bundle,
+		BaseURL:      params.BaseURL,
+		DefaultModel: params.DefaultModel,
+		Models:       params.Models,
+		ApiKey:       params.ApiKey,
+	}
+	if entry.ID == "" {
+		entry.ID = "custom-" + providerIDNonce()
+	}
+	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertProvider(entry))
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	// The persisted active selection resolves its key from this entry (by
+	// bundle+base_url); apply it to the environment at write time.
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
+	}
+	_ = ctx
+	// Echo back the redacted saved entry so the UI can confirm the result.
+	for _, e := range saved.Providers {
+		if e.ID == entry.ID {
+			return toProviderEntryResult(e), nil
+		}
+	}
+	return nil, internalError(fmt.Errorf("provider upsert did not persist entry"))
+}
+
+// deleteProvider removes one registry entry by id. If it was the active
+// selection its key overlay is cleared in the document; the environment
+// keeps the current value until the next launch (no hot-swap), then falls
+// back to the bundle's env_key.
+func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		ID string `json:"id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	next := make([]settings.ProviderEntry, 0, len(s.Providers))
+	found := false
+	for _, e := range s.Providers {
+		if e.ID == params.ID {
+			found = true
+			continue
+		}
+		next = append(next, e)
+	}
+	if !found {
+		return nil, &Error{Code: CodeNotFound, Message: "provider entry not found"}
+	}
+	s.Providers = next
+	saved, err := settings.Save(h.deps.SettingsPath, s)
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
+	}
+	_ = ctx
+	return map[string]any{"deleted": true, "id": params.ID}, nil
+}
+
+// providerIDNonce supplies a short random suffix for auto-generated entry
+// ids when the UI omits one. crypto/rand keeps the id unguessable, but the
+// id is not a secret; uniqueness is what matters.
+func providerIDNonce() string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
 }
 
 type generationResult struct {

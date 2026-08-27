@@ -10,6 +10,7 @@ export const RPC_METHODS = [
   'generations/list', 'generations/get', 'generations/create', 'generations/reject',
   'evals/list', 'evals/record', 'evals/start', 'promotions/list', 'promotions/promote', 'species/inspect',
   'settings/get', 'settings/update',
+  'settings/providers', 'settings/providers/upsert', 'settings/providers/delete',
 ] as const;
 
 export type RunStatus = 'accepted' | 'queued' | 'active' | 'completed' | 'failed' | 'cancelled';
@@ -112,3 +113,39 @@ export const listPromotions = () => request<{ promotions: Promotion[] }>('promot
 export const promoteGeneration = (params: { from_id: string; to_id: string; eval_id?: string; actor?: string }) => request<Promotion>('promotions/promote', params);
 export const getSettings = () => request<Settings>('settings/get');
 export const updateSettings = (params: SettingsUpdate) => request<Settings>('settings/update', { ...params, api_key: params.api_key ?? '' });
+
+/** 注册表供应商（wire 形态）：密钥永不在线，只回 api_key_set。 */
+export interface ProviderEntry {
+  id: string;
+  display_name: string;
+  bundle: 'openai' | 'anthropic';
+  base_url: string;
+  default_model: string;
+  models: string[];
+  api_key_set: boolean;
+}
+
+/** settings/providers/upsert 载荷：api_key 写-only（空串=清除该条目密钥）。 */
+export interface ProviderEntryInput {
+  id?: string;
+  display_name: string;
+  bundle: 'openai' | 'anthropic';
+  base_url: string;
+  default_model: string;
+  models: string[];
+  api_key?: string;
+}
+
+export interface ProvidersView {
+  entries: ProviderEntry[];
+  active_provider: string;
+  active_model: string;
+  active_base_url: string;
+  read_only: boolean;
+  config_provider: string;
+  config_model: string;
+}
+
+export const listProviders = () => request<ProvidersView>('settings/providers');
+export const upsertProvider = (input: ProviderEntryInput) => request<ProviderEntry>('settings/providers/upsert', { ...input });
+export const deleteProvider = (id: string) => request<{ deleted: boolean; id: string }>('settings/providers/delete', { id });

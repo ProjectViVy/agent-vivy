@@ -10,12 +10,16 @@ import { getDemoGenParams, saveDemoGenParams } from '@/lib/demo-api';
 import type { DemoGenParams } from '@/lib/types';
 import { useVivyStore } from '@/lib/store';
 import { savedModelVendorLabel, useSavedModels, type SavedModelEntry } from './saved-models';
+import type { ProviderEntry } from './custom-providers';
 import { useTranslation } from '@/i18n';
 
 /** 模型运行三元组键（provider/baseUrl/model），与顶栏/模型配置卡同口径。 */
 function modelKey(entry: Pick<SavedModelEntry, 'provider' | 'baseUrl' | 'model'>): string {
   return `${entry.provider}/${entry.baseUrl}/${entry.model}`;
 }
+
+/** 演示卡不依赖后端注册表：标签解析传空列表（目录快照仍可用）。 */
+const EMPTY_PROVIDERS: ProviderEntry[] = [];
 
 /**
  * 设置 → 通用 Tab 的「高级特性」卡：按模型独立保存的演示生成参数。
@@ -96,7 +100,7 @@ export function GenerationParamsCard() {
                 <SelectContent>
                   {options.map((entry) => (
                     <SelectItem key={modelKey(entry)} value={modelKey(entry)}>
-                      <span className="font-medium">{savedModelVendorLabel(entry)}</span>
+                      <span className="font-medium">{savedModelVendorLabel(entry, EMPTY_PROVIDERS)}</span>
                       <span className="text-muted-foreground"> · </span>
                       <span className="font-mono text-xs">{entry.model}</span>
                     </SelectItem>

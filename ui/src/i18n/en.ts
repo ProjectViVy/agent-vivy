@@ -169,7 +169,7 @@ export const en: Dictionary = {
     removeAria: 'Delete {{name}}',
     apiKey: 'API Key',
     apiKeyPlaceholder: 'sk-… (leave empty to clear the configured key on apply)',
-    apiKeyHint: 'Stored only in local runtime data (data/agent-home/settings.yaml); never returned to the UI or logged.',
+    apiKeyHint: 'Written to local runtime data (data/agent-home/settings.yaml) and synced to the environment; never returned to the UI or logged.',
     apiKeyConfigured: 'API key configured (value is never returned to the UI)',
     addModel: 'Add model',
     addModelPlaceholder: 'Type a model id and press Enter',
@@ -180,6 +180,7 @@ export const en: Dictionary = {
       baseUrlRequired: 'Enter a Base URL',
       baseUrlInvalid: 'Base URL must start with http:// or https://',
       duplicateBaseUrl: 'This Base URL already exists in the catalog or custom providers',
+      saveFailed: 'Save failed; please retry',
     },
   },
   runInspector: {

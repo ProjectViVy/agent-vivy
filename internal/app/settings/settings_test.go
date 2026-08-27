@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func TestLoadMissingFileReturnsZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing file should not error: %v", err)
 	}
-	if s != (Settings{}) {
+	if !reflect.DeepEqual(s, Settings{}) {
 		t.Fatalf("expected zero settings, got %+v", s)
 	}
 }
@@ -26,7 +27,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded != saved {
+	if !reflect.DeepEqual(loaded, saved) {
 		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
 	}
 }
@@ -41,7 +42,7 @@ func TestSaveAndLoadRoundTripWithAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded != saved || loaded.ApiKey != "sk-test-overlay" {
+	if !reflect.DeepEqual(loaded, saved) || loaded.ApiKey != "sk-test-overlay" {
 		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
 	}
 }
@@ -56,7 +57,7 @@ func TestSaveAndLoadRoundTripWithNetworkSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded != saved || loaded.NetworkSearch.Provider != "searxng" {
+	if !reflect.DeepEqual(loaded, saved) || loaded.NetworkSearch.Provider != "searxng" {
 		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
 	}
 }
@@ -167,10 +168,131 @@ func TestSaveAndLoadExecuteMaxTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded.ExecuteMaxTimeoutSeconds != 300 || loaded != saved {
+	if loaded.ExecuteMaxTimeoutSeconds != 300 || !reflect.DeepEqual(loaded, saved) {
 		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
 	}
 	if _, err := Save(path, Settings{ExecuteMaxTimeoutSeconds: 601}); err == nil {
 		t.Fatal("expected save to reject execute_max_timeout_seconds above hard cap")
+	}
+}
+
+func TestSaveAndLoadProviderRegistry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	s := Settings{
+		Provider:     ProviderOpenAI,
+		DefaultModel: "gpt-4o",
+		Providers: []ProviderEntry{
+			{ID: "custom-1", DisplayName: "My Gateway", Bundle: ProviderOpenAI, BaseURL: "https://gateway.example.com/v1", DefaultModel: "deepseek-chat", Models: []string{"deepseek-chat"}, ApiKey: "sk-entry"},
+		},
+	}
+	saved, err := Save(path, s)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.Providers) != 1 {
+		t.Fatalf("registry not persisted: %+v", loaded)
+	}
+	if loaded.Providers[0].ApiKey != "sk-entry" || loaded.Providers[0].BaseURL != "https://gateway.example.com/v1" {
+		t.Fatalf("entry not round-tripped: %+v", loaded.Providers[0])
+	}
+	if !reflect.DeepEqual(loaded, saved) {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+}
+
+func TestProviderRegistryValidate(t *testing.T) {
+	valid := Settings{Provider: ProviderOpenAI, Providers: []ProviderEntry{
+		{ID: "custom-1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", Models: []string{"m1"}},
+	}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid registry rejected: %v", err)
+	}
+	for name, bad := range map[string]Settings{
+		"empty id":      {Providers: []ProviderEntry{{ID: "", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"}}},
+		"empty display": {Providers: []ProviderEntry{{ID: "c", DisplayName: " ", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"}}},
+		"bad bundle":    {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: "banana", BaseURL: "https://a.example.com/v1"}}},
+		"bad base url":  {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "ftp://a.example.com"}}},
+		"empty model":   {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", Models: []string{"", "m2"}}}},
+		"key newline":   {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", ApiKey: "sk-a\nsk-b"}}},
+		"mock bundle":   {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderMock, BaseURL: "https://a.example.com/v1"}}},
+		"dup (bundle,url)": {Providers: []ProviderEntry{
+			{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"},
+			{ID: "c2", DisplayName: "B", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"},
+		}},
+	} {
+		if err := bad.Validate(); err == nil {
+			t.Fatalf("expected error for %s", name)
+		}
+	}
+}
+
+func TestProviderRegistryAllowsSameBaseURLAcrossBundles(t *testing.T) {
+	s := Settings{Provider: ProviderOpenAI, Providers: []ProviderEntry{
+		{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"},
+		{ID: "c2", DisplayName: "B", Bundle: ProviderAnthropic, BaseURL: "https://a.example.com/v1"},
+	}}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("same base url on different bundles should be allowed: %v", err)
+	}
+}
+
+func TestFindProviderMatchesBundleAndBaseURL(t *testing.T) {
+	s := Settings{Providers: []ProviderEntry{
+		{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", ApiKey: "sk-a"},
+	}}
+	if _, ok := s.FindProvider(ProviderOpenAI, "https://a.example.com/v1"); !ok {
+		t.Fatal("expected exact (bundle, base_url) match")
+	}
+	if _, ok := s.FindProvider(ProviderOpenAI, "https://b.example.com/v1"); ok {
+		t.Fatal("different base url must not match")
+	}
+	if _, ok := s.FindProvider(ProviderAnthropic, "https://a.example.com/v1"); ok {
+		t.Fatal("different bundle must not match")
+	}
+}
+
+func TestActiveKeyPrefersRegistryEntry(t *testing.T) {
+	key := ActiveKey(Settings{
+		ApiKey:   "sk-legacy",
+		Provider: ProviderOpenAI,
+		BaseURL:  "https://a.example.com/v1",
+		Providers: []ProviderEntry{
+			{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", ApiKey: "sk-entry"},
+		},
+	}, ProviderOpenAI, "https://a.example.com/v1")
+	if key != "sk-entry" {
+		t.Fatalf("registry entry should win, got %q", key)
+	}
+}
+
+func TestActiveKeyFallsBackToLegacyOverlay(t *testing.T) {
+	key := ActiveKey(Settings{ApiKey: "sk-legacy", Provider: ProviderOpenAI, BaseURL: ""}, ProviderOpenAI, "")
+	if key != "sk-legacy" {
+		t.Fatalf("legacy overlay should stand when no entry matches, got %q", key)
+	}
+}
+
+func TestActiveKeyEmptyWhenNothingSet(t *testing.T) {
+	if key := ActiveKey(Settings{Provider: ProviderOpenAI, BaseURL: ""}, ProviderOpenAI, ""); key != "" {
+		t.Fatalf("no overlay should be empty, got %q", key)
+	}
+}
+
+func TestUpsertProviderAppendsAndReplacesByID(t *testing.T) {
+	s := Settings{}
+	first := s.UpsertProvider(ProviderEntry{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"})
+	if len(first.Providers) != 1 {
+		t.Fatalf("append failed: %+v", first.Providers)
+	}
+	second := first.UpsertProvider(ProviderEntry{ID: "c1", DisplayName: "A2", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", Models: []string{"m2"}})
+	if len(second.Providers) != 1 {
+		t.Fatalf("replace must not grow the registry: %+v", second.Providers)
+	}
+	if second.Providers[0].DisplayName != "A2" || len(second.Providers[0].Models) != 1 {
+		t.Fatalf("entry not replaced: %+v", second.Providers[0])
 	}
 }

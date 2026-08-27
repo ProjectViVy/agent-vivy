@@ -19,19 +19,18 @@ import {
   type ProviderRuntimeBundle,
 } from './provider-catalog';
 import {
-  addCustomProvider,
   allProviderEntries,
-  customApiKeyFor,
+  customApiKeySetFor,
   matchMergedProviderEntry,
+  newCustomProviderId,
   parseCustomModels,
-  removeCustomProvider,
+  providerEntryById,
   searchMergedProviders,
   splitMergedByFold,
-  updateCustomProvider,
-  useCustomProviders,
-  type CustomProvider,
   type CustomProviderInput,
   type MergedProviderEntry,
+  type ProviderEntry,
+  type ProviderRegistryBundle,
 } from './custom-providers';
 import {
   addSavedModel,
@@ -44,7 +43,26 @@ import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
 /** 对话框「新增」模式的预填字段（目录条目克隆为自定义时带入原地址/模型）。 */
-type CustomProviderPreset = Pick<CustomProvider, 'displayName' | 'bundle' | 'baseUrl' | 'defaultModel' | 'models'>;
+type CustomProviderPreset = Pick<CustomProviderInput, 'displayName' | 'bundle' | 'baseUrl' | 'defaultModel' | 'models'>;
+
+/** 编辑态视图：wire 条目 → 对话框可读的 camelCase 形态（apiKey 为本地编辑副本，不来自 wire）。 */
+function providerView(entry: ProviderEntry): CustomProviderPreset & { id: string; apiKey: string } {
+  return {
+    id: entry.id,
+    displayName: entry.display_name,
+    bundle: entry.bundle,
+    baseUrl: entry.base_url,
+    defaultModel: entry.default_model,
+    models: [...entry.models],
+    apiKey: '',
+  };
+}
+
+/** 目录条目 bundle 收窄到注册束（openai/anthropic；mock 为内置离线束不可克隆）。 */
+function asRegistryBundle(bundle: ProviderRuntimeBundle): ProviderRegistryBundle {
+  if (bundle === 'openai' || bundle === 'anthropic') return bundle;
+  return 'openai';
+}
 
 function ProviderRow({
   entry,
@@ -114,21 +132,23 @@ function CustomProviderDialog({
   onSave,
 }: {
   open: boolean;
-  editing: CustomProvider | null;
+  editing: CustomProviderPreset & { id: string; apiKey: string } | null;
   /** 新增模式的预填内容（如目录条目克隆为自定义）；editing 优先。 */
   preset?: CustomProviderPreset | null;
   onOpenChange: (open: boolean) => void;
-  onSave: (input: CustomProviderInput) => boolean;
+  /** 后端 RPC 保存（真写注册表）；返回 false 表示冲突/校验失败，对话框保留并提示。 */
+  onSave: (input: CustomProviderInput) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
   const [displayName, setDisplayName] = useState('');
-  const [bundle, setBundle] = useState<ProviderRuntimeBundle>('openai');
+  const [bundle, setBundle] = useState<ProviderRegistryBundle>('openai');
   const [baseUrl, setBaseUrl] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [modelsText, setModelsText] = useState('');
   const [fieldError, setFieldError] = useState<Partial<Record<'displayName' | 'baseUrl', string>>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -140,9 +160,11 @@ function CustomProviderDialog({
     setModelsText(editing?.models.join('\n') ?? preset?.models.join('\n') ?? '');
     setFieldError({});
     setSubmitError(null);
+    setSaving(false);
   }, [open, editing, preset]);
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return;
     const name = displayName.trim();
     const url = baseUrl.trim();
     const errors: typeof fieldError = {};
@@ -160,20 +182,27 @@ function CustomProviderDialog({
     }
     setFieldError(errors);
     if (Object.keys(errors).length) return;
-    const saved = onSave({
-      displayName: name,
-      bundle,
-      baseUrl: url,
-      defaultModel: defaultModel.trim(),
-      models: parseCustomModels(modelsText),
-      apiKey: apiKey.trim(),
-    });
-    if (!saved) {
-      setSubmitError(t('settingsModel.errors.duplicateBaseUrl'));
-      return;
+    setSaving(true);
+    try {
+      const saved = await onSave({
+        displayName: name,
+        bundle,
+        baseUrl: url,
+        defaultModel: defaultModel.trim(),
+        models: parseCustomModels(modelsText),
+        apiKey: apiKey.trim(),
+      });
+      if (!saved) {
+        setSubmitError(t('settingsModel.errors.duplicateBaseUrl'));
+        return;
+      }
+      setSubmitError(null);
+      onOpenChange(false);
+    } catch {
+      setSubmitError(t('settingsModel.errors.saveFailed'));
+    } finally {
+      setSaving(false);
     }
-    setSubmitError(null);
-    onOpenChange(false);
   };
 
   return (
@@ -203,7 +232,7 @@ function CustomProviderDialog({
           </div>
           <div className="space-y-1.5">
             <Label>{t('settingsModel.bundle')}</Label>
-            <Select value={bundle} onValueChange={(value) => setBundle(value as ProviderRuntimeBundle)}>
+            <Select value={bundle} onValueChange={(value) => setBundle(value as ProviderRegistryBundle)}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -247,8 +276,8 @@ function CustomProviderDialog({
           {submitError ? <p className="rounded bg-destructive/10 p-2.5 text-sm text-destructive">{submitError}</p> : null}
         </div>
         <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('settingsModel.cancel')}</Button>
-          <Button type="button" onClick={submit}>{t('settingsModel.save')}</Button>
+          <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>{t('settingsModel.cancel')}</Button>
+          <Button type="button" disabled={saving} onClick={() => void submit()}>{t('settingsModel.save')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -270,13 +299,16 @@ export function ModelSettingsCard() {
   const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
+  const providers = useVivyStore((state) => state.providers);
+  const loadProviders = useVivyStore((state) => state.loadProviders);
+  const saveProvider = useVivyStore((state) => state.saveProvider);
+  const removeProvider = useVivyStore((state) => state.removeProvider);
   const savedModels = useSavedModels();
-  const customProviders = useCustomProviders();
   const { t } = useTranslation();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isMoreExpanded, setMoreExpanded] = useState(false);
-  const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProvider | null; preset: CustomProviderPreset | null }>({
+  const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProviderPreset & { id: string; apiKey: string } | null; preset: CustomProviderPreset | null }>({
     open: false,
     editing: null,
     preset: null,
@@ -285,18 +317,18 @@ export function ModelSettingsCard() {
   const [newModelId, setNewModelId] = useState('');
   const [panelKey, setPanelKey] = useState('');
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); void loadProviders(); }, [load, loadProviders]);
 
-  const allMerged = useMemo(() => allProviderEntries(), [customProviders]);
+  const allMerged = useMemo(() => allProviderEntries(providers), [providers]);
   const searching = searchTerm.trim().length > 0;
   const { visible, custom, more } = useMemo(
-    () => splitMergedByFold(searching ? searchMergedProviders(searchTerm) : allMerged, searching),
+    () => splitMergedByFold(searching ? searchMergedProviders(allMerged, searchTerm) : allMerged, searching),
     [searching, searchTerm, allMerged],
   );
-  const savedEntry = settings ? matchMergedProviderEntry(settings.provider, settings.base_url) : undefined;
+  const savedEntry = settings ? matchMergedProviderEntry(providers, settings.provider, settings.base_url) : undefined;
   const selectedEntry = (selectedName ? allMerged.find((entry) => entry.name === selectedName) : undefined) ?? savedEntry;
   const selectedRegistry = selectedEntry?.custom && selectedEntry.registryId
-    ? customProviders.find((provider) => provider.id === selectedEntry.registryId) ?? null
+    ? providerEntryById(providers, selectedEntry.registryId) ?? null
     : null;
 
   // 默认选中当前运行配置对应的供应商（运行供应商折叠时自动展开，保证可见）。
@@ -307,30 +339,31 @@ export function ModelSettingsCard() {
     if (selectedEntry && !selectedEntry.custom && isFoldedProvider(selectedEntry.name) && !searching) setMoreExpanded(true);
   }, [selectedEntry, searching]);
 
-  // 面板 API Key 跟随所选供应商：自定义回显注册密钥；目录清空（提交即清覆盖层）。
+  // 面板 API Key 的编辑态回显：注册表只在线程内回显 apiKeySet，不携带值；
+  // 这里仅保留「已配置」提示，输入框内容在失焦时作为写-only 值提交。
   useEffect(() => {
-    setPanelKey(selectedRegistry?.apiKey ?? '');
+    setPanelKey('');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
-  }, [selectedEntry?.name, customProviders]);
+  }, [selectedEntry?.name, providers]);
 
   const locked = settings?.read_only || phase === 'processing';
 
-  /** 所选供应商的模型（含「新增」手加）：立即选用并保存（自定义条目带其密钥）。 */
+  /** 所选供应商的模型（含「新增」手加）：立即选用并保存；密钥由后端按注册表解析，不回传。 */
   const applyModelNow = async (entry: ProviderCatalogEntry, model: string) => {
     if (locked) return;
     addSavedModel({ provider: entry.bundle, baseUrl: entry.baseUrl, model });
     try {
-      await save({ provider: entry.bundle, default_model: model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.bundle, entry.baseUrl) });
+      await save({ provider: entry.bundle, default_model: model, base_url: entry.baseUrl });
     } catch {
       // settingsError 已由 store 记录并渲染；已加入快捷列表保留。
     }
   };
 
-  /** 已选模型 chip：与顶栏快捷切换同语义——立即选用并保存（自定义条目带其密钥）。 */
+  /** 已选模型 chip：与顶栏快捷切换同语义——立即选用并保存（密钥后端解析）。 */
   const applySavedNow = async (entry: SavedModelEntry) => {
     if (locked) return;
     try {
-      await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl) });
+      await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
     } catch {
       // settingsError 已由 store 记录并渲染。
     }
@@ -346,8 +379,8 @@ export function ModelSettingsCard() {
 
   const openCustomProviderDialog = (entry?: MergedProviderEntry) => {
     if (entry?.custom && entry.registryId) {
-      const editing = customProviders.find((provider) => provider.id === entry.registryId) ?? null;
-      setCustomDialog({ open: true, editing, preset: null });
+      const wire = providerEntryById(providers, entry.registryId);
+      setCustomDialog({ open: true, editing: wire ? providerView(wire) : null, preset: null });
       return;
     }
     setCustomDialog(
@@ -357,7 +390,7 @@ export function ModelSettingsCard() {
             editing: null,
             preset: {
               displayName: entry.displayName,
-              bundle: entry.bundle,
+              bundle: asRegistryBundle(entry.bundle),
               baseUrl: entry.baseUrl,
               defaultModel: entry.defaultModel,
               models: entry.models,
@@ -367,21 +400,49 @@ export function ModelSettingsCard() {
     );
   };
 
-  const saveCustomProvider = (input: CustomProviderInput): boolean => {
-    if (customDialog.editing) return updateCustomProvider(customDialog.editing.id, input);
-    return addCustomProvider(input) !== null;
+  /** 后端写注册表：编辑=按 id upsert；新增=生成新 id upsert。冲突由后端校验拒绝。 */
+  const saveCustomProvider = async (input: CustomProviderInput): Promise<boolean> => {
+    const editing = customDialog.editing;
+    try {
+      if (editing) {
+        await saveProvider({
+          id: editing.id,
+          display_name: input.displayName,
+          bundle: input.bundle,
+          base_url: input.baseUrl,
+          default_model: input.defaultModel,
+          models: input.models,
+          api_key: input.apiKey,
+        });
+      } else {
+        await saveProvider({
+          id: newCustomProviderId(),
+          display_name: input.displayName,
+          bundle: input.bundle,
+          base_url: input.baseUrl,
+          default_model: input.defaultModel,
+          models: input.models,
+          api_key: input.apiKey,
+        });
+      }
+      return true;
+    } catch {
+      // providersError 已由 store 记录并渲染；对话框保留以便重试/修改。
+      return false;
+    }
   };
 
-  /** 面板 API Key：自定义供应商在失焦时写回注册表，随模型点击应用；目录条目禁用。 */
-  const commitPanelKey = () => {
+  /** 面板 API Key：自定义供应商只接受写-only 输入，失焦提交到该条目；目录条目禁用。 */
+  const commitPanelKey = async () => {
     if (!selectedRegistry) return;
-    updateCustomProvider(selectedRegistry.id, {
-      displayName: selectedRegistry.displayName,
+    await saveProvider({
+      id: selectedRegistry.id,
+      display_name: selectedRegistry.display_name,
       bundle: selectedRegistry.bundle,
-      baseUrl: selectedRegistry.baseUrl,
-      defaultModel: selectedRegistry.defaultModel,
+      base_url: selectedRegistry.base_url,
+      default_model: selectedRegistry.default_model,
       models: selectedRegistry.models,
-      apiKey: panelKey.trim(),
+      api_key: panelKey.trim(),
     });
   };
 
@@ -392,15 +453,16 @@ export function ModelSettingsCard() {
     const id = newModelId.trim();
     if (!id || !selectedEntry || locked) return;
     if (selectedEntry.custom && selectedEntry.registryId) {
-      const registry = customProviders.find((provider) => provider.id === selectedEntry.registryId);
+      const registry = providerEntryById(providers, selectedEntry.registryId);
       if (registry) {
-        updateCustomProvider(registry.id, {
-          displayName: registry.displayName,
+        void saveProvider({
+          id: registry.id,
+          display_name: registry.display_name,
           bundle: registry.bundle,
-          baseUrl: registry.baseUrl,
-          defaultModel: registry.defaultModel,
+          base_url: registry.base_url,
+          default_model: registry.default_model,
           models: [...registry.models, id],
-          apiKey: registry.apiKey,
+          api_key: panelKey.trim(),
         });
       }
     }
@@ -432,7 +494,7 @@ export function ModelSettingsCard() {
           </button>
           <button
             type="button"
-            onClick={() => removeCustomProvider(entry.registryId!)}
+            onClick={() => void removeProvider(entry.registryId!)}
             aria-label={t('settingsModel.removeAria', { name: entry.displayName })}
             title={t('settingsModel.removeAria', { name: entry.displayName })}
             className="cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
@@ -469,7 +531,7 @@ export function ModelSettingsCard() {
                       onClick={() => void applySavedNow(entry)}
                       className="min-w-0 cursor-pointer truncate rounded-full py-1 pl-2.5 pr-1 text-xs transition-colors hover:bg-accent/60 disabled:pointer-events-none disabled:opacity-50"
                     >
-                      <span className="font-medium">{savedModelVendorLabel(entry)}</span>
+                      <span className="font-medium">{savedModelVendorLabel(entry, providers)}</span>
                       <span className="text-muted-foreground"> · </span>
                       <span className="font-mono text-[11px]">{entry.model}</span>
                     </button>
@@ -565,7 +627,7 @@ export function ModelSettingsCard() {
                   <div className="border-b px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <Label htmlFor="panel-api-key" className="text-xs text-muted-foreground">{t('settingsModel.apiKey')}</Label>
-                      {selectedEntry.name === savedEntry?.name && settings?.api_key_set ? (
+                      {selectedEntry.name === savedEntry?.name && customApiKeySetFor(providers, settings?.provider ?? '', settings?.base_url ?? '') ? (
                         <span className="text-[11px] text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</span>
                       ) : null}
                     </div>
@@ -575,7 +637,7 @@ export function ModelSettingsCard() {
                       className="mt-1.5"
                       value={panelKey}
                       onChange={(event) => setPanelKey(event.target.value)}
-                      onBlur={commitPanelKey}
+                      onBlur={() => void commitPanelKey()}
                       placeholder={selectedEntry.custom ? t('settingsModel.apiKeyPlaceholder') : t('settingsModel.catalogKeyHint')}
                       autoComplete="off"
                       disabled={locked || !selectedEntry.custom}
