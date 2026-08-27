@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, RefreshCw, Server, X } from 'lucide-react';
+import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -72,8 +72,8 @@ function ProviderRow({
       disabled={disabled}
       onClick={onSelect}
       aria-pressed={selected}
-      className={`flex w-full items-center gap-2.5 rounded-md border-l-4 px-2.5 py-2 text-left text-sm transition-colors disabled:pointer-events-none disabled:opacity-50 ${
-        selected ? 'border-primary bg-accent font-medium' : 'border-transparent hover:bg-accent/50'
+      className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors disabled:pointer-events-none disabled:opacity-50 ${
+        selected ? 'bg-accent font-medium text-accent-foreground' : 'hover:bg-accent/60'
       }`}
     >
       <span
@@ -258,10 +258,10 @@ function CustomProviderDialog({
 /**
  * 设置页「模型」Tab 的真实配置卡：顶部是已选模型 chips；左栏供应商列表
  * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏头部
- * 编辑/刷新/新增三个等大图标按钮同排（编辑：自定义=打开编辑对话框；
- * 目录=预填克隆为自定义后改地址），下方模型列表（「从官方同步」刷新 +
- * 「新增」手加模型），模型列表上方是 API Key 填写（自定义供应商可编辑，
- * 目录厂商禁用并提示环境变量注入）。
+ * 是所选供应商名/地址/运行束 + 编辑（编辑：自定义=打开编辑对话框；
+ * 目录=预填克隆为自定义后改地址），下方 API Key 填写（自定义供应商可编辑，
+ * 目录厂商禁用并提示环境变量注入），再下方模型列表（兜底为空时提示，列表
+ * 顶部「新增」按钮手加模型）。
  * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
  */
 export function ModelSettingsCard() {
@@ -284,7 +284,6 @@ export function ModelSettingsCard() {
   const [addingModel, setAddingModel] = useState(false);
   const [newModelId, setNewModelId] = useState('');
   const [panelKey, setPanelKey] = useState('');
-  const [refreshNote, setRefreshNote] = useState<string | null>(null);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -386,13 +385,9 @@ export function ModelSettingsCard() {
     });
   };
 
-  /** 从官方目录同步：重新载入合并视图并给出反馈。真实在线同步见 UI-PROV-RPC（静态快照）。 */
-  const handleRefresh = () => {
-    setRefreshNote(t('settingsModel.refreshedModels'));
-    window.setTimeout(() => setRefreshNote(null), 1800);
-  };
-
-  /** 「新增」手加模型：自定义供应商同时持久化进注册表列表；随后与点击模型同语义立即应用。 */
+  /**
+   * 「新增」手加模型：自定义供应商同时持久化进注册表列表；随后与点击模型同语义立即应用。
+   */
   const confirmAddModel = () => {
     const id = newModelId.trim();
     if (!id || !selectedEntry || locked) return;
@@ -495,7 +490,7 @@ export function ModelSettingsCard() {
             )}
           </div>
           {settings?.read_only ? (
-            <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p>
+            <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">{t('settings.readOnlyNotice')}</p>
           ) : null}
           <div className="grid gap-4 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
             <div className="space-y-2">
@@ -506,7 +501,7 @@ export function ModelSettingsCard() {
                 aria-label={t('settingsModel.searchPlaceholder')}
                 className="h-9"
               />
-              <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border bg-muted/30 p-1.5">
+              <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border bg-card p-1.5">
                 {visible.map(renderRow)}
                 {custom.map(renderRow)}
                 {more.length > 0 ? (
@@ -514,7 +509,7 @@ export function ModelSettingsCard() {
                     type="button"
                     onClick={() => setMoreExpanded((expanded) => !expanded)}
                     aria-expanded={isMoreExpanded}
-                    className="flex w-full items-center gap-2.5 rounded-md border border-dashed border-border border-l-4 border-l-transparent px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
+                    className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
                       <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
@@ -535,7 +530,7 @@ export function ModelSettingsCard() {
                 <button
                   type="button"
                   onClick={() => openCustomProviderDialog()}
-                  className="flex w-full items-center gap-2.5 rounded-md border border-dashed border-border border-l-4 border-l-transparent px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
+                  className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
                     <Plus className="h-4 w-4" aria-hidden="true" />
@@ -565,15 +560,31 @@ export function ModelSettingsCard() {
                       >
                         <Pencil className="h-4 w-4" aria-hidden="true" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleRefresh}
-                        aria-label={t('settingsModel.refreshModels')}
-                        title={t('settingsModel.refreshModels')}
-                        className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      >
-                        <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                    </div>
+                  </div>
+                  <div className="border-b px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="panel-api-key" className="text-xs text-muted-foreground">{t('settingsModel.apiKey')}</Label>
+                      {selectedEntry.name === savedEntry?.name && settings?.api_key_set ? (
+                        <span className="text-[11px] text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</span>
+                      ) : null}
+                    </div>
+                    <Input
+                      id="panel-api-key"
+                      type="password"
+                      className="mt-1.5"
+                      value={panelKey}
+                      onChange={(event) => setPanelKey(event.target.value)}
+                      onBlur={commitPanelKey}
+                      placeholder={selectedEntry.custom ? t('settingsModel.apiKeyPlaceholder') : t('settingsModel.catalogKeyHint')}
+                      autoComplete="off"
+                      disabled={locked || !selectedEntry.custom}
+                    />
+                    <p className="mt-1.5 text-xs text-muted-foreground">{selectedEntry.custom ? t('settingsModel.apiKeyHint') : t('settingsModel.catalogKeyHint')}</p>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+                      <p className="text-xs font-medium text-muted-foreground">{t('settingsModel.modelsTitle', { provider: selectedEntry.displayName })}</p>
                       <button
                         type="button"
                         onClick={() => setAddingModel((adding) => !adding)}
@@ -584,25 +595,7 @@ export function ModelSettingsCard() {
                         <Plus className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>
-                  </div>
-                  <div className="space-y-1.5 border-b px-3 py-2">
-                    <Label htmlFor="panel-api-key" className="text-xs text-muted-foreground">{t('settingsModel.apiKey')}</Label>
-                    <Input
-                      id="panel-api-key"
-                      type="password"
-                      value={panelKey}
-                      onChange={(event) => setPanelKey(event.target.value)}
-                      onBlur={commitPanelKey}
-                      placeholder={selectedEntry.custom ? t('settingsModel.apiKeyPlaceholder') : t('settingsModel.catalogKeyHint')}
-                      autoComplete="off"
-                      disabled={locked || !selectedEntry.custom}
-                    />
-                    <p className="text-xs text-muted-foreground">{selectedEntry.custom ? t('settingsModel.apiKeyHint') : t('settingsModel.catalogKeyHint')}</p>
-                    {selectedEntry.name === savedEntry?.name && settings?.api_key_set ? (
-                      <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</p>
-                    ) : null}
-                  </div>
-                  <div className="max-h-72 space-y-1 overflow-y-auto p-1.5">
+                    <div className="max-h-72 space-y-1 overflow-y-auto p-1.5">
                     {addingModel ? (
                       <div className="flex items-center gap-1 px-0.5">
                         <Input
@@ -663,7 +656,7 @@ export function ModelSettingsCard() {
                     ) : (
                       <p className="px-2.5 py-3 text-xs text-muted-foreground">{t('settingsModel.noModels')}</p>
                     )}
-                    {refreshNote ? <p className="px-2.5 py-1 text-[11px] text-muted-foreground">{refreshNote}</p> : null}
+                  </div>
                   </div>
                 </div>
               ) : (
