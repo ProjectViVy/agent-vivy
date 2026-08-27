@@ -1,0 +1,31 @@
+{
+  "name": "dsh-vivy-console",
+  "version": "0.1.0",
+  "description": "Vivy Studio first-party console: gateway lifecycle (status/logs/start/stop/restart), VIVY WEB embedding with a frontend debug bridge (console/RPC capture, evaluate), and the Studio distribution ledger (pack/eval/release/install/rollback via vivy-studio.exe)",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "hook.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}
