@@ -1,14 +1,20 @@
 // Package settings holds the operator-managed model provider selection for
-// Vivy itself. These are non-secret, user-facing preferences (which provider
-// bundle is active, which default model, and an optional OpenAI-compatible
-// base URL). They live in an independent agent working directory
-// (data/agent-home/settings.yaml) so the running species never rewrites its
-// own production config.yaml and never touches the Journal (data/vivy.db).
+// Vivy itself. These are user-facing preferences (which provider bundle is
+// active, which default model, an optional OpenAI-compatible base URL, and an
+// optional API key overlay). They live in an independent agent working
+// directory (data/agent-home/settings.yaml) so the running species never
+// rewrites its own production config.yaml and never touches the Journal
+// (data/vivy.db).
 //
-// Secrets stay in environment variables only (D-010): this file stores no
-// API keys. On startup, app overlays these values onto the validated config
-// before the provider/model are built, so a save takes effect on the next
-// launch (no live hot-swap of the running engine).
+// Secrets: committed config still holds env_key names only (D-010). This
+// runtime settings document may additionally hold an optional plaintext
+// api_key overlay (file mode 0600, data dir is gitignored runtime state); it
+// is applied to the bundle's env_key environment variable at startup, and is
+// never logged and never returned by the control plane. An empty api_key
+// means "no overlay" — the environment variable stands.
+// On startup, app overlays these values onto the validated config before the
+// provider/model are built, so a save takes effect on the next launch (no
+// live hot-swap of the running engine).
 package settings
 
 import (
@@ -18,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -51,6 +58,10 @@ type Settings struct {
 	// bundle default". It is applied through the existing VIVY_API_BASE
 	// mechanism.
 	BaseURL string `yaml:"base_url"`
+	// ApiKey optionally overlays the active bundle's API key (see package
+	// doc: plaintext runtime data only, never logged or returned). Empty
+	// means "no overlay" — the bundle's env_key environment variable stands.
+	ApiKey string `yaml:"api_key"`
 }
 
 // Path returns the absolute settings file path for the given data root.
@@ -102,6 +113,9 @@ func (s Settings) Validate() error {
 	}
 	if s.BaseURL != "" && !apiBasePattern.MatchString(s.BaseURL) {
 		return fmt.Errorf("settings: base_url %q must be an http(s) absolute URL", s.BaseURL)
+	}
+	if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
+		return errors.New("settings: api_key must not contain newlines")
 	}
 	return nil
 }

@@ -1213,8 +1213,9 @@ func (h *controlHandler) inspectSpecies(ctx context.Context) (any, *Error) {
 	return rep, nil
 }
 
-// settingsResult is the non-secret, operator-managed model provider
-// selection surfaced in the Settings UI. Secrets are never included.
+// settingsResult is the operator-managed model provider selection surfaced
+// in the Settings UI. Secret values are never included: only the
+// api_key_set flag is exposed.
 type settingsResult struct {
 	// Provider is the active bundle name (openai|anthropic|mock), or empty
 	// when the config default applies.
@@ -1223,6 +1224,9 @@ type settingsResult struct {
 	DefaultModel string `json:"default_model"`
 	// BaseURL is an optional OpenAI-compatible gateway, or empty.
 	BaseURL string `json:"base_url"`
+	// APIKeySet reports whether an api_key overlay is stored. The value
+	// itself is never returned.
+	APIKeySet bool `json:"api_key_set"`
 	// ReadOnly reports whether updates are accepted. When the settings
 	// document path is not configured, the UI shows values but cannot save.
 	ReadOnly bool `json:"read_only"`
@@ -1237,6 +1241,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 		Provider:       "",
 		DefaultModel:   "",
 		BaseURL:        "",
+		APIKeySet:      false,
 		ReadOnly:       h.deps.SettingsPath == "",
 		ConfigProvider: "",
 		ConfigModel:    "",
@@ -1246,10 +1251,11 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.Provider = s.Provider
 			out.DefaultModel = s.DefaultModel
 			out.BaseURL = s.BaseURL
+			out.APIKeySet = s.ApiKey != ""
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
-	// cleared field falls back to. The runtime never exposes secrets.
+	// cleared field falls back to. The runtime never exposes secret values.
 	out.ConfigProvider = h.deps.ConfigProvider
 	out.ConfigModel = h.deps.ConfigModel
 	return out, nil
@@ -1263,11 +1269,16 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		Provider     string `json:"provider"`
 		DefaultModel string `json:"default_model"`
 		BaseURL      string `json:"base_url"`
+		// ApiKey replaces the optional api_key overlay; empty clears it.
+		// The settings document is overwritten wholesale, so every update
+		// carries the full (possibly empty) key state. The value is never
+		// echoed back.
+		ApiKey string `json:"api_key"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL}
+	s := settings.Settings{Provider: params.Provider, DefaultModel: params.DefaultModel, BaseURL: params.BaseURL, ApiKey: params.ApiKey}
 	saved, err := settings.Save(h.deps.SettingsPath, s)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
@@ -1277,6 +1288,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		Provider:     saved.Provider,
 		DefaultModel: saved.DefaultModel,
 		BaseURL:      saved.BaseURL,
+		APIKeySet:    saved.ApiKey != "",
 		ReadOnly:     false,
 	}, nil
 }

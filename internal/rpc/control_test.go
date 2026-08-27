@@ -558,6 +558,50 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.Provider != "openai" || get.DefaultModel != "gpt-4o" || get.BaseURL != "https://gw.example.com/v1" {
 		t.Fatalf("settings not persisted: %+v", get)
 	}
+	if get.APIKeySet {
+		t.Fatal("api_key_set should be false before any key overlay")
+	}
+
+	// Update with an api_key overlay: the flag is set but the value is
+	// never echoed back (settingsResult has no key field; JSON must too).
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":      "openai",
+		"default_model": "gpt-4o",
+		"base_url":      "https://gw.example.com/v1",
+		"api_key":       "sk-test-overlay",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if !get.APIKeySet {
+		t.Fatal("api_key_set should be true after overlay save")
+	}
+	body, err := json.Marshal(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "sk-test-overlay") {
+		t.Fatalf("settings result leaked api_key value: %s", body)
+	}
+
+	// Update without api_key clears the overlay (wholesale overwrite).
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider": "mock",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if get.APIKeySet {
+		t.Fatal("api_key_set should be false after a keyless update")
+	}
 }
 
 func TestSettingsCapabilitiesAdvertised(t *testing.T) {

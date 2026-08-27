@@ -386,10 +386,12 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 }
 
 // applySettingsOverlay reads the operator-managed settings document and
-// overlays its non-secret values onto cfg. A missing or empty document is
-// a no-op: the config defaults stand. The base URL is applied through the
-// existing VIVY_API_BASE environment mechanism (provider.openai already
-// honors it), so no provider plumbing changes.
+// overlays its values onto cfg. A missing or empty document is a no-op: the
+// config defaults stand. The base URL is applied through the existing
+// VIVY_API_BASE environment mechanism (provider.openai already honors it),
+// and an optional api_key is applied to the active bundle's env_key
+// environment variable, so no provider plumbing changes. Secret values are
+// never logged.
 func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
 	dataRoot := cfg.DataDirectory()
 	path := settings.Path(dataRoot)
@@ -420,7 +422,24 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 			logger.Warn("settings base_url not applied", "err", err)
 		}
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "")
+	// Optional api_key overlay: apply to the active bundle's env_key so the
+	// provider resolves it like any other env-injected credential. Empty
+	// means "no overlay" — the bundle's environment variable stands, so
+	// catalog/default flows keep using their env key. The value is never
+	// logged.
+	keyEnv := ""
+	switch s.Provider {
+	case settings.ProviderOpenAI:
+		keyEnv = cfg.Providers.OpenAI.EnvKey
+	case settings.ProviderAnthropic:
+		keyEnv = cfg.Providers.Anthropic.EnvKey
+	}
+	if s.ApiKey != "" && keyEnv != "" {
+		if err := os.Setenv(keyEnv, s.ApiKey); err != nil {
+			logger.Warn("settings api_key not applied", "err", err)
+		}
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", s.ApiKey != "")
 	return cfg
 }
 

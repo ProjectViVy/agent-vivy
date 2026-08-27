@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2, X } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
 import type { Settings } from '@/lib/api';
+import { customApiKeyFor } from '@/components/settings/custom-providers';
 import {
   removeSavedModel,
   savedModelVendorLabel,
@@ -81,7 +82,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
     if (!settings || !canChange || (entry.provider === currentProvider && entry.baseUrl === currentBaseUrl && entry.model === currentModel)) return;
     setError(null);
     try {
-      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
+      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl) });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

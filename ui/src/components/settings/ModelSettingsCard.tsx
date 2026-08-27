@@ -21,6 +21,7 @@ import {
 import {
   addCustomProvider,
   allProviderEntries,
+  customApiKeyFor,
   matchMergedProviderEntry,
   parseCustomModels,
   removeCustomProvider,
@@ -42,10 +43,11 @@ import {
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
-type ModelFormValue = { provider: string; default_model: string; base_url: string };
+type ModelFormValue = { provider: string; default_model: string; base_url: string; api_key: string };
 
-/** 选中目录/注册表条目：厂商差异落到 base_url，provider 保持运行束名，模型沿用原始 id。 */
-function applyProviderEntry(form: ModelFormValue, entry: ProviderCatalogEntry): ModelFormValue {
+/** 选中目录/注册表条目：厂商差异落到 base_url，provider 保持运行束名，模型沿用原始 id。
+ *  api_key 由调用方经 customApiKeyFor 按所选条目解析（纯函数不读注册表）。 */
+function applyProviderEntry(form: ModelFormValue, entry: ProviderCatalogEntry): Omit<ModelFormValue, 'api_key'> {
   return {
     provider: entry.bundle,
     base_url: entry.baseUrl,
@@ -129,6 +131,7 @@ function CustomProviderDialog({
   const [bundle, setBundle] = useState<ProviderRuntimeBundle>('openai');
   const [baseUrl, setBaseUrl] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [modelsText, setModelsText] = useState('');
   const [fieldError, setFieldError] = useState<Partial<Record<'displayName' | 'baseUrl', string>>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -139,6 +142,7 @@ function CustomProviderDialog({
     setBundle(editing?.bundle ?? 'openai');
     setBaseUrl(editing?.baseUrl ?? '');
     setDefaultModel(editing?.defaultModel ?? '');
+    setApiKey(editing?.apiKey ?? '');
     setModelsText(editing?.models.join('\n') ?? '');
     setFieldError({});
     setSubmitError(null);
@@ -168,6 +172,7 @@ function CustomProviderDialog({
       baseUrl: url,
       defaultModel: defaultModel.trim(),
       models: parseCustomModels(modelsText),
+      apiKey: apiKey.trim(),
     });
     if (!saved) {
       setSubmitError(t('settingsModel.errors.duplicateBaseUrl'));
@@ -218,6 +223,18 @@ function CustomProviderDialog({
             <Input id="custom-default-model" value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)} />
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="custom-api-key">{t('settingsModel.apiKey')}</Label>
+            <Input
+              id="custom-api-key"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder={t('settingsModel.apiKeyPlaceholder')}
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyHint')}</p>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="custom-models">{t('settingsModel.modelsList')}</Label>
             <Textarea id="custom-models" rows={5} value={modelsText} onChange={(event) => setModelsText(event.target.value)} placeholder={t('settingsModel.modelsListHint')} />
           </div>
@@ -248,15 +265,15 @@ export function ModelSettingsCard() {
   const savedModels = useSavedModels();
   const customProviders = useCustomProviders();
   const { t } = useTranslation();
-  const [form, setForm] = useState<ModelFormValue>({ provider: '', default_model: '', base_url: '' });
+  const [form, setForm] = useState<ModelFormValue>({ provider: '', default_model: '', base_url: '', api_key: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [isMoreExpanded, setMoreExpanded] = useState(false);
   const [customDialog, setCustomDialog] = useState<{ open: boolean; editing: CustomProvider | null }>({ open: false, editing: null });
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url });
-  }, [settings]);
+    if (settings) setForm({ provider: settings.provider, default_model: settings.default_model, base_url: settings.base_url, api_key: customApiKeyFor(settings.provider, settings.base_url) });
+  }, [settings, customProviders]);
 
   const searching = searchTerm.trim().length > 0;
   const { visible, custom, more } = useMemo(
@@ -277,18 +294,20 @@ export function ModelSettingsCard() {
     if (locked) return;
     setForm((current) => {
       const next = applyProviderEntry(current, entry);
-      return next.provider === current.provider && next.base_url === current.base_url && next.default_model === current.default_model
+      const same = next.provider === current.provider && next.base_url === current.base_url && next.default_model === current.default_model;
+      // 表单密钥跟随所选条目：自定义供应商显示其注册密钥，目录条目清空（提交即清覆盖层）。
+      return same && current.api_key === customApiKeyFor(next.provider, next.base_url)
         ? current
-        : next;
+        : { ...next, api_key: customApiKeyFor(next.provider, next.base_url) };
     });
   };
 
-  /** 所选供应商目录模型行：填表单 + 加入快捷列表（幂等）+ 立即保存（diva 式一步到位）。 */
+  /** 所选供应商目录模型行：填表单 + 加入快捷列表（幂等）+ 立即保存（diva 式一步到位；自定义条目带其密钥）。 */
   const applyModelNow = async (entry: ProviderCatalogEntry, model: string) => {
     if (locked) return;
     const next = applyProviderEntry(form, entry);
-    const triple = { provider: next.provider, default_model: model, base_url: next.base_url };
-    setForm({ ...next, default_model: model });
+    const triple = { provider: next.provider, default_model: model, base_url: next.base_url, api_key: customApiKeyFor(next.provider, next.base_url) };
+    setForm({ ...next, default_model: model, api_key: customApiKeyFor(next.provider, next.base_url) });
     addSavedModel({ provider: next.provider, baseUrl: next.base_url, model });
     try {
       await save(triple);
@@ -297,11 +316,11 @@ export function ModelSettingsCard() {
     }
   };
 
-  /** 已选模型 chip：与顶栏快捷切换同语义——立即选用并保存。 */
+  /** 已选模型 chip：与顶栏快捷切换同语义——立即选用并保存（自定义条目带其密钥）。 */
   const applySavedNow = async (entry: SavedModelEntry) => {
     if (locked) return;
     try {
-      await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
+      await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, api_key: customApiKeyFor(entry.provider, entry.baseUrl) });
     } catch {
       // settingsError 已由 store 记录并渲染在下方 error 段。
     }
@@ -508,7 +527,7 @@ export function ModelSettingsCard() {
               )}
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
               <Input
@@ -540,6 +559,19 @@ export function ModelSettingsCard() {
                 disabled={locked}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="model-api-key">{t('settingsModel.apiKey')}</Label>
+              <Input
+                id="model-api-key"
+                type="password"
+                value={form.api_key}
+                onChange={(event) => setForm({ ...form, api_key: event.target.value })}
+                placeholder={t('settingsModel.apiKeyPlaceholder')}
+                autoComplete="off"
+                disabled={locked}
+              />
+              <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyHint')}</p>
+            </div>
           </div>
           {settings?.read_only ? (
             <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读，请通过运行配置修改。</p>
@@ -548,6 +580,7 @@ export function ModelSettingsCard() {
               {phase === 'processing' ? '保存中…' : '保存真实设置'}
             </Button>
           )}
+          {settings?.api_key_set ? <p className="text-xs text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</p> : null}
           {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
         </form>
       )}

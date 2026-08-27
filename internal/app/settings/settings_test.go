@@ -31,6 +31,27 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadRoundTripWithAPIKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent-home", FileName)
+	saved, err := Save(path, Settings{Provider: ProviderOpenAI, DefaultModel: "gpt-4o", BaseURL: "https://gw.example.com/v1", ApiKey: "sk-test-overlay"})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded != saved || loaded.ApiKey != "sk-test-overlay" {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+}
+
+func TestValidateRejectsNewlineInAPIKey(t *testing.T) {
+	if err := (Settings{Provider: ProviderOpenAI, ApiKey: "sk-a\nsk-b"}).Validate(); err == nil {
+		t.Fatal("expected error for newline in api_key")
+	}
+}
+
 func TestValidateRejectsBadProvider(t *testing.T) {
 	if err := (Settings{Provider: "banana"}).Validate(); err == nil {
 		t.Fatal("expected error for unsupported provider")
