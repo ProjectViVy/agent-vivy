@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { addDemoMcpServer, exportDemoMcpConfig, formatTokenCost, formatTokenCount, getDemoDashboard, getDemoMemories, getDemoMcpServers, getDemoComposerState, getDemoTokenUsage, importDemoMcpConfig, removeDemoMcpServer, searchSessions, toggleDemoMcpServer, updateDemoComposerState, updateDemoMcpServer } from './demo-api';
+import { addDemoMcpServer, exportDemoMcpConfig, formatTokenCost, formatTokenCount, getDemoDashboard, getDemoGenParams, getDemoMemories, getDemoMcpServers, getDemoComposerState, getDemoTokenUsage, importDemoMcpConfig, removeDemoMcpServer, saveDemoGenParams, searchSessions, toggleDemoMcpServer, updateDemoComposerState, updateDemoMcpServer } from './demo-api';
 
 const values = new Map<string, string>();
 
@@ -114,5 +114,33 @@ describe('restored local demo API', () => {
     const result = await settle(searchSessions('needle'));
     expect(result.hits).toHaveLength(1);
     expect(result.hits[0].session_id).toBe('s1');
+  });
+
+  it('returns default demo generation params without writing localStorage', () => {
+    expect(getDemoGenParams('openai//gpt-4o')).toEqual({ temperature: 0.7, max_tokens: 4096 });
+    expect([...values.keys()]).not.toContain('vivy.demo.gen-params');
+  });
+
+  it('keeps demo generation params independent per model and persists them', () => {
+    const saved = saveDemoGenParams('openai//gpt-4o', { temperature: 1.2, max_tokens: 8192 });
+    expect(saved).toEqual({ temperature: 1.2, max_tokens: 8192 });
+    expect(getDemoGenParams('openai//gpt-4o')).toEqual({ temperature: 1.2, max_tokens: 8192 });
+    // 其他模型不受影响，仍为默认值。
+    expect(getDemoGenParams('openai//gpt-4o-mini')).toEqual({ temperature: 0.7, max_tokens: 4096 });
+
+    const store = JSON.parse(values.get('vivy.demo.gen-params') ?? '{}') as Record<string, unknown>;
+    expect(store['openai//gpt-4o']).toEqual({ temperature: 1.2, max_tokens: 8192 });
+    expect(store['openai//gpt-4o-mini']).toBeUndefined();
+    expect([...values.keys()].every((key) => key.startsWith('vivy.demo.'))).toBe(true);
+  });
+
+  it('normalizes saved demo generation params and recovers from malformed data', () => {
+    expect(saveDemoGenParams('mock//mock:hitl', { temperature: 9, max_tokens: 0 })).toEqual({ temperature: 2, max_tokens: 1 });
+
+    values.set('vivy.demo.gen-params', '{not-json');
+    expect(getDemoGenParams('openai//gpt-4o')).toEqual({ temperature: 0.7, max_tokens: 4096 });
+
+    values.set('vivy.demo.gen-params', JSON.stringify({ 'openai//gpt-4o': { temperature: 'hot', max_tokens: 128 } }));
+    expect(getDemoGenParams('openai//gpt-4o')).toEqual({ temperature: 0.7, max_tokens: 128 });
   });
 });

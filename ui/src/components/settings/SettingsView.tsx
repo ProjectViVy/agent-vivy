@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArrowRight, Check, Cpu, FlaskConical, GitBranch, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Activity, ArrowRight, Cpu, FlaskConical, GitBranch, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getConfig, getToolsConfig, updateConfig, updateToolsConfig } from '@/lib/demo-api';
-import type { RuntimeConfig, ToolsConfigShape } from '@/lib/types';
+import { getToolsConfig, updateToolsConfig } from '@/lib/demo-api';
+import type { ToolsConfigShape } from '@/lib/types';
 import { useVivyStore } from '@/lib/store';
 import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { RunInspector } from '@/components/chat/RunInspector';
@@ -17,6 +15,7 @@ import { openWelcome } from '@/hooks/use-welcome';
 import { useTranslation } from '@/i18n';
 import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewSection } from './diva-preview-data';
 import { DivaSettingsPreview } from './DivaSettingsPreview';
+import { GenerationParamsCard } from './GenerationParamsCard';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 import { LanguagePicker } from './LanguagePicker';
@@ -49,36 +48,34 @@ function DemoNote() {
 export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const connection = useVivyStore((state) => state.connection);
   const { t } = useTranslation();
-  const [demoConfig, setDemoConfig] = useState<RuntimeConfig | null>(null);
   const [tools, setTools] = useState<ToolsConfigShape | null>(null);
-  const [demoBusy, setDemoBusy] = useState<'model' | 'tools' | null>(null);
+  const [demoBusy, setDemoBusy] = useState<'tools' | null>(null);
   const [demoSaved, setDemoSaved] = useState<string | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'general');
 
-  const loadDemos = async () => {
+  const loadTools = async () => {
     setDemoError(null);
-    const results = await Promise.allSettled([getConfig(), getToolsConfig()]);
-    if (results[0].status === 'fulfilled') setDemoConfig(results[0].value);
-    if (results[1].status === 'fulfilled') setTools(results[1].value);
-    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
-    if (failures.length) setDemoError(failures.map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)).join('；'));
+    try {
+      setTools(await getToolsConfig());
+    } catch (cause) {
+      setDemoError(cause instanceof Error ? cause.message : String(cause));
+    }
   };
 
   useEffect(() => {
-    if (activeTab === 'model' || activeTab === 'tools') void loadDemos();
+    if (activeTab === 'tools') void loadTools();
   }, [activeTab]);
   // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区；非法值回落到「通用」。
   useEffect(() => { if (isSettingsTab(initialTab)) setActiveTab(initialTab); }, [initialTab]);
 
-  const persistDemo = async (kind: 'model' | 'tools') => {
-    setDemoBusy(kind);
+  const persistTools = async () => {
+    setDemoBusy('tools');
     setDemoSaved(null);
     setDemoError(null);
     try {
-      if (kind === 'model' && demoConfig) setDemoConfig(await updateConfig(demoConfig));
-      if (kind === 'tools' && tools) setTools(await updateToolsConfig(tools));
-      setDemoSaved(kind);
+      if (tools) setTools(await updateToolsConfig(tools));
+      setDemoSaved('tools');
     } catch (cause) {
       setDemoError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -106,7 +103,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             ))}
           </TabsList>
 
-          {demoError ? <div className="mt-4"><DemoLoadError message={demoError} onRetry={() => void loadDemos()} /></div> : null}
+          {demoError ? <div className="mt-4"><DemoLoadError message={demoError} onRetry={() => void loadTools()} /></div> : null}
 
           <TabsContent value="general" className="space-y-4">
             <Card>
@@ -127,6 +124,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               </CardHeader>
               <CardContent><Button variant="outline" onClick={() => openWelcome()}>{t('welcome.rerunAction')}</Button></CardContent>
             </Card>
+            <GenerationParamsCard />
             <DivaSettingsPreview section="general" />
           </TabsContent>
 
@@ -139,56 +137,6 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               </CardHeader>
               <CardContent><ModelSettingsCard /></CardContent>
             </Card>
-            <Card>
-              <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><SlidersHorizontal className="h-5 w-5" aria-hidden="true" /></div>
-                <div className="flex items-center gap-2">
-                  <CardTitle>{t('settings.generationParamsTitle')}</CardTitle>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">{t('settings.demoBadge')}</span>
-                </div>
-                <CardDescription>{t('settings.generationParamsDescription')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {demoConfig ? (
-                  <>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label>{t('settings.temperature')}</Label>
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground">{demoConfig.temperature?.toFixed(1)}</span>
-                        </div>
-                        <Slider
-                          value={[demoConfig.temperature ?? 0.7]}
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          disabled={demoBusy === 'model'}
-                          onValueChange={([value]) => setDemoConfig({ ...demoConfig, temperature: value })}
-                          aria-label={t('settings.temperature')}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="max-tokens">{t('settings.maxTokens')}</Label>
-                        <Input id="max-tokens" type="number" min={1} value={demoConfig.max_tokens} disabled={demoBusy === 'model'} onChange={(event) => setDemoConfig({ ...demoConfig, max_tokens: Number(event.target.value) })} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Button type="button" disabled={demoBusy === 'model'} onClick={() => void persistDemo('model')}>
-                        {demoBusy === 'model' ? t('settings.saving') : t('settings.saveDemoParams')}
-                      </Button>
-                      {demoSaved === 'model' ? (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                          <Check className="h-4 w-4 text-primary" aria-hidden="true" />
-                          {t('settings.savedLocally')}
-                        </span>
-                      ) : null}
-                    </div>
-                  </>
-                ) : (
-                  <div className="h-24 animate-pulse rounded bg-muted" />
-                )}
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="tools">
@@ -198,7 +146,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               <CardContent>{tools ? <div className="space-y-5">
                 <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="font-medium">沙箱模式</p><p className="text-sm text-muted-foreground">演示工具调用隔离状态</p></div><Switch checked={tools.sandbox_enabled} disabled={demoBusy === 'tools'} onCheckedChange={(checked) => setTools({ ...tools, sandbox_enabled: checked })} aria-label="演示沙箱模式" /></div>
                 <div className="space-y-2"><Label>命令规则</Label>{(tools.command_rules ?? []).map((rule, index) => <div key={rule.command} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_auto_auto]"><code>{rule.command}</code><label className="flex items-center gap-2 text-sm"><Switch checked={rule.enabled} disabled={demoBusy === 'tools'} onCheckedChange={(checked) => setTools({ ...tools, command_rules: (tools.command_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, enabled: checked } : item) })} aria-label={`${rule.command} 启用状态`} />启用</label><label className="flex items-center gap-2 text-sm"><Switch checked={rule.approval_required} disabled={demoBusy === 'tools'} onCheckedChange={(checked) => setTools({ ...tools, command_rules: (tools.command_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, approval_required: checked } : item) })} aria-label={`${rule.command} 需要审批`} />需要审批</label></div>)}</div>
-                <Button type="button" disabled={demoBusy === 'tools'} onClick={() => void persistDemo('tools')}>{demoBusy === 'tools' ? '保存中…' : '保存工具演示'}</Button>{demoSaved === 'tools' ? <span className="ml-3 text-sm text-muted-foreground">已保存到本地</span> : null}
+                <Button type="button" disabled={demoBusy === 'tools'} onClick={() => void persistTools()}>{demoBusy === 'tools' ? '保存中…' : '保存工具演示'}</Button>{demoSaved === 'tools' ? <span className="ml-3 text-sm text-muted-foreground">已保存到本地</span> : null}
               </div> : <div className="h-56 animate-pulse rounded bg-muted" />}</CardContent>
             </Card>
           </TabsContent>
