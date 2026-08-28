@@ -8,7 +8,7 @@ Date: 2026-08-29
 |---|---|
 | `go get` bubbletea + lipgloss; `go mod tidy` | pass (deps in `go.mod`) |
 | `gofmt -w` on `internal/tui/demo`, `internal/tui/view`, `cmd/vivy/tui.go` | applied |
-| `go test ./internal/tui/...` | **pass** (tui, demo, view) |
+| `go test ./internal/tui/...` | **pass** (tui, demo, view) after geometry pass |
 | `just ci` | not claimed green on this worktree if HEAD still lacks `ModelResolver` in `internal/app` (pre-existing; unchanged by this lane) |
 
 No browser smoke: TTY-only deliverable. Fullscreen program is covered by
