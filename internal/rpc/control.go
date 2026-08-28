@@ -33,6 +33,7 @@ type ControlDeps struct {
 	Approvals storage.ApprovalStore
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
+	Todos     storage.TodoStore
 	Bus       *events.Bus
 	Service   *runtime.Service
 	Studio    *studio.Service
@@ -189,6 +190,21 @@ type eventResult struct {
 	Payload        json.RawMessage  `json:"payload"`
 }
 
+type todoResult struct {
+	ID          string            `json:"id"`
+	SessionID   domain.SessionID  `json:"session_id"`
+	Subject     string            `json:"subject"`
+	Description string            `json:"description"`
+	Status      domain.TodoStatus `json:"status"`
+	Blocks      []string          `json:"blocks"`
+	BlockedBy   []string          `json:"blocked_by"`
+	ActiveForm  string            `json:"active_form,omitempty"`
+	Owner       string            `json:"owner,omitempty"`
+	Position    int               `json:"position"`
+	CreatedAt   int64             `json:"created_at"`
+	UpdatedAt   int64             `json:"updated_at"`
+}
+
 type preflightResult struct {
 	Status        runtime.PreflightStatus `json:"status"`
 	Mode          domain.RunMode          `json:"mode"`
@@ -270,7 +286,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities": []string{
-				"session", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
+				"session", "session.todos", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
 				"background.recover", "background.list", "background.attach",
 				"child.start", "child.get", "child.list", "child.wait", "child.cancel",
 				"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
@@ -291,6 +307,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteSession(ctx, request)
 	case "session/messages":
 		return h.listMessages(ctx, request)
+	case "session/todos":
+		return h.listTodos(ctx, request)
 	case "preflight/run":
 		return h.preflight(ctx, request)
 	case "turn/start":
@@ -585,6 +603,52 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt})
 	}
 	return map[string]any{"messages": out}, nil
+}
+
+func (h *controlHandler) listTodos(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Todos == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "todo store is not configured"}
+	}
+	params, rpcErr := parseSessionParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	sessionID := domain.SessionID(params.SessionID)
+	if _, err := h.deps.Sessions.GetSession(ctx, sessionID); errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+	} else if err != nil {
+		return nil, internalError(err)
+	}
+	todos, err := h.deps.Todos.ListTodos(ctx, sessionID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]todoResult, 0, len(todos))
+	for _, todo := range todos {
+		blocks := todo.Blocks
+		if blocks == nil {
+			blocks = []string{}
+		}
+		blockedBy := todo.BlockedBy
+		if blockedBy == nil {
+			blockedBy = []string{}
+		}
+		out = append(out, todoResult{
+			ID:          todo.ID,
+			SessionID:   todo.SessionID,
+			Subject:     todo.Subject,
+			Description: todo.Description,
+			Status:      todo.Status,
+			Blocks:      blocks,
+			BlockedBy:   blockedBy,
+			ActiveForm:  todo.ActiveForm,
+			Owner:       todo.Owner,
+			Position:    todo.Position,
+			CreatedAt:   todo.CreatedAt,
+			UpdatedAt:   todo.UpdatedAt,
+		})
+	}
+	return map[string]any{"todos": out}, nil
 }
 
 func (h *controlHandler) listBackground(ctx context.Context) (any, *Error) {

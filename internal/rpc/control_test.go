@@ -74,7 +74,7 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	}
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Approvals: backend, Questions: backend, Todos: backend, Bus: bus, Service: service,
 		Studio: studio.NewService(backend),
 		Live: studio.LiveView{
 			Provider:      "mock",
@@ -911,5 +911,95 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 	last := probe.applied[len(probe.applied)-1]
 	if settings.ActiveKey(last, last.Provider, last.BaseURL) != "sk-entry" {
 		t.Fatalf("applied settings must resolve the registry key, got %+v", last)
+	}
+}
+
+func TestControlHandlerListsSessionTodos(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "Todos"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, err := json.Marshal(created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+
+	empty, rpcErr := callControl(t, env.handler, "session/todos", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	emptyJSON, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var emptyOut struct {
+		Todos []todoResult `json:"todos"`
+	}
+	if err := json.Unmarshal(emptyJSON, &emptyOut); err != nil {
+		t.Fatal(err)
+	}
+	if emptyOut.Todos == nil || len(emptyOut.Todos) != 0 {
+		t.Fatalf("empty todos = %+v, want []", emptyOut.Todos)
+	}
+
+	now := time.Now().UnixMilli()
+	if err := env.backend.CreateTodo(context.Background(), domain.Todo{
+		ID: "1", SessionID: session.ID, Subject: "wire rpc", Description: "list session todos",
+		Status: domain.TodoInProgress, Blocks: []string{}, BlockedBy: []string{},
+		ActiveForm: "Wiring RPC", Position: 0, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, rpcErr := callControl(t, env.handler, "session/todos", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, err := json.Marshal(listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Todos []todoResult `json:"todos"`
+	}
+	if err := json.Unmarshal(listedJSON, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Todos) != 1 {
+		t.Fatalf("todos = %+v", out.Todos)
+	}
+	item := out.Todos[0]
+	if item.ID != "1" || item.Subject != "wire rpc" || item.Status != domain.TodoInProgress || item.ActiveForm != "Wiring RPC" {
+		t.Fatalf("todo = %+v", item)
+	}
+	if item.SessionID != session.ID {
+		t.Fatalf("session_id = %q, want %q", item.SessionID, session.ID)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "session/todos", map[string]string{"session_id": "missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("missing session error = %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/todos", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing session_id error = %v", rpcErr)
+	}
+
+	unwiredBus := events.NewBus(8)
+	unwired, err := NewControlHandler(ControlDeps{
+		Sessions: env.backend, Messages: env.backend, Runs: env.backend, Journal: env.backend,
+		Approvals: env.backend, Questions: env.backend, Bus: unwiredBus,
+		Service: runtime.NewService(nil, "mock", "mock", runtime.ServiceDeps{
+			Journal: env.backend, Runs: env.backend, Messages: env.backend, Approvals: env.backend, Questions: env.backend, Sink: unwiredBus,
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, unwired, "session/todos", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("unwired todos error = %v", rpcErr)
 	}
 }

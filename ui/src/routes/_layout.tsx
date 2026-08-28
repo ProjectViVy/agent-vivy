@@ -5,11 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar';
 import { SessionDrawer } from '@/components/chat/SessionDrawer';
-import { PlanSidebarPanel } from '@/components/planning/PlanSidebarPanel';
+import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { ApprovalsView } from '@/components/approvals/ApprovalsView';
 import { WelcomeWizard } from '@/components/layout/WelcomeWizard';
-import { getPlanSidebarData } from '@/lib/demo-api';
-import type { PlanSidebarData } from '@/lib/types';
 import { useVivyStore } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { isWelcomeCompleted, openWelcome } from '@/hooks/use-welcome';
@@ -26,7 +24,6 @@ function Layout() {
   const { t } = useTranslation();
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [planData, setPlanData] = useState<PlanSidebarData | null>(null);
   const sessions = useVivyStore((state) => state.sessions);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
   const busyId = useVivyStore((state) => state.sessionBusyId);
@@ -41,11 +38,12 @@ function Layout() {
   const setReviewCenterOpen = useVivyStore((state) => state.setReviewCenterOpen);
   const sessionDrawerOpen = useVivyStore((state) => state.sessionDrawerOpen);
   const setSessionDrawerOpen = useVivyStore((state) => state.setSessionDrawerOpen);
+  const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
+  const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
   const reviewBusyId = useVivyStore((state) => state.reviewBusyId);
   const initialized = useVivyStore((state) => state.initialized);
   const initializationError = useVivyStore((state) => state.initializationError);
 
-  useEffect(() => { getPlanSidebarData().then(setPlanData); }, []);
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
   // 首次使用（完成标记未写入）且后端初始化成功时，自动弹出欢迎向导。
   useEffect(() => {
@@ -72,6 +70,7 @@ function Layout() {
     if (mobile) setMobileNavOpen((open) => !open);
     else setDesktopCollapsed((collapsed) => !collapsed);
   };
+  const toggleTodos = () => setTodoPanelOpen(!todoPanelOpen);
 
   const sidebar = (
     <ConversationSidebar
@@ -141,16 +140,28 @@ function Layout() {
                 </SheetBody>
               </SheetContent>
             </Sheet>
-            <Sheet>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden md:inline-flex"
+              title={t('layout.todos')}
+              aria-label={t('layout.todos')}
+              aria-expanded={todoPanelOpen}
+              aria-controls="session-todo-panel"
+              onClick={toggleTodos}
+            >
+              <ListTodo className="h-5 w-5" />
+            </Button>
+            <Sheet open={mobile && todoPanelOpen} onOpenChange={setTodoPanelOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" title={t('layout.todos')} aria-label={t('layout.todos')}><ListTodo className="h-5 w-5" /></Button>
+                <Button variant="ghost" size="icon" className="md:hidden" title={t('layout.todos')} aria-label={t('layout.todos')}><ListTodo className="h-5 w-5" /></Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-[400px]">
-                <SheetHeader className="border-b">
+                <SheetHeader className="sr-only">
                   <SheetTitle>{t('layout.todos')}</SheetTitle>
                 </SheetHeader>
-                <SheetBody className="p-4">
-                  <PlanSidebarPanel plan={planData?.plan ?? null} todos={planData?.todos ?? []} validationIssues={planData?.validation_issues} />
+                <SheetBody className="overflow-hidden p-0">
+                  <SessionTodoPanel />
                 </SheetBody>
               </SheetContent>
             </Sheet>
