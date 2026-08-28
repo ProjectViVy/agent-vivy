@@ -80,7 +80,7 @@ internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
 internal/rpc/      UI-facing command/query/event JSON-RPC control plane
-internal/tui/      first-cut TTY client over that control plane (`vivy tui`)
+internal/tui/      TTY face: `--demo` Crush-style mock shell; `--plain` RPC REPL
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)
