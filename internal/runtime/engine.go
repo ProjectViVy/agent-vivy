@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/cloudwego/eino/adk"
+	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -43,6 +45,14 @@ type EngineConfig struct {
 	Policy *PolicyEngine
 	// ToolHooks is the in-process pre/post execution chain.
 	ToolHooks *ToolHookChain
+	// AutoApproveTools lists effectful tools that skip HITL under the
+	// session approval policy "auto".
+	AutoApproveTools []string
+	// SkillBackend wires Eino's skill middleware so the model can discover
+	// and load SKILL.md content without a keyword match. Nil leaves the
+	// existing catalog-only tools (skills_list / skill_view / skill_manage)
+	// as the only Skill surface. Mutation stays on skill_manage.
+	SkillBackend einoskill.Backend
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -81,16 +91,27 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	specs := make([]domain.ToolSpec, 0, len(ts))
 	byName := make(map[string]tools.Tool, len(ts))
 	for _, t := range ts {
-		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks)))
+		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
 		specs = append(specs, t.Spec())
 		byName[t.Spec().Name] = t
+	}
+	handlers := []adk.ChatModelAgentMiddleware{newToolSelectionMiddleware()}
+	if cfg.SkillBackend != nil {
+		// After tool selection so the Eino skill tool is not dropped when
+		// the request has no "skill" keyword. Inline load only; fork
+		// frontmatter is left to Eino's native error.
+		skillHandler, err := einoskill.NewMiddleware(ctx, &einoskill.Config{Backend: cfg.SkillBackend})
+		if err != nil {
+			return nil, fmt.Errorf("runtime: skill middleware: %w", err)
+		}
+		handlers = append(handlers, skillHandler)
 	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
 		Instruction: composeStaticInstruction(),
 		Model:       m,
-		Handlers:    []adk.ChatModelAgentMiddleware{newToolSelectionMiddleware()},
+		Handlers:    handlers,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},
 		},

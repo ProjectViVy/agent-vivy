@@ -3,22 +3,15 @@
 // optional OpenAI-compatible base URL, optional API key overlay), the
 // user-defined provider registry (custom providers with their own base URL,
 // model list, and optional API key), the network_search preference, and the
-// execute ceiling override. These are user-facing preferences that live in
-// an independent agent working directory (data/agent-home/settings.yaml) so
-// the running species never rewrites its own production config.yaml and
-// never touches the Journal (data/vivy.db).
+// execute ceiling override. These live in the shared user workspace
+// (~/.vivy/settings.yaml) so every Vivy version reads the same API and
+// system configuration. The Journal (vivy.db) sits beside this file.
 //
 // Secrets: committed config still holds env_key names only (D-010). This
-// runtime settings document may additionally hold an optional plaintext
-// api_key overlay and api_key per registered provider (file mode 0600, data
-// dir is gitignored runtime state); values are applied to the corresponding
-// environment variable when the document is written and again at startup,
-// and are never logged and never returned by the control plane (only
-// api_key_set booleans cross the wire). An empty api_key means "no overlay"
-// — the environment variable stands.
-// On startup, app overlays these values onto the validated config before the
-// provider/model are built, so a save takes effect on the next launch (no
-// live hot-swap of the running engine).
+// runtime settings document may hold plaintext api_key values (file mode
+// 0600); they are never logged and never returned by the control plane
+// (only api_key_set booleans cross the wire). A frozen ENV session is the
+// only case the UI cannot change.
 package settings
 
 import (
@@ -31,6 +24,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"agent-vivy/internal/domain"
 )
 
 // DefaultDir is the independent agent working directory under the user data
@@ -38,7 +33,7 @@ import (
 // not the tenant Journal. App resolves the actual root from config
 // DataDirectory (see config.UserDataDir); this constant is the fallback used
 // by Path with an empty root.
-const DefaultDir = "data/agent-home"
+const DefaultDir = "data/dev-home"
 
 // FileName is the settings document name inside DefaultDir.
 const FileName = "settings.yaml"
@@ -47,7 +42,9 @@ const FileName = "settings.yaml"
 const (
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
-	ProviderMock      = "mock"
+	// ProviderMock is retained only so older documents fail validation
+	// with a clear message instead of being treated as openai.
+	ProviderMock = "mock"
 )
 
 // apiBasePattern bounds the base URL to http(s) absolute URLs. It carries a
@@ -87,6 +84,23 @@ type Settings struct {
 	// (config runtime.execute_max_timeout_seconds); 0 means "use config
 	// value". Same bounds as config: 1–600, mirroring the runtime hard cap.
 	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
+	// Sandbox is the operator-managed default permission preset and network
+	// policy for new sessions. Empty keeps the production config.
+	Sandbox SandboxSettings `yaml:"sandbox"`
+}
+
+// SandboxSettings is the UI-managed sandbox overlay. DefaultPreset is one of
+// cautious/smart/trusted; empty keeps the config default.
+type SandboxSettings struct {
+	DefaultPreset domain.PermissionPreset `yaml:"default_preset"`
+	Network       SandboxNetworkSettings  `yaml:"network"`
+}
+
+// SandboxNetworkSettings overlays runtime.sandbox.network. Nil pointer /
+// nil slice mean "keep config".
+type SandboxNetworkSettings struct {
+	DenyPrivateIPs *bool    `yaml:"deny_private_ips"`
+	AllowedDomains []string `yaml:"allowed_domains"`
 }
 
 // ProviderEntry is one user-defined provider in the registry. The API key is
@@ -146,7 +160,10 @@ func (s Settings) IsZero() bool {
 		s.ApiKey == "" &&
 		len(s.Providers) == 0 &&
 		s.NetworkSearch == (NetworkSearchSettings{}) &&
-		s.ExecuteMaxTimeoutSeconds == 0
+		s.ExecuteMaxTimeoutSeconds == 0 &&
+		s.Sandbox.DefaultPreset == "" &&
+		s.Sandbox.Network.DenyPrivateIPs == nil &&
+		len(s.Sandbox.Network.AllowedDomains) == 0
 }
 
 // Load reads and validates the settings document at path. A missing file is
@@ -169,6 +186,9 @@ func Load(path string) (Settings, error) {
 	if len(s.Providers) == 0 {
 		s.Providers = nil
 	}
+	if len(s.Sandbox.Network.AllowedDomains) == 0 {
+		s.Sandbox.Network.AllowedDomains = nil
+	}
 	if err := s.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)
 	}
@@ -180,9 +200,11 @@ func (s Settings) Validate() error {
 	switch s.Provider {
 	case "":
 		// empty => config default; allowed
-	case ProviderOpenAI, ProviderAnthropic, ProviderMock:
+	case ProviderOpenAI, ProviderAnthropic:
+	case ProviderMock:
+		return errors.New("settings: mock is not a product provider; configure an OpenAI-compatible API")
 	default:
-		return fmt.Errorf("settings: provider %q unsupported; want openai, anthropic or mock", s.Provider)
+		return fmt.Errorf("settings: provider %q unsupported; want openai or anthropic", s.Provider)
 	}
 	if s.Provider == "" && s.DefaultModel != "" {
 		return errors.New("settings: default_model requires a provider to be set")
@@ -207,6 +229,14 @@ func (s Settings) Validate() error {
 	// UI override can never exceed the runtime hard cap.
 	if s.ExecuteMaxTimeoutSeconds < 0 || s.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
 		return fmt.Errorf("settings: execute_max_timeout_seconds must be 0 (config default) or between 1 and %d", maxExecuteTimeoutSeconds)
+	}
+	if s.Sandbox.DefaultPreset != "" && !s.Sandbox.DefaultPreset.ValidSwitch() {
+		return fmt.Errorf("settings: sandbox.default_preset %q unsupported; want cautious, smart, or trusted", s.Sandbox.DefaultPreset)
+	}
+	for i, domainName := range s.Sandbox.Network.AllowedDomains {
+		if strings.TrimSpace(domainName) == "" {
+			return fmt.Errorf("settings: sandbox.network.allowed_domains[%d] must not be empty", i)
+		}
 	}
 	return nil
 }

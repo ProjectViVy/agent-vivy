@@ -28,6 +28,26 @@ type Session struct {
 	ApprovalPolicy string // ask | never | auto
 }
 
+// EffectiveSandbox returns the session's sandbox knobs, substituting the
+// product defaults when a stored value is empty or unrecognized.
+func (s Session) EffectiveSandbox() (SandboxMode, ApprovalPolicy) {
+	mode := SandboxMode(s.SandboxMode)
+	if !mode.Valid() {
+		mode = SandboxModeWorkspaceWrite
+	}
+	policy := ApprovalPolicy(s.ApprovalPolicy)
+	if !policy.Valid() {
+		policy = ApprovalPolicyAsk
+	}
+	return mode, policy
+}
+
+// PermissionPreset is the named bundle matching EffectiveSandbox, or custom.
+func (s Session) PermissionPreset() PermissionPreset {
+	mode, policy := s.EffectiveSandbox()
+	return PermissionPresetOf(mode, policy)
+}
+
 // Message is one turn in a session. Content is append-only; there is no
 // silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
 // model-visible tool turn (ADR-010); they are empty on ordinary text rows.

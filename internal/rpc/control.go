@@ -18,6 +18,7 @@ import (
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
+	"agent-vivy/internal/tools"
 )
 
 const (
@@ -34,12 +35,15 @@ type ControlDeps struct {
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
 	Todos     storage.TodoStore
-	Bus       *events.Bus
-	Service   *runtime.Service
-	Studio    *studio.Service
-	Live      studio.LiveView
-	Eval      eval.Starter
-	Children  ChildController
+	// Skills is the read-only control-plane catalog over skills_root.
+	// Nil disables skills/list and skills/get.
+	Skills   tools.SkillOperations
+	Bus      *events.Bus
+	Service  *runtime.Service
+	Studio   *studio.Service
+	Live     studio.LiveView
+	Eval     eval.Starter
+	Children ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -55,6 +59,17 @@ type ControlDeps struct {
 	// ConfigExecuteMaxTimeoutSeconds is the config execute ceiling after the
 	// settings overlay, surfaced by settings/get as the UI placeholder.
 	ConfigExecuteMaxTimeoutSeconds int
+	// DefaultPermissionPreset is the named sandbox/approval bundle applied
+	// to newly created sessions.
+	DefaultPermissionPreset domain.PermissionPreset
+	// SandboxWorkspaceRoot is the live workspace root shown in Settings.
+	SandboxWorkspaceRoot string
+	// ExecuteAllowedCommands is the command allowlist shown in Settings.
+	ExecuteAllowedCommands []string
+	// ConfigSandboxDenyPrivateIPs is the production config network default.
+	ConfigSandboxDenyPrivateIPs bool
+	// ConfigSandboxAllowedDomains is the production config domain allowlist.
+	ConfigSandboxAllowedDomains []string
 	// ApplySettingsEnv applies a persisted settings document's non-secret
 	// overlays to the running process environment (VIVY_API_BASE for
 	// base_url, the active bundle's env_key for the resolved api_key). It is
@@ -65,6 +80,12 @@ type ControlDeps struct {
 	// TokenUsage provides cross-run usage aggregation for stats/tokens.
 	// Nil disables the method.
 	TokenUsage storage.TokenUsageStore
+	// Frozen is true when this process is locked to an ENV session. Provider
+	// writes are rejected and the UI is read-only for model fields.
+	Frozen bool
+	// OnSettingsChanged is invoked after a successful settings write so the
+	// composition root can invalidate the live model cache. Nil is a no-op.
+	OnSettingsChanged func()
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -163,10 +184,35 @@ type unsubscribeParams struct {
 	SubscriptionID string `json:"subscription_id"`
 }
 
+type skillGetParams struct {
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
+}
+
+type skillSummaryResult struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Context     string   `json:"context,omitempty"`
+	Agent       string   `json:"agent,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	Hash        string   `json:"hash"`
+	Warnings    []string `json:"warnings"`
+}
+
+type skillViewResult struct {
+	skillSummaryResult
+	Content         string   `json:"content"`
+	RelativePath    string   `json:"relative_path"`
+	SupportingFiles []string `json:"supporting_files"`
+}
+
 type sessionResult struct {
-	ID        domain.SessionID `json:"id"`
-	Title     string           `json:"title"`
-	CreatedAt int64            `json:"created_at"`
+	ID               domain.SessionID        `json:"id"`
+	Title            string                  `json:"title"`
+	CreatedAt        int64                   `json:"created_at"`
+	SandboxMode      domain.SandboxMode      `json:"sandbox_mode"`
+	ApprovalPolicy   domain.ApprovalPolicy   `json:"approval_policy"`
+	PermissionPreset domain.PermissionPreset `json:"permission_preset"`
 }
 
 type messageResult struct {
@@ -289,7 +335,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities": []string{
-				"session", "session.todos", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
+				"session", "session.todos", "session.set_permission", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
 				"background.recover", "background.list", "background.attach",
 				"child.start", "child.get", "child.list", "child.wait", "child.cancel",
 				"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
@@ -297,10 +343,13 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"settings.get", "settings.update",
 				"settings.providers", "settings.providers.upsert", "settings.providers.delete",
 				"stats.tokens",
+				"skills.list", "skills.get",
 			},
 		}, nil
 	case "session/create":
 		return h.createSession(ctx, request)
+	case "session/set_permission":
+		return h.setSessionPermission(ctx, request)
 	case "session/list":
 		return h.listSessions(ctx)
 	case "session/get":
@@ -392,6 +441,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteProvider(ctx, request)
 	case "stats/tokens":
 		return h.statsTokens(ctx, request)
+	case "skills/list":
+		return h.listSkills(ctx)
+	case "skills/get":
+		return h.getSkill(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
@@ -513,10 +566,58 @@ func (h *controlHandler) createSession(ctx context.Context, request Request) (an
 		params.Title = "New session"
 	}
 	session := domain.Session{ID: domain.SessionID(newControlID("sess_")), Title: params.Title, CreatedAt: nowMillis()}
+	if mode, policy, ok := h.defaultPreset().Bundle(); ok {
+		session.SandboxMode = string(mode)
+		session.ApprovalPolicy = string(policy)
+	}
 	if err := h.deps.Sessions.CreateSession(ctx, session); err != nil {
 		return nil, internalError(err)
 	}
-	return sessionResult{ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt}, nil
+	return toSessionResult(session), nil
+}
+
+func (h *controlHandler) defaultPreset() domain.PermissionPreset {
+	if h.deps.DefaultPermissionPreset.ValidSwitch() {
+		return h.deps.DefaultPermissionPreset
+	}
+	return domain.PermissionPresetSmart
+}
+
+func toSessionResult(session domain.Session) sessionResult {
+	mode, policy := session.EffectiveSandbox()
+	return sessionResult{
+		ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt,
+		SandboxMode: mode, ApprovalPolicy: policy, PermissionPreset: domain.PermissionPresetOf(mode, policy),
+	}
+}
+
+func (h *controlHandler) setSessionPermission(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID string `json:"session_id"`
+		Preset    string `json:"preset"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.SessionID == "" || params.Preset == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and preset are required"}
+	}
+	preset := domain.PermissionPreset(params.Preset)
+	mode, policy, ok := preset.Bundle()
+	if !ok {
+		return nil, &Error{Code: InvalidParams, Message: "preset must be cautious, smart, or trusted"}
+	}
+	if err := h.deps.Sessions.UpdateSandboxPolicy(ctx, domain.SessionID(params.SessionID), mode, policy); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+		}
+		return nil, internalError(err)
+	}
+	session, err := h.deps.Sessions.GetSession(ctx, domain.SessionID(params.SessionID))
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return toSessionResult(session), nil
 }
 
 func (h *controlHandler) listSessions(ctx context.Context) (any, *Error) {
@@ -526,7 +627,7 @@ func (h *controlHandler) listSessions(ctx context.Context) (any, *Error) {
 	}
 	out := make([]sessionResult, 0, len(sessions))
 	for _, session := range sessions {
-		out = append(out, sessionResult{ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt})
+		out = append(out, toSessionResult(session))
 	}
 	return map[string]any{"sessions": out}, nil
 }
@@ -552,7 +653,7 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt})
 	}
 	return map[string]any{
-		"session":  sessionResult{ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt},
+		"session":  toSessionResult(session),
 		"messages": out,
 	}, nil
 }
@@ -592,7 +693,7 @@ func (h *controlHandler) renameSession(ctx context.Context, request Request) (an
 	if err != nil {
 		return nil, internalError(err)
 	}
-	return sessionResult{ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt}, nil
+	return toSessionResult(session), nil
 }
 
 func (h *controlHandler) listMessages(ctx context.Context, request Request) (any, *Error) {
@@ -609,6 +710,66 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt})
 	}
 	return map[string]any{"messages": out}, nil
+}
+
+func (h *controlHandler) listSkills(ctx context.Context) (any, *Error) {
+	if h.deps.Skills == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills backend is not configured"}
+	}
+	items, err := h.deps.Skills.ListSkills(ctx, "")
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]skillSummaryResult, 0, len(items))
+	for _, item := range items {
+		out = append(out, toSkillSummaryResult(item))
+	}
+	return map[string]any{"skills": out}, nil
+}
+
+func (h *controlHandler) getSkill(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Skills == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills backend is not configured"}
+	}
+	var params skillGetParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.Name) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "name is required"}
+	}
+	view, err := h.deps.Skills.ViewSkill(ctx, "", params.Name, params.Path)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, &Error{Code: CodeNotFound, Message: err.Error()}
+		}
+		return nil, internalError(err)
+	}
+	return toSkillViewResult(view), nil
+}
+
+func toSkillSummaryResult(item tools.SkillSummary) skillSummaryResult {
+	warnings := item.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	return skillSummaryResult{
+		Name: item.Name, Description: item.Description, Context: item.Context,
+		Agent: item.Agent, Model: item.Model, Hash: item.Hash, Warnings: warnings,
+	}
+}
+
+func toSkillViewResult(view tools.SkillView) skillViewResult {
+	files := view.SupportingFiles
+	if files == nil {
+		files = []string{}
+	}
+	return skillViewResult{
+		skillSummaryResult: toSkillSummaryResult(view.SkillSummary),
+		Content:            view.Content,
+		RelativePath:       view.RelativePath,
+		SupportingFiles:    files,
+	}
 }
 
 func (h *controlHandler) listTodos(ctx context.Context, request Request) (any, *Error) {
@@ -1308,9 +1469,12 @@ func (h *controlHandler) inspectSpecies(ctx context.Context) (any, *Error) {
 // network tool preferences surfaced in the Settings UI. Secret values are
 // never included: only the api_key_set flag is exposed.
 type settingsResult struct {
-	// Provider is the active bundle name (openai|anthropic|mock), or empty
+	// Provider is the active bundle name (openai|anthropic), or empty
 	// when the config default applies.
 	Provider string `json:"provider"`
+	// Frozen reports an ENV-session lock. The UI must treat model fields as
+	// read-only for this process.
+	Frozen bool `json:"frozen"`
 	// DefaultModel is the selected model id, or empty for bundle default.
 	DefaultModel string `json:"default_model"`
 	// BaseURL is an optional OpenAI-compatible gateway, or empty.
@@ -1334,6 +1498,18 @@ type settingsResult struct {
 	// NetworkSearch is the network_search provider preference plus the
 	// per-provider availability (env key presence, never values).
 	NetworkSearch networkSearchSettingsResult `json:"network_search"`
+	// Sandbox is the operator-managed default permission preset and network
+	// policy, plus the live workspace root / command allowlist for display.
+	Sandbox sandboxSettingsResult `json:"sandbox"`
+}
+
+type sandboxSettingsResult struct {
+	DefaultPreset          domain.PermissionPreset `json:"default_preset"`
+	ConfigDefaultPreset    domain.PermissionPreset `json:"config_default_preset"`
+	DenyPrivateIPs         bool                    `json:"deny_private_ips"`
+	AllowedDomains         []string                `json:"allowed_domains"`
+	WorkspaceRoot          string                  `json:"workspace_root"`
+	ExecuteAllowedCommands []string                `json:"execute_allowed_commands"`
 }
 
 // networkSearchSettingsResult is the non-secret network_search section of
@@ -1368,11 +1544,13 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 		DefaultModel:   "",
 		BaseURL:        "",
 		APIKeySet:      false,
-		ReadOnly:       h.deps.SettingsPath == "",
+		Frozen:         h.deps.Frozen,
+		ReadOnly:       h.deps.SettingsPath == "" || h.deps.Frozen,
 		ConfigProvider: "",
 		ConfigModel:    "",
 	}
 	savedSearchProvider := ""
+	var savedSandbox settings.SandboxSettings
 	if h.deps.SettingsPath != "" {
 		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
 			out.Provider = s.Provider
@@ -1381,6 +1559,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
 			savedSearchProvider = s.NetworkSearch.Provider
 			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
+			savedSandbox = s.Sandbox
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
@@ -1389,12 +1568,42 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out.ConfigModel = h.deps.ConfigModel
 	out.ConfigExecuteMaxTimeoutSeconds = h.deps.ConfigExecuteMaxTimeoutSeconds
 	out.NetworkSearch = networkSearchView(savedSearchProvider, h.deps.ConfigNetworkSearchProvider)
+	out.Sandbox = h.sandboxView(savedSandbox)
 	return out, nil
+}
+
+func (h *controlHandler) sandboxView(saved settings.SandboxSettings) sandboxSettingsResult {
+	preset := h.defaultPreset()
+	if saved.DefaultPreset.ValidSwitch() {
+		preset = saved.DefaultPreset
+	}
+	denyPrivate := h.deps.ConfigSandboxDenyPrivateIPs
+	if saved.Network.DenyPrivateIPs != nil {
+		denyPrivate = *saved.Network.DenyPrivateIPs
+	}
+	domains := append([]string(nil), h.deps.ConfigSandboxAllowedDomains...)
+	if saved.Network.AllowedDomains != nil {
+		domains = append([]string(nil), saved.Network.AllowedDomains...)
+	}
+	if domains == nil {
+		domains = []string{}
+	}
+	return sandboxSettingsResult{
+		DefaultPreset:          preset,
+		ConfigDefaultPreset:    h.defaultPreset(),
+		DenyPrivateIPs:         denyPrivate,
+		AllowedDomains:         domains,
+		WorkspaceRoot:          h.deps.SandboxWorkspaceRoot,
+		ExecuteAllowedCommands: append([]string(nil), h.deps.ExecuteAllowedCommands...),
+	}
 }
 
 func (h *controlHandler) updateSettings(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
 	}
 	var params struct {
 		Provider     string `json:"provider"`
@@ -1412,6 +1621,11 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		// ExecuteMaxTimeoutSeconds overrides the execute ceiling; 0 keeps
 		// the config value.
 		ExecuteMaxTimeoutSeconds int `json:"execute_max_timeout_seconds"`
+		Sandbox                  *struct {
+			DefaultPreset  string   `json:"default_preset"`
+			DenyPrivateIPs *bool    `json:"deny_private_ips"`
+			AllowedDomains []string `json:"allowed_domains"`
+		} `json:"sandbox"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
@@ -1425,9 +1639,20 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	cur.Provider = params.Provider
 	cur.DefaultModel = params.DefaultModel
 	cur.BaseURL = params.BaseURL
-	cur.ApiKey = params.ApiKey
+	// Empty api_key on select leaves the registry / overlay keys alone.
+	// A non-empty value still writes the legacy overlay for older clients.
+	if params.ApiKey != "" {
+		cur.ApiKey = params.ApiKey
+	}
 	cur.NetworkSearch = settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider}
 	cur.ExecuteMaxTimeoutSeconds = params.ExecuteMaxTimeoutSeconds
+	if params.Sandbox != nil {
+		cur.Sandbox.DefaultPreset = domain.PermissionPreset(params.Sandbox.DefaultPreset)
+		cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
+		if params.Sandbox.AllowedDomains != nil {
+			cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+		}
+	}
 	saved, err := settings.Save(h.deps.SettingsPath, cur)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
@@ -1437,6 +1662,9 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	// process now; the startup overlay replays the same document.
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
+	}
+	if h.deps.OnSettingsChanged != nil {
+		h.deps.OnSettingsChanged()
 	}
 	_ = ctx
 	// Echo the config fallbacks too so the UI keeps its display values
@@ -1448,11 +1676,13 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		BaseURL:                        saved.BaseURL,
 		APIKeySet:                      settingsActiveKey(saved, saved.Provider, saved.BaseURL),
 		ExecuteMaxTimeoutSeconds:       saved.ExecuteMaxTimeoutSeconds,
-		ReadOnly:                       false,
+		Frozen:                         h.deps.Frozen,
+		ReadOnly:                       h.deps.Frozen,
 		ConfigProvider:                 h.deps.ConfigProvider,
 		ConfigModel:                    h.deps.ConfigModel,
 		ConfigExecuteMaxTimeoutSeconds: h.deps.ConfigExecuteMaxTimeoutSeconds,
 		NetworkSearch:                  networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
+		Sandbox:                        h.sandboxView(saved.Sandbox),
 	}, nil
 }
 
@@ -1488,6 +1718,7 @@ type providersResult struct {
 	ActiveModel    string                `json:"active_model"`
 	ActiveBaseURL  string                `json:"active_base_url"`
 	ReadOnly       bool                  `json:"read_only"`
+	Frozen         bool                  `json:"frozen"`
 	ConfigProvider string                `json:"config_provider"`
 	ConfigModel    string                `json:"config_model"`
 }
@@ -1502,7 +1733,8 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 		ActiveProvider: s.Provider,
 		ActiveModel:    s.DefaultModel,
 		ActiveBaseURL:  s.BaseURL,
-		ReadOnly:       h.deps.SettingsPath == "",
+		ReadOnly:       h.deps.SettingsPath == "" || h.deps.Frozen,
+		Frozen:         h.deps.Frozen,
 		ConfigProvider: h.deps.ConfigProvider,
 		ConfigModel:    h.deps.ConfigModel,
 	}
@@ -1535,6 +1767,9 @@ func (h *controlHandler) listProviders(ctx context.Context) (any, *Error) {
 func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
 	}
 	var params struct {
 		ID           string   `json:"id"`
@@ -1573,6 +1808,9 @@ func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (a
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
 	}
+	if h.deps.OnSettingsChanged != nil {
+		h.deps.OnSettingsChanged()
+	}
 	_ = ctx
 	// Echo back the redacted saved entry so the UI can confirm the result.
 	for _, e := range saved.Providers {
@@ -1590,6 +1828,9 @@ func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (a
 func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
 	}
 	var params struct {
 		ID string `json:"id"`
@@ -1620,6 +1861,9 @@ func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (a
 	}
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
+	}
+	if h.deps.OnSettingsChanged != nil {
+		h.deps.OnSettingsChanged()
 	}
 	_ = ctx
 	return map[string]any{"deleted": true, "id": params.ID}, nil

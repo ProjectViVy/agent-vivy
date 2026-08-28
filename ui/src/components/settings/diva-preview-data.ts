@@ -2,10 +2,10 @@
 // 'compaction' 已并入通用分区（DivaSettingsPreview 的 GeneralPreview），不再是独立设置分区。
 // 'network' 已升级为真实设置分区（NetworkToolsCard + settings/get|update），不再是迁移预览。
 // 'channels' 已升级为真实设置分区（ChannelsSettings + channel-store），不再是迁移预览。
+// 'sandbox' 已升级为真实设置分区（SandboxSettingsCard + settings/get|update），不再是迁移预览。
 export const DIVA_PREVIEW_SECTIONS = [
   'general',
   'self-evolution',
-  'sandbox',
 ] as const;
 
 export type DivaPreviewSection = (typeof DIVA_PREVIEW_SECTIONS)[number];
