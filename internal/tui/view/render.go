@@ -10,52 +10,96 @@ import (
 	"agent-vivy/internal/tui/demo"
 )
 
+const headerDiag = "╱"
+
 func (m Model) renderFrame() string {
 	l := computeLayout(m.width, m.height)
 	p := m.palette
 
-	header := m.renderHeader(l, p)
-	body := m.renderBody(l, p)
-	editor := m.renderEditor(l, p)
-	status := m.renderStatus(l, p)
+	var app string
+	if l.showSidebar {
+		app = m.renderWide(l, p)
+	} else {
+		app = m.renderCompact(l, p)
+	}
+	help := m.renderHelp(l, p)
 
-	frame := lipgloss.JoinVertical(lipgloss.Left, header, body, editor, status)
+	// Outer vertical: top margin + app + help (Crush helpRect under appRect).
+	topPad := strings.Repeat(" ", l.width)
+	frame := lipgloss.JoinVertical(lipgloss.Left, topPad, app, help)
+	// Ensure exact height by padding/truncating.
+	frame = fitHeight(frame, l.width, l.height)
+
 	if gate := m.store.PendingGate(); gate != nil {
 		return placeOverlay(frame, m.renderDialog(gate, l, p), l.width, l.height)
 	}
 	return frame
 }
 
-func (m Model) renderHeader(l layout, p Palette) string {
-	session := m.store.Active()
-	line := fmt.Sprintf(" vivy tui · demo · %s %s", session.ID, session.Title)
-	return p.Header.Width(l.width).MaxWidth(l.width).Render(truncate(line, l.width))
+func (m Model) renderWide(l layout, p Palette) string {
+	// Crush: main stack (chat + editor) | sidebar
+	chat := m.renderChat(l.mainW(), l.mainH(), p)
+	editor := m.renderEditor(l.mainW(), p)
+	mainCol := lipgloss.JoinVertical(lipgloss.Left, chat, "", editor)
+	side := m.renderSidebar(l.sidebarW, lipgloss.Height(mainCol), p)
+	gap := lipgloss.NewStyle().Width(1).Height(lipgloss.Height(mainCol)).Render(" ")
+	row := lipgloss.JoinHorizontal(lipgloss.Top, mainCol, gap, side)
+	return padHorizontal(row, l.marginX, l.width)
 }
 
-func (m Model) renderBody(l layout, p Palette) string {
-	main := m.renderChat(l.mainW(), l.mainH(), p)
-	if !l.showSidebar {
-		return main
-	}
-	side := m.renderSidebar(l.sidebarW, l.mainH(), p)
-	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
+func (m Model) renderCompact(l layout, p Palette) string {
+	header := m.renderCompactHeader(l, p)
+	chat := m.renderChat(l.innerW(), l.mainH(), p)
+	editor := m.renderEditor(l.innerW(), p)
+	col := lipgloss.JoinVertical(lipgloss.Left, header, "", chat, "", editor)
+	return padHorizontal(col, l.marginX, l.width)
+}
+
+func (m Model) renderCompactHeader(l layout, p Palette) string {
+	session := m.store.Active()
+	logo := p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY") + " "
+	meta := p.HeaderMeta.Render(fmt.Sprintf("demo · %s", session.Title))
+	used := lipgloss.Width(logo) + lipgloss.Width(meta) + 1
+	diags := max(3, l.innerW()-used)
+	mid := p.Diagonals.Render(strings.Repeat(headerDiag, diags))
+	line := logo + mid + " " + meta
+	return truncate(line, l.innerW())
 }
 
 func (m Model) renderSidebar(width, height int, p Palette) string {
 	var b strings.Builder
-	b.WriteString(p.Dim.Render(" 会话"))
+	// Crush: fixed logo on top of sidebar.
+	b.WriteString(p.SidebarLogo.Render(" Vivy"))
+	b.WriteByte('\n')
+	b.WriteString(p.Dim.Render(" ─────────────"))
+	b.WriteByte('\n')
+	b.WriteString(p.Dim.Render(" Sessions"))
 	b.WriteByte('\n')
 	for _, session := range m.store.Sessions {
-		mark := " "
+		mark := "  "
 		style := p.Idle
 		if session.ID == m.store.ActiveID {
-			mark = "*"
+			mark = "▸ "
 			style = p.Active
 		}
-		line := fmt.Sprintf("%s %s", mark, session.Title)
+		line := mark + session.Title
+		preset := session.PermissionPreset
+		if preset != "" {
+			line = truncate(line, width-2)
+			// second line subtle id/preset
+			b.WriteString(style.Render(truncate(line, width-1)))
+			b.WriteByte('\n')
+			b.WriteString(p.Dim.Render(truncate("  "+preset, width-1)))
+			b.WriteByte('\n')
+			continue
+		}
 		b.WriteString(style.Render(truncate(line, width-1)))
 		b.WriteByte('\n')
 	}
+	b.WriteByte('\n')
+	b.WriteString(p.Dim.Render(" mock"))
+	b.WriteByte('\n')
+	b.WriteString(p.Dim.Render(" not connected"))
 	box := strings.TrimRight(b.String(), "\n")
 	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
 }
@@ -64,14 +108,17 @@ func (m Model) renderChat(width, height int, p Palette) string {
 	messages := m.store.ActiveMessages()
 	var lines []string
 	if len(messages) == 0 {
-		lines = append(lines, p.Dim.Render(" 寻找真心之旅"), p.Dim.Render(" （demo 空会话）"))
+		lines = append(lines,
+			p.Dim.Render(""),
+			p.LogoWord.Render(" 寻找真心之旅"),
+			p.Dim.Render(" demo empty session · type to draft"),
+		)
 	}
 	for _, message := range messages {
 		lines = append(lines, renderMessage(message, width, p)...)
 		lines = append(lines, "")
 	}
 	content := strings.Join(trimTrailingEmpty(lines), "\n")
-	// Keep the bottom of the transcript visible.
 	content = tailBlock(content, height)
 	return p.Chat.Width(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
 }
@@ -80,31 +127,42 @@ func renderMessage(message demo.Message, width int, p Palette) []string {
 	if message.Tool != nil {
 		return renderTool(message.Tool, width, p)
 	}
-	role := message.Role
+	bar := p.AsstBar.Render("┃ ")
 	style := p.Assistant
-	prefix := "vivy"
+	label := ""
 	switch message.Role {
 	case string(domain.RoleUser):
+		bar = p.UserBar.Render("┃ ")
 		style = p.User
-		prefix = "you"
 	case string(domain.RoleAssistant):
-		prefix = "vivy"
+		// Crush assistant often omits a loud "assistant:" prefix; keep content.
+		label = ""
 	}
-	_ = role
-	wrapped := wrapText(prefix+": "+message.Content, width-1)
+	text := message.Content
+	if label != "" {
+		text = label + text
+	}
+	wrapped := wrapText(text, max(8, width-3))
 	out := make([]string, 0, len(wrapped))
 	for _, line := range wrapped {
-		out = append(out, style.Render(line))
+		out = append(out, bar+style.Render(line))
 	}
 	return out
 }
 
 func renderTool(tool *demo.ToolCard, width int, p Palette) []string {
 	style := p.Tool
-	if tool.Status == "pending" {
+	icon := "●"
+	switch tool.Status {
+	case "pending":
 		style = p.ToolPend
+		icon = "◉"
+	case "done":
+		icon = p.ToolOK.Render("✔")
+	case "denied", "failed":
+		icon = "✖"
 	}
-	title := fmt.Sprintf("tool %s  %s", tool.ToolName, tool.Status)
+	title := fmt.Sprintf("%s %s  %s", icon, tool.ToolName, tool.Status)
 	body := tool.Preview
 	if tool.Status != "pending" && tool.Result != "" {
 		body = tool.Result
@@ -113,32 +171,87 @@ func renderTool(tool *demo.ToolCard, width int, p Palette) []string {
 	if body != "" {
 		inner = title + "\n" + body
 	}
-	box := style.Width(min(width-2, 60)).Render(inner)
-	return strings.Split(box, "\n")
+	boxW := min(width-4, 56)
+	box := style.Width(boxW).Render(inner)
+	// Indent tool cards under the message gutter.
+	indented := make([]string, 0)
+	for _, line := range strings.Split(box, "\n") {
+		indented = append(indented, "  "+line)
+	}
+	return indented
 }
 
-func (m Model) renderEditor(l layout, p Palette) string {
-	prompt := " you> "
-	if m.store.PendingGate() != nil {
-		prompt = " approve? [y/n] "
+func (m Model) renderEditor(width int, p Palette) string {
+	gate := m.store.PendingGate()
+	var prompt string
+	if gate != nil {
+		prompt = p.PromptWarn.Render(" ! ") + p.Prompt.Render("::: ")
+	} else {
+		prompt = p.Prompt.Render("::: ")
 	}
 	line := prompt + m.input
-	border := strings.Repeat("─", max(1, l.width))
-	return p.Editor.Width(l.width).Render(border + "\n" + truncate(line, l.width) + "\n" + border)
+	// Crush editor sits without a heavy double rule; a single subtle rule above.
+	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
+	cursor := p.Dim.Render("█")
+	if gate != nil {
+		cursor = ""
+	}
+	return p.Editor.Width(width).Render(rule + "\n" + truncate(line+cursor, width))
 }
 
-func (m Model) renderStatus(l layout, p Palette) string {
-	text := " mock · not connected · tab 切会话 · enter 假回复 · y/n 审批 · ctrl+c 退出"
-	return p.Status.Width(l.width).Render(truncate(text, l.width))
+func (m Model) renderHelp(l layout, p Palette) string {
+	// Crush bottom help: key + desc pairs.
+	parts := []string{
+		p.HelpKey.Render("tab") + p.HelpDesc.Render(" sessions"),
+		p.HelpKey.Render("enter") + p.HelpDesc.Render(" send"),
+		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" approve"),
+		p.HelpKey.Render("^n") + p.HelpDesc.Render(" new"),
+		p.HelpKey.Render("^c") + p.HelpDesc.Render(" quit"),
+		p.HelpDesc.Render("· mock · not connected"),
+	}
+	line := " " + strings.Join(parts, p.HelpDesc.Render("  "))
+	return p.Status.Width(l.width).Render(truncate(line, l.width))
 }
 
 func (m Model) renderDialog(gate *demo.Gate, l layout, p Palette) string {
-	title := p.DialogTitle.Render("approval · " + gate.Title)
+	title := p.DialogTitle.Render("permission  ·  " + gate.Title)
 	body := p.Chat.Render(gate.Body)
-	help := p.Dim.Render("y 批准   n 拒绝   esc 关闭")
+	help := p.Dim.Render("y approve    n deny")
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", help)
-	w := min(l.width-4, 64)
+	w := min(l.width-6, 64)
 	return p.Dialog.Width(w).Render(inner)
+}
+
+func padHorizontal(content string, margin, totalWidth int) string {
+	if margin <= 0 {
+		return content
+	}
+	pad := strings.Repeat(" ", margin)
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lines[i] = pad + line
+		// right pad to total width
+		w := lipgloss.Width(lines[i])
+		if w < totalWidth {
+			lines[i] += strings.Repeat(" ", totalWidth-w)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func fitHeight(content string, width, height int) string {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, height)
+	for _, line := range lines {
+		out = append(out, padRight(truncate(line, width), width))
+		if len(out) == height {
+			break
+		}
+	}
+	for len(out) < height {
+		out = append(out, strings.Repeat(" ", width))
+	}
+	return strings.Join(out, "\n")
 }
 
 func placeOverlay(base, overlay string, width, height int) string {
@@ -164,7 +277,6 @@ func placeOverlay(base, overlay string, width, height int) string {
 }
 
 func overlayLine(base, over string, col, width int) string {
-	// Strip styles for placement math; keep overlay styled chunk spliced by padding.
 	plain := stripForPad(base)
 	if len([]rune(plain)) < width {
 		plain += strings.Repeat(" ", width-len([]rune(plain)))
@@ -174,11 +286,10 @@ func overlayLine(base, over string, col, width int) string {
 	for i := 0; i < len(or) && col+i < len(runes); i++ {
 		runes[col+i] = or[i]
 	}
-	// Prefer showing the styled overlay row when it fits; otherwise plain splice.
 	if col == 0 && lipgloss.Width(over) >= width {
 		return over
 	}
-	left := string(runes[:col])
+	left := string(runes[:min(col, len(runes))])
 	rightStart := col + lipgloss.Width(over)
 	right := ""
 	if rightStart < len(runes) {
@@ -277,10 +388,9 @@ func truncate(s string, width int) string {
 	}
 	runes := []rune(s)
 	if width <= 1 {
-		return string(runes[:1])
+		return "…"
 	}
-	// Approximate: cut runes then rely on lipgloss width.
-	for len(runes) > 0 && lipgloss.Width(string(runes)) > width-1 {
+	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
 		runes = runes[:len(runes)-1]
 	}
 	return string(runes) + "…"

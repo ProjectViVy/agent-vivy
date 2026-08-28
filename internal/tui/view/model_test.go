@@ -9,23 +9,29 @@ import (
 	"agent-vivy/internal/tui/demo"
 )
 
-func TestViewContainsSkeletonRegions(t *testing.T) {
+func TestViewContainsCrushSkeleton(t *testing.T) {
 	m := New(demo.NewStore())
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = updated.(Model)
 	got := m.View()
 	for _, want := range []string{
-		"vivy tui · demo",
+		"Vivy",     // sidebar logo
+		"Sessions", // sidebar section
 		"审批中",
 		"过夜",
 		"write_file",
-		"mock · not connected",
-		"approve? [y/n]",
-		"y 批准",
+		":::", // Crush editor prompt
+		"tab", // help keys
+		"mock",
+		"permission", // overlay title
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in view:\n%s", want, got)
 		}
+	}
+	// Wide layout: no top "vivy tui · demo" strip; logo is in the sidebar.
+	if strings.Contains(got, "vivy tui · demo") {
+		t.Fatalf("wide mode should not use the old top banner:\n%s", got)
 	}
 }
 
@@ -46,17 +52,23 @@ func TestApprovalKeyClearsGate(t *testing.T) {
 	}
 }
 
-func TestNarrowHidesSidebarLabelStillShowsHeader(t *testing.T) {
+func TestCompactHeaderHasDiagonals(t *testing.T) {
 	m := New(demo.NewStore())
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 	got := m.View()
-	if !strings.Contains(got, "vivy tui · demo") {
-		t.Fatalf("header missing:\n%s", got)
+	if !strings.Contains(got, "VIVY") {
+		t.Fatalf("compact logo missing:\n%s", got)
 	}
-	// Sidebar title is omitted when width < breakpoint; session name stays in header.
+	if !strings.Contains(got, "╱") {
+		t.Fatalf("compact header diagonals missing:\n%s", got)
+	}
 	if !strings.Contains(got, "审批中") {
-		t.Fatalf("active session title missing from header path:\n%s", got)
+		t.Fatalf("active session title missing:\n%s", got)
+	}
+	// Compact: no Sessions sidebar label.
+	if strings.Contains(got, "Sessions") {
+		t.Fatalf("compact should hide sidebar:\n%s", got)
 	}
 }
 
@@ -75,5 +87,20 @@ func TestEnterAppendsDemoReply(t *testing.T) {
 	got := m.View()
 	if !strings.Contains(got, "hi") || !strings.Contains(got, "未接控制面") {
 		t.Fatalf("demo reply missing:\n%s", got)
+	}
+}
+
+func TestEditorUsesCrushPrompt(t *testing.T) {
+	store := demo.NewStore()
+	store.SelectSession("sess_empty")
+	m := New(store)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = updated.(Model)
+	got := m.View()
+	if !strings.Contains(got, ":::") {
+		t.Fatalf("missing crush ::: prompt:\n%s", got)
+	}
+	if strings.Contains(got, "you>") {
+		t.Fatalf("old you> prompt should be gone:\n%s", got)
 	}
 }

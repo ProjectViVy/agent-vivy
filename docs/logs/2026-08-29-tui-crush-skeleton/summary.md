@@ -19,6 +19,18 @@ by deterministic mock data. No gateway dial, no second kernel, no packed
 - Charm deps: `bubbletea`, `lipgloss` (no Crush / `charm.land` fork).
 - Board: `FACE-TUI-2` for wiring the real `Client` next.
 
+## Geometry pass (same day)
+
+Aligned the shell chrome with Crush chat layout (not a source port):
+
+- **Wide:** chat+editor left, **sidebar right** (width 32), logo in sidebar —
+  no top banner strip.
+- **Compact:** `Vivy™ VIVY` + `╱` diagonals + session title header; no sidebar.
+- **Editor:** Crush `::: ` success prompt; pending gate uses ` ! ` chip.
+- **Messages:** left gutter bar `┃` (user blue / assistant violet).
+- **Help:** bottom key+desc row (`tab` `enter` `y/n` `^n` `^c`).
+- **Tools:** normal-border cards, pending/done/denied icons.
+
 ## How to try
 
 ```text
