@@ -1,5 +1,62 @@
 package domain
 
+// PermissionPreset is the product-facing bundle of sandbox mode plus
+// approval policy. Chat and Settings switch these three names; the
+// runtime still enforces the two knobs independently.
+type PermissionPreset string
+
+const (
+	// PermissionPresetCautious is read-only sandbox; effectful tools still ask.
+	PermissionPresetCautious PermissionPreset = "cautious"
+	// PermissionPresetSmart is workspace-write sandbox; effectful tools still ask.
+	PermissionPresetSmart PermissionPreset = "smart"
+	// PermissionPresetTrusted is unconfined sandbox with auto-approve
+	// for readonly and allowlisted tools.
+	PermissionPresetTrusted PermissionPreset = "trusted"
+	// PermissionPresetCustom is derived when the two knobs do not match
+	// a named preset. It is display-only and never a switch target.
+	PermissionPresetCustom PermissionPreset = "custom"
+)
+
+// ValidSwitch reports whether the preset may be written by the user.
+func (p PermissionPreset) ValidSwitch() bool {
+	switch p {
+	case PermissionPresetCautious, PermissionPresetSmart, PermissionPresetTrusted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Bundle returns the sandbox mode and approval policy this preset writes.
+func (p PermissionPreset) Bundle() (SandboxMode, ApprovalPolicy, bool) {
+	switch p {
+	case PermissionPresetCautious:
+		return SandboxModeReadOnly, ApprovalPolicyAsk, true
+	case PermissionPresetSmart:
+		return SandboxModeWorkspaceWrite, ApprovalPolicyAsk, true
+	case PermissionPresetTrusted:
+		return SandboxModeDangerFullAccess, ApprovalPolicyAuto, true
+	default:
+		return "", "", false
+	}
+}
+
+// PermissionPresetOf derives the named preset from the two knobs.
+// Unmatched combinations are custom.
+func PermissionPresetOf(mode SandboxMode, policy ApprovalPolicy) PermissionPreset {
+	switch {
+	case mode == SandboxModeReadOnly && policy == ApprovalPolicyAsk:
+		return PermissionPresetCautious
+	case mode == SandboxModeWorkspaceWrite && policy == ApprovalPolicyAsk:
+		return PermissionPresetSmart
+	case mode == SandboxModeDangerFullAccess && policy == ApprovalPolicyAuto:
+		return PermissionPresetTrusted
+	default:
+		return PermissionPresetCustom
+	}
+}
+
 // SandboxMode governs filesystem and command effects for a session.
 // It mirrors the DeepSeek Harness three-tier permission model:
 // read-only denies writes, workspace-write permits writes under the

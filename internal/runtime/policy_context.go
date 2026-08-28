@@ -10,6 +10,8 @@ type runIDContextKey struct{}
 type sessionIDContextKey struct{}
 type policyProfileContextKey struct{}
 type policySnapshotContextKey struct{}
+type sandboxModeContextKey struct{}
+type approvalPolicyContextKey struct{}
 
 func withRunID(ctx context.Context, runID domain.RunID) context.Context {
 	return context.WithValue(ctx, runIDContextKey{}, runID)
@@ -51,4 +53,32 @@ func withPolicySnapshot(ctx context.Context, snapshot domain.PolicySnapshot) con
 func policySnapshot(ctx context.Context) domain.PolicySnapshot {
 	snapshot, _ := ctx.Value(policySnapshotContextKey{}).(domain.PolicySnapshot)
 	return snapshot
+}
+
+func withSandboxMode(ctx context.Context, mode domain.SandboxMode) context.Context {
+	return context.WithValue(ctx, sandboxModeContextKey{}, mode)
+}
+
+func sandboxMode(ctx context.Context) domain.SandboxMode {
+	mode, ok := ctx.Value(sandboxModeContextKey{}).(domain.SandboxMode)
+	if ok && mode.Valid() {
+		return mode
+	}
+	return ""
+}
+
+func withApprovalPolicy(ctx context.Context, policy domain.ApprovalPolicy) context.Context {
+	return context.WithValue(ctx, approvalPolicyContextKey{}, policy)
+}
+
+func approvalPolicy(ctx context.Context) domain.ApprovalPolicy {
+	policy, _ := ctx.Value(approvalPolicyContextKey{}).(domain.ApprovalPolicy)
+	if policy.Valid() {
+		return policy
+	}
+	return domain.ApprovalPolicyAsk
+}
+
+func withSessionSandbox(ctx context.Context, mode domain.SandboxMode, policy domain.ApprovalPolicy) context.Context {
+	return withApprovalPolicy(withSandboxMode(ctx, mode), policy)
 }

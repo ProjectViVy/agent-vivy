@@ -83,6 +83,9 @@ func TestValidateRejectsBadProvider(t *testing.T) {
 	if err := (Settings{Provider: "banana"}).Validate(); err == nil {
 		t.Fatal("expected error for unsupported provider")
 	}
+	if err := (Settings{Provider: ProviderMock}).Validate(); err == nil {
+		t.Fatal("expected error for mock provider")
+	}
 }
 
 func TestValidateRejectsModelWithoutProvider(t *testing.T) {
@@ -173,6 +176,28 @@ func TestSaveAndLoadExecuteMaxTimeout(t *testing.T) {
 	}
 	if _, err := Save(path, Settings{ExecuteMaxTimeoutSeconds: 601}); err == nil {
 		t.Fatal("expected save to reject execute_max_timeout_seconds above hard cap")
+	}
+}
+
+func TestSaveAndLoadSandboxPreset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	deny := false
+	saved, err := Save(path, Settings{Sandbox: SandboxSettings{
+		DefaultPreset: "cautious",
+		Network:       SandboxNetworkSettings{DenyPrivateIPs: &deny, AllowedDomains: []string{"example.com"}},
+	}})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Sandbox.DefaultPreset != "cautious" || loaded.Sandbox.Network.DenyPrivateIPs == nil || *loaded.Sandbox.Network.DenyPrivateIPs {
+		t.Fatalf("sandbox round trip = %+v saved %+v", loaded.Sandbox, saved.Sandbox)
+	}
+	if err := (Settings{Sandbox: SandboxSettings{DefaultPreset: "custom"}}).Validate(); err == nil {
+		t.Fatal("custom preset must be rejected")
 	}
 }
 

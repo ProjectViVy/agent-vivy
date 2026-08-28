@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -139,6 +140,28 @@ func TestControlHandlerUsesVersionedSnakeCaseContracts(t *testing.T) {
 	}
 	if session.ID == "" || session.Title != "RPC" {
 		t.Fatalf("session = %+v", session)
+	}
+	if session.PermissionPreset != domain.PermissionPresetSmart || session.SandboxMode != domain.SandboxModeWorkspaceWrite {
+		t.Fatalf("new session sandbox = %+v", session)
+	}
+
+	switched, rpcErr := callControl(t, env.handler, "session/set_permission", map[string]string{
+		"session_id": string(session.ID), "preset": "cautious",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	switchedJSON, _ := json.Marshal(switched)
+	if err := json.Unmarshal(switchedJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.PermissionPreset != domain.PermissionPresetCautious || session.SandboxMode != domain.SandboxModeReadOnly {
+		t.Fatalf("switched session = %+v", session)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/set_permission", map[string]string{
+		"session_id": string(session.ID), "preset": "custom",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("custom preset error = %v", rpcErr)
 	}
 
 	preflight, rpcErr := callControl(t, env.handler, "preflight/run", map[string]string{
@@ -501,10 +524,12 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "mock",
-		ConfigModel:                    "mock",
+		ConfigProvider:                 "openai",
+		ConfigModel:                    "gpt-4o-mini",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
+		DefaultPermissionPreset:        domain.PermissionPresetSmart,
+		ConfigSandboxDenyPrivateIPs:    true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -534,8 +559,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ReadOnly {
 		t.Fatal("settings should be writable when path is configured")
 	}
-	if get.ConfigProvider != "mock" {
-		t.Fatalf("config_provider = %q, want mock", get.ConfigProvider)
+	if get.ConfigProvider != "openai" {
+		t.Fatalf("config_provider = %q, want openai", get.ConfigProvider)
 	}
 
 	// Invalid update is rejected (bad provider).
@@ -586,6 +611,9 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ConfigExecuteMaxTimeoutSeconds != 30 {
 		t.Fatalf("config_execute_max_timeout_seconds = %d, want 30", get.ConfigExecuteMaxTimeoutSeconds)
 	}
+	if get.Sandbox.DefaultPreset != domain.PermissionPresetSmart || !get.Sandbox.DenyPrivateIPs {
+		t.Fatalf("sandbox defaults = %+v", get.Sandbox)
+	}
 
 	// Update with an api_key overlay: the flag is set but the value is
 	// never echoed back (settingsResult has no key field; JSON must too).
@@ -613,9 +641,9 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Fatalf("settings result leaked api_key value: %s", body)
 	}
 
-	// Update without api_key clears the overlay (wholesale overwrite).
+	// Update without api_key keeps the overlay; select does not clear keys.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider": "mock",
+		"provider": "openai",
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -624,8 +652,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	get = result.(settingsResult)
-	if get.APIKeySet {
-		t.Fatal("api_key_set should be false after a keyless update")
+	if !get.APIKeySet {
+		t.Fatal("api_key_set should stay true when select omits api_key")
 	}
 
 	// Execute ceiling: override persisted and echoed with the config
@@ -647,7 +675,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ExecuteMaxTimeoutSeconds != 300 {
 		t.Fatalf("execute_max_timeout_seconds not persisted: %+v", get)
 	}
-	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "mock" || get.ConfigModel != "mock" {
+	if get.ConfigExecuteMaxTimeoutSeconds != 30 || get.ConfigProvider != "openai" || get.ConfigModel != "gpt-4o-mini" {
 		t.Fatalf("update echo must include config fallbacks: %+v", get)
 	}
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
@@ -668,13 +696,13 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	// next get echoes it back alongside the config default. An unsupported
 	// provider is rejected (validation) without overwriting the saved one.
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":       "mock",
+		"provider":       "openai",
 		"network_search": map[string]any{"provider": "searxng"},
 	}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
-		"provider":       "mock",
+		"provider":       "openai",
 		"network_search": map[string]any{"provider": "yandex"},
 	}); rpcErr == nil {
 		t.Fatal("expected unsupported network_search provider to be rejected")
@@ -710,8 +738,7 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 }
 
 // newSettingsHandlerEnv builds a control handler with a writable settings
-// document under a temp dir and an ApplySettingsEnv probe recording applied
-// settings for write-through assertions.
+// document under a temp dir and an OnSettingsChanged probe.
 func newSettingsHandlerEnv(t *testing.T, probe *settingsApplierProbe) (*controlTestEnv, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -740,13 +767,13 @@ func newSettingsHandlerEnv(t *testing.T, probe *settingsApplierProbe) (*controlT
 		Approvals: backend, Questions: backend, Bus: bus, Service: service,
 		Studio:                         studio.NewService(backend),
 		SettingsPath:                   settingsPath,
-		ConfigProvider:                 "mock",
-		ConfigModel:                    "mock",
+		ConfigProvider:                 "openai",
+		ConfigModel:                    "gpt-4o-mini",
 		ConfigNetworkSearchProvider:    "duckduckgo",
 		ConfigExecuteMaxTimeoutSeconds: 30,
 	}
 	if probe != nil {
-		deps.ApplySettingsEnv = func(s settings.Settings) { probe.applied = append(probe.applied, s) }
+		deps.OnSettingsChanged = func() { probe.n++ }
 	}
 	handler, err := NewControlHandler(deps)
 	if err != nil {
@@ -756,7 +783,7 @@ func newSettingsHandlerEnv(t *testing.T, probe *settingsApplierProbe) (*controlT
 }
 
 type settingsApplierProbe struct {
-	applied []settings.Settings
+	n int
 }
 
 func TestProviderRegistryRPC(t *testing.T) {
@@ -771,7 +798,7 @@ func TestProviderRegistryRPC(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	view := result.(providersResult)
-	if len(view.Entries) != 0 || view.ConfigProvider != "mock" || view.ReadOnly {
+	if len(view.Entries) != 0 || view.ConfigProvider != "openai" || view.ReadOnly {
 		t.Fatalf("empty registry view = %+v", view)
 	}
 
@@ -806,8 +833,8 @@ func TestProviderRegistryRPC(t *testing.T) {
 	}
 	// Write-through applied the document to the env probe (key is inactive
 	// so no env change, but the applier still saw the saved doc).
-	if len(probe.applied) != 1 {
-		t.Fatalf("ApplySettingsEnv calls = %d, want 1", len(probe.applied))
+	if probe.n != 1 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 1", probe.n)
 	}
 
 	// List now reports the redacted entry.
@@ -854,8 +881,8 @@ func TestProviderRegistryRPC(t *testing.T) {
 	if len(view.Entries) != 0 {
 		t.Fatalf("registry after delete = %+v", view)
 	}
-	if len(probe.applied) != 2 {
-		t.Fatalf("ApplySettingsEnv calls = %d, want 2 (upsert + delete; rejected upserts are no-ops)", len(probe.applied))
+	if probe.n != 2 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 2 (upsert + delete; rejected upserts are no-ops)", probe.n)
 	}
 
 	// Deleting a missing entry is a not-found error.
@@ -905,12 +932,8 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 		t.Fatalf("active key resolution = %q, want sk-entry", key)
 	}
 	// The write-through env probe saw a doc whose active key resolves.
-	if len(probe.applied) != 2 {
-		t.Fatalf("ApplySettingsEnv calls = %d, want 2", len(probe.applied))
-	}
-	last := probe.applied[len(probe.applied)-1]
-	if settings.ActiveKey(last, last.Provider, last.BaseURL) != "sk-entry" {
-		t.Fatalf("applied settings must resolve the registry key, got %+v", last)
+	if probe.n != 2 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 2", probe.n)
 	}
 }
 
@@ -1001,5 +1024,99 @@ func TestControlHandlerListsSessionTodos(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, unwired, "session/todos", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != MethodNotFound {
 		t.Fatalf("unwired todos error = %v", rpcErr)
+	}
+}
+
+func TestControlHandlerSkillsCatalog(t *testing.T) {
+	env := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, env.handler, "skills/list", nil); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("unwired skills list error = %v", rpcErr)
+	}
+
+	root := filepath.Join(t.TempDir(), "skills")
+	dir := filepath.Join(root, "demo-skill")
+	if err := os.MkdirAll(filepath.Join(dir, "references"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	doc := "---\nname: demo-skill\ndescription: A test skill\n---\n\nUse this carefully.\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "references", "guide.md"), []byte("reference content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend, err := runtime.NewEinoSkillBackend(root, env.backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wired, err := NewControlHandler(ControlDeps{
+		Sessions: env.backend, Messages: env.backend, Runs: env.backend, Journal: env.backend,
+		Approvals: env.backend, Questions: env.backend, Todos: env.backend, Skills: backend,
+		Bus: events.NewBus(8), Service: runtime.NewService(nil, "mock", "mock", runtime.ServiceDeps{
+			Journal: env.backend, Runs: env.backend, Messages: env.backend, Approvals: env.backend, Questions: env.backend, Sink: events.NewBus(8),
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listed, rpcErr := callControl(t, wired, "skills/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, _ := json.Marshal(listed)
+	var catalog struct {
+		Skills []skillSummaryResult `json:"skills"`
+	}
+	if err := json.Unmarshal(listedJSON, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Skills) != 1 || catalog.Skills[0].Name != "demo-skill" || catalog.Skills[0].Hash == "" {
+		t.Fatalf("skills = %+v", catalog.Skills)
+	}
+
+	viewed, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "demo-skill"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	viewedJSON, _ := json.Marshal(viewed)
+	var view skillViewResult
+	if err := json.Unmarshal(viewedJSON, &view); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(view.Content, "Use this carefully") || view.RelativePath != "SKILL.md" {
+		t.Fatalf("skill view = %+v", view)
+	}
+
+	ref, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "demo-skill", "path": "references/guide.md"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	refJSON, _ := json.Marshal(ref)
+	var refView skillViewResult
+	if err := json.Unmarshal(refJSON, &refView); err != nil {
+		t.Fatal(err)
+	}
+	if refView.Content != "reference content" {
+		t.Fatalf("supporting view = %+v", refView)
+	}
+
+	if _, rpcErr := callControl(t, wired, "skills/get", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing name error = %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "demo-skill", "path": "../SKILL.md"}); rpcErr == nil {
+		t.Fatal("path traversal should fail")
+	}
+	if _, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("missing skill error = %v", rpcErr)
+	}
+
+	initResult, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(initResult)
+	if !containsFold(string(raw), "skills.list") || !containsFold(string(raw), "skills.get") {
+		t.Fatalf("skills capabilities not advertised: %s", raw)
 	}
 }
