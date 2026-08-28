@@ -103,8 +103,9 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await expect(page.getByText('没有匹配的记忆')).toBeVisible();
   await page.getByRole('link', { name: 'MCP' }).click();
   await expect(page.getByRole('heading', { name: 'MCP 服务' })).toBeVisible();
-  await page.getByRole('switch', { name: 'Browser Tools 启用状态' }).click();
-  await expect(page.getByRole('switch', { name: 'Browser Tools 启用状态' })).toBeChecked();
+  await expect(page.getByText('尚未配置 MCP 服务')).toBeVisible();
+  await expect(page.locator('main strong', { hasText: '演示 / 本地模拟' })).toHaveCount(0);
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('vivy.demo.mcp')))).toEqual([]);
 
   await page.getByRole('link', { name: '记事本' }).click();
   const demoBanner = page.locator('main strong', { hasText: '演示 / 本地模拟' });

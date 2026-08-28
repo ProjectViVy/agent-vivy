@@ -11,6 +11,7 @@ export const RPC_METHODS = [
   'evals/list', 'evals/record', 'evals/start', 'promotions/list', 'promotions/promote', 'species/inspect',
   'settings/get', 'settings/update',
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete',
+  'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'stats/tokens',
 ] as const;
 
@@ -166,6 +167,32 @@ export interface ProvidersView {
 export const listProviders = () => request<ProvidersView>('settings/providers');
 export const upsertProvider = (input: ProviderEntryInput) => request<ProviderEntry>('settings/providers/upsert', { ...input });
 export const deleteProvider = (id: string) => request<{ deleted: boolean; id: string }>('settings/providers/delete', { id });
+
+export type McpStatus = 'idle' | 'ok' | 'error';
+export interface McpServer {
+  name: string;
+  endpoint: string;
+  auth_env?: string;
+  auth_env_set: boolean;
+  enabled: boolean;
+  tool_count: number;
+  status: McpStatus;
+  error?: string;
+}
+export interface McpServerInput {
+  name: string;
+  endpoint: string;
+  auth_env?: string;
+  enabled?: boolean;
+}
+export interface McpServersView {
+  servers: McpServer[];
+  read_only: boolean;
+}
+export const listMcpServers = () => request<McpServersView>('settings/mcp');
+export const upsertMcpServer = (input: McpServerInput) => request<McpServer>('settings/mcp/upsert', input);
+export const deleteMcpServer = (name: string) => request<{ deleted: boolean; name: string }>('settings/mcp/delete', { name });
+export const probeMcpServer = (name: string) => request<McpServer>('settings/mcp/probe', { name });
 
 // ==================== Token Usage Stats ====================
 

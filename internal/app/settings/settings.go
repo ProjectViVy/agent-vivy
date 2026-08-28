@@ -2,11 +2,12 @@
 // Vivy itself: the active model provider selection (bundle, default model,
 // optional OpenAI-compatible base URL, optional API key overlay), the
 // user-defined provider registry (custom providers with their own base URL,
-// model list, and optional API key), the network_search preference, and the
-// execute ceiling override. These are user-facing preferences that live in
-// an independent agent working directory (data/agent-home/settings.yaml) so
-// the running species never rewrites its own production config.yaml and
-// never touches the Journal (data/vivy.db).
+// model list, and optional API key), the network_search preference, the
+// execute ceiling override, and the MCP server overlay. These are
+// user-facing preferences that live in an independent agent working
+// directory (data/agent-home/settings.yaml) so the running species never
+// rewrites its own production config.yaml and never touches the Journal
+// (data/vivy.db).
 //
 // Secrets: committed config still holds env_key names only (D-010). This
 // runtime settings document may additionally hold an optional plaintext
@@ -17,8 +18,8 @@
 // api_key_set booleans cross the wire). An empty api_key means "no overlay"
 // — the environment variable stands.
 // On startup, app overlays these values onto the validated config before the
-// provider/model are built, so a save takes effect on the next launch (no
-// live hot-swap of the running engine).
+// provider/model are built. Model selection takes effect on the next launch;
+// MCP server writes also ReplaceServers on the live catalog immediately.
 package settings
 
 import (
@@ -54,6 +55,10 @@ const (
 // URL, not a secret, but is still validated before use.
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 
+// envKeyPattern constrains auth_env to an environment variable NAME.
+// Anything else (a literal token) fails validation (D-010).
+var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
 // maxExecuteTimeoutSeconds mirrors config.maxExecuteTimeoutSeconds and the
 // runtime hard cap (10m): a settings override above it would be silently
 // clamped, so it is rejected here up front.
@@ -87,6 +92,11 @@ type Settings struct {
 	// (config runtime.execute_max_timeout_seconds); 0 means "use config
 	// value". Same bounds as config: 1–600, mirroring the runtime hard cap.
 	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
+	// MCPServers overlays config runtime.mcp_servers. A nil pointer means
+	// "use config default"; a non-nil (including empty) slice is the
+	// operator-managed list and replaces the config default entirely.
+	// Credentials stay env references only (D-010).
+	MCPServers *[]MCPServer `yaml:"mcp_servers"`
 }
 
 // ProviderEntry is one user-defined provider in the registry. The API key is
@@ -122,6 +132,26 @@ type NetworkSearchSettings struct {
 	Provider string `yaml:"provider"`
 }
 
+// MCPServer is one operator-managed Streamable HTTP MCP server. AuthEnv is
+// an environment variable name, never a secret value.
+type MCPServer struct {
+	Name     string `yaml:"name"`
+	Endpoint string `yaml:"endpoint"`
+	AuthEnv  string `yaml:"auth_env,omitempty"`
+	// Enabled defaults to true when omitted. A pointer distinguishes
+	// "unset" from an explicit false (YAML bool zero is false).
+	Enabled *bool `yaml:"enabled,omitempty"`
+}
+
+// MCPServerEnabled reports whether the server joins the live catalog.
+// Missing enabled is true.
+func MCPServerEnabled(server MCPServer) bool {
+	return server.Enabled == nil || *server.Enabled
+}
+
+// BoolPtr returns a pointer to v for YAML/JSON optional booleans.
+func BoolPtr(v bool) *bool { return &v }
+
 // Path returns the absolute settings file path for the given data root.
 // An empty root falls back to the conventional DefaultDir.
 func Path(dataRoot string) string {
@@ -146,7 +176,8 @@ func (s Settings) IsZero() bool {
 		s.ApiKey == "" &&
 		len(s.Providers) == 0 &&
 		s.NetworkSearch == (NetworkSearchSettings{}) &&
-		s.ExecuteMaxTimeoutSeconds == 0
+		s.ExecuteMaxTimeoutSeconds == 0 &&
+		s.MCPServers == nil
 }
 
 // Load reads and validates the settings document at path. A missing file is
@@ -207,6 +238,39 @@ func (s Settings) Validate() error {
 	// UI override can never exceed the runtime hard cap.
 	if s.ExecuteMaxTimeoutSeconds < 0 || s.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
 		return fmt.Errorf("settings: execute_max_timeout_seconds must be 0 (config default) or between 1 and %d", maxExecuteTimeoutSeconds)
+	}
+	if err := validateMCPServers(s.MCPServers); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateMCPServers(servers *[]MCPServer) error {
+	if servers == nil {
+		return nil
+	}
+	seen := make(map[string]int, len(*servers))
+	for i, server := range *servers {
+		name := strings.TrimSpace(server.Name)
+		endpoint := strings.TrimSpace(server.Endpoint)
+		authEnv := strings.TrimSpace(server.AuthEnv)
+		if name == "" || endpoint == "" {
+			return fmt.Errorf("settings: mcp_servers[%d] requires name and endpoint", i)
+		}
+		if !apiBasePattern.MatchString(endpoint) {
+			return fmt.Errorf("settings: mcp_servers[%d].endpoint %q must be an http(s) absolute URL", i, endpoint)
+		}
+		if authEnv != "" && !envKeyPattern.MatchString(authEnv) {
+			return fmt.Errorf("settings: mcp_servers[%d].auth_env must be an environment variable name", i)
+		}
+		key := strings.ToLower(name)
+		if prev, ok := seen[key]; ok {
+			return fmt.Errorf("settings: mcp_servers[%d] name %q duplicates mcp_servers[%d]", i, name, prev)
+		}
+		seen[key] = i
+		(*servers)[i].Name = name
+		(*servers)[i].Endpoint = endpoint
+		(*servers)[i].AuthEnv = authEnv
 	}
 	return nil
 }
@@ -291,6 +355,60 @@ func (s Settings) UpsertProvider(entry ProviderEntry) Settings {
 	}
 	s.Providers = append(append([]ProviderEntry(nil), s.Providers...), entry)
 	return s
+}
+
+// MCPServersOrEmpty returns the operator-managed MCP list, or nil when the
+// overlay has never been written (config default stands).
+func (s Settings) MCPServersOrEmpty() []MCPServer {
+	if s.MCPServers == nil {
+		return nil
+	}
+	out := make([]MCPServer, len(*s.MCPServers))
+	copy(out, *s.MCPServers)
+	return out
+}
+
+// UpsertMCPServer inserts or replaces one MCP server by case-insensitive
+// name. A nil overlay becomes an explicit list. Validation happens in Save.
+func (s Settings) UpsertMCPServer(entry MCPServer) Settings {
+	entry.Name = strings.TrimSpace(entry.Name)
+	entry.Endpoint = strings.TrimSpace(entry.Endpoint)
+	entry.AuthEnv = strings.TrimSpace(entry.AuthEnv)
+	current := s.MCPServersOrEmpty()
+	key := strings.ToLower(entry.Name)
+	for i, existing := range current {
+		if strings.ToLower(existing.Name) == key {
+			next := append([]MCPServer(nil), current...)
+			next[i] = entry
+			s.MCPServers = &next
+			return s
+		}
+	}
+	next := append(append([]MCPServer(nil), current...), entry)
+	s.MCPServers = &next
+	return s
+}
+
+// DeleteMCPServer removes one MCP server by case-insensitive name. The
+// overlay becomes an explicit (possibly empty) list so a delete is not
+// confused with "use config default". ok is false when the name is absent.
+func (s Settings) DeleteMCPServer(name string) (Settings, bool) {
+	current := s.MCPServersOrEmpty()
+	key := strings.ToLower(strings.TrimSpace(name))
+	next := make([]MCPServer, 0, len(current))
+	found := false
+	for _, existing := range current {
+		if strings.ToLower(existing.Name) == key {
+			found = true
+			continue
+		}
+		next = append(next, existing)
+	}
+	if !found {
+		return s, false
+	}
+	s.MCPServers = &next
+	return s, true
 }
 
 // Save writes the settings atomically to path, creating parent directories.

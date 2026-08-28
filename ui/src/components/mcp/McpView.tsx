@@ -9,37 +9,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from '@/i18n';
-import { Download, FileUp, Globe, LoaderCircle, PackageOpen, Pencil, Plus, Search, Terminal, Trash2 } from 'lucide-react';
-import {
-  addDemoMcpServer,
-  exportDemoMcpConfig,
-  getDemoMcpServers,
-  importDemoMcpConfig,
-  removeDemoMcpServer,
-  toggleDemoMcpServer,
-  updateDemoMcpServer,
-} from '@/lib/demo-api';
-import type { DemoMcpServer } from '@/lib/types';
+import { Download, FileUp, Globe, LoaderCircle, PackageOpen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import * as api from '@/lib/api';
+import { exportMcpConfig, parseMcpImport } from './mcp-import';
 
 type McpFilter = 'all' | 'enabled' | 'disabled';
 
-const emptyForm = {
-  name: '',
-  transport: 'stdio' as DemoMcpServer['transport'],
-  command: '',
-  url: '',
-};
-
-function serverTarget(server: DemoMcpServer, t: ReturnType<typeof useTranslation>['t']) {
-  return server.transport === 'http' ? server.url ?? t('mcp.unsetUrl') : server.command ?? t('mcp.unsetCommand');
-}
+const emptyForm = { name: '', endpoint: '', auth_env: '' };
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
@@ -66,10 +48,16 @@ function McpPageSkeleton() {
   );
 }
 
-export function McpDemoView() {
+function mergeServer(list: api.McpServer[], next: api.McpServer) {
+  const others = list.filter((server) => server.name.toLowerCase() !== next.name.toLowerCase());
+  return [...others, next].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function McpView() {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [servers, setServers] = useState<DemoMcpServer[]>([]);
+  const [servers, setServers] = useState<api.McpServer[]>([]);
+  const [readOnly, setReadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -77,16 +65,18 @@ export function McpDemoView() {
   const [busyId, setBusyId] = useState('');
   const [importing, setImporting] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState<string | null>(null);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
-  const [deleting, setDeleting] = useState<DemoMcpServer | null>(null);
+  const [deleting, setDeleting] = useState<api.McpServer | null>(null);
 
   const loadServers = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setServers(await getDemoMcpServers());
+      const view = await api.listMcpServers();
+      setServers(view.servers);
+      setReadOnly(view.read_only);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('mcp.errors.loadFailed'));
     } finally {
@@ -100,24 +90,20 @@ export function McpDemoView() {
     const needle = query.trim().toLowerCase();
     return servers
       .filter((server) => filter === 'all' || server.enabled === (filter === 'enabled'))
-      .filter((server) => !needle || `${server.name} ${serverTarget(server, t)}`.toLowerCase().includes(needle))
+      .filter((server) => !needle || `${server.name} ${server.endpoint} ${server.auth_env ?? ''}`.toLowerCase().includes(needle))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [servers, filter, query, t]);
+  }, [servers, filter, query]);
 
   const enabledCount = useMemo(() => servers.filter((server) => server.enabled).length, [servers]);
+  const locked = readOnly || Boolean(busyId);
 
   const openCreate = () => {
-    setEditingId(null); setFormData(emptyForm); setFormError(''); setFormOpen(true);
+    setEditingName(null); setFormData(emptyForm); setFormError(''); setFormOpen(true);
   };
 
-  const openEdit = (server: DemoMcpServer) => {
-    setEditingId(server.id);
-    setFormData({
-      name: server.name,
-      transport: server.transport,
-      command: server.command ?? '',
-      url: server.url ?? '',
-    });
+  const openEdit = (server: api.McpServer) => {
+    setEditingName(server.name);
+    setFormData({ name: server.name, endpoint: server.endpoint, auth_env: server.auth_env ?? '' });
     setFormError(''); setFormOpen(true);
   };
 
@@ -125,9 +111,21 @@ export function McpDemoView() {
     event.preventDefault();
     setBusyId('save'); setFormError('');
     try {
-      const input = { name: formData.name, transport: formData.transport, command: formData.command, url: formData.url };
-      setServers(editingId ? await updateDemoMcpServer(editingId, input) : await addDemoMcpServer(input));
-      setFormOpen(false); setEditingId(null);
+      const nextName = formData.name.trim();
+      const saved = await api.upsertMcpServer({
+        name: nextName,
+        endpoint: formData.endpoint.trim(),
+        auth_env: formData.auth_env.trim() || undefined,
+        enabled: editingName ? servers.find((server) => server.name === editingName)?.enabled : true,
+      });
+      if (editingName && editingName.toLowerCase() !== saved.name.toLowerCase()) {
+        await api.deleteMcpServer(editingName);
+      }
+      setServers((current) => {
+        const withoutOld = editingName ? current.filter((server) => server.name !== editingName) : current;
+        return mergeServer(withoutOld, saved);
+      });
+      setFormOpen(false); setEditingName(null);
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : t('mcp.errors.saveFailed'));
     } finally {
@@ -135,10 +133,16 @@ export function McpDemoView() {
     }
   };
 
-  const handleToggle = async (server: DemoMcpServer) => {
-    setBusyId(`toggle:${server.id}`); setError('');
+  const handleToggle = async (server: api.McpServer) => {
+    setBusyId(`toggle:${server.name}`); setError('');
     try {
-      setServers(await toggleDemoMcpServer(server.id));
+      const saved = await api.upsertMcpServer({
+        name: server.name,
+        endpoint: server.endpoint,
+        auth_env: server.auth_env,
+        enabled: !server.enabled,
+      });
+      setServers((current) => mergeServer(current, saved));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('mcp.errors.toggleFailed'));
     } finally {
@@ -146,11 +150,24 @@ export function McpDemoView() {
     }
   };
 
+  const handleProbe = async (server: api.McpServer) => {
+    setBusyId(`probe:${server.name}`); setError('');
+    try {
+      const probed = await api.probeMcpServer(server.name);
+      setServers((current) => mergeServer(current, probed));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('mcp.errors.probeFailed'));
+    } finally {
+      setBusyId('');
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleting) return;
-    setBusyId(`delete:${deleting.id}`); setError('');
+    setBusyId(`delete:${deleting.name}`); setError('');
     try {
-      setServers(await removeDemoMcpServer(deleting.id));
+      await api.deleteMcpServer(deleting.name);
+      setServers((current) => current.filter((server) => server.name !== deleting.name));
       setDeleting(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('mcp.errors.deleteFailed'));
@@ -165,9 +182,18 @@ export function McpDemoView() {
     if (!file) return;
     setImporting(true); setError('');
     try {
-      const config = JSON.parse(await file.text()) as unknown;
-      setServers(await importDemoMcpConfig(config));
+      const parsed = parseMcpImport(JSON.parse(await file.text()) as unknown);
+      if (!parsed.servers.length) {
+        throw new Error(parsed.skippedStdio.length ? t('mcp.errors.stdioSkipped', { names: parsed.skippedStdio.join(', ') }) : t('mcp.errors.emptyImport'));
+      }
+      let next = servers;
+      for (const input of parsed.servers) {
+        const saved = await api.upsertMcpServer(input);
+        next = mergeServer(next, saved);
+      }
+      setServers(next);
       setQuery(''); setFilter('all');
+      if (parsed.skippedStdio.length) setError(t('mcp.errors.stdioSkipped', { names: parsed.skippedStdio.join(', ') }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('mcp.errors.importFailed'));
     } finally {
@@ -175,11 +201,10 @@ export function McpDemoView() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = () => {
     setError('');
     try {
-      const config = await exportDemoMcpConfig();
-      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(exportMcpConfig(servers), null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -203,7 +228,10 @@ export function McpDemoView() {
           <h1 className="text-2xl font-semibold tracking-tight">{t('mcp.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
         </header>
-        <DemoLoadError message={error} onRetry={() => void loadServers()} />
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <p>{error}</p>
+          <Button className="mt-3" size="sm" variant="outline" onClick={() => void loadServers()}>{t('common.retry')}</Button>
+        </div>
       </PageShell>
     );
   }
@@ -217,22 +245,18 @@ export function McpDemoView() {
         </div>
         <div className="flex flex-wrap gap-2">
           <input ref={fileInputRef} className="hidden" type="file" accept="application/json,.json" onChange={(event) => void handleImport(event)} />
-          <Button
-            variant="outline"
-            disabled={importing}
-            title={t('mcp.importTitle')}
-            onClick={() => fileInputRef.current?.click()}
-          >
+          <Button variant="outline" disabled={importing || readOnly} title={t('mcp.importTitle')} onClick={() => fileInputRef.current?.click()}>
             {importing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
             {t('mcp.importJson')}
           </Button>
-          <Button variant="outline" disabled={servers.length === 0} onClick={() => void handleExport()}>
+          <Button variant="outline" disabled={servers.length === 0} onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />{t('mcp.exportJson')}
           </Button>
-          <Button onClick={openCreate} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />{t('mcp.addService')}</Button>
+          <Button onClick={openCreate} disabled={readOnly} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />{t('mcp.addService')}</Button>
         </div>
       </header>
 
+      {readOnly ? <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-700">{t('mcp.readOnly')}</p> : null}
       {error ? <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</div> : null}
 
       <Card>
@@ -263,10 +287,12 @@ export function McpDemoView() {
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
               <div className="rounded-full bg-muted p-3 text-muted-foreground"><PackageOpen className="h-5 w-5" /></div>
               <div><p className="font-medium">{t('mcp.emptyTitle')}</p><p className="mt-1 text-sm text-muted-foreground">{t('mcp.emptyHint')}</p></div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>{t('mcp.importJson')}</Button>
-                <Button size="sm" onClick={openCreate}>{t('mcp.addService')}</Button>
-              </div>
+              {readOnly ? null : (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>{t('mcp.importJson')}</Button>
+                  <Button size="sm" onClick={openCreate}>{t('mcp.addService')}</Button>
+                </div>
+              )}
             </div>
           ) : visibleServers.length === 0 ? (
             <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -275,45 +301,49 @@ export function McpDemoView() {
             </div>
           ) : (
             <div className="space-y-1">
-              {visibleServers.map((server) => {
-                const TargetIcon = server.transport === 'http' ? Globe : Terminal;
-                return (
-                  <div key={server.id} className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-3 transition-colors hover:bg-muted/60">
-                    <Switch
-                      checked={server.enabled}
-                      disabled={busyId === `toggle:${server.id}`}
-                      aria-label={t('mcp.toggleAria', { name: server.name })}
-                      onCheckedChange={() => void handleToggle(server)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">{server.name}</span>
-                        <Badge variant="outline" className="shrink-0 font-normal">{server.transport === 'http' ? 'HTTP' : 'STDIO'}</Badge>
-                      </div>
-                      <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                        <TargetIcon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{serverTarget(server, t)}</span>
-                        <span className="shrink-0">· {t('mcp.toolCount', { count: server.toolCount })}</span>
-                      </span>
+              {visibleServers.map((server) => (
+                <div key={server.name} className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-3 transition-colors hover:bg-muted/60">
+                  <Switch
+                    checked={server.enabled}
+                    disabled={locked || busyId === `toggle:${server.name}`}
+                    aria-label={t('mcp.toggleAria', { name: server.name })}
+                    onCheckedChange={() => void handleToggle(server)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{server.name}</span>
+                      <Badge variant="outline" className="shrink-0 font-normal">HTTP</Badge>
+                      {server.status === 'ok' ? <Badge variant="outline" className="shrink-0 font-normal">{t('mcp.statusOk')}</Badge> : null}
+                      {server.status === 'error' ? <Badge variant="destructive" className="shrink-0 font-normal">{t('mcp.statusError')}</Badge> : null}
                     </div>
-                    <Button variant="ghost" size="icon" aria-label={t('mcp.editAria', { name: server.name })} title={t('mcp.editTitle')} disabled={Boolean(busyId)} onClick={() => openEdit(server)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" aria-label={t('mcp.deleteAria', { name: server.name })} title={t('mcp.deleteTitle')} className="text-destructive hover:text-destructive" disabled={Boolean(busyId)} onClick={() => setDeleting(server)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <Globe className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{server.endpoint}</span>
+                      {server.status === 'ok' ? <span className="shrink-0">· {t('mcp.toolCount', { count: server.tool_count })}</span> : null}
+                      {server.auth_env ? <span className="shrink-0">· {server.auth_env}{server.auth_env_set ? '' : ` ${t('mcp.authUnset')}`}</span> : null}
+                    </span>
+                    {server.status === 'error' && server.error ? <p className="mt-1 truncate text-xs text-destructive">{server.error}</p> : null}
                   </div>
-                );
-              })}
+                  <Button variant="ghost" size="icon" aria-label={t('mcp.probeAria', { name: server.name })} title={t('mcp.probeTitle')} disabled={Boolean(busyId) || !server.enabled} onClick={() => void handleProbe(server)}>
+                    {busyId === `probe:${server.name}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" aria-label={t('mcp.editAria', { name: server.name })} title={t('mcp.editTitle')} disabled={locked} onClick={() => openEdit(server)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" aria-label={t('mcp.deleteAria', { name: server.name })} title={t('mcp.deleteTitle')} className="text-destructive hover:text-destructive" disabled={locked} onClick={() => setDeleting(server)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Dialog open={formOpen} onOpenChange={(open) => { if (busyId !== 'save') { setFormOpen(open); if (!open) setEditingId(null); } }}>
+      <Dialog open={formOpen} onOpenChange={(open) => { if (busyId !== 'save') { setFormOpen(open); if (!open) setEditingName(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingId ? t('mcp.formTitleEdit') : t('mcp.formTitleAdd')}</DialogTitle>
+            <DialogTitle>{editingName ? t('mcp.formTitleEdit') : t('mcp.formTitleAdd')}</DialogTitle>
             <DialogDescription>{t('mcp.formDescription')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={(event) => void handleSubmit(event)} className="contents">
@@ -323,33 +353,21 @@ export function McpDemoView() {
                 <Input id="mcp-name" value={formData.name} onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))} placeholder={t('mcp.namePlaceholder')} autoFocus />
               </div>
               <div className="space-y-2">
-                <Label>{t('mcp.transportLabel')}</Label>
-                <Select value={formData.transport} onValueChange={(transport) => setFormData((current) => ({ ...current, transport: transport as DemoMcpServer['transport'] }))}>
-                  <SelectTrigger aria-label={t('mcp.transportLabel')}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stdio">{t('mcp.transportStdio')}</SelectItem>
-                    <SelectItem value="http">{t('mcp.transportHttp')}</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="mcp-url">{t('mcp.urlLabel')}</Label>
+                <Input id="mcp-url" value={formData.endpoint} onChange={(event) => setFormData((current) => ({ ...current, endpoint: event.target.value }))} placeholder="https://example.com/mcp" />
               </div>
-              {formData.transport === 'stdio' ? (
-                <div className="space-y-2">
-                  <Label htmlFor="mcp-command">{t('mcp.commandLabel')}</Label>
-                  <Input id="mcp-command" value={formData.command} onChange={(event) => setFormData((current) => ({ ...current, command: event.target.value }))} placeholder="npx -y @modelcontextprotocol/server-filesystem ." />
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="mcp-url">{t('mcp.urlLabel')}</Label>
-                  <Input id="mcp-url" value={formData.url} onChange={(event) => setFormData((current) => ({ ...current, url: event.target.value }))} placeholder="https://example.com/mcp" />
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="mcp-auth">{t('mcp.authEnvLabel')}</Label>
+                <Input id="mcp-auth" value={formData.auth_env} onChange={(event) => setFormData((current) => ({ ...current, auth_env: event.target.value }))} placeholder="MCP_DOCS_TOKEN" />
+                <p className="text-xs text-muted-foreground">{t('mcp.authEnvHint')}</p>
+              </div>
               {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
             </DialogBody>
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={busyId === 'save'} onClick={() => { setFormOpen(false); setEditingId(null); }}>{t('common.cancel')}</Button>
-              <Button type="submit" disabled={busyId === 'save'}>
+              <Button type="button" variant="outline" disabled={busyId === 'save'} onClick={() => { setFormOpen(false); setEditingName(null); }}>{t('common.cancel')}</Button>
+              <Button type="submit" disabled={busyId === 'save' || readOnly}>
                 {busyId === 'save' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {editingId ? t('mcp.saveChanges') : t('mcp.addService')}
+                {editingName ? t('mcp.saveChanges') : t('mcp.addService')}
               </Button>
             </DialogFooter>
           </form>

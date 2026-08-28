@@ -95,3 +95,80 @@ func TestEinoMCPBackendBoundsRemoteOutputAndRejectsUnknownServer(t *testing.T) {
 		t.Fatalf("unknown server error = %v", err)
 	}
 }
+
+func TestEinoMCPBackendReplaceServersSwapsCatalog(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeMCPJSON(w, r, `{"tools":[{"name":"old","description":"first"}]}`)
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeMCPJSON(w, r, `{"tools":[{"name":"new","description":"second"}]}`)
+	}))
+	defer second.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: first.URL}}, first.Client())
+	listed, err := backend.ListTools(context.Background(), "", "local")
+	if err != nil {
+		t.Fatalf("list first: %v", err)
+	}
+	if len(listed.Tools) != 1 || listed.Tools[0].Name != "old" {
+		t.Fatalf("first catalog = %#v", listed)
+	}
+
+	backend.ReplaceServers([]MCPServerConfig{{Name: "local", Endpoint: second.URL}})
+	listed, err = backend.ListTools(context.Background(), "", "local")
+	if err != nil {
+		t.Fatalf("list second: %v", err)
+	}
+	if len(listed.Tools) != 1 || listed.Tools[0].Name != "new" {
+		t.Fatalf("replaced catalog = %#v", listed)
+	}
+	if _, err := backend.ListTools(context.Background(), "", "gone"); err == nil {
+		t.Fatal("removed server must fail")
+	}
+}
+
+func TestEinoMCPBackendParsesSSEJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\"}}\n\n"))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte("event: message\ndata: {}\n\n"))
+		case "tools/list":
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"sse_echo\"}]}}\n\n"))
+		default:
+			t.Errorf("unexpected MCP method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "sse", Endpoint: server.URL}}, server.Client())
+	listed, err := backend.ListTools(context.Background(), "", "sse")
+	if err != nil {
+		t.Fatalf("list sse: %v", err)
+	}
+	if len(listed.Tools) != 1 || listed.Tools[0].Name != "sse_echo" {
+		t.Fatalf("sse catalog = %#v", listed)
+	}
+}
+
+func writeMCPJSON(w http.ResponseWriter, r *http.Request, result string) {
+	var request struct {
+		Method string `json:"method"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&request)
+	w.Header().Set("Content-Type", "application/json")
+	switch request.Method {
+	case "initialize":
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}`))
+	case "notifications/initialized":
+		_, _ = w.Write([]byte(`{}`))
+	case "tools/list":
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":` + result + `}`))
+	}
+}

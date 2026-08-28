@@ -53,14 +53,41 @@ func NewEinoMCPBackend(configs []MCPServerConfig, client *http.Client) *EinoMCPB
 	if client == nil {
 		client = &http.Client{Timeout: defaultMCPTimeout}
 	}
+	backend := &EinoMCPBackend{client: client, maxResponseBytes: maxMCPResponseBytes, timeout: defaultMCPTimeout}
+	backend.ReplaceServers(configs)
+	return backend
+}
+
+// ReplaceServers swaps the live catalog and drops cached sessions so the
+// next list/call re-initializes against the new endpoints.
+func (b *EinoMCPBackend) ReplaceServers(configs []MCPServerConfig) {
 	servers := make(map[string]MCPServerConfig, len(configs))
 	for _, config := range configs {
 		name := strings.TrimSpace(config.Name)
-		if name != "" {
-			servers[name] = config
+		if name == "" || strings.TrimSpace(config.Endpoint) == "" {
+			continue
 		}
+		config.Name = name
+		config.Endpoint = strings.TrimSpace(config.Endpoint)
+		config.AuthEnv = strings.TrimSpace(config.AuthEnv)
+		servers[name] = config
 	}
-	return &EinoMCPBackend{client: client, servers: servers, sessions: make(map[string]*mcpSession), maxResponseBytes: maxMCPResponseBytes, timeout: defaultMCPTimeout}
+	b.mu.Lock()
+	b.servers = servers
+	b.sessions = make(map[string]*mcpSession)
+	b.mu.Unlock()
+}
+
+// ConfiguredServers returns a snapshot of the live catalog (enabled
+// servers only; the backend never stores disabled entries).
+func (b *EinoMCPBackend) ConfiguredServers() []MCPServerConfig {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]MCPServerConfig, 0, len(b.servers))
+	for _, config := range b.servers {
+		out = append(out, config)
+	}
+	return out
 }
 func (b *EinoMCPBackend) ListTools(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResponse, error) {
 	server = strings.TrimSpace(server)
@@ -164,7 +191,9 @@ func (b *EinoMCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, reque
 
 func (b *EinoMCPBackend) server(name string) (MCPServerConfig, error) {
 	name = strings.TrimSpace(name)
+	b.mu.Lock()
 	config, ok := b.servers[name]
+	b.mu.Unlock()
 	if !ok || strings.TrimSpace(config.Endpoint) == "" {
 		return MCPServerConfig{}, fmt.Errorf("mcp: server %q is not configured", name)
 	}
@@ -278,6 +307,22 @@ func (b *EinoMCPBackend) send(ctx context.Context, config MCPServerConfig, metho
 	if !withResponse {
 		return nil, resp.Header.Get("Mcp-Session-Id"), nil
 	}
+	payload, err := decodeMCPResponse(raw, resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, "", fmt.Errorf("mcp %s: %w", config.Name, err)
+	}
+	return payload, resp.Header.Get("Mcp-Session-Id"), nil
+}
+
+func decodeMCPResponse(raw []byte, contentType string) ([]byte, error) {
+	body := raw
+	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
+		extracted, err := extractSSEJSON(raw)
+		if err != nil {
+			return nil, err
+		}
+		body = extracted
+	}
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
 		Error  *struct {
@@ -285,16 +330,34 @@ func (b *EinoMCPBackend) send(ctx context.Context, config MCPServerConfig, metho
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, "", fmt.Errorf("mcp %s: invalid JSON-RPC response: %w", config.Name, err)
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("invalid JSON-RPC response: %w", err)
 	}
 	if envelope.Error != nil {
-		return nil, "", fmt.Errorf("mcp %s: remote error %d: %s", config.Name, envelope.Error.Code, envelope.Error.Message)
+		return nil, fmt.Errorf("remote error %d: %s", envelope.Error.Code, envelope.Error.Message)
 	}
 	if len(envelope.Result) == 0 {
-		return nil, "", fmt.Errorf("mcp %s: response has no result", config.Name)
+		return nil, errors.New("response has no result")
 	}
-	return envelope.Result, resp.Header.Get("Mcp-Session-Id"), nil
+	return envelope.Result, nil
+}
+
+func extractSSEJSON(raw []byte) ([]byte, error) {
+	var data []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, "data:") {
+			data = append(data, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	if len(data) == 0 {
+		return nil, errors.New("event-stream response has no data")
+	}
+	joined := strings.Join(data, "\n")
+	if !json.Valid([]byte(joined)) {
+		return nil, errors.New("event-stream data is not JSON")
+	}
+	return []byte(joined), nil
 }
 func (b *EinoMCPBackend) invalidate(name string) {
 	b.mu.Lock()

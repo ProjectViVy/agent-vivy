@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { addDemoMcpServer, exportDemoMcpConfig, formatTokenCost, formatTokenCount, getDemoDashboard, getDemoGenParams, getDemoMemories, getDemoMcpServers, getDemoComposerState, getDemoTokenUsage, importDemoMcpConfig, removeDemoMcpServer, saveDemoGenParams, searchSessions, toggleDemoMcpServer, updateDemoComposerState, updateDemoMcpServer } from './demo-api';
+import { formatTokenCost, formatTokenCount, getDemoDashboard, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } from './demo-api';
 
 const values = new Map<string, string>();
 
@@ -25,54 +25,15 @@ async function settle<T>(promise: Promise<T>): Promise<T> {
 
 describe('restored local demo API', () => {
   it('initializes every restored surface under vivy.demo.* keys', async () => {
-    await settle(Promise.all([getDemoDashboard(), getDemoMemories(), getDemoMcpServers()]));
-    expect([...values.keys()].sort()).toEqual(['vivy.demo.dashboard', 'vivy.demo.mcp', 'vivy.demo.memory']);
+    await settle(Promise.all([getDemoDashboard(), getDemoMemories()]));
+    expect([...values.keys()].sort()).toEqual(['vivy.demo.dashboard', 'vivy.demo.memory']);
   });
 
-  it('persists MCP and composer interactions', async () => {
-    const servers = await settle(toggleDemoMcpServer('mcp-browser'));
-    expect(servers.find((server) => server.id === 'mcp-browser')?.enabled).toBe(true);
+  it('persists composer interactions', async () => {
     await getDemoComposerState();
     const composer = await updateDemoComposerState({ secure: false, recording: true });
     expect(composer).toMatchObject({ secure: false, recording: true });
     expect([...values.keys()].every((key) => key.startsWith('vivy.demo.'))).toBe(true);
-  });
-
-  it('adds MCP servers and round-trips nested tools.mcpServers config', async () => {
-    const added = await settle(addDemoMcpServer({ name: 'Local Search', transport: 'stdio', command: 'mcp-local-search' }));
-    expect(added.find((server) => server.name === 'Local Search')).toMatchObject({ enabled: true, command: 'mcp-local-search' });
-
-    const imported = await settle(importDemoMcpConfig({
-      tools: {
-        mcpServers: {
-          'Remote Docs': { url: 'https://example.test/mcp', enabled: false, toolCount: 3 },
-        },
-      },
-    }));
-    expect(imported.find((server) => server.name === 'Remote Docs')).toMatchObject({ transport: 'http', url: 'https://example.test/mcp', enabled: false, toolCount: 3 });
-
-    const exported = await settle(exportDemoMcpConfig());
-    expect(exported.mcpServers['Remote Docs']).toMatchObject({ transport: 'http', url: 'https://example.test/mcp', enabled: false, toolCount: 3 });
-    expect(exported.mcpServers['Local Search']).toMatchObject({ transport: 'stdio', command: 'mcp-local-search', enabled: true });
-  });
-
-  it('updates, removes and validates MCP servers', async () => {
-    const updated = await settle(updateDemoMcpServer('mcp-browser', { name: 'Browser Tools', transport: 'http', url: 'https://browser.test/mcp' }));
-    expect(updated.find((server) => server.id === 'mcp-browser')).toMatchObject({ url: 'https://browser.test/mcp', enabled: false, toolCount: 5 });
-
-    const invalidUrl = addDemoMcpServer({ name: 'Broken', transport: 'http', url: 'not a url' });
-    const missingCommand = addDemoMcpServer({ name: 'No Command', transport: 'stdio' });
-    const duplicate = addDemoMcpServer({ name: 'Workspace Files', transport: 'stdio', command: 'dup' });
-    const assertions = [
-      expect(invalidUrl).rejects.toThrow('HTTP 服务地址不是有效的 URL'),
-      expect(missingCommand).rejects.toThrow('请输入 STDIO 启动命令'),
-      expect(duplicate).rejects.toThrow('已存在同名 MCP 服务'),
-    ];
-    await vi.runAllTimersAsync();
-    await Promise.all(assertions);
-
-    const removed = await settle(removeDemoMcpServer('mcp-files'));
-    expect(removed.map((server) => server.id)).toEqual(['mcp-browser']);
   });
 
   it('recovers a restored surface from malformed local data', async () => {
