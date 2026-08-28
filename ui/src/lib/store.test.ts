@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
-  initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
+  initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
@@ -27,6 +27,7 @@ describe('Vivy store integrity', () => {
     api.getSettings.mockResolvedValue({ provider: 'mock', default_model: 'mock', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30 });
     api.listProviders.mockResolvedValue({ entries: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
+    api.listTodos.mockResolvedValue({ todos: [] });
   });
 
   it('initializes one authoritative active session and restores its messages', async () => {
@@ -73,5 +74,37 @@ describe('Vivy store integrity', () => {
     await vi.waitFor(() => expect(useVivyStore.getState().runError).toContain('消息刷新失败'));
     expect(useVivyStore.getState().streamingText).toBe('complete answer');
     expect(useVivyStore.getState().streamingReasoning).toBe('reasoning');
+  });
+
+  it('loads session todos with the selected session and drops a stale response', async () => {
+    const first = deferred<{ todos: Array<{ id: string; session_id: string; subject: string; description: string; status: 'pending'; blocks: string[]; blocked_by: string[]; position: number; created_at: number; updated_at: number }> }>();
+    const second = deferred<{ todos: Array<{ id: string; session_id: string; subject: string; description: string; status: 'in_progress'; blocks: string[]; blocked_by: string[]; position: number; created_at: number; updated_at: number }> }>();
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.listTodos.mockImplementation((id: string) => id === 's1' ? first.promise : second.promise);
+    const p1 = useVivyStore.getState().selectSession('s1');
+    const p2 = useVivyStore.getState().selectSession('s2');
+    second.resolve({ todos: [{ id: '2', session_id: 's2', subject: 'current', description: 'now', status: 'in_progress', blocks: [], blocked_by: [], position: 0, created_at: 2, updated_at: 2 }] });
+    await p2;
+    first.resolve({ todos: [{ id: '1', session_id: 's1', subject: 'stale', description: 'old', status: 'pending', blocks: [], blocked_by: [], position: 0, created_at: 1, updated_at: 1 }] });
+    await p1;
+    expect(useVivyStore.getState().activeSessionId).toBe('s2');
+    expect(useVivyStore.getState().todos.map((item) => item.subject)).toEqual(['current']);
+    expect(useVivyStore.getState().todosPhase).toBe('ready');
+  });
+
+  it('refreshes todos when a task tool finishes', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.listTodos
+      .mockResolvedValueOnce({ todos: [] })
+      .mockResolvedValueOnce({
+        todos: [{ id: '1', session_id: 's1', subject: 'wire rpc', description: 'list', status: 'in_progress', blocks: [], blocked_by: [], position: 0, created_at: 1, updated_at: 1 }],
+      });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'tool.finished', created_at: 2, payload_version: 1, payload: { tool_name: 'task_create', tool_call_id: 'c1', result: '{}' } });
+    await vi.waitFor(() => expect(useVivyStore.getState().todos.map((item) => item.subject)).toEqual(['wire rpc']));
   });
 });

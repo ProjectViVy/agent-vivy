@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from './api';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
+import { isTaskToolName } from './todos';
 import { t } from '@/i18n';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
@@ -37,6 +38,10 @@ interface RuntimeState {
   messages: api.Message[];
   messagesPhase: Phase;
   messagesError: string | null;
+  todos: api.Todo[];
+  todosPhase: Phase;
+  todosError: string | null;
+  todoPanelOpen: boolean;
   currentRun: api.Run | null;
   runEvents: RunEvent[];
   streamingText: string;
@@ -91,6 +96,8 @@ interface RuntimeState {
   respondReview: (id: string, response: { action: 'approve' | 'deny' | 'answer' | 'cancel'; reason?: string; answer?: string }) => Promise<void>;
   setReviewCenterOpen: (open: boolean) => void;
   setSessionDrawerOpen: (open: boolean) => void;
+  loadTodos: (sessionId?: string) => Promise<void>;
+  setTodoPanelOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
   loadProviders: () => Promise<void>;
@@ -121,7 +128,7 @@ async function refreshAfterTerminal(runId: string): Promise<void> {
   } catch (error) {
     if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ runError: t('errors.refreshAfterRunFailed', { error: errorMessage(error) }) });
   }
-  await Promise.all([state.loadBackgroundRuns(), state.loadChildren(runId), state.loadReviews()]);
+  await Promise.all([state.loadBackgroundRuns(), state.loadChildren(runId), state.loadReviews(), state.loadTodos()]);
   if (messagesRefreshed && useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ streamingText: '', streamingReasoning: '' });
 }
 
@@ -139,6 +146,7 @@ function handleRunEvent(event: RunEvent): void {
     void refreshAfterTerminal(event.run_id);
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
   else if (event.type.includes('approval') || event.type.includes('question')) void state.loadReviews();
+  else if (event.type === 'tool.finished' && isTaskToolName(event.payload.tool_name)) void state.loadTodos();
   useVivyStore.setState(update);
 }
 
@@ -157,10 +165,18 @@ async function loadMessagesIntoStore(sessionId: string, epoch: number): Promise<
   return result.messages;
 }
 
+async function loadTodosIntoStore(sessionId: string, epoch: number): Promise<void> {
+  const result = await api.listTodos(sessionId);
+  const state = useVivyStore.getState();
+  if (epoch !== sessionEpoch || state.activeSessionId !== sessionId) return;
+  useVivyStore.setState({ todos: result.todos, todosPhase: result.todos.length ? 'ready' : 'empty', todosError: null });
+}
+
 export const useVivyStore = create<RuntimeState>((set, get) => ({
   initialized: false, initializationError: null, capabilities: [], connection: 'idle',
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null,
+  todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
   currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
@@ -218,7 +234,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], currentRun: null, runEvents: [], children: [] });
+        set({ activeSessionId: null, messages: [], todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], children: [] });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -227,9 +243,11 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
     stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, children: [], selectedChild: null });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, children: [], selectedChild: null });
     try {
-      const messages = await loadMessagesIntoStore(id, epoch);
+      const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
+        if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
+      })]);
       const background = await api.listBackgroundRuns();
       if (epoch !== sessionEpoch || get().activeSessionId !== id) return;
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
@@ -237,6 +255,14 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       if (runId) await get().openRun(runId, id);
     } catch (error) { if (epoch === sessionEpoch) set({ messagesPhase: 'error', messagesError: errorMessage(error) }); }
   },
+  loadTodos: async (sessionId = get().activeSessionId ?? undefined) => {
+    if (!sessionId) return;
+    const epoch = sessionEpoch;
+    set((state) => ({ todosPhase: state.todos.length ? 'refreshing' : 'loading', todosError: null }));
+    try { await loadTodosIntoStore(sessionId, epoch); }
+    catch (error) { if (epoch === sessionEpoch && get().activeSessionId === sessionId) set((state) => ({ todosPhase: state.todos.length ? 'ready' : 'error', todosError: errorMessage(error) })); }
+  },
+  setTodoPanelOpen: (open) => set({ todoPanelOpen: open }),
   openRun: async (runId, sessionId) => {
     try {
       const [run, log, children] = await Promise.all([api.getRun(runId), api.getRunLog(runId), api.listChildren(runId, true)]);

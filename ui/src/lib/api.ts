@@ -2,7 +2,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 
 export const RPC_METHODS = [
   'initialize', 'capabilities',
-  'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages',
+  'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos',
   'preflight/run', 'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -15,7 +15,22 @@ export const RPC_METHODS = [
 
 export type RunStatus = 'accepted' | 'queued' | 'active' | 'completed' | 'failed' | 'cancelled';
 export type RunMode = 'normal' | 'plan';
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 export interface Session { id: string; title: string; created_at: number }
+export interface Todo {
+  id: string;
+  session_id: string;
+  subject: string;
+  description: string;
+  status: TodoStatus;
+  blocks: string[];
+  blocked_by: string[];
+  active_form?: string;
+  owner?: string;
+  position: number;
+  created_at: number;
+  updated_at: number;
+}
 export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
 export interface RunLogEvent { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }
@@ -80,6 +95,7 @@ export const createSession = (title: string) => request<Session>('session/create
 export const renameSession = (id: string, title: string) => request<Session>('session/rename', { session_id: id, title });
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
+export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
 export const preflight = (sessionId: string, text: string, mode: RunMode) => request<Preflight>('preflight/run', { session_id: sessionId, text, mode });
 export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal') => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode });
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });

@@ -293,7 +293,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	})
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Reviews: backend, Bus: bus, Service: svc,
+		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Bus: bus, Service: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
