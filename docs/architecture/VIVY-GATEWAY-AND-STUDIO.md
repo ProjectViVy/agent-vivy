@@ -20,6 +20,9 @@
 >   reuses its local-first and admission stance, not its remote scope
 > - `VIVY-CHANNEL-PACK.md` — proposal: first-party channels as packed
 >   organs (kernel Host; `channels/` lib; config cannot grow new adapters)
+> - `VIVY-FACE-PACK.md` — proposal: first-party faces as packed mouths
+>   (`face: web | tui | headless`; kernel FaceHost; Android is a downstream
+>   consumer of the kernel, not a pack target)
 > - `.workspace/deepseek-harness/` — evidence source, not a dependency
 
 ---
