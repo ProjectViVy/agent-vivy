@@ -7,6 +7,7 @@
 > 出厂的 loop / world / tool / provider **不叫插件**，不放在本目录，装配见 `VIVY-ASSEMBLY.md`。
 > Skill 文本不是插件。远程 MCP / provider 地址是配置，不是插件。
 > `seam: channel`（出厂 `channels/` 与用户插件共用 ABI）见 **`VIVY-CHANNEL-PACK.md`**。本文件未扩 seam 之前，channel 清单不得当 tool 插件提交。
+> `seam: face`（出厂 `faces/` 与用户插件共用 ABI）见 **`VIVY-FACE-PACK.md`**。本文件未扩 seam 之前，face 清单不得当 tool 插件提交。
 
 ---
 
