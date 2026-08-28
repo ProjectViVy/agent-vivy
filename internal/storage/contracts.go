@@ -146,6 +146,33 @@ type StudioStore interface {
 	ListStudioEvents(ctx context.Context) ([]domain.StudioEvent, error)
 }
 
+// UsageRow is one model.usage event joined with its run context. It is a
+// read-only projection for token statistics; the authoritative record still
+// lives in the Journal.
+type UsageRow struct {
+	RunID            domain.RunID
+	SessionID        domain.SessionID
+	SessionTitle     string
+	CreatedAt        int64 // unix milli
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	ReasoningTokens  int
+	Model            string
+	Provider         string
+}
+
+// TokenUsageStore exposes a cross-run usage projection derived from
+// model.usage events already committed to the Journal. It does not write
+// anything; the Journal remains the single source of truth.
+type TokenUsageStore interface {
+	// ListModelUsage returns every model.usage event with created_at >=
+	// sinceUnixMilli, joined with runs/sessions and the matching
+	// run.started payload (model + provider). Missing run.started yields
+	// empty Model/Provider; the row still counts toward totals.
+	ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]UsageRow, error)
+}
+
 // RunStore tracks run lifecycle rows. Status transitions themselves are
 // validated by the domain state machine; the store only persists them.
 type RunStore interface {
@@ -266,6 +293,7 @@ type Engine interface {
 	SkillRevisionStore
 	TodoStore
 	StudioStore
+	TokenUsageStore
 	LeaseStore
 	Snapshot() SnapshotStore
 	Blobs() BlobStore

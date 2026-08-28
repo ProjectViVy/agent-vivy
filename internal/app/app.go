@@ -317,6 +317,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		// api_key → active bundle env_key) immediately; the startup overlay
 		// replays the same document on the next launch.
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
+		TokenUsage:       backend,
 	})
 	if err != nil {
 		_ = backend.Close()

@@ -11,6 +11,7 @@ export const RPC_METHODS = [
   'evals/list', 'evals/record', 'evals/start', 'promotions/list', 'promotions/promote', 'species/inspect',
   'settings/get', 'settings/update',
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete',
+  'stats/tokens',
 ] as const;
 
 export type RunStatus = 'accepted' | 'queued' | 'active' | 'completed' | 'failed' | 'cancelled';
@@ -165,3 +166,63 @@ export interface ProvidersView {
 export const listProviders = () => request<ProvidersView>('settings/providers');
 export const upsertProvider = (input: ProviderEntryInput) => request<ProviderEntry>('settings/providers/upsert', { ...input });
 export const deleteProvider = (id: string) => request<{ deleted: boolean; id: string }>('settings/providers/delete', { id });
+
+// ==================== Token Usage Stats ====================
+
+export type TokenUsagePeriod = '1d' | '3d' | '1w' | '1m' | '6m' | '1y';
+
+export interface TokenUsageTotal {
+  total_input: number;
+  total_output: number;
+  total_tokens: number;
+  total_reasoning: number;
+  request_count: number;
+}
+
+export interface TokenModelShare {
+  model: string;
+  percentage: number;
+  total_tokens: number;
+}
+
+export interface TokenProviderGroup {
+  key: string;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface TokenTimelinePoint {
+  time_bucket: string;
+  label: string;
+  total_input: number;
+  total_output: number;
+  total_tokens: number;
+}
+
+export interface TokenSessionUsage {
+  id: string;
+  title: string;
+  model: string;
+  request_count: number;
+  total_input: number;
+  total_output: number;
+  total_tokens: number;
+}
+
+export interface TokenUsageSnapshot {
+  period: TokenUsagePeriod;
+  total: TokenUsageTotal;
+  models: TokenModelShare[];
+  providers: TokenProviderGroup[];
+  timeline: TokenTimelinePoint[];
+  sessions: TokenSessionUsage[];
+}
+
+export interface TokenUsageParams {
+  period: TokenUsagePeriod;
+  tz_offset_minutes: number;
+  session_limit?: number;
+}
+
+export const getTokenUsage = (params: TokenUsageParams) =>
+  request<TokenUsageSnapshot>('stats/tokens', params);

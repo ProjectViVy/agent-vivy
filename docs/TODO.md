@@ -59,7 +59,7 @@ Do not pick work from those tables. Closed-track filing:
 | P3-1 | claude-code upstream LICENSE | OPEN | Ambient; before any reuse |
 | P3-2 | Human review of `rig` LICENSE | OPEN | Ambient; before any reuse |
 | UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
-| UI-TOKEN | 中控台 Token 统计接真实用量账本 | OPEN | 2026-08-25 UI 只放了 `getDemoTokenUsage` 假数据；Diva 侧权威在 Manager token ledger |
+| UI-TOKEN | 中控台 Token 统计接真实用量账本 | DONE | 2026-08-29 `stats/tokens` RPC + `TokenUsageStore` 聚合 Journal `model.usage` 事件；面板改用真实数据，移除 DemoBanner。见 `docs/logs/2026-08-29-dashboard-token-stats-live/` |
 | UI-MCP | MCP 面板接真实后端管理 | OPEN | 2026-08-25 面板已按 oil-frontend 重做但仍为 `vivy.demo.mcp` 演示数据；内核 MCP 由 `config.yaml` `runtime.mcp_servers` 驱动，无管理 RPC |
 | UI-TITLE | `ui/index.html` 标题仍是旧演示名 | OPEN | `<title>Agent Diva 前端演示</title>`；产品现为 Vivy，改名需产品命名确认，未随皮肤迭代顺手改 |
 | UI-EVO | 进化页接真实 Evolution/AutoDream 后端 | OPEN | 2026-08-25 页面已按 agent-diva 结构落地为 `vivy.demo.*` 演示数据页（`/evolution`，三 Tab 治理闭环 + 跨页跳转，见 `docs/logs/2026-08-25-evolution-page/`）；内核 AutoDream/Evolution 能力本身见 MEM-1（DEFERRED），有能力提案后需把 `demo-api.ts` 换成 `api.ts` 真实 RPC 并登记方法 |

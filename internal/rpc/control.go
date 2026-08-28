@@ -62,6 +62,9 @@ type ControlDeps struct {
 	// environment immediately; the startup overlay replays the same document
 	// on the next launch. Nil means no live apply (read-only deployments).
 	ApplySettingsEnv func(settings.Settings)
+	// TokenUsage provides cross-run usage aggregation for stats/tokens.
+	// Nil disables the method.
+	TokenUsage storage.TokenUsageStore
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -293,6 +296,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"generations.reject", "species.inspect",
 				"settings.get", "settings.update",
 				"settings.providers", "settings.providers.upsert", "settings.providers.delete",
+				"stats.tokens",
 			},
 		}, nil
 	case "session/create":
@@ -386,6 +390,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.upsertProvider(ctx, request)
 	case "settings/providers/delete":
 		return h.deleteProvider(ctx, request)
+	case "stats/tokens":
+		return h.statsTokens(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
