@@ -1,34 +1,45 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatTokenCost, formatTokenCount, getDemoTokenUsage } from '@/lib/demo-api';
+import { getTokenUsage, type TokenUsagePeriod, type TokenUsageSnapshot } from '@/lib/api';
+import { formatTokenCount } from '@/lib/format';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import type { DemoTokenPeriod, DemoTokenUsageSnapshot } from '@/lib/types';
 import { DemoLoadError } from './DemoBanner';
 
-const PERIODS: DemoTokenPeriod[] = ['1d', '3d', '1w', '1m', '6m', '1y'];
+const PERIODS: TokenUsagePeriod[] = ['1d', '3d', '1w', '1m', '6m', '1y'];
 
 export function TokenStatsPanel() {
   const { t } = useTranslation();
-  const [period, setPeriod] = useState<DemoTokenPeriod>('1d');
+  const [period, setPeriod] = useState<TokenUsagePeriod>('1d');
   const [reloadKey, setReloadKey] = useState(0);
   const [view, setView] = useState<'overview' | 'detail'>('overview');
-  const [snapshot, setSnapshot] = useState<DemoTokenUsageSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<TokenUsageSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Track whether we have ever loaded successfully so we can show empty vs skeleton.
+  const hasLoaded = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
-      setError(null);
       try {
-        const next = await getDemoTokenUsage(period);
-        if (!cancelled) setSnapshot(next);
+        const next = await getTokenUsage({
+          period,
+          tz_offset_minutes: new Date().getTimezoneOffset(),
+        });
+        if (!cancelled) {
+          setSnapshot(next);
+          setError(null);
+          hasLoaded.current = true;
+        }
       } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+          // Keep old snapshot on error per scope-and-state-integrity contract.
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -48,19 +59,27 @@ export function TokenStatsPanel() {
     URL.revokeObjectURL(url);
   };
 
-  if (error) return <DemoLoadError message={error} onRetry={() => setReloadKey((value) => value + 1)} />;
-  if (!snapshot) {
+  // Error with no prior snapshot → show error state.
+  if (error && !hasLoaded.current) {
+    return <DemoLoadError message={error} onRetry={() => setReloadKey((v) => v + 1)} />;
+  }
+
+  // First load skeleton.
+  if (!snapshot && !hasLoaded.current) {
     return (
       <div className="space-y-3">
         <div className="h-10 animate-pulse rounded-md bg-muted" />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-muted" />)}
+          {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />)}
         </div>
       </div>
     );
   }
 
-  const visibleSessions = view === 'overview' ? snapshot.sessions.slice(0, 5) : snapshot.sessions;
+  // Empty state: real data loaded but no usage events.
+  const isEmpty = snapshot?.total.request_count === 0;
+
+  const visibleSessions = view === 'overview' && snapshot ? snapshot.sessions.slice(0, 5) : snapshot?.sessions ?? [];
 
   return (
     <div className="space-y-6">
@@ -83,87 +102,97 @@ export function TokenStatsPanel() {
               </Button>
             ))}
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={exportSnapshot} disabled={!snapshot}>{t('token.export')}</Button>
+          <Button type="button" variant="outline" size="sm" onClick={exportSnapshot} disabled={!snapshot || isEmpty}>{t('token.export')}</Button>
         </div>
       )}
 
-      {view === 'overview' ? (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label={t('token.totalTokens')} value={formatTokenCount(snapshot.total.total_tokens)} />
-            <Metric label={t('token.input')} value={formatTokenCount(snapshot.total.total_input)} />
-            <Metric label={t('token.output')} value={formatTokenCount(snapshot.total.total_output)} />
-            <Metric label={t('token.estimatedCost')} value={formatTokenCost(snapshot.total.total_cost)} />
-          </div>
-
-          <section>
-            <h3 className="mb-3 text-sm font-semibold">{t('token.modelDistribution')}</h3>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('token.model')}</TableHead>
-                  <TableHead>{t('token.share')}</TableHead>
-                  <TableHead className="text-right">{t('token.tokenColumn')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {snapshot.models.map((model) => (
-                  <TableRow key={model.model}>
-                    <TableCell className="font-medium">{model.model}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Progress value={model.percentage} className="h-2 w-24" />
-                        <span>{model.percentage.toFixed(1)}%</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{formatTokenCount(model.total_tokens)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </section>
-
-          <UsageTrendChart timeline={snapshot.timeline} />
-
-          <SessionTable sessions={visibleSessions} columns="overview" />
-          <div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setView('detail')}>{t('token.viewDetails')}</Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <section>
-            <h3 className="mb-3 text-sm font-semibold">{t('token.cacheTokens')}</h3>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Metric label={t('token.cacheCreation')} value={formatTokenCount(snapshot.total.total_cache_creation)} />
-              <Metric label={t('token.cacheRead')} value={formatTokenCount(snapshot.total.total_cache_read)} />
-            </div>
-          </section>
-          <section>
-            <h3 className="mb-3 text-sm font-semibold">{t('token.endpoints')}</h3>
-            <ul className="space-y-3">
-              {snapshot.endpoints.map((endpoint) => {
-                const share = snapshot.total.total_tokens === 0 ? 0 : (endpoint.total_tokens / snapshot.total.total_tokens) * 100;
-                return (
-                  <li key={endpoint.key} className="grid grid-cols-[7rem_1fr_4.5rem] items-center gap-3 text-sm">
-                    <span className="font-medium">{endpoint.key}</span>
-                    <Progress value={share} />
-                    <span className="text-right tabular-nums">{formatTokenCount(endpoint.total_tokens)}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-          <SessionTable sessions={visibleSessions} columns="detail" />
-        </>
+      {/* Inline error banner when we have stale data to show underneath. */}
+      {error && hasLoaded.current && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {error}
+        </div>
       )}
+
+      {isEmpty ? (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {t('token.emptyState')}
+        </div>
+      ) : snapshot ? (
+        view === 'overview' ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Metric label={t('token.totalTokens')} value={formatTokenCount(snapshot.total.total_tokens)} />
+              <Metric label={t('token.input')} value={formatTokenCount(snapshot.total.total_input)} />
+              <Metric label={t('token.output')} value={formatTokenCount(snapshot.total.total_output)} />
+              <Metric label={t('token.requestCount')} value={String(snapshot.total.request_count)} />
+            </div>
+
+            <section>
+              <h3 className="mb-3 text-sm font-semibold">{t('token.modelDistribution')}</h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('token.model')}</TableHead>
+                    <TableHead>{t('token.share')}</TableHead>
+                    <TableHead className="text-right">{t('token.tokenColumn')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {snapshot.models.map((model) => (
+                    <TableRow key={model.model}>
+                      <TableCell className="font-medium">{model.model}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Progress value={model.percentage} className="h-2 w-24" />
+                          <span>{model.percentage.toFixed(1)}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{formatTokenCount(model.total_tokens)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </section>
+
+            <UsageTrendChart timeline={snapshot.timeline} />
+
+            <SessionTable sessions={visibleSessions} columns="overview" />
+            <div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setView('detail')}>{t('token.viewDetails')}</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <section>
+              <h3 className="mb-3 text-sm font-semibold">{t('token.reasoningTokens')}</h3>
+              <Metric label={t('token.totalReasoning')} value={formatTokenCount(snapshot.total.total_reasoning)} />
+            </section>
+            <section>
+              <h3 className="mb-3 text-sm font-semibold">{t('token.providers')}</h3>
+              <ul className="space-y-3">
+                {snapshot.providers.map((prov) => {
+                  const share = snapshot.total.total_tokens === 0 ? 0 : (prov.total_tokens / snapshot.total.total_tokens) * 100;
+                  return (
+                    <li key={prov.key} className="grid grid-cols-[7rem_1fr_4.5rem] items-center gap-3 text-sm">
+                      <span className="font-medium">{prov.key}</span>
+                      <Progress value={share} />
+                      <span className="text-right tabular-nums">{formatTokenCount(prov.total_tokens)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+            <SessionTable sessions={visibleSessions} columns="detail" />
+          </>
+        )
+      ) : null}
     </div>
   );
 }
 
-function UsageTrendChart({ timeline }: { timeline: DemoTokenUsageSnapshot['timeline'] }) {
+function UsageTrendChart({ timeline }: { timeline: TokenUsageSnapshot['timeline'] }) {
   const { t } = useTranslation();
-  const maxTimeline = Math.max(...timeline.map((point) => point.total_tokens), 1);
+  const maxTimeline = Math.max(...timeline.map((p) => p.total_tokens), 1);
   const fewBars = timeline.length <= 4;
   return (
     <section>
@@ -219,7 +248,7 @@ function SessionTable({
   sessions,
   columns,
 }: {
-  sessions: DemoTokenUsageSnapshot['sessions'];
+  sessions: TokenUsageSnapshot['sessions'];
   columns: 'overview' | 'detail';
 }) {
   const { t } = useTranslation();
@@ -235,13 +264,11 @@ function SessionTable({
               <>
                 <TableHead className="text-right">{t('token.requests')}</TableHead>
                 <TableHead className="text-right">{t('token.tokenColumn')}</TableHead>
-                <TableHead className="text-right">{t('token.cost')}</TableHead>
               </>
             ) : (
               <>
                 <TableHead className="text-right">{t('token.input')}</TableHead>
                 <TableHead className="text-right">{t('token.output')}</TableHead>
-                <TableHead className="text-right">{t('token.cost')}</TableHead>
               </>
             )}
           </TableRow>
@@ -249,19 +276,17 @@ function SessionTable({
         <TableBody>
           {sessions.map((session) => (
             <TableRow key={session.id}>
-              <TableCell className="font-medium">{session.title}</TableCell>
+              <TableCell className="font-medium">{session.title || session.id}</TableCell>
               <TableCell>{session.model}</TableCell>
               {columns === 'overview' ? (
                 <>
                   <TableCell className="text-right tabular-nums">{session.request_count}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatTokenCount(session.total_tokens)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatTokenCost(session.total_cost)}</TableCell>
                 </>
               ) : (
                 <>
                   <TableCell className="text-right tabular-nums">{formatTokenCount(session.total_input)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatTokenCount(session.total_output)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatTokenCost(session.total_cost)}</TableCell>
                 </>
               )}
             </TableRow>

@@ -196,4 +196,6 @@ CREATE TABLE studio_events (
 	created_at BIGINT NOT NULL,
 	payload BYTEA NOT NULL
 );
+
+CREATE INDEX run_events_type_created_idx ON run_events(type, created_at);
 `
