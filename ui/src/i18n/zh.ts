@@ -51,6 +51,27 @@ export const zh = {
     todos: '待办事项',
     reviewCenter: '审批中心',
   },
+  todos: {
+    title: '任务',
+    panelTitle: '待办',
+    closePanel: '关闭待办',
+    empty: '这个会话还没有待办',
+    loadFailed: '无法加载待办',
+    current: '当前',
+    history: '历史',
+    sectionCounts: '当前 {{current}} · 历史 {{history}}',
+    progress: {
+      done: '{{done}} 已完成',
+      active: '{{active}} 进行中',
+      pending: '{{pending}} 待处理',
+    },
+    status: {
+      pending: '待处理',
+      in_progress: '进行中',
+      completed: '已完成',
+      cancelled: '已取消',
+    },
+  },
   chat: {
     startNew: '开始新的对话',
     preflightHint: '发送消息后，Vivy 会先进行预检。',
