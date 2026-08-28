@@ -10,13 +10,19 @@ import (
 
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/tui"
+	"agent-vivy/internal/tui/view"
 )
 
 func runTUI(args []string) int {
 	addr := ""
 	title := "TUI"
+	mode := "" // demo | plain | auto
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--demo":
+			mode = "demo"
+		case "--plain":
+			mode = "plain"
 		case "--addr", "-H":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "vivy tui: --addr needs host:port")
@@ -24,6 +30,9 @@ func runTUI(args []string) int {
 			}
 			i++
 			addr = args[i]
+			if mode == "" {
+				mode = "plain"
+			}
 		case "--title":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "vivy tui: --title needs a value")
@@ -40,6 +49,18 @@ func runTUI(args []string) int {
 			return 2
 		}
 	}
+	if mode == "" {
+		// Prefer the fullscreen skeleton when no gateway target was named.
+		mode = "demo"
+	}
+	if mode == "demo" {
+		if err := view.RunDemo(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+
 	if addr == "" {
 		addr = os.Getenv("VIVY_ADDR")
 	}
@@ -54,6 +75,7 @@ func runTUI(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, "start the gateway first: vivy")
+		fmt.Fprintln(os.Stderr, "or run the mock skeleton: vivy tui --demo")
 		return 1
 	}
 	defer client.Close()
@@ -79,14 +101,13 @@ func defaultListenAddr() string {
 	return config.Default().Server.Addr
 }
 
-const tuiUsage = `vivy tui — terminal face over the resident control plane
+const tuiUsage = `vivy tui — terminal face
 
-  vivy tui [--addr host:port] [--title name]
+  vivy tui --demo                 fullscreen Crush-style skeleton (mock data)
+  vivy tui --plain [--addr host]  line REPL over a resident gateway
+  vivy tui --addr host:port       same as --plain
 
-Connects to a running vivy gateway (default 127.0.0.1:8787). This process
-does not start a second kernel, does not listen, and does not embed the
-web UI. The gateway keeps running after /quit.
-
-This is the first-cut TTY mouth. The packed faces/tui organ in
+--demo does not dial the gateway and does not start a second kernel.
+Default with no flags is --demo. The packed faces/tui organ in
 docs/architecture/VIVY-FACE-PACK.md is a later generation.
 `
