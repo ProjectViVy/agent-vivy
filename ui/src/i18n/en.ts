@@ -53,6 +53,27 @@ export const en: Dictionary = {
     todos: 'To-dos',
     reviewCenter: 'Approvals',
   },
+  todos: {
+    title: 'Tasks',
+    panelTitle: 'To-dos',
+    closePanel: 'Close to-dos',
+    empty: 'This session has no to-dos yet',
+    loadFailed: 'Could not load to-dos',
+    current: 'Current',
+    history: 'History',
+    sectionCounts: 'Current {{current}} · History {{history}}',
+    progress: {
+      done: '{{done}} completed',
+      active: '{{active}} in progress',
+      pending: '{{pending}} pending',
+    },
+    status: {
+      pending: 'Pending',
+      in_progress: 'In progress',
+      completed: 'Completed',
+      cancelled: 'Cancelled',
+    },
+  },
   chat: {
     startNew: 'Start a new conversation',
     preflightHint: 'Vivy runs a preflight check before each turn.',
