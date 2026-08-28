@@ -670,18 +670,6 @@ export interface DemoMemoryItem {
   updatedAt: string;
 }
 
-export interface DemoMcpServer {
-  id: string;
-  name: string;
-  transport: 'stdio' | 'http';
-  /** stdio 本地进程的启动命令 */
-  command?: string;
-  /** http 远程服务地址 */
-  url?: string;
-  enabled: boolean;
-  toolCount: number;
-}
-
 export interface DemoComposerState {
   mode: 'agent' | 'focused';
   secure: boolean;

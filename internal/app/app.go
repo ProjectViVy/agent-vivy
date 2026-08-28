@@ -182,11 +182,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
 	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
-	mcpConfigs := make([]runtime.MCPServerConfig, 0, len(cfg.Runtime.MCPServers))
-	for _, server := range cfg.Runtime.MCPServers {
-		mcpConfigs = append(mcpConfigs, runtime.MCPServerConfig{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
-	}
-	mcpOps = runtime.NewEinoMCPBackend(mcpConfigs, nil)
+	mcpBackend := runtime.NewEinoMCPBackend(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil)
+	mcpOps = mcpBackend
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
 	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
 	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
@@ -318,6 +315,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		// replays the same document on the next launch.
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
 		TokenUsage:       backend,
+		MCP:              mcpBackend,
+		OnSettingsChanged: func() {
+			s, err := settings.Load(settings.Path(dataRoot))
+			if err != nil {
+				logger.Warn("mcp overlay reload skipped", "err", err)
+				return
+			}
+			mcpBackend.ReplaceServers(liveMCPConfigs(cfg, s))
+		},
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -470,13 +476,44 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 	if s.ExecuteMaxTimeoutSeconds > 0 {
 		cfg.Runtime.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", settings.ActiveKey(s, s.Provider, s.BaseURL) != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds)
+	if overlay := enabledMCPFromSettings(s); overlay != nil {
+		cfg.Runtime.MCPServers = overlay
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", settings.ActiveKey(s, s.Provider, s.BaseURL) != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "mcp_servers", len(cfg.Runtime.MCPServers))
 	return cfg
 }
 
-// defaultModelFor picks the configured default model of the active
-// provider; the mock and empty values fall back to the bundle default
-// inside the Ref.
+// enabledMCPFromSettings returns the enabled MCP servers from the overlay,
+// or nil when the overlay has never been written (config default stands).
+func enabledMCPFromSettings(s settings.Settings) []config.MCPServer {
+	if s.MCPServers == nil {
+		return nil
+	}
+	out := make([]config.MCPServer, 0, len(*s.MCPServers))
+	for _, server := range *s.MCPServers {
+		if !settings.MCPServerEnabled(server) {
+			continue
+		}
+		out = append(out, config.MCPServer{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+	}
+	return out
+}
+
+func mcpRuntimeConfigs(servers []config.MCPServer) []runtime.MCPServerConfig {
+	out := make([]runtime.MCPServerConfig, 0, len(servers))
+	for _, server := range servers {
+		out = append(out, runtime.MCPServerConfig{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+	}
+	return out
+}
+
+func liveMCPConfigs(cfg config.Config, s settings.Settings) []runtime.MCPServerConfig {
+	if overlay := enabledMCPFromSettings(s); overlay != nil {
+		return mcpRuntimeConfigs(overlay)
+	}
+	return mcpRuntimeConfigs(cfg.Runtime.MCPServers)
+}
+
 func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) {
 	switch cfg.Storage.Backend {
 	case "postgres":

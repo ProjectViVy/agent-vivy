@@ -43,7 +43,6 @@ import type {
   DemoTokenPeriod,
   DemoTokenUsageSnapshot,
   DemoMemoryItem,
-  DemoMcpServer,
   DemoComposerState,
   DemoGenParams,
 } from './types';
@@ -70,7 +69,6 @@ const STORAGE_KEYS = {
   APPROVALS: 'vivy.demo.approvals',
   DASHBOARD: 'vivy.demo.dashboard',
   MEMORY: 'vivy.demo.memory',
-  MCP: 'vivy.demo.mcp',
   COMPOSER: 'vivy.demo.composer',
   /** 按模型键名（provider/baseUrl/model）独立保存的演示生成参数 */
   GEN_PARAMS: 'vivy.demo.gen-params',
@@ -1638,11 +1636,6 @@ const DEFAULT_MEMORIES: DemoMemoryItem[] = [
   { id: 'memory-3', title: t('demo.memories.decisionTitle'), category: 'decision', content: t('demo.memories.decisionContent'), updatedAt: '2024-01-13T09:20:00Z' },
 ];
 
-const DEFAULT_MCP_SERVERS: DemoMcpServer[] = [
-  { id: 'mcp-files', name: 'Workspace Files', transport: 'stdio', command: 'npx -y @modelcontextprotocol/server-filesystem .', enabled: true, toolCount: 8 },
-  { id: 'mcp-browser', name: 'Browser Tools', transport: 'http', url: 'http://127.0.0.1:9123/mcp', enabled: false, toolCount: 5 },
-];
-
 const DEFAULT_COMPOSER: DemoComposerState = { mode: 'agent', secure: true, recording: false };
 
 function readDemoValue<T>(key: string, fallback: T): T {
@@ -1799,165 +1792,6 @@ export async function getDemoTokenUsage(period: DemoTokenPeriod = '1d'): Promise
 export async function getDemoMemories(): Promise<DemoMemoryItem[]> {
   await delay(120);
   return readDemoValue(STORAGE_KEYS.MEMORY, DEFAULT_MEMORIES);
-}
-
-export async function getDemoMcpServers(): Promise<DemoMcpServer[]> {
-  await delay(120);
-  return readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-}
-
-export interface DemoMcpServerInput {
-  name: string;
-  transport: DemoMcpServer['transport'];
-  command?: string;
-  url?: string;
-}
-
-function normalizeMcpInput(input: DemoMcpServerInput) {
-  const name = input.name.trim();
-  if (!name) throw new Error(t('mcp.errors.nameRequired'));
-  if (input.transport === 'http') {
-    const url = (input.url ?? '').trim();
-    if (!url) throw new Error(t('mcp.errors.urlRequired'));
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new Error(t('mcp.errors.urlInvalid'));
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(t('mcp.errors.urlScheme'));
-    }
-    return { name, transport: 'http' as const, url, command: undefined };
-  }
-  const command = (input.command ?? '').trim();
-  if (!command) throw new Error(t('mcp.errors.commandRequired'));
-  return { name, transport: 'stdio' as const, command, url: undefined };
-}
-
-function assertMcpNameAvailable(servers: DemoMcpServer[], name: string, exceptId?: string) {
-  if (servers.some((server) => server.id !== exceptId && server.name.toLowerCase() === name.toLowerCase())) {
-    throw new Error(t('mcp.errors.duplicateName'));
-  }
-}
-
-export async function toggleDemoMcpServer(id: string): Promise<DemoMcpServer[]> {
-  await delay(160);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS).map((server) => server.id === id ? { ...server, enabled: !server.enabled } : server);
-  return writeDemoValue(STORAGE_KEYS.MCP, servers);
-}
-
-export async function addDemoMcpServer(input: DemoMcpServerInput): Promise<DemoMcpServer[]> {
-  await delay(180);
-  const normalized = normalizeMcpInput(input);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  assertMcpNameAvailable(servers, normalized.name);
-  return writeDemoValue(STORAGE_KEYS.MCP, [
-    ...servers,
-    {
-      id: `mcp-${generateId()}`,
-      ...normalized,
-      enabled: true,
-      toolCount: 0,
-    },
-  ]);
-}
-
-export async function updateDemoMcpServer(id: string, input: DemoMcpServerInput): Promise<DemoMcpServer[]> {
-  await delay(180);
-  const normalized = normalizeMcpInput(input);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  if (!servers.some((server) => server.id === id)) throw new Error(t('mcp.errors.notFound'));
-  assertMcpNameAvailable(servers, normalized.name, id);
-  return writeDemoValue(STORAGE_KEYS.MCP, servers.map((server) => server.id === id ? { ...server, ...normalized } : server));
-}
-
-export async function removeDemoMcpServer(id: string): Promise<DemoMcpServer[]> {
-  await delay(160);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  return writeDemoValue(STORAGE_KEYS.MCP, servers.filter((server) => server.id !== id));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export async function importDemoMcpConfig(config: unknown): Promise<DemoMcpServer[]> {
-  await delay(180);
-  const entries: Array<Pick<DemoMcpServer, 'name' | 'transport' | 'command' | 'url' | 'enabled' | 'toolCount'>> = [];
-
-  const appendEntry = (nameHint: string, value: unknown) => {
-    const record = isRecord(value) ? value : {};
-    const name = (typeof record.name === 'string' ? record.name : nameHint).trim();
-    if (!name) return;
-
-    const transportValue = record.transport ?? (typeof record.url === 'string' ? 'http' : 'stdio');
-    const transport = transportValue === 'http' ? 'http' : 'stdio';
-    const enabled = typeof record.enabled === 'boolean' ? record.enabled : true;
-    const toolCount = typeof record.toolCount === 'number' && Number.isFinite(record.toolCount)
-      ? Math.max(0, Math.round(record.toolCount))
-      : 0;
-    const command = typeof record.command === 'string' && record.command.trim() ? record.command.trim() : undefined;
-    const url = typeof record.url === 'string' && record.url.trim() ? record.url.trim() : undefined;
-    entries.push({
-      name,
-      transport,
-      command: transport === 'stdio' ? command : undefined,
-      url: transport === 'http' ? url : undefined,
-      enabled,
-      toolCount,
-    });
-  };
-
-  if (Array.isArray(config)) {
-    config.forEach((value) => appendEntry(isRecord(value) && typeof value.name === 'string' ? value.name : '', value));
-  } else if (isRecord(config)) {
-    const tools = isRecord(config.tools) ? config.tools : null;
-    const serverMap = isRecord(config.mcpServers)
-      ? config.mcpServers
-      : tools && isRecord(tools.mcpServers)
-        ? tools.mcpServers
-        : null;
-    if (serverMap) {
-      Object.entries(serverMap).forEach(([name, value]) => appendEntry(name, value));
-    } else if ('name' in config || 'transport' in config || 'url' in config || 'command' in config) {
-      appendEntry('', config);
-    } else {
-      Object.entries(config).forEach(([name, value]) => appendEntry(name, value));
-    }
-  }
-
-  if (!entries.length) throw new Error(t('mcp.errors.emptyImport'));
-
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  const merged = [...servers];
-  entries.forEach((entry) => {
-    const index = merged.findIndex((server) => server.name.toLowerCase() === entry.name.toLowerCase());
-    const next = {
-      id: index >= 0 ? merged[index].id : `mcp-${generateId()}`,
-      ...entry,
-    };
-    if (index >= 0) merged[index] = next;
-    else merged.push(next);
-  });
-
-  return writeDemoValue(STORAGE_KEYS.MCP, merged);
-}
-
-export async function exportDemoMcpConfig(): Promise<{ mcpServers: Record<string, Record<string, unknown>> }> {
-  await delay(80);
-  const servers = readDemoValue(STORAGE_KEYS.MCP, DEFAULT_MCP_SERVERS);
-  return {
-    mcpServers: Object.fromEntries(
-      servers.map((server) => [server.name, {
-        transport: server.transport,
-        ...(server.transport === 'stdio' && server.command ? { command: server.command } : {}),
-        ...(server.transport === 'http' && server.url ? { url: server.url } : {}),
-        enabled: server.enabled,
-        toolCount: server.toolCount,
-      }]),
-    ),
-  };
 }
 
 export async function getDemoComposerState(): Promise<DemoComposerState> {

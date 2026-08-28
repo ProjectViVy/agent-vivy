@@ -296,3 +296,101 @@ func TestUpsertProviderAppendsAndReplacesByID(t *testing.T) {
 		t.Fatalf("entry not replaced: %+v", second.Providers[0])
 	}
 }
+
+func TestSaveAndLoadMCPServers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	enabled := BoolPtr(false)
+	list := []MCPServer{
+		{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "MCP_DOCS_TOKEN"},
+		{Name: "idle", Endpoint: "http://127.0.0.1:9123/mcp", Enabled: enabled},
+	}
+	saved, err := Save(path, Settings{MCPServers: &list})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.MCPServers == nil || len(*loaded.MCPServers) != 2 {
+		t.Fatalf("mcp overlay not persisted: %+v", loaded)
+	}
+	if !MCPServerEnabled((*loaded.MCPServers)[0]) || MCPServerEnabled((*loaded.MCPServers)[1]) {
+		t.Fatalf("enabled defaults not round-tripped: %+v", *loaded.MCPServers)
+	}
+	if !reflect.DeepEqual(loaded.MCPServers, saved.MCPServers) {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved.MCPServers, loaded.MCPServers)
+	}
+}
+
+func TestEmptyMCPOverlayIsNotZero(t *testing.T) {
+	empty := []MCPServer{}
+	s := Settings{MCPServers: &empty}
+	if s.IsZero() {
+		t.Fatal("explicit empty MCP overlay must not look like an unconfigured document")
+	}
+	if (Settings{}).IsZero() != true {
+		t.Fatal("zero settings must remain zero")
+	}
+}
+
+func TestEmptyMCPOverlayRoundTripStaysExplicit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	empty := []MCPServer{}
+	if _, err := Save(path, Settings{MCPServers: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.MCPServers == nil {
+		t.Fatal("empty overlay must not decode as unset (config default would return)")
+	}
+	if len(*loaded.MCPServers) != 0 {
+		t.Fatalf("empty overlay decoded as %+v", *loaded.MCPServers)
+	}
+}
+
+func TestValidateMCPServers(t *testing.T) {
+	ok := []MCPServer{{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "MCP_DOCS_TOKEN"}}
+	if err := (Settings{MCPServers: &ok}).Validate(); err != nil {
+		t.Fatalf("valid mcp overlay rejected: %v", err)
+	}
+	for name, bad := range map[string][]MCPServer{
+		"missing name":     {{Endpoint: "https://docs.example.com/mcp"}},
+		"missing endpoint": {{Name: "docs"}},
+		"bad url":          {{Name: "docs", Endpoint: "ftp://docs.example.com/mcp"}},
+		"bad auth env":     {{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "not-an-env"}},
+		"duplicate name": {
+			{Name: "docs", Endpoint: "https://a.example.com/mcp"},
+			{Name: "Docs", Endpoint: "https://b.example.com/mcp"},
+		},
+	} {
+		if err := (Settings{MCPServers: &bad}).Validate(); err == nil {
+			t.Fatalf("expected error for %s", name)
+		}
+	}
+}
+
+func TestUpsertAndDeleteMCPServer(t *testing.T) {
+	s := Settings{}
+	first := s.UpsertMCPServer(MCPServer{Name: "docs", Endpoint: "https://a.example.com/mcp"})
+	if first.MCPServers == nil || len(*first.MCPServers) != 1 {
+		t.Fatalf("append failed: %+v", first.MCPServers)
+	}
+	second := first.UpsertMCPServer(MCPServer{Name: "Docs", Endpoint: "https://b.example.com/mcp", AuthEnv: "MCP_DOCS_TOKEN", Enabled: BoolPtr(false)})
+	if len(*second.MCPServers) != 1 {
+		t.Fatalf("replace must not grow the list: %+v", *second.MCPServers)
+	}
+	if (*second.MCPServers)[0].Endpoint != "https://b.example.com/mcp" || MCPServerEnabled((*second.MCPServers)[0]) {
+		t.Fatalf("entry not replaced: %+v", (*second.MCPServers)[0])
+	}
+	deleted, ok := second.DeleteMCPServer("docs")
+	if !ok || deleted.MCPServers == nil || len(*deleted.MCPServers) != 0 {
+		t.Fatalf("delete failed: ok=%v list=%+v", ok, deleted.MCPServers)
+	}
+	if _, ok := deleted.DeleteMCPServer("missing"); ok {
+		t.Fatal("missing delete must report not found")
+	}
+}

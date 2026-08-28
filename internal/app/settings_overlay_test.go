@@ -196,3 +196,47 @@ func TestApplySettingsOverlayExecuteTimeout(t *testing.T) {
 		t.Fatalf("overlay ceiling = %d, want 300", got.Runtime.ExecuteMaxTimeoutSeconds)
 	}
 }
+
+func TestApplySettingsOverlayMCPServers(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dir := t.TempDir()
+	cfg := config.Config{
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
+		Runtime: config.Runtime{MCPServers: []config.MCPServer{{Name: "from-config", Endpoint: "https://config.example.com/mcp"}}},
+	}
+
+	// No overlay: config default stands.
+	got := applySettingsOverlay(context.Background(), logger, cfg)
+	if len(got.Runtime.MCPServers) != 1 || got.Runtime.MCPServers[0].Name != "from-config" {
+		t.Fatalf("missing overlay changed mcp = %+v", got.Runtime.MCPServers)
+	}
+
+	list := []settings.MCPServer{
+		{Name: "docs", Endpoint: "https://docs.example.com/mcp"},
+		{Name: "idle", Endpoint: "http://127.0.0.1:9/mcp", Enabled: settings.BoolPtr(false)},
+	}
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{MCPServers: &list}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, cfg)
+	if len(got.Runtime.MCPServers) != 1 || got.Runtime.MCPServers[0].Name != "docs" {
+		t.Fatalf("overlay mcp = %+v, want enabled docs only", got.Runtime.MCPServers)
+	}
+
+	empty := []settings.MCPServer{}
+	dir2 := t.TempDir()
+	cfg2 := config.Config{
+		Storage: config.Storage{DataDir: dir2, Backend: "sqlite"},
+		Runtime: config.Runtime{MCPServers: []config.MCPServer{{Name: "from-config", Endpoint: "https://config.example.com/mcp"}}},
+	}
+	if _, err := settings.Save(settings.Path(dir2), settings.Settings{MCPServers: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, cfg2)
+	if got.Runtime.MCPServers == nil {
+		got.Runtime.MCPServers = []config.MCPServer{}
+	}
+	if len(got.Runtime.MCPServers) != 0 {
+		t.Fatalf("explicit empty overlay must replace config, got %+v", got.Runtime.MCPServers)
+	}
+}

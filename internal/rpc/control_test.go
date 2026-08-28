@@ -702,12 +702,148 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") {
 		t.Fatalf("settings capabilities not advertised: %s", raw)
 	}
-	for _, method := range []string{"settings.providers", "settings.providers.upsert", "settings.providers.delete"} {
+	for _, method := range []string{
+		"settings.providers", "settings.providers.upsert", "settings.providers.delete",
+		"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
+	} {
 		if !containsFold(string(raw), method) {
-			t.Fatalf("provider capability %s not advertised: %s", method, raw)
+			t.Fatalf("capability %s not advertised: %s", method, raw)
 		}
 	}
 }
+
+type mcpCatalogStub struct {
+	listed   tools.MCPListResponse
+	listErr  error
+	replaced []runtime.MCPServerConfig
+}
+
+func (s *mcpCatalogStub) ListTools(context.Context, domain.RunID, string) (tools.MCPListResponse, error) {
+	return s.listed, s.listErr
+}
+
+func (s *mcpCatalogStub) ReplaceServers(configs []runtime.MCPServerConfig) {
+	s.replaced = append([]runtime.MCPServerConfig(nil), configs...)
+}
+
+func TestMCPSettingsCRUDAndProbe(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus(8)
+	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+	})
+	catalog := &mcpCatalogStub{listed: tools.MCPListResponse{Tools: []tools.MCPTool{{Name: "echo"}}, Untrusted: true}}
+	var changes int
+	handler, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio:            studio.NewService(backend),
+		SettingsPath:      filepath.Join(t.TempDir(), "settings.yaml"),
+		MCP:               catalog,
+		OnSettingsChanged: func() { changes++ },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listed, rpcErr := callControl(t, handler, "settings/mcp", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if view := listed.(mcpListResult); len(view.Servers) != 0 || view.ReadOnly {
+		t.Fatalf("empty overlay = %+v", view)
+	}
+
+	saved, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
+		"name": "docs", "endpoint": "https://docs.example.com/mcp", "auth_env": "MCP_DOCS_TOKEN",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	entry := saved.(mcpServerResult)
+	if entry.Name != "docs" || entry.Endpoint != "https://docs.example.com/mcp" || !entry.Enabled || entry.AuthEnv != "MCP_DOCS_TOKEN" {
+		t.Fatalf("upsert result = %+v", entry)
+	}
+	if changes != 1 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 1", changes)
+	}
+
+	if _, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
+		"name": "bad", "endpoint": "ftp://example.com/mcp",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected invalid endpoint, got %v", rpcErr)
+	}
+
+	ro, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio: studio.NewService(backend),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, ro, "settings/mcp/upsert", map[string]any{
+		"name": "docs", "endpoint": "https://docs.example.com/mcp",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("expected read-only conflict, got %v", rpcErr)
+	}
+
+	probed, rpcErr := callControl(t, handler, "settings/mcp/probe", map[string]any{"name": "docs"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	probe := probed.(mcpServerResult)
+	if probe.Status != "ok" || probe.ToolCount != 1 {
+		t.Fatalf("probe = %+v", probe)
+	}
+
+	catalog.listErr = errMCPProbe
+	failed, rpcErr := callControl(t, handler, "settings/mcp/probe", map[string]any{"name": "docs"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if view := failed.(mcpServerResult); view.Status != "error" || view.Error == "" {
+		t.Fatalf("failed probe = %+v", view)
+	}
+
+	if _, rpcErr := callControl(t, handler, "settings/mcp/delete", map[string]any{"name": "docs"}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if changes != 2 {
+		t.Fatalf("OnSettingsChanged after delete = %d, want 2", changes)
+	}
+	listed, rpcErr = callControl(t, handler, "settings/mcp", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if view := listed.(mcpListResult); len(view.Servers) != 0 {
+		t.Fatalf("delete did not empty overlay: %+v", view)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/mcp/delete", map[string]any{"name": "docs"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("expected not found, got %v", rpcErr)
+	}
+}
+
+var errMCPProbe = errString("remote down")
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
 
 // newSettingsHandlerEnv builds a control handler with a writable settings
 // document under a temp dir and an ApplySettingsEnv probe recording applied

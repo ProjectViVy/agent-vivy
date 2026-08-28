@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
+	"agent-vivy/internal/tools"
 )
 
 const (
@@ -65,6 +67,18 @@ type ControlDeps struct {
 	// TokenUsage provides cross-run usage aggregation for stats/tokens.
 	// Nil disables the method.
 	TokenUsage storage.TokenUsageStore
+	// MCP is the live Streamable HTTP catalog. Writes replace it immediately.
+	// Nil disables settings/mcp* methods.
+	MCP MCPCatalog
+	// OnSettingsChanged is invoked after a successful settings write so the
+	// composition root can refresh live overlays (MCP catalog today).
+	OnSettingsChanged func()
+}
+
+// MCPCatalog is the live MCP backend surface the control plane manages.
+type MCPCatalog interface {
+	ListTools(context.Context, domain.RunID, string) (tools.MCPListResponse, error)
+	ReplaceServers([]runtime.MCPServerConfig)
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -296,6 +310,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"generations.reject", "species.inspect",
 				"settings.get", "settings.update",
 				"settings.providers", "settings.providers.upsert", "settings.providers.delete",
+				"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 				"stats.tokens",
 			},
 		}, nil
@@ -390,6 +405,14 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.upsertProvider(ctx, request)
 	case "settings/providers/delete":
 		return h.deleteProvider(ctx, request)
+	case "settings/mcp":
+		return h.listMCP(ctx)
+	case "settings/mcp/upsert":
+		return h.upsertMCP(ctx, request)
+	case "settings/mcp/delete":
+		return h.deleteMCP(ctx, request)
+	case "settings/mcp/probe":
+		return h.probeMCP(ctx, request)
 	case "stats/tokens":
 		return h.statsTokens(ctx, request)
 	default:
@@ -1438,6 +1461,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
 	}
+	h.notifySettingsChanged()
 	_ = ctx
 	// Echo the config fallbacks too so the UI keeps its display values
 	// (provider/model/execute ceiling) consistent right after a save,
@@ -1573,6 +1597,7 @@ func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (a
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
 	}
+	h.notifySettingsChanged()
 	_ = ctx
 	// Echo back the redacted saved entry so the UI can confirm the result.
 	for _, e := range saved.Providers {
@@ -1621,6 +1646,7 @@ func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (a
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
 	}
+	h.notifySettingsChanged()
 	_ = ctx
 	return map[string]any{"deleted": true, "id": params.ID}, nil
 }
@@ -1634,6 +1660,173 @@ func providerIDNonce() string {
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func (h *controlHandler) notifySettingsChanged() {
+	if h.deps.OnSettingsChanged != nil {
+		h.deps.OnSettingsChanged()
+	}
+}
+
+type mcpServerResult struct {
+	Name       string `json:"name"`
+	Endpoint   string `json:"endpoint"`
+	AuthEnv    string `json:"auth_env,omitempty"`
+	AuthEnvSet bool   `json:"auth_env_set"`
+	Enabled    bool   `json:"enabled"`
+	ToolCount  int    `json:"tool_count"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+}
+
+type mcpListResult struct {
+	Servers  []mcpServerResult `json:"servers"`
+	ReadOnly bool              `json:"read_only"`
+}
+
+func toMCPServerResult(server settings.MCPServer) mcpServerResult {
+	return mcpServerResult{
+		Name:       server.Name,
+		Endpoint:   server.Endpoint,
+		AuthEnv:    server.AuthEnv,
+		AuthEnvSet: server.AuthEnv != "" && os.Getenv(server.AuthEnv) != "",
+		Enabled:    settings.MCPServerEnabled(server),
+		Status:     "idle",
+	}
+}
+
+func (h *controlHandler) mcpView(s settings.Settings) mcpListResult {
+	servers := s.MCPServersOrEmpty()
+	out := make([]mcpServerResult, 0, len(servers))
+	for _, server := range servers {
+		out = append(out, toMCPServerResult(server))
+	}
+	return mcpListResult{Servers: out, ReadOnly: h.deps.SettingsPath == ""}
+}
+
+func (h *controlHandler) listMCP(ctx context.Context) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return h.mcpView(settings.Settings{}), nil
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	_ = ctx
+	return h.mcpView(s), nil
+}
+
+func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		Name     string `json:"name"`
+		Endpoint string `json:"endpoint"`
+		AuthEnv  string `json:"auth_env"`
+		Enabled  *bool  `json:"enabled"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	entry := settings.MCPServer{
+		Name:     strings.TrimSpace(params.Name),
+		Endpoint: strings.TrimSpace(params.Endpoint),
+		AuthEnv:  strings.TrimSpace(params.AuthEnv),
+		Enabled:  params.Enabled,
+	}
+	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertMCPServer(entry))
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	for _, server := range saved.MCPServersOrEmpty() {
+		if strings.EqualFold(server.Name, entry.Name) {
+			return toMCPServerResult(server), nil
+		}
+	}
+	return nil, internalError(fmt.Errorf("mcp upsert did not persist entry"))
+}
+
+func (h *controlHandler) deleteMCP(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	next, ok := s.DeleteMCPServer(params.Name)
+	if !ok {
+		return nil, &Error{Code: CodeNotFound, Message: "mcp server not found"}
+	}
+	if _, err := settings.Save(h.deps.SettingsPath, next); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return map[string]any{"deleted": true, "name": strings.TrimSpace(params.Name)}, nil
+}
+
+func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.MCP == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "mcp catalog is not configured"}
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(params.Name)
+	if name == "" {
+		return nil, &Error{Code: InvalidParams, Message: "name is required"}
+	}
+	s := settings.Settings{}
+	if h.deps.SettingsPath != "" {
+		loaded, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		s = loaded
+	}
+	var found settings.MCPServer
+	ok := false
+	for _, server := range s.MCPServersOrEmpty() {
+		if strings.EqualFold(server.Name, name) {
+			found = server
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return nil, &Error{Code: CodeNotFound, Message: "mcp server not found"}
+	}
+	result := toMCPServerResult(found)
+	if !result.Enabled {
+		result.Status = "idle"
+		return result, nil
+	}
+	listed, err := h.deps.MCP.ListTools(ctx, "", found.Name)
+	if err != nil {
+		result.Status = "error"
+		result.Error = err.Error()
+		return result, nil
+	}
+	result.Status = "ok"
+	result.ToolCount = len(listed.Tools)
+	return result, nil
 }
 
 type generationResult struct {
