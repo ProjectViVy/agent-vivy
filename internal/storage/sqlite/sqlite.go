@@ -33,6 +33,7 @@ var migrations = []struct {
 	{11, migration011},
 	{12, migration012},
 	{13, migration013},
+	{14, migration014},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -401,4 +402,10 @@ ALTER TABLE approvals ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
 ALTER TABLE approvals ADD COLUMN timeout_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'workspace_write';
 ALTER TABLE sessions ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
+`
+
+// migration014 adds an index on run_events(type, created_at) to support
+// cross-run token usage queries without full table scans.
+const migration014 = `
+CREATE INDEX IF NOT EXISTS run_events_type_created_idx ON run_events(type, created_at);
 `
