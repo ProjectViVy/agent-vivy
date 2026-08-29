@@ -149,7 +149,7 @@ func Register() []plugin.Plugin {
 | 禁止 | 原因 |
 |---|---|
 | import `agent-vivy/internal/...`（`sdk` 除外） | 一碰内核，感觉就变成改本体 |
-| import `github.com/cloudwego/eino...` | Eino 是 L1，不是插件窗口 |
+| import `github.com/cloudwego/eino...` | Eino 是 L1，不是插件窗口。`eino-ext/a2a` 同样：后切独立 `plugins/a2a` 的 go.mod 才碰协议 codec；默认身体不得 import；禁止 `RegisterServerHandlers` 绑 ADK（`VIVY-CHANNEL-PACK.md` §15.1） |
 | 自己 `os.Open` / `exec.Command` 绕过 `Env` | 票形同虚设 |
 | 清单 `name` ≠ 目录名 | 身份漂移 |
 | 两个插件登记同一 `tools[].name` | 模型面冲突 |
