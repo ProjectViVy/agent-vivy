@@ -700,6 +700,8 @@ channel 是 Kind B 的新 seam，不是 Kind A，不是 MCP，不是第二种 EX
 
 C0 是文档 PR。C1 起才动内核。C4 之前禁止把 `telego` 写进物种默认 `go.mod`。C4/C6/C7 每个包一次 pack 评测，禁止「一次 PR 链进五个 SDK」。
 
+排期、WBS、活动图与甘特的权威在 `docs/TODO.md` §0.2（2026-08-30 拍板）。本文切片是依赖，不是日历。
+
 ---
 
 ## 21. 已关闭 / 仍开放的问题
