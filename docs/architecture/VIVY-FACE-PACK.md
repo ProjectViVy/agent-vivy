@@ -16,7 +16,7 @@
 - `VIVY-PLUGIN-SPEC.md` — 只约束用户层 `plugins/<name>/`
 - `SELF-EVOLVING-GATEWAY.md` — 装插件 = 造新版本；默认 `Register()` 为空
 - `VIVY-GATEWAY-AND-STUDIO.md` — NG-10 模型可见≡入账；NG-11 拒绝第二种身体
-- `VIVY-CHANNEL-PACK.md` — 耳朵；face 是嘴。channel 不得替代本机 UI
+- `VIVY-CHANNEL-PACK.md` — 超级通道（方向采纳 2026-08-30）；face 是嘴。channel 不得替代本机 UI
 - `ACP-REMOTE-CONTROL-PROPOSAL.md` — 跨进程 / 跨设备遥控器；不是 face
 - `.workspace/deepseek-harness/` — profile / bundle 证据，不是物种依赖
 - `.workspace/oh-dsh/` — 同一 runtime 上的多 surface 发行

@@ -1,12 +1,14 @@
 # Vivy Plugin Spec v0
 
-> 状态：**提案**。服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、**`VIVY-STUDIO.md`**。
-> 日期：2026-08-23（Studio 为第一方日常 IDE，但不排他）
+> 状态：**提案**（tool / tool-world / provider 缝）。`seam: channel` 的通道规则服从已采纳的 **`VIVY-CHANNEL-PACK.md`**。
+> 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、**`VIVY-STUDIO.md`**。
+> 日期：2026-08-30（扩 `seam: channel`；Studio 为第一方日常 IDE，但不排他）
 >
-> **本规范只约束用户自定义能力：仓库里的 `plugins/<name>/`。**
+> **本规范约束仓库里的 `plugins/<name>/`。**
 > 出厂的 loop / world / tool / provider **不叫插件**，不放在本目录，装配见 `VIVY-ASSEMBLY.md`。
+> 本批通道适配器是例外：它们是可选耳朵，不是内核，因此也住在 `plugins/`，清单必须 `seam: channel`（见 `VIVY-ASSEMBLY.md` 与 `VIVY-CHANNEL-PACK.md`）。
 > Skill 文本不是插件。远程 MCP / provider 地址是配置，不是插件。
-> `seam: channel`（出厂 `channels/` 与用户插件共用 ABI）见 **`VIVY-CHANNEL-PACK.md`**。本文件未扩 seam 之前，channel 清单不得当 tool 插件提交。
+> `seam: channel` 已由 **`VIVY-CHANNEL-PACK.md`** 扩入（方向采纳 2026-08-30）。通道插件零个 `tools`，不进工具表。Host 在内核。
 > `seam: face`（出厂 `faces/` 与用户插件共用 ABI）见 **`VIVY-FACE-PACK.md`**。本文件未扩 seam 之前，face 清单不得当 tool 插件提交。
 
 ---
@@ -43,6 +45,8 @@ plugins/
 
 `plugins/` 在物种仓库根下，和 `internal/`、`cmd/` 平级。它**不是** `internal` 的一部分，也**不是**可单独执行的模块。
 
+`hello-fs` 一类无肥依赖的插件可以留在物种 `go.mod` 里。`seam: channel` 且拖入平台 SDK 的插件（本批 telegram / discord / feishu / dingtalk / qq）**必须**自带 `go.mod`，默认 `just ci` 不得编译它们（`VIVY-CHANNEL-PACK.md` §9.1）。
+
 ---
 
 ## 3. 清单 `vivy-plugin.json`
@@ -75,10 +79,10 @@ plugins/
 | `apiVersion` | 目前只有 `vivy.plugin/v0` |
 | `name` | 与目录名一致；本代配方内唯一 |
 | `version` | semver；进入 Generation 出处 |
-| `seam` | 只许 `tool`、`tool-world`、`provider`。**禁止** `journal`、`policy`、`sdk`、`studio` |
+| `seam` | 只许 `tool`、`tool-world`、`provider`、`channel`。**禁止** `journal`、`policy`、`sdk`、`studio`。`channel` 的清单、grants 与 verify 规则见 `VIVY-CHANNEL-PACK.md` |
 | `module` | 相对本目录的 Go 包路径，通常 `.` |
 | `grants` | 本插件可申请的上限。pack 进这一代后冻结 |
-| `tools` | 将出现在模型面前的工具。名字全局唯一（跨插件不撞车） |
+| `tools` | 将出现在模型面前的工具。名字全局唯一（跨插件不撞车）。`seam: channel` **禁止**出现本字段 |
 
 没有 `runtime`、没有 `entry`、没有 exe/wasm 路径。清单是给 **SDK 编译器用的配方卡**，不是给运行时装载器的。
 
@@ -97,6 +101,7 @@ const (
     SeamTool      Seam = "tool"
     SeamToolWorld Seam = "tool-world"
     SeamProvider  Seam = "provider"
+    SeamChannel   Seam = "channel" // 见 VIVY-CHANNEL-PACK.md
 )
 
 type Plugin interface {
@@ -148,9 +153,10 @@ func Register() []plugin.Plugin {
 | 自己 `os.Open` / `exec.Command` 绕过 `Env` | 票形同虚设 |
 | 清单 `name` ≠ 目录名 | 身份漂移 |
 | 两个插件登记同一 `tools[].name` | 模型面冲突 |
+| `seam: channel` 清单带 `tools` | channel 不是模型工具；Consumer 是 ChannelHost |
 | seam 为 `journal` / `policy` | 重构世界的物理不许插件化 |
 | 包内再 `go:embed` 可执行文件当「内置插件」 | 走私外置二进制 |
-| 在插件里起长期后台服务抢端口 | 插件不是进程 |
+| 在插件里起长期后台服务抢端口 | 插件不是进程。`seam: channel` 的例外只此一条：持有 `channel.poll` 时，`Start` 可以跑**出站**长轮询或出站 WS 客户端；`net.Listen` 仍禁止（Listen 是 Host 的，见 `VIVY-CHANNEL-PACK.md`） |
 
 测试可以放在插件目录。测试也不得 import `internal/runtime`。集成感放在物种测试里，由内核去拉 `Register()`。
 
@@ -212,10 +218,12 @@ plugins:
 pack 生成 Register()
         │
         ▼
-物种内核     票、policy、Journal、只读 inspect
+物种内核     票、policy、Journal、只读 inspect、ChannelHost
         │  adapter（作者不可见）
         ▼
 Eino L1      只看见内核包装过的 Tool
+        │
+        ChannelHost 只消费 seam: channel；不 Adapt 成 Tool
 ```
 
 插件崩溃 = 这一代 EXE 崩溃。隔离不在进程，在**下一代**：配方拿掉它，再盖一栋。  

@@ -1,7 +1,7 @@
 # AGENT-VIVY V0 — Open Items Index
 
 > **Status:** Living index. V0 is closed; remaining work matches `docs/TODO.md` §0.1.
-> **Updated:** 2026-08-25
+> **Updated:** 2026-08-30
 > **Owner:** 📋 John (PM) + user (大湿)
 > **Purpose:** Single place to see "what still needs doing" without re-reading every sibling document.
 > **Archive:** `docs/logs/2026-08-25-todo-board-archive/summary.md`
@@ -14,7 +14,10 @@ Canonical table: `docs/TODO.md` §0.1.
 
 | ID | Status |
 |---|---|
-| CH-0..CH-C Channel Pack | OPEN (proposal only) |
+| CH-0 Super-channel contract | DONE (2026-08-30; C0 docs) |
+| CH-A Host + telegram + dingtalk plugins | OPEN (depends on C1–C3 kernel/SDK) |
+| CH-B feishu / qq / discord plugins | OPEN |
+| CH-C wecom | OPEN (bind surface still the blocker; not this batch) |
 | ACP-1 remote control implementation | DEFERRED |
 | HITL-P1-1..7 | OPEN / DEFERRED |
 | MEM-1 Memory / Laputa family | DEFERRED |
