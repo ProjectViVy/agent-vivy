@@ -20,11 +20,13 @@ import {
 } from './provider-catalog';
 import {
   allProviderEntries,
+  catalogOverlayId,
   customApiKeySetFor,
   matchMergedProviderEntry,
   newCustomProviderId,
   parseCustomModels,
   providerEntryById,
+  providerEntryByEndpoint,
   searchMergedProviders,
   splitMergedByFold,
   type CustomProviderInput,
@@ -288,9 +290,10 @@ function CustomProviderDialog({
  * 设置页「模型」Tab 的真实配置卡：顶部是已选模型 chips；左栏供应商列表
  * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏头部
  * 是所选供应商名/地址/运行束 + 编辑（编辑：自定义=打开编辑对话框；
- * 目录=预填克隆为自定义后改地址），下方 API Key 填写（自定义供应商可编辑，
- * 目录厂商禁用并提示环境变量注入），再下方模型列表（兜底为空时提示，列表
- * 顶部「新增」按钮手加模型）。
+ * 目录=预填克隆为自定义后改地址），下方 API Key 填写（自定义与目录厂商均可
+ * 编辑，失焦按端点写回本机用户工作区，同一端点只落一条注册表密钥；内置
+ * Mock 离线束禁用），再下方模型列表（兜底为空时提示，列表顶部「新增」按钮
+ * 手加模型）。
  * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
  */
 export function ModelSettingsCard() {
@@ -316,6 +319,8 @@ export function ModelSettingsCard() {
   const [addingModel, setAddingModel] = useState(false);
   const [newModelId, setNewModelId] = useState('');
   const [panelKey, setPanelKey] = useState('');
+  /** 密钥输入是否被用户改过；未改前失焦不提交（防单纯聚焦/切走误清已配密钥）。 */
+  const [panelKeyDirty, setPanelKeyDirty] = useState(false);
 
   useEffect(() => { void load(); void loadProviders(); }, [load, loadProviders]);
 
@@ -343,6 +348,7 @@ export function ModelSettingsCard() {
   // 这里仅保留「已配置」提示，输入框内容在失焦时作为写-only 值提交。
   useEffect(() => {
     setPanelKey('');
+    setPanelKeyDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
   }, [selectedEntry?.name, providers]);
 
@@ -432,18 +438,58 @@ export function ModelSettingsCard() {
     }
   };
 
-  /** 面板 API Key：自定义供应商只接受写-only 输入，失焦提交到该条目；目录条目禁用。 */
+  /**
+   * 面板 API Key（写-only，失焦提交）：自定义供应商写回其注册表条目；目录厂商
+   * 按端点 (bundle, base_url) 落盘——端点已有注册表条目（含既有自定义克隆）则
+   * 更新其密钥，否则生成 `catalog-<name>` 落地条（隐藏于自定义列表，后端
+   * ActiveKey 按端点解析）。内置 Mock 离线束不可注册，跳过。输入未被修改过
+   * 就失焦时不提交（防误清已配密钥/防凭空建条目）。
+   */
   const commitPanelKey = async () => {
-    if (!selectedRegistry) return;
-    await saveProvider({
-      id: selectedRegistry.id,
-      display_name: selectedRegistry.display_name,
-      bundle: selectedRegistry.bundle,
-      base_url: selectedRegistry.base_url,
-      default_model: selectedRegistry.default_model,
-      models: selectedRegistry.models,
-      api_key: panelKey.trim(),
-    });
+    if (!selectedEntry) return;
+    if (!panelKeyDirty) return; // 未修改过就失焦：不写任何东西（防误清/防凭空建条目）
+    if (selectedEntry.bundle === 'mock') return;
+    const key = panelKey.trim();
+    try {
+      if (selectedRegistry) {
+        await saveProvider({
+          id: selectedRegistry.id,
+          display_name: selectedRegistry.display_name,
+          bundle: selectedRegistry.bundle,
+          base_url: selectedRegistry.base_url,
+          default_model: selectedRegistry.default_model,
+          models: selectedRegistry.models,
+          api_key: key,
+        });
+        return;
+      }
+      if (selectedEntry.custom) return; // 自定义条目注册表缺失：保持原 no-op
+      const existing = providerEntryByEndpoint(providers, selectedEntry.bundle, selectedEntry.baseUrl);
+      if (existing) {
+        await saveProvider({
+          id: existing.id,
+          display_name: existing.display_name,
+          bundle: existing.bundle,
+          base_url: existing.base_url,
+          default_model: existing.default_model,
+          models: existing.models,
+          api_key: key,
+        });
+      } else if (key !== '') {
+        // 端点尚无注册表条目且本轮没有输入值：不凭空创建空密钥落地条。
+        await saveProvider({
+          id: catalogOverlayId(selectedEntry.name),
+          display_name: selectedEntry.displayName,
+          bundle: selectedEntry.bundle,
+          base_url: selectedEntry.baseUrl,
+          default_model: selectedEntry.defaultModel,
+          models: [...selectedEntry.models],
+          api_key: key,
+        });
+      }
+    } finally {
+      setPanelKeyDirty(false);
+    }
   };
 
   /**
@@ -636,13 +682,13 @@ export function ModelSettingsCard() {
                       type="password"
                       className="mt-1.5"
                       value={panelKey}
-                      onChange={(event) => setPanelKey(event.target.value)}
+                      onChange={(event) => { setPanelKey(event.target.value); setPanelKeyDirty(true); }}
                       onBlur={() => void commitPanelKey()}
-                      placeholder={selectedEntry.custom ? t('settingsModel.apiKeyPlaceholder') : t('settingsModel.catalogKeyHint')}
+                      placeholder={selectedEntry.bundle === 'mock' ? t('settingsModel.catalogKeyHint') : t('settingsModel.apiKeyPlaceholder')}
                       autoComplete="off"
-                      disabled={locked || !selectedEntry.custom}
+                      disabled={locked || selectedEntry.bundle === 'mock'}
                     />
-                    <p className="mt-1.5 text-xs text-muted-foreground">{selectedEntry.custom ? t('settingsModel.apiKeyHint') : t('settingsModel.catalogKeyHint')}</p>
+                    <p className="mt-1.5 text-xs text-muted-foreground">{selectedEntry.bundle === 'mock' ? t('settingsModel.catalogKeyHint') : t('settingsModel.apiKeyHint')}</p>
                   </div>
                   <div>
                     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">

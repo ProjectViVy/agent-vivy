@@ -109,11 +109,11 @@ function toMerged(custom: ProviderEntry): MergedProviderEntry {
   };
 }
 
-/** 目录在前、注册表在后。 */
+/** 目录在前、注册表在后；目录厂商密钥落地条（catalog-*）不出现在自定义列表。 */
 export function allProviderEntries(providers: readonly ProviderEntry[]): MergedProviderEntry[] {
   return [
     ...PROVIDER_CATALOG.map((entry) => ({ ...entry, custom: false, apiKeySet: false })),
-    ...providers.filter(isValidCustomProvider).map(toMerged),
+    ...providers.filter(isValidCustomProvider).filter((entry) => !isCatalogOverlayEntry(entry)).map(toMerged),
   ];
 }
 
@@ -149,16 +149,44 @@ export function providerEntryById(providers: readonly ProviderEntry[], id: strin
 }
 
 /**
- * 目标三元组命中的注册表供应商是否已配置密钥。UI 提交时不带密钥（后端权威
- * 解析：注册表条目命中即用其 key）；该布尔仅用于「已配置 API Key」提示。
+ * 目录厂商密钥落地条 id 前缀。面板为目录厂商失焦写回密钥时按目录 name 生成
+ * 稳定 id（`catalog-<name>`，如 catalog-deepseek），使重复失焦更新同一条目；
+ * 该前缀条目不显示为自定义行（避免与目录行重复展示）。
+ */
+export const CATALOG_OVERLAY_PREFIX = 'catalog-';
+
+/** 目录厂商密钥落地条 id（按目录 name 生成，稳定可重入）。 */
+export function catalogOverlayId(catalogName: string): string {
+  return `${CATALOG_OVERLAY_PREFIX}${catalogName}`;
+}
+
+/** 是否为目录厂商密钥落地条（面板自动生成，不在自定义列表显示）。 */
+export function isCatalogOverlayEntry(entry: ProviderEntry): boolean {
+  return entry.id.startsWith(CATALOG_OVERLAY_PREFIX);
+}
+
+/** 按端点 (bundle, base_url) 查注册表条目——与后端 ActiveKey 解析密钥同一口径。 */
+export function providerEntryByEndpoint(
+  providers: readonly ProviderEntry[],
+  bundle: string,
+  baseUrl: string,
+): ProviderEntry | undefined {
+  return providers.find((entry) => entry.bundle === bundle && entry.base_url === baseUrl);
+}
+
+/**
+ * 目标端点 (bundle, base_url) 是否已有注册表密钥覆盖。目录厂商的密钥同样以
+ * 注册表条目落盘（面板失焦写回，按端点命中），因此按端点判定而非 custom
+ * 标记；UI 提交时不带密钥（后端权威解析：注册表条目命中即用其 key）。该
+ * 布尔仅用于「已配置 API Key」提示，值永不回传。
  */
 export function customApiKeySetFor(
   providers: readonly ProviderEntry[],
   bundle: string,
   baseUrl: string,
 ): boolean {
-  const merged = matchMergedProviderEntry(providers, bundle, baseUrl);
-  return !!merged?.custom && merged.apiKeySet;
+  const entry = providerEntryByEndpoint(providers, bundle, baseUrl);
+  return !!entry && entry.api_key_set;
 }
 
 export type MergedFoldGroups = {

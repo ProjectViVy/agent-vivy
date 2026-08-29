@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { PROVIDER_CATALOG } from './provider-catalog';
 import {
   allProviderEntries,
+  catalogOverlayId,
   customApiKeySetFor,
   hasBaseUrlConflict,
+  isCatalogOverlayEntry,
   isValidCustomProvider,
   matchMergedProviderEntry,
   newCustomProviderId,
   parseCustomModels,
+  providerEntryByEndpoint,
   providerEntryById,
   searchMergedProviders,
   splitMergedByFold,
@@ -146,5 +149,43 @@ describe('customApiKeySetFor', () => {
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://unknown.example/v1')).toBe(false);
     expect(customApiKeySetFor([ENTRY], 'mock', '')).toBe(false);
+  });
+});
+
+describe('目录厂商密钥落地条（catalog overlay）', () => {
+  const overlay: ProviderEntry = {
+    id: 'catalog-deepseek',
+    display_name: 'DeepSeek',
+    bundle: 'openai',
+    base_url: 'https://api.deepseek.com/v1',
+    default_model: 'deepseek-chat',
+    models: ['deepseek-chat'],
+    api_key_set: true,
+  };
+
+  it('catalogOverlayId 按目录 name 生成稳定 id；isCatalogOverlayEntry 判定前缀', () => {
+    expect(catalogOverlayId('deepseek')).toBe('catalog-deepseek');
+    expect(isCatalogOverlayEntry(overlay)).toBe(true);
+    expect(isCatalogOverlayEntry(ENTRY)).toBe(false);
+  });
+
+  it('allProviderEntries 隐藏落地条，但保留普通自定义条目（克隆）', () => {
+    const clone: ProviderEntry = { ...ENTRY, id: 'custom-clone', display_name: 'DeepSeek 备用', base_url: 'https://api.deepseek.com/v1' };
+    const entries = allProviderEntries([overlay, clone]);
+    expect(entries).toHaveLength(PROVIDER_CATALOG.length + 1);
+    expect(entries.some((entry) => entry.custom && entry.registryId === clone.id)).toBe(true);
+    expect(entries.some((entry) => entry.custom && entry.registryId === overlay.id)).toBe(false);
+  });
+
+  it('providerEntryByEndpoint：按 (bundle, base_url) 命中（与后端 ActiveKey 同口径）', () => {
+    expect(providerEntryByEndpoint([overlay], 'openai', 'https://api.deepseek.com/v1')).toEqual(overlay);
+    expect(providerEntryByEndpoint([overlay], 'anthropic', 'https://api.deepseek.com/v1')).toBeUndefined();
+    expect(providerEntryByEndpoint([overlay], 'openai', 'https://api.openai.com/v1')).toBeUndefined();
+  });
+
+  it('customApiKeySetFor：目录端点命中注册表密钥覆盖返回 true；无覆盖/未配密钥返回 false', () => {
+    expect(customApiKeySetFor([overlay], 'openai', 'https://api.deepseek.com/v1')).toBe(true);
+    expect(customApiKeySetFor([{ ...overlay, api_key_set: false }], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
+    expect(customApiKeySetFor([], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
   });
 });

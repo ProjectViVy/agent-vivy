@@ -201,7 +201,7 @@ export const en: Dictionary = {
     addModel: 'Add model',
     addModelPlaceholder: 'Type a model id and press Enter',
     addModelConfirm: 'Add and apply',
-    catalogKeyHint: 'Catalog vendors can also take an API key here; it is stored in the user workspace.',
+    catalogKeyHint: 'The built-in Mock provider needs no API key.',
     frozenNotice: 'This process is locked to an environment-variable provider session; model settings are read-only.',
     errors: {
       displayNameRequired: 'Enter a display name',

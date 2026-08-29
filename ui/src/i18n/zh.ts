@@ -199,7 +199,7 @@ export const zh = {
     addModel: '新增模型',
     addModelPlaceholder: '输入模型 id，回车应用',
     addModelConfirm: '加入并应用',
-    catalogKeyHint: '目录厂商也可在此填写 API Key，写入本机用户工作区。',
+    catalogKeyHint: '内置 Mock 供应商无需 API Key。',
     frozenNotice: '本进程由环境变量临时指定供应商，模型配置只读。',
     errors: {
       displayNameRequired: '请填写显示名',
