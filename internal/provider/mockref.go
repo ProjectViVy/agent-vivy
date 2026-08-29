@@ -11,19 +11,18 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-// mockRef exposes the deterministic domain-level Mock (FR-3) behind the
-// Ref seam so config.Runtime.Mock can select it through the same path as
-// real bundles.
+// mockRef exposes the deterministic domain-level Mock behind the Ref
+// seam for tests. It is not a product catalog entry.
 type mockRef struct{}
 
 func newMockRef() Ref { return mockRef{} }
 
 func (mockRef) Name() string { return "mock" }
 
-func (mockRef) Model(_ context.Context, modelID string) (model.ToolCallingChatModel, error) {
+func (mockRef) Model(_ context.Context, spec ModelSpec) (model.ToolCallingChatModel, error) {
 	scenario := ""
-	if strings.HasPrefix(modelID, "mock:") {
-		scenario = strings.TrimPrefix(modelID, "mock:")
+	if strings.HasPrefix(spec.ID, "mock:") {
+		scenario = strings.TrimPrefix(spec.ID, "mock:")
 	}
 	return &mockEinoModel{m: NewMock(), scenario: scenario}, nil
 }

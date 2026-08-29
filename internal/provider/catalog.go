@@ -8,8 +8,7 @@ import (
 )
 
 // Catalog resolves provider names to live Refs (D-018): the pre-baked
-// bundles loaded at startup, plus the always-available deterministic
-// mock (FR-3, selected via config.Runtime.Mock).
+// bundles loaded at startup. Product paths never include a mock provider.
 type Catalog struct {
 	bundles map[string]Bundle
 }
@@ -24,12 +23,21 @@ func NewCatalog(bundles ...Bundle) *Catalog {
 	return c
 }
 
-// For resolves name to a Ref. "mock" always works; bundle-backed
-// providers require their bundle to be loaded, and the Vivy-owned
-// Anthropic Messages API adapter is not wired yet (later milestone).
+// Bundle returns the loaded bundle for name, if any.
+func (c *Catalog) Bundle(name string) (Bundle, bool) {
+	if c == nil {
+		return Bundle{}, false
+	}
+	b, ok := c.bundles[name]
+	return b, ok
+}
+
+// For resolves name to a Ref. Bundle-backed providers require their bundle
+// to be loaded, and the Vivy-owned Anthropic Messages API adapter is not
+// wired yet (later milestone). "mock" is not a product provider.
 func (c *Catalog) For(name string) (Ref, error) {
 	if name == "mock" {
-		return newMockRef(), nil
+		return nil, fmt.Errorf("provider %q: mock is not a product provider", name)
 	}
 	b, ok := c.bundles[name]
 	if !ok {

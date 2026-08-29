@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
-	"os"
+	"strings"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
@@ -12,9 +12,8 @@ import (
 )
 
 // openaiRef wires the openai bundle to the online eino-ext OpenAI chat
-// model component. Construction happens at Model() call time so the API
-// key is read from the environment per request and never cached or
-// persisted (D-010); no network traffic happens before the first
+// model component. Construction happens at Model() call time from the
+// supplied ModelSpec; no network traffic happens before the first
 // Generate/Stream.
 type openaiRef struct {
 	bundle Bundle
@@ -24,20 +23,9 @@ func newOpenAIRef(b Bundle) Ref { return &openaiRef{bundle: b} }
 
 func (r *openaiRef) Name() string { return r.bundle.Name }
 
-// APIBaseEnvVar overrides the bundle's default_api_base when set, letting
-// one binary talk to any OpenAI-compatible gateway (M4 smoke) without a
-// bundle edit. It carries a URL, not a secret, and stays read inside this
-// package (D-010 boundary, E3 audit).
+// APIBaseEnvVar is the process environment name that freezes a temporary
+// gateway URL for one process. Resolver reads it; this package does not.
 const APIBaseEnvVar = "VIVY_API_BASE"
-
-// resolveAPIBase picks the effective base URL: environment override wins,
-// the bundle default is the fallback.
-func resolveAPIBase(b Bundle) string {
-	if base := os.Getenv(APIBaseEnvVar); base != "" {
-		return base
-	}
-	return b.DefaultAPIBase
-}
 
 // knownOpenAIContextWindows maps well-known OpenAI-compatible model IDs to
 // their documented context windows (in tokens). This table is conservative;
@@ -58,17 +46,22 @@ var knownOpenAIContextWindows = map[string]int{
 	"o3-mini":                200000,
 }
 
-func (r *openaiRef) Model(ctx context.Context, modelID string) (model.ToolCallingChatModel, error) {
+func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallingChatModel, error) {
+	modelID := strings.TrimSpace(spec.ID)
 	if modelID == "" {
 		modelID = r.bundle.DefaultModel
 	}
-	key := os.Getenv(r.bundle.EnvKey)
+	key := strings.TrimSpace(spec.APIKey)
 	if key == "" {
 		return nil, &KeyMissingError{Provider: r.bundle.Name, EnvKey: r.bundle.EnvKey}
 	}
+	baseURL := strings.TrimSpace(spec.BaseURL)
+	if baseURL == "" {
+		baseURL = r.bundle.DefaultAPIBase
+	}
 	cm, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 		APIKey:  key,
-		BaseURL: resolveAPIBase(r.bundle),
+		BaseURL: baseURL,
 		Model:   modelID,
 	})
 	if err != nil {
