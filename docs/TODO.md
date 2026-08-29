@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-27
+> Updated: 2026-08-30
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -75,6 +75,9 @@ Do not pick work from those tables. Closed-track filing:
 | UI-CHAT-ACT | 消息编辑 / 回退 / 分叉启用 + 截断式重新生成 | OPEN | 2026-08-26 功能栏已移植（复制启用 + 重新生成=重发上一条用户输入开新回合，见 `docs/logs/2026-08-26-chat-message-actions/`）；编辑/回退/分叉为禁用占位。真正的就地覆盖需内核 Journal 提供消息截断/分支 RPC（现为追加式事实源），属内核能力提案 |
 | UI-CHAT-TOOLBAR | 聊天框上方功能栏后端接线 + 状态持久化 | OPEN | 2026-08-29 权限三段（谨慎/智能/信任）已接 `session/set_permission`（见 `docs/logs/2026-08-29-sandbox-permission-presets/`）。执行模式/思考仍为纯 UI；附件/AutoDream/桌面伙伴/语音仍为 stub。 |
 | UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | DONE | 2026-08-30 `ModelResolver` + `ModelSpec`：openai Ref 按次接收 APIKey/BaseURL，不再 `os.Getenv(bundle.EnvKey)`；注册表 `ActiveKey(bundle, base_url)` 成为产品路径。见 `docs/logs/2026-08-30-compile-model-resolver/` |
+| UI-SKILL | 技能页接真实后端 + 技能市场（skills.sh） | DONE | 2026-08-30 `/skills` 去掉 DemoBanner/`vivy.demo.skills`，改走 `skills/list`/`skills/get`/`skills/set-enabled`/`skills/revisions/list`；新增 `skills/marketplace/search|featured|install`（skills.sh 适配 + 内置 featured 快照 + `runtime.skills_marketplace_url`）；frontmatter `enabled` 启停（CAS）。见 `docs/logs/2026-08-30-skill-marketplace/` |
+| SKILL-MKT-1 | 市场技能的更新/升级路径 | OPEN | 2026-08-30 与 DIVA 同为 create-only（重装 409，删除后重装）；无版本比对与原地升级 |
+| SKILL-MKT-2 | DIVA `always` 常驻注入未移植 | OPEN | 2026-08-30 Vivy 走 Eino skill 中间件 inline 加载；frontmatter `always`（全文常驻注入 + 4k/2k 预算）需内核能力提案 |
 | UI-E2E-STALE | `just ui-e2e` 两条既有规格断言已过期文案（非本次改动引入） | OPEN | `runtime.spec.ts:84` 断言「密钥只由运行环境管理」、`welcome-wizard.spec.ts:33` 断言「API 密钥通过运行环境变量注入，不在界面中填写或保存。」——两串文案在 `ui/src` 均已不存在，密钥提示曾被 i18n 改写（现文案见 `ui/src/i18n/zh.ts` 的 `catalogKeyHint`/`secretNote` 等键）。2026-08-27 e2e 复跑确认：新增的 `language-setting.spec.ts` 通过，这两条为过期规格失败，与语言分区改动无关；需按现文案同步断言后恢复全绿，本次范围外未改 |
 | UI-TRAJ | 中控台轨迹面板接真实运行轨迹 | OPEN | 2026-08-25 轨迹面板（`ui/src/components/trajectory/`）为纯演示静态数据（复刻 DSH `ui-trajectory` 设计：工具栏/三泳道时间轴/账本/详情），未接后端；接真实轨迹需内核提供会话日志/回放事件 RPC（当前 Journal 事件流在 Go 侧，UI 无轨迹类端点），见 `docs/logs/2026-08-25-trajectory-panel/` |
 | UI-CI-BOOTSTRAP | 全新 checkout 直接 `just ci` 在 `go vet ./...` 失败 | OPEN | `ui/embed.go` 的 `go:embed all:dist` 需要 `ui/dist` 存在；`.gitignore` 允许 `ui/dist/.keep` 常驻但该文件从未入库。正常开发树依赖历史 `pnpm build` 残留。2026-08-25 在空 worktree 复现：先 `pnpm build` 再 `just ci` 即全绿。修复选项：入库 `ui/dist/.keep` 或让 `ui-ci` 先于 Go 侧 vet 执行。2026-08-30 `feat/mcp-live` 空 worktree 再次命中 |
