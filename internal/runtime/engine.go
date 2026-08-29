@@ -53,6 +53,10 @@ type EngineConfig struct {
 	// existing catalog-only tools (skills_list / skill_view / skill_manage)
 	// as the only Skill surface. Mutation stays on skill_manage.
 	SkillBackend einoskill.Backend
+	// Compaction enables the Eino-native context compression middlewares
+	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
+	// feed behavior.
+	Compaction *CompactionPolicy
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -61,6 +65,9 @@ type EngineConfig struct {
 type Engine struct {
 	runner *adk.Runner
 	cfg    EngineConfig
+	// chatModel is the wrapped provider model; the service reuses it for
+	// session-level summary generation (context/compact).
+	chatModel model.ToolCallingChatModel
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
 	toolSpecs  []domain.ToolSpec
@@ -106,6 +113,18 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		}
 		handlers = append(handlers, skillHandler)
 	}
+	if cfg.Compaction != nil && cfg.Compaction.Enabled {
+		// Eino-native compression (research AGENT-LOOP-PORT-COMPARISON
+		// §4.3-E2): reduction clears old tool turns deterministically, then
+		// summarization LLM-compacts what remains when the feed is still
+		// over the trigger. m is a model.ToolCallingChatModel, so it also
+		// satisfies the summarization middleware's BaseModel requirement.
+		compHandlers, err := buildCompactionHandlers(ctx, m, *cfg.Compaction, cfg.MaxContextBytes)
+		if err != nil {
+			return nil, err
+		}
+		handlers = append(handlers, compHandlers...)
+	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
@@ -134,7 +153,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, toolSpecs: specs, selector: tools.NewSelector(ts), toolByName: byName}, nil
+	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, selector: tools.NewSelector(ts), toolByName: byName}, nil
 }
 
 // PrepareProposal asks an effectful tool for a bounded review plan before the

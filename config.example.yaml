@@ -91,6 +91,20 @@ runtime:
   # clamped). 30s is too short for real work such as `go test ./...` or
   # `git clone`; raise it for heavyweight commands. Hard cap: 600 (10m).
   execute_max_timeout_seconds: 30
+  # Context compression (Eino native reduction + summarization middlewares).
+  # Triggers when one run's feed exceeds
+  #   min(max_tokens * trigger_percent / 100, max_context_bytes/4 tokens).
+  # Settings → 通用 → 上下文压缩 overrides these per user via settings.yaml.
+  compaction:
+    enabled: true
+    # Model context window cap used for the trigger and the UI meter.
+    # 0 = use the provider model's ContextWindow, else a 128000 fallback.
+    max_tokens: 0
+    # Percentage of max_tokens at which compression triggers (1-100).
+    trigger_percent: 80
+    # How many most-recent tool-call rounds the deterministic reduction
+    # layer retains verbatim.
+    keep_recent: 12
   # Sandbox controls the file-effect policy boundary (D-021).
   # Mirrors the DeepSeek Harness three-tier permission model.
   sandbox:

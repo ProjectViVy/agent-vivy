@@ -38,6 +38,9 @@ Do not pick work from those tables. Closed-track filing:
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| CMP-1 | Context compaction：reduction Clear 转存 Backend / offload（文件级恢复） | OPEN | 2026-08-30 上下文压缩真实化后留白：`reduction.Backend=nil` 只做内存占位不转存；有 `read_file` 后可接 filesystem Backend |
+| CMP-2 | Context compaction：独立摘要模型 `summary_model` | OPEN | 2026-08-30 压缩沿用主模型；独立 `summary_model` 覆盖留待配置提案 |
+| CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |

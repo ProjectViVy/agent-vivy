@@ -3,6 +3,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
+  'session/context', 'context/compact',
   'preflight/run', 'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -47,6 +48,23 @@ export interface Todo {
 export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
 export interface RunLogEvent { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }
+/** session/context — 真实上下文压力（服务端装配口径）。 */
+export interface SessionContext {
+  session_id: string;
+  total_messages: number;
+  feed_messages: number;
+  feed_bytes: number;
+  feed_tokens: number;
+  limit_bytes: number;
+  model_limit_tokens: number;
+  compaction_enabled: boolean;
+  trigger_tokens: number;
+  would_compact: boolean;
+  has_compaction_summary: boolean;
+  last_compaction?: { mode: 'reduction' | 'summarization' | 'session'; before_tokens: number; after_tokens: number; at: number } | null;
+}
+/** context/compact 结果。 */
+export interface CompactResult { before_tokens: number; after_tokens: number; folded_messages: number; skipped: boolean }
 export interface Preflight { status: 'ready' | 'warning' | 'blocked'; mode: RunMode; policy_profile: string; policy_hash?: string; selected_tools: string[]; tool_decisions: Array<{ tool_name: string; decision: string; reason: string }>; context_bytes: number; hook_ready: boolean; warnings: string[]; blockers: string[]; next_actions: string[] }
 export interface BackgroundRun extends Run { workspace_id?: string }
 export interface ChildRun { id: string; parent_run_id: string; root_run_id: string; session_id: string; status: RunStatus; depth: number; workspace_id?: string; result?: string; error?: string; created_at: number }
@@ -66,6 +84,7 @@ export interface Settings {
   execute_max_timeout_seconds?: number;
   config_execute_max_timeout_seconds?: number;
   sandbox?: SandboxSettingsView;
+  compaction?: CompactionSettingsView;
 }
 export interface NetworkSearchProviderInfo {
   name: string;
@@ -77,6 +96,17 @@ export interface NetworkSearchSettingsView {
   provider: string;
   config_provider: string;
   providers: NetworkSearchProviderInfo[];
+}
+/** settings/get compaction 段：有效值 + 配置回退。 */
+export interface CompactionSettingsView {
+  enabled: boolean;
+  max_tokens: number;
+  trigger_percent: number;
+  keep_recent: number;
+  config_enabled: boolean;
+  config_max_tokens: number;
+  config_trigger_percent: number;
+  config_keep_recent: number;
 }
 /** settings/update 载荷：选模型不发送 api_key（注册表条目保留密钥）。 */
 export interface SandboxSettingsView {
@@ -96,6 +126,12 @@ export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base
     deny_private_ips: boolean;
     allowed_domains: string[];
   };
+  compaction?: {
+    enabled: boolean;
+    max_tokens: number;
+    trigger_percent: number;
+    keep_recent: number;
+  };
 };
 
 /** settings/update 是整文档替换：未发送的分区会被清掉，调用方必须带上未改动的 overlay。 */
@@ -107,6 +143,16 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
       allowed_domains: settings.sandbox.allowed_domains ?? [],
     }
     : undefined);
+  // compaction 段同样随整文档保存（避免其他分区保存时把压缩设置清掉）；
+  // 只带有效字段，防 config_* 回退键进入写载荷。
+  const compaction = patch.compaction ?? (settings?.compaction
+    ? {
+      enabled: settings.compaction.enabled,
+      max_tokens: settings.compaction.max_tokens,
+      trigger_percent: settings.compaction.trigger_percent,
+      keep_recent: settings.compaction.keep_recent,
+    }
+    : undefined);
   return {
     provider: patch.provider ?? settings?.provider ?? '',
     default_model: patch.default_model ?? settings?.default_model ?? '',
@@ -114,6 +160,7 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
     network_search: patch.network_search ?? { provider: settings?.network_search?.provider ?? '' },
     execute_max_timeout_seconds: patch.execute_max_timeout_seconds ?? settings?.execute_max_timeout_seconds ?? 0,
     ...(sandbox ? { sandbox } : {}),
+    ...(compaction ? { compaction } : {}),
   };
 }
 export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
@@ -147,6 +194,8 @@ export const renameSession = (id: string, title: string) => request<Session>('se
 export const setSessionPermission = (id: string, preset: Exclude<PermissionPreset, 'custom'>) => request<Session>('session/set_permission', { session_id: id, preset });
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
+export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
+export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
 export const preflight = (sessionId: string, text: string, mode: RunMode) => request<Preflight>('preflight/run', { session_id: sessionId, text, mode });
 export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal') => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode });

@@ -92,6 +92,14 @@ type ServiceDeps struct {
 	Hooks                []RunHook
 	Sink                 EventSink
 	ChildApprovals       ChildApprovalRouter
+	// Compactions persists session-level durable compaction summaries
+	// (context/compact + feed folding). Nil keeps automatic in-run
+	// compression working; only durable summary folding is disabled.
+	Compactions storage.CompactionStore
+	// RebuildEngine rebuilds the Engine with a new config. App wires it to
+	// the composition root so settings saves can hot-swap compaction
+	// middleware; nil disables ScheduleEngineReload.
+	RebuildEngine func(ctx context.Context, cfg EngineConfig) (*Engine, error)
 }
 
 // Service orchestrates runs: it persists the user message and the
@@ -120,6 +128,13 @@ type Service struct {
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
 	snapshots map[domain.RunID]domain.PolicySnapshot
+	// pendingEngine holds a settings-save engine rebuild that was deferred
+	// because runs were in flight; it is applied at the next idle run
+	// start (ScheduleEngineReload).
+	pendingEngine *EngineConfig
+	// lastCompaction is process-local observability for the UI (the
+	// durable record lives in the journal as context.compacted events).
+	lastCompaction map[domain.SessionID]*LastCompaction
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
@@ -168,6 +183,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		pending:        make(map[domain.RunID]pendingRun),
 		ledgers:        make(map[domain.RunID]*BudgetLedger),
 		snapshots:      make(map[domain.RunID]domain.PolicySnapshot),
+		lastCompaction: make(map[domain.SessionID]*LastCompaction),
 	}
 }
 
@@ -234,6 +250,11 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
+	}
+	// A deferred settings-save engine rebuild applies here, while no run
+	// is registered.
+	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
+		return "", err
 	}
 	if options.Profile == "" {
 		options.Profile = s.defaultProfile
@@ -942,7 +963,10 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
-	msgs, selection, _, err := s.runMessages(ctx, sessionID, userText)
+	// Capture the engine once: a settings-save engine rebuild only happens
+	// while no run is registered, so this reference is stable for the run.
+	eng := s.engine
+	msgs, selection, _, err := s.runMessages(ctx, sessionID, userText, eng)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -955,7 +979,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
-	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
+	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
 }
 
@@ -965,8 +989,8 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // already contains it). A listing failure degrades to the single new
 // message with a warning — the run proceeds rather than failing on a
 // bookkeeping read.
-func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string) ([]*schema.Message, tools.Selection, ContextStats, error) {
-	selection := s.engine.SelectTools(userText)
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine) ([]*schema.Message, tools.Selection, ContextStats, error) {
+	selection := eng.SelectTools(userText)
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, selected tool set, and the bounded notebook
 	// digest of MA-3).
@@ -976,10 +1000,11 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
 		stored = nil
 	}
+	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
 	msgs, stats, err := buildRunContext(ContextPolicy{
-		MaxBytes:           s.engine.cfg.MaxContextBytes,
-		MaxHistoryMessages: s.engine.cfg.MaxHistoryMessages,
-	}, preamble, stored, userText)
+		MaxBytes:           eng.cfg.MaxContextBytes,
+		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
+	}, preamble, folded, userText)
 	if err != nil {
 		return nil, selection, stats, err
 	}
@@ -993,6 +1018,47 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 	}
 	return msgs, selection, stats, nil
 }
+
+// foldSessionHistory replaces the stored rows covered by the latest durable
+// session compaction with the summary text, keeping the tail verbatim.
+// ok=false means no compaction record applies (or the store is unavailable).
+// The summary is a user-role message prefixed so the model can tell it
+// apart from a real user turn.
+func (s *Service) foldSessionHistory(ctx context.Context, sessionID domain.SessionID, stored []domain.Message) ([]domain.Message, bool) {
+	if s.deps.Compactions == nil {
+		return stored, false
+	}
+	latest, ok, err := s.deps.Compactions.LatestSessionCompaction(ctx, sessionID)
+	if err != nil || !ok || latest.TailFrom <= 0 {
+		return stored, false
+	}
+	idx := 0
+	for idx < len(stored) && stored[idx].CreatedAt <= latest.TailFrom {
+		idx++
+	}
+	if idx >= len(stored) {
+		// Everything is folded; the feed becomes summary + nothing else.
+		idx = len(stored)
+	}
+	if idx == 0 {
+		return stored, false
+	}
+	kept := stored[idx:]
+	summary := domain.Message{
+		ID:        newMessageID(),
+		SessionID: latest.SessionID,
+		Role:      domain.RoleUser,
+		CreatedAt: latest.TailFrom,
+		Content:   compactionSummaryPrefix + latest.Summary,
+	}
+	out := make([]domain.Message, 0, len(kept)+1)
+	out = append(out, summary)
+	out = append(out, kept...)
+	return out, true
+}
+
+// compactionSummaryPrefix marks a durable session summary inside the feed.
+const compactionSummaryPrefix = "【会话压缩摘要，以下为较早对话与工具调用的浓缩：】\n"
 
 // notesDigest builds the preamble's notebook section (MA-3). Any listing
 // failure degrades to no digest with a warning: the preamble stays
@@ -1650,6 +1716,11 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
 func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+	// A deferred settings-save engine rebuild applies here too, while the
+	// resumed run is not yet registered.
+	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
+		slog.Warn("pending engine reload failed before resume", "run", string(runID), "err", err)
+	}
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
@@ -1724,21 +1795,74 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 		})
 	}
 	slog.Warn("run failed", "err", cause)
+	category := causeCategoryOf(cause)
+	message := "The model run could not be completed. Please try again."
+	if category == causeProviderError {
+		if hint, ok := keyMissingMessage(cause); ok {
+			message = hint
+		} else {
+			message = "The model service call failed (provider network or configuration issue). Check the model provider settings and your network, then try again. See the gateway log for details."
+		}
+	}
 	return m.build(domain.EventRunFailed, payloadRunFailed{
-		CauseCategory: causeCategoryOf(cause),
-		Message:       "The model run could not be completed. Please try again.",
+		CauseCategory: category,
+		Message:       message,
 	})
 }
 
 func causeCategoryOf(err error) string {
-	// V0 classifies coarsely; provider/tool distinction joins with the
-	// typed error wrappers of C2/C6.
+	// Provider failures are classified so the UI can distinguish "backend
+	// unreachable" from "model/key problem" instead of a generic retry
+	// message (FR-11: the message stays structured and never leaks values).
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return causeCancelled
+	case isProviderFailure(err):
+		return causeProviderError
 	default:
 		return causeInternalError
 	}
+}
+
+func isProviderFailure(err error) bool {
+	if _, ok := keyMissingMessage(err); ok {
+		return true
+	}
+	return isProviderTransportError(err)
+}
+
+// keyMissingMessage returns a user-actionable hint when the failure is a
+// missing provider key. The provider's KeyMissingError already carries the
+// stable, non-leaky wording; when the chain is wrapped by the engine, fall
+// back to the message marker (D-010: never a key value).
+func keyMissingMessage(err error) (string, bool) {
+	var keyMissing *provider.KeyMissingError
+	if errors.As(err, &keyMissing) {
+		return keyMissing.Error(), true
+	}
+	if strings.Contains(err.Error(), "API key missing") {
+		return "API key missing: configure a model API key in the welcome wizard or Settings → Model.", true
+	}
+	return "", false
+}
+
+// providerTransportMarkers recognize transport-level provider failures
+// (connection, DNS, TLS, HTTP status) so the UI can tell "model service
+// unreachable" apart from an internal engine error.
+var providerTransportMarkers = []string{
+	"connection refused", "connect:", "no such host", "timeout", "timed out",
+	"unexpected eof", "tls", "status code", "http: server gave", "http request failed",
+	"network unreachable", "connection reset", "could not be reached",
+}
+
+func isProviderTransportError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, marker := range providerTransportMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // persistAndPublish appends the single event as its own commit and, only
@@ -1918,6 +2042,11 @@ func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, led
 				Decision: event.Decision, Profile: string(event.Profile), Reason: event.Reason,
 				DurationMs: event.DurationMs,
 			}
+		case domain.EventContextCompacted:
+			payload = payloadContextCompacted{
+				Mode: event.Mode, BeforeTokens: event.BeforeTokens, AfterTokens: event.AfterTokens,
+				DroppedMessages: event.DroppedMessages, RetentionSuffix: event.RetentionSuffix,
+			}
 		default:
 			return fmt.Errorf("runtime: unsupported governance event %q", event.Type)
 		}
@@ -1925,10 +2054,23 @@ func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, led
 			if err := ledger.ReserveEvent(); err != nil {
 				return err
 			}
+			// A summarization compaction ran one (or more) hidden model
+			// generation; charge it against MaxModelCalls so the summary
+			// call cannot bypass the run-tree budget (research P3 bridge ii).
+			if event.Type == domain.EventContextCompacted && event.Mode == "summarization" {
+				if err := ledger.ReserveModelCall(); err != nil {
+					return err
+				}
+			}
 		}
 		re := m.build(event.Type, payload)
 		if !s.persistAndPublish(ctx, sessionID, re) {
 			return errors.New("runtime: persist governance event")
+		}
+		if event.Type == domain.EventContextCompacted {
+			s.recordLastCompaction(sessionID, &LastCompaction{
+				Mode: event.Mode, BeforeTokens: event.BeforeTokens, AfterTokens: event.AfterTokens, At: time.Now().UnixMilli(),
+			})
 		}
 		return nil
 	}

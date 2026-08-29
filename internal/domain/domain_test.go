@@ -83,8 +83,8 @@ func TestRunKindVocabulary(t *testing.T) {
 }
 
 func TestEventVocabulary(t *testing.T) {
-	if len(EventTypes) != 34 {
-		t.Fatalf("vocabulary size = %d, want 34", len(EventTypes))
+	if len(EventTypes) != 35 {
+		t.Fatalf("vocabulary size = %d, want 35", len(EventTypes))
 	}
 	seen := map[EventType]bool{}
 	terminals := 0

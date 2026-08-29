@@ -138,6 +138,12 @@ type GovernanceEvent struct {
 	PolicyHash string
 	Reason     string
 	DurationMs int64
+	// Compaction fields for context.compacted events (numbers only, D-010).
+	Mode            string
+	BeforeTokens    int
+	AfterTokens     int
+	DroppedMessages int
+	RetentionSuffix int
 }
 
 type governanceEventSinkKey struct{}

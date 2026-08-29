@@ -31,6 +31,17 @@ type payloadModelUsage struct {
 	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
 }
 
+// payloadContextCompacted records one context compression event. It carries
+// numbers only — never transcript or summary content (D-010). Mode is
+// "reduction", "summarization", or "session" (manual durable compaction).
+type payloadContextCompacted struct {
+	Mode            string `json:"mode"`
+	BeforeTokens    int    `json:"before_tokens"`
+	AfterTokens     int    `json:"after_tokens"`
+	DroppedMessages int    `json:"dropped_messages,omitempty"`
+	RetentionSuffix int    `json:"retention_suffix,omitempty"`
+}
+
 type payloadProviderRetry struct {
 	Attempt int `json:"attempt"`
 }

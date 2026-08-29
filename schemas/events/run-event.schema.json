@@ -49,6 +49,7 @@
         "child.completed",
         "child.failed",
         "child.cancelled",
+        "context.compacted",
         "run.completed",
         "run.failed",
         "run.cancelled"

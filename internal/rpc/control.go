@@ -87,9 +87,13 @@ type ControlDeps struct {
 	// Frozen is true when this process is locked to an ENV session. Provider
 	// writes are rejected and the UI is read-only for model fields.
 	Frozen bool
+	// ConfigCompaction is the config-file context compression default
+	// (before any settings overlay), surfaced by settings/get as the UI
+	// fallback for cleared fields.
+	ConfigCompaction runtime.CompactionPolicy
 	// OnSettingsChanged is invoked after a successful settings write so the
 	// composition root can invalidate the live model cache and refresh live
-	// overlays (MCP catalog, sandbox). Nil is a no-op.
+	// overlays (MCP catalog, sandbox, engine compaction). Nil is a no-op.
 	OnSettingsChanged func()
 }
 
@@ -354,6 +358,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"settings.get", "settings.update",
 				"settings.providers", "settings.providers.upsert", "settings.providers.delete",
 				"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
+				"session.context", "context.compact",
 				"stats.tokens",
 				"skills.list", "skills.get",
 			},
@@ -372,6 +377,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteSession(ctx, request)
 	case "session/messages":
 		return h.listMessages(ctx, request)
+	case "session/context":
+		return h.sessionContext(ctx, request)
+	case "context/compact":
+		return h.compactContext(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
 	case "preflight/run":
@@ -730,6 +739,47 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt})
 	}
 	return map[string]any{"messages": out}, nil
+}
+
+// sessionContext reports the real context pressure of a session (feed
+// bytes/tokens vs model window and byte budget, compaction trigger state).
+func (h *controlHandler) sessionContext(ctx context.Context, request Request) (any, *Error) {
+	params, rpcErr := parseSessionParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	status, err := h.deps.Service.ContextStatus(ctx, domain.SessionID(params.SessionID))
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return status, nil
+}
+
+// compactContext runs one durable session-level compaction immediately and
+// reports before/after tokens. A busy session (run in flight) is a 409: the
+// run already compresses in-run.
+func (h *controlHandler) compactContext(ctx context.Context, request Request) (any, *Error) {
+	params, rpcErr := parseSessionParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.CompactSession(ctx, domain.SessionID(params.SessionID))
+	if errors.Is(err, runtime.ErrCompactionBusy) {
+		return nil, &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if errors.Is(err, runtime.ErrCompactionNotNeeded) || errors.Is(err, runtime.ErrCompactionNothingToDo) {
+		return result, nil
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
 }
 
 func (h *controlHandler) listSkills(ctx context.Context) (any, *Error) {
@@ -1521,6 +1571,22 @@ type settingsResult struct {
 	// Sandbox is the operator-managed default permission preset and network
 	// policy, plus the live workspace root / command allowlist for display.
 	Sandbox sandboxSettingsResult `json:"sandbox"`
+	// Compaction is the effective context compression policy plus the config
+	// defaults the UI falls back to when a field is cleared.
+	Compaction compactionSettingsResult `json:"compaction"`
+}
+
+// compactionSettingsResult is the wire shape of the compaction overlay:
+// effective values plus the config-file fallbacks for display.
+type compactionSettingsResult struct {
+	Enabled              bool `json:"enabled"`
+	MaxTokens            int  `json:"max_tokens"`
+	TriggerPercent       int  `json:"trigger_percent"`
+	KeepRecent           int  `json:"keep_recent"`
+	ConfigEnabled        bool `json:"config_enabled"`
+	ConfigMaxTokens      int  `json:"config_max_tokens"`
+	ConfigTriggerPercent int  `json:"config_trigger_percent"`
+	ConfigKeepRecent     int  `json:"config_keep_recent"`
 }
 
 type sandboxSettingsResult struct {
@@ -1551,6 +1617,44 @@ func networkSearchView(saved, configDefault string) networkSearchSettingsResult 
 	}
 }
 
+// compactionView merges the saved overlay over the config default for the
+// Settings UI. A nil overlay (or zero fields inside it) keeps the config
+// value, mirroring the ExecuteMaxTimeoutSeconds pattern.
+func (h *controlHandler) compactionView(saved *settings.CompactionSettings) compactionSettingsResult {
+	base := h.deps.ConfigCompaction
+	if base.TriggerPercent == 0 {
+		base.TriggerPercent = 80
+	}
+	if base.KeepRecent == 0 {
+		base.KeepRecent = 12
+	}
+	out := compactionSettingsResult{
+		Enabled:              base.Enabled,
+		MaxTokens:            base.MaxTokens,
+		TriggerPercent:       base.TriggerPercent,
+		KeepRecent:           base.KeepRecent,
+		ConfigEnabled:        base.Enabled,
+		ConfigMaxTokens:      base.MaxTokens,
+		ConfigTriggerPercent: base.TriggerPercent,
+		ConfigKeepRecent:     base.KeepRecent,
+	}
+	if saved != nil {
+		if saved.Enabled != nil {
+			out.Enabled = *saved.Enabled
+		}
+		if saved.MaxTokens != 0 {
+			out.MaxTokens = saved.MaxTokens
+		}
+		if saved.TriggerPercent != 0 {
+			out.TriggerPercent = saved.TriggerPercent
+		}
+		if saved.KeepRecent != 0 {
+			out.KeepRecent = saved.KeepRecent
+		}
+	}
+	return out
+}
+
 // settingsActiveKey reports whether the persisted document resolves a key
 // overlay for the given selection (registry entry match wins, the legacy
 // api_key overlay falls back). The value itself is never returned.
@@ -1571,6 +1675,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	}
 	savedSearchProvider := ""
 	var savedSandbox settings.SandboxSettings
+	var savedCompaction *settings.CompactionSettings
 	if h.deps.SettingsPath != "" {
 		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
 			out.Provider = s.Provider
@@ -1580,6 +1685,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			savedSearchProvider = s.NetworkSearch.Provider
 			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 			savedSandbox = s.Sandbox
+			savedCompaction = s.Compaction
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
@@ -1589,6 +1695,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out.ConfigExecuteMaxTimeoutSeconds = h.deps.ConfigExecuteMaxTimeoutSeconds
 	out.NetworkSearch = networkSearchView(savedSearchProvider, h.deps.ConfigNetworkSearchProvider)
 	out.Sandbox = h.sandboxView(savedSandbox)
+	out.Compaction = h.compactionView(savedCompaction)
 	return out, nil
 }
 
@@ -1646,6 +1753,15 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 			DenyPrivateIPs *bool    `json:"deny_private_ips"`
 			AllowedDomains []string `json:"allowed_domains"`
 		} `json:"sandbox"`
+		// Compaction is the context compression overlay; absent keeps the
+		// previous value, explicit zeros inside a present block keep the
+		// config value.
+		Compaction *struct {
+			Enabled        *bool `json:"enabled"`
+			MaxTokens      int   `json:"max_tokens"`
+			TriggerPercent int   `json:"trigger_percent"`
+			KeepRecent     int   `json:"keep_recent"`
+		} `json:"compaction"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
@@ -1671,6 +1787,28 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
 		if params.Sandbox.AllowedDomains != nil {
 			cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+		}
+	}
+	if params.Compaction != nil {
+		if cur.Compaction == nil {
+			cur.Compaction = &settings.CompactionSettings{}
+		}
+		if params.Compaction.Enabled != nil {
+			cur.Compaction.Enabled = params.Compaction.Enabled
+		}
+		if params.Compaction.MaxTokens != 0 {
+			cur.Compaction.MaxTokens = params.Compaction.MaxTokens
+		}
+		if params.Compaction.TriggerPercent != 0 {
+			cur.Compaction.TriggerPercent = params.Compaction.TriggerPercent
+		}
+		if params.Compaction.KeepRecent != 0 {
+			cur.Compaction.KeepRecent = params.Compaction.KeepRecent
+		}
+		if cur.Compaction.Enabled == nil && cur.Compaction.MaxTokens == 0 &&
+			cur.Compaction.TriggerPercent == 0 && cur.Compaction.KeepRecent == 0 {
+			// Everything cleared again: config default stands.
+			cur.Compaction = nil
 		}
 	}
 	saved, err := settings.Save(h.deps.SettingsPath, cur)
@@ -1701,6 +1839,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		ConfigExecuteMaxTimeoutSeconds: h.deps.ConfigExecuteMaxTimeoutSeconds,
 		NetworkSearch:                  networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
 		Sandbox:                        h.sandboxView(saved.Sandbox),
+		Compaction:                     h.compactionView(saved.Compaction),
 	}, nil
 }
 

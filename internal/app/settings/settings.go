@@ -98,6 +98,21 @@ type Settings struct {
 	// Sandbox is the operator-managed default permission preset and network
 	// policy for new sessions. Empty keeps the production config.
 	Sandbox SandboxSettings `yaml:"sandbox"`
+	// Compaction overlays config runtime.compaction (context compression).
+	// A nil pointer means "use config default"; zero numeric fields inside a
+	// present overlay also keep the config values. Enabled distinguishes
+	// "unset" from an explicit false.
+	Compaction *CompactionSettings `yaml:"compaction"`
+}
+
+// CompactionSettings is the UI-managed context compression overlay. Zero
+// values mean "use config default"; Enabled uses a pointer so an explicit
+// false is distinguishable from unset.
+type CompactionSettings struct {
+	Enabled        *bool `yaml:"enabled,omitempty"`
+	MaxTokens      int   `yaml:"max_tokens,omitempty"`
+	TriggerPercent int   `yaml:"trigger_percent,omitempty"`
+	KeepRecent     int   `yaml:"keep_recent,omitempty"`
 }
 
 // SandboxSettings is the UI-managed sandbox overlay. DefaultPreset is one of
@@ -195,7 +210,8 @@ func (s Settings) IsZero() bool {
 		s.MCPServers == nil &&
 		s.Sandbox.DefaultPreset == "" &&
 		s.Sandbox.Network.DenyPrivateIPs == nil &&
-		len(s.Sandbox.Network.AllowedDomains) == 0
+		len(s.Sandbox.Network.AllowedDomains) == 0 &&
+		s.Compaction == nil
 }
 
 // Load reads and validates the settings document at path. A missing file is
@@ -220,6 +236,15 @@ func Load(path string) (Settings, error) {
 	}
 	if len(s.Sandbox.Network.AllowedDomains) == 0 {
 		s.Sandbox.Network.AllowedDomains = nil
+	}
+	if s.Compaction != nil &&
+		s.Compaction.Enabled == nil &&
+		s.Compaction.MaxTokens == 0 &&
+		s.Compaction.TriggerPercent == 0 &&
+		s.Compaction.KeepRecent == 0 {
+		// An explicitly-empty compaction overlay means "config default";
+		// normalize to nil so a document round-trip is stable.
+		s.Compaction = nil
 	}
 	if err := s.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)
@@ -271,6 +296,18 @@ func (s Settings) Validate() error {
 	for i, domainName := range s.Sandbox.Network.AllowedDomains {
 		if strings.TrimSpace(domainName) == "" {
 			return fmt.Errorf("settings: sandbox.network.allowed_domains[%d] must not be empty", i)
+		}
+	}
+	if s.Compaction != nil {
+		if s.Compaction.MaxTokens < 0 {
+			return errors.New("settings: compaction.max_tokens must not be negative")
+		}
+		// 0 keeps the config value; anything else shares the config bounds.
+		if s.Compaction.TriggerPercent < 0 || s.Compaction.TriggerPercent > 100 {
+			return errors.New("settings: compaction.trigger_percent must be 0 (config default) or between 1 and 100")
+		}
+		if s.Compaction.KeepRecent < 0 {
+			return errors.New("settings: compaction.keep_recent must be 0 (config default) or at least 1")
 		}
 	}
 	return nil

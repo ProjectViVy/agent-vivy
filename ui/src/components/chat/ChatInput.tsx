@@ -11,7 +11,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { PermissionPreset } from '@/lib/api';
+import type { PermissionPreset, SessionContext } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
@@ -22,14 +22,15 @@ interface ChatInputProps {
   disabled?: boolean;
   running?: boolean;
   placeholder?: string;
-  contextBytes?: number;
+  /** 服务端 session/context 真实占用；null 时环显示 0。 */
+  context?: SessionContext | null;
 }
 
 type ExecMode = 'agent' | 'plan' | 'ask';
 type ThinkingMode = 'auto' | 'on' | 'off';
 type PermissionMode = 'cautious' | 'smart' | 'trusted';
 
-const ESTIMATED_CONTEXT_LIMIT_BYTES = 256 * 1024;
+const ESTIMATED_CONTEXT_LIMIT_TOKENS = 128000;
 const TEXT_ENCODER = new TextEncoder();
 
 // 执行模式选项（对照 Agent-DIVA ChatView.modeOptions）
@@ -53,7 +54,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
   { value: 'trusted', icon: CheckCircle, label: 'chatInput.permissionTrusted', desc: 'chatInput.permissionTrustedDesc' },
 ];
 
-export function ChatInput({ onSend, onCancel, disabled, running, placeholder, contextBytes = 0 }: ChatInputProps) {
+export function ChatInput({ onSend, onCancel, disabled, running, placeholder, context = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [execMode, setExecMode] = useState<ExecMode>('agent');
@@ -75,11 +76,25 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
   const permissionBusy = sessionBusyId === activeSessionId;
   const draftBytes = TEXT_ENCODER.encode(value).length;
-  const usedContextBytes = contextBytes + draftBytes;
-  const contextRatio = Math.min(1, usedContextBytes / ESTIMATED_CONTEXT_LIMIT_BYTES);
+  // 真实上下文：服务端 session/context 的 feed 占用 + 当前草稿（1 token ≈ 4 字节估算）。
+  const usedTokens = (context?.feed_tokens ?? 0) + Math.round(draftBytes / 4);
+  const limitTokens = context?.model_limit_tokens ?? ESTIMATED_CONTEXT_LIMIT_TOKENS;
+  const contextRatio = Math.min(1, usedTokens / Math.max(1, limitTokens));
   const contextPercent = Math.round(contextRatio * 100);
+  const wouldCompact = context?.compaction_enabled ? usedTokens > (context.trigger_tokens ?? 0) : false;
   const contextCircumference = 2 * Math.PI * 10;
-  const contextColor = contextPercent >= 80 ? 'text-destructive' : contextPercent >= 60 ? 'text-amber-500' : 'text-primary';
+  const contextColor = wouldCompact || contextPercent >= 80 ? 'text-destructive' : contextPercent >= 60 ? 'text-amber-500' : 'text-primary';
+  const contextTitleText = () => {
+    const base = t('chatInput.contextTitle', { percent: contextPercent, used: usedTokens.toLocaleString(), limit: limitTokens.toLocaleString() });
+    if (!context) return base;
+    const bytes = ` · ${context.feed_bytes.toLocaleString()} / ${context.limit_bytes.toLocaleString()} B`;
+    const status = wouldCompact
+      ? ` · ${t('chatInput.contextWouldCompact')}`
+      : context.has_compaction_summary || context.last_compaction
+        ? ` · ${t('chatInput.contextCompacted')}`
+        : '';
+    return base + bytes + status;
+  };
   const execModeOption = MODES.find((mode) => mode.value === execMode)!;
   const thinkingModeOption = THINKING_MODES.find((mode) => mode.value === thinkingMode)!;
   const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionPreset) ?? PERMISSION_MODES[1];
@@ -228,7 +243,12 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
       </div>
     </div>
     <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={placeholder || t('chatInput.placeholder')} disabled={disabled || running} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
-    <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={t('chatInput.contextTitle', { percent: contextPercent, used: usedContextBytes.toLocaleString(), limit: ESTIMATED_CONTEXT_LIMIT_BYTES.toLocaleString() })}><div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedContextBytes, limit: ESTIMATED_CONTEXT_LIMIT_BYTES })} className="relative h-7 w-7"><svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg></div><span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span></div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button><button type="button" aria-pressed={recording} onClick={() => { setRecording((current) => !current); showNotice(recording ? t('chatInput.voiceStopped') : t('chatInput.voiceStarted')); }} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.voice')} aria-label={t('chatInput.voice')}><Mic className="h-4 w-4" /></button>{running ? <Button size="icon" variant="destructive" className="rounded-full" onClick={() => void onCancel?.()} disabled={disabled} title={t('chatInput.cancelRun')} aria-label={t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button> : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
+    <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={contextTitleText()}>
+      <div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens })} className="relative h-7 w-7">
+        <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
+      </div>
+      <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
+    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button><button type="button" aria-pressed={recording} onClick={() => { setRecording((current) => !current); showNotice(recording ? t('chatInput.voiceStopped') : t('chatInput.voiceStarted')); }} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.voice')} aria-label={t('chatInput.voice')}><Mic className="h-4 w-4" /></button>{running ? <Button size="icon" variant="destructive" className="rounded-full" onClick={() => void onCancel?.()} disabled={disabled} title={t('chatInput.cancelRun')} aria-label={t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button> : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
   </div>
     <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
       <AlertDialogContent>

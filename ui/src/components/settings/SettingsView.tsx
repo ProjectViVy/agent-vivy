@@ -18,6 +18,7 @@ import { useTranslation } from '@/i18n';
 import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewSection } from './diva-preview-data';
 import { DivaSettingsPreview } from './DivaSettingsPreview';
 import { ChannelsSettings } from './ChannelsSettings';
+import { CompactionSettingsCard } from './CompactionSettingsCard';
 import { GenerationParamsCard } from './GenerationParamsCard';
 import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
@@ -172,6 +173,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               <CardContent><Button variant="outline" onClick={() => openWelcome()}>{t('welcome.rerunAction')}</Button></CardContent>
             </Card>
             <GenerationParamsCard />
+            <CompactionSettingsCard />
             <DivaSettingsPreview section="general" />
           </TabsContent>
 
