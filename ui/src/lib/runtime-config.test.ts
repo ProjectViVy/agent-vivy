@@ -17,6 +17,11 @@ describe('Vivy runtime config', () => {
     await expect(loadRuntimeConfig()).resolves.toEqual({ controlPlaneUrl: '' });
   });
 
+  it('reports an actionable error when the runtime file cannot be fetched', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    await expect(loadRuntimeConfig()).rejects.toThrow('无法加载');
+  });
+
   it('rejects credentials and paths in the control plane URL', () => {
     expect(() => resolveControlPlaneOrigin('http://user:pass@127.0.0.1:8787')).toThrow('只能包含协议、主机和端口');
     expect(() => resolveControlPlaneOrigin('http://127.0.0.1:8787/app')).toThrow('只能包含协议、主机和端口');

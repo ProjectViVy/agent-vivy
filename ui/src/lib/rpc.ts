@@ -46,7 +46,7 @@ export class RpcClient {
     socket.onmessage = (message) => this.receive(message.data);
     socket.onclose = () => {
       clientPromise = null;
-      const error = new RpcClientError(-32098, 'Vivy control plane disconnected');
+      const error = new RpcClientError(-32098, t('errors.disconnected'));
       for (const waiter of this.pending.values()) waiter.reject(error);
       this.pending.clear();
       for (const listener of this.closeListeners) listener();
@@ -69,7 +69,12 @@ export class RpcClient {
     const bootstrapTarget = runtimeConfig.controlPlaneUrl.trim()
       ? new URL('/rpc/bootstrap', controlPlaneOrigin).toString()
       : '/rpc/bootstrap';
-    const response = await fetch(bootstrapTarget, { cache: 'no-store' });
+    let response: Response;
+    try {
+      response = await fetch(bootstrapTarget, { cache: 'no-store' });
+    } catch {
+      throw new RpcClientError(-32098, t('errors.bootstrapUnreachable'));
+    }
     if (!response.ok) throw new RpcClientError(-32098, t('errors.controlPlaneHttp', { status: response.status }));
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.toLowerCase().includes('application/json')) {

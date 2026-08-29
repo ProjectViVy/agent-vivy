@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import * as api from './api';
+import { runFailedMessage } from './failure';
+import { resetRpcClient } from './rpc';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
 import { isTaskToolName } from './todos';
 import { t } from '@/i18n';
@@ -77,6 +79,7 @@ interface RuntimeState {
   lifecycleError: string | null;
   lifecycleBusy: boolean;
   initialize: () => Promise<void>;
+  retryInitialize: () => Promise<void>;
   loadSessions: () => Promise<void>;
   createSession: (title?: string) => Promise<api.Session>;
   renameSession: (id: string, title: string) => Promise<void>;
@@ -127,7 +130,9 @@ async function refreshAfterTerminal(runId: string): Promise<void> {
     if (sessionId) await loadMessagesIntoStore(sessionId, sessionEpoch);
     messagesRefreshed = true;
   } catch (error) {
-    if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ runError: t('errors.refreshAfterRunFailed', { error: errorMessage(error) }) });
+    if (useVivyStore.getState().currentRun?.id === runId && !useVivyStore.getState().runError) {
+      useVivyStore.setState({ runError: t('errors.refreshAfterRunFailed', { error: errorMessage(error) }) });
+    }
   }
   await Promise.all([state.loadBackgroundRuns(), state.loadChildren(runId), state.loadReviews(), state.loadTodos()]);
   if (messagesRefreshed && useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ streamingText: '', streamingReasoning: '' });
@@ -143,6 +148,7 @@ function handleRunEvent(event: RunEvent): void {
   else if (event.type === 'model.reasoning_delta') update.streamingReasoning = state.streamingReasoning + String(event.payload.delta ?? '');
   else if (['run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) {
     update.currentRun = state.currentRun ? { ...state.currentRun, status: event.type.slice(4) as api.RunStatus } : null;
+    if (event.type === 'run.failed') update.runError = runFailedMessage(event.payload) ?? t('errors.runFailedTitle');
     stopSubscription();
     void refreshAfterTerminal(event.run_id);
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
@@ -211,6 +217,35 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     })();
     return initialization;
   },
+  retryInitialize: async () => {
+    if (!get().initialized) return;
+    stopSubscription();
+    resetRpcClient();
+    initialization = null;
+    sessionEpoch += 1;
+    reviewEpoch += 1;
+    set({
+      initialized: false,
+      initializationError: null,
+      connection: 'connecting',
+      sessions: [],
+      sessionsPhase: 'idle',
+      sessionsError: null,
+      activeSessionId: null,
+      messages: [],
+      messagesPhase: 'idle',
+      messagesError: null,
+      todos: [],
+      todosPhase: 'idle',
+      todosError: null,
+      currentRun: null,
+      runEvents: [],
+      streamingText: '',
+      streamingReasoning: '',
+      runError: null,
+    });
+    await get().initialize();
+  },
 
   loadSessions: async () => {
     set((state) => ({ sessionsPhase: state.sessions.length ? 'refreshing' : 'loading', sessionsError: null }));
@@ -277,7 +312,10 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       if (get().activeSessionId !== sessionId) return;
       const events = log.events.sort((a, b) => a.seq - b.seq);
       const active = runActive(run);
-      set({ currentRun: run, runEvents: events, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected' });
+      const failed = !active && run.status === 'failed'
+        ? runFailedMessage([...events].reverse().find((event) => event.type === 'run.failed')?.payload) ?? t('errors.runFailedTitle')
+        : null;
+      set({ currentRun: run, runEvents: events, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed });
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },

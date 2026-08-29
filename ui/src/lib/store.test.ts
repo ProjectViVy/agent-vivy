@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
 vi.mock('./api', () => api);
+vi.mock('./rpc', () => ({ resetRpcClient: vi.fn() }));
 vi.mock('./run-subscription', () => ({ subscribeRun: vi.fn((_id: string, _seq: number, onEvent: typeof subscription.onEvent) => { subscription.onEvent = onEvent; return { close: vi.fn(), lastSeq: () => 0 }; }) }));
 
 import { resetStoreForTests, useVivyStore } from './store';
@@ -60,6 +61,47 @@ describe('Vivy store integrity', () => {
     await p1;
     expect(useVivyStore.getState().activeSessionId).toBe('s2');
     expect(useVivyStore.getState().messages.map((item) => item.content)).toEqual(['new']);
+  });
+
+  it('retries initialization after a control-plane failure without a full page reload', async () => {
+    api.initialize.mockRejectedValueOnce(new Error('Failed to fetch'));
+    await useVivyStore.getState().initialize();
+    expect(useVivyStore.getState()).toMatchObject({ initialized: true, connection: 'error' });
+    expect(useVivyStore.getState().initializationError).toContain('Failed to fetch');
+    api.listSessions.mockResolvedValue({ sessions: [{ id: 's1', title: 'One', created_at: 1 }] });
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().retryInitialize();
+    expect(useVivyStore.getState()).toMatchObject({ initialized: true, connection: 'connected', activeSessionId: 's1', initializationError: null });
+  });
+
+  it('keeps the run.failed payload as the conversation error', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    subscription.onEvent?.({
+      run_id: 'r1',
+      seq: 1,
+      type: 'run.failed',
+      created_at: 2,
+      payload_version: 1,
+      payload: { cause_category: 'provider_error', message: 'provider openai: API key missing' },
+    });
+    expect(useVivyStore.getState().currentRun?.status).toBe('failed');
+    expect(useVivyStore.getState().runError).toContain('API key missing');
+  });
+
+  it('restores a historical run.failed message when reopening the run', async () => {
+    api.listMessages.mockResolvedValue({ messages: [{ id: 'm1', run_id: 'r1', role: 'user', content: 'hi', created_at: 1 }] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'failed', created_at: 1 });
+    api.getRunLog.mockResolvedValue({
+      events: [{ run_id: 'r1', seq: 1, type: 'run.failed', created_at: 2, payload_version: 1, payload: { cause_category: 'internal_error', message: 'The model run could not be completed. Please try again.' } }],
+    });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    expect(useVivyStore.getState().runError).toBe('The model run could not be completed. Please try again.');
   });
 
   it('keeps streamed output visible and reports an error when terminal message refresh fails', async () => {

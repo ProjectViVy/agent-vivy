@@ -8,7 +8,12 @@ export interface VivyRuntimeConfig {
 const defaultRuntimeConfig: VivyRuntimeConfig = { controlPlaneUrl: '' };
 
 export async function loadRuntimeConfig(): Promise<VivyRuntimeConfig> {
-  const response = await fetch('/vivy-config.json', { cache: 'no-store' });
+  let response: Response;
+  try {
+    response = await fetch('/vivy-config.json', { cache: 'no-store' });
+  } catch {
+    throw new Error(t('errors.runtimeConfigUnavailable'));
+  }
   // Vite's dev fallback can return the app shell when the public file is not
   // present. Treat that as the documented same-origin default.
   if (response.status === 404) {

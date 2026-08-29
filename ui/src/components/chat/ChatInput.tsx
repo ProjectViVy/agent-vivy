@@ -102,8 +102,12 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const send = async () => {
     const content = value.trim();
     if (!content || disabled || running) return;
-    await onSend(content);
-    setValue('');
+    try {
+      await onSend(content);
+      setValue('');
+    } catch {
+      /* keep the draft; ChatView / store already expose the failure */
+    }
   };
 
   const applyPermission = async (preset: PermissionMode) => {
