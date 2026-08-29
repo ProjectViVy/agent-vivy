@@ -11,8 +11,9 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-// mockRef exposes the deterministic domain-level Mock behind the Ref
-// seam for tests. It is not a product catalog entry.
+// mockRef exposes the deterministic domain-level Mock (FR-3) behind the
+// Ref seam so config.Runtime.Mock can select it through the same path as
+// real bundles. Operator settings cannot activate it.
 type mockRef struct{}
 
 func newMockRef() Ref { return mockRef{} }

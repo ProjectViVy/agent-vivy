@@ -40,8 +40,10 @@ type ModelResolver struct {
 
 func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog) *ModelResolver {
 	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog}
-	if frozen, ok := freezeFromEnv(cfg, catalog); ok {
-		r.frozen = &frozen
+	if !cfg.Runtime.Mock {
+		if frozen, ok := freezeFromEnv(cfg, catalog); ok {
+			r.frozen = &frozen
+		}
 	}
 	return r
 }
@@ -109,6 +111,17 @@ func (r *ModelResolver) Current() ResolvedModel {
 }
 
 func (r *ModelResolver) currentLocked() ResolvedModel {
+	if r.cfg.Runtime.Mock {
+		modelID := "mock"
+		if r.cfg.Runtime.MockScenario != "" {
+			modelID = "mock:" + r.cfg.Runtime.MockScenario
+		}
+		return ResolvedModel{
+			Provider: settings.ProviderMock,
+			Model:    modelID,
+			Ready:    true,
+		}
+	}
 	if r.frozen != nil {
 		return *r.frozen
 	}
