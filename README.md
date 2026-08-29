@@ -31,15 +31,20 @@ card is not Studio.
 ## Quick start
 
 ```powershell
-just setup      # go mod download
-just build      # go build ./...
-just test       # go test ./...
-just ci         # Go fmt/vet/test + UI install/typecheck/unit/build
-just run        # run the vivy process (health endpoint on :8787)
-just dev        # one-click split loop: backend :8787 + Vite :3015
-just build-split # build a headless backend plus standalone ui under dist/
-just docker-up   # one-container image, SQLite on a volume, host 127.0.0.1:8787
+just setup         # go mod download
+just ensure-studio # git submodule update --init studio/ (ProjectViVy/vivy-studio)
+just build         # go build ./...
+just test          # go test ./...
+just ci            # Go fmt/vet/test + UI install/typecheck/unit/build
+just run           # run the vivy process (health endpoint on :8787)
+just dev           # one-click split loop: backend :8787 + Vite :3015
+just build-split   # build a headless backend plus standalone ui under dist/
+just docker-up     # one-container image, SQLite on a volume, host 127.0.0.1:8787
+.\launch-vivy-studio.ps1  # Studio IDE on :3090 (auto-ensures studio submodule)
 ```
+
+Prefer `git clone --recurse-submodules` so `studio/` is present immediately.
+`just ensure-studio` / `launch-vivy-studio.ps1` will init it on first use if not.
 
 Docker is a packaging of the same organism (embedded UI, one process,
 replica=1). `docker compose up --build` publishes **only**
@@ -84,8 +89,16 @@ internal/tui/      TTY face: `--demo` Crush-style mock shell; `--plain` RPC REPL
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)
+studio/            git submodule → ProjectViVy/vivy-studio (Studio shell + plugins)
+cmd/vivy-studio/   Studio lifecycle CLI (pack/eval/release); stays in this repo
 docs/              implementation plan + project TODO board
 ```
+
+The Studio **shell** (DSH profile bundles, first-party skin/console, plugin hub
+fork, community plugin snapshots) is maintained in
+[`ProjectViVy/vivy-studio`](https://github.com/ProjectViVy/vivy-studio) and
+mounted here at `studio/`. Bump the submodule gitlink after shell changes;
+do not re-vendor those trees into this host repo.
 
 The default `vivy.exe` remains a single-file, embedded-UI application. For a
 same-machine split deployment, `just build-split` produces

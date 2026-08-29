@@ -316,6 +316,8 @@ status:
 
 当前第一方皮：`studio/dsh-vivy-studio/`（萤石主题 + Vivy Studio 字标 / 欢迎）。用 `launch-vivy-studio.ps1`（仓库根）起 **`dsh --profile vivy-studio`**，`DSH_HOME` 在 `data/studio-home/`，不碰日常网关。
 
+**源码归属（2026-08-29）：** Studio 壳层与插件树（`dsh-vivy-studio` / `dsh-vivy-console` / `dsh-plugin-hub` 及社区插件快照）维护在独立仓 [`ProjectViVy/vivy-studio`](https://github.com/ProjectViVy/vivy-studio)，经 git submodule 挂载为 `agent-vivy` 的 `studio/`。主仓不再内嵌这些源码 blob。生命周期 CLI（`cmd/vivy-studio`、`internal/studiocore`、`vivy-studio.exe`）仍在 `agent-vivy`。首次 clone 若未 `--recurse-submodules`，`just ensure-studio` 或 `launch-vivy-studio.ps1` 会 `git submodule update --init -- studio`。
+
 ---
 
 ## 10. 切片

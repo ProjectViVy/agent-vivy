@@ -1,3 +1,6 @@
 [submodule ".agents/skills/oil-frontend"]
 	path = .agents/skills/oil-frontend
 	url = https://github.com/oil-oil/oil-frontend.git
+[submodule "studio"]
+	path = studio
+	url = https://github.com/ProjectViVy/vivy-studio.git

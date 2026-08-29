@@ -7,9 +7,22 @@ description: Edit the first-party Vivy Studio shell skin — top-left wordmark/t
 
 The first-party skin is a **server-side plugin** under
 `studio/dsh-vivy-studio/` (`name = "vivy-studio-skin"`, `inject = ["webServer"]`).
+`studio/` is the git submodule [`ProjectViVy/vivy-studio`](https://github.com/ProjectViVy/vivy-studio).
 `index.js` taps the served index HTML; `theme.css` + `brand.js` are read into
 memory **at server boot** — there is no hot reload, and `just ci` does not cover
 these files (Go fmt/vet/test only).
+
+## Bootstrap
+
+If `studio/dsh-vivy-studio/package.json` is missing (clone without submodules):
+
+```text
+just ensure-studio
+# or: git submodule update --init --recursive -- studio
+```
+
+Do this **before** editing skin files. Commits that change the shell belong in
+the `vivy-studio` submodule repo; the host only bumps the gitlink SHA.
 
 ## Air gap
 

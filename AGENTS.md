@@ -9,8 +9,26 @@ Studio overlay. Canonical product rules: `docs/architecture/VIVY-STUDIO.md`.
 
 - **Vivy (default)**: Kernel, engine, UI, skills, recipes, plugins, product-contract docs. Use `just ci` for verification.
 - **Vivy Studio (explicit only)**: First-party IDE shell, skin, theme, lifecycle. Use `just studio` for builds. See `.agents/skills/vivy-studio-lifecycle`.
+- **Studio shell source** lives in the git submodule `studio/` → [`ProjectViVy/vivy-studio`](https://github.com/ProjectViVy/vivy-studio). The host no longer vendors plugin trees. Lifecycle CLI (`cmd/vivy-studio`, `internal/studiocore`) stays in this repo.
 
 This separation prevents accidental cross-contamination between the species runtime and its development environment.
+
+## Studio submodule bootstrap
+
+After a plain `git clone` (without `--recurse-submodules`), `studio/` may be
+empty. Before editing Studio shell files or running `.\launch-vivy-studio.ps1`,
+ensure the checkout:
+
+```text
+just ensure-studio
+# or: git submodule update --init --recursive -- studio
+# or: git clone --recurse-submodules https://github.com/ProjectViVy/agent-vivy.git
+```
+
+`launch-vivy-studio.ps1` calls `scripts/ensure-studio.ps1` on every start
+(no-op when `studio/dsh-vivy-studio/package.json` is present). Agents that
+touch Studio should run the same ensure first. Do **not** treat missing
+`studio/` as a reason to re-vendor trees into the host repo.
 
 ## Development environment
 
@@ -68,11 +86,14 @@ That directory is the engine's scratch, not the species Journal.
   `just studio` builds `vivy-studio.exe`; the ledger lives at
   `data/studio-home/studio.db` (Studio-owned, not the species Journal).
   See `.agents/skills/vivy-studio-lifecycle`.
+- Studio shell / skin / console: sources under submodule `studio/`
+  (`just ensure-studio` first); launch with `.\launch-vivy-studio.ps1`
 - Do not treat a hand-rolled `go test` as the product path when `just ci` exists
 - Do not open `internal/runtime/engine.go` to "install" a plugin
 
 Prefabricated Studio skills: `.agents/skills/vivy-plugin-five`,
-`.agents/skills/vivy-kernel-ci`, `.agents/skills/vivy-studio-lifecycle`.
+`.agents/skills/vivy-kernel-ci`, `.agents/skills/vivy-studio-lifecycle`,
+`.agents/skills/vivy-studio-skin`.
 
 ## DSH harness reference source
 

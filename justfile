@@ -67,3 +67,11 @@ sdk:
 # Studio lifecycle tool. Owns the Studio ledger and lifecycle ops. Not the daily gateway.
 studio:
     & "{{go}}" build -o vivy-studio.exe ./cmd/vivy-studio
+
+# Ensure git submodule studio/ (ProjectViVy/vivy-studio) is checked out.
+# Safe no-op when already present. Used by launch-vivy-studio.ps1 and agents.
+ensure-studio:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-studio.ps1
+
+# Optional bootstrap: Go deps + studio shell submodule.
+setup-all: setup ensure-studio
