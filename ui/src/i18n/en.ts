@@ -203,6 +203,9 @@ export const en: Dictionary = {
     addModel: 'Add model',
     addModelPlaceholder: 'Type a model id and press Enter',
     addModelConfirm: 'Add and apply',
+refreshModels: 'Refresh model list',
+    refreshing: 'Refreshing…',
+    refreshed: 'Synced {{count}} models from upstream',
     catalogKeyHint: 'The built-in Mock provider needs no API key.',
     frozenNotice: 'This process is locked to an environment-variable provider session; model settings are read-only.',
     errors: {
