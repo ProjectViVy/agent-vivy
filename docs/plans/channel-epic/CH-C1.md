@@ -106,3 +106,5 @@ messages 表：新列 DEFAULT ''，旧行 = ui
 ## 10. 交接
 
 完成后：下一 AGENT 读 [CH-C2.md](CH-C2.md)。C2 依赖本切片的 Message 出处字段名，不要在 C2 改名。
+
+> **DONE 2026-08-30** — 分支 `feat/channel-c1`；字段定形 `Source` / `Channel` / `ChatID` / `ChannelMessageID`（空 Source=ui，`Message.EffectiveSource()`）。C2 直接依赖这些名字。Filing: `docs/logs/2026-08-30-channel-c1/`。

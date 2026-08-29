@@ -45,6 +45,7 @@ var migrations = []struct {
 	{13, migration013},
 	{14, migration014},
 	{15, migration015},
+	{16, migration016},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -508,4 +509,13 @@ CREATE TABLE session_compactions (
 	FOREIGN KEY(session_id) REFERENCES sessions(id)
 );
 CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, created_at DESC);
+`
+
+// migration016 projects channel provenance onto the message log. Empty
+// defaults keep existing rows valid — an empty source reads as ui.
+const migration016 = `
+ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN chat_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN channel_message_id TEXT NOT NULL DEFAULT '';
 `

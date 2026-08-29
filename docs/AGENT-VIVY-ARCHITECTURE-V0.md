@@ -55,8 +55,8 @@ SQLite is the V0 reference backend (D-031); domain code never depends on
 SQLite-specific surfaces (D-027). Journal appends are atomic with monotonic
 `seq` per run and an exactly-one-terminal guard (D-008); blob writes are
 generation-based with an atomic pointer flip so a same-ID overwrite is never
-in place (D-030). The backend is trusted only after passing the 16-case
-conformance suite (D-032, `CN-01..CN-16`); the filesystem-journal backend
+in place (D-030). The backend is trusted only after passing the 17-case
+conformance suite (D-032, `CN-01..CN-17`); the filesystem-journal backend
 remains a V1+ probe. Optional Postgres is ADR-020.
 
 **Reconciliation.** This ADR realizes addendum §1–§3, §5 as implemented

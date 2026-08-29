@@ -290,6 +290,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		Role:      domain.RoleUser,
 		CreatedAt: now,
 		Content:   userText,
+		Source:    "ui",
 	}); err != nil {
 		return "", fmt.Errorf("runtime: append user message: %w", err)
 	}
