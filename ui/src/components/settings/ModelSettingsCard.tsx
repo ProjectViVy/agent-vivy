@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Server, X } from 'lucide-react';
+import { Bookmark, Check, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, RefreshCw, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -303,6 +303,8 @@ export function ModelSettingsCard() {
   const loadProviders = useVivyStore((state) => state.loadProviders);
   const saveProvider = useVivyStore((state) => state.saveProvider);
   const removeProvider = useVivyStore((state) => state.removeProvider);
+  const refreshProvider = useVivyStore((state) => state.refreshProvider);
+  const providersError = useVivyStore((state) => state.providersError);
   const savedModels = useSavedModels();
   const { t } = useTranslation();
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -316,6 +318,8 @@ export function ModelSettingsCard() {
   const [addingModel, setAddingModel] = useState(false);
   const [newModelId, setNewModelId] = useState('');
   const [panelKey, setPanelKey] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
 
   useEffect(() => { void load(); void loadProviders(); }, [load, loadProviders]);
 
@@ -343,6 +347,7 @@ export function ModelSettingsCard() {
   // 这里仅保留「已配置」提示，输入框内容在失焦时作为写-only 值提交。
   useEffect(() => {
     setPanelKey('');
+    setRefreshNote(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
   }, [selectedEntry?.name, providers]);
 
@@ -469,6 +474,33 @@ export function ModelSettingsCard() {
     void applyModelNow(selectedEntry, id);
     setNewModelId('');
     setAddingModel(false);
+  };
+
+  /**
+   * 「刷新」：从上游 GET /models 拉取模型列表并保存本地。已有注册表条目按
+   * id 刷新（密钥保留）；目录供应商无注册表行时克隆为自定义条目以持久化。
+   * 仅 OpenAI 兼容端点支持；Anthropic 原生端点不实现该协议，按钮不显示。
+   */
+  const refreshSelectedProvider = async () => {
+    if (!selectedEntry || locked || refreshing) return;
+    if (selectedEntry.bundle !== 'openai') return;
+    setRefreshing(true);
+    setRefreshNote(null);
+    try {
+      const saved = selectedEntry.custom && selectedEntry.registryId
+        ? await refreshProvider({ id: selectedEntry.registryId })
+        : await refreshProvider({
+            bundle: 'openai',
+            base_url: selectedEntry.baseUrl,
+            display_name: selectedEntry.displayName,
+            default_model: selectedEntry.defaultModel,
+          });
+      setRefreshNote(t('settingsModel.refreshed', { count: saved.models.length }));
+    } catch {
+      // 失败已由 store 写入 providersError 并在卡片底部渲染。
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const renderRow = (entry: MergedProviderEntry) => (
@@ -647,16 +679,33 @@ export function ModelSettingsCard() {
                   <div>
                     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
                       <p className="text-xs font-medium text-muted-foreground">{t('settingsModel.modelsTitle', { provider: selectedEntry.displayName })}</p>
-                      <button
-                        type="button"
-                        onClick={() => setAddingModel((adding) => !adding)}
-                        aria-label={t('settingsModel.addModel')}
-                        title={t('settingsModel.addModel')}
-                        className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      >
-                        <Plus className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        {selectedEntry.bundle === 'openai' ? (
+                          <button
+                            type="button"
+                            onClick={() => void refreshSelectedProvider()}
+                            disabled={locked || refreshing}
+                            aria-label={refreshing ? t('settingsModel.refreshing') : t('settingsModel.refreshModels')}
+                            title={t('settingsModel.refreshModels')}
+                            className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => setAddingModel((adding) => !adding)}
+                          aria-label={t('settingsModel.addModel')}
+                          title={t('settingsModel.addModel')}
+                          className="cursor-pointer rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          <Plus className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
                     </div>
+                    {refreshNote ? (
+                      <p className="border-b px-3 py-1.5 text-xs text-muted-foreground">{refreshNote}</p>
+                    ) : null}
                     <div className="max-h-72 space-y-1 overflow-y-auto p-1.5">
                     {addingModel ? (
                       <div className="flex items-center gap-1 px-0.5">
@@ -729,6 +778,7 @@ export function ModelSettingsCard() {
             </div>
           </div>
           {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+          {providersError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{providersError}</p> : null}
         </div>
       )}
       <CustomProviderDialog
