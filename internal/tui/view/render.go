@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tui/demo"
+	"agent-vivy/internal/tui/surface"
 )
 
 const headerDiag = "╱"
@@ -30,7 +30,7 @@ func (m Model) renderFrame() string {
 	// Ensure exact height by padding/truncating.
 	frame = fitHeight(frame, l.width, l.height)
 
-	if gate := m.store.PendingGate(); gate != nil {
+	if gate := m.driver.PendingGate(); gate != nil {
 		return placeOverlay(frame, m.renderDialog(gate, l, p), l.width, l.height)
 	}
 	return frame
@@ -56,17 +56,25 @@ func (m Model) renderCompact(l layout, p Palette) string {
 }
 
 func (m Model) renderCompactHeader(l layout, p Palette) string {
-	session := m.store.Active()
+	session := m.driver.Active()
+	meta := m.driver.Meta()
 	logo := p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY") + " "
-	meta := p.HeaderMeta.Render(fmt.Sprintf("demo · %s", session.Title))
-	used := lipgloss.Width(logo) + lipgloss.Width(meta) + 1
+	label := session.Title
+	if meta.Mode == "live" && meta.Host != "" {
+		label = fmt.Sprintf("%s · %s", session.Title, meta.Host)
+	} else if meta.Mode == "demo" {
+		label = fmt.Sprintf("demo · %s", session.Title)
+	}
+	headerMeta := p.HeaderMeta.Render(label)
+	used := lipgloss.Width(logo) + lipgloss.Width(headerMeta) + 1
 	diags := max(3, l.innerW()-used)
 	mid := p.Diagonals.Render(strings.Repeat(headerDiag, diags))
-	line := logo + mid + " " + meta
+	line := logo + mid + " " + headerMeta
 	return truncate(line, l.innerW())
 }
 
 func (m Model) renderSidebar(width, height int, p Palette) string {
+	meta := m.driver.Meta()
 	var b strings.Builder
 	// Crush: fixed logo on top of sidebar.
 	b.WriteString(p.SidebarLogo.Render(" Vivy"))
@@ -75,10 +83,11 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 	b.WriteByte('\n')
 	b.WriteString(p.Dim.Render(" Sessions"))
 	b.WriteByte('\n')
-	for _, session := range m.store.Sessions {
+	activeID := m.driver.Active().ID
+	for _, session := range m.driver.Sessions() {
 		mark := "  "
 		style := p.Idle
-		if session.ID == m.store.ActiveID {
+		if session.ID == activeID {
 			mark = "▸ "
 			style = p.Active
 		}
@@ -86,7 +95,6 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 		preset := session.PermissionPreset
 		if preset != "" {
 			line = truncate(line, width-2)
-			// second line subtle id/preset
 			b.WriteString(style.Render(truncate(line, width-1)))
 			b.WriteByte('\n')
 			b.WriteString(p.Dim.Render(truncate("  "+preset, width-1)))
@@ -97,21 +105,39 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')
-	b.WriteString(p.Dim.Render(" mock"))
-	b.WriteByte('\n')
-	b.WriteString(p.Dim.Render(" not connected"))
+	if meta.Mode == "live" {
+		b.WriteString(p.Dim.Render(" live"))
+		b.WriteByte('\n')
+		host := meta.Host
+		if host == "" {
+			host = "connected"
+		}
+		b.WriteString(p.Dim.Render(truncate(" "+host, width-1)))
+		if meta.Busy {
+			b.WriteByte('\n')
+			b.WriteString(p.Dim.Render(truncate(" run…", width-1)))
+		}
+	} else {
+		b.WriteString(p.Dim.Render(" mock"))
+		b.WriteByte('\n')
+		b.WriteString(p.Dim.Render(" not connected"))
+	}
+	if meta.Error != "" {
+		b.WriteByte('\n')
+		b.WriteString(p.PromptWarn.Render(truncate(" ! "+meta.Error, width-1)))
+	}
 	box := strings.TrimRight(b.String(), "\n")
 	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
 }
 
 func (m Model) renderChat(width, height int, p Palette) string {
-	messages := m.store.ActiveMessages()
+	messages := m.driver.ActiveMessages()
 	var lines []string
 	if len(messages) == 0 {
 		lines = append(lines,
 			p.Dim.Render(""),
 			p.LogoWord.Render(" 寻找真心之旅"),
-			p.Dim.Render(" demo empty session · type to draft"),
+			p.Dim.Render(" empty session · type to draft"),
 		)
 	}
 	for _, message := range messages {
@@ -123,24 +149,22 @@ func (m Model) renderChat(width, height int, p Palette) string {
 	return p.Chat.Width(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
 }
 
-func renderMessage(message demo.Message, width int, p Palette) []string {
+func renderMessage(message surface.Message, width int, p Palette) []string {
 	if message.Tool != nil {
 		return renderTool(message.Tool, width, p)
 	}
 	bar := p.AsstBar.Render("┃ ")
 	style := p.Assistant
-	label := ""
 	switch message.Role {
 	case string(domain.RoleUser):
 		bar = p.UserBar.Render("┃ ")
 		style = p.User
 	case string(domain.RoleAssistant):
 		// Crush assistant often omits a loud "assistant:" prefix; keep content.
-		label = ""
 	}
 	text := message.Content
-	if label != "" {
-		text = label + text
+	if message.Streaming {
+		text += "▌"
 	}
 	wrapped := wrapText(text, max(8, width-3))
 	out := make([]string, 0, len(wrapped))
@@ -150,7 +174,7 @@ func renderMessage(message demo.Message, width int, p Palette) []string {
 	return out
 }
 
-func renderTool(tool *demo.ToolCard, width int, p Palette) []string {
+func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 	style := p.Tool
 	icon := "●"
 	switch tool.Status {
@@ -182,41 +206,74 @@ func renderTool(tool *demo.ToolCard, width int, p Palette) []string {
 }
 
 func (m Model) renderEditor(width int, p Palette) string {
-	gate := m.store.PendingGate()
+	gate := m.driver.PendingGate()
 	var prompt string
 	if gate != nil {
 		prompt = p.PromptWarn.Render(" ! ") + p.Prompt.Render("::: ")
 	} else {
 		prompt = p.Prompt.Render("::: ")
 	}
-	line := prompt + m.input
+	// Multi-line input: show last line in the single-row editor chrome.
+	display := m.input
+	if i := strings.LastIndex(display, "\n"); i >= 0 {
+		display = display[i+1:]
+	}
+	line := prompt + display
 	// Crush editor sits without a heavy double rule; a single subtle rule above.
 	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
 	cursor := p.Dim.Render("█")
-	if gate != nil {
+	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
 	}
 	return p.Editor.Width(width).Render(rule + "\n" + truncate(line+cursor, width))
 }
 
 func (m Model) renderHelp(l layout, p Palette) string {
-	// Crush bottom help: key + desc pairs.
+	meta := m.driver.Meta()
 	parts := []string{
 		p.HelpKey.Render("tab") + p.HelpDesc.Render(" sessions"),
 		p.HelpKey.Render("enter") + p.HelpDesc.Render(" send"),
 		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" approve"),
 		p.HelpKey.Render("^n") + p.HelpDesc.Render(" new"),
+		p.HelpKey.Render("esc") + p.HelpDesc.Render(" cancel"),
 		p.HelpKey.Render("^c") + p.HelpDesc.Render(" quit"),
-		p.HelpDesc.Render("· mock · not connected"),
 	}
+	footer := meta.Footer
+	if footer == "" {
+		if meta.Mode == "live" {
+			footer = "live"
+			if meta.Host != "" {
+				footer = "live · " + meta.Host
+			}
+			if meta.Busy {
+				footer += " · run…"
+			}
+		} else {
+			footer = "mock · not connected"
+		}
+	}
+	if meta.Error != "" {
+		footer = "err · " + meta.Error
+	}
+	parts = append(parts, p.HelpDesc.Render("· "+footer))
 	line := " " + strings.Join(parts, p.HelpDesc.Render("  "))
 	return p.Status.Width(l.width).Render(truncate(line, l.width))
 }
 
-func (m Model) renderDialog(gate *demo.Gate, l layout, p Palette) string {
-	title := p.DialogTitle.Render("permission  ·  " + gate.Title)
+func (m Model) renderDialog(gate *surface.Gate, l layout, p Palette) string {
+	kind := gate.Kind
+	if kind == "" {
+		kind = "permission"
+	}
+	if kind == "approval" {
+		kind = "permission"
+	}
+	title := p.DialogTitle.Render(kind + "  ·  " + gate.Title)
 	body := p.Chat.Render(gate.Body)
 	help := p.Dim.Render("y approve    n deny")
+	if gate.Kind == "question" {
+		help = p.Dim.Render("type answer · enter submit")
+	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", help)
 	w := min(l.width-6, 64)
 	return p.Dialog.Width(w).Render(inner)
@@ -355,26 +412,36 @@ func wrapText(text string, width int) []string {
 	if width < 8 {
 		width = 8
 	}
-	words := strings.Fields(text)
-	if len(words) == 0 {
+	if text == "" {
 		return []string{""}
 	}
+	// Preserve explicit newlines from multi-line drafts / tool bodies.
 	var lines []string
-	var cur string
-	for _, word := range words {
-		if cur == "" {
+	for _, para := range strings.Split(text, "\n") {
+		words := strings.Fields(para)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+		var cur string
+		for _, word := range words {
+			if cur == "" {
+				cur = word
+				continue
+			}
+			if lipgloss.Width(cur+" "+word) <= width {
+				cur += " " + word
+				continue
+			}
+			lines = append(lines, cur)
 			cur = word
-			continue
 		}
-		if lipgloss.Width(cur+" "+word) <= width {
-			cur += " " + word
-			continue
+		if cur != "" {
+			lines = append(lines, cur)
 		}
-		lines = append(lines, cur)
-		cur = word
 	}
-	if cur != "" {
-		lines = append(lines, cur)
+	if len(lines) == 0 {
+		return []string{""}
 	}
 	return lines
 }

@@ -16,13 +16,15 @@ import (
 func runTUI(args []string) int {
 	addr := ""
 	title := "TUI"
-	mode := "" // demo | plain | auto
+	mode := "" // demo | plain | live
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--demo":
 			mode = "demo"
 		case "--plain":
 			mode = "plain"
+		case "--live":
+			mode = "live"
 		case "--addr", "-H":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "vivy tui: --addr needs host:port")
@@ -31,6 +33,7 @@ func runTUI(args []string) int {
 			i++
 			addr = args[i]
 			if mode == "" {
+				// Bare --addr without --live keeps the line REPL (compat).
 				mode = "plain"
 			}
 		case "--title":
@@ -80,6 +83,16 @@ func runTUI(args []string) int {
 	}
 	defer client.Close()
 
+	if mode == "live" {
+		live := tui.NewLive(client, tui.LiveOptions{Host: addr, Title: title})
+		defer live.Close()
+		if err := view.Run(live); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+
 	if err := tui.RunREPL(ctx, client, tui.Options{Title: title}); err != nil && ctx.Err() == nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -101,10 +114,12 @@ func defaultListenAddr() string {
 const tuiUsage = `vivy tui — terminal face
 
   vivy tui --demo                 fullscreen Crush-style skeleton (mock data)
+  vivy tui --live [--addr host]   fullscreen shell on a resident gateway
   vivy tui --plain [--addr host]  line REPL over a resident gateway
   vivy tui --addr host:port       same as --plain
 
 --demo does not dial the gateway and does not start a second kernel.
+--live fails loudly if the gateway is down (does not fall back to demo).
 Default with no flags is --demo. The packed faces/tui organ in
 docs/architecture/VIVY-FACE-PACK.md is a later generation.
 `

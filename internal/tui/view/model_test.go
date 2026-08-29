@@ -36,15 +36,16 @@ func TestViewContainsCrushSkeleton(t *testing.T) {
 }
 
 func TestApprovalKeyClearsGate(t *testing.T) {
-	m := New(demo.NewStore())
+	store := demo.NewStore()
+	m := New(store)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = updated.(Model)
-	if m.store.PendingGate() == nil {
+	if store.PendingGate() == nil {
 		t.Fatal("expected pending gate")
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	m = updated.(Model)
-	if m.store.PendingGate() != nil {
+	if store.PendingGate() != nil {
 		t.Fatal("gate still open after y")
 	}
 	if !strings.Contains(m.View(), "demo approved") && !strings.Contains(m.View(), "已按你的决定") {

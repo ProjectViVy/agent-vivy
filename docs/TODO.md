@@ -42,7 +42,7 @@ Do not pick work from those tables. Closed-track filing:
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
 | FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
-| FACE-TUI-2 | Crush-style fullscreen TUI on real Client | OPEN | 2026-08-29 mock 骨架已落地（`vivy tui --demo`，`internal/tui/view` + `demo`）；下一刀把 demo store 换成 `Client`，保留全屏布局 |
+| FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 仍 mock。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
 | CH-A | ChannelHost + telegram + dingtalk | OPEN | Depends on CH-0; first ABI + first domestic ear |
 | CH-B | feishu / qq / discord (text, no voice) | OPEN | Separate pack per package |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker |

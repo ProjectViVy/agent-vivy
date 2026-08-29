@@ -9,11 +9,13 @@ import (
 )
 
 type streamEvent struct {
+	RunID   string
 	Type    domain.EventType
 	Payload json.RawMessage
 }
 
 type eventNotice struct {
+	RunID   string
 	Kind    string
 	Line    string
 	Delta   string
@@ -33,6 +35,7 @@ type gatePrompt struct {
 func decodeStreamEvent(params json.RawMessage) (streamEvent, bool) {
 	var envelope struct {
 		Event struct {
+			RunID   string           `json:"run_id"`
 			Type    domain.EventType `json:"type"`
 			Payload json.RawMessage  `json:"payload"`
 		} `json:"event"`
@@ -43,29 +46,46 @@ func decodeStreamEvent(params json.RawMessage) (streamEvent, bool) {
 	if envelope.Event.Type == "" {
 		return streamEvent{}, false
 	}
-	return streamEvent{Type: envelope.Event.Type, Payload: envelope.Event.Payload}, true
+	return streamEvent{
+		RunID:   envelope.Event.RunID,
+		Type:    envelope.Event.Type,
+		Payload: envelope.Event.Payload,
+	}, true
 }
 
 func interpret(event streamEvent) eventNotice {
+	base := eventNotice{RunID: event.RunID}
 	switch event.Type {
 	case domain.EventModelDelta:
-		return eventNotice{Kind: "delta", Delta: payloadString(event.Payload, "delta")}
+		base.Kind = "delta"
+		base.Delta = payloadString(event.Payload, "delta")
+		return base
 	case domain.EventModelReasoningDelta:
 		text := payloadString(event.Payload, "delta")
 		if text == "" {
 			return eventNotice{}
 		}
-		return eventNotice{Kind: "line", Line: "thinking: " + strings.TrimSpace(text)}
+		base.Kind = "line"
+		base.Line = "thinking: " + strings.TrimSpace(text)
+		return base
 	case domain.EventToolRequested:
 		name := payloadString(event.Payload, "tool_name")
-		return eventNotice{Kind: "line", Line: "tool " + name}
+		base.Kind = "tool_requested"
+		base.Line = "tool " + name
+		base.Message = name
+		return base
 	case domain.EventToolFinished:
 		name := payloadString(event.Payload, "tool_name")
 		errText := payloadString(event.Payload, "error")
+		base.Kind = "tool_finished"
+		base.Message = name
 		if errText != "" {
-			return eventNotice{Kind: "line", Line: fmt.Sprintf("tool %s failed: %s", name, errText)}
+			base.Failed = true
+			base.Line = fmt.Sprintf("tool %s failed: %s", name, errText)
+			return base
 		}
-		return eventNotice{Kind: "line", Line: "tool " + name + " done"}
+		base.Line = "tool " + name + " done"
+		return base
 	case domain.EventToolApprovalRequired:
 		id := payloadString(event.Payload, "approval_id")
 		name := payloadString(event.Payload, "tool_name")
@@ -74,25 +94,33 @@ func interpret(event streamEvent) eventNotice {
 		if preview != "" {
 			body = name + "\n" + preview
 		}
-		return eventNotice{
-			Kind: "gate",
-			Line: "approval required: " + name + "  (y/n)",
-			Gate: &gatePrompt{Kind: "approval", ID: id, Title: name, Body: body},
-		}
+		base.Kind = "gate"
+		base.Line = "approval required: " + name + "  (y/n)"
+		base.Gate = &gatePrompt{Kind: "approval", ID: id, Title: name, Body: body}
+		return base
 	case domain.EventUserQuestionRequired:
 		id := payloadString(event.Payload, "question_id")
 		prompt := payloadString(event.Payload, "prompt")
-		return eventNotice{
-			Kind: "gate",
-			Line: "question: " + prompt,
-			Gate: &gatePrompt{Kind: "question", ID: id, Title: "question", Body: prompt},
-		}
+		base.Kind = "gate"
+		base.Line = "question: " + prompt
+		base.Gate = &gatePrompt{Kind: "question", ID: id, Title: "question", Body: prompt}
+		return base
 	case domain.EventRunCompleted:
-		return eventNotice{Kind: "done", Done: true}
+		base.Kind = "done"
+		base.Done = true
+		return base
 	case domain.EventRunFailed:
-		return eventNotice{Kind: "done", Done: true, Failed: true, Message: payloadString(event.Payload, "message")}
+		base.Kind = "done"
+		base.Done = true
+		base.Failed = true
+		base.Message = payloadString(event.Payload, "message")
+		return base
 	case domain.EventRunCancelled:
-		return eventNotice{Kind: "done", Done: true, Failed: true, Message: "cancelled"}
+		base.Kind = "done"
+		base.Done = true
+		base.Failed = true
+		base.Message = "cancelled"
+		return base
 	default:
 		return eventNotice{}
 	}
