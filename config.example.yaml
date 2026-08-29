@@ -66,6 +66,10 @@ runtime:
   # Trusted local Skill packages. Skill text is still treated as untrusted data.
   # Default: <user data root>/skills.
   skills_root: data/skills
+  # Skill marketplace base URL (skills.sh directory: search/featured/install).
+  # Installed packages land in skills_root and pass the same loader guards.
+  # Default: https://skills.sh; env VIVY_SKILLS_MARKETPLACE_URL overrides.
+  skills_marketplace_url: https://skills.sh
   # Explicit host surface for read-only http_request; add public hosts deliberately.
   http_allowed_hosts:
     - localhost

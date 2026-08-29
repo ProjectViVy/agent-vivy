@@ -152,3 +152,66 @@ func TestEinoSkillBackendStagesAppliesAndRejectsStaleRevision(t *testing.T) {
 		t.Fatalf("stale apply error = %v", err)
 	}
 }
+
+func TestEinoSkillBackendEnabledFlagFiltering(t *testing.T) {
+	backend, root, _ := openSkillTestBackend(t)
+	dir := filepath.Join(root, "off-skill")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	doc := "---\nname: off-skill\ndescription: disabled skill\nenabled: false\n---\n\nHidden body.\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	front, err := backend.List(context.Background())
+	if err != nil || len(front) != 0 {
+		t.Fatalf("disabled skill leaked into Eino List: %+v, err %v", front, err)
+	}
+	if _, err := backend.Get(context.Background(), "off-skill"); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("Get disabled skill error = %v", err)
+	}
+	items, err := backend.ListSkills(context.Background(), "")
+	if err != nil || len(items) != 1 || items[0].Enabled {
+		t.Fatalf("ListSkills = %+v, err %v", items, err)
+	}
+	if _, err := backend.ViewSkill(context.Background(), "", "off-skill", ""); err != nil {
+		t.Fatalf("control-plane view of a disabled skill must work: %v", err)
+	}
+}
+
+func TestEinoSkillBackendSetSkillEnabled(t *testing.T) {
+	backend, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "Body stays intact.")
+	items, err := backend.ListSkills(context.Background(), "")
+	if err != nil || len(items) != 1 || !items[0].Enabled {
+		t.Fatalf("ListSkills = %+v, err %v", items, err)
+	}
+	hash := items[0].Hash
+
+	summary, err := backend.SetSkillEnabled(context.Background(), "demo-skill", false, hash)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if summary.Enabled {
+		t.Fatalf("summary after disable = %+v", summary)
+	}
+	front, err := backend.List(context.Background())
+	if err != nil || len(front) != 0 {
+		t.Fatalf("disabled skill still listed: %+v, err %v", front, err)
+	}
+
+	// The old hash is now stale: CAS must refuse instead of blind-writing.
+	if _, err := backend.SetSkillEnabled(context.Background(), "demo-skill", true, hash); err == nil || !strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("stale hash error = %v", err)
+	}
+
+	summary, err = backend.SetSkillEnabled(context.Background(), "demo-skill", true, summary.Hash)
+	if err != nil || !summary.Enabled {
+		t.Fatalf("enable = %+v, err %v", summary, err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "demo-skill", "SKILL.md"))
+	if err != nil || !strings.Contains(string(data), "Body stays intact.") || !strings.Contains(string(data), "description: A test skill") {
+		t.Fatalf("rendered doc = %s, err %v", data, err)
+	}
+}

@@ -414,3 +414,30 @@ governance:
 		t.Fatal("want invalid governance field error")
 	}
 }
+
+func TestSkillsMarketplaceURLConfig(t *testing.T) {
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
+	cfg, err := Load(writeConfig(t, validDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Runtime.SkillsMarketplaceURL != DefaultSkillsMarketplaceURL {
+		t.Fatalf("default marketplace url = %q, want %q", cfg.Runtime.SkillsMarketplaceURL, DefaultSkillsMarketplaceURL)
+	}
+
+	doc := strings.Replace(validDoc, "  execute_max_timeout_seconds: 210\n",
+		"  execute_max_timeout_seconds: 210\n  skills_marketplace_url: http://127.0.0.1:9/vivy-market\n", 1)
+	cfg, err = Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatalf("parse marketplace url: %v", err)
+	}
+	if cfg.Runtime.SkillsMarketplaceURL != "http://127.0.0.1:9/vivy-market" {
+		t.Fatalf("marketplace url = %q", cfg.Runtime.SkillsMarketplaceURL)
+	}
+
+	bad := strings.Replace(validDoc, "  execute_max_timeout_seconds: 210\n",
+		"  execute_max_timeout_seconds: 210\n  skills_marketplace_url: not-a-url\n", 1)
+	if _, err := Load(writeConfig(t, bad)); err == nil || !strings.Contains(err.Error(), "skills_marketplace_url") {
+		t.Fatalf("want skills_marketplace_url validation error, got %v", err)
+	}
+}
