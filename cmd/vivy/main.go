@@ -32,6 +32,9 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "tui" {
+		os.Exit(runTUI(os.Args[2:]))
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)

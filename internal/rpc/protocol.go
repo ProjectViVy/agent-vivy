@@ -356,6 +356,15 @@ func (p *Peer) removePending(id json.RawMessage) {
 	p.mu.Unlock()
 }
 
+// Close stops the peer and the underlying transport.
+func (p *Peer) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.stopPeer()
+	return nil
+}
+
 func (p *Peer) stopPeer() {
 	p.stop.Do(func() {
 		close(p.done)

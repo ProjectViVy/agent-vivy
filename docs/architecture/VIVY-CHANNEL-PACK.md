@@ -16,6 +16,7 @@
 - `SELF-EVOLVING-GATEWAY.md` — 装插件 = 造新版本；默认 `Register()` 为空
 - `VIVY-GATEWAY-AND-STUDIO.md` — NG-10 模型可见≡入账；NG-11 拒绝第二种身体
 - `ACP-REMOTE-CONTROL-PROPOSAL.md` — 远程主体与 HITL；channel 用户当审批人走那条路，不走本提案第一刀
+- `VIVY-FACE-PACK.md` — 本机嘴（web / tui / headless）；channel 不得替代 face
 - `.workspace/picoclaw/pkg/channels/README.zh.md` — 协议适配器与 Manager 的分工
 
 ---
