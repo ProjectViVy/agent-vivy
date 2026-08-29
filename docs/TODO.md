@@ -42,23 +42,23 @@ Do not pick work from those tables. Closed-track filing:
 | CMP-2 | Context compaction：独立摘要模型 `summary_model` | OPEN | 2026-08-30 压缩沿用主模型；独立 `summary_model` 覆盖留待配置提案 |
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
-| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳。Eino A2A 澄清见 `docs/logs/2026-08-30-channel-a2a-eino-native/`。实现排期/活动图：§0.2 |
+| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳。演进树 `docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。PLAN 包 `docs/plans/channel-epic/`。日历 §0.2 |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
 | FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
 | FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 仍 mock。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
 | CH-A | ChannelHost + telegram + dingtalk（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C1..C6，见 §0.2。勿再按本行领取 |
 | CH-B | feishu / qq / discord（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C7a/b/c，见 §0.2。勿再按本行领取 |
-| CH-C1 | 账本：`channel.inbound` + Message 出处 | OPEN | **下一刀。** 合同 C1。无适配器。见 §0.2 |
-| CH-C2 | SDK `seam: channel` + 空注册表 + 信封配置 | OPEN | 合同 C2。独立 go.mod 的 pack overlay。依赖 CH-C1 |
-| CH-C3 | ChannelHost + 假插件 TCK | OPEN | 合同 C3。fail-closed、PublishInbound→入账→Run→Send。依赖 CH-C2 |
-| CH-C4 | `plugins/telegram` 私聊文本 | OPEN | 合同 C4。独立 go.mod；钉死 ABI。依赖 CH-C3 |
-| CH-C5 | inspect + 设置页接后端 | OPEN | 合同 C5 = `UI-CHANNELS-BE`。compiled-in 白名单；空 allow_from 文案；拿掉 email/neuro-link。依赖 CH-C4 |
-| CH-C6 | `plugins/dingtalk` Stream 单聊文本 | OPEN | 合同 C6。依赖 CH-C3；可与 CH-C4 分 worktree 并行 |
-| CH-C7a | `plugins/feishu` 单聊文本 WS | OPEN | 合同 C7。64-bit only。依赖 CH-C3；建议 CH-C4 先合（ABI 样板） |
-| CH-C7b | `plugins/qq` 官方 Bot 文本 | OPEN | 合同 C7。不是个人号/OneBot。依赖 CH-C3 |
-| CH-C7c | `plugins/discord` 文本（无 voice） | OPEN | 合同 C7。禁止 `voice.go` / pion。依赖 CH-C3 |
-| CH-C8 | 同二进制 `vivy channel --name` 子进程 | DEFERRED | 合同 C8。文本闭环之后；不进本期关门 |
-| CH-C9 | A2A / NeuroLink 能力提案 | DEFERRED | 合同 C9。无提案不开。A2A 偷协议不偷 `RegisterServerHandlers` |
+| CH-C1 | 账本：`channel.inbound` + Message 出处 | OPEN | **下一刀。** Plan: `docs/plans/channel-epic/CH-C1.md`。新分支 `feat/channel-c1`，不要写进文档分支 |
+| CH-C2 | SDK `seam: channel` + 空注册表 + 信封配置 | OPEN | Plan: `docs/plans/channel-epic/CH-C2.md`。依赖 CH-C1 |
+| CH-C3 | ChannelHost + 假插件 TCK | OPEN | Plan: `docs/plans/channel-epic/CH-C3.md`。包名 `internal/channelhost`。依赖 CH-C2 |
+| CH-C4 | `plugins/telegram` 私聊文本 | OPEN | Plan: `docs/plans/channel-epic/CH-C4.md`。ABI 样板。依赖 CH-C3 |
+| CH-C5 | inspect + 设置页接后端 | OPEN | Plan: `docs/plans/channel-epic/CH-C5.md`（= UI-CHANNELS-BE）。依赖 CH-C4 |
+| CH-C6 | `plugins/dingtalk` Stream 单聊文本 | OPEN | Plan: `docs/plans/channel-epic/CH-C6.md`。可与 C4 分 worktree |
+| CH-C7a | `plugins/feishu` 单聊文本 WS | OPEN | Plan: `docs/plans/channel-epic/CH-C7a.md`。建议 C4 先合 |
+| CH-C7b | `plugins/qq` 官方 Bot 文本 | OPEN | Plan: `docs/plans/channel-epic/CH-C7b.md`。非个人号/OneBot |
+| CH-C7c | `plugins/discord` 文本（无 voice） | OPEN | Plan: `docs/plans/channel-epic/CH-C7c.md`。禁止 voice/pion |
+| CH-C8 | 同二进制 `vivy channel --name` 子进程 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C8.md`。不是开工令 |
+| CH-C9 | A2A / NeuroLink 能力提案 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C9.md`。不是开工令 |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind 是挡板；不进 2026-08-30 本批、不进 §0.2 本期日历 |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
@@ -95,7 +95,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | OPEN | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。与 MCP 无关，未在本迭代改这条旧断言 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
 | UI-PROV-REGISTRY | 注册表 localStorage 存量数据无迁移路径 | OPEN | 2026-08-28 provider 写逻辑改为后端注册表后，旧 `vivy.ui.customProviders` localStorage 条目不再被读取（见 `docs/logs/2026-08-28-provider-direct-write/`）。本地用户需在设置页重新登记；如需自动迁移需 UI 一次性读旧 key 并逐条 `upsertProvider`（含是否回填 apiKey 的产品决策） |
-| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | **领取 CH-C5，不要另开 lane。** 前端已移植（`docs/logs/2026-08-27-channels-ui-port/`）。接后端规则见合同与 §0.2 |
+| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | **领取 CH-C5 PLAN，不要另开 lane。** `docs/plans/channel-epic/CH-C5.md` |
 | UI-TODO-MUTATE | 待办清单只读，人不能在 UI 里增删改 | OPEN | 2026-08-29 聊天区已接真实 `session/todos`（见 `docs/logs/2026-08-29-chat-plan-todo-display/`）；变更只来自 `task_*` 工具。人闸编辑会变成伪操作，需明确产品决策后再做 |
 | UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。移植 `create_goal` 需内核提案 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
@@ -103,8 +103,9 @@ are **not** on this board; they need their own capability proposal.
 
 ## 0.2 Channel program — 排期、分解、活动图（2026-08-30 拍板）
 
-权威依赖仍是 `VIVY-CHANNEL-PACK.md` §20。本节是**日历与领取面**：把合同 C0–C9 写成可开工条目。
-Filing: `docs/logs/2026-08-30-channel-program-plan/`。
+权威依赖仍是 `VIVY-CHANNEL-PACK.md` §20。演进树：`docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。
+切片 PLAN（子 AGENT 按十节领取）：`docs/plans/channel-epic/`，索引见 §0.2.8。
+Filing: `docs/logs/2026-08-30-channel-program-plan/`、`docs/logs/2026-08-30-channel-epic-plans/`。
 
 假设（不满足则重排，不暗改合同）：
 
@@ -229,7 +230,27 @@ gantt
 
 ### 0.2.7 下一刀
 
-**CH-C1。** 新 worktree、新分支，不要叠在脏根树上。文件面：`internal/domain`、`schemas/events/`、`internal/storage/{sqlite,postgres,conformance}`。成功 = `just ci` 且还没有任何通道适配器。
+**CH-C1。** 读 `docs/plans/channel-epic/00-standing-orders.md` 与 `CH-C1.md`。新 worktree、新分支 `feat/channel-c1`，不要叠在脏根树，不要往 `feat/channel-super-contract` 堆代码。成功 = `just ci` 且还没有任何通道适配器。
+
+### 0.2.8 PLAN 索引（子 AGENT 领取面）
+
+站立命令：`docs/plans/channel-epic/00-standing-orders.md`
+演进树：`docs/architecture/VIVY-CHANNEL-EVOLUTION.md`
+目录：`docs/plans/channel-epic/README.md`
+
+| ID | Plan | 架构阶段 |
+|---|---|---|
+| CH-C1 | `docs/plans/channel-epic/CH-C1.md` | A 遗传物质 |
+| CH-C2 | `docs/plans/channel-epic/CH-C2.md` | B 物种窗口 |
+| CH-C3 | `docs/plans/channel-epic/CH-C3.md` | C 世界入口 |
+| CH-C4 | `docs/plans/channel-epic/CH-C4.md` | D ABI 样板 |
+| CH-C5 | `docs/plans/channel-epic/CH-C5.md` | E 可见性 |
+| CH-C6 | `docs/plans/channel-epic/CH-C6.md` | F 国内 |
+| CH-C7a | `docs/plans/channel-epic/CH-C7a.md` | F 国内 |
+| CH-C7b | `docs/plans/channel-epic/CH-C7b.md` | F 国内 |
+| CH-C7c | `docs/plans/channel-epic/CH-C7c.md` | G 国际 / 本期关门 |
+| CH-C8 | `docs/plans/channel-epic/CH-C8.md` | H 后切备忘 |
+| CH-C9 | `docs/plans/channel-epic/CH-C9.md` | H 后切备忘 |
 
 ## 1. Milestone map (archived — V0 closed 2026-08-07)
 
@@ -428,6 +449,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-30 | 超级通道 EPIC PLAN 包 | 演进树 `VIVY-CHANNEL-EVOLUTION.md`；子 AGENT 十节 PLAN `docs/plans/channel-epic/CH-C1..C9.md`；TODO §0.2.8 索引。无运行时代码。Filing: `docs/logs/2026-08-30-channel-epic-plans/`. |
 | 2026-08-30 | 超级通道节目排期 | `docs/TODO.md` §0.2：CH-A/B 拆成 CH-C1..C7c；单 lane 19 人日；M-CH4 计划 2026-09-24 / 缓冲关门 2026-09-30。下一刀 CH-C1。Filing: `docs/logs/2026-08-30-channel-program-plan/`. |
 | 2026-08-30 | CH-0 超级通道合同采纳 | `VIVY-CHANNEL-PACK.md` 从出厂 `channels/` 提案改为已采纳的超级通道合同：Host 在内核；本批五个适配器全部 `plugins/` + `seam: channel`；信封/能力矩阵为 A2A、NeuroLink 预留；不新开 `RegisterChannels()`。无运行时代码。Filing: `docs/logs/2026-08-30-channel-super-contract/`. |
 | 2026-08-30 | CH-0 补 clar：Eino 原生 A2A | 合同 §15.1：偷 `eino-ext/a2a` 的 models/transport，禁止 `RegisterServerHandlers(adk.Agent)` 当网关；循环仍是 `Service.Run`。本批五个插件不 import Eino。Filing: `docs/logs/2026-08-30-channel-a2a-eino-native/`. |

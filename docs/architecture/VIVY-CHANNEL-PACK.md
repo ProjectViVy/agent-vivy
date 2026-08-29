@@ -20,6 +20,7 @@
 - `VIVY-GATEWAY-AND-STUDIO.md` — NG-10 模型可见≡入账；NG-11 拒绝第二种身体
 - `ACP-REMOTE-CONTROL-PROPOSAL.md` — 遥控已有回合；不是耳朵
 - `VIVY-FACE-PACK.md` — 本机嘴（web / tui / headless）；channel 不得替代 face
+- `VIVY-CHANNEL-EVOLUTION.md` — 本 EPIC 演进架构树；子 AGENT PLAN 在 `docs/plans/channel-epic/`
 - `.workspace/picoclaw/pkg/channels/README.zh.md` — 协议适配器与 Manager 的分工
 
 ---
@@ -700,7 +701,7 @@ channel 是 Kind B 的新 seam，不是 Kind A，不是 MCP，不是第二种 EX
 
 C0 是文档 PR。C1 起才动内核。C4 之前禁止把 `telego` 写进物种默认 `go.mod`。C4/C6/C7 每个包一次 pack 评测，禁止「一次 PR 链进五个 SDK」。
 
-排期、WBS、活动图与甘特的权威在 `docs/TODO.md` §0.2（2026-08-30 拍板）。本文切片是依赖，不是日历。
+排期、WBS、活动图与甘特的权威在 `docs/TODO.md` §0.2（2026-08-30 拍板）。本文切片是依赖，不是日历。演进树：`VIVY-CHANNEL-EVOLUTION.md`。子 AGENT 领取：`docs/plans/channel-epic/`。
 
 ---
 
