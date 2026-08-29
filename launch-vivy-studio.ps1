@@ -1,5 +1,17 @@
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
+
+# Studio shell lives in git submodule ProjectViVy/vivy-studio @ studio/.
+# First launch (or a clone without --recurse-submodules) installs it.
+$ensureStudio = Join-Path $root "scripts\ensure-studio.ps1"
+if (-not (Test-Path -LiteralPath $ensureStudio)) {
+  throw "missing $ensureStudio — cannot bootstrap studio submodule"
+}
+& $ensureStudio -RepoRoot $root -Quiet
+if ($LASTEXITCODE -ne 0) {
+  throw "ensure-studio.ps1 failed (exit $LASTEXITCODE)"
+}
+
 $plugin = Join-Path $PSScriptRoot "studio\dsh-vivy-studio"
 $console = Join-Path $PSScriptRoot "studio\dsh-vivy-console"
 $pluginHub = Join-Path $PSScriptRoot "studio\dsh-plugin-hub"
