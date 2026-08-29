@@ -156,3 +156,42 @@ pack 不带该插件 → 不进 zz_register.go/zz_ui.go → 本代 EXE 里没有
 DSH：`packages/client/modules/`（机制 A）、`packages/client/ui-slots` + `ui-renderer`（机制 B）、`packages/interaction/commands` + `ui-commands`（命令描述符）、`packages/client/ui-tool`（presenter intents）、`packages/host/plugin-inventory`（清单页）、`docs/architecture.md`、`docs/cookbook/adding-a-settings-card.md`。
 
 Vivy：`sdk/internal/manifest.go`、`sdk/internal/pack.go`、`internal/generated/plugins/zz_register.go`、`internal/pluginhost/host.go`、`internal/rpc/control.go:345-360`、`internal/studio/inspect.go`、`ui/src/components/chat/ConversationSidebar.tsx:7-9`、`ui/src/lib/store.ts:211`、`studio/dsh-vivy-studio/index.js`、`studio/dsh-vivy-console/`、`docs/architecture/VIVY-PLUGIN-SPEC.md`、`docs/architecture/VIVY-FACE-PACK.md`、`docs/architecture/VIVY-STUDIO.md` §9.1。
+
+## 7. 调研路径
+
+### 7.1 本次调研过程（可回溯）
+
+```
+AGENTS.md 入口（DSH ground truth 位置 + 治理约束）
+→ DSH 源码问题单（.workspace/deepseek-harness/deepseek-harness/）
+→ Vivy 现状问题单（sdk/ internal/ ui/ studio/ docs/architecture/）
+→ 双线互证（Studio 里的 dsh-* 插件 = DSH 机制的活样本）
+→ 关键引用人工抽查（grep/sed 复核 5 处）
+→ 三档方案综合
+```
+
+**入口与依据**：`AGENTS.md` 把 `.workspace/deepseek-harness/`（`deepseek-harness/` 工作克隆 + `upstream/` 镜像）定为 DSH 行为的 source of truth，并要求以该树而非 `node_modules` 的构建产物为准。调研确认工作克隆完整，`upstream/` 未动用。Vivy 侧以仓库本体与 `docs/architecture/` 产品契约为准。探查由两个并行只读子任务完成（DSH 路线 / Vivy 路线），结论经抽查后才写入正文。
+
+**DSH 路线的问题单与检索锚点**：产品形态与包布局（→ `AGENTS.md` repository layout、`docs/architecture.md`）；前端/后端如何分离（→ `packages/host/webserver`、`packages/client/web/src/boot.ts`）；插件 manifest、发现、装载（→ `docs/cordis-primer.md`、`apps/cli/src/plugin.ts`、`packages/boot/app-boot`）；**UI 是否随安装动态渲染**——本研究的关键问题（→ `packages/client/modules/` 的 `dsh.client` 声明与 `__DSH_BOOT__` 图、`packages/client/ui-slots` 的 `slots.register`、`packages/interaction/commands` 的 `command.list`、`packages/client/ui-tool` 的 presenter intents、cookbook 的 adding-a-settings-card / adding-a-tool）；信任模型（→ `scripts/client-bundle-purity.spec.ts`、`packages/client/connection/src/api-request-trust.ts`、`packages/extensions/cordis-client-runner`）；清单页（→ `packages/host/plugin-inventory`）；理论背景（→ `paper.txt`，Cordis 可逆 effect 的形式化）。
+
+**Vivy 路线的问题单与检索锚点**：插件从 manifest 到 EXE 的全链路（→ `sdk/internal/manifest.go`、`sdk/internal/pack.go`、`internal/generated/plugins/zz_register.go`、`internal/pluginhost/host.go`、`internal/studiocore/service.go`）；运行时暴露与 RPC 面（→ `internal/rpc/control.go` 方法 switch、`internal/studio/inspect.go`）；UI 结构与既有条件渲染先例（→ `ui/src/components/chat/ConversationSidebar.tsx`、`ui/src/lib/store.ts`、`ui/src/components/settings/` 的 providers/MCP 卡片模式、`ui/src/i18n/`）；Studio 侧范本（→ `studio/dsh-vivy-studio/index.js`、`studio/dsh-vivy-console/`、`studio/dsh-better-sidebar/`）；TUI（→ `cmd/vivy/tui.go`、`internal/tui/`、`docs/architecture/VIVY-FACE-PACK.md`）；治理约束（→ `VIVY-PLUGIN-SPEC.md`、`VIVY-STUDIO.md` 的 tier A/C 与 NG-* 决策）。
+
+**交叉验证**：两条独立线索互证——Studio 子模块里的 `dsh-*` 插件是 DSH 机制 A/B 的活样本（`webServer.tapIndex` 注入、`window.__ModuleLoader__` 装载、`ctx.slots.inject` 注册），与 DSH 源码描述一致。写进正文的关键引用另行人工抽查五处，全部属实：`zz_register.go` 由 pack 生成且返回 nil；导航三组硬编码数组（`ConversationSidebar.tsx:7-9`）；`capabilities` 静态表（`control.go:345-360`）；manifest 无 UI 字段（`manifest.go:21-36`）；UI 存 capabilities 而不消费（`store.ts:33,211`）。
+
+**纪律与边界**：全程只读；未改动 `.workspace/`；未触碰 `data/vivy.db`、`data/demo/`、`data/workspaces/`（air gap）；DSH 结论全部来自本地源码，未依赖网络资料。
+
+### 7.2 本次调研的局限
+
+- DSH 为静态阅读，未实际运行验证 bundle 送达行为。
+- Studio 子模块只读了插件源码，未观察其运行时。
+- 方案三的沙箱选型（iframe vs 构建期 purity gate）未做原型，列为开放问题。
+- 机制 A 的组合顺序细节以模块自述文档与 cookbook 为准，未逐行核对 `packages/client/modules` 源码。
+
+### 7.3 后续调研路径（若立项，按序）
+
+1. **方案一契约定稿**：manifest v1 `ui` 块白名单词表——以现有 `settings/mcp` 卡片与 provider 表单的渲染能力为 widget 词表基线，先出字段草案 + parse/validate 测试设计。
+2. **pack spike**：验证 overlay 机制能否与 `zz_register.go` 并行生成 `zz_ui.go`（同一 `go build -overlay`，不改 SDK Go 接口窗口）。
+3. **RPC 契约影响面**：`plugins/list` payload 形状 vs 动态化 `capabilities`——读 `internal/tui/client.go` 与 worker 客户端对握手的依赖，确认加法路径。
+4. **i18n 策略**：描述符内联 zh/en 与 `ui/src/i18n/index.test.ts` 孪生强制测试的兼容方案。
+5. **换代感知**：`generation_id` 比对与"提示刷新"交互的最小实现位置（`store.initialize` vs 路由守卫）。
+6. **方案三前置调研**（缓行）：`ui/index.html` 与响应头的 CSP 现状盘点；iframe 沙箱原型 vs DSH 式构建期 purity gate 的取舍实验；与 `VIVY-STUDIO.md` §9.1 sealed skin 的关系在产品契约里落字。
