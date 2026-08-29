@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Navigate, Outlet, createRootRouteWithContext, useRouterState } from '@tanstack/react-router';
-import { Button } from '@/components/ui/button';
+import { RecoverableError } from '@/components/feedback/RecoverableError';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
@@ -14,8 +14,9 @@ function Root() {
   const initialized = useVivyStore((state) => state.initialized);
   const error = useVivyStore((state) => state.initializationError);
   const initialize = useVivyStore((state) => state.initialize);
+  const retryInitialize = useVivyStore((state) => state.retryInitialize);
   const { t, locale } = useTranslation();
   useEffect(() => { void initialize(); }, [initialize]);
   useEffect(() => { document.title = t('app.documentTitle'); }, [t, locale]);
-  return <QueryClientProvider client={queryClient}>{!initialized ? <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={t('app.loading')}><div className="animate-pulse bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-500 bg-clip-text text-3xl font-semibold tracking-[0.22em] text-transparent">VIVY</div></div> : error ? <div className="flex h-dvh items-center justify-center bg-background p-6"><div className="max-w-lg rounded-xl border bg-card p-6 text-center"><h1 className="text-lg font-semibold">{t('app.cannotConnect')}</h1><p className="mt-2 text-sm text-muted-foreground">{error}</p><Button className="mt-4" onClick={() => window.location.reload()}>{t('common.retry')}</Button></div></div> : <Outlet/>}</QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}>{!initialized ? <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={t('app.loading')}><div className="animate-pulse bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-500 bg-clip-text text-3xl font-semibold tracking-[0.22em] text-transparent">VIVY</div></div> : error ? <div className="flex h-dvh items-center justify-center bg-background p-6"><RecoverableError className="max-w-lg" error={error} onRetry={() => void retryInitialize()} /></div> : <Outlet/>}</QueryClientProvider>;
 }
