@@ -105,6 +105,12 @@ runtime:
     # How many most-recent tool-call rounds the deterministic reduction
     # layer retains verbatim.
     keep_recent: 12
+  # Cron controls the scheduled-job scheduler behind the UI CRON panel.
+  # Jobs fire agent turns in their own dedicated session; while disabled
+  # the stored jobs simply never run.
+  cron:
+    # Turn the scheduler on. Defaults to true.
+    enabled: true
   # Sandbox controls the file-effect policy boundary (D-021).
   # Mirrors the DeepSeek Harness three-tier permission model.
   sandbox:
