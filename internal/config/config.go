@@ -42,6 +42,10 @@ const defaultMaxToolTurns = 8
 // it would be silently clamped, so Validate rejects it up front.
 const maxExecuteTimeoutSeconds = 600
 
+// DefaultSkillsMarketplaceURL is the public skills.sh directory backing the
+// skill marketplace (runtime.skills_marketplace_url default).
+const DefaultSkillsMarketplaceURL = "https://skills.sh"
+
 // envUserHome optionally overrides the user data root. Without it the root
 // resolves to the OS user home (diva-style), and without a home at all it
 // falls back to the repo-relative dev layout.
@@ -169,6 +173,11 @@ type Runtime struct {
 	// SkillsRoot is a trusted, non-executable directory containing SKILL.md
 	// packages. Skill content remains untrusted data at runtime.
 	SkillsRoot string `yaml:"skills_root"`
+	// SkillsMarketplaceURL is the base URL of the skills.sh directory used by
+	// the skill marketplace (search/featured/install). Empty keeps the
+	// default; the VIVY_SKILLS_MARKETPLACE_URL environment override wins at
+	// service construction.
+	SkillsMarketplaceURL string `yaml:"skills_marketplace_url"`
 	// HTTPAllowedHosts is the explicit host surface for the read-only HTTP tool.
 	HTTPAllowedHosts []string `yaml:"http_allowed_hosts"`
 	// HTTPMaxResponseBytes bounds one HTTP response entering the model context.
@@ -367,6 +376,7 @@ func Default() Config {
 			MaxRunRetries:            defaultMaxRunRetries,
 			WorkspaceRoot:            filepath.Join(root, "workspace"),
 			SkillsRoot:               filepath.Join(root, "skills"),
+			SkillsMarketplaceURL:     DefaultSkillsMarketplaceURL,
 			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
 			HTTPMaxResponseBytes:     1 << 20,
 			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
@@ -518,6 +528,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.SkillsRoot == "" {
 		return errors.New("runtime.skills_root must not be empty")
+	}
+	if c.Runtime.SkillsMarketplaceURL != "" {
+		parsed, err := url.Parse(c.Runtime.SkillsMarketplaceURL)
+		if err != nil || parsed.Host == "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return errors.New("runtime.skills_marketplace_url must be an absolute http(s) URL")
+		}
 	}
 	if c.Runtime.HTTPMaxResponseBytes <= 0 {
 		return errors.New("runtime.http_max_response_bytes must be positive")
