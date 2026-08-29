@@ -1,71 +1,42 @@
 // Package demo holds deterministic mock data for the Crush-style TUI
 // skeleton. No time.Now, no random, no RPC. Field names mirror the
-// control-plane DTOs so a later slice can swap this store for Client.
+// control-plane DTOs so the live driver can share surface.Driver.
 package demo
 
 import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tui/surface"
 )
 
-// Session is one sidebar row.
-type Session struct {
-	ID               string
-	Title            string
-	PermissionPreset string
-}
-
-// ToolCard is an inline tool result / pending approval inside the chat.
-type ToolCard struct {
-	ToolName   string
-	Status     string // pending | done | denied | failed
-	Preview    string
-	Result     string
-	ApprovalID string
-}
-
-// Message is one chat bubble or tool card.
-type Message struct {
-	ID      string
-	Role    string // user | assistant | tool
-	Content string
-	Tool    *ToolCard
-}
-
-// Gate is the modal approval / question overlay.
-type Gate struct {
-	Kind  string // approval | question
-	ID    string
-	Title string
-	Body  string
-}
-
-// Store is the in-memory demo world.
+// Store is the in-memory demo world and a surface.Driver.
 type Store struct {
-	Sessions []Session
-	Messages map[string][]Message
-	ActiveID string
+	sessions []surface.Session
+	messages map[string][]surface.Message
+	activeID string
 	seq      int
 }
 
 // NewStore returns the fixed three-session script from the plan.
 func NewStore() *Store {
 	s := &Store{
-		Sessions: []Session{
+		sessions: []surface.Session{
 			{ID: "sess_overnight", Title: "过夜", PermissionPreset: "smart"},
 			{ID: "sess_approval", Title: "审批中", PermissionPreset: "cautious"},
 			{ID: "sess_empty", Title: "空", PermissionPreset: "smart"},
 		},
-		Messages: map[string][]Message{
+		messages: map[string][]surface.Message{
 			"sess_overnight": {
 				{ID: "msg_o1", Role: string(domain.RoleUser), Content: "把欢迎文案改得更短一点。"},
 				{ID: "msg_o2", Role: string(domain.RoleAssistant), Content: "我会改 `ui/src/i18n/zh.ts` 里的空状态句子。"},
 				{
 					ID:   "msg_o3",
 					Role: "tool",
-					Tool: &ToolCard{
+					Tool: &surface.ToolCard{
 						ToolName: "write_file",
 						Status:   "done",
 						Preview:  "ui/src/i18n/zh.ts",
@@ -80,7 +51,7 @@ func NewStore() *Store {
 				{
 					ID:   "msg_a3",
 					Role: "tool",
-					Tool: &ToolCard{
+					Tool: &surface.ToolCard{
 						ToolName:   "write_file",
 						Status:     "pending",
 						Preview:    "README.md\n- Agent Diva\n+ Vivy",
@@ -90,30 +61,35 @@ func NewStore() *Store {
 			},
 			"sess_empty": {},
 		},
-		ActiveID: "sess_approval",
+		activeID: "sess_approval",
 		seq:      100,
 	}
 	return s
 }
 
-// Active returns the selected session, or a zero value.
-func (s *Store) Active() Session {
-	for _, session := range s.Sessions {
-		if session.ID == s.ActiveID {
+// Sessions implements surface.Driver.
+func (s *Store) Sessions() []surface.Session {
+	return append([]surface.Session(nil), s.sessions...)
+}
+
+// Active implements surface.Driver.
+func (s *Store) Active() surface.Session {
+	for _, session := range s.sessions {
+		if session.ID == s.activeID {
 			return session
 		}
 	}
-	return Session{}
+	return surface.Session{}
 }
 
-// ActiveMessages returns chat rows for the selected session.
-func (s *Store) ActiveMessages() []Message {
-	return append([]Message(nil), s.Messages[s.ActiveID]...)
+// ActiveMessages implements surface.Driver.
+func (s *Store) ActiveMessages() []surface.Message {
+	return append([]surface.Message(nil), s.messages[s.activeID]...)
 }
 
-// PendingGate is the modal for the active session, if any.
-func (s *Store) PendingGate() *Gate {
-	for _, message := range s.Messages[s.ActiveID] {
+// PendingGate implements surface.Driver.
+func (s *Store) PendingGate() *surface.Gate {
+	for _, message := range s.messages[s.activeID] {
 		if message.Tool == nil || message.Tool.Status != "pending" || message.Tool.ApprovalID == "" {
 			continue
 		}
@@ -121,7 +97,7 @@ func (s *Store) PendingGate() *Gate {
 		if message.Tool.Preview != "" {
 			body = message.Tool.ToolName + "\n" + message.Tool.Preview
 		}
-		return &Gate{
+		return &surface.Gate{
 			Kind:  "approval",
 			ID:    message.Tool.ApprovalID,
 			Title: message.Tool.ToolName,
@@ -131,55 +107,96 @@ func (s *Store) PendingGate() *Gate {
 	return nil
 }
 
+// Meta implements surface.Driver.
+func (s *Store) Meta() surface.Meta {
+	return surface.Meta{
+		Mode:   "demo",
+		Footer: "mock · not connected",
+	}
+}
+
+// Init implements surface.Driver.
+func (s *Store) Init() tea.Cmd { return nil }
+
+// Handle implements surface.Driver.
+func (s *Store) Handle(tea.Msg) tea.Cmd { return nil }
+
+// MoveSession implements surface.Driver.
+func (s *Store) MoveSession(delta int) tea.Cmd {
+	s.moveSession(delta)
+	return nil
+}
+
+// NewSession implements surface.Driver.
+func (s *Store) NewSession(title string) tea.Cmd {
+	s.newSession(title)
+	return nil
+}
+
+// Send implements surface.Driver.
+func (s *Store) Send(text string) tea.Cmd {
+	s.appendUser(text)
+	return nil
+}
+
+// DecideApproval implements surface.Driver.
+func (s *Store) DecideApproval(decision string) tea.Cmd {
+	s.decideApproval(decision)
+	return nil
+}
+
+// AnswerQuestion implements surface.Driver (demo has no question gate).
+func (s *Store) AnswerQuestion(string) tea.Cmd { return nil }
+
+// Cancel implements surface.Driver (demo has nothing in flight).
+func (s *Store) Cancel() tea.Cmd { return nil }
+
 // SelectSession switches the active session by id. Unknown ids are ignored.
+// Kept for tests.
 func (s *Store) SelectSession(id string) {
-	for _, session := range s.Sessions {
+	for _, session := range s.sessions {
 		if session.ID == id {
-			s.ActiveID = id
+			s.activeID = id
 			return
 		}
 	}
 }
 
-// MoveSession steps the sidebar selection by delta (-1 / +1), wrapping.
-func (s *Store) MoveSession(delta int) {
-	if len(s.Sessions) == 0 {
+func (s *Store) moveSession(delta int) {
+	if len(s.sessions) == 0 {
 		return
 	}
 	idx := 0
-	for i, session := range s.Sessions {
-		if session.ID == s.ActiveID {
+	for i, session := range s.sessions {
+		if session.ID == s.activeID {
 			idx = i
 			break
 		}
 	}
-	n := len(s.Sessions)
+	n := len(s.sessions)
 	idx = (idx + delta) % n
 	if idx < 0 {
 		idx += n
 	}
-	s.ActiveID = s.Sessions[idx].ID
+	s.activeID = s.sessions[idx].ID
 }
 
-// NewSession appends a blank session and selects it.
-func (s *Store) NewSession(title string) {
+func (s *Store) newSession(title string) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = "新会话"
 	}
 	s.seq++
 	id := fmt.Sprintf("sess_demo_%d", s.seq)
-	s.Sessions = append(s.Sessions, Session{ID: id, Title: title, PermissionPreset: "smart"})
-	if s.Messages == nil {
-		s.Messages = map[string][]Message{}
+	s.sessions = append(s.sessions, surface.Session{ID: id, Title: title, PermissionPreset: "smart"})
+	if s.messages == nil {
+		s.messages = map[string][]surface.Message{}
 	}
-	s.Messages[id] = nil
-	s.ActiveID = id
+	s.messages[id] = nil
+	s.activeID = id
 }
 
-// AppendUser adds a user bubble and a fixed assistant demo reply.
-// When a gate is open it refuses (caller should decide first).
-func (s *Store) AppendUser(text string) {
+func (s *Store) appendUser(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" || s.PendingGate() != nil {
 		return
@@ -188,19 +205,17 @@ func (s *Store) AppendUser(text string) {
 	userID := fmt.Sprintf("msg_demo_%d", s.seq)
 	s.seq++
 	asstID := fmt.Sprintf("msg_demo_%d", s.seq)
-	s.Messages[s.ActiveID] = append(s.Messages[s.ActiveID],
-		Message{ID: userID, Role: string(domain.RoleUser), Content: text},
-		Message{ID: asstID, Role: string(domain.RoleAssistant), Content: "（demo：未接控制面）"},
+	s.messages[s.activeID] = append(s.messages[s.activeID],
+		surface.Message{ID: userID, Role: string(domain.RoleUser), Content: text},
+		surface.Message{ID: asstID, Role: string(domain.RoleAssistant), Content: "（demo：未接控制面）"},
 	)
 }
 
-// DecideApproval applies y/n to the pending tool card on the active session.
-// decision must be domain.ApprovalApproved or domain.ApprovalDenied.
-func (s *Store) DecideApproval(decision string) bool {
+func (s *Store) decideApproval(decision string) bool {
 	if decision != domain.ApprovalApproved && decision != domain.ApprovalDenied {
 		return false
 	}
-	msgs := s.Messages[s.ActiveID]
+	msgs := s.messages[s.activeID]
 	for i := range msgs {
 		tool := msgs[i].Tool
 		if tool == nil || tool.Status != "pending" || tool.ApprovalID == "" {
@@ -218,7 +233,7 @@ func (s *Store) DecideApproval(decision string) bool {
 		if decision == domain.ApprovalDenied {
 			reply = "已拒绝该工具（demo）。"
 		}
-		s.Messages[s.ActiveID] = append(msgs, Message{
+		s.messages[s.activeID] = append(msgs, surface.Message{
 			ID:      fmt.Sprintf("msg_demo_%d", s.seq),
 			Role:    string(domain.RoleAssistant),
 			Content: reply,
@@ -227,3 +242,6 @@ func (s *Store) DecideApproval(decision string) bool {
 	}
 	return false
 }
+
+// Ensure Store satisfies surface.Driver at compile time.
+var _ surface.Driver = (*Store)(nil)
