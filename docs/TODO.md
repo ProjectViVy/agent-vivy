@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-27
+> Updated: 2026-08-30
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -42,13 +42,13 @@ Do not pick work from those tables. Closed-track filing:
 | CMP-2 | Context compaction：独立摘要模型 `summary_model` | OPEN | 2026-08-30 压缩沿用主模型；独立 `summary_model` 覆盖留待配置提案 |
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
-| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
+| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳：Host 在内核；本批 telegram/discord/feishu/dingtalk/qq 全部 `plugins/` + `seam: channel`；不新开 `channels/`。内核/SDK 仍未动。Filing: `docs/logs/2026-08-30-channel-super-contract/` |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
 | FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
 | FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 仍 mock。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
-| CH-A | ChannelHost + telegram + dingtalk | OPEN | Depends on CH-0; first ABI + first domestic ear |
-| CH-B | feishu / qq / discord (text, no voice) | OPEN | Separate pack per package |
-| CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker |
+| CH-A | ChannelHost + `plugins/telegram` + `plugins/dingtalk` | OPEN | Depends on C1–C3 (ledger + SDK seam + Host TCK). Independent go.mod; text only; fail-closed `allow_from` |
+| CH-B | `plugins/feishu` / `qq` / `discord` (text, no voice) | OPEN | Separate pack per plugin; Discord 不含 `voice.go` |
+| CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker; not in the 2026-08-30 batch |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
 | HITL-P1-2 | Scoped remember / allow policies | OPEN | |
@@ -84,7 +84,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | OPEN | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。与 MCP 无关，未在本迭代改这条旧断言 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
 | UI-PROV-REGISTRY | 注册表 localStorage 存量数据无迁移路径 | OPEN | 2026-08-28 provider 写逻辑改为后端注册表后，旧 `vivy.ui.customProviders` localStorage 条目不再被读取（见 `docs/logs/2026-08-28-provider-direct-write/`）。本地用户需在设置页重新登记；如需自动迁移需 UI 一次性读旧 key 并逐条 `upsertProvider`（含是否回填 apiKey 的产品决策） |
-| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | 2026-08-27 已移植 Agent-Diva 完整通道配置 UI（`ui/src/components/settings/ChannelsSettings.tsx` 等，见 `docs/logs/2026-08-27-channels-ui-port/`）：数据层仅落 `vivy.ui.channels` localStorage（wire 形状对齐 Diva `get_channels`，便于直接换读写层）；就绪状态按 schema 必填字段近似，替代服务端 `getConfigStatus` 通道报告；向导省略「测试连接」步（Diva 源码该步为不可达死代码）。接真实后端需新增 `get_channels` / `update_channel`（或等价 settings RPC）与通道就绪报告并替换 `channel-store.ts` 读写层 |
+| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | 2026-08-27 已移植 Agent-Diva 完整通道配置 UI（`ui/src/components/settings/ChannelsSettings.tsx` 等，见 `docs/logs/2026-08-27-channels-ui-port/`）：数据层仅落 `vivy.ui.channels` localStorage。2026-08-30 超级通道合同要求接后端时：只能开关 **compiled-in** 名字；空 `allow_from` = 拒绝启动（改正「留空不限制」文案）；email / neuro-link 从可添加列表拿掉直到有对应插件。Filing: `docs/logs/2026-08-30-channel-super-contract/` |
 | UI-TODO-MUTATE | 待办清单只读，人不能在 UI 里增删改 | OPEN | 2026-08-29 聊天区已接真实 `session/todos`（见 `docs/logs/2026-08-29-chat-plan-todo-display/`）；变更只来自 `task_*` 工具。人闸编辑会变成伪操作，需明确产品决策后再做 |
 | UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。移植 `create_goal` 需内核提案 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
@@ -287,6 +287,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-30 | CH-0 超级通道合同采纳 | `VIVY-CHANNEL-PACK.md` 从出厂 `channels/` 提案改为已采纳的超级通道合同：Host 在内核；本批五个适配器全部 `plugins/` + `seam: channel`；信封/能力矩阵为 A2A、NeuroLink 预留；不新开 `RegisterChannels()`。无运行时代码。Filing: `docs/logs/2026-08-30-channel-super-contract/`. |
 | 2026-08-30 | UI-PROV-RPC 供应商目录接真实后端（模型在线刷新） | 设置→模型 模型列表新增「刷新」：`GET {base_url}/models`（`internal/provider/discover.go`，15s 超时、Bearer 密钥、去重）+ `settings/providers/refresh` RPC（按 id 或按 bundle+base_url；目录厂商无注册表行时克隆为自定义条目持久化；并集保留手动新增；api_key 永不清除/不回传）+ UI 刷新按钮与同步计数反馈。仅 OpenAI 兼容端点；Anthropic 原生端点不显示按钮并拒绝刷新。Filing: `docs/logs/2026-08-30-model-list-sync/`. 目录静态快照 `provider-catalog.ts` 仍为展示层，未退化为运行时目录（范围外）。 |
 | 2026-08-30 | 离线启动：把 runtime.mock 接回 ModelResolver / Catalog | 编译修复后 `just dev` 的 `config.dev.yaml` 不再解析出 ready 模型。`runtime.mock=true` 再次选 mock Ref，且不冻结 ENV。Filing: `docs/logs/2026-08-30-dev-mock-start/`. |
 | 2026-08-30 | 编译修复：补回 ModelResolver / ResolvingChatModel / SQLite organism lease | 主线 `app.go` 已接线但实现未合入，`go build ./...` 失败。补回停放实现；`Ref.Model` 改为 `ModelSpec`。Filing: `docs/logs/2026-08-30-compile-model-resolver/`. |

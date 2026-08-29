@@ -1,7 +1,7 @@
 # Vivy 怎么分、怎么装配
 
 > 状态：**提案**。服从重构世界、`SELF-EVOLVING-GATEWAY.md` 与 **`VIVY-STUDIO.md`**。
-> channel 作为一等装配单元见 **`VIVY-CHANNEL-PACK.md`**（提案；未采纳前本表不增加 `channels:` 行）。
+> channel 作为超级通道见 **`VIVY-CHANNEL-PACK.md`**（**方向已采纳** 2026-08-30）。Host 在内核；本批适配器是 `plugins/` + `seam: channel`，**不**增加 `channels:` 配方键。
 > face 作为一等装配单元见 **`VIVY-FACE-PACK.md`**（提案；未采纳前本表不增加 `face:` 行）。
 > 日期：2026-08-15（Studio 纠正：装配发生在独立 Studio 应用里，不在网关里）
 > 对照：DeepSeek Harness 的 profile / bundle / 按职责命名的包，不是对照它的热加载。
@@ -43,7 +43,7 @@ Vivy 的叠加发生在 **`vivy-sdk pack`**，产物是一整代 EXE，不是一
 
 ```text
 内核（不可装配掉）
-  journal / policy / rpc / 只读 inspect
+  journal / policy / rpc / 只读 inspect / ChannelHost
   （盖房工具是独立二进制 vivy-sdk，源码在 sdk/，不在内核里可卸）
 
 可装配的一等单元（是什么叫什么）
@@ -68,6 +68,8 @@ Vivy 的叠加发生在 **`vivy-sdk pack`**，产物是一整代 EXE，不是一
 | **plugin** | **`plugins/<name>/`** | **`plugins:`** | **在做插件** |
 
 出厂代码**禁止**放进 `plugins/`。放进去就会冒充用户层，命名就脏了。
+
+例外（`VIVY-CHANNEL-PACK.md` 2026-08-30）：本批通道适配器（telegram / discord / feishu / dingtalk / qq）不是内核器官，是可选耳朵，因此进 `plugins/<name>/`，清单 `seam: channel`，inspect 按 seam 打标签而不是叫 tool。不增加 `channels:` 配方键。日后若第一方器官变多，目录可迁到 `channels/<name>/`，ABI 不变。
 
 现有 `internal/tools`、`internal/provider` 可以先继续住在 `internal/`，配方用名词点名它们。物理搬家是后续切片，不挡装配语义。
 

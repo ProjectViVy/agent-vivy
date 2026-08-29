@@ -16,7 +16,7 @@
 - `../AGENT-VIVY-ARCHITECTURE-V0.md` — 已组装内核
 - `../GOAL-AGENT-HARNESS-ROADMAP.md` — 已完成的 harness 切片
 - `ACP-REMOTE-CONTROL-PROPOSAL.md` — 控制面草案；只借本地与准入，不借远程托管
-- `VIVY-CHANNEL-PACK.md` — 出厂 channel 冷拔插提案（Host 在内核；协议在 `channels/`；pack overlay）
+- `VIVY-CHANNEL-PACK.md` — 超级通道合同（方向采纳 2026-08-30；Host 在内核；本批适配器是 `plugins/` + `seam: channel`）
 - `VIVY-FACE-PACK.md` — 出厂 face 冷拔插提案（FaceHost 在内核；嘴在 `faces/`；一代一张脸；安卓是下游产品）
 - `VIVY-STUDIO.md` — Studio 产品身份、生命周期、开发环境策略（正本）
 - `VIVY-WORLDVIEW.md` — 为何物种/实验室分裂和这个名字是同一根骨头
@@ -154,7 +154,7 @@ Vivy 已经有的，不必向 DSH 再买一遍：Skill、MCP、worker stdio、po
 - 密钥解析（只读 env，值永不落盘）
 - JSON-RPC 控制面和住户 UI
 - 本代编进来的能力清单（pack 时冻结）
-- 只读身份：`inspect`（哈希、配方、工具名）
+- 只读身份：`inspect`（哈希、配方、工具名、channel 插件名与 seam）
 
 不拥有：pack、评测农场、发布、安装位、Studio 主界面。那些属于 `VIVY-STUDIO.md`。
 
@@ -168,6 +168,7 @@ Policy 准入（deny / prompt / allow，不可变 hash）
 本代编进来的能力清单（pack 时冻结）
 只读 inspect 的实现
 进程监督（仅 worker，不含外置插件、不含 Studio）
+ChannelHost（世界入口：准入、会话映射、channel.inbound、出站；永不插件化）
 ```
 
 以后 V3 可以换内核，那是**晋级新一代物种**，不是热卸。
@@ -242,8 +243,9 @@ Studio **必须**：具备完整的第一方日常开发能力；其他已获授
 
 ### Kind B — 能力源码（编译期包）
 
-工具 / provider / tool-world 的 **Go 源码包**，实现 `sdk/plugin` 契约。  
+工具 / provider / tool-world / **channel** 的 **Go 源码包**，实现 `sdk/plugin` 契约。  
 在被 `pack` 编进某一代之前，它在磁盘上只是源，活进程看不见它。
+`seam: channel` 由 ChannelHost 消费，不进工具表（`VIVY-CHANNEL-PACK.md`）。
 
 ### Kind C — 世代（唯一装载动作）
 
