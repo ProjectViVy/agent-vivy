@@ -40,6 +40,9 @@ Do not pick work from those tables. Closed-track filing:
 |---|---|---|---|
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
+| FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
+| FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
+| FACE-TUI-2 | Crush-style fullscreen TUI on real Client | OPEN | 2026-08-29 mock 骨架已落地（`vivy tui --demo`，`internal/tui/view` + `demo`）；下一刀把 demo store 换成 `Client`，保留全屏布局 |
 | CH-A | ChannelHost + telegram + dingtalk | OPEN | Depends on CH-0; first ABI + first domestic ear |
 | CH-B | feishu / qq / discord (text, no voice) | OPEN | Separate pack per package |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker |
