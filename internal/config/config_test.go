@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func writeConfig(t *testing.T, content string) string {
@@ -412,5 +414,109 @@ governance:
 `
 	if _, err := Load(writeConfig(t, doc)); err == nil {
 		t.Fatal("want invalid governance field error")
+	}
+}
+
+func TestChannelsEnvelopeLoadAndValidate(t *testing.T) {
+	doc := validDoc + `
+channels:
+  telegram:
+    enabled: true
+    allow_from: ["telegram:123456", "telegram:42"]
+    token_env: TELEGRAM_BOT_TOKEN
+    settings:
+      parse_mode: html
+      proxy: "http://127.0.0.1:7890"
+      some_future_key:
+        nested: true
+  dingtalk:
+    enabled: false
+`
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg, ok := cfg.Channels["telegram"]
+	if !ok {
+		t.Fatal("telegram channel missing")
+	}
+	if !tg.Enabled {
+		t.Errorf("telegram enabled = false, want true")
+	}
+	if tg.TokenEnv != "TELEGRAM_BOT_TOKEN" {
+		t.Errorf("token_env = %q", tg.TokenEnv)
+	}
+	if len(tg.AllowFrom) != 2 || tg.AllowFrom[0] != "telegram:123456" {
+		t.Errorf("allow_from = %#v", tg.AllowFrom)
+	}
+	// Settings is opaque: an unknown inner key does NOT error and is kept
+	// as-is for the owning plugin to decode.
+	if tg.Settings.Kind != yaml.MappingNode {
+		t.Fatalf("settings kind = %v, want a mapping node", tg.Settings.Kind)
+	}
+	foundFutureKey := false
+	for i, node := range tg.Settings.Content {
+		if node.Value == "some_future_key" {
+			foundFutureKey = i%2 == 0
+		}
+	}
+	if !foundFutureKey {
+		t.Errorf("unknown settings key some_future_key did not survive decoding")
+	}
+	dt, ok := cfg.Channels["dingtalk"]
+	if !ok || dt.Enabled {
+		t.Fatalf("dingtalk = %#v, want present and disabled", dt)
+	}
+}
+
+func TestChannelsBadTokenEnvRejected(t *testing.T) {
+	doc := validDoc + `
+channels:
+  telegram:
+    token_env: telegram_bot_token
+`
+	_, err := Load(writeConfig(t, doc))
+	if err == nil || !strings.Contains(err.Error(), "channels.telegram.token_env") {
+		t.Fatalf("err = %v, want channels.telegram.token_env error", err)
+	}
+}
+
+func TestChannelsWildcardAllowFromRejected(t *testing.T) {
+	doc := validDoc + `
+channels:
+  telegram:
+    allow_from: ["*"]
+`
+	_, err := Load(writeConfig(t, doc))
+	if err == nil || !strings.Contains(err.Error(), "channels.telegram.allow_from") {
+		t.Fatalf("err = %v, want wildcard allow_from error", err)
+	}
+}
+
+func TestChannelsEmptyAllowFromLoads(t *testing.T) {
+	// Empty allow_from is a valid envelope: deny-start is decided by the
+	// Host at Start time (C3), not by config validation.
+	doc := validDoc + `
+channels:
+  telegram:
+    enabled: true
+`
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := cfg.Channels["telegram"]
+	if !ch.Enabled || len(ch.AllowFrom) != 0 || ch.TokenEnv != "" {
+		t.Fatalf("channel = %#v", ch)
+	}
+}
+
+func TestChannelsAbsentLoads(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Channels) != 0 {
+		t.Fatalf("channels = %#v, want empty when the section is absent", cfg.Channels)
 	}
 }

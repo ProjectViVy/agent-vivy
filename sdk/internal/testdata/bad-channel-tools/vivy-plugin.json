@@ -1,0 +1,16 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "bad-channel-tools",
+  "version": "0.1.0",
+  "seam": "channel",
+  "module": ".",
+  "grants": ["channel.poll"],
+  "channel": { "transport": "poll" },
+  "tools": [
+    {
+      "name": "x",
+      "effect": "read",
+      "schema": { "type": "object" }
+    }
+  ]
+}
