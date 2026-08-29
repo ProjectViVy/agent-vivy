@@ -6,7 +6,10 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await expect(page.getByText('还没有会话')).toHaveCount(0);
   await expect(page.getByPlaceholder('输入消息... (Enter 发送)')).toBeVisible();
   await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '画图' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '新建会话' })).toBeVisible();
+  // 语音与桌面伙伴已删除
+  await expect(page.getByRole('button', { name: '语音' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '打开伙伴' })).toHaveCount(0);
   await expect(page.getByRole('progressbar', { name: '上下文占用' })).toBeVisible();
   // 全新上下文会自动弹出欢迎向导，跳过后才不影响后续点击
   const welcomeDialog = page.getByRole('dialog', { name: '欢迎使用 Vivy' });
@@ -50,7 +53,7 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await page.reload();
   await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole('button', { name: '新会话' }).first().click();
+  await page.getByRole('button', { name: '新建会话' }).click();
   await expect(page.getByText('发送消息后，Vivy 会先进行预检。')).toBeVisible();
   await page.getByPlaceholder('输入消息... (Enter 发送)').fill('e2e approval: save a note');
   await page.getByTitle('发送').click();
@@ -88,7 +91,9 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await page.getByRole('link', { name: '面具' }).click();
   await expect(page.getByRole('heading', { name: '面具', exact: true })).toBeVisible();
   await expect(page.getByText('面具库')).toBeVisible();
-  await page.getByRole('button', { name: '新会话' }).first().click();
+  // 新建会话入口已移入主页聊天框，先回到聊天页再创建
+  await page.getByRole('link', { name: '聊天' }).click();
+  await page.getByRole('button', { name: '新建会话' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
 

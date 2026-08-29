@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Brain, Cat, Check, CheckCircle, ChevronDown, Clock, GitBranch, Lightbulb, LightbulbOff,
-  Mic, Paperclip, Plus, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, Zap,
+  Brain, Check, CheckCircle, ChevronDown, Clock, GitBranch, Lightbulb, LightbulbOff,
+  Paperclip, Plus, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,13 +11,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { PermissionPreset, SessionContext } from '@/lib/api';
+import type { PermissionPreset, RunMode, SessionContext } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 
 interface ChatInputProps {
-  onSend: (content: string) => Promise<void> | void;
+  onSend: (content: string, mode: RunMode) => Promise<void> | void;
   onCancel?: () => Promise<void> | void;
   disabled?: boolean;
   running?: boolean;
@@ -59,7 +59,6 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const [notice, setNotice] = useState<string | null>(null);
   const [execMode, setExecMode] = useState<ExecMode>('agent');
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('auto');
-  const [recording, setRecording] = useState(false);
   const [confirmTrusted, setConfirmTrusted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -71,10 +70,12 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const sessions = useVivyStore((state) => state.sessions);
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
+  const createSession = useVivyStore((state) => state.createSession);
   const { t } = useTranslation();
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
   const permissionBusy = sessionBusyId === activeSessionId;
+  const creatingSession = sessionBusyId === 'create';
   const draftBytes = TEXT_ENCODER.encode(value).length;
   // 真实上下文：服务端 session/context 的 feed 占用 + 当前草稿（1 token ≈ 4 字节估算）。
   const usedTokens = (context?.feed_tokens ?? 0) + Math.round(draftBytes / 4);
@@ -118,10 +119,18 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
     const content = value.trim();
     if (!content || disabled || running) return;
     try {
-      await onSend(content);
+      await onSend(content, execMode === 'plan' ? 'plan' : 'normal');
       setValue('');
     } catch {
       /* keep the draft; ChatView / store already expose the failure */
+    }
+  };
+
+  const createNewSession = async () => {
+    try {
+      await createSession();
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : t('chatInput.newSessionFailed'));
     }
   };
 
@@ -159,7 +168,10 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
           {MODES.map((mode) => (
             <DropdownMenuItem
               key={mode.value}
-              onSelect={() => setExecMode(mode.value)}
+              onSelect={() => {
+                if (mode.value === 'ask') { showNotice(t('chatInput.askUnavailable')); return; }
+                setExecMode(mode.value);
+              }}
               className={cn('gap-2.5 py-2', execMode === mode.value && 'bg-accent text-accent-foreground')}
             >
               <mode.icon className="size-4 shrink-0" />
@@ -205,9 +217,6 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
       {/* AutoDream 触发 */}
       <button type="button" onClick={() => showNotice(t('chatInput.autodreamUnavailable'))} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.autodreamTrigger')} aria-label={t('chatInput.autodreamTrigger')}><GitBranch className="h-4 w-4" /></button>
 
-      {/* 桌面伙伴 */}
-      <button type="button" onClick={() => showNotice(t('chatInput.mateUnavailable'))} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.openMate')} aria-label={t('chatInput.openMate')}><Cat className="h-4 w-4" /></button>
-
       {/* 权限模式选择 */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -236,8 +245,9 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* 右侧：历史 + 审批中心（对照 Agent-DIVA chat-corner-actions） */}
+      {/* 右侧：新建会话 + 历史 + 审批中心 */}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        <button type="button" onClick={() => void createNewSession()} disabled={creatingSession} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent disabled:opacity-50" title={t('chatInput.newSession')} aria-label={t('chatInput.newSession')}><Plus className="h-4 w-4" /></button>
         <button type="button" onClick={() => openSessionDrawer(true)} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.history')} aria-label={t('chatInput.history')}><Clock className="h-4 w-4" /></button>
         <button type="button" aria-expanded={reviewCenterOpen} onClick={() => openReviewCenter(true)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.reviewCenter')} aria-label={t('chatInput.reviewCenter')}><ShieldCheck className="h-4 w-4" />{pendingReviewCount ? <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white" aria-hidden="true">{pendingReviewCount}</span> : null}</button>
       </div>
@@ -248,7 +258,7 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
-    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button><button type="button" aria-pressed={recording} onClick={() => { setRecording((current) => !current); showNotice(recording ? t('chatInput.voiceStopped') : t('chatInput.voiceStarted')); }} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.voice')} aria-label={t('chatInput.voice')}><Mic className="h-4 w-4" /></button>{running ? <Button size="icon" variant="destructive" className="rounded-full" onClick={() => void onCancel?.()} disabled={disabled} title={t('chatInput.cancelRun')} aria-label={t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button> : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
+    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button>{running ? <Button size="icon" variant="destructive" className="rounded-full" onClick={() => void onCancel?.()} disabled={disabled} title={t('chatInput.cancelRun')} aria-label={t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button> : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
   </div>
     <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
       <AlertDialogContent>

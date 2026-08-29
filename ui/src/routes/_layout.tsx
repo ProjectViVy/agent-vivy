@@ -27,8 +27,6 @@ function Layout() {
   const sessions = useVivyStore((state) => state.sessions);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
   const busyId = useVivyStore((state) => state.sessionBusyId);
-  const sessionsError = useVivyStore((state) => state.sessionsError);
-  const createSession = useVivyStore((state) => state.createSession);
   const deleteSession = useVivyStore((state) => state.deleteSession);
   const renameSession = useVivyStore((state) => state.renameSession);
   const selectSession = useVivyStore((state) => state.selectSession);
@@ -52,14 +50,6 @@ function Layout() {
 
   const connected = connection === 'connected';
   const navClosed = mobile ? !mobileNavOpen : desktopCollapsed;
-  const createAndOpen = async () => {
-    try {
-      await createSession();
-      setSessionDrawerOpen(false);
-      setMobileNavOpen(false);
-      await navigate({ to: '/' });
-    } catch { /* store exposes the error beside the action */ }
-  };
   const selectAndOpen = async (id: string) => {
     await selectSession(id);
     setSessionDrawerOpen(false);
@@ -72,13 +62,7 @@ function Layout() {
   };
   const toggleTodos = () => setTodoPanelOpen(!todoPanelOpen);
 
-  const sidebar = (
-    <ConversationSidebar
-      onCreateSession={() => void createAndOpen()}
-      creating={busyId === 'create'}
-      createError={sessionsError}
-    />
-  );
+  const sidebar = <ConversationSidebar />;
 
   return (
     <div className="flex h-dvh bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
@@ -133,7 +117,6 @@ function Layout() {
                     activeSessionId={activeSessionId}
                     busyId={busyId}
                     onSelectSession={(id) => void selectAndOpen(id)}
-                    onCreateSession={() => void createAndOpen()}
                     onRenameSession={renameSession}
                     onDeleteSession={deleteSession}
                   />
