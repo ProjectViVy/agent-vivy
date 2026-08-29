@@ -4,7 +4,10 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/tools"
@@ -95,7 +98,7 @@ func TestEngineQueryIsDeterministic(t *testing.T) {
 
 func TestToolAdapterInfoAndRun(t *testing.T) {
 	ctx := context.Background()
-	ad := newToolAdapter(tools.NewEchoInfo(), 0, nil, nil)
+	ad := newToolAdapter(tools.NewEchoInfo(), 0, nil, nil, nil)
 
 	info, err := ad.Info(ctx)
 	if err != nil {
@@ -132,7 +135,7 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 	}
 
 	// Effectful tools publish their schema too.
-	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil), 0, nil, nil).Info(ctx)
+	wnInfo, err := newToolAdapter(tools.NewWriteNote(nil), 0, nil, nil, nil).Info(ctx)
 	if err != nil {
 		t.Fatalf("write_note info: %v", err)
 	}
@@ -164,5 +167,61 @@ func TestToolAdapterInfoAndRun(t *testing.T) {
 func TestNewEngineRejectsNilModel(t *testing.T) {
 	if _, err := NewEngine(context.Background(), nil, nil, EngineConfig{}); err == nil {
 		t.Fatal("expected error for nil model")
+	}
+}
+
+type countingSkillBackend struct {
+	inner einoskill.Backend
+	lists atomic.Int32
+}
+
+func (b *countingSkillBackend) List(ctx context.Context) ([]einoskill.FrontMatter, error) {
+	b.lists.Add(1)
+	return b.inner.List(ctx)
+}
+
+func (b *countingSkillBackend) Get(ctx context.Context, name string) (einoskill.Skill, error) {
+	return b.inner.Get(ctx, name)
+}
+
+func TestEngineInjectsSkillMiddlewareWithoutKeyword(t *testing.T) {
+	inner, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "Use this carefully.")
+	backend := &countingSkillBackend{inner: inner}
+	ctx := context.Background()
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, SkillBackend: backend,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	_ = drainReassembled(t, eng, "hello vivy")
+	if backend.lists.Load() == 0 {
+		t.Fatal("skill middleware did not list skills for a request without the skill keyword")
+	}
+}
+
+func TestEngineOmitsSkillMiddlewareWhenBackendNil(t *testing.T) {
+	inner, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "Use this carefully.")
+	backend := &countingSkillBackend{inner: inner}
+	ctx := context.Background()
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	_ = drainReassembled(t, eng, "hello vivy")
+	if backend.lists.Load() != 0 {
+		t.Fatal("nil SkillBackend must not consult the skill catalog")
 	}
 }

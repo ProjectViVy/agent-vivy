@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getToolsConfig, updateToolsConfig } from '@/lib/demo-api';
 import type { ToolsConfigShape } from '@/lib/types';
+import { settingsUpdateFrom } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { RunInspector } from '@/components/chat/RunInspector';
@@ -22,8 +23,9 @@ import { ModelSettingsCard } from './ModelSettingsCard';
 import { ThemePicker } from './ThemePicker';
 import { LanguagePicker } from './LanguagePicker';
 import { NetworkToolsCard } from './NetworkToolsCard';
+import { SandboxSettingsCard } from './SandboxSettingsCard';
 
-const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', 'channels', 'network', ...DIVA_ADDITIONAL_SECTIONS] as const;
+const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', 'channels', 'network', 'sandbox', ...DIVA_ADDITIONAL_SECTIONS] as const;
 export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
 
 /** 路由 search 参数的白名单校验（?tab=…深链）。 */
@@ -33,7 +35,6 @@ export function isSettingsTab(value: unknown): value is SettingsTab {
 
 const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
   'self-evolution': '自进化',
-  sandbox: '沙箱',
 };
 
 function DemoNote() {
@@ -94,7 +95,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
       return;
     }
     setFormError(null);
-    await save({ provider: form.provider, default_model: form.default_model, base_url: form.base_url, execute_max_timeout_seconds: timeoutSeconds, network_search: { provider: settings?.network_search?.provider ?? '' } });
+    await save({ ...settingsUpdateFrom(settings), provider: form.provider, default_model: form.default_model, base_url: form.base_url, execute_max_timeout_seconds: timeoutSeconds });
   };
 
   const persistTools = async () => {
@@ -125,6 +126,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 <TabsTrigger value="language">{t('settings.tabs.language')}</TabsTrigger>
             <TabsTrigger value="channels">{t('settings.tabs.channels')}</TabsTrigger>
             <TabsTrigger value="network">网络工具</TabsTrigger>
+            <TabsTrigger value="sandbox">{t('settings.tabs.sandbox')}</TabsTrigger>
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
               <TabsTrigger key={section} value={section}>
                 {DIVA_TAB_LABELS[section]}
@@ -211,6 +213,10 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
           <TabsContent value="network" className="space-y-4">
             <NetworkToolsCard />
+          </TabsContent>
+
+          <TabsContent value="sandbox" className="space-y-4">
+            <SandboxSettingsCard />
           </TabsContent>
 
           {DIVA_ADDITIONAL_SECTIONS.map((section) => (

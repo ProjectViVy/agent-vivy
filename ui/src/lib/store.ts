@@ -80,6 +80,7 @@ interface RuntimeState {
   loadSessions: () => Promise<void>;
   createSession: (title?: string) => Promise<api.Session>;
   renameSession: (id: string, title: string) => Promise<void>;
+  setSessionPermission: (id: string, preset: Exclude<api.PermissionPreset, 'custom'>) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   startRun: (sessionId: string, text: string, mode?: api.RunMode) => Promise<void>;
@@ -225,6 +226,13 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     set({ sessionBusyId: id, sessionsError: null });
     try { const renamed = await api.renameSession(id, title); set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? renamed : item) })); }
     catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+  },
+  setSessionPermission: async (id, preset) => {
+    set({ sessionBusyId: id, sessionsError: null });
+    try {
+      const updated = await api.setSessionPermission(id, preset);
+      set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? { ...item, ...updated } : item) }));
+    } catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   deleteSession: async (id) => {
     set({ sessionBusyId: id, sessionsError: null });

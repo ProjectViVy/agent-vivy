@@ -5,14 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { settingsUpdateFrom } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
 /**
  * 设置页的真实网络工具卡：展示 EINO 原生网络工具（network_search 各 provider
- * 的环境变量就绪状态），并允许选择首选 provider（保存到 data/agent-home/
- * settings.yaml，下次启动应用）。密钥只做存在性提示，不读取、不保存、不上传值
- * （D-010）；provider 凭证永远来自环境变量。
+ * 的环境变量就绪状态），并允许选择首选 provider（保存到用户工作区
+ * settings.yaml）。搜索服务密钥仍只做存在性提示（D-010）。
  */
 const NETWORK_PROVIDERS = ['bing', 'google', 'duckduckgo', 'searxng', 'wikipedia'] as const;
 
@@ -45,9 +45,7 @@ export function NetworkToolsCard() {
       // settings/update 只改 active 选择与 network_search 偏好；密钥覆盖层由
       // 后端按注册表解析（settings/update 不发送、不回传密钥）。
       await save({
-        provider: settings?.provider ?? '',
-        default_model: settings?.default_model ?? '',
-        base_url: settings?.base_url ?? '',
+        ...settingsUpdateFrom(settings),
         network_search: { provider },
       });
       setSavedFlash(true);

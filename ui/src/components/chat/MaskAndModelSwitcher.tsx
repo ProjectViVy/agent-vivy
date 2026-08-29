@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2, X } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
-import type { Settings } from '@/lib/api';
+import { settingsUpdateFrom, type Settings } from '@/lib/api';
 import type { ProviderEntry } from '@/components/settings/custom-providers';
 import {
   removeSavedModel,
@@ -73,7 +73,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const currentBaseUrl = settings?.base_url ?? '';
   const currentModel = settings?.default_model || settings?.config_model || '';
   const saving = settingsPhase === 'processing';
-  const canChange = !!settings && !settings.read_only && !saving;
+  const canChange = !!settings && !settings.read_only && !settings.frozen && !saving;
   const providerLabel = displayProvider(currentProvider, currentBaseUrl, providers, t);
   const savedOptions = savedModels.filter(
     (entry) => !(entry.provider === currentProvider && entry.baseUrl === currentBaseUrl && entry.model === currentModel),
@@ -87,7 +87,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
       // network_search preference and execute ceiling through unchanged;
       // the key overlay is resolved by the backend from the registry, so it
       // is never sent or echoed on select.
-      await saveSettings({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl, network_search: { provider: settings.network_search?.provider ?? '' }, execute_max_timeout_seconds: settings.execute_max_timeout_seconds });
+      await saveSettings({ ...settingsUpdateFrom(settings), provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -141,7 +141,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
             </button>
           </DropdownMenuItem>
         )) : <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('maskSwitcher.noSavedModels')}</p>}
-        {settings.read_only ? <p className="px-2 pb-1 pt-2 text-xs text-amber-600 dark:text-amber-300">{t('maskSwitcher.readOnlyHint')}</p> : null}
+        {settings.frozen ? <p className="px-2 pb-1 pt-2 text-xs text-amber-600 dark:text-amber-300">{t('settingsModel.frozenNotice')}</p> : settings.read_only ? <p className="px-2 pb-1 pt-2 text-xs text-amber-600 dark:text-amber-300">{t('maskSwitcher.readOnlyHint')}</p> : null}
       </> : <DropdownMenuItem disabled className="cursor-default">{t('maskSwitcher.readingConfig')}</DropdownMenuItem>}
       {error ? <p className="mx-2 mt-2 rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive">{error}</p> : null}
       <DropdownMenuSeparator className="my-2" />

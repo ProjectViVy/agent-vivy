@@ -75,7 +75,7 @@ func (b *EinoFilesystemBackend) ListDir(ctx context.Context, runID domain.RunID,
 		root, _, err := b.resolve(ctx, runID, req.Path, false)
 		if err == nil {
 			fullPath := filepath.Join(root, req.Path)
-			if err := b.sandbox.ValidatePath(fullPath, FileOpRead); err != nil {
+			if err := b.sandbox.ValidatePathWithMode(fullPath, FileOpRead, sandboxMode(ctx)); err != nil {
 				return tools.DirListResult{}, fmt.Errorf("sandbox: %w", err)
 			}
 		}
@@ -164,7 +164,7 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 		root, _, err := b.resolve(ctx, runID, req.Path, false)
 		if err == nil {
 			fullPath := filepath.Join(root, req.Path)
-			if err := b.sandbox.ValidatePath(fullPath, FileOpRead); err != nil {
+			if err := b.sandbox.ValidatePathWithMode(fullPath, FileOpRead, sandboxMode(ctx)); err != nil {
 				return tools.FileReadResult{}, fmt.Errorf("sandbox: %w", err)
 			}
 		}
@@ -216,6 +216,9 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 
 // SearchFiles implements tools.FileOperations with bounded literal search.
 func (b *EinoFilesystemBackend) SearchFiles(ctx context.Context, runID domain.RunID, req tools.FileSearchRequest) (tools.FileSearchResult, error) {
+	if err := b.validateSandboxPath(ctx, runID, req.Path, FileOpRead, false); err != nil {
+		return tools.FileSearchResult{}, err
+	}
 	root, base, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
 		return tools.FileSearchResult{}, err
@@ -296,7 +299,7 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 		root, _, err := b.resolve(ctx, runID, req.Path, true)
 		if err == nil {
 			fullPath := filepath.Join(root, req.Path)
-			if err := b.sandbox.ValidatePath(fullPath, FileOpWrite); err != nil {
+			if err := b.sandbox.ValidatePathWithMode(fullPath, FileOpWrite, sandboxMode(ctx)); err != nil {
 				return tools.FileMutationResult{}, fmt.Errorf("sandbox: %w", err)
 			}
 		}
@@ -346,6 +349,9 @@ func (b *EinoFilesystemBackend) PatchFile(ctx context.Context, runID domain.RunI
 	}
 	if req.OldString == req.NewString {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: old_string and new_string must differ")
+	}
+	if err := b.validateSandboxPath(ctx, runID, req.Path, FileOpWrite, false); err != nil {
+		return tools.FileMutationResult{}, err
 	}
 	root, path, err := b.resolve(ctx, runID, req.Path, false)
 	if err != nil {
@@ -490,6 +496,9 @@ func (b *EinoFilesystemBackend) LsInfo(ctx context.Context, req *einofs.LsInfoRe
 	if req != nil {
 		pathValue = req.Path
 	}
+	if err := b.validateSandboxPath(ctx, filesystemRunID(ctx), pathValue, FileOpRead, false); err != nil {
+		return nil, err
+	}
 	root, path, err := b.resolve(ctx, filesystemRunID(ctx), pathValue, false)
 	if err != nil {
 		return nil, err
@@ -515,6 +524,9 @@ func (b *EinoFilesystemBackend) LsInfo(ctx context.Context, req *einofs.LsInfoRe
 func (b *EinoFilesystemBackend) GlobInfo(ctx context.Context, req *einofs.GlobInfoRequest) ([]einofs.FileInfo, error) {
 	if req == nil || strings.TrimSpace(req.Pattern) == "" {
 		return nil, fmt.Errorf("filesystem: glob pattern must not be empty")
+	}
+	if err := b.validateSandboxPath(ctx, filesystemRunID(ctx), req.Path, FileOpRead, false); err != nil {
+		return nil, err
 	}
 	root, base, err := b.resolve(ctx, filesystemRunID(ctx), req.Path, false)
 	if err != nil {
@@ -546,6 +558,9 @@ func (b *EinoFilesystemBackend) GlobInfo(ctx context.Context, req *einofs.GlobIn
 func (b *EinoFilesystemBackend) GrepRaw(ctx context.Context, req *einofs.GrepRequest) ([]einofs.GrepMatch, error) {
 	if req == nil || req.Pattern == "" {
 		return nil, fmt.Errorf("filesystem: grep pattern must not be empty")
+	}
+	if err := b.validateSandboxPath(ctx, filesystemRunID(ctx), req.Path, FileOpRead, false); err != nil {
+		return nil, err
 	}
 	root, base, err := b.resolve(ctx, filesystemRunID(ctx), req.Path, false)
 	if err != nil {
@@ -592,6 +607,21 @@ func (b *EinoFilesystemBackend) GrepRaw(ctx context.Context, req *einofs.GrepReq
 		return nil, fmt.Errorf("filesystem: grep: %w", err)
 	}
 	return out, nil
+}
+
+func (b *EinoFilesystemBackend) validateSandboxPath(ctx context.Context, runID domain.RunID, value string, op FileOp, allowMissing bool) error {
+	if b.sandbox == nil {
+		return nil
+	}
+	root, _, err := b.resolve(ctx, runID, value, allowMissing)
+	if err != nil {
+		return nil
+	}
+	fullPath := filepath.Join(root, value)
+	if err := b.sandbox.ValidatePathWithMode(fullPath, op, sandboxMode(ctx)); err != nil {
+		return fmt.Errorf("sandbox: %w", err)
+	}
+	return nil
 }
 
 func (b *EinoFilesystemBackend) resolve(ctx context.Context, runID domain.RunID, value string, allowMissing bool) (string, string, error) {

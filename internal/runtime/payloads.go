@@ -7,11 +7,13 @@ import "encoding/json"
 // always 1 in V0.
 
 type payloadRunStarted struct {
-	Provider      string `json:"provider"`
-	Model         string `json:"model"`
-	Mode          string `json:"mode"`
-	PolicyProfile string `json:"policy_profile,omitempty"`
-	PolicyHash    string `json:"policy_hash,omitempty"`
+	Provider       string `json:"provider"`
+	Model          string `json:"model"`
+	Mode           string `json:"mode"`
+	PolicyProfile  string `json:"policy_profile,omitempty"`
+	PolicyHash     string `json:"policy_hash,omitempty"`
+	SandboxMode    string `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy string `json:"approval_policy,omitempty"`
 }
 
 type payloadModelDelta struct {
@@ -88,6 +90,8 @@ type payloadToolApprovalRequired struct {
 	Mode             string         `json:"mode,omitempty"`
 	PolicyProfile    string         `json:"policy_profile,omitempty"`
 	PolicyHash       string         `json:"policy_hash,omitempty"`
+	SandboxMode      string         `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy   string         `json:"approval_policy,omitempty"`
 	Action           string         `json:"action,omitempty"`
 	Target           string         `json:"target,omitempty"`
 	PreconditionHash string         `json:"precondition_hash,omitempty"`
@@ -96,15 +100,17 @@ type payloadToolApprovalRequired struct {
 }
 
 type payloadUserQuestionRequired struct {
-	QuestionID    string   `json:"question_id"`
-	ToolCallID    string   `json:"tool_call_id"`
-	Prompt        string   `json:"prompt"`
-	ExpiresAt     int64    `json:"expires_at"`
-	ResumeTarget  string   `json:"resume_target"`
-	SelectedTools []string `json:"selected_tools,omitempty"`
-	Mode          string   `json:"mode,omitempty"`
-	PolicyProfile string   `json:"policy_profile,omitempty"`
-	PolicyHash    string   `json:"policy_hash,omitempty"`
+	QuestionID     string   `json:"question_id"`
+	ToolCallID     string   `json:"tool_call_id"`
+	Prompt         string   `json:"prompt"`
+	ExpiresAt      int64    `json:"expires_at"`
+	ResumeTarget   string   `json:"resume_target"`
+	SelectedTools  []string `json:"selected_tools,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	PolicyProfile  string   `json:"policy_profile,omitempty"`
+	PolicyHash     string   `json:"policy_hash,omitempty"`
+	SandboxMode    string   `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy string   `json:"approval_policy,omitempty"`
 }
 
 type payloadPolicyEvaluated struct {

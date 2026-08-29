@@ -68,7 +68,7 @@ you need the packaged headless backend and standalone static UI.
 ## Layout
 
 ```text
-cmd/vivy/          species entrypoint (daily gateway + worker)
+cmd/vivy/          species entrypoint (daily gateway + worker + `tui` client)
 sdk/               vivy-sdk binary (verify/pack); invoked by Studio, not by vivy.exe
 sdk/plugin/        author import window
 internal/app/      composition and lifecycle
@@ -80,6 +80,7 @@ internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
 internal/rpc/      UI-facing command/query/event JSON-RPC control plane
+internal/tui/      TTY face: `--demo` Crush-style mock shell; `--plain` RPC REPL
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)

@@ -12,9 +12,10 @@ import (
 
 // CreateSession inserts one session row.
 func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
+	mode, policy := s.EffectiveSandbox()
 	if _, err := b.db.ExecContext(ctx,
 		`INSERT INTO sessions (id, title, created_at, sandbox_mode, approval_policy) VALUES (?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt, s.SandboxMode, s.ApprovalPolicy); err != nil {
+		s.ID, s.Title, s.CreatedAt, string(mode), string(policy)); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
@@ -65,6 +66,23 @@ func (b *Backend) RenameSession(ctx context.Context, id domain.SessionID, title 
 		return fmt.Errorf("storage: rename session %s: %w", id, err)
 	}
 	return requireAffected(res, "rename session")
+}
+
+// UpdateSandboxPolicy writes the session's sandbox knobs; absent ids yield storage.ErrNotFound.
+func (b *Backend) UpdateSandboxPolicy(ctx context.Context, id domain.SessionID, mode domain.SandboxMode, policy domain.ApprovalPolicy) error {
+	if !mode.Valid() {
+		return fmt.Errorf("storage: invalid sandbox mode %q", mode)
+	}
+	if !policy.Valid() {
+		return fmt.Errorf("storage: invalid approval policy %q", policy)
+	}
+	res, err := b.db.ExecContext(ctx,
+		`UPDATE sessions SET sandbox_mode = ?, approval_policy = ? WHERE id = ?`,
+		string(mode), string(policy), id)
+	if err != nil {
+		return fmt.Errorf("storage: update sandbox policy %s: %w", id, err)
+	}
+	return requireAffected(res, "update sandbox policy")
 }
 
 // DeleteSession removes the session and, in one transaction, its

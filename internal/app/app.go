@@ -4,10 +4,9 @@
 // reverse shutdown order with a bounded grace period.
 //
 // The config is fully validated before New is called; app never re-reads
-// files or environment for non-secret settings (config boundary, FR-10).
-// The provider API key is the exception by design: it is resolved from
-// the environment at model construction time (D-010), and a missing key
-// aborts startup with an actionable message (FR-11).
+// files for non-secret settings (config boundary, FR-10). Provider keys
+// live in the user workspace settings.yaml or a frozen ENV session and
+// are resolved per call. A missing key no longer aborts startup.
 package app
 
 import (
@@ -49,9 +48,10 @@ type App struct {
 	cfg    config.Config
 	logger *slog.Logger
 
-	service *runtime.Service
-	backend storage.Engine
-	worker  *workerManager
+	service  *runtime.Service
+	backend  storage.Engine
+	worker   *workerManager
+	resolver *ModelResolver
 
 	httpServer *http.Server
 	rpcToken   string
@@ -63,19 +63,15 @@ type App struct {
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	logger := slog.Default()
 
-	// Operator-managed model provider selection (Settings page). It lives
-	// in an independent agent working dir, never the production config.yaml
-	// or the Journal, and stores no secrets. Overlay it onto the validated
-	// config before any provider/model is built, so a saved change takes
-	// effect on next launch (no live engine hot-swap).
+	// Operator-managed preferences (network search, execute ceiling) overlay
+	// the validated config. Provider keys are NOT applied to the process
+	// environment; ModelResolver reads settings.yaml / frozen ENV per call.
 	cfg = applySettingsOverlay(ctx, logger, cfg)
 	originPolicy, err := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
 	if err != nil {
 		return nil, fmt.Errorf("app: configure browser origins: %w", err)
 	}
 
-	// dataRoot is the process data directory; operator settings live in a
-	// subdir of it (an independent agent working dir, not the Journal).
 	dataRoot := cfg.DataDirectory()
 	if err := os.MkdirAll(dataRoot, 0o700); err != nil {
 		return nil, fmt.Errorf("app: create data dir: %w", err)
@@ -86,7 +82,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 
-	// Provider bundles from the A2 fixtures; missing files abort startup.
 	bundlePath := func(name string) string {
 		return filepath.Join(cfg.Providers.BundleDir, name+".yaml")
 	}
@@ -101,30 +96,22 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
 	}
 	catalog := provider.NewCatalog(openaiBundle, anthropicBundle)
-
-	providerName := cfg.Providers.Active
-	if cfg.Runtime.Mock {
-		providerName = "mock"
+	resolver := newModelResolver(cfg, settings.Path(dataRoot), catalog)
+	cur := resolver.Current()
+	providerName := cur.Provider
+	if providerName == "" {
+		providerName = cfg.Providers.Active
 	}
-	ref, err := catalog.For(providerName)
-	if err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: resolve provider: %w", err)
-	}
-	defaultModel := defaultModelFor(cfg, providerName)
-	chatModel, err := ref.Model(ctx, defaultModel)
-	if err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: build chat model: %w", err)
-	}
-	modelID := defaultModel
+	modelID := cur.Model
 	if modelID == "" {
-		modelID = "bundle-default"
+		modelID = defaultModelFor(cfg, providerName)
 	}
+	chatModel := provider.NewResolvingChatModel(catalog, resolver)
 
 	var workspaces runtime.WorkspaceAllocator
 	var fileOps tools.FileOperations
 	var skillOps tools.SkillOperations
+	var skillBackend *runtime.EinoSkillBackend
 	var todoOps tools.TodoOperations
 	var searchOps tools.SearchOperations
 	var httpOps tools.HTTPOperations
@@ -169,12 +156,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		fileOps = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
 	}
 	if cfg.Runtime.SkillsRoot != "" {
-		skillBackend, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
+		built, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
 		if err != nil {
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: build skills backend: %w", err)
 		}
-		skillOps = skillBackend
+		skillBackend = built
+		skillOps = built
 	}
 	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(dataRoot, "todos"))
 	todoOps = todoBackend
@@ -217,7 +205,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	policy := policyEngine(cfg)
 	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout)
-	eng, err := runtime.NewEngine(ctx, chatModel, ts, runtime.EngineConfig{
+	engineCfg := runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
 		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
@@ -227,7 +215,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Checkpoints:          checkpoints,
 		Policy:               policy,
 		ToolHooks:            hooks,
-	})
+		AutoApproveTools:     cfg.Runtime.Sandbox.Approval.AutoApproveTools,
+	}
+	if skillBackend != nil {
+		engineCfg.SkillBackend = skillBackend
+	}
+	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build engine: %w", err)
@@ -247,6 +240,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
 		},
 		Workspaces:           workspaces,
+		Sessions:             backend,
 		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
 		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
 		Sink:                 bus,
@@ -290,7 +284,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	})
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
-		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Bus: bus, Service: svc,
+		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
@@ -298,17 +292,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			PolicyHash:    liveSnap.Hash,
 			Tools:         liveTools,
 		},
-		Eval:     evalRunner,
-		Children: workerManager,
-		// Operator-managed model provider selection lives in an independent
-		// agent working dir, never the production config or Journal.
-		SettingsPath:   settings.Path(dataRoot),
-		ConfigProvider: providerName,
-		ConfigModel:    defaultModelFor(cfg, providerName),
-		// Non-secret network_search preference for the Settings UI display.
-		ConfigNetworkSearchProvider: cfg.Tools.NetworkSearch.Provider,
-		// Non-secret execute ceiling, editable from Settings → General.
+		Eval:                           evalRunner,
+		Children:                       workerManager,
+		SettingsPath:                   settings.Path(dataRoot),
+		ConfigProvider:                 providerName,
+		ConfigModel:                    modelID,
+		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
 		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
+		DefaultPermissionPreset:        defaultPermissionPreset(cfg),
+		SandboxWorkspaceRoot:           cfg.Runtime.WorkspaceRoot,
+		ExecuteAllowedCommands:         append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
+		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
+		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
 		// Write-time env apply: a settings/providers save updates the
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
@@ -316,7 +311,20 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
 		TokenUsage:       backend,
 		MCP:              mcpBackend,
+		Frozen:           resolver.Frozen(),
 		OnSettingsChanged: func() {
+			resolver.Invalidate()
+			live := resolver.Current()
+			name := live.Provider
+			if name == "" {
+				name = cfg.Providers.Active
+			}
+			id := live.Model
+			if id == "" {
+				id = defaultModelFor(cfg, name)
+			}
+			svc.SetModel(name, id)
+			applyLiveSandboxSettings(sandboxManager, settings.Path(dataRoot), cfg)
 			s, err := settings.Load(settings.Path(dataRoot))
 			if err != nil {
 				logger.Warn("mcp overlay reload skipped", "err", err)
@@ -371,6 +379,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		service:  svc,
 		backend:  backend,
 		worker:   workerManager,
+		resolver: resolver,
 		rpcToken: rpcToken,
 		httpServer: &http.Server{
 			Addr:              cfg.Server.Addr,
@@ -407,9 +416,7 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 // api_key overlays to the process environment. It is shared between the
 // startup overlay (next-launch semantics) and the write-time path, so a
 // settings save updates the environment immediately AND the next start
-// replays the same document. An empty base_url/api_key means "no overlay" —
-// the existing environment (bundle default / env_key) stands. Secret values
-// are never logged.
+// replays the same document. Secret values are never logged.
 func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Settings) {
 	if s.BaseURL != "" {
 		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
@@ -433,53 +440,55 @@ func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Setting
 }
 
 // applySettingsOverlay reads the operator-managed settings document and
-// overlays its values onto cfg. A missing or empty document is a no-op: the
-// config defaults stand. The base URL is applied through the existing
-// VIVY_API_BASE environment mechanism (provider.openai already honors it),
-// and an optional api_key is applied to the active bundle's env_key
-// environment variable, so no provider plumbing changes. Secret values are
-// never logged.
+// overlays non-secret preferences onto cfg. Provider keys stay in the
+// settings document (or a frozen ENV session) and are resolved per call.
 func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
 	dataRoot := cfg.DataDirectory()
 	path := settings.Path(dataRoot)
 	s, err := settings.Load(path)
 	if err != nil {
-		// A corrupt settings file must not abort startup; log and ignore.
 		logger.Warn("settings overlay skipped", "path", path, "err", err)
 		return cfg
 	}
 	if s.IsZero() {
 		return cfg
 	}
-	if s.Provider != "" {
-		if s.Provider == settings.ProviderMock {
-			cfg.Runtime.Mock = true
-		} else {
-			cfg.Providers.Active = s.Provider
-		}
+	if s.Provider != "" && s.Provider != settings.ProviderMock {
+		cfg.Providers.Active = s.Provider
 		switch s.Provider {
 		case settings.ProviderOpenAI:
-			cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
+			if s.DefaultModel != "" {
+				cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
+			}
 		case settings.ProviderAnthropic:
-			cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
+			if s.DefaultModel != "" {
+				cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
+			}
 		}
 	}
-	applySettingsEnv(logger, cfg, s)
-	// Network tool preference overlay: the UI-managed network_search
-	// provider overrides the config default (empty keeps the config value).
-	// Provider credentials stay environment-only; this field is a name.
 	if s.NetworkSearch.Provider != "" {
 		cfg.Tools.NetworkSearch.Provider = s.NetworkSearch.Provider
 	}
-	// Execute ceiling overlay: the UI-managed timeout overrides the config
-	// default (positive values only; zero keeps the config value).
 	if s.ExecuteMaxTimeoutSeconds > 0 {
 		cfg.Runtime.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 	}
 	if overlay := enabledMCPFromSettings(s); overlay != nil {
 		cfg.Runtime.MCPServers = overlay
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "base_url_set", s.BaseURL != "", "key_set", settings.ActiveKey(s, s.Provider, s.BaseURL) != "", "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "mcp_servers", len(cfg.Runtime.MCPServers))
+	if s.Sandbox.DefaultPreset.ValidSwitch() {
+		mode, policy, ok := s.Sandbox.DefaultPreset.Bundle()
+		if ok {
+			cfg.Runtime.Sandbox.DefaultMode = string(mode)
+			cfg.Runtime.Sandbox.Approval.DefaultPolicy = string(policy)
+		}
+	}
+	if s.Sandbox.Network.DenyPrivateIPs != nil {
+		cfg.Runtime.Sandbox.Network.DenyPrivateIPs = *s.Sandbox.Network.DenyPrivateIPs
+	}
+	if s.Sandbox.Network.AllowedDomains != nil {
+		cfg.Runtime.Sandbox.Network.AllowedDomains = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers))
 	return cfg
 }
 
@@ -514,6 +523,43 @@ func liveMCPConfigs(cfg config.Config, s settings.Settings) []runtime.MCPServerC
 	return mcpRuntimeConfigs(cfg.Runtime.MCPServers)
 }
 
+func defaultPermissionPreset(cfg config.Config) domain.PermissionPreset {
+	mode := domain.SandboxMode(cfg.Runtime.Sandbox.DefaultMode)
+	if !mode.Valid() {
+		mode = domain.SandboxModeWorkspaceWrite
+	}
+	policy := domain.ApprovalPolicy(cfg.Runtime.Sandbox.Approval.DefaultPolicy)
+	if !policy.Valid() {
+		policy = domain.ApprovalPolicyAsk
+	}
+	return domain.PermissionPresetOf(mode, policy)
+}
+
+func applyLiveSandboxSettings(manager *runtime.SandboxManager, path string, cfg config.Config) {
+	if manager == nil {
+		return
+	}
+	s, err := settings.Load(path)
+	if err != nil {
+		return
+	}
+	if s.Sandbox.DefaultPreset.ValidSwitch() {
+		mode, _, ok := s.Sandbox.DefaultPreset.Bundle()
+		if ok {
+			manager.SetDefaultMode(mode)
+		}
+	}
+	denyPrivate := cfg.Runtime.Sandbox.Network.DenyPrivateIPs
+	allowed := append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...)
+	if s.Sandbox.Network.DenyPrivateIPs != nil {
+		denyPrivate = *s.Sandbox.Network.DenyPrivateIPs
+	}
+	if s.Sandbox.Network.AllowedDomains != nil {
+		allowed = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
+	}
+	manager.SetNetworkPolicy(domain.NetworkPolicy{AllowedDomains: allowed, DenyPrivateIPs: denyPrivate})
+}
+
 func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) {
 	switch cfg.Storage.Backend {
 	case "postgres":
@@ -536,17 +582,16 @@ func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) 
 		if err != nil {
 			return nil, fmt.Errorf("app: open storage: %w", err)
 		}
+		if err := backend.TakeOrganismLease(ctx); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: occupy shared workspace: %w", err)
+		}
 		return backend, nil
 	}
 }
 
 func defaultModelFor(cfg config.Config, providerName string) string {
 	switch providerName {
-	case "mock":
-		if cfg.Runtime.MockScenario != "" {
-			return "mock:" + cfg.Runtime.MockScenario
-		}
-		return "mock"
 	case "anthropic":
 		return cfg.Providers.Anthropic.DefaultModel
 	default:

@@ -87,6 +87,7 @@ type ServiceDeps struct {
 	// value uses DefaultBudgetPolicy so services stay fail-safe by default.
 	Budget               BudgetPolicy
 	Workspaces           WorkspaceAllocator
+	Sessions             storage.SessionStore
 	PolicyDefaultProfile domain.PolicyProfile
 	Hooks                []RunHook
 	Sink                 EventSink
@@ -130,14 +131,16 @@ type Service struct {
 }
 
 type pendingRun struct {
-	sessionID     domain.SessionID
-	mapper        *eventMapper
-	selectedTools []string
-	mode          domain.RunMode
-	profile       domain.PolicyProfile
-	snapshot      domain.PolicySnapshot
-	questionID    string
-	ledger        *BudgetLedger
+	sessionID      domain.SessionID
+	mapper         *eventMapper
+	selectedTools  []string
+	mode           domain.RunMode
+	profile        domain.PolicyProfile
+	snapshot       domain.PolicySnapshot
+	sandboxMode    domain.SandboxMode
+	approvalPolicy domain.ApprovalPolicy
+	questionID     string
+	ledger         *BudgetLedger
 }
 
 // RunOptions controls the physical policy applied to one run.
@@ -183,6 +186,15 @@ func (s *Service) SetChildApprovalRouter(router ChildApprovalRouter) {
 // conservative defaults.
 func (s *Service) SetCatalog(catalog *provider.Catalog) {
 	s.catalog = catalog
+}
+
+// SetModel updates the provider/model labels used on run.started. A
+// settings save calls this so the next turn is labeled without a restart.
+func (s *Service) SetModel(providerName, modelID string) {
+	s.mu.Lock()
+	s.provider = providerName
+	s.modelID = modelID
+	s.mu.Unlock()
 }
 
 // GetModelInfo returns capacity metadata for the currently configured
@@ -234,6 +246,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return "", err
 	}
+	sandboxMode, approvalPolicy := s.sessionSandbox(ctx, sessionID)
 	ledger, err := NewBudgetLedger(s.deps.Budget)
 	if err != nil {
 		return "", err
@@ -269,6 +282,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: s.provider, Model: s.modelID, Mode: string(mode),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
+		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
 	if err != nil {
@@ -294,7 +308,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy)
 	}()
 	return runID, nil
 }
@@ -731,7 +745,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		return
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
-	toolName, selectedTools, mode, profile, snapshot := s.approvalDetails(ctx, run.ID)
+	toolName, selectedTools, mode, profile, snapshot, sandboxMode, approvalPolicy := s.approvalDetails(ctx, run.ID)
 	if len(selectedTools) == 0 && toolName != "" {
 		// Events written before request-scoped selection existed remain
 		// recoverable, but only the interrupted tool is allowed on resume.
@@ -742,7 +756,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, ledger: ledger}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, ledger: ledger}
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
@@ -758,7 +772,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	if ledger == nil {
 		return
 	}
-	toolName, selectedTools, mode, profile, snapshot, resumeTarget := s.questionDetails(ctx, run.ID)
+	toolName, selectedTools, mode, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget := s.questionDetails(ctx, run.ID)
 	if toolName == "" {
 		toolName = tools.AskUserName
 	}
@@ -773,7 +787,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
-		mode: mode, profile: profile, snapshot: snapshot, questionID: question.ID, ledger: ledger,
+		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, questionID: question.ID, ledger: ledger,
 	}
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -813,11 +827,11 @@ func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *
 // approvalDetails recovers the interrupted tool and its request-scoped
 // manifest from the durable approval event. Missing selection data is
 // handled by rebuildPending for compatibility with pre-H2 events.
-func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot) {
+func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot, domain.SandboxMode, domain.ApprovalPolicy) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: journal replay failed", "run", string(runID), "err", err)
-		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}
+		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
@@ -825,6 +839,8 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 	mode := domain.RunModeNormal
 	profile := domain.PolicyProfileDefault
 	snapshot := domain.PolicySnapshot{Profile: profile}
+	sandboxMode := domain.SandboxModeWorkspaceWrite
+	approvalPolicy := domain.ApprovalPolicyAsk
 	for it.Next() {
 		ev := it.Value().Event
 		if ev.Type != domain.EventToolApprovalRequired {
@@ -839,18 +855,24 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 			}
 			profile = recoveredProfile(mode, p.PolicyProfile)
 			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
+			if domain.SandboxMode(p.SandboxMode).Valid() {
+				sandboxMode = domain.SandboxMode(p.SandboxMode)
+			}
+			if domain.ApprovalPolicy(p.ApprovalPolicy).Valid() {
+				approvalPolicy = domain.ApprovalPolicy(p.ApprovalPolicy)
+			}
 		}
 	}
-	return name, selected, mode, profile, snapshot
+	return name, selected, mode, profile, snapshot, sandboxMode, approvalPolicy
 }
 
 // questionDetails recovers the request-scoped selection and run mode from
 // the durable user.question_required event.
-func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot, string) {
+func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot, domain.SandboxMode, domain.ApprovalPolicy, string) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: question replay failed", "run", string(runID), "err", err)
-		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, ""
+		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, ""
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
@@ -858,6 +880,8 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 	mode := domain.RunModeNormal
 	profile := domain.PolicyProfileDefault
 	snapshot := domain.PolicySnapshot{Profile: profile}
+	sandboxMode := domain.SandboxModeWorkspaceWrite
+	approvalPolicy := domain.ApprovalPolicyAsk
 	resumeTarget := ""
 	for it.Next() {
 		ev := it.Value().Event
@@ -874,10 +898,16 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 			}
 			profile = recoveredProfile(mode, p.PolicyProfile)
 			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
+			if domain.SandboxMode(p.SandboxMode).Valid() {
+				sandboxMode = domain.SandboxMode(p.SandboxMode)
+			}
+			if domain.ApprovalPolicy(p.ApprovalPolicy).Valid() {
+				approvalPolicy = domain.ApprovalPolicy(p.ApprovalPolicy)
+			}
 			resumeTarget = p.ResumeTarget
 		}
 	}
-	return name, selected, mode, profile, snapshot, resumeTarget
+	return name, selected, mode, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
@@ -908,7 +938,7 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
@@ -922,6 +952,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(ctx, selection.Names()), mode), profile), snapshot), m.runID), sessionID)
+	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	iter := s.engine.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
@@ -1127,6 +1158,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Preview:          proposal.Preview,
 		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
 		ProposalData:     append([]byte(nil), proposal.Data...),
+		SandboxMode:      string(sandboxMode(ctx)),
+		ApprovalPolicy:   string(approvalPolicy(ctx)),
 	}
 	if err := s.deps.Approvals.CreateApproval(persistCtx, approval); err != nil {
 		fail(err)
@@ -1143,6 +1176,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Mode:             string(mode),
 		PolicyProfile:    string(policyProfile(ctx)),
 		PolicyHash:       policySnapshot(ctx).Hash,
+		SandboxMode:      string(sandboxMode(ctx)),
+		ApprovalPolicy:   string(approvalPolicy(ctx)),
 		Action:           approval.Action,
 		Target:           approval.Target,
 		PreconditionHash: approval.PreconditionHash,
@@ -1169,7 +1204,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
 		sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...),
-		mode: mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx), ledger: ledger,
+		mode: mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
+		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), ledger: ledger,
 	}
 	s.mu.Unlock()
 }
@@ -1226,15 +1262,17 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		return
 	}
 	ev := m.build(domain.EventUserQuestionRequired, payloadUserQuestionRequired{
-		QuestionID:    question.ID,
-		ToolCallID:    question.ToolCallID,
-		Prompt:        prompt,
-		ExpiresAt:     question.ExpiresAt,
-		ResumeTarget:  question.ResumeTarget,
-		SelectedTools: append([]string(nil), selectedTools...),
-		Mode:          string(mode),
-		PolicyProfile: string(policyProfile(ctx)),
-		PolicyHash:    policySnapshot(ctx).Hash,
+		QuestionID:     question.ID,
+		ToolCallID:     question.ToolCallID,
+		Prompt:         prompt,
+		ExpiresAt:      question.ExpiresAt,
+		ResumeTarget:   question.ResumeTarget,
+		SelectedTools:  append([]string(nil), selectedTools...),
+		Mode:           string(mode),
+		PolicyProfile:  string(policyProfile(ctx)),
+		PolicyHash:     policySnapshot(ctx).Hash,
+		SandboxMode:    string(sandboxMode(ctx)),
+		ApprovalPolicy: string(approvalPolicy(ctx)),
 	})
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
@@ -1254,6 +1292,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		sessionID: sessionID, mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
+		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx),
 		questionID: question.ID, ledger: ledger,
 	}
 	s.mu.Unlock()
@@ -1340,7 +1379,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
 	}()
 	return nil
@@ -1544,7 +1583,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
 	}()
 	return nil
@@ -1610,7 +1649,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
@@ -1618,6 +1657,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		m.openCalls = append(m.openCalls, openToolCall{id: toolCallID, name: toolName})
 	}
 	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(context.Background(), selectedTools), mode), profile), snapshot), runID), sessionID)
+	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
 	ctx = tools.WithProposalData(ctx, proposalData)
 	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
@@ -1907,6 +1947,17 @@ func checkpointIDFor(runID domain.RunID) string {
 
 func newMessageID() string {
 	return newPrefixedID("msg_")
+}
+
+func (s *Service) sessionSandbox(ctx context.Context, sessionID domain.SessionID) (domain.SandboxMode, domain.ApprovalPolicy) {
+	if s.deps.Sessions == nil {
+		return domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk
+	}
+	session, err := s.deps.Sessions.GetSession(ctx, sessionID)
+	if err != nil {
+		return domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk
+	}
+	return session.EffectiveSandbox()
 }
 
 func newPrefixedID(prefix string) string {

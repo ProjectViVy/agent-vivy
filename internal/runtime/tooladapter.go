@@ -31,15 +31,16 @@ type toolAdapter struct {
 	maxResultBytes int
 	policy         *PolicyEngine
 	hooks          *ToolHookChain
+	autoApprove    []string
 }
 
 var _ einotool.InvokableTool = (*toolAdapter)(nil)
 
-func newToolAdapter(t tools.Tool, maxResultBytes int, policy *PolicyEngine, hooks *ToolHookChain) *toolAdapter {
+func newToolAdapter(t tools.Tool, maxResultBytes int, policy *PolicyEngine, hooks *ToolHookChain, autoApprove []string) *toolAdapter {
 	if policy == nil {
 		policy, _ = NewPolicyEngine(nil)
 	}
-	return &toolAdapter{t: t, maxResultBytes: maxResultBytes, policy: policy, hooks: hooks}
+	return &toolAdapter{t: t, maxResultBytes: maxResultBytes, policy: policy, hooks: hooks, autoApprove: append([]string(nil), autoApprove...)}
 }
 
 func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -144,6 +145,13 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
 	if evaluation.Decision == domain.PolicyPrompt {
+		approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+		if approvalEval.AutoApprove {
+			return a.run(ctx, string(args))
+		}
+		if !approvalEval.ShouldAsk {
+			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, approvalEval.Reason)
+		}
 		wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
 		if !wasInterrupted {
 			// First execution: pause the run so the service can surface

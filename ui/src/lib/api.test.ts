@@ -17,6 +17,9 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('evals/start');
     expect(api.RPC_METHODS).toContain('settings/update');
     expect(api.RPC_METHODS).toContain('session/todos');
+    expect(api.RPC_METHODS).toContain('session/set_permission');
+    expect(api.RPC_METHODS).toContain('skills/list');
+    expect(api.RPC_METHODS).toContain('skills/get');
   });
   it('maps representative runtime and lifecycle operations to their wire methods', async () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });
@@ -27,5 +30,7 @@ describe('typed Vivy API', () => {
     await api.getGeneration('g1'); expect(call).toHaveBeenLastCalledWith('generations/get', { id: 'g1' });
     await api.startEval({ candidate_id: 'g1', suite: 'smoke' }); expect(call).toHaveBeenLastCalledWith('evals/start', { candidate_id: 'g1', suite: 'smoke' });
     await api.promoteGeneration({ from_id: 'g0', to_id: 'g1', eval_id: 'e1', actor: 'human' }); expect(call).toHaveBeenLastCalledWith('promotions/promote', { from_id: 'g0', to_id: 'g1', eval_id: 'e1', actor: 'human' });
+    await api.listSkills(); expect(call).toHaveBeenLastCalledWith('skills/list', undefined);
+    await api.getSkill('demo-skill', 'references/guide.md'); expect(call).toHaveBeenLastCalledWith('skills/get', { name: 'demo-skill', path: 'references/guide.md' });
   });
 });

@@ -40,6 +40,9 @@ Do not pick work from those tables. Closed-track filing:
 |---|---|---|---|
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
+| FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
+| FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
+| FACE-TUI-2 | Crush-style fullscreen TUI on real Client | OPEN | 2026-08-29 mock 骨架已落地（`vivy tui --demo`，`internal/tui/view` + `demo`）；下一刀把 demo store 换成 `Client`，保留全屏布局 |
 | CH-A | ChannelHost + telegram + dingtalk | OPEN | Depends on CH-0; first ABI + first domestic ear |
 | CH-B | feishu / qq / discord (text, no voice) | OPEN | Separate pack per package |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker |
@@ -60,11 +63,14 @@ Do not pick work from those tables. Closed-track filing:
 | P3-2 | Human review of `rig` LICENSE | OPEN | Ambient; before any reuse |
 | UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
 | UI-TOKEN | 中控台 Token 统计接真实用量账本 | DONE | 2026-08-29 `stats/tokens` RPC + `TokenUsageStore` 聚合 Journal `model.usage` 事件；面板改用真实数据，移除 DemoBanner。见 `docs/logs/2026-08-29-dashboard-token-stats-live/` |
+| SBX-OS | OS 级进程沙箱（bwrap / Seatbelt / Windows ACL） | DEFERRED | EINO 当前只做工作区路径 + 命令白名单 + HTTP 策略，不是 DSH 进程沙箱 |
+| SBX-GLOB | 沙箱 deny glob / 可编辑 auto_approve_tools | DEFERRED | 设置页只暴露预设与网络策略；超时仍在通用设置 |
+| SBX-LIVE | 进行中的 run 热切权限预设 | DEFERRED | 当前回合钉死会话策略，下一 `turn/start` 才生效 |
 | UI-MCP | MCP 面板接真实后端管理 | DONE | 2026-08-30 `settings/mcp*` RPC + settings.yaml overlay + `EinoMCPBackend.ReplaceServers`；`/mcp` 去掉 DemoBanner/`vivy.demo.mcp`。见 `docs/logs/2026-08-30-mcp-live/` |
 | UI-TITLE | `ui/index.html` 标题仍是旧演示名 | OPEN | `<title>Agent Diva 前端演示</title>`；产品现为 Vivy，改名需产品命名确认，未随皮肤迭代顺手改 |
 | UI-EVO | 进化页接真实 Evolution/AutoDream 后端 | OPEN | 2026-08-25 页面已按 agent-diva 结构落地为 `vivy.demo.*` 演示数据页（`/evolution`，三 Tab 治理闭环 + 跨页跳转，见 `docs/logs/2026-08-25-evolution-page/`）；内核 AutoDream/Evolution 能力本身见 MEM-1（DEFERRED），有能力提案后需把 `demo-api.ts` 换成 `api.ts` 真实 RPC 并登记方法 |
 | UI-CHAT-ACT | 消息编辑 / 回退 / 分叉启用 + 截断式重新生成 | OPEN | 2026-08-26 功能栏已移植（复制启用 + 重新生成=重发上一条用户输入开新回合，见 `docs/logs/2026-08-26-chat-message-actions/`）；编辑/回退/分叉为禁用占位。真正的就地覆盖需内核 Journal 提供消息截断/分支 RPC（现为追加式事实源），属内核能力提案 |
-| UI-CHAT-TOOLBAR | 聊天框上方功能栏后端接线 + 状态持久化 | OPEN | 2026-08-27 已按 Agent-DIVA `chat-input-toolbar` 移植内容与交互（仅 UI）：模式/思考/权限三个下拉为纯 UI 状态，未参与发送语义（`ChatView.submit` 仍 `preflight(..., 'normal')`）；附件/AutoDream/桌面伙伴/语音为「暂未接入」提示条 stub（见 `docs/logs/2026-08-27-chat-toolbar-diva-port/`）。接线需内核提供执行模式、附件上传、AutoDream、桌面伙伴、语音输入等能力；持久化（DIVA 将 permissionMode 存 localStorage）落 `vivy.ui.*` key |
+| UI-CHAT-TOOLBAR | 聊天框上方功能栏后端接线 + 状态持久化 | OPEN | 2026-08-29 权限三段（谨慎/智能/信任）已接 `session/set_permission`（见 `docs/logs/2026-08-29-sandbox-permission-presets/`）。执行模式/思考仍为纯 UI；附件/AutoDream/桌面伙伴/语音仍为 stub。 |
 | UI-PROV-RPC | 供应商目录接真实后端（模型在线刷新） | OPEN | 2026-08-27 前端已移植 diva 静态供应商目录+折叠（`ui/src/components/settings/provider-catalog.ts`，由 `ui/scripts/gen-provider-catalog.py` 从 agent-diva yaml 生成，见 `docs/logs/2026-08-27-provider-catalog-fold/`）。diva 的 `get_provider_models` 运行时拉取在 vivy 无对应 RPC，目录为静态快照，会随厂商上新漂移；接真实数据需新增 provider/model 目录 RPC 并让前端目录退化为展示层 |
 | UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | OPEN | 注册表已后端化（`settings/providers` 系列 RPC，写时同步 env，见 `docs/logs/2026-08-28-provider-direct-write/`），但 provider 层仍按运行束 env_key 单 env 解析（`internal/provider/openai.go` 走 `os.Getenv(bundle.EnvKey)`）；同束不同 base_url 共用一把钥的问题仍在，需 provider 层按 (bundle,base_url) 解析密钥 |
 | UI-E2E-STALE | `just ui-e2e` 两条既有规格断言已过期文案（非本次改动引入） | OPEN | `runtime.spec.ts:84` 断言「密钥只由运行环境管理」、`welcome-wizard.spec.ts:33` 断言「API 密钥通过运行环境变量注入，不在界面中填写或保存。」——两串文案在 `ui/src` 均已不存在，密钥提示曾被 i18n 改写（现文案见 `ui/src/i18n/zh.ts` 的 `catalogKeyHint`/`secretNote` 等键）。2026-08-27 e2e 复跑确认：新增的 `language-setting.spec.ts` 通过，这两条为过期规格失败，与语言分区改动无关；需按现文案同步断言后恢复全绿，本次范围外未改 |
