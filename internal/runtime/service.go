@@ -1794,7 +1794,7 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			Message:       "The run was stopped because it reached a safety budget. Please try again with a smaller request.",
 		})
 	}
-	slog.Warn("run failed", "err", cause)
+	slog.Warn("run failed", "run", string(m.runID), "err", cause)
 	category := causeCategoryOf(cause)
 	message := "The model run could not be completed. Please try again."
 	if category == causeProviderError {

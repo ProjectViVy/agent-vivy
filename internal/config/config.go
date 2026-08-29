@@ -85,6 +85,24 @@ type Config struct {
 	Runtime    Runtime    `yaml:"runtime"`
 	Tools      Tools      `yaml:"tools"`
 	Governance Governance `yaml:"governance"`
+	Logging    Logging    `yaml:"logging"`
+}
+
+// Logging configures the kernel's slog output (see internal/logging and
+// docs/architecture/LOGGING.md). It never carries secrets: the sink is a
+// local directory, and D-010 keeps provider keys out of every payload.
+type Logging struct {
+	// Level is the minimum severity: debug, info (default), warn, error.
+	Level string `yaml:"level"`
+	// Format selects the line encoding: json (default) or text.
+	Format string `yaml:"format"`
+	// Dir is the log sink directory. Empty derives <data_dir>/logs.
+	Dir string `yaml:"dir"`
+	// RetentionDays deletes rotated vivy.log.* files older than this many
+	// days at startup. 0 keeps every file (explicitly opting out).
+	RetentionDays int `yaml:"retention_days"`
+	// Stdout mirrors log lines to the console in addition to the file.
+	Stdout bool `yaml:"stdout"`
 }
 
 type Server struct {
@@ -402,6 +420,13 @@ func Default() Config {
 				"full_auto": {Default: "allow"},
 			},
 		},
+		Logging: Logging{
+			Level:         "info",
+			Format:        "json",
+			Dir:           "",
+			RetentionDays: 30,
+			Stdout:        true,
+		},
 	}
 }
 
@@ -635,6 +660,20 @@ func (c *Config) Validate() error {
 		// Validation only; actual enforcement happens at request time.
 	}
 
+	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {
+	case "", "debug", "info", "warn", "warning", "error":
+	default:
+		return fmt.Errorf("logging.level %q must be debug, info, warn, or error", c.Logging.Level)
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Logging.Format)) {
+	case "", "json", "text":
+	default:
+		return fmt.Errorf("logging.format %q must be json or text", c.Logging.Format)
+	}
+	if c.Logging.RetentionDays < 0 {
+		return errors.New("logging.retention_days must not be negative")
+	}
+
 	return nil
 }
 
@@ -655,6 +694,16 @@ func (c Config) DataDirectory() string {
 		return dir
 	}
 	return userDataRoot()
+}
+
+// LogDirectory resolves the log sink directory: logging.dir when set,
+// else logs/ under the data directory, so rotated files sit beside the
+// rest of the runtime's scratch without touching the Journal itself.
+func (c Config) LogDirectory() string {
+	if dir := strings.TrimSpace(c.Logging.Dir); dir != "" {
+		return dir
+	}
+	return filepath.Join(c.DataDirectory(), "logs")
 }
 
 func validGovernanceProfile(value string) bool {
