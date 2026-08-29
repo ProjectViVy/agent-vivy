@@ -49,7 +49,7 @@ Do not pick work from those tables. Closed-track filing:
 | CH-A | ChannelHost + telegram + dingtalk（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C1..C6，见 §0.2。勿再按本行领取 |
 | CH-B | feishu / qq / discord（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C7a/b/c，见 §0.2。勿再按本行领取 |
 | CH-C1 | 账本：`channel.inbound` + Message 出处 | DONE | 2026-08-30 Message 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui）+ `EventChannelInbound` + `channel.inbound` schema；sqlite migration016；postgres 升版 15 含 v14 原地升级；conformance CN-17。无适配器、无 Host。Filing: `docs/logs/2026-08-30-channel-c1/` |
-| CH-C2 | SDK `seam: channel` + 空注册表 + 信封配置 | OPEN | Plan: `docs/plans/channel-epic/CH-C2.md`。依赖 CH-C1 |
+| CH-C2 | SDK `seam: channel` + 空注册表 + 信封配置 | DONE | 2026-08-30 `SeamChannel` + 5 Grant + `Channel`/`ChannelEnv` + 类型化信封 + 9 预留能力槽（`sdk/plugin/channel.go`）；verify 按 seam 分流 + `net.Listen` AST 封禁 + 3 拒绝夹具 + fake-channel；pack 双 overlay 支持独立 go.mod 插件（真实树零写入）；`Adapt` 跳过 channel；config `channels:` 信封（settings opaque）。`zz_register.go` 仍 nil。Filing: `docs/logs/2026-08-30-channel-c2/` |
 | CH-C3 | ChannelHost + 假插件 TCK | OPEN | Plan: `docs/plans/channel-epic/CH-C3.md`。包名 `internal/channelhost`。依赖 CH-C2 |
 | CH-C4 | `plugins/telegram` 私聊文本 | OPEN | Plan: `docs/plans/channel-epic/CH-C4.md`。ABI 样板。依赖 CH-C3 |
 | CH-C5 | inspect + 设置页接后端 | OPEN | Plan: `docs/plans/channel-epic/CH-C5.md`（= UI-CHANNELS-BE）。依赖 CH-C4 |
@@ -65,6 +65,8 @@ Do not pick work from those tables. Closed-track filing:
 | CH-C1-N3 | Message 出处未上 RPC/UI：`messageResult` 只投影 ID/RunID/Role/Content/CreatedAt | OPEN | Found 2026-08-30 (CH-C1)：出处已入库但 JSON-RPC 不可见。归 CH-C5 inspect/设置页切片 |
 | CH-C1-N4 | `Source` 无词表校验：`EffectiveSource` 透传任意非空值 | OPEN | Found 2026-08-30 (CH-C1)：与「无类型词表」决定一致；CH-C2 SDK seam 落地时随合同定 `ui\|channel` 词表与校验 |
 | CH-C1-N5 | postgres v14→15 升级测试与 pg 侧 CN-17 未在真实 Postgres 执行 | OPEN | Found 2026-08-30 (CH-C1)：本机无 Docker/5432，`VIVY_POSTGRES_TEST_DSN` 门控用例仅验证编译/vet/干净 SKIP；下一次有 Postgres 的环境跑一轮 |
+| CH-C2-N1 | verify 四个分支缺夹具：非 channel seam 领 channel 族 grant / channel 重复 grant / transport=webhook / 负 max_message_runes | OPEN | Found 2026-08-30 (CH-C2)：实现正确但无 testdata 覆盖；CH-C3 TCK 一并硬化 |
+| CH-C2-N2 | C3 需补 §8 槽位：`InboundMessage`/`OutboundMessage` 的 run_id/task_id（Host 写入）与 Delete/Reaction/HealthChecker/ListenHandler 能力接口 | OPEN | Found 2026-08-30 (CH-C2)：C2 只落合同 §9.3 点名的 9 个保留接口；C3 加槽位不得改已有名字（CH-C3.md 禁改名） |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
 | HITL-P1-2 | Scoped remember / allow policies | OPEN | |
@@ -139,7 +141,7 @@ Filing: `docs/logs/2026-08-30-channel-program-plan/`、`docs/logs/2026-08-30-cha
 |---|---|---|---|---|---|
 | CH-0 | 合同 | — | — | — | DONE |
 | CH-C1 | 账本 `channel.inbound` + Message 出处 + sqlite/pg 迁移 + conformance | 2 | CH-0 | 否（关键路径） | DONE 2026-08-30（`just ci` 绿；无适配器。Filing: `docs/logs/2026-08-30-channel-c1/`） |
-| CH-C2 | `SeamChannel`、grants、`ChannelEnv`、verify 禁 Listen/禁 tools、pack overlay 独立 module | 2 | CH-C1 | 否 | pack 空列表仍为空身体 |
+| CH-C2 | `SeamChannel`、grants、`ChannelEnv`、verify 禁 Listen/禁 tools、pack overlay 独立 module | 2 | CH-C1 | 否 | DONE 2026-08-30（verify/pack/Adapt/config 全绿。Filing: `docs/logs/2026-08-30-channel-c2/`） |
 | CH-C3 | ChannelHost + 假 channel 插件 TCK | 3 | CH-C2 | 否 | 空 allow_from 拒绝；入账→Run→Send |
 | CH-C4 | `plugins/telegram` 私聊文本 long-poll | 2 | CH-C3 | 与 C6/C7 可分 worktree | 候选能收发；默认 EXE 无 telego |
 | CH-C5 | inspect RPC + 设置页接后端（= UI-CHANNELS-BE） | 2 | CH-C4 | 单 lane 接在 C4 后（要有真实 compiled-in 名） | 3015：只开关身体里的名字；空名单文案改正；email/neuro-link 卡片消失 |
@@ -235,7 +237,7 @@ gantt
 
 ### 0.2.7 下一刀
 
-**CH-C2**（SDK `seam: channel` + 空注册表 + 信封配置）。读 `docs/plans/channel-epic/00-standing-orders.md` 与 `CH-C2.md`。CH-C1 已 DONE（分支 `feat/channel-c1`，见 `docs/logs/2026-08-30-channel-c1/`）：从 `feat/channel-c1`（或其合入结果）切新 worktree + 新分支 `feat/channel-c2`，不要叠在脏根树，不要往 `feat/channel-super-contract` 堆代码。成功 = pack 空列表仍为空身体，无协议 deps。C1 合入前禁止开 C2/C3。
+**CH-C3**（ChannelHost + 假 channel 插件 TCK）。读 `docs/plans/channel-epic/00-standing-orders.md` 与 `CH-C3.md`。CH-C1/C2 已 DONE（分支链 `feat/channel-c1` → `feat/channel-c2`，log 见 `docs/logs/2026-08-30-channel-c1|c2/`）：从 `feat/channel-c2`（或其合入结果）切新 worktree + 新分支 `feat/channel-c3`。C3 消费 C2 的 `Channel`/`ChannelEnv`/信封符号，不得改名；需补 §8 的 run_id/task_id 槽与 Delete/Reaction/HealthChecker/ListenHandler 接口（见 §0.1 CH-C2-N2）；`channel.inbound` 信封张力在 C3 拍板（§0.1 CH-C1-N1）。成功 = 空 allow_from 拒绝；入账→Run→Send，无真实协议。
 
 ### 0.2.8 PLAN 索引（子 AGENT 领取面）
 
@@ -454,6 +456,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-30 | CH-C2 SDK `seam: channel` + 空注册表 + 信封配置 | `sdk/plugin/channel.go`：`SeamChannel`、5 个 channel/secret Grant、`Channel`/`ChannelEnv` 接口、类型化 `InboundMessage`/`OutboundMessage`/`Part`、9 个保留能力槽。verify 按 seam 分流（channel 禁 tools/grants 本批限 poll+secret.read/必须 transport poll）+ `net.Listen` AST 封禁 + `bad-channel-{tools,listen,grant}` 夹具。pack 双 overlay 支持自带 go.mod 插件（fake-channel 端到端真实构建，live go.mod 与 zz_register 字节不变）。`pluginhost.Adapt` 跳过 channel。config `channels:` 信封（enabled/allow_from/token_env/settings opaque）。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c2/`. |
 | 2026-08-30 | CH-C1 账本：`channel.inbound` + Message 出处 | `domain.Message` 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui，`EffectiveSource`）；`EventChannelInbound` 入词表（35→36）+ `channel.inbound.json` schema + run-event 枚举；sqlite `migration016`（4×ALTER DEFAULT ''）；postgres 升版 15 并支持 v14 原地升级（`schemaV15Upgrade`）+ 升级测试；conformance CN-17 出处往返（16→17）；UI 路径用户行显式 `Source:"ui"`。无适配器、无 Host、无 sdk/plugin 变化。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c1/`. |
 | 2026-08-30 | 超级通道 EPIC PLAN 包 | 演进树 `VIVY-CHANNEL-EVOLUTION.md`；子 AGENT 十节 PLAN `docs/plans/channel-epic/CH-C1..C9.md`；TODO §0.2.8 索引。无运行时代码。Filing: `docs/logs/2026-08-30-channel-epic-plans/`. |
 | 2026-08-30 | 超级通道节目排期 | `docs/TODO.md` §0.2：CH-A/B 拆成 CH-C1..C7c；单 lane 19 人日；M-CH4 计划 2026-09-24 / 缓冲关门 2026-09-30。下一刀 CH-C1。Filing: `docs/logs/2026-08-30-channel-program-plan/`. |

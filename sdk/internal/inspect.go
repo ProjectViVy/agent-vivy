@@ -103,6 +103,8 @@ func importMap(file *ast.File) map[string]string {
 func bannedCalls(src sourceFile, imports map[string]string) []string {
 	osName := imports["os"]
 	execName := imports["os/exec"]
+	netName := imports["net"]
+	httpName := imports["net/http"]
 	var issues []string
 	ast.Inspect(src.file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -127,6 +129,19 @@ func bannedCalls(src sourceFile, imports map[string]string) []string {
 			switch sel.Sel.Name {
 			case "Command", "CommandContext":
 				issues = append(issues, src.rel+": "+execName+"."+sel.Sel.Name+" bypasses plugin.Env")
+			}
+		}
+		// Listen is a kernel ChannelHost capability (VIVY-CHANNEL-PACK.md
+		// §9.3); a plugin may only run outbound connections. Applied to all
+		// seams — tool plugins already have no use for it, and for channel
+		// plugins it is the rule that keeps this batch honest.
+		if netName != "" && ident.Name == netName && sel.Sel.Name == "Listen" {
+			issues = append(issues, src.rel+": "+netName+"."+sel.Sel.Name+" opens a listen socket (Listen belongs to the kernel ChannelHost)")
+		}
+		if httpName != "" && ident.Name == httpName {
+			switch sel.Sel.Name {
+			case "ListenAndServe", "ListenAndServeTLS":
+				issues = append(issues, src.rel+": "+httpName+"."+sel.Sel.Name+" opens a listen socket (Listen belongs to the kernel ChannelHost)")
 			}
 		}
 		return true

@@ -111,3 +111,5 @@ config.channels
 ## 10. 交接
 
 下一 AGENT：[CH-C3.md](CH-C3.md)。Host 消费本切片的 Channel/Env/信封符号，不要在 C3 改名。
+
+> **DONE 2026-08-30** — 分支 `feat/channel-c2`；符号定形 `sdk/plugin/channel.go`（`Channel`/`ChannelEnv`/`InboundMessage`/`OutboundMessage`/`Part` + 9 保留能力槽）。C3 直接消费这些名字；需补 §8 的 run_id/task_id 槽与 Delete/Reaction/HealthChecker/ListenHandler（TODO §0.1 CH-C2-N2）。Filing: `docs/logs/2026-08-30-channel-c2/`。

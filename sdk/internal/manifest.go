@@ -19,13 +19,21 @@ var (
 )
 
 type manifest struct {
-	APIVersion string         `json:"apiVersion"`
-	Name       string         `json:"name"`
-	Version    string         `json:"version"`
-	Seam       string         `json:"seam"`
-	Module     string         `json:"module"`
-	Grants     []string       `json:"grants"`
-	Tools      []manifestTool `json:"tools"`
+	APIVersion string           `json:"apiVersion"`
+	Name       string           `json:"name"`
+	Version    string           `json:"version"`
+	Seam       string           `json:"seam"`
+	Module     string           `json:"module"`
+	Grants     []string         `json:"grants"`
+	Tools      []manifestTool   `json:"tools"`
+	Channel    *manifestChannel `json:"channel"`
+}
+
+// manifestChannel is the channel envelope of a seam-channel manifest
+// (VIVY-CHANNEL-PACK.md §9.2).
+type manifestChannel struct {
+	Transport       string `json:"transport"`
+	MaxMessageRunes int    `json:"max_message_runes"`
 }
 
 type manifestTool struct {
@@ -72,8 +80,34 @@ func checkManifest(dir string, m manifest) []string {
 	for _, grant := range m.Grants {
 		if !plugin.Grant(grant).Valid() {
 			issues = append(issues, fmt.Sprintf("grant %q is unknown", grant))
+			continue
+		}
+		// Channel-family grants exist only for the channel seam; no other
+		// seam may declare them.
+		if isChannelGrant(grant) && seam != plugin.SeamChannel {
+			issues = append(issues, fmt.Sprintf("grant %q is not available to seam %q", grant, m.Seam))
 		}
 	}
+	if seam != plugin.SeamChannel {
+		return append(issues, checkToolManifest(m)...)
+	}
+	return append(issues, checkChannelManifest(m)...)
+}
+
+// isChannelGrant reports whether a grant belongs to the channel family.
+func isChannelGrant(grant string) bool {
+	switch plugin.Grant(grant) {
+	case plugin.GrantChannelPoll, plugin.GrantChannelWebhook, plugin.GrantChannelListen, plugin.GrantChannelA2A, plugin.GrantSecretRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// checkToolManifest holds the seam-tool/tool-world/provider rules: a
+// non-channel seam is a model tool source and must list at least one tool.
+func checkToolManifest(m manifest) []string {
+	var issues []string
 	if len(m.Tools) == 0 {
 		issues = append(issues, "tools must list at least one tool")
 	}
@@ -91,6 +125,44 @@ func checkManifest(dir string, m manifest) []string {
 		if !schemaObject(tool.Schema) {
 			issues = append(issues, fmt.Sprintf("tools[%d].schema must be a JSON object", i))
 		}
+	}
+	return issues
+}
+
+// checkChannelManifest holds the seam-channel rules (VIVY-CHANNEL-PACK.md
+// §9.2): a channel is consumed by the kernel ChannelHost, not the model
+// tool table, so it forbids tools, restricts grants, and requires a
+// channel object with a transport this batch allows.
+func checkChannelManifest(m manifest) []string {
+	var issues []string
+	if len(m.Tools) > 0 {
+		issues = append(issues, "seam channel forbids tools (channel is not a model tool)")
+	}
+	seen := map[string]struct{}{}
+	for _, grant := range m.Grants {
+		if _, ok := seen[grant]; ok {
+			issues = append(issues, fmt.Sprintf("grant %q is duplicated", grant))
+		}
+		seen[grant] = struct{}{}
+		switch plugin.Grant(grant) {
+		case plugin.GrantChannelPoll, plugin.GrantSecretRead:
+		case plugin.GrantChannelWebhook, plugin.GrantChannelListen, plugin.GrantChannelA2A:
+			issues = append(issues, fmt.Sprintf("grant %q is not allowed in this batch (only channel.poll and secret.read)", grant))
+		}
+	}
+	if m.Channel == nil {
+		issues = append(issues, `seam channel requires a "channel" object with transport "poll"`)
+		return issues
+	}
+	switch m.Channel.Transport {
+	case "poll":
+	case "":
+		issues = append(issues, `channel.transport must be "poll" in this batch`)
+	default:
+		issues = append(issues, fmt.Sprintf("channel.transport %q is not allowed in this batch (only %q)", m.Channel.Transport, "poll"))
+	}
+	if m.Channel.MaxMessageRunes < 0 {
+		issues = append(issues, "channel.max_message_runes must not be negative")
 	}
 	return issues
 }

@@ -104,6 +104,18 @@ const (
     SeamChannel   Seam = "channel" // 见 VIVY-CHANNEL-PACK.md
 )
 
+const (
+    GrantFSRead  Grant = "fs.read"
+    GrantFSWrite Grant = "fs.write"
+    // Channel family (VIVY-CHANNEL-PACK.md §9.3). Per-seam restriction
+    // is verify's job, not the vocabulary's.
+    GrantChannelPoll    Grant = "channel.poll"
+    GrantChannelWebhook Grant = "channel.webhook"
+    GrantChannelListen  Grant = "channel.listen"
+    GrantChannelA2A     Grant = "channel.a2a"
+    GrantSecretRead     Grant = "secret.read"
+)
+
 type Plugin interface {
     Name() string
     Seam() Seam
@@ -126,7 +138,28 @@ type Env interface {
     OpenWrite(path string) (io.WriteCloser, error) // needs fs.write
     // no Journal, no Policy, no raw OS, no Eino
 }
+
+// Channel is the ABI of a seam-channel plugin. Its Consumer is the kernel
+// ChannelHost, never the model tool table (VIVY-CHANNEL-PACK.md §9.3).
+type Channel interface {
+    Name() string
+    Seam() Seam // must be SeamChannel
+    Grants() []Grant
+    Start(ctx context.Context, env ChannelEnv) error
+    Stop(ctx context.Context) error
+    Send(ctx context.Context, msg OutboundMessage) (ids []string, err error)
+}
+
+// ChannelEnv is the only world a channel plugin may touch.
+type ChannelEnv interface {
+    Secret(envKey string) (string, error) // fail-closed; values never logged
+    HTTP() *http.Client                   // outbound client only; no Listen
+    PublishInbound(ctx context.Context, msg InboundMessage) error
+    Media() MediaStore
+}
 ```
+
+Channel 信封是类型化的（`InboundMessage` / `OutboundMessage` / `Part`）；`map[string]string` 不是合同。通道 ABI 的合同源头是 `VIVY-CHANNEL-PACK.md` §9.3。
 
 `pack` 生成一份作者**不许手改**的注册文件（例如 `internal/generated/plugins/zz_register.go`）：
 

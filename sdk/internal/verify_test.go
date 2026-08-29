@@ -40,6 +40,9 @@ func TestVerifyRejectsForbiddenPlugins(t *testing.T) {
 		{"name-mismatch", "does not match directory"},
 		{"bad-main", "package main"},
 		{"bad-os-open", "os.Open"},
+		{"bad-channel-tools", "seam channel forbids tools"},
+		{"bad-channel-listen", "opens a listen socket"},
+		{"bad-channel-grant", "is not allowed in this batch"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.dir, func(t *testing.T) {
@@ -55,6 +58,22 @@ func TestVerifyRejectsForbiddenPlugins(t *testing.T) {
 				t.Fatalf("issues = %s, want substring %q", joined, tc.want)
 			}
 		})
+	}
+}
+
+// TestVerifyFakeChannel asserts the seam-channel path accepts a
+// well-formed channel plugin that lives in its own go.mod.
+func TestVerifyFakeChannel(t *testing.T) {
+	dir := filepath.Join("testdata", "fake-channel")
+	rep, err := Verify(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.OK {
+		t.Fatalf("fake-channel issues: %v", rep.Issues)
+	}
+	if len(rep.Issues) != 0 {
+		t.Fatalf("fake-channel issues = %v, want zero", rep.Issues)
 	}
 }
 

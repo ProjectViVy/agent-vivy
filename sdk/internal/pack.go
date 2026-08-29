@@ -64,6 +64,17 @@ func parsePackArgs(args []string) (packOptions, error) {
 	return opt, nil
 }
 
+// packedPlugin is one plugin selected for packing. standalone marks a
+// plugin that carries its own go.mod and is imported by its module path.
+type packedPlugin struct {
+	dir        string
+	name       string
+	pkg        string
+	impPath    string
+	standalone bool
+	man        manifest
+}
+
 // Pack verifies named plugins and links them into a new species EXE.
 func Pack(opt packOptions) (Artifact, error) {
 	if len(opt.With) == 0 {
@@ -72,13 +83,6 @@ func Pack(opt packOptions) (Artifact, error) {
 	root, err := findModuleRoot(".")
 	if err != nil {
 		return Artifact{}, err
-	}
-	type packedPlugin struct {
-		dir     string
-		name    string
-		pkg     string
-		impPath string
-		man     manifest
 	}
 	var selected []packedPlugin
 	var tools []artifactTool
@@ -107,10 +111,19 @@ func Pack(opt packOptions) (Artifact, error) {
 		if err != nil {
 			return Artifact{}, err
 		}
+		// A plugin with its own go.mod (standalone module,
+		// VIVY-CHANNEL-PACK.md §9.1) is imported by its module path, not
+		// by a path under the species module.
+		impPath := "agent-vivy/" + filepath.ToSlash(rel)
+		standalone := false
+		if modPath, ok := standaloneModulePath(dir); ok {
+			impPath = modPath
+			standalone = true
+		}
 		selected = append(selected, packedPlugin{
 			dir: dir, name: man.Name, pkg: pkg,
-			impPath: "agent-vivy/" + filepath.ToSlash(rel),
-			man:     man,
+			impPath: impPath, standalone: standalone,
+			man: man,
 		})
 		names = append(names, man.Name)
 		for _, tool := range man.Tools {
@@ -151,6 +164,27 @@ func Pack(opt packOptions) (Artifact, error) {
 	liveRegister := filepath.Join(root, "internal", "generated", "plugins", "zz_register.go")
 	overlayDoc := map[string]map[string]string{
 		"Replace": {liveRegister: overlaySrc},
+	}
+	// Standalone plugins (own go.mod) are imported by their module path in
+	// the generated Register(), so the main build also needs the root
+	// go.mod to require and replace them. That happens through a second
+	// overlay entry; the real go.mod stays untouched, same as the register
+	// file above. The plugin's own `replace agent-vivy => ...` does NOT
+	// apply here because only main-module replaces apply during this
+	// build — the main module natively provides agent-vivy/sdk/plugin, so
+	// no extra replace is needed for that.
+	var standalonePlugins []packedPlugin
+	for _, p := range selected {
+		if p.standalone {
+			standalonePlugins = append(standalonePlugins, p)
+		}
+	}
+	if len(standalonePlugins) > 0 {
+		overlayGoMod, err := overlayGoModForStandalone(root, tmp, standalonePlugins)
+		if err != nil {
+			return Artifact{}, err
+		}
+		overlayDoc["Replace"][filepath.Join(root, "go.mod")] = overlayGoMod
 	}
 	overlayJSON, err := json.Marshal(overlayDoc)
 	if err != nil {
@@ -240,6 +274,48 @@ func resolvePluginDir(root, spec string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("sdk: plugin %q not found", spec)
+}
+
+// standaloneModulePath parses the `module <path>` line of a plugin's own
+// go.mod with a plain line scan (no external dependencies). It reports
+// false when the plugin has no go.mod — an in-species plugin keeps the
+// agent-vivy/<rel> import path.
+func standaloneModulePath(dir string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "module "); ok {
+			if mod := strings.TrimSpace(rest); mod != "" {
+				return mod, true
+			}
+		}
+	}
+	return "", false
+}
+
+// overlayGoModForStandalone writes an overlaid root go.mod into tmpDir:
+// the original file plus one require+replace pair per standalone plugin,
+// with the replace target pointed at the plugin's absolute directory
+// (forward slashes so the overlay is go.mod-parseable on every OS).
+func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (string, error) {
+	orig, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return "", fmt.Errorf("sdk: read go.mod: %w", err)
+	}
+	var b strings.Builder
+	b.Write(orig)
+	for _, p := range standalone {
+		target := filepath.ToSlash(p.dir)
+		fmt.Fprintf(&b, "\nrequire %s v0.0.0\nreplace %s => %s\n", p.impPath, p.impPath, target)
+	}
+	out := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(out, []byte(b.String()), 0o600); err != nil {
+		return "", fmt.Errorf("sdk: write go.mod overlay: %w", err)
+	}
+	return out, nil
 }
 
 func pluginPackageName(dir string) (string, error) {

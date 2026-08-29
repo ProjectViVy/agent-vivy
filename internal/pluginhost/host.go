@@ -26,6 +26,11 @@ func Adapt(plugins []plugin.Plugin, lookup WorkspaceLookup) []tools.Tool {
 		if p == nil {
 			continue
 		}
+		// Channel plugins are consumed by the kernel ChannelHost (C3);
+		// they must never become tools.
+		if p.Seam() == plugin.SeamChannel {
+			continue
+		}
 		for _, t := range p.Tools() {
 			if t == nil || t.Name() == "" {
 				continue
