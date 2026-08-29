@@ -183,3 +183,16 @@ tools:
     provider: ""  # one of: bing | google | duckduckgo | searxng | wikipedia | ""
   approval:
     expiration: 5m
+
+logging:
+  # Kernel log output (docs/architecture/LOGGING.md). VIVY_LOG_LEVEL and
+  # VIVY_LOG_FORMAT override level/format for one launch.
+  level: info          # debug | info | warn | error
+  format: json         # json | text
+  # Empty = <data_dir>/logs. Rotated files are vivy.log.YYYY-MM-DD.
+  dir: ""
+  # Startup sweep deletes vivy.log* files older than this many days.
+  # 0 keeps every file.
+  retention_days: 30
+  # Mirror log lines to the console in addition to the file.
+  stdout: true

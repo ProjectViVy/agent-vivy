@@ -414,3 +414,54 @@ governance:
 		t.Fatal("want invalid governance field error")
 	}
 }
+
+func TestLoggingDefaults(t *testing.T) {
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
+	cfg := Default()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Default(): %v", err)
+	}
+	want := Logging{Level: "info", Format: "json", Dir: "", RetentionDays: 30, Stdout: true}
+	if cfg.Logging != want {
+		t.Fatalf("default logging = %+v, want %+v", cfg.Logging, want)
+	}
+	if dir := cfg.LogDirectory(); dir != filepath.Join(cfg.DataDirectory(), "logs") {
+		t.Errorf("LogDirectory() = %q, want <data_dir>/logs", dir)
+	}
+}
+
+func TestLoggingSectionLoadsAndOverrides(t *testing.T) {
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
+	cfg, err := Load(writeConfig(t, validDoc+`
+logging:
+  level: debug
+  format: text
+  dir: tmp/logs
+  retention_days: 0
+  stdout: false
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := Logging{Level: "debug", Format: "text", Dir: "tmp/logs", RetentionDays: 0, Stdout: false}
+	if cfg.Logging != want {
+		t.Fatalf("logging = %+v, want %+v (explicit zero must override the default)", cfg.Logging, want)
+	}
+	if cfg.LogDirectory() != "tmp/logs" {
+		t.Errorf("LogDirectory() = %q, want the explicit dir", cfg.LogDirectory())
+	}
+}
+
+func TestLoggingInvalidValuesRejected(t *testing.T) {
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
+	cases := []string{
+		"logging:\n  level: verbose\n",
+		"logging:\n  format: xml\n",
+		"logging:\n  retention_days: -1\n",
+	}
+	for i, frag := range cases {
+		if _, err := Load(writeConfig(t, validDoc+"\n"+frag)); err == nil {
+			t.Errorf("case %d: expected validation error for %q", i, frag)
+		}
+	}
+}

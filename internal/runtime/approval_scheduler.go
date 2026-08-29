@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -24,18 +24,18 @@ type ApprovalScheduler struct {
 	stopCh        chan struct{}
 	wg            sync.WaitGroup
 	eventHandler  func(ApprovalSweepEvent)
-	logger        *log.Logger
+	logger        *slog.Logger
 }
 
 // NewApprovalScheduler creates a new scheduler that will scan for expired
 // approvals every checkInterval. The scheduler does not start until Start()
 // is called. The store must implement ApprovalTimeoutStore.
-func NewApprovalScheduler(store storage.ApprovalTimeoutStore, checkInterval time.Duration, logger *log.Logger) *ApprovalScheduler {
+func NewApprovalScheduler(store storage.ApprovalTimeoutStore, checkInterval time.Duration, logger *slog.Logger) *ApprovalScheduler {
 	if checkInterval <= 0 {
 		checkInterval = 10 * time.Second // Default to 10 seconds
 	}
 	if logger == nil {
-		logger = log.Default()
+		logger = slog.Default()
 	}
 	return &ApprovalScheduler{
 		store:         store,
@@ -72,15 +72,15 @@ func (s *ApprovalScheduler) run(ctx context.Context) {
 	ticker := time.NewTicker(s.checkInterval)
 	defer ticker.Stop()
 
-	s.logger.Printf("approval scheduler: started with %v interval", s.checkInterval)
+	s.logger.Info("approval scheduler started", "interval", s.checkInterval)
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Println("approval scheduler: stopped by context")
+			s.logger.Info("approval scheduler stopped", "reason", "context done")
 			return
 		case <-s.stopCh:
-			s.logger.Println("approval scheduler: stopped by signal")
+			s.logger.Info("approval scheduler stopped", "reason", "stop signal")
 			return
 		case <-ticker.C:
 			s.sweep(ctx)
@@ -93,13 +93,14 @@ func (s *ApprovalScheduler) sweep(ctx context.Context) {
 
 	count, err := s.store.SweepExpiredApprovals(ctx)
 	if err != nil {
-		s.logger.Printf("approval scheduler: sweep failed: %v", err)
+		s.logger.Warn("approval sweep failed", "err", err)
 		return
 	}
 
 	if count > 0 {
 		duration := time.Since(started)
-		s.logger.Printf("approval scheduler: expired %d approvals in %v", count, duration)
+		s.logger.Info("approval sweep expired approvals",
+			"count", count, "duration_ms", duration.Milliseconds())
 
 		if s.eventHandler != nil {
 			s.eventHandler(ApprovalSweepEvent{

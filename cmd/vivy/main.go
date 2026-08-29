@@ -13,6 +13,7 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/logging"
 	"agent-vivy/internal/worker"
 )
 
@@ -44,6 +45,32 @@ func main() {
 		logger.Error("startup aborted", "err", err)
 		os.Exit(1)
 	}
+
+	// Swap the bootstrap logger for the configured one: same stdout stream
+	// plus the daily-rotated file sink, level/format from config with
+	// VIVY_LOG_LEVEL / VIVY_LOG_FORMAT overrides (docs/architecture/LOGGING.md).
+	// Everything before this line lands on stdout only; everything after
+	// lands in the file too. Synchronous writes mean the closer below is an
+	// orderly-shutdown formality, not a flush dependency.
+	vivyLog, eff, closeLog, err := logging.Setup(logging.Options{
+		Level:         cfg.Logging.Level,
+		Format:        cfg.Logging.Format,
+		Dir:           cfg.LogDirectory(),
+		RetentionDays: cfg.Logging.RetentionDays,
+		Stdout:        cfg.Logging.Stdout,
+	})
+	if err != nil {
+		logger.Error("startup aborted", "err", err)
+		os.Exit(1)
+	}
+	defer closeLog.Close()
+	slog.SetDefault(vivyLog)
+	logger = vivyLog
+	vivyLog.Info("logging initialized",
+		"level", eff.Level,
+		"format", eff.Format,
+		"dir", cfg.LogDirectory(),
+		"stdout", cfg.Logging.Stdout)
 
 	// Ops override for the listen address. Revalidate the effective config so
 	// a split UI's loopback exposure policy cannot be bypassed by the env var.

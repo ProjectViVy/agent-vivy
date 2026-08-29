@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-27
+> Updated: 2026-08-30
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -38,6 +38,9 @@ Do not pick work from those tables. Closed-track filing:
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| LOG-1 | `vivy worker` 子命令的文件日志 | OPEN | 2026-08-30 日志规范化（`docs/logs/2026-08-30-logging-normalization/`）留白：worker 协议独占 stdout，多个 worker 进程写同一滚动文件需 per-worker sink 设计先行；见 `docs/architecture/LOGGING.md` §7 |
+| LOG-2 | 网关 HTTP 访问日志中间件 | OPEN | 2026-08-30 日志规范化未含 `/rpc` 访问行；需要时用 slog Info 记 method/path/status/duration_ms |
+| LOG-3 | 日志 handler 级脱敏（纵深防御） | OPEN | D-010 目前靠调用点纪律 + 工具结果边界 `RedactSensitive`；在 slog handler 层自动脱敏是候选方案 |
 | CMP-1 | Context compaction：reduction Clear 转存 Backend / offload（文件级恢复） | OPEN | 2026-08-30 上下文压缩真实化后留白：`reduction.Backend=nil` 只做内存占位不转存；有 `read_file` 后可接 filesystem Backend |
 | CMP-2 | Context compaction：独立摘要模型 `summary_model` | OPEN | 2026-08-30 压缩沿用主模型；独立 `summary_model` 覆盖留待配置提案 |
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |

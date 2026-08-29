@@ -1,0 +1,118 @@
+# Vivy Kernel Logging Contract
+
+Normative rules for how the Vivy kernel (`vivy.exe` service path:
+`cmd/vivy` + `internal/...`) emits logs. The reference architecture is
+agent-diva's `logging.rs`; the Go realization is `internal/logging`.
+
+CLI tools (`cmd/vivy-studio`, `vivy-sdk`, `tui`) print user-facing
+diagnostics to stderr and are out of scope here.
+
+## 1. One init path
+
+All kernel logging goes through `log/slog`. There is exactly one setup
+function, `logging.Setup` (`internal/logging/logging.go`), and exactly
+one two-phase wiring in `cmd/vivy/main.go`:
+
+1. A bootstrap JSON logger on stdout handles the earliest messages
+   (config load failure, logging setup failure).
+2. After config load, `logging.Setup` replaces the default logger
+   (`slog.SetDefault`) and logs the `logging initialized` milestone with
+   the effective level/format/dir.
+
+Never create ad-hoc `slog.Handler`s, stdlib `log.Logger`s, or
+`fmt.Println` diagnostics in `internal/...`. The worker subcommand
+branch is the only stdout exception (the worker protocol owns stdout).
+
+## 2. Configuration
+
+```yaml
+logging:
+  level: info          # debug | info | warn | error
+  format: json         # json | text
+  dir: ""              # empty = <data_dir>/logs
+  retention_days: 30   # startup sweep; 0 = keep every file
+  stdout: true         # mirror lines to the console + file
+```
+
+Defaults live in `config.Default()`; validation in `Config.Validate()`.
+Two environment overrides exist for one-off ops launches and win over
+the config file:
+
+- `VIVY_LOG_LEVEL` — `debug|info|warn|error`
+- `VIVY_LOG_FORMAT` — `json|text`
+
+Both are parsed strictly: an invalid value aborts startup with a clear
+error instead of silently keeping the configured value.
+
+## 3. Destinations
+
+- Default sink: stdout (when `stdout: true`) **plus** a daily-rotated
+  file `<dir>/vivy.log.YYYY-MM-DD`. Rotation happens on the first write
+  after local midnight; writes are synchronous and appends are
+  line-sized, so the closer returned by `Setup` is an orderly-shutdown
+  formality, not a flush dependency.
+- At startup, files matching `vivy.log*` older than `retention_days`
+  (by mtime) are deleted. `0` disables deletion.
+- Log files are runtime scratch beside the Journal, not product
+  history. They are never read back by the kernel, and Studio sessions
+  must not treat them as tenant data (air gap, ST-2). The durable record
+  of product behavior is the Journal/events, not the log stream.
+
+## 4. Line format
+
+Both handlers run with `AddSource: true`, so every line carries the
+call site. JSON (default) is the machine-readable contract; `text`
+is for humans (level=WARN, msg=..., fields as key=value).
+
+## 5. Structured fields
+
+Logs are structured; the message is a short lowercase English phrase
+("journal append failed", "run failed"), and identifiers ride as
+attributes. Standard keys:
+
+| Key | Meaning |
+|---|---|
+| `run` | run id — include whenever a run id is in scope |
+| `session` | session id |
+| `seq` | event sequence number |
+| `err` | the error (the only error key) |
+| `tool`, `hook` | tool / governance hook name |
+| `approval`, `question` | interaction ids |
+| `type` | event type / journal entry type |
+| `kind`, `reason`, `status` | discriminator fields |
+| `count`, `duration_ms`, `interval`, `limit` | metrics |
+
+Rules:
+
+- Include `run`/`session` whenever the id is in scope; do not log a
+  failure of run X without naming X.
+- Use `err` for errors, never `error`/`e`/`cause`.
+- Never log provider keys, bot tokens, raw Journal blobs, or full user
+  payloads (D-010; redaction stays at the tool-result boundary via
+  `RedactSensitive`, and the audit sink logs sizes/digests only).
+- A few leaf helpers (e.g. `clampText`) legitimately have no id in
+  scope; do not thread ids through signatures just to decorate one line.
+
+## 6. Level discipline
+
+- **debug** — diagnostics useful only while investigating (currently:
+  audit digest lines). Off by default.
+- **info** — lifecycle milestones and notable normal outcomes
+  ("vivy starting", "logging initialized", "approval sweep expired
+  approvals").
+- **warn** — the operation failed or degraded but the process continues
+  and the state stays consistent (journal replay fallback, budget
+  breaker, hook failure).
+- **error** — terminal failures that lose durable work or abort the
+  process ("journal append failed", "startup aborted").
+
+If you are unsure between `warn` and `error`: does the run/state
+survive and the user recover by retrying? Then `warn`.
+
+## 7. Deferred (see docs/TODO.md §0.1)
+
+- File logging for `vivy worker` child processes (multi-process writers
+  need a per-worker sink design first).
+- HTTP access-log middleware on the gateway mux.
+- Handler-level redaction as defense in depth behind the D-010
+  call-site discipline.

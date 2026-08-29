@@ -207,6 +207,9 @@ parse/validate tests. Secrets stay out of fixtures, logs, and event payloads
 - Preserve error cause chains; do not discard the source error.
 - Structured logs: include run/session ids when useful; never include
   provider keys, bot tokens, or raw Journal blobs.
+- Log output contract (init path, config + env overrides, file sink,
+  field keys, levels): `docs/architecture/LOGGING.md`. Kernel logging
+  goes through `internal/logging.Setup` only — no ad-hoc handlers.
 
 ## Provider model IDs
 

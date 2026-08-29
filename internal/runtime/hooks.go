@@ -120,7 +120,7 @@ func (c *ToolHookChain) PostToolUse(ctx context.Context, call ToolHookCall, resu
 			if errors.Is(hookCtx.Err(), context.DeadlineExceeded) {
 				reason = "post-tool hook timed out"
 			}
-			slog.Warn(reason, "hook", hook.Name(), "tool", call.ToolName, "err", err)
+			slog.Warn(reason, "run", string(call.RunID), "hook", hook.Name(), "tool", call.ToolName, "err", err)
 			emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventHookBlocked, ToolName: call.ToolName, HookName: hook.Name(), Phase: "post", Reason: reason, DurationMs: elapsed.Milliseconds()})
 			continue
 		}
