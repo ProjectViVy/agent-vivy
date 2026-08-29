@@ -8,6 +8,7 @@
 > 对照证据（只读，不是依赖）：
 > - `.workspace/picoclaw` 的 channel 系统（Go 适配器样本）
 > - agent-diva 2026-08-18～08-23：通道退役、能力信封、A2A 研究、NeuroLink 预留
+> - `github.com/cloudwego/eino-ext/a2a`（A2A 协议/编解码对照；示例服务器不是产品路径）
 > - DeepSeek Harness 的「能力缝 / 登记即效果」
 > - 本仓库 ADR-015 的 pack overlay（`internal/generated/plugins/zz_register.go`）
 
@@ -42,6 +43,7 @@
 | 2026-08-27 | 前端移植 Diva 七平台配置 UI（仅 localStorage）。`UI-CHANNELS-BE`。 |
 | 2026-08-30 | **采纳超级通道。** Host + 信封 + 能力矩阵是合同脊柱。A2A / NeuroLink 后切、同信封。 |
 | 2026-08-30 | **本批全部插件化。** 五个适配器进 `plugins/<name>/`，走已落地的 `Register()` overlay。不新开 `channels/` 目录，不新开 `RegisterChannels()`。 |
+| 2026-08-30 | **Eino 原生 A2A = 偷协议，不偷示例服务器。** 后切 `plugins/a2a` 用 `eino-ext/a2a` 的 models/transport；禁止 `RegisterServerHandlers(adk.Agent)` 当网关。循环仍是 `Service.Run`。 |
 
 本批五个名字：`telegram`、`discord`、`feishu`、`dingtalk`、`qq`。
 
@@ -134,6 +136,9 @@ L3  插件器官 plugins/<name>/
 | Diva 2026-08-23 | 频道信封必须能被 A2A 复用 | L1 预留 `task_id` / parts / stream，禁止私有 metadata 当主合同 |
 | Diva 2026-08-23 | A2A 是北向适配器 | 后切 `plugins/a2a`；Task = 已有 Run |
 | Diva 2026-08-23 | NeuroLink 是重量级预留 | 后切 `plugins/neurolink`；不进 telegram 式 ready/missing_fields 卡 |
+| Eino ADK | `ChatModelAgent` + `Runner`（Vivy 已 pin） | 物种循环。ChannelHost 与后切 A2A 都喂 `Service.Run`，不另起 Runner |
+| Eino ADK | `AgentAsTool` / DeepAgent | 进程内多智能体，不是 A2A 协议。本批不碰 |
+| eino-ext/a2a | Agent Card、JSON-RPC、Task、parts、Stream | 后切 `plugins/a2a` 的 codec 偷 `models` + `transport` |
 | Diva 2026-08-18 | 未验证通道退役 | slack / whatsapp / matrix / irc / mattermost / nextcloud 不进本批 |
 
 ### 5.2 拒绝
@@ -156,6 +161,7 @@ L3  插件器官 plugins/<name>/
 | 钉钉倒退成 webhook 文本机器人 | Diva / picoclaw 已是 Stream；Octos webhook 不是基线 |
 | Discord `voice.go` / `pion/webrtc` | 本批明确不做 |
 | 把网页 UI 做成 `seam: channel` | Face 是另一扇门 |
+| `eino-ext/a2a.RegisterServerHandlers(adk.Agent)` 当 Vivy A2A 网关 | 第二套循环：自建 Hertz、默认内存 TaskStore、直接 `Runner.Run/Resume`，跳过 Journal / Policy / 审批 / 沙箱；Listen 不归 Host。协议能偷，这条服务器绑法不能偷 |
 
 ---
 
@@ -506,7 +512,7 @@ RPC 不急着做 `channels/list` 的完整 CRUD。第一刀：`species/inspect` 
 | **B** | `plugins/qq` | `pkg/channels/qq` | 官方 Bot WS | `app_id` / `app_secret` | 国内社群。是 **QQ 开放平台机器人**，不是个人号 |
 | **B** | `plugins/discord` | `pkg/channels/discord` | Gateway WS | Bot token | 国际社区。**禁止**移植 `voice.go` / `pion/webrtc` / TTS 探测 |
 | **后切** | `plugins/neurolink` | Diva `neuro_link.rs`（合同，不是代码源） | Host listen + 本机 WS | 本机绑定 | 重量级管道。不进本批，不进设置页可添加列表 |
-| **后切** | `plugins/a2a` | Diva A2A 研究包 | HTTP+JSON（默认关） | Bearer / 技能白名单 | Task = Run。不进本批 |
+| **后切** | `plugins/a2a` | eino-ext/a2a 的 models/transport（codec）；Diva A2A 研究包（北向适配器） | HTTP+JSON（默认关） | Bearer / 技能白名单 | Task = Run。不把 `RegisterServerHandlers` 当网关。不进本批 |
 | **不做进本批** | wecom / weixin / onebot / email | — | — | — | 绑定面、个人号、第二种身体、邮箱另案 |
 
 Slack / LINE / Matrix 沿用 Diva 2026-08-18 退役，不进本批。
@@ -575,6 +581,37 @@ plugins:
 
 信封在本批就已经为它们留了 `task_id` / parts / stream。禁止五个聊天插件先把这些做成私有 metadata。
 
+### 15.1 与 Eino 原生 A2A 的关系
+
+Eino **核心**（Vivy pin `github.com/cloudwego/eino v0.9.13` 的 `adk.ChatModelAgent` + `Runner`）没有 A2A 线协议。进程内多智能体是 `AgentAsTool` / DeepAgent，与通道无关，本批不碰。
+
+Eino **原生 A2A** 在扩展包 `github.com/cloudwego/eino-ext/a2a`（只读对照，不是本批依赖；观察到 `v0.0.1-alpha.13`）。拆两层，不要合成一条「整包原生」：
+
+| 层 | 是什么 | Vivy |
+|---|---|---|
+| 协议 / 编解码 | Agent Card、JSON-RPC、Task、Message parts、Stream（`models` + `transport`） | **后切 `plugins/a2a` 的 codec 偷这里** |
+| 示例服务器 | `extension/eino.RegisterServerHandlers(adk.Agent)`：自建 Hertz + 默认内存 TaskStore，直接 `adk.NewRunner().Run/Resume` | **禁止当产品路径** |
+
+正确叠法（后切 C9，本批不实现）：
+
+```text
+A2A JSON-RPC / Agent Card          ← eino-ext/a2a 的 models + transport
+        ↓
+plugins/a2a  (seam: channel)       ← 独立 go.mod；只做编解码 + 能力声明
+        ↓
+ChannelHost                        ← allow_from、session、channel.inbound、Journal
+        ↓
+Service.Run → 已有 ADK Runner      ← Eino 原生循环（现在就在 internal/runtime）
+        ↓
+事件回 Host → 插件 Send            ← StreamResponse / Task 状态
+```
+
+禁止把 `RegisterServerHandlers` 挂到 Vivy 的 `adk.Agent` 上。那会：另起 TaskStore、跳过 Journal / Policy / 审批 / 沙箱、第二张 Hertz 听面、把 alpha 依赖和 Hertz 拖进默认身体。该模块声明的 eino 版本与 Vivy pin 也不对齐，不能 drop-in。`VIVY-PLUGIN-SPEC.md` 已禁止插件 import `github.com/cloudwego/eino*`——A2A 协议栈若进身体，只许作为独立 `plugins/a2a` 的 go.mod，且不得让默认 `just ci` 闭包看见它。
+
+同 ACP：`eino-ext/acp` 也是 `AgentEvent` 直出协议。Vivy ACP 提案已拒绝第二套运行时；A2A 同样。
+
+本批五个聊天插件零 Eino import。C1–C8 不必为 A2A 改形状。C9 才写独立能力提案。
+
 ---
 
 ## 16. 「卸得干净」的验收
@@ -626,6 +663,7 @@ channel 是 Kind B 的新 seam，不是 Kind A，不是 MCP，不是第二种 EX
 11. **独立 `go.mod` 对本批是硬要求。** 肥 SDK 不得进入默认 `just ci` 闭包。
 12. **信封第一刀定形。** A2A / NeuroLink 后切插件，不后切合同槽。
 13. **Face / ACP 仍独立。** 网页 UI 不是 `seam: channel`。
+14. **Eino 原生 A2A = 偷协议，不偷 `RegisterServerHandlers`。** 循环仍是 `Service.Run`；codec 后切才碰 `eino-ext/a2a`。
 
 ---
 
@@ -638,6 +676,7 @@ channel 是 Kind B 的新 seam，不是 Kind A，不是 MCP，不是第二种 EX
 - 企业微信扫码绑定面
 - 用 channel 替代本机 UI
 - 实现 A2A 或 NeuroLink
+- 把 `eino-ext/a2a` 的 Hertz 示例服务器 / `RegisterServerHandlers(adk.Agent)` 当 Vivy 网关
 - 把五个 SDK 写进默认 `go.mod`
 
 ---
@@ -657,7 +696,7 @@ channel 是 Kind B 的新 seam，不是 Kind A，不是 MCP，不是第二种 EX
 | C6 `plugins/dingtalk` | Stream；session webhook 只进 lib settings / 运行时表 | 国内单聊文本闭环 |
 | C7 `plugins/feishu` + `qq` + `discord` | 三个独立包、三次 pack 点名；Discord 不含 voice | 配方可组成「办公身体」或「国际身体」 |
 | C8 同二进制子进程 | `vivy channel --name <id>`；Host 监督 | 杀一只耳朵不断账本 |
-| C9 NeuroLink / A2A | 各需独立能力提案 + 绑定/鉴权面 | 无提案则本切片不开 |
+| C9 NeuroLink / A2A | 各需独立能力提案 + 绑定/鉴权面。A2A：codec 用 eino-ext/a2a 的 models/transport，执行走 ChannelHost → `Service.Run` | 无提案则本切片不开；禁止示例服务器绑 ADK |
 
 C0 是文档 PR。C1 起才动内核。C4 之前禁止把 `telego` 写进物种默认 `go.mod`。C4/C6/C7 每个包一次 pack 评测，禁止「一次 PR 链进五个 SDK」。
 
@@ -673,6 +712,7 @@ C0 是文档 PR。C1 起才动内核。C4 之前禁止把 `telego` 写进物种�
 4. 超级通道边界 — Face / ACP 独立；A2A / NeuroLink 是 Host 上的后切插件。
 5. 第一刀 ABI 厚度 — 信封和可选接口第一刀定形；五个包只实现文本必选。
 6. 空 `allow_from` — fail-closed。
+7. Eino 原生 A2A — 协议/编解码可复用；`RegisterServerHandlers(adk.Agent)` 不是产品路径。循环仍是 `Service.Run`。本批五个插件不 import Eino。
 
 仍开放（不挡 C0，挡后续实现或产品）：
 
