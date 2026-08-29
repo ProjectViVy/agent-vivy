@@ -1,4 +1,5 @@
-// Package view is the Crush-style fullscreen TUI skeleton driven by demo data.
+// Package view is the Crush-style fullscreen TUI driven by a surface.Driver
+// (demo mock or live control-plane client).
 package view
 
 import (
@@ -8,24 +9,25 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tui/demo"
+	"agent-vivy/internal/tui/surface"
 )
 
-// Model is the sole Bubble Tea model for the demo skeleton.
+// Model is the sole Bubble Tea model for the fullscreen shell.
 type Model struct {
-	store   *demo.Store
+	driver  surface.Driver
 	width   int
 	height  int
 	input   string
 	palette Palette
 }
 
-// New returns a model bound to the given demo store.
-func New(store *demo.Store) Model {
-	if store == nil {
-		store = demo.NewStore()
+// New returns a model bound to the given driver.
+func New(driver surface.Driver) Model {
+	if driver == nil {
+		driver = demo.NewStore()
 	}
 	return Model{
-		store:   store,
+		driver:  driver,
 		width:   120,
 		height:  36,
 		palette: defaultPalette(),
@@ -33,68 +35,105 @@ func New(store *demo.Store) Model {
 }
 
 // Init implements tea.Model.
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd {
+	if m.driver == nil {
+		return nil
+	}
+	return m.driver.Init()
+}
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	if m.driver != nil {
+		if cmd := m.driver.Handle(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = max(1, msg.Width)
 		m.height = max(1, msg.Height)
-		return m, nil
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		next, cmd := m.handleKey(msg)
+		m = next
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case surface.ErrMsg:
+		// Driver already stores error in Meta; force redraw only.
 	}
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
-		return "vivy tui · demo"
+		return "vivy tui"
 	}
 	return m.renderFrame()
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	gate := m.store.PendingGate()
+func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	gate := m.driver.PendingGate()
+	meta := m.driver.Meta()
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEsc:
-		// Overlay has no independent dismiss that keeps pending; esc is a no-op
-		// on the gate body so the operator still y/n. Without a gate, clear input.
-		if gate == nil {
-			m.input = ""
+		if gate != nil {
+			// Overlay has no independent dismiss that keeps pending; esc is a
+			// no-op on the gate body so the operator still y/n (or types an answer).
+			return m, nil
 		}
+		if meta.Busy {
+			return m, m.driver.Cancel()
+		}
+		m.input = ""
 		return m, nil
 	case tea.KeyCtrlN:
-		if gate == nil {
-			m.store.NewSession("")
+		if gate == nil && !meta.Busy {
 			m.input = ""
+			return m, m.driver.NewSession("")
 		}
 		return m, nil
 	case tea.KeyTab:
-		m.store.MoveSession(1)
+		if !meta.Busy {
+			return m, m.driver.MoveSession(1)
+		}
 		return m, nil
 	case tea.KeyShiftTab:
-		m.store.MoveSession(-1)
+		if !meta.Busy {
+			return m, m.driver.MoveSession(-1)
+		}
 		return m, nil
 	case tea.KeyUp:
-		m.store.MoveSession(-1)
+		if m.input == "" && gate == nil && !meta.Busy {
+			return m, m.driver.MoveSession(-1)
+		}
 		return m, nil
 	case tea.KeyDown:
-		m.store.MoveSession(1)
+		if m.input == "" && gate == nil && !meta.Busy {
+			return m, m.driver.MoveSession(1)
+		}
 		return m, nil
 	case tea.KeyEnter:
 		if gate != nil {
+			if gate.Kind == "question" {
+				answer := m.input
+				m.input = ""
+				return m, m.driver.AnswerQuestion(answer)
+			}
 			return m, nil
 		}
-		m.store.AppendUser(m.input)
+		if meta.Busy {
+			return m, nil
+		}
+		text := m.input
 		m.input = ""
-		return m, nil
+		return m, m.driver.Send(text)
 	case tea.KeyBackspace:
-		if gate != nil {
+		if gate != nil && gate.Kind == "approval" {
 			return m, nil
 		}
 		if m.input != "" {
@@ -102,41 +141,49 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input = string(r[:len(r)-1])
 		}
 		return m, nil
+	case tea.KeyCtrlJ:
+		// Newline while composing (Crush ctrl+j).
+		if gate != nil && gate.Kind == "approval" {
+			return m, nil
+		}
+		m.input += "\n"
+		return m, nil
 	case tea.KeyRunes:
 		text := string(msg.Runes)
-		if gate != nil {
+		if gate != nil && gate.Kind == "approval" {
 			switch strings.ToLower(strings.TrimSpace(text)) {
 			case "y":
-				m.store.DecideApproval(domain.ApprovalApproved)
+				return m, m.driver.DecideApproval(domain.ApprovalApproved)
 			case "n":
-				m.store.DecideApproval(domain.ApprovalDenied)
+				return m, m.driver.DecideApproval(domain.ApprovalDenied)
 			}
 			return m, nil
 		}
-		if text == "q" && m.input == "" {
+		if text == "q" && m.input == "" && gate == nil && !meta.Busy {
 			return m, tea.Quit
 		}
 		m.input += text
 		return m, nil
 	}
-	// Some terminals send y/n as KeyMsg with Type KeyRunes; also handle String().
-	if gate != nil {
+	if gate != nil && gate.Kind == "approval" {
 		switch strings.ToLower(msg.String()) {
 		case "y":
-			m.store.DecideApproval(domain.ApprovalApproved)
-			return m, nil
+			return m, m.driver.DecideApproval(domain.ApprovalApproved)
 		case "n":
-			m.store.DecideApproval(domain.ApprovalDenied)
-			return m, nil
+			return m, m.driver.DecideApproval(domain.ApprovalDenied)
 		}
 	}
 	return m, nil
 }
 
-// RunDemo starts the fullscreen Bubble Tea program on the real terminal.
+// RunDemo starts the fullscreen Bubble Tea program on mock data.
 func RunDemo() error {
-	store := demo.NewStore()
-	p := tea.NewProgram(New(store), tea.WithAltScreen())
+	return Run(demo.NewStore())
+}
+
+// Run starts the fullscreen Bubble Tea program on the given driver.
+func Run(driver surface.Driver) error {
+	p := tea.NewProgram(New(driver), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
