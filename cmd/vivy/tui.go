@@ -88,13 +88,10 @@ func runTUI(args []string) int {
 }
 
 func defaultListenAddr() string {
+	// Match cmd/vivy loadConfig: VIVY_CONFIG overlay, else user-workspace defaults.
+	// A working-directory config.yaml is no longer a product entry.
 	if path := os.Getenv("VIVY_CONFIG"); path != "" {
 		if cfg, err := config.Load(path); err == nil && strings.TrimSpace(cfg.Server.Addr) != "" {
-			return cfg.Server.Addr
-		}
-	}
-	if _, err := os.Stat(configPath); err == nil {
-		if cfg, err := config.Load(configPath); err == nil && strings.TrimSpace(cfg.Server.Addr) != "" {
 			return cfg.Server.Addr
 		}
 	}
