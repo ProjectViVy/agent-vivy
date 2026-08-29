@@ -2,7 +2,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 
 export const RPC_METHODS = [
   'initialize', 'capabilities',
-  'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos',
+  'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
   'preflight/run', 'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -13,12 +13,23 @@ export const RPC_METHODS = [
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'stats/tokens',
+  'skills/list', 'skills/get',
 ] as const;
 
 export type RunStatus = 'accepted' | 'queued' | 'active' | 'completed' | 'failed' | 'cancelled';
 export type RunMode = 'normal' | 'plan';
 export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
-export interface Session { id: string; title: string; created_at: number }
+export type PermissionPreset = 'cautious' | 'smart' | 'trusted' | 'custom';
+export type SandboxMode = 'read_only' | 'workspace_write' | 'danger_full_access';
+export type ApprovalPolicy = 'ask' | 'never' | 'auto';
+export interface Session {
+  id: string;
+  title: string;
+  created_at: number;
+  sandbox_mode?: SandboxMode;
+  approval_policy?: ApprovalPolicy;
+  permission_preset?: PermissionPreset;
+}
 export interface Todo {
   id: string;
   session_id: string;
@@ -47,12 +58,14 @@ export interface Settings {
   default_model: string;
   base_url: string;
   read_only: boolean;
+  frozen?: boolean;
   config_provider: string;
   config_model: string;
   api_key_set?: boolean;
   network_search?: NetworkSearchSettingsView;
   execute_max_timeout_seconds?: number;
   config_execute_max_timeout_seconds?: number;
+  sandbox?: SandboxSettingsView;
 }
 export interface NetworkSearchProviderInfo {
   name: string;
@@ -65,8 +78,44 @@ export interface NetworkSearchSettingsView {
   config_provider: string;
   providers: NetworkSearchProviderInfo[];
 }
-/** settings/update 载荷：api_key 缺省由 api.ts 归一为 ''（清除覆盖层），有值则写入。 */
-export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & { api_key?: string; network_search?: { provider: string }; execute_max_timeout_seconds?: number };
+/** settings/update 载荷：选模型不发送 api_key（注册表条目保留密钥）。 */
+export interface SandboxSettingsView {
+  default_preset: PermissionPreset;
+  config_default_preset: PermissionPreset;
+  deny_private_ips: boolean;
+  allowed_domains: string[];
+  workspace_root?: string;
+  execute_allowed_commands?: string[];
+}
+export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & {
+  api_key?: string;
+  network_search?: { provider: string };
+  execute_max_timeout_seconds?: number;
+  sandbox?: {
+    default_preset: Exclude<PermissionPreset, 'custom'>;
+    deny_private_ips: boolean;
+    allowed_domains: string[];
+  };
+};
+
+/** settings/update 是整文档替换：未发送的分区会被清掉，调用方必须带上未改动的 overlay。 */
+export function settingsUpdateFrom(settings: Settings | null, patch: Partial<SettingsUpdate> = {}): SettingsUpdate {
+  const sandbox = patch.sandbox ?? (settings?.sandbox && settings.sandbox.default_preset !== 'custom'
+    ? {
+      default_preset: settings.sandbox.default_preset,
+      deny_private_ips: settings.sandbox.deny_private_ips,
+      allowed_domains: settings.sandbox.allowed_domains ?? [],
+    }
+    : undefined);
+  return {
+    provider: patch.provider ?? settings?.provider ?? '',
+    default_model: patch.default_model ?? settings?.default_model ?? '',
+    base_url: patch.base_url ?? settings?.base_url ?? '',
+    network_search: patch.network_search ?? { provider: settings?.network_search?.provider ?? '' },
+    execute_max_timeout_seconds: patch.execute_max_timeout_seconds ?? settings?.execute_max_timeout_seconds ?? 0,
+    ...(sandbox ? { sandbox } : {}),
+  };
+}
 export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
 export interface Recipe { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] }
 export type GenerationPhase = 'built' | 'eval_pending' | 'evaluated' | 'promoted' | 'released' | 'rejected';
@@ -95,6 +144,7 @@ export const listSessions = () => request<{ sessions: Session[] }>('session/list
 export const getSession = (id: string) => request<{ session: Session; messages: Message[] }>('session/get', { session_id: id });
 export const createSession = (title: string) => request<Session>('session/create', { title });
 export const renameSession = (id: string, title: string) => request<Session>('session/rename', { session_id: id, title });
+export const setSessionPermission = (id: string, preset: Exclude<PermissionPreset, 'custom'>) => request<Session>('session/set_permission', { session_id: id, preset });
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
@@ -130,7 +180,11 @@ export const startEval = (params: { candidate_id: string; baseline_id?: string; 
 export const listPromotions = () => request<{ promotions: Promotion[] }>('promotions/list');
 export const promoteGeneration = (params: { from_id: string; to_id: string; eval_id?: string; actor?: string }) => request<Promotion>('promotions/promote', params);
 export const getSettings = () => request<Settings>('settings/get');
-export const updateSettings = (params: SettingsUpdate) => request<Settings>('settings/update', { ...params, api_key: params.api_key ?? '' });
+export const updateSettings = (params: SettingsUpdate) => {
+  const payload: Record<string, unknown> = { ...params };
+  if (params.api_key === undefined) delete payload.api_key;
+  return request<Settings>('settings/update', payload);
+};
 
 /** 注册表供应商（wire 形态）：密钥永不在线，只回 api_key_set。 */
 export interface ProviderEntry {
@@ -160,6 +214,7 @@ export interface ProvidersView {
   active_model: string;
   active_base_url: string;
   read_only: boolean;
+  frozen?: boolean;
   config_provider: string;
   config_model: string;
 }
@@ -253,3 +308,23 @@ export interface TokenUsageParams {
 
 export const getTokenUsage = (params: TokenUsageParams) =>
   request<TokenUsageSnapshot>('stats/tokens', params);
+
+export interface SkillSummary {
+  name: string;
+  description: string;
+  context?: string;
+  agent?: string;
+  model?: string;
+  hash: string;
+  warnings: string[];
+}
+
+export interface SkillView extends SkillSummary {
+  content: string;
+  relative_path: string;
+  supporting_files: string[];
+}
+
+export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
+export const getSkill = (name: string, path?: string) =>
+  request<SkillView>('skills/get', path ? { name, path } : { name });

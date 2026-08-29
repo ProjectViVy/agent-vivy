@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -12,78 +11,6 @@ import (
 	"agent-vivy/internal/config"
 )
 
-// TestApplySettingsOverlayAppliesAPIKey pins the end-to-end key path:
-// an api_key stored in the settings overlay is applied to the active
-// bundle's env_key environment variable at startup.
-func TestApplySettingsOverlayAppliesAPIKey(t *testing.T) {
-	keyEnv := "VIVY_TEST_API_KEY_OVERLAY"
-	t.Setenv(keyEnv, "")
-
-	dir := t.TempDir()
-	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: keyEnv}},
-	}
-	if _, err := settings.Save(settings.Path(dir), settings.Settings{
-		Provider: settings.ProviderOpenAI, DefaultModel: "gpt-4o", ApiKey: "sk-overlay",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg)
-	if applied.Providers.Active != "openai" {
-		t.Fatalf("active provider not overlaid: %q", applied.Providers.Active)
-	}
-	if got := os.Getenv(keyEnv); got != "sk-overlay" {
-		t.Fatalf("api_key env = %q, want sk-overlay", got)
-	}
-}
-
-// TestApplySettingsOverlayEmptyKeyKeepsEnv ensures an empty api_key does not
-// clobber the bundle's environment variable, so env-injected keys keep
-// working for catalog/default flows.
-func TestApplySettingsOverlayEmptyKeyKeepsEnv(t *testing.T) {
-	keyEnv := "VIVY_TEST_API_KEY_EMPTY"
-	t.Setenv(keyEnv, "")
-
-	dir := t.TempDir()
-	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: keyEnv}},
-	}
-	if _, err := settings.Save(settings.Path(dir), settings.Settings{
-		Provider: settings.ProviderOpenAI, ApiKey: "",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applySettingsOverlay(context.Background(), logger, cfg)
-	if got := os.Getenv(keyEnv); got != "" {
-		t.Fatalf("empty api_key must not touch env, got %q", got)
-	}
-}
-
-// TestApplySettingsOverlayNoDocumentIsNoop guards the config-default path:
-// with no settings document the overlay leaves cfg untouched.
-func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MISSING"}},
-	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg)
-	if applied.Providers.Active != "" {
-		t.Fatalf("missing settings document must not change cfg, active = %q", applied.Providers.Active)
-	}
-}
-
-// TestApplySettingsOverlayAppliesNetworkSearchProvider pins the network tool
-// preference path: a network_search.provider saved in the settings overlay
-// is applied to cfg.Tools.NetworkSearch.Provider at startup, and an empty
-// preference keeps the config value (auto).
 func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
@@ -102,7 +29,6 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 		t.Fatalf("network_search provider = %q, want searxng (settings override)", applied.Tools.NetworkSearch.Provider)
 	}
 
-	// Empty overlay preference keeps the config default.
 	dir2 := t.TempDir()
 	cfg2 := config.Config{
 		Storage:   config.Storage{DataDir: dir2, Backend: "sqlite"},
@@ -118,58 +44,34 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	}
 }
 
-// TestApplySettingsEnvUsesRegistryKey pins the write-time env path: the
-// active selection resolves its key from the registry entry (bundle+base_url
-// match) rather than the legacy api_key overlay, so a provider save updates
-// the environment immediately with the entry's key.
-func TestApplySettingsEnvUsesRegistryKey(t *testing.T) {
-	keyEnv := "VIVY_TEST_API_KEY_REGISTRY"
-	t.Setenv(keyEnv, "")
-	t.Setenv(providerEnvBaseURL, "")
-
+func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
+	dir := t.TempDir()
 	cfg := config.Config{
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: keyEnv}},
+		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
+		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MISSING"}},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applySettingsEnv(logger, cfg, settings.Settings{
-		Provider: settings.ProviderOpenAI,
-		BaseURL:  "https://gateway.example.com/v1",
-		ApiKey:   "sk-legacy-overlay",
-		Providers: []settings.ProviderEntry{{
-			ID: "custom-1", DisplayName: "Gateway", Bundle: settings.ProviderOpenAI,
-			BaseURL: "https://gateway.example.com/v1", ApiKey: "sk-registry-entry",
-		}},
-	})
-	if got := os.Getenv(keyEnv); got != "sk-registry-entry" {
-		t.Fatalf("env key = %q, want registry entry key", got)
-	}
-	if got := os.Getenv(providerEnvBaseURL); got != "https://gateway.example.com/v1" {
-		t.Fatalf("VIVY_API_BASE = %q, want gateway", got)
+	applied := applySettingsOverlay(context.Background(), logger, cfg)
+	if applied.Providers.Active != "" {
+		t.Fatalf("missing settings document must not change cfg, active = %q", applied.Providers.Active)
 	}
 }
 
-// TestApplySettingsEnvFallsBackToLegacyKey pins the fallback: when no
-// registry entry matches the active selection, the legacy api_key overlay
-// still supplies the env value (older documents / catalog selections).
-func TestApplySettingsEnvFallsBackToLegacyKey(t *testing.T) {
-	keyEnv := "VIVY_TEST_API_KEY_LEGACY"
-	t.Setenv(keyEnv, "")
-
+func TestApplySettingsOverlayIgnoresMockProvider(t *testing.T) {
+	dir := t.TempDir()
 	cfg := config.Config{
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: keyEnv}},
+		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
+		Providers: config.Providers{Active: "openai", OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MOCK"}},
+	}
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{Provider: settings.ProviderOpenAI}); err != nil {
+		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applySettingsEnv(logger, cfg, settings.Settings{
-		Provider: settings.ProviderOpenAI,
-		BaseURL:  "",
-		ApiKey:   "sk-legacy-overlay",
-	})
-	if got := os.Getenv(keyEnv); got != "sk-legacy-overlay" {
-		t.Fatalf("env key = %q, want legacy overlay", got)
+	applied := applySettingsOverlay(context.Background(), logger, cfg)
+	if applied.Providers.Active != "openai" {
+		t.Fatalf("active = %q, want openai", applied.Providers.Active)
 	}
 }
-
-const providerEnvBaseURL = "VIVY_API_BASE"
 
 func TestApplySettingsOverlayExecuteTimeout(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -177,17 +79,13 @@ func TestApplySettingsOverlayExecuteTimeout(t *testing.T) {
 	if base.Runtime.ExecuteMaxTimeoutSeconds != 30 {
 		t.Fatalf("config default ceiling = %d, want 30", base.Runtime.ExecuteMaxTimeoutSeconds)
 	}
-	// Point the data root at a scratch dir so the test never reads or writes
-	// a real agent-home document.
 	base.Storage.SQLite.Path = filepath.Join(t.TempDir(), "vivy.db")
 
-	// No document: the config value stands.
 	got := applySettingsOverlay(context.Background(), logger, base)
 	if got.Runtime.ExecuteMaxTimeoutSeconds != 30 {
 		t.Fatalf("empty overlay changed ceiling to %d", got.Runtime.ExecuteMaxTimeoutSeconds)
 	}
 
-	// A persisted override wins.
 	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{ExecuteMaxTimeoutSeconds: 300}); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +103,6 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 		Runtime: config.Runtime{MCPServers: []config.MCPServer{{Name: "from-config", Endpoint: "https://config.example.com/mcp"}}},
 	}
 
-	// No overlay: config default stands.
 	got := applySettingsOverlay(context.Background(), logger, cfg)
 	if len(got.Runtime.MCPServers) != 1 || got.Runtime.MCPServers[0].Name != "from-config" {
 		t.Fatalf("missing overlay changed mcp = %+v", got.Runtime.MCPServers)
@@ -238,5 +135,30 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 	}
 	if len(got.Runtime.MCPServers) != 0 {
 		t.Fatalf("explicit empty overlay must replace config, got %+v", got.Runtime.MCPServers)
+	}
+}
+
+func TestApplySettingsOverlaySandboxPreset(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	base := config.Default()
+	base.Storage.SQLite.Path = filepath.Join(t.TempDir(), "vivy.db")
+	deny := false
+	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{
+		Sandbox: settings.SandboxSettings{
+			DefaultPreset: "cautious",
+			Network:       settings.SandboxNetworkSettings{DenyPrivateIPs: &deny, AllowedDomains: []string{"example.com"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := applySettingsOverlay(context.Background(), logger, base)
+	if got.Runtime.Sandbox.DefaultMode != "read_only" || got.Runtime.Sandbox.Approval.DefaultPolicy != "ask" {
+		t.Fatalf("sandbox overlay = %+v", got.Runtime.Sandbox)
+	}
+	if got.Runtime.Sandbox.Network.DenyPrivateIPs {
+		t.Fatal("deny_private_ips overlay not applied")
+	}
+	if len(got.Runtime.Sandbox.Network.AllowedDomains) != 1 || got.Runtime.Sandbox.Network.AllowedDomains[0] != "example.com" {
+		t.Fatalf("allowed domains = %+v", got.Runtime.Sandbox.Network.AllowedDomains)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"agent-vivy/internal/domain"
 )
@@ -24,15 +25,16 @@ const (
 	FileOpExec  FileOp = "execute"
 )
 
-// SandboxManager enforces the file-effect policy boundary for a session
-// (D-021). It validates paths, commands, and network requests against the
-// configured sandbox mode. The manager is immutable after construction and
-// safe to share across concurrent runs.
+// SandboxManager enforces the file-effect policy boundary (D-021). The
+// workspace root and command allowlist are fixed at construction. Default
+// mode and network policy can be updated from the settings overlay; each
+// tool call may still pass an explicit session mode that outranks the default.
 type SandboxManager struct {
+	mu            sync.RWMutex
 	mode          domain.SandboxMode
 	workspaceRoot string
 	cmdWhitelist  map[string]struct{}
-	netPolicy     *domain.NetworkPolicy
+	netPolicy     domain.NetworkPolicy
 }
 
 // NewSandboxManager validates and constructs a sandbox manager. The root
@@ -60,21 +62,62 @@ func NewSandboxManager(mode domain.SandboxMode, workspaceRoot string, cmdWhiteli
 		}
 	}
 
-	if netPolicy == nil {
-		netPolicy = &domain.NetworkPolicy{DenyPrivateIPs: true}
+	policy := domain.NetworkPolicy{DenyPrivateIPs: true}
+	if netPolicy != nil {
+		policy = *netPolicy
+		policy.AllowedDomains = append([]string(nil), netPolicy.AllowedDomains...)
 	}
 
 	return &SandboxManager{
 		mode:          mode,
 		workspaceRoot: filepath.Clean(abs),
 		cmdWhitelist:  whitelist,
-		netPolicy:     netPolicy,
+		netPolicy:     policy,
 	}, nil
 }
 
-// Mode returns the current sandbox mode.
+// Mode returns the current default sandbox mode.
 func (m *SandboxManager) Mode() domain.SandboxMode {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.mode
+}
+
+// SetDefaultMode updates the fallback mode used when a call does not carry
+// an explicit session mode. Invalid values are ignored.
+func (m *SandboxManager) SetDefaultMode(mode domain.SandboxMode) {
+	if m == nil || !mode.Valid() {
+		return
+	}
+	m.mu.Lock()
+	m.mode = mode
+	m.mu.Unlock()
+}
+
+// SetNetworkPolicy replaces the live network policy used by CheckNetwork.
+func (m *SandboxManager) SetNetworkPolicy(policy domain.NetworkPolicy) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.netPolicy = domain.NetworkPolicy{
+		AllowedDomains:   append([]string(nil), policy.AllowedDomains...),
+		DenyPrivateIPs:   policy.DenyPrivateIPs,
+		MaxResponseBytes: policy.MaxResponseBytes,
+	}
+	m.mu.Unlock()
+}
+
+func (m *SandboxManager) resolveMode(mode domain.SandboxMode) domain.SandboxMode {
+	if mode.Valid() {
+		return mode
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.mode.Valid() {
+		return m.mode
+	}
+	return domain.SandboxModeWorkspaceWrite
 }
 
 // WorkspaceRoot returns the absolute workspace root path.
@@ -87,12 +130,18 @@ func (m *SandboxManager) WorkspaceRoot() string {
 // workspace-write mode, paths must stay within the workspace root. In
 // danger-full-access mode, all paths are allowed (but still audited).
 func (m *SandboxManager) ValidatePath(path string, op FileOp) error {
+	return m.ValidatePathWithMode(path, op, "")
+}
+
+// ValidatePathWithMode checks a path under an explicit sandbox mode.
+func (m *SandboxManager) ValidatePathWithMode(path string, op FileOp, mode domain.SandboxMode) error {
 	if m == nil {
 		return errors.New("runtime: sandbox manager not initialized")
 	}
 
+	mode = m.resolveMode(mode)
 	// danger-full-access bypasses all checks (but caller should still audit).
-	if m.mode == domain.SandboxModeDangerFullAccess {
+	if mode == domain.SandboxModeDangerFullAccess {
 		return nil
 	}
 
@@ -101,12 +150,17 @@ func (m *SandboxManager) ValidatePath(path string, op FileOp) error {
 	if err != nil {
 		return fmt.Errorf("runtime: resolve path: %w", err)
 	}
+	abs = filepath.Clean(abs)
+	root := m.workspaceRoot
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
+		root = realRoot
+	}
 
 	// Check for symlink traversal before resolving.
 	if strings.Contains(path, "..") {
 		// Allow .. only if it resolves within workspace.
 		cleaned := filepath.Clean(abs)
-		rel, err := filepath.Rel(m.workspaceRoot, cleaned)
+		rel, err := filepath.Rel(root, cleaned)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("%w: path escapes workspace via traversal", ErrSandboxDenied)
 		}
@@ -128,13 +182,13 @@ func (m *SandboxManager) ValidatePath(path string, op FileOp) error {
 	}
 
 	// Deny writes in read-only mode.
-	if m.mode == domain.SandboxModeReadOnly && op == FileOpWrite {
+	if mode == domain.SandboxModeReadOnly && op == FileOpWrite {
 		return fmt.Errorf("%w: write operations not allowed in read-only mode", ErrSandboxDenied)
 	}
 
-	// In workspace-write mode, ensure path stays within workspace.
-	if m.mode == domain.SandboxModeWorkspaceWrite {
-		rel, err := filepath.Rel(m.workspaceRoot, realPath)
+	// In workspace-write and read-only modes, ensure path stays within workspace.
+	if mode.IsConfined() {
+		rel, err := filepath.Rel(root, realPath)
 		if err != nil {
 			return fmt.Errorf("%w: cannot determine path relationship", ErrSandboxDenied)
 		}
@@ -150,12 +204,18 @@ func (m *SandboxManager) ValidatePath(path string, op FileOp) error {
 // sandbox mode and whitelist. In read-only mode, all command execution is
 // denied.
 func (m *SandboxManager) ConfineCommand(command string, args []string) error {
+	return m.ConfineCommandWithMode(command, args, "")
+}
+
+// ConfineCommandWithMode checks a command under an explicit sandbox mode.
+func (m *SandboxManager) ConfineCommandWithMode(command string, args []string, mode domain.SandboxMode) error {
 	if m == nil {
 		return errors.New("runtime: sandbox manager not initialized")
 	}
 
+	mode = m.resolveMode(mode)
 	// Deny all commands in read-only mode.
-	if m.mode == domain.SandboxModeReadOnly {
+	if mode == domain.SandboxModeReadOnly {
 		return fmt.Errorf("%w: command execution not allowed in read-only mode", ErrSandboxDenied)
 	}
 
@@ -166,14 +226,14 @@ func (m *SandboxManager) ConfineCommand(command string, args []string) error {
 	}
 
 	// Check whitelist (always enforced except in danger-full-access).
-	if m.mode != domain.SandboxModeDangerFullAccess {
+	if mode != domain.SandboxModeDangerFullAccess {
 		if _, ok := m.cmdWhitelist[name]; !ok {
 			return fmt.Errorf("%w: command %q is not in the allowlist", ErrSandboxDenied, command)
 		}
 	}
 
 	// In danger-full-access mode, still block obviously dangerous patterns.
-	if m.mode == domain.SandboxModeDangerFullAccess {
+	if mode == domain.SandboxModeDangerFullAccess {
 		if isDangerousCommand(command, args) {
 			return fmt.Errorf("%w: command pattern is too dangerous even in full-access mode", ErrSandboxDenied)
 		}
@@ -203,8 +263,13 @@ func (m *SandboxManager) CheckNetwork(rawURL string) error {
 		return fmt.Errorf("%w: URL has no hostname", ErrSandboxDenied)
 	}
 
+	m.mu.RLock()
+	denyPrivate := m.netPolicy.DenyPrivateIPs
+	allowedDomains := append([]string(nil), m.netPolicy.AllowedDomains...)
+	m.mu.RUnlock()
+
 	// Check if private IPs are denied.
-	if m.netPolicy.DenyPrivateIPs {
+	if denyPrivate {
 		ips, err := net.LookupIP(host)
 		if err == nil {
 			for _, ip := range ips {
@@ -217,9 +282,9 @@ func (m *SandboxManager) CheckNetwork(rawURL string) error {
 	}
 
 	// Check domain whitelist if configured.
-	if len(m.netPolicy.AllowedDomains) > 0 {
+	if len(allowedDomains) > 0 {
 		allowed := false
-		for _, domain := range m.netPolicy.AllowedDomains {
+		for _, domain := range allowedDomains {
 			if host == domain || strings.HasSuffix(host, "."+domain) {
 				allowed = true
 				break

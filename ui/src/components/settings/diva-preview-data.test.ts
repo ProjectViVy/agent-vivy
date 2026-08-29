@@ -14,9 +14,9 @@ describe('DIVA settings preview data', () => {
     expect(DIVA_PREVIEW_SECTIONS).not.toContain('compaction');
     expect(DIVA_PREVIEW_SECTIONS).not.toContain('network');
     expect(DIVA_PREVIEW_SECTIONS).not.toContain('channels');
+    expect(DIVA_PREVIEW_SECTIONS).not.toContain('sandbox');
     expect(DIVA_ADDITIONAL_SECTIONS).toEqual([
       'self-evolution',
-      'sandbox',
     ]);
   });
 });

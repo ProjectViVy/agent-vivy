@@ -136,16 +136,22 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 		return "", nil, "", nil, 0, errors.New("command: command must be one allowlisted executable name without shell syntax")
 	}
 
+	mode := sandboxMode(ctx)
+	if !mode.Valid() && b.sandbox != nil {
+		mode = b.sandbox.Mode()
+	}
 	// Sandbox validation: check command against sandbox policy (D-021)
 	if b.sandbox != nil {
-		if err := b.sandbox.ConfineCommand(command, request.Args); err != nil {
+		if err := b.sandbox.ConfineCommandWithMode(command, request.Args, mode); err != nil {
 			return "", nil, "", nil, 0, fmt.Errorf("sandbox: %w", err)
 		}
 	}
 
 	name := normalizeCommandName(command)
-	if _, ok := b.allowed[name]; !ok {
-		return "", nil, "", nil, 0, fmt.Errorf("command: executable %q is not allowlisted", command)
+	if mode != domain.SandboxModeDangerFullAccess {
+		if _, ok := b.allowed[name]; !ok {
+			return "", nil, "", nil, 0, fmt.Errorf("command: executable %q is not allowlisted", command)
+		}
 	}
 	if len(request.Args) > 128 {
 		return "", nil, "", nil, 0, errors.New("command: too many arguments")

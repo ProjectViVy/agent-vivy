@@ -101,6 +101,7 @@ type SessionStore interface {
 	ListSessions(ctx context.Context) ([]domain.Session, error)
 	GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error)
 	RenameSession(ctx context.Context, id domain.SessionID, title string) error
+	UpdateSandboxPolicy(ctx context.Context, id domain.SessionID, mode domain.SandboxMode, policy domain.ApprovalPolicy) error
 	DeleteSession(ctx context.Context, id domain.SessionID) error
 }
 

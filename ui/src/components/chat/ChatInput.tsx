@@ -7,6 +7,11 @@ import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import type { PermissionPreset } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
@@ -53,15 +58,22 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const [notice, setNotice] = useState<string | null>(null);
   const [execMode, setExecMode] = useState<ExecMode>('agent');
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('auto');
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('smart');
   const [recording, setRecording] = useState(false);
+  const [confirmTrusted, setConfirmTrusted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
   const openSessionDrawer = useVivyStore((state) => state.setSessionDrawerOpen);
   const pendingReviewCount = useVivyStore((state) => state.reviews.filter((review) => review.status === 'pending').length);
+  const activeSessionId = useVivyStore((state) => state.activeSessionId);
+  const sessions = useVivyStore((state) => state.sessions);
+  const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
+  const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
   const { t } = useTranslation();
+  const activeSession = sessions.find((session) => session.id === activeSessionId);
+  const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
+  const permissionBusy = sessionBusyId === activeSessionId;
   const draftBytes = TEXT_ENCODER.encode(value).length;
   const usedContextBytes = contextBytes + draftBytes;
   const contextRatio = Math.min(1, usedContextBytes / ESTIMATED_CONTEXT_LIMIT_BYTES);
@@ -70,7 +82,8 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const contextColor = contextPercent >= 80 ? 'text-destructive' : contextPercent >= 60 ? 'text-amber-500' : 'text-primary';
   const execModeOption = MODES.find((mode) => mode.value === execMode)!;
   const thinkingModeOption = THINKING_MODES.find((mode) => mode.value === thinkingMode)!;
-  const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionMode)!;
+  const permissionModeOption = PERMISSION_MODES.find((mode) => mode.value === permissionPreset) ?? PERMISSION_MODES[1];
+  const permissionLocked = Boolean(running) || permissionBusy || !activeSessionId;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -91,6 +104,24 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
     if (!content || disabled || running) return;
     await onSend(content);
     setValue('');
+  };
+
+  const applyPermission = async (preset: PermissionMode) => {
+    if (!activeSessionId || permissionLocked || preset === permissionPreset) return;
+    try {
+      await setSessionPermission(activeSessionId, preset);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : t('chatInput.permissionSwitchFailed'));
+    }
+  };
+
+  const choosePermission = (preset: PermissionMode) => {
+    if (permissionLocked || preset === permissionPreset) return;
+    if (preset === 'trusted') {
+      setConfirmTrusted(true);
+      return;
+    }
+    void applyPermission(preset);
   };
 
   return <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:p-4 sm:pb-4"><div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card shadow-sm">
@@ -161,9 +192,9 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
       {/* 权限模式选择 */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors hover:bg-accent">
+          <button type="button" disabled={permissionLocked} title={running ? t('chatInput.permissionLocked') : t(permissionModeOption.desc)} className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50">
             <permissionModeOption.icon className="h-3.5 w-3.5" />
-            <span>{t(permissionModeOption.label)}</span>
+            <span>{permissionPreset === 'custom' ? t('chatInput.permissionCustom') : t(permissionModeOption.label)}</span>
             <ChevronDown className="h-3 w-3" />
           </button>
         </DropdownMenuTrigger>
@@ -171,15 +202,16 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
           {PERMISSION_MODES.map((mode) => (
             <DropdownMenuItem
               key={mode.value}
-              onSelect={() => setPermissionMode(mode.value)}
-              className={cn('gap-2.5 py-2', permissionMode === mode.value && 'bg-accent text-accent-foreground')}
+              disabled={permissionLocked}
+              onSelect={() => choosePermission(mode.value)}
+              className={cn('gap-2.5 py-2', permissionPreset === mode.value && 'bg-accent text-accent-foreground')}
             >
               <mode.icon className="size-4 shrink-0" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold">{t(mode.label)}</span>
                 <span className="block text-xs text-muted-foreground">{t(mode.desc)}</span>
               </span>
-              {permissionMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
+              {permissionPreset === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -193,5 +225,18 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
     </div>
     <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={placeholder || t('chatInput.placeholder')} disabled={disabled || running} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
     <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={t('chatInput.contextTitle', { percent: contextPercent, used: usedContextBytes.toLocaleString(), limit: ESTIMATED_CONTEXT_LIMIT_BYTES.toLocaleString() })}><div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedContextBytes, limit: ESTIMATED_CONTEXT_LIMIT_BYTES })} className="relative h-7 w-7"><svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg></div><span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span></div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button><button type="button" aria-pressed={recording} onClick={() => { setRecording((current) => !current); showNotice(recording ? t('chatInput.voiceStopped') : t('chatInput.voiceStarted')); }} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.voice')} aria-label={t('chatInput.voice')}><Mic className="h-4 w-4" /></button>{running ? <Button size="icon" variant="destructive" className="rounded-full" onClick={() => void onCancel?.()} disabled={disabled} title={t('chatInput.cancelRun')} aria-label={t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button> : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
-  </div></div>;
+  </div>
+    <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('chatInput.trustedConfirmTitle')}</AlertDialogTitle>
+          <AlertDialogDescription>{t('chatInput.trustedConfirmDescription')}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => { setConfirmTrusted(false); void applyPermission('trusted'); }}>{t('chatInput.trustedConfirm')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </div>;
 }

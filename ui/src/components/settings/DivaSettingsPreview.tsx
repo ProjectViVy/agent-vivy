@@ -5,7 +5,6 @@ import {
   Bot,
   FlaskConical,
   RadioTower,
-  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
@@ -31,8 +30,6 @@ type ChatPreviewPrefs = {
 };
 
 type EvolutionFrequency = 'daily' | 'weekly' | 'manual';
-type SandboxMode = 'danger_full_access' | 'workspace_write' | 'read_only';
-type ApprovalPolicy = 'never' | 'on_failure' | 'on_request' | 'unless_trusted';
 
 function usePreviewFeedback() {
   const [feedback, setFeedback] = useState('控件只改变当前页面的临时预览，不会写入运行配置。');
@@ -245,39 +242,10 @@ function SelfEvolutionPreview() {
   );
 }
 
-function SandboxPreview() {
-  const [mode, setMode] = useState<SandboxMode>('workspace_write');
-  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy>('on_request');
-  const [networkAccess, setNetworkAccess] = useState(false);
-  const [timeout, setTimeoutValue] = useState(120);
-  const [denyPatterns, setDenyPatterns] = useState('**/.env\n**/secrets/**');
-  const { feedback, notify } = usePreviewFeedback();
-
-  return (
-    <PreviewFrame icon={ShieldCheck} title="沙箱策略" description="预览运行权限、审批策略、路径范围和拒绝规则。" feedback={feedback}>
-      <PreviewCard title="核心策略" description="策略切换不会改变真实工具调用权限。">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="preview-sandbox-mode">沙箱模式</Label><Select value={mode} onValueChange={(value: SandboxMode) => { setMode(value); notify('沙箱模式预览已更新。'); }}><SelectTrigger id="preview-sandbox-mode"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="danger_full_access">完全访问</SelectItem><SelectItem value="workspace_write">仅工作区可写</SelectItem><SelectItem value="read_only">只读</SelectItem></SelectContent></Select></div>
-          <div className="space-y-2"><Label htmlFor="preview-sandbox-approval">审批策略</Label><Select value={approvalPolicy} onValueChange={(value: ApprovalPolicy) => { setApprovalPolicy(value); notify('审批策略预览已更新。'); }}><SelectTrigger id="preview-sandbox-approval"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="never">从不审批</SelectItem><SelectItem value="on_failure">失败时审批</SelectItem><SelectItem value="on_request">请求时审批</SelectItem><SelectItem value="unless_trusted">非可信操作审批</SelectItem></SelectContent></Select></div>
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2"><ToggleRow title="允许网络访问" checked={networkAccess} onCheckedChange={(checked) => { setNetworkAccess(checked); notify('网络访问预览已更新。'); }} /><div className="space-y-2"><Label htmlFor="preview-sandbox-timeout">工具超时（秒）</Label><Input id="preview-sandbox-timeout" type="number" min={1} value={timeout} onChange={(event) => { setTimeoutValue(Math.max(1, Number(event.target.value) || 1)); notify('工具超时预览已更新。'); }} /></div></div>
-      </PreviewCard>
-      <PreviewCard title="路径与命令规则" description="列表是迁移示例，不提供真实文件选择或删除操作。">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div><p className="mb-2 text-sm font-medium">可写目录</p><div className="flex flex-wrap gap-2"><Badge variant="outline">workspace/</Badge><Badge variant="outline">tmp/</Badge></div></div>
-          <div><p className="mb-2 text-sm font-medium">保护路径</p><div className="flex flex-wrap gap-2"><Badge variant="outline">data/vivy.db</Badge><Badge variant="outline">config.yaml</Badge></div></div>
-        </div>
-        <div className="mt-4 space-y-2"><Label htmlFor="preview-sandbox-deny">拒绝模式</Label><Textarea id="preview-sandbox-deny" rows={3} value={denyPatterns} onChange={(event) => { setDenyPatterns(event.target.value); notify('拒绝模式预览已更新。'); }} /></div>
-      </PreviewCard>
-    </PreviewFrame>
-  );
-}
-
 export function DivaSettingsPreview({ section }: { section: DivaPreviewSection }) {
   switch (section) {
     case 'general':
       return <GeneralPreview />;
     case 'self-evolution': return <SelfEvolutionPreview />;
-    case 'sandbox': return <SandboxPreview />;
   }
 }

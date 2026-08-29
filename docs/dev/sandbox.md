@@ -100,27 +100,45 @@ Pending approvals automatically expire after the configured timeout:
 - Domain whitelist restricts outbound connections
 - DNS lookups are performed to validate IP addresses
 
+## Permission presets
+
+Chat and Settings switch three named bundles. The runtime still enforces
+sandbox mode and approval policy independently.
+
+| UI | preset | sandbox_mode | approval_policy |
+|---|---|---|---|
+| 谨慎 | `cautious` | `read_only` | `ask` |
+| 智能 | `smart` | `workspace_write` | `ask` |
+| 信任 | `trusted` | `danger_full_access` | `auto` |
+
+Settings → 沙箱 writes the default for **new sessions**. The chat selector
+writes the **current session** via `session/set_permission`. An in-flight run
+keeps the knobs captured at `turn/start`.
+
+`danger_full_access` still cannot leave the per-run workspace allocated by
+`WorkspaceManager`. It relaxes the command allowlist and auto-approves
+readonly / allowlisted tools.
+
 ## API Usage
 
-### Switching Sandbox Mode (Future)
-```go
-// Service layer will expose:
-svc.SetSandboxMode(ctx, sessionID, domain.SandboxModeWorkspaceWrite)
+### Switching a session
+
+```text
+session/set_permission { session_id, preset: cautious|smart|trusted }
 ```
 
 ### Checking Permissions
 ```go
-// In tool adapters:
-if err := sandbox.ValidatePath(path, FileOpWrite); err != nil {
+if err := sandbox.ValidatePathWithMode(path, FileOpWrite, sandboxMode(ctx)); err != nil {
     return fmt.Errorf("sandbox denied: %w", err)
 }
 ```
 
 ## Implementation Details
 
-- **SandboxManager**: Core validation engine (immutable, thread-safe)
+- **SandboxManager**: path / command / network checks; default mode and network policy can be updated from the settings overlay; each tool call may pass an explicit session mode
 - **ApprovalScheduler**: Background expiry scanner (10s interval)
-- **PolicyEngine**: Evaluates tool calls against policy rules
+- **PolicyEngine.EvaluateApprovalPolicy**: ask / never / auto, applied after governance profile
 - **Database**: Stores sandbox mode and approval policy per session/approval
 
 ## Migration from Previous Versions
