@@ -37,6 +37,7 @@ const (
 	EventChildCompleted        EventType = "child.completed"
 	EventChildFailed           EventType = "child.failed"
 	EventChildCancelled        EventType = "child.cancelled"
+	EventContextCompacted      EventType = "context.compacted"
 	EventRunCompleted          EventType = "run.completed"
 	EventRunFailed             EventType = "run.failed"
 	EventRunCancelled          EventType = "run.cancelled"
@@ -75,6 +76,7 @@ var EventTypes = []EventType{
 	EventChildCompleted,
 	EventChildFailed,
 	EventChildCancelled,
+	EventContextCompacted,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,

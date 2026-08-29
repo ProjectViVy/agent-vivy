@@ -205,21 +205,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	policy := policyEngine(cfg)
 	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout)
-	engineCfg := runtime.EngineConfig{
-		StreamBuffer:         cfg.Runtime.StreamBuffer,
-		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
-		MaxToolTurns:         cfg.Runtime.MaxToolTurns,
-		MaxContextBytes:      cfg.Runtime.MaxContextBytes,
-		MaxHistoryMessages:   cfg.Runtime.MaxHistoryMessages,
-		MaxToolResultBytes:   cfg.Runtime.MaxToolResultBytes,
-		Checkpoints:          checkpoints,
-		Policy:               policy,
-		ToolHooks:            hooks,
-		AutoApproveTools:     cfg.Runtime.Sandbox.Approval.AutoApproveTools,
+	// Resolve the effective context-compression policy against the model's
+	// context window (settings overlay already folded into cfg at startup).
+	modelWindow := 0
+	if info, infoErr := catalog.ResolveModelInfo(ctx, providerName, modelID); infoErr == nil {
+		modelWindow = info.ContextWindow
 	}
-	if skillBackend != nil {
-		engineCfg.SkillBackend = skillBackend
-	}
+	cmp := compactionPolicyFor(cfg, nil, modelWindow)
+	engineCfg := buildEngineConfig(cfg, skillBackend, checkpoints, policy, hooks, &cmp)
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
 	if err != nil {
 		_ = backend.Close()
@@ -244,6 +237,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
 		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
 		Sink:                 bus,
+		Compactions:          backend,
+		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
+			return runtime.NewEngine(ctx, chatModel, ts, ec)
+		},
 	})
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
@@ -304,6 +301,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		ExecuteAllowedCommands:         append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
 		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
 		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
+		ConfigCompaction:               cmp,
 		// Write-time env apply: a settings/providers save updates the
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
@@ -331,6 +329,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 				return
 			}
 			mcpBackend.ReplaceServers(liveMCPConfigs(cfg, s))
+			// Compaction live-apply: rebuild the engine (reduction +
+			// summarization middleware) only when the effective policy
+			// changed. The rebuild lands immediately when idle, otherwise
+			// at the next idle run start.
+			window := svc.GetModelInfo(context.Background()).ContextWindow
+			cmp := compactionPolicyFor(cfg, s.Compaction, window)
+			if !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
+				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, checkpoints, policy, hooks, &cmp)); err != nil {
+					logger.Warn("compaction engine reload failed", "err", err)
+				}
+			}
 		},
 	})
 	if err != nil {
@@ -488,7 +497,8 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 	if s.Sandbox.Network.AllowedDomains != nil {
 		cfg.Runtime.Sandbox.Network.AllowedDomains = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
 	}
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers))
+	cfg.Runtime.Compaction = mergedCompactionConfig(cfg.Runtime.Compaction, s.Compaction)
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled)
 	return cfg
 }
 

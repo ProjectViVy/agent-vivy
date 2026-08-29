@@ -70,11 +70,33 @@ func TestLoadValid(t *testing.T) {
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
 		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != filepath.Join(userDataRoot(), "workspace") ||
-		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 {
+		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 ||
+		cfg.Runtime.Compaction != (CompactionConfig{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12}) {
 		t.Errorf("runtime = %+v", cfg.Runtime)
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {
 		t.Errorf("expiration = %v, want 2m", cfg.Tools.Approval.Expiration)
+	}
+}
+
+func TestCompactionConfigDefaultsAndValidation(t *testing.T) {
+	cfg := Default()
+	if !cfg.Runtime.Compaction.Enabled || cfg.Runtime.Compaction.MaxTokens != 0 ||
+		cfg.Runtime.Compaction.TriggerPercent != 80 || cfg.Runtime.Compaction.KeepRecent != 12 {
+		t.Fatalf("default compaction = %+v", cfg.Runtime.Compaction)
+	}
+	bad := []CompactionConfig{
+		{Enabled: true, MaxTokens: -1, TriggerPercent: 80, KeepRecent: 12},
+		{Enabled: true, MaxTokens: 0, TriggerPercent: 0, KeepRecent: 12},
+		{Enabled: true, MaxTokens: 0, TriggerPercent: 101, KeepRecent: 12},
+		{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 0},
+	}
+	for i, c := range bad {
+		next := cfg
+		next.Runtime.Compaction = c
+		if err := next.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error for %+v", i, c)
+		}
 	}
 }
 

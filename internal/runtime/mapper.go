@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
@@ -91,6 +92,12 @@ func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
 		m.interrupt = m.extractInterrupt(ev.Action.Interrupted)
 		return nil, errRunInterrupted
 	}
+	// Middleware-internal customized actions (e.g. the Eino summarization
+	// middleware's generate_summary events) carry no assistant output; only
+	// the ones carrying provider usage are mapped.
+	if ev.Action != nil && ev.Action.CustomizedAction != nil {
+		return m.onCustomizedAction(ev.Action.CustomizedAction)
+	}
 	if ev.Output == nil || ev.Output.MessageOutput == nil {
 		return nil, nil
 	}
@@ -166,6 +173,22 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 		out = append(out, m.toolCallEvents(callsMsg)...)
 	}
 	return out, nil
+}
+
+// onCustomizedAction maps middleware-internal customized actions. Only the
+// Eino summarization middleware's generate_summary events matter: they carry
+// the real token usage of the hidden summary provider call, so the run
+// accounts it like any other model.usage. Everything else is silent.
+func (m *eventMapper) onCustomizedAction(action any) ([]domain.RunEvent, error) {
+	ca, ok := action.(*summarization.CustomizedAction)
+	if !ok || ca.Type != summarization.ActionTypeGenerateSummary || ca.GenerateSummary == nil {
+		return nil, nil
+	}
+	resp := ca.GenerateSummary.ModelResponse
+	if resp == nil || resp.ResponseMeta == nil || resp.ResponseMeta.Usage == nil {
+		return nil, nil
+	}
+	return []domain.RunEvent{m.usageEvent(resp.ResponseMeta.Usage)}, nil
 }
 
 func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message]) ([]domain.RunEvent, error) {

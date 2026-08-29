@@ -40,6 +40,8 @@ interface RuntimeState {
   messages: api.Message[];
   messagesPhase: Phase;
   messagesError: string | null;
+  /** session/context —— 聊天环与设置压缩卡的真实上下文压力。 */
+  sessionContext: api.SessionContext | null;
   todos: api.Todo[];
   todosPhase: Phase;
   todosError: string | null;
@@ -104,6 +106,8 @@ interface RuntimeState {
   setTodoPanelOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
+  loadSessionContext: (sessionId?: string) => Promise<void>;
+  compactSession: (sessionId: string) => Promise<api.CompactResult>;
   loadProviders: () => Promise<void>;
   saveProvider: (input: api.ProviderEntryInput) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
@@ -134,6 +138,7 @@ async function refreshAfterTerminal(runId: string): Promise<void> {
       useVivyStore.setState({ runError: t('errors.refreshAfterRunFailed', { error: errorMessage(error) }) });
     }
   }
+  if (sessionId) void loadContextIntoStore(sessionId);
   await Promise.all([state.loadBackgroundRuns(), state.loadChildren(runId), state.loadReviews(), state.loadTodos()]);
   if (messagesRefreshed && useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ streamingText: '', streamingReasoning: '' });
 }
@@ -154,6 +159,7 @@ function handleRunEvent(event: RunEvent): void {
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
   else if (event.type.includes('approval') || event.type.includes('question')) void state.loadReviews();
   else if (event.type === 'tool.finished' && isTaskToolName(event.payload.tool_name)) void state.loadTodos();
+  else if (event.type === 'context.compacted' && state.activeSessionId) void loadContextIntoStore(state.activeSessionId);
   useVivyStore.setState(update);
 }
 
@@ -172,6 +178,16 @@ async function loadMessagesIntoStore(sessionId: string, epoch: number): Promise<
   return result.messages;
 }
 
+async function loadContextIntoStore(sessionId: string): Promise<void> {
+  try {
+    const context = await api.getSessionContext(sessionId);
+    if (useVivyStore.getState().activeSessionId === sessionId) useVivyStore.setState({ sessionContext: context });
+  } catch {
+    // non-fatal: the chat ring falls back to hidden while the backend is
+    // unreachable; the next run or terminal refresh retries.
+  }
+}
+
 async function loadTodosIntoStore(sessionId: string, epoch: number): Promise<void> {
   const result = await api.listTodos(sessionId);
   const state = useVivyStore.getState();
@@ -182,7 +198,7 @@ async function loadTodosIntoStore(sessionId: string, epoch: number): Promise<voi
 export const useVivyStore = create<RuntimeState>((set, get) => ({
   initialized: false, initializationError: null, capabilities: [], connection: 'idle',
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
-  messages: [], messagesPhase: 'idle', messagesError: null,
+  messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
   currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
@@ -235,6 +251,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       messages: [],
       messagesPhase: 'idle',
       messagesError: null,
+      sessionContext: null,
       todos: [],
       todosPhase: 'idle',
       todosError: null,
@@ -277,7 +294,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], children: [] });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], children: [] });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -286,11 +303,12 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
     stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, children: [], selectedChild: null });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, children: [], selectedChild: null });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
       })]);
+      void loadContextIntoStore(id);
       const background = await api.listBackgroundRuns();
       if (epoch !== sessionEpoch || get().activeSessionId !== id) return;
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
@@ -380,6 +398,12 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   setSessionDrawerOpen: (open) => set({ sessionDrawerOpen: open }),
   loadSettings: async () => { set({ settingsPhase: 'loading', settingsError: null }); try { set({ settings: await api.getSettings(), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); } },
   saveSettings: async (value) => { set({ settingsPhase: 'processing', settingsError: null }); try { set({ settings: await api.updateSettings(value), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); throw error; } },
+  loadSessionContext: async (sessionId = get().activeSessionId ?? undefined) => { if (sessionId) await loadContextIntoStore(sessionId); },
+  compactSession: async (sessionId) => {
+    const result = await api.compactSession(sessionId);
+    await loadContextIntoStore(sessionId);
+    return result;
+  },
   loadProviders: async () => { set({ providersPhase: 'loading', providersError: null }); try { const view = await api.listProviders(); set({ providers: view.entries, providersPhase: 'ready' }); } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); } },
   saveProvider: async (input) => {
     set({ providersPhase: 'processing', providersError: null });

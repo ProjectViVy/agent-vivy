@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/context.compacted.json",
+  "title": "context.compacted payload (v1)",
+  "description": "One context compression event. Carries numbers only — never transcript or summary content (D-010). mode is reduction, summarization, or session.",
+  "type": "object",
+  "properties": {
+    "mode": { "type": "string", "enum": ["reduction", "summarization", "session"] },
+    "before_tokens": { "type": "integer", "minimum": 0 },
+    "after_tokens": { "type": "integer", "minimum": 0 },
+    "dropped_messages": { "type": "integer", "minimum": 0 },
+    "retention_suffix": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["mode", "before_tokens", "after_tokens"],
+  "additionalProperties": false
+}

@@ -1256,3 +1256,95 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 		t.Fatalf("skills capabilities not advertised: %s", raw)
 	}
 }
+
+// TestContextCompactionRPC covers the real surface end to end: compaction
+// settings persist via settings/update and round-trip through settings/get
+// with config fallbacks; session/context reports real pressure; context/compact
+// performs one durable session compaction.
+func TestContextCompactionRPC(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "compaction.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 1 << 20,
+		Compaction: &runtime.CompactionPolicy{Enabled: true, MaxTokens: 128000, TriggerPercent: 80, KeepRecent: 12},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus(8)
+	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus, Compactions: backend,
+	})
+	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
+	handler, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio:                         studio.NewService(backend),
+		SettingsPath:                   settingsPath,
+		ConfigProvider:                 "openai",
+		ConfigModel:                    "gpt-4o-mini",
+		ConfigNetworkSearchProvider:    "duckduckgo",
+		ConfigCompaction:               runtime.CompactionPolicy{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12},
+		ConfigExecuteMaxTimeoutSeconds: 30,
+		DefaultPermissionPreset:        domain.PermissionPresetSmart,
+		ConfigSandboxDenyPrivateIPs:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// settings/update persists the compaction overlay.
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"compaction": map[string]any{"enabled": true, "max_tokens": 65536, "trigger_percent": 60, "keep_recent": 4},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get, rpcErr := callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	res := get.(settingsResult)
+	if res.Compaction.MaxTokens != 65536 || res.Compaction.TriggerPercent != 60 || res.Compaction.KeepRecent != 4 {
+		t.Fatalf("compaction view = %+v, want overlay values", res.Compaction)
+	}
+	if res.Compaction.ConfigMaxTokens != 0 || res.Compaction.ConfigTriggerPercent != 80 {
+		t.Fatalf("compaction config fallbacks = %+v", res.Compaction)
+	}
+	// The persisted document is merge-shaped: provider selection survives.
+	saved, err := settings.Load(settingsPath)
+	if err != nil || saved.Compaction == nil || saved.Compaction.MaxTokens != 65536 {
+		t.Fatalf("persisted compaction = %+v err=%v", saved.Compaction, err)
+	}
+
+	// session/context works for any session id, even one without messages.
+	created, rpcErr := callControl(t, handler, "session/create", map[string]any{"title": "ctx"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	sessionID := created.(sessionResult).ID
+	status, rpcErr := callControl(t, handler, "session/context", map[string]any{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	sc := status.(runtime.ContextStatusResult)
+	if sc.SessionID != sessionID || sc.ModelLimitTokens <= 0 || sc.TriggerTokens <= 0 {
+		t.Fatalf("session context = %+v", sc)
+	}
+
+	// context/compact on an empty session reports nothing to do.
+	compactResult, rpcErr := callControl(t, handler, "context/compact", map[string]any{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatalf("compact empty session: %v", rpcErr)
+	}
+	if !compactResult.(runtime.CompactionResult).Skipped {
+		t.Fatalf("expected skipped compaction for empty session, got %+v", compactResult)
+	}
+}

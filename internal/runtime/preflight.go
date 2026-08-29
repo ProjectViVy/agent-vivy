@@ -70,7 +70,7 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 		result.Blockers = []string{"text must not be empty"}
 		return result, nil
 	}
-	_, selection, stats, err := s.runMessages(ctx, sessionID, userText)
+	_, selection, stats, err := s.runMessages(ctx, sessionID, userText, s.engine)
 	result.ContextBytes = stats.Bytes
 	result.SelectedTools = selection.Names()
 	if err != nil {

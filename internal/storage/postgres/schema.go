@@ -1,8 +1,8 @@
 package postgres
 
-// schemaV13 is the current logical Journal schema (SQLite migration 13).
+// schemaV14 is the current logical Journal schema (SQLite migration 15.
 // Postgres bootstraps here in one step; later versions increment both engines.
-const schemaV13 = `
+const schemaV14 = `
 CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
 	title TEXT NOT NULL,
@@ -198,4 +198,16 @@ CREATE TABLE studio_events (
 );
 
 CREATE INDEX run_events_type_created_idx ON run_events(type, created_at);
+
+CREATE TABLE session_compactions (
+	session_id TEXT NOT NULL,
+	run_id TEXT NOT NULL,
+	summary BYTEA NOT NULL,
+	tail_from BIGINT NOT NULL,
+	dropped_count BIGINT NOT NULL,
+	created_at BIGINT NOT NULL,
+	PRIMARY KEY(session_id, created_at, run_id),
+	FOREIGN KEY(session_id) REFERENCES sessions(id)
+);
+CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, created_at DESC);
 `

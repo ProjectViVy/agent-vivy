@@ -277,6 +277,30 @@ type TodoStore interface {
 	UpdateTodo(context.Context, domain.Todo) error
 }
 
+// SessionCompaction is one durable session-level context-compression record.
+// The journal message log stays the append-only source of truth; this
+// projection tells the feed builder which stored rows (CreatedAt <= TailFrom)
+// were folded into Summary and what text replaces them. The summary text is
+// treated as untrusted generated content (it enters the model feed).
+type SessionCompaction struct {
+	SessionID    domain.SessionID
+	RunID        domain.RunID
+	Summary      string
+	TailFrom     int64 // unix milli; feed rows with CreatedAt <= TailFrom are folded
+	DroppedCount int
+	CreatedAt    int64
+}
+
+// CompactionStore persists session-level compaction records. Nil stores (or
+// a missing backend) keep automatic in-run compression working; only the
+// durable summary folding and manual context/compact are disabled.
+type CompactionStore interface {
+	SaveSessionCompaction(ctx context.Context, c SessionCompaction) error
+	// LatestSessionCompaction returns the newest record for the session;
+	// ok=false when none exists.
+	LatestSessionCompaction(ctx context.Context, sessionID domain.SessionID) (SessionCompaction, bool, error)
+}
+
 // Engine is one organism's durable store. App composition talks to this
 // surface; SQLite remains the default implementation.
 type Engine interface {
@@ -293,6 +317,7 @@ type Engine interface {
 	ReviewStore
 	SkillRevisionStore
 	TodoStore
+	CompactionStore
 	StudioStore
 	TokenUsageStore
 	LeaseStore

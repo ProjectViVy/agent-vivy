@@ -8,7 +8,6 @@ import {
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -126,13 +125,7 @@ function GeneralPreview() {
     showRawMetaByDefault: false,
   });
   const [cacheCleared, setCacheCleared] = useState(false);
-  // 压缩配置随「压缩」分区移除，并入通用分区（DivaSettingsPreview 的 GeneralPreview）。
-  const [maxTokens, setMaxTokens] = useState(8192);
-  const [thresholdPercent, setThresholdPercent] = useState(80);
-  const [keepRecent, setKeepRecent] = useState(12);
-  const [historyTokens, setHistoryTokens] = useState(6340);
-  const pressure = Math.min(100, Math.round((historyTokens / Math.max(1, maxTokens)) * 100));
-  const shouldCompact = pressure >= thresholdPercent;
+  // 压缩配置已毕业为真实设置：CompactionSettingsCard（SettingsView → 通用）。
   const { feedback, notify } = usePreviewFeedback();
 
   const updatePref = (key: keyof ChatPreviewPrefs, value: boolean) => {
@@ -176,16 +169,8 @@ function GeneralPreview() {
         </div>
       </PreviewCard>
 
-      <PreviewCard title="上下文压缩" description="预览历史消息预算、阈值和手动压缩入口，调整只影响本页预览，不写入运行配置。">
-        <div className="flex items-center justify-between text-sm"><span>历史消息占用</span><span className="font-medium">{historyTokens.toLocaleString()} / {maxTokens.toLocaleString()} tokens</span></div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all ${shouldCompact ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} /></div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground"><Badge variant={shouldCompact ? 'secondary' : 'outline'}>{pressure}% 压力</Badge><span>{shouldCompact ? '达到压缩阈值' : '暂不需要压缩'}</span></div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2"><Label htmlFor="preview-compaction-max">最大 tokens</Label><Input id="preview-compaction-max" type="number" min={1} value={maxTokens} onChange={(event) => { setMaxTokens(Math.max(1, Number(event.target.value) || 1)); notify('最大 tokens 预览已更新。'); }} /></div>
-          <div className="space-y-2"><Label htmlFor="preview-compaction-threshold">压缩阈值 (%)</Label><Input id="preview-compaction-threshold" type="number" min={10} max={100} value={thresholdPercent} onChange={(event) => { setThresholdPercent(Math.min(100, Math.max(10, Number(event.target.value) || 10))); notify('压缩阈值预览已更新。'); }} /></div>
-          <div className="space-y-2"><Label htmlFor="preview-compaction-recent">保留最近消息</Label><Input id="preview-compaction-recent" type="number" min={1} value={keepRecent} onChange={(event) => { setKeepRecent(Math.max(1, Number(event.target.value) || 1)); notify('保留消息数预览已更新。'); }} /></div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="button" onClick={() => { setHistoryTokens(keepRecent * 240); notify('已模拟执行一次上下文压缩预览。'); }}>执行压缩预览</Button><Button type="button" variant="outline" onClick={() => { setMaxTokens(8192); setThresholdPercent(80); setKeepRecent(12); setHistoryTokens(6340); notify('压缩配置已恢复为预览默认值。'); }}>恢复预览默认值</Button></div>
+      <PreviewCard title="上下文压缩（已毕业为真实设置）" description="压缩配置已在「通用」页顶部真实生效（settings.yaml + 运行引擎），此处仅保留说明占位。">
+        <p className="text-sm text-muted-foreground">请使用上方「上下文压缩」卡片配置：启用开关、最大 tokens、压缩阈值与保留最近消息都会持久化并作用于每次运行的上下文压缩中间件（Eino reduction + summarization）。</p>
       </PreviewCard>
 
       <PreviewCard title="缓存与运行状态" description="用静态状态展示 DIVA 通用设置中的运行摘要。">

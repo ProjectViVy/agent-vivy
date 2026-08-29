@@ -70,6 +70,11 @@ const (
 	defaultMaxModelCalls      = 32
 	defaultMaxRunToolCalls    = 64
 	defaultMaxRunRetries      = 3
+	// defaultCompactionMaxTokens = 0 means "derive from the model's context
+	// window"; the runtime falls back to 128000 when the window is unknown.
+	defaultCompactionMaxTokens  = 0
+	defaultCompactionTriggerPct = 80
+	defaultCompactionKeepRecent = 12
 )
 
 // Config is the typed, validated configuration store.
@@ -177,8 +182,41 @@ type Runtime struct {
 	// such as go test or git clone; values above the runtime hard cap are
 	// rejected so a typo cannot silently re-clamp the ceiling.
 	ExecuteMaxTimeoutSeconds int `yaml:"execute_max_timeout_seconds"`
+	// Compaction controls automatic context compression (Eino native
+	// reduction + summarization middlewares).
+	Compaction CompactionConfig `yaml:"compaction"`
 	// Sandbox controls the file-effect policy boundary (D-021).
 	Sandbox SandboxConfig `yaml:"sandbox"`
+}
+
+// CompactionConfig is the operator default for context compression. Zero
+// values keep the safe defaults (except TriggerPercent/KeepRecent which have
+// explicit bounds). The settings overlay (settings.yaml compaction) can
+// override these per user.
+type CompactionConfig struct {
+	// Enabled turns the automatic in-run compression middlewares on.
+	// Defaults to true.
+	Enabled bool `yaml:"enabled"`
+	// MaxTokens is the model context window cap used for the trigger
+	// calculation and the UI meter. Zero means "use the provider's
+	// ContextWindow metadata or 128000 when unknown".
+	MaxTokens int `yaml:"max_tokens"`
+	// TriggerPercent is the percentage of MaxTokens at which compression
+	// triggers. 1..100; default 80.
+	TriggerPercent int `yaml:"trigger_percent"`
+	// KeepRecent is how many most-recent tool-call rounds the deterministic
+	// reduction layer retains verbatim. >= 1; default 12.
+	KeepRecent int `yaml:"keep_recent"`
+}
+
+// DefaultCompactionConfig returns the safe built-in compaction defaults.
+func DefaultCompactionConfig() CompactionConfig {
+	return CompactionConfig{
+		Enabled:        true,
+		MaxTokens:      defaultCompactionMaxTokens,
+		TriggerPercent: defaultCompactionTriggerPct,
+		KeepRecent:     defaultCompactionKeepRecent,
+	}
 }
 
 type MCPServer struct {
@@ -333,6 +371,7 @@ func Default() Config {
 			HTTPMaxResponseBytes:     1 << 20,
 			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
 			ExecuteMaxTimeoutSeconds: 30,
+			Compaction:               DefaultCompactionConfig(),
 			Sandbox: SandboxConfig{
 				DefaultMode:   "workspace_write",
 				WorkspaceRoot: "",
@@ -485,6 +524,15 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.ExecuteMaxTimeoutSeconds <= 0 || c.Runtime.ExecuteMaxTimeoutSeconds > maxExecuteTimeoutSeconds {
 		return fmt.Errorf("runtime.execute_max_timeout_seconds must be between 1 and %d seconds", maxExecuteTimeoutSeconds)
+	}
+	if c.Runtime.Compaction.MaxTokens < 0 {
+		return errors.New("runtime.compaction.max_tokens must not be negative")
+	}
+	if c.Runtime.Compaction.TriggerPercent < 1 || c.Runtime.Compaction.TriggerPercent > 100 {
+		return errors.New("runtime.compaction.trigger_percent must be between 1 and 100")
+	}
+	if c.Runtime.Compaction.KeepRecent < 1 {
+		return errors.New("runtime.compaction.keep_recent must be at least 1")
 	}
 	for i, server := range c.Runtime.MCPServers {
 		if server.Name == "" || server.Endpoint == "" {

@@ -179,6 +179,59 @@ func TestSaveAndLoadExecuteMaxTimeout(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadCompactionOverlay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	enabled := true
+	saved, err := Save(path, Settings{Compaction: &CompactionSettings{
+		Enabled: &enabled, MaxTokens: 200000, TriggerPercent: 70, KeepRecent: 8,
+	}})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, saved) || loaded.Compaction == nil ||
+		!*loaded.Compaction.Enabled || loaded.Compaction.MaxTokens != 200000 ||
+		loaded.Compaction.TriggerPercent != 70 || loaded.Compaction.KeepRecent != 8 {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+	if loaded.IsZero() {
+		t.Fatal("non-empty compaction overlay must not look zero")
+	}
+	// Zero fields inside a present overlay normalize to nil on load
+	// (config default stands).
+	if _, err := Save(path, Settings{Compaction: &CompactionSettings{}}); err != nil {
+		t.Fatalf("save empty overlay: %v", err)
+	}
+	zeroLoaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load empty overlay: %v", err)
+	}
+	if zeroLoaded.Compaction != nil {
+		t.Fatalf("empty compaction overlay should normalize to nil, got %+v", zeroLoaded.Compaction)
+	}
+}
+
+func TestValidateCompactionOverlayBounds(t *testing.T) {
+	enabled := true
+	valid := Settings{Compaction: &CompactionSettings{Enabled: &enabled, MaxTokens: 0, TriggerPercent: 0, KeepRecent: 0}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("zeros (config default) should validate: %v", err)
+	}
+	for _, bad := range []CompactionSettings{
+		{MaxTokens: -1},
+		{TriggerPercent: -1},
+		{TriggerPercent: 101},
+		{KeepRecent: -1},
+	} {
+		if err := (Settings{Compaction: &bad}).Validate(); err == nil {
+			t.Fatalf("expected error for %+v", bad)
+		}
+	}
+}
+
 func TestSaveAndLoadSandboxPreset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
 	deny := false
