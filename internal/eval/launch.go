@@ -102,7 +102,7 @@ func probe(ctx context.Context, layout Layout, executable string, timeout time.D
 
 	cmd := exec.CommandContext(probeCtx, executable)
 	cmd.Dir = layout.Root
-	cmd.Env = ChildEnv(layout.ConfigPath)
+	cmd.Env = ChildEnv(layout.ConfigPath, layout.Root)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {

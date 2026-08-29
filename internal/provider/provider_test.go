@@ -109,14 +109,13 @@ func TestOpenAIRefKeyMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load bundle: %v", err)
 	}
-	t.Setenv("OPENAI_API_KEY", "")
 
 	_, err = NewCatalog(b).For("openai")
 	if err != nil {
 		t.Fatalf("catalog openai: %v", err)
 	}
 	ref := newOpenAIRef(b)
-	_, err = ref.Model(context.Background(), "")
+	_, err = ref.Model(context.Background(), ModelSpec{})
 	var kme *KeyMissingError
 	if !errors.As(err, &kme) {
 		t.Fatalf("err = %v, want *KeyMissingError", err)
@@ -124,8 +123,8 @@ func TestOpenAIRefKeyMissing(t *testing.T) {
 	if kme.EnvKey != "OPENAI_API_KEY" || kme.Provider != "openai" {
 		t.Fatalf("structured error fields wrong: %+v", kme)
 	}
-	if !strings.Contains(err.Error(), "OPENAI_API_KEY") {
-		t.Fatalf("message must name the env variable: %q", err.Error())
+	if !strings.Contains(err.Error(), "Settings") {
+		t.Fatalf("message must point at settings: %q", err.Error())
 	}
 }
 
@@ -137,13 +136,12 @@ func TestOpenAIRefConstructsOffline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load bundle: %v", err)
 	}
-	t.Setenv("OPENAI_API_KEY", "sk-fake-offline-test")
 
 	ref, err := NewCatalog(b).For("openai")
 	if err != nil {
 		t.Fatalf("catalog openai: %v", err)
 	}
-	m, err := ref.Model(context.Background(), "")
+	m, err := ref.Model(context.Background(), ModelSpec{APIKey: "sk-fake-offline-test"})
 	if err != nil {
 		t.Fatalf("construct model: %v", err)
 	}
@@ -152,23 +150,25 @@ func TestOpenAIRefConstructsOffline(t *testing.T) {
 	}
 }
 
-// TestResolveAPIBase pins the gateway override: VIVY_API_BASE wins when
-// set, the bundle's default_api_base is the fallback (M4 smoke against
-// OpenAI-compatible gateways).
-func TestResolveAPIBase(t *testing.T) {
+func TestOpenAIRefUsesSpecNotEnv(t *testing.T) {
 	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
 	if err != nil {
 		t.Fatalf("load bundle: %v", err)
 	}
+	t.Setenv("OPENAI_API_KEY", "sk-from-env-must-not-win")
+	t.Setenv(APIBaseEnvVar, "https://env-gateway.example/v1")
 
-	t.Setenv(APIBaseEnvVar, "")
-	if got := resolveAPIBase(b); got != b.DefaultAPIBase {
-		t.Fatalf("base without override = %q, want bundle default %q", got, b.DefaultAPIBase)
+	ref := newOpenAIRef(b)
+	m, err := ref.Model(context.Background(), ModelSpec{
+		ID:      "gpt-4o-mini",
+		APIKey:  "sk-from-spec",
+		BaseURL: "https://spec-gateway.example/v1",
+	})
+	if err != nil {
+		t.Fatalf("construct model: %v", err)
 	}
-
-	t.Setenv(APIBaseEnvVar, "https://gateway.example/v1")
-	if got := resolveAPIBase(b); got != "https://gateway.example/v1" {
-		t.Fatalf("base with override = %q, want the override", got)
+	if m == nil {
+		t.Fatal("model must not be nil")
 	}
 }
 
@@ -192,17 +192,20 @@ func TestCatalogUnknownProvider(t *testing.T) {
 	}
 }
 
-// TestCatalogMockRef drives the mock through the Ref seam end to end,
-// which also exercises the provider-local domain->Eino bridge.
-func TestCatalogMockRef(t *testing.T) {
-	ref, err := NewCatalog().For("mock")
-	if err != nil {
-		t.Fatalf("catalog mock: %v", err)
+func TestCatalogRejectsMock(t *testing.T) {
+	if _, err := NewCatalog().For("mock"); err == nil {
+		t.Fatal("mock must not resolve as a product provider")
 	}
+}
+
+// TestMockRefDrivesEinoBridge keeps the test-only mock behind the Ref
+// seam so HITL scenario tests still exercise the provider-local bridge.
+func TestMockRefDrivesEinoBridge(t *testing.T) {
+	ref := newMockRef()
 	if ref.Name() != "mock" {
 		t.Fatalf("name = %q, want mock", ref.Name())
 	}
-	m, err := ref.Model(context.Background(), "")
+	m, err := ref.Model(context.Background(), ModelSpec{})
 	if err != nil {
 		t.Fatalf("mock model: %v", err)
 	}

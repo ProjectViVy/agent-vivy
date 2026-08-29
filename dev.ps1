@@ -114,9 +114,12 @@ try {
         }
     }
 
-    if (-not $env:VIVY_CONFIG -and -not $env:OPENAI_API_KEY -and -not $env:ANTHROPIC_API_KEY) {
+    if (-not $env:VIVY_USER_HOME) {
+        $env:VIVY_USER_HOME = Join-Path $root "data\dev-home"
+        Write-Host "VIVY_USER_HOME=$($env:VIVY_USER_HOME)"
+    }
+    if (-not $env:VIVY_CONFIG) {
         $env:VIVY_CONFIG = Join-Path $root "config.dev.yaml"
-        Write-Host "no provider API key; using config.dev.yaml (runtime.mock=true)"
     }
 
     Write-Host "starting backend 127.0.0.1:8787"

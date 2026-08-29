@@ -23,14 +23,16 @@ terminal 2: cd ui; pnpm dev   # Vite UI 127.0.0.1:3015, proxies /rpc
 ```
 
 Open `http://127.0.0.1:3015`. The backend owns the JSON-RPC control plane;
-Vite serves the UI and proxies `/rpc`. The embedded UI is still built and
+Vite serves the UI and proxies `/rpc`. `just dev` uses `VIVY_USER_HOME=data/dev-home`
+and does not fall back to a mock provider. The embedded UI is still built and
 checked by `just ci`. `just build-split` is the packaged headless-backend +
 standalone-UI path, not the edit loop.
 
 ## Air gap
 
-Do not read or write `data/vivy.db`, `data/demo/`, or `data/workspaces/`.
-Those are the tenant Journal. Studio's DSH home is `data/studio-home/`.
+Do not read or write `data/vivy.db`, `data/demo/`, `data/workspaces/`, or
+the operator's `~/.vivy`. Those are tenant / user workspaces. Studio's DSH
+home is `data/studio-home/`.
 
 ## Procedure
 

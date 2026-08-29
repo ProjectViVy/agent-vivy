@@ -18,22 +18,22 @@ const DIVA_HIDDEN_PROVIDER_NAMES = [
 ] as const;
 
 describe('provider catalog data', () => {
-  it('来自 Agent-Diva 注册表 47 家供应商，外加 vivy 本地 mock', () => {
-    expect(PROVIDER_CATALOG).toHaveLength(48);
+  it('来自 Agent-Diva 注册表 47 家供应商', () => {
+    expect(PROVIDER_CATALOG).toHaveLength(47);
     const names = PROVIDER_CATALOG.map((entry) => entry.name);
     expect(new Set(names).size).toBe(names.length);
-    for (const required of ['openai', 'anthropic', 'deepseek', 'custom', 'mock']) {
+    for (const required of ['openai', 'anthropic', 'deepseek', 'custom']) {
       expect(names).toContain(required);
     }
+    expect(names).not.toContain('mock');
   });
 
-  it('运行束名只取后端接受的 openai/anthropic/mock', () => {
+  it('运行束名只取后端接受的 openai/anthropic', () => {
     for (const entry of PROVIDER_CATALOG) {
-      expect(['openai', 'anthropic', 'mock']).toContain(entry.bundle);
+      expect(['openai', 'anthropic']).toContain(entry.bundle);
     }
     expect(findProvider('anthropic')?.bundle).toBe('anthropic');
     expect(findProvider('deepseek')?.bundle).toBe('openai');
-    expect(findProvider('mock')?.bundle).toBe('mock');
   });
 
   it('默认模型是原始 id：剥离网关前缀，custom 无推荐', () => {
@@ -91,7 +91,7 @@ describe('matchProviderEntry', () => {
 
   it('base_url 为空时回落到与运行束同名的规范条目', () => {
     expect(matchProviderEntry('openai', '')?.name).toBe('openai');
-    expect(matchProviderEntry('mock', '')?.name).toBe('mock');
+    expect(matchProviderEntry('anthropic', '')?.name).toBe('anthropic');
   });
 
   it('未知组合返回 undefined（自定义网关/未知束名走手工输入路径）', () => {

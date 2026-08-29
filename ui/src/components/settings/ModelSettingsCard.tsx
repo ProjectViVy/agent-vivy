@@ -39,6 +39,7 @@ import {
   useSavedModels,
   type SavedModelEntry,
 } from './saved-models';
+import { settingsUpdateFrom } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
@@ -58,7 +59,7 @@ function providerView(entry: ProviderEntry): CustomProviderPreset & { id: string
   };
 }
 
-/** 目录条目 bundle 收窄到注册束（openai/anthropic；mock 为内置离线束不可克隆）。 */
+/** 目录条目 bundle 收窄到注册束（openai/anthropic）。 */
 function asRegistryBundle(bundle: ProviderRuntimeBundle): ProviderRegistryBundle {
   if (bundle === 'openai' || bundle === 'anthropic') return bundle;
   return 'openai';
@@ -346,14 +347,14 @@ export function ModelSettingsCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
   }, [selectedEntry?.name, providers]);
 
-  const locked = settings?.read_only || phase === 'processing';
+  const locked = settings?.read_only || settings?.frozen || phase === 'processing';
 
   /** 所选供应商的模型（含「新增」手加）：立即选用并保存；密钥由后端按注册表解析，不回传。 */
   const applyModelNow = async (entry: ProviderCatalogEntry, model: string) => {
     if (locked) return;
     addSavedModel({ provider: entry.bundle, baseUrl: entry.baseUrl, model });
     try {
-      await save({ provider: entry.bundle, default_model: model, base_url: entry.baseUrl });
+      await save({ ...settingsUpdateFrom(settings), provider: entry.bundle, default_model: model, base_url: entry.baseUrl });
     } catch {
       // settingsError 已由 store 记录并渲染；已加入快捷列表保留。
     }
@@ -363,7 +364,7 @@ export function ModelSettingsCard() {
   const applySavedNow = async (entry: SavedModelEntry) => {
     if (locked) return;
     try {
-      await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
+      await save({ ...settingsUpdateFrom(settings), provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
     } catch {
       // settingsError 已由 store 记录并渲染。
     }
@@ -432,17 +433,31 @@ export function ModelSettingsCard() {
     }
   };
 
-  /** 面板 API Key：自定义供应商只接受写-only 输入，失焦提交到该条目；目录条目禁用。 */
+  /** 面板 API Key：目录与自定义都可写。目录条目首次填 Key 时登记为自定义供应商。 */
   const commitPanelKey = async () => {
-    if (!selectedRegistry) return;
+    const key = panelKey.trim();
+    if (!selectedEntry || locked) return;
+    if (selectedRegistry) {
+      await saveProvider({
+        id: selectedRegistry.id,
+        display_name: selectedRegistry.display_name,
+        bundle: selectedRegistry.bundle,
+        base_url: selectedRegistry.base_url,
+        default_model: selectedRegistry.default_model,
+        models: selectedRegistry.models,
+        api_key: key,
+      });
+      return;
+    }
+    if (!key || !selectedEntry.baseUrl) return;
     await saveProvider({
-      id: selectedRegistry.id,
-      display_name: selectedRegistry.display_name,
-      bundle: selectedRegistry.bundle,
-      base_url: selectedRegistry.base_url,
-      default_model: selectedRegistry.default_model,
-      models: selectedRegistry.models,
-      api_key: panelKey.trim(),
+      id: newCustomProviderId(),
+      display_name: selectedEntry.displayName,
+      bundle: asRegistryBundle(selectedEntry.bundle),
+      base_url: selectedEntry.baseUrl,
+      default_model: selectedEntry.defaultModel,
+      models: [...selectedEntry.models],
+      api_key: key,
     });
   };
 
@@ -551,7 +566,9 @@ export function ModelSettingsCard() {
               <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">{t('settingsModel.savedEmpty')}</p>
             )}
           </div>
-          {settings?.read_only ? (
+          {settings?.frozen ? (
+            <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">{t('settingsModel.frozenNotice')}</p>
+          ) : settings?.read_only ? (
             <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">{t('settings.readOnlyNotice')}</p>
           ) : null}
           <div className="grid gap-4 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
@@ -638,11 +655,11 @@ export function ModelSettingsCard() {
                       value={panelKey}
                       onChange={(event) => setPanelKey(event.target.value)}
                       onBlur={() => void commitPanelKey()}
-                      placeholder={selectedEntry.custom ? t('settingsModel.apiKeyPlaceholder') : t('settingsModel.catalogKeyHint')}
+                      placeholder={t('settingsModel.apiKeyPlaceholder')}
                       autoComplete="off"
-                      disabled={locked || !selectedEntry.custom}
+                      disabled={locked}
                     />
-                    <p className="mt-1.5 text-xs text-muted-foreground">{selectedEntry.custom ? t('settingsModel.apiKeyHint') : t('settingsModel.catalogKeyHint')}</p>
+                    <p className="mt-1.5 text-xs text-muted-foreground">{t('settingsModel.apiKeyHint')}</p>
                   </div>
                   <div>
                     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">

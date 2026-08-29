@@ -17,11 +17,10 @@
 - `src/lib/store.ts` 是 Session、Run、Review、Settings、Provider 注册表与生命周期状态的唯一来源。
 - 真实功能不得导入 `src/lib/demo-api.ts`。
 - `demo-api.ts` 只服务带“演示 / 本地模拟”标识的 Notebook、Persona、Cron、Skills 和计划页面，并且只能使用 `vivy.demo.*` localStorage key。
-- Provider 密钥默认由运行环境注入（config `env_key`）；「设置 → 模型」的自定义
-  供应商注册表由**后端持久化**（`settings/providers` 系列 RPC → `data/agent-home/
-  settings.yaml`，密钥 0600 写-only 落盘、写入后同步环境变量），UI 不再存
-  localStorage 副本；`settings/update` 选模型时不携带密钥（后端按注册表解析），
-  值绝不写入日志、绝不回传控制面；`vivy.demo.*` 仍禁用密钥字段。
+- Provider 密钥权威在用户工作区 `settings.yaml`（`settings/providers` 系列
+  RPC，0600 写-only，永不回传）。进程环境变量若已设置 bundle `env_key`，本进程
+  冻结为临时供应商，UI 只读。`settings/update` 选模型时不携带密钥（后端按注册表
+  解析）；`vivy.demo.*` 仍禁用密钥字段。
 - UI 修改完成后在仓库根目录运行 `just ci`。用户可见行为还要在
   `http://127.0.0.1:3015` 实走过一遍，并按根目录 `AGENTS.md` 写
   `docs/logs/YYYY-MM-DD-slug/`（`summary.md` / `verification.md` /

@@ -3,11 +3,11 @@
 // (ui/agent-diva-source/agent-diva-providers/src/providers.yaml).
 //
 // Agent-Diva 的供应商目录移植：目录条目按厂商展示，但 Vivy 后端 settings 只
-// 接受 openai/anthropic/mock 三个运行束名，厂商差异通过 base_url 网关表达。
+// 接受 openai/anthropic 两个运行束名，厂商差异通过 base_url 网关表达。
 // 选择条目时映射为 (bundle, baseUrl, defaultModel) 三元组，模型 id 始终为
 // 原始 id（不携带网关前缀）。
 
-export type ProviderRuntimeBundle = 'openai' | 'anthropic' | 'mock';
+export type ProviderRuntimeBundle = 'openai' | 'anthropic';
 
 export type ProviderCatalogEntry = {
   /** Agent-Diva 供应商 id（如 'deepseek'），仅用于目录展示与检索 */
@@ -172,7 +172,6 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
   { name: 'longcat', displayName: 'LongCat', bundle: 'openai', baseUrl: 'https://api.longcat.chat/openai/v1', defaultModel: 'LongCat-Flash-Chat', models: ['LongCat-Flash-Chat'] },
   { name: 'cerebras', displayName: 'Cerebras', bundle: 'openai', baseUrl: 'https://api.cerebras.ai/v1', defaultModel: 'gpt-oss-120b', models: ['gpt-oss-120b', 'zai-glm-4.6'] },
   { name: 'mimo', displayName: 'Mimo', bundle: 'openai', baseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2-flash', models: ['mimo-v2-flash'] },
-  { name: 'mock', displayName: 'Mock', bundle: 'mock', baseUrl: '', defaultModel: 'mock', models: ['mock'] },
 ];
 
 /** 默认折叠进“更多供应商”分组的供应商 id（与 Agent-Diva hiddenProviderNames 一致） */

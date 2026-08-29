@@ -167,7 +167,6 @@ describe('savedModelVendorLabel 厂商标签解析', () => {
 
   it('base_url 空且与运行束同名的目录条目也命中', () => {
     expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' }, NONE)).toBe('OpenAI');
-    expect(savedModelVendorLabel({ provider: 'mock', baseUrl: '', model: 'mock' }, NONE)).toBe('Mock');
   });
 
   it('目录未命中但带 Base URL：回退到主机名（含端口）', () => {

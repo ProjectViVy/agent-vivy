@@ -1,5 +1,6 @@
-# Offline overlay on config.Default() for the split-loop script (dev.ps1 /
-# just dev) when no provider API key is set. Secrets never go here.
+# Split-loop overlay (just dev / dev.ps1). Data still lives under
+# VIVY_USER_HOME (default: data/dev-home). No mock provider.
 
-runtime:
-  mock: true
+server:
+  allowed_origins:
+    - "http://127.0.0.1:3015"

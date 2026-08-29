@@ -1,11 +1,12 @@
-# agent-vivy example configuration.
-# Copy to config.yaml for local use. NEVER put real secrets here —
-# provider keys are read from environment variables at request time (D-010).
+# agent-vivy example configuration (deployment overlay).
+# Product startup uses built-in defaults + the user workspace
+# (~/.vivy, override with VIVY_USER_HOME) unless VIVY_CONFIG points here.
+# NEVER put real secrets here — runtime keys live in ~/.vivy/settings.yaml
+# or a frozen ENV session (OPENAI_API_KEY / ANTHROPIC_API_KEY).
 #
-# Default data root (when nothing below is set): the OS user home, e.g.
-#   ~/.vivy  (Windows %USERPROFILE%\.vivy, override with VIVY_USER_HOME)
-# holding workspace/, skills/, settings.yaml and vivy.db — one per user,
-# diva-style. Everything written here is explicit and wins over that root.
+# Default data root: ~/.vivy (Windows %USERPROFILE%\.vivy) holding
+# workspace/, skills/, settings.yaml and vivy.db — one per user, shared by
+# every Vivy version. Explicit paths in this overlay still win.
 
 server:
   # Local HTTP bootstrap + WebSocket JSON-RPC listen address for the UI.
@@ -35,7 +36,8 @@ providers:
   # Directory holding the pre-baked bundle YAML files (A2 fixtures).
   bundle_dir: fixtures/provider
   openai:
-    # Secret is read from this environment variable, never persisted.
+    # Environment variable NAME used only by a frozen ENV session.
+    # Runtime keys otherwise live in ~/.vivy/settings.yaml.
     env_key: OPENAI_API_KEY
     default_model: gpt-4o-mini
   anthropic:
@@ -43,11 +45,6 @@ providers:
     default_model: claude-sonnet-4-5
 
 runtime:
-  # Deterministic mock provider for tests and offline development.
-  mock: false
-  # Test-only Eino tool-call scenario; valid only when mock is true.
-  # Supported values: hitl, approval, question, timeout, stale.
-  mock_scenario: ""
   # Max buffered stream chunks / event payload size bounds (NFR: bounded).
   stream_buffer: 256
   max_event_payload_bytes: 65536

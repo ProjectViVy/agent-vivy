@@ -40,7 +40,7 @@ ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
 
 run:
-    & "{{go}}" run ./cmd/vivy
+    if (-not $env:VIVY_USER_HOME) { $env:VIVY_USER_HOME = Join-Path (Get-Location) 'data\dev-home' }; if (-not $env:VIVY_CONFIG) { $env:VIVY_CONFIG = Join-Path (Get-Location) 'config.dev.yaml' }; & "{{go}}" run ./cmd/vivy
 
 # One-click split loop: backend :8787 + Vite :3015. Ctrl+C stops both.
 dev:

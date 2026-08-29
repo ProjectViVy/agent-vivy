@@ -24,7 +24,7 @@ describe('Vivy store integrity', () => {
     api.initialize.mockResolvedValue({ protocol_version: 'vivy.rpc.v1', capabilities: ['session', 'run.subscribe'] });
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
-    api.getSettings.mockResolvedValue({ provider: 'mock', default_model: 'mock', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30 });
+    api.getSettings.mockResolvedValue({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0, read_only: false, frozen: false, config_provider: 'openai', config_model: 'gpt-4o-mini', config_execute_max_timeout_seconds: 30 });
     api.listProviders.mockResolvedValue({ entries: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
     api.listTodos.mockResolvedValue({ todos: [] });

@@ -54,6 +54,7 @@ Do **not** read or write production journals from a Studio session:
 - `data/vivy.db`
 - `data/demo/`
 - `data/workspaces/`
+- the operator's `~/.vivy` (shared user workspace)
 
 Studio's own DSH home is `data/studio-home/` (sessions, profile, settings).
 That directory is the engine's scratch, not the species Journal.
@@ -181,7 +182,9 @@ parse/validate tests. Secrets stay out of fixtures, logs, and event payloads
 
 ## Secrets, errors, and logs in code
 
-- Never commit tokens. Config holds `env_key` names only.
+- Never commit tokens. Committed config holds `env_key` names only.
+  Runtime keys live in the shared user workspace (`~/.vivy/settings.yaml`)
+  or a frozen ENV session. Do not read or write the operator's `~/.vivy`.
 - Redact secrets in logs, errors, snapshots, and test fixtures.
 - Preserve error cause chains; do not discard the source error.
 - Structured logs: include run/session ids when useful; never include

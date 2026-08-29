@@ -14,18 +14,19 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { settingsUpdateFrom } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 import { completeWelcome, useWelcomeOpen } from '@/hooks/use-welcome';
+import { newCustomProviderId } from '@/components/settings/custom-providers';
 import { cn } from '@/lib/utils';
 
-// 首次使用引导向导（移植自 Agent-Diva 的 WelcomeWizard）：
-// 介绍 → 模型配置 → 完成导航。模型配置走真实 settings/update；
-// 密钥按 D-010 只由运行环境注入，向导不收集任何 secret。
-// provider 是运行时的模型束名（openai/anthropic/mock），DeepSeek 等
-// OpenAI 兼容服务通过 base_url 网关接入，而不是自造 provider 名。
 const DEEPSEEK_PLATFORM_URL = 'https://platform.deepseek.com/';
-const SUGGESTED_DEFAULTS = { provider: 'openai', model: '', baseUrl: '' };
+const SUGGESTED_DEFAULTS = {
+  displayName: 'DeepSeek',
+  default_model: 'deepseek-chat',
+  base_url: 'https://api.deepseek.com/v1',
+};
 
 type WelcomeNavigateTarget = 'chat' | 'settings' | 'skills';
 
@@ -44,8 +45,9 @@ export function WelcomeWizard() {
   const navigate = useNavigate();
   const settings = useVivyStore((state) => state.settings);
   const saveSettings = useVivyStore((state) => state.saveSettings);
+  const saveProvider = useVivyStore((state) => state.saveProvider);
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState({ provider: '', default_model: '', base_url: '' });
+  const [form, setForm] = useState({ displayName: '', default_model: '', base_url: '', api_key: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,50 +56,58 @@ export function WelcomeWizard() {
     { id: 'model', icon: Bot, label: t('welcome.stepModel') },
     { id: 'done', icon: MessageSquare, label: t('welcome.stepDone') },
   ];
-  const readOnly = settings?.read_only ?? false;
+  const frozen = settings?.frozen ?? false;
+  const readOnly = (settings?.read_only ?? false) || frozen;
 
-  // 每次打开都从第一步重来，并按当前真实设置预填；未配置时给 DeepSeek 快速开始建议。
   useEffect(() => {
     if (!open) return;
     setStep(0);
     setSaving(false);
     setError(null);
     setForm({
-      provider: settings?.provider || settings?.config_provider || SUGGESTED_DEFAULTS.provider,
-      default_model: settings?.default_model || settings?.config_model || SUGGESTED_DEFAULTS.model,
-      base_url: settings?.base_url || SUGGESTED_DEFAULTS.baseUrl,
+      displayName: SUGGESTED_DEFAULTS.displayName,
+      default_model: settings?.default_model || settings?.config_model || SUGGESTED_DEFAULTS.default_model,
+      base_url: settings?.base_url || SUGGESTED_DEFAULTS.base_url,
+      api_key: '',
     });
-    // settings 在打开瞬间取快照即可，向导内不再跟随外部变化
   }, [open]);
 
   const goBack = () => { setError(null); setStep((current) => Math.max(current - 1, 0)); };
 
   const goNext = async () => {
     if (step === 1 && !readOnly) {
-      const changed = !settings
-        || settings.provider !== form.provider
-        || settings.default_model !== form.default_model
-        || settings.base_url !== form.base_url;
-      if (changed) {
-        setSaving(true);
-        setError(null);
-        try {
-// settings/update replaces the whole document: pass the loaded
-          // network_search preference and execute ceiling through unchanged.
-          await saveSettings({
-            provider: form.provider,
-            default_model: form.default_model,
-            base_url: form.base_url,
-            network_search: { provider: settings?.network_search?.provider ?? '' },
-            execute_max_timeout_seconds: settings?.execute_max_timeout_seconds ?? 0,
-          });
-        } catch (cause) {
-          setSaving(false);
-          setError(t('welcome.saveFailed', { error: cause instanceof Error ? cause.message : String(cause) }));
-          return;
-        }
-        setSaving(false);
+      const displayName = form.displayName.trim() || 'OpenAI compatible';
+      const baseUrl = form.base_url.trim();
+      const model = form.default_model.trim();
+      const apiKey = form.api_key.trim();
+      if (!baseUrl || !model || !apiKey) {
+        setError(t('welcome.fieldsRequired'));
+        return;
       }
+      setSaving(true);
+      setError(null);
+      try {
+        await saveProvider({
+          id: newCustomProviderId(),
+          display_name: displayName,
+          bundle: 'openai',
+          base_url: baseUrl,
+          default_model: model,
+          models: [model],
+          api_key: apiKey,
+        });
+        await saveSettings({
+          ...settingsUpdateFrom(settings),
+          provider: 'openai',
+          default_model: model,
+          base_url: baseUrl,
+        });
+      } catch (cause) {
+        setSaving(false);
+        setError(t('welcome.saveFailed', { error: cause instanceof Error ? cause.message : String(cause) }));
+        return;
+      }
+      setSaving(false);
     }
     setError(null);
     setStep((current) => Math.min(current + 1, steps.length - 1));
@@ -121,7 +131,6 @@ export function WelcomeWizard() {
       aria-modal="true"
       aria-label={t('welcome.title')}
     >
-      {/* 漂浮装饰光点：Agent-Diva 的浮动爱心改为 Vivy 的中性光斑 */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
         {FLOATING_ORBS.map((orb, index) => (
           <span
@@ -133,7 +142,6 @@ export function WelcomeWizard() {
       </div>
 
       <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border bg-card text-card-foreground shadow-xl">
-        {/* 品牌头 */}
         <div className="border-b px-7 pb-5 pt-6 text-center">
           <div className="mb-3 flex items-center justify-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm">
@@ -147,7 +155,6 @@ export function WelcomeWizard() {
           <p className="text-sm text-muted-foreground">{t('welcome.subtitle')}</p>
         </div>
 
-        {/* 步骤进度 */}
         <div className="border-b bg-muted/40 px-7 py-4">
           <div className="mb-4 h-1 overflow-hidden rounded-full bg-border">
             <div
@@ -188,7 +195,6 @@ export function WelcomeWizard() {
           </div>
         </div>
 
-        {/* 内容区 */}
         <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
           {step === 0 ? (
             <div className="text-center">
@@ -233,23 +239,13 @@ export function WelcomeWizard() {
               </Button>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="welcome-provider">{t('welcome.provider')}</Label>
+                  <Label htmlFor="welcome-name">{t('welcome.displayName')}</Label>
                   <Input
-                    id="welcome-provider"
-                    value={form.provider}
-                    placeholder={t('welcome.providerPlaceholder')}
+                    id="welcome-name"
+                    value={form.displayName}
+                    placeholder={t('welcome.displayNamePlaceholder')}
                     disabled={saving || readOnly}
-                    onChange={(event) => setForm({ ...form, provider: event.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-model">{t('welcome.model')}</Label>
-                  <Input
-                    id="welcome-model"
-                    value={form.default_model}
-                    placeholder={t('welcome.modelPlaceholder')}
-                    disabled={saving || readOnly}
-                    onChange={(event) => setForm({ ...form, default_model: event.target.value })}
+                    onChange={(event) => setForm({ ...form, displayName: event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -263,9 +259,31 @@ export function WelcomeWizard() {
                     onChange={(event) => setForm({ ...form, base_url: event.target.value })}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="welcome-model">{t('welcome.model')}</Label>
+                  <Input
+                    id="welcome-model"
+                    value={form.default_model}
+                    placeholder={t('welcome.modelPlaceholder')}
+                    disabled={saving || readOnly}
+                    onChange={(event) => setForm({ ...form, default_model: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="welcome-api-key">{t('welcome.apiKey')}</Label>
+                  <Input
+                    id="welcome-api-key"
+                    type="password"
+                    value={form.api_key}
+                    placeholder={t('welcome.apiKeyPlaceholder')}
+                    disabled={saving || readOnly}
+                    autoComplete="off"
+                    onChange={(event) => setForm({ ...form, api_key: event.target.value })}
+                  />
+                </div>
               </div>
               <p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-                {readOnly ? t('welcome.readOnlyNotice') : t('welcome.secretNote')}
+                {frozen ? t('welcome.frozenNotice') : readOnly ? t('welcome.readOnlyNotice') : t('welcome.secretNote')}
               </p>
               {error ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
             </form>
@@ -316,7 +334,6 @@ export function WelcomeWizard() {
           )}
         </div>
 
-        {/* 底部操作 */}
         <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-7 py-4">
           <div>
             {step === 0 ? (

@@ -177,6 +177,38 @@
         }
 
         const feStatus = (status && status.frontend) || {}
+        // Host may lag the client after a profile sync (no Studio kill): if
+        // status has no `code` block yet, still show the card with copyable
+        // commands so the panel is usable without restarting Studio.
+        const codeHost = !!(status && status.code)
+        const code = (status && status.code) || {
+          ready: false,
+          root: "",
+          command: "go run ./cmd/vivy tui --demo",
+          note: "host 路由尚未加载（需日后重启 Studio 一次）；可先复制命令在独立终端运行",
+        }
+        function openCode(mode) {
+          const label = mode === "plain" ? "打开 Code plain" : "打开 Code"
+          runAction(label, () =>
+            call("POST", "/code/open", { mode: mode || "demo" }).then((r) => {
+              if (r && r.ok) return r.message || "已打开"
+              // 404 / missing route → fall back to clipboard so the operator
+              // is never blocked on a Studio restart.
+              const cmd =
+                mode === "plain"
+                  ? "cd ..\\agent-vivy-tui-crush; go run ./cmd/vivy tui --plain"
+                  : "cd ..\\agent-vivy-tui-crush; go run ./cmd/vivy tui --demo"
+              if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(cmd).catch(() => {})
+              }
+              return (
+                ((r && r.message) || "host 尚未提供 /code/open") +
+                "\n已复制命令（请在独立终端运行，勿与前后端混用）：\n" +
+                cmd
+              )
+            }),
+          )
+        }
         const cards = [
           h("div", { className: "vc-card", style: { flex: "1 1 260px", minWidth: 260 } }, [
             h("div", { className: "vc-card-title" }, "后端状态"),
@@ -212,6 +244,54 @@
               h("button", { className: "vc-btn", disabled: !(feStatus && feStatus.url), onClick: () => window.open(feStatus.url, "vivy-dev") }, "打开 " + String((feStatus && feStatus.addr) || "127.0.0.1:3015")),
             ]),
           ]),
+          h("div", { className: "vc-card", style: { flex: "1 1 260px", minWidth: 260 } }, [
+            h("div", { className: "vc-card-title" }, "Vivy Code（TUI 开发面板）"),
+            row("定位", "独立控制台窗口 · 不并入一键启停 · 不与后端/前端生命周期混淆"),
+            row(
+              "源码",
+              codeHost
+                ? code.ready
+                  ? trunc(code.root || "…", 100)
+                  : "未就绪（缺 internal/tui 或设置 VIVY_CODE_ROOT）"
+                : "host 路由待加载（可复制命令；不杀 Studio）",
+            ),
+            row("命令", String(code.command || "go run ./cmd/vivy tui --demo")),
+            row("上次打开", code.openedAtMs ? fmtTime(code.openedAtMs) + " · " + String(code.mode || "—") : "—"),
+            h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, [
+              h(
+                "button",
+                {
+                  className: "vc-btn primary",
+                  disabled: !!busy || (codeHost && !code.ready),
+                  onClick: () => openCode("demo"),
+                },
+                busy === "打开 Code" ? "打开中…" : "◈ 打开 Vivy Code",
+              ),
+              h(
+                "button",
+                {
+                  className: "vc-btn",
+                  disabled: !!busy || (codeHost && !code.ready),
+                  onClick: () => openCode("plain"),
+                },
+                busy === "打开 Code plain" ? "打开中…" : "行式 REPL（--plain）",
+              ),
+            ]),
+            codeHost && !code.ready
+              ? h(
+                  "div",
+                  { className: "vc-msg", style: { marginTop: 8 } },
+                  "源码树尚无 TUI（cmd/vivy/tui.go + internal/tui/view）。可把 TUI worktree 放在 ../agent-vivy-tui-crush，或设置环境变量 VIVY_CODE_ROOT。",
+                )
+              : null,
+            !codeHost
+              ? h(
+                  "div",
+                  { className: "vc-msg", style: { marginTop: 8 } },
+                  "当前 Studio 进程尚未加载 /code/* host 路由。按钮会尝试打开并在失败时复制命令；不必为了本卡片重启 Studio。",
+                )
+              : null,
+          ]),
         ]
 
         return h("div", { className: "vc-pane" }, [
@@ -224,6 +304,11 @@
               h("button", { className: "vc-btn danger", disabled: !!busy || (!bk && !fe), onClick: stopAll }, busy === "一键停止" ? "停止中…" : "■ 一键停止"),
               h("button", { className: "vc-btn", disabled: !!busy || !bk, onClick: restartAll }, busy === "一键重启" ? "重启中…" : "⟳ 一键重启"),
             ]),
+            h(
+              "div",
+              { className: "vc-msg", style: { marginTop: 6 } },
+              "一键启停只管后端 + 前端。Vivy Code 是第三条面：单独打开，不参与上列按钮。",
+            ),
             msg ? h("div", { className: "vc-msg", style: { marginTop: 8 } }, msg) : null,
           ]),
           h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" } }, cards),

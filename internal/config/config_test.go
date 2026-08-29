@@ -36,8 +36,6 @@ providers:
     env_key: ANTHROPIC_API_KEY
     default_model: claude-sonnet-4-5
 runtime:
-  mock: true
-  mock_scenario: hitl
   stream_buffer: 16
   max_event_payload_bytes: 1024
   execute_max_timeout_seconds: 210
@@ -64,8 +62,7 @@ func TestLoadValid(t *testing.T) {
 	if cfg.Providers.Active != "anthropic" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
-	if !cfg.Runtime.Mock || cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
-		cfg.Runtime.MockScenario != "hitl" ||
+	if cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
 		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
@@ -162,10 +159,6 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"expiration: 2m", "expiration: soon", 1),
 		"empty tools": strings.Replace(validDoc,
 			"  enabled:\n    - echo_info\n    - write_note", "  enabled: []", 1),
-		"mock scenario without mock": strings.Replace(validDoc,
-			"  mock: true", "  mock: false", 1),
-		"unknown mock scenario": strings.Replace(validDoc,
-			"  mock_scenario: hitl", "  mock_scenario: unknown", 1),
 		"non-loopback origin": strings.Replace(validDoc,
 			"http://127.0.0.1:3015", "http://example.test:3015", 1),
 		"origin path": strings.Replace(validDoc,
@@ -234,19 +227,6 @@ func TestZeroAddrAllowedWhenOriginsEmpty(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{"http://127.0.0.1:3015"}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("want error for 0.0.0.0 with allowed_origins")
-	}
-}
-
-func TestDevOverlayEnablesMock(t *testing.T) {
-	cfg, err := Load(filepath.Join("..", "..", "config.dev.yaml"))
-	if err != nil {
-		t.Fatalf("dev overlay: %v", err)
-	}
-	if !cfg.Runtime.Mock {
-		t.Fatal("dev overlay must enable runtime.mock")
-	}
-	if cfg.Server.Addr != "127.0.0.1:8787" {
-		t.Fatalf("addr = %q", cfg.Server.Addr)
 	}
 }
 

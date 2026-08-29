@@ -8,20 +8,20 @@ boundary in code and documents the evidence per domain.
 
 ## Boundary rule (D-010)
 
-Secrets are provider API keys. They enter the process exclusively through
-environment variables, are read exclusively in `internal/provider` at
-request time, and are never persisted, logged, or transported through
-domain types:
+Secrets are provider API keys. Committed config still holds `env_key`
+names only. Runtime keys live in the shared user workspace
+(`~/.vivy/settings.yaml`, mode 0600) or a frozen ENV session. They are
+never logged or returned on the control plane (`api_key_set` only):
 
 - `internal/config` holds only the environment variable **name**
   (`env_key`, validated against `^[A-Z][A-Z0-9_]*$`); a literal key value
   fails validation, and strict decoding rejects any unknown field such as
   `api_key:` (`TestSecretInjectionRejected`).
-- `internal/provider/openai.go` is the single reader:
-  `key := os.Getenv(r.bundle.EnvKey)`, passed straight into the eino-ext
-  ChatModel config and dropped afterwards.
-- `domain`, `runtime`, `storage`, `events`, `rpc` contain no key type,
-  field, or reader.
+- `internal/app/model.go` may read bundle `env_key` values only to freeze
+  a temporary ENV session for this process.
+- `internal/provider/openai.go` constructs models from `ModelSpec.APIKey`
+  and does not read process environment for keys.
+- `domain`, `runtime`, `storage`, `events`, `rpc` never echo key values.
 
 ## Domain 1: SQLite file and event payloads
 
@@ -36,11 +36,10 @@ payload and in no byte of the flushed SQLite file.
 
 Guard tests: `internal/provider/secret_audit_test.go`.
 
-- `TestSecretEnvReadsOnlyInProvider` scans every Go source under `cmd/`
+- `TestSecretEnvReadsStayOutOfProvider` scans every Go source under `cmd/`
   and `internal/` and fails on any `os.Getenv` of a KEY/SECRET/TOKEN
-  variable outside `internal/provider`. Audit result: the only
-  credential read in the repository is `internal/provider/openai.go`;
-  `cmd/vivy/main.go` reads `VIVY_ADDR` (a bind address, not a secret).
+  variable outside the model resolver. Provider construction must not
+  read process environment for keys.
 - `TestNoHardcodedKeyLiterals` fails on any `sk-…` literal in
   non-test sources. Audit result: `sk-` strings exist only in
   `_test.go` negative fixtures (`internal/config/config_test.go`,

@@ -105,7 +105,7 @@ func (b *EinoSkillBackend) ViewSkill(ctx context.Context, _ domain.RunID, name, 
 		return tools.SkillView{}, fmt.Errorf("skills: supporting file is binary or too large")
 	}
 	warnings := scanSkillText(string(data))
-	view := tools.SkillView{SkillSummary: b.summary(item), Content: string(data), RelativePath: rel}
+	view := tools.SkillView{SkillSummary: b.summary(item), Content: string(data), RelativePath: rel, SupportingFiles: b.supportingFiles(item.dir)}
 	view.Warnings = warnings
 	return view, nil
 }

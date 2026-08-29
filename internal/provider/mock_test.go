@@ -96,7 +96,7 @@ func TestMockCanceledContext(t *testing.T) {
 
 func TestMockHITLScenarioEmitsToolCallThenCompletes(t *testing.T) {
 	ref := mockRef{}
-	model, err := ref.Model(context.Background(), "mock:hitl")
+	model, err := ref.Model(context.Background(), ModelSpec{ID: "mock:hitl"})
 	if err != nil {
 		t.Fatalf("Model: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestMockHITLScenarioEmitsToolCallThenCompletes(t *testing.T) {
 
 func TestMockHITLScenarioSeparatesQuestion(t *testing.T) {
 	ref := mockRef{}
-	model, err := ref.Model(context.Background(), "mock:hitl")
+	model, err := ref.Model(context.Background(), ModelSpec{ID: "mock:hitl"})
 	if err != nil {
 		t.Fatalf("Model: %v", err)
 	}

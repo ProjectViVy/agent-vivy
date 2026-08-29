@@ -5,14 +5,13 @@ import type { ProviderEntry } from '@/lib/api';
  * 自定义供应商注册表的纯逻辑层（Agent-Diva custom provider CRUD 的 vivy
  * 适配，后端权威版）。
  *
- * - 注册表由后端持久化（settings/providers 系列 RPC，落 data/agent-home/
- *   settings.yaml），不再存 localStorage —— provider 写逻辑整体改为后端
- *   驱动，写入后后端同步更新对应环境变量值。
+ * - 注册表由后端持久化（settings/providers 系列 RPC，落用户工作区
+ *   settings.yaml），不再存 localStorage。
  * - 本模块只保留纯函数：校验 / 冲突 / 合并 / 折叠 / 检索 / API Key 存在性
  *   判定。数据源一律以参数传入（store 中 wire 形态 `ProviderEntry[]`），
  *   不进 zustand、不持有窗口级缓存。
- * - 密钥规则不变（D-010）：wire 只带 `api_key_set` 布尔；API Key 在提交时
- *   作为写-only 输入交给 `settings/providers/upsert`，永不回传。
+ * - 密钥：wire 只带 `api_key_set` 布尔；API Key 在提交时作为写-only 输入
+ *   交给 `settings/providers/upsert`，永不回传。
  */
 
 export const CUSTOM_PROVIDERS_KEY = 'vivy.ui.customProviders';
@@ -23,7 +22,7 @@ export type CustomProvider = ProviderEntry;
 // Re-export the wire entry type so consumers import it from one place.
 export type { ProviderEntry } from '@/lib/api';
 
-/** 注册表 bundle 的 wire 取值（mock 为内置离线束，不可注册）。 */
+/** 注册表 bundle 的 wire 取值。 */
 export type ProviderRegistryBundle = 'openai' | 'anthropic';
 
 /** 新增/编辑输入：apiKey 为写-only（空=清除该条目密钥；不参与读侧）。 */
@@ -126,7 +125,7 @@ export function searchMergedProviders(entries: readonly MergedProviderEntry[], t
   );
 }
 
-/** 与 provider-catalog.matchProviderEntry 同口径，但命中范围含注册表条目（目录优先）。 */
+/** 与 provider-catalog.matchProviderEntry 同口径，但命中范围含注册表条目（注册表优先，以便目录厂商写入的 Key 生效）。 */
 export function matchMergedProviderEntry(
   providers: readonly ProviderEntry[],
   bundle: string,
@@ -134,10 +133,10 @@ export function matchMergedProviderEntry(
 ): MergedProviderEntry | undefined {
   const base = baseUrl.trim();
   if (base) {
-    const catalog = PROVIDER_CATALOG.find((entry) => entry.bundle === bundle && entry.baseUrl === base);
-    if (catalog) return { ...catalog, custom: false, apiKeySet: false };
     const custom = providers.find((entry) => entry.bundle === bundle && entry.base_url === base);
-    return custom ? toMerged(custom) : undefined;
+    if (custom) return toMerged(custom);
+    const catalog = PROVIDER_CATALOG.find((entry) => entry.bundle === bundle && entry.baseUrl === base);
+    return catalog ? { ...catalog, custom: false, apiKeySet: false } : undefined;
   }
   const catalog = PROVIDER_CATALOG.find((entry) => entry.name === bundle && entry.bundle === bundle);
   return catalog ? { ...catalog, custom: false, apiKeySet: false } : undefined;

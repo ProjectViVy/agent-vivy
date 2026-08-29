@@ -57,22 +57,31 @@ func secretEnvName(name string) bool {
 	return strings.Contains(up, "KEY") || strings.Contains(up, "SECRET") || strings.Contains(up, "TOKEN")
 }
 
-// The only code allowed to read a credential from the environment lives in
-// internal/provider (D-010). Everywhere else a Getenv of a KEY/SECRET/TOKEN
-// variable is a leak path by construction.
-func TestSecretEnvReadsOnlyInProvider(t *testing.T) {
+// Credential environment reads are allowed only in the model resolver
+// (frozen ENV session) and must never happen inside provider construction.
+func TestSecretEnvReadsStayOutOfProvider(t *testing.T) {
 	getenv := regexp.MustCompile(`os\.Getenv\("([^"]+)"\)`)
 	var violations []string
 	walkGoSources(t, repoRoot(t), []string{"cmd", "internal"}, func(rel string, src []byte) {
-		inProvider := strings.HasPrefix(rel, "internal/provider/")
+		if strings.HasPrefix(rel, "internal/app/model.go") || strings.HasPrefix(rel, "internal/app/model.go") {
+			return
+		}
+		if strings.HasPrefix(rel, "internal/provider/") {
+			for _, m := range getenv.FindAllStringSubmatch(string(src), -1) {
+				if secretEnvName(m[1]) {
+					violations = append(violations, rel+": os.Getenv("+m[1]+")")
+				}
+			}
+			return
+		}
 		for _, m := range getenv.FindAllStringSubmatch(string(src), -1) {
-			if !inProvider && secretEnvName(m[1]) {
+			if secretEnvName(m[1]) {
 				violations = append(violations, rel+": os.Getenv("+m[1]+")")
 			}
 		}
 	})
 	if len(violations) > 0 {
-		t.Fatalf("credential reads outside internal/provider: %v", violations)
+		t.Fatalf("credential reads outside the model resolver: %v", violations)
 	}
 }
 
@@ -101,8 +110,8 @@ func TestKeyMissingErrorCarriesNoValue(t *testing.T) {
 	const canary = "sk-canary-value-that-must-not-appear"
 	err := &KeyMissingError{Provider: "openai", EnvKey: "OPENAI_API_KEY"}
 	msg := err.Error()
-	if !strings.Contains(msg, "OPENAI_API_KEY") {
-		t.Fatalf("message must name the env variable: %q", msg)
+	if !strings.Contains(msg, "OPENAI_API_KEY") && !strings.Contains(msg, "Settings") {
+		t.Fatalf("message must name the env variable or settings path: %q", msg)
 	}
 	if strings.Contains(msg, canary) {
 		t.Fatal("message leaked a key value")

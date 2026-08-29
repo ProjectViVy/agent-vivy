@@ -85,6 +85,15 @@ let feChild = null // ChildProcess of the Vite dev server, null once exited
 let feStartedAtMs = 0
 let studioPort = 0
 
+// Vivy Code (TUI face) — a separate operator surface. Never mixed into the
+// backend/frontend one-click lifecycle: it only opens a dedicated console
+// window for `vivy tui --demo` (or --plain). No shared process tree with
+// the gateway or Vite.
+let codeOpenedAtMs = 0
+let codeLastRoot = ""
+let codeLastMode = ""
+let codeLastMessage = ""
+
 // ---- lifecycle jobs (packaging & version management; one concurrent) ----
 const MAX_JOB_LINES = 500
 const jobs = new Map()
@@ -266,6 +275,9 @@ function prepare(port) {
   const d = norm(consoleDir)
   // No allowed_origins needed: the headless backend has no UI of its own
   // and the Vite dev UI talks to /rpc same-origin through its own proxy.
+  // Real-provider path only (2026-08-29): runtime.mock was removed from
+  // product Config. Keys live under this scratch user home / settings.yaml
+  // (or a frozen ENV session) — never a mock provider.
   const cfg = [
     "server:",
     `  addr: "127.0.0.1:${port}"`,
@@ -283,7 +295,6 @@ function prepare(port) {
     "    env_key: ANTHROPIC_API_KEY",
     "    default_model: claude-sonnet-4-5",
     "runtime:",
-    "  mock: true",
     `  workspace_root: "${d}/data/workspaces"`,
     `  skills_root: "${d}/data/skills"`,
     "tools:",
@@ -325,7 +336,12 @@ async function startBackend() {
   try {
     child = spawn(plan.exe, [], {
       cwd: dirname(plan.exe) || root,
-      env: { ...process.env, VIVY_CONFIG: cfgPath },
+      env: {
+        ...process.env,
+        VIVY_CONFIG: cfgPath,
+        // Keep settings/Journal under Studio scratch (ST-2 air gap).
+        VIVY_USER_HOME: join(consoleDir, "data"),
+      },
       stdio: ["ignore", outFd, errFd],
       windowsHide: true,
     })
@@ -348,7 +364,7 @@ async function startBackend() {
   return {
     ok: true,
     pid: child.pid,
-    message: `已启动 (PID ${child.pid})，监听 ${currentAddr}（纯 API 后端 · vivy_headless · mock 模式，数据隔离）`,
+    message: `已启动 (PID ${child.pid})，监听 ${currentAddr}（纯 API 后端 · vivy_headless · 真实 provider · 数据隔离）`,
   }
 }
 
@@ -398,6 +414,7 @@ async function status() {
     isolated: true,
     studioPort,
     frontend: await frontendStatus(),
+    code: codeStatus(),
   }
 }
 
@@ -492,6 +509,101 @@ async function stopFrontend() {
     return { ok: true, message: `前端 dev server 已停止 (PID ${pid})` }
   }
   return { ok: false, message: "前端 dev server 未在运行" }
+}
+
+// ---- Vivy Code (TUI development panel) ----
+//
+// Deliberately NOT part of the backend/frontend one-click path. Opens a
+// dedicated OS console window for the Crush-style TUI shell. Source may
+// live on this checkout or a sibling worktree that already has internal/tui.
+
+function codeSourceReady(dir) {
+  return (
+    existsSync(join(dir, "cmd", "vivy", "tui.go")) &&
+    existsSync(join(dir, "internal", "tui", "view", "model.go"))
+  )
+}
+
+function resolveCodeRoot() {
+  const pinned = String(process.env.VIVY_CODE_ROOT || "").trim()
+  const candidates = []
+  if (pinned) candidates.push(pinned)
+  candidates.push(root)
+  // Feature worktree cut for the TUI skeleton (parallel-lane isolation).
+  candidates.push(join(root, "..", "agent-vivy-tui-crush"))
+  for (const candidate of candidates) {
+    if (candidate && codeSourceReady(candidate)) return norm(candidate)
+  }
+  return ""
+}
+
+function codeStatus() {
+  const codeRoot = resolveCodeRoot()
+  return {
+    ready: !!codeRoot,
+    root: codeRoot || "",
+    mode: codeLastMode || "demo",
+    openedAtMs: codeOpenedAtMs || null,
+    lastMessage: codeLastMessage || "",
+    command: "go run ./cmd/vivy tui --demo",
+    note: "独立控制台窗口；不启动/停止后端或前端，不进入一键启停",
+  }
+}
+
+function startCode(body) {
+  const mode = body && body.mode === "plain" ? "plain" : "demo"
+  const codeRoot = resolveCodeRoot()
+  if (!codeRoot) {
+    return {
+      ok: false,
+      message:
+        "未找到 Vivy Code 源码（需要 cmd/vivy/tui.go 与 internal/tui/view）。可设置 VIVY_CODE_ROOT，或使用已合入 TUI 的 worktree（例如 ../agent-vivy-tui-crush）",
+    }
+  }
+  const tuiArgs = mode === "plain" ? "tui --plain" : "tui --demo"
+  const cmdline = `go run ./cmd/vivy ${tuiArgs}`
+  try {
+    if (process.platform === "win32") {
+      // `start "title" cmd /k ...` opens a visible, dedicated console that is
+      // not Studio's stdio and not the backend/frontend log pipes.
+      const childProc = spawn(
+        "cmd.exe",
+        ["/c", "start", "Vivy Code", "cmd.exe", "/k", cmdline],
+        {
+          cwd: codeRoot,
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false,
+          env: process.env,
+        },
+      )
+      childProc.unref()
+    } else {
+      const childProc = spawn("go", ["run", "./cmd/vivy", ...(mode === "plain" ? ["tui", "--plain"] : ["tui", "--demo"])], {
+        cwd: codeRoot,
+        detached: true,
+        stdio: "ignore",
+        env: process.env,
+      })
+      childProc.unref()
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: "打开失败: " + (error instanceof Error ? error.message : String(error)),
+    }
+  }
+  codeOpenedAtMs = Date.now()
+  codeLastRoot = codeRoot
+  codeLastMode = mode
+  codeLastMessage = `已在独立窗口打开 Vivy Code（${mode}）@ ${codeRoot}`
+  return {
+    ok: true,
+    message: codeLastMessage,
+    root: codeRoot,
+    mode,
+    openedAtMs: codeOpenedAtMs,
+  }
 }
 
 // ---- packaging & version management (vivy-studio.exe) ----
@@ -744,6 +856,12 @@ async function handleConsoleApi(req, res, route) {
     case "POST /frontend/restart":
       await stopFrontend()
       payload = await startFrontend()
+      break
+    case "GET /code/status":
+      payload = codeStatus()
+      break
+    case "POST /code/open":
+      payload = startCode(body)
       break
     default:
       if (method === "GET" && route.startsWith("/lifecycle/list")) {

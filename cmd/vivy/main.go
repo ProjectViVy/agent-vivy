@@ -1,6 +1,7 @@
-// Command vivy is the Agent-Vivy entry point. It loads and validates
-// config.yaml, composes the process via internal/app and runs it until
-// SIGINT/SIGTERM/Windows console close (bounded graceful shutdown).
+// Command vivy is the Agent-Vivy entry point. It loads the user workspace
+// (and an optional VIVY_CONFIG overlay), composes the process via
+// internal/app and runs it until SIGINT/SIGTERM/Windows console close
+// (bounded graceful shutdown).
 package main
 
 import (
@@ -15,10 +16,6 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/worker"
 )
-
-// configPath is the conventional location; absent file falls back to the
-// built-in defaults with a warning (FR-10).
-const configPath = "config.yaml"
 
 func main() {
 	// The worker protocol owns stdout. Keep this branch before the normal
@@ -76,17 +73,14 @@ func main() {
 	}
 }
 
-// loadConfig reads VIVY_CONFIG when set, otherwise config.yaml when
-// present; otherwise it falls back to the built-in defaults. A set
-// VIVY_CONFIG never falls back to the working directory.
+// loadConfig reads VIVY_CONFIG when set (deployment overlay). Otherwise it
+// uses built-in defaults rooted at the user workspace (~/.vivy). A working-
+// directory config.yaml is no longer a product entry.
 func loadConfig(logger *slog.Logger) (config.Config, error) {
 	if path := os.Getenv("VIVY_CONFIG"); path != "" {
 		return config.Load(path)
 	}
-	if _, err := os.Stat(configPath); err == nil {
-		return config.Load(configPath)
-	}
-	logger.Warn("config.yaml not found; using built-in defaults", "path", configPath)
+	logger.Info("using user workspace defaults", "root", config.UserDataRoot())
 	cfg := config.Default()
 	if err := cfg.Validate(); err != nil {
 		return config.Config{}, err

@@ -72,7 +72,7 @@ func TestRealProviderSmoke(t *testing.T) {
 			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: modelID},
 			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
-		Runtime: config.Runtime{Mock: false, StreamBuffer: 256, MaxEventPayloadBytes: 65536},
+		Runtime: config.Runtime{StreamBuffer: 256, MaxEventPayloadBytes: 65536},
 		Tools:   config.Tools{Enabled: []string{"echo_info", "write_note"}, Approval: config.Approval{Expiration: 5 * time.Minute}},
 	}
 	a, err := New(ctx, cfg)

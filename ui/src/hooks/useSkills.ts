@@ -1,26 +1,23 @@
-/**
- * 技能管理 Hook
- */
-
 import { useState, useCallback, useEffect } from 'react';
-import type { SkillDto, SkillDocument, SkillRequest, CreateSkillRequestPayload } from '@/lib/types';
-import { listSkills, getSkillDocument, createSkillRequest, getSkillRequests } from '@/lib/demo-api';
+import { getSkill, listSkills, type SkillSummary, type SkillView } from '@/lib/api';
 import { t } from '@/i18n';
 
 export function useSkills() {
-  const [skills, setSkills] = useState<SkillDto[]>([]);
-  const [selectedSkill, setSelectedSkill] = useState<SkillDocument | null>(null);
-  const [requests, setRequests] = useState<SkillRequest[]>([]);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [selected, setSelected] = useState<SkillView | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 加载技能列表
   const loadSkills = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       const data = await listSkills();
-      setSkills(data);
+      setSkills(data.skills);
+      setSelected((current) => {
+        if (!current) return current;
+        return data.skills.some((skill) => skill.name === current.name) ? current : null;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : t('skills.errors.loadSkillsFailed'));
     } finally {
@@ -28,57 +25,27 @@ export function useSkills() {
     }
   }, []);
 
-  // 加载技能文档
-  const loadSkillDocument = useCallback(async (slug: string) => {
+  const loadSkillDocument = useCallback(async (name: string, path?: string) => {
     try {
       setError(null);
-      const doc = await getSkillDocument(slug);
-      setSelectedSkill(doc);
+      const doc = await getSkill(name, path);
+      setSelected(doc);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('skills.errors.loadDocumentFailed'));
     }
   }, []);
 
-  // 创建技能请求
-  const handleCreateRequest = useCallback(async (payload: CreateSkillRequestPayload) => {
-    try {
-      setError(null);
-      const request = await createSkillRequest(payload);
-      setRequests((prev) => [...prev, request]);
-      return request;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('skills.errors.createRequestFailed'));
-      throw err;
-    }
-  }, []);
-
-  // 加载技能请求列表
-  const loadRequests = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await getSkillRequests();
-      setRequests(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('skills.errors.loadRequestsFailed'));
-    }
-  }, []);
-
-  // 初始加载
   useEffect(() => {
-    loadSkills();
-    loadRequests();
-  }, [loadSkills, loadRequests]);
+    void loadSkills();
+  }, [loadSkills]);
 
   return {
     skills,
-    selectedSkill,
-    requests,
+    selected,
     isLoading,
     error,
     loadSkills,
     loadSkillDocument,
-    clearSelectedSkill: () => setSelectedSkill(null),
-    createRequest: handleCreateRequest,
-    loadRequests,
+    clearSelected: () => setSelected(null),
   };
 }

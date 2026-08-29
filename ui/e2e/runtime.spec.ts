@@ -26,9 +26,9 @@ test('real control plane conversation, reload, review, settings and demos', asyn
     if (await continueButton.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false)) await continueButton.click();
   };
   await continueIfNeeded();
-  await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('stub reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
   // 消息功能栏（对照 Agent-DIVA 移植）：助手消息有复制/重新生成，回退与分叉为占位
-  const assistantArticle = page.locator('article').filter({ hasText: 'mock reply to: hello vivy' }).last();
+  const assistantArticle = page.locator('article').filter({ hasText: 'stub reply to: hello vivy' }).last();
   await expect(assistantArticle.getByRole('button', { name: '复制' })).toBeVisible();
   await expect(assistantArticle.getByRole('button', { name: '重新生成' })).toBeEnabled();
   await expect(assistantArticle.getByRole('button', { name: '回到这里' })).toBeDisabled();
@@ -46,9 +46,9 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await assistantArticle.getByRole('button', { name: '复制' }).click();
   await expect(assistantArticle.getByRole('button', { name: '已复制' })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('mock reply to: hello vivy');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('stub reply to: hello vivy');
   await page.reload();
-  await expect(page.getByText('mock reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('stub reply to: hello vivy')).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('button', { name: '新会话' }).first().click();
   await expect(page.getByText('发送消息后，Vivy 会先进行预检。')).toBeVisible();
@@ -81,7 +81,7 @@ test('real control plane conversation, reload, review, settings and demos', asyn
 
   await page.getByRole('link', { name: '设置' }).click();
   await page.getByRole('tab', { name: '模型' }).click();
-  await expect(page.getByText('密钥只由运行环境管理')).toBeVisible();
+  await expect(page.getByText('写入本机用户工作区')).toBeVisible();
   await page.getByRole('link', { name: '人格' }).click();
   await expect(page.getByRole('heading', { name: '人格' })).toBeVisible();
   await expect(page.getByRole('button', { name: /IDENTITY\.MD/ })).toBeVisible();

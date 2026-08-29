@@ -4,8 +4,9 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-27
+> Updated: 2026-08-30
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
+> **Active lane:** §0.1 **ACTIVE** rows (Eino-first context / goal / query). Do not start a second write lane on the root tree without a worktree.
 
 ---
 
@@ -35,6 +36,44 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 Everything in §1–§8, §9.1–§9.9, §11–§13, and HITL-01..07 P0 is **done**.
 Do not pick work from those tables. Closed-track filing:
 `docs/logs/2026-08-25-todo-board-archive/summary.md`.
+
+Status legend: **ACTIVE** = current implementation lane (pick these first);
+**OPEN** = backlog; **DEFERRED** = needs explicit re-approval; **DONE** = filed
+under §10 / `docs/logs/`.
+
+### Active now — Eino-first context / goal / query (2026-08-30)
+
+Proposal (design authority until ADRs land):
+`docs/capability-proposal-eino-context-goal-query.md`.
+Research anchors: `docs/research/DSH-PLUGIN-ANCHORED-VIVY-GAPS.md` (L-COMPACT /
+L-GOAL / L-QUERY), `docs/research/AGENT-LOOP-PORT-COMPARISON.md` §4.3-E2 / §7.1.
+Prefer wiring Eino ADK; no second agent loop; no MEM-1; no DSH Cordis port.
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| EIN-0 | Eino-first capability proposal on the board | ACTIVE | Doc written 2026-08-29; §0.1 ACTIVE lane opened 2026-08-30. Maintainer may narrow to Batch 1 only (see proposal §10). Unblocks UI-GOAL / UI-TRAJ kernel deps |
+| EIN-A1 | Wire Eino `reduction` middleware + `context.compacted` map | ACTIVE | Batch 1. `engine.go` Handlers after skill; workspace `Backend` + `read_file`; Journal `tool.finished` stays full; config `runtime.loop.reduction.*`; scripted long-tool tests; `just ci` |
+| EIN-A5 | Eino `UnknownToolsHandler` graceful unknown tool names | ACTIVE | Batch 1 companion (cheap). Corrective tool error to model; run may continue |
+| EIN-A6 | `runtime.loop.*` config parse/validate (+ example yaml) | ACTIVE | Batch 1–2 shared. Defaults: reduction on (conservative), summarization off until soak |
+| EIN-A7 | Downgrade `internal/runtime/compaction` to meter/preflight | ACTIVE | Batch 1. meter for pressure/preflight; pruner not primary engine |
+| EIN-A3 | Domain + schemas for `context.compacted` / `loop.summary_pass` | ACTIVE | Batch 1 event types; mapper branch; UI may ignore initially |
+| EIN-A2 | Wire Eino `summarization` (Vivy Model, EmitInternalEvents, budget) | OPEN | Batch 2 after A1 soak. Opt-in / high threshold default |
+| EIN-A4 | Summary-only reward-pass middleware (`BeforeModelRewriteState`) | OPEN | Batch 2. Clears ToolInfos on last iteration budget; emits `loop.summary_pass` |
+| EIN-B1 | Session goal domain (`Goal` / `GoalRef` CAS + phases) | OPEN | Batch 3. Pure `internal/domain`; not a `task_*` rename |
+| EIN-B2 | Goal store + SQLite migration | OPEN | Batch 3. Session-scoped; revision first-writer-wins |
+| EIN-B3 | Goal model tools (`goal_create` / `get` / `update`) | OPEN | Batch 3. Vivy tools; policy TBD (get readonly) |
+| EIN-B4 | Goal RPC for UI GoalBar (`session/goal` …) | OPEN | Batch 3. Closes kernel half of **UI-GOAL** |
+| EIN-B5 | Optional goal round hint in MA-2 preamble | OPEN | Batch 5 polish. No hidden auto-run loop |
+| EIN-C1 | modernc SQLite FTS5 spike (go/no-go) | OPEN | Batch 4 gate. If fail → document; do not pretend FTS |
+| EIN-C2 | FTS migration + incremental index on append | OPEN | Batch 4 after C1 GO |
+| EIN-C3 | `session/search` RPC (bounded, redacted) | OPEN | Batch 4. Kernel half of **UI-TRAJ** |
+| EIN-C4 | Optional readonly `session_search` tool | OPEN | Batch 4. Untrusted results; auto-exec |
+| EIN-C5 | Trace by run_id / tool_call_id | OPEN | Batch 5. Inspector subset |
+
+**Active-lane pick order:** EIN-0 (done as doc) → **EIN-A3 + EIN-A6** (types/config)
+→ **EIN-A1 + EIN-A5 + EIN-A7** → soak → EIN-A2/A4 → EIN-B* ∥ EIN-C1.
+
+### Backlog open
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
@@ -74,14 +113,14 @@ Do not pick work from those tables. Closed-track filing:
 | UI-PROV-RPC | 供应商目录接真实后端（模型在线刷新） | OPEN | 2026-08-27 前端已移植 diva 静态供应商目录+折叠（`ui/src/components/settings/provider-catalog.ts`，由 `ui/scripts/gen-provider-catalog.py` 从 agent-diva yaml 生成，见 `docs/logs/2026-08-27-provider-catalog-fold/`）。diva 的 `get_provider_models` 运行时拉取在 vivy 无对应 RPC，目录为静态快照，会随厂商上新漂移；接真实数据需新增 provider/model 目录 RPC 并让前端目录退化为展示层 |
 | UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | OPEN | 注册表已后端化（`settings/providers` 系列 RPC，写时同步 env，见 `docs/logs/2026-08-28-provider-direct-write/`），但 provider 层仍按运行束 env_key 单 env 解析（`internal/provider/openai.go` 走 `os.Getenv(bundle.EnvKey)`）；同束不同 base_url 共用一把钥的问题仍在，需 provider 层按 (bundle,base_url) 解析密钥 |
 | UI-E2E-STALE | `just ui-e2e` 两条既有规格断言已过期文案（非本次改动引入） | OPEN | `runtime.spec.ts:84` 断言「密钥只由运行环境管理」、`welcome-wizard.spec.ts:33` 断言「API 密钥通过运行环境变量注入，不在界面中填写或保存。」——两串文案在 `ui/src` 均已不存在，密钥提示曾被 i18n 改写（现文案见 `ui/src/i18n/zh.ts` 的 `catalogKeyHint`/`secretNote` 等键）。2026-08-27 e2e 复跑确认：新增的 `language-setting.spec.ts` 通过，这两条为过期规格失败，与语言分区改动无关；需按现文案同步断言后恢复全绿，本次范围外未改 |
-| UI-TRAJ | 中控台轨迹面板接真实运行轨迹 | OPEN | 2026-08-25 轨迹面板（`ui/src/components/trajectory/`）为纯演示静态数据（复刻 DSH `ui-trajectory` 设计：工具栏/三泳道时间轴/账本/详情），未接后端；接真实轨迹需内核提供会话日志/回放事件 RPC（当前 Journal 事件流在 Go 侧，UI 无轨迹类端点），见 `docs/logs/2026-08-25-trajectory-panel/` |
+| UI-TRAJ | 中控台轨迹面板接真实运行轨迹 | OPEN | 2026-08-25 轨迹面板（`ui/src/components/trajectory/`）为纯演示静态数据（复刻 DSH `ui-trajectory` 设计：工具栏/三泳道时间轴/账本/详情），未接后端；内核检索/轨迹数据根见 **EIN-C3**（`session/search`）与 ACTIVE 提案 Track C；面板接线仍属 UI 切片，见 `docs/logs/2026-08-25-trajectory-panel/` |
 | UI-CI-BOOTSTRAP | 全新 checkout 直接 `just ci` 在 `go vet ./...` 失败 | OPEN | `ui/embed.go` 的 `go:embed all:dist` 需要 `ui/dist` 存在；`.gitignore` 允许 `ui/dist/.keep` 常驻但该文件从未入库。正常开发树依赖历史 `pnpm build` 残留。2026-08-25 在空 worktree 复现：先 `pnpm build` 再 `just ci` 即全绿。修复选项：入库 `ui/dist/.keep` 或让 `ui-ci` 先于 Go 侧 vet 执行。2026-08-30 `feat/mcp-live` 空 worktree 再次命中 |
 | UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | OPEN | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。与 MCP 无关，未在本迭代改这条旧断言 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
 | UI-PROV-REGISTRY | 注册表 localStorage 存量数据无迁移路径 | OPEN | 2026-08-28 provider 写逻辑改为后端注册表后，旧 `vivy.ui.customProviders` localStorage 条目不再被读取（见 `docs/logs/2026-08-28-provider-direct-write/`）。本地用户需在设置页重新登记；如需自动迁移需 UI 一次性读旧 key 并逐条 `upsertProvider`（含是否回填 apiKey 的产品决策） |
 | UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | 2026-08-27 已移植 Agent-Diva 完整通道配置 UI（`ui/src/components/settings/ChannelsSettings.tsx` 等，见 `docs/logs/2026-08-27-channels-ui-port/`）：数据层仅落 `vivy.ui.channels` localStorage（wire 形状对齐 Diva `get_channels`，便于直接换读写层）；就绪状态按 schema 必填字段近似，替代服务端 `getConfigStatus` 通道报告；向导省略「测试连接」步（Diva 源码该步为不可达死代码）。接真实后端需新增 `get_channels` / `update_channel`（或等价 settings RPC）与通道就绪报告并替换 `channel-store.ts` 读写层 |
 | UI-TODO-MUTATE | 待办清单只读，人不能在 UI 里增删改 | OPEN | 2026-08-29 聊天区已接真实 `session/todos`（见 `docs/logs/2026-08-29-chat-plan-todo-display/`）；变更只来自 `task_*` 工具。人闸编辑会变成伪操作，需明确产品决策后再做 |
-| UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。移植 `create_goal` 需内核提案 |
+| UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。内核提案已写：`docs/capability-proposal-eino-context-goal-query.md` Track B；板项 **EIN-B1..B4**（ACTIVE 车道，Batch 3）。UI GoalBar 仍等 RPC 落地后再接 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 

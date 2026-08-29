@@ -1,7 +1,7 @@
 # AGENT-VIVY V0 — Document Index
 
 > **Status:** Final document index for `diva-go/`. Single entry point for any reader.
-> **Updated:** 2026-08-15
+> **Updated:** 2026-08-29
 > **Owner:** 📋 John (PM) + user (大湿)
 
 ---
@@ -34,6 +34,8 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 | 14b | `agent-vivy/docs/architecture/VIVY-FACE-PACK.md` | Proposal: first-party faces as cold-pluggable packed mouths (`face: web \| tui \| headless`; user `seam: face`; Android apps consume the kernel) | When discussing TUI, headless, a no-web coding species, or a downstream Android app |
 | 15 | `agent-vivy/docs/architecture/VIVY-WORLDVIEW.md` | Why the product philosophy and the Vivy namesake are structurally the same. Does not replace PRD §5.0 | When the name, slogan, or species/Studio split needs a why |
 | 16 | `agent-vivy/docs/research/DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md` | Capability comparison and gap analysis between DeepSeek Harness and agent-vivy (evidence-cited, dimension by dimension) | When deciding what the species should adopt, refuse, or defer from DSH |
+| 17 | `agent-vivy/docs/research/DSH-PLUGIN-ANCHORED-VIVY-GAPS.md` | DSH **plugin/package-anchored** gap map (plan/todo/goal/…): what Vivy lacks as named units vs Cordis plugins; complements the dimension-wise GAP doc | When inventorying missing features from the DSH package list, or writing a capability proposal that cites a `dsh-*` package |
+| 18 | `agent-vivy/docs/capability-proposal-eino-context-goal-query.md` | **Proposal (unapproved):** Eino-first Track A (`reduction`/`summarization` + loop hygiene), Vivy session goal (Track B), session FTS query (Track C) | When scheduling the next harness slice after the plugin-anchored gap map; prefer Eino ADK over new loops |
 
 ## 3. Source artifacts in parent directories
 
@@ -84,3 +86,5 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 - v4 (2026-08-14): Added the full discussion write-up `agent-vivy/docs/architecture/SELF-EVOLVING-GATEWAY.md` as the narrative source; Studio file remains the compact decision record.
 - v5 (2026-08-15): Studio corrected to an independent application. Canonical `agent-vivy/docs/architecture/VIVY-STUDIO.md`. Development venue switches to Studio after ST-6. Species-side Studio card / Promote authority frozen.
 - v6 (2026-08-23): Studio remains the first-party daily development IDE, but is no longer an exclusive execution venue. Other authorized tools work directly in the repository with their own capabilities.
+- v7 (2026-08-29): Added `DSH-PLUGIN-ANCHORED-VIVY-GAPS.md` — plugin/package-anchored Vivy gap research complementary to the dimension-wise DSH capability GAP doc.
+- v8 (2026-08-29): Linked `docs/capability-proposal-eino-context-goal-query.md` (Eino-first compaction/goal/query proposal; not yet approved entry).

@@ -113,10 +113,11 @@ describe('合并视图（目录 + 注册表）', () => {
     expect(searchMergedProviders(entries, '')).toHaveLength(PROVIDER_CATALOG.length + 1);
   });
 
-  it('matchMergedProviderEntry：目录优先；注册表命中；base_url 空沿用束名回退；未知返回 undefined', () => {
+  it('matchMergedProviderEntry：注册表优先；目录回退；base_url 空沿用束名回退；未知返回 undefined', () => {
     const custom = { ...ENTRY, display_name: '自定义 DeepSeek', base_url: 'https://api.deepseek.com/v1' };
-    expect(matchMergedProviderEntry([custom], 'openai', 'https://api.deepseek.com/v1')).toMatchObject({ name: 'deepseek', custom: false });
+    expect(matchMergedProviderEntry([custom], 'openai', 'https://api.deepseek.com/v1')).toMatchObject({ displayName: '自定义 DeepSeek', custom: true });
     expect(matchMergedProviderEntry([ENTRY], 'openai', 'https://my-gateway.example.com/v1')).toMatchObject({ displayName: '我的网关', custom: true });
+    expect(matchMergedProviderEntry([], 'openai', 'https://api.deepseek.com/v1')).toMatchObject({ name: 'deepseek', custom: false });
     expect(matchMergedProviderEntry([ENTRY], 'openai', '')).toMatchObject({ name: 'openai' });
     expect(matchMergedProviderEntry([ENTRY], 'unknown-bundle', '')).toBeUndefined();
   });
@@ -144,6 +145,11 @@ describe('customApiKeySetFor', () => {
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://my-gateway.example.com/v1')).toBe(true);
     expect(customApiKeySetFor([{ ...ENTRY, api_key_set: false }], 'openai', 'https://my-gateway.example.com/v1')).toBe(false);
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
+    expect(customApiKeySetFor([{
+      id: 'custom-deepseek', display_name: 'DeepSeek', bundle: 'openai',
+      base_url: 'https://api.deepseek.com/v1', default_model: 'deepseek-chat',
+      models: ['deepseek-chat'], api_key_set: true,
+    }], 'openai', 'https://api.deepseek.com/v1')).toBe(true);
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://unknown.example/v1')).toBe(false);
     expect(customApiKeySetFor([ENTRY], 'mock', '')).toBe(false);
   });
