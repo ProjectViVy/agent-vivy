@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	schemaVersion    = 14
+	schemaVersion    = 15
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
@@ -151,7 +151,7 @@ func (b *Backend) migrate(ctx context.Context) error {
 		return fmt.Errorf("storage: begin postgres schema: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, schemaV14); err != nil {
+	if _, err := tx.ExecContext(ctx, schemaV15); err != nil {
 		return fmt.Errorf("storage: apply postgres schema: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,

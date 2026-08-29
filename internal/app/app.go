@@ -238,6 +238,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
 		Sink:                 bus,
 		Compactions:          backend,
+		Crons:                backend,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			return runtime.NewEngine(ctx, chatModel, ts, ec)
 		},
@@ -282,6 +283,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
+		Crons: backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
@@ -620,6 +622,12 @@ func defaultModelFor(cfg config.Config, providerName string) string {
 func (a *App) Run(ctx context.Context) error {
 	a.service.StartInteractionSweeper(context.Background(), time.Second)
 	defer a.service.StopInteractionSweeper()
+	// Cron fires agent turns on a schedule; it must not outlive the
+	// server loop and its in-flight watchers drain during shutdown below.
+	if a.cfg.Runtime.Cron.Enabled {
+		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
+		defer a.service.StopCronScheduler()
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		a.logger.Info("vivy starting", "addr", a.cfg.Server.Addr)
@@ -647,6 +655,10 @@ func (a *App) Run(ctx context.Context) error {
 	// run.cancelled terminal persists before the journal closes; only
 	// then do the HTTP server and the backend shut down.
 	a.service.StopInteractionSweeper()
+	// Stop the armed timer before cancelling runs: any in-flight cron
+	// terminal watcher still writes its state back while storage is open
+	// (bounded by StopCronScheduler's drain window).
+	a.service.StopCronScheduler()
 	a.service.CancelAll()
 	if a.worker != nil {
 		if err := a.worker.Close(shutdownCtx); err != nil {

@@ -13,6 +13,7 @@ export const RPC_METHODS = [
   'settings/get', 'settings/update',
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
+  'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
   'skills/list', 'skills/get',
 ] as const;
@@ -377,3 +378,71 @@ export interface SkillView extends SkillSummary {
 export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
 export const getSkill = (name: string, path?: string) =>
   request<SkillView>('skills/get', path ? { name, path } : { name });
+
+// ==================== Cron（定时任务，后端真实 RPC） ====================
+
+export type ScheduleKind = 'at' | 'every' | 'cron';
+export type CronStatus = 'running' | 'scheduled' | 'paused' | 'completed' | 'failed';
+
+export interface CronSchedule {
+  kind: ScheduleKind;
+  atMs?: number;
+  everyMs?: number;
+  expr?: string;
+  tz?: string | null;
+}
+
+export interface CronPayload {
+  kind: string;
+  message: string;
+  deliver: boolean;
+  channel?: string | null;
+  to?: string | null;
+}
+
+export interface CronRunSnapshot {
+  run_id: string;
+  job_id: string;
+  startedAtMs: number;
+  lastHeartbeatAtMs: number;
+  trigger: 'scheduled' | 'manual';
+  cancelable: boolean;
+}
+
+export interface CronJobDto {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: CronSchedule;
+  payload: CronPayload;
+  /** 任务专属会话（首次触发时由后端创建并绑定）。 */
+  sessionId?: string | null;
+  state: {
+    nextRunAtMs?: number | null;
+    lastRunAtMs?: number | null;
+    lastStatus?: string | null;
+    lastError?: string | null;
+  };
+  createdAtMs: number;
+  updatedAtMs: number;
+  deleteAfterRun: boolean;
+  isRunning: boolean;
+  activeRun?: CronRunSnapshot | null;
+  computedStatus: CronStatus;
+}
+
+/** cron/create、cron/update 的写入载荷（整对象语义）。 */
+export interface CronJobInput {
+  name: string;
+  enabled: boolean;
+  schedule: CronSchedule;
+  payload: CronPayload;
+  delete_after_run?: boolean;
+}
+
+export const listCronJobs = () => request<{ jobs: CronJobDto[] }>('cron/list');
+export const createCronJob = (input: CronJobInput) => request<{ job: CronJobDto }>('cron/create', input);
+export const updateCronJob = (id: string, input: CronJobInput) => request<{ job: CronJobDto }>('cron/update', { id, ...input });
+export const deleteCronJob = (id: string) => request<{ deleted: boolean }>('cron/delete', { id });
+export const triggerCronJob = (id: string) => request<{ job: CronJobDto }>('cron/trigger', { id });
+export const stopCronJob = (id: string) => request<{ stopped: boolean }>('cron/stop', { id });

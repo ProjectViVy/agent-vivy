@@ -277,6 +277,18 @@ type TodoStore interface {
 	UpdateTodo(context.Context, domain.Todo) error
 }
 
+// CronStore persists the control plane's scheduled jobs (the CRON panel
+// backend). Nil stores keep the rest of the organism working; the cron
+// RPC family and the scheduler simply stay disabled.
+type CronStore interface {
+	CreateCronJob(ctx context.Context, job domain.CronJob) error
+	// GetCronJob returns the row; unknown ids yield ErrNotFound.
+	GetCronJob(ctx context.Context, id string) (domain.CronJob, error)
+	ListCronJobs(ctx context.Context) ([]domain.CronJob, error)
+	UpdateCronJob(ctx context.Context, job domain.CronJob) error
+	DeleteCronJob(ctx context.Context, id string) error
+}
+
 // SessionCompaction is one durable session-level context-compression record.
 // The journal message log stays the append-only source of truth; this
 // projection tells the feed builder which stored rows (CreatedAt <= TailFrom)
@@ -318,6 +330,7 @@ type Engine interface {
 	SkillRevisionStore
 	TodoStore
 	CompactionStore
+	CronStore
 	StudioStore
 	TokenUsageStore
 	LeaseStore
