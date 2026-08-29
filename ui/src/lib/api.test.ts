@@ -16,6 +16,7 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('generations/get');
     expect(api.RPC_METHODS).toContain('evals/start');
     expect(api.RPC_METHODS).toContain('settings/update');
+    expect(api.RPC_METHODS).toContain('settings/providers/refresh');
     expect(api.RPC_METHODS).toContain('session/todos');
     expect(api.RPC_METHODS).toContain('session/set_permission');
     expect(api.RPC_METHODS).toContain('skills/list');
@@ -32,5 +33,7 @@ describe('typed Vivy API', () => {
     await api.promoteGeneration({ from_id: 'g0', to_id: 'g1', eval_id: 'e1', actor: 'human' }); expect(call).toHaveBeenLastCalledWith('promotions/promote', { from_id: 'g0', to_id: 'g1', eval_id: 'e1', actor: 'human' });
     await api.listSkills(); expect(call).toHaveBeenLastCalledWith('skills/list', undefined);
     await api.getSkill('demo-skill', 'references/guide.md'); expect(call).toHaveBeenLastCalledWith('skills/get', { name: 'demo-skill', path: 'references/guide.md' });
+    await api.refreshProviderModels({ id: 'custom-1' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { id: 'custom-1' });
+    await api.refreshProviderModels({ bundle: 'openai', base_url: 'https://gateway.example.com/v1' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { bundle: 'openai', base_url: 'https://gateway.example.com/v1' });
   });
 });

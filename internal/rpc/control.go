@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
@@ -91,6 +93,9 @@ type ControlDeps struct {
 	// composition root can invalidate the live model cache and refresh live
 	// overlays (MCP catalog, sandbox). Nil is a no-op.
 	OnSettingsChanged func()
+	// ModelLists discovers the upstream OpenAI-compatible /models catalog for
+	// settings/providers/refresh. Nil uses the package default 15s client.
+	ModelLists *provider.ModelListClient
 }
 
 // MCPCatalog is the live MCP backend surface the control plane manages.
@@ -352,7 +357,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 				"generations.reject", "species.inspect",
 				"settings.get", "settings.update",
-				"settings.providers", "settings.providers.upsert", "settings.providers.delete",
+				"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 				"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 				"stats.tokens",
 				"skills.list", "skills.get",
@@ -451,6 +456,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.upsertProvider(ctx, request)
 	case "settings/providers/delete":
 		return h.deleteProvider(ctx, request)
+	case "settings/providers/refresh":
+		return h.refreshProviderModels(ctx, request)
 	case "settings/mcp":
 		return h.listMCP(ctx)
 	case "settings/mcp/upsert":
@@ -1717,13 +1724,20 @@ type providerEntryResult struct {
 }
 
 func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
+	// The wire contract is models: [] for an empty list — never null — so the
+	// UI validator keeps an entry with no models yet visible (a custom
+	// provider created before its first refresh must still render).
+	models := e.Models
+	if models == nil {
+		models = []string{}
+	}
 	return providerEntryResult{
 		ID:           e.ID,
 		DisplayName:  e.DisplayName,
 		Bundle:       e.Bundle,
 		BaseURL:      e.BaseURL,
 		DefaultModel: e.DefaultModel,
-		Models:       append([]string(nil), e.Models...),
+		Models:       models,
 		APIKeySet:    e.ApiKey != "",
 	}
 }
@@ -1881,6 +1895,123 @@ func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (a
 	h.notifySettingsChanged()
 	_ = ctx
 	return map[string]any{"deleted": true, "id": params.ID}, nil
+}
+
+// refreshProviderModels fetches the upstream OpenAI-compatible model list
+// for one provider and persists it into the provider registry (models only;
+// any configured api_key is kept untouched). A catalog vendor with no
+// registry row is cloned into a new custom entry so there is a persist
+// target; the clone's display name comes from the request (the frontend
+// knows the catalog label). Anthropic-native providers are rejected: their
+// API does not implement GET /models. The response is the redacted saved
+// entry — the key never crosses the wire.
+func (h *controlHandler) refreshProviderModels(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
+	}
+	var params struct {
+		ID           string `json:"id"`
+		Bundle       string `json:"bundle"`
+		BaseURL      string `json:"base_url"`
+		DisplayName  string `json:"display_name"`
+		DefaultModel string `json:"default_model"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+
+	// Resolve the target entry: by registry id, or by (bundle, base_url)
+	// cloning a catalog vendor into the registry on first refresh.
+	var entry settings.ProviderEntry
+	switch {
+	case params.ID != "":
+		found := false
+		for _, e := range s.Providers {
+			if e.ID == params.ID {
+				entry, found = e, true
+				break
+			}
+		}
+		if !found {
+			return nil, &Error{Code: CodeNotFound, Message: "provider entry not found"}
+		}
+	default:
+		if params.Bundle != settings.ProviderOpenAI {
+			return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
+		}
+		baseURL := strings.TrimSpace(params.BaseURL)
+		if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+			return nil, &Error{Code: InvalidParams, Message: "model refresh requires an http(s) base_url"}
+		}
+		existing, ok := s.FindProvider(settings.ProviderOpenAI, baseURL)
+		if ok {
+			entry = existing
+		} else {
+			displayName := strings.TrimSpace(params.DisplayName)
+			if displayName == "" {
+				if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
+					displayName = u.Host
+				} else {
+					displayName = baseURL
+				}
+			}
+			entry = settings.ProviderEntry{
+				ID:           "custom-" + providerIDNonce(),
+				DisplayName:  displayName,
+				Bundle:       settings.ProviderOpenAI,
+				BaseURL:      baseURL,
+				DefaultModel: strings.TrimSpace(params.DefaultModel),
+			}
+		}
+	}
+	if entry.Bundle != settings.ProviderOpenAI {
+		return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
+	}
+
+	apiKey := settings.ActiveKey(s, entry.Bundle, entry.BaseURL)
+	models, err := h.deps.ModelLists.List(ctx, entry.BaseURL, apiKey)
+	if err != nil {
+		// List already sanitizes the cause; never echo the key or URL.
+		return nil, &Error{Code: InternalError, Message: "refresh provider models: " + err.Error()}
+	}
+
+	// Union policy: upstream ids first (gateway order), then locally added
+	// ids upstream omits, so a manual "新增" entry survives a refresh.
+	merged := append([]string(nil), models...)
+	seen := make(map[string]bool, len(merged))
+	for _, m := range merged {
+		seen[m] = true
+	}
+	for _, m := range entry.Models {
+		if !seen[m] {
+			seen[m] = true
+			merged = append(merged, m)
+		}
+	}
+	entry.Models = merged
+
+	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertProvider(entry))
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	for _, e := range saved.Providers {
+		if e.ID == entry.ID {
+			return toProviderEntryResult(e), nil
+		}
+	}
+	return nil, internalError(fmt.Errorf("provider refresh did not persist entry"))
 }
 
 // providerIDNonce supplies a short random suffix for auto-generated entry

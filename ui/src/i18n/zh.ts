@@ -199,6 +199,9 @@ export const zh = {
     addModel: '新增模型',
     addModelPlaceholder: '输入模型 id，回车应用',
     addModelConfirm: '加入并应用',
+    refreshModels: '刷新模型列表',
+    refreshing: '刷新中…',
+    refreshed: '已从上游同步 {{count}} 个模型',
     catalogKeyHint: '目录厂商也可在此填写 API Key，写入本机用户工作区。',
     frozenNotice: '本进程由环境变量临时指定供应商，模型配置只读。',
     errors: {

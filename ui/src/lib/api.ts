@@ -10,7 +10,7 @@ export const RPC_METHODS = [
   'generations/list', 'generations/get', 'generations/create', 'generations/reject',
   'evals/list', 'evals/record', 'evals/start', 'promotions/list', 'promotions/promote', 'species/inspect',
   'settings/get', 'settings/update',
-  'settings/providers', 'settings/providers/upsert', 'settings/providers/delete',
+  'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'stats/tokens',
   'skills/list', 'skills/get',
@@ -222,6 +222,18 @@ export interface ProvidersView {
 export const listProviders = () => request<ProvidersView>('settings/providers');
 export const upsertProvider = (input: ProviderEntryInput) => request<ProviderEntry>('settings/providers/upsert', { ...input });
 export const deleteProvider = (id: string) => request<{ deleted: boolean; id: string }>('settings/providers/delete', { id });
+
+/** settings/providers/refresh 载荷：按 id 或 (bundle, base_url) 定位条目；目录厂商无注册表行时克隆成自定义条目以持久化。密钥不参与请求（后端按注册表解析）。 */
+export interface ProviderRefreshInput {
+  id?: string;
+  bundle?: 'openai';
+  base_url?: string;
+  display_name?: string;
+  default_model?: string;
+}
+
+/** 从上游 GET /models 同步模型列表并持久化到注册表；返回脱敏后的保存条目。 */
+export const refreshProviderModels = (input: ProviderRefreshInput) => request<ProviderEntry>('settings/providers/refresh', input);
 
 export type McpStatus = 'idle' | 'ok' | 'error';
 export interface McpServer {

@@ -104,6 +104,7 @@ interface RuntimeState {
   loadProviders: () => Promise<void>;
   saveProvider: (input: api.ProviderEntryInput) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
+  refreshProvider: (input: api.ProviderRefreshInput) => Promise<api.ProviderEntry>;
   loadLifecycle: () => Promise<void>;
   createGeneration: (params: Parameters<typeof api.createGeneration>[0]) => Promise<void>;
   rejectGeneration: (id: string) => Promise<void>;
@@ -357,6 +358,15 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       await api.deleteProvider(id);
       set({ providersPhase: 'ready' });
       await get().loadProviders();
+    } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); throw error; }
+  },
+  refreshProvider: async (input) => {
+    set({ providersPhase: 'processing', providersError: null });
+    try {
+      const saved = await api.refreshProviderModels(input);
+      set({ providersPhase: 'ready' });
+      await get().loadProviders();
+      return saved;
     } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); throw error; }
   },
   loadLifecycle: async () => {

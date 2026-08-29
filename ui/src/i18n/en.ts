@@ -201,6 +201,9 @@ export const en: Dictionary = {
     addModel: 'Add model',
     addModelPlaceholder: 'Type a model id and press Enter',
     addModelConfirm: 'Add and apply',
+    refreshModels: 'Refresh model list',
+    refreshing: 'Refreshing…',
+    refreshed: 'Synced {{count}} models from upstream',
     catalogKeyHint: 'Catalog vendors can also take an API key here; it is stored in the user workspace.',
     frozenNotice: 'This process is locked to an environment-variable provider session; model settings are read-only.',
     errors: {

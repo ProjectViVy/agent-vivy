@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -876,6 +878,13 @@ func (e errString) Error() string { return string(e) }
 // newSettingsHandlerEnv builds a control handler with a writable settings
 // document under a temp dir and an OnSettingsChanged probe.
 func newSettingsHandlerEnv(t *testing.T, probe *settingsApplierProbe) (*controlTestEnv, string) {
+	return newSettingsHandlerEnvWith(t, probe, nil)
+}
+
+// newSettingsHandlerEnvWith is newSettingsHandlerEnv plus a hook to mutate
+// ControlDeps before the handler is constructed (e.g. injecting the upstream
+// model-list client for settings/providers/refresh tests).
+func newSettingsHandlerEnvWith(t *testing.T, probe *settingsApplierProbe, mutate func(*ControlDeps)) (*controlTestEnv, string) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
@@ -911,6 +920,9 @@ func newSettingsHandlerEnv(t *testing.T, probe *settingsApplierProbe) (*controlT
 	if probe != nil {
 		deps.OnSettingsChanged = func() { probe.n++ }
 	}
+	if mutate != nil {
+		mutate(&deps)
+	}
 	handler, err := NewControlHandler(deps)
 	if err != nil {
 		t.Fatal(err)
@@ -938,7 +950,7 @@ func TestProviderRegistryRPC(t *testing.T) {
 		t.Fatalf("empty registry view = %+v", view)
 	}
 
-	// Upsert an entry with an api_key; the response is redacted.
+	// Upsert an entry with api_key; the response is redacted.
 	result, rpcErr = callControl(t, env.handler, "settings/providers/upsert", map[string]any{
 		"id": "custom-1", "display_name": "My Gateway", "bundle": "openai",
 		"base_url": "https://gateway.example.com/v1", "default_model": "deepseek-chat",
@@ -1032,6 +1044,209 @@ func TestProviderRegistryRPC(t *testing.T) {
 		"id": "custom-1", "display_name": "A", "bundle": "openai", "base_url": "https://a.example.com/v1",
 	}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("expected conflict on read-only upsert, got %v", rpcErr)
+	}
+}
+
+// refreshUpstreamServer serves an OpenAI-compatible /models payload and
+// records the Authorization header + paths it received.
+func refreshUpstreamServer(t *testing.T, status int, payload any) (*httptest.Server, *string) {
+	t.Helper()
+	var auth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if payload != nil {
+			_ = json.NewEncoder(w).Encode(payload)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts, &auth
+}
+
+func TestProviderRefreshRPC(t *testing.T) {
+	upstream, auth := refreshUpstreamServer(t, http.StatusOK, map[string]any{
+		"data": []map[string]any{
+			{"id": "upstream-a"},
+			{"id": "upstream-b"},
+		},
+	})
+	client := &provider.ModelListClient{HTTP: upstream.Client()}
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
+		deps.ModelLists = client
+	})
+
+	// Seed a registry entry with a key and a manually added model.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "display_name": "My Gateway", "bundle": "openai",
+		"base_url": upstream.URL, "default_model": "upstream-a",
+		"models": []string{"manual-a"}, "api_key": "sk-entry",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+
+	// Wire contract: an entry with no models yet must serialize models as []
+	// — never null — so the UI validator keeps the fresh entry visible.
+	emptyResult, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-empty", "display_name": "No Models Yet", "bundle": "openai",
+		"base_url": "https://empty.example.com/v1", "models": []string{},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	emptyBody, err := json.Marshal(emptyResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(emptyBody), `"models":null`) {
+		t.Fatalf("empty models must serialize as [], got null: %s", emptyBody)
+	}
+	if !strings.Contains(string(emptyBody), `"models":[]`) {
+		t.Fatalf("empty models must serialize as []: %s", emptyBody)
+	}
+	// The empty entry must appear in the list view (models [] on the wire).
+	listResult, rpcErr := callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listView := listResult.(providersResult)
+	if len(listView.Entries) != 2 || listView.Entries[1].ID != "custom-empty" || listView.Entries[1].Models == nil {
+		t.Fatalf("list view must include the empty-models entry: %+v", listView)
+	}
+	// Clean up the scratch entry so later assertions count only custom-1.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/delete", map[string]any{"id": "custom-empty"}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+
+	// Refresh by id: upstream ids first, the manual extra preserved.
+	result, rpcErr := callControl(t, env.handler, "settings/providers/refresh", map[string]any{"id": "custom-1"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	entry := result.(providerEntryResult)
+	wantModels := []string{"upstream-a", "upstream-b", "manual-a"}
+	if len(entry.Models) != len(wantModels) {
+		t.Fatalf("refreshed models = %v, want %v", entry.Models, wantModels)
+	}
+	for i, m := range wantModels {
+		if entry.Models[i] != m {
+			t.Fatalf("refreshed models = %v, want %v", entry.Models, wantModels)
+		}
+	}
+	if !entry.APIKeySet {
+		t.Fatalf("refresh must keep the key set flag: %+v", entry)
+	}
+	body, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "sk-entry") {
+		t.Fatalf("refresh response leaked api_key: %s", body)
+	}
+	if *auth != "Bearer sk-entry" {
+		t.Fatalf("upstream authorization = %q, want Bearer sk-entry", *auth)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Providers) != 1 || loaded.Providers[0].ApiKey != "sk-entry" {
+		t.Fatalf("refresh must not clear the registry api_key: %+v", loaded)
+	}
+	if len(loaded.Providers[0].Models) != len(wantModels) {
+		t.Fatalf("persisted models = %v, want %v", loaded.Providers[0].Models, wantModels)
+	}
+	if probe.n != 4 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 4 (2 upserts + delete + refresh)", probe.n)
+	}
+
+	// Upstream failure: no row is created, the registry stays untouched.
+	failing, _ := refreshUpstreamServer(t, http.StatusInternalServerError, nil)
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/refresh", map[string]any{
+		"bundle": "openai", "base_url": failing.URL,
+	}); rpcErr == nil || rpcErr.Code != InternalError {
+		t.Fatalf("expected internal error on upstream failure, got %v", rpcErr)
+	}
+	loaded, _ = settings.Load(settingsPath)
+	if len(loaded.Providers) != 1 {
+		t.Fatalf("failed refresh must not create a registry row: %+v", loaded)
+	}
+	if probe.n != 4 {
+		t.Fatalf("failed refresh must not notify: %d", probe.n)
+	}
+
+	// Catalog vendor with no registry row is cloned into the registry.
+	result, rpcErr = callControl(t, env.handler, "settings/providers/refresh", map[string]any{
+		"bundle": "openai", "base_url": upstream.URL + "/v1", "display_name": "Catalog Gateway", "default_model": "upstream-a",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	clone := result.(providerEntryResult)
+	if clone.ID == "" || clone.ID == "custom-1" || clone.DisplayName != "Catalog Gateway" {
+		t.Fatalf("cloned entry = %+v", clone)
+	}
+	if len(clone.Models) != 2 || clone.Models[0] != "upstream-a" {
+		t.Fatalf("cloned models = %v", clone.Models)
+	}
+	if *auth != "" {
+		t.Fatalf("keyless clone must not send an authorization header, got %q", *auth)
+	}
+	loaded, _ = settings.Load(settingsPath)
+	if len(loaded.Providers) != 2 {
+		t.Fatalf("clone must persist a second entry: %+v", loaded)
+	}
+	if probe.n != 5 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 5", probe.n)
+	}
+
+	// Unknown id is a not-found error.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/refresh", map[string]any{"id": "nope"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("expected not-found on missing id, got %v", rpcErr)
+	}
+
+	// Anthropic-native providers are rejected, by bundle and by entry id.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/refresh", map[string]any{
+		"bundle": "anthropic", "base_url": "https://api.anthropic.com",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected anthropic bundle to be rejected, got %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-2", "display_name": "Anthropic", "bundle": "anthropic",
+		"base_url": "https://api.anthropic.com", "models": []string{"claude-opus-4"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/refresh", map[string]any{"id": "custom-2"}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected anthropic entry to be rejected, got %v", rpcErr)
+	}
+
+	// Read-only deployment rejects refresh.
+	roEnv := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, roEnv.handler, "settings/providers/refresh", map[string]any{"id": "custom-1"}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("expected conflict on read-only refresh, got %v", rpcErr)
+	}
+
+	// Frozen (ENV-locked) session rejects refresh.
+	frozenEnv, _ := newSettingsHandlerEnvWith(t, &settingsApplierProbe{}, func(deps *ControlDeps) {
+		deps.Frozen = true
+	})
+	if _, rpcErr := callControl(t, frozenEnv.handler, "settings/providers/refresh", map[string]any{"id": "custom-1"}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("expected conflict on frozen refresh, got %v", rpcErr)
+	}
+
+	// The capabilities contract advertises the refresh method.
+	result, rpcErr = callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	initJSON, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(initJSON), "settings.providers.refresh") {
+		t.Fatalf("capabilities missing settings.providers.refresh: %s", initJSON)
 	}
 }
 
