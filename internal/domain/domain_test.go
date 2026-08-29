@@ -83,8 +83,8 @@ func TestRunKindVocabulary(t *testing.T) {
 }
 
 func TestEventVocabulary(t *testing.T) {
-	if len(EventTypes) != 35 {
-		t.Fatalf("vocabulary size = %d, want 35", len(EventTypes))
+	if len(EventTypes) != 36 {
+		t.Fatalf("vocabulary size = %d, want 36", len(EventTypes))
 	}
 	seen := map[EventType]bool{}
 	terminals := 0
@@ -138,5 +138,26 @@ func TestRoleVocabulary(t *testing.T) {
 	}
 	if Role("system").Valid() {
 		t.Error("unknown role must be invalid")
+	}
+}
+
+func TestMessageEffectiveSource(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{"zero value reads as ui", "", "ui"},
+		{"channel provenance passes through", "channel", "channel"},
+		{"unknown provenance passes through", "widget", "widget"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var m Message
+			m.Source = tc.source
+			if got := m.EffectiveSource(); got != tc.want {
+				t.Errorf("EffectiveSource = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

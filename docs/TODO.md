@@ -48,7 +48,7 @@ Do not pick work from those tables. Closed-track filing:
 | FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 仍 mock。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
 | CH-A | ChannelHost + telegram + dingtalk（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C1..C6，见 §0.2。勿再按本行领取 |
 | CH-B | feishu / qq / discord（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C7a/b/c，见 §0.2。勿再按本行领取 |
-| CH-C1 | 账本：`channel.inbound` + Message 出处 | OPEN | **下一刀。** Plan: `docs/plans/channel-epic/CH-C1.md`。新分支 `feat/channel-c1`，不要写进文档分支 |
+| CH-C1 | 账本：`channel.inbound` + Message 出处 | DONE | 2026-08-30 Message 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui）+ `EventChannelInbound` + `channel.inbound` schema；sqlite migration016；postgres 升版 15 含 v14 原地升级；conformance CN-17。无适配器、无 Host。Filing: `docs/logs/2026-08-30-channel-c1/` |
 | CH-C2 | SDK `seam: channel` + 空注册表 + 信封配置 | OPEN | Plan: `docs/plans/channel-epic/CH-C2.md`。依赖 CH-C1 |
 | CH-C3 | ChannelHost + 假插件 TCK | OPEN | Plan: `docs/plans/channel-epic/CH-C3.md`。包名 `internal/channelhost`。依赖 CH-C2 |
 | CH-C4 | `plugins/telegram` 私聊文本 | OPEN | Plan: `docs/plans/channel-epic/CH-C4.md`。ABI 样板。依赖 CH-C3 |
@@ -60,6 +60,11 @@ Do not pick work from those tables. Closed-track filing:
 | CH-C8 | 同二进制 `vivy channel --name` 子进程 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C8.md`。不是开工令 |
 | CH-C9 | A2A / NeuroLink 能力提案 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C9.md`。不是开工令 |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind 是挡板；不进 2026-08-30 本批、不进 §0.2 本期日历 |
+| CH-C1-N1 | `channel.inbound` 信封张力：RunEvent envelope 必填 `run_id`，而入账发生在 run 存在前 | OPEN | Found 2026-08-30 (CH-C1)：payload 里 session_id 必填 / run_id 可选，与 envelope 必填 run_id 冲突。CH-C3 设计前拍板（放宽 envelope 或独立承载）；Filing: `docs/logs/2026-08-30-channel-c1/summary.md` |
+| CH-C1-N2 | 合同 §12 Journal 草图与 CH-C1 §4 payload 定形不一致 | OPEN | Found 2026-08-30 (CH-C1)：合同写 `{channel, peer, message_id, content_digest, bytes}`，PLAN 定形 `{channel, chat_id, sender, message_id, session_id, run_id?}`（无 digest/bytes）。已按 PLAN 实现；请架构师确认是否回写合同 §12 |
+| CH-C1-N3 | Message 出处未上 RPC/UI：`messageResult` 只投影 ID/RunID/Role/Content/CreatedAt | OPEN | Found 2026-08-30 (CH-C1)：出处已入库但 JSON-RPC 不可见。归 CH-C5 inspect/设置页切片 |
+| CH-C1-N4 | `Source` 无词表校验：`EffectiveSource` 透传任意非空值 | OPEN | Found 2026-08-30 (CH-C1)：与「无类型词表」决定一致；CH-C2 SDK seam 落地时随合同定 `ui\|channel` 词表与校验 |
+| CH-C1-N5 | postgres v14→15 升级测试与 pg 侧 CN-17 未在真实 Postgres 执行 | OPEN | Found 2026-08-30 (CH-C1)：本机无 Docker/5432，`VIVY_POSTGRES_TEST_DSN` 门控用例仅验证编译/vet/干净 SKIP；下一次有 Postgres 的环境跑一轮 |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
 | HITL-P1-2 | Scoped remember / allow policies | OPEN | |
@@ -133,7 +138,7 @@ Filing: `docs/logs/2026-08-30-channel-program-plan/`、`docs/logs/2026-08-30-cha
 | ID | 切片 | 人日 | 依赖 | 并行？ | 成功 |
 |---|---|---|---|---|---|
 | CH-0 | 合同 | — | — | — | DONE |
-| CH-C1 | 账本 `channel.inbound` + Message 出处 + sqlite/pg 迁移 + conformance | 2 | CH-0 | 否（关键路径） | `just ci`；无适配器 |
+| CH-C1 | 账本 `channel.inbound` + Message 出处 + sqlite/pg 迁移 + conformance | 2 | CH-0 | 否（关键路径） | DONE 2026-08-30（`just ci` 绿；无适配器。Filing: `docs/logs/2026-08-30-channel-c1/`） |
 | CH-C2 | `SeamChannel`、grants、`ChannelEnv`、verify 禁 Listen/禁 tools、pack overlay 独立 module | 2 | CH-C1 | 否 | pack 空列表仍为空身体 |
 | CH-C3 | ChannelHost + 假 channel 插件 TCK | 3 | CH-C2 | 否 | 空 allow_from 拒绝；入账→Run→Send |
 | CH-C4 | `plugins/telegram` 私聊文本 long-poll | 2 | CH-C3 | 与 C6/C7 可分 worktree | 候选能收发；默认 EXE 无 telego |
@@ -230,7 +235,7 @@ gantt
 
 ### 0.2.7 下一刀
 
-**CH-C1。** 读 `docs/plans/channel-epic/00-standing-orders.md` 与 `CH-C1.md`。新 worktree、新分支 `feat/channel-c1`，不要叠在脏根树，不要往 `feat/channel-super-contract` 堆代码。成功 = `just ci` 且还没有任何通道适配器。
+**CH-C2**（SDK `seam: channel` + 空注册表 + 信封配置）。读 `docs/plans/channel-epic/00-standing-orders.md` 与 `CH-C2.md`。CH-C1 已 DONE（分支 `feat/channel-c1`，见 `docs/logs/2026-08-30-channel-c1/`）：从 `feat/channel-c1`（或其合入结果）切新 worktree + 新分支 `feat/channel-c2`，不要叠在脏根树，不要往 `feat/channel-super-contract` 堆代码。成功 = pack 空列表仍为空身体，无协议 deps。C1 合入前禁止开 C2/C3。
 
 ### 0.2.8 PLAN 索引（子 AGENT 领取面）
 
@@ -449,6 +454,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-30 | CH-C1 账本：`channel.inbound` + Message 出处 | `domain.Message` 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui，`EffectiveSource`）；`EventChannelInbound` 入词表（35→36）+ `channel.inbound.json` schema + run-event 枚举；sqlite `migration016`（4×ALTER DEFAULT ''）；postgres 升版 15 并支持 v14 原地升级（`schemaV15Upgrade`）+ 升级测试；conformance CN-17 出处往返（16→17）；UI 路径用户行显式 `Source:"ui"`。无适配器、无 Host、无 sdk/plugin 变化。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c1/`. |
 | 2026-08-30 | 超级通道 EPIC PLAN 包 | 演进树 `VIVY-CHANNEL-EVOLUTION.md`；子 AGENT 十节 PLAN `docs/plans/channel-epic/CH-C1..C9.md`；TODO §0.2.8 索引。无运行时代码。Filing: `docs/logs/2026-08-30-channel-epic-plans/`. |
 | 2026-08-30 | 超级通道节目排期 | `docs/TODO.md` §0.2：CH-A/B 拆成 CH-C1..C7c；单 lane 19 人日；M-CH4 计划 2026-09-24 / 缓冲关门 2026-09-30。下一刀 CH-C1。Filing: `docs/logs/2026-08-30-channel-program-plan/`. |
 | 2026-08-30 | CH-0 超级通道合同采纳 | `VIVY-CHANNEL-PACK.md` 从出厂 `channels/` 提案改为已采纳的超级通道合同：Host 在内核；本批五个适配器全部 `plugins/` + `seam: channel`；信封/能力矩阵为 A2A、NeuroLink 预留；不新开 `RegisterChannels()`。无运行时代码。Filing: `docs/logs/2026-08-30-channel-super-contract/`. |

@@ -52,7 +52,8 @@
         "context.compacted",
         "run.completed",
         "run.failed",
-        "run.cancelled"
+        "run.cancelled",
+        "channel.inbound"
       ],
       "description": "Event vocabulary, mirrors internal/domain EventTypes (B3)."
     },

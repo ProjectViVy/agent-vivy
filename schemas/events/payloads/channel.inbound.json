@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/channel.inbound.json",
+  "title": "channel.inbound payload (v1)",
+  "type": "object",
+  "properties": {
+    "channel": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Channel platform name (e.g. telegram | discord)."
+    },
+    "chat_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Platform chat or conversation the message arrived in."
+    },
+    "sender": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Platform-side sender identifier; not a provider key or token."
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Platform-side id of the inbound message."
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Vivy session the inbound turn was appended to."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Run opened for the inbound turn, when one was started."
+    }
+  },
+  "required": ["channel", "chat_id", "sender", "message_id", "session_id"],
+  "additionalProperties": false
+}

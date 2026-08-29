@@ -11,10 +11,11 @@ import (
 // is no update path for message content).
 func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
-		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs)); err != nil {
+		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs),
+		m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
 		return fmt.Errorf("storage: append message %s: %w", m.ID, err)
 	}
 	return nil
@@ -25,7 +26,7 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 // concern).
 func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args
+		`SELECT id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id
 		 FROM messages WHERE session_id = ? ORDER BY created_at, id`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list messages %s: %w", sessionID, err)
@@ -37,7 +38,8 @@ func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) 
 		var m domain.Message
 		var id, sid, rid, role string
 		var args []byte
-		if err := rows.Scan(&id, &sid, &rid, &role, &m.CreatedAt, &m.Content, &m.ToolCallID, &m.ToolName, &args); err != nil {
+		if err := rows.Scan(&id, &sid, &rid, &role, &m.CreatedAt, &m.Content, &m.ToolCallID, &m.ToolName, &args,
+			&m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID); err != nil {
 			return nil, fmt.Errorf("storage: scan message: %w", err)
 		}
 		m.ID = id

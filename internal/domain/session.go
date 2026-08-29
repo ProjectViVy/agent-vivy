@@ -51,14 +51,30 @@ func (s Session) PermissionPreset() PermissionPreset {
 // Message is one turn in a session. Content is append-only; there is no
 // silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
 // model-visible tool turn (ADR-010); they are empty on ordinary text rows.
+// Provenance: Source is "ui" | "channel" (empty reads as ui, see
+// EffectiveSource); Channel/ChatID/ChannelMessageID carry channel
+// provenance and stay empty on ui rows.
 type Message struct {
-	ID         string
-	SessionID  SessionID
-	RunID      RunID // empty for user-authored messages
-	Role       Role
-	CreatedAt  int64 // unix milli
-	Content    string
-	ToolCallID string
-	ToolName   string
-	ToolArgs   []byte
+	ID               string
+	SessionID        SessionID
+	RunID            RunID // empty for user-authored messages
+	Role             Role
+	CreatedAt        int64 // unix milli
+	Content          string
+	ToolCallID       string
+	ToolName         string
+	ToolArgs         []byte
+	Source           string
+	Channel          string
+	ChatID           string
+	ChannelMessageID string
+}
+
+// EffectiveSource returns the provenance of this message; an empty Source
+// (legacy rows, in-process appends) reads as the built-in UI.
+func (m Message) EffectiveSource() string {
+	if m.Source == "" {
+		return "ui"
+	}
+	return m.Source
 }

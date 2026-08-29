@@ -41,6 +41,7 @@ const (
 	EventRunCompleted          EventType = "run.completed"
 	EventRunFailed             EventType = "run.failed"
 	EventRunCancelled          EventType = "run.cancelled"
+	EventChannelInbound        EventType = "channel.inbound"
 )
 
 // EventTypes lists the full vocabulary in canonical order.
@@ -80,6 +81,7 @@ var EventTypes = []EventType{
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,
+	EventChannelInbound,
 }
 
 // Valid reports whether the type is part of the vocabulary.
