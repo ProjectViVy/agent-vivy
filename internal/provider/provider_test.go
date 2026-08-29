@@ -190,16 +190,29 @@ func TestCatalogUnknownProvider(t *testing.T) {
 	}
 }
 
-func TestCatalogRejectsMock(t *testing.T) {
-	if _, err := NewCatalog().For("mock"); err == nil {
-		t.Fatal("mock must not resolve as a product provider")
+type staticSpec struct{ live LiveSpec }
+
+func (s staticSpec) Live() LiveSpec { return s.live }
+
+func TestResolvingChatModelMock(t *testing.T) {
+	cm := NewResolvingChatModel(NewCatalog(), staticSpec{live: LiveSpec{Provider: "mock", Model: "mock", Ready: true}})
+	msg, err := cm.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if msg.Content != "mock reply to: hi" {
+		t.Fatalf("content = %q", msg.Content)
 	}
 }
 
-// TestMockRefDrivesEinoBridge keeps the test-only mock behind the Ref
-// seam so HITL scenario tests still exercise the provider-local bridge.
-func TestMockRefDrivesEinoBridge(t *testing.T) {
-	ref := newMockRef()
+// TestCatalogMockRef drives the mock through the Ref seam end to end,
+// which also exercises the provider-local domain->Eino bridge. Offline
+// development (config.Runtime.Mock) uses this same path.
+func TestCatalogMockRef(t *testing.T) {
+	ref, err := NewCatalog().For("mock")
+	if err != nil {
+		t.Fatalf("catalog mock: %v", err)
+	}
 	if ref.Name() != "mock" {
 		t.Fatalf("name = %q, want mock", ref.Name())
 	}
