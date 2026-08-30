@@ -84,3 +84,12 @@ Transport：出站 long-poll。不实现 webhook。
 ## 10. 交接
 
 [CH-C5.md](CH-C5.md) 需要 compiled-in 名 `telegram`。C6/C7 抄本包目录形状。
+
+> **DONE（2026-08-30）**：已交付，见 `docs/logs/2026-08-30-channel-c4/`。
+> 交接要点：compiled-in 名 `telegram`；settings 经 `ChannelEnv.Settings()`
+> （`json.RawMessage`，`{}` 表缺省）传给插件——本批唯一 ABI 新增；
+> `token_env` 双处声明（信封 = 审计声明，settings = 插件解析名），
+> Host 把 `Secret` 钉死到信封名字；pack 对独立模块走 `-modfile` 合并
+> require/go.sum 闭包（`-mod=mod` 在临时对里完成合并），真实
+> go.mod/go.sum 零写入。遗留：CH-C4-N1（4096 rune 出站上限无人执行）、
+> CH-C4-N2（EnsureSession 并发测试）。

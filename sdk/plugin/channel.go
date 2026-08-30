@@ -37,6 +37,14 @@ type ChannelEnv interface {
 	Secret(envKey string) (string, error)
 	// HTTP returns an outbound-only client. There is no Listen capability.
 	HTTP() *http.Client
+	// Settings hands the plugin the opaque per-channel settings block of
+	// its config envelope (channels.<name>.settings, VIVY-CHANNEL-PACK.md
+	// §11) serialized to JSON. The kernel never inspects these keys; the
+	// owning adapter decodes them fail-closed. Absent settings arrive as
+	// `{}`. This is the CH-C4 ABI addition that lets a standalone adapter
+	// receive its knobs without the kernel learning protocol-specific
+	// types (no TelegramSettings in internal/config, ever).
+	Settings() json.RawMessage
 	// PublishInbound is the only path an InboundMessage may travel into
 	// the kernel — even when the plugin runs in the same process as the
 	// Host. Adapters never write to the Journal or the session directly.
