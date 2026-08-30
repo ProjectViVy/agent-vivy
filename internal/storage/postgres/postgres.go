@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	schemaVersion    = 14
+	schemaVersion    = 15
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
@@ -151,7 +151,18 @@ func (b *Backend) migrate(ctx context.Context) error {
 		return fmt.Errorf("storage: begin postgres schema: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, schemaV14); err != nil {
+	// A database that already carries version 14 upgrades in place; a fresh
+	// one bootstraps the full schema (which already includes those columns).
+	var prior int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, schemaVersion-1).Scan(&prior); err != nil {
+		return fmt.Errorf("storage: check postgres schema version %d: %w", schemaVersion-1, err)
+	}
+	ddl := schemaV15
+	if prior > 0 {
+		ddl = schemaV15Upgrade
+	}
+	if _, err := tx.ExecContext(ctx, ddl); err != nil {
 		return fmt.Errorf("storage: apply postgres schema: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,

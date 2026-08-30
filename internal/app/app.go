@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -34,6 +35,7 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/plugin"
 	"agent-vivy/ui"
 )
 
@@ -49,6 +51,7 @@ type App struct {
 	logger *slog.Logger
 
 	service  *runtime.Service
+	channels *channelhost.Host
 	backend  storage.Engine
 	worker   *workerManager
 	resolver *ModelResolver
@@ -63,10 +66,14 @@ type App struct {
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	logger := slog.Default()
 
-	// Operator-managed preferences (network search, execute ceiling) overlay
-	// the validated config. Provider keys are NOT applied to the process
-	// environment; ModelResolver reads settings.yaml / frozen ENV per call.
-	cfg = applySettingsOverlay(ctx, logger, cfg)
+	// Operator-managed preferences (network search, execute ceiling, the
+	// per-channel knobs) overlay the validated config. Provider keys are
+	// NOT applied to the process environment; ModelResolver reads
+	// settings.yaml / frozen ENV per call. The compiled plugin set is
+	// registered first so the channels overlay can only name channels this
+	// generation actually carries.
+	genPlugins := genplugins.Register()
+	cfg = applySettingsOverlay(ctx, logger, cfg, compiledChannelNames(genPlugins))
 	originPolicy, err := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
 	if err != nil {
 		return nil, fmt.Errorf("app: configure browser origins: %w", err)
@@ -174,6 +181,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mcpOps = mcpBackend
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
 	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	// The channels envelope may only name compiled-in channel plugins, and
+	// every channel-seam plugin must carry the plugin.Channel ABI (FR-10).
+	channelPlugins, err := partitionChannels(genPlugins, cfg.Channels)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
@@ -189,7 +203,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			return ws.Path, nil
 		}
 	}
-	ts = append(ts, pluginhost.Adapt(genplugins.Register(), lookup)...)
+	ts = append(ts, pluginhost.Adapt(genPlugins, lookup)...)
 	// The checkpoint bridge fail-closes on its engine version, so an
 	// unknown build version aborts startup rather than suspend runs on
 	// unverifiable checkpoints (C6).
@@ -220,7 +234,26 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
-	svc := runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
+	// The ChannelHost is constructed before the runtime service so it can
+	// join the initial hook list. It receives only a Run callback — never
+	// *runtime.Service — so plugins cannot reach the runtime and the
+	// channelhost layer stays free of internal/runtime imports.
+	var svc *runtime.Service
+	channelHost := channelhost.New(channelhost.Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+			if svc == nil {
+				return "", errors.New("app: runtime service is not wired")
+			}
+			return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+		},
+		Channels: channelPlugins,
+		Config:   cfg.Channels,
+		Logger:   logger,
+	})
+	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:            backend,
 		Runs:               backend,
 		Messages:           backend,
@@ -235,7 +268,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Workspaces:           workspaces,
 		Sessions:             backend,
 		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
-		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
+		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}, channelHost},
 		Sink:                 bus,
 		Compactions:          backend,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
@@ -302,6 +335,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
 		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
 		ConfigCompaction:               cmp,
+		// Channel ears: the Host exposes the compiled-in set and the process
+		// truth of the last StartAll; channel writes go through the settings
+		// overlay and apply on the next restart (contract §11).
+		Channels:       channelHost,
+		ConfigChannels: cfg.Channels,
 		// Write-time env apply: a settings/providers save updates the
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
@@ -357,6 +395,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
 
+	// Start the channel ears before the server listens (C3). Unconfigured
+	// and disabled channels are skipped; empty allow_from refuses Start
+	// for that channel. A wiring failure here aborts startup.
+	if err := channelHost.StartAll(ctx); err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: start channels: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken, Origins: originPolicy})
 	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
@@ -386,6 +432,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg:      cfg,
 		logger:   logger,
 		service:  svc,
+		channels: channelHost,
 		backend:  backend,
 		worker:   workerManager,
 		resolver: resolver,
@@ -451,7 +498,11 @@ func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Setting
 // applySettingsOverlay reads the operator-managed settings document and
 // overlays non-secret preferences onto cfg. Provider keys stay in the
 // settings document (or a frozen ENV session) and are resolved per call.
-func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
+// compiledChannels holds the channel plugin names of this generation: the
+// per-channel overlay may only name those, and stale overlay entries for
+// channels that are no longer compiled-in are dropped (with a warning)
+// instead of failing startup.
+func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config, compiledChannels []string) config.Config {
 	dataRoot := cfg.DataDirectory()
 	path := settings.Path(dataRoot)
 	s, err := settings.Load(path)
@@ -498,8 +549,65 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 		cfg.Runtime.Sandbox.Network.AllowedDomains = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
 	}
 	cfg.Runtime.Compaction = mergedCompactionConfig(cfg.Runtime.Compaction, s.Compaction)
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled)
+	if merged := mergedChannels(logger, cfg.Channels, s.Channels, compiledChannels); merged != nil {
+		cfg.Channels = merged
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled, "channels_overlayed", len(s.Channels))
 	return cfg
+}
+
+// mergedChannels overlays the settings.yaml per-channel entries onto the
+// config.yaml channels envelopes. Each entry replaces only the fields it
+// carries (pointer semantics); the config envelope's opaque per-plugin
+// Settings yaml.Node always survives. An entry for a compiled-in channel
+// that config.yaml has no envelope for starts a fresh envelope — that is
+// how the UI configures a channel this generation without touching
+// config.yaml. Entries naming channels that are not compiled-in are
+// dropped with a warning so a stale overlay can never fail startup. A nil
+// result (no overlay entries) keeps the config envelopes untouched.
+func mergedChannels(logger *slog.Logger, base config.Channels, overlays []settings.ChannelOverlay, compiled []string) config.Channels {
+	if len(overlays) == 0 {
+		return nil
+	}
+	compiledSet := make(map[string]bool, len(compiled))
+	for _, name := range compiled {
+		compiledSet[name] = true
+	}
+	out := make(config.Channels, len(base)+len(overlays))
+	for name, envelope := range base {
+		out[name] = envelope
+	}
+	for _, overlay := range overlays {
+		if !compiledSet[overlay.Name] {
+			logger.Warn("settings overlay names a channel that is not compiled in; entry dropped", "channel", overlay.Name)
+			continue
+		}
+		envelope := out[overlay.Name]
+		if overlay.Enabled != nil {
+			envelope.Enabled = *overlay.Enabled
+		}
+		if overlay.AllowFrom != nil {
+			envelope.AllowFrom = append([]string(nil), *overlay.AllowFrom...)
+		}
+		if overlay.TokenEnv != nil {
+			envelope.TokenEnv = *overlay.TokenEnv
+		}
+		out[overlay.Name] = envelope
+	}
+	return out
+}
+
+// compiledChannelNames lists the channel-seam plugin names compiled into
+// this generation.
+func compiledChannelNames(plugins []plugin.Plugin) []string {
+	var names []string
+	for _, p := range plugins {
+		if p == nil || p.Seam() != plugin.SeamChannel {
+			continue
+		}
+		names = append(names, p.Name())
+	}
+	return names
 }
 
 // enabledMCPFromSettings returns the enabled MCP servers from the overlay,
@@ -642,11 +750,15 @@ func (a *App) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 
-	// Reverse startup order with hard ordering guarantees (E4): runs are
-	// cancelled and then drained while storage is still open, so every
-	// run.cancelled terminal persists before the journal closes; only
-	// then do the HTTP server and the backend shut down.
+	// Reverse startup order with hard ordering guarantees (E4): channels
+	// stop first so an adapter's Stop never races a cancelled run's final
+	// delivery; runs are then cancelled and drained while storage is still
+	// open, so every run.cancelled terminal persists before the journal
+	// closes; only then do the HTTP server and the backend shut down.
 	a.service.StopInteractionSweeper()
+	if a.channels != nil {
+		a.channels.StopAll(shutdownCtx)
+	}
 	a.service.CancelAll()
 	if a.worker != nil {
 		if err := a.worker.Close(shutdownCtx); err != nil {

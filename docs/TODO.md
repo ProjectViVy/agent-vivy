@@ -45,13 +45,46 @@ Do not pick work from those tables. Closed-track filing:
 | CMP-2 | Context compaction：独立摘要模型 `summary_model` | OPEN | 2026-08-30 压缩沿用主模型；独立 `summary_model` 覆盖留待配置提案 |
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
-| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | OPEN | Proposal written; no kernel yet |
+| CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳。演进树 `docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。PLAN 包 `docs/plans/channel-epic/`。日历 §0.2 |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
 | FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
 | FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 仍 mock。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
-| CH-A | ChannelHost + telegram + dingtalk | OPEN | Depends on CH-0; first ABI + first domestic ear |
-| CH-B | feishu / qq / discord (text, no voice) | OPEN | Separate pack per package |
-| CH-C | wecom after a non-TTY bind surface | OPEN | QR bind is the blocker |
+| CH-A | ChannelHost + telegram + dingtalk（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C1..C6，见 §0.2。勿再按本行领取 |
+| CH-B | feishu / qq / discord（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C7a/b/c，见 §0.2。勿再按本行领取 |
+| CH-C1 | 账本：`channel.inbound` + Message 出处 | DONE | 2026-08-30 Message 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui）+ `EventChannelInbound` + `channel.inbound` schema；sqlite migration016；postgres 升版 15 含 v14 原地升级；conformance CN-17。无适配器、无 Host。Filing: `docs/logs/2026-08-30-channel-c1/` |
+| CH-C2 | SDK `seam: channel` + 空注册表 + 信封配置 | DONE | 2026-08-30 `SeamChannel` + 5 Grant + `Channel`/`ChannelEnv` + 类型化信封 + 9 预留能力槽（`sdk/plugin/channel.go`）；verify 按 seam 分流 + `net.Listen` AST 封禁 + 3 拒绝夹具 + fake-channel；pack 双 overlay 支持独立 go.mod 插件（真实树零写入）；`Adapt` 跳过 channel；config `channels:` 信封（settings opaque）。`zz_register.go` 仍 nil。Filing: `docs/logs/2026-08-30-channel-c2/` |
+| CH-C3 | ChannelHost + 假插件 TCK | DONE | 2026-08-30 `internal/channelhost`（零 eino/runtime import）：StartAll/StopAll fail-closed、确定性会话映射 `sess_ch_<hash>`、dispatch 入账→Provenance Run→终态 Send；TCK 8 项；`RunOptions.Provenance`（nil=ui）；能力接口 v1 方法集 + Discover；app 装配 + 未知名启动失败。`channel.inbound` 以 `chanin_*` 伪 run 作用域入账（结案 CH-C1-N1）。Filing: `docs/logs/2026-08-30-channel-c3/` |
+| CH-C4 | `plugins/telegram` 私聊文本 | DONE | 2026-08-30 独立 go.mod 真包（telego v1.10 long-poll，私聊纯文本 in/out，无 webhook/群/媒体）；`ChannelEnv.Settings()` ABI 新增（settings 传插件，内核仍零协议类型）；Secret 钉死信封 token_env；pack 改 `-modfile` 合并独立模块 require+go.sum 闭包（真实 go.mod/go.sum 字节不变，候选 EXE 链接 telego）。默认 EXE 无 telego。Filing: `docs/logs/2026-08-30-channel-c4/` |
+| CH-C5 | inspect + 设置页接后端 | DONE | 2026-08-30 领取 UI-CHANNELS-BE：`channel/inspect\|get\|update` RPC；settings overlay 增 channels（指针字段、保留 config opaque settings、幽灵名不挡启动）；UI 列表=compiled-in 全集、空态「这一代没有耳朵」、email/neuro-link 移除、allow_from 文案 fail-closed（zh/en）、token 只显 env 名；localStorage 退役。浏览器真实路径冒烟（3015：默认空态 + pack telegram 候选全链）通过。Filing: `docs/logs/2026-08-30-channel-c5/` |
+| CH-C6 | `plugins/dingtalk` Stream 单聊文本 | DONE | 2026-08-30 独立 module（dingtalk-stream-sdk-go v0.9.1，gorilla 保持 indirect）；插件侧 3s 重拨监督 + 迟到回调栅 + sessionWebhook 插件侧内存（错误链脱敏）；`hostEnv.Secret` 扩展接受 settings 顶层 `*_env` 声明（client_id/client_secret 双密钥）；真实 SDK 回环测试（手写 RFC6455 网关，stdlib）；CH-C2-N1 四夹具清账。真钉钉冒烟未做（无凭据）。Filing: `docs/logs/2026-08-30-channel-c6/` |
+| CH-C7a | `plugins/feishu` 单聊文本 WS | DONE | 2026-08-30 独立 module（oapi-sdk-go/v3 **v3.11.0**——旧版 v3.9.4 WS Start 永不返回+pingLoop 泄漏，偏离经源码核实）；p2p 纯文本 in/out；supervised 重拨（单用 client）+ 迟到事件围栏；`*_env` 双密钥 + `encrypt_key` 插件 settings（Host 不解码）+ `is_lark` 域开关；386 硬失败已验证。真飞书冒烟未做（无凭据）。Filing: `docs/logs/2026-08-30-channel-c7a/` |
+| CH-C7b | `plugins/qq` 官方 Bot 文本 | DONE | 2026-08-30 独立 module（botgo v0.2.1 = picoclaw pin）；自驱 `websocket.ClientImpl`（ChanManager/token 自启协程皆有缺陷，源码核实）+ Gateway resume；仅 C2C 文本（群事件 botgo 解不出 group_openid，源码核实 out-of-scope）；去重栅栏（官方重投同 msg_id）；被动回复 v2 API + 首连 report 栅栏 + 静默 logger（D-010）。真 QQ 冒烟未做（无凭据）。Filing: `docs/logs/2026-08-30-channel-c7b/` |
+| CH-C7c | `plugins/discord` 文本（无 voice） | DONE | 2026-08-30 本期关门切片。独立 module（discordgo v0.29 **上游**，非 picoclaw fork）；DM/文本频道纯文本；session 接口隔离 + supervised 重拨（reconnect 无视 Close 源码核实）+ ear/api 分离（REST 回复不依赖耳朵在线）；**pion 全前缀封禁入 verify**（全 seam）+ 夹具；LogLevel 显式钉死。真 Discord 冒烟未做（无凭据+Intent 前置）。Filing: `docs/logs/2026-08-30-channel-c7c/` |
+| CH-C8 | 同二进制 `vivy channel --name` 子进程 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C8.md`。不是开工令 |
+| CH-C9 | A2A / NeuroLink 能力提案 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C9.md`。不是开工令 |
+| CH-C | wecom after a non-TTY bind surface | OPEN | QR bind 是挡板；不进 2026-08-30 本批、不进 §0.2 本期日历 |
+| CH-C1-N1 | `channel.inbound` 信封张力：RunEvent envelope 必填 `run_id`，而入账发生在 run 存在前 | RESOLVED | 2026-08-30 CH-C3 结案：每条入站消息以独立伪 run 作用域 `chanin_<hex>` 入账（journal 零改动、D-008 不受影响、合同零改动），payload `run_id` 按可选省略。保留策略见 CH-C3-N1。Filing: `docs/logs/2026-08-30-channel-c3/summary.md` |
+| CH-C1-N2 | 合同 §12 Journal 草图与 CH-C1 §4 payload 定形不一致 | OPEN | Found 2026-08-30 (CH-C1)：合同写 `{channel, peer, message_id, content_digest, bytes}`，PLAN 定形 `{channel, chat_id, sender, message_id, session_id, run_id?}`（无 digest/bytes）。已按 PLAN 实现；请架构师确认是否回写合同 §12。审查结论（2026-08-30 Review L1）：审查建议回写合同 §12（采用已实现的 identifiers-only payload），待架构师拍板 |
+| CH-C1-N3 | Message 出处未上 RPC/UI：`messageResult` 只投影 ID/RunID/Role/Content/CreatedAt | OPEN | Found 2026-08-30 (CH-C1)：出处已入库但 JSON-RPC 不可见。2026-08-30 (Review) 复核：出处 RPC 投影仍未做（messageResult 仍无 Source），不再指向 CH-C5；待后继 UI/RPC 切片 |
+| CH-C1-N4 | `Source` 无词表校验：`EffectiveSource` 透传任意非空值 | OPEN | Found 2026-08-30 (CH-C1)：与「无类型词表」决定一致；CH-C2 SDK seam 落地时随合同定 `ui\|channel` 词表与校验 |
+| CH-C1-N5 | postgres v14→15 升级测试与 pg 侧 CN-17 未在真实 Postgres 执行 | OPEN | Found 2026-08-30 (CH-C1)：本机无 Docker/5432，`VIVY_POSTGRES_TEST_DSN` 门控用例仅验证编译/vet/干净 SKIP；下一次有 Postgres 的环境跑一轮 |
+| CH-C2-N1 | verify 四个分支缺夹具：非 channel seam 领 channel 族 grant / channel 重复 grant / transport=webhook / 负 max_message_runes | RESOLVED | 2026-08-30 CH-C6 清账：`bad-channel-transport` / `bad-channel-dup-grant` / `bad-tool-channel-grant` / `bad-channel-runes` 四夹具 + verify_test 断言各对应规则。Filing: `docs/logs/2026-08-30-channel-c6/summary.md` |
+| CH-C2-N2 | §8 槽位收尾：`InboundMessage`/`OutboundMessage` 的 run_id/task_id（Host 写入） | RESOLVED-DEFERRED | 2026-08-30 (CH-C3)：Delete/Reaction/HealthChecker/ListenHandler 接口已补（v1 方法集）；run_id/task_id 槽有意缓建（伪 run 设计下无消费者），SDK 注释改为 deferral 表述。C4/C8 真实需要时再加，不改已有名字 |
+| CH-C3-N1 | 出站投递耐久性 + `chanin_*` 保留 + Send/Stop 竞态 | OPEN | Found 2026-08-30 (CH-C3)：终态投递为内存跟踪（进程在 run.completed 与 Send 之间退出丢回复）；`chanin_*` 事件无 GC；StopAll 不等在途 Send。2026-08-30 (CH-C4)：适配器侧竞态面已收口（telegram 插件 `bot/cancel/done` Start 后不可变 + Stop 后 Send 不 panic 测试）；Host 侧持久化出站队列 / `chanin_*` 保留策略仍开，归后继 Host 切片 |
+| CH-C3-N2 | `Secret(envKey)` 未钉死到信封 `token_env` 名单；EnsureSession 建会话竞态重读路径无并发测试 | RESOLVED | 2026-08-30 (CH-C4) 结案：`hostEnv.Secret` 钉死该通道信封声明的 `token_env`（空声明全拒、异名全拒、值不进错误），测试覆盖；settings 经新增 `ChannelEnv.Settings()` 传给插件（ABI 唯一新增）。EnsureSession 并发派发测试移 CH-C4-N2 跟踪。Filing: `docs/logs/2026-08-30-channel-c4/summary.md` |
+| CH-C4-N1 | 出站 `max_message_runes` 无人执行：清单声明 4096，Host/插件都不切分 | OPEN | Found 2026-08-30 (CH-C4)：助手回复 >4096 rune 时 Telegram `sendMessage` 报错、该次投递丢失（Host 日志可见）。C5（inspect/设置页）或下一适配器切片决定执行点（Host 通用切分 vs 插件内切分） |
+| CH-C4-N2 | `EnsureSession` 并发派发竞态重读路径无并发测试 | OPEN | Found 2026-08-30 (CH-C3)，CH-C4 未补（scope 只许通用信封）。同 chat 并发入站下 EnsureSession 的重读路径需要 `-race` 并发测试 |
+| CH-C5-N1 | 旧 `vivy.ui.channels` localStorage 键不清理不迁移（忽略优于错迁密钥） | OPEN | Found 2026-08-30 (CH-C5)：老用户浏览器里的残留数据无人清理；如需清理做一次只删不迁的 UI 清扫 |
+| CH-C5-N2 | `pendingRestart` 探不到纯 allow_from 编辑（allow_from 不在 inspect 面）；inspect 失败时空态可能误读 | OPEN | Found 2026-08-30 (CH-C5)：后继可在 inspect 加 allow_from 摘要字段；inspect 错误态与空态视觉区分 |
+| CH-C6-N1 | 死耳静默重拨：凭据吊销/网关不可达时 3s 监督器静默重试（SDK 默认 logger 不输出，ChannelEnv 无日志面） | OPEN | Found 2026-08-30 (CH-C6)：inspect note 只记 Start 失败，运行期死亡不可见。后继给 ChannelEnv 加日志面或 Host 巡检 Stream 健康时一并解决 |
+| CH-C6-N2 | settings `*_env` 声明名无 env-name 模式强校验（字符串即声明，嵌套/非串忽略） | OPEN | Found 2026-08-30 (CH-C6)：适配器自身 strict decode 约束实际使用，方向 fail-closed；如需硬审计在 hostEnv 加 `^[A-Z_][A-Z0-9_]*$` 校验 |
+| CH-C6-N3 | dingtalk 网络级静默断线后耳朵失聪（SDK Start 在 conn 存活时立即返回，仅优雅断连帧触发重拨） | OPEN | Review L3 F1：需适配器自管死链检测（staleness→Close+redial） |
+| CH-C7a-N1 | feishu `supervise` 首连与 Stop 重叠时三条早退路径不保证送达 `firstErr`（Start 可能滞留至调用方 ctx 结束） | OPEN | Found 2026-08-30 (CH-C7a)：经 Host 调用序不可达（Host 只 Stop 已完成 Start 的耳；调用方 ctx 取消可解锁）；修法 = 首轮 defer 送达 firstErr 或软化注释。真适配器 stop-during-start 语义落地时一并修。qq 侧同形问题已修（`TestStopDuringFirstHandshakeReturns`），feishu 可照抄 |
+| TEST-2 | `internal/runtime TestServiceApprovalApproveFlow` 满负载下出现过一次 flake（隔离/整包/全量 ci 复跑均绿） | OPEN | Found 2026-08-30 (CH-C7b 落地时)：runtime 自 C3 零改动，疑似时序敏感（审批过期窗口？）。下次触发的 `-count=N` 复现与修复 |
+| CH-C7c-N1 | `just ci` 不覆盖 `plugins/*`（fmt-check glob 只扫 cmd/internal/sdk/ui；`go test ./...` 不过独立 module 边界） | OPEN | Found 2026-08-30 (CH-C7c)：五只耳朵的 gofmt/vet/test 全靠切片内人工执行。建议加 `plugin-ci` 配方逐独立 module 跑 vet/test/gofmt（默认不编译产物） |
+| CH-R-1 | §8「错误分类（rate-limit/temporary）」槽位无 SDK 落点且此前未登记 | OPEN | Review L1：合同 §8 可例行有 HealthChecker 但无错误分类词表；待 C8+ 或错误处理提案 |
+| CH-R-4 | verify 无「必须实现 Channel」类型检查（AST 不可达） | OPEN | Review L4：启动期 partitionChannels 兜底（非 Channel=启动失败）；SDK 侧类型检查不可行，留作备忘 |
+| CH-R-5 | generation.json 未按 seam 分类列出（name/version/seam/grants/transport/tree_hash） | OPEN | Review L1 F3：合同 §10 承诺；C2 日志有记录但未上板 |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
 | HITL-P1-2 | Scoped remember / allow policies | OPEN | |
@@ -97,11 +130,168 @@ Do not pick work from those tables. Closed-track filing:
 | UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | OPEN | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。与 MCP 无关，未在本迭代改这条旧断言 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
 | UI-PROV-REGISTRY | 注册表 localStorage 存量数据无迁移路径 | OPEN | 2026-08-28 provider 写逻辑改为后端注册表后，旧 `vivy.ui.customProviders` localStorage 条目不再被读取（见 `docs/logs/2026-08-28-provider-direct-write/`）。本地用户需在设置页重新登记；如需自动迁移需 UI 一次性读旧 key 并逐条 `upsertProvider`（含是否回填 apiKey 的产品决策） |
-| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | 2026-08-27 已移植 Agent-Diva 完整通道配置 UI（`ui/src/components/settings/ChannelsSettings.tsx` 等，见 `docs/logs/2026-08-27-channels-ui-port/`）：数据层仅落 `vivy.ui.channels` localStorage（wire 形状对齐 Diva `get_channels`，便于直接换读写层）；就绪状态按 schema 必填字段近似，替代服务端 `getConfigStatus` 通道报告；向导省略「测试连接」步（Diva 源码该步为不可达死代码）。接真实后端需新增 `get_channels` / `update_channel`（或等价 settings RPC）与通道就绪报告并替换 `channel-store.ts` 读写层 |
+| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | DONE | CH-C5 已领取并交付，见 docs/logs/2026-08-30-channel-c5/ |
 | UI-TODO-MUTATE | 待办清单只读，人不能在 UI 里增删改 | OPEN | 2026-08-29 聊天区已接真实 `session/todos`（见 `docs/logs/2026-08-29-chat-plan-todo-display/`）；变更只来自 `task_*` 工具。人闸编辑会变成伪操作，需明确产品决策后再做 |
 | UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。移植 `create_goal` 需内核提案 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
+
+## 0.2 Channel program — 排期、分解、活动图（2026-08-30 拍板）
+
+权威依赖仍是 `VIVY-CHANNEL-PACK.md` §20。演进树：`docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。
+切片 PLAN（子 AGENT 按十节领取）：`docs/plans/channel-epic/`，索引见 §0.2.8。
+Filing: `docs/logs/2026-08-30-channel-program-plan/`、`docs/logs/2026-08-30-channel-epic-plans/`。
+
+假设（不满足则重排，不暗改合同）：
+
+- **一条写 lane。** 根树同时只允许一个实现车道；要并行必须 `git worktree`（`AGENTS.md` parallel-worktree-isolation）。
+- 工期是 **1 名交付人的工作日**，不含真实 Bot 账号等待。
+- 默认 `vivy.exe` / `just ci` **始终不链** telego / discordgo / lark / 钉钉 / botgo。点名 pack 才进候选身体。
+- 每个通道插件 **一次 pack 评测**。禁止一个 PR 链进五个 SDK。
+- 开工日按 **2026-08-31（周一）**。周末不算。
+
+### 0.2.1 里程碑
+
+| 里程碑 | 内容 | 计划完成 | 含 20% 缓冲 | 退出 |
+|---|---|---|---|---|
+| M-CH0 | 合同 + Eino A2A 澄清 | 2026-08-30 | — | **DONE**（CH-0） |
+| M-CH1 地基 | CH-C1 + C2 + C3 | 2026-09-08 | 2026-09-10 | Host TCK 绿；默认 EXE 仍无耳朵 |
+| M-CH2 第一只耳朵 | CH-C4 + C5 | 2026-09-14 | 2026-09-16 | 候选身体 telegram 私聊文本；设置页只列 compiled-in；3015 实走 |
+| M-CH3 办公身体 | CH-C6 + C7a + C7b | 2026-09-22 | 2026-09-25 | 配方可点 dingtalk+feishu+qq；各一次 pack |
+| M-CH4 国际补齐 | CH-C7c | 2026-09-24 | **2026-09-30 本期关门** | discord 文本、无 voice |
+| M-CH5 后切 | CH-C8 / C9 / CH-C | 不排期 | — | 另案提案 |
+
+本期关门 = M-CH4。C8 子进程、C9 A2A/NeuroLink、企业微信 **不进这扇门**。
+
+### 0.2.2 WBS（领取这张表，不要领已 SUPERSEDED 的 CH-A/B）
+
+| ID | 切片 | 人日 | 依赖 | 并行？ | 成功 |
+|---|---|---|---|---|---|
+| CH-0 | 合同 | — | — | — | DONE |
+| CH-C1 | 账本 `channel.inbound` + Message 出处 + sqlite/pg 迁移 + conformance | 2 | CH-0 | 否（关键路径） | DONE 2026-08-30（`just ci` 绿；无适配器。Filing: `docs/logs/2026-08-30-channel-c1/`） |
+| CH-C2 | `SeamChannel`、grants、`ChannelEnv`、verify 禁 Listen/禁 tools、pack overlay 独立 module | 2 | CH-C1 | 否 | DONE 2026-08-30（verify/pack/Adapt/config 全绿。Filing: `docs/logs/2026-08-30-channel-c2/`） |
+| CH-C3 | ChannelHost + 假 channel 插件 TCK | 3 | CH-C2 | 否 | DONE 2026-08-30（TCK 8 项绿；fail-closed；无真实协议。Filing: `docs/logs/2026-08-30-channel-c3/`） |
+| CH-C4 | `plugins/telegram` 私聊文本 long-poll | 2 | CH-C3 | 与 C6/C7 可分 worktree | DONE 2026-08-30（pack 候选链接 telego；默认 EXE 无 telego。Filing: `docs/logs/2026-08-30-channel-c4/`） |
+| CH-C5 | inspect RPC + 设置页接后端（= UI-CHANNELS-BE） | 2 | CH-C4 | 单 lane 接在 C4 后（要有真实 compiled-in 名） | DONE 2026-08-30（3015 真实路径冒烟过；只开关身体里的名字。Filing: `docs/logs/2026-08-30-channel-c5/`） |
+| CH-C6 | `plugins/dingtalk` Stream | 2 | CH-C3 | 可与 C4 并行（第二 worktree） | DONE 2026-08-30（候选回环全链；默认 EXE 无钉钉 SDK。Filing: `docs/logs/2026-08-30-channel-c6/`） |
+| CH-C7a | `plugins/feishu` WS | 2 | CH-C3 | 建议 C4 先合 | DONE 2026-08-30（候选回环全链；386 硬失败；默认无 lark。Filing: `docs/logs/2026-08-30-channel-c7a/`） |
+| CH-C7b | `plugins/qq` 官方 Bot | 2 | CH-C3 | 同 C7a | DONE 2026-08-30（C2C 文本候选回环；非个人号声明；默认无 botgo。Filing: `docs/logs/2026-08-30-channel-c7b/`） |
+| CH-C7c | `plugins/discord` 文本 | 2 | CH-C3 | 同 C7a | DONE 2026-08-30（**本期关门 M-CH4**：候选无 pion；封禁入 verify。Filing: `docs/logs/2026-08-30-channel-c7c/`） |
+| CH-C8 | `vivy channel --name` | — | M-CH2 之后 | — | DEFERRED |
+| CH-C9 | A2A / NeuroLink 提案 | — | 独立提案 | — | DEFERRED |
+| CH-C | wecom | — | 非 TTY 绑定面 | — | 不进本期 |
+
+合计本期：2+2+3+2+2+2+2+2+2 = **19 人日**（约 4 个工作周）。缓冲后关门 **2026-09-30**。
+
+### 0.2.3 关键路径
+
+单 lane（承诺日历）：
+
+```text
+CH-0 → C1 → C2 → C3 → C4 → C5 → C6 → C7a → C7b → C7c
+         2d   2d   3d   2d   2d   2d    2d    2d    2d
+地基 M-CH1 = C1+C2+C3 = 7d → 2026-09-08
+第一只耳朵 M-CH2 = +C4+C5 = 11d → 2026-09-14
+```
+
+压缩杠杆只有两处：C3 之后用 **第二条 worktree** 把 C4∥C6 重叠（省 2d）；C7 三个包分树（最多把 6d 压成 2d，但 Host/pack 配方仍要串行合入）。**禁止在脏根树上叠第二个实现。**
+
+### 0.2.4 活动图（依赖）
+
+```mermaid
+flowchart TD
+  C0["CH-0 合同 DONE"] --> C1["CH-C1 账本 2d"]
+  C1 --> C2["CH-C2 SDK seam 2d"]
+  C2 --> C3["CH-C3 Host + 假插件 TCK 3d"]
+
+  C3 --> C4["CH-C4 telegram 2d"]
+  C3 --> C6["CH-C6 dingtalk 2d"]
+  C3 --> C7a["CH-C7a feishu 2d"]
+  C3 --> C7b["CH-C7b qq 2d"]
+  C3 --> C7c["CH-C7c discord 2d"]
+
+  C4 --> C5["CH-C5 inspect/设置页 2d"]
+  C4 --> M2["M-CH2 第一只耳朵"]
+  C5 --> M2
+
+  C3 --> M1["M-CH1 地基"]
+  C6 --> M3["M-CH3 办公身体"]
+  C7a --> M3
+  C7b --> M3
+  C7c --> M4["M-CH4 国际补齐 / 本期关门"]
+
+  M2 -.-> C8["CH-C8 子进程 DEFERRED"]
+  M4 -.-> C9["CH-C9 A2A/NeuroLink 另案"]
+  M4 -.-> Wecom["CH-C wecom 另案"]
+```
+
+C3 是扇出点。C4 是 ABI 样板：第二条 lane 可以立刻写 dingtalk，第三条不要在 C4 合入前开第三个 SDK。
+
+### 0.2.5 甘特（单 lane 承诺）
+
+```mermaid
+gantt
+    title 超级通道本期（单写 lane，周末除外）
+    dateFormat  YYYY-MM-DD
+    axisFormat  %m-%d
+    excludes    weekends
+
+    section 地基 M-CH1
+    CH-C1 账本            :c1, 2026-08-31, 2d
+    CH-C2 SDK seam        :c2, after c1, 2d
+    CH-C3 Host TCK        :c3, after c2, 3d
+
+    section 第一只耳朵 M-CH2
+    CH-C4 telegram        :c4, after c3, 2d
+    CH-C5 inspect/UI      :c5, after c4, 2d
+
+    section 办公 M-CH3
+    CH-C6 dingtalk        :c6, after c5, 2d
+    CH-C7a feishu         :c7a, after c6, 2d
+    CH-C7b qq             :c7b, after c7a, 2d
+
+    section 国际 M-CH4
+    CH-C7c discord        :c7c, after c7b, 2d
+```
+
+双 lane 加速（C3 之后）：C4∥C6，C5 仍接 C4；C7 三个包最多再开一棵树。日历最多提前到 **2026-09-18** 左右关门，前提是第二棵 worktree 真有人写。
+
+### 0.2.6 明确不做（本期）
+
+- C8 崩溃域子进程、C9 A2A/NeuroLink 实现、CH-C 企业微信
+- 公网 webhook、Discord voice、QQ 个人号、OneBot、email、媒体/群/流式占位
+- 把五个 SDK 写进默认 `go.mod`；`RegisterServerHandlers(adk.Agent)` 当 A2A 网关
+- 用 channel 替代 Face；channel 用户当 HITL 审批人
+
+### 0.2.7 下一刀
+
+**本期（C1–C7c）已全部 DONE（2026-08-30，M-CH4 关门）。** 分支链：`feat/channel-c1`→`c2`→…→`c6`；C7a 的 commit 12a2a70 当时直接落在 `feat/channel-c6` 线上（未单独切 `feat/channel-c7a` 分支），随后 `feat/channel-c7b`、`feat/channel-c7c` 依次切出。log 见 `docs/logs/2026-08-30-channel-c*/`。
+
+无排期内的下一刀。阶段 H 均为备忘、不是开工令：
+
+- **CH-C8**（同二进制 `vivy channel --name` 子进程）：技术上无前置缺口，但按合同与日历属后切；开工需用户点名。
+- **CH-C9**（A2A / NeuroLink）：合同 §21 要求**独立能力提案 + 绑定/鉴权面**，「无提案则本切片不开」——提案本身是产品决策素材，采纳是合同级决定。
+- 顺手项（非通道 EPIC）：§0.1 CH-C7c-N1（plugin-ci 配方）、TEST-2（runtime flake）、CH-C1-N5（真实 Postgres 跑一轮）。
+
+### 0.2.8 PLAN 索引（子 AGENT 领取面）
+
+站立命令：`docs/plans/channel-epic/00-standing-orders.md`
+演进树：`docs/architecture/VIVY-CHANNEL-EVOLUTION.md`
+目录：`docs/plans/channel-epic/README.md`
+
+| ID | Plan | 架构阶段 |
+|---|---|---|
+| CH-C1 | `docs/plans/channel-epic/CH-C1.md` | A 遗传物质 |
+| CH-C2 | `docs/plans/channel-epic/CH-C2.md` | B 物种窗口 |
+| CH-C3 | `docs/plans/channel-epic/CH-C3.md` | C 世界入口 |
+| CH-C4 | `docs/plans/channel-epic/CH-C4.md` | D ABI 样板 |
+| CH-C5 | `docs/plans/channel-epic/CH-C5.md` | E 可见性 |
+| CH-C6 | `docs/plans/channel-epic/CH-C6.md` | F 国内 |
+| CH-C7a | `docs/plans/channel-epic/CH-C7a.md` | F 国内 |
+| CH-C7b | `docs/plans/channel-epic/CH-C7b.md` | F 国内 |
+| CH-C7c | `docs/plans/channel-epic/CH-C7c.md` | G 国际 / 本期关门 |
+| CH-C8 | `docs/plans/channel-epic/CH-C8.md` | H 后切备忘 |
+| CH-C9 | `docs/plans/channel-epic/CH-C9.md` | H 后切备忘 |
 
 ## 1. Milestone map (archived — V0 closed 2026-08-07)
 
@@ -300,6 +490,19 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-30 | CH-C7c `plugins/discord` 文本（无 voice）——本期关门 | 独立 module（discordgo v0.29 上游，非 picoclaw fork）；DM/文本频道纯文本；session 接口隔离 + supervised 重拨（reconnect() 无视 Close、Open 同步到 READY，源码核实）+ 合成 DISCONNECT `sync.OnceFunc` 死亡信号 + ear/api 分离（专用 REST 会话回复不依赖耳朵在线）；**pion 全前缀封禁进 verify（全 seam）**+ `bad-pion-import` 夹具；LogLevel 显式钉死（LogDebug 会打含 token 的 Identify 包）；无去重栅栏（网关不重投，源码核实）。pack 候选 0 pion。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c7c/`. |
+| 2026-08-30 | CH-C7b `plugins/qq` 官方 Bot 文本 | 独立 module（botgo v0.2.1）；自驱 `websocket.ClientImpl` supervised resume（ChanManager 无限自重连/token 自启协程 11 败 panic，皆源码核实弃用）；仅 C2C 文本（群 out-of-scope：dto 解不出 group_openid）；msg_id 去重栅栏（TTL/容量窗）；被动回复 v2 API（真实 botgo 客户端回环断言）+ 首连 report 栅栏（Stop 期间 Start 有界返回）；静默 logger（D-010，有断言）。`just ci` 绿（首跑撞见一次 runtime 审批流 flake，复跑绿，登记 TEST-2）。Filing: `docs/logs/2026-08-30-channel-c7b/`. |
+| 2026-08-30 | CH-C7a `plugins/feishu` 单聊文本 WS | 独立 module（oapi-sdk-go/v3 v3.11.0——v3.9.4 WS Start `select{}` 永不返回 + pingLoop 泄漏，偏离经源码核实并记录）；p2p 纯文本 in/out（bot 自环防护、open_id 优先兜底序）；supervised 重拨（每次新 client，首连 fail-closed）+ 迟到事件围栏；`*_env` 双密钥 + `encrypt_key` 插件 settings + `is_lark`；Send 走 im.v1.messages（chat_id/text）。386 硬失败验证；真 SDK WS 回环测试 + `-race`。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c7a/`. |
+| 2026-08-30 | CH-C6 `plugins/dingtalk` Stream 单聊文本 | 独立 module（dingtalk-stream-sdk-go v0.9.1）；Stream 重拨监督（SDK 自动重连关闭，插件侧 3s ctx 感知）+ 迟到回调栅栏；单聊纯文本分类（含 bot 自环防护，优于 picoclaw 对照）；sessionWebhook 插件侧内存 + 错误链脱敏（含 NewRequest 解析路径，D-010）；`hostEnv.Secret` 扩展 settings 顶层 `*_env` 声明（双密钥）；4 个 verify 夹具清账 CH-C2-N1；手写 RFC6455 网关跑真 SDK 回环测试，`-race` 干净。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c6/`. |
+| 2026-08-30 | CH-C5 inspect + 设置页接后端（UI-CHANNELS-BE） | `channel/inspect\|get\|update` RPC（未编译名拒绝、`*` 双闸、密钥零回流）；settings overlay 增 `channels`（指针字段区分未设置/设空，合并保留 config opaque settings，幽灵名 Warn 丢弃不挡启动；耳朵重启生效）；Host `Inspect()` 全集+能力+注释（`TokenEnvSet` 只报 bool）；UI 列表=compiled-in、空态「这一代没有耳朵」、email/neuro-link 移除、allow_from fail-closed 文案（zh/en）、token 只显 env 名、pendingRestart 徽章、localStorage 退役。`just ci` 绿（UI 21 文件/172 测试）+ 3015 浏览器真实路径冒烟（默认空态 + pack telegram 候选全链 + 窄视口）。Filing: `docs/logs/2026-08-30-channel-c5/`. |
+| 2026-08-30 | CH-C4 `plugins/telegram` 私聊文本（ABI 样板） | 独立 go.mod 真包（telego v1.10 long-poll，仅私聊纯文本；bot echo 防环；`GetMe` 显式鉴权）；`ChannelEnv.Settings()` ABI 唯一新增（opaque settings 以 JSON 传插件，内核仍零协议类型）；`hostEnv.Secret` 钉死信封 `token_env`（结案 CH-C3-N2）；pack 升级 `-modfile` 合并独立模块 require/go.sum 闭包（真实 go.mod/go.sum/zz_register 字节不变，候选 EXE 链接 telego）。物种 `go list` 零 telego；默认 `just ci` 不编译 telegram。真 Bot 手工冒烟未做（无凭据，不挡 ci）。Filing: `docs/logs/2026-08-30-channel-c4/`. |
+| 2026-08-30 | CH-C3 ChannelHost + 假插件 TCK | `internal/channelhost`（零 eino/runtime import）：`StartAll`/`StopAll` fail-closed（空 allow_from 拒 Start）、确定性会话映射 `sess_ch_<sha256>`、dispatch = allow_from 精确匹配 → `channel.inbound` 入账（`chanin_*` 伪 run 作用域，结案 CH-C1-N1）→ `RunOptions.Provenance`（nil=ui，C1 语义不变）→ 终态投递 `Send`（completed 取最后 assistant 行；脱离 runtime goroutine）。能力接口 v1 方法集 + `Discover`；app `partitionChannels` 未知名启动失败；Host 挂 `RunHook` 结构化兼容。TCK 8 项 + `just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c3/`. |
+| 2026-08-30 | CH-C2 SDK `seam: channel` + 空注册表 + 信封配置 | `sdk/plugin/channel.go`：`SeamChannel`、5 个 channel/secret Grant、`Channel`/`ChannelEnv` 接口、类型化 `InboundMessage`/`OutboundMessage`/`Part`、9 个保留能力槽。verify 按 seam 分流（channel 禁 tools/grants 本批限 poll+secret.read/必须 transport poll）+ `net.Listen` AST 封禁 + `bad-channel-{tools,listen,grant}` 夹具。pack 双 overlay 支持自带 go.mod 插件（fake-channel 端到端真实构建，live go.mod 与 zz_register 字节不变）。`pluginhost.Adapt` 跳过 channel。config `channels:` 信封（enabled/allow_from/token_env/settings opaque）。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c2/`. |
+| 2026-08-30 | CH-C1 账本：`channel.inbound` + Message 出处 | `domain.Message` 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui，`EffectiveSource`）；`EventChannelInbound` 入词表（35→36）+ `channel.inbound.json` schema + run-event 枚举；sqlite `migration016`（4×ALTER DEFAULT ''）；postgres 升版 15 并支持 v14 原地升级（`schemaV15Upgrade`）+ 升级测试；conformance CN-17 出处往返（16→17）；UI 路径用户行显式 `Source:"ui"`。无适配器、无 Host、无 sdk/plugin 变化。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c1/`. |
+| 2026-08-30 | 超级通道 EPIC PLAN 包 | 演进树 `VIVY-CHANNEL-EVOLUTION.md`；子 AGENT 十节 PLAN `docs/plans/channel-epic/CH-C1..C9.md`；TODO §0.2.8 索引。无运行时代码。Filing: `docs/logs/2026-08-30-channel-epic-plans/`. |
+| 2026-08-30 | 超级通道节目排期 | `docs/TODO.md` §0.2：CH-A/B 拆成 CH-C1..C7c；单 lane 19 人日；M-CH4 计划 2026-09-24 / 缓冲关门 2026-09-30。下一刀 CH-C1。Filing: `docs/logs/2026-08-30-channel-program-plan/`. |
+| 2026-08-30 | CH-0 超级通道合同采纳 | `VIVY-CHANNEL-PACK.md` 从出厂 `channels/` 提案改为已采纳的超级通道合同：Host 在内核；本批五个适配器全部 `plugins/` + `seam: channel`；信封/能力矩阵为 A2A、NeuroLink 预留；不新开 `RegisterChannels()`。无运行时代码。Filing: `docs/logs/2026-08-30-channel-super-contract/`. |
+| 2026-08-30 | CH-0 补 clar：Eino 原生 A2A | 合同 §15.1：偷 `eino-ext/a2a` 的 models/transport，禁止 `RegisterServerHandlers(adk.Agent)` 当网关；循环仍是 `Service.Run`。本批五个插件不 import Eino。Filing: `docs/logs/2026-08-30-channel-a2a-eino-native/`. |
 | 2026-08-30 | UI-PROV-RPC 供应商目录接真实后端（模型在线刷新） | 设置→模型 模型列表新增「刷新」：`GET {base_url}/models`（`internal/provider/discover.go`，15s 超时、Bearer 密钥、去重）+ `settings/providers/refresh` RPC（按 id 或按 bundle+base_url；目录厂商无注册表行时克隆为自定义条目持久化；并集保留手动新增；api_key 永不清除/不回传）+ UI 刷新按钮与同步计数反馈。仅 OpenAI 兼容端点；Anthropic 原生端点不显示按钮并拒绝刷新。Filing: `docs/logs/2026-08-30-model-list-sync/`. 目录静态快照 `provider-catalog.ts` 仍为展示层，未退化为运行时目录（范围外）。 |
 | 2026-08-30 | 离线启动：把 runtime.mock 接回 ModelResolver / Catalog | 编译修复后 `just dev` 的 `config.dev.yaml` 不再解析出 ready 模型。`runtime.mock=true` 再次选 mock Ref，且不冻结 ENV。Filing: `docs/logs/2026-08-30-dev-mock-start/`. |
 | 2026-08-30 | 编译修复：补回 ModelResolver / ResolvingChatModel / SQLite organism lease | 主线 `app.go` 已接线但实现未合入，`go build ./...` 失败。补回停放实现；`Ref.Model` 改为 `ModelSpec`。Filing: `docs/logs/2026-08-30-compile-model-resolver/`. |

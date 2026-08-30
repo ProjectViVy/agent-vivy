@@ -21,6 +21,9 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('session/set_permission');
     expect(api.RPC_METHODS).toContain('skills/list');
     expect(api.RPC_METHODS).toContain('skills/get');
+    expect(api.RPC_METHODS).toContain('channel/inspect');
+    expect(api.RPC_METHODS).toContain('channel/get');
+    expect(api.RPC_METHODS).toContain('channel/update');
   });
   it('maps representative runtime and lifecycle operations to their wire methods', async () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });
