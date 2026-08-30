@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
 
@@ -29,11 +29,11 @@ func newCronTestService(t *testing.T) (*Service, *sqlite.Backend) {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Crons: backend, Sink: newTestSink(),
 	})

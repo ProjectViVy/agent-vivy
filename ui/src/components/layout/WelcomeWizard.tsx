@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 // 首次使用引导向导（移植自 Agent-Diva 的 WelcomeWizard）：
 // 介绍 → 模型配置 → 完成导航。模型配置走真实 settings/update；
 // 密钥按 D-010 只由运行环境注入，向导不收集任何 secret。
-// provider 是运行时的模型束名（openai/anthropic/mock），DeepSeek 等
+// provider 是运行时的模型束名（openai/anthropic），DeepSeek 等
 // OpenAI 兼容服务通过 base_url 网关接入，而不是自造 provider 名。
 const DEEPSEEK_PLATFORM_URL = 'https://platform.deepseek.com/';
 const SUGGESTED_DEFAULTS = { provider: 'openai', model: '', baseUrl: '' };

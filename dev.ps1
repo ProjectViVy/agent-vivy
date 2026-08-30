@@ -115,8 +115,7 @@ try {
     }
 
     if (-not $env:VIVY_CONFIG -and -not $env:OPENAI_API_KEY -and -not $env:ANTHROPIC_API_KEY) {
-        $env:VIVY_CONFIG = Join-Path $root "config.dev.yaml"
-        Write-Host "no provider API key; using config.dev.yaml (runtime.mock=true)"
+        Write-Host "no provider API key; Vivy will start without a model; configure Settings -> Model"
     }
 
     Write-Host "starting backend 127.0.0.1:8787"

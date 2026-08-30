@@ -49,7 +49,7 @@ agent-vivy/                      module agent-vivy
   internal/config/               typed config load/validate; secret boundary
   internal/domain/               Vivy-owned contract types (zero ext deps)
   internal/runtime/              Run service + Eino adapter (ONLY Eino door)
-  internal/provider/             openai / anthropic / mock; YAML bundles
+  internal/provider/             openai / anthropic; YAML bundles
   internal/tools/                ToolSpec registry + approval policy
   internal/storage/              Journal/Snapshot/Blob/Lease + SQLite backend
   internal/events/               SSE fan-out + after_seq replay cursor
@@ -215,7 +215,8 @@ package domain
 import "context"
 
 // ChatModel is the only shape the runtime needs. It is satisfied by Eino's
-// model.ChatModel for real providers and by the mock provider for tests.
+// model.ChatModel for real providers. Tests inject deterministic model
+// doubles at the runtime seam.
 // Defined as an interface here so domain never imports Eino.
 type ChatModel interface {
     Stream(ctx context.Context, input []*Message) (Stream[*Message], error)
@@ -228,7 +229,8 @@ type Stream[T any] interface {
 
 `internal/runtime` adapts `domain.ChatModel` to Eino's `model.ChatModel`
 when constructing the `ChatModelAgent`; `internal/provider` returns concrete
-implementations. Call sites never change when swapping mock <-> real (FR-3).
+implementations. Call sites never change when swapping a deterministic test
+double for a real provider (FR-3).
 
 > Note: the exact adapter seam is finalized in task A1 once the online Eino
 > version's `model.ChatModel` signature is confirmed against v0.9.13.

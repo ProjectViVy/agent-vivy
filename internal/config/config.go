@@ -165,12 +165,6 @@ type Provider struct {
 }
 
 type Runtime struct {
-	// Mock enables the deterministic mock provider for tests and offline
-	// development (FR-3).
-	Mock bool `yaml:"mock"`
-	// MockScenario selects a deterministic tool-calling scenario when Mock is
-	// enabled. It is test-only and intentionally has no production default.
-	MockScenario string `yaml:"mock_scenario"`
 	// StreamBuffer bounds buffered stream chunks (NFR: bounded).
 	StreamBuffer int `yaml:"stream_buffer"`
 	// MaxEventPayloadBytes bounds a single event payload (NFR: bounded).
@@ -423,8 +417,6 @@ func Default() Config {
 			Anthropic: Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
 		},
 		Runtime: Runtime{
-			Mock:                     false,
-			MockScenario:             "",
 			StreamBuffer:             256,
 			MaxEventPayloadBytes:     65536,
 			MaxToolTurns:             defaultMaxToolTurns,
@@ -554,16 +546,6 @@ func (c *Config) Validate() error {
 
 	if c.Runtime.StreamBuffer <= 0 {
 		return errors.New("runtime.stream_buffer must be positive")
-	}
-	if c.Runtime.MockScenario != "" {
-		if !c.Runtime.Mock {
-			return errors.New("runtime.mock_scenario requires runtime.mock=true")
-		}
-		switch c.Runtime.MockScenario {
-		case "hitl", "approval", "question", "timeout", "stale":
-		default:
-			return fmt.Errorf("runtime.mock_scenario %q is unsupported", c.Runtime.MockScenario)
-		}
 	}
 	if c.Runtime.MaxEventPayloadBytes <= 0 {
 		return errors.New("runtime.max_event_payload_bytes must be positive")

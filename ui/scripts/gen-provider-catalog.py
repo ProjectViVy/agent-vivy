@@ -15,7 +15,7 @@ Porting rules (Agent-Diva -> Vivy):
   placeholder is not a real model id).
 - Data bug fixed on import: aionly's default_api_base carries a stray
   full-width colon prefix in the yaml; it is normalized here.
-- The vivy-local 'mock' bundle is appended (offline dev / UI test path).
+- Only runtime bundles supported by Vivy (openai/anthropic) are emitted.
 """
 
 from pathlib import Path
@@ -32,16 +32,6 @@ FOLDED = [
     "lanyun", "ocoolai", "ph8", "ppio", "together", "tokenflux",
     "voyageai", "yi",
 ]
-
-MOCK_ENTRY = {
-    "name": "mock",
-    "displayName": "Mock",
-    "bundle": "mock",
-    "baseUrl": "",
-    "defaultModel": "mock",
-    "models": ["mock"],
-}
-
 
 def strip_gateway_prefix(model: str, name: str, gateway_prefix: str) -> str:
     for prefix in (f"{name}/", f"{gateway_prefix}/" if gateway_prefix else ""):
@@ -76,7 +66,6 @@ def load_entries():
             "defaultModel": default_model,
             "models": list(item.get("models") or []),
         })
-    entries.append(dict(MOCK_ENTRY))
     return entries
 
 
@@ -107,11 +96,11 @@ HEADER = """\
 // (ui/agent-diva-source/agent-diva-providers/src/providers.yaml).
 //
 // Agent-Diva 的供应商目录移植：目录条目按厂商展示，但 Vivy 后端 settings 只
-// 接受 openai/anthropic/mock 三个运行束名，厂商差异通过 base_url 网关表达。
+// 接受 openai/anthropic 两个运行束名，厂商差异通过 base_url 网关表达。
 // 选择条目时映射为 (bundle, baseUrl, defaultModel) 三元组，模型 id 始终为
 // 原始 id（不携带网关前缀）。
 
-export type ProviderRuntimeBundle = 'openai' | 'anthropic' | 'mock';
+export type ProviderRuntimeBundle = 'openai' | 'anthropic';
 
 export type ProviderCatalogEntry = {
   /** Agent-Diva 供应商 id（如 'deepseek'），仅用于目录展示与检索 */

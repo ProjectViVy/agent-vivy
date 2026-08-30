@@ -23,7 +23,7 @@ export type CustomProvider = ProviderEntry;
 // Re-export the wire entry type so consumers import it from one place.
 export type { ProviderEntry } from '@/lib/api';
 
-/** 注册表 bundle 的 wire 取值（mock 为内置离线束，不可注册）。 */
+/** 注册表 bundle 的 wire 取值。 */
 export type ProviderRegistryBundle = 'openai' | 'anthropic';
 
 /** 新增/编辑输入：apiKey 为写-only（空=清除该条目密钥；不参与读侧）。 */

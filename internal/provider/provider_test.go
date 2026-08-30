@@ -194,61 +194,11 @@ type staticSpec struct{ live LiveSpec }
 
 func (s staticSpec) Live() LiveSpec { return s.live }
 
-func TestResolvingChatModelMock(t *testing.T) {
-	cm := NewResolvingChatModel(NewCatalog(), staticSpec{live: LiveSpec{Provider: "mock", Model: "mock", Ready: true}})
-	msg, err := cm.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}})
-	if err != nil {
-		t.Fatalf("generate: %v", err)
-	}
-	if msg.Content != "mock reply to: hi" {
-		t.Fatalf("content = %q", msg.Content)
-	}
-}
-
-// TestCatalogMockRef drives the mock through the Ref seam end to end,
-// which also exercises the provider-local domain->Eino bridge. Offline
-// development (config.Runtime.Mock) uses this same path.
-func TestCatalogMockRef(t *testing.T) {
-	ref, err := NewCatalog().For("mock")
-	if err != nil {
-		t.Fatalf("catalog mock: %v", err)
-	}
-	if ref.Name() != "mock" {
-		t.Fatalf("name = %q, want mock", ref.Name())
-	}
-	m, err := ref.Model(context.Background(), ModelSpec{})
-	if err != nil {
-		t.Fatalf("mock model: %v", err)
-	}
-
-	msg, err := m.Generate(context.Background(), []*schema.Message{
-		{Role: schema.User, Content: "hi"},
-	})
-	if err != nil {
-		t.Fatalf("generate: %v", err)
-	}
-	if msg.Content != "mock reply to: hi" {
-		t.Fatalf("generate content = %q", msg.Content)
-	}
-
-	// Stream reassembly must agree with Generate.
-	stream, err := m.Stream(context.Background(), []*schema.Message{
-		{Role: schema.User, Content: "hi"},
-	})
-	if err != nil {
-		t.Fatalf("stream: %v", err)
-	}
-	defer stream.Close()
-	var got strings.Builder
-	for {
-		chunk, err := stream.Recv()
-		if err != nil {
-			break
-		}
-		got.WriteString(chunk.Content)
-	}
-	if got.String() != "mock reply to: hi" {
-		t.Fatalf("stream content = %q", got.String())
+func TestResolvingChatModelRejectsUnconfigured(t *testing.T) {
+	cm := NewResolvingChatModel(NewCatalog(), staticSpec{live: LiveSpec{}})
+	_, err := cm.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}})
+	if !errors.Is(err, ErrModelNotConfigured) {
+		t.Fatalf("error = %v, want ErrModelNotConfigured", err)
 	}
 }
 

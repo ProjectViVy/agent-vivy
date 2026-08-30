@@ -64,5 +64,6 @@ h := callbacks.NewHandlerBuilder().
 
 - `internal/runtime/observability_test.go` and `internal/runtime/service.go`
   show callback wiring against `adk` runs.
-- `internal/provider/mockref.go` / `internal/runtime/scriptedmodel.go` — model
-  mocks; add callbacks there to capture prompt/usage in tests.
+- `internal/testsupport/echo.go` / `internal/runtime/scriptedmodel.go` —
+  deterministic test doubles; add callbacks there to capture prompt/usage in
+  tests.

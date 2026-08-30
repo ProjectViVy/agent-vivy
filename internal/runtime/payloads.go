@@ -198,6 +198,10 @@ type payloadRunFailed struct {
 	Message       string `json:"message"`
 }
 
+// Provider failures intentionally collapse to one stable, actionable user
+// message. The detailed cause remains in the structured server log only.
+const providerUnavailableMessage = "无法连接！请检查供应商配置！"
+
 // Cancel reasons for run.cancelled.
 const (
 	reasonUserRequested = "user_requested"

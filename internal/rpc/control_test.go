@@ -22,6 +22,7 @@ import (
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/plugin"
 )
@@ -65,14 +66,14 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := events.NewBus(8)
-	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus,
 	})
@@ -86,7 +87,7 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 		Crons: backend, CronRunner: service,
 		Studio: studio.NewService(backend),
 		Live: studio.LiveView{
-			Provider:      "mock",
+			Provider:      "test",
 			PolicyProfile: domain.PolicyProfileDefault,
 			PolicyHash:    "policy-hash-test",
 			Tools:         liveTools,
@@ -516,14 +517,14 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := events.NewBus(8)
-	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus,
 	})
@@ -775,14 +776,14 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := events.NewBus(8)
-	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus,
 	})
@@ -905,14 +906,14 @@ func newSettingsHandlerEnvWith(t *testing.T, probe *settingsApplierProbe, mutate
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := events.NewBus(8)
-	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Sessions: backend, Crons: backend, Sink: bus,
 	})
@@ -1376,7 +1377,7 @@ func TestControlHandlerListsSessionTodos(t *testing.T) {
 	unwired, err := NewControlHandler(ControlDeps{
 		Sessions: env.backend, Messages: env.backend, Runs: env.backend, Journal: env.backend,
 		Approvals: env.backend, Questions: env.backend, Bus: unwiredBus,
-		Service: runtime.NewService(nil, "mock", "mock", runtime.ServiceDeps{
+		Service: runtime.NewService(nil, "test", "test-model", runtime.ServiceDeps{
 			Journal: env.backend, Runs: env.backend, Messages: env.backend, Approvals: env.backend, Questions: env.backend, Sink: unwiredBus,
 		}),
 	})
@@ -1413,7 +1414,7 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 	wired, err := NewControlHandler(ControlDeps{
 		Sessions: env.backend, Messages: env.backend, Runs: env.backend, Journal: env.backend,
 		Approvals: env.backend, Questions: env.backend, Todos: env.backend, Skills: backend,
-		Bus: events.NewBus(8), Service: runtime.NewService(nil, "mock", "mock", runtime.ServiceDeps{
+		Bus: events.NewBus(8), Service: runtime.NewService(nil, "test", "test-model", runtime.ServiceDeps{
 			Journal: env.backend, Runs: env.backend, Messages: env.backend, Approvals: env.backend, Questions: env.backend, Sink: events.NewBus(8),
 		}),
 	})
@@ -1497,7 +1498,7 @@ func TestContextCompactionRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(provider.NewMock()), ts, runtime.EngineConfig{
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 1 << 20,
 		Compaction: &runtime.CompactionPolicy{Enabled: true, MaxTokens: 128000, TriggerPercent: 80, KeepRecent: 12},
 	})
@@ -1505,7 +1506,7 @@ func TestContextCompactionRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus := events.NewBus(8)
-	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus, Compactions: backend,
 	})
 	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")

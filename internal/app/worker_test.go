@@ -8,10 +8,10 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/events"
-	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
 )
@@ -35,13 +35,13 @@ func newChildBrokerTest(t *testing.T) (*workerManager, *sqlite.Backend, domain.R
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := runtime.WrapModel(provider.NewMock())
+	model := runtime.WrapModel(testsupport.NewEchoModel())
 	engine, err := runtime.NewEngine(ctx, model, nil, runtime.EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := events.NewBus(8)
-	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Workspaces: workspace, Sink: bus,
 	})

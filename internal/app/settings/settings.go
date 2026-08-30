@@ -44,9 +44,6 @@ const FileName = "settings.yaml"
 const (
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
-	// ProviderMock is retained only so older documents fail validation
-	// with a clear message instead of being treated as openai.
-	ProviderMock = "mock"
 )
 
 // apiBasePattern bounds the base URL to http(s) absolute URLs. It carries a
@@ -172,8 +169,7 @@ type ProviderEntry struct {
 	ID string `yaml:"id"`
 	// DisplayName is the user-facing alias shown in the Settings UI.
 	DisplayName string `yaml:"display_name"`
-	// Bundle is the runtime bundle: openai or anthropic (mock is built-in
-	// offline and cannot be registered).
+	// Bundle is the runtime bundle: openai or anthropic.
 	Bundle string `yaml:"bundle"`
 	// BaseURL is the OpenAI-compatible gateway address for this entry.
 	BaseURL string `yaml:"base_url"`
@@ -310,8 +306,6 @@ func (s Settings) Validate() error {
 	case "":
 		// empty => config default; allowed
 	case ProviderOpenAI, ProviderAnthropic:
-	case ProviderMock:
-		return errors.New("settings: mock is not a product provider; configure an OpenAI-compatible API")
 	default:
 		return fmt.Errorf("settings: provider %q unsupported; want openai or anthropic", s.Provider)
 	}

@@ -17,7 +17,7 @@ export const SAVED_MODELS_KEY = 'vivy.ui.savedModels';
 const SAVED_MODELS_CHANGED_EVENT = 'vivy.ui.savedModels.changed';
 
 export type SavedModelEntry = {
-  /** Vivy 运行束名（保存到 settings.provider 的值，如 openai/anthropic/mock） */
+  /** Vivy 运行束名（保存到 settings.provider 的值，如 openai/anthropic） */
   provider: string;
   /** OpenAI 兼容网关地址；空使用运行束默认地址 */
   baseUrl: string;
@@ -30,7 +30,7 @@ function isValidEntry(value: unknown): value is SavedModelEntry {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
-    typeof entry.provider === 'string' &&
+    (entry.provider === 'openai' || entry.provider === 'anthropic') &&
     entry.provider.trim().length > 0 &&
     typeof entry.baseUrl === 'string' &&
     typeof entry.model === 'string' &&

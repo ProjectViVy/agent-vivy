@@ -43,11 +43,6 @@ providers:
     default_model: claude-sonnet-4-5
 
 runtime:
-  # Deterministic mock provider for tests and offline development.
-  mock: false
-  # Test-only Eino tool-call scenario; valid only when mock is true.
-  # Supported values: hitl, approval, question, timeout, stale.
-  mock_scenario: ""
   # Max buffered stream chunks / event payload size bounds (NFR: bounded).
   stream_buffer: 256
   max_event_payload_bytes: 65536

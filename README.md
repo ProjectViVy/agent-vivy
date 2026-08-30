@@ -80,12 +80,12 @@ internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)
 internal/domain/   Vivy-owned Session/Message/Run/RunEvent/... contract types
 internal/runtime/  Run service + Eino adapter (event mapping, interrupt)
-internal/provider/ openai-compatible / anthropic / mock; YAML bundles
+internal/provider/ openai-compatible / anthropic; YAML bundles
 internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
 internal/rpc/      UI-facing command/query/event JSON-RPC control plane
-internal/tui/      TTY face: `--demo` Crush-style mock shell; `--plain` RPC REPL
+internal/tui/      TTY face: `--demo` Crush-style offline shell; `--plain` RPC REPL
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)

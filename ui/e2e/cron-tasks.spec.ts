@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 
+import { hasRealProvider } from './global-setup';
+
 test('cron page schedules real jobs and closes the trigger loop without demo storage', async ({ page }) => {
+  test.skip(!hasRealProvider, 'requires a configured real provider; offline e2e does not use a model double');
   await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
   await page.goto('/cron-tasks');
 
@@ -18,7 +21,7 @@ test('cron page schedules real jobs and closes the trigger loop without demo sto
   // 下次运行由后端计算，运行计划展示 cron 表达式与时区。
   await expect(page.getByText('0 9 * * * · Asia/Shanghai').first()).toBeVisible();
 
-  // 手动触发 → 真实 mock 运行 → 终态回写（ok → 已完成）。
+  // 手动触发 → 真实供应商运行 → 终态回写（ok → 已完成）。
   await page.getByRole('button', { name: '立即运行' }).click();
   await expect(page.getByText('已完成').first()).toBeVisible({ timeout: 20_000 });
   // 任务专属会话被后端创建，可以跳转。

@@ -83,9 +83,6 @@ func TestValidateRejectsBadProvider(t *testing.T) {
 	if err := (Settings{Provider: "banana"}).Validate(); err == nil {
 		t.Fatal("expected error for unsupported provider")
 	}
-	if err := (Settings{Provider: ProviderMock}).Validate(); err == nil {
-		t.Fatal("expected error for mock provider")
-	}
 }
 
 func TestValidateRejectsModelWithoutProvider(t *testing.T) {
@@ -296,7 +293,6 @@ func TestProviderRegistryValidate(t *testing.T) {
 		"bad base url":  {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "ftp://a.example.com"}}},
 		"empty model":   {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", Models: []string{"", "m2"}}}},
 		"key newline":   {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", ApiKey: "sk-a\nsk-b"}}},
-		"mock bundle":   {Providers: []ProviderEntry{{ID: "c", DisplayName: "A", Bundle: ProviderMock, BaseURL: "https://a.example.com/v1"}}},
 		"dup (bundle,url)": {Providers: []ProviderEntry{
 			{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"},
 			{ID: "c2", DisplayName: "B", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1"},

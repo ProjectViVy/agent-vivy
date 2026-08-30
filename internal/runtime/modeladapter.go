@@ -13,8 +13,8 @@ import (
 
 // WrapModel bridges a domain.ChatModel to Eino's
 // model.ToolCallingChatModel. Messages cross the D-007 firewall only here;
-// the domain side never imports Eino. Tests wrap provider.NewMock() or a
-// ScriptedModel; the product openai path passes the native eino-ext
+// the domain side never imports Eino. Tests use ScriptedModel or a test-only
+// chat model; the product openai path passes the native eino-ext
 // component straight through (no double wrap).
 //
 // V0 transports text content only (role + content). WithTools returns the

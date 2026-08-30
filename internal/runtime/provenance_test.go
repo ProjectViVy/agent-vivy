@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/provider"
+	"agent-vivy/internal/testsupport"
 )
 
 // TestRunWithChannelProvenance pins the channel world entry: the user
 // message row carries Source=channel plus the three provenance fields,
 // and the run.started payload stays provenance-free (contract §12).
 func TestRunWithChannelProvenance(t *testing.T) {
-	svc, backend, _ := newTestService(t, provider.NewMock())
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	runID, err := svc.RunWithOptions(context.Background(), "sess-ch-1", "hello vivy", RunOptions{
 		Provenance: &domain.Provenance{Source: "channel", Channel: "fake", ChatID: "chat-1", ChannelMessageID: "m-1"},
 	})
@@ -63,7 +63,7 @@ func TestRunWithChannelProvenance(t *testing.T) {
 // TestRunWithoutProvenanceKeepsUISource pins today's UI semantics: a nil
 // Provenance stamps Source "ui" and leaves the channel fields empty.
 func TestRunWithoutProvenanceKeepsUISource(t *testing.T) {
-	svc, backend, _ := newTestService(t, provider.NewMock())
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	runID, err := svc.Run(context.Background(), "sess-ui-1", "hello vivy")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -96,7 +96,7 @@ func TestRunWithoutProvenanceKeepsUISource(t *testing.T) {
 // non-nil Provenance with an empty Source is rejected before anything is
 // persisted.
 func TestRunWithEmptyProvenanceSourceRejected(t *testing.T) {
-	svc, backend, _ := newTestService(t, provider.NewMock())
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	_, err := svc.RunWithOptions(context.Background(), "sess-bad-1", "hello vivy", RunOptions{
 		Provenance: &domain.Provenance{},
 	})

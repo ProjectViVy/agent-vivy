@@ -2,12 +2,18 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
+
+// ErrModelNotConfigured is returned when no provider has been selected. It
+// is intentionally typed so the runtime can classify the failure without
+// exposing resolver internals in the user-visible run.failed payload.
+var ErrModelNotConfigured = errors.New("model provider is not configured")
 
 // LiveSpec is the current provider selection without Eino types. App
 // implements this so the resolving ChatModel can stay inside this package
@@ -64,7 +70,7 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	live := m.src.Live()
 	if !live.Ready {
 		if live.Provider == "" {
-			return nil, fmt.Errorf("no model configured: finish the welcome wizard or Settings → Model")
+			return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
 		}
 		return nil, &KeyMissingError{Provider: live.Provider}
 	}

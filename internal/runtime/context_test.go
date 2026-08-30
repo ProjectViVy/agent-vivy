@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
 
@@ -123,14 +123,14 @@ func TestServiceContextBudgetFailureIsTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
+	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 64, MaxHistoryMessages: 2,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
 	sink := newTestSink()
-	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
 	})
 

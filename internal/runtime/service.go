@@ -1824,11 +1824,7 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 	category := causeCategoryOf(cause)
 	message := "The model run could not be completed. Please try again."
 	if category == causeProviderError {
-		if hint, ok := keyMissingMessage(cause); ok {
-			message = hint
-		} else {
-			message = "The model service call failed (provider network or configuration issue). Check the model provider settings and your network, then try again. See the gateway log for details."
-		}
+		message = providerUnavailableMessage
 	}
 	return m.build(domain.EventRunFailed, payloadRunFailed{
 		CauseCategory: category,
@@ -1851,6 +1847,9 @@ func causeCategoryOf(err error) string {
 }
 
 func isProviderFailure(err error) bool {
+	if errors.Is(err, provider.ErrModelNotConfigured) {
+		return true
+	}
 	if _, ok := keyMissingMessage(err); ok {
 		return true
 	}

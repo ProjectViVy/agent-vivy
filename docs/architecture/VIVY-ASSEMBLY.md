@@ -49,7 +49,7 @@ Vivy 的叠加发生在 **`vivy-sdk pack`**，产物是一整代 EXE，不是一
 可装配的一等单元（是什么叫什么）
   loop        这一轮怎么算     出厂：eino
   world       fs+exec 绑在一起   出厂：sandbox | local
-  provider    模型出口         出厂：openai | anthropic | mock
+  provider    模型出口         出厂：openai | anthropic
   tool        面向模型的能力    出厂：notes、filesystem、execute、ask_user…
   skill       行为文本         出厂与用户都可以有；不编译
 
@@ -85,7 +85,6 @@ loop: eino
 world: sandbox
 providers:
   - openai
-  - mock
 tools:
   - notes
   - filesystem

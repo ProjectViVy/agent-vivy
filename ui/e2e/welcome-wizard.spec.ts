@@ -25,16 +25,15 @@ test('welcome wizard first-run, skip, rerun, save and deep link', async ({ page 
   await page.getByRole('button', { name: '重新运行向导' }).click();
   await expect(dialog).toBeVisible();
 
-  // 模型步骤：预填来自配置默认值（e2e 配置 runtime.mock 生效，故为 mock / mock:hitl）
+  // 模型步骤：预填来自真实配置默认值；没有凭证时仍允许先保存选择，
+  // 后续发送由运行时返回明确的供应商连接错误。
   await dialog.getByRole('button', { name: '下一步' }).click();
   await expect(dialog.getByRole('heading', { name: '配置模型' })).toBeVisible();
-  await expect(dialog.getByRole('textbox', { name: 'Provider' })).toHaveValue('mock');
-  await expect(dialog.getByRole('textbox', { name: '默认模型' })).toHaveValue('mock:hitl');
+  await expect(dialog.getByRole('textbox', { name: 'Provider' })).toHaveValue('openai');
+  await expect(dialog.getByRole('textbox', { name: '默认模型' })).toHaveValue('gpt-4o-mini');
   await expect(dialog.getByText('API 密钥通过运行环境变量注入，不在界面中填写或保存。')).toBeVisible();
 
-  // 修改为 mock 并保存，进入完成步骤
-  await dialog.getByRole('textbox', { name: 'Provider' }).fill('mock');
-  await dialog.getByRole('textbox', { name: '默认模型' }).fill('mock');
+  // 保留真实 provider 选择并保存，进入完成步骤
   await dialog.getByRole('button', { name: '下一步' }).click();
   await expect(dialog.getByRole('heading', { name: '准备就绪！' })).toBeVisible();
 
@@ -43,7 +42,7 @@ test('welcome wizard first-run, skip, rerun, save and deep link', async ({ page 
   await expect(dialog).toBeHidden();
   await expect(page).toHaveURL(/\/settings\?tab=model/);
   await expect(page.getByRole('tab', { name: '模型' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('textbox', { name: 'Provider' })).toHaveValue('mock');
+  await expect(page.getByRole('textbox', { name: 'Provider' })).toHaveValue('openai');
 
   // 完成后再次刷新：向导保持关闭
   await page.reload();

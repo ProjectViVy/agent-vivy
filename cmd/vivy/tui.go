@@ -78,7 +78,7 @@ func runTUI(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, "start the gateway first: vivy")
-		fmt.Fprintln(os.Stderr, "or run the mock skeleton: vivy tui --demo")
+		fmt.Fprintln(os.Stderr, "or run the offline demo skeleton: vivy tui --demo")
 		return 1
 	}
 	defer client.Close()
@@ -113,7 +113,7 @@ func defaultListenAddr() string {
 
 const tuiUsage = `vivy tui — terminal face
 
-  vivy tui --demo                 fullscreen Crush-style skeleton (mock data)
+  vivy tui --demo                 fullscreen Crush-style skeleton (offline demo data)
   vivy tui --live [--addr host]   fullscreen shell on a resident gateway
   vivy tui --plain [--addr host]  line REPL over a resident gateway
   vivy tui --addr host:port       same as --plain

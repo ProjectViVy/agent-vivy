@@ -526,7 +526,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 	if s.IsZero() {
 		return cfg
 	}
-	if s.Provider != "" && s.Provider != settings.ProviderMock {
+	if s.Provider != "" {
 		cfg.Providers.Active = s.Provider
 		switch s.Provider {
 		case settings.ProviderOpenAI:
@@ -723,11 +723,6 @@ func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) 
 
 func defaultModelFor(cfg config.Config, providerName string) string {
 	switch providerName {
-	case "mock":
-		if cfg.Runtime.MockScenario != "" {
-			return "mock:" + cfg.Runtime.MockScenario
-		}
-		return "mock"
 	case "anthropic":
 		return cfg.Providers.Anthropic.DefaultModel
 	default:

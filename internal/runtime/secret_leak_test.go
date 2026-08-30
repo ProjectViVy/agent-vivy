@@ -15,7 +15,7 @@ import (
 )
 
 // E3 (AS-9): a secret held only in the environment must never reach the
-// SQLite file or any persisted event payload. The mock path never touches
+// SQLite file or any persisted event payload. The test path never touches
 // a provider, so any appearance of the canary below would prove that a
 // runtime or storage component snapshots the environment.
 

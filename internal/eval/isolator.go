@@ -41,7 +41,7 @@ type Layout struct {
 	Addr       string
 }
 
-// Prepare creates an isolated eval tree and writes a mock-only config.
+// Prepare creates an isolated eval tree and writes a provider-neutral config.
 func Prepare(root string, iso Isolation) (Layout, error) {
 	if root == "" {
 		return Layout{}, fmt.Errorf("eval: empty root")
@@ -91,7 +91,6 @@ func Prepare(root string, iso Isolation) (Layout, error) {
 			"anthropic":  map[string]any{"env_key": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-5"},
 		},
 		"runtime": map[string]any{
-			"mock":           true,
 			"workspace_root": layout.Workspace,
 			"skills_root":    layout.Skills,
 		},

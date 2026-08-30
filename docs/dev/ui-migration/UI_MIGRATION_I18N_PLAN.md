@@ -97,7 +97,7 @@
   "studioLoadError", "settings", "settingsTitle", "settingsModelProvider",
   "settingsDefaultModel", "settingsBaseURL", "settingsBaseURLHint",
   "settingsProviderOpenAI", "settingsProviderAnthropic",
-  "settingsProviderMock", "settingsConfigDefault", "settingsAppearance",
+  "settingsConfigDefault", "settingsAppearance",
   "settingsSave", "settingsSaved", "settingsSaving", "settingsCancel",
   "settingsReadOnly", "settingsFallbackHint", "settingsRestartNote"
 ]

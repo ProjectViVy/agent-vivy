@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
 
@@ -41,7 +43,7 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 		t.Fatalf("new engine: %v", err)
 	}
 	sink := newTestSink()
-	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink,
 	})
 	return svc, backend, sink
@@ -114,7 +116,7 @@ func replayAll(t *testing.T, j storage.Journal, runID domain.RunID) []domain.Run
 }
 
 func TestServiceRunHappyPath(t *testing.T) {
-	svc, backend, sink := newTestService(t, provider.NewMock())
+	svc, backend, sink := newTestService(t, testsupport.NewEchoModel())
 	runID, err := svc.Run(context.Background(), "sess-1", "hello vivy")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -180,7 +182,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 			t.Fatalf("unexpected mid-run event %s", ev.Type)
 		}
 	}
-	want := "mock reply to: hello vivy"
+	want := "test response to: hello vivy"
 	if deltas.String() != want {
 		t.Fatalf("reassembled deltas = %q, want %q", deltas.String(), want)
 	}
@@ -310,6 +312,101 @@ func TestServiceRunFailed(t *testing.T) {
 	}
 }
 
+// keyMissingModel fails with the provider's typed KeyMissingError, which the
+// engine may wrap on the way out; the terminal must still classify it as a
+// provider failure with an actionable message.
+type keyMissingModel struct{}
+
+func (keyMissingModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[*domain.Message], error) {
+	return nil, &provider.KeyMissingError{Provider: "openai"}
+}
+
+type unconfiguredModel struct{}
+
+func (unconfiguredModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[*domain.Message], error) {
+	return nil, fmt.Errorf("resolve active model: %w", provider.ErrModelNotConfigured)
+}
+
+func TestServiceRunFailedWithoutProvider(t *testing.T) {
+	svc, backend, _ := newTestService(t, unconfiguredModel{})
+	runID, err := svc.Run(context.Background(), "sess-1", "hello")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	events := replayAll(t, backend, runID)
+	last := events[len(events)-1]
+	if last.Type != domain.EventRunFailed {
+		t.Fatalf("last event = %s, want run.failed", last.Type)
+	}
+	cat, msg := payloadFailureOf(t, last.Payload)
+	if cat != causeProviderError {
+		t.Fatalf("cause category = %q, want %q", cat, causeProviderError)
+	}
+	if msg != providerUnavailableMessage {
+		t.Fatalf("failure message = %q, want %q", msg, providerUnavailableMessage)
+	}
+}
+
+func TestServiceRunFailedKeyMissing(t *testing.T) {
+	svc, backend, _ := newTestService(t, keyMissingModel{})
+	runID, err := svc.Run(context.Background(), "sess-1", "hello")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	events := replayAll(t, backend, runID)
+	last := events[len(events)-1]
+	if last.Type != domain.EventRunFailed {
+		t.Fatalf("last event = %s, want run.failed", last.Type)
+	}
+	cat, msg := payloadFailureOf(t, last.Payload)
+	if cat != causeProviderError {
+		t.Fatalf("cause category = %q, want %q", cat, causeProviderError)
+	}
+	if msg != providerUnavailableMessage {
+		t.Fatalf("failure message = %q, want %q", msg, providerUnavailableMessage)
+	}
+	if strings.Contains(msg, "sk-") || strings.Contains(msg, "api_key") {
+		t.Fatalf("failure message leaks a key value or field: %q", msg)
+	}
+}
+
+// transportErrorModel fails with a wrapped network error; the terminal must
+// classify it as provider transport, not an internal mystery.
+type transportErrorModel struct{}
+
+func (transportErrorModel) Stream(_ context.Context, _ []*domain.Message) (domain.Stream[*domain.Message], error) {
+	return nil, fmt.Errorf("model stream recv: %w", errors.New("dial tcp 127.0.0.1:9999: connect: connection refused"))
+}
+
+func TestServiceRunFailedProviderTransport(t *testing.T) {
+	svc, backend, _ := newTestService(t, transportErrorModel{})
+	runID, err := svc.Run(context.Background(), "sess-1", "hello")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunFailed)
+
+	events := replayAll(t, backend, runID)
+	last := events[len(events)-1]
+	if last.Type != domain.EventRunFailed {
+		t.Fatalf("last event = %s, want run.failed", last.Type)
+	}
+	cat, msg := payloadFailureOf(t, last.Payload)
+	if cat != causeProviderError {
+		t.Fatalf("cause category = %q, want %q", cat, causeProviderError)
+	}
+	if msg != providerUnavailableMessage {
+		t.Fatalf("failure message = %q, want %q", msg, providerUnavailableMessage)
+	}
+	if strings.Contains(msg, "127.0.0.1") || strings.Contains(msg, "dial tcp") {
+		t.Fatalf("failure message leaks transport internals: %q", msg)
+	}
+}
+
 func TestMapperToolCallAndResult(t *testing.T) {
 	m := newEventMapper("run-test", 0)
 
@@ -411,7 +508,7 @@ func (c *capturingModel) calls() [][]domain.Message {
 	return out
 }
 
-// captureStream replays the fixed reply chunks (mockStream style).
+// captureStream replays fixed reply chunks for the stream tests.
 type captureStream struct {
 	chunks []*domain.Message
 	next   int

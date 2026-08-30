@@ -29,25 +29,6 @@ func testCatalog(t *testing.T) *provider.Catalog {
 	return provider.NewCatalog(openai, anthropic)
 }
 
-func TestResolverUsesRuntimeMock(t *testing.T) {
-	cfg := config.Default()
-	cfg.Runtime.Mock = true
-	cfg.Runtime.MockScenario = "hitl"
-	t.Setenv("OPENAI_API_KEY", "sk-must-not-freeze-over-mock")
-	r := newModelResolver(cfg, settings.Path(t.TempDir()), testCatalog(t))
-	cur := r.Current()
-	if !cur.Ready || cur.Frozen || cur.Provider != settings.ProviderMock || cur.Model != "mock:hitl" {
-		t.Fatalf("runtime.mock must resolve a ready mock: %+v", cur)
-	}
-	if r.Frozen() {
-		t.Fatal("runtime.mock must not lock the process to an ENV session")
-	}
-	live := r.Live()
-	if !live.Ready || live.Provider != "mock" || live.Model != "mock:hitl" {
-		t.Fatalf("live spec = %+v", live)
-	}
-}
-
 func TestResolverEmptyWithoutSettings(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default()

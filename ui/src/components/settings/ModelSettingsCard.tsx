@@ -60,10 +60,9 @@ function providerView(entry: ProviderEntry): CustomProviderPreset & { id: string
   };
 }
 
-/** 目录条目 bundle 收窄到注册束（openai/anthropic；mock 为内置离线束不可克隆）。 */
+/** 目录条目 bundle 收窄到注册束。 */
 function asRegistryBundle(bundle: ProviderRuntimeBundle): ProviderRegistryBundle {
-  if (bundle === 'openai' || bundle === 'anthropic') return bundle;
-  return 'openai';
+  return bundle;
 }
 
 function ProviderRow({
@@ -291,8 +290,8 @@ function CustomProviderDialog({
  * （静态目录 + 自定义供应商，自定义行常驻编辑按钮 + hover 删除）；右栏头部
  * 是所选供应商名/地址/运行束 + 编辑（编辑：自定义=打开编辑对话框；
  * 目录=预填克隆为自定义后改地址），下方 API Key 填写（自定义与目录厂商均可
- * 编辑，失焦按端点写回本机用户工作区，同一端点只落一条注册表密钥；内置
- * Mock 离线束禁用），再下方模型列表（兜底为空时提示，列表顶部「新增」按钮
+ * 编辑，失焦按端点写回本机用户工作区，同一端点只落一条注册表密钥），再下方
+ * 模型列表（兜底为空时提示，列表顶部「新增」按钮
  * 手加模型）。
  * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
  */
@@ -447,13 +446,12 @@ export function ModelSettingsCard() {
    * 面板 API Key（写-only，失焦提交）：自定义供应商写回其注册表条目；目录厂商
    * 按端点 (bundle, base_url) 落盘——端点已有注册表条目（含既有自定义克隆）则
    * 更新其密钥，否则生成 `catalog-<name>` 落地条（隐藏于自定义列表，后端
-   * ActiveKey 按端点解析）。内置 Mock 离线束不可注册，跳过。输入未被修改过
-   * 就失焦时不提交（防误清已配密钥/防凭空建条目）。
+   * ActiveKey 按端点解析）。输入未被修改过就失焦时不提交（防误清已配密钥/防凭空
+   * 建条目）。
    */
   const commitPanelKey = async () => {
     if (!selectedEntry) return;
     if (!panelKeyDirty) return; // 未修改过就失焦：不写任何东西（防误清/防凭空建条目）
-    if (selectedEntry.bundle === 'mock') return;
     const key = panelKey.trim();
     try {
       if (selectedRegistry) {
@@ -716,11 +714,11 @@ export function ModelSettingsCard() {
                       value={panelKey}
                       onChange={(event) => { setPanelKey(event.target.value); setPanelKeyDirty(true); }}
                       onBlur={() => void commitPanelKey()}
-                      placeholder={selectedEntry.bundle === 'mock' ? t('settingsModel.catalogKeyHint') : t('settingsModel.apiKeyPlaceholder')}
+                      placeholder={t('settingsModel.apiKeyPlaceholder')}
                       autoComplete="off"
-                      disabled={locked || selectedEntry.bundle === 'mock'}
+                      disabled={locked}
                     />
-                    <p className="mt-1.5 text-xs text-muted-foreground">{selectedEntry.bundle === 'mock' ? t('settingsModel.catalogKeyHint') : t('settingsModel.apiKeyHint')}</p>
+                    <p className="mt-1.5 text-xs text-muted-foreground">{t('settingsModel.apiKeyHint')}</p>
                   </div>
                   <div>
                     <div className="flex items-center justify-between gap-2 border-b px-3 py-2">

@@ -68,10 +68,11 @@ describe('getSavedModels 读取与坏数据过滤', () => {
         { provider: 'openai', model: 'gpt-4o' }, // 缺 baseUrl
         { provider: 42, baseUrl: 'https://x', model: 'm' }, // provider 非字符串
         { provider: '  ', baseUrl: 'https://x', model: 'm' }, // provider 空白
-        { provider: 'mock', baseUrl: '', model: '  ' }, // model 空白
+        { provider: 'openai', baseUrl: '', model: '  ' }, // model 空白
         null,
         'not-an-object',
         { provider: 'openai', baseUrl: '', model: 'gpt-4o-mini' },
+        { provider: 'mock', baseUrl: '', model: 'mock' }, // removed legacy runtime provider
       ]),
     });
     expect(getSavedModels()).toEqual([
@@ -103,16 +104,16 @@ describe('addSavedModel 去重与追加顺序', () => {
     const { storage } = stubWindow();
     addSavedModel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' });
     addSavedModel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' });
-    addSavedModel({ provider: 'mock', baseUrl: '', model: 'mock' });
+    addSavedModel({ provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' });
     addSavedModel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' });
     expect(getSavedModels()).toEqual([
       { provider: 'openai', baseUrl: '', model: 'gpt-4o' },
-      { provider: 'mock', baseUrl: '', model: 'mock' },
+      { provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' },
     ]);
     expect(storage.get(SAVED_MODELS_KEY)).toBe(
       JSON.stringify([
         { provider: 'openai', baseUrl: '', model: 'gpt-4o' },
-        { provider: 'mock', baseUrl: '', model: 'mock' },
+        { provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' },
       ]),
     );
   });
@@ -131,18 +132,18 @@ describe('removeSavedModel 按三元组过滤', () => {
       [SAVED_MODELS_KEY]: JSON.stringify([
         { provider: 'openai', baseUrl: '', model: 'gpt-4o' },
         { provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
-        { provider: 'mock', baseUrl: '', model: 'mock' },
+        { provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' },
       ]),
     });
     removeSavedModel('anthropic', 'https://api.anthropic.com', 'claude-sonnet-4-5');
     expect(getSavedModels()).toEqual([
       { provider: 'openai', baseUrl: '', model: 'gpt-4o' },
-      { provider: 'mock', baseUrl: '', model: 'mock' },
+      { provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' },
     ]);
     expect(storage.get(SAVED_MODELS_KEY)).toBe(
       JSON.stringify([
         { provider: 'openai', baseUrl: '', model: 'gpt-4o' },
-        { provider: 'mock', baseUrl: '', model: 'mock' },
+        { provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' },
       ]),
     );
   });
@@ -167,7 +168,6 @@ describe('savedModelVendorLabel 厂商标签解析', () => {
 
   it('base_url 空且与运行束同名的目录条目也命中', () => {
     expect(savedModelVendorLabel({ provider: 'openai', baseUrl: '', model: 'gpt-4o' }, NONE)).toBe('OpenAI');
-    expect(savedModelVendorLabel({ provider: 'mock', baseUrl: '', model: 'mock' }, NONE)).toBe('Mock');
   });
 
   it('目录未命中但带 Base URL：回退到主机名（含端口）', () => {
@@ -210,14 +210,14 @@ describe('事件广播与跨标签页同步', () => {
 
   it('removeSavedModel 触发自定义事件广播', () => {
     const { listeners } = stubWindow({
-      [SAVED_MODELS_KEY]: JSON.stringify([{ provider: 'mock', baseUrl: '', model: 'mock' }]),
+      [SAVED_MODELS_KEY]: JSON.stringify([{ provider: 'anthropic', baseUrl: '', model: 'claude-sonnet-4-5' }]),
     });
     const onChange = vi.fn();
     window.addEventListener('vivy.ui.savedModels.changed', onChange);
-    removeSavedModel('mock', '', 'mock');
+    removeSavedModel('anthropic', '', 'claude-sonnet-4-5');
     expect(onChange).toHaveBeenCalledTimes(1);
     // 未命中不写回，不广播。
-    removeSavedModel('mock', '', 'absent');
+    removeSavedModel('anthropic', '', 'absent');
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 });

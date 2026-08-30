@@ -362,7 +362,6 @@ loop: eino
 world: sandbox
 providers:
   - openai
-  - mock
 tools:
   - notes
   - filesystem

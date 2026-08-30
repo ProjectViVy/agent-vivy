@@ -28,10 +28,9 @@ func (m ModelInfo) Valid() bool {
 	return m.ID != "" && m.Provider != ""
 }
 
-// ChatModel is the only model shape the runtime needs. It is satisfied
-// by the mock provider (C1) and by real providers behind internal/provider
-// (C2); the Eino adapter seam lives in internal/runtime. Defined here so
-// domain never imports Eino (D-007).
+// ChatModel is the only model shape the runtime needs. It is satisfied by
+// real providers behind internal/provider; the Eino adapter seam lives in
+// internal/runtime. Defined here so domain never imports Eino (D-007).
 type ChatModel interface {
 	Stream(ctx context.Context, input []*Message) (Stream[*Message], error)
 }

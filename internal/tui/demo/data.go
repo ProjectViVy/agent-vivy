@@ -1,4 +1,4 @@
-// Package demo holds deterministic mock data for the Crush-style TUI
+// Package demo holds deterministic offline data for the Crush-style TUI
 // skeleton. No time.Now, no random, no RPC. Field names mirror the
 // control-plane DTOs so the live driver can share surface.Driver.
 package demo
@@ -111,7 +111,7 @@ func (s *Store) PendingGate() *surface.Gate {
 func (s *Store) Meta() surface.Meta {
 	return surface.Meta{
 		Mode:   "demo",
-		Footer: "mock · not connected",
+		Footer: "demo · not connected",
 	}
 }
 
