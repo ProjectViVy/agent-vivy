@@ -25,6 +25,8 @@
 
 实现 **另开** `feat/channel-c1` 一类分支，不要往 `feat/channel-super-contract` 堆代码。
 
+**正式做通道（C4 / C6 / C7*）时：** 以 picoclaw 的实现为最完整对照，只读改写、禁止 import。详见 `00-standing-orders.md`「picoclaw 对照」。
+
 ## 每份 PLAN 的十节
 
 身份 · 目标 · 现状 · 目标结构 · 文件清单 · 步骤 · 验收 · 禁止 · 风险 · 交接

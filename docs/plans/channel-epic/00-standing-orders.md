@@ -26,10 +26,19 @@
 
 - 作者只 import `agent-vivy/sdk/plugin`。禁止 `import agent-vivy/internal/...`。
 - 禁止 `net.Listen` / `http.ListenAndServe`。Listen 是 Host 的。
-- 禁止 import picoclaw 或 `.workspace`。改写适配器。
 - 禁止把 telego / discordgo / lark / 钉钉 / botgo 写入物种默认 `go.mod`。
 - 默认提交的 `internal/generated/plugins/zz_register.go` 必须保持 `return nil`。
 - `pluginhost.Adapt` 不得把 `seam: channel` 变成 `tools.Tool`。
+
+## picoclaw 对照（正式做通道时必读）
+
+五个真实适配器（CH-C4 / C6 / C7a / C7b / C7c）以 **picoclaw 的 channel 实现为最完整的 Go 样本**。开工前先读对应包，再改写进 `plugins/<name>/`。
+
+- 只读。禁止 `import` picoclaw 模块，禁止把 `.workspace` 写进 `go.mod`。
+- 偷：`Start` / `Stop` / `Send`、InboundContext / SenderInfo、错误分类、该平台 token 用法。
+- 不偷：`init()` blank import 进网关、空 `allow_from` 放行、插件自建 `net.Listen`、内核里的 `TelegramSettings` 一类类型。
+- 路径（按存在选用）：仓库 `.workspace/picoclaw/pkg/channels/<name>`；本机 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\<name>`。
+- Discord **不要**移植 `voice.go` / pion。钉钉走 Stream，不要倒退成 webhook 文本机器人。QQ 是官方 Bot，不是个人号 / OneBot。
 
 ## 循环与账本
 
