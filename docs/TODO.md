@@ -77,6 +77,16 @@ Do not pick work from those tables. Closed-track filing:
 | UI-EVO | 进化页接真实 Evolution/AutoDream 后端 | OPEN | 2026-08-25 页面已按 agent-diva 结构落地为 `vivy.demo.*` 演示数据页（`/evolution`，三 Tab 治理闭环 + 跨页跳转，见 `docs/logs/2026-08-25-evolution-page/`）；内核 AutoDream/Evolution 能力本身见 MEM-1（DEFERRED），有能力提案后需把 `demo-api.ts` 换成 `api.ts` 真实 RPC 并登记方法 |
 | UI-CHAT-ACT | 消息编辑 / 回退 / 分叉启用 + 截断式重新生成 | OPEN | 2026-08-26 功能栏已移植（复制启用 + 重新生成=重发上一条用户输入开新回合，见 `docs/logs/2026-08-26-chat-message-actions/`）；编辑/回退/分叉为禁用占位。真正的就地覆盖需内核 Journal 提供消息截断/分支 RPC（现为追加式事实源），属内核能力提案 |
 | UI-CHAT-TOOLBAR | 聊天框上方功能栏后端接线 + 状态持久化 | OPEN | 2026-08-29 权限三段（谨慎/智能/信任）已接 `session/set_permission`（见 `docs/logs/2026-08-29-sandbox-permission-presets/`）。执行模式/思考仍为纯 UI；附件/AutoDream/桌面伙伴/语音仍为 stub。 |
+| UI-AUDIT-CHAT-MODE | Chat Plan 模式未传入 `preflight/run` / `turn/start` | OPEN | 2026-08-31 审查确认菜单选择只传 content，ChatView 固定 `normal`；需把 UI mode 映射到后端 `RunMode`。见 `docs/research/ui-backend-correspondence-2026-08-31.md` |
+| UI-AUDIT-SKILLS-LIVE | Skills list/detail 未接已有 `skills/list` / `skills/get` | OPEN | 2026-08-31 审查确认仍使用 `vivy.demo.*` localStorage DTO；后端已有只读技能目录。 |
+| UI-AUDIT-DASHBOARD-LIVE | Dashboard 概览使用固定演示状态 | OPEN | 2026-08-31 审查确认 `12/2/1` 等数字来自 `getDemoDashboard`；应使用 session/background/review RPC，活动项无现有端点则删除。 |
+| UI-AUDIT-LIFECYCLE-HOME | 日常 Vivy 暴露物种侧 Lifecycle 写入口 | OPEN | 2026-08-31 审查确认 `/lifecycle` 与 Settings 卡可 create/eval/promote；架构正本要求 Studio 才是权威，物种只读 inspect。 |
+| UI-AUDIT-REVIEW-INSPECTOR | Run Inspector 缺少 Review inline/tab | OPEN | 2026-08-31 审查确认 Review Center 有队列但 inspector 只有 run/background/children；与 HITL-04 及 `hitl-review-center.md` inline renderer 约束不符。 |
+| UI-AUDIT-RUN-DETAIL | Run event payload 仅放 HTML title，缺少可读详情 | OPEN | 2026-08-31 审查确认后端 `RunLogEvent` 有结构化 payload，但 UI 未提供键盘可达的事件详情；违反日志一等公民要求。 |
+| UI-AUDIT-REVIEW-FIELDS | Review 详情遗漏 expiry/stale/actor/precondition/terminal reason | OPEN | 2026-08-31 审查确认 API/后端 DTO 已有字段，ApprovalsView 未呈现，导致过期/失效原因不可审计。 |
+| UI-AUDIT-COMPACTION-BUSY | 立即压缩未预判 active/background run | OPEN | 2026-08-31 审查确认按钮可在后端 `ErrCompactionBusy` 条件下点击并收到 409。 |
+| UI-AUDIT-REVIEW-BUSY-SCOPE | 单条 Review 响应锁住整个队列 | OPEN | 2026-08-31 审查确认 `reviewBusyId` 非空时所有行/刷新/动作禁用；应按 item 粒度锁定。 |
+| UI-AUDIT-REVIEW-NAV | `/approvals` 完整路由没有主导航入口 | OPEN | 2026-08-31 审查确认只能从聊天 shield 打开 sheet；跨 session Review Center 的 full main-area surface 不够可发现。 |
 | UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | DONE | 2026-08-30 `ModelResolver` + `ModelSpec`：openai Ref 按次接收 APIKey/BaseURL，不再 `os.Getenv(bundle.EnvKey)`；注册表 `ActiveKey(bundle, base_url)` 成为产品路径。见 `docs/logs/2026-08-30-compile-model-resolver/` |
 | UI-E2E-STALE | `just ui-e2e` 两条既有规格断言已过期文案（非本次改动引入） | OPEN | `runtime.spec.ts:84` 断言「密钥只由运行环境管理」、`welcome-wizard.spec.ts:33` 断言「API 密钥通过运行环境变量注入，不在界面中填写或保存。」——两串文案在 `ui/src` 均已不存在，密钥提示曾被 i18n 改写（现文案见 `ui/src/i18n/zh.ts` 的 `catalogKeyHint`/`secretNote` 等键）。2026-08-27 e2e 复跑确认：新增的 `language-setting.spec.ts` 通过，这两条为过期规格失败，与语言分区改动无关；需按现文案同步断言后恢复全绿，本次范围外未改 |
 | UI-TRAJ | 中控台轨迹面板接真实运行轨迹 | OPEN | 2026-08-25 轨迹面板（`ui/src/components/trajectory/`）为纯演示静态数据（复刻 DSH `ui-trajectory` 设计：工具栏/三泳道时间轴/账本/详情），未接后端；接真实轨迹需内核提供会话日志/回放事件 RPC（当前 Journal 事件流在 Go 侧，UI 无轨迹类端点），见 `docs/logs/2026-08-25-trajectory-panel/` |
