@@ -93,4 +93,4 @@ internal/app
 
 ## 10. 交接
 
-下一 AGENT 优先 [CH-C4.md](CH-C4.md)。C6 可另开 worktree 并行，但必须基于已合入的 Host ABI。
+下一 AGENT 优先 [CH-C4.md](CH-C4.md)。C6 可另开 worktree 并行，但必须基于已合入的 Host ABI。从 C4 起正式做通道：先读 picoclaw 对应包（最完整 Go 样本），只读改写、禁止 import。见 `00-standing-orders.md`。

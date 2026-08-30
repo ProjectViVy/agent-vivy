@@ -18,7 +18,7 @@
 
 ## 3. 现状
 
-picoclaw discord 含 voice/pion——**不要移植那些文件**。
+**备注：** 正式写 Discord 适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/discord` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\discord`。picoclaw 含 `voice.go` / pion——**那些文件不要移植**。详见 `00-standing-orders.md`。
 
 ## 4. 目标结构
 

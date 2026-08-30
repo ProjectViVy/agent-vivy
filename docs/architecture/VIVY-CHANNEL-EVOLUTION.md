@@ -212,6 +212,7 @@ NOW (C0 合同)
 
 阶段 D  ABI 样板     CH-C4
 └── plugins/telegram 独立 go.mod。肥 SDK 不进默认身体。
+    正式写适配器：以 picoclaw 为最完整 Go 对照，只读改写、禁止 import。
 
 阶段 E  可见性       CH-C5
 └── inspect + 设置页只展示 compiled-in。

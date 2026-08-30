@@ -19,7 +19,9 @@
 
 ## 3. 现状
 
-C3 Host 通用信封。picoclaw `pkg/channels/dingtalk` 对照。DIVA：保留 Stream，不要倒退成 webhook 文本机器人。
+C3 Host 通用信封。DIVA：保留 Stream，不要倒退成 webhook 文本机器人。
+
+**备注：** 正式写钉钉适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/dingtalk` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\dingtalk`。走 Stream WS，不要抄成 Octos webhook 文本机器人。详见 `00-standing-orders.md`。
 
 ## 4. 目标结构
 
