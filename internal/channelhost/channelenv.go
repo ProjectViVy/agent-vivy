@@ -17,18 +17,21 @@ import (
 
 // hostEnv is the world a channel adapter may touch: the per-plugin
 // implementation of plugin.ChannelEnv handed to Channel.Start. Secrets
-// fail closed on a missing grant, a name outside the channel's declared
-// token_env, or a missing value, and are never logged; HTTP is
+// fail closed on a missing grant, a name the channel envelope does not
+// declare, or a missing value, and are never logged; HTTP is
 // outbound-only; there is no Listen capability on this surface.
 type hostEnv struct {
 	host   *Host
 	seam   plugin.Channel // owning adapter, for grant checks
 	client *http.Client
 	// tokenEnv is the env_key name the channel's config envelope declares
-	// (channels.<name>.token_env). Secret is pinned to it (CH-C3-N2): an
-	// adapter can only ever read the one secret its envelope declares, and
-	// an envelope without token_env grants no secret at all. Empty string
-	// means "no token_env declared".
+	// (channels.<name>.token_env). Secret is pinned to the declared names
+	// (CH-C3-N2): an adapter can only ever read the env_keys its envelope
+	// declares — the envelope token_env and, since CH-C6/D2, any top-level
+	// `<name>_env` entry of the opaque settings block for multi-credential
+	// platforms (dingtalk needs client_id_env + client_secret_env, and one
+	// envelope token_env slot cannot carry both). An envelope that declares
+	// neither grants no secret at all.
 	tokenEnv string
 }
 
@@ -42,28 +45,68 @@ func (h *Host) envFor(ch plugin.Channel) plugin.ChannelEnv {
 	return &hostEnv{host: h, seam: ch, client: h.client, tokenEnv: tokenEnv}
 }
 
-// Secret resolves a configured env_key name to its value. Fail-closed on
-// every path: without the secret.read grant, when the name does not match
-// the channel envelope's token_env declaration, or when the variable is
-// unset or empty. Values are never logged (D-010); error messages carry
-// names and outcomes only.
+// Secret resolves a configured env_key name to its value. A name is
+// resolvable when the channel envelope declares it: either it is the
+// envelope's token_env (the single-credential pattern, e.g. telegram) or
+// it is the value of a top-level `<name>_env` entry of the opaque settings
+// block (the multi-credential pattern, e.g. dingtalk's client_id_env +
+// client_secret_env; the settings keys declare names, never values).
+// Fail-closed on every path: without the secret.read grant, when the name
+// is not declared by the envelope, or when the variable is unset or empty.
+// Values are never logged (D-010); error messages carry names and outcomes
+// only.
 func (e *hostEnv) Secret(envKey string) (string, error) {
 	if !e.hasGrant(plugin.GrantSecretRead) {
 		return "", plugin.ErrDenied
 	}
-	if strings.TrimSpace(e.tokenEnv) == "" {
-		// The envelope declares no token_env, so this channel holds no
-		// audited secret slot; nothing may be resolved through it.
-		return "", errors.New("channelhost: no token_env declared in the channel envelope")
+	if strings.TrimSpace(envKey) == "" {
+		return "", errors.New("channelhost: env_key must not be empty")
 	}
-	if envKey != e.tokenEnv {
-		return "", fmt.Errorf("channelhost: env_key %q does not match the channel envelope token_env", envKey)
+	if !e.declaresEnvKey(envKey) {
+		return "", fmt.Errorf("channelhost: env_key %q is neither the channel envelope token_env nor a settings-declared *_env name", envKey)
 	}
 	value := os.Getenv(envKey)
 	if value == "" {
 		return "", errors.New("channelhost: environment variable for env_key is empty or unset")
 	}
 	return value, nil
+}
+
+// declaresEnvKey reports whether this channel's config envelope grants the
+// given env_key name. A name is granted when it equals the envelope's
+// token_env, or when it is the value of a top-level `<name>_env` entry of
+// the opaque settings mapping. Only the settings mapping's top-level
+// string-valued entries count: nested mappings, non-string scalars, and
+// absent or non-mapping settings declare nothing. The walk reads names
+// only; values of environment variables never pass through here.
+func (e *hostEnv) declaresEnvKey(envKey string) bool {
+	if strings.TrimSpace(e.tokenEnv) != "" && envKey == strings.TrimSpace(e.tokenEnv) {
+		return true
+	}
+	envelope, ok := e.host.deps.Config[e.seam.Name()]
+	if !ok {
+		return false
+	}
+	node := envelope.Settings
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	content := node.Content
+	for i := 0; i+1 < len(content); i += 2 {
+		key, value := content[i], content[i+1]
+		if !strings.HasSuffix(key.Value, "_env") {
+			continue
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+			// A nested mapping or a non-string scalar (int, bool, null)
+			// declares no env_key name.
+			continue
+		}
+		if value.Value == envKey {
+			return true
+		}
+	}
+	return false
 }
 
 // HTTP returns the shared outbound-only client. There is no Listen

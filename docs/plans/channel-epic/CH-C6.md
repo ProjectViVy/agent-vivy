@@ -59,3 +59,5 @@ C3 Host 通用信封。picoclaw `pkg/channels/dingtalk` 对照。DIVA：保留 S
 ## 10. 交接
 
 [CH-C7a.md](CH-C7a.md)。不要在本切片改信封槽。
+
+> **DONE 2026-08-30** — 分支 `feat/channel-c6`。包形状与 telegram 完全同构；`hostEnv.Secret` 支持 settings 顶层 `*_env` 多密钥声明（feishu/qq 的 app_id+app_secret 直接沿用此模式）；sessionWebhook 类「入站自带回执端点」的处理样板在本包。Filing: `docs/logs/2026-08-30-channel-c6/`。
