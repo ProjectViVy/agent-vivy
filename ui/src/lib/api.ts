@@ -15,7 +15,8 @@ export const RPC_METHODS = [
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'channel/inspect', 'channel/get', 'channel/update',
   'stats/tokens',
-  'skills/list', 'skills/get',
+  'skills/list', 'skills/get', 'skills/set-enabled', 'skills/revisions/list',
+  'skills/marketplace/search', 'skills/marketplace/featured', 'skills/marketplace/install',
 ] as const;
 
 export type RunStatus = 'accepted' | 'queued' | 'active' | 'completed' | 'failed' | 'cancelled';
@@ -178,7 +179,7 @@ export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); this.name = 'ApiError'; }
 }
 
-function mapCode(code: number) { return code === -32004 || code === -32601 ? [404, 'not_found'] as const : code === -32009 ? [409, 'conflict'] as const : code === -32602 ? [400, 'invalid_request'] as const : [500, 'internal_error'] as const; }
+function mapCode(code: number) { return code === -32004 || code === -32601 ? [404, 'not_found'] as const : code === -32009 ? [409, 'conflict'] as const : code === -32602 ? [400, 'invalid_request'] as const : code === -32010 ? [502, 'bad_gateway'] as const : [500, 'internal_error'] as const; }
 export async function request<T>(method: string, params?: unknown): Promise<T> {
   try { return await (await getRpcClient()).call<T>(method, params); }
   catch (error) {
@@ -439,6 +440,7 @@ export interface SkillSummary {
   context?: string;
   agent?: string;
   model?: string;
+  enabled: boolean;
   hash: string;
   warnings: string[];
 }
@@ -449,6 +451,32 @@ export interface SkillView extends SkillSummary {
   supporting_files: string[];
 }
 
+/** skills/marketplace/* — skills.sh 目录条目；id 形如 owner/repo/slug。 */
+export interface MarketplaceSkill { id: string; name: string; source: string; installs: number }
+export interface MarketplaceFeatured { generated_at: string; source: string; metric: string; skills: MarketplaceSkill[] }
+export interface MarketplaceInstallResult { skill: SkillView; skipped_files?: string[]; warnings?: string[] }
+
+/** skills/revisions/list — skill_manage 走 HITL 的暂存修订。 */
+export interface SkillRevision {
+  id: string;
+  run_id?: string;
+  skill_name: string;
+  action: string;
+  target_path: string;
+  preview: string;
+  warnings: string[];
+  status: string;
+  created_at: number;
+}
+
 export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
 export const getSkill = (name: string, path?: string) =>
   request<SkillView>('skills/get', path ? { name, path } : { name });
+export const setSkillEnabled = (name: string, enabled: boolean, base_hash: string) =>
+  request<SkillSummary>('skills/set-enabled', { name, enabled, base_hash });
+export const listSkillRevisions = () => request<{ revisions: SkillRevision[] }>('skills/revisions/list');
+export const searchMarketplaceSkills = (q: string, limit?: number) =>
+  request<{ skills: MarketplaceSkill[] }>('skills/marketplace/search', limit ? { q, limit } : { q });
+export const featuredMarketplaceSkills = () => request<MarketplaceFeatured>('skills/marketplace/featured');
+export const installMarketplaceSkill = (id: string) =>
+  request<MarketplaceInstallResult>('skills/marketplace/install', { id });

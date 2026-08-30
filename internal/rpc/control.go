@@ -29,6 +29,9 @@ import (
 const (
 	CodeNotFound = -32004
 	CodeConflict = -32009
+	// CodeBadGateway reports a failed marketplace upstream call (skills.sh)
+	// so the UI can offer a retry instead of reading it as a server bug.
+	CodeBadGateway = -32010
 )
 
 type ControlDeps struct {
@@ -42,13 +45,20 @@ type ControlDeps struct {
 	Todos     storage.TodoStore
 	// Skills is the read-only control-plane catalog over skills_root.
 	// Nil disables skills/list and skills/get.
-	Skills   tools.SkillOperations
-	Bus      *events.Bus
-	Service  *runtime.Service
-	Studio   *studio.Service
-	Live     studio.LiveView
-	Eval     eval.Starter
-	Children ChildController
+	Skills tools.SkillOperations
+	// Marketplace adapts the skills.sh directory onto skills_root. Nil
+	// disables the skills/marketplace/* methods and the skills.marketplace
+	// capability.
+	Marketplace tools.SkillsMarketplace
+	// SkillRevisions lists staged HITL Skill mutations for
+	// skills/revisions/list. Nil disables the method.
+	SkillRevisions storage.SkillRevisionStore
+	Bus            *events.Bus
+	Service        *runtime.Service
+	Studio         *studio.Service
+	Live           studio.LiveView
+	Eval           eval.Starter
+	Children       ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -226,6 +236,7 @@ type skillSummaryResult struct {
 	Context     string   `json:"context,omitempty"`
 	Agent       string   `json:"agent,omitempty"`
 	Model       string   `json:"model,omitempty"`
+	Enabled     bool     `json:"enabled"`
 	Hash        string   `json:"hash"`
 	Warnings    []string `json:"warnings"`
 }
@@ -235,6 +246,33 @@ type skillViewResult struct {
 	Content         string   `json:"content"`
 	RelativePath    string   `json:"relative_path"`
 	SupportingFiles []string `json:"supporting_files"`
+}
+
+type skillSetEnabledParams struct {
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	BaseHash string `json:"base_hash"`
+}
+
+type marketplaceSearchParams struct {
+	Q     string `json:"q"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+type marketplaceInstallParams struct {
+	ID string `json:"id"`
+}
+
+type skillRevisionResult struct {
+	ID         string   `json:"id"`
+	RunID      string   `json:"run_id,omitempty"`
+	SkillName  string   `json:"skill_name"`
+	Action     string   `json:"action"`
+	TargetPath string   `json:"target_path"`
+	Preview    string   `json:"preview"`
+	Warnings   []string `json:"warnings"`
+	Status     string   `json:"status"`
+	CreatedAt  int64    `json:"created_at"`
 }
 
 type sessionResult struct {
@@ -363,23 +401,30 @@ type backgroundResult struct {
 func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request) (any, *Error) {
 	switch request.Method {
 	case "initialize", "capabilities":
-		return map[string]any{
-			"protocol_version": ProtocolVersion,
-			"capabilities": []string{
-				"session", "session.todos", "session.set_permission", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
-				"background.recover", "background.list", "background.attach",
-				"child.start", "child.get", "child.list", "child.wait", "child.cancel",
-				"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
-				"generations.reject", "species.inspect",
-				"settings.get", "settings.update",
+		capabilities := []string{
+			"session", "session.todos", "session.set_permission", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
+			"background.recover", "background.list", "background.attach",
+			"child.start", "child.get", "child.list", "child.wait", "child.cancel",
+			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
+			"generations.reject", "species.inspect",
+			"settings.get", "settings.update",
 				"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 				"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 				"channel.inspect", "channel.get", "channel.update",
 				"session.context", "context.compact",
 				"stats.tokens",
 				"skills.list", "skills.get",
-			},
-		}, nil
+		}
+		if h.deps.Marketplace != nil {
+			capabilities = append(capabilities, "skills.marketplace")
+		}
+		if h.deps.SkillRevisions != nil {
+			capabilities = append(capabilities, "skills.revisions")
+		}
+				return map[string]any{
+					"protocol_version": ProtocolVersion,
+					"capabilities": capabilities,
+				}, nil
 	case "session/create":
 		return h.createSession(ctx, request)
 	case "session/set_permission":
@@ -499,6 +544,16 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listSkills(ctx)
 	case "skills/get":
 		return h.getSkill(ctx, request)
+	case "skills/set-enabled":
+		return h.setSkillEnabled(ctx, request)
+	case "skills/revisions/list":
+		return h.listSkillRevisions(ctx)
+	case "skills/marketplace/search":
+		return h.searchMarketplace(ctx, request)
+	case "skills/marketplace/featured":
+		return h.featuredMarketplace(ctx)
+	case "skills/marketplace/install":
+		return h.installMarketplace(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
@@ -850,7 +905,7 @@ func toSkillSummaryResult(item tools.SkillSummary) skillSummaryResult {
 	}
 	return skillSummaryResult{
 		Name: item.Name, Description: item.Description, Context: item.Context,
-		Agent: item.Agent, Model: item.Model, Hash: item.Hash, Warnings: warnings,
+		Agent: item.Agent, Model: item.Model, Enabled: item.Enabled, Hash: item.Hash, Warnings: warnings,
 	}
 }
 
@@ -865,6 +920,131 @@ func toSkillViewResult(view tools.SkillView) skillViewResult {
 		RelativePath:       view.RelativePath,
 		SupportingFiles:    files,
 	}
+}
+
+// setSkillEnabled flips the frontmatter enabled flag of one installed Skill
+// under compare-and-swap on the current content hash. A stale hash is a 409:
+// the document changed under the caller, so it must re-read and re-decide.
+func (h *controlHandler) setSkillEnabled(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Skills == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills backend is not configured"}
+	}
+	var params skillSetEnabledParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.Name) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "name is required"}
+	}
+	if strings.TrimSpace(params.BaseHash) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "base_hash is required"}
+	}
+	summary, err := h.deps.Skills.SetSkillEnabled(ctx, params.Name, params.Enabled, params.BaseHash)
+	if err != nil {
+		return nil, skillToggleError(err)
+	}
+	return toSkillSummaryResult(summary), nil
+}
+
+func skillToggleError(err error) *Error {
+	if strings.Contains(err.Error(), "changed since it was read") {
+		return &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if strings.Contains(err.Error(), "not found") {
+		return &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	return internalError(err)
+}
+
+// listSkillRevisions surfaces staged HITL Skill mutations (skill_manage
+// proposals) that are still pending human review. Read-only: the decision
+// itself stays in the run review flow.
+func (h *controlHandler) listSkillRevisions(ctx context.Context) (any, *Error) {
+	if h.deps.SkillRevisions == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skill revision store is not configured"}
+	}
+	revisions, err := h.deps.SkillRevisions.ListPendingSkillRevisions(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]skillRevisionResult, 0, len(revisions))
+	for _, revision := range revisions {
+		var warnings []string
+		_ = json.Unmarshal(revision.WarningsJSON, &warnings)
+		if warnings == nil {
+			warnings = []string{}
+		}
+		out = append(out, skillRevisionResult{
+			ID: revision.ID, RunID: string(revision.RunID), SkillName: revision.SkillName,
+			Action: revision.Action, TargetPath: revision.TargetPath, Preview: revision.Preview,
+			Warnings: warnings, Status: string(revision.Status), CreatedAt: revision.CreatedAt,
+		})
+	}
+	return map[string]any{"revisions": out}, nil
+}
+
+func (h *controlHandler) searchMarketplace(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Marketplace == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills marketplace is not configured"}
+	}
+	var params marketplaceSearchParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if len([]rune(strings.TrimSpace(params.Q))) < 2 {
+		return nil, &Error{Code: InvalidParams, Message: "q must be at least 2 characters"}
+	}
+	skills, err := h.deps.Marketplace.SearchMarketplace(ctx, params.Q, params.Limit)
+	if err != nil {
+		return nil, marketplaceError(err)
+	}
+	return map[string]any{"skills": skills}, nil
+}
+
+func (h *controlHandler) featuredMarketplace(ctx context.Context) (any, *Error) {
+	if h.deps.Marketplace == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills marketplace is not configured"}
+	}
+	featured, err := h.deps.Marketplace.FeaturedMarketplace(ctx)
+	if err != nil {
+		return nil, marketplaceError(err)
+	}
+	return featured, nil
+}
+
+func (h *controlHandler) installMarketplace(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Marketplace == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills marketplace is not configured"}
+	}
+	var params marketplaceInstallParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.ID) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	result, err := h.deps.Marketplace.InstallMarketplace(ctx, params.ID)
+	if err != nil {
+		return nil, marketplaceError(err)
+	}
+	return result, nil
+}
+
+func marketplaceError(err error) *Error {
+	var upstream *runtime.MarketplaceUpstreamError
+	if errors.As(err, &upstream) {
+		return &Error{Code: CodeBadGateway, Message: err.Error()}
+	}
+	if strings.Contains(err.Error(), "already exists") {
+		return &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if strings.Contains(err.Error(), "not found") {
+		return &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if strings.Contains(err.Error(), "must be at least 2 characters") || strings.Contains(err.Error(), "must look like owner/repo/slug") {
+		return &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	return internalError(err)
 }
 
 func (h *controlHandler) listTodos(ctx context.Context, request Request) (any, *Error) {
