@@ -1,7 +1,8 @@
 package postgres
 
-// schemaV15 is the current logical Journal schema (SQLite migration 16.
-// Postgres bootstraps here in one step; later versions increment both engines.
+// schemaV15 is the full bootstrap DDL for the logical Journal schema at
+// SQLite migration 16. Postgres bootstraps here in one step, then records the
+// reconciliation repair as version 16.
 const schemaV15 = `
 CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
@@ -241,6 +242,33 @@ ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN chat_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN channel_message_id TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS cron_jobs (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	enabled BOOLEAN NOT NULL,
+	schedule_json BYTEA NOT NULL,
+	payload_json BYTEA NOT NULL,
+	session_id TEXT NOT NULL DEFAULT '',
+	next_run_at_ms BIGINT NOT NULL DEFAULT 0,
+	last_run_at_ms BIGINT NOT NULL DEFAULT 0,
+	last_status TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
+	delete_after_run BOOLEAN NOT NULL DEFAULT FALSE,
+	created_at_ms BIGINT NOT NULL,
+	updated_at_ms BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
+`
+
+// schemaV16Upgrade repairs version-15 databases created by either side of
+// the channel/cron branch split. PostgreSQL supports conditional column
+// additions, so both the message provenance and cron projection can be
+// reconciled without knowing which version-15 shape was recorded.
+const schemaV16Upgrade = `
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS chat_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS channel_message_id TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS cron_jobs (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,

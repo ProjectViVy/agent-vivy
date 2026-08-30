@@ -258,3 +258,41 @@ func TestReopenIsIdempotent(t *testing.T) {
 	}
 	_ = b.Close()
 }
+
+func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vivy.db")
+	ctx := context.Background()
+
+	b, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("initial Open: %v", err)
+	}
+	if _, err := b.db.ExecContext(ctx, `DROP TABLE cron_jobs`); err != nil {
+		t.Fatalf("remove cron_jobs from legacy shape: %v", err)
+	}
+	if _, err := b.db.ExecContext(ctx,
+		`DELETE FROM schema_migrations WHERE version = 17`); err != nil {
+		t.Fatalf("remove repair marker: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("close legacy shape: %v", err)
+	}
+
+	b, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open after migration016-only shape: %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	if _, err := b.ListCronJobs(ctx); err != nil {
+		t.Fatalf("ListCronJobs after repair: %v", err)
+	}
+	var n int
+	if err := b.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 17`).Scan(&n); err != nil {
+		t.Fatalf("read repair marker: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("migration017 marker count = %d, want 1", n)
+	}
+}
