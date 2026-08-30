@@ -297,7 +297,7 @@ the only optional server backend. Selection is `storage.backend:
 postgres` plus `storage.postgres.dsn_env` (an environment variable name;
 the DSN never sits in yaml). One process owns one DSN via an instance
 lease; a second `Open` returns `ErrLeaseHeld` (CN-14 exclusive mode).
-The CN-01..16 suite lives on `storage.Engine` (`internal/storage/conformance`).
+The CN-01..CN-17 suite lives on `storage.Engine` (`internal/storage/conformance`).
 Eval air-gap stays SQLite and must not inherit the production DSN.
 MariaDB, Redis, GORM, and replica sets are out of this ADR. `just ci`
 does not require a Postgres server.

@@ -161,6 +161,15 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 	if !tracked {
 		return
 	}
+	if target.ch == nil {
+		// channelByName missed (a config envelope naming a channel no
+		// compiled-in plugin provides): there is no adapter to deliver
+		// through and no channel name to log. Drop with a warning — a
+		// method call on the nil interface would panic the goroutine.
+		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
+			"run", string(ev.RunID), "chat_id", target.chatID)
+		return
+	}
 	if ev.Type != domain.EventRunCompleted {
 		h.logger.Info("channelhost: channel run ended without delivery",
 			"run", string(ev.RunID), "type", string(ev.Type),
@@ -177,6 +186,13 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 // deliverCompleted sends the run's last assistant message to the chat the
 // turn arrived from.
 func (h *Host) deliverCompleted(runID domain.RunID, target outboundTarget) {
+	if target.ch == nil {
+		// Defense at the goroutine boundary (the only unguarded hop): a
+		// nil-channel target is dropped with a warning, never dereferenced.
+		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
+			"run", string(runID), "chat_id", target.chatID)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), outboundDeliveryTimeout)
 	defer cancel()
 	msgs, err := h.deps.Messages.ListMessages(ctx, target.sessionID)
@@ -214,9 +230,12 @@ func (h *Host) deliverCompleted(runID domain.RunID, target outboundTarget) {
 		"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "ids", len(ids))
 }
 
-// channelByName resolves the tracking channel by name; a miss (nil) would
-// only happen if the plugin set changed under a live host, and the
-// delivery path then logs and drops instead of panicking.
+// channelByName resolves the tracking channel by name. A miss (nil
+// interface) is reachable, not hypothetical: StartAll ignores a config
+// envelope naming a channel no compiled-in plugin provides, but the
+// dispatch pipeline accepts that envelope's inbound and keys the delivery
+// target by the envelope name. Both delivery branches therefore guard the
+// nil target and drop with a warning instead of panicking on it.
 func (h *Host) channelByName(name string) plugin.Channel {
 	for _, ch := range h.deps.Channels {
 		if ch != nil && ch.Name() == name {

@@ -88,11 +88,20 @@ func Pack(opt packOptions) (Artifact, error) {
 	var selected []packedPlugin
 	var tools []artifactTool
 	var names []string
+	seen := make(map[string]bool)
 	for _, spec := range opt.With {
 		dir, err := resolvePluginDir(root, spec)
 		if err != nil {
 			return Artifact{}, err
 		}
+		// A repeated --with entry is skipped after the first: a duplicate
+		// would redeclare the same import in the generated Register and
+		// list the plugin twice in the recipe. Keyed by the resolved
+		// directory, so "telegram" and "plugins/telegram" dedupe too.
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
 		rep, err := Verify(dir)
 		if err != nil {
 			return Artifact{}, err
@@ -334,6 +343,9 @@ func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (
 		if err != nil {
 			return "", fmt.Errorf("sdk: read %s go.mod: %w", p.dir, err)
 		}
+		if err := checkMergeableDirectives(p.name, string(pluginGoMod)); err != nil {
+			return "", err
+		}
 		for _, spec := range parseRequireLines(string(pluginGoMod)) {
 			switch {
 			case spec.path == rootModule:
@@ -446,6 +458,72 @@ func parseRequireLines(data string) []requireSpec {
 		}
 	}
 	return specs
+}
+
+// checkMergeableDirectives rejects go.mod directives pack cannot merge
+// into the build overlay: any `exclude`, and any `replace` whose target
+// module is not the species module. The species-module replace
+// (`replace agent-vivy => ...`, any form) is the one legal directive — a
+// standalone plugin needs it to resolve agent-vivy/sdk/plugin inside its
+// own directory, and the overlay merge drops it (the main module provides
+// that package natively). A fork replace or exclude would silently rewrite
+// the dependency graph of the WHOLE merged build (main-module replaces are
+// global), which pack must not do on the plugin author's behalf: fail the
+// pack loudly with the offending line instead.
+func checkMergeableDirectives(pluginName, data string) error {
+	const reason = "go.mod has replace/exclude directives pack cannot merge"
+	inBlock := ""
+	for lineno, raw := range strings.Split(data, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		illegal := func() error {
+			return fmt.Errorf("sdk: plugin %s %s (line %d: %s)", pluginName, reason, lineno+1, line)
+		}
+		if inBlock != "" {
+			if line == ")" {
+				inBlock = ""
+				continue
+			}
+			// Block entries: a replace block carries `old => new` lines, so
+			// the species-module carve-out applies per line; every exclude
+			// block entry is banned.
+			if inBlock == "replace" && replacesSpeciesModule(line) {
+				continue
+			}
+			return illegal()
+		}
+		switch {
+		case line == "replace (" || line == "exclude (":
+			inBlock = strings.TrimSuffix(line, " (")
+		case strings.HasPrefix(line, "replace "):
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "replace "))
+			if rest == "(" {
+				inBlock = "replace"
+				continue
+			}
+			if !replacesSpeciesModule(rest) {
+				return illegal()
+			}
+		case strings.HasPrefix(line, "exclude "):
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "exclude "))
+			if rest == "(" {
+				inBlock = "exclude"
+				continue
+			}
+			return illegal()
+		}
+	}
+	return nil
+}
+
+// replacesSpeciesModule reports whether one replace directive (the text
+// after the `replace ` keyword) replaces the species module itself — the
+// only replace pack can merge, by dropping it.
+func replacesSpeciesModule(directive string) bool {
+	fields := strings.Fields(directive)
+	return len(fields) > 0 && fields[0] == "agent-vivy"
 }
 
 // parseRequireLine splits one `path version [// comment]` directive.

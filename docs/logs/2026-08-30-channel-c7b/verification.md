@@ -1,6 +1,6 @@
 # CH-C7b — verification
 
-日期：2026-08-30。工作区：worktree `agent-vivy-channel-c2`（顺序复用），分支 `feat/channel-c7b`，基线 12a2a70（含 C1–C7a）。
+日期：2026-08-30。工作区：worktree `agent-vivy-channel-c2`（顺序复用），分支 `feat/channel-c7b`，基线 12a2a70（C7a，位于 feat/channel-c6 线；含 C1–C7a）。
 
 ## GOAL 运行方式（子代理分工）
 

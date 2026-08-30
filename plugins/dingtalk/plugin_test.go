@@ -523,6 +523,45 @@ func TestHandlerFencedAfterStop(t *testing.T) {
 	}
 }
 
+// TestStartAfterStopStartsFresh: starting again on the same instance is a
+// new ear — Start resets the stopped latch, so the restarted ear publishes
+// instead of having every callback fenced by the previous ear's Stop (qq
+// pattern, review L3-F2).
+func TestStartAfterStopStartsFresh(t *testing.T) {
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	stream := newFakeStream(nil)
+	p, _ := startWithFake(t, env, stream)
+	handler, _, _ := stream.state()
+
+	// Traffic on the first ear leaves published state behind.
+	if _, err := handler(context.Background(), textCallback()); err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	waitFor(t, "first inbound envelope", func() bool { return len(env.snapshot()) == 1 })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	// The restart swaps in a fresh fake client; the same plugin instance
+	// must publish through it (no carried fence, no carried webhook drop).
+	second := newFakeStream(nil)
+	p.newClient = func(streamCreds, string) streamClient { return second }
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	handler2, _, _ := second.state()
+	if handler2 == nil {
+		t.Fatal("restart must register the chatbot callback")
+	}
+	if _, err := handler2(context.Background(), textCallback()); err != nil {
+		t.Fatalf("restarted callback: %v", err)
+	}
+	waitFor(t, "inbound envelope on the restarted ear", func() bool { return len(env.snapshot()) == 2 })
+}
+
 // TestWebhookLatestWins: the latest session webhook per conversation is
 // the one Send uses.
 func TestWebhookLatestWins(t *testing.T) {

@@ -451,6 +451,123 @@ func TestPackTelegramStandaloneModule(t *testing.T) {
 	}
 }
 
+// TestPackStandaloneRejectsForkReplace: a standalone plugin go.mod with a
+// fork replace (or any exclude) fails the pack loudly with the offending
+// line — pack must not silently rewrite the merged build's dependency
+// graph (review L4). The species-module replace stays legal in every form.
+func TestPackStandaloneRejectsForkReplace(t *testing.T) {
+	root, err := findModuleRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	goMod := `module example.com/vivy/forked
+
+go 1.26.4
+
+require agent-vivy v0.0.0
+
+replace agent-vivy => ../..
+
+replace github.com/some/dep v1.0.0 => example.com/fork/dep v1.0.1
+`
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := packedPlugin{dir: dir, name: "forked", impPath: "example.com/vivy/forked", standalone: true}
+	_, err = overlayGoModForStandalone(root, t.TempDir(), []packedPlugin{p})
+	want := "sdk: plugin forked go.mod has replace/exclude directives pack cannot merge " +
+		"(line 9: replace github.com/some/dep v1.0.0 => example.com/fork/dep v1.0.1)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+
+	// exclude (single line and block form) is equally loud.
+	if err := checkMergeableDirectives("forked", "module example.com/vivy/forked\n\nexclude github.com/some/dep v1.0.0\n"); err == nil ||
+		!strings.Contains(err.Error(), "pack cannot merge (line 3: exclude github.com/some/dep v1.0.0)") {
+		t.Fatalf("exclude err = %v", err)
+	}
+	if err := checkMergeableDirectives("forked", "module example.com/vivy/forked\n\nexclude (\n\tgithub.com/some/dep v1.0.0\n)\n"); err == nil ||
+		!strings.Contains(err.Error(), "pack cannot merge (line 4: github.com/some/dep v1.0.0)") {
+		t.Fatalf("block exclude err = %v", err)
+	}
+
+	// The species-module replace is legal in single-line and block form.
+	legal := "module example.com/vivy/ok\n\ngo 1.26.4\n\nreplace agent-vivy => ../..\n"
+	if err := checkMergeableDirectives("ok", legal); err != nil {
+		t.Fatalf("species replace must stay legal: %v", err)
+	}
+	if err := checkMergeableDirectives("ok", "module example.com/vivy/ok\n\nreplace (\n\tagent-vivy => ../..\n)\n"); err != nil {
+		t.Fatalf("species replace in block form must stay legal: %v", err)
+	}
+}
+
+// TestPackTwoStandaloneModules packs telegram AND discord — two standalone
+// plugin modules with disjoint third-party closures — in one pass (review
+// L4). The real build is the acceptance: the merged overlay carries both
+// require+replace pairs, the live tree stays byte-identical, and the
+// recipe lists both plugins.
+func TestPackTwoStandaloneModules(t *testing.T) {
+	root, err := findModuleRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := map[string]string{}
+	for _, name := range []string{
+		filepath.Join("internal", "generated", "plugins", "zz_register.go"),
+		"go.mod",
+		"go.sum",
+	} {
+		path := filepath.Join(root, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		live[path] = string(data)
+	}
+	out := t.TempDir()
+	art, err := Pack(packOptions{With: []string{"telegram", "discord"}, Out: out})
+	if err != nil {
+		t.Fatalf("pack telegram+discord: %v", err)
+	}
+	for path, want := range live {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != want {
+			t.Fatalf("pack mutated the live %s", path)
+		}
+	}
+	if len(art.Recipe.Plugins) != 2 || art.Recipe.Plugins[0] != "telegram" || art.Recipe.Plugins[1] != "discord" {
+		t.Fatalf("recipe = %+v, want [telegram discord]", art.Recipe.Plugins)
+	}
+	exe := strings.TrimPrefix(art.SourceRef, fileRefPrefix)
+	if _, err := os.Stat(exe); err != nil {
+		t.Fatalf("packed exe missing: %v", err)
+	}
+	inspected, err := InspectArtifact(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.ID != art.ID || inspected.ArtifactSHA256 != art.ArtifactSHA256 {
+		t.Fatalf("inspect-artifact = %+v", inspected)
+	}
+}
+
+// TestPackDedupesRepeatedWith: a repeated identical --with entry is skipped
+// after the first — the plugin is verified, registered, and listed once.
+func TestPackDedupesRepeatedWith(t *testing.T) {
+	out := t.TempDir()
+	art, err := Pack(packOptions{With: []string{"hello-fs", "hello-fs"}, Out: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(art.Recipe.Plugins) != 1 || art.Recipe.Plugins[0] != "hello-fs" {
+		t.Fatalf("recipe = %+v, want hello-fs exactly once", art.Recipe.Plugins)
+	}
+}
+
 // exeContainsTelego scans the built exe for the telego module path, which
 // survives in the binary as part of the embedded build info / string table.
 func exeContainsTelego(exe string) (bool, error) {

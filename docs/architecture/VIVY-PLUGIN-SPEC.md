@@ -154,6 +154,7 @@ type Channel interface {
 type ChannelEnv interface {
     Secret(envKey string) (string, error) // fail-closed; values never logged
     HTTP() *http.Client                   // outbound client only; no Listen
+    Settings() json.RawMessage            // C4 新增；opaque settings 以 JSON 传插件
     PublishInbound(ctx context.Context, msg InboundMessage) error
     Media() MediaStore
 }

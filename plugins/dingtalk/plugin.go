@@ -167,6 +167,12 @@ func (p *Plugin) Tools() []plugin.Tool { return nil }
 // The passed ctx stays the parent of the supervisor loop: cancelling it
 // (or calling Stop) takes the ear down.
 func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
+	p.mu.Lock()
+	// A new Start is a new ear: a Stop that ran before this Start must
+	// not deafen it (the callback fence reads this latch). (Stop remains
+	// idempotent within an ear's lifetime.)
+	p.stopped = false
+	p.mu.Unlock()
 	settings, err := DecodeSettings(env.Settings())
 	if err != nil {
 		return err
@@ -218,10 +224,14 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 // supervise keeps the stream client connected until the context is
 // cancelled. The SDK's auto-reconnect is disabled on purpose (it redials
 // forever on a background context and would outlive Stop); this loop is
-// the context-aware replacement: while the websocket is healthy, Start is
-// a cheap no-op; once the connection is gone, the next tick re-runs the
-// gateway exchange and handshake. Failed redials stay silent — the next
-// tick retries, and Stop ends the loop.
+// the context-aware replacement: while the client holds a connection,
+// Start is a cheap no-op, so the tick only re-runs the gateway exchange
+// and handshake once the connection is actually gone. That happens on
+// graceful gateway disconnect frames (the SDK's OnDisconnect path closes
+// the conn, so the next tick redials) — but NOT on silent network death
+// (NAT timeout, read stall): the SDK never notices, Start keeps being a
+// no-op, and the ear stays deaf until process restart (CH-C6-N3). Failed
+// redials stay silent — the next tick retries, and Stop ends the loop.
 func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 	defer close(done)
 	for {
