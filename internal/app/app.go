@@ -171,6 +171,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		skillBackend = built
 		skillOps = built
 	}
+	var marketplace tools.SkillsMarketplace
+	if skillBackend != nil {
+		built, err := runtime.NewMarketplaceService(skillBackend, cfg.Runtime.SkillsMarketplaceURL)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build skills marketplace: %w", err)
+		}
+		marketplace = built
+	}
 	todoBackend := runtime.NewEinoTodoBackend(backend, filepath.Join(dataRoot, "todos"))
 	todoOps = todoBackend
 	searchService := runtime.NewNetworkSearchService(nil, nil)
@@ -315,7 +324,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
-		Studio: studioSvc,
+		Marketplace:    marketplace,
+		SkillRevisions: backend,
+		Studio:         studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
 			PolicyProfile: liveProfile,

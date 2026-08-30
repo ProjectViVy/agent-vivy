@@ -59,6 +59,9 @@ func (b *EinoSkillBackend) List(ctx context.Context) ([]einoskill.FrontMatter, e
 	}
 	out := make([]einoskill.FrontMatter, 0, len(items))
 	for _, item := range items {
+		if !item.enabled {
+			continue
+		}
 		out = append(out, item.front)
 	}
 	return out, nil
@@ -68,6 +71,9 @@ func (b *EinoSkillBackend) Get(ctx context.Context, name string) (einoskill.Skil
 	item, err := b.loadSkill(ctx, name)
 	if err != nil {
 		return einoskill.Skill{}, err
+	}
+	if !item.enabled {
+		return einoskill.Skill{}, fmt.Errorf("skills: skill %q is disabled", name)
 	}
 	return einoskill.Skill{FrontMatter: item.front, Content: item.content, BaseDirectory: item.dir}, nil
 }
@@ -263,6 +269,7 @@ type loadedSkill struct {
 	dir      string
 	name     string
 	hash     string
+	enabled  bool
 	warnings []string
 }
 
@@ -304,7 +311,7 @@ func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSk
 	if err != nil {
 		return loadedSkill{}, fmt.Errorf("skills: read %s: %w", name, err)
 	}
-	front, content, err := parseSkillDocument(data)
+	front, enabled, content, err := parseSkillDocument(data)
 	if err != nil {
 		return loadedSkill{}, fmt.Errorf("skills: parse %s: %w", name, err)
 	}
@@ -315,12 +322,54 @@ func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSk
 		return loadedSkill{}, fmt.Errorf("skills: frontmatter name %q does not match directory %q", front.Name, name)
 	}
 	hash := sha256Hex(data)
-	return loadedSkill{front: front, content: content, dir: dir, name: name, hash: hash, warnings: scanSkillText(string(data))}, nil
+	return loadedSkill{front: front, content: content, dir: dir, name: name, hash: hash, enabled: enabled, warnings: scanSkillText(string(data))}, nil
 }
 
 func (b *EinoSkillBackend) summary(item loadedSkill) tools.SkillSummary {
 	return tools.SkillSummary{Name: item.front.Name, Description: item.front.Description, Context: string(item.front.Context),
-		Agent: item.front.Agent, Model: item.front.Model, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
+		Agent: item.front.Agent, Model: item.front.Model, Enabled: item.enabled, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
+}
+
+// SetSkillEnabled flips the frontmatter enabled flag under CAS on the
+// current SKILL.md content hash. The document is re-rendered with canonical
+// frontmatter keys; content is preserved byte-for-byte after the closing
+// frontmatter delimiter.
+func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, enabled bool, baseHash string) (tools.SkillSummary, error) {
+	if err := validSkillName(name); err != nil {
+		return tools.SkillSummary{}, err
+	}
+	dir, err := b.skillDir(name)
+	if err != nil {
+		return tools.SkillSummary{}, err
+	}
+	path := filepath.Join(dir, "SKILL.md")
+	data, err := readTrustedFile(path)
+	if err != nil {
+		return tools.SkillSummary{}, fmt.Errorf("skills: read %s: %w", name, err)
+	}
+	if baseHash == "" || sha256Hex(data) != baseHash {
+		return tools.SkillSummary{}, fmt.Errorf("skills: %s changed since it was read; refresh and retry", name)
+	}
+	front, _, content, err := parseSkillDocument(data)
+	if err != nil {
+		return tools.SkillSummary{}, fmt.Errorf("skills: parse %s: %w", name, err)
+	}
+	local := skillFrontMatter{Name: front.Name, Description: front.Description, Context: string(front.Context), Agent: front.Agent, Model: front.Model, Enabled: &enabled}
+	rendered, err := renderSkillDocument(local, content)
+	if err != nil {
+		return tools.SkillSummary{}, err
+	}
+	if len(rendered) > maxSkillBytes {
+		return tools.SkillSummary{}, fmt.Errorf("skills: content exceeds %d bytes", maxSkillBytes)
+	}
+	if err := atomicWrite(path, rendered, fileMode(path)); err != nil {
+		return tools.SkillSummary{}, fmt.Errorf("skills: write %s: %w", name, err)
+	}
+	item, err := b.loadSkill(ctx, name)
+	if err != nil {
+		return tools.SkillSummary{}, err
+	}
+	return b.summary(item), nil
 }
 
 func (b *EinoSkillBackend) skillDir(name string) (string, error) {
@@ -420,7 +469,7 @@ func skillMutationContent(req tools.SkillManageRequest, current []byte, targetEx
 			return nil, nil, errors.New("skills: content is required")
 		}
 		if action == "create" {
-			if _, _, err := parseSkillDocument([]byte(req.Content)); err != nil {
+			if _, _, _, err := parseSkillDocument([]byte(req.Content)); err != nil {
 				return nil, nil, fmt.Errorf("skills: invalid SKILL.md: %w", err)
 			}
 		}
@@ -508,25 +557,51 @@ func (b *EinoSkillBackend) supportingFiles(dir string) []string {
 	return out
 }
 
-func parseSkillDocument(data []byte) (einoskill.FrontMatter, string, error) {
+// skillFrontMatter is Vivy's local view of SKILL.md frontmatter. It mirrors
+// the Eino FrontMatter fields plus the Vivy-owned enabled flag. Enabled is a
+// pointer so an absent key defaults to true while an explicit false wins.
+type skillFrontMatter struct {
+	Name        string `yaml:"name,omitempty"`
+	Description string `yaml:"description,omitempty"`
+	Context     string `yaml:"context,omitempty"`
+	Agent       string `yaml:"agent,omitempty"`
+	Model       string `yaml:"model,omitempty"`
+	Enabled     *bool  `yaml:"enabled,omitempty"`
+}
+
+func parseSkillDocument(data []byte) (einoskill.FrontMatter, bool, string, error) {
 	text := strings.TrimSpace(string(data))
 	if !strings.HasPrefix(text, "---") {
-		return einoskill.FrontMatter{}, "", errors.New("SKILL.md must start with YAML frontmatter")
+		return einoskill.FrontMatter{}, false, "", errors.New("SKILL.md must start with YAML frontmatter")
 	}
 	rest := text[3:]
 	idx := strings.Index(rest, "\n---")
 	if idx < 0 {
-		return einoskill.FrontMatter{}, "", errors.New("SKILL.md frontmatter is not closed")
+		return einoskill.FrontMatter{}, false, "", errors.New("SKILL.md frontmatter is not closed")
 	}
-	var front einoskill.FrontMatter
+	var front skillFrontMatter
 	if err := yaml.Unmarshal([]byte(strings.TrimSpace(rest[:idx])), &front); err != nil {
-		return einoskill.FrontMatter{}, "", fmt.Errorf("decode frontmatter: %w", err)
+		return einoskill.FrontMatter{}, false, "", fmt.Errorf("decode frontmatter: %w", err)
 	}
 	if strings.TrimSpace(front.Description) == "" {
-		return einoskill.FrontMatter{}, "", errors.New("frontmatter description is required")
+		return einoskill.FrontMatter{}, false, "", errors.New("frontmatter description is required")
 	}
+	enabled := front.Enabled == nil || *front.Enabled
 	content := strings.TrimSpace(rest[idx+4:])
-	return front, content, nil
+	return einoskill.FrontMatter{Name: front.Name, Description: front.Description,
+		Context: einoskill.ContextMode(front.Context), Agent: front.Agent, Model: front.Model}, enabled, content, nil
+}
+
+// renderSkillDocument re-renders canonical frontmatter (dropping unknown
+// keys, same normalization posture as the review flow) around preserved
+// content.
+func renderSkillDocument(front skillFrontMatter, content string) ([]byte, error) {
+	encoded, err := yaml.Marshal(front)
+	if err != nil {
+		return nil, fmt.Errorf("skills: encode frontmatter: %w", err)
+	}
+	body := strings.TrimRight(string(encoded), "\n")
+	return []byte("---\n" + body + "\n---\n\n" + strings.TrimRight(content, "\n") + "\n"), nil
 }
 
 func readTrustedFile(path string) ([]byte, error) {
