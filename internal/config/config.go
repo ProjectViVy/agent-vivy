@@ -218,8 +218,18 @@ type Runtime struct {
 	// Compaction controls automatic context compression (Eino native
 	// reduction + summarization middlewares).
 	Compaction CompactionConfig `yaml:"compaction"`
+	// Cron controls the scheduled-job scheduler behind the CRON panel.
+	Cron CronConfig `yaml:"cron"`
 	// Sandbox controls the file-effect policy boundary (D-021).
 	Sandbox SandboxConfig `yaml:"sandbox"`
+}
+
+// CronConfig is the operator switch for the cron scheduler. Jobs are only
+// fired while this is enabled; with it off the store keeps its rows but
+// nothing runs.
+type CronConfig struct {
+	// Enabled turns the scheduler on. Defaults to true.
+	Enabled bool `yaml:"enabled"`
 }
 
 // CompactionConfig is the operator default for context compression. Zero
@@ -433,6 +443,7 @@ func Default() Config {
 			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
 			ExecuteMaxTimeoutSeconds: 30,
 			Compaction:               DefaultCompactionConfig(),
+			Cron:                     CronConfig{Enabled: true},
 			Sandbox: SandboxConfig{
 				DefaultMode:   "workspace_write",
 				WorkspaceRoot: "",

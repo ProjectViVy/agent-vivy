@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -10,26 +10,34 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CalendarClock, LoaderCircle, Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import { CalendarClock, ExternalLink, LoaderCircle, Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@/lib/utils';
-import type { CronJobDto, ScheduleKind } from '@/lib/types';
-import { createCronJob, deleteCronJob, getCronJobs, triggerCronJob, updateCronJob } from '@/lib/demo-api';
+import {
+  createCronJob, deleteCronJob, listCronJobs, triggerCronJob, updateCronJob,
+  type CronJobDto, type CronJobInput, type ScheduleKind,
+} from '@/lib/api';
+import { useVivyStore } from '@/lib/store';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { useTranslation, dateTimeLocale, t } from '@/i18n';
 
 const HOUR_MS = 60 * 60 * 1000;
+/** 面板打开期间的轻轮询，刷新 nextRun/isRunning/lastStatus。 */
+const REFRESH_INTERVAL_MS = 5000;
+const DEFAULT_TZ = 'Asia/Shanghai';
 const emptyForm = {
-  name: '', enabled: true, scheduleKind: 'cron' as ScheduleKind,
-  cronExpr: '0 9 * * *', everyHours: 24, message: '', kind: 'notebook_report',
+  name: '', enabled: true, scheduleKind: 'cron' as Exclude<ScheduleKind, 'at'>,
+  cronExpr: '0 9 * * *', everyHours: 24, message: '',
 };
 function cronStatusLabel(status: string): string {
+  // 后端终态是 ok|error（diva 语义）；ok 展示为“已完成”。
+  if (status === 'ok') return t('cron.status.completed');
   const keys: Record<string, string> = {
     running: 'cron.status.running', scheduled: 'cron.status.scheduled', paused: 'cron.status.paused',
     completed: 'cron.status.completed', failed: 'cron.status.failed',
@@ -89,6 +97,9 @@ function CronPageSkeleton() {
 
 export function CronTaskManagementView() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const selectSession = useVivyStore((state) => state.selectSession);
+  const attachBackgroundRun = useVivyStore((state) => state.attachBackgroundRun);
   const [jobs, setJobs] = useState<CronJobDto[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,27 +110,47 @@ export function CronTaskManagementView() {
   const [showDelete, setShowDelete] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJobDto | null>(null);
   const [formData, setFormData] = useState(emptyForm);
+  const refreshingRef = useRef(false);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedId) || null,
     [jobs, selectedId],
   );
 
+  const refreshJobs = useCallback(async () => {
+    // 静默轮询：不打断初次加载，也不覆盖显式加载的错误呈现。
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    try {
+      const data = await listCronJobs();
+      setJobs(data.jobs);
+      setSelectedId((current) => (data.jobs.some((job) => job.id === current) ? current : null));
+    } catch {
+      // 轮询失败保持现有内容，下一轮再试。
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, []);
+
   const loadJobs = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await getCronJobs();
-      setJobs(data);
-      setSelectedId((current) => (data.some((job) => job.id === current) ? current : null));
+      const data = await listCronJobs();
+      setJobs(data.jobs);
+      setSelectedId((current) => (data.jobs.some((job) => job.id === current) ? current : null));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('cron.errors.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void loadJobs(); }, [loadJobs]);
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refreshJobs(); }, REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshJobs]);
 
   const openCreate = () => {
     setEditingJob(null); setFormData(emptyForm); setFormError(''); setShowForm(true);
@@ -132,9 +163,8 @@ export function CronTaskManagementView() {
       enabled: job.enabled,
       scheduleKind: job.schedule.kind === 'every' ? 'every' : 'cron',
       cronExpr: job.schedule.expr || '0 9 * * *',
-      everyHours: Math.max(1, (job.schedule.everyMs || 24 * HOUR_MS) / HOUR_MS),
+      everyHours: Math.max(0.25, (job.schedule.everyMs || 24 * HOUR_MS) / HOUR_MS),
       message: job.payload.message,
-      kind: job.payload.kind,
     });
     setFormError(''); setShowForm(true);
   };
@@ -142,21 +172,24 @@ export function CronTaskManagementView() {
   const handleSubmit = async () => {
     const name = formData.name.trim();
     const cronExpr = formData.cronExpr.trim();
+    const message = formData.message.trim();
     if (!name) { setFormError(t('cron.errors.nameRequired')); return; }
     if (formData.scheduleKind === 'cron' && !cronExpr) { setFormError(t('cron.errors.cronRequired')); return; }
     if (formData.scheduleKind === 'every' && (!Number.isFinite(formData.everyHours) || formData.everyHours <= 0)) {
       setFormError(t('cron.errors.intervalPositive')); return;
     }
+    if (!message) { setFormError(t('cron.errors.messageRequired')); return; }
     const schedule = formData.scheduleKind === 'cron'
-      ? { kind: 'cron' as const, expr: cronExpr, tz: 'Asia/Shanghai' }
-      : { kind: 'every' as const, everyMs: formData.everyHours * HOUR_MS };
-    const payload = { kind: formData.kind, message: formData.message.trim(), deliver: false };
+      ? { kind: 'cron' as const, expr: cronExpr, tz: DEFAULT_TZ }
+      : { kind: 'every' as const, everyMs: Math.round(formData.everyHours * HOUR_MS) };
+    const payload = { kind: 'agent_turn', message, deliver: false };
+    const input: CronJobInput = { name, enabled: formData.enabled, schedule, payload, delete_after_run: false };
 
     setBusyId('save'); setFormError('');
     try {
       const saved = editingJob
-        ? await updateCronJob(editingJob.id, { name, enabled: formData.enabled, schedule, payload })
-        : await createCronJob({ name, enabled: formData.enabled, schedule, payload, deleteAfterRun: false });
+        ? (await updateCronJob(editingJob.id, input)).job
+        : (await createCronJob(input)).job;
       setJobs((current) => editingJob
         ? current.map((job) => (job.id === saved.id ? saved : job))
         : [...current, saved]);
@@ -170,8 +203,12 @@ export function CronTaskManagementView() {
 
   const handleToggle = async (job: CronJobDto) => {
     setBusyId(`toggle:${job.id}`); setError('');
+    const input: CronJobInput = {
+      name: job.name, enabled: !job.enabled, schedule: job.schedule,
+      payload: job.payload, delete_after_run: job.deleteAfterRun,
+    };
     try {
-      const updated = await updateCronJob(job.id, { enabled: !job.enabled });
+      const updated = (await updateCronJob(job.id, input)).job;
       setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('cron.errors.toggleFailed'));
@@ -181,8 +218,8 @@ export function CronTaskManagementView() {
   const handleTrigger = async (job: CronJobDto) => {
     setBusyId(`trigger:${job.id}`); setError('');
     try {
-      await triggerCronJob(job.id);
-      setJobs(await getCronJobs());
+      const result = (await triggerCronJob(job.id)).job;
+      setJobs((current) => current.map((item) => (item.id === result.id ? result : item)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('cron.errors.triggerFailed'));
     } finally { setBusyId(''); }
@@ -200,6 +237,17 @@ export function CronTaskManagementView() {
     } finally { setBusyId(''); }
   };
 
+  const openJobSession = async (job: CronJobDto) => {
+    if (job.isRunning && job.activeRun) {
+      await attachBackgroundRun(job.activeRun.run_id);
+    } else if (job.sessionId) {
+      await selectSession(job.sessionId);
+    } else {
+      return;
+    }
+    await navigate({ to: '/' });
+  };
+
   if (loading) return <CronPageSkeleton />;
   if (error && jobs.length === 0) {
     return (
@@ -208,7 +256,10 @@ export function CronTaskManagementView() {
           <h1 className="text-2xl font-semibold tracking-tight">{t('cron.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('cron.subtitle')}</p>
         </header>
-        <DemoLoadError message={error} onRetry={() => void loadJobs()} />
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <p>{error}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => void loadJobs()}>{t('common.retry')}</Button>
+        </div>
       </PageShell>
     );
   }
@@ -295,11 +346,21 @@ export function CronTaskManagementView() {
                     <dt className="text-muted-foreground">{t('cron.lastRun')}</dt><dd className="text-right">{formatTime(selectedJob.state.lastRunAtMs)}</dd>
                     <dt className="text-muted-foreground">{t('cron.lastStatus')}</dt><dd className="text-right">{selectedJob.state.lastStatus ? cronStatusLabel(selectedJob.state.lastStatus) : '—'}</dd>
                   </dl>
+                  {selectedJob.state.lastError ? (
+                    <div className="space-y-1 border-t pt-4"><p className="text-xs font-medium text-destructive">{t('cron.errorLabel')}</p><p className="whitespace-pre-wrap break-words text-sm leading-6 text-destructive">{selectedJob.state.lastError}</p></div>
+                  ) : null}
                   <div className="space-y-1.5 border-t pt-4"><p className="text-xs font-medium text-muted-foreground">{t('cron.messageLabel')}</p><p className="whitespace-pre-wrap break-words text-sm leading-6">{selectedJob.payload.message || t('cron.noDescription')}</p></div>
                   <div className="grid grid-cols-2 gap-2 border-t pt-4">
                     <Button className="col-span-2" disabled={Boolean(busyId) || selectedJob.computedStatus === 'running'} onClick={() => void handleTrigger(selectedJob)}>
                       {busyId === `trigger:${selectedJob.id}` ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                       {selectedJob.computedStatus === 'running' ? t('cron.running') : t('cron.runNow')}
+                    </Button>
+                    <Button
+                      variant="outline" disabled={Boolean(busyId) || (!selectedJob.isRunning && !selectedJob.sessionId)}
+                      onClick={() => void openJobSession(selectedJob)}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      {selectedJob.isRunning ? t('cron.attachRun') : t('cron.viewSession')}
                     </Button>
                     <Button variant="outline" disabled={Boolean(busyId)} onClick={() => openEdit(selectedJob)}><Pencil className="mr-2 h-4 w-4" />{t('common.edit')}</Button>
                     <Button variant="outline" disabled={Boolean(busyId)} onClick={() => setShowDelete(true)} className="text-destructive hover:text-destructive"><Trash2 className="mr-2 h-4 w-4" />{t('common.delete')}</Button>
@@ -325,14 +386,13 @@ export function CronTaskManagementView() {
               <Switch id="cron-form-enabled" checked={formData.enabled} onCheckedChange={(enabled) => setFormData((current) => ({ ...current, enabled }))} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>{t('cron.scheduleKind')}</Label><Select value={formData.scheduleKind} onValueChange={(scheduleKind) => setFormData((current) => ({ ...current, scheduleKind: scheduleKind as ScheduleKind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cron">{t('cron.cronOption')}</SelectItem><SelectItem value="every">{t('cron.everyOption')}</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>{t('cron.scheduleKind')}</Label><Select value={formData.scheduleKind} onValueChange={(scheduleKind) => setFormData((current) => ({ ...current, scheduleKind: scheduleKind as Exclude<ScheduleKind, 'at'> }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cron">{t('cron.cronOption')}</SelectItem><SelectItem value="every">{t('cron.everyOption')}</SelectItem></SelectContent></Select></div>
               {formData.scheduleKind === 'cron' ? (
                 <div className="space-y-2"><Label htmlFor="cron-expression">{t('cron.cronExprLabel')}</Label><Input id="cron-expression" value={formData.cronExpr} onChange={(event) => setFormData((current) => ({ ...current, cronExpr: event.target.value }))} placeholder="0 9 * * *" /></div>
               ) : (
                 <div className="space-y-2"><Label htmlFor="cron-hours">{t('cron.intervalHours')}</Label><Input id="cron-hours" type="number" min="0.25" step="0.25" value={formData.everyHours} onChange={(event) => setFormData((current) => ({ ...current, everyHours: Number(event.target.value) }))} /></div>
               )}
             </div>
-            <div className="space-y-2"><Label>{t('cron.kindLabel')}</Label><Select value={formData.kind} onValueChange={(kind) => setFormData((current) => ({ ...current, kind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="notebook_report">{t('cron.kindNotebookReport')}</SelectItem><SelectItem value="cleanup">{t('cron.kindCleanup')}</SelectItem></SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="cron-message">{t('cron.messageLabel')}</Label><Textarea id="cron-message" value={formData.message} onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))} placeholder={t('cron.messagePlaceholder')} rows={4} /></div>
             {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
           </DialogBody>

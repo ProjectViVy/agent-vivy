@@ -511,11 +511,28 @@ CREATE TABLE session_compactions (
 CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, created_at DESC);
 `
 
-// migration016 projects channel provenance onto the message log. Empty
-// defaults keep existing rows valid — an empty source reads as ui.
+// migration016 projects channel provenance onto the message log and adds
+// the control plane's scheduled jobs. Schedule and payload stay backend-
+// owned JSON columns so the domain shapes can evolve without schema churn.
 const migration016 = `
-ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT '';
-ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT '';
-ALTER TABLE messages ADD COLUMN chat_id TEXT NOT NULL DEFAULT '';
-ALTER TABLE messages ADD COLUMN channel_message_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT '';
+	ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT '';
+	ALTER TABLE messages ADD COLUMN chat_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE messages ADD COLUMN channel_message_id TEXT NOT NULL DEFAULT '';
+	CREATE TABLE cron_jobs (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		enabled INTEGER NOT NULL,
+		schedule_json BLOB NOT NULL,
+		payload_json BLOB NOT NULL,
+		session_id TEXT NOT NULL DEFAULT '',
+		next_run_at_ms INTEGER NOT NULL DEFAULT 0,
+		last_run_at_ms INTEGER NOT NULL DEFAULT 0,
+		last_status TEXT NOT NULL DEFAULT '',
+		last_error TEXT NOT NULL DEFAULT '',
+		delete_after_run INTEGER NOT NULL DEFAULT 0,
+		created_at_ms INTEGER NOT NULL,
+		updated_at_ms INTEGER NOT NULL
+	);
+	CREATE INDEX cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
 `
