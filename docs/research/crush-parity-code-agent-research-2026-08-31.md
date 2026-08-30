@@ -210,3 +210,105 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 - **顺序建议**：VC-1（工具面）→ VC-2（回路）是"能不能干编码活"的门槛；VC-3（LSP）是"干得好不好"的分水岭；VC-4 按需。
 - **总工作量**：VC-0…VC-2 约 5–6 周可达"Crush 核心体验对齐"（bash/grep/glob/edit 族 + diff 呈现 + subagent + headless + hooks + 成本）；VC-3 再 3–4 周达"LSP 增强编码"对齐。
 - **Vivy 的终局定位**不是"另一个 Crush"，而是**带强治理的编码 agent**：同样能干活，但每一次写文件、每一条 shell、每一分钱都有审批、审计与预算——这是 Crush 没有的东西，也是 Vivy 已有的东西。
+
+---
+
+## 8. 第二轮核对补遗（同日，三路复查源码后的修正与遗漏清单）
+
+### 8.1 对前文结论的修正
+
+| 前文表述 | 核对结果 |
+|---|---|
+| "server 模式（SSE 单向）" | 命令名为 `crush server`（无 `serve`）；client/server 架构由环境变量 `CRUSH_CLIENT_SERVER` 开启，TUI 只是客户端之一；server 带完整 OpenAPI 文档（`internal/swagger`）；**仅本地 unix socket / Windows 命名管道，无任何鉴权层**。含 stale-server 版本协商、spawn flock single-flight、`/v1/health` 就绪探测。 |
+| "多 agent coordinator（coder/task）" | 仅**硬编码**两个 agent（`SetupAgents`）；`Config.Agents` 标记 `json:"-"`——**用户不能在配置里定义命名 agent**（区别于旧版 Crush 的 agents 配置）。 |
+| （未展开）task 子代理工具面 | 只读子集：`glob/grep/ls/view/lsp_definition/lsp_symbols/lsp_call_hierarchy/sourcegraph`，`AllowedMCP` 为空 map = **无 MCP**；提示词仅 16 行，不感知 skills/上下文文件/git。 |
+| （易混淆点）compact | Crush **没有 `/compact` 命令**；`compact_mode` 是 TUI 紧凑布局，与上下文压缩无关。摘要入口是命令面板 "Summarize Session" + token 水位自动触发（见 §3B）。 |
+| （补充）主题系统 | 实际只有 2 套主题（Pantera 默认 / Hypercrush 品牌），按 provider 映射。比第一轮印象的少。 |
+
+### 8.2 第一轮遗漏清单
+
+**A. CLI 机器接口面**（`internal/cmd/`）
+
+- `crush session list/show/last/delete/rename`：全套 `--json` 机器接口，输出含 cost / tokens / **skills 已加载元数据** / 完整消息 parts；hash 前缀解析 + 歧义候选；`show` 用与 TUI 相同的渲染器 + pager。
+- `crush stats`：**自包含 HTML 仪表盘**（非终端表格）——按日/模型/小时/星期聚合、平均响应时长、**工具调用计数**（从 messages.parts 用 `json_each` 挖出）、热力图；`--crawl-dir`/`--all` 跨项目聚合。
+- `crush projects`：`projects.json` 项目注册表（path / data_dir / last_accessed，支撑 stats --all）。
+- `crush models`：非 TTY 时每行 `provider/model`（机器可读，可接 `crush run --model`）。
+- `crush login/logout`：Hyper 与 GitHub Copilot **设备码 OAuth 流**；Copilot 支持从 VS Code `apps.json` 导入既有 token。
+- `crush logs --follow/--tail`、`crush dirs`（配置目录可视化）、`crush update-providers --source=catwalk|hyper`、`crush schema`（hidden，provider type 枚举动态注入含本地注册 provider）。
+
+**B. TUI 交互面**（编码 agent 的"手感和安全网"，`internal/ui/`）
+
+- **bang 模式 `!`**：shell 直执行——服务端执行、流式回显为聊天项、esc 可中断、进 prompt 历史、**持久化到会话记录**。
+- **消息排队**：agent 忙时 prompt 自动入队（队列 pill 显示），esc 两段式（清队 → 再按取消）。
+- **附件链路**：剪贴板贴图 / `ctrl+f` 文件选择器 / 粘贴图片路径 / `@` 文件补全（含 **MCP resource 补全**）；5MB 上限、图片类型白名单；**图片能力由模型元数据 `SupportsImages` 门控**，含 tool result 携图的 provider 兼容 workaround（仅 anthropic/bedrock 允许 tool result 带图，其余降级为占位 + user 消息补 FilePart）。
+- 思考块三态视图（collapsed → 尾部 200 行 → 全展开）；REFUSED 拒答横幅。
+- **diff 查看器 unified/split 双模式**（权限对话框按 `options.tui.diff_mode` 切换）。
+- 通知 4 后端（native / OSC99 / OSC777 / bell）+ 失焦才通知；Kitty 图形协议渲染图片；终端不确定进度条；ANSI16 输出重映射；`ctrl+y` 运行中热切 yolo；`ctrl+o` 外部 `$EDITOR`。
+- 命令面板含 Docker MCP Catalog 一键启停（自动探测）。
+
+**C. Prompt 模板与行为规则**（`internal/agent/templates/`，8 个模板——这部分是"agent 行为特性"）
+
+- `coder.md.tpl` 关键规则：**未经用户明说绝不 commit**（commit 遵循含 attribution 的格式）；默认输出 <4 行、禁 emoji；引用用 `file:line` 格式；**LSP 优先编辑策略**（replace_symbol/rename 优先于文本 edit）；错误处理至少 2-3 种补救策略；bash 的 description 参数必填；禁用 bash 跑 curl（用 fetch）；并行工具调用。
+- 运行时注入：git branch / status(--short head 20) / log(-3) 快照、平台、日期、上下文文件渲染为 `<project_context>`/`<user_preferences>`、skills XML 目录（`crush://skills/...` 虚拟路径由 view 工具原生读取）。
+- `initialize.md.tpl`：生成 `options.initialize_as`（默认 AGENTS.md）；空目录拒绝；探测 `.cursor/rules`、`.cursorrules`、`.github/copilot-instructions.md` 等既有规则文件；原则是"只记录非显而易见的知识"。
+- `title` 生成：small→large 回退链、`/no_think` + 空 `<think></think>` 反思考泄漏技巧、40 token 上限、shell 会话以 `"$ cmd"` 命名、标题用量也计费。
+- `summary.md`：固定 5 段（Current State / Files & Changes / Technical Context / Strategy & Approach / Exact Next Steps）；**resume 时摘要消息角色改为 User、截断其之前的全部历史、PromptTokens 清零**；自动摘要若打断的是含 tool call 的回合，用改写过的 prompt 重新入队继续。
+- 首条 user 消息注入 `<system_reminder>` 空 todo 提醒；非法 JSON 工具参数消毒为 `{}` 并回错误文案。
+
+**D. Provider / 成本 / 缓存细节**（parity 的隐形大头）
+
+- **Anthropic prompt caching**：最后一条 system 消息 + 最后 2 条消息打 ephemeral `cache_control`；`CRUSH_DISABLE_ANTHROPIC_CACHE` 开关；`x-session-id` / `x-session-affinity` 会话亲和头。
+- **reasoning/thinking 参数映射大 switch**（`coordinator.go` ~200 行）：openai `reasoning_effort`、anthropic `thinking{budget_tokens}`、google `thinking_config`、openrouter `reasoning{enabled,effort}`、以及 ZAI/DeepSeek/Fireworks/MiniMax/Alibaba/Baseten 等各家 extra_body 特判。
+- 计价公式四项：cache_creation / cache_read / input / output；**估算 usage 强制 0 费用**；OpenRouter 用响应内 `usage.cost` 覆盖本地计价 + `:exacto` 模型后缀；Hyper 余额从响应 metadata 侧信道读取。
+- 15 种 provider type；`aws_auth_refresh`（Bedrock 凭证过期自动执行命令后原地重试）；`flat_rate`；`system_prompt_prefix`。
+- `discover_models`：5 个本地 enricher（ollama / omlx / lmstudio / llamacpp / litellm）探测各自端点回填 context window 等，**只填零值字段**（用户显式配置优先）；litellm 是唯一回填价格的。
+- **OAuth token 刷新为跨进程 flock 单飞**，含 refresh-token 轮换防吊销（采纳 peer 新 token / 用 peer 新 refresh_token 重试）；401 → OnAuthRefresh 三分支（OAuth 刷新 / AWS SSO / API key 模板重解析）；refresh token 被吊销 → 阻塞等待交互式重登。
+
+**E. MCP 超集**（不止 tools）
+
+- **prompts 能力** → 自动包装成命令面板条目（取回文本直接作为用户消息发送）。
+- **resources 能力** → `list_mcp_resources` / `read_mcp_resource` 内置工具 + 变更通知监听。
+- **实验 channels**：隐藏 flag `--channels server:webhook`，MCP server 可主动推 `claude/channel` 事件注入会话。
+- Docker MCP Catalog 自动探测注册；无 sampling 支持。
+
+**F. 会话/数据/工程治理**
+
+- **每 session 文件版本历史**（`internal/history`，SQLite 版本链）——轻量 undo 基建，配合 filetracker。
+- **配置热重载**（crushrc / hook / model 均有 reload，copy-on-write + pubsub）。
+- **内嵌 gojq**：bash 环境免外部 jq 二进制（Windows 受益）。
+- **VCR 测试基建**（`charm.land/x/vcr` 录制 LLM 交互回放）——测试策略直接可借鉴。
+- herdr 终端复用器状态上报（unix socket JSON-RPC：idle / working / blocked，最佳努力不阻塞）。
+- Android/Termux 兼容（dns resolver 替换）；`CRUSH_SERVER_READY_TIMEOUT`、`--channels` 等 env/flag 面。
+
+### 8.3 Crush 明确没有的能力（= Vivy 的差异化/机会清单）
+
+- 无 session 分享/导出；无 ACP（仅注释提及规划）；无 IDE 扩展（仅 Copilot token 导入）；无手动压缩命令（Vivy 的 `CompactSession` RPC 在此点**更强**）；无 watch mode；无 cron/定时任务（Vivy 已有 cron_scheduler）；无多根工作区；无 MCP sampling；server 无远程鉴权层（仅本地 socket）；权限无 hard-deny 层（"可见但必拒"，FUTURE.md 规划中——Vivy 的 policy deny 已实现）。
+- 官方 `docs/*/FUTURE.md` 暴露的路线图：agent 实时修改运行时配置（带权限门控）、`state.json` 状态/配置分离、hook `UserPromptSubmit` 事件与 `context_files` 返回、`include_sub_agents` 子代理 hook opt-in。
+
+### 8.4 对 VC 路线图的增补
+
+**VC-0/VC-1 增补**：
+
+- code face 的系统提示词直接以 coder.md.tpl 的规则集为蓝本（绝不擅自 commit、<4 行默认输出、file:line 引用、LSP 优先编辑、错误多策略补救）——这是零代码量的"行为对齐"。
+- filetracker 与文件版本 history **合并为一次存储设计**（同为 read_files/versions 族表）。
+- UI 附件基线：图片粘贴/上传进入消息链路（composer 附件 stub 已有），按模型元数据门控图片能力 + tool result 携图的 provider workaround。
+- 消息排队 + 两段式取消（UI 交互安全网，对应 Crush 队列 pill / esc 语义）。
+
+**VC-2 增补**：
+
+- Anthropic 接线的验收项必须包含：prompt caching（system + 尾部消息 cache_control）、reasoning/thinking 参数映射表、四项计价公式。
+- 会话自动标题（small→large 回退链）。
+- subagent（agent 工具）的工具面照 Crush 语义收窄为只读子集 + 无 MCP——与 Vivy worker 的 PolicySnapshot 精神一致，直接映射实现。
+- session 机器接口：Vivy RPC 已覆盖大部分，补齐 cost / skills / 消息 parts 的 `--json` 等价字段即可；token 统计面板加 cache 命中与成本维度（对齐 crush stats 字段集）。
+
+**VC-3 增补**：
+
+- diff 组件选型要求 unified/split 双模式；思考块折叠三态。
+
+**VC-4 增补**：
+
+- MCP resources（list/read 工具）+ prompts（映射进 Vivy 命令/技能体系）；channels 列为实验观察项，不急。
+- 自定义命令（markdown + `$NAMED` 参数）与 user-invocable skill 在 Vivy 合并为同一机制（技能市场已是优势面）。
+- `vivy init` 生成 AGENTS.md 时采用 initialize 模板要点（只记非显而易见知识、探测既有 .cursor/copilot 规则文件）。
+- 测试基建：评估 VCR 式 LLM 录制回放，与现有 scriptedmodel mock 对齐。
+- 主动差异化项（Crush 没有的）：cron、policy hard-deny、手动 CompactSession、（潜在）server 鉴权与远程多端——编码场景下这些是 Vivy 的卖点而非负担。
