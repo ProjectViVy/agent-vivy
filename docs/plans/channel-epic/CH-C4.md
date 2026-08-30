@@ -15,6 +15,8 @@
 
 这是第一只真耳朵。后续 feishu/qq/discord **抄这个包的形状**，不要各发明一套。
 
+**备注：** 正式写 telegram 适配器前，先读 picoclaw 对应实现——五个通道里它是**最完整**的 Go 样本。只读改写，禁止 import。对照目录：`.workspace/picoclaw/pkg/channels/telegram` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\telegram`。偷 Start/Stop/Send、错误分类、token 用法；不偷 `init()` blank import、空 allow_from 放行、插件自建 HTTP。详见 `00-standing-orders.md`。
+
 ## 2. 目标
 
 `plugins/telegram` 独立 go.mod。`vivy-sdk verify` + `pack --with telegram` 得到候选 EXE，能收发私聊文本。默认 `just ci` / 物种 `go.mod` **没有** `github.com/mymmrac/telego`。空 allow_from 仍拒绝。

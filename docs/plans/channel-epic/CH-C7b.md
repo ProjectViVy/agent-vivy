@@ -18,7 +18,9 @@
 
 ## 3. 现状
 
-picoclaw `pkg/channels/qq`。DIVA：不要个人号 / NapCat 外挂。
+DIVA：不要个人号 / NapCat 外挂。
+
+**备注：** 正式写 QQ 适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/qq` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\qq`。官方开放平台机器人，不是个人号、不是 OneBot。详见 `00-standing-orders.md`。
 
 ## 4. 目标结构
 
