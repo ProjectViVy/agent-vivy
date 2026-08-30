@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -166,25 +167,23 @@ func Pack(opt packOptions) (Artifact, error) {
 		"Replace": {liveRegister: overlaySrc},
 	}
 	// Standalone plugins (own go.mod) are imported by their module path in
-	// the generated Register(), so the main build also needs the root
-	// go.mod to require and replace them. That happens through a second
-	// overlay entry; the real go.mod stays untouched, same as the register
-	// file above. The plugin's own `replace agent-vivy => ...` does NOT
-	// apply here because only main-module replaces apply during this
-	// build — the main module natively provides agent-vivy/sdk/plugin, so
-	// no extra replace is needed for that.
+	// the generated Register(), so the main build also needs a go.mod that
+	// requires and replaces them plus their third-party dependency
+	// closure. That happens through `go build -modfile`: a merged copy of
+	// the root go.mod/go.sum lives in tmpDir, and `-mod=mod` lets the
+	// toolchain finish the merge (missing requires, raised versions,
+	// missing go.sum entries) inside the temp pair. Every toolchain write
+	// lands in the temp modfile pair, which is deleted with tmpDir — the
+	// live go.mod and go.sum are never touched. The plugin's own
+	// `replace agent-vivy => ...` does NOT apply here because only
+	// main-module replaces apply during this build — the main module
+	// natively provides agent-vivy/sdk/plugin, so no extra replace is
+	// needed for that.
 	var standalonePlugins []packedPlugin
 	for _, p := range selected {
 		if p.standalone {
 			standalonePlugins = append(standalonePlugins, p)
 		}
-	}
-	if len(standalonePlugins) > 0 {
-		overlayGoMod, err := overlayGoModForStandalone(root, tmp, standalonePlugins)
-		if err != nil {
-			return Artifact{}, err
-		}
-		overlayDoc["Replace"][filepath.Join(root, "go.mod")] = overlayGoMod
 	}
 	overlayJSON, err := json.Marshal(overlayDoc)
 	if err != nil {
@@ -194,7 +193,22 @@ func Pack(opt packOptions) (Artifact, error) {
 	if err := os.WriteFile(overlayPath, overlayJSON, 0o600); err != nil {
 		return Artifact{}, err
 	}
-	cmd := exec.Command(goBin, "build", "-overlay", overlayPath, "-o", exePath, "./cmd/vivy")
+	buildArgs := []string{"build", "-overlay", overlayPath, "-o", exePath}
+	if len(standalonePlugins) > 0 {
+		packMod, err := overlayGoModForStandalone(root, tmp, standalonePlugins)
+		if err != nil {
+			return Artifact{}, err
+		}
+		if _, err := overlayGoSumForStandalone(root, tmp, standalonePlugins); err != nil {
+			return Artifact{}, err
+		}
+		// -mod=mod is required: the merged modfile is intentionally not
+		// tidy-consistent yet; the toolchain completes it in the temp pair.
+		// Flags must precede the package pattern.
+		buildArgs = append(buildArgs, "-modfile", packMod, "-mod=mod")
+	}
+	buildArgs = append(buildArgs, "./cmd/vivy")
+	cmd := exec.Command(goBin, buildArgs...)
 	cmd.Dir = root
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
@@ -285,7 +299,172 @@ func standaloneModulePath(dir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	return parseModulePath(string(data))
+}
+
+// overlayGoModForStandalone writes the -modfile build pair's go.mod into
+// tmpDir (as pack.mod, adjacent to pack.sum): the original root file plus
+// one require+replace pair per standalone plugin, with the replace target
+// pointed at the plugin's absolute directory (forward slashes so the file
+// is go.mod-parseable on every OS), plus the plugin's own third-party
+// require closure. Without the merged requires (CH-C2 gap) a standalone
+// plugin with a fat SDK dependency fails the main build, because the main
+// module's go.mod/go.sum never learned about that dependency.
+func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (string, error) {
+	orig, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return "", fmt.Errorf("sdk: read go.mod: %w", err)
+	}
+	rootModule, _ := parseModulePath(string(orig))
+	// Known module versions across root and plugins. A module required at
+	// two different versions is NOT an error: the merged overlay carries
+	// both require lines and Go's minimal-version selection resolves to
+	// the higher one, exactly as it would for any other module graph.
+	existing := map[string]string{}
+	for _, spec := range parseRequireLines(string(orig)) {
+		if _, ok := existing[spec.path]; !ok {
+			existing[spec.path] = spec.version
+		}
+	}
+	var b strings.Builder
+	b.Write(orig)
+	var merged []requireSpec
+	for _, p := range standalone {
+		pluginGoMod, err := os.ReadFile(filepath.Join(p.dir, "go.mod"))
+		if err != nil {
+			return "", fmt.Errorf("sdk: read %s go.mod: %w", p.dir, err)
+		}
+		for _, spec := range parseRequireLines(string(pluginGoMod)) {
+			switch {
+			case spec.path == rootModule:
+				// The species module itself: the main module provides it
+				// natively, requiring it from itself is not a thing.
+			case existing[spec.path] == spec.version:
+				// Same version already required (root or earlier plugin):
+				// emit it once.
+			default:
+				existing[spec.path] = spec.version
+				merged = append(merged, spec)
+			}
+		}
+		target := filepath.ToSlash(p.dir)
+		fmt.Fprintf(&b, "\nrequire %s v0.0.0\nreplace %s => %s\n", p.impPath, p.impPath, target)
+	}
+	for _, spec := range merged {
+		line := fmt.Sprintf("require %s %s", spec.path, spec.version)
+		if spec.comment != "" {
+			line += " " + spec.comment
+		}
+		b.WriteString(line + "\n")
+	}
+	out := filepath.Join(tmpDir, "pack.mod")
+	if err := os.WriteFile(out, []byte(b.String()), 0o600); err != nil {
+		return "", fmt.Errorf("sdk: write pack.mod: %w", err)
+	}
+	return out, nil
+}
+
+// overlayGoSumForStandalone writes the seed go.sum for the -modfile build
+// pair into tmpDir: the root go.sum plus every checksum the standalone
+// plugins carry that the root does not have yet. The toolchain completes
+// it under -mod=mod (raising versions, adding missing entries) inside the
+// temp pair. A plugin without a go.sum contributes nothing and is skipped.
+func overlayGoSumForStandalone(root, tmpDir string, standalone []packedPlugin) (string, error) {
+	rootData, err := os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("sdk: read go.sum: %w", err)
+	}
+	seen := make(map[string]bool)
+	var b strings.Builder
+	b.Write(rootData)
+	for _, line := range strings.Split(string(rootData), "\n") {
+		if l := strings.TrimSpace(line); l != "" {
+			seen[l] = true
+		}
+	}
+	for _, p := range standalone {
+		data, err := os.ReadFile(filepath.Join(p.dir, "go.sum"))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return "", fmt.Errorf("sdk: read %s go.sum: %w", p.dir, err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			l := strings.TrimSpace(line)
+			if l == "" || seen[l] {
+				continue
+			}
+			seen[l] = true
+			b.WriteString(l + "\n")
+		}
+	}
+	out := filepath.Join(tmpDir, "pack.sum")
+	if err := os.WriteFile(out, []byte(b.String()), 0o600); err != nil {
+		return "", fmt.Errorf("sdk: write go.sum seed: %w", err)
+	}
+	return out, nil
+}
+
+// requireSpec is one require directive extracted from a go.mod. comment
+// carries a trailing "// indirect" annotation as written; annotations are
+// legal in go.mod and are preserved on merge.
+type requireSpec struct {
+	path    string
+	version string
+	comment string
+}
+
+// parseRequireLines extracts require directives from go.mod content with a
+// plain line scan (no external dependencies): both the single-line
+// `require path version` form and the parenthesized `require (` block
+// form. Blank lines and comment lines are skipped; trailing annotations
+// are kept.
+func parseRequireLines(data string) []requireSpec {
+	var specs []requireSpec
+	inBlock := false
+	for _, raw := range strings.Split(data, "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "" || strings.HasPrefix(line, "//"):
+			continue
+		case strings.HasPrefix(line, "require "):
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "require "))
+			if rest == "(" {
+				inBlock = true
+				continue
+			}
+			if spec, ok := parseRequireLine(rest); ok {
+				specs = append(specs, spec)
+			}
+		case inBlock && line == ")":
+			inBlock = false
+		case inBlock:
+			if spec, ok := parseRequireLine(line); ok {
+				specs = append(specs, spec)
+			}
+		}
+	}
+	return specs
+}
+
+// parseRequireLine splits one `path version [// comment]` directive.
+func parseRequireLine(line string) (requireSpec, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return requireSpec{}, false
+	}
+	spec := requireSpec{path: fields[0], version: fields[1]}
+	if i := strings.Index(line, "//"); i >= 0 {
+		spec.comment = strings.TrimSpace(line[i:])
+	}
+	return spec, true
+}
+
+// parseModulePath extracts the `module <path>` directive from go.mod
+// content.
+func parseModulePath(data string) (string, bool) {
+	for _, line := range strings.Split(data, "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, "module "); ok {
 			if mod := strings.TrimSpace(rest); mod != "" {
@@ -294,28 +473,6 @@ func standaloneModulePath(dir string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// overlayGoModForStandalone writes an overlaid root go.mod into tmpDir:
-// the original file plus one require+replace pair per standalone plugin,
-// with the replace target pointed at the plugin's absolute directory
-// (forward slashes so the overlay is go.mod-parseable on every OS).
-func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (string, error) {
-	orig, err := os.ReadFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		return "", fmt.Errorf("sdk: read go.mod: %w", err)
-	}
-	var b strings.Builder
-	b.Write(orig)
-	for _, p := range standalone {
-		target := filepath.ToSlash(p.dir)
-		fmt.Fprintf(&b, "\nrequire %s v0.0.0\nreplace %s => %s\n", p.impPath, p.impPath, target)
-	}
-	out := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(out, []byte(b.String()), 0o600); err != nil {
-		return "", fmt.Errorf("sdk: write go.mod overlay: %w", err)
-	}
-	return out, nil
 }
 
 func pluginPackageName(dir string) (string, error) {
