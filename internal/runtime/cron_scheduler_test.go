@@ -1,0 +1,229 @@
+package runtime
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/provider"
+	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/tools"
+)
+
+// newCronTestService mirrors newTestService but wires the session and cron
+// stores the scheduler needs.
+func newCronTestService(t *testing.T) (*Service, *sqlite.Backend) {
+	t.Helper()
+	ctx := context.Background()
+
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "cron.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Sessions: backend, Crons: backend, Sink: newTestSink(),
+	})
+	return svc, backend
+}
+
+// waitCronState polls the job row until want(status, nextRunAtMs) holds.
+func waitCronState(t *testing.T, store storage.CronStore, id string, want func(domain.CronJob) bool) domain.CronJob {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := store.GetCronJob(context.Background(), id)
+		if err == nil && want(job) {
+			return job
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	job, _ := store.GetCronJob(context.Background(), id)
+	t.Fatalf("cron job %s never reached wanted state; last = %+v", id, job)
+	return domain.CronJob{}
+}
+
+func createTestJob(t *testing.T, store storage.CronStore, mutate func(*domain.CronJob)) domain.CronJob {
+	t.Helper()
+	job := domain.CronJob{
+		ID:      "cron_test01",
+		Name:    "test job",
+		Enabled: true,
+		Schedule: domain.CronSchedule{
+			Kind: domain.CronScheduleEvery, EveryMs: 120,
+		},
+		Payload:   domain.CronPayload{Kind: domain.CronPayloadKindAgentTurn, Message: "cron ping"},
+		CreatedAt: time.Now().UnixMilli(),
+		UpdatedAt: time.Now().UnixMilli(),
+	}
+	if mutate != nil {
+		mutate(&job)
+	}
+	if err := store.CreateCronJob(context.Background(), job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	return job
+}
+
+func TestCronSchedulerFiresDueJobAndWritesBack(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.State.NextRunAtMs = now + 80 // first fire ~80ms out
+	})
+
+	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
+	defer svc.StopCronScheduler()
+
+	settled := waitCronState(t, backend, job.ID, func(j domain.CronJob) bool {
+		return j.State.LastStatus == "ok" && j.State.NextRunAtMs > time.Now().UnixMilli()
+	})
+	if settled.State.LastRunAtMs == 0 {
+		t.Fatalf("last_run_at_ms not recorded: %+v", settled)
+	}
+	// The run landed in a lazily created dedicated session.
+	if settled.SessionID == "" {
+		t.Fatalf("session id not bound: %+v", settled)
+	}
+	if _, err := backend.GetSession(ctx, settled.SessionID); err != nil {
+		t.Fatalf("cron session missing: %v", err)
+	}
+	if settled.UpdatedAt < settled.CreatedAt {
+		t.Fatalf("updated_at not advanced: %+v", settled)
+	}
+}
+
+func TestCronTriggerManualConflictAndDisabledJob(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Enabled = false
+		j.State.NextRunAtMs = 0
+	})
+
+	started := time.Now().UnixMilli()
+	if _, err := svc.TriggerCron(ctx, job.ID); err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+	if _, running := svc.ActiveCronRun(job.ID); !running {
+		t.Fatal("triggered job is not marked running")
+	}
+	if _, err := svc.TriggerCron(ctx, job.ID); err == nil {
+		t.Fatal("second trigger succeeded, want ErrCronRunning")
+	}
+
+	settled := waitCronState(t, backend, job.ID, func(j domain.CronJob) bool {
+		return j.State.LastStatus == "ok"
+	})
+	if settled.Enabled {
+		t.Fatalf("disabled job became enabled: %+v", settled)
+	}
+	if settled.State.LastRunAtMs < started {
+		t.Fatalf("last_run_at_ms before trigger: %+v", settled)
+	}
+	if _, running := svc.ActiveCronRun(job.ID); running {
+		t.Fatal("active run not cleared after settle")
+	}
+}
+
+func TestCronStopCancelsActiveRun(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	job := createTestJob(t, backend, nil)
+
+	if _, err := svc.TriggerCron(ctx, job.ID); err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+	if !svc.StopCron(job.ID) {
+		t.Fatal("stop reported nothing running")
+	}
+	waitCronState(t, backend, job.ID, func(j domain.CronJob) bool {
+		return j.State.LastStatus == "error"
+	})
+	// A second stop conflicts: nothing runs anymore.
+	if svc.StopCron(job.ID) {
+		t.Fatal("second stop succeeded, want false")
+	}
+}
+
+func TestCronAtJobDisablesAfterRun(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 80}
+		j.State.NextRunAtMs = now + 80
+	})
+
+	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
+	defer svc.StopCronScheduler()
+
+	settled := waitCronState(t, backend, job.ID, func(j domain.CronJob) bool {
+		return j.State.LastStatus == "ok" && !j.Enabled && j.State.NextRunAtMs == 0
+	})
+	if settled.State.LastRunAtMs == 0 {
+		t.Fatalf("one-shot last_run_at_ms missing: %+v", settled)
+	}
+}
+
+func TestCronAtJobDeletesAfterSuccessfulRun(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 80}
+		j.State.NextRunAtMs = now + 80
+		j.DeleteAfterRun = true
+	})
+
+	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
+	defer svc.StopCronScheduler()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := backend.GetCronJob(ctx, job.ID); err == storage.ErrNotFound {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("delete_after_run job was not deleted")
+}
+
+func TestCronRecoveryDisablesPastOneShot(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now - 1000}
+		j.State.NextRunAtMs = now - 1000
+	})
+
+	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: time.Second})
+	settled := waitCronState(t, backend, job.ID, func(j domain.CronJob) bool {
+		return !j.Enabled && j.State.NextRunAtMs == 0
+	})
+	_ = settled
+	svc.StopCronScheduler()
+}
+
+func TestCronManualTriggerOfMissingJob(t *testing.T) {
+	svc, _ := newCronTestService(t)
+	if _, err := svc.TriggerCron(context.Background(), "cron_nope"); err != storage.ErrNotFound {
+		t.Fatalf("trigger missing = %v, want storage.ErrNotFound", err)
+	}
+}

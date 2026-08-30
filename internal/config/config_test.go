@@ -81,6 +81,13 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
+func TestCronConfigDefaults(t *testing.T) {
+	cfg := Default()
+	if !cfg.Runtime.Cron.Enabled {
+		t.Fatalf("default cron = %+v, want enabled", cfg.Runtime.Cron)
+	}
+}
+
 func TestCompactionConfigDefaultsAndValidation(t *testing.T) {
 	cfg := Default()
 	if !cfg.Runtime.Compaction.Enabled || cfg.Runtime.Compaction.MaxTokens != 0 ||

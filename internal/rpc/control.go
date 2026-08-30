@@ -43,6 +43,12 @@ type ControlDeps struct {
 	Questions storage.QuestionStore
 	Reviews   storage.ReviewStore
 	Todos     storage.TodoStore
+	// Crons persists the control plane's scheduled jobs. Nil (or a nil
+	// CronRunner) disables the cron/* method family.
+	Crons storage.CronStore
+	// CronRunner fires/stops jobs and reports in-flight runs; the runtime
+	// scheduler implements it. Nil disables cron/trigger and cron/stop.
+	CronRunner runtime.CronRunner
 	// Skills is the read-only control-plane catalog over skills_root.
 	// Nil disables skills/list and skills/get.
 	Skills tools.SkillOperations
@@ -408,12 +414,13 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 			"generations.reject", "species.inspect",
 			"settings.get", "settings.update",
-				"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
-				"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
-				"channel.inspect", "channel.get", "channel.update",
-				"session.context", "context.compact",
-				"stats.tokens",
-				"skills.list", "skills.get",
+			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
+			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
+			"channel.inspect", "channel.get", "channel.update",
+			"session.context", "context.compact",
+			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
+			"stats.tokens",
+			"skills.list", "skills.get",
 		}
 		if h.deps.Marketplace != nil {
 			capabilities = append(capabilities, "skills.marketplace")
@@ -421,10 +428,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.SkillRevisions != nil {
 			capabilities = append(capabilities, "skills.revisions")
 		}
-				return map[string]any{
-					"protocol_version": ProtocolVersion,
-					"capabilities": capabilities,
-				}, nil
+		return map[string]any{
+			"protocol_version": ProtocolVersion,
+			"capabilities":     capabilities,
+		}, nil
 	case "session/create":
 		return h.createSession(ctx, request)
 	case "session/set_permission":
@@ -445,6 +452,18 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.compactContext(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
+	case "cron/list":
+		return h.listCrons(ctx)
+	case "cron/create":
+		return h.createCron(ctx, request)
+	case "cron/update":
+		return h.updateCron(ctx, request)
+	case "cron/delete":
+		return h.deleteCron(ctx, request)
+	case "cron/trigger":
+		return h.triggerCron(ctx, request)
+	case "cron/stop":
+		return h.stopCron(request)
 	case "preflight/run":
 		return h.preflight(ctx, request)
 	case "turn/start":
@@ -1091,6 +1110,325 @@ func (h *controlHandler) listTodos(ctx context.Context, request Request) (any, *
 		})
 	}
 	return map[string]any{"todos": out}, nil
+}
+
+// ---- Cron (scheduled jobs) ----
+// The wire shapes mirror ui/src/lib/types.ts CronJobDto exactly (diva's
+// mixed camelCase/snake_case serde convention), plus the Vivy-only
+// sessionId pointing at the job's dedicated conversation.
+
+type cronScheduleResult struct {
+	Kind    string `json:"kind"`
+	AtMs    int64  `json:"atMs,omitempty"`
+	EveryMs int64  `json:"everyMs,omitempty"`
+	Expr    string `json:"expr,omitempty"`
+	TZ      string `json:"tz,omitempty"`
+}
+
+type cronPayloadResult struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message"`
+	Deliver bool   `json:"deliver"`
+	Channel string `json:"channel,omitempty"`
+	To      string `json:"to,omitempty"`
+}
+
+type cronStateResult struct {
+	NextRunAtMs int64  `json:"nextRunAtMs,omitempty"`
+	LastRunAtMs int64  `json:"lastRunAtMs,omitempty"`
+	LastStatus  string `json:"lastStatus,omitempty"`
+	LastError   string `json:"lastError,omitempty"`
+}
+
+type cronActiveRunResult struct {
+	RunID             string `json:"run_id"`
+	JobID             string `json:"job_id"`
+	StartedAtMs       int64  `json:"startedAtMs"`
+	LastHeartbeatAtMs int64  `json:"lastHeartbeatAtMs"`
+	Trigger           string `json:"trigger"`
+	Cancelable        bool   `json:"cancelable"`
+}
+
+type cronJobResult struct {
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	Enabled        bool                 `json:"enabled"`
+	Schedule       cronScheduleResult   `json:"schedule"`
+	Payload        cronPayloadResult    `json:"payload"`
+	SessionID      string               `json:"sessionId,omitempty"`
+	State          cronStateResult      `json:"state"`
+	DeleteAfterRun bool                 `json:"deleteAfterRun"`
+	CreatedAtMs    int64                `json:"createdAtMs"`
+	UpdatedAtMs    int64                `json:"updatedAtMs"`
+	IsRunning      bool                 `json:"isRunning"`
+	ActiveRun      *cronActiveRunResult `json:"activeRun,omitempty"`
+	ComputedStatus string               `json:"computedStatus"`
+}
+
+func (h *controlHandler) toCronJobResult(job domain.CronJob) cronJobResult {
+	active, isRunning := h.deps.CronRunner.ActiveCronRun(job.ID)
+	result := cronJobResult{
+		ID:      job.ID,
+		Name:    job.Name,
+		Enabled: job.Enabled,
+		Schedule: cronScheduleResult{
+			Kind: string(job.Schedule.Kind), AtMs: job.Schedule.AtMs,
+			EveryMs: job.Schedule.EveryMs, Expr: job.Schedule.Expr, TZ: job.Schedule.TZ,
+		},
+		Payload: cronPayloadResult{
+			Kind: job.Payload.Kind, Message: job.Payload.Message, Deliver: job.Payload.Deliver,
+			Channel: job.Payload.Channel, To: job.Payload.To,
+		},
+		SessionID: string(job.SessionID),
+		State: cronStateResult{
+			NextRunAtMs: job.State.NextRunAtMs, LastRunAtMs: job.State.LastRunAtMs,
+			LastStatus: job.State.LastStatus, LastError: job.State.LastError,
+		},
+		DeleteAfterRun: job.DeleteAfterRun,
+		CreatedAtMs:    job.CreatedAt,
+		UpdatedAtMs:    job.UpdatedAt,
+		IsRunning:      isRunning,
+	}
+	switch {
+	case isRunning:
+		result.ComputedStatus = "running"
+		result.ActiveRun = &cronActiveRunResult{
+			RunID: string(active.RunID), JobID: active.JobID,
+			StartedAtMs: active.StartedAtMs, LastHeartbeatAtMs: active.LastHeartbeatAtMs,
+			Trigger: active.Trigger, Cancelable: true,
+		}
+	case !job.Enabled:
+		result.ComputedStatus = "paused"
+	case job.State.LastStatus == "error":
+		result.ComputedStatus = "failed"
+	case job.State.LastRunAtMs > 0:
+		result.ComputedStatus = "completed"
+	default:
+		result.ComputedStatus = "scheduled"
+	}
+	return result
+}
+
+func (h *controlHandler) listCrons(ctx context.Context) (any, *Error) {
+	if h.deps.Crons == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "cron store is not configured"}
+	}
+	jobs, err := h.deps.Crons.ListCronJobs(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]cronJobResult, 0, len(jobs))
+	for _, job := range jobs {
+		out = append(out, h.toCronJobResult(job))
+	}
+	return map[string]any{"jobs": out}, nil
+}
+
+type cronScheduleParams struct {
+	Kind    string `json:"kind"`
+	AtMs    int64  `json:"atMs"`
+	EveryMs int64  `json:"everyMs"`
+	Expr    string `json:"expr"`
+	TZ      string `json:"tz"`
+}
+
+type cronPayloadParams struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message"`
+	Deliver bool   `json:"deliver"`
+	Channel string `json:"channel"`
+	To      string `json:"to"`
+}
+
+// buildCronJob validates the cron/* write params against the runtime
+// schedule rules and returns the domain job ready for the store.
+func buildCronJob(id, name string, enabled bool, schedule cronScheduleParams, payload cronPayloadParams, deleteAfterRun bool, nowMs int64) (domain.CronJob, *Error) {
+	if strings.TrimSpace(name) == "" {
+		return domain.CronJob{}, &Error{Code: InvalidParams, Message: "name is required"}
+	}
+	if strings.TrimSpace(payload.Message) == "" {
+		return domain.CronJob{}, &Error{Code: InvalidParams, Message: "payload.message is required"}
+	}
+	kind := payload.Kind
+	if kind == "" {
+		kind = domain.CronPayloadKindAgentTurn
+	}
+	if kind != domain.CronPayloadKindAgentTurn {
+		return domain.CronJob{}, &Error{Code: InvalidParams, Message: "payload.kind must be agent_turn"}
+	}
+	sched := domain.CronSchedule{
+		Kind: domain.CronScheduleKind(schedule.Kind), AtMs: schedule.AtMs,
+		EveryMs: schedule.EveryMs, Expr: schedule.Expr, TZ: schedule.TZ,
+	}
+	if err := runtime.ValidateCronSchedule(sched); err != nil {
+		return domain.CronJob{}, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	job := domain.CronJob{
+		ID: id, Name: strings.TrimSpace(name), Enabled: enabled,
+		Schedule: sched,
+		Payload: domain.CronPayload{
+			Kind: kind, Message: payload.Message, Deliver: payload.Deliver,
+			Channel: payload.Channel, To: payload.To,
+		},
+		DeleteAfterRun: deleteAfterRun,
+		CreatedAt:      nowMs,
+		UpdatedAt:      nowMs,
+	}
+	if enabled {
+		job.State.NextRunAtMs = runtime.NextCronAfter(sched, nowMs)
+	}
+	return job, nil
+}
+
+func (h *controlHandler) createCron(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Crons == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "cron store is not configured"}
+	}
+	var params struct {
+		Name           string             `json:"name"`
+		Enabled        *bool              `json:"enabled"`
+		Schedule       cronScheduleParams `json:"schedule"`
+		Payload        cronPayloadParams  `json:"payload"`
+		DeleteAfterRun bool               `json:"delete_after_run"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	enabled := true
+	if params.Enabled != nil {
+		enabled = *params.Enabled
+	}
+	nowMs := nowMillis()
+	job, rpcErr := buildCronJob(newControlID("cron_"), params.Name, enabled, params.Schedule, params.Payload, params.DeleteAfterRun, nowMs)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if err := h.deps.Crons.CreateCronJob(ctx, job); err != nil {
+		return nil, internalError(err)
+	}
+	h.deps.Service.KickCronScheduler()
+	return map[string]any{"job": h.toCronJobResult(job)}, nil
+}
+
+func (h *controlHandler) updateCron(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Crons == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "cron store is not configured"}
+	}
+	var params struct {
+		ID             string             `json:"id"`
+		Name           string             `json:"name"`
+		Enabled        *bool              `json:"enabled"`
+		Schedule       cronScheduleParams `json:"schedule"`
+		Payload        cronPayloadParams  `json:"payload"`
+		DeleteAfterRun bool               `json:"delete_after_run"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	existing, err := h.deps.Crons.GetCronJob(ctx, params.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "cron job not found"}
+	} else if err != nil {
+		return nil, internalError(err)
+	}
+	enabled := existing.Enabled
+	if params.Enabled != nil {
+		enabled = *params.Enabled
+	}
+	nowMs := nowMillis()
+	job, rpcErr := buildCronJob(existing.ID, params.Name, enabled, params.Schedule, params.Payload, params.DeleteAfterRun, nowMs)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	job.SessionID = existing.SessionID
+	job.CreatedAt = existing.CreatedAt
+	job.State.LastRunAtMs = existing.State.LastRunAtMs
+	job.State.LastStatus = existing.State.LastStatus
+	job.State.LastError = existing.State.LastError
+	if !enabled {
+		job.State.NextRunAtMs = 0
+	}
+	if err := h.deps.Crons.UpdateCronJob(ctx, job); err != nil {
+		return nil, cronError(err)
+	}
+	h.deps.Service.KickCronScheduler()
+	return map[string]any{"job": h.toCronJobResult(job)}, nil
+}
+
+func (h *controlHandler) deleteCron(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Crons == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "cron store is not configured"}
+	}
+	var params struct {
+		ID string `json:"id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	h.deps.CronRunner.StopCron(params.ID)
+	if err := h.deps.Crons.DeleteCronJob(ctx, params.ID); err != nil {
+		return nil, cronError(err)
+	}
+	h.deps.Service.KickCronScheduler()
+	return map[string]any{"deleted": true}, nil
+}
+
+func (h *controlHandler) triggerCron(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.CronRunner == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "cron scheduler is not configured"}
+	}
+	var params struct {
+		ID string `json:"id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	job, err := h.deps.CronRunner.TriggerCron(ctx, params.ID)
+	if err != nil {
+		return nil, cronError(err)
+	}
+	return map[string]any{"job": h.toCronJobResult(job)}, nil
+}
+
+func (h *controlHandler) stopCron(request Request) (any, *Error) {
+	if h.deps.CronRunner == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "cron scheduler is not configured"}
+	}
+	var params struct {
+		ID string `json:"id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.ID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "id is required"}
+	}
+	if !h.deps.CronRunner.StopCron(params.ID) {
+		return nil, &Error{Code: CodeConflict, Message: "cron job is not running"}
+	}
+	return map[string]any{"stopped": true}, nil
+}
+
+func cronError(err error) *Error {
+	switch {
+	case errors.Is(err, runtime.ErrCronRunning):
+		return &Error{Code: CodeConflict, Message: err.Error()}
+	case errors.Is(err, runtime.ErrCronUnsupportedKind):
+		return &Error{Code: InvalidParams, Message: err.Error()}
+	case errors.Is(err, storage.ErrNotFound):
+		return &Error{Code: CodeNotFound, Message: err.Error()}
+	default:
+		return internalError(err)
+	}
 }
 
 func (h *controlHandler) listBackground(ctx context.Context) (any, *Error) {

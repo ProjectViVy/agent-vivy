@@ -214,6 +214,23 @@ CREATE TABLE session_compactions (
 	FOREIGN KEY(session_id) REFERENCES sessions(id)
 );
 CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, created_at DESC);
+
+CREATE TABLE cron_jobs (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	enabled BOOLEAN NOT NULL,
+	schedule_json BYTEA NOT NULL,
+	payload_json BYTEA NOT NULL,
+	session_id TEXT NOT NULL DEFAULT '',
+	next_run_at_ms BIGINT NOT NULL DEFAULT 0,
+	last_run_at_ms BIGINT NOT NULL DEFAULT 0,
+	last_status TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
+	delete_after_run BOOLEAN NOT NULL DEFAULT FALSE,
+	created_at_ms BIGINT NOT NULL,
+	updated_at_ms BIGINT NOT NULL
+);
+CREATE INDEX cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
 `
 
 // schemaV15Upgrade upgrades a version-14 database in place: the same
@@ -224,4 +241,20 @@ ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN chat_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN channel_message_id TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS cron_jobs (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	enabled BOOLEAN NOT NULL,
+	schedule_json BYTEA NOT NULL,
+	payload_json BYTEA NOT NULL,
+	session_id TEXT NOT NULL DEFAULT '',
+	next_run_at_ms BIGINT NOT NULL DEFAULT 0,
+	last_run_at_ms BIGINT NOT NULL DEFAULT 0,
+	last_status TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
+	delete_after_run BOOLEAN NOT NULL DEFAULT FALSE,
+	created_at_ms BIGINT NOT NULL,
+	updated_at_ms BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
 `

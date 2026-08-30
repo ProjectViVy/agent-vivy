@@ -24,6 +24,12 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('channel/inspect');
     expect(api.RPC_METHODS).toContain('channel/get');
     expect(api.RPC_METHODS).toContain('channel/update');
+    expect(api.RPC_METHODS).toContain('cron/list');
+    expect(api.RPC_METHODS).toContain('cron/create');
+    expect(api.RPC_METHODS).toContain('cron/update');
+    expect(api.RPC_METHODS).toContain('cron/delete');
+    expect(api.RPC_METHODS).toContain('cron/trigger');
+    expect(api.RPC_METHODS).toContain('cron/stop');
   });
   it('maps representative runtime and lifecycle operations to their wire methods', async () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });
@@ -38,5 +44,16 @@ describe('typed Vivy API', () => {
     await api.getSkill('demo-skill', 'references/guide.md'); expect(call).toHaveBeenLastCalledWith('skills/get', { name: 'demo-skill', path: 'references/guide.md' });
     await api.refreshProviderModels({ id: 'custom-1' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { id: 'custom-1' });
     await api.refreshProviderModels({ bundle: 'openai', base_url: 'https://gateway.example.com/v1' }); expect(call).toHaveBeenLastCalledWith('settings/providers/refresh', { bundle: 'openai', base_url: 'https://gateway.example.com/v1' });
+  });
+  it('maps cron operations to their wire methods', async () => {
+    const schedule = { kind: 'cron' as const, expr: '0 9 * * *', tz: 'Asia/Shanghai' };
+    const payload = { kind: 'agent_turn', message: 'hello', deliver: false };
+    const input = { name: 'brief', enabled: true, schedule, payload, delete_after_run: false };
+    await api.listCronJobs(); expect(call).toHaveBeenLastCalledWith('cron/list', undefined);
+    await api.createCronJob(input); expect(call).toHaveBeenLastCalledWith('cron/create', input);
+    await api.updateCronJob('cron_1', input); expect(call).toHaveBeenLastCalledWith('cron/update', { id: 'cron_1', ...input });
+    await api.deleteCronJob('cron_1'); expect(call).toHaveBeenLastCalledWith('cron/delete', { id: 'cron_1' });
+    await api.triggerCronJob('cron_1'); expect(call).toHaveBeenLastCalledWith('cron/trigger', { id: 'cron_1' });
+    await api.stopCronJob('cron_1'); expect(call).toHaveBeenLastCalledWith('cron/stop', { id: 'cron_1' });
   });
 });

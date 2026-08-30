@@ -73,7 +73,8 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	}
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Sessions: backend, Crons: backend, Sink: bus,
 	})
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
 	for _, tool := range ts {
@@ -82,6 +83,7 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	handler, err := NewControlHandler(ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Todos: backend, Bus: bus, Service: service,
+		Crons: backend, CronRunner: service,
 		Studio: studio.NewService(backend),
 		Live: studio.LiveView{
 			Provider:      "mock",
@@ -522,7 +524,8 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	}
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Sessions: backend, Crons: backend, Sink: bus,
 	})
 	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
 	handler, err := NewControlHandler(ControlDeps{
@@ -780,7 +783,8 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	}
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Sessions: backend, Crons: backend, Sink: bus,
 	})
 	catalog := &mcpCatalogStub{listed: tools.MCPListResponse{Tools: []tools.MCPTool{{Name: "echo"}}, Untrusted: true}}
 	var changes int
@@ -909,7 +913,8 @@ func newSettingsHandlerEnvWith(t *testing.T, probe *settingsApplierProbe, mutate
 	}
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "mock", "mock", runtime.ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Sessions: backend, Crons: backend, Sink: bus,
 	})
 	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
 	deps := ControlDeps{

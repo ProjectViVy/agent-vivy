@@ -96,6 +96,9 @@ type ServiceDeps struct {
 	// (context/compact + feed folding). Nil keeps automatic in-run
 	// compression working; only durable summary folding is disabled.
 	Compactions storage.CompactionStore
+	// Crons persists the control plane's scheduled jobs. Nil keeps the
+	// whole cron family (scheduler + cron/* RPCs) disabled.
+	Crons storage.CronStore
 	// RebuildEngine rebuilds the Engine with a new config. App wires it to
 	// the composition root so settings saves can hot-swap compaction
 	// middleware; nil disables ScheduleEngineReload.
@@ -143,6 +146,11 @@ type Service struct {
 	sweepMu     sync.Mutex
 	sweepCancel context.CancelFunc
 	sweepWG     sync.WaitGroup
+
+	// cron holds the CRON scheduler state; nil until first use and only
+	// meaningful when deps.Crons is wired (lazy init guarded by cronInit).
+	cron     *cronState
+	cronInit sync.Mutex
 }
 
 type pendingRun struct {
