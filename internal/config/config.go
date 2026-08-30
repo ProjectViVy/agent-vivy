@@ -32,6 +32,11 @@ import (
 // Anything else (a literal key value) fails validation.
 var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
+// channelNamePattern constrains a channels map key to a plugin-name slug:
+// the Host (C3) matches it against the channel plugins compiled into the
+// running generation.
+var channelNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
 // defaultMaxToolTurns bounds tool-call turns per run when config omits
 // runtime.max_tool_turns (MA-4): well above a healthy turn count, well
 // below eino's 20 default, so a runaway loop fails fast and classified.
@@ -86,6 +91,7 @@ type Config struct {
 	Tools      Tools      `yaml:"tools"`
 	Governance Governance `yaml:"governance"`
 	Logging    Logging    `yaml:"logging"`
+	Channels   Channels   `yaml:"channels"`
 }
 
 // Logging configures the kernel's slog output (see internal/logging and
@@ -327,6 +333,33 @@ type GovernanceRule struct {
 	Prefix   string `yaml:"prefix"`
 	Decision string `yaml:"decision"`
 	Reason   string `yaml:"reason"`
+}
+
+// Channels maps a compiled-in channel plugin name to its envelope
+// (VIVY-CHANNEL-PACK.md §11). The map key must match the name of a
+// seam-channel plugin in the running generation; that match is enforced
+// by the Host (C3) at start time, not here. Zero value (absent section)
+// means no channel configuration.
+type Channels map[string]ChannelEnvelope
+
+// ChannelEnvelope is the kernel-owned envelope of one channel. It holds
+// knobs only — it is not a plugin system, and per-channel settings stay
+// opaque to the kernel.
+type ChannelEnvelope struct {
+	// Enabled=false keeps the channel compiled-in but not Started; the
+	// channel still shows as compiled-in to inspect.
+	Enabled bool `yaml:"enabled"`
+	// AllowFrom is the inbound sender allow-list. Empty means deny-start
+	// is decided by the Host at Start time (C3). "*" is not allowed in
+	// this generation.
+	AllowFrom []string `yaml:"allow_from"`
+	// TokenEnv names the environment variable holding the platform token.
+	// The token itself must never appear in config (D-010).
+	TokenEnv string `yaml:"token_env"`
+	// Settings is opaque to the kernel: the owning channel plugin decodes
+	// it (fail-closed on its own unknown fields). yaml.Node keeps inner
+	// keys out of strict decoding and out of this package.
+	Settings yaml.Node `yaml:"settings"`
 }
 
 // toolsDoc mirrors the tools mapping with expiration kept as a raw
@@ -628,6 +661,30 @@ func (c *Config) Validate() error {
 			}
 			if !validGovernanceDecision(rule.Decision) {
 				return fmt.Errorf("governance.profiles.%s.rules[%d].decision %q is unsupported", name, i, rule.Decision)
+			}
+		}
+	}
+
+	// Channel envelope validation (VIVY-CHANNEL-PACK.md §11). The envelope
+	// is fixed by the kernel; per-channel Settings are opaque here — the
+	// owning plugin decodes them fail-closed, so inner keys are never
+	// validated in this package.
+	for name, ch := range c.Channels {
+		if !channelNamePattern.MatchString(name) {
+			return fmt.Errorf("channels.%s must be lowercase digits and hyphens", name)
+		}
+		if ch.TokenEnv != "" && !envKeyPattern.MatchString(ch.TokenEnv) {
+			return fmt.Errorf("channels.%s.token_env %q is not an environment variable name; "+
+				"secrets must never appear in config (D-010)", name, ch.TokenEnv)
+		}
+		for i, allow := range ch.AllowFrom {
+			if strings.TrimSpace(allow) == "" {
+				return fmt.Errorf("channels.%s.allow_from[%d] must not be empty; empty allow_from means "+
+					"deny-start is decided by the Host at Start time", name, i)
+			}
+			if allow == "*" {
+				return fmt.Errorf("channels.%s.allow_from[%d] %q is not allowed in this generation; "+
+					"list explicit senders (VIVY-CHANNEL-PACK.md §11)", name, i, allow)
 			}
 		}
 	}

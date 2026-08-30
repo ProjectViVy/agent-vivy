@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-16).
+// Package conformance is the D-032 backend suite (CN-01..CN-17).
 package conformance
 
 import (
@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-16.
+// Run executes CN-01..CN-17.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -63,9 +63,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-14", "dual-handle process lock safety", cnDualHandleSafety},
 		{"CN-15", "monotonic replay under concurrent writers", cnConcurrentWriters},
 		{"CN-16", "replay after disconnect (after_seq tail)", cnReplayAfterDisconnect},
+		{"CN-17", "message provenance round-trip", cnMessageProvenance},
 	}
-	if len(cases) != 16 {
-		t.Fatalf("conformance suite must carry exactly 16 cases, got %d", len(cases))
+	if len(cases) != 17 {
+		t.Fatalf("conformance suite must carry exactly 17 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -544,5 +545,54 @@ func cnReplayAfterDisconnect(t *testing.T, h Harness) {
 	}
 	if tail[1].Type != domain.EventRunCompleted {
 		t.Fatalf("tail terminal = %s, want run.completed", tail[1].Type)
+	}
+}
+
+func cnMessageProvenance(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-prov", Title: "t", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	channelMsg := domain.Message{
+		ID: "msg-prov-channel", SessionID: "sess-prov", Role: domain.RoleUser,
+		CreatedAt: 2, Content: "hello from the world",
+		Source: "channel", Channel: "telegram", ChatID: "chat-123", ChannelMessageID: "tg-456",
+	}
+	legacyMsg := domain.Message{
+		ID: "msg-prov-legacy", SessionID: "sess-prov", Role: domain.RoleUser,
+		CreatedAt: 3, Content: "hello from the ui",
+	}
+	for i, m := range []domain.Message{channelMsg, legacyMsg} {
+		if err := b.AppendMessage(ctx, m); err != nil {
+			t.Fatalf("AppendMessage %d: %v", i, err)
+		}
+	}
+	got, err := b.ListMessages(ctx, "sess-prov")
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("messages = %d, want 2", len(got))
+	}
+	c := got[0]
+	if c.ID != channelMsg.ID || c.Role != domain.RoleUser || c.Content != channelMsg.Content {
+		t.Fatalf("channel row base fields drifted: %+v", c)
+	}
+	if c.Source != "channel" || c.Channel != "telegram" || c.ChatID != "chat-123" || c.ChannelMessageID != "tg-456" {
+		t.Fatalf("channel provenance did not round-trip: %+v", c)
+	}
+	if c.EffectiveSource() != "channel" {
+		t.Fatalf("EffectiveSource = %q, want channel", c.EffectiveSource())
+	}
+	l := got[1]
+	if l.ID != legacyMsg.ID || l.Role != domain.RoleUser || l.Content != legacyMsg.Content {
+		t.Fatalf("legacy row base fields drifted: %+v", l)
+	}
+	if l.Source != "" {
+		t.Fatalf("legacy row Source = %q, want empty", l.Source)
+	}
+	if l.EffectiveSource() != "ui" {
+		t.Fatalf("legacy EffectiveSource = %q, want ui", l.EffectiveSource())
 	}
 }

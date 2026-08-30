@@ -1,171 +1,147 @@
 import { useSyncExternalStore } from 'react';
-import { isRetiredChannel } from './channel-platforms';
-import { validateConfig } from './channel-schema';
+import {
+  getChannel as fetchChannelEnvelope,
+  inspectChannels,
+  updateChannel,
+  type ChannelEnvelope,
+  type ChannelStatus,
+  type ChannelUpdateInput,
+} from '../../lib/api';
 
 /**
- * 通道配置本地存储（Agent-Diva ChannelsSettings 的 vivy 纯前端适配）。
+ * 通道注册表（服务端真源）。
  *
- * - 唯一存储于 localStorage key `vivy.ui.channels`（真实功能，禁用 vivy.demo.*）。
- * - 存储形状 = Diva `get_channels` wire 格式：`Record<通道名, { enabled, ...字段 }>`，
- *   便于未来接入后端通道读写时直接替换读写层（无需迁移 UI）。
- * - 与 custom-providers.ts / saved-models.ts 同款持久化样板：模块级缓存 +
- *   `useSyncExternalStore` + 自定义事件 / `storage` 事件广播，不进 zustand store。
- * - 快照标识稳定：每次写入以不可变方式生成新记录（新对象引用），未写入时
- *   `getChannels()` 返回同一缓存引用，满足 `useSyncExternalStore` 的稳定快照要求。
- * - 就绪状态（ready / missing_fields）为纯前端近似：按 schema 必填字段存在性
- *   计算，替代 Diva 的服务端 `getConfigStatus` 通道报告；后端接入后以服务端
- *   报告为准。
+ * - 编译进当前代的通道集合与每个通道的 envelope（enabled / allow_from /
+ *   token_env）以后端为唯一真源：channel/inspect 报告进程真值（上次
+ *   StartAll 的决策），channel/get 报告文档真值（config.yaml envelope
+ *   ⊕ settings overlay）。
+ * - 写入走 channel/update（settings overlay 条目），进程重启后才生效；
+ *   UI 用文档真值与进程真值的差异展示"待重启"。
+ * - 遗留 localStorage key `vivy.ui.channels` 不再读取：服务端是唯一
+ *   真源，历史前端副本不做迁移（其中从未有过可信的密钥存储）。
  */
 
-export const CHANNELS_KEY = 'vivy.ui.channels';
-
-const CHANNELS_CHANGED_EVENT = 'vivy.ui.channels.changed';
-
-/** 单个通道配置：与 Diva wire 形状一致（`enabled` 为保留字段，不出现在表单）。 */
-export type ChannelConfig = Record<string, unknown>;
-
-/** 通道名 → 配置 的映射（与 Diva `get_channels` 返回形状一致）。 */
-export type StoredChannels = Record<string, ChannelConfig>;
-
-/** 就绪报告（对齐 Diva `ChannelStatusSummary` 的 GUI 用法）。 */
-export interface ChannelStatusSummary {
-  name: string;
-  enabled: boolean;
-  ready: boolean;
-  missing_fields: string[];
-  notes: string[];
+export interface ChannelsState {
+  /** 编译进当前代的通道（服务端按名称排序）；未加载完成时为空表。 */
+  statuses: ChannelStatus[];
+  /** 各通道 envelope（文档真值）；单通道读取失败时缺省。 */
+  envelopes: Record<string, ChannelEnvelope>;
+  /** 首次 inspect 是否已返回（区分"加载中"与"这一代没有耳朵"）。 */
+  loaded: boolean;
+  /** inspect 失败原因；非空时列表不可信。 */
+  error: string | null;
 }
 
-function cloneConfig(config: ChannelConfig): ChannelConfig {
-  return JSON.parse(JSON.stringify(config)) as ChannelConfig;
+let state: ChannelsState = { statuses: [], envelopes: {}, loaded: false, error: null };
+const listeners = new Set<() => void>();
+let refreshInFlight: Promise<void> | null = null;
+
+function emit(): void {
+  for (const listener of listeners) listener();
 }
 
-/** 移植自 Diva ChannelsSettings.loadChannels：读入时补齐 Discord 默认值。 */
-export function normalizeDiscordConfig(d: Record<string, unknown> | undefined): void {
-  if (!d || typeof d !== 'object') return;
-  if (!Array.isArray(d.allow_from)) d.allow_from = [];
-  if (d.gateway_url === undefined || d.gateway_url === '') {
-    d.gateway_url = 'wss://gateway.discord.gg/?v=10&encoding=json';
-  }
-  if (d.intents === undefined || d.intents === null) d.intents = 37377;
-  if (d.guild_id === undefined) d.guild_id = null;
-  if (d.mention_only === undefined) d.mention_only = false;
-  if (d.listen_to_bots === undefined) d.listen_to_bots = false;
-  if (!Array.isArray(d.group_reply_allowed_sender_ids)) d.group_reply_allowed_sender_ids = [];
+function setState(patch: Partial<ChannelsState>): void {
+  state = { ...state, ...patch };
+  emit();
 }
 
-/** 读入时按平台补齐默认值；坏条目（非对象）整条丢弃、下架通道直接隐藏。 */
-function normalizeChannels(raw: unknown): StoredChannels {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
-  const next: StoredChannels = {};
-  for (const [name, config] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof config !== 'object' || config === null || Array.isArray(config)) continue;
-    if (isRetiredChannel(name)) continue;
-    const entry = { ...(config as Record<string, unknown>) };
-    if (name === 'discord') normalizeDiscordConfig(entry);
-    next[name] = entry;
-  }
-  return next;
+function getSnapshot(): ChannelsState {
+  return state;
 }
 
-let cachedRaw: string | null = null;
-let cachedChannels: StoredChannels = {};
-
-function readChannels(): StoredChannels {
-  if (typeof window === 'undefined') return cachedChannels;
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(CHANNELS_KEY);
-  } catch {
-    // Local UI preference is best effort.
-    return cachedChannels;
-  }
-  if (raw === cachedRaw) return cachedChannels;
-  cachedRaw = raw;
-  if (!raw) {
-    cachedChannels = {};
-    return cachedChannels;
-  }
-  try {
-    cachedChannels = normalizeChannels(JSON.parse(raw));
-  } catch {
-    cachedChannels = {};
-  }
-  return cachedChannels;
-}
-
-function writeChannels(next: StoredChannels): void {
-  if (typeof window === 'undefined') return;
-  cachedChannels = next;
-  cachedRaw = JSON.stringify(next);
-  try {
-    window.localStorage.setItem(CHANNELS_KEY, cachedRaw);
-  } catch {
-    // Local UI preference is best effort.
-  }
-  window.dispatchEvent(new Event(CHANNELS_CHANGED_EVENT));
-}
-
-/** 可见通道表（读入时已剔除下架通道）：快照引用稳定（useSyncExternalStore 要求）。 */
-export function getChannels(): StoredChannels {
-  return readChannels();
-}
-
-/** 就绪报告：必填字段齐全 → ready；缺失列于 missing_fields（纯前端近似）。 */
-export function channelStatusFor(name: string, config: ChannelConfig): ChannelStatusSummary {
-  const { valid, missing } = validateConfig(name, config);
-  return {
-    name,
-    enabled: Boolean(config.enabled),
-    ready: valid,
-    missing_fields: missing,
-    notes: [],
-  };
-}
-
-/** 全通道就绪报告（与 Diva `getConfigStatus().channels` 形状对齐）。 */
-export function getChannelStatuses(): ChannelStatusSummary[] {
-  return Object.entries(getChannels()).map(([name, config]) => channelStatusFor(name, config));
-}
-
-/** 保存（新建或整表替换）单个通道配置；返回保存后的副本。下架通道写入为 no-op。 */
-export function saveChannel(name: string, config: ChannelConfig): ChannelConfig {
-  if (isRetiredChannel(name)) return cloneConfig(config);
-  const channels = readChannels();
-  const next: StoredChannels = { ...channels, [name]: cloneConfig(config) };
-  writeChannels(next);
-  return cloneConfig(next[name]);
-}
-
-/** 启用/停用切换（不可变更新，保持其它字段不动）。 */
-export function toggleChannel(name: string): void {
-  if (isRetiredChannel(name)) return;
-  const channels = readChannels();
-  const config = channels[name];
-  if (!config) return;
-  writeChannels({ ...channels, [name]: { ...config, enabled: !config.enabled } });
-}
-
-/** 删除通道（本地存储）。 */
-export function removeChannel(name: string): void {
-  if (isRetiredChannel(name)) return;
-  const channels = readChannels();
-  if (!(name in channels)) return;
-  const next: StoredChannels = { ...channels };
-  delete next[name];
-  writeChannels(next);
-}
-
-function subscribeToChannels(onChange: () => void): () => void {
-  if (typeof window === 'undefined') return () => undefined;
-  window.addEventListener(CHANNELS_CHANGED_EVENT, onChange);
-  window.addEventListener('storage', onChange);
+function subscribe(listener: () => void): () => void {
+  const first = listeners.size === 0;
+  listeners.add(listener);
+  // 首个订阅者触发首次拉取；后续订阅沿用同一份状态。
+  if (first && !state.loaded) void refreshChannels();
   return () => {
-    window.removeEventListener(CHANNELS_CHANGED_EVENT, onChange);
-    window.removeEventListener('storage', onChange);
+    listeners.delete(listener);
   };
 }
 
-export function useChannels(): StoredChannels {
-  return useSyncExternalStore(subscribeToChannels, getChannels, () => ({}));
+/** 拉取（或重拉）通道列表与各通道 envelope 并广播。 */
+export function refreshChannels(): Promise<void> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = inspectChannels()
+    .then(async (statuses) => {
+      const entries = await Promise.all(
+        statuses.map(async (status): Promise<readonly [string, ChannelEnvelope?]> => {
+          try {
+            return [status.name, await fetchChannelEnvelope(status.name)] as const;
+          } catch {
+            // 单通道 envelope 读取失败不拖垮列表；该通道暂无文档真值。
+            return [status.name, undefined] as const;
+          }
+        }),
+      );
+      const envelopes: Record<string, ChannelEnvelope> = {};
+      for (const [name, envelope] of entries) {
+        if (envelope) envelopes[name] = envelope;
+      }
+      setState({ statuses, envelopes, loaded: true, error: null });
+    })
+    .catch((error) => {
+      setState({ loaded: true, error: error instanceof Error ? error.message : String(error) });
+    })
+    .finally(() => {
+      refreshInFlight = null;
+    });
+  return refreshInFlight;
+}
+
+/** 订阅通道状态（首个订阅者触发首次 inspect）。 */
+export function useChannelsState(): ChannelsState {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** 非 hook 读取当前状态（SSR / 纯函数测试 / 一次性检查用）。 */
+export function getChannelsState(): ChannelsState {
+  return state;
+}
+
+/**
+ * 保存一个通道：以当前文档真值合并 patch 后整条 overlay entry 写回。
+ * channel/update 是指针语义的整条替换——只发部分字段会把未携带的字段
+ * 回落到 config.yaml 值，因此这里始终带上 enabled 与 allow_from。
+ * token_env 只在显式给定（环境变量名）时发送；界面从不发明密钥值。
+ */
+export async function saveChannel(name: string, patch: ChannelUpdateInput): Promise<ChannelEnvelope> {
+  const current = state.envelopes[name] ?? (await fetchChannelEnvelope(name));
+  const envelope = await updateChannel(name, {
+    enabled: patch.enabled ?? current.enabled,
+    allow_from: patch.allow_from ?? current.allow_from,
+    ...(patch.token_env !== undefined ? { token_env: patch.token_env } : {}),
+  });
+  setState({ envelopes: { ...state.envelopes, [name]: envelope } });
+  await refreshChannels();
+  return envelope;
+}
+
+/** 启用/停用切换（写入 overlay，重启后生效）。 */
+export async function toggleChannel(name: string, enabled: boolean): Promise<ChannelEnvelope> {
+  return saveChannel(name, { enabled });
+}
+
+/**
+ * "删除" = 关耳朵（enabled=false）：settings overlay 在本代没有删除
+ * 条目的语义，通道保持编译可见、重启进程后不再启动。
+ */
+export async function disableChannel(name: string): Promise<ChannelEnvelope> {
+  return saveChannel(name, { enabled: false });
+}
+
+/**
+ * "待重启"判定：文档真值与进程真值出现差异。allow_from 不在 inspect
+ * 表面，不参与对比；状态或 envelope 未就绪时不判 pending。
+ */
+export function channelPendingRestart(
+  status: ChannelStatus | undefined,
+  envelope: ChannelEnvelope | undefined,
+): boolean {
+  if (!status || !envelope) return false;
+  return (
+    envelope.enabled !== status.enabled ||
+    envelope.configured !== status.configured ||
+    envelope.token_env !== status.token_env
+  );
 }

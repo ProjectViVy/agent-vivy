@@ -472,3 +472,121 @@ func TestUpsertAndDeleteMCPServer(t *testing.T) {
 		t.Fatal("missing delete must report not found")
 	}
 }
+
+func TestSaveAndLoadChannelOverlay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	disabled := false
+	emptyAllow := []string{}
+	senders := []string{"alice", "bob"}
+	saved, err := Save(path, Settings{Channels: []ChannelOverlay{
+		// Fully pinned: explicit disabled, explicit empty allow_from (the
+		// fail-closed deny-start state), explicit token_env name.
+		{Name: "telegram", Enabled: &disabled, AllowFrom: &emptyAllow, TokenEnv: StringPtr("TELEGRAM_BOT_TOKEN")},
+		// Partial: only allow_from replaced; enabled/token_env stay unset.
+		{Name: "discord", AllowFrom: &senders},
+	}})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(loaded.Channels, saved.Channels) {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved.Channels, loaded.Channels)
+	}
+	first := loaded.Channels[0]
+	if first.Enabled == nil || *first.Enabled {
+		t.Fatalf("explicit disabled not round-tripped: %+v", first)
+	}
+	if first.AllowFrom == nil || len(*first.AllowFrom) != 0 {
+		t.Fatalf("explicit empty allow_from must stay an empty (deny-start) list, not unset: %+v", first.AllowFrom)
+	}
+	if first.TokenEnv == nil || *first.TokenEnv != "TELEGRAM_BOT_TOKEN" {
+		t.Fatalf("token_env not round-tripped: %+v", first)
+	}
+	second := loaded.Channels[1]
+	if second.Enabled != nil || second.TokenEnv != nil {
+		t.Fatalf("unset knobs must decode as nil (config default stands): %+v", second)
+	}
+	if second.AllowFrom == nil || len(*second.AllowFrom) != 2 {
+		t.Fatalf("allow_from list not round-tripped: %+v", second.AllowFrom)
+	}
+}
+
+func TestEmptyChannelOverlayEntryIsDropped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("channels:\n  - name: telegram\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.Channels) != 0 {
+		t.Fatalf("all-empty overlay entry must normalize away: %+v", loaded.Channels)
+	}
+	if !loaded.IsZero() {
+		t.Fatal("a document whose only overlay entry carries no knob must stay zero")
+	}
+}
+
+func TestChannelsOverlayIsNotZero(t *testing.T) {
+	enabled := true
+	s := Settings{Channels: []ChannelOverlay{{Name: "telegram", Enabled: &enabled}}}
+	if s.IsZero() {
+		t.Fatal("a channel overlay entry must not look like an unconfigured document")
+	}
+}
+
+func TestValidateChannels(t *testing.T) {
+	enabled := BoolPtr(true)
+	senders := []string{"alice"}
+	ok := []ChannelOverlay{
+		{Name: "telegram", Enabled: enabled, AllowFrom: &senders, TokenEnv: StringPtr("TELEGRAM_BOT_TOKEN")},
+		{Name: "my-bot-2", AllowFrom: &[]string{}},
+	}
+	if err := (Settings{Channels: ok}).Validate(); err != nil {
+		t.Fatalf("valid channels overlay rejected: %v", err)
+	}
+	emptyAllow := []string{}
+	for name, bad := range map[string][]ChannelOverlay{
+		"bad name":         {{Name: "Telegram", Enabled: enabled}},
+		"empty name":       {{Name: "", Enabled: enabled}},
+		"duplicate name":   {{Name: "telegram", Enabled: enabled}, {Name: "telegram", AllowFrom: &senders}},
+		"bad token env":    {{Name: "telegram", TokenEnv: StringPtr("not-an-env")}},
+		"wildcard sender":  {{Name: "telegram", AllowFrom: &[]string{"*"}}},
+		"empty sender":     {{Name: "telegram", AllowFrom: &[]string{" "}}},
+		"empty list is ok": {{Name: "telegram", AllowFrom: &emptyAllow}},
+	} {
+		err := (Settings{Channels: bad}).Validate()
+		if name == "empty list is ok" {
+			if err != nil {
+				t.Fatalf("explicit empty allow_from is the valid deny-start state: %v", err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("expected error for %s", name)
+		}
+	}
+}
+
+func TestUpsertChannelOverlay(t *testing.T) {
+	enabled := BoolPtr(true)
+	s := Settings{}.UpsertChannelOverlay(ChannelOverlay{Name: "telegram", Enabled: enabled})
+	if len(s.Channels) != 1 || s.Channels[0].Name != "telegram" {
+		t.Fatalf("append failed: %+v", s.Channels)
+	}
+	senders := []string{"alice"}
+	s = s.UpsertChannelOverlay(ChannelOverlay{Name: "telegram", AllowFrom: &senders})
+	if len(s.Channels) != 1 {
+		t.Fatalf("replace must not grow the list: %+v", s.Channels)
+	}
+	if s.Channels[0].Enabled != nil {
+		t.Fatal("replacement entry must carry exactly the fields it is given")
+	}
+	if s.Channels[0].AllowFrom == nil || len(*s.Channels[0].AllowFrom) != 1 {
+		t.Fatalf("allow_from not replaced: %+v", s.Channels[0])
+	}
+}

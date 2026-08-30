@@ -1,0 +1,9 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "qq",
+  "version": "0.1.0",
+  "seam": "channel",
+  "module": ".",
+  "grants": ["channel.poll", "secret.read"],
+  "channel": { "transport": "poll", "max_message_runes": 2000 }
+}

@@ -13,21 +13,30 @@ import {
 } from './channel-schema';
 
 describe('channel schema 平台覆盖', () => {
-  it('覆盖全部 7 个 GUI 可见平台', () => {
+  it('只覆盖本代可编译的平台（无 email / neuro-link）', () => {
     expect(Object.keys(CHANNEL_CREDENTIAL_FIELDS).sort()).toEqual([
       'dingtalk',
       'discord',
-      'email',
       'feishu',
-      'neuro-link',
       'qq',
       'telegram',
     ]);
+    expect(isKnownChannel('email')).toBe(false);
+    expect(isKnownChannel('neuro-link')).toBe(false);
   });
 
   it('每个平台都有 schema（编辑表单与向导渲染依赖）', () => {
     for (const platform of Object.keys(CHANNEL_CREDENTIAL_FIELDS)) {
       expect(CHANNEL_CREDENTIAL_FIELDS[platform].length, platform).toBeGreaterThan(0);
+    }
+  });
+
+  it('allow_from 一律是 fail-closed 的 i18n 文案键（拒绝启动，不是"不限制"）', () => {
+    for (const [platform, fields] of Object.entries(CHANNEL_CREDENTIAL_FIELDS)) {
+      const allowFrom = fields.find((field) => field.key === 'allow_from');
+      expect(allowFrom, platform).toBeDefined();
+      expect(allowFrom?.placeholderKey).toBe('channels.allowFromPlaceholder');
+      expect(allowFrom?.hintKey).toBe('channels.allowFromHint');
     }
   });
 
@@ -47,15 +56,6 @@ describe('fieldDefaults', () => {
     expect(defaults.listen_to_bots).toBe(false);
     expect(defaults.allow_from).toEqual([]);
     expect(defaults.group_reply_allowed_sender_ids).toEqual([]);
-  });
-
-  it('email 默认补齐端口与行为开关', () => {
-    const defaults = fieldDefaults('email');
-    expect(defaults.imap_port).toBe(993);
-    expect(defaults.smtp_port).toBe(587);
-    expect(defaults.imap_use_ssl).toBe(true);
-    expect(defaults.auto_reply_enabled).toBe(true);
-    expect(defaults.subject_prefix).toBe('Re: ');
   });
 
   it('未知平台返回空对象', () => {
@@ -135,13 +135,8 @@ describe('getRequiredFields / validateConfig', () => {
     expect(getRequiredFields('feishu')).toEqual(['app_id', 'app_secret']);
   });
 
-  it('email 必填收发端全部账号字段', () => {
-    const required = getRequiredFields('email');
-    expect(required).toContain('imap_host');
-    expect(required).toContain('smtp_host');
-    expect(required).toContain('imap_password');
-    expect(required).toContain('smtp_password');
-    expect(required).toContain('from_address');
+  it('dingtalk 必填 client_id 与 client_secret', () => {
+    expect(getRequiredFields('dingtalk')).toEqual(['client_id', 'client_secret']);
   });
 
   it('validateConfig 缺失列出、齐全通过', () => {

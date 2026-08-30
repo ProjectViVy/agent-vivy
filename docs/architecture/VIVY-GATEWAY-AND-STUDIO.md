@@ -18,8 +18,9 @@
 > - `../GOAL-AGENT-HARNESS-ROADMAP.md` — harness slices already built
 > - `ACP-REMOTE-CONTROL-PROPOSAL.md` — unused control-plane draft; Studio
 >   reuses its local-first and admission stance, not its remote scope
-> - `VIVY-CHANNEL-PACK.md` — proposal: first-party channels as packed
->   organs (kernel Host; `channels/` lib; config cannot grow new adapters)
+> - `VIVY-CHANNEL-PACK.md` — adopted 2026-08-30: super-channel Host in
+>   kernel; this batch of adapters are `plugins/` with `seam: channel`;
+>   config cannot grow new adapters
 > - `VIVY-FACE-PACK.md` — proposal: first-party faces as packed mouths
 >   (`face: web | tui | headless`; kernel FaceHost; Android is a downstream
 >   consumer of the kernel, not a pack target)
@@ -172,6 +173,7 @@ Secret resolver
 Grant table and allowlist
 inspect implementation (read-only identity)
 Process supervisor for `vivy worker` only
+ChannelHost (world ingress: admission, session map, channel.inbound)
 ```
 
 A future V3 may rebuild this kernel as a new generation. That is
@@ -184,7 +186,7 @@ Short-lived processes the kernel supervises:
 | Process | Role | Fate on failure |
 |---|---|---|
 | Built-in worker (`vivy worker`) | Child run; tools still brokered by parent | `worker_lost_after_restart` (already shipped) |
-| Capability plugin | `provider` or `tool-world` | Kill; one classified tool/run failure |
+| Capability plugin | `provider`, `tool-world`, or `channel` | Kill; one classified tool/run/channel failure |
 | Candidate species (`vivy.exe'`) | Eval only — **parent is Studio, not the live species** | Kill; Studio EvalRun records the death |
 
 Control plane stays in-process in the species. Data plane may be many

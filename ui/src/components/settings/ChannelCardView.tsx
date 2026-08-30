@@ -1,66 +1,56 @@
-import { MessageSquarePlus, Plus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { MessageSquarePlus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { isRetiredChannel } from './channel-platforms';
-import type { ChannelStatusSummary, StoredChannels } from './channel-store';
+import { channelPendingRestart } from './channel-store';
+import type { ChannelEnvelope, ChannelStatus } from '../../lib/api';
 import ChannelCard, { type ChannelCardModel } from './ChannelCard';
 
 /**
- * 卡片视图（移植自 Agent-Diva ChannelCardView.vue）。
- * 空态引导「添加通道」；网格展示每个激活通道的就绪/缺失摘要。
+ * 卡片视图：每个编译进当前代的通道一张卡（channel/inspect 是唯一来源）。
+ * 空态 = 这一代没有编译进任何通道（没有可配置的耳朵），不提供添加入口。
  */
 
 function ChannelCardView({
-  channels,
   statuses,
-  onAdd,
+  envelopes,
+  busyName,
   onEdit,
-  onDelete,
   onToggle,
+  onDisable,
 }: {
-  channels: StoredChannels;
-  statuses: ChannelStatusSummary[];
-  onAdd: () => void;
+  statuses: ChannelStatus[];
+  envelopes: Record<string, ChannelEnvelope>;
+  busyName: string | null;
   onEdit: (name: string) => void;
-  onDelete: (name: string) => void;
-  onToggle: (name: string) => void;
+  onToggle: (name: string, enabled: boolean) => void;
+  onDisable: (name: string) => void;
 }) {
   const { t } = useTranslation();
-  const statusMap = new Map(statuses.map((s) => [s.name, s]));
 
-  const channelList: Array<{ name: string; channel: ChannelCardModel; status?: ChannelStatusSummary }> =
-    Object.entries(channels)
-      .filter(([name]) => !isRetiredChannel(name))
-      .map(([name, raw]) => ({
-        name,
-        channel: { name, enabled: Boolean(raw?.enabled), config: raw } satisfies ChannelCardModel,
-        status: statusMap.get(name),
-      }));
-
-  if (channelList.length === 0) {
+  if (statuses.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-8 py-16 text-center">
         <MessageSquarePlus className="mb-6 h-20 w-20 text-muted-foreground/30" />
         <h3 className="mb-1 text-xl font-semibold">{t('channels.noChannels')}</h3>
-        <p className="mb-6 text-sm text-muted-foreground">{t('channels.noChannelsHint')}</p>
-        <Button type="button" onClick={onAdd}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          {t('channels.addChannel')}
-        </Button>
+        <p className="mb-6 max-w-md text-sm text-muted-foreground">{t('channels.noChannelsHint')}</p>
       </div>
     );
   }
 
+  const cards: ChannelCardModel[] = statuses.map((status) => ({
+    status,
+    pendingRestart: channelPendingRestart(status, envelopes[status.name]),
+  }));
+
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(17.5rem,1fr))] gap-4 p-4 sm:p-6">
-      {channelList.map(({ name, channel, status }) => (
+      {cards.map((channel) => (
         <ChannelCard
-          key={name}
+          key={channel.status.name}
           channel={channel}
-          status={status}
-          onToggle={() => onToggle(name)}
-          onEdit={() => onEdit(name)}
-          onDelete={() => onDelete(name)}
+          busy={busyName === channel.status.name}
+          onToggle={() => onToggle(channel.status.name, !channel.status.enabled)}
+          onEdit={() => onEdit(channel.status.name)}
+          onDisable={() => onDisable(channel.status.name)}
         />
       ))}
     </div>

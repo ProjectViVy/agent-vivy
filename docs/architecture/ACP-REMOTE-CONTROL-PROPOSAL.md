@@ -3,7 +3,9 @@
 Status: proposal only — implementation deferred pending explicit approval.
 
 Same-process mouths (web / tui / headless) are a different contract:
-`VIVY-FACE-PACK.md`. This file is the remote / out-of-process control
+`VIVY-FACE-PACK.md`. World ingress (chat platforms, later A2A / NeuroLink)
+is `VIVY-CHANNEL-PACK.md` — ChannelHost plus `seam: channel` plugins, not
+this control plane. This file is the remote / out-of-process control
 plane. A downstream Android app that *uses* the Vivy kernel in-process
 is not ACP; an Android app that steers a resident `vivy.exe` over the
 network is.

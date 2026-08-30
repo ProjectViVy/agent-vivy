@@ -1,8 +1,8 @@
 package postgres
 
-// schemaV14 is the current logical Journal schema (SQLite migration 15.
+// schemaV15 is the current logical Journal schema (SQLite migration 16.
 // Postgres bootstraps here in one step; later versions increment both engines.
-const schemaV14 = `
+const schemaV15 = `
 CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
 	title TEXT NOT NULL,
@@ -20,7 +20,11 @@ CREATE TABLE messages (
 	content BYTEA NOT NULL,
 	tool_call_id TEXT NOT NULL DEFAULT '',
 	tool_name TEXT NOT NULL DEFAULT '',
-	tool_args BYTEA NOT NULL DEFAULT ''::bytea
+	tool_args BYTEA NOT NULL DEFAULT ''::bytea,
+	source TEXT NOT NULL DEFAULT '',
+	channel TEXT NOT NULL DEFAULT '',
+	chat_id TEXT NOT NULL DEFAULT '',
+	channel_message_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE runs (
@@ -210,4 +214,14 @@ CREATE TABLE session_compactions (
 	FOREIGN KEY(session_id) REFERENCES sessions(id)
 );
 CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, created_at DESC);
+`
+
+// schemaV15Upgrade upgrades a version-14 database in place: the same
+// channel-provenance columns SQLite migration016 adds. Defaults keep
+// existing rows valid — an empty source reads as ui.
+const schemaV15Upgrade = `
+ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN chat_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN channel_message_id TEXT NOT NULL DEFAULT '';
 `

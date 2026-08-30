@@ -162,6 +162,11 @@ type pendingRun struct {
 type RunOptions struct {
 	Mode    domain.RunMode
 	Profile domain.PolicyProfile
+	// Provenance marks the user turn's world entry (domain.Provenance).
+	// nil keeps the built-in UI provenance ("ui"); a non-nil value must
+	// carry a non-empty Source and is stamped onto the user message row.
+	// Provenance never enters the run.started payload (contract §12).
+	Provenance *domain.Provenance
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -263,6 +268,15 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return "", err
 	}
+	// Provenance is validated before anything is persisted so an invalid
+	// world entry cannot leave a half-labeled user message behind.
+	provenance := domain.Provenance{Source: "ui"}
+	if options.Provenance != nil {
+		if strings.TrimSpace(options.Provenance.Source) == "" {
+			return "", errors.New("runtime: run provenance requires a non-empty source")
+		}
+		provenance = *options.Provenance
+	}
 	snapshot, err := s.engine.cfg.Policy.Snapshot(profile)
 	if err != nil {
 		return "", err
@@ -284,12 +298,16 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	now := time.Now().UnixMilli()
 
 	if err := s.deps.Messages.AppendMessage(ctx, domain.Message{
-		ID:        newMessageID(),
-		SessionID: sessionID,
-		RunID:     runID,
-		Role:      domain.RoleUser,
-		CreatedAt: now,
-		Content:   userText,
+		ID:               newMessageID(),
+		SessionID:        sessionID,
+		RunID:            runID,
+		Role:             domain.RoleUser,
+		CreatedAt:        now,
+		Content:          userText,
+		Source:           provenance.Source,
+		Channel:          provenance.Channel,
+		ChatID:           provenance.ChatID,
+		ChannelMessageID: provenance.ChannelMessageID,
 	}); err != nil {
 		return "", fmt.Errorf("runtime: append user message: %w", err)
 	}

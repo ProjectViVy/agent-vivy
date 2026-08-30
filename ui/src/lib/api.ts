@@ -13,6 +13,7 @@ export const RPC_METHODS = [
   'settings/get', 'settings/update',
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
+  'channel/inspect', 'channel/get', 'channel/update',
   'stats/tokens',
   'skills/list', 'skills/get',
 ] as const;
@@ -309,6 +310,68 @@ export const listMcpServers = () => request<McpServersView>('settings/mcp');
 export const upsertMcpServer = (input: McpServerInput) => request<McpServer>('settings/mcp/upsert', input);
 export const deleteMcpServer = (name: string) => request<{ deleted: boolean; name: string }>('settings/mcp/delete', { name });
 export const probeMcpServer = (name: string) => request<McpServer>('settings/mcp/probe', { name });
+
+// ==================== Channels (ears) ====================
+
+/** 通道可选 ABI 能力位（后端 channelhost.Discover 的 wire 形态）。 */
+export interface ChannelCapabilities {
+  typing: boolean;
+  edit: boolean;
+  delete: boolean;
+  reaction: boolean;
+  placeholder: boolean;
+  media: boolean;
+  media_store: boolean;
+  webhook: boolean;
+  listen: boolean;
+  stream: boolean;
+  health: boolean;
+}
+
+/**
+ * channel/inspect 条目：进程真值（上次 StartAll 的决策）。
+ * 通道写入在进程重启后生效，UI 用它与 channel/get 对比得出"待重启"。
+ */
+export interface ChannelStatus {
+  name: string;
+  capabilities: ChannelCapabilities;
+  configured: boolean;
+  enabled: boolean;
+  started: boolean;
+  /** 仅环境变量名（D-010）；密钥值永不在线。 */
+  token_env: string;
+  token_env_set: boolean;
+  /** 启动跳过/失败原因；空串 = 已启动（或尚未启动过）。 */
+  note: string;
+}
+
+/**
+ * channel/get 结果：文档真值 = config.yaml envelope ⊕ settings overlay。
+ * allow_from 恒为数组；空数组 = 拒绝启动（fail-closed）。
+ */
+export interface ChannelEnvelope {
+  name: string;
+  enabled: boolean;
+  allow_from: string[];
+  token_env: string;
+  configured: boolean;
+}
+
+/**
+ * channel/update 载荷：指针语义，未携带的字段回落 config.yaml 值。
+ * token_env 只接受环境变量名；密钥值永不发送（D-010）。
+ */
+export interface ChannelUpdateInput {
+  enabled?: boolean;
+  allow_from?: string[];
+  token_env?: string;
+}
+
+/** 编译进当前代的全部通道（无论是否配置），按名称排序。 */
+export const inspectChannels = () => request<ChannelStatus[]>('channel/inspect');
+export const getChannel = (name: string) => request<ChannelEnvelope>('channel/get', { name });
+export const updateChannel = (name: string, patch: ChannelUpdateInput) =>
+  request<ChannelEnvelope>('channel/update', { name, ...patch });
 
 // ==================== Token Usage Stats ====================
 
