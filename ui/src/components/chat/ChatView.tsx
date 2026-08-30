@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { preflight, type Preflight } from '@/lib/api';
+import { preflight, type Preflight, type RunMode } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { useVivyStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
@@ -31,20 +31,20 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
   const mobile = useIsMobile();
   const { t } = useTranslation();
-  const [pending, setPending] = useState<{ text: string; result: Preflight } | null>(null);
+  const [pending, setPending] = useState<{ text: string; result: Preflight; mode: RunMode } | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
   const requestId = useRef(0);
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
   useEffect(() => { requestId.current += 1; setPending(null); setPreflightError(null); }, [sessionId]);
 
-  const submit = async (text: string) => {
+  const submit = async (text: string, mode: RunMode = 'normal') => {
     const id = ++requestId.current; setPreflightBusy(true); setPreflightError(null);
     try {
-      const result = await preflight(sessionId, text, 'normal');
+      const result = await preflight(sessionId, text, mode);
       if (id !== requestId.current || useVivyStore.getState().activeSessionId !== sessionId) return;
       if (result.status !== 'ready' || result.warnings?.length || result.blockers?.length) {
-        setPending({ text, result });
+        setPending({ text, result, mode });
         return;
       }
     } catch (error) {
@@ -54,13 +54,13 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       if (id === requestId.current) setPreflightBusy(false);
     }
     if (id !== requestId.current || useVivyStore.getState().activeSessionId !== sessionId) return;
-    await startRun(sessionId, text);
+    await startRun(sessionId, text, mode);
   };
   const continueRun = async () => {
     if (!pending || pending.result.status === 'blocked') return;
     const current = pending;
     setPending(null);
-    try { await startRun(sessionId, current.text); }
+    try { await startRun(sessionId, current.text, current.mode); }
     catch { setPending(current); }
   };
   // 重新生成（对照 Agent-DIVA）：Journal 是追加式事实源，无法就地覆盖，
