@@ -96,3 +96,5 @@ internal/app
 下一 AGENT 优先 [CH-C4.md](CH-C4.md)。C6 可另开 worktree 并行，但必须基于已合入的 Host ABI。
 
 > **DONE 2026-08-30** — 分支 `feat/channel-c3`。Host ABI 定形：`internal/channelhost`（Deps{Journal,Messages,Sessions,Run func,Channels,Config,Logger}、Discover/`Capabilities`、`chanin_*` 入账、`sess_ch_<hash>` 会话映射、`RunOptions.Provenance`）。C4 消费这些符号不得改名；顺带硬化 §0.1 CH-C3-N1/N2。Filing: `docs/logs/2026-08-30-channel-c3/`。
+
+从 C4 起正式做通道：先读 picoclaw 对应包（最完整 Go 样本），只读改写、禁止 import。见 `00-standing-orders.md`。

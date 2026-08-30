@@ -18,7 +18,9 @@
 
 ## 3. 现状
 
-picoclaw `pkg/channels/feishu`。合同明确不做 32-bit stub、表情、公网 webhook 模式。
+合同明确不做 32-bit stub、表情、公网 webhook 模式。
+
+**备注：** 正式写飞书适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/feishu` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\feishu`。实现是 WS，不要做成文档里的公网 webhook。详见 `00-standing-orders.md`。
 
 ## 4. 目标结构
 
