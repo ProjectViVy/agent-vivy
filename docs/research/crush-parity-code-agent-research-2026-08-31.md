@@ -130,7 +130,7 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 
 | Crush | Vivy | 判定 | 归属 |
 |---|---|---|---|
-| fantasy 多协议（anthropic 原生等） | openai 兼容 ✅ / anthropic native ❌（未接线） | ❌ | VC-2（注意 P3-1 license 前置） |
+| fantasy 多协议（anthropic 原生等） | openai 兼容 ✅ / anthropic native ❌（未接线） | ❌ | VC-2（改用 eino-ext/claude，见 §8.5 决策） |
 | Catwalk 模型目录（价格/窗口/reasoning 元数据） | 硬编码 context window 小表 | 🟡 取其元数据结构，不抄远端目录 | VC-2 |
 | 本地模型发现（ollama/lmstudio/…） | 无 | ➖ 可选 | VC-4 |
 
@@ -176,7 +176,7 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 3. 成本核算：模型元数据表（context window / 输入输出价格 / reasoning 支持）→ token 统计货币化；UI token 面板加成本列。
 4. headless 面：`vivy run "prompt"`（stdin 管道、`--continue`、退出码语义）——落 FACE-0。
 5. Hooks 用户可配置：`runtime.hooks.pre_tool_use[]`（matcher/command/timeout），协议对齐 Crush/Claude Code（stdin JSON + exit 2 阻断 + stdout 信封 + `updated_input` 浅合并），跑在既有 `ToolHookChain` 上，决策仍入 Journal。
-6. Anthropic-native provider 接线（前置：P3-1 license 检查）。
+6. Anthropic-native provider 接线：**改用 eino-ext `components/model/claude` 组件**，放弃自研 `vivy/anthropic` 适配器里程碑（决策与落地清单见 §8.5）。
 
 ### VC-3 LSP 编码智能（最大单项，约 3–4 周）
 
@@ -200,7 +200,7 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 1. **bash 工具 vs 治理哲学（最大张力）**：Vivy 现状 execute 是 basename 白名单 + 恒审批；引入真 bash 等于放开 shell 复合命令。建议分级：只读白名单 auto、工作区写类 ask、阻断表（sudo/curl|sh 等）直接 deny 并入策略引擎规则（policy.go 已支持按工具/字段规则）。沙箱目录约束继续兜底。
 2. **嵌入式 shell 选型**：`mvdan.cc/sh/v3`（BSD-3，Crush 同款）是 Windows 无 WSL 跑 POSIX 语法的成熟解；需验证与 Vivy 沙箱路径约束的兼容。
 3. **LSP 库 license**：powernap 为 MIT（Charm），可用；若自写最小客户端（jsonrpc2 + 少量 method）约 1–2k 行，作为 fallback。
-4. **Anthropic SDK**：官方 SDK license 与 P3-1 前置；也可先用 openai-compat 网关顶住。
+4. **Anthropic 接线**：~~license 风险~~ 已核实干净（anthropic-sdk-go MIT、aws-sdk-go-v2 Apache-2.0；P3-1 针对的 claude-code upstream 与适配器无关）。路线已拍板：改用 eino-ext `components/model/claude` 组件，不再自研适配器（见 §8.5）。
 5. **UI diff 工作量**：建议引入成熟 diff 视图组件而非手写；后端 diff 生成（unified diff + 增删统计）是小活。
 6. **Crush 是 FSL-1.1-MIT**：源码可参考学习，但**代码不能直接拷入** Vivy（FSL 非 OSI 开源，2 年后才转 MIT）。路线中所有"移植"均指行为/协议对齐，实现自写。这一点必须写进每个 VC 任务的验收注释。
 
@@ -296,7 +296,7 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 
 **VC-2 增补**：
 
-- Anthropic 接线的验收项必须包含：prompt caching（system + 尾部消息 cache_control）、reasoning/thinking 参数映射表、四项计价公式。
+- Anthropic 接线按 §8.5 决策执行（eino-ext/claude 组件）；验收项：prompt caching 生效（注明组件断点策略 = system + tools + 最后一条消息，与 Crush 的 system + 最后 2 条存在已知差异）、thinking/reasoning 参数、四项计价数据源（`CachedTokens` / `GetCacheCreationInputTokens`）。
 - 会话自动标题（small→large 回退链）。
 - subagent（agent 工具）的工具面照 Crush 语义收窄为只读子集 + 无 MCP——与 Vivy worker 的 PolicySnapshot 精神一致，直接映射实现。
 - session 机器接口：Vivy RPC 已覆盖大部分，补齐 cost / skills / 消息 parts 的 `--json` 等价字段即可；token 统计面板加 cache 命中与成本维度（对齐 crush stats 字段集）。
@@ -312,3 +312,26 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 - `vivy init` 生成 AGENTS.md 时采用 initialize 模板要点（只记非显而易见知识、探测既有 .cursor/copilot 规则文件）。
 - 测试基建：评估 VCR 式 LLM 录制回放，与现有 scriptedmodel mock 对齐。
 - 主动差异化项（Crush 没有的）：cron、policy hard-deny、手动 CompactSession、（潜在）server 鉴权与远程多端——编码场景下这些是 Vivy 的卖点而非负担。
+
+### 8.5 决策记录：Anthropic 后端改用 eino-ext/claude（2026-08-31 拍板）
+
+**决策**：放弃自研 `vivy/anthropic` 适配器里程碑，Anthropic 接线改用 `github.com/cloudwego/eino-ext/components/model/claude`；OpenAI 兼容面（网关/DeepSeek/ZAI/Kimi/自定义 provider）维持 eino-ext openai 组件不变；不引入 deepseek/qwen/gemini 专用组件。
+
+**决策依据**（当日源码核实）：
+
+1. **原决策前提已过时**。`internal/provider/bundle.go` 注释与 `fixtures/provider/anthropic.yaml` provenance 写明自研理由是 "no official Eino Anthropic component exists"（2026-08-07 记录）；eino-ext 现已有 `components/model/claude`，其 go.mod 依赖 eino v0.9.1，与 vivy 锁定的 v0.9.13 同 minor 兼容。
+2. **组件能力直接命中 VC-2 验收项**：`AutoCacheControl`（system/tools/尾部消息自动 cache_control 断点，TTL 5m/1h，另有 `SetMessageBreakpoint`/`SetToolInfoBreakpoint` 手动断点）；`CachedTokens` + `GetCacheCreationInputTokens` 用量回报（四项计价的数据源）；thinking 块签名往返（`WithThinking`/`GetThinking`+signature）；Bedrock（AWS credential chain/profile）与 Vertex（service account JSON）原生支持；`mergeAdjacentToolResults` 等 Anthropic 协议严格性处理；anthropic-sdk-go 自带 429/5xx 指数退避。
+3. **License 干净**：anthropic-sdk-go MIT、aws-sdk-go-v2 Apache-2.0。P3-1（claude-code upstream LICENSE）与本适配器无关，不再是前置。
+
+**架构影响**：爆炸半径限于 internal/provider——`Ref` 缝隙（`ref.go`，返回 `model.ToolCallingChatModel`）不变，runtime/modeladapter/ADK/mock 无感知；Eino 检疫（仅 internal/runtime、internal/provider 可 import eino）不受影响。
+
+**落地清单**（进 VC-2）：
+
+1. 新增 `claudeRef`（照 `openai.go` 模板，映射 `ModelSpec{ID, APIKey, BaseURL}` → 组件 `Config`）；`catalog.go` backend switch 加 `BackendEinoClaude`；`schemas/providers.bundle.schema.json` backend 枚举加值——bundle schema 是产品契约（D-022..D-025、严格解析），按规则走 `just ci` + outbound `model` 字段断言测试。
+2. 修正过时记录：`bundle.go` 注释、`anthropic.yaml` provenance note、`catalog.go` 注释中的 "no official Eino Anthropic component exists"。
+3. D-010 防护：`claudeRef` 在 key 为空时先抛 `KeyMissingError`（对齐 openaiRef 模式），Model 恒显式传入；补测试断言不触发组件的 `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` 环境变量回退路径。
+4. MaxTokens：Anthropic 协议必填，vivy openai 路径现状是 "0 = API 决定"；需 `ModelSpec` 增加 MaxTokens 或 claudeRef 给模型级默认值，避免 0 直发报错。
+5. 依赖面：组件无条件 import bedrock/vertex 分支，aws-sdk-go-v2、google auth 等将进入 go.sum 与二进制（即使不用）；license 均干净，供应链审计记入该迭代 verification.md。
+6. 缓存策略差异记录：组件自动断点 = system + tools + 最后一条消息；Crush = system + 最后 2 条消息。均在 Anthropic 4 断点最佳实践内，验收时注明即可。
+
+**明确不做**：为 OpenAI 兼容厂商引入 eino-ext deepseek/qwen 等专用组件（openai 组件 + BaseURL 已覆盖且更短）；gemini 原生组件待有真实需求再评估（依赖 google genai SDK，较重）。
