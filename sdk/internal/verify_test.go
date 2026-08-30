@@ -36,6 +36,9 @@ func TestVerifyRejectsForbiddenPlugins(t *testing.T) {
 	}{
 		{"bad-internal-import", "agent-vivy/internal/"},
 		{"bad-eino-import", "github.com/cloudwego/eino"},
+		// CH-C7c: voice/WebRTC is banned in plugins, prefix-wide over the
+		// pion module family.
+		{"bad-pion-import", "pion/webrtc is banned in plugins (no voice in Vivy channels)"},
 		{"bad-seam-journal", "seam"},
 		{"name-mismatch", "does not match directory"},
 		{"bad-main", "package main"},

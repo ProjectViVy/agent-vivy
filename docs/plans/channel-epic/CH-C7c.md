@@ -55,3 +55,5 @@ picoclaw discord 含 voice/pion——**不要移植那些文件**。
 ## 10. 交接
 
 本期实现关门。后切读 [CH-C8.md](CH-C8.md) / [CH-C9.md](CH-C9.md)（备忘，不是开工令）。
+
+> **DONE 2026-08-30** — 分支 `feat/channel-c7c`（基于 c7b）。本期 C1–C7c 全部落地，M-CH4 关门：默认身体 `Register()=nil` 零平台 SDK；五耳各自独立 module；pion 封禁入 verify。后切开工需用户点名（C8）或能力提案（C9）。Filing: `docs/logs/2026-08-30-channel-c7c/`。

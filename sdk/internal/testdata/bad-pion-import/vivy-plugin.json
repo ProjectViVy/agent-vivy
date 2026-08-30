@@ -1,0 +1,9 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "bad-pion-import",
+  "version": "0.1.0",
+  "seam": "channel",
+  "module": ".",
+  "grants": ["channel.poll", "secret.read"],
+  "channel": { "transport": "poll" }
+}

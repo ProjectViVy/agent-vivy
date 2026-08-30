@@ -50,6 +50,19 @@ func parsePluginSources(dir string) ([]sourceFile, []string) {
 	return files, issues
 }
 
+// bannedImportPrefixes are import families no plugin of any seam may
+// link. The reason text is printed verbatim in the verifier issue. At
+// most one prefix can match a given import path, so issue order stays
+// deterministic per file.
+var bannedImportPrefixes = map[string]string{
+	"agent-vivy/internal/":      "agent-vivy/internal is kernel-private (sdk/plugin is the only import window)",
+	"github.com/cloudwego/eino": "eino is the kernel engine, not a plugin API",
+	// CH-C7c: voice/WebRTC stays out of the species' channels. The ban is
+	// prefix-wide so every pion module (webrtc, media, transport, rtp, ...)
+	// is covered, not only webrtc itself.
+	"github.com/pion/": "pion/webrtc is banned in plugins (no voice in Vivy channels)",
+}
+
 func checkSources(files []sourceFile) []string {
 	var issues []string
 	hasCtor := false
@@ -59,11 +72,10 @@ func checkSources(files []sourceFile) []string {
 		}
 		imports := importMap(src.file)
 		for path := range imports {
-			if strings.HasPrefix(path, "agent-vivy/internal/") {
-				issues = append(issues, src.rel+": import of "+path+" is forbidden")
-			}
-			if strings.HasPrefix(path, "github.com/cloudwego/eino") {
-				issues = append(issues, src.rel+": import of "+path+" is forbidden")
+			for prefix, reason := range bannedImportPrefixes {
+				if strings.HasPrefix(path, prefix) {
+					issues = append(issues, src.rel+": import of "+path+" is forbidden: "+reason)
+				}
 			}
 		}
 		issues = append(issues, bannedCalls(src, imports)...)

@@ -56,7 +56,7 @@ Do not pick work from those tables. Closed-track filing:
 | CH-C6 | `plugins/dingtalk` Stream 单聊文本 | DONE | 2026-08-30 独立 module（dingtalk-stream-sdk-go v0.9.1，gorilla 保持 indirect）；插件侧 3s 重拨监督 + 迟到回调栅 + sessionWebhook 插件侧内存（错误链脱敏）；`hostEnv.Secret` 扩展接受 settings 顶层 `*_env` 声明（client_id/client_secret 双密钥）；真实 SDK 回环测试（手写 RFC6455 网关，stdlib）；CH-C2-N1 四夹具清账。真钉钉冒烟未做（无凭据）。Filing: `docs/logs/2026-08-30-channel-c6/` |
 | CH-C7a | `plugins/feishu` 单聊文本 WS | DONE | 2026-08-30 独立 module（oapi-sdk-go/v3 **v3.11.0**——旧版 v3.9.4 WS Start 永不返回+pingLoop 泄漏，偏离经源码核实）；p2p 纯文本 in/out；supervised 重拨（单用 client）+ 迟到事件围栏；`*_env` 双密钥 + `encrypt_key` 插件 settings（Host 不解码）+ `is_lark` 域开关；386 硬失败已验证。真飞书冒烟未做（无凭据）。Filing: `docs/logs/2026-08-30-channel-c7a/` |
 | CH-C7b | `plugins/qq` 官方 Bot 文本 | DONE | 2026-08-30 独立 module（botgo v0.2.1 = picoclaw pin）；自驱 `websocket.ClientImpl`（ChanManager/token 自启协程皆有缺陷，源码核实）+ Gateway resume；仅 C2C 文本（群事件 botgo 解不出 group_openid，源码核实 out-of-scope）；去重栅栏（官方重投同 msg_id）；被动回复 v2 API + 首连 report 栅栏 + 静默 logger（D-010）。真 QQ 冒烟未做（无凭据）。Filing: `docs/logs/2026-08-30-channel-c7b/` |
-| CH-C7c | `plugins/discord` 文本（无 voice） | OPEN | Plan: `docs/plans/channel-epic/CH-C7c.md`。禁止 voice/pion |
+| CH-C7c | `plugins/discord` 文本（无 voice） | DONE | 2026-08-30 本期关门切片。独立 module（discordgo v0.29 **上游**，非 picoclaw fork）；DM/文本频道纯文本；session 接口隔离 + supervised 重拨（reconnect 无视 Close 源码核实）+ ear/api 分离（REST 回复不依赖耳朵在线）；**pion 全前缀封禁入 verify**（全 seam）+ 夹具；LogLevel 显式钉死。真 Discord 冒烟未做（无凭据+Intent 前置）。Filing: `docs/logs/2026-08-30-channel-c7c/` |
 | CH-C8 | 同二进制 `vivy channel --name` 子进程 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C8.md`。不是开工令 |
 | CH-C9 | A2A / NeuroLink 能力提案 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C9.md`。不是开工令 |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind 是挡板；不进 2026-08-30 本批、不进 §0.2 本期日历 |
@@ -77,6 +77,7 @@ Do not pick work from those tables. Closed-track filing:
 | CH-C6-N2 | settings `*_env` 声明名无 env-name 模式强校验（字符串即声明，嵌套/非串忽略） | OPEN | Found 2026-08-30 (CH-C6)：适配器自身 strict decode 约束实际使用，方向 fail-closed；如需硬审计在 hostEnv 加 `^[A-Z_][A-Z0-9_]*$` 校验 |
 | CH-C7a-N1 | feishu `supervise` 首连与 Stop 重叠时三条早退路径不保证送达 `firstErr`（Start 可能滞留至调用方 ctx 结束） | OPEN | Found 2026-08-30 (CH-C7a)：经 Host 调用序不可达（Host 只 Stop 已完成 Start 的耳；调用方 ctx 取消可解锁）；修法 = 首轮 defer 送达 firstErr 或软化注释。真适配器 stop-during-start 语义落地时一并修。qq 侧同形问题已修（`TestStopDuringFirstHandshakeReturns`），feishu 可照抄 |
 | TEST-2 | `internal/runtime TestServiceApprovalApproveFlow` 满负载下出现过一次 flake（隔离/整包/全量 ci 复跑均绿） | OPEN | Found 2026-08-30 (CH-C7b 落地时)：runtime 自 C3 零改动，疑似时序敏感（审批过期窗口？）。下次触发的 `-count=N` 复现与修复 |
+| CH-C7c-N1 | `just ci` 不覆盖 `plugins/*`（fmt-check glob 只扫 cmd/internal/sdk/ui；`go test ./...` 不过独立 module 边界） | OPEN | Found 2026-08-30 (CH-C7c)：五只耳朵的 gofmt/vet/test 全靠切片内人工执行。建议加 `plugin-ci` 配方逐独立 module 跑 vet/test/gofmt（默认不编译产物） |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
 | HITL-P1-2 | Scoped remember / allow policies | OPEN | |
@@ -158,7 +159,7 @@ Filing: `docs/logs/2026-08-30-channel-program-plan/`、`docs/logs/2026-08-30-cha
 | CH-C6 | `plugins/dingtalk` Stream | 2 | CH-C3 | 可与 C4 并行（第二 worktree） | DONE 2026-08-30（候选回环全链；默认 EXE 无钉钉 SDK。Filing: `docs/logs/2026-08-30-channel-c6/`） |
 | CH-C7a | `plugins/feishu` WS | 2 | CH-C3 | 建议 C4 先合 | DONE 2026-08-30（候选回环全链；386 硬失败；默认无 lark。Filing: `docs/logs/2026-08-30-channel-c7a/`） |
 | CH-C7b | `plugins/qq` 官方 Bot | 2 | CH-C3 | 同 C7a | DONE 2026-08-30（C2C 文本候选回环；非个人号声明；默认无 botgo。Filing: `docs/logs/2026-08-30-channel-c7b/`） |
-| CH-C7c | `plugins/discord` 文本 | 2 | CH-C3 | 同 C7a | 无 voice/pion |
+| CH-C7c | `plugins/discord` 文本 | 2 | CH-C3 | 同 C7a | DONE 2026-08-30（**本期关门 M-CH4**：候选无 pion；封禁入 verify。Filing: `docs/logs/2026-08-30-channel-c7c/`） |
 | CH-C8 | `vivy channel --name` | — | M-CH2 之后 | — | DEFERRED |
 | CH-C9 | A2A / NeuroLink 提案 | — | 独立提案 | — | DEFERRED |
 | CH-C | wecom | — | 非 TTY 绑定面 | — | 不进本期 |
@@ -247,7 +248,13 @@ gantt
 
 ### 0.2.7 下一刀
 
-**CH-C7c**（`plugins/discord` 文本，无 voice——**本期关门切片**）。读 `docs/plans/channel-epic/00-standing-orders.md` 与 `CH-C7c.md`。C1–C7b 已 DONE（分支链 `feat/channel-c1`→…→`c7b`）。从 `feat/channel-c7b` 切新 worktree + 新分支 `feat/channel-c7c`。discordgo 不进物种 go.mod；**禁止 voice.go / pion / webrtc / TTS**（建议 verify 加 pion import 拒绝）；Message Content Intent；DM/文本频道文本。成功 = 候选文本闭环；依赖图无 pion；本期 M-CH4 关门。
+**本期（C1–C7c）已全部 DONE（2026-08-30，M-CH4 关门）。** 分支链 `feat/channel-c1`→`c2`→…→`c7c`，log 见 `docs/logs/2026-08-30-channel-c*/`。
+
+无排期内的下一刀。阶段 H 均为备忘、不是开工令：
+
+- **CH-C8**（同二进制 `vivy channel --name` 子进程）：技术上无前置缺口，但按合同与日历属后切；开工需用户点名。
+- **CH-C9**（A2A / NeuroLink）：合同 §21 要求**独立能力提案 + 绑定/鉴权面**，「无提案则本切片不开」——提案本身是产品决策素材，采纳是合同级决定。
+- 顺手项（非通道 EPIC）：§0.1 CH-C7c-N1（plugin-ci 配方）、TEST-2（runtime flake）、CH-C1-N5（真实 Postgres 跑一轮）。
 
 ### 0.2.8 PLAN 索引（子 AGENT 领取面）
 
@@ -466,6 +473,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-30 | CH-C7c `plugins/discord` 文本（无 voice）——本期关门 | 独立 module（discordgo v0.29 上游，非 picoclaw fork）；DM/文本频道纯文本；session 接口隔离 + supervised 重拨（reconnect() 无视 Close、Open 同步到 READY，源码核实）+ 合成 DISCONNECT `sync.OnceFunc` 死亡信号 + ear/api 分离（专用 REST 会话回复不依赖耳朵在线）；**pion 全前缀封禁进 verify（全 seam）**+ `bad-pion-import` 夹具；LogLevel 显式钉死（LogDebug 会打含 token 的 Identify 包）；无去重栅栏（网关不重投，源码核实）。pack 候选 0 pion。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c7c/`. |
 | 2026-08-30 | CH-C7b `plugins/qq` 官方 Bot 文本 | 独立 module（botgo v0.2.1）；自驱 `websocket.ClientImpl` supervised resume（ChanManager 无限自重连/token 自启协程 11 败 panic，皆源码核实弃用）；仅 C2C 文本（群 out-of-scope：dto 解不出 group_openid）；msg_id 去重栅栏（TTL/容量窗）；被动回复 v2 API（真实 botgo 客户端回环断言）+ 首连 report 栅栏（Stop 期间 Start 有界返回）；静默 logger（D-010，有断言）。`just ci` 绿（首跑撞见一次 runtime 审批流 flake，复跑绿，登记 TEST-2）。Filing: `docs/logs/2026-08-30-channel-c7b/`. |
 | 2026-08-30 | CH-C7a `plugins/feishu` 单聊文本 WS | 独立 module（oapi-sdk-go/v3 v3.11.0——v3.9.4 WS Start `select{}` 永不返回 + pingLoop 泄漏，偏离经源码核实并记录）；p2p 纯文本 in/out（bot 自环防护、open_id 优先兜底序）；supervised 重拨（每次新 client，首连 fail-closed）+ 迟到事件围栏；`*_env` 双密钥 + `encrypt_key` 插件 settings + `is_lark`；Send 走 im.v1.messages（chat_id/text）。386 硬失败验证；真 SDK WS 回环测试 + `-race`。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c7a/`. |
 | 2026-08-30 | CH-C6 `plugins/dingtalk` Stream 单聊文本 | 独立 module（dingtalk-stream-sdk-go v0.9.1）；Stream 重拨监督（SDK 自动重连关闭，插件侧 3s ctx 感知）+ 迟到回调栅栏；单聊纯文本分类（含 bot 自环防护，优于 picoclaw 对照）；sessionWebhook 插件侧内存 + 错误链脱敏（含 NewRequest 解析路径，D-010）；`hostEnv.Secret` 扩展 settings 顶层 `*_env` 声明（双密钥）；4 个 verify 夹具清账 CH-C2-N1；手写 RFC6455 网关跑真 SDK 回环测试，`-race` 干净。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c6/`. |
