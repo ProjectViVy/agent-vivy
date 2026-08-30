@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
@@ -49,6 +50,7 @@ type App struct {
 	logger *slog.Logger
 
 	service  *runtime.Service
+	channels *channelhost.Host
 	backend  storage.Engine
 	worker   *workerManager
 	resolver *ModelResolver
@@ -174,6 +176,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mcpOps = mcpBackend
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
 	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	genPlugins := genplugins.Register()
+	// The channels envelope may only name compiled-in channel plugins, and
+	// every channel-seam plugin must carry the plugin.Channel ABI (FR-10).
+	channelPlugins, err := partitionChannels(genPlugins, cfg.Channels)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
@@ -189,7 +199,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			return ws.Path, nil
 		}
 	}
-	ts = append(ts, pluginhost.Adapt(genplugins.Register(), lookup)...)
+	ts = append(ts, pluginhost.Adapt(genPlugins, lookup)...)
 	// The checkpoint bridge fail-closes on its engine version, so an
 	// unknown build version aborts startup rather than suspend runs on
 	// unverifiable checkpoints (C6).
@@ -220,7 +230,26 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
-	svc := runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
+	// The ChannelHost is constructed before the runtime service so it can
+	// join the initial hook list. It receives only a Run callback — never
+	// *runtime.Service — so plugins cannot reach the runtime and the
+	// channelhost layer stays free of internal/runtime imports.
+	var svc *runtime.Service
+	channelHost := channelhost.New(channelhost.Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+			if svc == nil {
+				return "", errors.New("app: runtime service is not wired")
+			}
+			return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+		},
+		Channels: channelPlugins,
+		Config:   cfg.Channels,
+		Logger:   logger,
+	})
+	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:            backend,
 		Runs:               backend,
 		Messages:           backend,
@@ -235,7 +264,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Workspaces:           workspaces,
 		Sessions:             backend,
 		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
-		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}},
+		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}, channelHost},
 		Sink:                 bus,
 		Compactions:          backend,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
@@ -357,6 +386,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
 
+	// Start the channel ears before the server listens (C3). Unconfigured
+	// and disabled channels are skipped; empty allow_from refuses Start
+	// for that channel. A wiring failure here aborts startup.
+	if err := channelHost.StartAll(ctx); err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: start channels: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken, Origins: originPolicy})
 	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
@@ -386,6 +423,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg:      cfg,
 		logger:   logger,
 		service:  svc,
+		channels: channelHost,
 		backend:  backend,
 		worker:   workerManager,
 		resolver: resolver,
@@ -642,11 +680,15 @@ func (a *App) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 
-	// Reverse startup order with hard ordering guarantees (E4): runs are
-	// cancelled and then drained while storage is still open, so every
-	// run.cancelled terminal persists before the journal closes; only
-	// then do the HTTP server and the backend shut down.
+	// Reverse startup order with hard ordering guarantees (E4): channels
+	// stop first so an adapter's Stop never races a cancelled run's final
+	// delivery; runs are then cancelled and drained while storage is still
+	// open, so every run.cancelled terminal persists before the journal
+	// closes; only then do the HTTP server and the backend shut down.
 	a.service.StopInteractionSweeper()
+	if a.channels != nil {
+		a.channels.StopAll(shutdownCtx)
+	}
 	a.service.CancelAll()
 	if a.worker != nil {
 		if err := a.worker.Close(shutdownCtx); err != nil {

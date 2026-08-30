@@ -48,6 +48,16 @@ func (s Session) PermissionPreset() PermissionPreset {
 	return PermissionPresetOf(mode, policy)
 }
 
+// Provenance marks the world entry of one user turn. The runtime stamps
+// it onto the user message row; a nil Provenance (or an empty Source,
+// see Message.EffectiveSource) means the built-in UI.
+type Provenance struct {
+	Source           string // "ui" | "channel"
+	Channel          string // platform name, e.g. "telegram"; channel turns only
+	ChatID           string // platform chat the turn arrived in; channel turns only
+	ChannelMessageID string // platform-side message id; channel turns only
+}
+
 // Message is one turn in a session. Content is append-only; there is no
 // silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
 // model-visible tool turn (ADR-010); they are empty on ordinary text rows.
