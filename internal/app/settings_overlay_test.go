@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 )
@@ -24,7 +26,7 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg)
+	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
 	if applied.Tools.NetworkSearch.Provider != "searxng" {
 		t.Fatalf("network_search provider = %q, want searxng (settings override)", applied.Tools.NetworkSearch.Provider)
 	}
@@ -38,7 +40,7 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	if _, err := settings.Save(settings.Path(dir2), settings.Settings{}); err != nil {
 		t.Fatal(err)
 	}
-	applied2 := applySettingsOverlay(context.Background(), logger, cfg2)
+	applied2 := applySettingsOverlay(context.Background(), logger, cfg2, nil)
 	if applied2.Tools.NetworkSearch.Provider != "wikipedia" {
 		t.Fatalf("network_search provider = %q, want config default wikipedia", applied2.Tools.NetworkSearch.Provider)
 	}
@@ -51,7 +53,7 @@ func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MISSING"}},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg)
+	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
 	if applied.Providers.Active != "" {
 		t.Fatalf("missing settings document must not change cfg, active = %q", applied.Providers.Active)
 	}
@@ -67,7 +69,7 @@ func TestApplySettingsOverlayIgnoresMockProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg)
+	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
 	if applied.Providers.Active != "openai" {
 		t.Fatalf("active = %q, want openai", applied.Providers.Active)
 	}
@@ -81,7 +83,7 @@ func TestApplySettingsOverlayExecuteTimeout(t *testing.T) {
 	}
 	base.Storage.SQLite.Path = filepath.Join(t.TempDir(), "vivy.db")
 
-	got := applySettingsOverlay(context.Background(), logger, base)
+	got := applySettingsOverlay(context.Background(), logger, base, nil)
 	if got.Runtime.ExecuteMaxTimeoutSeconds != 30 {
 		t.Fatalf("empty overlay changed ceiling to %d", got.Runtime.ExecuteMaxTimeoutSeconds)
 	}
@@ -89,7 +91,7 @@ func TestApplySettingsOverlayExecuteTimeout(t *testing.T) {
 	if _, err := settings.Save(settings.Path(base.DataDirectory()), settings.Settings{ExecuteMaxTimeoutSeconds: 300}); err != nil {
 		t.Fatal(err)
 	}
-	got = applySettingsOverlay(context.Background(), logger, base)
+	got = applySettingsOverlay(context.Background(), logger, base, nil)
 	if got.Runtime.ExecuteMaxTimeoutSeconds != 300 {
 		t.Fatalf("overlay ceiling = %d, want 300", got.Runtime.ExecuteMaxTimeoutSeconds)
 	}
@@ -103,7 +105,7 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 		Runtime: config.Runtime{MCPServers: []config.MCPServer{{Name: "from-config", Endpoint: "https://config.example.com/mcp"}}},
 	}
 
-	got := applySettingsOverlay(context.Background(), logger, cfg)
+	got := applySettingsOverlay(context.Background(), logger, cfg, nil)
 	if len(got.Runtime.MCPServers) != 1 || got.Runtime.MCPServers[0].Name != "from-config" {
 		t.Fatalf("missing overlay changed mcp = %+v", got.Runtime.MCPServers)
 	}
@@ -115,7 +117,7 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 	if _, err := settings.Save(settings.Path(dir), settings.Settings{MCPServers: &list}); err != nil {
 		t.Fatal(err)
 	}
-	got = applySettingsOverlay(context.Background(), logger, cfg)
+	got = applySettingsOverlay(context.Background(), logger, cfg, nil)
 	if len(got.Runtime.MCPServers) != 1 || got.Runtime.MCPServers[0].Name != "docs" {
 		t.Fatalf("overlay mcp = %+v, want enabled docs only", got.Runtime.MCPServers)
 	}
@@ -129,7 +131,7 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 	if _, err := settings.Save(settings.Path(dir2), settings.Settings{MCPServers: &empty}); err != nil {
 		t.Fatal(err)
 	}
-	got = applySettingsOverlay(context.Background(), logger, cfg2)
+	got = applySettingsOverlay(context.Background(), logger, cfg2, nil)
 	if got.Runtime.MCPServers == nil {
 		got.Runtime.MCPServers = []config.MCPServer{}
 	}
@@ -151,7 +153,7 @@ func TestApplySettingsOverlaySandboxPreset(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got := applySettingsOverlay(context.Background(), logger, base)
+	got := applySettingsOverlay(context.Background(), logger, base, nil)
 	if got.Runtime.Sandbox.DefaultMode != "read_only" || got.Runtime.Sandbox.Approval.DefaultPolicy != "ask" {
 		t.Fatalf("sandbox overlay = %+v", got.Runtime.Sandbox)
 	}
@@ -160,5 +162,97 @@ func TestApplySettingsOverlaySandboxPreset(t *testing.T) {
 	}
 	if len(got.Runtime.Sandbox.Network.AllowedDomains) != 1 || got.Runtime.Sandbox.Network.AllowedDomains[0] != "example.com" {
 		t.Fatalf("allowed domains = %+v", got.Runtime.Sandbox.Network.AllowedDomains)
+	}
+}
+
+// TestApplySettingsOverlayChannels: the per-channel overlay replaces only
+// the three knobs it carries, preserves the config envelope's opaque
+// Settings node and untouched fields, creates a fresh envelope for a
+// compiled-in channel that config.yaml never configured, and drops stale
+// entries naming channels that are not compiled into this generation.
+func TestApplySettingsOverlayChannels(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dir := t.TempDir()
+
+	// Build the config envelope through YAML so the opaque Settings node is
+	// a real decoded subtree, exactly as config.Load would produce it.
+	var cfg config.Config
+	if err := yaml.Unmarshal([]byte(`
+storage:
+  data_dir: `+dir+`
+channels:
+  telegram:
+    enabled: false
+    allow_from: [alice]
+    token_env: TELEGRAM_BOT_TOKEN
+    settings:
+      parse_mode: HTML
+      poll_timeout: 7
+`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Channels["telegram"].Settings.Kind != yaml.MappingNode {
+		t.Fatalf("fixture settings node = %+v, want a mapping", cfg.Channels["telegram"].Settings)
+	}
+
+	enabled := true
+	senders := []string{"bob", "carol"}
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{Channels: []settings.ChannelOverlay{
+		{Name: "telegram", Enabled: &enabled, AllowFrom: &senders},
+		{Name: "ghost", Enabled: &enabled}, // not compiled into this generation
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := applySettingsOverlay(context.Background(), logger, cfg, []string{"telegram"})
+	if _, dropped := got.Channels["ghost"]; dropped {
+		t.Fatal("stale overlay entry for a non-compiled-in channel must be dropped")
+	}
+	env := got.Channels["telegram"]
+	if !env.Enabled {
+		t.Fatal("overlay did not enable the channel")
+	}
+	if len(env.AllowFrom) != 2 || env.AllowFrom[0] != "bob" || env.AllowFrom[1] != "carol" {
+		t.Fatalf("allow_from = %+v, want the overlay list", env.AllowFrom)
+	}
+	if env.TokenEnv != "TELEGRAM_BOT_TOKEN" {
+		t.Fatalf("token_env = %q, want the config value preserved (overlay did not carry it)", env.TokenEnv)
+	}
+	if env.Settings.Kind != yaml.MappingNode {
+		t.Fatalf("opaque settings node = %+v, want the config.yaml node preserved", env.Settings)
+	}
+	var inner struct {
+		ParseMode   string `yaml:"parse_mode"`
+		PollTimeout int    `yaml:"poll_timeout"`
+	}
+	if err := env.Settings.Decode(&inner); err != nil {
+		t.Fatal(err)
+	}
+	if inner.ParseMode != "HTML" || inner.PollTimeout != 7 {
+		t.Fatalf("settings inner keys lost: %+v", inner)
+	}
+
+	// A compiled-in channel with no config envelope gets a fresh one from
+	// the overlay entry alone.
+	discEnabled := true
+	discSenders := []string{"carol"}
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{Channels: []settings.ChannelOverlay{
+		{Name: "discord", Enabled: &discEnabled, AllowFrom: &discSenders},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, cfg, []string{"telegram", "discord"})
+	disc := got.Channels["discord"]
+	if !disc.Enabled || len(disc.AllowFrom) != 1 || disc.TokenEnv != "" || disc.Settings.Kind != 0 {
+		t.Fatalf("fresh overlay envelope = %+v", disc)
+	}
+
+	// No overlay entries: the config envelopes stand untouched.
+	if _, err := settings.Save(settings.Path(dir), settings.Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlay(context.Background(), logger, cfg, []string{"telegram"})
+	if len(got.Channels) != 1 || got.Channels["telegram"].Enabled {
+		t.Fatalf("no-overlay config must pass through: %+v", got.Channels)
 	}
 }

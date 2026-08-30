@@ -1,6 +1,8 @@
 // 通道平台信息定义（移植自 Agent-Diva agent-diva-gui
-// src/components/settings/channel-platforms.ts，仅保留 GUI 可见平台）。
-// 用于配置向导中的平台信息展示和快速指引。
+// src/components/settings/channel-platforms.ts）。
+// 只保留本代可编译进内核的平台（以 plugin.Name() 为键）；向导的
+// 可选集合不再来自这份固定表，而是 channel/inspect 返回的编译内
+// 通道中"尚未配置"的子集——本表只提供展示元数据（图标、指引、难度）。
 
 import { CHANNEL_CREDENTIAL_FIELDS, type WizardFormField } from './channel-schema';
 
@@ -21,24 +23,7 @@ export interface ChannelPlatformInfo {
   quickGuideSteps: string[];
 }
 
-/**
- * 未经验证、已从 GUI 下架的通道（Diva 用户决策 2026-08-18）。
- * 后端代码与配置结构保留作历史性保留，GUI 不再展示/编辑。
- */
-export const RETIRED_CHANNELS: readonly string[] = [
-  'slack',
-  'whatsapp',
-  'nextcloud_talk',
-  'mattermost',
-  'matrix',
-  'irc',
-];
-
-export function isRetiredChannel(name: string): boolean {
-  return RETIRED_CHANNELS.includes(name);
-}
-
-/** 各平台详细信息（与凭据 schema 一一对应）。 */
+/** 各平台展示元数据（与凭据 schema 一一对应；键 = plugin.Name()）。 */
 export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
   telegram: {
     name: 'telegram',
@@ -102,21 +87,6 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
       '发布应用并设置可见范围',
     ],
   },
-  email: {
-    name: 'email',
-    displayName: 'Email',
-    tutorialPath: '/docs/channels/email.md',
-    difficulty: 2,
-    requiresPublicIP: false,
-    accessMethod: 'IMAP/SMTP',
-    credentialFields: CHANNEL_CREDENTIAL_FIELDS.email,
-    quickGuideSteps: [
-      '获取邮箱的 IMAP 和 SMTP 服务器地址',
-      '在邮箱设置中开启 IMAP/SMTP 服务',
-      '生成应用专用密码（推荐使用授权码）',
-      '配置收发服务器地址和端口',
-    ],
-  },
   qq: {
     name: 'qq',
     displayName: 'QQ',
@@ -132,46 +102,4 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
       '配置功能权限和沙箱环境',
     ],
   },
-  'neuro-link': {
-    name: 'neuro-link',
-    displayName: 'Neuro-Link',
-    tutorialPath: '/docs/channels/neuro-link.md',
-    difficulty: 1,
-    requiresPublicIP: false,
-    accessMethod: 'WebSocket 服务',
-    credentialFields: CHANNEL_CREDENTIAL_FIELDS['neuro-link'],
-    quickGuideSteps: [
-      '配置监听地址（默认 0.0.0.0）',
-      '配置监听端口（默认 8080）',
-      '启动 Neuro-Link 服务',
-    ],
-  },
 };
-
-/** 获取平台的必填字段列表。 */
-export function getRequiredFields(platform: string): string[] {
-  const fields = CHANNEL_CREDENTIAL_FIELDS[platform] || [];
-  return fields.filter((f) => f.required).map((f) => f.key);
-}
-
-/** 验证配置是否完整。 */
-export function validateConfig(platform: string, config: Record<string, unknown>): {
-  valid: boolean;
-  missing: string[];
-} {
-  const required = getRequiredFields(platform);
-  const missing = required.filter((key) => {
-    const value = config[key];
-    return value === undefined || value === null || value === '';
-  });
-
-  return {
-    valid: missing.length === 0,
-    missing,
-  };
-}
-
-/** 向导可选平台（有凭据字段的平台；下架通道不入向导）。 */
-export function wizardPlatformNames(): string[] {
-  return Object.keys(CHANNEL_PLATFORMS);
-}
