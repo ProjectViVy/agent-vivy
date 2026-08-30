@@ -58,4 +58,4 @@ picoclaw `pkg/channels/feishu`。合同明确不做 32-bit stub、表情、公�
 
 [CH-C7b.md](CH-C7b.md)。
 
-> **DONE 2026-08-30** — 分支 `feat/channel-c7a`（基于 c6）。SDK 选型样板：飞书 WS 必须 oapi-sdk-go/v3 ≥ v3.11.0（旧版生命周期破损）；`*_env` 双密钥 + `encrypt_key`/`is_lark` 走插件 settings。Filing: `docs/logs/2026-08-30-channel-c7a/`。
+> **DONE 2026-08-30** — commit 12a2a70 落于 feat/channel-c6 线（未单独切分支）。SDK 选型样板：飞书 WS 必须 oapi-sdk-go/v3 ≥ v3.11.0（旧版生命周期破损）；`*_env` 双密钥 + `encrypt_key`/`is_lark` 走插件 settings。Filing: `docs/logs/2026-08-30-channel-c7a/`。

@@ -645,6 +645,55 @@ func TestHandlerFencedAfterStop(t *testing.T) {
 	}
 }
 
+// TestStartAfterStopStartsFresh: starting again on the same instance is a
+// new ear — Start resets the stopped latch (qq pattern, review L3-F2).
+// Pre-fix, the stale latch made the restarted supervisor exit before
+// firstErr was delivered, so Start hung until the caller's context ended;
+// the bounded restart context proves it returns promptly, and the new ear
+// publishes instead of having every event fenced.
+func TestStartAfterStopStartsFresh(t *testing.T) {
+	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`"}`)
+	ws := newFakeWS(nil)
+	p, _ := startWithFake(t, env, ws)
+	onEvent, _, _ := ws.state()
+
+	// Traffic on the first ear leaves published state behind.
+	if err := onEvent(context.Background(), p2pTextEvent()); err != nil {
+		t.Fatalf("event handler: %v", err)
+	}
+	waitFor(t, "first inbound envelope", func() bool { return len(env.snapshot()) == 1 })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	// The restart swaps in a fresh fake client; the same plugin instance
+	// must publish through it.
+	second := newFakeWS(nil)
+	p.newWS = func(onEvent eventFunc, _ wsCreds, _ string) wsClient {
+		second.setOnEvent(onEvent)
+		return second
+	}
+	startCtx, startCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer startCancel()
+	if err := p.Start(startCtx, env); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	handler2, starts2, _ := second.state()
+	if handler2 == nil {
+		t.Fatal("restart must wire the event handler")
+	}
+	if starts2 != 1 {
+		t.Fatalf("restart starts = %d, want exactly the one fresh connect", starts2)
+	}
+	if err := handler2(context.Background(), p2pTextEvent()); err != nil {
+		t.Fatalf("restarted event handler: %v", err)
+	}
+	waitFor(t, "inbound envelope on the restarted ear", func() bool { return len(env.snapshot()) == 2 })
+}
+
 // TestSendNotStartedFailsClosed: Send before Start, and an empty chat id,
 // fail closed without touching the network.
 func TestSendNotStartedFailsClosed(t *testing.T) {

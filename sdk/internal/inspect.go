@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io/fs"
 	"path/filepath"
 	"strconv"
@@ -61,6 +62,18 @@ var bannedImportPrefixes = map[string]string{
 	// prefix-wide so every pion module (webrtc, media, transport, rtp, ...)
 	// is covered, not only webrtc itself.
 	"github.com/pion/": "pion/webrtc is banned in plugins (no voice in Vivy channels)",
+	// Review L1-F2 (contract §9.3): picoclaw is the reference clone this
+	// epic learns from, never a dependency of a shipped plugin.
+	"github.com/sipeed/picoclaw": "reference material must be rewritten, not imported (picoclaw/.workspace)",
+}
+
+// bannedImportSubstrings are path fragments no plugin import may contain
+// anywhere (prefix matching cannot express that). `.workspace` is the
+// in-tree reference/scratch checkout (AGENTS.md); importing from it means
+// reference material leaked into a plugin. May double-report an import the
+// prefix map already caught — both messages point at the same rewrite.
+var bannedImportSubstrings = map[string]string{
+	".workspace": "reference material must be rewritten, not imported (picoclaw/.workspace)",
 }
 
 func checkSources(files []sourceFile) []string {
@@ -74,6 +87,11 @@ func checkSources(files []sourceFile) []string {
 		for path := range imports {
 			for prefix, reason := range bannedImportPrefixes {
 				if strings.HasPrefix(path, prefix) {
+					issues = append(issues, src.rel+": import of "+path+" is forbidden: "+reason)
+				}
+			}
+			for fragment, reason := range bannedImportSubstrings {
+				if strings.Contains(path, fragment) {
 					issues = append(issues, src.rel+": import of "+path+" is forbidden: "+reason)
 				}
 			}
@@ -117,6 +135,7 @@ func bannedCalls(src sourceFile, imports map[string]string) []string {
 	execName := imports["os/exec"]
 	netName := imports["net"]
 	httpName := imports["net/http"]
+	tlsName := imports["crypto/tls"]
 	var issues []string
 	ast.Inspect(src.file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -155,6 +174,22 @@ func bannedCalls(src sourceFile, imports map[string]string) []string {
 			case "ListenAndServe", "ListenAndServeTLS":
 				issues = append(issues, src.rel+": "+httpName+"."+sel.Sel.Name+" opens a listen socket (Listen belongs to the kernel ChannelHost)")
 			}
+		}
+		if tlsName != "" && ident.Name == tlsName && sel.Sel.Name == "Listen" {
+			issues = append(issues, src.rel+": "+tlsName+".Listen opens a listen socket (Listen belongs to the kernel ChannelHost)")
+		}
+		// Method-form widening (review L4): the package-qualified rules
+		// above only see an identifier receiver, so `(&http.Server{}).
+		// ListenAndServe()` or `net.ListenPacket` slipped through. Match the
+		// selector NAME on ANY receiver — the same sockets open through a
+		// value as through the package. Deliberately conservative: a plugin
+		// type that happens to own a method of one of these names is
+		// flagged too (accepted false positive — verify carries no
+		// cross-package type information), and a package-qualified call can
+		// now report twice (package rule + name rule).
+		switch sel.Sel.Name {
+		case "ListenAndServe", "ListenAndServeTLS", "ListenPacket":
+			issues = append(issues, src.rel+": "+types.ExprString(sel)+" opens a listen socket (Listen belongs to the kernel ChannelHost)")
 		}
 		return true
 	})

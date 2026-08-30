@@ -1,6 +1,6 @@
 # CH-C7b — `plugins/qq` 官方 Bot 文本（summary）
 
-日期：2026-08-30。分支 `feat/channel-c7b`（自 `feat/channel-c7a` 12a2a70 切出；顺序切片复用同一 worktree）。
+日期：2026-08-30。分支 `feat/channel-c7b`（自 12a2a70（C7a，位于 feat/channel-c6 线）切出；顺序切片复用同一 worktree）。
 PLAN：`docs/plans/channel-epic/CH-C7b.md`。合同：`VIVY-CHANNEL-PACK.md` §14.1（qq 行：官方开放平台机器人，非个人号）。
 
 ## 做了什么

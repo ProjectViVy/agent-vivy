@@ -61,8 +61,8 @@ Do not pick work from those tables. Closed-track filing:
 | CH-C9 | A2A / NeuroLink 能力提案 | DEFERRED | 备忘 Plan: `docs/plans/channel-epic/CH-C9.md`。不是开工令 |
 | CH-C | wecom after a non-TTY bind surface | OPEN | QR bind 是挡板；不进 2026-08-30 本批、不进 §0.2 本期日历 |
 | CH-C1-N1 | `channel.inbound` 信封张力：RunEvent envelope 必填 `run_id`，而入账发生在 run 存在前 | RESOLVED | 2026-08-30 CH-C3 结案：每条入站消息以独立伪 run 作用域 `chanin_<hex>` 入账（journal 零改动、D-008 不受影响、合同零改动），payload `run_id` 按可选省略。保留策略见 CH-C3-N1。Filing: `docs/logs/2026-08-30-channel-c3/summary.md` |
-| CH-C1-N2 | 合同 §12 Journal 草图与 CH-C1 §4 payload 定形不一致 | OPEN | Found 2026-08-30 (CH-C1)：合同写 `{channel, peer, message_id, content_digest, bytes}`，PLAN 定形 `{channel, chat_id, sender, message_id, session_id, run_id?}`（无 digest/bytes）。已按 PLAN 实现；请架构师确认是否回写合同 §12 |
-| CH-C1-N3 | Message 出处未上 RPC/UI：`messageResult` 只投影 ID/RunID/Role/Content/CreatedAt | OPEN | Found 2026-08-30 (CH-C1)：出处已入库但 JSON-RPC 不可见。归 CH-C5 inspect/设置页切片 |
+| CH-C1-N2 | 合同 §12 Journal 草图与 CH-C1 §4 payload 定形不一致 | OPEN | Found 2026-08-30 (CH-C1)：合同写 `{channel, peer, message_id, content_digest, bytes}`，PLAN 定形 `{channel, chat_id, sender, message_id, session_id, run_id?}`（无 digest/bytes）。已按 PLAN 实现；请架构师确认是否回写合同 §12。审查结论（2026-08-30 Review L1）：审查建议回写合同 §12（采用已实现的 identifiers-only payload），待架构师拍板 |
+| CH-C1-N3 | Message 出处未上 RPC/UI：`messageResult` 只投影 ID/RunID/Role/Content/CreatedAt | OPEN | Found 2026-08-30 (CH-C1)：出处已入库但 JSON-RPC 不可见。2026-08-30 (Review) 复核：出处 RPC 投影仍未做（messageResult 仍无 Source），不再指向 CH-C5；待后继 UI/RPC 切片 |
 | CH-C1-N4 | `Source` 无词表校验：`EffectiveSource` 透传任意非空值 | OPEN | Found 2026-08-30 (CH-C1)：与「无类型词表」决定一致；CH-C2 SDK seam 落地时随合同定 `ui\|channel` 词表与校验 |
 | CH-C1-N5 | postgres v14→15 升级测试与 pg 侧 CN-17 未在真实 Postgres 执行 | OPEN | Found 2026-08-30 (CH-C1)：本机无 Docker/5432，`VIVY_POSTGRES_TEST_DSN` 门控用例仅验证编译/vet/干净 SKIP；下一次有 Postgres 的环境跑一轮 |
 | CH-C2-N1 | verify 四个分支缺夹具：非 channel seam 领 channel 族 grant / channel 重复 grant / transport=webhook / 负 max_message_runes | RESOLVED | 2026-08-30 CH-C6 清账：`bad-channel-transport` / `bad-channel-dup-grant` / `bad-tool-channel-grant` / `bad-channel-runes` 四夹具 + verify_test 断言各对应规则。Filing: `docs/logs/2026-08-30-channel-c6/summary.md` |
@@ -75,9 +75,13 @@ Do not pick work from those tables. Closed-track filing:
 | CH-C5-N2 | `pendingRestart` 探不到纯 allow_from 编辑（allow_from 不在 inspect 面）；inspect 失败时空态可能误读 | OPEN | Found 2026-08-30 (CH-C5)：后继可在 inspect 加 allow_from 摘要字段；inspect 错误态与空态视觉区分 |
 | CH-C6-N1 | 死耳静默重拨：凭据吊销/网关不可达时 3s 监督器静默重试（SDK 默认 logger 不输出，ChannelEnv 无日志面） | OPEN | Found 2026-08-30 (CH-C6)：inspect note 只记 Start 失败，运行期死亡不可见。后继给 ChannelEnv 加日志面或 Host 巡检 Stream 健康时一并解决 |
 | CH-C6-N2 | settings `*_env` 声明名无 env-name 模式强校验（字符串即声明，嵌套/非串忽略） | OPEN | Found 2026-08-30 (CH-C6)：适配器自身 strict decode 约束实际使用，方向 fail-closed；如需硬审计在 hostEnv 加 `^[A-Z_][A-Z0-9_]*$` 校验 |
+| CH-C6-N3 | dingtalk 网络级静默断线后耳朵失聪（SDK Start 在 conn 存活时立即返回，仅优雅断连帧触发重拨） | OPEN | Review L3 F1：需适配器自管死链检测（staleness→Close+redial） |
 | CH-C7a-N1 | feishu `supervise` 首连与 Stop 重叠时三条早退路径不保证送达 `firstErr`（Start 可能滞留至调用方 ctx 结束） | OPEN | Found 2026-08-30 (CH-C7a)：经 Host 调用序不可达（Host 只 Stop 已完成 Start 的耳；调用方 ctx 取消可解锁）；修法 = 首轮 defer 送达 firstErr 或软化注释。真适配器 stop-during-start 语义落地时一并修。qq 侧同形问题已修（`TestStopDuringFirstHandshakeReturns`），feishu 可照抄 |
 | TEST-2 | `internal/runtime TestServiceApprovalApproveFlow` 满负载下出现过一次 flake（隔离/整包/全量 ci 复跑均绿） | OPEN | Found 2026-08-30 (CH-C7b 落地时)：runtime 自 C3 零改动，疑似时序敏感（审批过期窗口？）。下次触发的 `-count=N` 复现与修复 |
 | CH-C7c-N1 | `just ci` 不覆盖 `plugins/*`（fmt-check glob 只扫 cmd/internal/sdk/ui；`go test ./...` 不过独立 module 边界） | OPEN | Found 2026-08-30 (CH-C7c)：五只耳朵的 gofmt/vet/test 全靠切片内人工执行。建议加 `plugin-ci` 配方逐独立 module 跑 vet/test/gofmt（默认不编译产物） |
+| CH-R-1 | §8「错误分类（rate-limit/temporary）」槽位无 SDK 落点且此前未登记 | OPEN | Review L1：合同 §8 可例行有 HealthChecker 但无错误分类词表；待 C8+ 或错误处理提案 |
+| CH-R-4 | verify 无「必须实现 Channel」类型检查（AST 不可达） | OPEN | Review L4：启动期 partitionChannels 兜底（非 Channel=启动失败）；SDK 侧类型检查不可行，留作备忘 |
+| CH-R-5 | generation.json 未按 seam 分类列出（name/version/seam/grants/transport/tree_hash） | OPEN | Review L1 F3：合同 §10 承诺；C2 日志有记录但未上板 |
 | ACP-1 | ACP / remote control **implementation** | DEFERRED | H11 proposal exists; needs explicit approval |
 | HITL-P1-1 | Specialized proposal editing | OPEN | Intentionally out of 2026-08-12 P0 |
 | HITL-P1-2 | Scoped remember / allow policies | OPEN | |
@@ -113,7 +117,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | OPEN | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。与 MCP 无关，未在本迭代改这条旧断言 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
 | UI-PROV-REGISTRY | 注册表 localStorage 存量数据无迁移路径 | OPEN | 2026-08-28 provider 写逻辑改为后端注册表后，旧 `vivy.ui.customProviders` localStorage 条目不再被读取（见 `docs/logs/2026-08-28-provider-direct-write/`）。本地用户需在设置页重新登记；如需自动迁移需 UI 一次性读旧 key 并逐条 `upsertProvider`（含是否回填 apiKey 的产品决策） |
-| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | OPEN | **领取 CH-C5 PLAN，不要另开 lane。** `docs/plans/channel-epic/CH-C5.md` |
+| UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | DONE | CH-C5 已领取并交付，见 docs/logs/2026-08-30-channel-c5/ |
 | UI-TODO-MUTATE | 待办清单只读，人不能在 UI 里增删改 | OPEN | 2026-08-29 聊天区已接真实 `session/todos`（见 `docs/logs/2026-08-29-chat-plan-todo-display/`）；变更只来自 `task_*` 工具。人闸编辑会变成伪操作，需明确产品决策后再做 |
 | UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。移植 `create_goal` 需内核提案 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
@@ -248,7 +252,7 @@ gantt
 
 ### 0.2.7 下一刀
 
-**本期（C1–C7c）已全部 DONE（2026-08-30，M-CH4 关门）。** 分支链 `feat/channel-c1`→`c2`→…→`c7c`，log 见 `docs/logs/2026-08-30-channel-c*/`。
+**本期（C1–C7c）已全部 DONE（2026-08-30，M-CH4 关门）。** 分支链：`feat/channel-c1`→`c2`→…→`c6`；C7a 的 commit 12a2a70 当时直接落在 `feat/channel-c6` 线上（未单独切 `feat/channel-c7a` 分支），随后 `feat/channel-c7b`、`feat/channel-c7c` 依次切出。log 见 `docs/logs/2026-08-30-channel-c*/`。
 
 无排期内的下一刀。阶段 H 均为备忘、不是开工令：
 

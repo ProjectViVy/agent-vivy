@@ -319,6 +319,7 @@ type Channel interface {
 type ChannelEnv interface {
     Secret(envKey string) (string, error) // 失败闭合；值不进日志
     HTTP() *http.Client                   // 出站；无 Listen
+    Settings() json.RawMessage            // C4 新增；opaque settings 以 JSON 传插件
     PublishInbound(ctx context.Context, msg InboundMessage) error
     Media() MediaStore                    // 第一刀可为 no-op
 }

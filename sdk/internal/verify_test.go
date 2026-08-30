@@ -45,6 +45,11 @@ func TestVerifyRejectsForbiddenPlugins(t *testing.T) {
 		{"bad-os-open", "os.Open"},
 		{"bad-channel-tools", "seam channel forbids tools"},
 		{"bad-channel-listen", "opens a listen socket"},
+		// Review L4: the listen ban also catches the method form on a
+		// server value, and reference material (picoclaw/.workspace,
+		// contract §9.3) may not be imported as a dependency.
+		{"bad-channel-listen2", "opens a listen socket"},
+		{"bad-picoclaw-import", "reference material must be rewritten, not imported (picoclaw/.workspace)"},
 		{"bad-channel-grant", "is not allowed in this batch"},
 		// CH-C2-N1 debt closed in CH-C6: manifest-level channel rules get
 		// their own negative fixtures, mirroring bad-eino-import style.

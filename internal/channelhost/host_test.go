@@ -497,6 +497,48 @@ func TestStartAllIgnoresConfigWithoutPlugin(t *testing.T) {
 	}
 }
 
+// TestDeliverCompletedDropsUnregisteredChannel: an envelope naming a
+// channel absent from Deps.Channels passes dispatch (StartAll ignores such
+// envelopes, the pipeline does not), so the run is tracked with a nil
+// channel. The completed terminal must drop the delivery with a warning —
+// pre-guard this panicked the delivery goroutine on the nil interface.
+func TestDeliverCompletedDropsUnregisteredChannel(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{ch},
+		Config:   config.Channels{"ghost": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:   testLogger(),
+	})
+	env := host.envFor(ch)
+	err := env.PublishInbound(context.Background(), plugin.InboundMessage{
+		Channel: "ghost", ChatID: "chat-9", Sender: "alice", MessageID: "m-ghost",
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "hello ghost"}},
+	})
+	if err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+	calls := runs.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("run calls = %d, want 1", len(calls))
+	}
+	host.OnRunEvent(context.Background(), domain.RunEvent{
+		RunID: calls[0].runID, Type: domain.EventRunCompleted,
+		CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1,
+	})
+	// Delivery runs on a detached goroutine; a panic there would kill the
+	// test process, so reaching here with nothing delivered is the pass.
+	time.Sleep(100 * time.Millisecond)
+	if got := ch.Snapshot(); len(got) != 0 {
+		t.Fatalf("unregistered channel delivered: %+v", got)
+	}
+}
+
 // TestDiscoverReportsOnlyImplementedCapabilities: the fake implements no
 // optional interface; one stub flips exactly its own bit.
 func TestDiscoverReportsOnlyImplementedCapabilities(t *testing.T) {

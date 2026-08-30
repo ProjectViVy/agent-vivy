@@ -198,6 +198,13 @@ func (p *Plugin) Tools() []plugin.Tool { return nil }
 // The passed ctx stays the parent of the supervisor loop: cancelling it
 // (or calling Stop) takes the ear down.
 func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
+	p.mu.Lock()
+	// A new Start is a new ear: a Stop that ran before this Start must
+	// neither fence the new callbacks nor make the new supervisor exit
+	// before firstErr is delivered (a stale latch would hang Start here).
+	// (Stop remains idempotent within an ear's lifetime.)
+	p.stopped = false
+	p.mu.Unlock()
 	settings, err := DecodeSettings(env.Settings())
 	if err != nil {
 		return err
