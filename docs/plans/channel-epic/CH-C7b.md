@@ -55,3 +55,5 @@ picoclaw `pkg/channels/qq`。DIVA：不要个人号 / NapCat 外挂。
 ## 10. 交接
 
 [CH-C7c.md](CH-C7c.md)。
+
+> **DONE 2026-08-30** — 分支 `feat/channel-c7b`（基于 c7a）。样板要点：botgo 的 ChanManager/token 自启协程不可用（源码核实），自驱 `websocket.ClientImpl` + resume + supervised redial；被动回复靠入站 msg_id（内存窗）；群事件在 botgo v0.2.1 解不出地址，勿尝试。Filing: `docs/logs/2026-08-30-channel-c7b/`。
