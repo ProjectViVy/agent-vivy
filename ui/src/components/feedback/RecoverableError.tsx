@@ -65,6 +65,7 @@ export function RecoverableFailure({
         <div className={cn('min-w-0', compact ? 'flex-1' : 'w-full')}>
           <h2 className={cn('font-medium text-foreground', compact ? 'text-sm' : 'text-lg')}>{t(failure.titleKey)}</h2>
           <p className={cn('text-sm text-muted-foreground', compact ? 'mt-1' : 'mt-2')}>{failure.detail}</p>
+          {failure.hintKey ? <p className={cn('text-xs text-muted-foreground/80', compact ? 'mt-1' : 'mt-2')}>{t(failure.hintKey)}</p> : null}
           {showRetry || showSettings ? (
             <div className={cn('flex flex-wrap gap-2', compact ? 'mt-3' : 'mt-4 justify-center')}>
               {showRetry ? (

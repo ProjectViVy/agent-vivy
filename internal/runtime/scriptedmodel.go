@@ -15,7 +15,7 @@ import (
 // Generate/Stream call. It is exported so packages outside runtime (the
 // integration tests, which must not import eino themselves,
 // D-007) can drive interrupt/resume flows deterministically. Test-only:
-// production paths never use it (mirrors the provider.NewMock precedent).
+// production paths never use it.
 type ScriptedModel struct {
 	mu     sync.Mutex
 	calls  int

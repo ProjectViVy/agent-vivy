@@ -59,11 +59,11 @@ func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 	}
 }
 
-func TestApplySettingsOverlayIgnoresMockProvider(t *testing.T) {
+func TestApplySettingsOverlayAppliesProviderSelection(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
 		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{Active: "openai", OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MOCK"}},
+		Providers: config.Providers{Active: "openai", OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_SELECTION"}},
 	}
 	if _, err := settings.Save(settings.Path(dir), settings.Settings{Provider: settings.ProviderOpenAI}); err != nil {
 		t.Fatal(err)

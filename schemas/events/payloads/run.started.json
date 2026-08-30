@@ -6,7 +6,7 @@
   "properties": {
     "provider": {
       "type": "string",
-      "description": "Active provider bundle name (openai | anthropic | mock)."
+      "description": "Active provider bundle name (openai | anthropic)."
     },
     "model": {
       "type": "string",

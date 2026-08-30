@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-30
+> Updated: 2026-08-31
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -46,11 +46,11 @@ Do not pick work from those tables. Closed-track filing:
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | UI-COMPOSER | 聊天框剩余伪操作按钮接后端：附件 / AutoDream / "＋更多" / 思考模式 / 询问模式 | OPEN | 2026-08-30 用户确认保留 UI 并告知；见 `docs/logs/2026-08-30-chatbox-buttons/summary.md`。执行模式 agent/plan 已接线（`RunMode` normal/plan） |
 | E2E-STALE | main 既有 e2e 失败：`ui/e2e/runtime.spec.ts` 设置-模型断言（密钥只由运行环境管理）与 `welcome-wizard.spec.ts` 配置模型步骤 | OPEN | 2026-08-30 chatbox-buttons lane 发现：干净 HEAD 上同样失败（runtime 卡设置-模型断言、wizard 卡"配置模型"），疑似相对 model-list-sync 过期；与聊天框改动无关 |
-| TEST-1 | Mock-provider execute/commandline scenario for offline e2e | OPEN | Found 2026-08-26 (execute-timeout work): mock scenarios only drive write_note/ask_user/write_file, so no offline browser path can exercise an execute call; related `internal/provider/mockref.go` |
+| TEST-1 | Mock-provider execute/commandline scenario for offline e2e | DONE | 2026-08-31 runtime mock provider and mock reply path removed; deterministic test doubles remain outside the provider catalog, and model-dependent browser scenarios use a real-provider gate |
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳。演进树 `docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。PLAN 包 `docs/plans/channel-epic/`。日历 §0.2 |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
 | FACE-TUI-1 | Packed `faces/tui` organ (F3) | OPEN | 2026-08-29 探路客户端 `vivy tui`（`internal/tui`）已能连驻留网关对话/审批；不是配方器官；默认双击仍是 web |
-| FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 仍 mock。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
+| FACE-TUI-2 | Crush-style fullscreen TUI on real Client | DONE | 2026-08-29 `vivy tui --live`：`surface.Driver` + `tui.Live` 接驻留网关；`--demo` 使用离线演示数据。见 `docs/logs/2026-08-29-tui-live-client/`。剩余：真滚动 viewport、审批 diff 高亮、`/` 命令条 |
 | CH-A | ChannelHost + telegram + dingtalk（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C1..C6，见 §0.2。勿再按本行领取 |
 | CH-B | feishu / qq / discord（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C7a/b/c，见 §0.2。勿再按本行领取 |
 | CH-C1 | 账本：`channel.inbound` + Message 出处 | DONE | 2026-08-30 Message 增 Source/Channel/ChatID/ChannelMessageID（空 Source=ui）+ `EventChannelInbound` + `channel.inbound` schema；sqlite migration016；postgres 升版 15 含 v14 原地升级；conformance CN-17。无适配器、无 Host。Filing: `docs/logs/2026-08-30-channel-c1/` |
@@ -497,6 +497,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-08-31 | Remove runtime mock provider and normalize provider failures | Deleted the production mock provider/config overlay and removed the Mock entry from the model settings catalog. Resolver now uses saved real-provider settings or returns `ErrModelNotConfigured`; provider failures emit `无法连接！请检查供应商配置！`. Deterministic test doubles live under `internal/testsupport`; model-dependent browser checks require a real provider. Filing: `docs/logs/2026-08-31-remove-runtime-mock/`. |
 | 2026-08-30 | CH-C7c `plugins/discord` 文本（无 voice）——本期关门 | 独立 module（discordgo v0.29 上游，非 picoclaw fork）；DM/文本频道纯文本；session 接口隔离 + supervised 重拨（reconnect() 无视 Close、Open 同步到 READY，源码核实）+ 合成 DISCONNECT `sync.OnceFunc` 死亡信号 + ear/api 分离（专用 REST 会话回复不依赖耳朵在线）；**pion 全前缀封禁进 verify（全 seam）**+ `bad-pion-import` 夹具；LogLevel 显式钉死（LogDebug 会打含 token 的 Identify 包）；无去重栅栏（网关不重投，源码核实）。pack 候选 0 pion。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c7c/`. |
 | 2026-08-30 | CH-C7b `plugins/qq` 官方 Bot 文本 | 独立 module（botgo v0.2.1）；自驱 `websocket.ClientImpl` supervised resume（ChanManager 无限自重连/token 自启协程 11 败 panic，皆源码核实弃用）；仅 C2C 文本（群 out-of-scope：dto 解不出 group_openid）；msg_id 去重栅栏（TTL/容量窗）；被动回复 v2 API（真实 botgo 客户端回环断言）+ 首连 report 栅栏（Stop 期间 Start 有界返回）；静默 logger（D-010，有断言）。`just ci` 绿（首跑撞见一次 runtime 审批流 flake，复跑绿，登记 TEST-2）。Filing: `docs/logs/2026-08-30-channel-c7b/`. |
 | 2026-08-30 | CH-C7a `plugins/feishu` 单聊文本 WS | 独立 module（oapi-sdk-go/v3 v3.11.0——v3.9.4 WS Start `select{}` 永不返回 + pingLoop 泄漏，偏离经源码核实并记录）；p2p 纯文本 in/out（bot 自环防护、open_id 优先兜底序）；supervised 重拨（每次新 client，首连 fail-closed）+ 迟到事件围栏；`*_env` 双密钥 + `encrypt_key` 插件 settings + `is_lark`；Send 走 im.v1.messages（chat_id/text）。386 硬失败验证；真 SDK WS 回环测试 + `-race`。`just ci` 绿。Filing: `docs/logs/2026-08-30-channel-c7a/`. |
@@ -512,7 +513,7 @@ SDK pack, no DSH.
 | 2026-08-30 | CH-0 超级通道合同采纳 | `VIVY-CHANNEL-PACK.md` 从出厂 `channels/` 提案改为已采纳的超级通道合同：Host 在内核；本批五个适配器全部 `plugins/` + `seam: channel`；信封/能力矩阵为 A2A、NeuroLink 预留；不新开 `RegisterChannels()`。无运行时代码。Filing: `docs/logs/2026-08-30-channel-super-contract/`. |
 | 2026-08-30 | CH-0 补 clar：Eino 原生 A2A | 合同 §15.1：偷 `eino-ext/a2a` 的 models/transport，禁止 `RegisterServerHandlers(adk.Agent)` 当网关；循环仍是 `Service.Run`。本批五个插件不 import Eino。Filing: `docs/logs/2026-08-30-channel-a2a-eino-native/`. |
 | 2026-08-30 | UI-PROV-RPC 供应商目录接真实后端（模型在线刷新） | 设置→模型 模型列表新增「刷新」：`GET {base_url}/models`（`internal/provider/discover.go`，15s 超时、Bearer 密钥、去重）+ `settings/providers/refresh` RPC（按 id 或按 bundle+base_url；目录厂商无注册表行时克隆为自定义条目持久化；并集保留手动新增；api_key 永不清除/不回传）+ UI 刷新按钮与同步计数反馈。仅 OpenAI 兼容端点；Anthropic 原生端点不显示按钮并拒绝刷新。Filing: `docs/logs/2026-08-30-model-list-sync/`. 目录静态快照 `provider-catalog.ts` 仍为展示层，未退化为运行时目录（范围外）。 |
-| 2026-08-30 | 离线启动：把 runtime.mock 接回 ModelResolver / Catalog | 编译修复后 `just dev` 的 `config.dev.yaml` 不再解析出 ready 模型。`runtime.mock=true` 再次选 mock Ref，且不冻结 ENV。Filing: `docs/logs/2026-08-30-dev-mock-start/`. |
+| 2026-08-30 | 离线启动：把 runtime.mock 接回 ModelResolver / Catalog | 历史记录：当时用于离线启动；已由 2026-08-31 的运行时 mock 移除交付 supersede。原始记录见 `docs/logs/2026-08-30-dev-mock-start/`. |
 | 2026-08-30 | 编译修复：补回 ModelResolver / ResolvingChatModel / SQLite organism lease | 主线 `app.go` 已接线但实现未合入，`go build ./...` 失败。补回停放实现；`Ref.Model` 改为 `ModelSpec`。Filing: `docs/logs/2026-08-30-compile-model-resolver/`. |
 | 2026-08-30 | UI-MCP MCP 面板接真实后端 | `/mcp` 从 `vivy.demo.mcp` 改为 `settings/mcp*` RPC；settings.yaml overlay 覆盖 `runtime.mcp_servers`；`EinoMCPBackend.ReplaceServers` 热替换 + SSE JSON-RPC 解析。stdio 本迭代不做。Filing: `docs/logs/2026-08-30-mcp-live/`. |
 | 2026-08-30 | UI-CRON CRON 面板接真实调度后端 | `/cron-tasks` 从 `vivy.demo.cron-jobs` 改为 `cron/*` RPC + `internal/runtime` armed-timer 调度器（纯 Go cron 解析器 + time/tzdata；每任务专属会话，终态回写，跳转会话）。`runtime.cron.enabled` 开关，Postgres 对等 `schemaV15`。Filing: `docs/logs/2026-08-30-cron-closed-loop/`. |

@@ -118,7 +118,7 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 			b.WriteString(p.Dim.Render(truncate(" run…", width-1)))
 		}
 	} else {
-		b.WriteString(p.Dim.Render(" mock"))
+		b.WriteString(p.Dim.Render(" demo"))
 		b.WriteByte('\n')
 		b.WriteString(p.Dim.Render(" not connected"))
 	}
@@ -249,7 +249,7 @@ func (m Model) renderHelp(l layout, p Palette) string {
 				footer += " · run…"
 			}
 		} else {
-			footer = "mock · not connected"
+			footer = "demo · not connected"
 		}
 	}
 	if meta.Error != "" {

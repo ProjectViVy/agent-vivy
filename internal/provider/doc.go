@@ -1,12 +1,10 @@
 // Package provider implements the ProviderRef boundary and the pre-baked
-// provider catalog. V0 ships exactly two provider bundles plus a mock:
+// provider catalog. V0 ships exactly two provider bundles:
 //
 //   - openai: OpenAI-compatible, backed by
 //     github.com/cloudwego/eino-ext/components/model/openai;
 //   - anthropic: Vivy-owned thin adapter over the Anthropic Messages API
 //     (no official Eino component exists yet);
-//   - mock: deterministic provider for tests and offline development
-//     (FR-3; selected via config.Runtime.Mock, not operator settings).
 //
 // Bundles are YAML documents adapted from the Diva providers.yaml schema
 // (D-022..D-025), rewritten into Vivy's owned schema with a provenance

@@ -1,5 +1,5 @@
 // Package view is the Crush-style fullscreen TUI driven by a surface.Driver
-// (demo mock or live control-plane client).
+// (offline demo or live control-plane client).
 package view
 
 import (
@@ -176,7 +176,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// RunDemo starts the fullscreen Bubble Tea program on mock data.
+// RunDemo starts the fullscreen Bubble Tea program on offline demo data.
 func RunDemo() error {
 	return Run(demo.NewStore())
 }

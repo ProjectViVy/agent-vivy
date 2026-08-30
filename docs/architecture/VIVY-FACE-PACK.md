@@ -177,7 +177,7 @@ TUI 第一刀是薄的：会话列表、流式对话、一等审批/提问、取
 
 **探路（2026-08-29，不是 F3）。** 仓库里有 `vivy tui`（`internal/tui`）：
 
-- `--demo`：Crush 风格全屏骨架（`internal/tui/view` + `internal/tui/demo`），确定性 mock，不 Dial。
+- `--demo`：Crush 风格全屏骨架（`internal/tui/view` + `internal/tui/demo`），确定性离线演示数据，不 Dial。
 - `--live`：同一全屏壳接真实 `Client`（`internal/tui.Live`），列/切会话、流式 turn、工具卡、审批/提问 overlay、`esc` 取消；网关未起则失败退出，不回落 demo。
 - `--plain`：行式 REPL，连已经在听的网关 `/rpc`，发 `turn/start`，流式 `model.delta`，审批 y/n。
 

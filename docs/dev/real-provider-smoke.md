@@ -37,7 +37,7 @@ gate offline. With the real gateway it PASSED (`-race -count=1`):
 | AS-5 | Cancel mid-stream | PASS (automated suite; see above) |
 | AS-6 | Hard-kill the process mid-run, restart | PASS: the interrupted run settled to `run.failed` with `cause_category: internal_error` and the restart-recovery wording; sessions and messages survived |
 | AS-7 | Refresh the UI mid/post-run | PASS (browser walkthrough: history intact after reload; automated reconnect parity above) |
-| AS-8 | Mock exact-sequence determinism | Covered by the existing engine tests (mock provider unchanged) |
+| AS-8 | Deterministic exact-sequence coverage | Covered by isolated scripted model test doubles (no provider mock in the runtime catalog) |
 | AS-9 | Secrets never reach storage | Covered by the E3 guards (`9fa4d15`), re-run green on every gate of this batch |
 
 UI walkthrough notes: page rendered with session list and chat pane,

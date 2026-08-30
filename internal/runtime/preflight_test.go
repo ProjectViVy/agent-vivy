@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/provider"
+	"agent-vivy/internal/testsupport"
 )
 
 func TestPreflightDoesNotPersistOrCallProvider(t *testing.T) {
-	svc, backend, _ := newTestService(t, provider.NewMock())
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	result, err := svc.Preflight(context.Background(), "sess-preflight", "hello vivy", RunOptions{})
 	if err != nil {
 		t.Fatalf("preflight: %v", err)
@@ -71,7 +71,7 @@ func (h *recordingHook) snapshot() []domain.EventType {
 }
 
 func TestLifecycleHookSeesPersistedRunEvents(t *testing.T) {
-	svc, backend, _ := newTestService(t, provider.NewMock())
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	hook := &recordingHook{}
 	svc.deps.Hooks = []RunHook{hook}
 	runID, err := svc.Run(context.Background(), "sess-hook", "hello")

@@ -22,7 +22,7 @@ func TestViewContainsCrushSkeleton(t *testing.T) {
 		"write_file",
 		":::", // Crush editor prompt
 		"tab", // help keys
-		"mock",
+		"demo",
 		"permission", // overlay title
 	} {
 		if !strings.Contains(got, want) {

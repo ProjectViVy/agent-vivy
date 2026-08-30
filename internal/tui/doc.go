@@ -4,7 +4,7 @@
 //
 // Modes:
 //   - plain REPL (RunREPL)
-//   - fullscreen Crush-style shell on mock data (view + demo)
+//   - fullscreen Crush-style shell on offline demo data (view + demo)
 //   - fullscreen shell on a live Client (Live + view)
 //
 // This is not the packed faces/tui organ in VIVY-FACE-PACK.md. That

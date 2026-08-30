@@ -23,8 +23,8 @@ Consequence: new agent/model features belong in `internal/runtime` or
   - reads API key from `os.Getenv(r.bundle.EnvKey)` (D-010: never cached/persisted);
   - `resolveAPIBase`: `VIVY_API_BASE` env var wins, else `bundle.DefaultAPIBase`;
   - returns `einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{APIKey, BaseURL, Model})` as `model.ToolCallingChatModel`.
-- `ref.go` / `mockref.go`: the `Ref` interface — `Model(ctx, modelID) (model.ToolCallingChatModel, error)`.
-- `mock_test.go` / `provider_test.go`: test coverage pattern.
+- `ref.go` / `openai.go`: the `Ref` interface — `Model(ctx, modelID) (model.ToolCallingChatModel, error)`.
+- `provider_test.go` / `internal/testsupport/echo.go`: provider and deterministic test-double coverage.
 
 ## Runtime adapters (`internal/runtime/`)
 

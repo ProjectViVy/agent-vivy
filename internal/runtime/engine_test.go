@@ -9,7 +9,7 @@ import (
 
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 
-	"agent-vivy/internal/provider"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
 
@@ -20,7 +20,7 @@ func newTestEngine(t *testing.T) *Engine {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
+	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{
 		StreamBuffer:         8,
 		MaxEventPayloadBytes: 64 << 10,
 	})
@@ -73,13 +73,12 @@ func drainReassembled(t *testing.T, eng *Engine, query string) string {
 	return strings.Join(chunks, "")
 }
 
-// TestEngineQueryStreamsReply drives a real Eino Runner over the mock
-// provider and asserts the reassembled stream equals the deterministic
-// mock reply byte-for-byte.
+// TestEngineQueryStreamsReply drives a real Eino Runner over the deterministic
+// test model and asserts the reassembled stream byte-for-byte.
 func TestEngineQueryStreamsReply(t *testing.T) {
 	eng := newTestEngine(t)
 	got := drainReassembled(t, eng, "hello vivy")
-	want := "mock reply to: hello vivy"
+	want := "test response to: hello vivy"
 	if got != want {
 		t.Fatalf("reassembled reply = %q, want %q", got, want)
 	}
@@ -193,7 +192,7 @@ func TestEngineInjectsSkillMiddlewareWithoutKeyword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
+	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, SkillBackend: backend,
 	})
 	if err != nil {
@@ -214,7 +213,7 @@ func TestEngineOmitsSkillMiddlewareWhenBackendNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, WrapModel(provider.NewMock()), ts, EngineConfig{
+	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {

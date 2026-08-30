@@ -45,7 +45,7 @@ describe('isValidCustomProvider 校验 wire 条目', () => {
     const bad: unknown[] = [
       { id: '', display_name: 'A', bundle: 'openai', base_url: 'https://a.example/v1', default_model: '', models: [], api_key_set: false },
       { id: 'custom-b', display_name: '  ', bundle: 'openai', base_url: 'https://b.example/v1', default_model: '', models: [], api_key_set: false },
-      { id: 'custom-c', display_name: 'C', bundle: 'mock', base_url: 'https://c.example/v1', default_model: '', models: [], api_key_set: false },
+      { id: 'custom-c', display_name: 'C', bundle: 'unsupported', base_url: 'https://c.example/v1', default_model: '', models: [], api_key_set: false },
       { id: 'custom-d', display_name: 'D', bundle: 'anthropic', base_url: 'https://d.example/v1', default_model: 'claude', models: ['claude', 42], api_key_set: false },
       { display_name: 'E', bundle: 'openai', base_url: 'https://e.example/v1', default_model: '', models: [], api_key_set: false },
       { ...ENTRY, api_key_set: 'yes' },
@@ -104,7 +104,7 @@ describe('合并视图（目录 + 注册表）', () => {
   });
 
   it('坏 wire 条目被过滤，不进入合并视图', () => {
-    const bogus = { id: 'custom-x', display_name: '  ', bundle: 'mock', base_url: 'https://x.example/v1', default_model: '', models: [], api_key_set: false } as unknown as ProviderEntry;
+    const bogus = { id: 'custom-x', display_name: '  ', bundle: 'unsupported', base_url: 'https://x.example/v1', default_model: '', models: [], api_key_set: false } as unknown as ProviderEntry;
     const entries = allProviderEntries([ENTRY, bogus]);
     expect(entries).toHaveLength(PROVIDER_CATALOG.length + 1);
   });
@@ -148,7 +148,7 @@ describe('customApiKeySetFor', () => {
     expect(customApiKeySetFor([{ ...ENTRY, api_key_set: false }], 'openai', 'https://my-gateway.example.com/v1')).toBe(false);
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
     expect(customApiKeySetFor([ENTRY], 'openai', 'https://unknown.example/v1')).toBe(false);
-    expect(customApiKeySetFor([ENTRY], 'mock', '')).toBe(false);
+    expect(customApiKeySetFor([ENTRY], 'unsupported', '')).toBe(false);
   });
 });
 

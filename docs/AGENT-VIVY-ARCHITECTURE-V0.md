@@ -92,10 +92,9 @@ from Diva's `providers.yaml` schema with provenance tags — `openai`
 V0) — per D-018/D-022..D-025. Keys are read from the environment named by
 `env_key` at model-construction time inside `internal/provider` only
 (D-010); `KeyMissingError` names the variable but never carries a value;
-`VIVY_API_BASE` overrides the bundle default base for gateway smoke. A
-deterministic mock provider serves tests and offline development and is
-reachable only through the same `ProviderRef` seam — never in the
-production path (PRD §6.2).
+`VIVY_API_BASE` overrides the bundle default base for gateway smoke. Tests use
+isolated deterministic model doubles outside the provider catalog; no mock
+provider is reachable from the product runtime (PRD §6.2).
 
 ## ADR-006 — Tools & approval: readonly auto-execute, effectful gated
 
@@ -309,7 +308,7 @@ sqlite CN suite runs in `just ci`; postgres CN suite runs when
 ## Status
 
 - v0 (2026-08-09): baseline recorded after V0 closure (M0..M4, AS-1..AS-9
-  verified on mock and real provider paths). Closes SR-1 / D-035.
+  verified on deterministic test doubles and real provider paths). Closes SR-1 / D-035.
 - 2026-08-14: next-generation write-up lives at
   `docs/architecture/SELF-EVOLVING-GATEWAY.md` (narrative) and
   `docs/architecture/VIVY-GATEWAY-AND-STUDIO.md` (decision table).

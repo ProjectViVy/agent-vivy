@@ -12,7 +12,7 @@ import (
 
 func testLive() LiveView {
 	return LiveView{
-		Provider:      "mock",
+		Provider:      "test",
 		PolicyProfile: domain.PolicyProfileDefault,
 		PolicyHash:    "hash-default",
 		Tools: []domain.ToolSpec{

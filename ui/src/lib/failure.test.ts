@@ -25,12 +25,26 @@ describe('classifyFailure', () => {
     expect(failure.kind).toBe('run');
     expect(failure.detail).toBe('The model run could not be completed. Please try again.');
     expect(failure.action).toBe('none');
+    expect(failure.hintKey).toBe('errors.runFailedHint');
+  });
+
+  it('maps backend provider failures to the model-service category, not a connection issue', () => {
+    const failure = classifyFailureMessage('无法连接！请检查供应商配置！');
+    expect(failure.kind).toBe('provider');
+    expect(failure.titleKey).toBe('errors.providerTitle');
+    expect(failure.hintKey).toBe('errors.providerHint');
+    expect(failure.detail).toBe('无法连接！请检查供应商配置！');
+  });
+
+  it('does not mistake the provider wording for a control-plane outage', () => {
+    expect(classifyFailureMessage('The model service could not be reached.').kind).toBe('provider');
+    expect(classifyFailureMessage('Vivy control plane disconnected').kind).toBe('control_plane');
   });
 });
 
 describe('runFailedMessage', () => {
   it('reads the structured run.failed payload and ignores empty values', () => {
-    expect(runFailedMessage({ cause_category: 'provider_error', message: '  key missing  ' })).toBe('key missing');
+    expect(runFailedMessage({ cause_category: 'provider_error', message: '  key missing  ' })).toBe('无法连接！请检查供应商配置！');
     expect(runFailedMessage({ cause_category: 'internal_error' })).toBeNull();
     expect(runFailedMessage(undefined)).toBeNull();
   });

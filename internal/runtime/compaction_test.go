@@ -16,8 +16,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 )
 
@@ -317,7 +317,7 @@ func TestEngineReductionRunsBeforeSummarization(t *testing.T) {
 }
 
 // fixedReplyModel is a deterministic domain.ChatModel whose reply does not
-// echo the input (unlike provider.NewMock), so compaction size assertions
+// echo the input, so compaction size assertions
 // stay meaningful.
 type fixedReplyModel struct{ reply string }
 
@@ -364,7 +364,7 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	sink := newTestSink()
-	svc := NewService(eng, "mock", "mock-v0", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink, Compactions: backend,
 	})
 	sessionID := domain.SessionID("sess-compact-1")
@@ -451,7 +451,7 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 // TestScheduleEngineReload applies immediately when idle and defers while a
 // run is registered, landing at the next idle application point.
 func TestScheduleEngineReload(t *testing.T) {
-	svc, backend, _ := newTestService(t, provider.NewMock())
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
 	t.Cleanup(func() { _ = backend.Close() })
 	var swaps atomicInt
 	svc.deps.RebuildEngine = func(ctx context.Context, cfg EngineConfig) (*Engine, error) {
@@ -460,7 +460,7 @@ func TestScheduleEngineReload(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return NewEngine(ctx, WrapModel(provider.NewMock()), ts, cfg)
+		return NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, cfg)
 	}
 	nextCfg := svc.engine.cfg
 	nextCfg.Compaction = &CompactionPolicy{Enabled: true, MaxTokens: 999, TriggerPercent: 50, KeepRecent: 1}
