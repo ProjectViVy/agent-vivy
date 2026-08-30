@@ -519,3 +519,171 @@ type typingStub struct {
 }
 
 func (typingStub) Typing(_ context.Context, _ string) error { return nil }
+
+// renamedChannel rebrands a fake adapter so one host can carry several
+// channel names without triggering the duplicate-name guard.
+type renamedChannel struct {
+	*fake.Channel
+	name string
+}
+
+func (c renamedChannel) Name() string { return c.name }
+
+// TestInspectNotesRecordStartAllDecisions: every StartAll decision lands in
+// the per-channel note — started stays empty, and skip/fail reasons are
+// recorded for unconfigured, disabled, empty-allow-from, and start-failed
+// channels. Inspect is deterministic (sorted by name) and reports every
+// compiled-in channel regardless of configuration.
+func TestInspectNotesRecordStartAllDecisions(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ok := renamedChannel{fake.New(), "fake"}
+	refused := renamedChannel{fake.New(), "refused"}
+	refused.Publish = func(context.Context, plugin.ChannelEnv) error {
+		return errors.New("boom: platform unreachable")
+	}
+	host := New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{refused, ok},
+		Config: config.Channels{
+			"fake":    {Enabled: true, AllowFrom: []string{"alice"}},
+			"refused": {Enabled: true, AllowFrom: []string{"alice"}},
+		},
+		Logger: testLogger(),
+	})
+	// Inspect before StartAll: no notes yet, nothing started.
+	for _, status := range host.Inspect() {
+		if status.Note != "" {
+			t.Fatalf("pre-start note for %q = %q, want empty", status.Name, status.Note)
+		}
+	}
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+
+	statuses := host.Inspect()
+	if len(statuses) != 2 {
+		t.Fatalf("inspect = %+v, want the two compiled-in channels", statuses)
+	}
+	if statuses[0].Name != "fake" || statuses[1].Name != "refused" {
+		t.Fatalf("inspect order = [%s, %s], want deterministic name order", statuses[0].Name, statuses[1].Name)
+	}
+	started := statuses[0]
+	if !started.Started || !started.Configured || !started.Enabled || started.Note != "" {
+		t.Fatalf("started status = %+v, want configured+enabled+started with an empty note", started)
+	}
+	if started.Capabilities != (Capabilities{}) {
+		t.Fatalf("fake capabilities = %+v, want none", started.Capabilities)
+	}
+	failed := statuses[1]
+	if failed.Started || !failed.Configured || !failed.Enabled {
+		t.Fatalf("failed status = %+v, want configured+enabled but not started", failed)
+	}
+	if failed.Note != "start failed: boom: platform unreachable" {
+		t.Fatalf("failed note = %q, want the start-failed reason", failed.Note)
+	}
+}
+
+// TestInspectNotesForSkips: unconfigured, disabled, and empty-allow-from
+// channels carry their exact fail-closed notes.
+func TestInspectNotesForSkips(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{ch},
+		Config:   config.Channels{}, // compiled-in but unconfigured
+		Logger:   testLogger(),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+	statuses := host.Inspect()
+	if len(statuses) != 1 {
+		t.Fatalf("inspect = %+v, want [fake]", statuses)
+	}
+	if got := statuses[0].Note; got != "no config envelope" {
+		t.Fatalf("unconfigured note = %q, want %q", got, "no config envelope")
+	}
+	if statuses[0].Started || statuses[0].Configured || statuses[0].Enabled {
+		t.Fatalf("unconfigured status = %+v", statuses[0])
+	}
+
+	// Disabled envelope.
+	host = New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{ch},
+		Config:   config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}}},
+		Logger:   testLogger(),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+	if got := host.Inspect()[0].Note; got != "disabled" {
+		t.Fatalf("disabled note = %q, want %q", got, "disabled")
+	}
+
+	// Empty allow_from refusal.
+	host = New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{ch},
+		Config:   config.Channels{"fake": {Enabled: true}},
+		Logger:   testLogger(),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+	if got := host.Inspect()[0].Note; got != "empty allow_from — start refused" {
+		t.Fatalf("empty allow_from note = %q", got)
+	}
+}
+
+// TestInspectTokenEnvSet: TokenEnv carries the envelope's env NAME only;
+// TokenEnvSet resolves the variable via os.LookupEnv and is false when it
+// is unset or empty. Values never cross the inspect surface.
+func TestInspectTokenEnvSet(t *testing.T) {
+	backend := openBackend(t)
+	ch := fake.New()
+	host := New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Channels: []plugin.Channel{ch},
+		Config: config.Channels{
+			"fake": {Enabled: false, TokenEnv: "VIVY_TEST_CHANNEL_TOKEN_INSPECT"},
+		},
+		Logger: testLogger(),
+	})
+	t.Setenv("VIVY_TEST_CHANNEL_TOKEN_INSPECT", "")
+
+	status := host.Inspect()[0]
+	if status.TokenEnv != "VIVY_TEST_CHANNEL_TOKEN_INSPECT" {
+		t.Fatalf("token_env = %q, want the declared env name", status.TokenEnv)
+	}
+	if status.TokenEnvSet {
+		t.Fatal("TokenEnvSet = true for an unset env variable")
+	}
+	if status.Note != "" {
+		// No StartAll ran yet; notes start empty.
+		t.Fatalf("note before StartAll = %q, want empty", status.Note)
+	}
+
+	t.Setenv("VIVY_TEST_CHANNEL_TOKEN_INSPECT", "secret-value-never-inspected")
+	status = host.Inspect()[0]
+	if !status.TokenEnvSet {
+		t.Fatal("TokenEnvSet = false for a set env variable")
+	}
+}

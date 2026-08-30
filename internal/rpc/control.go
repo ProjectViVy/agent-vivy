@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/channelhost"
+	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
@@ -97,6 +99,15 @@ type ControlDeps struct {
 	// composition root can invalidate the live model cache and refresh live
 	// overlays (MCP catalog, sandbox, engine compaction). Nil is a no-op.
 	OnSettingsChanged func()
+	// Channels is the live ChannelHost. Nil disables the channel/* methods.
+	// Channel writes go through the settings overlay and apply on the next
+	// process restart; the Host's inspect surface reports the process truth
+	// of the last StartAll.
+	Channels *channelhost.Host
+	// ConfigChannels is the effective startup channel envelope map
+	// (config.yaml merged with the startup settings overlay). channel/get
+	// folds the currently saved overlay over it to report document truth.
+	ConfigChannels config.Channels
 	// ModelLists discovers the upstream OpenAI-compatible /models catalog for
 	// settings/providers/refresh. Nil uses the package default 15s client.
 	ModelLists *provider.ModelListClient
@@ -363,6 +374,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 				"settings.get", "settings.update",
 				"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 				"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
+				"channel.inspect", "channel.get", "channel.update",
 				"session.context", "context.compact",
 				"stats.tokens",
 				"skills.list", "skills.get",
@@ -475,6 +487,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteMCP(ctx, request)
 	case "settings/mcp/probe":
 		return h.probeMCP(ctx, request)
+	case "channel/inspect":
+		return h.inspectChannels()
+	case "channel/get":
+		return h.getChannel(request)
+	case "channel/update":
+		return h.updateChannel(ctx, request)
 	case "stats/tokens":
 		return h.statsTokens(ctx, request)
 	case "skills/list":
@@ -2168,6 +2186,220 @@ func (h *controlHandler) notifySettingsChanged() {
 	if h.deps.OnSettingsChanged != nil {
 		h.deps.OnSettingsChanged()
 	}
+}
+
+// channelCapsResult is the wire shape of the discovered optional ABI
+// surface of one channel plugin (channelhost.Capabilities).
+type channelCapsResult struct {
+	Typing      bool `json:"typing"`
+	Edit        bool `json:"edit"`
+	Delete      bool `json:"delete"`
+	Reaction    bool `json:"reaction"`
+	Placeholder bool `json:"placeholder"`
+	Media       bool `json:"media"`
+	MediaStore  bool `json:"media_store"`
+	Webhook     bool `json:"webhook"`
+	Listen      bool `json:"listen"`
+	Stream      bool `json:"stream"`
+	Health      bool `json:"health"`
+}
+
+// channelStatusResult is one channel/inspect entry: process truth from the
+// last StartAll. Settings writes apply on the next process restart, so the
+// UI derives "pending restart" by comparing this against channel/get.
+type channelStatusResult struct {
+	Name         string            `json:"name"`
+	Capabilities channelCapsResult `json:"capabilities"`
+	// Configured reports an effective channels.<name> envelope at startup.
+	Configured bool `json:"configured"`
+	// Enabled is the effective envelope switch; false when unconfigured.
+	Enabled bool `json:"enabled"`
+	// Started reports a live adapter in this process.
+	Started bool `json:"started"`
+	// TokenEnv is the declared env NAME; the secret value never crosses
+	// this surface (D-010). TokenEnvSet reports it non-empty in the
+	// process environment right now.
+	TokenEnv    string `json:"token_env"`
+	TokenEnvSet bool   `json:"token_env_set"`
+	// Note is the human-readable skip/fail reason of the last StartAll;
+	// empty when the channel started.
+	Note string `json:"note"`
+}
+
+// channelEnvelopeResult is the document truth of one compiled-in channel:
+// the startup-effective envelope folded with the currently saved settings
+// overlay entry. allow_from is always a JSON array (never null).
+type channelEnvelopeResult struct {
+	Name       string   `json:"name"`
+	Enabled    bool     `json:"enabled"`
+	AllowFrom  []string `json:"allow_from"`
+	TokenEnv   string   `json:"token_env"`
+	Configured bool     `json:"configured"`
+}
+
+func toChannelCapsResult(c channelhost.Capabilities) channelCapsResult {
+	return channelCapsResult{
+		Typing: c.Typing, Edit: c.Edit, Delete: c.Delete, Reaction: c.Reaction,
+		Placeholder: c.Placeholder, Media: c.Media, MediaStore: c.MediaStore,
+		Webhook: c.Webhook, Listen: c.Listen, Stream: c.Stream, Health: c.Health,
+	}
+}
+
+func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
+	return channelStatusResult{
+		Name:         s.Name,
+		Capabilities: toChannelCapsResult(s.Capabilities),
+		Configured:   s.Configured,
+		Enabled:      s.Enabled,
+		Started:      s.Started,
+		TokenEnv:     s.TokenEnv,
+		TokenEnvSet:  s.TokenEnvSet,
+		Note:         s.Note,
+	}
+}
+
+// compiledChannelSet collects the compiled-in channel names from the Host
+// inspect surface.
+func (h *controlHandler) compiledChannelSet() map[string]bool {
+	out := make(map[string]bool)
+	for _, status := range h.deps.Channels.Inspect() {
+		out[status.Name] = true
+	}
+	return out
+}
+
+// inspectChannels reports every compiled-in channel of this generation
+// with its process truth (configured/enabled/started + the StartAll note).
+func (h *controlHandler) inspectChannels() (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	statuses := h.deps.Channels.Inspect()
+	out := make([]channelStatusResult, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, toChannelStatusResult(status))
+	}
+	return out, nil
+}
+
+// channelEnvelopeView folds the currently saved channels overlay over the
+// startup-effective envelope. An overlay entry marks a channel configured
+// even when config.yaml has no envelope: that is how a channel is added
+// through the UI this generation. Unspecified overlay fields fall back to
+// the config.yaml value, and the opaque per-plugin Settings block stays
+// in config.yaml untouched.
+func (h *controlHandler) channelEnvelopeView(name string, saved settings.Settings) channelEnvelopeResult {
+	var envelope config.ChannelEnvelope
+	configured := false
+	if base, ok := h.deps.ConfigChannels[name]; ok {
+		envelope = base
+		configured = true
+	}
+	for _, overlay := range saved.Channels {
+		if overlay.Name != name {
+			continue
+		}
+		configured = true
+		if overlay.Enabled != nil {
+			envelope.Enabled = *overlay.Enabled
+		}
+		if overlay.AllowFrom != nil {
+			envelope.AllowFrom = append([]string(nil), *overlay.AllowFrom...)
+		}
+		if overlay.TokenEnv != nil {
+			envelope.TokenEnv = *overlay.TokenEnv
+		}
+	}
+	allow := envelope.AllowFrom
+	if allow == nil {
+		allow = []string{}
+	}
+	return channelEnvelopeResult{
+		Name:       name,
+		Enabled:    envelope.Enabled,
+		AllowFrom:  allow,
+		TokenEnv:   envelope.TokenEnv,
+		Configured: configured,
+	}
+}
+
+// loadSavedSettings returns the persisted document, or the zero Settings
+// when no settings document is configured (read-only deployments report
+// config defaults).
+func (h *controlHandler) loadSavedSettings() (settings.Settings, *Error) {
+	if h.deps.SettingsPath == "" {
+		return settings.Settings{}, nil
+	}
+	return h.loadSettingsOrError()
+}
+
+// getChannel returns the document-truth envelope for one compiled-in
+// channel. Unknown names are a NotFound: the compiled-in set is the
+// generation's identity, not user data.
+func (h *controlHandler) getChannel(request Request) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if !h.compiledChannelSet()[params.Name] {
+		return nil, &Error{Code: CodeNotFound, Message: fmt.Sprintf("channel %q is not compiled into this generation", params.Name)}
+	}
+	saved, rpcErr := h.loadSavedSettings()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return h.channelEnvelopeView(params.Name, saved), nil
+}
+
+// updateChannel writes the per-channel settings overlay entry (settings.yaml,
+// never config.yaml) and applies on the next process restart — there is no
+// hot restart of channels. An empty allow_from is a valid write: it is the
+// fail-closed deny-start state the Host records at restart. The "*" wildcard
+// and bad token_env names are rejected by settings validation; the envelope's
+// opaque per-plugin Settings block is not addressable here.
+func (h *controlHandler) updateChannel(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change channels"}
+	}
+	var params struct {
+		Name      string    `json:"name"`
+		Enabled   *bool     `json:"enabled"`
+		AllowFrom *[]string `json:"allow_from"`
+		TokenEnv  *string   `json:"token_env"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if !h.compiledChannelSet()[params.Name] {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("channel %q is not compiled into this generation", params.Name)}
+	}
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertChannelOverlay(settings.ChannelOverlay{
+		Name:      params.Name,
+		Enabled:   params.Enabled,
+		AllowFrom: params.AllowFrom,
+		TokenEnv:  params.TokenEnv,
+	}))
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return h.channelEnvelopeView(params.Name, saved), nil
 }
 
 type mcpServerResult struct {

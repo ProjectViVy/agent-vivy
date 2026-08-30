@@ -10,92 +10,59 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTranslation } from '@/i18n';
-import { fieldDefaults, normalizeChannelConfig, validateConfig } from './channel-schema';
-import { CHANNEL_PLATFORMS, isRetiredChannel } from './channel-platforms';
+import { CHANNEL_PLATFORMS } from './channel-platforms';
 import { PLATFORM_DESCRIPTIONS, PLATFORM_ICONS } from './channel-icons';
 import { ChannelEditorForm } from './ChannelEditorForm';
 import ChannelTutorialModal from './ChannelTutorialModal';
 
 /**
- * 通道配置向导（移植自 Agent-Diva ChannelWizardModal.vue）。
- * 步骤 = 选择平台 → 凭据配置 → 完成（Diva 源码 steps 数组即此三步；
- * 「测试连接」步在当前来源为不可达死代码，后端接入连接测试能力后再补）。
+ * 通道接入向导：只接入"编译进当前代、尚未配置"的通道（addablePlatforms
+ * 由 channel/inspect 派生，不再是一张固定平台表）。步骤 = 选择平台 →
+ * 允许的发送者 → 完成；写入走 channel/update（settings overlay），重启
+ * 进程后开始监听。平台令牌是环境变量（token_env 只读展示），向导不
+ * 收集任何密钥值。
  */
 
 type WizardStep = 'platform' | 'credentials' | 'done';
 
 type ChannelWizardData = {
   platform: string;
-  credentials: Record<string, unknown>;
+  allowFromText: string;
 };
 
 function ChannelWizardModal({
   open,
-  initialPlatform,
-  initialCredentials,
+  addablePlatforms,
   onOpenChange,
   onComplete,
 }: {
   open: boolean;
-  /** 编辑模式：预选平台并直达凭据步 */
-  initialPlatform?: string;
-  initialCredentials?: Record<string, unknown>;
+  /** 编译内且尚未配置的通道名（channel/inspect 派生）。 */
+  addablePlatforms: string[];
   onOpenChange: (open: boolean) => void;
   onComplete: (data: ChannelWizardData) => void;
 }) {
   const { t } = useTranslation();
-  const isEditMode = Boolean(initialPlatform && !isRetiredChannel(initialPlatform));
 
   const [step, setStep] = useState<WizardStep>('platform');
-  const [platform, setPlatform] = useState<string>(initialPlatform ?? '');
-  const [credentials, setCredentials] = useState<Record<string, unknown>>(
-    () => normalizeChannelConfig(initialPlatform ?? '', {
-      ...fieldDefaults(initialPlatform ?? ''),
-      ...(initialCredentials ?? {}),
-    }),
-  );
+  const [platform, setPlatform] = useState<string>('');
+  const [allowFromText, setAllowFromText] = useState('');
   const [tutorialOpen, setTutorialOpen] = useState(false);
 
-  // open 从 false→true 时重置：新建回到平台步；编辑直达凭据步。
+  // open 从 false→true 时重置到平台步。
   useEffect(() => {
-    if (!open) {
-      setTutorialOpen(false);
-      return;
-    }
-    if (initialPlatform && !isRetiredChannel(initialPlatform)) {
-      setPlatform(initialPlatform);
-      setCredentials(
-        normalizeChannelConfig(initialPlatform, {
-          ...fieldDefaults(initialPlatform),
-          ...(initialCredentials ?? {}),
-        }),
-      );
-      setStep('credentials');
-    } else {
+    if (open) {
       setPlatform('');
-      setCredentials({});
+      setAllowFromText('');
       setStep('platform');
+    } else {
+      setTutorialOpen(false);
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  const handleOpenChange = (next: boolean) => {
-    onOpenChange(next);
-  };
+  const platformInfo = platform !== '' ? CHANNEL_PLATFORMS[platform] ?? null : null;
 
-  const selectPlatform = (next: string) => {
-    setPlatform(next);
-    setCredentials({
-      ...fieldDefaults(next),
-      ...credentials,
-    });
-  };
-
-  const canNext =
-    step === 'platform'
-      ? Boolean(platform)
-      : step === 'credentials'
-        ? validateConfig(platform, credentials).valid
-        : false;
+  const canNext = step === 'platform' ? Boolean(platform) : step === 'credentials';
 
   const nextStep = () => {
     if (step === 'platform') setStep('credentials');
@@ -108,19 +75,14 @@ function ChannelWizardModal({
     { key: 'done', title: t('channels.wizardStepDone') },
   ];
   const stepIndex = steps.findIndex((s) => s.key === step);
-  const currentPlatform = platform ? CHANNEL_PLATFORMS[platform] ?? null : null;
 
   return (
     <>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {isEditMode ? t('channels.wizardEditTitle') : t('channels.wizardTitle')}
-            </DialogTitle>
-            <DialogDescription>
-              {isEditMode ? t('channels.wizardEditSubtitle') : t('channels.wizardSubtitle')}
-            </DialogDescription>
+            <DialogTitle>{t('channels.wizardTitle')}</DialogTitle>
+            <DialogDescription>{t('channels.wizardSubtitle')}</DialogDescription>
           </DialogHeader>
 
           {/* 步骤指示器 */}
@@ -144,32 +106,43 @@ function ChannelWizardModal({
           </div>
 
           <div className="space-y-4">
-            {step === 'platform' && !isEditMode ? (
+            {step === 'platform' ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t('channels.choosePlatform')}
                 </p>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
-                  {Object.entries(CHANNEL_PLATFORMS).map(([name, info]) => {
-                    const Icon = PLATFORM_ICONS[name];
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border p-4 transition-all hover:-translate-y-0.5 ${
-                          platform === name ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:border-primary'
-                        }`}
-                        onClick={() => selectPlatform(name)}
-                      >
-                        <Icon className="h-6 w-6" />
-                        <span className="text-sm font-semibold">{info.displayName}</span>
-                        <span className={`text-center text-xs ${platform === name ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
-                          {PLATFORM_DESCRIPTIONS[name]}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {addablePlatforms.length > 0 ? (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
+                    {addablePlatforms.map((name) => {
+                      const PlatformIcon = PLATFORM_ICONS[name];
+                      const displayName = CHANNEL_PLATFORMS[name]?.displayName ?? name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border p-4 transition-all hover:-translate-y-0.5 ${
+                            platform === name ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:border-primary'
+                          }`}
+                          onClick={() => setPlatform(name)}
+                        >
+                          {PlatformIcon ? (
+                            <PlatformIcon className="h-6 w-6" />
+                          ) : (
+                            <span className="flex h-6 w-6 items-center justify-center text-sm font-semibold">
+                              {name.slice(0, 1).toUpperCase()}
+                            </span>
+                          )}
+                          <span className="text-sm font-semibold">{displayName}</span>
+                          <span className={`text-center text-xs ${platform === name ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+                            {PLATFORM_DESCRIPTIONS[name] ?? name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t('channels.wizardNoAddable')}</p>
+                )}
               </>
             ) : null}
 
@@ -178,16 +151,16 @@ function ChannelWizardModal({
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t('channels.enterCredentials')}
                 </p>
-                {currentPlatform ? (
+                {platformInfo ? (
                   <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
                     <div className="mb-2 flex items-center gap-2">
                       <Lightbulb className="h-4 w-4 text-primary" />
                       <h4 className="text-sm font-semibold">
-                        {t('channels.quickGuideTitle', { platform: currentPlatform.displayName })}
+                        {t('channels.quickGuideTitle', { platform: platformInfo.displayName })}
                       </h4>
                     </div>
                     <ol className="list-decimal space-y-1 pl-5 text-sm">
-                      {currentPlatform.quickGuideSteps.map((item, index) => (
+                      {platformInfo.quickGuideSteps.map((item, index) => (
                         <li key={index}>{item}</li>
                       ))}
                     </ol>
@@ -198,11 +171,11 @@ function ChannelWizardModal({
                 ) : null}
                 <ChannelEditorForm
                   platform={platform}
-                  config={credentials}
-                  onFieldChange={(field, value) => {
-                    setCredentials((current) => ({ ...current, [field.key]: value }));
-                  }}
+                  enabled
+                  allowFromText={allowFromText}
+                  onAllowFromTextChange={setAllowFromText}
                 />
+                <p className="text-xs text-muted-foreground">{t('channels.wizardRestartNote')}</p>
               </>
             ) : null}
 
@@ -218,13 +191,13 @@ function ChannelWizardModal({
           </div>
 
           <DialogFooter className="border-t pt-4">
-            {step === 'credentials' && !isEditMode ? (
+            {step === 'credentials' ? (
               <Button type="button" variant="outline" onClick={() => setStep('platform')}>
                 {t('channels.wizardBack')}
               </Button>
             ) : null}
             {step !== 'done' ? (
-              <Button type="button" disabled={!canNext} onClick={nextStep}>
+              <Button type="button" disabled={!canNext || addablePlatforms.length === 0} onClick={nextStep}>
                 {t('channels.wizardNext')}
                 <ChevronRight className="ml-1.5 h-4 w-4" />
               </Button>
@@ -232,10 +205,7 @@ function ChannelWizardModal({
               <Button
                 type="button"
                 onClick={() => {
-                  onComplete({
-                    platform,
-                    credentials: normalizeChannelConfig(platform, credentials),
-                  });
+                  onComplete({ platform, allowFromText });
                   onOpenChange(false);
                 }}
               >
@@ -248,7 +218,7 @@ function ChannelWizardModal({
 
       <ChannelTutorialModal
         open={tutorialOpen}
-        platformName={platform}
+        platformName={platform || null}
         onOpenChange={setTutorialOpen}
         onStartConfig={() => {
           // 教程「开始配置」回到向导：凭据步已在当前，无需跳转。

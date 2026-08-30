@@ -35,6 +35,7 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/plugin"
 	"agent-vivy/ui"
 )
 
@@ -65,10 +66,14 @@ type App struct {
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	logger := slog.Default()
 
-	// Operator-managed preferences (network search, execute ceiling) overlay
-	// the validated config. Provider keys are NOT applied to the process
-	// environment; ModelResolver reads settings.yaml / frozen ENV per call.
-	cfg = applySettingsOverlay(ctx, logger, cfg)
+	// Operator-managed preferences (network search, execute ceiling, the
+	// per-channel knobs) overlay the validated config. Provider keys are
+	// NOT applied to the process environment; ModelResolver reads
+	// settings.yaml / frozen ENV per call. The compiled plugin set is
+	// registered first so the channels overlay can only name channels this
+	// generation actually carries.
+	genPlugins := genplugins.Register()
+	cfg = applySettingsOverlay(ctx, logger, cfg, compiledChannelNames(genPlugins))
 	originPolicy, err := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
 	if err != nil {
 		return nil, fmt.Errorf("app: configure browser origins: %w", err)
@@ -176,7 +181,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mcpOps = mcpBackend
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
 	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
-	genPlugins := genplugins.Register()
 	// The channels envelope may only name compiled-in channel plugins, and
 	// every channel-seam plugin must carry the plugin.Channel ABI (FR-10).
 	channelPlugins, err := partitionChannels(genPlugins, cfg.Channels)
@@ -331,6 +335,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
 		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
 		ConfigCompaction:               cmp,
+		// Channel ears: the Host exposes the compiled-in set and the process
+		// truth of the last StartAll; channel writes go through the settings
+		// overlay and apply on the next restart (contract §11).
+		Channels:       channelHost,
+		ConfigChannels: cfg.Channels,
 		// Write-time env apply: a settings/providers save updates the
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
@@ -489,7 +498,11 @@ func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Setting
 // applySettingsOverlay reads the operator-managed settings document and
 // overlays non-secret preferences onto cfg. Provider keys stay in the
 // settings document (or a frozen ENV session) and are resolved per call.
-func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config) config.Config {
+// compiledChannels holds the channel plugin names of this generation: the
+// per-channel overlay may only name those, and stale overlay entries for
+// channels that are no longer compiled-in are dropped (with a warning)
+// instead of failing startup.
+func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config, compiledChannels []string) config.Config {
 	dataRoot := cfg.DataDirectory()
 	path := settings.Path(dataRoot)
 	s, err := settings.Load(path)
@@ -536,8 +549,65 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 		cfg.Runtime.Sandbox.Network.AllowedDomains = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
 	}
 	cfg.Runtime.Compaction = mergedCompactionConfig(cfg.Runtime.Compaction, s.Compaction)
-	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled)
+	if merged := mergedChannels(logger, cfg.Channels, s.Channels, compiledChannels); merged != nil {
+		cfg.Channels = merged
+	}
+	logger.Info("settings overlay applied", "provider", cfg.Providers.Active, "model", s.DefaultModel, "network_search_provider", cfg.Tools.NetworkSearch.Provider, "execute_max_timeout_seconds", cfg.Runtime.ExecuteMaxTimeoutSeconds, "sandbox_preset", s.Sandbox.DefaultPreset, "mcp_servers", len(cfg.Runtime.MCPServers), "compaction_enabled", cfg.Runtime.Compaction.Enabled, "channels_overlayed", len(s.Channels))
 	return cfg
+}
+
+// mergedChannels overlays the settings.yaml per-channel entries onto the
+// config.yaml channels envelopes. Each entry replaces only the fields it
+// carries (pointer semantics); the config envelope's opaque per-plugin
+// Settings yaml.Node always survives. An entry for a compiled-in channel
+// that config.yaml has no envelope for starts a fresh envelope — that is
+// how the UI configures a channel this generation without touching
+// config.yaml. Entries naming channels that are not compiled-in are
+// dropped with a warning so a stale overlay can never fail startup. A nil
+// result (no overlay entries) keeps the config envelopes untouched.
+func mergedChannels(logger *slog.Logger, base config.Channels, overlays []settings.ChannelOverlay, compiled []string) config.Channels {
+	if len(overlays) == 0 {
+		return nil
+	}
+	compiledSet := make(map[string]bool, len(compiled))
+	for _, name := range compiled {
+		compiledSet[name] = true
+	}
+	out := make(config.Channels, len(base)+len(overlays))
+	for name, envelope := range base {
+		out[name] = envelope
+	}
+	for _, overlay := range overlays {
+		if !compiledSet[overlay.Name] {
+			logger.Warn("settings overlay names a channel that is not compiled in; entry dropped", "channel", overlay.Name)
+			continue
+		}
+		envelope := out[overlay.Name]
+		if overlay.Enabled != nil {
+			envelope.Enabled = *overlay.Enabled
+		}
+		if overlay.AllowFrom != nil {
+			envelope.AllowFrom = append([]string(nil), *overlay.AllowFrom...)
+		}
+		if overlay.TokenEnv != nil {
+			envelope.TokenEnv = *overlay.TokenEnv
+		}
+		out[overlay.Name] = envelope
+	}
+	return out
+}
+
+// compiledChannelNames lists the channel-seam plugin names compiled into
+// this generation.
+func compiledChannelNames(plugins []plugin.Plugin) []string {
+	var names []string
+	for _, p := range plugins {
+		if p == nil || p.Seam() != plugin.SeamChannel {
+			continue
+		}
+		names = append(names, p.Name())
+	}
+	return names
 }
 
 // enabledMCPFromSettings returns the enabled MCP servers from the overlay,

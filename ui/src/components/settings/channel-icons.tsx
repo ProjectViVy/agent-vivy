@@ -1,11 +1,9 @@
 // 通道平台图标映射（移植自 Agent-Diva agent-diva-gui
 // src/components/settings/channel-icons.ts + assets/icons/channels/*.vue）。
-// 5 个品牌图标为原 SVG path 数据转 React 组件；email / neuro-link 用
-// lucide-react 的 Mail / Globe。下架通道（slack / whatsapp 等）的图标
-// 条目一并移除（Diva 用户决策 2026-08-18）。
+// 5 个品牌图标为原 SVG path 数据转 React 组件。只保留本代可编译的
+// 平台；email / neuro-link 及下架通道（slack / whatsapp 等）的条目已移除。
 
 import type { ComponentType, SVGProps } from 'react';
-import { Globe, Mail } from 'lucide-react';
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -51,9 +49,7 @@ export const PLATFORM_ICONS: Record<string, IconComponent> = {
   discord: DiscordIcon,
   feishu: FeishuIcon, // 飞书
   dingtalk: DingTalkIcon, // 钉钉
-  email: Mail, // Email 使用 Lucide Mail 图标
   qq: QQIcon,
-  'neuro-link': Globe, // Neuro-Link 使用 Lucide Globe 图标
 };
 
 /**
@@ -64,9 +60,7 @@ export const PLATFORM_DISPLAY_NAMES: Record<string, string> = {
   discord: 'Discord',
   feishu: '飞书',
   dingtalk: '钉钉',
-  email: 'Email',
   qq: 'QQ',
-  'neuro-link': 'Neuro-Link',
 };
 
 /**
@@ -77,7 +71,5 @@ export const PLATFORM_DESCRIPTIONS: Record<string, string> = {
   discord: '游戏和社区交流平台，支持丰富的机器人生态',
   feishu: '企业协作办公平台，支持扫码快速配置',
   dingtalk: '阿里巴巴旗下企业通讯平台',
-  email: '传统电子邮件系统（IMAP/SMTP）',
   qq: '腾讯 QQ 开放平台机器人',
-  'neuro-link': '通用 WebSocket 接入服务',
 };

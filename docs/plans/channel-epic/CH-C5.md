@@ -83,3 +83,5 @@ UI
 ## 10. 交接
 
 本期用户可见门在此关闭一半。国内叶子见 [CH-C6.md](CH-C6.md) / C7a / C7b。
+
+> **DONE 2026-08-30** — 分支 `feat/channel-c5`。`channel/inspect|get|update` RPC；settings overlay `channels`（指针字段、保留 opaque settings、重启生效）；UI=compiled-in 全集 + 空态 + fail-closed 文案 + token 只显 env 名。C6/C7 新耳朵**自动**出现在本页（inspect 驱动），无需改 UI。Filing: `docs/logs/2026-08-30-channel-c5/`。

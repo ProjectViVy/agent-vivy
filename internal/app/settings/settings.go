@@ -3,10 +3,10 @@
 // optional OpenAI-compatible base URL, optional API key overlay), the
 // user-defined provider registry (custom providers with their own base URL,
 // model list, and optional API key), the network_search preference, the
-// execute ceiling override, the sandbox overlay, and the MCP server overlay.
-// These live in the shared user workspace (~/.vivy/settings.yaml) so every
-// Vivy version reads the same API and system configuration. The Journal
-// (vivy.db) sits beside this file.
+// execute ceiling override, the sandbox overlay, the MCP server overlay,
+// and the per-channel knobs overlay. These live in the shared user
+// workspace (~/.vivy/settings.yaml) so every Vivy version reads the same
+// API and system configuration. The Journal (vivy.db) sits beside this file.
 //
 // Secrets: committed config still holds env_key names only (D-010). This
 // runtime settings document may hold plaintext api_key values (file mode
@@ -57,6 +57,10 @@ var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
 // Anything else (a literal token) fails validation (D-010).
 var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
+// channelNamePattern constrains a channels overlay name to the same
+// plugin-name slug config.yaml requires for its channels.<name> keys.
+var channelNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
 // maxExecuteTimeoutSeconds mirrors config.maxExecuteTimeoutSeconds and the
 // runtime hard cap (10m): a settings override above it would be silently
 // clamped, so it is rejected here up front.
@@ -103,6 +107,14 @@ type Settings struct {
 	// present overlay also keep the config values. Enabled distinguishes
 	// "unset" from an explicit false.
 	Compaction *CompactionSettings `yaml:"compaction"`
+	// Channels is the per-channel overlay for compiled-in channel plugins.
+	// Each entry carries at most the three UI knobs (enabled, allow_from,
+	// token_env) and merges over the config.yaml channels envelope; the
+	// envelope's opaque per-plugin Settings block stays in config.yaml
+	// untouched. Entries name channels that may no longer be compiled-in:
+	// the startup overlay silently drops those (with a warning) so a stale
+	// overlay can never fail startup.
+	Channels []ChannelOverlay `yaml:"channels,omitempty"`
 }
 
 // CompactionSettings is the UI-managed context compression overlay. Zero
@@ -113,6 +125,26 @@ type CompactionSettings struct {
 	MaxTokens      int   `yaml:"max_tokens,omitempty"`
 	TriggerPercent int   `yaml:"trigger_percent,omitempty"`
 	KeepRecent     int   `yaml:"keep_recent,omitempty"`
+}
+
+// ChannelOverlay is the UI-managed overlay for one compiled-in channel
+// (settings.yaml channels). It carries knobs only; the channel plugin's
+// opaque settings stay in config.yaml untouched. Pointer fields keep
+// "not set" (keep the config.yaml value) distinct from "set empty" —
+// an explicit empty allow_from is the fail-closed deny-start state the
+// Host enforces at the next process restart.
+type ChannelOverlay struct {
+	// Name must match a channel plugin name compiled into the running
+	// generation. Unknown names are dropped with a warning at startup.
+	Name string `yaml:"name"`
+	// Enabled replaces the config envelope's enabled when set.
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// AllowFrom replaces the config envelope's inbound sender allow-list
+	// when set, including an explicit empty list (deny-start).
+	AllowFrom *[]string `yaml:"allow_from,omitempty"`
+	// TokenEnv replaces the config envelope's token_env when set. It is an
+	// environment variable NAME; the secret value never appears here (D-010).
+	TokenEnv *string `yaml:"token_env,omitempty"`
 }
 
 // SandboxSettings is the UI-managed sandbox overlay. DefaultPreset is one of
@@ -182,6 +214,10 @@ func MCPServerEnabled(server MCPServer) bool {
 // BoolPtr returns a pointer to v for YAML/JSON optional booleans.
 func BoolPtr(v bool) *bool { return &v }
 
+// StringPtr returns a pointer to v for YAML/JSON optional strings. An
+// explicit empty string stays distinct from an absent field.
+func StringPtr(v string) *string { return &v }
+
 // Path returns the absolute settings file path for the given data root.
 // An empty root falls back to the conventional DefaultDir.
 func Path(dataRoot string) string {
@@ -211,7 +247,8 @@ func (s Settings) IsZero() bool {
 		s.Sandbox.DefaultPreset == "" &&
 		s.Sandbox.Network.DenyPrivateIPs == nil &&
 		len(s.Sandbox.Network.AllowedDomains) == 0 &&
-		s.Compaction == nil
+		s.Compaction == nil &&
+		len(s.Channels) == 0
 }
 
 // Load reads and validates the settings document at path. A missing file is
@@ -245,6 +282,21 @@ func Load(path string) (Settings, error) {
 		// An explicitly-empty compaction overlay means "config default";
 		// normalize to nil so a document round-trip is stable.
 		s.Compaction = nil
+	}
+	if len(s.Channels) == 0 {
+		s.Channels = nil
+	} else {
+		next := make([]ChannelOverlay, 0, len(s.Channels))
+		for _, entry := range s.Channels {
+			if entry.Enabled == nil && entry.AllowFrom == nil && entry.TokenEnv == nil {
+				// An all-empty overlay entry carries no knob; normalize it away
+				// so it cannot mark an unconfigured channel as configured and
+				// a document round-trip stays stable.
+				continue
+			}
+			next = append(next, entry)
+		}
+		s.Channels = next
 	}
 	if err := s.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)
@@ -308,6 +360,41 @@ func (s Settings) Validate() error {
 		}
 		if s.Compaction.KeepRecent < 0 {
 			return errors.New("settings: compaction.keep_recent must be 0 (config default) or at least 1")
+		}
+	}
+	if err := validateChannels(s.Channels); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateChannels checks the per-channel overlay with the same rules
+// config.Validate applies to its channels envelopes: slug names, env-name
+// token_env, non-empty explicit senders, and no "*" wildcard (the Host
+// refuses an unrestricted ear in this generation). Names are unique so
+// the startup merge is unambiguous.
+func validateChannels(entries []ChannelOverlay) error {
+	seen := make(map[string]int, len(entries))
+	for i, entry := range entries {
+		if !channelNamePattern.MatchString(entry.Name) {
+			return fmt.Errorf("settings: channels[%d].name %q must be lowercase digits and hyphens", i, entry.Name)
+		}
+		if prev, ok := seen[entry.Name]; ok {
+			return fmt.Errorf("settings: channels[%d] name %q duplicates channels[%d]", i, entry.Name, prev)
+		}
+		seen[entry.Name] = i
+		if entry.TokenEnv != nil && *entry.TokenEnv != "" && !envKeyPattern.MatchString(*entry.TokenEnv) {
+			return fmt.Errorf("settings: channels[%d].token_env must be an environment variable name", i)
+		}
+		if entry.AllowFrom != nil {
+			for j, allow := range *entry.AllowFrom {
+				if strings.TrimSpace(allow) == "" {
+					return fmt.Errorf("settings: channels[%d].allow_from[%d] must not be empty; empty allow_from means deny-start is decided by the Host at Start time", i, j)
+				}
+				if allow == "*" {
+					return fmt.Errorf("settings: channels[%d].allow_from[%d] %q is not allowed in this generation; list explicit senders", i, j, allow)
+				}
+			}
 		}
 	}
 	return nil
@@ -477,6 +564,23 @@ func (s Settings) DeleteMCPServer(name string) (Settings, bool) {
 	}
 	s.MCPServers = &next
 	return s, true
+}
+
+// UpsertChannelOverlay inserts or replaces one channel overlay entry by
+// name. Pointers pass straight through so an unset field keeps the
+// config.yaml value and a set field (including an explicit empty
+// allow_from) replaces it. Validation happens in Save.
+func (s Settings) UpsertChannelOverlay(entry ChannelOverlay) Settings {
+	for i, existing := range s.Channels {
+		if existing.Name == entry.Name {
+			next := append([]ChannelOverlay(nil), s.Channels...)
+			next[i] = entry
+			s.Channels = next
+			return s
+		}
+	}
+	s.Channels = append(append([]ChannelOverlay(nil), s.Channels...), entry)
+	return s
 }
 
 // Save writes the settings atomically to path, creating parent directories.

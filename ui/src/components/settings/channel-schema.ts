@@ -1,7 +1,10 @@
 // 通道配置表单字段 schema（移植自 Agent-Diva agent-diva-gui
 // src/components/settings/channel-wizard-fields.ts，纯 TS，无 UI 依赖）。
-// 字段集合对齐 agent-diva-core ChannelsConfig 中 GUI 可见通道的 schema，
-// 以便未来接入 Vivy 后端通道读写时 wire 形状保持不变。
+// 只保留本代可编译进内核的通道（telegram/discord/feishu/dingtalk/qq），
+// 以 plugin.Name() 为键；email / neuro-link 已下架（不可编译进本代）。
+// 每通道凭据字段是后端通道插件的元数据（C6/C7 复用）；kernel envelope
+// 只携带 enabled / allow_from / token_env 三个旋钮，密钥永远是环境变量
+// 名（D-010），本 schema 不产生任何密钥值输入。
 
 export type WizardFieldGroup = 'basic' | 'advanced';
 
@@ -10,10 +13,14 @@ export interface WizardFormField {
   label: string;
   type?: 'text' | 'password' | 'number' | 'select' | 'textarea' | 'boolean' | 'string-list';
   secret?: boolean;
+  /** 字面占位示例（URL、端口等非翻译文本）。 */
   placeholder?: string;
+  /** 翻译占位 / 提示的 i18n key（如 channels.allowFromPlaceholder）。 */
+  placeholderKey?: string;
+  hint?: string;
+  hintKey?: string;
   required?: boolean;
   default?: unknown;
-  hint?: string;
   group?: WizardFieldGroup;
   options?: Array<{ label: string; value: string }>;
 }
@@ -35,8 +42,8 @@ export const CHANNEL_CREDENTIAL_FIELDS: Record<string, WizardFormField[]> = {
       key: 'allow_from',
       label: '允许的用户 ID',
       type: 'string-list',
-      placeholder: '每行一个用户 ID，留空表示不限制',
-      hint: '每行一个 ID；留空表示不限制。',
+      placeholderKey: 'channels.allowFromPlaceholder',
+      hintKey: 'channels.allowFromHint',
       group: 'advanced',
     },
     {
@@ -60,8 +67,8 @@ export const CHANNEL_CREDENTIAL_FIELDS: Record<string, WizardFormField[]> = {
       key: 'allow_from',
       label: '允许的用户 ID',
       type: 'string-list',
-      placeholder: '每行一个用户 ID，或 *',
-      hint: '每行一个 Discord 用户数字 ID；留空表示不限制。使用 * 表示允许所有人。',
+      placeholderKey: 'channels.allowFromPlaceholder',
+      hintKey: 'channels.allowFromHint',
       group: 'advanced',
     },
     {
@@ -145,7 +152,8 @@ export const CHANNEL_CREDENTIAL_FIELDS: Record<string, WizardFormField[]> = {
       key: 'allow_from',
       label: '允许的用户 ID',
       type: 'string-list',
-      placeholder: '每行一个用户 ID，留空表示不限制',
+      placeholderKey: 'channels.allowFromPlaceholder',
+      hintKey: 'channels.allowFromHint',
       group: 'advanced',
     },
     {
@@ -205,148 +213,8 @@ export const CHANNEL_CREDENTIAL_FIELDS: Record<string, WizardFormField[]> = {
       key: 'allow_from',
       label: '允许的用户 / 群 ID',
       type: 'string-list',
-      placeholder: '每行一个 ID，白名单策略时生效',
-      group: 'advanced',
-    },
-  ],
-  email: [
-    {
-      key: 'imap_host',
-      label: 'IMAP Host',
-      type: 'text',
-      required: true,
-      placeholder: 'imap.example.com',
-    },
-    {
-      key: 'imap_port',
-      label: 'IMAP Port',
-      type: 'number',
-      required: true,
-      default: 993,
-    },
-    {
-      key: 'imap_username',
-      label: 'IMAP 用户名',
-      type: 'text',
-      required: true,
-    },
-    {
-      key: 'imap_password',
-      label: 'IMAP 密码',
-      type: 'password',
-      secret: true,
-      required: true,
-    },
-    {
-      key: 'smtp_host',
-      label: 'SMTP Host',
-      type: 'text',
-      required: true,
-      placeholder: 'smtp.example.com',
-    },
-    {
-      key: 'smtp_port',
-      label: 'SMTP Port',
-      type: 'number',
-      required: true,
-      default: 587,
-    },
-    {
-      key: 'smtp_username',
-      label: 'SMTP 用户名',
-      type: 'text',
-      required: true,
-    },
-    {
-      key: 'smtp_password',
-      label: 'SMTP 密码',
-      type: 'password',
-      secret: true,
-      required: true,
-    },
-    {
-      key: 'from_address',
-      label: '发件人地址',
-      type: 'text',
-      required: true,
-      placeholder: 'your@example.com',
-    },
-    {
-      key: 'imap_mailbox',
-      label: 'IMAP 邮箱',
-      type: 'text',
-      default: 'INBOX',
-      group: 'advanced',
-    },
-    {
-      key: 'imap_use_ssl',
-      label: 'IMAP 使用 SSL',
-      type: 'boolean',
-      default: true,
-      group: 'advanced',
-    },
-    {
-      key: 'smtp_use_tls',
-      label: 'SMTP 使用 STARTTLS',
-      type: 'boolean',
-      default: true,
-      group: 'advanced',
-    },
-    {
-      key: 'smtp_use_ssl',
-      label: 'SMTP 使用 SSL',
-      type: 'boolean',
-      default: false,
-      group: 'advanced',
-    },
-    {
-      key: 'consent_granted',
-      label: '已获得邮箱访问授权',
-      type: 'boolean',
-      default: false,
-      hint: '确认已获得访问并发送该邮箱的明确授权。',
-      group: 'advanced',
-    },
-    {
-      key: 'auto_reply_enabled',
-      label: '启用自动回复',
-      type: 'boolean',
-      default: true,
-      group: 'advanced',
-    },
-    {
-      key: 'poll_interval_seconds',
-      label: '轮询间隔（秒）',
-      type: 'number',
-      default: 30,
-      group: 'advanced',
-    },
-    {
-      key: 'mark_seen',
-      label: '标记为已读',
-      type: 'boolean',
-      default: true,
-      group: 'advanced',
-    },
-    {
-      key: 'max_body_chars',
-      label: '正文最大字符数',
-      type: 'number',
-      default: 12000,
-      group: 'advanced',
-    },
-    {
-      key: 'subject_prefix',
-      label: '主题前缀',
-      type: 'text',
-      default: 'Re: ',
-      group: 'advanced',
-    },
-    {
-      key: 'allow_from',
-      label: '允许的发件人',
-      type: 'string-list',
-      placeholder: '每行一个邮箱，留空表示不限制',
+      placeholderKey: 'channels.allowFromPlaceholder',
+      hintKey: 'channels.allowFromHint',
       group: 'advanced',
     },
   ],
@@ -370,30 +238,8 @@ export const CHANNEL_CREDENTIAL_FIELDS: Record<string, WizardFormField[]> = {
       key: 'allow_from',
       label: '允许的用户 ID',
       type: 'string-list',
-      placeholder: '每行一个用户 ID，留空表示不限制',
-      group: 'advanced',
-    },
-  ],
-  'neuro-link': [
-    {
-      key: 'host',
-      label: '监听地址',
-      type: 'text',
-      required: true,
-      default: '0.0.0.0',
-    },
-    {
-      key: 'port',
-      label: '监听端口',
-      type: 'number',
-      required: true,
-      default: 9100,
-    },
-    {
-      key: 'allow_from',
-      label: '允许的客户端',
-      type: 'string-list',
-      placeholder: '每行一个来源，留空表示不限制',
+      placeholderKey: 'channels.allowFromPlaceholder',
+      hintKey: 'channels.allowFromHint',
       group: 'advanced',
     },
   ],
