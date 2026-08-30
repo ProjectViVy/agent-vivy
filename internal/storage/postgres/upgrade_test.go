@@ -229,7 +229,7 @@ var upgradeSeq atomic.Uint64
 
 // TestMigrateUpgradesV14InPlace drives the production OpenSchema path over a
 // hand-built version-14 database: the upgrade must ALTER messages in place
-// (legacy rows survive with empty provenance), record version 15, and keep
+// (legacy rows survive with empty provenance), record versions 15 and 16, and keep
 // accepting provenance-bearing appends. Conformance always bootstraps fresh
 // schemas, so without this test the upgrade branch never executes in CI.
 func TestMigrateUpgradesV14InPlace(t *testing.T) {
@@ -289,7 +289,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.Close() })
 
-	// (a) migrate recorded version 15 alongside the pre-existing 14.
+	// (a) migrate recorded versions 15 and 16 alongside the pre-existing 14.
 	var versions []int64
 	rows, err := admin.QueryContext(ctx,
 		`SELECT version FROM `+schema+`.schema_migrations ORDER BY version`)
@@ -306,8 +306,18 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate schema_migrations: %v", err)
 	}
-	if len(versions) != 2 || versions[0] != 14 || versions[1] != 15 {
-		t.Fatalf("schema_migrations = %v, want [14 15]", versions)
+	if len(versions) != 3 || versions[0] != 14 || versions[1] != 15 || versions[2] != 16 {
+		t.Fatalf("schema_migrations = %v, want [14 15 16]", versions)
+	}
+
+	var cronTables int
+	if err := admin.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM information_schema.tables
+		 WHERE table_schema = $1 AND table_name = 'cron_jobs'`, schema).Scan(&cronTables); err != nil {
+		t.Fatalf("check cron_jobs table: %v", err)
+	}
+	if cronTables != 1 {
+		t.Fatalf("cron_jobs tables = %d, want 1", cronTables)
 	}
 
 	// (b) information_schema reports the 4 new columns as NOT NULL DEFAULT ''.
