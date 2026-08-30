@@ -43,6 +43,12 @@ func TestVerifyRejectsForbiddenPlugins(t *testing.T) {
 		{"bad-channel-tools", "seam channel forbids tools"},
 		{"bad-channel-listen", "opens a listen socket"},
 		{"bad-channel-grant", "is not allowed in this batch"},
+		// CH-C2-N1 debt closed in CH-C6: manifest-level channel rules get
+		// their own negative fixtures, mirroring bad-eino-import style.
+		{"bad-channel-transport", `channel.transport "webhook" is not allowed in this batch`},
+		{"bad-channel-dup-grant", `grant "channel.poll" is duplicated`},
+		{"bad-tool-channel-grant", `grant "channel.poll" is not available to seam "tool"`},
+		{"bad-channel-runes", "channel.max_message_runes must not be negative"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.dir, func(t *testing.T) {

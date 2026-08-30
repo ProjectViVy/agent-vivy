@@ -82,6 +82,90 @@ func TestSecretFailsWithoutTokenEnvDeclaration(t *testing.T) {
 	}
 }
 
+// TestSecretResolvesSettingsDeclaredEnvKeys (CH-C6/D2): a channel envelope
+// may declare additional env_key names through top-level `<name>_env`
+// entries of its opaque settings block — the multi-credential pattern
+// (dingtalk needs client_id_env + client_secret_env) that a single
+// token_env slot cannot carry. The envelope token_env may stay empty; only
+// settings-declared names resolve then. Unknown names still fail closed
+// and errors never carry values (D-010).
+func TestSecretResolvesSettingsDeclaredEnvKeys(t *testing.T) {
+	t.Setenv("VIVY_TEST_CLIENT_ID", "id-value")
+	t.Setenv("VIVY_TEST_CLIENT_SECRET", "secret-value")
+	var envelope config.ChannelEnvelope
+	if err := yaml.Unmarshal([]byte("enabled: true\nsettings:\n  client_id_env: VIVY_TEST_CLIENT_ID\n  client_secret_env: VIVY_TEST_CLIENT_SECRET\n"), &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	_, env := envHostWithEnvelope(t, "dingtalk-like", envelope)
+
+	for _, name := range []string{"VIVY_TEST_CLIENT_ID", "VIVY_TEST_CLIENT_SECRET"} {
+		value, err := env.Secret(name)
+		if err != nil {
+			t.Fatalf("settings-declared env_key %q: %v", name, err)
+		}
+		if value == "" {
+			t.Fatalf("settings-declared env_key %q resolved empty", name)
+		}
+	}
+
+	if _, err := env.Secret("VIVY_TEST_CLIENT_OTHER"); err == nil {
+		t.Fatal("undeclared env_key must fail closed")
+	} else if strings.Contains(err.Error(), "id-value") || strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("error message leaks a secret value: %v", err)
+	}
+}
+
+// TestSecretIgnoresNonStringAndNestedEnvEntries (CH-C6/D2): only top-level
+// string-valued `<name>_env` settings entries declare env_key names.
+// Non-string scalars (number, bool), nested mappings, and keys buried one
+// level deeper declare nothing — with the variables set, a wrong
+// declaration would make Secret succeed, so every case below must fail.
+// The one top-level string sibling proves the walk itself works.
+func TestSecretIgnoresNonStringAndNestedEnvEntries(t *testing.T) {
+	t.Setenv("VIVY_TEST_TRUE", "v")
+	t.Setenv("VIVY_TEST_DEEP", "v")
+	t.Setenv("VIVY_TEST_INNER", "v")
+	t.Setenv("VIVY_TEST_STRING", "v")
+	var envelope config.ChannelEnvelope
+	if err := yaml.Unmarshal([]byte(
+		"enabled: true\n"+
+			"settings:\n"+
+			"  numeric_env: 123\n"+
+			"  bool_env: true\n"+
+			"  nested_env:\n"+
+			"    inner_env: VIVY_TEST_INNER\n"+
+			"  deep:\n"+
+			"    deep_env: VIVY_TEST_DEEP\n"+
+			"  string_env: VIVY_TEST_STRING\n"), &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	_, env := envHostWithEnvelope(t, "mixed", envelope)
+
+	if _, err := env.Secret("VIVY_TEST_STRING"); err != nil {
+		t.Fatalf("top-level string *_env sibling must resolve: %v", err)
+	}
+	for _, name := range []string{"123", "true", "VIVY_TEST_INNER", "VIVY_TEST_DEEP"} {
+		if _, err := env.Secret(name); err == nil {
+			t.Fatalf("env_key %q comes from a non-string or nested *_env entry and must fail closed", name)
+		}
+	}
+}
+
+// TestSecretFailsWhenSettingsDeclareNothing (CH-C6/D2): a settings block
+// without any *_env entry grants no secret beyond the envelope token_env;
+// with the token_env absent too, everything fails closed.
+func TestSecretFailsWhenSettingsDeclareNothing(t *testing.T) {
+	t.Setenv("VIVY_TEST_BOT_TOKEN", "tok-secret-value")
+	var envelope config.ChannelEnvelope
+	if err := yaml.Unmarshal([]byte("enabled: true\nsettings:\n  plain: value\n"), &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	_, env := envHostWithEnvelope(t, "nothing", envelope)
+	if _, err := env.Secret("VIVY_TEST_BOT_TOKEN"); err == nil {
+		t.Fatal("secret with no declared name anywhere must fail closed")
+	}
+}
+
 // TestSecretDeniedWithoutGrant: the secret.read grant is still required
 // before the pinning check.
 func TestSecretDeniedWithoutGrant(t *testing.T) {
