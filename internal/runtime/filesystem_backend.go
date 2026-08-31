@@ -716,7 +716,9 @@ func safeWorkspacePath(root, value string, allowMissing bool) (string, error) {
 			if allowMissing {
 				break
 			}
-			return "", fmt.Errorf("filesystem: path does not exist")
+			// Wrap the sentinel so eino middlewares (agentsmd) can
+			// errors.Is(err, os.ErrNotExist) this as "absent, skip".
+			return "", fmt.Errorf("filesystem: path does not exist: %w", os.ErrNotExist)
 		}
 		if err != nil {
 			return "", fmt.Errorf("filesystem: inspect path: %w", err)
