@@ -17,6 +17,46 @@ func TestLoadMissingFileReturnsZero(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesRetiredMockProvider(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	legacy := `provider: mock
+default_model: mock
+base_url: ""
+providers:
+  - id: retired-mock
+    display_name: Retired mock
+    bundle: mock
+    base_url: https://mock.example.com/v1
+    default_model: mock
+    models:
+      - mock
+  - id: live-openai
+    display_name: Live gateway
+    bundle: openai
+    base_url: https://gateway.example.com/v1
+    default_model: gpt-4o
+    models:
+      - gpt-4o
+`
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("legacy mock settings should load for migration: %v", err)
+	}
+	if loaded.Provider != "" || loaded.DefaultModel != "" || loaded.BaseURL != "" || loaded.ApiKey != "" {
+		t.Fatalf("retired mock selection should be cleared: %+v", loaded)
+	}
+	if len(loaded.Providers) != 1 || loaded.Providers[0].ID != "live-openai" {
+		t.Fatalf("retired mock registry rows should be removed: %+v", loaded.Providers)
+	}
+}
+
 func TestSaveAndLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent-home", FileName)
 	saved, err := Save(path, Settings{Provider: ProviderOpenAI, DefaultModel: "gpt-4o", BaseURL: "https://gw.example.com/v1"})

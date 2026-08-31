@@ -945,6 +945,35 @@ type settingsApplierProbe struct {
 	n int
 }
 
+func TestProviderRegistryUpsertMigratesRetiredMockSettings(t *testing.T) {
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnv(t, probe)
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte("provider: mock\ndefault_model: mock\nbase_url: \"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "deepseek", "display_name": "DeepSeek", "bundle": "openai",
+		"base_url": "https://api.deepseek.com/v1", "default_model": "deepseek-chat",
+		"models": []string{"deepseek-chat"},
+	}); rpcErr != nil {
+		t.Fatalf("upsert should recover a retired mock settings document: %v", rpcErr)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Provider != "" || loaded.DefaultModel != "" || loaded.BaseURL != "" {
+		t.Fatalf("retired mock selection should not survive upsert: %+v", loaded)
+	}
+	if len(loaded.Providers) != 1 || loaded.Providers[0].ID != "deepseek" {
+		t.Fatalf("upsert did not preserve the new provider: %+v", loaded.Providers)
+	}
+}
+
 func TestProviderRegistryRPC(t *testing.T) {
 	probe := &settingsApplierProbe{}
 	env, settingsPath := newSettingsHandlerEnv(t, probe)
