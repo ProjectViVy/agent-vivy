@@ -135,72 +135,9 @@ func (s Selection) Names() []string {
 	return out
 }
 
-// Selector performs conservative, deterministic request routing. A tool is
-// selected only when the request contains one of its explicit keywords or a
-// name component; unrelated requests receive no callable tools.
-type Selector struct {
-	tools []Tool
-}
-
-// NewSelector builds a selector over the already config-filtered tools.
-func NewSelector(ts []Tool) *Selector {
-	copyTools := append([]Tool(nil), ts...)
-	return &Selector{tools: copyTools}
-}
-
-// Select returns the tools whose manifest terms occur in the request. Token
-// matching is case-insensitive and uses explicit manifest keywords, which
-// keeps routing stable without an embedding or model call.
-func (s *Selector) Select(request string) Selection {
-	query := tokenSet(request)
-	selection := Selection{}
-	if len(query) == 0 {
-		return selection
-	}
-	maxScore := 0
-	scores := make([]int, len(s.tools))
-	for i, tool := range s.tools {
-		spec := tool.Spec()
-		score := toolScore(spec, query)
-		scores[i] = score
-		if score > maxScore {
-			maxScore = score
-		}
-	}
-	if maxScore == 0 {
-		return selection
-	}
-	for i, tool := range s.tools {
-		if scores[i] != maxScore {
-			continue
-		}
-		selection.Tools = append(selection.Tools, tool)
-		selection.Specs = append(selection.Specs, tool.Spec())
-	}
-	return selection
-}
-
-func toolScore(spec domain.ToolSpec, query map[string]struct{}) int {
-	terms := append([]string(nil), spec.Keywords...)
-	if len(terms) == 0 {
-		// Custom tools without explicit routing hints fall back to their
-		// name. Builtins provide keywords so generic words such as "note"
-		// do not accidentally select several note tools at once.
-		terms = strings.FieldsFunc(spec.Name, func(r rune) bool { return r == '_' || r == '-' })
-	}
-	score := 0
-	for _, term := range terms {
-		if _, ok := query[normalizeToken(term)]; ok {
-			weight := 2
-			if token := normalizeToken(term); token == "note" || token == "notes" {
-				weight = 1
-			}
-			score += weight
-		}
-	}
-	return score
-}
-
+// tokenSet splits a query into normalized tokens. It backs tool_search
+// catalog matching; request binding no longer routes on it (every request
+// binds the full enabled set).
 func tokenSet(value string) map[string]struct{} {
 	set := make(map[string]struct{})
 	for _, raw := range strings.FieldsFunc(value, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
@@ -224,6 +161,9 @@ func (e *ArgError) Error() string {
 // Vivy-owned, not Eino's.
 type Registry struct {
 	byName map[string]Tool
+	// order preserves registration order so catalog views (Settings tool
+	// surface) are deterministic.
+	order []string
 }
 
 // NewRegistry builds a registry from the given tools; duplicate names are
@@ -236,8 +176,19 @@ func NewRegistry(ts ...Tool) *Registry {
 			panic(fmt.Sprintf("tools: duplicate registration of %q", name))
 		}
 		r.byName[name] = t
+		r.order = append(r.order, name)
 	}
 	return r
+}
+
+// Specs returns every registered manifest in registration order — the
+// full active+hidden catalog, independent of the enabled list.
+func (r *Registry) Specs() []domain.ToolSpec {
+	out := make([]domain.ToolSpec, 0, len(r.order))
+	for _, name := range r.order {
+		out = append(out, r.byName[name].Spec())
+	}
+	return out
 }
 
 // Builtin returns the registry of shipped non-filesystem tools. It preserves
@@ -360,6 +311,22 @@ func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills Sk
 		registered = append(registered, NewExecute(commands), NewCommandline(commands))
 	}
 	return registered
+}
+
+// Except returns the registered tools whose names are absent from enabled,
+// in registration order — the hidden complement of Resolve.
+func (r *Registry) Except(enabled []string) []Tool {
+	enabledSet := make(map[string]struct{}, len(enabled))
+	for _, name := range enabled {
+		enabledSet[name] = struct{}{}
+	}
+	out := make([]Tool, 0, len(r.order))
+	for _, name := range r.order {
+		if _, ok := enabledSet[name]; !ok {
+			out = append(out, r.byName[name])
+		}
+	}
+	return out
 }
 
 // Resolve selects the enabled tools by name, preserving order. An unknown

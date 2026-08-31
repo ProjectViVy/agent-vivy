@@ -143,6 +143,9 @@ Do not pick work from those tables. Closed-track filing:
 | UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | DONE | CH-C5 已领取并交付，见 docs/logs/2026-08-30-channel-c5/ |
 | UI-TODO-MUTATE | 待办清单只读，人不能在 UI 里增删改 | OPEN | 2026-08-29 聊天区已接真实 `session/todos`（见 `docs/logs/2026-08-29-chat-plan-todo-display/`）；变更只来自 `task_*` 工具。人闸编辑会变成伪操作，需明确产品决策后再做 |
 | UI-GOAL | 无 DSH 式 goal 内核 / GoalBar 动词 | OPEN | 进度条用当前 `in_progress` 的 `active_form`/`subject` 当概览，不是独立 goal 对象。移植 `create_goal` 需内核提案 |
+| TT-1 | SKILL 工具挂载的会话级 pin | OPEN | 2026-08-31 两层工具（`docs/logs/2026-08-31-two-tier-tools/`）把挂载作用域定为单次 run：`skill_view` 挂载的工具 run 结束即收回，下一 run 需重新查看。会话级 pin 需要 session 维度的挂载状态存储与审计口径（HITL/策略快照是否跟随） |
+| TT-2 | 中断 run 的 resume 不恢复挂载集 | OPEN | 同上日志：resume 从 journal 恢复 selectedTools（active 基面），`MountedTools` 随 ctx 重建为空；恢复后模型需重新 `skill_view` 才能再调用技能声明的隐藏工具 |
+| TT-3 | `model.request.selected_tools` 不含 run 内挂载增量 | OPEN | journal 的 model.request 在 run 前记录基面（active）；`skill_view` 挂载只体现在后续 tool 事件与模型视图。如需审计挂载历史，可在挂载时发独立 journal 事件 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 

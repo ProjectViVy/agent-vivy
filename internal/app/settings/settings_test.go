@@ -354,6 +354,65 @@ func TestProviderRegistryAllowsSameBaseURLAcrossBundles(t *testing.T) {
 	}
 }
 
+// The tools_enabled overlay is nil until written (config default stands),
+// then round-trips as a whole-list replacement. An explicit empty list is
+// the legal chat-only mode, so it must survive the round trip as non-nil.
+func TestSaveAndLoadToolsEnabledOverlay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent-home", FileName)
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if loaded.ToolsEnabled != nil {
+		t.Fatalf("missing document tools_enabled = %+v, want nil", loaded.ToolsEnabled)
+	}
+
+	active := []string{"list_dir", "read_file"}
+	saved, err := Save(path, Settings{ToolsEnabled: &active})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err = Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, saved) {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+	if loaded.ToolsEnabled == nil || !reflect.DeepEqual(*loaded.ToolsEnabled, active) {
+		t.Fatalf("tools_enabled = %+v, want %v", loaded.ToolsEnabled, active)
+	}
+
+	empty := []string{}
+	saved, err = Save(path, Settings{ToolsEnabled: &empty})
+	if err != nil {
+		t.Fatalf("save chat-only: %v", err)
+	}
+	loaded, err = Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.ToolsEnabled == nil || len(*loaded.ToolsEnabled) != 0 {
+		t.Fatalf("chat-only tools_enabled = %+v, want explicit empty", loaded.ToolsEnabled)
+	}
+}
+
+func TestValidateToolsEnabledOverlay(t *testing.T) {
+	dup := []string{"list_dir", "list_dir"}
+	if err := (Settings{ToolsEnabled: &dup}).Validate(); err == nil {
+		t.Fatal("duplicate names must be rejected")
+	}
+	blank := []string{"list_dir", "  "}
+	if err := (Settings{ToolsEnabled: &blank}).Validate(); err == nil {
+		t.Fatal("blank names must be rejected")
+	}
+	ok := []string{"list_dir", "read_file"}
+	if err := (Settings{ToolsEnabled: &ok}).Validate(); err != nil {
+		t.Fatalf("valid overlay rejected: %v", err)
+	}
+}
+
 func TestFindProviderMatchesBundleAndBaseURL(t *testing.T) {
 	s := Settings{Providers: []ProviderEntry{
 		{ID: "c1", DisplayName: "A", Bundle: ProviderOpenAI, BaseURL: "https://a.example.com/v1", ApiKey: "sk-a"},

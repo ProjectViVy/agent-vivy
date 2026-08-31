@@ -79,7 +79,13 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
 	spec := a.t.Spec()
 	if allowed, scoped := selectedToolSet(ctx); scoped {
-		if _, ok := allowed[spec.Name]; !ok {
+		_, ok := allowed[spec.Name]
+		// A skill_view mount extends the selected surface for the rest of
+		// the run: hidden tools become callable once mounted.
+		if !ok && tools.MountedToolsFromContext(ctx).Has(spec.Name) {
+			ok = true
+		}
+		if !ok {
 			return "", fmt.Errorf("runtime: tool %q is not selected for this request", spec.Name)
 		}
 	}

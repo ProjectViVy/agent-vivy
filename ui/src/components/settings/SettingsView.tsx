@@ -1,17 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArrowRight, Cpu, FlaskConical, GitBranch, Sparkles } from 'lucide-react';
+import { Activity, ArrowRight, Cpu, GitBranch, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getToolsConfig, updateToolsConfig } from '@/lib/demo-api';
-import type { ToolsConfigShape } from '@/lib/types';
 import { settingsUpdateFrom } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
-import { DemoLoadError } from '@/components/demo/DemoBanner';
 import { RunInspector } from '@/components/chat/RunInspector';
 import { openWelcome } from '@/hooks/use-welcome';
 import { useTranslation } from '@/i18n';
@@ -25,6 +21,7 @@ import { ThemePicker } from './ThemePicker';
 import { LanguagePicker } from './LanguagePicker';
 import { NetworkToolsCard } from './NetworkToolsCard';
 import { SandboxSettingsCard } from './SandboxSettingsCard';
+import { ToolsSettingsCard } from './ToolsSettingsCard';
 
 const SETTINGS_TAB_VALUES = ['general', 'model', 'tools', 'vivy', 'language', 'channels', 'network', 'sandbox', ...DIVA_ADDITIONAL_SECTIONS] as const;
 export type SettingsTab = (typeof SETTINGS_TAB_VALUES)[number];
@@ -38,16 +35,6 @@ const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
   'self-evolution': '自进化',
 };
 
-function DemoNote() {
-  return (
-    <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-      <FlaskConical className="h-4 w-4" aria-hidden="true" />
-      <strong>演示 / 本地模拟</strong>
-      <span>修改只保存到 vivy.demo.* localStorage。</span>
-    </div>
-  );
-}
-
 export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const connection = useVivyStore((state) => state.connection);
   const settings = useVivyStore((state) => state.settings);
@@ -57,25 +44,8 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({ provider: '', default_model: '', base_url: '', execute_max_timeout: '' });
   const [formError, setFormError] = useState<string | null>(null);
-  const [tools, setTools] = useState<ToolsConfigShape | null>(null);
-  const [demoBusy, setDemoBusy] = useState<'tools' | null>(null);
-  const [demoSaved, setDemoSaved] = useState<string | null>(null);
-  const [demoError, setDemoError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'general');
 
-  const loadTools = async () => {
-    setDemoError(null);
-    try {
-      setTools(await getToolsConfig());
-    } catch (cause) {
-      setDemoError(cause instanceof Error ? cause.message : String(cause));
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'tools') void loadTools();
-  }, [activeTab]);
-  // 深链 ?tab=… 落地或欢迎向导完成跳转时切换到目标分区；非法值回落到「通用」。
   useEffect(() => { if (isSettingsTab(initialTab)) setActiveTab(initialTab); }, [initialTab]);
 
   // 执行超时表单跟随 settings 载入（settings/update 是整文档替换）。
@@ -97,20 +67,6 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
     }
     setFormError(null);
     await save({ ...settingsUpdateFrom(settings), provider: form.provider, default_model: form.default_model, base_url: form.base_url, execute_max_timeout_seconds: timeoutSeconds });
-  };
-
-  const persistTools = async () => {
-    setDemoBusy('tools');
-    setDemoSaved(null);
-    setDemoError(null);
-    try {
-      if (tools) setTools(await updateToolsConfig(tools));
-      setDemoSaved('tools');
-    } catch (cause) {
-      setDemoError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setDemoBusy(null);
-    }
   };
 
   return (
@@ -135,8 +91,6 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
               </TabsTrigger>
             ))}
           </TabsList>
-
-          {demoError ? <div className="mt-4"><DemoLoadError message={demoError} onRetry={() => void loadTools()} /></div> : null}
 
           <TabsContent value="general" className="space-y-4">
             <Card>
@@ -189,14 +143,13 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           </TabsContent>
 
           <TabsContent value="tools" className="space-y-4">
-            <DemoNote />
             <Card>
-              <CardHeader><CardTitle>工具配置</CardTitle><CardDescription>本地演示沙箱和命令审批规则。</CardDescription></CardHeader>
-              <CardContent>{tools ? <div className="space-y-5">
-                <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="font-medium">沙箱模式</p><p className="text-sm text-muted-foreground">演示工具调用隔离状态</p></div><Switch checked={tools.sandbox_enabled} disabled={demoBusy === 'tools'} onCheckedChange={(checked) => setTools({ ...tools, sandbox_enabled: checked })} aria-label="演示沙箱模式" /></div>
-                <div className="space-y-2"><Label>命令规则</Label>{(tools.command_rules ?? []).map((rule, index) => <div key={rule.command} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_auto_auto]"><code>{rule.command}</code><label className="flex items-center gap-2 text-sm"><Switch checked={rule.enabled} disabled={demoBusy === 'tools'} onCheckedChange={(checked) => setTools({ ...tools, command_rules: (tools.command_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, enabled: checked } : item) })} aria-label={`${rule.command} 启用状态`} />启用</label><label className="flex items-center gap-2 text-sm"><Switch checked={rule.approval_required} disabled={demoBusy === 'tools'} onCheckedChange={(checked) => setTools({ ...tools, command_rules: (tools.command_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, approval_required: checked } : item) })} aria-label={`${rule.command} 需要审批`} />需要审批</label></div>)}</div>
-                <Button type="button" disabled={demoBusy === 'tools'} onClick={() => void persistTools()}>{demoBusy === 'tools' ? '保存中…' : '保存工具演示'}</Button>{demoSaved === 'tools' ? <span className="ml-3 text-sm text-muted-foreground">已保存到本地</span> : null}
-              </div> : <div className="h-56 animate-pulse rounded bg-muted" />}</CardContent>
+              <CardHeader>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+                <CardTitle>工具配置</CardTitle>
+                <CardDescription>激活与隐藏内置工具：激活的工具每次请求都绑定给模型，隐藏的工具不占上下文。</CardDescription>
+              </CardHeader>
+              <ToolsSettingsCard />
             </Card>
           </TabsContent>
 
