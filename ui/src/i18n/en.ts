@@ -140,6 +140,10 @@ export const en: Dictionary = {
     moreUnavailable: 'More tools are not wired up yet',
     cancelRun: 'Cancel run',
     send: 'Send',
+    queue: 'Queue message',
+    queuedCount: '{{count}} queued',
+    clearQueue: 'Clear queue',
+    removeQueued: 'Remove',
   },
   sessionDrawer: {
     searchPlaceholder: 'Search sessions',

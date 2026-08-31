@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Brain, Check, CheckCircle, ChevronDown, Clock, GitBranch, Lightbulb, LightbulbOff,
-  Paperclip, Plus, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, Zap,
+  Paperclip, Plus, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, X, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ import { useTranslation } from '@/i18n';
 
 interface ChatInputProps {
   onSend: (content: string, mode: RunMode) => Promise<void> | void;
+  /** 运行期间发送走排队（对照 Crush）：跳过 UI 预检，服务端门禁仍然生效。 */
+  onQueue?: (content: string, mode: RunMode) => Promise<void> | void;
   onCancel?: () => Promise<void> | void;
   disabled?: boolean;
   running?: boolean;
@@ -54,7 +56,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
   { value: 'trusted', icon: CheckCircle, label: 'chatInput.permissionTrusted', desc: 'chatInput.permissionTrustedDesc' },
 ];
 
-export function ChatInput({ onSend, onCancel, disabled, running, placeholder, context = null }: ChatInputProps) {
+export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeholder, context = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [execMode, setExecMode] = useState<ExecMode>('agent');
@@ -65,6 +67,9 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
   const openSessionDrawer = useVivyStore((state) => state.setSessionDrawerOpen);
+  const queuedMessages = useVivyStore((state) => state.queuedMessages);
+  const removeQueuedMessage = useVivyStore((state) => state.removeQueuedMessage);
+  const clearQueue = useVivyStore((state) => state.clearQueue);
   const pendingReviewCount = useVivyStore((state) => state.reviews.filter((review) => review.status === 'pending').length);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
   const sessions = useVivyStore((state) => state.sessions);
@@ -117,9 +122,16 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
 
   const send = async () => {
     const content = value.trim();
-    if (!content || disabled || running) return;
+    if (!content || disabled) return;
+    const mode: RunMode = execMode === 'plan' ? 'plan' : 'normal';
+    if (running) {
+      // 运行中不阻断输入：入队等待本轮结束（对照 Crush 队列 pill）。
+      await onQueue?.(content, mode);
+      setValue('');
+      return;
+    }
     try {
-      await onSend(content, execMode === 'plan' ? 'plan' : 'normal');
+      await onSend(content, mode);
       setValue('');
     } catch {
       /* keep the draft; ChatView / store already expose the failure */
@@ -252,13 +264,42 @@ export function ChatInput({ onSend, onCancel, disabled, running, placeholder, co
         <button type="button" aria-expanded={reviewCenterOpen} onClick={() => openReviewCenter(true)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.reviewCenter')} aria-label={t('chatInput.reviewCenter')}><ShieldCheck className="h-4 w-4" />{pendingReviewCount ? <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white" aria-hidden="true">{pendingReviewCount}</span> : null}</button>
       </div>
     </div>
-    <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={placeholder || t('chatInput.placeholder')} disabled={disabled || running} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
+    {/* 队列 pill（对照 Crush）：运行期间排队中的消息，可逐条移除或整体清空 */}
+    {queuedMessages.length ? (
+      <div className="flex items-center gap-2 border-t border-border/60 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+        <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="shrink-0 font-medium">{t('chatInput.queuedCount', { count: queuedMessages.length })}</span>
+        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto" aria-live="polite">
+          {queuedMessages.map((item) => (
+            <span key={item.id} className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">
+              <span className="max-w-40 truncate">{item.text}</span>
+              <button type="button" onClick={() => removeQueuedMessage(item.id)} title={t('chatInput.removeQueued')} aria-label={`${t('chatInput.removeQueued')}: ${item.text}`} className="rounded-full p-0.5 transition-colors hover:bg-accent hover:text-foreground"><X className="h-3 w-3" aria-hidden="true" /></button>
+            </span>
+          ))}
+        </div>
+        <button type="button" onClick={clearQueue} className="shrink-0 rounded-lg px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={t('chatInput.clearQueue')} aria-label={t('chatInput.clearQueue')}>{t('chatInput.clearQueue')}</button>
+      </div>
+    ) : null}
+    <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); return; }
+      // esc 两段式（对照 Crush）：第一次清空队列，再一次取消运行
+      if (event.key === 'Escape' && running) {
+        event.preventDefault();
+        if (queuedMessages.length) clearQueue();
+        else void onCancel?.();
+      }
+    }} placeholder={placeholder || t('chatInput.placeholder')} disabled={disabled} className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0" rows={1} />
     <div className="flex items-center gap-2 px-3 pb-2.5"><div className="flex shrink-0 items-center gap-1.5" title={contextTitleText()}>
       <div role="progressbar" aria-label={t('chatInput.contextLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={contextPercent} aria-valuetext={t('chatInput.contextValueText', { used: usedTokens, limit: limitTokens })} className="relative h-7 w-7">
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
-    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button>{running ? <Button size="icon" variant="destructive" className="rounded-full" onClick={() => void onCancel?.()} disabled={disabled} title={t('chatInput.cancelRun')} aria-label={t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button> : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
+    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => showNotice(t('chatInput.moreUnavailable'))} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent" title={t('chatInput.more')} aria-label={t('chatInput.more')}><Plus className="h-4 w-4" /></button>{running ? (
+  <>
+    <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.queue')} aria-label={t('chatInput.queue')}><Send className="h-4 w-4" /></button>
+    <Button size="icon" variant="destructive" className="rounded-full" onClick={queuedMessages.length ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
+  </>
+) : <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>}</div>
   </div>
     <AlertDialog open={confirmTrusted} onOpenChange={setConfirmTrusted}>
       <AlertDialogContent>
