@@ -451,7 +451,7 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
+			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "read_file", "search_files", "write_file", "patch", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "tool_search"},
 			NetworkSearch: NetworkSearchConfig{Provider: ""},
 			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},

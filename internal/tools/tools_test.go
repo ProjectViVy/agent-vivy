@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"agent-vivy/internal/domain"
 )
 
 func TestValidateArgsRejectsManifestViolations(t *testing.T) {
@@ -160,4 +162,74 @@ func TestRegistryDuplicatePanics(t *testing.T) {
 		}
 	}()
 	NewRegistry(NewEchoInfo(), NewEchoInfo())
+}
+
+func TestWebFetchAndDownloadSpecs(t *testing.T) {
+	if !NewWebFetch(nil).Spec().Readonly {
+		t.Error("web_fetch must be readonly so policy auto-approves it like network_search")
+	}
+	if NewDownload(nil).Spec().Readonly {
+		t.Error("download must be effectful so the gate can interrupt it (D-012)")
+	}
+	if _, ok := NewDownload(&stubDownload{}).(ProposalProvider); !ok {
+		t.Error("download must implement ProposalProvider for the HITL flow")
+	}
+}
+
+func TestWebFetchRejectsBadArgs(t *testing.T) {
+	cases := map[string]string{
+		"missing url":      `{}`,
+		"empty url":        `{"url":"  "}`,
+		"bad format":       `{"url":"https://example.com","format":"rtf"}`,
+		"negative timeout": `{"url":"https://example.com","timeout":-1}`,
+	}
+	tool := NewWebFetch(nil)
+	for name, args := range cases {
+		_, err := tool.InvokableRun(context.Background(), json.RawMessage(args))
+		if err == nil {
+			t.Errorf("%s: want error, got nil", name)
+			continue
+		}
+		var argErr *ArgError
+		if !errors.As(err, &argErr) {
+			t.Errorf("%s: error %T is not a structured *ArgError", name, err)
+		}
+	}
+}
+
+func TestDownloadRejectsBadArgs(t *testing.T) {
+	cases := map[string]string{
+		"missing url":      `{"path":"x.bin"}`,
+		"missing path":     `{"url":"https://example.com/f.zip"}`,
+		"negative timeout": `{"url":"https://example.com","path":"x","timeout":-3}`,
+	}
+	tool := NewDownload(nil)
+	for name, args := range cases {
+		_, err := tool.InvokableRun(context.Background(), json.RawMessage(args))
+		if err == nil {
+			t.Errorf("%s: want error, got nil", name)
+			continue
+		}
+		var argErr *ArgError
+		if !errors.As(err, &argErr) {
+			t.Errorf("%s: error %T is not a structured *ArgError", name, err)
+		}
+	}
+}
+
+func TestDownloadPrepareProposalFallsBackToGeneric(t *testing.T) {
+	tool := NewDownload(&stubDownload{})
+	proposal, err := tool.(ProposalProvider).PrepareProposal(context.Background(), json.RawMessage(`{"url":"https://example.com/f.zip","path":"f.zip"}`))
+	if err != nil {
+		t.Fatalf("PrepareProposal: %v", err)
+	}
+	if proposal.Action != DownloadName || proposal.Target != "f.zip" || proposal.Preview == "" {
+		t.Fatalf("unexpected generic proposal: %+v", proposal)
+	}
+}
+
+type stubDownload struct{}
+
+func (s *stubDownload) Download(_ context.Context, _ domain.RunID, _ DownloadRequest) (DownloadResult, error) {
+	return DownloadResult{Path: "f.zip"}, nil
 }
