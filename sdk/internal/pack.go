@@ -318,7 +318,11 @@ func standaloneModulePath(dir string) (string, bool) {
 // is go.mod-parseable on every OS), plus the plugin's own third-party
 // require closure. Without the merged requires (CH-C2 gap) a standalone
 // plugin with a fat SDK dependency fails the main build, because the main
-// module's go.mod/go.sum never learned about that dependency.
+// module's go.mod/go.sum never learned about that dependency. The pair is
+// idempotent: when the root go.mod already requires AND replaces the
+// plugin module (full committed species body), appending a second replace
+// for the same module is a conflicting-replacement build error, so the
+// pair is skipped — the third-party closure still merges.
 func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (string, error) {
 	orig, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
@@ -335,6 +339,7 @@ func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (
 			existing[spec.path] = spec.version
 		}
 	}
+	rootReplaced := parseReplaceTargets(string(orig))
 	var b strings.Builder
 	b.Write(orig)
 	var merged []requireSpec
@@ -358,6 +363,11 @@ func overlayGoModForStandalone(root, tmpDir string, standalone []packedPlugin) (
 				existing[spec.path] = spec.version
 				merged = append(merged, spec)
 			}
+		}
+		if existing[p.impPath] != "" && rootReplaced[p.impPath] {
+			// Root already wires this plugin module (full species body);
+			// skip only the pair, never the closure merge above.
+			continue
 		}
 		target := filepath.ToSlash(p.dir)
 		fmt.Fprintf(&b, "\nrequire %s v0.0.0\nreplace %s => %s\n", p.impPath, p.impPath, target)
@@ -458,6 +468,47 @@ func parseRequireLines(data string) []requireSpec {
 		}
 	}
 	return specs
+}
+
+// parseReplaceTargets extracts the replaced module paths (the left side
+// of `=>`) from go.mod content: both the single-line
+// `replace path [version] => target` form and the parenthesized block
+// form. Plain line scan, same shape as parseRequireLines.
+func parseReplaceTargets(data string) map[string]bool {
+	out := map[string]bool{}
+	inBlock := false
+	for _, raw := range strings.Split(data, "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "" || strings.HasPrefix(line, "//"):
+			continue
+		case strings.HasPrefix(line, "replace "):
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "replace "))
+			if rest == "(" {
+				inBlock = true
+				continue
+			}
+			recordReplaceTarget(out, rest)
+		case inBlock && line == ")":
+			inBlock = false
+		case inBlock:
+			recordReplaceTarget(out, line)
+		}
+	}
+	return out
+}
+
+// recordReplaceTarget records the module path being replaced (before
+// `=>`) from one replace directive body.
+func recordReplaceTarget(out map[string]bool, directive string) {
+	i := strings.Index(directive, "=>")
+	if i < 0 {
+		return
+	}
+	fields := strings.Fields(directive[:i])
+	if len(fields) > 0 {
+		out[fields[0]] = true
+	}
 }
 
 // checkMergeableDirectives rejects go.mod directives pack cannot merge

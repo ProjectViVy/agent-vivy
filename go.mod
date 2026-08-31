@@ -14,13 +14,39 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/bwmarrin/discordgo v0.29.0 // indirect
+	github.com/go-resty/resty/v2 v2.6.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/grbit/go-json v0.11.0 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/larksuite/oapi-sdk-go/v3 v3.11.0 // indirect
+	github.com/mymmrac/telego v1.10.0 // indirect
+	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1 // indirect
+	github.com/tencent-connect/botgo v0.2.1 // indirect
+	github.com/tidwall/gjson v1.9.3 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	github.com/valyala/fasthttp v1.71.0 // indirect
+	github.com/valyala/fastjson v1.6.10 // indirect
+	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/oauth2 v0.23.0 // indirect
+)
+
+require (
+	example.com/vivy/plugins/dingtalk v0.0.0
+	example.com/vivy/plugins/discord v0.0.0
+	example.com/vivy/plugins/feishu v0.0.0
+	example.com/vivy/plugins/qq v0.0.0
+	example.com/vivy/plugins/telegram v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic v1.15.0 // indirect
-	github.com/bytedance/sonic/loader v0.5.0 // indirect
+	github.com/bytedance/sonic v1.15.2 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
@@ -63,12 +89,22 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	golang.org/x/arch v0.11.0 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace example.com/vivy/plugins/telegram => ./plugins/telegram
+
+replace example.com/vivy/plugins/dingtalk => ./plugins/dingtalk
+
+replace example.com/vivy/plugins/discord => ./plugins/discord
+
+replace example.com/vivy/plugins/feishu => ./plugins/feishu
+
+replace example.com/vivy/plugins/qq => ./plugins/qq
