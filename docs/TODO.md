@@ -146,6 +146,7 @@ Do not pick work from those tables. Closed-track filing:
 | TT-1 | SKILL 工具挂载的会话级 pin | OPEN | 2026-08-31 两层工具（`docs/logs/2026-08-31-two-tier-tools/`）把挂载作用域定为单次 run：`skill_view` 挂载的工具 run 结束即收回，下一 run 需重新查看。会话级 pin 需要 session 维度的挂载状态存储与审计口径（HITL/策略快照是否跟随） |
 | TT-2 | 中断 run 的 resume 不恢复挂载集 | OPEN | 同上日志：resume 从 journal 恢复 selectedTools（active 基面），`MountedTools` 随 ctx 重建为空；恢复后模型需重新 `skill_view` 才能再调用技能声明的隐藏工具 |
 | TT-3 | `model.request.selected_tools` 不含 run 内挂载增量 | OPEN | journal 的 model.request 在 run 前记录基面（active）；`skill_view` 挂载只体现在后续 tool 事件与模型视图。如需审计挂载历史，可在挂载时发独立 journal 事件 |
+| TT-4 | 512 事件预算对正常工具 run 过紧 | OPEN | 2026-08-31 合并后真路径冒烟：带工具的中文请求连续两次触发 `run budget circuit breaker kind=events limit=512`（`data/logs` WARN）。`mapper.go` 对每个流式 chunk 落一条 `model.delta` 且每 chunk 计 1 预算事件（思考模式再翻倍），多轮工具调用 + 正常长度回复即越线；模型/工具调用预算（32/64）均未触顶。`budget.go`/`mapper.go` 均为既有设计、非两层工具引入。方向：调大 MaxEvents / delta 不逐条入账（聚合或降权）/ 空内容 chunk 不落 delta 事件，需产品决策 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
