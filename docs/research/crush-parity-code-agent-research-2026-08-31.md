@@ -335,3 +335,10 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 6. 缓存策略差异记录：组件自动断点 = system + tools + 最后一条消息；Crush = system + 最后 2 条消息。均在 Anthropic 4 断点最佳实践内，验收时注明即可。
 
 **明确不做**：为 OpenAI 兼容厂商引入 eino-ext deepseek/qwen 等专用组件（openai 组件 + BaseURL 已覆盖且更短）；gemini 原生组件待有真实需求再评估（依赖 google genai SDK，较重）。
+
+### 8.6 决策记录：能力分层与人格模型（2026-08-31 拍板，用户）
+
+对本文件 §3/§5 的两处修正性拍板，随 VIVY-CODE track（`docs/TODO.md` §0.1 VC-0..VC-4）生效：
+
+1. **能力分层（主线内核 / code face / 插件）**：基础工具面（bash、后台 job、grep/glob、multiedit、patch 容错、stale-read 防护、上下文文件注入等）属**主线内核能力**，同步主线，不是 code face 专属——§5 把 VC-1 整体放在 code face 路线下的表述按此修正。code 特有能力（LSP 等）主线**可选**，故 **LSP 插件化**，不进默认 EXE 硬面。每个 VC 任务领取时先归三层归属。
+2. **人格模型（不做 Crush coordinator）**：Crush 的命名 agent / coordinator（coder/task 硬编码双 agent）Vivy **明确不做**。Vivy 人格定义同 diva：**一个主人格 supervisor**，可以戴面具（mask/face），面具不影响 vivy 内核（治理/审批/审计仍在内核）。子代理（`agent` 工具触发的 child run）= **可戴面具、无内核、上下文干净**：任务作用域 worker，不携带主人格内核态与父会话历史。§3B "多 agent coordinator ❌→VC-2" 一行按此改写：要补的不是 coordinator，是面具化子代理。
