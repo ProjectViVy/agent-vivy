@@ -135,6 +135,17 @@ func TestDefaultEnabledOmitsEchoInfo(t *testing.T) {
 	}
 }
 
+// list_dir is the workspace discovery primitive; the shipped default must
+// match config.example.yaml and the sandbox auto-approve list.
+func TestDefaultEnabledIncludesListDir(t *testing.T) {
+	for _, name := range Default().Tools.Enabled {
+		if name == "list_dir" {
+			return
+		}
+	}
+	t.Fatal("list_dir must be enabled by default")
+}
+
 // The network_search provider preference parses, defaults to auto, and
 // rejects unknown provider names.
 func TestNetworkSearchProviderConfig(t *testing.T) {

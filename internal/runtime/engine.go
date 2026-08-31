@@ -70,9 +70,11 @@ type Engine struct {
 	chatModel model.ToolCallingChatModel
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
-	toolSpecs  []domain.ToolSpec
-	selector   *tools.Selector
-	toolByName map[string]tools.Tool
+	toolSpecs []domain.ToolSpec
+	// activeTools is the config-resolved surface bound on every request,
+	// in registry order.
+	activeTools []tools.Tool
+	toolByName  map[string]tools.Tool
 }
 
 // NewEngine builds the ChatModelAgent and Runner over an Eino
@@ -153,7 +155,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, selector: tools.NewSelector(ts), toolByName: byName}, nil
+	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
 }
 
 // PrepareProposal asks an effectful tool for a bounded review plan before the
@@ -171,14 +173,16 @@ func (e *Engine) PrepareProposal(ctx context.Context, name string, args json.Raw
 	return provider.PrepareProposal(tools.WithRunID(ctx, contextRunID(ctx)), args)
 }
 
-// SelectTools chooses the request-scoped tool surface from the config-
-// filtered manifest. The engine still owns the Eino runner, while the
-// selection is enforced by the adapter through the run context.
-func (e *Engine) SelectTools(request string) tools.Selection {
-	if e.selector == nil {
-		return tools.Selection{}
+// SelectTools returns the full active surface: every tool the config
+// resolved, in registry order. Every request binds this complete set —
+// the former keyword selector that narrowed (and routinely emptied) the
+// surface per request is retired; tools.enabled stays the only admission
+// gate. The selection is enforced by the adapter through the run context.
+func (e *Engine) SelectTools() tools.Selection {
+	return tools.Selection{
+		Tools: append([]tools.Tool(nil), e.activeTools...),
+		Specs: append([]domain.ToolSpec(nil), e.toolSpecs...),
 	}
-	return e.selector.Select(request)
 }
 
 // Query starts one user turn and returns the raw engine event iterator.
