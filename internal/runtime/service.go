@@ -1002,6 +1002,10 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	}
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(ctx, selection.Names()), mode), profile), snapshot), m.runID), sessionID)
+	// Per-run mount registry: skill_view records declared tools here so the
+	// surface middleware can advertise them and the adapter can admit them
+	// for the remainder of this run.
+	runCtx = tools.WithMountedTools(runCtx, tools.NewMountedTools())
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
