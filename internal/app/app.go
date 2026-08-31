@@ -262,7 +262,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		modelWindow = info.ContextWindow
 	}
 	cmp := compactionPolicyFor(cfg, nil, modelWindow)
-	engineCfg := buildEngineConfig(cfg, skillBackend, checkpoints, policy, hooks, &cmp)
+	engineCfg := buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp)
 	engineCfg.HiddenTools = hidden
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
 	if err != nil {
@@ -435,7 +435,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			window := svc.GetModelInfo(context.Background()).ContextWindow
 			cmp := compactionPolicyFor(cfg, s.Compaction, window)
 			if toolsChanged || !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
-				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, checkpoints, policy, hooks, &cmp)); err != nil {
+				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp)); err != nil {
 					logger.Warn("engine reload failed", "err", err)
 				}
 			}

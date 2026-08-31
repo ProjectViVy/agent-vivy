@@ -57,6 +57,9 @@ runtime:
   max_run_retries: 3
   # Default: <user data root>/workspace (under the OS user home). One
   # private sandbox directory per background run lives under this root.
+  # An AGENTS.md inside a run workspace is injected read-only into that
+  # run's model preamble (D6, transient — never persisted); `vivy init`
+  # generates a starter AGENTS.md for a project directory.
   workspace_root: data/workspaces
   # Trusted local Skill packages. Skill text is still treated as untrusted data.
   # Default: <user data root>/skills.

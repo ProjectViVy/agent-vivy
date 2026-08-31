@@ -57,6 +57,12 @@ type EngineConfig struct {
 	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
 	// feed behavior.
 	Compaction *CompactionPolicy
+	// AgentsMDBackend supplies workspace AGENTS.md content for the run
+	// preamble (D6). Nil disables injection. Eino's agentsmd middleware
+	// loads it per run and injects it transiently before the first user
+	// message, so the content never enters the persisted transcript and
+	// compaction needs no carve-out.
+	AgentsMDBackend AgentsMDBackend
 	// HiddenTools are registered-but-not-active tools. They join the
 	// executable universe so a skill_view mount can use them mid-run, but
 	// the surface middleware never advertises them before they are mounted.
@@ -143,6 +149,15 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, err
 		}
 		handlers = append(handlers, compHandlers...)
+	}
+	if mdHandler, err := buildAgentsMDHandler(ctx, cfg.AgentsMDBackend); err != nil {
+		return nil, err
+	} else if mdHandler != nil {
+		// Registered after the compaction handlers: the injected AGENTS.md
+		// message is transient (never persisted), so summarization runs
+		// first and cannot compact it away — the middleware's recommended
+		// ordering.
+		handlers = append(handlers, mdHandler)
 	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
