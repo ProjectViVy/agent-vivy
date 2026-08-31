@@ -291,6 +291,16 @@ func BuiltinWithSequential(notes storage.NoteStore, files FileOperations, skills
 
 // BuiltinWithCommands adds both controlled process tool names over one backend.
 func BuiltinWithCommands(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) *Registry {
+	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, nil, nil)
+}
+
+// BuiltinWithWeb adds the public-internet surface: a readonly page fetcher
+// and an approval-gated workspace download.
+func BuiltinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations) *Registry {
+	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads)
+}
+
+func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations) *Registry {
 	registered := []Tool{
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
 		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
@@ -303,6 +313,12 @@ func BuiltinWithCommands(notes storage.NoteStore, files FileOperations, skills S
 	if httpOps != nil {
 		registered = append(registered, NewHTTPRequest(httpOps))
 	}
+	if fetch != nil {
+		registered = append(registered, NewWebFetch(fetch))
+	}
+	if downloads != nil {
+		registered = append(registered, NewDownload(downloads))
+	}
 	if mcpOps != nil {
 		registered = append(registered, NewMCPListTools(mcpOps), NewMCPCall(mcpOps))
 	}
@@ -312,11 +328,11 @@ func BuiltinWithCommands(notes storage.NoteStore, files FileOperations, skills S
 	if commands != nil {
 		registered = append(registered, NewExecute(commands), NewCommandline(commands))
 	}
-	registered = append(registered, NewToolSearch(baseToolsForSearch(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands)))
+	registered = append(registered, NewToolSearch(baseToolsForSearch(notes, files, skills, todos, search, httpOps, fetch, downloads, mcpOps, sequential, commands)))
 	return NewRegistry(registered...)
 }
 
-func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) []Tool {
+func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, fetch WebFetchOperations, downloads DownloadOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) []Tool {
 	registered := []Tool{
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
 		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files), NewSkillsList(skills), NewSkillView(skills), NewSkillManage(skills),
@@ -327,6 +343,12 @@ func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills Sk
 	}
 	if httpOps != nil {
 		registered = append(registered, NewHTTPRequest(httpOps))
+	}
+	if fetch != nil {
+		registered = append(registered, NewWebFetch(fetch))
+	}
+	if downloads != nil {
+		registered = append(registered, NewDownload(downloads))
 	}
 	if mcpOps != nil {
 		registered = append(registered, NewMCPListTools(mcpOps), NewMCPCall(mcpOps))
