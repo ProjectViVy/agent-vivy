@@ -112,7 +112,38 @@
 
 ---
 
-## 7. 回写动作
+## 7. Eino 原生支持核查（2026-08-31 追加，应用户问"这些 eino 有没有原生支持"）
+
+基线：`github.com/cloudwego/eino v0.9.13`（go.mod 锁定；源码核对 module cache）。判定：**回退三件套中 eino 原生支持的只有 checkpoint/中断恢复（Vivy 已在用），文件版本与回退、git 语义均无原生支持，L1/L2 必须落在 Vivy 侧——但挂载 seam 是现成的（Vivy 已实现 `filesystem.Backend`）。**
+
+### 7.1 回退相关：逐项判定
+
+| 回退件 | eino 原生 | 证据 |
+|---|---|---|
+| checkpoint/中断恢复 | **有，且 Vivy 已消费** | `adk.CheckPointStore/Deleter`（runner.go:64）；checkpoint 载荷 = gob 编码 `serialization{RunCtx{RootInput,RunPath,Session}, InterruptInfo, EnableStreaming, InterruptID2Address/State}`（interrupt.go:210/283）——纯运行态（对话、agent 步进、中断状态），**零文件语义**。resume/load 亦仅还原这些（interrupt.go:219）。eino 对 checkpoint 格式无兼容承诺（v0.8.x 曾靠字节改写修补 gob 不兼容，interrupt.go:244），Vivy 的引擎版本信封 fail-closed 是正确防御 |
+| 文件版本 history / 回退 | **无** | `adk/filesystem.Backend` 全部操作 = LsInfo/Read/GrepRaw/GlobInfo/Write/Edit（backend.go:243），无版本、无 diff 返回、无删除/移动/重命名；官方 `InMemoryBackend` = `map[string]fileEntry{content, modifiedAt}`（backend_inmemory.go:31），无版本链。version chain + 恢复 RPC 须 Vivy 自建（存储层 §5.4 + Backend 实现内挂钩） |
+| git 语义回退 | **无** | `filesystem.Shell` 协议只有单命令 `Execute`/`ExecuteStreaming`（backend.go:298），无复合命令/仓库操作概念 |
+
+### 7.2 Seam 结论（对 §5.4 的修正影响：无）
+
+- Vivy 的 `EinoFilesystemBackend` 已同时实现 `einofs.Backend` 与 `tools.FileOperations`（filesystem_backend.go:54）——**存档钩子放 Vivy 自己的 Backend 实现里即可，不需要改 eino 任何东西**；`Write/Edit` 的调用点就是天然挂链位。
+- eino 的 `Write/Edit` 请求结构无 precondition 字段——Vivy 的 `ProposalPreconditionHash` 上下文注入（审批后防 stale）是自有协议，保留。
+
+### 7.3 顺带收获：eino 原生中间件与 VC track 的对位（v0.9.13 实测存在）
+
+| eino 原生 | 对位 Vivy 事项 | 影响 |
+|---|---|---|
+| `adk/middlewares/filesystem`：原生注册 `ls`/`read_file`/`write_file`/`edit_file`/`glob`/`grep`/`execute` 七工具（含中英描述，filesystem.go:41）+ large tool result 处理 | VC-1 工具面 | grep/glob/edit_file 的工具形状与命名 eino 原生就有；VC-1 实现"Backend 已对齐，接 middleware 注册层"可少写一层工具定义（命名差异 edit_file vs Vivy patch 需对表） |
+| `filesystem.Shell`/`StreamingShell` + `ExecuteRequest.RunInBackendGround`（backend.go:288） | VC-1 bash + 后台 job | execute 工具协议原生含后台标志位；但 **job_output/job_kill 类作业管理工具原生无**——后台 job 的取回/终止管理层仍须自建 |
+| `adk/middlewares/agentsmd`：AGENTS.md 注入（@import 递归深度 5、总量字节上限、model-call 时瞬态注入不进会话状态/不进摘要） | D6 上下文文件注入 | **D6 免费直通**：比自研 preamble 注入更规范（瞬态注入天然避开压缩）；`vivy init` 生成 AGENTS.md 仍须自建 |
+| `adk/middlewares/patchtoolcalls`：补历史悬空 tool calls | resume/压缩边界卫生 | 对照评估，可能替代自研修补逻辑 |
+| `adk/middlewares/plantask`：task_create/get/list/update | Vivy task_* 五件套 | Vivy 已自建（含持久+依赖），对照即可，无迁移 |
+| `adk/middlewares/summarization`/`reduction`/`skill`/`dynamictool(toolsearch)` | 压缩/技能/工具检索 | Vivy 已在用或已有等价物 |
+| `adk/filesystem.MultiModalReader`（图片/PDF parts） | VC-3 `read_file` 支持图片 | 原生协议位现成，backend 侧实现即可 |
+
+---
+
+## 8. 回写动作
 
 - `docs/TODO.md` RB-1 行：结论回写（本文件 + §5 建议待用户确认 O1..O6 后转 DONE 或按拍板结果改写）。
 - VC-1 行备注追加：存档/filetracker 合并存储设计 + L1 为 bash 化安全网前提。
