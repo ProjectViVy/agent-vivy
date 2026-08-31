@@ -162,6 +162,7 @@ type pendingRun struct {
 	snapshot       domain.PolicySnapshot
 	sandboxMode    domain.SandboxMode
 	approvalPolicy domain.ApprovalPolicy
+	face           domain.Face
 	questionID     string
 	ledger         *BudgetLedger
 }
@@ -170,6 +171,9 @@ type pendingRun struct {
 type RunOptions struct {
 	Mode    domain.RunMode
 	Profile domain.PolicyProfile
+	// Face attributes the run to its serving assembly (domain.Face).
+	// Empty keeps the web face.
+	Face domain.Face
 	// Provenance marks the user turn's world entry (domain.Provenance).
 	// nil keeps the built-in UI provenance ("ui"); a non-nil value must
 	// carry a non-empty Source and is stamped onto the user message row.
@@ -276,6 +280,10 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return "", err
 	}
+	face, err := normalizeFace(options.Face)
+	if err != nil {
+		return "", err
+	}
 	// Provenance is validated before anything is persisted so an invalid
 	// world entry cannot leave a half-labeled user message behind.
 	provenance := domain.Provenance{Source: "ui"}
@@ -327,7 +335,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
-		Provider: s.provider, Model: s.modelID, Mode: string(mode),
+		Provider: s.provider, Model: s.modelID, Mode: string(mode), Face: string(face),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
@@ -355,7 +363,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face)
 	}()
 	return runID, nil
 }
@@ -792,7 +800,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		return
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
-	toolName, selectedTools, mode, profile, snapshot, sandboxMode, approvalPolicy := s.approvalDetails(ctx, run.ID)
+	toolName, selectedTools, mode, face, profile, snapshot, sandboxMode, approvalPolicy := s.approvalDetails(ctx, run.ID)
 	if len(selectedTools) == 0 && toolName != "" {
 		// Events written before request-scoped selection existed remain
 		// recoverable, but only the interrupted tool is allowed on resume.
@@ -803,7 +811,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, ledger: ledger}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, ledger: ledger}
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
@@ -819,7 +827,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	if ledger == nil {
 		return
 	}
-	toolName, selectedTools, mode, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget := s.questionDetails(ctx, run.ID)
+	toolName, selectedTools, mode, face, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget := s.questionDetails(ctx, run.ID)
 	if toolName == "" {
 		toolName = tools.AskUserName
 	}
@@ -834,7 +842,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
-		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, questionID: question.ID, ledger: ledger,
+		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, ledger: ledger,
 	}
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -874,16 +882,17 @@ func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *
 // approvalDetails recovers the interrupted tool and its request-scoped
 // manifest from the durable approval event. Missing selection data is
 // handled by rebuildPending for compatibility with pre-H2 events.
-func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot, domain.SandboxMode, domain.ApprovalPolicy) {
+func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.Face, domain.PolicyProfile, domain.PolicySnapshot, domain.SandboxMode, domain.ApprovalPolicy) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: journal replay failed", "run", string(runID), "err", err)
-		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk
+		return "", nil, domain.RunModeNormal, domain.FaceWeb, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
 	var selected []string
 	mode := domain.RunModeNormal
+	face := domain.FaceWeb
 	profile := domain.PolicyProfileDefault
 	snapshot := domain.PolicySnapshot{Profile: profile}
 	sandboxMode := domain.SandboxModeWorkspaceWrite
@@ -900,6 +909,9 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 			if p.Mode != "" {
 				mode = domain.RunMode(p.Mode)
 			}
+			if domain.Face(p.Face).Valid() {
+				face = domain.Face(p.Face)
+			}
 			profile = recoveredProfile(mode, p.PolicyProfile)
 			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
 			if domain.SandboxMode(p.SandboxMode).Valid() {
@@ -910,21 +922,22 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 			}
 		}
 	}
-	return name, selected, mode, profile, snapshot, sandboxMode, approvalPolicy
+	return name, selected, mode, face, profile, snapshot, sandboxMode, approvalPolicy
 }
 
 // questionDetails recovers the request-scoped selection and run mode from
 // the durable user.question_required event.
-func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.PolicyProfile, domain.PolicySnapshot, domain.SandboxMode, domain.ApprovalPolicy, string) {
+func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (string, []string, domain.RunMode, domain.Face, domain.PolicyProfile, domain.PolicySnapshot, domain.SandboxMode, domain.ApprovalPolicy, string) {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
 		slog.Warn("restart recovery: question replay failed", "run", string(runID), "err", err)
-		return "", nil, domain.RunModeNormal, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, ""
+		return "", nil, domain.RunModeNormal, domain.FaceWeb, domain.PolicyProfileDefault, domain.PolicySnapshot{Profile: domain.PolicyProfileDefault}, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk, ""
 	}
 	defer func() { _ = it.Close() }()
 	name := ""
 	var selected []string
 	mode := domain.RunModeNormal
+	face := domain.FaceWeb
 	profile := domain.PolicyProfileDefault
 	snapshot := domain.PolicySnapshot{Profile: profile}
 	sandboxMode := domain.SandboxModeWorkspaceWrite
@@ -943,6 +956,9 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 			if mode == "" {
 				mode = domain.RunModeNormal
 			}
+			if domain.Face(p.Face).Valid() {
+				face = domain.Face(p.Face)
+			}
 			profile = recoveredProfile(mode, p.PolicyProfile)
 			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
 			if domain.SandboxMode(p.SandboxMode).Valid() {
@@ -954,7 +970,7 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 			resumeTarget = p.ResumeTarget
 		}
 	}
-	return name, selected, mode, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget
+	return name, selected, mode, face, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget
 }
 
 // failUnrecoverable closes one restart-orphaned run with a definitive
@@ -985,14 +1001,14 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
-	msgs, selection, _, err := s.runMessages(ctx, sessionID, userText, eng)
+	msgs, selection, _, err := s.runMessages(ctx, sessionID, userText, eng, face)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -1001,7 +1017,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		return
 	}
 	ledger := s.ledgerForRun(m.runID)
-	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(ctx, selection.Names()), mode), profile), snapshot), m.runID), sessionID)
+	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID)
 	// Per-run mount registry: skill_view records declared tools here so the
 	// surface middleware can advertise them and the adapter can admit them
 	// for the remainder of this run.
@@ -1019,12 +1035,12 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // already contains it). A listing failure degrades to the single new
 // message with a warning — the run proceeds rather than failing on a
 // bookkeeping read.
-func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine) ([]*schema.Message, tools.Selection, ContextStats, error) {
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, active tool set, and the bounded notebook
 	// digest of MA-3).
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), selection.Specs)
+	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), selection.Specs, face)
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
@@ -1278,6 +1294,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		ExpiresAt:        expiresAt,
 		SelectedTools:    append([]string(nil), selectedTools...),
 		Mode:             string(mode),
+		Face:             string(runFace(ctx)),
 		PolicyProfile:    string(policyProfile(ctx)),
 		PolicyHash:       policySnapshot(ctx).Hash,
 		SandboxMode:      string(sandboxMode(ctx)),
@@ -1309,7 +1326,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	s.pending[runID] = pendingRun{
 		sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...),
 		mode: mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
-		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), ledger: ledger,
+		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
 	}
 	s.mu.Unlock()
 }
@@ -1373,6 +1390,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		ResumeTarget:   question.ResumeTarget,
 		SelectedTools:  append([]string(nil), selectedTools...),
 		Mode:           string(mode),
+		Face:           string(runFace(ctx)),
 		PolicyProfile:  string(policyProfile(ctx)),
 		PolicyHash:     policySnapshot(ctx).Hash,
 		SandboxMode:    string(sandboxMode(ctx)),
@@ -1397,7 +1415,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		selectedTools: append([]string(nil), selectedTools...),
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx),
-		questionID: question.ID, ledger: ledger,
+		face: runFace(ctx), questionID: question.ID, ledger: ledger,
 	}
 	s.mu.Unlock()
 }
@@ -1483,7 +1501,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
 	}()
 	return nil
@@ -1687,7 +1705,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
 	}()
 	return nil
@@ -1753,7 +1771,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	// A deferred settings-save engine rebuild applies here too, while the
 	// resumed run is not yet registered.
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
@@ -1765,7 +1783,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		// call so reconstructed tool.started/finished keep the call id.
 		m.openCalls = append(m.openCalls, openToolCall{id: toolCallID, name: toolName})
 	}
-	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withSelectedTools(context.Background(), selectedTools), mode), profile), snapshot), runID), sessionID)
+	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID)
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
 	ctx = tools.WithProposalData(ctx, proposalData)

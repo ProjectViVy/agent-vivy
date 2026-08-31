@@ -5,14 +5,56 @@
   "description": "A durable ask_user suspension. This lifecycle is distinct from tool approval.",
   "type": "object",
   "properties": {
-    "question_id": {"type": "string", "minLength": 1},
-    "tool_call_id": {"type": "string", "minLength": 1},
-    "prompt": {"type": "string", "minLength": 1},
-    "expires_at": {"type": "integer", "minimum": 0},
-    "resume_target": {"type": "string", "minLength": 1},
-    "selected_tools": {"type": "array", "items": {"type": "string", "minLength": 1}},
-    "mode": {"type": "string", "enum": ["normal", "plan"]}
+    "question_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_call_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expires_at": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "resume_target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selected_tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "normal",
+        "plan"
+      ]
+    },
+    "face": {
+      "type": "string",
+      "enum": [
+        "web",
+        "tui",
+        "code"
+      ],
+      "description": "Entry assembly serving the run (web | tui | code). Journals written before faces existed mean web."
+    }
   },
-  "required": ["question_id", "tool_call_id", "prompt", "expires_at", "resume_target"],
+  "required": [
+    "question_id",
+    "tool_call_id",
+    "prompt",
+    "expires_at",
+    "resume_target"
+  ],
   "additionalProperties": false
 }

@@ -28,13 +28,34 @@
     },
     "selected_tools": {
       "type": "array",
-      "items": {"type": "string", "minLength": 1}
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "mode": {
       "type": "string",
-      "enum": ["normal", "plan"]
+      "enum": [
+        "normal",
+        "plan"
+      ]
+    },
+    "face": {
+      "type": "string",
+      "enum": [
+        "web",
+        "tui",
+        "code"
+      ],
+      "description": "Entry assembly serving the run (web | tui | code). Journals written before faces existed mean web."
     }
   },
-  "required": ["approval_id", "tool_call_id", "tool_name", "args", "expires_at"],
+  "required": [
+    "approval_id",
+    "tool_call_id",
+    "tool_name",
+    "args",
+    "expires_at"
+  ],
   "additionalProperties": false
 }

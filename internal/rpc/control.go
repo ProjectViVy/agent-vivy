@@ -197,6 +197,7 @@ type turnParams struct {
 	SessionID     string `json:"session_id"`
 	Text          string `json:"text"`
 	Mode          string `json:"mode,omitempty"`
+	Face          string `json:"face,omitempty"`
 	PolicyProfile string `json:"policy_profile,omitempty"`
 }
 
@@ -340,6 +341,7 @@ type todoResult struct {
 type preflightResult struct {
 	Status        runtime.PreflightStatus `json:"status"`
 	Mode          domain.RunMode          `json:"mode"`
+	Face          domain.Face             `json:"face,omitempty"`
 	PolicyProfile domain.PolicyProfile    `json:"policy_profile"`
 	PolicyHash    string                  `json:"policy_hash,omitempty"`
 	SelectedTools []string                `json:"selected_tools"`
@@ -1484,7 +1486,7 @@ func (h *controlHandler) preflight(ctx context.Context, request Request) (any, *
 		return nil, rpcErr
 	}
 	result, err := h.deps.Service.Preflight(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Profile: domain.PolicyProfile(params.PolicyProfile),
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -1501,7 +1503,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		return nil, &Error{Code: InvalidParams, Message: "text must not be empty"}
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Profile: domain.PolicyProfile(params.PolicyProfile),
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -1886,7 +1888,7 @@ func toPreflightResult(result runtime.PreflightResult) preflightResult {
 		decisions = append(decisions, policyDecisionResult{ToolName: decision.ToolName, Decision: decision.Decision, Reason: decision.Reason})
 	}
 	return preflightResult{
-		Status: result.Status, Mode: result.Mode, PolicyProfile: result.PolicyProfile, PolicyHash: result.PolicyHash,
+		Status: result.Status, Mode: result.Mode, Face: result.Face, PolicyProfile: result.PolicyProfile, PolicyHash: result.PolicyHash,
 		SelectedTools: result.SelectedTools, ToolDecisions: decisions, ContextBytes: result.ContextBytes,
 		HookReady: result.HookReady, Warnings: result.Warnings, Blockers: result.Blockers, NextActions: result.NextActions,
 	}
@@ -3260,7 +3262,7 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
-	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
+	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):
 		return &Error{Code: CodeConflict, Message: err.Error()}

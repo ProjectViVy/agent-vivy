@@ -10,6 +10,7 @@ type payloadRunStarted struct {
 	Provider       string `json:"provider"`
 	Model          string `json:"model"`
 	Mode           string `json:"mode"`
+	Face           string `json:"face"`
 	PolicyProfile  string `json:"policy_profile,omitempty"`
 	PolicyHash     string `json:"policy_hash,omitempty"`
 	SandboxMode    string `json:"sandbox_mode,omitempty"`
@@ -99,6 +100,7 @@ type payloadToolApprovalRequired struct {
 	ExpiresAt        int64          `json:"expires_at"`
 	SelectedTools    []string       `json:"selected_tools,omitempty"`
 	Mode             string         `json:"mode,omitempty"`
+	Face             string         `json:"face"`
 	PolicyProfile    string         `json:"policy_profile,omitempty"`
 	PolicyHash       string         `json:"policy_hash,omitempty"`
 	SandboxMode      string         `json:"sandbox_mode,omitempty"`
@@ -118,6 +120,7 @@ type payloadUserQuestionRequired struct {
 	ResumeTarget   string   `json:"resume_target"`
 	SelectedTools  []string `json:"selected_tools,omitempty"`
 	Mode           string   `json:"mode,omitempty"`
+	Face           string   `json:"face"`
 	PolicyProfile  string   `json:"policy_profile,omitempty"`
 	PolicyHash     string   `json:"policy_hash,omitempty"`
 	SandboxMode    string   `json:"sandbox_mode,omitempty"`

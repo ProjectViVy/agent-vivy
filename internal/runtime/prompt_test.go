@@ -20,7 +20,7 @@ func preambleSpecs() []domain.ToolSpec {
 func TestComposeRunPreambleShape(t *testing.T) {
 	now := time.Date(2026, 8, 9, 15, 4, 0, 0, time.UTC)
 	static := composeStaticInstruction()
-	got := composeRunPreamble(now, "", preambleSpecs())
+	got := composeRunPreamble(now, "", preambleSpecs(), domain.FaceWeb)
 
 	if !strings.HasPrefix(static, preamblePersona) {
 		t.Fatalf("static instruction must lead with the persona, got %q", static)
@@ -47,7 +47,7 @@ func TestComposeRunPreambleShape(t *testing.T) {
 }
 
 func TestComposeRunPreambleNoTools(t *testing.T) {
-	got := composeRunPreamble(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), "", nil)
+	got := composeRunPreamble(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), "", nil, domain.FaceWeb)
 	if !strings.Contains(got, "No tools are enabled for this request; answer without tool calls.") {
 		t.Fatalf("run preamble missing the no-tools wording: %q", got)
 	}
@@ -55,7 +55,7 @@ func TestComposeRunPreambleNoTools(t *testing.T) {
 
 func TestComposeRunPreambleNotesDigest(t *testing.T) {
 	now := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-	got := composeRunPreamble(now, "- 2026-01-02: code word is bluebird", nil)
+	got := composeRunPreamble(now, "- 2026-01-02: code word is bluebird", nil, domain.FaceWeb)
 	if !strings.Contains(got, "Recent notes from the user's notebook:\n- 2026-01-02: code word is bluebird") {
 		t.Fatalf("preamble missing the notes digest section: %q", got)
 	}
@@ -65,8 +65,32 @@ func TestComposeRunPreambleNotesDigest(t *testing.T) {
 // surface, not a source of run-to-run drift (FR-3 spirit).
 func TestComposeRunPreambleDeterministic(t *testing.T) {
 	now := time.Date(2026, 8, 9, 15, 4, 0, 0, time.UTC)
-	if a, b := composeRunPreamble(now, "", nil), composeRunPreamble(now, "", nil); a != b {
+	if a, b := composeRunPreamble(now, "", nil, domain.FaceWeb), composeRunPreamble(now, "", nil, domain.FaceWeb); a != b {
 		t.Fatalf("preamble not deterministic:\n%q\n%q", a, b)
+	}
+}
+
+// The code face adds its coder framing to the preamble; the web face must
+// not (the framing is face-scoped, not ambient).
+func TestComposeRunPreambleFaceFraming(t *testing.T) {
+	now := time.Date(2026, 8, 9, 15, 4, 0, 0, time.UTC)
+	web := composeRunPreamble(now, "", preambleSpecs(), domain.FaceWeb)
+	if strings.Contains(web, "Code mode is active") {
+		t.Fatalf("web preamble must not carry the code framing: %q", web)
+	}
+	code := composeRunPreamble(now, "", preambleSpecs(), domain.FaceCode)
+	if !strings.Contains(code, "Code mode is active") {
+		t.Fatalf("code preamble missing the code framing: %q", code)
+	}
+	if !strings.Contains(code, "Never commit, push, or otherwise operate version control unless the user explicitly asks.") {
+		t.Fatalf("code preamble missing the no-unrequested-commits rule: %q", code)
+	}
+	if !strings.Contains(code, "path:line") {
+		t.Fatalf("code preamble missing the path:line reference rule: %q", code)
+	}
+	// The framing follows the date and leads the tool manifest.
+	if strings.Index(code, "Today's date") > strings.Index(code, "Code mode is active") || strings.Index(code, "Code mode is active") > strings.Index(code, "- echo_info") {
+		t.Fatalf("code framing must sit between the date and the tool manifest: %q", code)
 	}
 }
 

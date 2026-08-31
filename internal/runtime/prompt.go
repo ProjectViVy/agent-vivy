@@ -21,13 +21,22 @@ func composeStaticInstruction() string {
 	return preamblePersona + "\nThe tools listed in the current run context are exactly the tools available for this request; an unlisted tool is unavailable. Effectful tools still require the user's approval."
 }
 
+// faceCodePreamble frames the code face in the per-run preamble. It
+// carries the ratified coder rule-set blueprint (never operate version
+// control unasked; path:line references); it states no tool claims — the
+// base tool surface stays mainline-shared (D1).
+const faceCodePreamble = "Code mode is active: work directly on the files in this run's workspace. Never commit, push, or otherwise operate version control unless the user explicitly asks. When pointing at code, reference locations as path:line when the location is known."
+
 // composeRunPreamble assembles the dynamic run context that follows the
 // cache-stable Engine instruction. It contains only per-run facts, the
 // active tool manifest, and the existing bounded Notes digest; it does not
 // introduce a new memory source.
-func composeRunPreamble(now time.Time, notesDigest string, specs []domain.ToolSpec) string {
+func composeRunPreamble(now time.Time, notesDigest string, specs []domain.ToolSpec, face domain.Face) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Today's date: %s.", now.Format("2006-01-02"))
+	if face == domain.FaceCode {
+		b.WriteString("\n" + faceCodePreamble)
+	}
 	if len(specs) == 0 {
 		// Defensive: an empty active set is a legal configuration
 		// (chat-only mode via tools.enabled), not a routing outcome.
