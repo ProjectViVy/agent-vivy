@@ -10,7 +10,7 @@ export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'err
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 /** 运行期间排队等待发送的消息（对照 Crush 队列 pill 行为）。 */
-export interface QueuedMessage { id: string; text: string; mode: api.RunMode; face?: api.Face; }
+export interface QueuedMessage { id: string; text: string; mode: api.RunMode; face?: api.Face; attachments?: api.AttachmentInput[]; }
 
 const ACTIVE_SESSION_KEY = 'vivy.ui.activeSession';
 const DEMO_PREFIX = 'vivy.demo.';
@@ -92,8 +92,8 @@ interface RuntimeState {
   setSessionPermission: (id: string, preset: Exclude<api.PermissionPreset, 'custom'>) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face) => Promise<void>;
-  enqueueMessage: (text: string, mode?: api.RunMode, face?: api.Face) => void;
+  startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[]) => Promise<void>;
+  enqueueMessage: (text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[]) => void;
   removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
@@ -171,7 +171,7 @@ function handleRunEvent(event: RunEvent): void {
         const item = next.queuedMessages[0];
         if (item && next.activeSessionId && !next.runBusy) {
           useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-          void next.startRun(next.activeSessionId, item.text, item.mode, item.face);
+          void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments);
         }
       });
     } else {
@@ -359,20 +359,21 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
-  startRun: async (sessionId, text, mode = 'normal', face?: api.Face) => {
+  startRun: async (sessionId, text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[]) => {
     if (get().activeSessionId !== sessionId) return;
     // 运行中改为入队（对照 Crush），不再静默丢弃。
-    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(text, mode, face); return; }
+    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(text, mode, face, attachments); return; }
     set({ runBusy: true, runError: null });
     try {
-      const result = await api.startTurn(sessionId, text, mode, face);
+      const result = await api.startTurn(sessionId, text, mode, face, attachments);
       if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
       const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
-      set((state) => ({ currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting', messages: [...state.messages, { id: `local-${run.id}`, run_id: run.id, role: 'user', content: text, created_at: Date.now() }], messagesPhase: 'ready', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
+      const localAttachments: api.MessageAttachment[] | undefined = attachments?.map((item) => ({ name: item.name, mime_type: item.mime_type, data_url: `data:${item.mime_type};base64,${item.data}` }));
+      set((state) => ({ currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting', messages: [...state.messages, { id: `local-${run.id}`, run_id: run.id, role: 'user', content: text, created_at: Date.now(), attachments: localAttachments }], messagesPhase: 'ready', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
       startSubscription(run.id, 0);
     } catch (error) { set({ runError: errorMessage(error) }); throw error; } finally { set({ runBusy: false }); }
   },
-  enqueueMessage: (text, mode = 'normal', face?: api.Face) => set((state) => ({ queuedMessages: [...state.queuedMessages, { id: `queued-${++queuedSeq}`, text, mode, face }] })),
+  enqueueMessage: (text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[]) => set((state) => ({ queuedMessages: [...state.queuedMessages, { id: `queued-${++queuedSeq}`, text, mode, face, attachments }] })),
   removeQueuedMessage: (id) => set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) })),
   clearQueue: () => set({ queuedMessages: [] }),
   cancelCurrentRun: async () => {

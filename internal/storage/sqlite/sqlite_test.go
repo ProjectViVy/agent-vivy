@@ -296,3 +296,63 @@ func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {
 		t.Fatalf("migration017 marker count = %d, want 1", n)
 	}
 }
+
+func TestMessagesPersistImageAttachments(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "s-att", Title: "attachments", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{
+		ID: "m1", SessionID: "s-att", Role: domain.RoleUser, CreatedAt: 1, Content: "look",
+		Attachments: []domain.Attachment{
+			{Name: "a.png", MimeType: "image/png", Data: []byte{1, 2, 3}},
+			{Name: "b.webp", MimeType: "image/webp", Data: []byte{4, 5}},
+		},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "m2", SessionID: "s-att", Role: domain.RoleUser, CreatedAt: 2, Content: "plain"}); err != nil {
+		t.Fatalf("AppendMessage plain: %v", err)
+	}
+
+	messages, err := b.ListMessages(ctx, "s-att")
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(messages))
+	}
+	if len(messages[0].Attachments) != 2 {
+		t.Fatalf("m1 attachments = %d, want 2", len(messages[0].Attachments))
+	}
+	first, second := messages[0].Attachments[0], messages[0].Attachments[1]
+	if first.Name != "a.png" || first.MimeType != "image/png" || string(first.Data) != "\x01\x02\x03" {
+		t.Fatalf("first attachment = %+v", first)
+	}
+	if second.Name != "b.webp" || second.MimeType != "image/webp" || string(second.Data) != "\x04\x05" {
+		t.Fatalf("second attachment = %+v", second)
+	}
+	if len(messages[1].Attachments) != 0 {
+		t.Fatalf("m2 attachments = %d, want 0", len(messages[1].Attachments))
+	}
+
+	if err := b.DeleteSession(ctx, "s-att"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	// Re-appending the same message id must not resurrect stale attachment
+	// rows: a surviving attachment would attach itself to the new row.
+	if err := b.AppendMessage(ctx, domain.Message{ID: "m1", SessionID: "s-att2", Role: domain.RoleUser, CreatedAt: 3, Content: "reborn"}); err != nil {
+		t.Fatalf("AppendMessage re-born: %v", err)
+	}
+	if err := b.CreateSession(ctx, domain.Session{ID: "s-att2", Title: "reborn", CreatedAt: 3}); err != nil {
+		t.Fatalf("CreateSession s-att2: %v", err)
+	}
+	reborn, err := b.ListMessages(ctx, "s-att2")
+	if err != nil {
+		t.Fatalf("ListMessages s-att2: %v", err)
+	}
+	if len(reborn) != 1 || len(reborn[0].Attachments) != 0 {
+		t.Fatalf("re-born message = %+v, want zero attachments (stale rows survived DeleteSession)", reborn)
+	}
+}

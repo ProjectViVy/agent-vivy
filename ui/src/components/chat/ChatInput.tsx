@@ -11,15 +11,15 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { PermissionPreset, RunMode, SessionContext } from '@/lib/api';
+import type { AttachmentInput, PermissionPreset, RunMode, SessionContext } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 
 interface ChatInputProps {
-  onSend: (content: string, mode: RunMode) => Promise<void> | void;
+  onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[]) => Promise<void> | void;
   /** 运行期间发送走排队（对照 Crush）：跳过 UI 预检，服务端门禁仍然生效。 */
-  onQueue?: (content: string, mode: RunMode) => Promise<void> | void;
+  onQueue?: (content: string, mode: RunMode, attachments?: AttachmentInput[]) => Promise<void> | void;
   onCancel?: () => Promise<void> | void;
   disabled?: boolean;
   running?: boolean;
@@ -34,6 +34,22 @@ type PermissionMode = 'cautious' | 'smart' | 'trusted';
 
 const ESTIMATED_CONTEXT_LIMIT_TOKENS = 128000;
 const TEXT_ENCODER = new TextEncoder();
+
+// 图片附件门禁（与服务端 turn/start 校验一致；服务端仍是权威门禁）。
+const ATTACHMENT_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const MAX_ATTACHMENTS = 4;
+
+const fileToAttachment = (file: File): Promise<AttachmentInput> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = String(reader.result ?? '');
+    const comma = result.indexOf(',');
+    resolve({ name: file.name, mime_type: file.type, data: comma >= 0 ? result.slice(comma + 1) : result });
+  };
+  reader.onerror = () => reject(reader.error ?? new Error('file read failed'));
+  reader.readAsDataURL(file);
+});
 
 // 执行模式选项（对照 Agent-DIVA ChatView.modeOptions）
 const MODES: { value: ExecMode; icon: LucideIcon; label: string; desc: string }[] = [
@@ -58,6 +74,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
 
 export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeholder, context = null }: ChatInputProps) {
   const [value, setValue] = useState('');
+  const [pending, setPending] = useState<AttachmentInput[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [execMode, setExecMode] = useState<ExecMode>('agent');
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('auto');
@@ -113,6 +130,8 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
     textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
   }, [value]);
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
+  // 切换会话时丢弃待发送附件（队列在 store 内清空，本地草稿附件保持同生命周期）。
+  useEffect(() => { setPending([]); }, [activeSessionId]);
 
   const showNotice = (message: string) => {
     setNotice(message);
@@ -120,19 +139,40 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
     noticeTimer.current = setTimeout(() => setNotice(null), 1800);
   };
 
+  const addFiles = async (files: Iterable<File>) => {
+    if (disabled) return;
+    let count = pending.length;
+    for (const file of Array.from(files)) {
+      if (count >= MAX_ATTACHMENTS) { showNotice(t('chatInput.attachmentMax', { count: MAX_ATTACHMENTS })); return; }
+      if (!ATTACHMENT_MIMES.has(file.type)) { showNotice(t('chatInput.attachmentUnsupported', { name: file.name })); continue; }
+      if (file.size > MAX_ATTACHMENT_BYTES) { showNotice(t('chatInput.attachmentTooLarge', { name: file.name })); continue; }
+      try {
+        const attachment = await fileToAttachment(file);
+        if (count >= MAX_ATTACHMENTS) return;
+        count += 1;
+        setPending((current) => current.length >= MAX_ATTACHMENTS ? current : [...current, attachment]);
+      } catch {
+        showNotice(t('chatInput.attachmentReadFailed', { name: file.name }));
+      }
+    }
+  };
+
   const send = async () => {
     const content = value.trim();
     if (!content || disabled) return;
     const mode: RunMode = execMode === 'plan' ? 'plan' : 'normal';
+    const outgoing = pending.length ? pending : undefined;
     if (running) {
       // 运行中不阻断输入：入队等待本轮结束（对照 Crush 队列 pill）。
-      await onQueue?.(content, mode);
+      await onQueue?.(content, mode, outgoing);
       setValue('');
+      setPending([]);
       return;
     }
     try {
-      await onSend(content, mode);
+      await onSend(content, mode, outgoing);
       setValue('');
+      setPending([]);
     } catch {
       /* keep the draft; ChatView / store already expose the failure */
     }
@@ -197,8 +237,11 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* 附件 */}
-      <button type="button" onClick={() => showNotice(t('chatInput.attachmentUnavailable'))} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.attachment')} aria-label={t('chatInput.attachment')}><Paperclip className="h-4 w-4" /></button>
+      {/* 附件（图片）：与服务端同款门禁（png/jpeg/gif/webp、5MB、每条最多 4 张） */}
+      <label className={cn('shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent', disabled ? 'pointer-events-none opacity-50' : 'cursor-pointer')} title={t('chatInput.attachment')} aria-label={t('chatInput.attachment')}>
+        <Paperclip className="h-4 w-4" />
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden" disabled={disabled} onChange={(event) => { void addFiles(event.target.files ?? []); event.target.value = ''; }} />
+      </label>
 
       {/* 思考模式选择 */}
       <DropdownMenu>
@@ -280,7 +323,24 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         <button type="button" onClick={clearQueue} className="shrink-0 rounded-lg px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={t('chatInput.clearQueue')} aria-label={t('chatInput.clearQueue')}>{t('chatInput.clearQueue')}</button>
       </div>
     ) : null}
-    <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
+    {/* 待发送附件缩略图（贴图 / 选择文件共用） */}
+    {pending.length ? (
+      <div className="flex flex-wrap gap-2 border-t border-border/60 px-3 py-2">
+        {pending.map((item, index) => (
+          <span key={`${item.name ?? 'image'}-${index}`} className="relative">
+            <img src={`data:${item.mime_type};base64,${item.data}`} alt={item.name || t('chatInput.attachment')} className="h-14 w-14 rounded-lg border border-border object-cover" />
+            <button type="button" onClick={() => setPending((current) => current.filter((_, position) => position !== index))} title={t('chatInput.removeAttachment')} aria-label={`${t('chatInput.removeAttachment')}: ${item.name || item.mime_type}`} className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-white shadow-sm transition-opacity hover:opacity-90"><X className="h-3 w-3" aria-hidden="true" /></button>
+          </span>
+        ))}
+      </div>
+    ) : null}
+    <Textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onPaste={(event) => {
+      // 剪贴板贴图（对照 Crush）：有图片时接管粘贴，文本粘贴不受影响。
+      const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
+      if (!images.length) return;
+      event.preventDefault();
+      void addFiles(images);
+    }} onKeyDown={(event) => {
       if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); return; }
       // esc 两段式（对照 Crush）：第一次清空队列，再一次取消运行
       if (event.key === 'Escape' && running) {

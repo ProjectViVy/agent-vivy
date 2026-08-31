@@ -28,6 +28,16 @@ CREATE TABLE messages (
 	channel_message_id TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE message_attachments (
+	id BIGSERIAL PRIMARY KEY,
+	message_id TEXT NOT NULL,
+	position INTEGER NOT NULL,
+	name TEXT NOT NULL DEFAULT '',
+	mime_type TEXT NOT NULL DEFAULT '',
+	data BYTEA NOT NULL
+);
+CREATE INDEX message_attachments_message_idx ON message_attachments(message_id);
+
 CREATE TABLE runs (
 	id TEXT PRIMARY KEY,
 	session_id TEXT NOT NULL,
@@ -285,4 +295,19 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 	updated_at_ms BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
+`
+
+// schemaV17Upgrade adds message_attachments (VC-1g-2) to databases
+// bootstrapped before the attachments table existed. IF NOT EXISTS keeps
+// it safe on databases that already carry the table.
+const schemaV17Upgrade = `
+CREATE TABLE IF NOT EXISTS message_attachments (
+	id BIGSERIAL PRIMARY KEY,
+	message_id TEXT NOT NULL,
+	position INTEGER NOT NULL,
+	name TEXT NOT NULL DEFAULT '',
+	mime_type TEXT NOT NULL DEFAULT '',
+	data BYTEA NOT NULL
+);
+CREATE INDEX IF NOT EXISTS message_attachments_message_idx ON message_attachments(message_id);
 `

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -1900,5 +1901,108 @@ func TestChannelGetAndUpdateRPC(t *testing.T) {
 	}
 	if envelope := got.(channelEnvelopeResult); !envelope.Configured {
 		t.Fatalf("get after overlay-only write = %+v, want configured", envelope)
+	}
+}
+
+func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "att"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := string(session.ID)
+
+	cases := []struct {
+		name   string
+		params map[string]any
+	}{
+		{"unsupported mime", map[string]any{
+			"session_id": sessionID, "text": "hi",
+			"attachments": []map[string]string{{"name": "x.txt", "mime_type": "text/plain", "data": "aGVsbG8="}},
+		}},
+		{"invalid base64", map[string]any{
+			"session_id": sessionID, "text": "hi",
+			"attachments": []map[string]string{{"mime_type": "image/png", "data": "not-base64!!"}},
+		}},
+		{"empty data", map[string]any{
+			"session_id": sessionID, "text": "hi",
+			"attachments": []map[string]string{{"mime_type": "image/png", "data": ""}},
+		}},
+		{"oversize", map[string]any{
+			"session_id": sessionID, "text": "hi",
+			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, maxAttachmentBytes+1))}},
+		}},
+		{"too many", map[string]any{
+			"session_id": sessionID, "text": "hi",
+			"attachments": []map[string]string{
+				{"mime_type": "image/png", "data": "aGk="}, {"mime_type": "image/png", "data": "aGk="},
+				{"mime_type": "image/png", "data": "aGk="}, {"mime_type": "image/png", "data": "aGk="},
+				{"mime_type": "image/png", "data": "aGk="},
+			},
+		}},
+	}
+	for _, testCase := range cases {
+		if _, rpcErr := callControl(t, env.handler, "turn/start", testCase.params); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("%s: error = %v, want InvalidParams", testCase.name, rpcErr)
+		}
+	}
+
+	started, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": sessionID, "text": "look at this",
+		"attachments": []map[string]string{{"name": "dot.png", "mime_type": "image/png", "data": base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4E, 0x47})}},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	startedJSON, _ := json.Marshal(started)
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(startedJSON, &accepted); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		run, err := env.backend.GetRun(context.Background(), domain.RunID(accepted.RunID))
+		if err == nil && run.Status.Terminal() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	listed, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, _ := json.Marshal(listed)
+	var messages struct {
+		Messages []messageResult `json:"messages"`
+	}
+	if err := json.Unmarshal(listedJSON, &messages); err != nil {
+		t.Fatal(err)
+	}
+	var user *messageResult
+	for index := range messages.Messages {
+		if messages.Messages[index].Role == domain.RoleUser && messages.Messages[index].Content == "look at this" {
+			user = &messages.Messages[index]
+		}
+	}
+	if user == nil {
+		t.Fatalf("user message missing: %+v", messages.Messages)
+	}
+	if len(user.Attachments) != 1 {
+		t.Fatalf("attachments = %+v, want one", user.Attachments)
+	}
+	if user.Attachments[0].Name != "dot.png" || user.Attachments[0].MimeType != "image/png" {
+		t.Fatalf("attachment = %+v", user.Attachments[0])
+	}
+	wantURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4E, 0x47})
+	if user.Attachments[0].DataURL != wantURL {
+		t.Fatalf("data_url = %q, want %q", user.Attachments[0].DataURL, wantURL)
 	}
 }

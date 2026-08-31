@@ -47,6 +47,7 @@ var migrations = []struct {
 	{15, migration015},
 	{16, migration016},
 	{17, migration017},
+	{18, migration018},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -559,4 +560,19 @@ const migration017 = `
 		updated_at_ms INTEGER NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
+`
+
+// migration018 adds message_attachments: raw image bytes persisted next to
+// their user message row (VC-1g-2). IF NOT EXISTS keeps the migration safe
+// to re-run on databases that already carry the table.
+const migration018 = `
+	CREATE TABLE IF NOT EXISTS message_attachments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		message_id TEXT NOT NULL,
+		position INTEGER NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		mime_type TEXT NOT NULL DEFAULT '',
+		data BLOB NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS message_attachments_message_idx ON message_attachments(message_id);
 `

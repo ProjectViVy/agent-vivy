@@ -58,6 +58,15 @@ type Provenance struct {
 	ChannelMessageID string // platform-side message id; channel turns only
 }
 
+// Attachment is one binary image carried on a user message (VC-1g-2).
+// Vivy accepts images only; the mime whitelist and size cap are enforced
+// at the RPC boundary, storage persists the raw bytes as given.
+type Attachment struct {
+	Name     string
+	MimeType string
+	Data     []byte
+}
+
 // Message is one turn in a session. Content is append-only; there is no
 // silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
 // model-visible tool turn (ADR-010); they are empty on ordinary text rows.
@@ -71,6 +80,7 @@ type Message struct {
 	Role             Role
 	CreatedAt        int64 // unix milli
 	Content          string
+	Attachments      []Attachment // user rows only; images delivered as multimodal input
 	ToolCallID       string
 	ToolName         string
 	ToolArgs         []byte

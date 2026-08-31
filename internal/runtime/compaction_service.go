@@ -220,6 +220,15 @@ func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Mess
 		if msg.ToolCallID != "" {
 			line = fmt.Sprintf("[%s] (%s %s) %s\n", msg.Role, msg.ToolName, msg.ToolCallID, msg.Content)
 		}
+		// Image attachments are binary and cannot enter the text transcript
+		// (VC-1g-2); the placeholder keeps summaries aware they existed.
+		for _, attachment := range msg.Attachments {
+			name := attachment.Name
+			if name == "" {
+				name = attachment.MimeType
+			}
+			line += fmt.Sprintf("[%s] [image attachment: %s]\n", msg.Role, name)
+		}
 		if len(line) > remaining {
 			break
 		}

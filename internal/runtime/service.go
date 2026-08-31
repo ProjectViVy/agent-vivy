@@ -179,6 +179,11 @@ type RunOptions struct {
 	// carry a non-empty Source and is stamped onto the user message row.
 	// Provenance never enters the run.started payload (contract §12).
 	Provenance *domain.Provenance
+	// Attachments are image files carried on the user message (VC-1g-2).
+	// The RPC boundary validates mime whitelist and size caps; the service
+	// persists them with the user row and the context build turns them
+	// into multimodal input parts.
+	Attachments []domain.Attachment
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -320,6 +325,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		Role:             domain.RoleUser,
 		CreatedAt:        now,
 		Content:          userText,
+		Attachments:      options.Attachments,
 		Source:           provenance.Source,
 		Channel:          provenance.Channel,
 		ChatID:           provenance.ChatID,
