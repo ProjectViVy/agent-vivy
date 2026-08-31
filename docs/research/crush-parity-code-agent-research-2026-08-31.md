@@ -342,3 +342,27 @@ Crush 是 Charm 出品的终端编码 agent（TUI-first，后加 server 模式�
 
 1. **能力分层（主线内核 / code face / 插件）**：基础工具面（bash、后台 job、grep/glob、multiedit、patch 容错、stale-read 防护、上下文文件注入等）属**主线内核能力**，同步主线，不是 code face 专属——§5 把 VC-1 整体放在 code face 路线下的表述按此修正。code 特有能力（LSP 等）主线**可选**，故 **LSP 插件化**，不进默认 EXE 硬面。每个 VC 任务领取时先归三层归属。
 2. **人格模型（不做 Crush coordinator）**：Crush 的命名 agent / coordinator（coder/task 硬编码双 agent）Vivy **明确不做**。Vivy 人格定义同 diva：**一个主人格 supervisor**，可以戴面具（mask/face），面具不影响 vivy 内核（治理/审批/审计仍在内核）。子代理（`agent` 工具触发的 child run）= **可戴面具、无内核、上下文干净**：任务作用域 worker，不携带主人格内核态与父会话历史。§3B "多 agent coordinator ❌→VC-2" 一行按此改写：要补的不是 coordinator，是面具化子代理。
+
+### 8.7 决策记录：VC 决策清单 D1..D11 拍板（2026-08-31，用户）
+
+| # | 决策点 | 拍板 |
+|---|---|---|
+| D1 | code face 产品形态 | 按研究 §5：vivy.exe 内 "code" face，复用 runtime/Journal/审批/技能，非独立二进制 |
+| D2 | FACE-0 | 采纳 `VIVY-FACE-PACK.md`（`face: web\|tui\|headless` 一等装配 + 用户 `seam: face`）；TODO §0.1 FACE-0 随之关闭 |
+| D3 | bash 治理边界 | 按研究 §6.1 分级：只读白名单→auto_approve、其余→ask、阻断表（sudo/curl 接 shell 等）→deny 入策略引擎 |
+| D4 | LSP 装配形态 | vivy-sdk 独立 module 插件（tool_world seam），默认 EXE 无 LSP，对齐 CH-C4..C7c"默认 EXE 不链协议 SDK"先例 |
+| D5 | 子代理边界 | 审批并入父会话（HITL 不豁免）；面具权限参考 diva、可编辑 |
+| D6 | 上下文文件注入 | 只读 AGENTS.md（不引 CLAUDE.md/VIVY.md 多文件优先级） |
+| D7 | ignore 契约 | 用 .gitignore，不引入 .vivyignore |
+| D8 | hooks 治理 | hook 配置变更入 Journal；hook 脚本首次登记需 ask |
+| D9 | 成本/模型元数据 | 逻辑与 web 端（provider/model 管理）同步，不另起数据源 |
+| D10 | UI diff 呈现 | 对齐 Crush 的 diff 呈现行为（unified/split 双模式 + 增删统计）；FSL 约束下实现自写 |
+| D11 | headless 面 | 跟随 D2：`vivy run` 落 face 装配（FACE-0 已采纳） |
+
+**追加拍板（同日）**：
+
+1. **vivy code 不带 channel**：code face 装配排除 channel 耳朵；channel 仍是主线（web）能力。
+2. **ACP 不做**：TODO §0.1 ACP-1 由 DEFERRED 改判 WONT-DO。
+3. **回退调研立项（RB-1）**：研究"回退怎么做、到底支不支持代码回退"——checkpoint 桥（FR-8 会话恢复）vs 文件版本 history（VC-3 编辑前存档）vs git 语义回退；产出 = Vivy 是否承诺代码回退能力及落点。
+
+注：D4 的插件化把"编辑后诊断回填"的衔接（插件诊断如何并入内核 write/patch 工具结果）变为实现设计点，见 TODO §0.1 VC-3。
