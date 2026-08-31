@@ -388,13 +388,26 @@ type toolsDoc struct {
 }
 
 // UnmarshalYAML reads the tools mapping and stashes the approval
-// expiration as an unparsed duration string.
+// expiration as an unparsed duration string. An omitted enabled key keeps
+// the code default shipped by Default() instead of clobbering it with nil;
+// an explicit empty list still decodes as nil so Validate can reject it.
 func (t *Tools) UnmarshalYAML(node *yaml.Node) error {
 	var doc toolsDoc
 	if err := node.Decode(&doc); err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
-	t.Enabled = doc.Enabled
+	hasEnabled := false
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == "enabled" {
+				hasEnabled = true
+				break
+			}
+		}
+	}
+	if hasEnabled {
+		t.Enabled = doc.Enabled
+	}
 	t.NetworkSearch.Provider = doc.NetworkSearch.Provider
 	t.Approval.expirationRaw = doc.Approval.Expiration
 	return nil
