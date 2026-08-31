@@ -46,6 +46,12 @@ const (
 	ProviderAnthropic = "anthropic"
 )
 
+// legacyProviderMock is the provider name written by builds that still had
+// the deterministic mock runtime. It is only used to migrate old runtime
+// settings; mock is not a supported provider and must never be accepted by
+// validation or provider resolution.
+const legacyProviderMock = "mock"
+
 // apiBasePattern bounds the base URL to http(s) absolute URLs. It carries a
 // URL, not a secret, but is still validated before use.
 var apiBasePattern = regexp.MustCompile(`^https?://[^\s/]+(:\d+)?(/.*)?$`)
@@ -262,6 +268,12 @@ func Load(path string) (Settings, error) {
 	if err := dec.Decode(&s); err != nil {
 		return Settings{}, fmt.Errorf("settings: parse %s: %w", path, err)
 	}
+	// Older builds could persist a mock provider selection or registry rows.
+	// The mock runtime no longer exists, so treat those records as an absent
+	// overlay instead of making every later settings write fail validation.
+	// The migrated value is returned in memory; the next successful settings
+	// write rewrites the document without the retired records.
+	migrateLegacyMock(&s)
 	// Normalize a decoded empty registry to nil so a document round-trip is
 	// stable (yaml marshals nil and empty slices identically).
 	if len(s.Providers) == 0 {
@@ -298,6 +310,32 @@ func Load(path string) (Settings, error) {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)
 	}
 	return s, nil
+}
+
+func migrateLegacyMock(s *Settings) {
+	if s.Provider == legacyProviderMock {
+		// The old mock selection had no real provider semantics. Clear all
+		// selection-scoped fields so the configured production default applies.
+		s.Provider = ""
+		s.DefaultModel = ""
+		s.BaseURL = ""
+		s.ApiKey = ""
+	}
+	if len(s.Providers) == 0 {
+		return
+	}
+	kept := s.Providers[:0]
+	for _, entry := range s.Providers {
+		if entry.Bundle == legacyProviderMock {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if len(kept) == 0 {
+		s.Providers = nil
+	} else {
+		s.Providers = kept
+	}
 }
 
 // Validate rejects secret-shaped or structurally invalid values.
