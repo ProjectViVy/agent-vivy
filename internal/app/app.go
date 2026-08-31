@@ -197,11 +197,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = backend.Close()
 		return nil, err
 	}
-	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
-	if err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: resolve tools: %w", err)
-	}
 	var lookup pluginhost.WorkspaceLookup
 	if workspaceManager != nil {
 		lookup = func(ctx context.Context) (string, error) {
@@ -212,7 +207,30 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			return ws.Path, nil
 		}
 	}
-	ts = append(ts, pluginhost.Adapt(genPlugins, lookup)...)
+	// The builtin registry is built once and re-resolved per engine build:
+	// Resolve filters by the active name list (settings tools_enabled
+	// overlay when written, config default otherwise).
+	builtinRegistry := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps)
+	// resolveActiveTools builds the live active surface. It backs startup
+	// and every engine rebuild, so a Settings-side active/hidden change
+	// lands without a process restart. Plugin tools stay appended after the
+	// resolved builtins (unchanged V0 behavior).
+	resolveActiveTools := func() ([]tools.Tool, error) {
+		enabled := cfg.Tools.Enabled
+		if s, err := settings.Load(settings.Path(dataRoot)); err == nil && s.ToolsEnabled != nil {
+			enabled = append([]string(nil), *s.ToolsEnabled...)
+		}
+		resolved, err := builtinRegistry.Resolve(enabled)
+		if err != nil {
+			return nil, err
+		}
+		return append(resolved, pluginhost.Adapt(genPlugins, lookup)...), nil
+	}
+	ts, err := resolveActiveTools()
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: resolve tools: %w", err)
+	}
 	// The checkpoint bridge fail-closes on its engine version, so an
 	// unknown build version aborts startup rather than suspend runs on
 	// unverifiable checkpoints (C6).
@@ -282,7 +300,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Compactions:          backend,
 		Crons:                backend,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
-			return runtime.NewEngine(ctx, chatModel, ts, ec)
+			live, err := resolveActiveTools()
+			if err != nil {
+				return nil, fmt.Errorf("app: resolve live tools: %w", err)
+			}
+			return runtime.NewEngine(ctx, chatModel, live, ec)
 		},
 	})
 	svc.SetCatalog(catalog)
@@ -302,6 +324,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	for _, tool := range ts {
 		liveTools = append(liveTools, tool.Spec())
 	}
+	// appliedToolsEnabled tracks the active surface the running engine was
+	// built with, so a settings save can detect an active/hidden change.
+	appliedToolsEnabled := append([]string(nil), cfg.Tools.Enabled...)
 	studioSvc := studio.NewService(backend)
 	executable, exeErr := os.Executable()
 	if exeErr != nil {
@@ -353,6 +378,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		// overlay and apply on the next restart (contract §11).
 		Channels:       channelHost,
 		ConfigChannels: cfg.Channels,
+		// Settings→Tools surface: the full builtin catalog (active and
+		// hidden) plus the effective config default active set.
+		ToolCatalog:        builtinRegistry.Specs(),
+		ConfigToolsEnabled: append([]string(nil), cfg.Tools.Enabled...),
 		// Write-time env apply: a settings/providers save updates the
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
@@ -380,15 +409,23 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 				return
 			}
 			mcpBackend.ReplaceServers(liveMCPConfigs(cfg, s))
+			// Tools live-apply: an active/hidden change rebuilds the engine
+			// so the next run binds the new surface (immediately when idle,
+			// otherwise at the next idle run start).
+			mergedTools := mergedToolsEnabled(cfg, s)
+			toolsChanged := !sameStrings(mergedTools, appliedToolsEnabled)
+			if toolsChanged {
+				appliedToolsEnabled = mergedTools
+			}
 			// Compaction live-apply: rebuild the engine (reduction +
 			// summarization middleware) only when the effective policy
 			// changed. The rebuild lands immediately when idle, otherwise
 			// at the next idle run start.
 			window := svc.GetModelInfo(context.Background()).ContextWindow
 			cmp := compactionPolicyFor(cfg, s.Compaction, window)
-			if !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
+			if toolsChanged || !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
 				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, checkpoints, policy, hooks, &cmp)); err != nil {
-					logger.Warn("compaction engine reload failed", "err", err)
+					logger.Warn("engine reload failed", "err", err)
 				}
 			}
 		},
@@ -548,6 +585,9 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 	if overlay := enabledMCPFromSettings(s); overlay != nil {
 		cfg.Runtime.MCPServers = overlay
 	}
+	if s.ToolsEnabled != nil {
+		cfg.Tools.Enabled = append([]string(nil), *s.ToolsEnabled...)
+	}
 	if s.Sandbox.DefaultPreset.ValidSwitch() {
 		mode, policy, ok := s.Sandbox.DefaultPreset.Bundle()
 		if ok {
@@ -621,6 +661,29 @@ func compiledChannelNames(plugins []plugin.Plugin) []string {
 		names = append(names, p.Name())
 	}
 	return names
+}
+
+// mergedToolsEnabled returns the effective active tool names: the settings
+// tools_enabled overlay when written, else the (already startup-overlaid)
+// config default. The result is a copy; order is preserved because the
+// surface order is a product contract.
+func mergedToolsEnabled(cfg config.Config, s settings.Settings) []string {
+	if s.ToolsEnabled != nil {
+		return append([]string(nil), *s.ToolsEnabled...)
+	}
+	return append([]string(nil), cfg.Tools.Enabled...)
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // enabledMCPFromSettings returns the enabled MCP servers from the overlay,

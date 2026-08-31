@@ -124,6 +124,14 @@ type ControlDeps struct {
 	// (config.yaml merged with the startup settings overlay). channel/get
 	// folds the currently saved overlay over it to report document truth.
 	ConfigChannels config.Channels
+	// ToolCatalog lists every registered builtin tool manifest — active and
+	// hidden — for the Settings tool surface. Nil disables the tools/* RPC
+	// family.
+	ToolCatalog []domain.ToolSpec
+	// ConfigToolsEnabled is the effective config default active set (post
+	// startup overlay). tools/list reports it as the fallback when no
+	// tools_enabled overlay was ever written.
+	ConfigToolsEnabled []string
 	// ModelLists discovers the upstream OpenAI-compatible /models catalog for
 	// settings/providers/refresh. Nil uses the package default 15s client.
 	ModelLists *provider.ModelListClient
@@ -551,6 +559,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteMCP(ctx, request)
 	case "settings/mcp/probe":
 		return h.probeMCP(ctx, request)
+	case "tools/list":
+		return h.listTools()
+	case "tools/set-active":
+		return h.setActiveTools(request)
 	case "channel/inspect":
 		return h.inspectChannels()
 	case "channel/get":
@@ -2384,6 +2396,104 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		Sandbox:                        h.sandboxView(saved.Sandbox),
 		Compaction:                     h.compactionView(saved.Compaction),
 	}, nil
+}
+
+// toolsCatalogEntry is one registered builtin tool in the Settings tool
+// surface view.
+type toolsCatalogEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Readonly    bool   `json:"readonly"`
+	Active      bool   `json:"active"`
+}
+
+// toolsCatalogView is the tools/list payload: the full catalog with active
+// flags, the effective active list, the config fallback, and whether the
+// operator overlay was ever written.
+type toolsCatalogView struct {
+	Tools          []toolsCatalogEntry `json:"tools"`
+	Active         []string            `json:"active"`
+	ConfigEnabled  []string            `json:"config_enabled"`
+	OverlayWritten bool                `json:"overlay_written"`
+}
+
+// activeToolsFromOverlay resolves the effective active set: the settings
+// tools_enabled overlay when written, else the config default.
+func (h *controlHandler) activeToolsFromOverlay() ([]string, bool) {
+	if h.deps.SettingsPath == "" {
+		return append([]string(nil), h.deps.ConfigToolsEnabled...), false
+	}
+	s, err := settings.Load(h.deps.SettingsPath)
+	if err != nil || s.ToolsEnabled == nil {
+		return append([]string(nil), h.deps.ConfigToolsEnabled...), false
+	}
+	return append([]string(nil), *s.ToolsEnabled...), true
+}
+
+func (h *controlHandler) listTools() (any, *Error) {
+	active, written := h.activeToolsFromOverlay()
+	activeSet := make(map[string]struct{}, len(active))
+	for _, name := range active {
+		activeSet[name] = struct{}{}
+	}
+	entries := make([]toolsCatalogEntry, 0, len(h.deps.ToolCatalog))
+	for _, spec := range h.deps.ToolCatalog {
+		_, isActive := activeSet[spec.Name]
+		entries = append(entries, toolsCatalogEntry{
+			Name: spec.Name, Description: spec.Description, Readonly: spec.Readonly, Active: isActive,
+		})
+	}
+	return toolsCatalogView{
+		Tools:          entries,
+		Active:         active,
+		ConfigEnabled:  append([]string(nil), h.deps.ConfigToolsEnabled...),
+		OverlayWritten: written,
+	}, nil
+}
+
+// setActiveTools replaces the operator-managed active set (tools_enabled
+// overlay) wholesale, matching the UI's checkbox model. An empty list is
+// the legal chat-only mode. Names must be registered: an unknown name here
+// would fail the engine's Resolve gate on the next launch (FR-10).
+func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if len(h.deps.ToolCatalog) == 0 {
+		return nil, &Error{Code: MethodNotFound, Message: "tool catalog is not configured"}
+	}
+	var params struct {
+		Tools []string `json:"tools"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	registered := make(map[string]struct{}, len(h.deps.ToolCatalog))
+	for _, spec := range h.deps.ToolCatalog {
+		registered[spec.Name] = struct{}{}
+	}
+	next := make([]string, 0, len(params.Tools))
+	seen := make(map[string]struct{}, len(params.Tools))
+	for _, name := range params.Tools {
+		if _, dup := seen[name]; dup {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("duplicate tool %q", name)}
+		}
+		if _, ok := registered[name]; !ok {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
+		}
+		seen[name] = struct{}{}
+		next = append(next, name)
+	}
+	cur, err := settings.Load(h.deps.SettingsPath)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	cur.ToolsEnabled = &next
+	if _, err := settings.Save(h.deps.SettingsPath, cur); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	h.notifySettingsChanged()
+	return h.listTools()
 }
 
 // providerEntryResult is one registry entry surfaced in the Settings UI.
