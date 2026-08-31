@@ -464,9 +464,13 @@ export function ModelSettingsCard() {
           models: selectedRegistry.models,
           api_key: key,
         });
+        setPanelKeyDirty(false);
         return;
       }
-      if (selectedEntry.custom) return; // 自定义条目注册表缺失：保持原 no-op
+      if (selectedEntry.custom) {
+        setPanelKeyDirty(false);
+        return;
+      } // 自定义条目注册表缺失：保持原 no-op
       const existing = providerEntryByEndpoint(providers, selectedEntry.bundle, selectedEntry.baseUrl);
       if (existing) {
         await saveProvider({
@@ -490,8 +494,10 @@ export function ModelSettingsCard() {
           api_key: key,
         });
       }
-    } finally {
       setPanelKeyDirty(false);
+    } catch {
+      // saveProvider 已将可读错误写入 providersError；保留 dirty 和输入值，
+      // 让用户修正配置后再次失焦即可重试，同时避免 unhandled rejection。
     }
   };
 
@@ -512,7 +518,7 @@ export function ModelSettingsCard() {
           default_model: registry.default_model,
           models: [...registry.models, id],
           api_key: panelKey.trim(),
-        });
+        }).catch(() => undefined);
       }
     }
     void applyModelNow(selectedEntry, id);
@@ -570,7 +576,7 @@ export function ModelSettingsCard() {
           </button>
           <button
             type="button"
-            onClick={() => void removeProvider(entry.registryId!)}
+            onClick={() => void removeProvider(entry.registryId!).catch(() => undefined)}
             aria-label={t('settingsModel.removeAria', { name: entry.displayName })}
             title={t('settingsModel.removeAria', { name: entry.displayName })}
             className="cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
