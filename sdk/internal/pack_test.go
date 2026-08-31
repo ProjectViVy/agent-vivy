@@ -205,41 +205,127 @@ func telegramStandalonePlugin(root string) packedPlugin {
 // third-party dependencies merges its require closure into the overlaid
 // root go.mod (the CH-C2 gap), while the species module is never
 // self-required.
+// TestOverlayGoModMergesPluginRequires: a standalone plugin the root
+// go.mod does NOT carry gets its require+replace pair appended, and its
+// third-party closure merges as new single-line requires. (Root-carried
+// plugins take the idempotent path instead — see the idempotency test.)
 func TestOverlayGoModMergesPluginRequires(t *testing.T) {
 	root, err := findModuleRoot(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp := t.TempDir()
-	out, err := overlayGoModForStandalone(root, tmp, []packedPlugin{telegramStandalonePlugin(root)})
+	dir := t.TempDir()
+	synth := "module example.com/vivy/synth\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\n\nrequire gopkg.in/yaml.v3 v3.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(synth), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := packedPlugin{dir: dir, name: "synth", impPath: "example.com/vivy/synth", standalone: true}
+	out, err := overlayGoModForStandalone(root, t.TempDir(), []packedPlugin{p})
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(out)
+	merged, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged := string(data)
-	if !strings.Contains(merged, "require github.com/mymmrac/telego v1.10.0") {
-		t.Fatalf("overlay go.mod misses the plugin's telego require:\n%s", merged)
+	if !strings.Contains(string(merged), "require gopkg.in/yaml.v3 v3.0.0") {
+		t.Fatalf("overlay go.mod misses the plugin's yaml.v3 require:\n%s", merged)
 	}
-	if !strings.Contains(merged, "require example.com/vivy/plugins/telegram v0.0.0") {
+	if !strings.Contains(string(merged), "require example.com/vivy/synth v0.0.0") {
 		t.Fatalf("overlay go.mod misses the plugin module require:\n%s", merged)
 	}
-	if !strings.Contains(merged, "replace example.com/vivy/plugins/telegram => ") {
+	if !strings.Contains(string(merged), "replace example.com/vivy/synth => ") {
 		t.Fatalf("overlay go.mod misses the plugin module replace:\n%s", merged)
 	}
 	// The species module must not require itself (the plugin's own
 	// `require agent-vivy v0.0.0` is dropped).
-	if strings.Contains(merged, "require agent-vivy v0.0.0") {
+	if strings.Contains(string(merged), "require agent-vivy v0.0.0") {
 		t.Fatalf("overlay go.mod self-requires the species module:\n%s", merged)
 	}
-	// Dedup: the root already requires e.g. sonic; the plugin's indirect
-	// require of a sonic version must not produce a second line for the
-	// same path at the same version.
-	count := strings.Count(merged, "require github.com/bytedance/sonic/loader")
-	if count > 1 {
-		t.Fatalf("overlay go.mod duplicates sonic/loader %d times:\n%s", count, merged)
+}
+
+// TestParseReplaceTargets covers single-line and block replace forms,
+// including a versioned left side and comment noise.
+func TestParseReplaceTargets(t *testing.T) {
+	data := `module agent-vivy
+
+go 1.26.4
+
+require example.com/vivy/plugins/telegram v0.0.0
+
+replace example.com/vivy/plugins/telegram => ./plugins/telegram
+
+replace (
+	example.com/vivy/plugins/dingtalk v0.0.0 => ./plugins/dingtalk
+	// a comment line inside the block
+	example.com/vivy/plugins/qq => ../elsewhere
+)
+`
+	targets := parseReplaceTargets(data)
+	want := []string{
+		"example.com/vivy/plugins/telegram",
+		"example.com/vivy/plugins/dingtalk",
+		"example.com/vivy/plugins/qq",
+	}
+	if len(targets) != len(want) {
+		t.Fatalf("targets = %v, want exactly %v", targets, want)
+	}
+	for _, path := range want {
+		if !targets[path] {
+			t.Fatalf("targets misses %s: %v", path, targets)
+		}
+	}
+}
+
+// TestOverlayGoModIdempotentWhenRootCarriesPlugin: the full committed
+// species body already requires and replaces the plugin module in the
+// root go.mod. The merged overlay must keep exactly one require and one
+// replace line for it — a second replace for the same module is a
+// conflicting-replacement build error — while staying go-command valid.
+func TestOverlayGoModIdempotentWhenRootCarriesPlugin(t *testing.T) {
+	root, err := findModuleRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parseReplaceTargets(string(data))["example.com/vivy/plugins/telegram"] {
+		t.Skip("root go.mod does not carry the telegram module (narrow species body)")
+	}
+	out, err := overlayGoModForStandalone(root, t.TempDir(), []packedPlugin{telegramStandalonePlugin(root)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const pluginPath = "example.com/vivy/plugins/telegram"
+	if n := strings.Count(string(merged), "replace "+pluginPath+" "); n != 1 {
+		t.Fatalf("overlay go.mod has %d replace lines for %s:\n%s", n, pluginPath, merged)
+	}
+	// Count the require by path+version so the assertion holds whether the
+	// root carries it as a single-line or a block require.
+	if n := strings.Count(string(merged), pluginPath+" v0.0.0"); n != 1 {
+		t.Fatalf("overlay go.mod has %d require entries for %s:\n%s", n, pluginPath, merged)
+	}
+	// The merged file must stay parseable by the go command (same check
+	// as the MVS drift test: `go mod graph` parses without the replace
+	// target's directory context, but local-dir replaces from the root
+	// go.mod must be absolutized for the scratch copy).
+	checkDir := t.TempDir()
+	absRoot := filepath.ToSlash(root)
+	patched := strings.ReplaceAll(string(merged), "=> ./plugins/", "=> "+absRoot+"/plugins/")
+	if err := os.WriteFile(filepath.Join(checkDir, "go.mod"), []byte(patched), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(goToolchainPath(t), "mod", "graph")
+	cmd.Dir = checkDir
+	cmd.Env = os.Environ()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("merged go.mod is not go-command valid: %v: %s", err, output)
 	}
 }
 
@@ -270,16 +356,18 @@ func TestOverlayGoModAllowsMVSVersionDrift(t *testing.T) {
 		t.Fatalf("overlay go.mod misses the plugin's drifted require:\n%s", data)
 	}
 	// The merged file is validated by the go command: copy it as go.mod
-	// into a scratch dir (it also needs the replace target's directory
-	// context only for builds; `go mod graph` parses the module graph
-	// without one) and check that MVS selected the higher of the two
-	// yaml.v3 versions.
+	// into a scratch dir and check that MVS selected the higher of the
+	// two yaml.v3 versions. The root may carry local-dir replaces
+	// (`./plugins/...`, full species body); a scratch copy cannot resolve
+	// those relative targets, so they are absolutized to the root first.
 	checkDir := t.TempDir()
 	data2, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(checkDir, "go.mod"), data2, 0o600); err != nil {
+	absRoot := filepath.ToSlash(root)
+	patched := strings.ReplaceAll(string(data2), "=> ./plugins/", "=> "+absRoot+"/plugins/")
+	if err := os.WriteFile(filepath.Join(checkDir, "go.mod"), []byte(patched), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(goToolchainPath(t), "mod", "graph")
@@ -419,9 +507,6 @@ func TestPackTelegramStandaloneModule(t *testing.T) {
 		if string(data) != want {
 			t.Fatalf("pack mutated the live %s", path)
 		}
-	}
-	if strings.Contains(before[liveGoMod], "telego") {
-		t.Fatal("the species go.mod must never gain telego")
 	}
 	if len(art.Recipe.Plugins) != 1 || art.Recipe.Plugins[0] != "telegram" {
 		t.Fatalf("recipe = %+v", art.Recipe)

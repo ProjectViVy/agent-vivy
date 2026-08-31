@@ -46,6 +46,7 @@ Do not pick work from those tables. Closed-track filing:
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | UI-COMPOSER | 聊天框剩余伪操作按钮接后端：附件 / AutoDream / "＋更多" / 思考模式 / 询问模式 | OPEN | 2026-08-30 用户确认保留 UI 并告知；见 `docs/logs/2026-08-30-chatbox-buttons/summary.md`。执行模式 agent/plan 已接线（`RunMode` normal/plan） |
 | E2E-STALE | main 既有 e2e 失败：`ui/e2e/runtime.spec.ts` 设置-模型断言（密钥只由运行环境管理）与 `welcome-wizard.spec.ts` 配置模型步骤 | OPEN | 2026-08-30 chatbox-buttons lane 发现：干净 HEAD 上同样失败（runtime 卡设置-模型断言、wizard 卡"配置模型"），疑似相对 model-list-sync 过期；与聊天框改动无关 |
+| TFLAKE-CRON | `TestCronAtJobDeletesAfterSuccessfulRun`（internal/runtime）偶发超时 | OPEN | 2026-08-31 full-channel-body lane 观察：`-count=1` 全量跑 6.15s 失败一次，隔离重跑两次即绿；`time.Sleep`/真实时钟等待对机器负载敏感，候选修法为 fake clock 或轮询 channel 代替固定等待 |
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | DONE | 2026-08-31 runtime mock provider and mock reply path removed; deterministic test doubles remain outside the provider catalog, and model-dependent browser scenarios use a real-provider gate |
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳。演进树 `docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。PLAN 包 `docs/plans/channel-epic/`。日历 §0.2 |
 | FACE-0 | Adopt `VIVY-FACE-PACK.md` (F0 contract) | OPEN | 2026-08-29 提案已写：`face: web \| tui \| headless` 一等装配；用户 `seam: face`；安卓是下游产品用内核。未采纳前不改 sdk/plugin |
