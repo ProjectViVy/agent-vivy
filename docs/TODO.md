@@ -38,6 +38,8 @@ Do not pick work from those tables. Closed-track filing:
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| WEB-1 | CRUSH 对齐余项:`agentic_fetch`(AI 子代理抓取)与 `sourcegraph` | OPEN | 2026-08-31 web_fetch/download 落地后余下;研究文档已判 VC-4 可选(`docs/research/crush-parity-code-agent-research-2026-08-31.md` §5)。agentic_fetch 需小型模型子代理装配(工具面=web_fetch+只读子集),import 须守 D-007 检疫 |
+| WEB-2 | `EinoFilesystemBackend.WriteFile` 的 sandbox 校验先于 `MkdirAll`:受限模式下写全新嵌套目录会误拒 | OPEN | Found 2026-08-31 (web-fetch lane):`ValidatePathWithMode` 的 `EvalSymlinks` 需要父目录真实存在,workspace-write 模式下 `write_file` 到不存在的新嵌套目录报 "resolve parent symlinks";danger 模式短路所以测试没暴露。download.go 已按「resolve→MkdirAll→Validate」顺序自修(`internal/runtime/download.go`),WriteFile 同款顺序留待修复 |
 | LOG-1 | `vivy worker` 子命令的文件日志 | OPEN | 2026-08-30 日志规范化（`docs/logs/2026-08-30-logging-normalization/`）留白：worker 协议独占 stdout，多个 worker 进程写同一滚动文件需 per-worker sink 设计先行；见 `docs/architecture/LOGGING.md` §7 |
 | LOG-2 | 网关 HTTP 访问日志中间件 | OPEN | 2026-08-30 日志规范化未含 `/rpc` 访问行；需要时用 slog Info 记 method/path/status/duration_ms |
 | LOG-3 | 日志 handler 级脱敏（纵深防御） | OPEN | D-010 目前靠调用点纪律 + 工具结果边界 `RedactSensitive`；在 slog handler 层自动脱敏是候选方案 |

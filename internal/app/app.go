@@ -117,11 +117,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	var workspaces runtime.WorkspaceAllocator
 	var fileOps tools.FileOperations
+	var fileBackend *runtime.EinoFilesystemBackend
 	var skillOps tools.SkillOperations
 	var skillBackend *runtime.EinoSkillBackend
 	var todoOps tools.TodoOperations
 	var searchOps tools.SearchOperations
 	var httpOps tools.HTTPOperations
+	var fetchOps tools.WebFetchOperations
+	var downloadOps tools.DownloadOperations
 	var mcpOps tools.MCPOperations
 	var sequentialOps tools.SequentialThinkingOperations
 	var commandOps tools.CommandOperations
@@ -160,7 +163,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			return nil, fmt.Errorf("app: build sandbox manager: %w", err)
 		}
 
-		fileOps = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
+		fileBackend = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
+		fileOps = fileBackend
 	}
 	if cfg.Runtime.SkillsRoot != "" {
 		built, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
@@ -186,6 +190,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
 	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
+	fetchOps = runtime.NewEinoWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
+	if fileBackend != nil {
+		downloadOps = runtime.NewEinoDownloadBackend(fileBackend, sandboxManager)
+	}
 	mcpBackend := runtime.NewEinoMCPBackend(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil)
 	mcpOps = mcpBackend
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
@@ -197,7 +205,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = backend.Close()
 		return nil, err
 	}
-	ts, err := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps).Resolve(cfg.Tools.Enabled)
+	ts, err := tools.BuiltinWithWeb(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps).Resolve(cfg.Tools.Enabled)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
