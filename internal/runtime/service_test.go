@@ -928,3 +928,31 @@ func stripSystemRequestRows(in []payloadModelRequestMessage) []payloadModelReque
 	}
 	return out
 }
+
+// Streaming chunk events must not consume the run events budget: one mapped
+// event per streamed chunk makes any substantive reply exceed MaxEvents on
+// its own (TT-4). Semantic events keep charging, and the model-call /
+// tool-call budgets remain the runaway guard.
+func TestReserveMappedBudgetSkipsStreamingDeltas(t *testing.T) {
+	ledger, err := NewBudgetLedger(BudgetPolicy{MaxEvents: 5, MaxModelCalls: 5, MaxToolCalls: 5, MaxRetries: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltas := make([]domain.RunEvent, 0, 600)
+	for i := 0; i < 600; i++ {
+		deltas = append(deltas, domain.RunEvent{Type: domain.EventModelDelta})
+	}
+	if err := reserveMappedBudget(ledger, deltas); err != nil {
+		t.Fatalf("600 streamed deltas must not consume the events budget: %v", err)
+	}
+	if err := reserveMappedBudget(ledger, []domain.RunEvent{{Type: domain.EventModelCompleted}}); err != nil {
+		t.Fatalf("semantic events keep charging: %v", err)
+	}
+	semantic := make([]domain.RunEvent, 0, 6)
+	for i := 0; i < 6; i++ {
+		semantic = append(semantic, domain.RunEvent{Type: domain.EventModelUsage})
+	}
+	if err := reserveMappedBudget(ledger, semantic); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("events budget must still trip on semantic events, got: %v", err)
+	}
+}
