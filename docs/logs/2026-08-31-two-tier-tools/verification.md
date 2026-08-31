@@ -33,8 +33,26 @@
 - `TestToolsCatalogListAndSetActive`：tools/list + set-active 全链路
   （覆盖层写入、OnSettingsChanged 触发、未知/重复名字拒绝、空表=纯对话）。
 
-## 真路径 smoke
+## 真路径 smoke（已完成，worktree 8790 嵌入式新 UI）
 
-merge 回主线后在根树执行（记录于本目录 verification.md 追加节）：
-`just dev` → http://127.0.0.1:3015 → 中文消息验证模型实际调用工具、
-设置页切换激活态、声明 `tools:` 的技能同 run 调用隐藏工具。
+环境约束与变通：3015 被根树另一 lane 的 Vite（`--strictPort`）占用、8787 被
+其 backend 占用且 organism lease 单活——smoke 后端改在 `127.0.0.1:8790`
+（worktree 自己的 scratch data/，不触碰生产 journal），用 worktree `ui/dist`
+的**嵌入式新 UI**（构建于 just ci，含本迭代全部改动）。
+
+| # | 步骤 | 结果 |
+|---|---|---|
+| 1 | 启动 smoke 后端（新代码） | `healthz ok`，`vivy starting addr=127.0.0.1:8790` |
+| 2 | 浏览器（IAB）打开设置→工具 | 真实目录卡片渲染：全量内置工具、只读/需审批徽标、开关状态与配置默认一致（2 个），提示"当前未写覆盖层"——`tools/list` 经真实 UI+RPC 走通 |
+| 3 | 关闭 `write_note` 开关 → 保存工具配置 | `tools/set-active` 落盘 worktree `data/settings.yaml`：`tools_enabled: [echo_info]` |
+| 4 | 刷新页面重进工具页 | `echo_info=checked / write_note=unchecked`，提示"当前使用自定义覆盖层"——持久化与回显正确 |
+| 5 | 新会话发送"你现在有什么工具？你能看到工作区里有什么吗？" | run 走到模型请求后按预期失败（本环境无供应商密钥，"无法连接！请检查供应商配置！"为 mock 移除后的既定错误文案）；**journal `model.request` 记录 `"selected_tools":["echo_info"]`**——中文无关键词消息绑定了非空激活面且遵循覆盖层；旧关键词选择器下该字段必为 `[]` |
+
+未能在浏览器覆盖的项：skill_view 同 run 挂载需要真实模型驱动 ReAct 循环
+（本环境无密钥），由单测覆盖（中间件视图过滤、适配器放行、挂载记录、
+frontmatter 解析与重渲染保留）。模型真实回复与 SKILL 挂载的用户可见验收，
+需在配有密钥的日常实例按 acceptance.md 操作。
+
+清理：smoke 后端已停止，临时 config 端口恢复 8787，浏览器标签关闭；
+worktree `data/` 为 per-checkout scratch，保持原样。
+
