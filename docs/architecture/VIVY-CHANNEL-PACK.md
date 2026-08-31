@@ -390,7 +390,10 @@ func Register() []plugin.Plugin {
 ```
 
 - `inspect` / `generation.json` 按 seam 分类列出：name、version、seam、grants、transport、source_ref、tree_hash。telegram 打印成 channel，不是 tool。
-- 默认提交的物种身体：`Register()` 返回 nil。`just run` 的开发二进制没有耳朵。
+- 主线提交的物种身体是全量本体：`internal/generated/plugins/zz_register.go`
+  注册所有第一方通道插件，`just run`、内嵌 UI 二进制和 Docker 开箱即有
+  全部耳朵。`pack` 在构建期用 `-overlay` 把同一份文件替换成 `--with`
+  选出的更窄组合，用来装配精简代；提交的本体保持全量。
 
 卸通道插件 = 从 `plugins:` 删一行，再 pack。要 eval / promote。不是删运行时 allowlist。
 
