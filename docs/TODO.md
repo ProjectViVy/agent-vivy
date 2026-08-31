@@ -147,6 +147,7 @@ Do not pick work from those tables. Closed-track filing:
 | TT-2 | 中断 run 的 resume 不恢复挂载集 | OPEN | 同上日志：resume 从 journal 恢复 selectedTools（active 基面），`MountedTools` 随 ctx 重建为空；恢复后模型需重新 `skill_view` 才能再调用技能声明的隐藏工具 |
 | TT-3 | `model.request.selected_tools` 不含 run 内挂载增量 | OPEN | journal 的 model.request 在 run 前记录基面（active）；`skill_view` 挂载只体现在后续 tool 事件与模型视图。如需审计挂载历史，可在挂载时发独立 journal 事件 |
 | TT-4 | 512 事件预算对正常工具 run 过紧 | DONE | 2026-08-31 关闭：`reserveMappedBudget` 豁免流式 chunk 事件（`model.delta`/`model.reasoning_delta`）计费，失控防护由 model_calls/tool_calls 预算承担；同日删除宿主 `config.yaml` 遗留的 2 工具 `tools.enabled` 覆盖。见 `docs/logs/2026-08-31-run-events-budget/` |
+| UI-I18N-COMPACTION | 通用页压缩卡片显示原始 i18n key | OPEN | 2026-08-31 设置→通用可见 `settings.compaction.*` 原始键（`CompactionSettingsCard` 的 t() 键在 zh/en locales 缺失，部分字段为硬编码中文）。功能真实可用，纯文案缺陷 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
