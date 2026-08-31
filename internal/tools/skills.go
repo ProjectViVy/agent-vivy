@@ -16,14 +16,17 @@ const (
 )
 
 type SkillSummary struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Context     string   `json:"context,omitempty"`
-	Agent       string   `json:"agent,omitempty"`
-	Model       string   `json:"model,omitempty"`
-	Enabled     bool     `json:"enabled"`
-	Hash        string   `json:"hash"`
-	Warnings    []string `json:"warnings,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Context     string `json:"context,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Model       string `json:"model,omitempty"`
+	// Tools lists the tool names the SKILL.md frontmatter declares. Viewing
+	// the skill mounts them for the remainder of the run (MountedTools).
+	Tools    []string `json:"tools,omitempty"`
+	Enabled  bool     `json:"enabled"`
+	Hash     string   `json:"hash"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type SkillView struct {
@@ -151,6 +154,11 @@ func (t *skillViewTool) InvokableRun(ctx context.Context, args json.RawMessage) 
 	view, err := t.ops.ViewSkill(ctx, RunIDFromContext(ctx), input.Name, input.Path)
 	if err != nil {
 		return "", err
+	}
+	// Viewing the SKILL.md itself (not a supporting file) mounts the tools
+	// the skill declares for the remainder of this run.
+	if view.RelativePath == "SKILL.md" && len(view.Tools) > 0 {
+		MountSkillTools(ctx, view.Tools)
 	}
 	return marshalToolResult(view)
 }

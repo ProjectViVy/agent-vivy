@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
 )
 
 func TestCompactToolResultKeepsHeadTailAndValidUTF8(t *testing.T) {
@@ -53,6 +54,22 @@ func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
 	}
 	if tool.calls != 0 {
 		t.Fatalf("unselected tool calls = %d, want zero", tool.calls)
+	}
+}
+
+// A skill_view mount extends the selected surface for the run: a tool
+// absent from the base selection executes once mounted.
+func TestToolAdapterAllowsMountedTool(t *testing.T) {
+	tool := &countingTool{}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	mounts := tools.NewMountedTools()
+	mounts.Mount(tool.Spec().Name)
+	ctx := tools.WithMountedTools(withSelectedTools(context.Background(), []string{"another_tool"}), mounts)
+	if _, err := adapter.InvokableRun(ctx, `{"value":"draft"}`); err != nil {
+		t.Fatalf("mounted tool run: %v", err)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("mounted tool calls = %d, want 1", tool.calls)
 	}
 }
 

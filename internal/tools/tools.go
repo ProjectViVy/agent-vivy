@@ -291,6 +291,22 @@ func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills Sk
 	return registered
 }
 
+// Except returns the registered tools whose names are absent from enabled,
+// in registration order — the hidden complement of Resolve.
+func (r *Registry) Except(enabled []string) []Tool {
+	enabledSet := make(map[string]struct{}, len(enabled))
+	for _, name := range enabled {
+		enabledSet[name] = struct{}{}
+	}
+	out := make([]Tool, 0, len(r.order))
+	for _, name := range r.order {
+		if _, ok := enabledSet[name]; !ok {
+			out = append(out, r.byName[name])
+		}
+	}
+	return out
+}
+
 // Resolve selects the enabled tools by name, preserving order. An unknown
 // name is a startup error (FR-10: config names must resolve).
 func (r *Registry) Resolve(enabled []string) ([]Tool, error) {

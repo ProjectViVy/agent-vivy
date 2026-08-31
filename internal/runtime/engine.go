@@ -57,6 +57,10 @@ type EngineConfig struct {
 	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
 	// feed behavior.
 	Compaction *CompactionPolicy
+	// HiddenTools are registered-but-not-active tools. They join the
+	// executable universe so a skill_view mount can use them mid-run, but
+	// the surface middleware never advertises them before they are mounted.
+	HiddenTools []tools.Tool
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -96,19 +100,32 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, err
 		}
 	}
-	wrapped := make([]einotool.BaseTool, 0, len(ts))
+	wrapped := make([]einotool.BaseTool, 0, len(ts)+len(cfg.HiddenTools))
 	specs := make([]domain.ToolSpec, 0, len(ts))
-	byName := make(map[string]tools.Tool, len(ts))
+	byName := make(map[string]tools.Tool, len(ts)+len(cfg.HiddenTools))
 	for _, t := range ts {
 		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
 		specs = append(specs, t.Spec())
 		byName[t.Spec().Name] = t
 	}
-	handlers := []adk.ChatModelAgentMiddleware{newToolSelectionMiddleware()}
+	// Hidden tools execute only after a skill_view mounts them; they never
+	// reach the model's view before that (toolSurfaceMiddleware).
+	universeNames := make([]string, 0, len(specs)+len(cfg.HiddenTools))
+	for _, spec := range specs {
+		universeNames = append(universeNames, spec.Name)
+	}
+	for _, t := range cfg.HiddenTools {
+		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
+		universeNames = append(universeNames, t.Spec().Name)
+		byName[t.Spec().Name] = t
+	}
+	activeNames := make([]string, 0, len(specs))
+	activeNames = append(activeNames, universeNames[:len(specs)]...)
+	handlers := []adk.ChatModelAgentMiddleware{newToolSurfaceMiddleware(activeNames, universeNames)}
 	if cfg.SkillBackend != nil {
-		// After tool selection so the Eino skill tool is not dropped when
-		// the request has no "skill" keyword. Inline load only; fork
-		// frontmatter is left to Eino's native error.
+		// Registered after the surface middleware so its injected skill
+		// tool is a foreign name the view filter never hides. Inline load
+		// only; fork frontmatter is left to Eino's native error.
 		skillHandler, err := einoskill.NewMiddleware(ctx, &einoskill.Config{Backend: cfg.SkillBackend})
 		if err != nil {
 			return nil, fmt.Errorf("runtime: skill middleware: %w", err)

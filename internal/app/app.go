@@ -211,22 +211,23 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// Resolve filters by the active name list (settings tools_enabled
 	// overlay when written, config default otherwise).
 	builtinRegistry := tools.BuiltinWithCommands(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps)
-	// resolveActiveTools builds the live active surface. It backs startup
-	// and every engine rebuild, so a Settings-side active/hidden change
-	// lands without a process restart. Plugin tools stay appended after the
-	// resolved builtins (unchanged V0 behavior).
-	resolveActiveTools := func() ([]tools.Tool, error) {
+	// resolveActiveTools builds the live active surface plus its hidden
+	// complement. It backs startup and every engine rebuild, so a
+	// Settings-side active/hidden change lands without a process restart.
+	// Plugin tools stay appended to the active surface (unchanged V0
+	// behavior); only builtins participate in the active/hidden split.
+	resolveActiveTools := func() ([]tools.Tool, []tools.Tool, error) {
 		enabled := cfg.Tools.Enabled
 		if s, err := settings.Load(settings.Path(dataRoot)); err == nil && s.ToolsEnabled != nil {
 			enabled = append([]string(nil), *s.ToolsEnabled...)
 		}
 		resolved, err := builtinRegistry.Resolve(enabled)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return append(resolved, pluginhost.Adapt(genPlugins, lookup)...), nil
+		return append(resolved, pluginhost.Adapt(genPlugins, lookup)...), builtinRegistry.Except(enabled), nil
 	}
-	ts, err := resolveActiveTools()
+	ts, hidden, err := resolveActiveTools()
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: resolve tools: %w", err)
@@ -254,6 +255,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	cmp := compactionPolicyFor(cfg, nil, modelWindow)
 	engineCfg := buildEngineConfig(cfg, skillBackend, checkpoints, policy, hooks, &cmp)
+	engineCfg.HiddenTools = hidden
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
 	if err != nil {
 		_ = backend.Close()
@@ -300,10 +302,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Compactions:          backend,
 		Crons:                backend,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
-			live, err := resolveActiveTools()
+			live, hidden, err := resolveActiveTools()
 			if err != nil {
 				return nil, fmt.Errorf("app: resolve live tools: %w", err)
 			}
+			ec.HiddenTools = hidden
 			return runtime.NewEngine(ctx, chatModel, live, ec)
 		},
 	})

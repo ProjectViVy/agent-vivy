@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -177,6 +178,44 @@ func TestEinoSkillBackendEnabledFlagFiltering(t *testing.T) {
 	}
 	if _, err := backend.ViewSkill(context.Background(), "", "off-skill", ""); err != nil {
 		t.Fatalf("control-plane view of a disabled skill must work: %v", err)
+	}
+}
+
+// Frontmatter tools: declarations surface in SkillSummary.Tools and survive
+// the SetSkillEnabled canonical re-render (skill_manage edits must never
+// drop the declaration).
+func TestEinoSkillBackendDeclaredTools(t *testing.T) {
+	backend, root, _ := openSkillTestBackend(t)
+	dir := filepath.Join(root, "tooled-skill")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	doc := "---\nname: tooled-skill\ndescription: Declares tools\ntools:\n  - list_dir\n  - read_file\n---\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(doc), 0o600); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	items, err := backend.ListSkills(context.Background(), "run_tooled")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 || !reflect.DeepEqual(items[0].Tools, []string{"list_dir", "read_file"}) {
+		t.Fatalf("summary tools = %+v", items)
+	}
+
+	summary, err := backend.SetSkillEnabled(context.Background(), "tooled-skill", false, items[0].Hash)
+	if err != nil {
+		t.Fatalf("set enabled: %v", err)
+	}
+	if !reflect.DeepEqual(summary.Tools, []string{"list_dir", "read_file"}) {
+		t.Fatalf("tools lost on re-render: %+v", summary)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !strings.Contains(string(data), "tools:") || !strings.Contains(string(data), "list_dir") {
+		t.Fatalf("re-rendered document lost the tools declaration:\n%s", data)
 	}
 }
 
