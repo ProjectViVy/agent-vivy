@@ -194,14 +194,21 @@ func TestCronAtJobDeletesAfterSuccessfulRun(t *testing.T) {
 	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
 	defer svc.StopCronScheduler()
 
-	deadline := time.Now().Add(5 * time.Second)
+	// The full `just ci` run saturates cores and slows the whole
+	// fire→run→settle pipeline; a fixed 5s budget tripped intermittently
+	// (TFLAKE-CRON). Poll generously and dump the settled row on failure.
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := backend.GetCronJob(ctx, job.ID); err == storage.ErrNotFound {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("delete_after_run job was not deleted")
+	settled, err := backend.GetCronJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("delete_after_run job not deleted; final read: %v", err)
+	}
+	t.Fatalf("delete_after_run job was not deleted; settled state: %+v", settled)
 }
 
 func TestCronRecoveryDisablesPastOneShot(t *testing.T) {
