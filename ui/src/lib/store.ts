@@ -88,7 +88,7 @@ interface RuntimeState {
   setSessionPermission: (id: string, preset: Exclude<api.PermissionPreset, 'custom'>) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  startRun: (sessionId: string, text: string, mode?: api.RunMode) => Promise<void>;
+  startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face) => Promise<void>;
   cancelCurrentRun: () => Promise<void>;
   openRun: (runId: string, sessionId: string) => Promise<void>;
   loadBackgroundRuns: () => Promise<void>;
@@ -338,11 +338,11 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
-  startRun: async (sessionId, text, mode = 'normal') => {
+  startRun: async (sessionId, text, mode = 'normal', face?: api.Face) => {
     if (get().activeSessionId !== sessionId || runActive(get().currentRun) || get().runBusy) return;
     set({ runBusy: true, runError: null });
     try {
-      const result = await api.startTurn(sessionId, text, mode);
+      const result = await api.startTurn(sessionId, text, mode, face);
       if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
       const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
       set((state) => ({ currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting', messages: [...state.messages, { id: `local-${run.id}`, run_id: run.id, role: 'user', content: text, created_at: Date.now() }], messagesPhase: 'ready', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));

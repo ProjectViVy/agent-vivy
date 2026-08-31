@@ -673,6 +673,8 @@ export interface Run {
 
 export type RunStatus = 'accepted' | 'queued' | 'active' | 'completed' | 'failed' | 'cancelled';
 export type RunMode = 'normal' | 'plan';
+// Entry assembly serving the run. Empty/omitted means 'web'.
+export type Face = 'web' | 'tui' | 'code';
 
 export interface EventEnvelope {
   run_id: string;
@@ -843,6 +845,7 @@ export interface Promotion {
 export interface Preflight {
   status: 'ready' | 'warning' | 'blocked';
   mode: RunMode;
+  face?: Face;
   policy_profile: string;
   policy_hash?: string;
   selected_tools: string[];
@@ -939,8 +942,8 @@ export function deleteSession(id: string): Promise<void>;
 export function listMessages(sessionID: string): Promise<{ messages: Message[] }>;
 
 // Runs
-export function postMessage(sessionID: string, text: string, mode: RunMode): Promise<{ run_id: string; status: RunStatus }>;
-export function preflight(sessionID: string, text: string, mode: RunMode): Promise<Preflight>;
+export function postMessage(sessionID: string, text: string, mode: RunMode, face?: Face): Promise<{ run_id: string; status: RunStatus }>;
+export function preflight(sessionID: string, text: string, mode: RunMode, face?: Face): Promise<Preflight>;
 export function getRun(runID: string): Promise<Run>;
 export function getRunLog(runID: string, afterSeq?: number): Promise<{ events: RunLogEvent[] }>;
 export function cancelRun(runID: string): Promise<{ run_id: string; status: string }>;

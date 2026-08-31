@@ -24,6 +24,7 @@ const (
 type PreflightResult struct {
 	Status        PreflightStatus
 	Mode          domain.RunMode
+	Face          domain.Face
 	PolicyProfile domain.PolicyProfile
 	PolicyHash    string
 	SelectedTools []string
@@ -55,7 +56,12 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 	if err != nil {
 		return PreflightResult{}, err
 	}
+	face, err := normalizeFace(options.Face)
+	if err != nil {
+		return PreflightResult{}, err
+	}
 	result.Mode = mode
+	result.Face = face
 	result.PolicyProfile = profile
 	if s.engine.cfg.Policy != nil {
 		snapshot, snapshotErr := s.engine.cfg.Policy.Snapshot(profile)
@@ -70,7 +76,7 @@ func (s *Service) Preflight(ctx context.Context, sessionID domain.SessionID, use
 		result.Blockers = []string{"text must not be empty"}
 		return result, nil
 	}
-	_, selection, stats, err := s.runMessages(ctx, sessionID, userText, s.engine)
+	_, selection, stats, err := s.runMessages(ctx, sessionID, userText, s.engine, face)
 	result.ContextBytes = stats.Bytes
 	result.SelectedTools = selection.Names()
 	if err != nil {

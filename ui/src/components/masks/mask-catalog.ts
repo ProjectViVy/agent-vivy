@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { BookOpenCheck, Code2, PenLine, Star } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { t } from '@/i18n';
+import type { Face } from '@/lib/api';
 
 export const ACTIVE_MASK_KEY = 'vivy.ui.activeMask';
 
@@ -30,6 +31,11 @@ const MASK_ENTRIES: MaskEntry[] = [
 ];
 
 export const MASK_IDS = MASK_ENTRIES.map((entry) => entry.id);
+
+/** 面具 → 运行 face 的映射：programmer 以 code face 运行，其余不指定（服务端默认 web）。 */
+export function faceForMaskId(maskId: string): Face | undefined {
+  return maskId === 'programmer' ? 'code' : undefined;
+}
 
 /** 词典里的 capabilities 是数组，按索引逐个取词；未命中时 t 返回 key 本身，据此判断边界。 */
 function catalogCapabilities(id: string): string[] {

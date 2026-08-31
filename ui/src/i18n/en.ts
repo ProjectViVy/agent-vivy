@@ -590,7 +590,7 @@ refreshModels: 'Refresh model list',
       programmer: {
         name: 'Programmer',
         description: 'Coding, debugging, and engineering verification',
-        capabilities: ['Writing code', 'Debugging', 'Verifying results'],
+        capabilities: ['Writing code', 'Debugging', 'Verifying results', 'Runs with the code face'],
       },
       researcher: {
         name: 'Researcher',

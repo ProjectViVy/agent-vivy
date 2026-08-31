@@ -432,7 +432,7 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	}
 
 	// The next run's actual feed starts with the durable summary.
-	msgs, _, _, err := svc.runMessages(ctx, sessionID, "continue", svc.engine)
+	msgs, _, _, err := svc.runMessages(ctx, sessionID, "continue", svc.engine, domain.FaceWeb)
 	if err != nil {
 		t.Fatalf("run messages: %v", err)
 	}

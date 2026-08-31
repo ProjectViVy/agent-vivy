@@ -588,7 +588,7 @@ refreshModels: '刷新模型列表',
       programmer: {
         name: '程序员',
         description: '编码、调试与工程验证',
-        capabilities: ['编写代码', '排查问题', '验证结果'],
+        capabilities: ['编写代码', '排查问题', '验证结果', '以 code face 运行'],
       },
       researcher: {
         name: '研究员',
