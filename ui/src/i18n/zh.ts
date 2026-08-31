@@ -78,6 +78,7 @@ export const zh = {
     preflightWarned: '预检发现警告',
     continue: '继续',
     toolResult: '工具结果',
+    toolResultRaw: '原始结果',
     thinking: '思考过程',
     thinkingStreaming: '思考过程（进行中）',
     // 消息操作（对照 Agent-DIVA msg-actions）
@@ -88,6 +89,12 @@ export const zh = {
     rewind: '回到这里',
     fork: '从此分叉',
     pending: '待实现',
+  },
+  diff: {
+    unified: '统一视图',
+    split: '分栏视图',
+    truncated: '差异过长，已截断显示',
+    statsLabel: '新增 {{additions}} 行，删除 {{deletions}} 行',
   },
   chatInput: {
     placeholder: '输入消息... (Enter 发送)',

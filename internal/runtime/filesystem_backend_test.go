@@ -72,7 +72,9 @@ func TestEinoFilesystemBackendReadWriteAndPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("patch file: %v", err)
 	}
-	if !patch.Changed || !strings.Contains(patch.Diff, "-one\ntwo\nthree") || !strings.Contains(patch.Diff, "+one\nTWO\nthree") {
+	// Real unified diff (go-udiff): context lines carry the ' ' prefix, so
+	// the changed pair renders as "-two"/"+TWO" between context rows.
+	if !patch.Changed || !strings.Contains(patch.Diff, " one\n-two\n+TWO\n three") {
 		t.Fatalf("unexpected patch result: %+v", patch)
 	}
 

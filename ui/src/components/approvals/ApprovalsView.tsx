@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { MasterDetail } from '@/components/layout/MasterDetail';
+import { DiffView } from '@/components/ui/DiffView';
+import { looksLikeDiff } from '@/lib/diff';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
@@ -104,7 +106,9 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
           {selected.trust ? <><dt className="text-muted-foreground">{t('approvals.trust')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.trust)}</dd></> : null}
         </dl>
         {selected.prompt ? <div className="rounded-lg bg-muted p-3">{selected.prompt}</div> : null}
-        {selected.preview ? <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">{selected.preview}</pre> : null}
+        {selected.preview ? (looksLikeDiff(selected.preview)
+          ? <DiffView diff={selected.preview} />
+          : <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">{selected.preview}</pre>) : null}
         {selected.risk_findings?.length ? (
           <div>
             <div className="font-medium text-destructive">{t('approvals.risk')}</div>

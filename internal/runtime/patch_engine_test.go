@@ -152,7 +152,8 @@ func TestBackendMultiPatchFileAppliesAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("multiedit: %v", err)
 	}
-	if !result.Changed || !strings.Contains(result.Diff, "+x\nb\ny\n") {
+	// Unified diff rows: "-a"/"+x" and "-c"/"+y" with unchanged "b" as context.
+	if !result.Changed || !strings.Contains(result.Diff, "-a\n+x\n") || !strings.Contains(result.Diff, "-c\n+y\n") {
 		t.Fatalf("multiedit result = %+v, want combined diff", result)
 	}
 	data, err := os.ReadFile(filepath.Join(workspace.Path, "notes.txt"))
