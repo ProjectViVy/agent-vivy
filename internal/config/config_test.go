@@ -135,6 +135,20 @@ func TestDefaultEnabledOmitsEchoInfo(t *testing.T) {
 	}
 }
 
+// The public-internet fetch surface ships enabled: web_fetch is readonly and
+// download lands behind the approval gate, so neither needs an opt-in flag.
+func TestDefaultEnabledIncludesWebFetchAndDownload(t *testing.T) {
+	seen := map[string]bool{}
+	for _, name := range Default().Tools.Enabled {
+		seen[name] = true
+	}
+	for _, name := range []string{"web_fetch", "download"} {
+		if !seen[name] {
+			t.Fatalf("%s must be enabled by default", name)
+		}
+	}
+}
+
 // The network_search provider preference parses, defaults to auto, and
 // rejects unknown provider names.
 func TestNetworkSearchProviderConfig(t *testing.T) {
