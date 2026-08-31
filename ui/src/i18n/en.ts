@@ -80,6 +80,7 @@ export const en: Dictionary = {
     preflightWarned: 'Preflight found warnings',
     continue: 'Continue',
     toolResult: 'Tool result',
+    toolResultRaw: 'Raw result',
     thinking: 'Reasoning',
     thinkingStreaming: 'Reasoning (in progress)',
     // Message actions (ported from Agent-DIVA msg-actions)
@@ -90,6 +91,12 @@ export const en: Dictionary = {
     rewind: 'Rewind to here',
     fork: 'Fork from here',
     pending: 'Not yet available',
+  },
+  diff: {
+    unified: 'Unified',
+    split: 'Split',
+    truncated: 'Diff is too long and was truncated',
+    statsLabel: '{{additions}} added, {{deletions}} removed',
   },
   chatInput: {
     placeholder: 'Type a message... (Enter to send)',

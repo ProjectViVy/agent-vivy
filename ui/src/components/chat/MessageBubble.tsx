@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import { Check, Copy, GitFork, Pencil, RefreshCw, Rewind } from 'lucide-react';
 import type { Message } from '@/lib/api';
 import { dateTimeLocale, useTranslation } from '@/i18n';
+import { parseToolResultDiff } from '@/lib/diff';
+import { DiffView } from '@/components/ui/DiffView';
 
 // 消息功能栏（对照 Agent-DIVA msg-actions 移植，用户侧交互参考 ChatGPT）：
 // 用户消息（蓝色气泡）：下方悬停才浮现的复制 + 编辑（占位）按钮，
@@ -10,6 +12,8 @@ import { dateTimeLocale, useTranslation } from '@/i18n';
 // 助手消息：时间戳 + 复制（启用，带「已复制」反馈）+ 重新生成
 // （重发之前最近一条用户消息）+ 回退 / 分叉（占位）。
 // 密钥式敏感操作不存在；复制仅使用浏览器剪贴板。
+// 工具结果是文件变更 JSON（FileMutationResult，含 diff 字段）时改用
+// DiffView 呈现统一/分栏 diff，原始 JSON 折叠保留；其余工具结果维持纯文本。
 const ACTION_BUTTON = 'flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent';
 
 function formatTime(timestamp: number): string {
@@ -37,6 +41,27 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
       return false;
     }
   }
+}
+
+function ToolResultBubble({ message }: { message: Message }) {
+  const { t } = useTranslation();
+  const toolDiff = parseToolResultDiff(message.content);
+  if (!toolDiff) {
+    return <div className="mx-auto my-3 max-w-2xl min-w-0 rounded-xl border bg-muted/40 p-3 text-sm"><div className="mb-1 text-xs font-medium text-muted-foreground">{t('chat.toolResult')}</div><pre className="overflow-x-auto whitespace-pre-wrap break-words">{message.content}</pre></div>;
+  }
+  return (
+    <div className="mx-auto my-3 max-w-2xl min-w-0 rounded-xl border bg-muted/40 p-3 text-sm">
+      <div className="mb-1 flex min-w-0 items-baseline gap-2 text-xs font-medium text-muted-foreground">
+        <span className="shrink-0">{t('chat.toolResult')}</span>
+        {toolDiff.path ? <code className="min-w-0 truncate font-mono">{toolDiff.path}</code> : null}
+      </div>
+      <DiffView diff={toolDiff.diff} />
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs text-muted-foreground">{t('chat.toolResultRaw')}</summary>
+        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words">{message.content}</pre>
+      </details>
+    </div>
+  );
 }
 
 export function MessageBubble({
@@ -69,7 +94,7 @@ export function MessageBubble({
     copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
   };
 
-  if (message.role === 'tool') return <div className="mx-auto my-3 max-w-2xl min-w-0 rounded-xl border bg-muted/40 p-3 text-sm"><div className="mb-1 text-xs font-medium text-muted-foreground">{t('chat.toolResult')}</div><pre className="overflow-x-auto whitespace-pre-wrap break-words">{message.content}</pre></div>;
+  if (message.role === 'tool') return <ToolResultBubble message={message} />;
   if (user) {
     return <article className="group my-4 flex min-w-0 justify-end"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-end">
       <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">

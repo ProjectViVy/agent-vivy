@@ -16,6 +16,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	udiff "github.com/aymanbagabas/go-udiff"
 	einofs "github.com/cloudwego/eino/adk/filesystem"
 
 	"agent-vivy/internal/domain"
@@ -808,8 +809,15 @@ func sha256Hex(content []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
+// boundedDiff renders a standard unified diff (go-udiff, three context
+// lines) so the UI can offer unified/split views with add/remove stats.
+// The result is capped at maxDiffBytes; a cap cut may break the trailing
+// hunk's declared counts, so renderers must stay lenient.
 func boundedDiff(path, old, new string) string {
-	diff := fmt.Sprintf("--- %s\n+++ %s\n@@\n-%s\n+%s\n", path, path, old, new)
+	diff := udiff.Unified("a/"+path, "b/"+path, old, new)
+	if diff == "" {
+		return ""
+	}
 	if len(diff) <= maxDiffBytes {
 		return diff
 	}

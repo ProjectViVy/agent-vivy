@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cloudwego/eino v0.9.13
