@@ -1016,9 +1016,9 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 // message with a warning — the run proceeds rather than failing on a
 // bookkeeping read.
 func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine) ([]*schema.Message, tools.Selection, ContextStats, error) {
-	selection := eng.SelectTools(userText)
+	selection := eng.SelectTools()
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
-	// static Instruction cannot (date, selected tool set, and the bounded notebook
+	// static Instruction cannot (date, active tool set, and the bounded notebook
 	// digest of MA-3).
 	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), selection.Specs)
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)

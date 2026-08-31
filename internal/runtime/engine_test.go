@@ -30,6 +30,30 @@ func newTestEngine(t *testing.T) *Engine {
 	return eng
 }
 
+// TestSelectToolsBindsFullActiveSurface pins the binding contract: every
+// request sees the full config-resolved surface in registry order,
+// regardless of request text. The retired keyword selector returned an
+// empty selection for keyword-less and CJK requests, which stripped all
+// tools from the outgoing model request.
+func TestSelectToolsBindsFullActiveSurface(t *testing.T) {
+	ctx := context.Background()
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName, tools.ListNotesName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, WrapModel(testsupport.NewEchoModel()), ts, EngineConfig{
+		StreamBuffer:         8,
+		MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	want := []string{tools.EchoInfoName, tools.ListNotesName}
+	if got := eng.SelectTools().Names(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("SelectTools() = %v, want %v", got, want)
+	}
+}
+
 // drainReassembled iterates the raw engine event stream and returns the
 // concatenated assistant stream chunks. It fails the test on any event
 // error or stream recv error.

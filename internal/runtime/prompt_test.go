@@ -48,7 +48,7 @@ func TestComposeRunPreambleShape(t *testing.T) {
 
 func TestComposeRunPreambleNoTools(t *testing.T) {
 	got := composeRunPreamble(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), "", nil)
-	if !strings.Contains(got, "No tools are selected for this request.") {
+	if !strings.Contains(got, "No tools are enabled for this request; answer without tool calls.") {
 		t.Fatalf("run preamble missing the no-tools wording: %q", got)
 	}
 }
