@@ -35,6 +35,7 @@ require (
 	github.com/valyala/fastjson v1.6.10 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
+	mvdan.cc/sh/v3 v3.12.0 // indirect
 )
 
 require (
