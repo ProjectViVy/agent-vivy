@@ -68,8 +68,8 @@
 
 | eino/上游能力 | Crush 有无 | 处置 |
 |---|---|---|
-| `adk/prebuilt/deep`（DeepAgents）、`planexecute` | 无 | **不采用不暴露**（人格模型已拍板：单 supervisor + 面具，无 coordinator/计划执行器） |
-| `adk/prebuilt/supervisor` | 无（Crush 硬编码 coder/task 亦被我们否决） | 不采用；子代理映射 Vivy child run 自有语义 |
+| `adk/prebuilt/deep`（DeepAgents）、`planexecute` | 无 | **不采用不暴露**。理由（2026-08-31 用户质询后记录）：① `planexecute` = plan–execute–replan 回路，Crush 面没有，按"不擅自添加"出局；② `deep` 是自带 task_tool/计划文件的完整 DeepAgents 栈，超出 Crush 的 task 语义且与 Vivy 治理（审批/预算/Journal/面具）平行，接入即双轨；③ 三者的"协调"都发生在 eino 图内，而 Vivy 子代理治理（WorkerChildAuthority/预算/审批并入父会话 D5/PolicySnapshot 面具）全在 runtime 服务层——用 prebuilt 得先拆它再接回管线，比薄封装既有 child run RPC 更费工。Crush 面真正要的只是 `agent` 工具=薄包装。**重启条件**：将来立项"规划-执行"类能力提案时，prebuilt 可作为内核候选再评估（走提案流程） |
+| `adk/prebuilt/supervisor` | 无（Crush 硬编码 coder/task 亦被我们否决） | 不采用；该 prebuilt 本身就是"中央 agent 协调一群子 agent"（supervisor.go 包注释原文）——恰是 2026-08-31 拍板否决的 Crush coordinator 模式；vivy = 单主人格戴面具，supervisor 语义由产品人格承担而非编排组件。子代理 = Vivy child run 自有语义的薄包装 |
 | `middlewares/plantask`（task_*） | 有等价（todos） | 不切换不双暴露；Vivy task_* 维持 |
 | `middlewares/dynamictool/toolsearch` | 无 | Vivy 已有 tool_search（既有能力维持现状，不借 eino 扩面） |
 | `middlewares/filesystem` large_tool_result | 内部件 | 内部卫生，评估采用，不构成产品面 |
