@@ -343,7 +343,10 @@ func (t *writeFileTool) PrepareProposal(ctx context.Context, args json.RawMessag
 
 func (t *patchTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: PatchName, Description: "Applies an exact string patch in the current run workspace after approval.", Readonly: false,
+		Name: PatchName,
+		Description: "Applies an exact string patch in the current run workspace after approval. " +
+			"When the exact text is absent, a whitespace-tolerant match may apply it using the file's own indentation.",
+		Readonly: false,
 		Keywords: []string{"patch", "edit", "replace", "modify"},
 		Params: map[string]domain.ToolParam{
 			"path":        {Desc: "Workspace-relative file path.", Required: true},

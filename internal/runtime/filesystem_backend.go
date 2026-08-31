@@ -53,8 +53,10 @@ type EinoFilesystemBackend struct {
 }
 
 var (
-	_ einofs.Backend       = (*EinoFilesystemBackend)(nil)
-	_ tools.FileOperations = (*EinoFilesystemBackend)(nil)
+	_ einofs.Backend             = (*EinoFilesystemBackend)(nil)
+	_ tools.FileOperations       = (*EinoFilesystemBackend)(nil)
+	_ tools.GrepOperations       = (*EinoFilesystemBackend)(nil)
+	_ tools.MultiPatchOperations = (*EinoFilesystemBackend)(nil)
 )
 
 // NewEinoFilesystemBackend binds file operations to the existing per-run
@@ -347,8 +349,8 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 	return result, nil
 }
 
-// PatchFile implements exact unique replacement. Fuzzy matching is
-// intentionally not enabled until it has a bounded, separately tested policy.
+// PatchFile implements exact unique replacement with a bounded
+// whitespace-tolerant fallback (applyStringPatch).
 func (b *EinoFilesystemBackend) PatchFile(ctx context.Context, runID domain.RunID, req tools.FilePatchRequest) (tools.FileMutationResult, error) {
 	if req.OldString == "" {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: old_string must not be empty")
@@ -374,16 +376,9 @@ func (b *EinoFilesystemBackend) PatchFile(ctx context.Context, runID domain.RunI
 		err := fmt.Errorf("filesystem: proposal stale: target changed after human review")
 		return tools.FileMutationResult{}, err
 	}
-	count := strings.Count(string(old), req.OldString)
-	if count == 0 {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: old_string was not found")
-	}
-	if !req.ReplaceAll && count != 1 {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: old_string matched %d times; set replace_all=true to replace all", count)
-	}
-	newContent := strings.Replace(string(old), req.OldString, req.NewString, -1)
-	if !req.ReplaceAll {
-		newContent = strings.Replace(string(old), req.OldString, req.NewString, 1)
+	newContent, _, err := applyStringPatch(string(old), req.OldString, req.NewString, req.ReplaceAll)
+	if err != nil {
+		return tools.FileMutationResult{}, err
 	}
 	result, err := b.WriteFile(ctx, runID, tools.FileWriteRequest{Path: req.Path, Content: newContent})
 	if err != nil {
@@ -420,8 +415,9 @@ func (b *EinoFilesystemBackend) PrepareWriteFile(ctx context.Context, runID doma
 	}, nil
 }
 
-// PreparePatchFile validates the exact patch and returns its diff without
-// changing the target. The same checks run again in PatchFile after resume.
+// PreparePatchFile validates the patch (with the same whitespace-tolerant
+// fallback as PatchFile) and returns its diff without changing the target.
+// The same application runs again in PatchFile after resume.
 func (b *EinoFilesystemBackend) PreparePatchFile(ctx context.Context, runID domain.RunID, req tools.FilePatchRequest) (domain.ToolProposal, error) {
 	if req.OldString == "" {
 		return domain.ToolProposal{}, fmt.Errorf("filesystem: old_string must not be empty")
@@ -440,25 +436,91 @@ func (b *EinoFilesystemBackend) PreparePatchFile(ctx context.Context, runID doma
 	if isBinary(old) {
 		return domain.ToolProposal{}, fmt.Errorf("filesystem: patch target is binary")
 	}
-	count := strings.Count(string(old), req.OldString)
-	if count == 0 {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: old_string was not found")
-	}
-	if !req.ReplaceAll && count != 1 {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: old_string matched %d times; set replace_all=true to replace all", count)
-	}
-	newContent := strings.Replace(string(old), req.OldString, req.NewString, -1)
-	if !req.ReplaceAll {
-		newContent = strings.Replace(string(old), req.OldString, req.NewString, 1)
+	newContent, occurrences, err := applyStringPatch(string(old), req.OldString, req.NewString, req.ReplaceAll)
+	if err != nil {
+		return domain.ToolProposal{}, err
 	}
 	data, _ := json.Marshal(req)
 	warnings := []string{}
 	if req.ReplaceAll {
-		warnings = append(warnings, fmt.Sprintf("replaces %d occurrences", count))
+		warnings = append(warnings, fmt.Sprintf("replaces %d occurrences", occurrences))
 	}
 	return domain.ToolProposal{
 		Action: "patch", Target: displayPath(root, path), PreconditionHash: sha256Hex(old),
 		Preview: boundedDiff(displayPath(root, path), string(old), newContent), RiskFindings: warnings, Data: data,
+	}, nil
+}
+
+// MultiPatchFile applies several string replacements to one file atomically:
+// edits run in order against an in-memory buffer and the file is written
+// once, so a failing edit leaves the target untouched.
+func (b *EinoFilesystemBackend) MultiPatchFile(ctx context.Context, runID domain.RunID, req tools.FileMultiEditRequest) (tools.FileMutationResult, error) {
+	if len(req.Edits) == 0 {
+		return tools.FileMutationResult{}, fmt.Errorf("filesystem: multiedit requires at least one edit")
+	}
+	if err := b.validateSandboxPath(ctx, runID, req.Path, FileOpWrite, false); err != nil {
+		return tools.FileMutationResult{}, err
+	}
+	root, path, err := b.resolve(ctx, runID, req.Path, false)
+	if err != nil {
+		return tools.FileMutationResult{}, err
+	}
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read multiedit target: %w", err)
+	}
+	if isBinary(old) {
+		return tools.FileMutationResult{}, fmt.Errorf("filesystem: multiedit target is binary")
+	}
+	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
+		return tools.FileMutationResult{}, fmt.Errorf("filesystem: proposal stale: target changed after human review")
+	}
+	content := string(old)
+	for i, item := range req.Edits {
+		var err error
+		content, _, err = applyStringPatch(content, item.OldString, item.NewString, item.ReplaceAll)
+		if err != nil {
+			return tools.FileMutationResult{}, fmt.Errorf("filesystem: edit %d: %w", i+1, err)
+		}
+	}
+	result, err := b.WriteFile(ctx, runID, tools.FileWriteRequest{Path: req.Path, Content: content})
+	if err != nil {
+		return tools.FileMutationResult{}, err
+	}
+	result.Diff = boundedDiff(displayPath(root, path), string(old), content)
+	return result, nil
+}
+
+// PrepareMultiPatchFile validates the whole edit list and returns the combined
+// diff without changing the target.
+func (b *EinoFilesystemBackend) PrepareMultiPatchFile(ctx context.Context, runID domain.RunID, req tools.FileMultiEditRequest) (domain.ToolProposal, error) {
+	if len(req.Edits) == 0 {
+		return domain.ToolProposal{}, fmt.Errorf("filesystem: multiedit requires at least one edit")
+	}
+	root, path, err := b.resolve(ctx, runID, req.Path, false)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return domain.ToolProposal{}, fmt.Errorf("filesystem: read multiedit target: %w", err)
+	}
+	if isBinary(old) {
+		return domain.ToolProposal{}, fmt.Errorf("filesystem: multiedit target is binary")
+	}
+	content := string(old)
+	for i, item := range req.Edits {
+		var err error
+		content, _, err = applyStringPatch(content, item.OldString, item.NewString, item.ReplaceAll)
+		if err != nil {
+			return domain.ToolProposal{}, fmt.Errorf("filesystem: edit %d: %w", i+1, err)
+		}
+	}
+	data, _ := json.Marshal(req)
+	return domain.ToolProposal{
+		Action: "multiedit", Target: displayPath(root, path), PreconditionHash: sha256Hex(old),
+		Preview:      boundedDiff(displayPath(root, path), string(old), content),
+		RiskFindings: []string{fmt.Sprintf("applies %d edits in one write", len(req.Edits))}, Data: data,
 	}, nil
 }
 
