@@ -41,14 +41,14 @@ export function ToolsSettingsCard() {
 
   const dirty = Boolean(view) && (active.length !== (view?.active.length ?? 0) || active.some((name) => !(view?.active ?? []).includes(name)));
 
-  const save = async () => {
+  const save = async (next?: string[]) => {
     setSaving(true);
     setFeedback(null);
     try {
-      const next = await setActiveTools(active);
-      setView(next);
-      setActive(next.active);
-      setFeedback(next.active.length === 0 ? '已保存：纯对话模式（0 个工具）。' : `已保存：${next.active.length} 个工具激活，对下一次运行生效。`);
+      const result = await setActiveTools(next ?? active);
+      setView(result);
+      setActive(result.active);
+      setFeedback(result.active.length === 0 ? '已保存：纯对话模式（0 个工具）。' : `已保存：${result.active.length} 个工具激活，对下一次运行生效。`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : String(error));
     } finally {
@@ -56,8 +56,10 @@ export function ToolsSettingsCard() {
     }
   };
 
+  // 恢复配置默认直接落盘：整表写回 config 默认并清掉覆盖层语义，
+  // 不要求用户再点一次保存（否则按钮名与行为不符）。
   const reset = () => {
-    if (view) setActive(view.config_enabled);
+    if (view) void save(view.config_enabled);
   };
 
   if (loadError) {
