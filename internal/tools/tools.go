@@ -161,6 +161,9 @@ func (e *ArgError) Error() string {
 // Vivy-owned, not Eino's.
 type Registry struct {
 	byName map[string]Tool
+	// order preserves registration order so catalog views (Settings tool
+	// surface) are deterministic.
+	order []string
 }
 
 // NewRegistry builds a registry from the given tools; duplicate names are
@@ -173,8 +176,19 @@ func NewRegistry(ts ...Tool) *Registry {
 			panic(fmt.Sprintf("tools: duplicate registration of %q", name))
 		}
 		r.byName[name] = t
+		r.order = append(r.order, name)
 	}
 	return r
+}
+
+// Specs returns every registered manifest in registration order — the
+// full active+hidden catalog, independent of the enabled list.
+func (r *Registry) Specs() []domain.ToolSpec {
+	out := make([]domain.ToolSpec, 0, len(r.order))
+	for _, name := range r.order {
+		out = append(out, r.byName[name].Spec())
+	}
+	return out
 }
 
 // Builtin returns the registry of shipped non-filesystem tools. It preserves

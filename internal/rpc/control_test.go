@@ -765,6 +765,95 @@ func (s *mcpCatalogStub) ReplaceServers(configs []runtime.MCPServerConfig) {
 	s.replaced = append([]runtime.MCPServerConfig(nil), configs...)
 }
 
+// TestToolsCatalogListAndSetActive covers the Settings tool surface RPCs:
+// the catalog view reports the config default before any overlay write,
+// set-active persists a whole-list replacement (including the legal
+// chat-only empty list) and rejects unknown or duplicate names.
+func TestToolsCatalogListAndSetActive(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc-tools.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus(8)
+	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+		Sessions: backend, Crons: backend, Sink: bus,
+	})
+	var changes int
+	handler, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio:             studio.NewService(backend),
+		SettingsPath:       filepath.Join(t.TempDir(), "settings.yaml"),
+		ToolCatalog:        tools.Builtin(backend).Specs(),
+		ConfigToolsEnabled: []string{tools.EchoInfoName},
+		OnSettingsChanged:  func() { changes++ },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listed, rpcErr := callControl(t, handler, "tools/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := listed.(toolsCatalogView)
+	if view.OverlayWritten || len(view.Active) != 1 || view.Active[0] != tools.EchoInfoName {
+		t.Fatalf("pre-overlay view = %+v", view)
+	}
+	if len(view.Tools) == 0 {
+		t.Fatal("catalog must list the registered tools")
+	}
+
+	saved, rpcErr := callControl(t, handler, "tools/set-active", map[string]any{
+		"tools": []string{tools.EchoInfoName, tools.ListNotesName},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view = saved.(toolsCatalogView)
+	if !view.OverlayWritten || len(view.Active) != 2 {
+		t.Fatalf("post-set view = %+v", view)
+	}
+	if changes != 1 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 1", changes)
+	}
+
+	if _, rpcErr := callControl(t, handler, "tools/set-active", map[string]any{
+		"tools": []string{"no_such_tool"},
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("unknown tool must be rejected, got %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, handler, "tools/set-active", map[string]any{
+		"tools": []string{tools.EchoInfoName, tools.EchoInfoName},
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("duplicate tool must be rejected, got %v", rpcErr)
+	}
+
+	// An explicit empty list is the legal chat-only mode, not "use config".
+	empty, rpcErr := callControl(t, handler, "tools/set-active", map[string]any{
+		"tools": []string{},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if view := empty.(toolsCatalogView); !view.OverlayWritten || len(view.Active) != 0 {
+		t.Fatalf("chat-only view = %+v", view)
+	}
+}
+
 func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
