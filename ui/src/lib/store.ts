@@ -9,6 +9,9 @@ import { t } from '@/i18n';
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
+/** 运行期间排队等待发送的消息（对照 Crush 队列 pill 行为）。 */
+export interface QueuedMessage { id: string; text: string; mode: api.RunMode; face?: api.Face; }
+
 const ACTIVE_SESSION_KEY = 'vivy.ui.activeSession';
 const DEMO_PREFIX = 'vivy.demo.';
 
@@ -52,6 +55,7 @@ interface RuntimeState {
   streamingReasoning: string;
   runError: string | null;
   runBusy: boolean;
+  queuedMessages: QueuedMessage[];
   backgroundRuns: api.BackgroundRun[];
   backgroundPhase: Phase;
   backgroundError: string | null;
@@ -89,6 +93,9 @@ interface RuntimeState {
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face) => Promise<void>;
+  enqueueMessage: (text: string, mode?: api.RunMode, face?: api.Face) => void;
+  removeQueuedMessage: (id: string) => void;
+  clearQueue: () => void;
   cancelCurrentRun: () => Promise<void>;
   openRun: (runId: string, sessionId: string) => Promise<void>;
   loadBackgroundRuns: () => Promise<void>;
@@ -124,6 +131,7 @@ let initialization: Promise<void> | null = null;
 let subscription: RunSubscription | null = null;
 let sessionEpoch = 0;
 let reviewEpoch = 0;
+let queuedSeq = 0;
 
 function stopSubscription(): void { subscription?.close(); subscription = null; }
 
@@ -156,7 +164,19 @@ function handleRunEvent(event: RunEvent): void {
     update.currentRun = state.currentRun ? { ...state.currentRun, status: event.type.slice(4) as api.RunStatus } : null;
     if (event.type === 'run.failed') update.runError = runFailedMessage(event.payload) ?? t('errors.runFailedTitle');
     stopSubscription();
-    void refreshAfterTerminal(event.run_id);
+    // 队列只在成功完成后派发（对照 Crush）：失败 / 取消保留队列，由用户处置。
+    if (event.type === 'run.completed') {
+      void refreshAfterTerminal(event.run_id).then(() => {
+        const next = useVivyStore.getState();
+        const item = next.queuedMessages[0];
+        if (item && next.activeSessionId && !next.runBusy) {
+          useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
+          void next.startRun(next.activeSessionId, item.text, item.mode, item.face);
+        }
+      });
+    } else {
+      void refreshAfterTerminal(event.run_id);
+    }
   } else if (event.type.startsWith('child.')) void state.loadChildren(event.run_id);
   else if (event.type.includes('approval') || event.type.includes('question')) void state.loadReviews();
   else if (event.type === 'tool.finished' && isTaskToolName(event.payload.tool_name)) void state.loadTodos();
@@ -201,7 +221,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   sessions: [], sessionsPhase: 'idle', sessionsError: null, sessionBusyId: null, activeSessionId: null,
   messages: [], messagesPhase: 'idle', messagesError: null, sessionContext: null,
   todos: [], todosPhase: 'idle', todosError: null, todoPanelOpen: false,
-  currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false,
+  currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
   reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyId: null, reviewCenterOpen: false, sessionDrawerOpen: false,
@@ -261,6 +281,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       streamingText: '',
       streamingReasoning: '',
       runError: null,
+      queuedMessages: [],
     });
     await get().initialize();
   },
@@ -295,7 +316,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
         stopSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
-        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], children: [] });
+        set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], children: [] });
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
@@ -304,7 +325,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
     stopSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, children: [], selectedChild: null });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], children: [], selectedChild: null });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
@@ -339,7 +360,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   startRun: async (sessionId, text, mode = 'normal', face?: api.Face) => {
-    if (get().activeSessionId !== sessionId || runActive(get().currentRun) || get().runBusy) return;
+    if (get().activeSessionId !== sessionId) return;
+    // 运行中改为入队（对照 Crush），不再静默丢弃。
+    if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(text, mode, face); return; }
     set({ runBusy: true, runError: null });
     try {
       const result = await api.startTurn(sessionId, text, mode, face);
@@ -349,6 +372,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       startSubscription(run.id, 0);
     } catch (error) { set({ runError: errorMessage(error) }); throw error; } finally { set({ runBusy: false }); }
   },
+  enqueueMessage: (text, mode = 'normal', face?: api.Face) => set((state) => ({ queuedMessages: [...state.queuedMessages, { id: `queued-${++queuedSeq}`, text, mode, face }] })),
+  removeQueuedMessage: (id) => set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) })),
+  clearQueue: () => set({ queuedMessages: [] }),
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;
     set({ runBusy: true, runError: null });

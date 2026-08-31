@@ -149,4 +149,59 @@ describe('Vivy store integrity', () => {
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'tool.finished', created_at: 2, payload_version: 1, payload: { tool_name: 'task_create', tool_call_id: 'c1', result: '{}' } });
     await vi.waitFor(() => expect(useVivyStore.getState().todos.map((item) => item.subject)).toEqual(['wire rpc']));
   });
+
+  it('queues a message instead of dropping it while a run is active', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().startRun('s1', 'second message');
+    expect(api.startTurn).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
+    expect(useVivyStore.getState().queuedMessages[0]).toMatchObject({ text: 'second message', mode: 'normal' });
+  });
+
+  it('dispatches the queued message after the run completes', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().startRun('s1', 'second message');
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
+    await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledWith('s1', 'second message', 'normal', undefined));
+    expect(useVivyStore.getState().queuedMessages).toEqual([]);
+  });
+
+  it('retains queued messages when the run fails', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.startTurn.mockResolvedValue({ run_id: 'r2', status: 'active' });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().startRun('s1', 'second message');
+    subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.failed', created_at: 2, payload_version: 1, payload: { cause_category: 'internal_error', message: 'boom' } });
+    await vi.waitFor(() => expect(useVivyStore.getState().runError).toBe('boom'));
+    expect(api.startTurn).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
+  });
+
+  it('clears the queue when switching sessions', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().startRun('s1', 'second message');
+    expect(useVivyStore.getState().queuedMessages).toHaveLength(1);
+    await useVivyStore.getState().selectSession('s2');
+    expect(useVivyStore.getState().queuedMessages).toEqual([]);
+  });
 });

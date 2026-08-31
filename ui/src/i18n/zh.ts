@@ -138,6 +138,10 @@ export const zh = {
     moreUnavailable: '更多工具暂未接入',
     cancelRun: '取消运行',
     send: '发送',
+    queue: '排队发送',
+    queuedCount: '已排队 {{count}} 条',
+    clearQueue: '清空队列',
+    removeQueued: '移除',
   },
   sessionDrawer: {
     searchPlaceholder: '搜索会话',
