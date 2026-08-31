@@ -143,6 +143,31 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			}
 		}
 	}
+	// Per-call tiering: a classifier-aware tool (bash) can deny outright or
+	// run safe read-only invocations without an interrupt under the 'auto'
+	// approval policy. The check runs on the final arguments, after hooks,
+	// and regardless of the profile decision so the deny table holds even
+	// under full-auto profiles.
+	if classifier, ok := a.t.(tools.InvocationClassifier); ok {
+		class, findings, err := classifier.ClassifyInvocation(args)
+		if err != nil {
+			return "", err
+		}
+		if class == tools.InvocationDenied {
+			reason := strings.Join(findings, "; ")
+			if reason == "" {
+				reason = "deny-table match"
+			}
+			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, reason)
+		}
+		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto {
+			emitGovernanceEvent(ctx, GovernanceEvent{
+				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
+				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
+			})
+			return a.run(ctx, string(args))
+		}
+	}
 	if spec.Interaction == domain.ToolInteractionQuestion {
 		isTarget, hasData, answer := einotool.GetResumeContext[string](ctx)
 		if isTarget && hasData {

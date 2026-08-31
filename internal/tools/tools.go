@@ -31,6 +31,15 @@ type ProposalProvider interface {
 	PrepareProposal(context.Context, json.RawMessage) (domain.ToolProposal, error)
 }
 
+// InvocationClassifier optionally narrows one call's risk below the
+// tool-level Readonly flag. The runtime approval gate consults it on the
+// final arguments, after policy and hooks: a denied call never runs on any
+// profile, and a safe call may skip the approval interrupt under the 'auto'
+// approval policy.
+type InvocationClassifier interface {
+	ClassifyInvocation(args json.RawMessage) (InvocationClass, []string, error)
+}
+
 // ArgError is a structured argument validation failure, safe to surface in
 // tool.finished payloads.
 type ArgError struct {
@@ -277,7 +286,7 @@ func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillO
 		registered = append(registered, NewSequentialThinking(sequential))
 	}
 	if commands != nil {
-		registered = append(registered, NewExecute(commands), NewCommandline(commands))
+		registered = append(registered, NewExecute(commands), NewCommandline(commands), NewBash(commands))
 	}
 	registered = append(registered, NewToolSearch(baseToolsForSearch(notes, files, skills, todos, search, httpOps, fetch, downloads, mcpOps, sequential, commands)))
 	return NewRegistry(registered...)
@@ -308,7 +317,7 @@ func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills Sk
 		registered = append(registered, NewSequentialThinking(sequential))
 	}
 	if commands != nil {
-		registered = append(registered, NewExecute(commands), NewCommandline(commands))
+		registered = append(registered, NewExecute(commands), NewCommandline(commands), NewBash(commands))
 	}
 	return registered
 }

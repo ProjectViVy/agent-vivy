@@ -55,7 +55,10 @@ func ValidateArgsSafety(spec domain.ToolSpec, args json.RawMessage) error {
 		if strings.ContainsRune(value, '\x00') {
 			return &ArgError{Field: name, Reason: "contains a NUL byte"}
 		}
-		if field == "command" || field == "cmd" {
+		// The bash tool's whole contract is running shell syntax; its risk
+		// is handled by the shell classifier and the approval tiers, not by
+		// this shape-level guard.
+		if (field == "command" || field == "cmd") && spec.Name != BashName {
 			lower := strings.ToLower(value)
 			for _, token := range []string{"&&", "||", ";", "|", "`", "$(", "powershell", "cmd.exe"} {
 				if strings.Contains(lower, token) {

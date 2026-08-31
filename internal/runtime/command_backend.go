@@ -37,6 +37,7 @@ type EinoCommandBackend struct {
 	allowed        map[string]struct{}
 	maxOutputBytes int
 	maxTimeout     time.Duration
+	shellPath      string
 }
 
 var _ tools.CommandOperations = (*EinoCommandBackend)(nil)
@@ -64,16 +65,20 @@ func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, a
 			commands[name] = struct{}{}
 		}
 	}
-	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout}
+	shellPath, _ := exec.LookPath("bash")
+	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath}
 }
 func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
 	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
 		return tools.CommandResult{}, err
 	}
-	path, err := exec.LookPath(command)
-	if err != nil {
-		return tools.CommandResult{}, fmt.Errorf("command: executable %q is unavailable: %w", command, err)
+	path := b.shellPath
+	if command != "bash" {
+		path, err = exec.LookPath(command)
+		if err != nil {
+			return tools.CommandResult{}, fmt.Errorf("command: executable %q is unavailable: %w", command, err)
+		}
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -140,6 +145,13 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 	if !mode.Valid() && b.sandbox != nil {
 		mode = b.sandbox.Mode()
 	}
+	// The bash tool runs shell syntax by contract: its risk is owned by the
+	// classifier's deny table and the tiered approval gate, not by the
+	// per-executable allowlist. Read-only sandboxes still deny execution.
+	if normalizeCommandName(command) == "bash" {
+		return b.validateBashRequest(ctx, runID, request, mode)
+	}
+
 	// Sandbox validation: check command against sandbox policy (D-021)
 	if b.sandbox != nil {
 		if err := b.sandbox.ConfineCommandWithMode(command, request.Args, mode); err != nil {
@@ -169,54 +181,88 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 	if argsBytes > maxCommandArgsBytes {
 		return "", nil, "", nil, 0, errors.New("command: argument payload exceeds size limit")
 	}
-	if err := ctx.Err(); err != nil {
-		return "", nil, "", nil, 0, err
-	}
-	if b.manager == nil {
-		return "", nil, "", nil, 0, errors.New("command: workspace manager not wired")
-	}
-	workspace, err := b.manager.Ensure(ctx, runID)
+	cwdPath, env, timeout, err := b.resolveCommandContext(ctx, runID, request.Cwd, request.TimeoutMS, request.Env)
 	if err != nil {
 		return "", nil, "", nil, 0, err
 	}
-	cwd := strings.TrimSpace(request.Cwd)
+	return command, append([]string(nil), request.Args...), cwdPath, env, timeout, nil
+}
+
+// validateBashRequest is the bash-tool path: the sandbox command whitelist
+// does not apply (the classifier deny table plus tiered approval own that
+// risk), but read-only sandboxes still deny execution and the deny table is
+// re-checked here as defense in depth.
+func (b *EinoCommandBackend) validateBashRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest, mode domain.SandboxMode) (string, []string, string, []string, time.Duration, error) {
+	if b.shellPath == "" {
+		return "", nil, "", nil, 0, errors.New("command: bash is not available on this host")
+	}
+	if mode == domain.SandboxModeReadOnly {
+		return "", nil, "", nil, 0, fmt.Errorf("%w: command execution not allowed in read-only mode", ErrSandboxDenied)
+	}
+	if len(request.Args) != 2 || request.Args[0] != "-c" {
+		return "", nil, "", nil, 0, errors.New("command: bash expects a single -c script")
+	}
+	if class, findings, err := tools.ClassifyShellScript(request.Args[1]); err != nil {
+		return "", nil, "", nil, 0, err
+	} else if class == tools.InvocationDenied {
+		return "", nil, "", nil, 0, fmt.Errorf("command: bash: %s", strings.Join(findings, "; "))
+	}
+	cwdPath, env, timeout, err := b.resolveCommandContext(ctx, runID, request.Cwd, request.TimeoutMS, nil)
+	if err != nil {
+		return "", nil, "", nil, 0, err
+	}
+	return "bash", append([]string(nil), request.Args...), cwdPath, env, timeout, nil
+}
+
+func (b *EinoCommandBackend) resolveCommandContext(ctx context.Context, runID domain.RunID, cwdRequest string, timeoutMS int, envOverrides map[string]string) (string, []string, time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, 0, err
+	}
+	if b.manager == nil {
+		return "", nil, 0, errors.New("command: workspace manager not wired")
+	}
+	workspace, err := b.manager.Ensure(ctx, runID)
+	if err != nil {
+		return "", nil, 0, err
+	}
+	cwd := strings.TrimSpace(cwdRequest)
 	if cwd == "" {
 		cwd = "."
 	}
 	if filepath.IsAbs(cwd) {
-		return "", nil, "", nil, 0, errors.New("command: cwd must be workspace-relative")
+		return "", nil, 0, errors.New("command: cwd must be workspace-relative")
 	}
 	cwdPath := filepath.Join(workspace.Path, filepath.Clean(cwd))
 	relativeCwd, err := filepath.Rel(workspace.Path, cwdPath)
 	if err != nil || relativeCwd == ".." || strings.HasPrefix(relativeCwd, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeCwd) {
-		return "", nil, "", nil, 0, errors.New("command: cwd escapes workspace")
+		return "", nil, 0, errors.New("command: cwd escapes workspace")
 	}
 	realCwd, err := filepath.EvalSymlinks(cwdPath)
 	if err != nil {
-		return "", nil, "", nil, 0, fmt.Errorf("command: resolve cwd: %w", err)
+		return "", nil, 0, fmt.Errorf("command: resolve cwd: %w", err)
 	}
 	realWorkspace, _ := filepath.EvalSymlinks(workspace.Path)
 	if !strings.EqualFold(filepath.Clean(realCwd), filepath.Clean(realWorkspace)) {
 		if err := b.manager.ValidatePath(realCwd); err != nil {
-			return "", nil, "", nil, 0, errors.New("command: cwd symlink escapes workspace")
+			return "", nil, 0, errors.New("command: cwd symlink escapes workspace")
 		}
 	}
 	info, err := os.Stat(realCwd)
 	if err != nil || !info.IsDir() {
-		return "", nil, "", nil, 0, errors.New("command: cwd is not a directory")
+		return "", nil, 0, errors.New("command: cwd is not a directory")
 	}
-	env, err := safeCommandEnv(request.Env)
+	env, err := safeCommandEnv(envOverrides)
 	if err != nil {
-		return "", nil, "", nil, 0, err
+		return "", nil, 0, err
 	}
 	timeout := defaultCommandTimeout
-	if request.TimeoutMS > 0 {
-		timeout = time.Duration(request.TimeoutMS) * time.Millisecond
+	if timeoutMS > 0 {
+		timeout = time.Duration(timeoutMS) * time.Millisecond
 	}
 	if timeout > b.maxTimeout {
 		timeout = b.maxTimeout
 	}
-	return command, append([]string(nil), request.Args...), realCwd, env, timeout, nil
+	return realCwd, env, timeout, nil
 }
 
 type boundedCommandOutput struct {
