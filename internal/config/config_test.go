@@ -612,3 +612,30 @@ func TestSkillsMarketplaceURLConfig(t *testing.T) {
 		t.Fatalf("want skills_marketplace_url validation error, got %v", err)
 	}
 }
+
+// A tools section that omits the enabled key keeps the code default
+// surface; an explicit empty list is still rejected by validation.
+func TestToolsSectionWithoutEnabledKeepsDefault(t *testing.T) {
+	omitted := strings.Replace(validDoc,
+		"  enabled:\n    - echo_info\n    - write_note\n", "", 1)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(omitted), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("tools section without enabled should keep the code default: %v", err)
+	}
+	if want := len(Default().Tools.Enabled); len(cfg.Tools.Enabled) != want {
+		t.Fatalf("omitted tools.enabled must keep the %d-tool default, got %d", want, len(cfg.Tools.Enabled))
+	}
+
+	empty := strings.Replace(validDoc,
+		"  enabled:\n    - echo_info\n    - write_note\n", "  enabled: []\n", 1)
+	if err := os.WriteFile(path, []byte(empty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("explicit empty tools.enabled must fail validation")
+	}
+}
