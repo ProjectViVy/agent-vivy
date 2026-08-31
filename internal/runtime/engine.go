@@ -57,6 +57,10 @@ type EngineConfig struct {
 	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
 	// feed behavior.
 	Compaction *CompactionPolicy
+	// HiddenTools are registered-but-not-active tools. They join the
+	// executable universe so a skill_view mount can use them mid-run, but
+	// the surface middleware never advertises them before they are mounted.
+	HiddenTools []tools.Tool
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -70,9 +74,11 @@ type Engine struct {
 	chatModel model.ToolCallingChatModel
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
-	toolSpecs  []domain.ToolSpec
-	selector   *tools.Selector
-	toolByName map[string]tools.Tool
+	toolSpecs []domain.ToolSpec
+	// activeTools is the config-resolved surface bound on every request,
+	// in registry order.
+	activeTools []tools.Tool
+	toolByName  map[string]tools.Tool
 }
 
 // NewEngine builds the ChatModelAgent and Runner over an Eino
@@ -94,19 +100,32 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, err
 		}
 	}
-	wrapped := make([]einotool.BaseTool, 0, len(ts))
+	wrapped := make([]einotool.BaseTool, 0, len(ts)+len(cfg.HiddenTools))
 	specs := make([]domain.ToolSpec, 0, len(ts))
-	byName := make(map[string]tools.Tool, len(ts))
+	byName := make(map[string]tools.Tool, len(ts)+len(cfg.HiddenTools))
 	for _, t := range ts {
 		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
 		specs = append(specs, t.Spec())
 		byName[t.Spec().Name] = t
 	}
-	handlers := []adk.ChatModelAgentMiddleware{newToolSelectionMiddleware()}
+	// Hidden tools execute only after a skill_view mounts them; they never
+	// reach the model's view before that (toolSurfaceMiddleware).
+	universeNames := make([]string, 0, len(specs)+len(cfg.HiddenTools))
+	for _, spec := range specs {
+		universeNames = append(universeNames, spec.Name)
+	}
+	for _, t := range cfg.HiddenTools {
+		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
+		universeNames = append(universeNames, t.Spec().Name)
+		byName[t.Spec().Name] = t
+	}
+	activeNames := make([]string, 0, len(specs))
+	activeNames = append(activeNames, universeNames[:len(specs)]...)
+	handlers := []adk.ChatModelAgentMiddleware{newToolSurfaceMiddleware(activeNames, universeNames)}
 	if cfg.SkillBackend != nil {
-		// After tool selection so the Eino skill tool is not dropped when
-		// the request has no "skill" keyword. Inline load only; fork
-		// frontmatter is left to Eino's native error.
+		// Registered after the surface middleware so its injected skill
+		// tool is a foreign name the view filter never hides. Inline load
+		// only; fork frontmatter is left to Eino's native error.
 		skillHandler, err := einoskill.NewMiddleware(ctx, &einoskill.Config{Backend: cfg.SkillBackend})
 		if err != nil {
 			return nil, fmt.Errorf("runtime: skill middleware: %w", err)
@@ -153,7 +172,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
 	runner := adk.NewRunner(ctx, runnerCfg)
-	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, selector: tools.NewSelector(ts), toolByName: byName}, nil
+	return &Engine{runner: runner, cfg: cfg, chatModel: m, toolSpecs: specs, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}, nil
 }
 
 // PrepareProposal asks an effectful tool for a bounded review plan before the
@@ -171,14 +190,16 @@ func (e *Engine) PrepareProposal(ctx context.Context, name string, args json.Raw
 	return provider.PrepareProposal(tools.WithRunID(ctx, contextRunID(ctx)), args)
 }
 
-// SelectTools chooses the request-scoped tool surface from the config-
-// filtered manifest. The engine still owns the Eino runner, while the
-// selection is enforced by the adapter through the run context.
-func (e *Engine) SelectTools(request string) tools.Selection {
-	if e.selector == nil {
-		return tools.Selection{}
+// SelectTools returns the full active surface: every tool the config
+// resolved, in registry order. Every request binds this complete set —
+// the former keyword selector that narrowed (and routinely emptied) the
+// surface per request is retired; tools.enabled stays the only admission
+// gate. The selection is enforced by the adapter through the run context.
+func (e *Engine) SelectTools() tools.Selection {
+	return tools.Selection{
+		Tools: append([]tools.Tool(nil), e.activeTools...),
+		Specs: append([]domain.ToolSpec(nil), e.toolSpecs...),
 	}
-	return e.selector.Select(request)
 }
 
 // Query starts one user turn and returns the raw engine event iterator.

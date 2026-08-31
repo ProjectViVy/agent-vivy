@@ -13,6 +13,7 @@ export const RPC_METHODS = [
   'settings/get', 'settings/update',
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
+  'tools/list', 'tools/set-active',
   'channel/inspect', 'channel/get', 'channel/update',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
@@ -232,6 +233,15 @@ export const startEval = (params: { candidate_id: string; baseline_id?: string; 
 export const listPromotions = () => request<{ promotions: Promotion[] }>('promotions/list');
 export const promoteGeneration = (params: { from_id: string; to_id: string; eval_id?: string; actor?: string }) => request<Promotion>('promotions/promote', params);
 export const getSettings = () => request<Settings>('settings/get');
+
+/** tools/list 目录项：内置注册表全量（active + hidden）。 */
+export interface ToolCatalogEntry { name: string; description: string; readonly: boolean; active: boolean }
+/** tools/list 视图：active 为生效激活集，config_enabled 为配置默认回退。 */
+export interface ToolsCatalogView { tools: ToolCatalogEntry[]; active: string[]; config_enabled: string[]; overlay_written: boolean }
+
+export const listTools = () => request<ToolsCatalogView>('tools/list');
+/** 整表替换 settings.yaml 的 tools_enabled 覆盖层；空表 = 纯对话模式。 */
+export const setActiveTools = (tools: string[]) => request<ToolsCatalogView>('tools/set-active', { tools });
 export const updateSettings = (params: SettingsUpdate) => {
   const payload: Record<string, unknown> = { ...params };
   if (params.api_key === undefined) delete payload.api_key;

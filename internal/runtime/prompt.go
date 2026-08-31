@@ -10,28 +10,30 @@ import (
 
 // preamblePersona leads every run's context block; the static agent
 // Instruction carries the same line at the engine level, and the preamble
-// adds the per-run facts the Instruction cannot (date, selected tools,
+// adds the per-run facts the Instruction cannot (date, active tools,
 // notes).
 const preamblePersona = "You are Vivy, a precise personal assistant running locally on the user's machine."
 
 // composeStaticInstruction assembles the cache-stable instruction prefix.
-// It must not contain dates, session history, notes, or request-scoped tool
-// selections.
+// It must not contain dates, session history, notes, or per-run tool
+// manifests.
 func composeStaticInstruction() string {
-	return preamblePersona + "\nTool availability is request-scoped. Call only a tool listed in the current run context; an unlisted tool is unavailable. Effectful tools still require the user's approval."
+	return preamblePersona + "\nThe tools listed in the current run context are exactly the tools available for this request; an unlisted tool is unavailable. Effectful tools still require the user's approval."
 }
 
 // composeRunPreamble assembles the dynamic run context that follows the
 // cache-stable Engine instruction. It contains only per-run facts, the
-// selected tool manifest, and the existing bounded Notes digest; it does not
+// active tool manifest, and the existing bounded Notes digest; it does not
 // introduce a new memory source.
 func composeRunPreamble(now time.Time, notesDigest string, specs []domain.ToolSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Today's date: %s.", now.Format("2006-01-02"))
 	if len(specs) == 0 {
-		b.WriteString("\nNo tools are selected for this request.")
+		// Defensive: an empty active set is a legal configuration
+		// (chat-only mode via tools.enabled), not a routing outcome.
+		b.WriteString("\nNo tools are enabled for this request; answer without tool calls.")
 	} else {
-		b.WriteString("\nSelected tools for this request:\n")
+		b.WriteString("\nTools available for this request:\n")
 		for _, s := range specs {
 			mode := "makes changes; requires the user's approval before running"
 			if s.Readonly {

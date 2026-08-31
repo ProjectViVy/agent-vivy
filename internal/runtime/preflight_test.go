@@ -19,7 +19,11 @@ func TestPreflightDoesNotPersistOrCallProvider(t *testing.T) {
 	if result.Status != PreflightReady || result.Mode != domain.RunModeNormal {
 		t.Fatalf("preflight result = %+v, want ready normal", result)
 	}
-	if len(result.SelectedTools) != 0 || len(result.Warnings) != 0 || len(result.Blockers) != 0 {
+	// The full active surface is reported regardless of request text.
+	if len(result.SelectedTools) != 1 || result.SelectedTools[0] != "echo_info" {
+		t.Fatalf("preflight selected tools = %+v, want [echo_info]", result.SelectedTools)
+	}
+	if len(result.Warnings) != 0 || len(result.Blockers) != 0 {
 		t.Fatalf("preflight unexpected policy output = %+v", result)
 	}
 	if msgs, err := backend.ListMessages(context.Background(), "sess-preflight"); err != nil || len(msgs) != 0 {
@@ -38,7 +42,13 @@ func TestPreflightReportsApprovalWarningAndPlanBlocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normal preflight: %v", err)
 	}
-	if warning.Status != PreflightWarning || len(warning.Warnings) == 0 || len(warning.SelectedTools) != 1 || warning.SelectedTools[0] != "write_note" {
+	sawWriteNote := false
+	for _, name := range warning.SelectedTools {
+		if name == "write_note" {
+			sawWriteNote = true
+		}
+	}
+	if warning.Status != PreflightWarning || len(warning.Warnings) == 0 || !sawWriteNote {
 		t.Fatalf("normal preflight = %+v", warning)
 	}
 	blocked, err := svc.Preflight(ctx, "sess-preflight", "note that I need milk", RunOptions{Mode: domain.RunModePlan})

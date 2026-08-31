@@ -206,6 +206,46 @@ func TestServiceRunHappyPath(t *testing.T) {
 	}
 }
 
+// TestServiceRunBindsToolsOnKeywordlessRequest is the regression gate for
+// the retired keyword tool selector: a keyword-less (here: Chinese) user
+// message must still bind the full active tool surface on the outgoing
+// model request, not an empty selection.
+func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+
+	runID, err := svc.Run(ctx, "sess-zh-tools", "你现在有什么工具？")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	var req payloadModelRequest
+	found := false
+	for _, ev := range replayAll(t, backend, runID) {
+		if ev.Type == domain.EventModelRequest {
+			mustUnmarshal(t, ev.Payload, &req)
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("run missing model.request")
+	}
+	if len(req.SelectedTools) == 0 {
+		t.Fatal("keyword-less request bound no tools")
+	}
+	sawEcho := false
+	for _, name := range req.SelectedTools {
+		if name == tools.EchoInfoName {
+			sawEcho = true
+		}
+	}
+	if !sawEcho {
+		t.Fatalf("selected tools %v missing %s", req.SelectedTools, tools.EchoInfoName)
+	}
+}
+
 // blockingModel blocks until ctx is done, then surfaces the cancellation.
 type blockingModel struct{}
 

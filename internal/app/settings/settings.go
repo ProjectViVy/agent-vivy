@@ -102,6 +102,13 @@ type Settings struct {
 	// operator-managed list and replaces the config default entirely.
 	// Credentials stay env references only (D-010).
 	MCPServers *[]MCPServer `yaml:"mcp_servers"`
+	// ToolsEnabled overlays config tools.enabled: the active tool surface
+	// bound on every request. A nil pointer means "use config default"; a
+	// non-nil (including empty) slice is the operator-managed active set
+	// and replaces the config default entirely — an explicit empty list is
+	// the legal chat-only mode. Names must resolve against the registry
+	// (unknown names fail engine Resolve, FR-10).
+	ToolsEnabled *[]string `yaml:"tools_enabled,omitempty"`
 	// Sandbox is the operator-managed default permission preset and network
 	// policy for new sessions. Empty keeps the production config.
 	Sandbox SandboxSettings `yaml:"sandbox"`
@@ -246,6 +253,7 @@ func (s Settings) IsZero() bool {
 		s.NetworkSearch == (NetworkSearchSettings{}) &&
 		s.ExecuteMaxTimeoutSeconds == 0 &&
 		s.MCPServers == nil &&
+		s.ToolsEnabled == nil &&
 		s.Sandbox.DefaultPreset == "" &&
 		s.Sandbox.Network.DenyPrivateIPs == nil &&
 		len(s.Sandbox.Network.AllowedDomains) == 0 &&
@@ -374,6 +382,9 @@ func (s Settings) Validate() error {
 	if err := validateMCPServers(s.MCPServers); err != nil {
 		return err
 	}
+	if err := validateToolsEnabled(s.ToolsEnabled); err != nil {
+		return err
+	}
 	if s.Sandbox.DefaultPreset != "" && !s.Sandbox.DefaultPreset.ValidSwitch() {
 		return fmt.Errorf("settings: sandbox.default_preset %q unsupported; want cautious, smart, or trusted", s.Sandbox.DefaultPreset)
 	}
@@ -428,6 +439,28 @@ func validateChannels(entries []ChannelOverlay) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// validateToolsEnabled checks the active-tool overlay structurally: names
+// are trimmed, never empty, and unique so the merge onto tools.enabled is
+// unambiguous. Registry membership is enforced by engine Resolve (FR-10).
+func validateToolsEnabled(enabled *[]string) error {
+	if enabled == nil {
+		return nil
+	}
+	seen := make(map[string]int, len(*enabled))
+	for i, name := range *enabled {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			return fmt.Errorf("settings: tools_enabled[%d] must not be empty", i)
+		}
+		if prev, ok := seen[trimmed]; ok {
+			return fmt.Errorf("settings: tools_enabled[%d] %q duplicates tools_enabled[%d]", i, trimmed, prev)
+		}
+		seen[trimmed] = i
+		(*enabled)[i] = trimmed
 	}
 	return nil
 }

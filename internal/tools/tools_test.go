@@ -33,27 +33,6 @@ func TestValidateArgsAllowsEmptyObjectForNoParams(t *testing.T) {
 	}
 }
 
-func TestSelectorChoosesOnlyRelevantTools(t *testing.T) {
-	ts := []Tool{NewEchoInfo(), NewWriteNote(nil), NewListNotes(nil), NewReadNote(nil)}
-
-	cases := []struct {
-		request string
-		want    []string
-	}{
-		{request: "save this as a note", want: []string{WriteNoteName}},
-		{request: "list my notes", want: []string{ListNotesName}},
-		{request: "read note_abc123", want: []string{ReadNoteName}},
-		{request: "echo hello", want: []string{EchoInfoName}},
-		{request: "hello vivy", want: nil},
-	}
-	for _, tc := range cases {
-		got := NewSelector(ts).Select(tc.request).Names()
-		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
-			t.Errorf("Select(%q) = %v, want %v", tc.request, got, tc.want)
-		}
-	}
-}
-
 func TestEchoInfoSpec(t *testing.T) {
 	spec := NewEchoInfo().Spec()
 	if spec.Name != EchoInfoName {

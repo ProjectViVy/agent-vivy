@@ -264,13 +264,14 @@ func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID do
 }
 
 type loadedSkill struct {
-	front    einoskill.FrontMatter
-	content  string
-	dir      string
-	name     string
-	hash     string
-	enabled  bool
-	warnings []string
+	front         einoskill.FrontMatter
+	content       string
+	dir           string
+	name          string
+	hash          string
+	enabled       bool
+	declaredTools []string
+	warnings      []string
 }
 
 func (b *EinoSkillBackend) loadSkills(ctx context.Context) ([]loadedSkill, error) {
@@ -311,23 +312,25 @@ func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSk
 	if err != nil {
 		return loadedSkill{}, fmt.Errorf("skills: read %s: %w", name, err)
 	}
-	front, enabled, content, err := parseSkillDocument(data)
+	local, enabled, content, err := parseSkillDocument(data)
 	if err != nil {
 		return loadedSkill{}, fmt.Errorf("skills: parse %s: %w", name, err)
 	}
-	if front.Name == "" {
-		front.Name = name
+	if local.Name == "" {
+		local.Name = name
 	}
-	if front.Name != name {
-		return loadedSkill{}, fmt.Errorf("skills: frontmatter name %q does not match directory %q", front.Name, name)
+	if local.Name != name {
+		return loadedSkill{}, fmt.Errorf("skills: frontmatter name %q does not match directory %q", local.Name, name)
 	}
 	hash := sha256Hex(data)
-	return loadedSkill{front: front, content: content, dir: dir, name: name, hash: hash, enabled: enabled, warnings: scanSkillText(string(data))}, nil
+	return loadedSkill{front: local.eino(), content: content, dir: dir, name: name, hash: hash, enabled: enabled,
+		declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data))}, nil
 }
 
 func (b *EinoSkillBackend) summary(item loadedSkill) tools.SkillSummary {
 	return tools.SkillSummary{Name: item.front.Name, Description: item.front.Description, Context: string(item.front.Context),
-		Agent: item.front.Agent, Model: item.front.Model, Enabled: item.enabled, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
+		Agent: item.front.Agent, Model: item.front.Model, Tools: append([]string(nil), item.declaredTools...),
+		Enabled: item.enabled, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
 }
 
 // SetSkillEnabled flips the frontmatter enabled flag under CAS on the
@@ -350,11 +353,11 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 	if baseHash == "" || sha256Hex(data) != baseHash {
 		return tools.SkillSummary{}, fmt.Errorf("skills: %s changed since it was read; refresh and retry", name)
 	}
-	front, _, content, err := parseSkillDocument(data)
+	local, _, content, err := parseSkillDocument(data)
 	if err != nil {
 		return tools.SkillSummary{}, fmt.Errorf("skills: parse %s: %w", name, err)
 	}
-	local := skillFrontMatter{Name: front.Name, Description: front.Description, Context: string(front.Context), Agent: front.Agent, Model: front.Model, Enabled: &enabled}
+	local.Enabled = &enabled
 	rendered, err := renderSkillDocument(local, content)
 	if err != nil {
 		return tools.SkillSummary{}, err
@@ -558,38 +561,46 @@ func (b *EinoSkillBackend) supportingFiles(dir string) []string {
 }
 
 // skillFrontMatter is Vivy's local view of SKILL.md frontmatter. It mirrors
-// the Eino FrontMatter fields plus the Vivy-owned enabled flag. Enabled is a
-// pointer so an absent key defaults to true while an explicit false wins.
+// the Eino FrontMatter fields plus the Vivy-owned enabled flag and the
+// declared tool list. Enabled is a pointer so an absent key defaults to
+// true while an explicit false wins.
 type skillFrontMatter struct {
 	Name        string `yaml:"name,omitempty"`
 	Description string `yaml:"description,omitempty"`
 	Context     string `yaml:"context,omitempty"`
 	Agent       string `yaml:"agent,omitempty"`
 	Model       string `yaml:"model,omitempty"`
-	Enabled     *bool  `yaml:"enabled,omitempty"`
+	// Tools names the tool surface this skill mounts when viewed. Canonical
+	// on re-render so skill_manage edits never drop the declaration.
+	Tools   []string `yaml:"tools,omitempty"`
+	Enabled *bool    `yaml:"enabled,omitempty"`
 }
 
-func parseSkillDocument(data []byte) (einoskill.FrontMatter, bool, string, error) {
+func (f skillFrontMatter) eino() einoskill.FrontMatter {
+	return einoskill.FrontMatter{Name: f.Name, Description: f.Description,
+		Context: einoskill.ContextMode(f.Context), Agent: f.Agent, Model: f.Model}
+}
+
+func parseSkillDocument(data []byte) (skillFrontMatter, bool, string, error) {
 	text := strings.TrimSpace(string(data))
 	if !strings.HasPrefix(text, "---") {
-		return einoskill.FrontMatter{}, false, "", errors.New("SKILL.md must start with YAML frontmatter")
+		return skillFrontMatter{}, false, "", errors.New("SKILL.md must start with YAML frontmatter")
 	}
 	rest := text[3:]
 	idx := strings.Index(rest, "\n---")
 	if idx < 0 {
-		return einoskill.FrontMatter{}, false, "", errors.New("SKILL.md frontmatter is not closed")
+		return skillFrontMatter{}, false, "", errors.New("SKILL.md frontmatter is not closed")
 	}
 	var front skillFrontMatter
 	if err := yaml.Unmarshal([]byte(strings.TrimSpace(rest[:idx])), &front); err != nil {
-		return einoskill.FrontMatter{}, false, "", fmt.Errorf("decode frontmatter: %w", err)
+		return skillFrontMatter{}, false, "", fmt.Errorf("decode frontmatter: %w", err)
 	}
 	if strings.TrimSpace(front.Description) == "" {
-		return einoskill.FrontMatter{}, false, "", errors.New("frontmatter description is required")
+		return skillFrontMatter{}, false, "", errors.New("frontmatter description is required")
 	}
 	enabled := front.Enabled == nil || *front.Enabled
 	content := strings.TrimSpace(rest[idx+4:])
-	return einoskill.FrontMatter{Name: front.Name, Description: front.Description,
-		Context: einoskill.ContextMode(front.Context), Agent: front.Agent, Model: front.Model}, enabled, content, nil
+	return front, enabled, content, nil
 }
 
 // renderSkillDocument re-renders canonical frontmatter (dropping unknown
