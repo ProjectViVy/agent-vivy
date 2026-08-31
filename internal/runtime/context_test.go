@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudwego/eino/schema"
+
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
@@ -150,5 +152,54 @@ func TestServiceContextBudgetFailureIsTerminal(t *testing.T) {
 	}
 	if countTerminal(events) != 1 {
 		t.Fatalf("terminal events = %d, want one", countTerminal(events))
+	}
+}
+
+func TestBuildRunContextProjectsImageAttachments(t *testing.T) {
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "earlier", Attachments: []domain.Attachment{
+			{Name: "old.png", MimeType: "image/png", Data: []byte{0xAA, 0xBB}},
+		}},
+		{Role: domain.RoleAssistant, Content: "sure"},
+		{Role: domain.RoleUser, Content: "what is this?", Attachments: []domain.Attachment{
+			{Name: "new.png", MimeType: "image/png", Data: []byte{0x01, 0x02, 0x03}},
+		}},
+	}
+	msgs, stats, err := buildRunContext(ContextPolicy{}, "preamble", stored, "what is this?")
+	if err != nil {
+		t.Fatalf("buildRunContext: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("messages = %d, want 4 (system, history user, assistant, current user)", len(msgs))
+	}
+	for _, index := range []int{1, 3} {
+		msg := msgs[index]
+		if msg.Role != schema.User {
+			t.Fatalf("message %d role = %s, want user", index, msg.Role)
+		}
+		if len(msg.UserInputMultiContent) != 2 {
+			t.Fatalf("message %d parts = %d, want 2 (text + image)", index, len(msg.UserInputMultiContent))
+		}
+		textPart, imagePart := msg.UserInputMultiContent[0], msg.UserInputMultiContent[1]
+		if textPart.Type != schema.ChatMessagePartTypeText || textPart.Text == "" {
+			t.Fatalf("message %d text part = %+v", index, textPart)
+		}
+		if imagePart.Type != schema.ChatMessagePartTypeImageURL || imagePart.Image == nil {
+			t.Fatalf("message %d image part = %+v", index, imagePart)
+		}
+		if imagePart.Image.MIMEType != "image/png" || imagePart.Image.Base64Data == nil || *imagePart.Image.Base64Data == "" {
+			t.Fatalf("message %d image payload = %+v", index, imagePart.Image)
+		}
+		if msgs[index].Content != "" {
+			t.Fatalf("message %d Content = %q, want empty (content lives in parts)", index, msgs[index].Content)
+		}
+	}
+	// The plain assistant row stays text-only.
+	if msgs[2].Content != "sure" || len(msgs[2].UserInputMultiContent) != 0 {
+		t.Fatalf("assistant row = %+v", msgs[2])
+	}
+	// Image bytes must not count toward the text byte budget.
+	if stats.Bytes > 200 {
+		t.Fatalf("stats.Bytes = %d, image bytes leaked into the text budget", stats.Bytes)
 	}
 }

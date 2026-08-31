@@ -98,6 +98,13 @@ export function MessageBubble({
   if (user) {
     return <article className="group my-4 flex min-w-0 justify-end"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-end">
       <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">
+        {message.attachments?.length ? (
+          <div className="mb-2 flex flex-wrap justify-end gap-1.5">
+            {message.attachments.map((item, index) => (
+              <img key={`${item.name ?? 'image'}-${index}`} src={item.data_url} alt={item.name || item.mime_type} className="max-h-40 max-w-full rounded-xl border border-white/20 object-cover" />
+            ))}
+          </div>
+        ) : null}
         <div className="prose prose-sm max-w-none break-words dark:prose-invert"><ReactMarkdown>{message.content || (streaming ? '…' : '')}</ReactMarkdown></div>
       </div>
       {streaming ? null : (

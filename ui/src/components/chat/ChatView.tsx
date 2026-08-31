@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { preflight, type Face, type Preflight, type RunMode } from '@/lib/api';
+import { preflight, type AttachmentInput, type Face, type Preflight, type RunMode } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { faceForMaskId, useActiveMaskId } from '@/components/masks/mask-catalog';
 import { useVivyStore } from '@/lib/store';
@@ -35,20 +35,20 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation();
   const activeMaskId = useActiveMaskId();
   const face = faceForMaskId(activeMaskId);
-  const [pending, setPending] = useState<{ text: string; result: Preflight; mode: RunMode; face?: Face } | null>(null);
+  const [pending, setPending] = useState<{ text: string; result: Preflight; mode: RunMode; face?: Face; attachments?: AttachmentInput[] } | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
   const requestId = useRef(0);
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
   useEffect(() => { requestId.current += 1; setPending(null); setPreflightError(null); }, [sessionId]);
 
-  const submit = async (text: string, mode: RunMode = 'normal') => {
+  const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[]) => {
     const id = ++requestId.current; setPreflightBusy(true); setPreflightError(null);
     try {
       const result = await preflight(sessionId, text, mode, face);
       if (id !== requestId.current || useVivyStore.getState().activeSessionId !== sessionId) return;
       if (result.status !== 'ready' || result.warnings?.length || result.blockers?.length) {
-        setPending({ text, result, mode, face });
+        setPending({ text, result, mode, face, attachments });
         return;
       }
     } catch (error) {
@@ -58,13 +58,13 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       if (id === requestId.current) setPreflightBusy(false);
     }
     if (id !== requestId.current || useVivyStore.getState().activeSessionId !== sessionId) return;
-    await startRun(sessionId, text, mode, face);
+    await startRun(sessionId, text, mode, face, attachments);
   };
   const continueRun = async () => {
     if (!pending || pending.result.status === 'blocked') return;
     const current = pending;
     setPending(null);
-    try { await startRun(sessionId, current.text, current.mode, current.face); }
+    try { await startRun(sessionId, current.text, current.mode, current.face, current.attachments); }
     catch { setPending(current); }
   };
   // 重新生成（对照 Agent-DIVA）：Journal 是追加式事实源，无法就地覆盖，
@@ -90,7 +90,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </div></ScrollArea>
         {pending ? <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-3"><div className="mx-auto flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-start"><div className="flex min-w-0 flex-1 items-start gap-3 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"/><div className="min-w-0"><div className="font-medium">{pending.result.status === 'blocked' ? t('chat.preflightBlocked') : t('chat.preflightWarned')}</div>{[...(pending.result.blockers ?? []), ...(pending.result.warnings ?? [])].map((item) => <p key={item} className="mt-1 text-muted-foreground">{item}</p>)}</div></div><div className="flex shrink-0 gap-2 self-end sm:self-start"><Button variant="ghost" size="sm" onClick={() => setPending(null)}>{t('common.cancel')}</Button>{pending.result.status !== 'blocked' ? <Button size="sm" onClick={() => void continueRun()}>{t('chat.continue')}</Button> : null}</div></div></div> : null}
         <TodoProgressStrip />
-        <ChatInput onSend={submit} onQueue={(text, mode) => enqueueMessage(text, mode, face)} onCancel={cancelRun} running={running} disabled={preflightBusy || runBusy} context={sessionContext} />
+        <ChatInput onSend={submit} onQueue={(text, mode, attachments) => enqueueMessage(text, mode, face, attachments)} onCancel={cancelRun} running={running} disabled={preflightBusy || runBusy} context={sessionContext} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

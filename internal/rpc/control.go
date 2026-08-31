@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -194,11 +195,20 @@ type sessionParams struct {
 }
 
 type turnParams struct {
-	SessionID     string `json:"session_id"`
-	Text          string `json:"text"`
-	Mode          string `json:"mode,omitempty"`
-	Face          string `json:"face,omitempty"`
-	PolicyProfile string `json:"policy_profile,omitempty"`
+	SessionID     string           `json:"session_id"`
+	Text          string           `json:"text"`
+	Mode          string           `json:"mode,omitempty"`
+	Face          string           `json:"face,omitempty"`
+	PolicyProfile string           `json:"policy_profile,omitempty"`
+	Attachments   []turnAttachment `json:"attachments,omitempty"`
+}
+
+// turnAttachment carries one image on a turn/start call (VC-1g-2).
+// Data is the raw image bytes, base64-encoded.
+type turnAttachment struct {
+	Name     string `json:"name,omitempty"`
+	MimeType string `json:"mime_type"`
+	Data     string `json:"data"`
 }
 
 type runParams struct {
@@ -300,11 +310,20 @@ type sessionResult struct {
 }
 
 type messageResult struct {
-	ID        string       `json:"id"`
-	RunID     domain.RunID `json:"run_id,omitempty"`
-	Role      domain.Role  `json:"role"`
-	Content   string       `json:"content"`
-	CreatedAt int64        `json:"created_at"`
+	ID          string                    `json:"id"`
+	RunID       domain.RunID              `json:"run_id,omitempty"`
+	Role        domain.Role               `json:"role"`
+	Content     string                    `json:"content"`
+	Attachments []messageAttachmentResult `json:"attachments,omitempty"`
+	CreatedAt   int64                     `json:"created_at"`
+}
+
+// messageAttachmentResult returns one image inline as a data URL so the
+// web UI can render it directly.
+type messageAttachmentResult struct {
+	Name     string `json:"name,omitempty"`
+	MimeType string `json:"mime_type"`
+	DataURL  string `json:"data_url"`
 }
 
 type runResult struct {
@@ -849,7 +868,15 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
-		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt})
+		result := messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt}
+		for _, attachment := range message.Attachments {
+			result.Attachments = append(result.Attachments, messageAttachmentResult{
+				Name:     attachment.Name,
+				MimeType: attachment.MimeType,
+				DataURL:  "data:" + attachment.MimeType + ";base64," + base64.StdEncoding.EncodeToString(attachment.Data),
+			})
+		}
+		out = append(out, result)
 	}
 	return map[string]any{"messages": out}, nil
 }
@@ -1502,8 +1529,13 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	if params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "text must not be empty"}
 	}
+	attachments, rpcErr := attachmentsFromParams(params.Attachments)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
+		Attachments: attachments,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -1854,6 +1886,50 @@ func parseTurnParams(request Request) (turnParams, *Error) {
 		return params, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
 	return params, nil
+}
+
+// Image attachment limits (VC-1g-2, aligned with the Crush client
+// surface): images only, 5 MiB per file, at most 4 per message.
+var attachmentMimeWhitelist = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+const (
+	maxAttachmentBytes = 5 << 20
+	maxAttachmentCount = 4
+)
+
+// attachmentsFromParams decodes and validates the base64 image
+// attachments of a turn/start call.
+func attachmentsFromParams(items []turnAttachment) ([]domain.Attachment, *Error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if len(items) > maxAttachmentCount {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+	}
+	out := make([]domain.Attachment, 0, len(items))
+	for index, item := range items {
+		mime := strings.ToLower(strings.TrimSpace(item.MimeType))
+		if !attachmentMimeWhitelist[mime] {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: unsupported type %q (png, jpeg, gif and webp images only)", index+1, item.MimeType)}
+		}
+		data, err := base64.StdEncoding.DecodeString(item.Data)
+		if err != nil {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must be base64-encoded image bytes", index+1)}
+		}
+		if len(data) == 0 {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must not be empty", index+1)}
+		}
+		if len(data) > maxAttachmentBytes {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: image exceeds the %d MiB limit", index+1, maxAttachmentBytes>>20)}
+		}
+		out = append(out, domain.Attachment{Name: item.Name, MimeType: mime, Data: data})
+	}
+	return out, nil
 }
 
 func parseRunParams(request Request) (runParams, *Error) {

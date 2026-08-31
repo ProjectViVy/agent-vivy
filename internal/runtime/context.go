@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -92,7 +93,7 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 	msgs := make([]*schema.Message, 0, len(selected)+2)
 	msgs = append(msgs, schema.SystemMessage(preamble))
 	msgs = append(msgs, projectFeed(selected)...)
-	msgs = append(msgs, schema.UserMessage(current.Content))
+	msgs = append(msgs, userFeedMessage(current))
 	return msgs, stats, nil
 }
 
@@ -146,7 +147,7 @@ func projectFeed(msgs []domain.Message) []*schema.Message {
 		msg := msgs[i]
 		switch {
 		case msg.Role == domain.RoleUser:
-			out = append(out, schema.UserMessage(msg.Content))
+			out = append(out, userFeedMessage(msg))
 			i++
 		case msg.Role == domain.RoleTool:
 			out = append(out, schema.ToolMessage(msg.Content, msg.ToolCallID))
@@ -174,4 +175,32 @@ func projectFeed(msgs []domain.Message) []*schema.Message {
 
 func messageCost(content, role string) int {
 	return len(content) + len(role) + contextMessageOverhead
+}
+
+// userFeedMessage projects a stored user row into the schema message the
+// engine consumes. Rows with image attachments (VC-1g-2) become multimodal
+// user messages following eino's canonical UserInputMultiContent shape
+// (text part first, then one image part per attachment, base64 inline);
+// text-only rows stay plain UserMessage. Attachment bytes deliberately do
+// not count toward the text byte budget: images are billed by models as
+// vision tokens, not text bytes, so the raw bytes would falsely trip
+// ErrContextBudgetExceeded for ordinary image sizes.
+func userFeedMessage(msg domain.Message) *schema.Message {
+	if len(msg.Attachments) == 0 {
+		return schema.UserMessage(msg.Content)
+	}
+	parts := make([]schema.MessageInputPart, 0, len(msg.Attachments)+1)
+	if msg.Content != "" {
+		parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: msg.Content})
+	}
+	for _, attachment := range msg.Attachments {
+		data := base64.StdEncoding.EncodeToString(attachment.Data)
+		parts = append(parts, schema.MessageInputPart{
+			Type: schema.ChatMessagePartTypeImageURL,
+			Image: &schema.MessageInputImage{
+				MessagePartCommon: schema.MessagePartCommon{Base64Data: &data, MIMEType: attachment.MimeType},
+			},
+		})
+	}
+	return &schema.Message{Role: schema.User, UserInputMultiContent: parts}
 }
