@@ -1161,13 +1161,18 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 // model/tool work represented by one mapper batch. A tool-call response may
 // contain several calls but is one model generation; the request event count
 // remains the exact tool-call count.
+//
+// Streaming chunk events (model.delta / model.reasoning_delta) are excluded
+// from the events budget: one mapped event per streamed chunk makes any
+// substantive reply exceed MaxEvents on its own. Runaway-generation safety
+// stays with the model-call budget (one charge per generation) and the
+// tool-call budget; deltas themselves are also payload-clamped by the mapper.
 func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
 	modelCall := false
 	for _, re := range events {
-		if err := ledger.ReserveEvent(); err != nil {
-			return err
-		}
 		switch re.Type {
+		case domain.EventModelDelta, domain.EventModelReasoningDelta:
+			continue
 		case domain.EventProviderRetry:
 			if err := ledger.ReserveRetry(); err != nil {
 				return err
@@ -1179,6 +1184,9 @@ func reserveMappedBudget(ledger *BudgetLedger, events []domain.RunEvent) error {
 			}
 		case domain.EventModelCompleted:
 			modelCall = true
+		}
+		if err := ledger.ReserveEvent(); err != nil {
+			return err
 		}
 	}
 	if modelCall {
