@@ -46,6 +46,7 @@ var migrations = []struct {
 	{14, migration014},
 	{15, migration015},
 	{16, migration016},
+	{17, migration017},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -535,4 +536,27 @@ const migration016 = `
 		updated_at_ms INTEGER NOT NULL
 	);
 	CREATE INDEX cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
+`
+
+// migration017 repairs databases that recorded migration016 before the
+// channel/cron branches were reconciled. Those databases already have the
+// version-16 marker but may not have received cron_jobs at all. IF NOT EXISTS
+// keeps the repair safe for databases that got the merged migration016.
+const migration017 = `
+	CREATE TABLE IF NOT EXISTS cron_jobs (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		enabled INTEGER NOT NULL,
+		schedule_json BLOB NOT NULL,
+		payload_json BLOB NOT NULL,
+		session_id TEXT NOT NULL DEFAULT '',
+		next_run_at_ms INTEGER NOT NULL DEFAULT 0,
+		last_run_at_ms INTEGER NOT NULL DEFAULT 0,
+		last_status TEXT NOT NULL DEFAULT '',
+		last_error TEXT NOT NULL DEFAULT '',
+		delete_after_run INTEGER NOT NULL DEFAULT 0,
+		created_at_ms INTEGER NOT NULL,
+		updated_at_ms INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
 `
