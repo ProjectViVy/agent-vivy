@@ -13,6 +13,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
+	mvdan.cc/sh/v3 v3.12.0
 )
 
 require (
@@ -35,7 +36,6 @@ require (
 	github.com/valyala/fastjson v1.6.10 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	mvdan.cc/sh/v3 v3.12.0 // indirect
 )
 
 require (
@@ -46,7 +46,7 @@ require (
 	example.com/vivy/plugins/telegram v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect

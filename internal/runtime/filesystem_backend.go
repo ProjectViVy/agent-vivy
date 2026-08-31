@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -48,6 +49,7 @@ type EinoFilesystemBackend struct {
 	maxSearchBytes int
 	maxListDepth   int
 	maxListEntries int
+	rgPath         string
 }
 
 var (
@@ -60,10 +62,14 @@ var (
 // every operation fails closed until a manager is supplied. The sandbox
 // parameter controls permission boundaries (D-021).
 func NewEinoFilesystemBackend(manager *WorkspaceManager, sandbox *SandboxManager) *EinoFilesystemBackend {
+	// ripgrep is an optional accelerator: probes fail silently and every
+	// Grep path keeps a pure-Go fallback.
+	rgPath, _ := exec.LookPath("rg")
 	return &EinoFilesystemBackend{
 		manager: manager, sandbox: sandbox, maxFileBytes: defaultFilesystemMaxBytes,
 		maxResults: defaultSearchMaxResults, maxSearchBytes: defaultSearchMaxBytes,
 		maxListDepth: maxListDepthLimit, maxListEntries: maxListEntriesLimit,
+		rgPath: rgPath,
 	}
 }
 
@@ -559,13 +565,6 @@ func (b *EinoFilesystemBackend) GrepRaw(ctx context.Context, req *einofs.GrepReq
 	if req == nil || req.Pattern == "" {
 		return nil, fmt.Errorf("filesystem: grep pattern must not be empty")
 	}
-	if err := b.validateSandboxPath(ctx, filesystemRunID(ctx), req.Path, FileOpRead, false); err != nil {
-		return nil, err
-	}
-	root, base, err := b.resolve(ctx, filesystemRunID(ctx), req.Path, false)
-	if err != nil {
-		return nil, err
-	}
 	pattern := req.Pattern
 	if req.CaseInsensitive {
 		pattern = "(?i)" + pattern
@@ -574,37 +573,17 @@ func (b *EinoFilesystemBackend) GrepRaw(ctx context.Context, req *einofs.GrepReq
 	if err != nil {
 		return nil, fmt.Errorf("filesystem: invalid grep pattern: %w", err)
 	}
-	out := make([]einofs.GrepMatch, 0)
-	err = filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			if path != base && isIgnoredDirectory(entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil || len(data) > b.maxFileBytes || isBinary(data) {
-			return nil
-		}
-		for lineNo, line := range strings.Split(string(data), "\n") {
-			if !re.MatchString(line) {
-				continue
-			}
-			out = append(out, einofs.GrepMatch{Path: displayPath(root, path), Line: lineNo + 1, Content: trimResultLine(line)})
-			if len(out) >= b.maxResults {
-				return errSearchLimit
-			}
-		}
-		return nil
-	})
-	if err != nil && !errors.Is(err, errSearchLimit) {
-		return nil, fmt.Errorf("filesystem: grep: %w", err)
+	root, base, err := b.searchRoot(ctx, req.Path)
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.goGrep(base, root, re, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]einofs.GrepMatch, 0, len(res.Matches))
+	for _, m := range res.Matches {
+		out = append(out, einofs.GrepMatch{Path: m.Path, Line: m.Line, Content: m.Content})
 	}
 	return out, nil
 }
@@ -831,18 +810,5 @@ func entryDepth(base, path string) int {
 }
 
 func matchesGlob(pattern, relative, base string) bool {
-	pattern = filepath.ToSlash(pattern)
-	relative = filepath.ToSlash(relative)
-	if ok, _ := filepath.Match(pattern, relative); ok {
-		return true
-	}
-	if ok, _ := filepath.Match(pattern, base); ok {
-		return true
-	}
-	if strings.HasPrefix(pattern, "**/") {
-		if ok, _ := filepath.Match(strings.TrimPrefix(pattern, "**/"), base); ok {
-			return true
-		}
-	}
-	return false
+	return globPatternMatches(filepath.ToSlash(pattern), filepath.ToSlash(relative), base)
 }

@@ -291,6 +291,9 @@ func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillO
 			registered = append(registered, NewJobOutput(jobs), NewJobKill(jobs))
 		}
 	}
+	if searchOps, ok := files.(GrepOperations); ok {
+		registered = append(registered, NewGrep(searchOps), NewGlob(searchOps))
+	}
 	registered = append(registered, NewToolSearch(baseToolsForSearch(notes, files, skills, todos, search, httpOps, fetch, downloads, mcpOps, sequential, commands)))
 	return NewRegistry(registered...)
 }
@@ -324,6 +327,9 @@ func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills Sk
 		if jobs, ok := commands.(JobOperations); ok {
 			registered = append(registered, NewJobOutput(jobs), NewJobKill(jobs))
 		}
+	}
+	if searchOps, ok := files.(GrepOperations); ok {
+		registered = append(registered, NewGrep(searchOps), NewGlob(searchOps))
 	}
 	return registered
 }
