@@ -7,7 +7,7 @@
   "properties": {
     "cause_category": {
       "type": "string",
-      "enum": ["provider_error", "tool_error", "internal_error", "cancelled", "human_timeout"],
+      "enum": ["provider_error", "tool_error", "internal_error", "cancelled", "human_timeout", "loop_detected"],
       "description": "Structured cause category (IMPLEMENTATION-PLAN section 8)."
     },
     "message": {

@@ -57,6 +57,10 @@ type eventMapper struct {
 	// have not arrived yet, in request order.
 	openCalls []openToolCall
 
+	// loop watches completed tool calls for repetition (VC-2 tool-loop
+	// guardrail); state is per run and resets on approval resume.
+	loop loopWindow
+
 	// interrupt holds the details of the latest interrupt action; set
 	// together with the errRunInterrupted sentinel.
 	interrupt *interruptDetails
@@ -66,6 +70,9 @@ type openToolCall struct {
 	id   string
 	name string
 	args map[string]any
+	// argsJSON is the canonical (key-sorted) form of args, captured at
+	// request time for the loop detector.
+	argsJSON string
 }
 
 func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
@@ -158,8 +165,11 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 		m.hasPending = true
 	}
 	if mv.Role == schema.Tool {
-		out = append(out, m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")...)
-		return out, nil
+		events, err := m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")
+		if err != nil {
+			return out, err
+		}
+		return append(out, events...), nil
 	}
 	if elapsed := time.Since(started); m.stallThreshold >= 0 && elapsed >= m.stallThreshold {
 		out = append(out, m.build(domain.EventProviderStall, payloadProviderStall{ElapsedMs: elapsed.Milliseconds()}))
@@ -201,7 +211,11 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 	case len(msg.ToolCalls) > 0:
 		return append(out, m.toolCallEvents(msg)...), nil
 	case msg.Role == schema.Tool:
-		return append(out, m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")...), nil
+		events, err := m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")
+		if err != nil {
+			return nil, err
+		}
+		return append(out, events...), nil
 	default:
 		// Final assistant message of the model turn.
 		content := msg.Content
@@ -277,12 +291,16 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 				slog.Warn("tool call arguments are not a JSON object", "tool", tc.Function.Name, "err", err)
 			}
 		}
+		// Canonical form: re-marshaling the decoded map sorts keys, so
+		// the same call with reordered JSON keys still counts as a
+		// repeat for the loop detector. Decoded JSON cannot fail here.
+		argsJSON, _ := json.Marshal(args)
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
 			ToolCallID: tc.ID,
 			ToolName:   tc.Function.Name,
 			Args:       args,
 		}))
-		m.openCalls = append(m.openCalls, openToolCall{id: tc.ID, name: tc.Function.Name, args: args})
+		m.openCalls = append(m.openCalls, openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)})
 	}
 	return out
 }
@@ -332,18 +350,31 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 // toolResultEvents emits tool.started immediately followed by
 // tool.finished: the engine delivers tool results as a single event, so
 // the start boundary is reconstructed at result time.
-func (m *eventMapper) toolResultEvents(toolName, callID, result, errMsg string) []domain.RunEvent {
-	return m.toolResultEventsParts(toolName, callID, result, nil, errMsg)
-}
-
-func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) []domain.RunEvent {
+func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) ([]domain.RunEvent, error) {
+	argsJSON := m.argsJSONFor(callID, toolName)
 	if callID == "" {
 		callID, toolName = m.popOpenCall(toolName)
+	}
+	// The loop detector sees every completed call; exceeding the repeat
+	// limit fails the run from here (the service emits the terminal).
+	if err := m.loop.record(toolName, argsJSON, result, errMsg); err != nil {
+		return nil, err
 	}
 	return []domain.RunEvent{
 		m.build(domain.EventToolStarted, payloadToolStarted{ToolCallID: callID, ToolName: toolName}),
 		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}),
+	}, nil
+}
+
+// argsJSONFor resolves the canonical arguments of a tracked open call by
+// id, or by tool name when the result carries no id; empty when untracked.
+func (m *eventMapper) argsJSONFor(callID, toolName string) string {
+	for _, oc := range m.openCalls {
+		if (callID != "" && oc.id == callID) || (callID == "" && oc.name == toolName) {
+			return oc.argsJSON
+		}
 	}
+	return ""
 }
 
 func toolMessageText(msg *schema.Message) string {

@@ -194,6 +194,7 @@ const (
 	causeInternalError = "internal_error"
 	causeCancelled     = "cancelled"
 	causeHumanTimeout  = "human_timeout"
+	causeLoopDetected  = "loop_detected"
 )
 
 type payloadRunFailed struct {

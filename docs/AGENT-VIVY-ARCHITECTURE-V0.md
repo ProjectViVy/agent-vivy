@@ -78,7 +78,8 @@ through the classified terminal.
 **Decision.** The versioned `RunEvent` vocabulary
 (`schemas/events/run-event.schema.json`) and its payload schemas carry
 structured cause categories (`provider_error | tool_error | internal_error |
-cancelled`). The same events serve journal persistence, JSON-RPC
+cancelled | human_timeout | loop_detected`). The same events serve journal
+persistence, JSON-RPC
 notifications, and UI re-rendering (FR-5): the UI rebuilds state from
 `after_seq` replay, never from in-memory state. Events carry `session_id` /
 `run_id` / `seq` correlation identity per the logs-as-first-class anchor
