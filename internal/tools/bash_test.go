@@ -50,6 +50,24 @@ func TestBashToolExpandsToShellInvocation(t *testing.T) {
 	}
 }
 
+func TestBashToolPropagatesBackgroundFlag(t *testing.T) {
+	ops := &stubCommandOps{}
+	tool := NewBash(ops)
+	if _, err := tool.InvokableRun(context.Background(), []byte(`{"command":"echo hi","run_in_background":true}`)); err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	if !ops.last.Background {
+		t.Fatalf("background flag lost: %+v", ops.last)
+	}
+	spec := tool.Spec()
+	if err := ValidateArgs(spec, []byte(`{"command":"x","run_in_background":true}`)); err != nil {
+		t.Fatalf("boolean run_in_background rejected: %v", err)
+	}
+	if err := ValidateArgs(spec, []byte(`{"command":"x","run_in_background":"yes"}`)); err == nil {
+		t.Fatal("string run_in_background accepted")
+	}
+}
+
 func TestBashToolSurfacesDenyTableAndSyntaxErrors(t *testing.T) {
 	ops := &stubCommandOps{}
 	tool := NewBash(ops)

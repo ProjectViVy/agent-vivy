@@ -31,9 +31,10 @@ func (t *bashTool) Spec() domain.ToolSpec {
 		Readonly: false,
 		Keywords: []string{"bash", "shell", "script", "command"},
 		Params: map[string]domain.ToolParam{
-			"command":    {Desc: "Bash script to run in one invocation, e.g. `rg -n TODO src`.", Required: true},
-			"cwd":        {Desc: "Optional workspace-relative working directory."},
-			"timeout_ms": {Desc: "Optional timeout in milliseconds, bounded by the runtime.", Type: "integer"},
+			"command":           {Desc: "Bash script to run in one invocation, e.g. `rg -n TODO src`.", Required: true},
+			"cwd":               {Desc: "Optional workspace-relative working directory."},
+			"timeout_ms":        {Desc: "Optional timeout in milliseconds, bounded by the runtime. A script that exceeds it is moved to a background job instead of being killed.", Type: "integer"},
+			"run_in_background": {Desc: "Start the script as a background job and return its job id immediately; poll with job_output. Background jobs are killed when the run ends.", Type: "boolean"},
 		},
 	}
 }
@@ -97,9 +98,10 @@ func (t *bashTool) ClassifyInvocation(args json.RawMessage) (InvocationClass, []
 // the shell command request executed by the shared process backend.
 func decodeBashRequest(args json.RawMessage) (string, CommandRequest, error) {
 	var input struct {
-		Command   string `json:"command"`
-		Cwd       string `json:"cwd"`
-		TimeoutMS int    `json:"timeout_ms"`
+		Command    string `json:"command"`
+		Cwd        string `json:"cwd"`
+		TimeoutMS  int    `json:"timeout_ms"`
+		Background bool   `json:"run_in_background"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return "", CommandRequest{}, fmt.Errorf("bash: invalid arguments: %w", err)
@@ -111,5 +113,5 @@ func decodeBashRequest(args json.RawMessage) (string, CommandRequest, error) {
 	if strings.IndexByte(script, 0) >= 0 {
 		return "", CommandRequest{}, &ArgError{Field: "command", Reason: "contains a NUL byte"}
 	}
-	return script, CommandRequest{Command: "bash", Args: []string{"-c", script}, Cwd: strings.TrimSpace(input.Cwd), TimeoutMS: input.TimeoutMS}, nil
+	return script, CommandRequest{Command: "bash", Args: []string{"-c", script}, Cwd: strings.TrimSpace(input.Cwd), TimeoutMS: input.TimeoutMS, Background: input.Background}, nil
 }

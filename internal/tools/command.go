@@ -15,11 +15,12 @@ const (
 )
 
 type CommandRequest struct {
-	Command   string
-	Args      []string
-	Cwd       string
-	Env       map[string]string
-	TimeoutMS int
+	Command    string
+	Args       []string
+	Cwd        string
+	Env        map[string]string
+	TimeoutMS  int
+	Background bool
 }
 
 type CommandResult struct {
@@ -33,6 +34,11 @@ type CommandResult struct {
 	TimedOut    bool   `json:"timed_out,omitempty"`
 	DurationMS  int64  `json:"duration_ms"`
 	Untrusted   bool   `json:"untrusted"`
+	// Job fields are set when the command became a background job: either
+	// launched directly (Background) or adopted after its timeout.
+	JobID      string `json:"job_id,omitempty"`
+	Background bool   `json:"background,omitempty"`
+	JobStatus  string `json:"job_status,omitempty"`
 }
 
 type CommandOperations interface {

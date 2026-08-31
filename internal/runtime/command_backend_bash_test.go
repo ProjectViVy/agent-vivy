@@ -86,6 +86,89 @@ func TestBashBackendRejectsMalformedInvocation(t *testing.T) {
 	}
 }
 
+func waitForBackendJob(t *testing.T, backend *EinoCommandBackend, id string) tools.JobReadResult {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		res, ok := backend.JobRead(id)
+		if ok && (strings.Contains(res.Stdout, "vivy_bg_e2e") || res.Status != tools.JobRunning) {
+			return res
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("job %s never produced its marker", id)
+	return tools.JobReadResult{}
+}
+
+func TestBashBackendBackgroundLaunchOutputAndKill(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	backend, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result, err := backend.Execute(ctx, "run_bash_bg", tools.CommandRequest{Command: "bash", Args: []string{"-c", "echo vivy_bg_e2e; sleep 30"}, Background: true})
+	if err != nil {
+		t.Fatalf("background launch: %v", err)
+	}
+	if result.JobID == "" || !result.Background || result.JobStatus != string(tools.JobRunning) {
+		t.Fatalf("background result = %+v, want running job id", result)
+	}
+	got := waitForBackendJob(t, backend, result.JobID)
+	if got.Status != tools.JobRunning || !strings.Contains(got.Stdout, "vivy_bg_e2e") {
+		t.Fatalf("job read = %+v, want running with marker", got)
+	}
+	killed, err := backend.JobKill(result.JobID)
+	if err != nil || killed.Status != tools.JobKilled {
+		t.Fatalf("kill = %+v/%v, want killed", killed, err)
+	}
+}
+
+func TestBashBackendForegroundTimeoutAdoptsJob(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	backend, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	result, err := backend.Execute(context.Background(), "run_bash_adopt", tools.CommandRequest{Command: "bash", Args: []string{"-c", "echo vivy_bg_e2e; sleep 10"}, TimeoutMS: 400})
+	if err != nil {
+		t.Fatalf("foreground timeout: %v", err)
+	}
+	if !result.TimedOut || result.JobID == "" {
+		t.Fatalf("timeout result = %+v, want adopted job", result)
+	}
+	got := waitForBackendJob(t, backend, result.JobID)
+	if got.Status != tools.JobRunning || !strings.Contains(got.Stdout, "vivy_bg_e2e") {
+		t.Fatalf("adopted job = %+v, want running with marker", got)
+	}
+	if _, err := backend.JobKill(result.JobID); err != nil {
+		t.Fatalf("kill adopted job: %v", err)
+	}
+}
+
+func TestBashBackendJobsDieWithRunContext(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	backend, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	ctx, cancel := context.WithCancel(context.Background())
+	result, err := backend.Execute(ctx, "run_bash_ctx", tools.CommandRequest{Command: "bash", Args: []string{"-c", "sleep 30"}, Background: true})
+	if err != nil {
+		t.Fatalf("background launch: %v", err)
+	}
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		res, ok := backend.JobRead(result.JobID)
+		if ok && res.Status == tools.JobKilled {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job %s survived run-context cancellation (status %+v)", result.JobID, res)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 type classifierStubTool struct {
 	class    tools.InvocationClass
 	findings []string
@@ -216,5 +299,87 @@ func TestServiceBashToolEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(blob.String(), "vivy_bash_e2e") {
 		t.Fatalf("journal lost the echoed marker; events: %s", blob.String())
+	}
+}
+
+// TestServiceBashToolBackgroundEndToEnd drives the full background path:
+// a scripted model launches bash with run_in_background, polls the fresh
+// job with job_output (readonly, auto-run), and closes the run. The job id
+// is deterministic (first job of a fresh registry) so the script can name
+// it; the marker must reach the journal through job_output.
+func TestServiceBashToolBackgroundEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available on this host")
+	}
+	ctx := context.Background()
+
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "bash-job-e2e.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	commands, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
+	ts, err := tools.NewRegistry(
+		tools.NewBash(commands), tools.NewJobOutput(commands), tools.NewJobKill(commands),
+	).Resolve([]string{tools.BashName, tools.JobOutputName, tools.JobKillName})
+	if err != nil {
+		t.Fatalf("resolve job tools: %v", err)
+	}
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	jobOutput := func() *schema.Message {
+		return schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "call-job-read",
+			Function: schema.FunctionCall{Name: tools.JobOutputName, Arguments: `{"job_id":"job_000001"}`},
+		}})
+	}
+	eng, err := NewEngine(ctx, NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "call-bash-bg",
+			Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"echo vivy_bg_e2e","run_in_background":true}`},
+		}}),
+		jobOutput(), jobOutput(), jobOutput(),
+		schema.AssistantMessage("Done: the background job echoed the marker.", nil),
+	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Questions:          backend,
+		Sessions:           backend,
+		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
+	})
+	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-bash-job-e2e", Title: "bash job e2e", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := backend.UpdateSandboxPolicy(ctx, "sess-bash-job-e2e", domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAuto); err != nil {
+		t.Fatalf("set session approval policy: %v", err)
+	}
+
+	runID, err := svc.Run(ctx, "sess-bash-job-e2e", "start a background job and watch it")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	events := replayAll(t, backend, runID)
+	if i := indexOfType(events, domain.EventToolApprovalRequired); i >= 0 {
+		t.Fatalf("background flow raised an approval interrupt at %d", i)
+	}
+	var blob bytes.Buffer
+	for _, ev := range events {
+		blob.Write(ev.Payload)
+		blob.WriteString("\n")
+	}
+	journal := blob.String()
+	if !strings.Contains(journal, "job_000001") {
+		t.Fatalf("journal never carried the deterministic job id; events: %s", journal)
+	}
+	if !strings.Contains(journal, "vivy_bg_e2e") {
+		t.Fatalf("journal lost the background marker; events: %s", journal)
 	}
 }

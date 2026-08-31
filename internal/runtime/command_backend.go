@@ -38,9 +38,11 @@ type EinoCommandBackend struct {
 	maxOutputBytes int
 	maxTimeout     time.Duration
 	shellPath      string
+	jobs           *tools.JobRegistry
 }
 
 var _ tools.CommandOperations = (*EinoCommandBackend)(nil)
+var _ tools.JobOperations = (*EinoCommandBackend)(nil)
 var _ interface {
 	PrepareCommand(context.Context, domain.RunID, tools.CommandRequest) (domain.ToolProposal, error)
 } = (*EinoCommandBackend)(nil)
@@ -66,8 +68,9 @@ func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, a
 		}
 	}
 	shellPath, _ := exec.LookPath("bash")
-	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath}
+	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath, jobs: tools.NewJobRegistry()}
 }
+
 func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
 	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
@@ -79,6 +82,9 @@ func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, re
 		if err != nil {
 			return tools.CommandResult{}, fmt.Errorf("command: executable %q is unavailable: %w", command, err)
 		}
+	}
+	if command == "bash" {
+		return b.executeBash(ctx, path, args, cwd, env, timeout, request.Background)
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -121,6 +127,37 @@ func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, re
 		return result, fmt.Errorf("command: wait: %w", waitErr)
 	}
 	return result, nil
+}
+
+// executeBash runs the shell through the job registry: foreground runs get
+// the timeout budget and are adopted as background jobs on timeout; explicit
+// background runs return their job id immediately. Jobs are bound to the run
+// context, so a finishing or cancelled run reaps them.
+func (b *EinoCommandBackend) executeBash(ctx context.Context, path string, args []string, cwd string, env []string, timeout time.Duration, background bool) (tools.CommandResult, error) {
+	display := strings.Join(append([]string{"bash"}, args...), " ")
+	spec := tools.JobSpec{Display: display, Path: path, Args: args, Dir: cwd, Env: env}
+	if background {
+		id, err := b.jobs.Launch(ctx, spec)
+		if err != nil {
+			return tools.CommandResult{}, err
+		}
+		return tools.CommandResult{Command: display, Cwd: cwd, DurationMS: 0, Untrusted: true, JobID: id, Background: true, JobStatus: string(tools.JobRunning)}, nil
+	}
+	_, result, err := b.jobs.RunUntil(ctx, spec, timeout)
+	if err != nil {
+		result.Command, result.Cwd, result.Untrusted = display, cwd, true
+		return result, err
+	}
+	result.Command, result.Cwd, result.Untrusted = display, cwd, true
+	return result, nil
+}
+
+// JobRead and JobKill expose the registry to the job_output/job_kill tools.
+func (b *EinoCommandBackend) JobRead(jobID string) (tools.JobReadResult, bool) {
+	return b.jobs.Read(jobID)
+}
+func (b *EinoCommandBackend) JobKill(jobID string) (tools.JobKillResult, error) {
+	return b.jobs.Kill(jobID)
 }
 func (b *EinoCommandBackend) PrepareCommand(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (domain.ToolProposal, error) {
 	command, args, cwd, _, timeout, err := b.validateRequest(ctx, runID, request)
