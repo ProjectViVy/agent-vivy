@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -715,5 +717,127 @@ func TestUpsertChannelOverlay(t *testing.T) {
 	}
 	if s.Channels[0].AllowFrom == nil || len(*s.Channels[0].AllowFrom) != 1 {
 		t.Fatalf("allow_from not replaced: %+v", s.Channels[0])
+	}
+}
+
+// The SET-RMW regression: a handler-style read-modify-write inside Update
+// must keep every concurrent writer's change. A Load→modify→Save cycle loses
+// whole entries under the same schedule (last writer wins).
+func TestUpdateConcurrentUpsertsAllSurvive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	if _, err := Save(path, Settings{}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	const writers = 8
+	var wg sync.WaitGroup
+	for writer := 0; writer < writers; writer++ {
+		wg.Add(1)
+		go func(writer int) {
+			defer wg.Done()
+			entry := ProviderEntry{
+				ID:          fmt.Sprintf("custom-%02d", writer),
+				DisplayName: fmt.Sprintf("Gateway %02d", writer),
+				Bundle:      ProviderOpenAI,
+				BaseURL:     fmt.Sprintf("https://gw-%02d.example.com/v1", writer),
+			}
+			if _, err := Update(path, func(s Settings) (Settings, error) {
+				return s.UpsertProvider(entry), nil
+			}); err != nil {
+				t.Errorf("update %d: %v", writer, err)
+			}
+		}(writer)
+	}
+	wg.Wait()
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.Providers) != writers {
+		t.Fatalf("expected all %d concurrent entries to survive, got %d: %+v", writers, len(loaded.Providers), loaded.Providers)
+	}
+	seen := make(map[string]bool, writers)
+	for _, e := range loaded.Providers {
+		seen[e.ID] = true
+	}
+	for writer := 0; writer < writers; writer++ {
+		if !seen[fmt.Sprintf("custom-%02d", writer)] {
+			t.Fatalf("entry custom-%02d lost", writer)
+		}
+	}
+}
+
+// A fn error aborts the transaction and passes through verbatim: nothing is
+// written and the caller can carry its own domain error across the boundary.
+func TestUpdateFnErrorAbortsWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	want := Settings{Provider: ProviderOpenAI, DefaultModel: "gpt-4o", BaseURL: "https://gw.example.com/v1"}
+	if _, err := Save(path, want); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	sentinel := errors.New("provider entry not found")
+	_, err := Update(path, func(s Settings) (Settings, error) {
+		s.ExecuteMaxTimeoutSeconds = 300
+		return s, sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("fn error must pass through verbatim, got %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, want) {
+		t.Fatalf("aborted update must not persist: %+v", loaded)
+	}
+}
+
+// A candidate that fails Validate is wrapped in *ValidationError so callers
+// can map it onto bad-request errors; the document keeps its prior state.
+func TestUpdateRejectsInvalidCandidate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if _, err := Save(path, Settings{Provider: ProviderOpenAI, DefaultModel: "gpt-4o", BaseURL: "https://gw.example.com/v1"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_, err := Update(path, func(s Settings) (Settings, error) {
+		s.Provider = "not-a-bundle"
+		return s, nil
+	})
+	if !IsValidationError(err) {
+		t.Fatalf("expected *ValidationError, got %v (%T)", err, err)
+	}
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Err == nil {
+		t.Fatalf("expected unwrap to the underlying validate error, got %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Provider != ProviderOpenAI {
+		t.Fatalf("rejected candidate must not persist: %+v", loaded)
+	}
+}
+
+// Update on a missing file starts from the zero document and returns the
+// persisted result, so callers can echo it back without a second Load.
+func TestUpdateReturnsPersistedDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	entry := ProviderEntry{ID: "custom-a", DisplayName: "Gateway", Bundle: ProviderOpenAI, BaseURL: "https://gw.example.com/v1", Models: []string{"gpt-4o"}}
+	saved, err := Update(path, func(s Settings) (Settings, error) {
+		return s.UpsertProvider(entry), nil
+	})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(saved, loaded) {
+		t.Fatalf("returned document is not the persisted one: %+v vs %+v", saved, loaded)
+	}
+	if len(saved.Providers) != 1 || saved.Providers[0].ID != entry.ID {
+		t.Fatalf("entry not applied: %+v", saved.Providers)
 	}
 }
