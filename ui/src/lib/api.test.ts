@@ -35,7 +35,6 @@ describe('typed Vivy API', () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });
     const detail = await api.getSession('s1'); expect(call).toHaveBeenLastCalledWith('session/get', { session_id: 's1' }); expect(detail.session.id).toBe('s1');
     await api.listTodos('s1'); expect(call).toHaveBeenLastCalledWith('session/todos', { session_id: 's1' });
-    await api.preflight('s1', 'hello', 'normal'); expect(call).toHaveBeenLastCalledWith('preflight/run', { session_id: 's1', text: 'hello', mode: 'normal' });
     await api.waitChild('c1'); expect(call).toHaveBeenLastCalledWith('child/wait', { run_id: 'c1' });
     await api.getGeneration('g1'); expect(call).toHaveBeenLastCalledWith('generations/get', { id: 'g1' });
     await api.startEval({ candidate_id: 'g1', suite: 'smoke' }); expect(call).toHaveBeenLastCalledWith('evals/start', { candidate_id: 'g1', suite: 'smoke' });
