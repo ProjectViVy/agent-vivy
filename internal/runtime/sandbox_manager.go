@@ -335,16 +335,69 @@ func isDangerousCommand(command string, args []string) bool {
 		return true
 	}
 
-	// Block recursive force-delete patterns.
-	if cmd == "rm" || cmd == "del" {
+	// Block recursive force-delete of system roots. The flags and the
+	// target live in separate argv entries, so collect each side before
+	// crossing them; a single-arg check never fires.
+	switch cmd {
+	case "rm":
+		recursive, rootTarget := false, false
 		for _, arg := range args {
-			arg = strings.ToLower(arg)
-			if (arg == "-rf" || arg == "-fr" || arg == "/f" || arg == "/s") &&
-				(arg == "/" || arg == "*" || arg == ".") {
+			a := strings.ToLower(strings.TrimSpace(arg))
+			switch {
+			case a == "--no-preserve-root":
 				return true
+			case strings.HasPrefix(a, "--"):
+				if a == "--recursive" {
+					recursive = true
+				}
+			case strings.HasPrefix(a, "-"):
+				// Lowercased, so -r, -rf, -fr, -Rf all show the r.
+				if strings.ContainsRune(a, 'r') {
+					recursive = true
+				}
+			default:
+				if isRootLikeDeleteTarget(a) {
+					rootTarget = true
+				}
 			}
 		}
+		return recursive && rootTarget
+	case "del", "rd", "rmdir":
+		recursive, rootTarget := false, false
+		for _, arg := range args {
+			a := strings.ToLower(strings.TrimSpace(arg))
+			switch {
+			case strings.HasPrefix(a, "/"):
+				if a == "/s" {
+					recursive = true
+				}
+			default:
+				if isRootLikeDeleteTarget(a) {
+					rootTarget = true
+				}
+			}
+		}
+		return recursive && rootTarget
 	}
+	return false
+}
 
+// isRootLikeDeleteTarget reports whether a deletion target reaches beyond
+// any single workspace: filesystem roots, drive roots, home, or the whole
+// current directory tree.
+func isRootLikeDeleteTarget(arg string) bool {
+	a := strings.Trim(arg, `"'`)
+	a = strings.ReplaceAll(a, "\\", "/")
+	a = strings.TrimRight(a, "/")
+	if len(a) == 2 && a[1] == ':' {
+		return true
+	}
+	if len(a) > 2 && a[1] == ':' && a[2] == '/' {
+		a = a[2:] // "c:/*" is the drive root glob; deeper paths stay allowed
+	}
+	switch a {
+	case "", "*", ".", "..", "/*", "~", "~/*":
+		return true
+	}
 	return false
 }

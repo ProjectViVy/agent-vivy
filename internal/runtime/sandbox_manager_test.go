@@ -52,3 +52,66 @@ func TestSandboxManagerLiveNetworkPolicy(t *testing.T) {
 		t.Fatalf("open network = %v", err)
 	}
 }
+
+func TestIsDangerousCommandRootDeletion(t *testing.T) {
+	dangerous := []struct {
+		cmd  string
+		args []string
+	}{
+		{"rm", []string{"-rf", "/"}},
+		{"rm", []string{"-fr", "/"}},
+		{"rm", []string{"-Rf", "/"}},
+		{"rm", []string{"-r", "-f", "/"}},
+		{"rm", []string{"--recursive", "--force", "/"}},
+		{"rm", []string{"-rf", "/*"}},
+		{"rm", []string{"-rf", "."}},
+		{"rm", []string{"-rf", ".."}},
+		{"rm", []string{"-rf", "~"}},
+		{"rm", []string{"-rf", "C:\\"}},
+		{"rm", []string{"-rf", "C:\\*"}},
+		{"rm", []string{"-rf", "--no-preserve-root", "/tmp/x"}},
+		{"rm", []string{"-rf", `"` + `/` + `"`}},
+		{"rm", []string{"-r", "/"}},
+		{"rm", []string{"-rf", "/ "}},
+		{"RM", []string{"-RF", "/"}},
+		{"del", []string{"/f", "/s", "/q", "*"}},
+		{"del", []string{"/s", "C:\\"}},
+		{"del", []string{"/s", "*"}},
+		{"rd", []string{"/s", "/q", "."}},
+		{"rmdir", []string{"/s", "c:/"}},
+		{"format", nil},
+		{"diskpart", nil},
+	}
+	for _, tc := range dangerous {
+		if !isDangerousCommand(tc.cmd, tc.args) {
+			t.Errorf("%s %v = allowed, want denied", tc.cmd, tc.args)
+		}
+		if err := (&SandboxManager{workspaceRoot: t.TempDir()}).ConfineCommandWithMode(tc.cmd, tc.args, domain.SandboxModeDangerFullAccess); !errors.Is(err, ErrSandboxDenied) {
+			t.Errorf("ConfineCommandWithMode(%s %v, danger) = %v, want ErrSandboxDenied", tc.cmd, tc.args, err)
+		}
+	}
+}
+
+func TestIsDangerousCommandAllowsWorkbenchDeletes(t *testing.T) {
+	allowed := []struct {
+		cmd  string
+		args []string
+	}{
+		{"rm", []string{"-rf", "build"}},
+		{"rm", []string{"-rf", "node_modules/pkg"}},
+		{"rm", []string{"-f", "file.txt"}},
+		{"rm", []string{"file.txt"}},
+		{"rm", []string{"-r", "dist"}},
+		{"rm", []string{"--recursive", "tmp"}},
+		{"rm", []string{"-rf", "c:/temp/x"}},
+		{"del", []string{"/f", "/q", "file.txt"}},
+		{"del", []string{"/s", "build"}},
+		{"rd", []string{"/s", "/q", "dist"}},
+		{"go", []string{"test", "./..."}},
+	}
+	for _, tc := range allowed {
+		if isDangerousCommand(tc.cmd, tc.args) {
+			t.Errorf("%s %v = denied, want allowed", tc.cmd, tc.args)
+		}
+	}
+}
