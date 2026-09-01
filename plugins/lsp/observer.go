@@ -41,10 +41,11 @@ func (p *Plugin) ObserveWrite(ctx context.Context, env plugin.Env, paths []strin
 			continue
 		}
 		uri := pathToURI(root, rel)
+		base := srv.diagGeneration(uri)
 		if err := srv.openText(ctx, lang.Name, uri, string(body)); err != nil {
 			continue
 		}
-		_, _ = srv.waitForDiagnostics(ctx, uri, backfillWait)
+		_, _ = srv.waitForDiagnostics(ctx, uri, base, backfillWait)
 		out = append(out, formatDiagnosticLines(rel, srv.diagnosticsFor(uri))...)
 	}
 	return out

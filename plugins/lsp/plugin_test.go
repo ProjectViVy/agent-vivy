@@ -120,6 +120,9 @@ type fakeEnv struct {
 	written    map[string]string
 	spawnCount int
 	commands   []string
+	// caps overrides the fake server's initialize result (empty means the
+	// default `{"capabilities":{}}`).
+	caps string
 }
 
 func (f *fakeEnv) Workspace() string { return f.root }
@@ -156,7 +159,7 @@ func (f *fakeEnv) Spawn(_ context.Context, spec plugin.SpawnSpec) (plugin.Proc, 
 	f.commands = append(f.commands, spec.Command)
 	toolInR, toolInW := io.Pipe()
 	toolOutR, toolOutW := io.Pipe()
-	go serveFakeLSP(toolInR, toolOutW, f.root)
+	go serveFakeLSP(toolInR, toolOutW, f.root, f.caps)
 	return fakeProc{stdin: toolInW, stdout: toolOutR}, nil
 }
 
@@ -173,8 +176,12 @@ func (p fakeProc) Close() error          { return nil }
 
 // serveFakeLSP answers initialize, publishes one diagnostic on didOpen,
 // and a clean publish on didChange. root enables handlers that build
-// workspace URIs (rename emits a second file's edit).
-func serveFakeLSP(r io.Reader, w io.Writer, root string) {
+// workspace URIs (rename emits a second file's edit). caps overrides the
+// initialize result (empty = `{"capabilities":{}}`).
+func serveFakeLSP(r io.Reader, w io.Writer, root, caps string) {
+	if caps == "" {
+		caps = `{"capabilities":{}}`
+	}
 	br := bufio.NewReader(r)
 	publish := func(uri string, diags []diagnostic) {
 		raw, _ := json.Marshal(publishDiagnosticsParams{URI: uri, Diagnostics: diags})
@@ -187,7 +194,7 @@ func serveFakeLSP(r io.Reader, w io.Writer, root string) {
 		}
 		switch msg.Method {
 		case "initialize":
-			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: json.RawMessage(`{"capabilities":{}}`)})
+			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: json.RawMessage(caps)})
 		case "initialized":
 		case "textDocument/didOpen":
 			var p didOpenParams
@@ -391,20 +398,40 @@ func TestRenameToolAppliesWorkspaceEdit(t *testing.T) {
 	}
 }
 
-func TestApplyEditsUTF16Offsets(t *testing.T) {
+func TestApplyEditsEncodings(t *testing.T) {
 	content := "a := \"👍b\"\nnext\n"
-	// LSP reports the position after the surrogate pair (character 8);
-	// a naive rune count would land inside the emoji.
-	edits := []textEdit{{
+	want := "a := \"👍B\"\nnext\n"
+	// utf-16: the emoji is 2 units, so b sits at character 8.
+	got, err := applyEdits(content, []textEdit{{
 		Range:   span{Start: position{Line: 0, Character: 8}, End: position{Line: 0, Character: 9}},
 		NewText: "B",
-	}}
-	got, err := applyEdits(content, edits)
-	if err != nil {
-		t.Fatalf("applyEdits: %v", err)
+	}}, posEncUTF16)
+	if err != nil || got != want {
+		t.Fatalf("utf-16 got %q, %v", got, err)
 	}
-	if got != "a := \"👍B\"\nnext\n" {
-		t.Fatalf("got %q", got)
+	// utf-8: the emoji is 4 bytes, so b sits at character 10.
+	got, err = applyEdits(content, []textEdit{{
+		Range:   span{Start: position{Line: 0, Character: 10}, End: position{Line: 0, Character: 11}},
+		NewText: "B",
+	}}, posEncUTF8)
+	if err != nil || got != want {
+		t.Fatalf("utf-8 got %q, %v", got, err)
+	}
+	// utf-32: the emoji is 1 unit, so b sits at character 7.
+	got, err = applyEdits(content, []textEdit{{
+		Range:   span{Start: position{Line: 0, Character: 7}, End: position{Line: 0, Character: 8}},
+		NewText: "B",
+	}}, posEncUTF32)
+	if err != nil || got != want {
+		t.Fatalf("utf-32 got %q, %v", got, err)
+	}
+	// A naive utf-16 count on a utf-8 position corrupts the emoji — the
+	// encoding must actually flow through.
+	if got, _ := applyEdits(content, []textEdit{{
+		Range:   span{Start: position{Line: 0, Character: 10}, End: position{Line: 0, Character: 11}},
+		NewText: "B",
+	}}, posEncUTF16); got == want {
+		t.Fatal("utf-16 must not treat byte offset 10 as inside the line")
 	}
 	if strings.Count(got, "👍") != 1 {
 		t.Fatalf("emoji corrupted: %q", got)
@@ -413,7 +440,7 @@ func TestApplyEditsUTF16Offsets(t *testing.T) {
 	got, err = applyEdits("ab\n", []textEdit{{
 		Range:   span{Start: position{Line: 0, Character: 9}, End: position{Line: 0, Character: 9}},
 		NewText: "c",
-	}})
+	}}, posEncUTF16)
 	if err != nil || got != "abc\n" {
 		t.Fatalf("clamp got %q, %v", got, err)
 	}
@@ -421,10 +448,69 @@ func TestApplyEditsUTF16Offsets(t *testing.T) {
 	got, err = applyEdits("abcdef\n", []textEdit{
 		{Range: span{Start: position{Line: 0, Character: 0}, End: position{Line: 0, Character: 1}}, NewText: "X"},
 		{Range: span{Start: position{Line: 0, Character: 5}, End: position{Line: 0, Character: 6}}, NewText: "Y"},
-	})
+	}, posEncUTF16)
 	if err != nil || got != "XbcdeY\n" {
 		t.Fatalf("multi got %q, %v", got, err)
 	}
+}
+
+func TestNegotiatedEncoding(t *testing.T) {
+	cases := map[string]positionEncoding{
+		`{"capabilities":{"positionEncoding":"utf-8"}}`:  posEncUTF8,
+		`{"capabilities":{"positionEncoding":"utf-32"}}`: posEncUTF32,
+		`{"capabilities":{}}`:                            posEncUTF16,
+		`{}`:                                             posEncUTF16,
+		`{"capabilities":{"positionEncoding":"utf-7"}}`:  posEncUTF16,
+		`not json`:                                       posEncUTF16,
+	}
+	for raw, want := range cases {
+		if got := negotiatedEncoding(json.RawMessage(raw)); got != want {
+			t.Fatalf("negotiatedEncoding(%s) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestInitializeWireOffersEncodings(t *testing.T) {
+	var params initializeParams
+	params.Capabilities.General.PositionEncodings = offeredPositionEncodings
+	wire, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(wire), `"positionEncodings":["utf-16","utf-8","utf-32"]`) {
+		t.Fatalf("initialize wire = %s", wire)
+	}
+}
+
+func TestInitializeNegotiatesEncoding(t *testing.T) {
+	// The default fake server answers an empty capabilities object, which
+	// means the LSP default utf-16.
+	env16 := &fakeEnv{root: t.TempDir(), files: map[string]string{"main.go": "package main\n"}}
+	srv, err := negotiatedServer(t, env16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv.enc != posEncUTF16 {
+		t.Fatalf("default enc = %q", srv.enc)
+	}
+
+	// A server that declares utf-8 gets honored.
+	env8 := &fakeEnv{root: t.TempDir(), files: map[string]string{"main.go": "package main\n"},
+		caps: `{"capabilities":{"positionEncoding":"utf-8"}}`}
+	srv8, err := negotiatedServer(t, env8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv8.enc != posEncUTF8 {
+		t.Fatalf("negotiated enc = %q", srv8.enc)
+	}
+}
+
+func negotiatedServer(t *testing.T, env *fakeEnv) (*server, error) {
+	t.Helper()
+	mgr := newManager()
+	lang, _ := languageFor("main.go")
+	return mgr.get(context.Background(), env, lang, env.root)
 }
 
 func TestObserveWriteBackfillsDiagnostics(t *testing.T) {

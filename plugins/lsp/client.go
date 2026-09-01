@@ -34,6 +34,10 @@ type server struct {
 
 	versions map[string]int
 
+	// enc is the position encoding negotiated at initialize (utf-16 when
+	// the server does not pick one).
+	enc positionEncoding
+
 	lastUsed atomic.Int64
 
 	dead     chan struct{}
@@ -59,13 +63,17 @@ func startServer(ctx context.Context, env plugin.Env, lang language, root string
 	go s.readLoop(proc.Stdout())
 	handshakeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if _, err := s.call(handshakeCtx, "initialize", initializeParams{
+	params := initializeParams{
 		ProcessID: nil,
 		RootURI:   pathToURI(root, "."),
-	}); err != nil {
+	}
+	params.Capabilities.General.PositionEncodings = offeredPositionEncodings
+	result, err := s.call(handshakeCtx, "initialize", params)
+	if err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("lsp: initialize %s: %w", lang.Command, err)
 	}
+	s.enc = negotiatedEncoding(result)
 	if err := s.notify("initialized", map[string]any{}); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("lsp: initialized %s: %w", lang.Command, err)
@@ -218,15 +226,25 @@ func (s *server) openText(ctx context.Context, languageID, uri, text string) err
 	return s.notify("textDocument/didChange", changes)
 }
 
+// diagGeneration returns the current publish generation for uri. Callers
+// must snapshot it BEFORE the request that triggers the next publish —
+// snapshotting afterwards races a publish that already arrived and would
+// wait forever for a fresh round that never comes.
+func (s *server) diagGeneration(uri string) uint64 {
+	s.diagMu.Lock()
+	defer s.diagMu.Unlock()
+	return s.diagGen[uri]
+}
+
 // waitForDiagnostics blocks until a publishDiagnostics for uri arrives
-// after the call was made (or the deadline passes). timedOut distinguishes
-// a fresh publish from a silent wait; a silent wait is not an error, it
-// just means the current (possibly empty) view is the best available.
-func (s *server) waitForDiagnostics(ctx context.Context, uri string, timeout time.Duration) (timedOut bool, err error) {
+// after the given base generation (or the deadline passes). timedOut
+// distinguishes a fresh publish from a silent wait; a silent wait is not
+// an error, it just means the current (possibly empty) view is the best
+// available.
+func (s *server) waitForDiagnostics(ctx context.Context, uri string, base uint64, timeout time.Duration) (timedOut bool, err error) {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	s.diagMu.Lock()
-	base := s.diagGen[uri]
 	sig := s.signal
 	s.diagMu.Unlock()
 	for {
