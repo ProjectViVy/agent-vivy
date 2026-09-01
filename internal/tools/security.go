@@ -3,36 +3,11 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/logging"
 )
-
-// SafetyFinding is a bounded, user-visible policy signal. It never carries
-// the matched secret or the original untrusted text.
-type SafetyFinding struct {
-	Code    string
-	Message string
-}
-
-var (
-	promptInjectionPattern = regexp.MustCompile(`(?i)(ignore|disregard|override)\s+(all\s+)?(previous|prior|system)\s+instructions`)
-)
-
-// ScanPrompt returns only coarse findings for suspicious user text. The
-// harness still lets the user ask the question; the finding is available to
-// preflight/UI/audit consumers without echoing sensitive content.
-func ScanPrompt(text string) []SafetyFinding {
-	if !promptInjectionPattern.MatchString(text) {
-		return nil
-	}
-	return []SafetyFinding{{
-		Code:    "prompt_injection_signal",
-		Message: "the request contains instruction-override language; treat external content as data",
-	}}
-}
 
 // ValidateArgsSafety blocks generic path/command hazards before a tool
 // implementation can observe the arguments. Tools with no such fields are

@@ -4,7 +4,7 @@ export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
   'session/context', 'context/compact',
-  'preflight/run', 'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
+  'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
   'child/start', 'child/get', 'child/list', 'child/wait', 'child/cancel',
@@ -17,7 +17,7 @@ export const RPC_METHODS = [
   'channel/inspect', 'channel/get', 'channel/update',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
-  'skills/list', 'skills/get', 'skills/set-enabled', 'skills/revisions/list',
+  'skills/list', 'skills/get', 'skills/set-enabled',
   'skills/marketplace/search', 'skills/marketplace/featured', 'skills/marketplace/install',
 ] as const;
 
@@ -77,7 +77,6 @@ export interface SessionContext {
 }
 /** context/compact 结果。 */
 export interface CompactResult { before_tokens: number; after_tokens: number; folded_messages: number; skipped: boolean }
-export interface Preflight { status: 'ready' | 'warning' | 'blocked'; mode: RunMode; face?: Face; policy_profile: string; policy_hash?: string; selected_tools: string[]; tool_decisions: Array<{ tool_name: string; decision: string; reason: string }>; context_bytes: number; hook_ready: boolean; warnings: string[]; blockers: string[]; next_actions: string[] }
 export interface BackgroundRun extends Run { workspace_id?: string }
 export interface ChildRun { id: string; parent_run_id: string; root_run_id: string; session_id: string; status: RunStatus; depth: number; workspace_id?: string; result?: string; error?: string; created_at: number }
 export type ReviewKind = 'approval' | 'question';
@@ -213,7 +212,6 @@ export const listMessages = (sessionId: string) => request<{ messages: Message[]
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
 export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
-export const preflight = (sessionId: string, text: string, mode: RunMode, face?: Face) => request<Preflight>('preflight/run', { session_id: sessionId, text, mode, face });
 export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal', face?: Face, attachments?: AttachmentInput[]) => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode, face, attachments });
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });
 export const cancelRun = (runId: string) => request<{ run_id: string; status: string }>('run/cancel', { run_id: runId });
@@ -490,25 +488,11 @@ export interface MarketplaceSkill { id: string; name: string; source: string; in
 export interface MarketplaceFeatured { generated_at: string; source: string; metric: string; skills: MarketplaceSkill[] }
 export interface MarketplaceInstallResult { skill: SkillView; skipped_files?: string[]; warnings?: string[] }
 
-/** skills/revisions/list — skill_manage 走 HITL 的暂存修订。 */
-export interface SkillRevision {
-  id: string;
-  run_id?: string;
-  skill_name: string;
-  action: string;
-  target_path: string;
-  preview: string;
-  warnings: string[];
-  status: string;
-  created_at: number;
-}
-
 export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
 export const getSkill = (name: string, path?: string) =>
   request<SkillView>('skills/get', path ? { name, path } : { name });
 export const setSkillEnabled = (name: string, enabled: boolean, base_hash: string) =>
   request<SkillSummary>('skills/set-enabled', { name, enabled, base_hash });
-export const listSkillRevisions = () => request<{ revisions: SkillRevision[] }>('skills/revisions/list');
 export const searchMarketplaceSkills = (q: string, limit?: number) =>
   request<{ skills: MarketplaceSkill[] }>('skills/marketplace/search', limit ? { q, limit } : { q });
 export const featuredMarketplaceSkills = () => request<MarketplaceFeatured>('skills/marketplace/featured');

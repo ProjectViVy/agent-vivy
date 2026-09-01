@@ -19,7 +19,6 @@ export function SkillsView() {
 
   const [skills, setSkills] = useState<api.SkillSummary[]>([]);
   const [selected, setSelected] = useState<api.SkillView | null>(null);
-  const [revisions, setRevisions] = useState<api.SkillRevision[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -34,18 +33,9 @@ export function SkillsView() {
     }
   }, [t]);
 
-  const loadRevisions = useCallback(async () => {
-    try {
-      const data = await api.listSkillRevisions();
-      setRevisions(data.revisions);
-    } catch {
-      // Staged revisions are a secondary surface; the installed list stays usable.
-    }
-  }, []);
-
   useEffect(() => {
-    void Promise.all([loadSkills(), loadRevisions()]).finally(() => setIsLoading(false));
-  }, [loadSkills, loadRevisions]);
+    void loadSkills().finally(() => setIsLoading(false));
+  }, [loadSkills]);
 
   const openSkill = useCallback(async (name: string, path?: string) => {
     try {
@@ -91,7 +81,7 @@ export function SkillsView() {
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => void Promise.all([loadSkills(), loadRevisions()])}>{t('common.retry')}</Button>
+            <Button onClick={() => void loadSkills()}>{t('common.retry')}</Button>
           </CardContent>
         </Card>
       </div>
@@ -104,13 +94,12 @@ export function SkillsView() {
         <TabsList>
           <TabsTrigger value="skills">{t('skills.installed', { count: skills.length })}</TabsTrigger>
           {marketplaceEnabled && <TabsTrigger value="marketplace">{t('skills.tabMarketplace')}</TabsTrigger>}
-          <TabsTrigger value="requests">{t('skills.tabRequests', { count: revisions.length })}</TabsTrigger>
         </TabsList>
         <Button
           variant="outline"
           size="sm"
           disabled={isLoading}
-          onClick={() => void Promise.all([loadSkills(), loadRevisions()])}
+          onClick={() => void loadSkills()}
         >
           <RefreshCw className="mr-2 h-4 w-4" />
           {t('common.refresh')}
@@ -234,49 +223,6 @@ export function SkillsView() {
           />
         </TabsContent>
       )}
-
-      <TabsContent value="requests" className="mt-0 min-h-0 flex-1 overflow-auto">
-        {revisions.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">{t('skills.requestsEmpty')}</CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {revisions.map((revision) => (
-              <Card key={revision.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <CardTitle className="text-base">{revision.skill_name}</CardTitle>
-                      <CardDescription>
-                        {revision.action} · {revision.target_path}
-                        {revision.run_id ? ` · ${t('skills.revisionRun')} ${revision.run_id}` : ''}
-                        {' · '}
-                        {new Date(revision.created_at).toLocaleString()}
-                      </CardDescription>
-                    </div>
-                    <Badge variant={revision.status === 'pending' ? 'default' : 'secondary'}>
-                      {t(`skills.status.${revision.status}`)}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {revision.warnings.length > 0 && (
-                    <ul className="list-inside list-disc text-xs text-amber-600 dark:text-amber-400">
-                      {revision.warnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="rounded-lg bg-muted p-3">
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-5">{revision.preview}</pre>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </TabsContent>
     </Tabs>
   );
 }
