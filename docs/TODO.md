@@ -125,7 +125,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-CHAT-TOOLBAR | 聊天框上方功能栏后端接线 + 状态持久化 | OPEN | 2026-08-29 权限三段（谨慎/智能/信任）已接 `session/set_permission`（见 `docs/logs/2026-08-29-sandbox-permission-presets/`）。执行模式/思考仍为纯 UI；附件/AutoDream/桌面伙伴/语音仍为 stub。 |
 | UI-AUDIT-CHAT-MODE | Chat Plan 模式未传入 `preflight/run` / `turn/start` | OPEN | 2026-08-31 审查确认菜单选择只传 content，ChatView 固定 `normal`；需把 UI mode 映射到后端 `RunMode`。见 `docs/research/ui-backend-correspondence-2026-08-31.md` |
 | UI-AUDIT-SKILLS-LIVE | Skills list/detail 未接已有 `skills/list` / `skills/get` | OPEN | 2026-08-31 审查确认仍使用 `vivy.demo.*` localStorage DTO；后端已有只读技能目录。 |
-| UI-AUDIT-DASHBOARD-LIVE | Dashboard 概览使用固定演示状态 | OPEN | 2026-08-31 审查确认 `12/2/1` 等数字来自 `getDemoDashboard`；应使用 session/background/review RPC，活动项无现有端点则删除。 |
+| UI-AUDIT-DASHBOARD-LIVE | Dashboard 会话栏已删，token/轨迹仍为演示数据 | OPEN | 2026-09-01 维护者裁定：概览(会话) tab 及 `getDemoDashboard` 假数据整体删除（session/activeRuns/pendingReviews/近期活动）；token 统计与轨迹两个 tab 保留演示数据，待接入真实 API 后转正。记忆/记事本/人格/进化四个演示页同样保留，后续接入。 |
 | UI-AUDIT-LIFECYCLE-HOME | 日常 Vivy 暴露物种侧 Lifecycle 写入口 | OPEN | 2026-08-31 审查确认 `/lifecycle` 与 Settings 卡可 create/eval/promote；架构正本要求 Studio 才是权威，物种只读 inspect。 |
 | UI-AUDIT-REVIEW-INSPECTOR | Run Inspector 缺少 Review inline/tab | OPEN | 2026-08-31 审查确认 Review Center 有队列但 inspector 只有 run/background/children；与 HITL-04 及 `hitl-review-center.md` inline renderer 约束不符。 |
 | UI-AUDIT-RUN-DETAIL | Run event payload 仅放 HTML title，缺少可读详情 | OPEN | 2026-08-31 审查确认后端 `RunLogEvent` 有结构化 payload，但 UI 未提供键盘可达的事件详情；违反日志一等公民要求。 |
