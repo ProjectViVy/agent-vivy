@@ -154,6 +154,7 @@ type MCPCatalog interface {
 type ChildRequest struct {
 	ParentRunID   string   `json:"parent_run_id"`
 	Text          string   `json:"text"`
+	System        string   `json:"system,omitempty"`
 	PolicyProfile string   `json:"policy_profile,omitempty"`
 	ToolNames     []string `json:"tool_names,omitempty"`
 }

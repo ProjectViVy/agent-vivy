@@ -251,16 +251,22 @@ func BuiltinWithSequential(notes storage.NoteStore, files FileOperations, skills
 
 // BuiltinWithCommands adds both controlled process tool names over one backend.
 func BuiltinWithCommands(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) *Registry {
-	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, nil, nil)
+	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, nil, nil, nil)
 }
 
 // BuiltinWithWeb adds the public-internet surface: a readonly page fetcher
 // and an approval-gated workspace download.
 func BuiltinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations) *Registry {
-	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads)
+	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads, nil)
 }
 
-func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations) *Registry {
+// BuiltinWithAgent adds the sub-agent delegation tool over the app-owned
+// child-run machinery.
+func BuiltinWithAgent(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations, agentOps AgentOperations) *Registry {
+	return builtinWithWeb(notes, files, skills, todos, search, httpOps, mcpOps, sequential, commands, fetch, downloads, agentOps)
+}
+
+func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations, fetch WebFetchOperations, downloads DownloadOperations, agentOps AgentOperations) *Registry {
 	registered := []Tool{
 		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
 		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files),
@@ -278,6 +284,9 @@ func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillO
 	}
 	if downloads != nil {
 		registered = append(registered, NewDownload(downloads))
+	}
+	if agentOps != nil {
+		registered = append(registered, NewAgent(agentOps))
 	}
 	if mcpOps != nil {
 		registered = append(registered, NewMCPListTools(mcpOps), NewMCPCall(mcpOps))

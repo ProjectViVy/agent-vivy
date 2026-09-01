@@ -27,6 +27,7 @@ type RunRequest struct {
 	PolicyHash    string      `json:"policy_hash"`
 	WorkspaceID   string      `json:"workspace_id"`
 	Text          string      `json:"text"`
+	System        string      `json:"system,omitempty"`
 	ToolName      string      `json:"tool_name,omitempty"`
 	ToolArgs      any         `json:"tool_args,omitempty"`
 	MaxTurns      int         `json:"max_turns,omitempty"`
@@ -89,7 +90,7 @@ func (h *serverHandler) run(ctx context.Context, peer *rpc.Peer, request rpc.Req
 	if params.RunID == "" || params.ParentRunID == "" || params.PolicyProfile == "" || params.PolicyHash == "" || params.WorkspaceID == "" {
 		return nil, &rpc.Error{Code: rpc.InvalidParams, Message: "run_id, parent_run_id, policy_profile, policy_hash, and workspace_id are required"}
 	}
-	if len(params.Text) > maxChildTextBytes || params.MaxTurns > maxChildTurns || len(params.Tools) > maxChildTools {
+	if len(params.Text) > maxChildTextBytes || len(params.System) > maxChildTextBytes || params.MaxTurns > maxChildTurns || len(params.Tools) > maxChildTools {
 		return nil, &rpc.Error{Code: rpc.InvalidParams, Message: "child request exceeds bounded harness limits"}
 	}
 	if err := peer.Notify("worker/event", Event{RunID: params.RunID, Type: "worker.started"}); err != nil {
@@ -128,7 +129,11 @@ func (h *serverHandler) turnLoop(ctx context.Context, peer *rpc.Peer, params Run
 	if maxTurns <= 0 {
 		maxTurns = 8
 	}
-	messages := []ChatMessage{{Role: "user", Content: params.Text}}
+	messages := make([]ChatMessage, 0, 2)
+	if params.System != "" {
+		messages = append(messages, ChatMessage{Role: "system", Content: params.System})
+	}
+	messages = append(messages, ChatMessage{Role: "user", Content: params.Text})
 	for turn := 0; turn < maxTurns; turn++ {
 		if err := validateTurnContext(messages); err != nil {
 			_ = peer.Notify("worker/event", Event{RunID: params.RunID, Type: "worker.failed", Error: "child context budget exceeded"})

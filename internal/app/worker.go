@@ -192,14 +192,14 @@ func (m *workerManager) StartChild(ctx context.Context, request controlrpc.Child
 	handle.mu.Lock()
 	handle.supervisor = supervisor
 	handle.mu.Unlock()
-	go m.driveChild(childCtx, handle, supervisor, request.Text, request.ToolNames)
+	go m.driveChild(childCtx, handle, supervisor, request.Text, request.System, request.ToolNames)
 	return handle.resultSnapshot(), nil
 }
 
-func (m *workerManager) driveChild(ctx context.Context, handle *childHandle, supervisor *worker.Supervisor, text string, requestedTools []string) {
+func (m *workerManager) driveChild(ctx context.Context, handle *childHandle, supervisor *worker.Supervisor, text, system string, requestedTools []string) {
 	result, err := supervisor.Run(ctx, worker.Spec{
 		RunID: handle.run.ID, ParentRunID: handle.run.ParentID, PolicyProfile: handle.profile,
-		PolicyHash: handle.snapshot.Hash, WorkspaceID: handle.workspace, Text: text,
+		PolicyHash: handle.snapshot.Hash, WorkspaceID: handle.workspace, Text: text, System: system,
 		MaxTurns: childMaxTurns, Tools: m.modelTools(requestedTools),
 	})
 	_ = supervisor.Close()
@@ -569,6 +569,16 @@ func (b *legacyModelBroker) Complete(ctx context.Context, request worker.ModelRe
 	if b.manager != nil {
 		if eventErr := b.manager.recordChildEvent(ctx, b.childID, b.ledger, domain.EventModelCompleted, map[string]any{"content": result.Message.Content}); eventErr != nil {
 			return worker.ModelResponse{}, eventErr
+		}
+		if result.Usage != nil {
+			if eventErr := b.manager.recordChildEvent(ctx, b.childID, b.ledger, domain.EventModelUsage, map[string]int{
+				"prompt_tokens":     result.Usage.PromptTokens,
+				"completion_tokens": result.Usage.CompletionTokens,
+				"total_tokens":      result.Usage.TotalTokens,
+				"reasoning_tokens":  result.Usage.ReasoningTokens,
+			}); eventErr != nil {
+				return worker.ModelResponse{}, eventErr
+			}
 		}
 	}
 	out := worker.ModelResponse{Status: result.Status, StopReason: result.StopReason}

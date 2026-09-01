@@ -181,6 +181,7 @@ tools:
     - task_update
     - task_list
     - network_search  # API-backed text search; remote results are untrusted
+    - agent           # delegates a focused sub-task to a fresh-context sub-agent (read-only tools, clean context)
     - tool_search
 # Preferred network_search provider when the model does not name one.
   # bing/google/searxng need their environment keys

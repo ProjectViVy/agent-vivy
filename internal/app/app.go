@@ -246,7 +246,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// The builtin registry is built once and re-resolved per engine build:
 	// Resolve filters by the active name list (settings tools_enabled
 	// overlay when written, config default otherwise).
-	builtinRegistry := tools.BuiltinWithWeb(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps)
+	// The agent tool's ops are armed after the worker manager exists
+	// (the manager needs the registered tool set; the ref defers the bind).
+	agentOps := &agentToolRef{}
+	builtinRegistry := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps)
 	// resolveActiveTools builds the live active surface plus its hidden
 	// complement. It backs startup and every engine rebuild, so a
 	// Settings-side active/hidden change lands without a process restart.
@@ -370,6 +373,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	})
 	svc.SetCatalog(catalog)
 	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
+	agentOps.arm(workerManager)
 	svc.SetChildApprovalRouter(workerManager)
 
 	liveProfile := domain.PolicyProfile(cfg.Governance.Profile)
