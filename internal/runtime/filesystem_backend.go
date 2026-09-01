@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	udiff "github.com/aymanbagabas/go-udiff"
@@ -55,6 +56,10 @@ type EinoFilesystemBackend struct {
 	// source (VC-3). Set once by the composition root before serving;
 	// unread when nil.
 	writeDiagnostics tools.WriteDiagnosticsSource
+	// fileVersions is the optional session file-history recorder (RB-1
+	// record side). Set once by the composition root before serving;
+	// unread when nil.
+	fileVersions tools.FileVersionRecorder
 }
 
 var (
@@ -85,6 +90,13 @@ func NewEinoFilesystemBackend(manager *WorkspaceManager, sandbox *SandboxManager
 // (VC-3). Call once during composition, before the backend serves runs.
 func (b *EinoFilesystemBackend) SetWriteDiagnostics(src tools.WriteDiagnosticsSource) {
 	b.writeDiagnostics = src
+}
+
+// SetFileVersionRecorder wires the session file-history recorder (RB-1
+// record side). Call once during composition, before the backend serves
+// runs.
+func (b *EinoFilesystemBackend) SetFileVersionRecorder(rec tools.FileVersionRecorder) {
+	b.fileVersions = rec
 }
 
 // WriteDiagnostics forwards the tools.WriteDiagnosticsSource contract to
@@ -206,6 +218,13 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return tools.FileReadResult{}, fmt.Errorf("filesystem: read %s: %w", displayPath(root, path), err)
+	}
+	// Successful read: move the stale-read marker forward (RB-1
+	// filetracker). Best-effort and only meaningful inside a session run.
+	if b.fileVersions != nil {
+		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" {
+			b.fileVersions.TrackAccess(ctx, sessionID, displayPath(root, path), time.Now().UnixMilli())
+		}
 	}
 	result := tools.FileReadResult{Path: displayPath(root, path), Bytes: len(data)}
 	if mime := imageMIME(path); mime != "" {
@@ -346,6 +365,19 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read existing %s: %w", displayPath(root, path), readErr)
 	}
+	// Stale-read guard (RB-1 filetracker): reject when the file changed on
+	// disk after the session's last tracked read. Never-tracked paths fail
+	// open — the guard is advisory against stale edits, not a
+	// read-before-write requirement.
+	if b.fileVersions != nil {
+		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" {
+			if at, ok, err := b.fileVersions.LastAccess(ctx, sessionID, displayPath(root, path)); err == nil && ok {
+				if info, statErr := os.Stat(path); statErr == nil && info.ModTime().UnixMilli() > at {
+					return tools.FileMutationResult{}, fmt.Errorf("filesystem: %s changed on disk after the last read; read it again before editing", displayPath(root, path))
+				}
+			}
+		}
+	}
 	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
 		err := fmt.Errorf("filesystem: proposal stale: target changed after human review")
 		return tools.FileMutationResult{}, err
@@ -372,6 +404,15 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 	}
 	if err := atomicWrite(path, []byte(req.Content), fileMode(path)); err != nil {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: write %s: %w", displayPath(root, path), err)
+	}
+	// Successful mutation: archive the version chain and move the stale
+	// marker forward (RB-1 record side). Best-effort, only meaningful
+	// inside a session run.
+	if b.fileVersions != nil {
+		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" {
+			b.fileVersions.RecordMutation(ctx, sessionID, runID, displayPath(root, path), old, []byte(req.Content))
+			b.fileVersions.TrackAccess(ctx, sessionID, displayPath(root, path), time.Now().UnixMilli())
+		}
 	}
 	result := mutationResult(root, path, []byte(req.Content), true)
 	result.Diff = boundedDiff(displayPath(root, path), string(old), req.Content)

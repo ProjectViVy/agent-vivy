@@ -242,6 +242,26 @@ CREATE TABLE cron_jobs (
 	updated_at_ms BIGINT NOT NULL
 );
 CREATE INDEX cron_jobs_next_run_idx ON cron_jobs(enabled, next_run_at_ms);
+
+CREATE TABLE file_versions (
+	id BIGSERIAL PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	run_id TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL,
+	version BIGINT NOT NULL,
+	content_hash TEXT NOT NULL,
+	content BYTEA NOT NULL,
+	created_at BIGINT NOT NULL,
+	UNIQUE(session_id, path, version)
+);
+CREATE INDEX file_versions_session_path_idx ON file_versions(session_id, path, version DESC);
+
+CREATE TABLE file_reads (
+	session_id TEXT NOT NULL,
+	path TEXT NOT NULL,
+	read_at BIGINT NOT NULL,
+	PRIMARY KEY(session_id, path)
+);
 `
 
 // schemaV15Upgrade upgrades a version-14 database in place: the same
@@ -310,4 +330,32 @@ CREATE TABLE IF NOT EXISTS message_attachments (
 	data BYTEA NOT NULL
 );
 CREATE INDEX IF NOT EXISTS message_attachments_message_idx ON message_attachments(message_id);
+`
+
+// schemaV18Upgrade adds the session file-version chain (RB-1 record side)
+// to databases bootstrapped earlier: pre/post-mutation snapshots per
+// (session, path) with hash dedupe and a 20-version retention, plus the
+// file_reads marker behind the stale-read guard. No foreign keys: session
+// deletion cascades through explicit DELETEs. Restore consumers stay
+// deferred (RB-L2-DEFER).
+const schemaV18Upgrade = `
+CREATE TABLE IF NOT EXISTS file_versions (
+	id BIGSERIAL PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	run_id TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL,
+	version BIGINT NOT NULL,
+	content_hash TEXT NOT NULL,
+	content BYTEA NOT NULL,
+	created_at BIGINT NOT NULL,
+	UNIQUE(session_id, path, version)
+);
+CREATE INDEX IF NOT EXISTS file_versions_session_path_idx ON file_versions(session_id, path, version DESC);
+
+CREATE TABLE IF NOT EXISTS file_reads (
+	session_id TEXT NOT NULL,
+	path TEXT NOT NULL,
+	read_at BIGINT NOT NULL,
+	PRIMARY KEY(session_id, path)
+);
 `

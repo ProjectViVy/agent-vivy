@@ -314,6 +314,38 @@ type CompactionStore interface {
 	LatestSessionCompaction(ctx context.Context, sessionID domain.SessionID) (SessionCompaction, bool, error)
 }
 
+// FileVersion retention knobs (RB-1 O2 ruling): the chain keeps the newest
+// 20 versions per (session, path) and never archives a version larger than
+// 1MB — the same byte cap the file tools enforce on write content.
+const (
+	FileVersionRetention = 20
+	FileVersionMaxBytes  = 1 << 20
+)
+
+// FileVersionStore archives workspace file snapshots per session (RB-1
+// record side) and tracks last-known reads for the stale-read guard. It is
+// the storage half of the session file version chain; restore consumers
+// (RPC/UI) are deliberately out of scope for now (RB-L2-DEFER).
+type FileVersionStore interface {
+	// RecordFileMutation appends one mutation onto the (session, path)
+	// version chain in a single transaction, Crush-style: a first sighting
+	// archives the pre-mutation content as the chain baseline, a chain
+	// whose latest version no longer matches the pre-mutation content
+	// (externally modified meanwhile) first archives that intermediate
+	// state, and the post-mutation content is appended last. Entries
+	// deduplicate by content hash and oversized content (over
+	// FileVersionMaxBytes) is skipped rather than truncated.
+	RecordFileMutation(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, path string, oldContent, newContent []byte) error
+	// TrackFileAccess upserts the (session, path) access marker used by
+	// the stale-read guard (the filetracker). Both the read and the write
+	// path call it: after a write the agent knows the disk content, so the
+	// marker must move forward.
+	TrackFileAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64) error
+	// LastFileAccess returns the marker timestamp; ok=false when the path
+	// was never tracked.
+	LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (int64, bool, error)
+}
+
 // Engine is one organism's durable store. App composition talks to this
 // surface; SQLite remains the default implementation.
 type Engine interface {
@@ -332,6 +364,7 @@ type Engine interface {
 	TodoStore
 	CompactionStore
 	CronStore
+	FileVersionStore
 	StudioStore
 	TokenUsageStore
 	LeaseStore
