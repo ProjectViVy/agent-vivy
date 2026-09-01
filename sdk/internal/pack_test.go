@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -92,6 +94,21 @@ func TestPackFakeChannelStandaloneModule(t *testing.T) {
 	if len(art.Tools) != 0 {
 		t.Fatalf("channel plugin must not contribute tools: %+v", art.Tools)
 	}
+	if len(art.Plugins) != 1 {
+		t.Fatalf("plugins = %+v, want exactly one entry", art.Plugins)
+	}
+	wantDir, err := filepath.Abs(filepath.Join(root, "sdk", "internal", "testdata", "fake-channel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPluginEntry(t, art.Plugins[0], artifactPlugin{
+		Name:      "fake-channel",
+		Version:   "0.1.0",
+		Seam:      "channel",
+		Grants:    []string{"channel.poll", "secret.read"},
+		Transport: "poll",
+		SourceRef: fileRefPrefix + wantDir,
+	})
 	exe := strings.TrimPrefix(art.SourceRef, fileRefPrefix)
 	if _, err := os.Stat(exe); err != nil {
 		t.Fatalf("packed exe missing: %v", err)
@@ -133,6 +150,20 @@ func TestPackHelloFSWritesArtifactAndLeavesLiveRegister(t *testing.T) {
 	if len(art.Recipe.Plugins) != 1 || art.Recipe.Plugins[0] != "hello-fs" {
 		t.Fatalf("recipe = %+v", art.Recipe)
 	}
+	if len(art.Plugins) != 1 {
+		t.Fatalf("plugins = %+v, want exactly one entry", art.Plugins)
+	}
+	wantDir, err := filepath.Abs(filepath.Join(root, "plugins", "hello-fs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPluginEntry(t, art.Plugins[0], artifactPlugin{
+		Name:      "hello-fs",
+		Version:   "0.1.0",
+		Seam:      "tool-world",
+		Grants:    []string{"fs.read"},
+		SourceRef: fileRefPrefix + wantDir,
+	})
 	hasStat := false
 	for _, tool := range art.Tools {
 		if tool.Name == "hello_stat" && tool.Readonly {
@@ -627,6 +658,33 @@ func TestPackTwoStandaloneModules(t *testing.T) {
 	if len(art.Recipe.Plugins) != 2 || art.Recipe.Plugins[0] != "telegram" || art.Recipe.Plugins[1] != "discord" {
 		t.Fatalf("recipe = %+v, want [telegram discord]", art.Recipe.Plugins)
 	}
+	if len(art.Plugins) != 2 {
+		t.Fatalf("plugins = %+v, want two entries", art.Plugins)
+	}
+	tgDir, err := filepath.Abs(filepath.Join(root, "plugins", "telegram"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dcDir, err := filepath.Abs(filepath.Join(root, "plugins", "discord"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPluginEntry(t, art.Plugins[0], artifactPlugin{
+		Name:      "telegram",
+		Version:   "0.1.0",
+		Seam:      "channel",
+		Grants:    []string{"channel.poll", "secret.read"},
+		Transport: "poll",
+		SourceRef: fileRefPrefix + tgDir,
+	})
+	assertPluginEntry(t, art.Plugins[1], artifactPlugin{
+		Name:      "discord",
+		Version:   "0.1.0",
+		Seam:      "channel",
+		Grants:    []string{"channel.poll", "secret.read"},
+		Transport: "poll",
+		SourceRef: fileRefPrefix + dcDir,
+	})
 	exe := strings.TrimPrefix(art.SourceRef, fileRefPrefix)
 	if _, err := os.Stat(exe); err != nil {
 		t.Fatalf("packed exe missing: %v", err)
@@ -661,4 +719,67 @@ func exeContainsTelego(exe string) (bool, error) {
 		return false, err
 	}
 	return strings.Contains(string(data), "github.com/mymmrac/telego"), nil
+}
+
+// treeHashPattern is a valid sha256 tree fingerprint as written into the
+// generation manifest's seam-classified plugin entries.
+var treeHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// assertPluginEntry checks one seam-classified generation entry against the
+// manifest projection it must carry (VIVY-CHANNEL-PACK.md §10): identity,
+// grants, channel transport (empty off the channel seam), a file: source
+// ref pointing at the plugin directory, and a 64-hex tree fingerprint.
+func assertPluginEntry(t *testing.T, got, want artifactPlugin) {
+	t.Helper()
+	if got.Name != want.Name || got.Version != want.Version || got.Seam != want.Seam {
+		t.Fatalf("plugin entry = %+v, want name/version/seam of %+v", got, want)
+	}
+	if !slices.Equal(got.Grants, want.Grants) {
+		t.Fatalf("grants = %v, want %v", got.Grants, want.Grants)
+	}
+	if got.Transport != want.Transport {
+		t.Fatalf("transport = %q, want %q", got.Transport, want.Transport)
+	}
+	if got.SourceRef != want.SourceRef {
+		t.Fatalf("source_ref = %q, want %q", got.SourceRef, want.SourceRef)
+	}
+	if !treeHashPattern.MatchString(got.TreeHash) {
+		t.Fatalf("tree_hash = %q, want a 64-hex digest", got.TreeHash)
+	}
+}
+
+// TestHashPluginTree pins the fingerprint contract: deterministic for the
+// same tree, sensitive to any content byte, and covering nested files.
+func TestHashPluginTree(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), []byte("package p\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "note.txt"), []byte("hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := hashPluginTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := hashPluginTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || !treeHashPattern.MatchString(first) {
+		t.Fatalf("tree hash not deterministic 64-hex: %q vs %q", first, second)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), []byte("package p // changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	third, err := hashPluginTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third == first {
+		t.Fatal("one-byte content change must change the tree hash")
+	}
 }
