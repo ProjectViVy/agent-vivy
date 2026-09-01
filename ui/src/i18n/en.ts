@@ -21,7 +21,7 @@ export const en: Dictionary = {
     close: 'Close',
   },
   app: {
-    documentTitle: 'Vivy',
+    documentTitle: 'VIVY',
     loading: 'Vivy is loading',
     cannotConnect: 'Cannot connect to Vivy',
     sessionCreateFailed: 'Failed to create session',

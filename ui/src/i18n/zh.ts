@@ -19,7 +19,7 @@ export const zh = {
     close: '关闭',
   },
   app: {
-    documentTitle: 'Vivy',
+    documentTitle: 'VIVY',
     loading: 'Vivy 加载中',
     cannotConnect: '无法连接 Vivy',
     sessionCreateFailed: '会话创建失败',
