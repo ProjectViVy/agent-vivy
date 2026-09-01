@@ -122,6 +122,23 @@ type WriteDiagnosticsSource interface {
 	WriteDiagnostics(ctx context.Context, paths []string) []string
 }
 
+// FileVersionRecorder is the optional file-history seam (RB-1 record
+// side): the session version chain plus the stale-read marker. The
+// filesystem backend treats it as best-effort — recording failures never
+// fail a mutation — with one exception: a stale-read rejection, which is
+// the filetracker doing its job.
+type FileVersionRecorder interface {
+	// RecordMutation archives the pre/post-mutation contents onto the
+	// (session, path) version chain. Implementations log and drop errors.
+	RecordMutation(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, path string, oldContent, newContent []byte)
+	// TrackAccess moves the stale-read marker forward after a successful
+	// read or write. Implementations log and drop errors.
+	TrackAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64)
+	// LastAccess reports the marker timestamp; ok=false when the path was
+	// never tracked.
+	LastAccess(ctx context.Context, sessionID domain.SessionID, path string) (at int64, ok bool, err error)
+}
+
 // attachWriteDiagnostics fills result.Diagnostics from the ops surface
 // when it exposes a WriteDiagnosticsSource and the mutation actually
 // changed the file. Failures to collect never fail the mutation.

@@ -108,6 +108,9 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 		{`DELETE FROM runs WHERE session_id = ?`},
 		{`DELETE FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)`},
 		{`DELETE FROM messages WHERE session_id = ?`},
+		{`DELETE FROM session_compactions WHERE session_id = ?`},
+		{`DELETE FROM file_versions WHERE session_id = ?`},
+		{`DELETE FROM file_reads WHERE session_id = ?`},
 		{`DELETE FROM sessions WHERE id = ?`},
 	} {
 		if _, err := tx.ExecContext(ctx, stmt.sql, id); err != nil {

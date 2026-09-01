@@ -64,9 +64,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-15", "monotonic replay under concurrent writers", cnConcurrentWriters},
 		{"CN-16", "replay after disconnect (after_seq tail)", cnReplayAfterDisconnect},
 		{"CN-17", "message provenance round-trip", cnMessageProvenance},
+		{"CN-18", "file version chain + stale-read tracker", cnFileVersionChain},
 	}
-	if len(cases) != 17 {
-		t.Fatalf("conformance suite must carry exactly 17 cases, got %d", len(cases))
+	if len(cases) != 18 {
+		t.Fatalf("conformance suite must carry exactly 18 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -594,5 +595,54 @@ func cnMessageProvenance(t *testing.T, h Harness) {
 	}
 	if l.EffectiveSource() != "ui" {
 		t.Fatalf("legacy EffectiveSource = %q, want ui", l.EffectiveSource())
+	}
+}
+
+func cnFileVersionChain(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-fv", Title: "t", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	// Record mutations without error and keep the tracker round-trip
+	// exact. Chain contents (baseline/intermediate/dedupe/retention) are
+	// asserted by backend-local tests that can query the table directly;
+	// the interface intentionally exposes no version reads until a restore
+	// consumer exists (RB-L2-DEFER).
+	mutations := []struct{ old, new string }{
+		{"", "v1"},
+		{"v1", "v2"},
+		{"v2", "v3"},
+	}
+	for i, m := range mutations {
+		if err := b.RecordFileMutation(ctx, "sess-fv", "run-fv", "a.go", []byte(m.old), []byte(m.new)); err != nil {
+			t.Fatalf("RecordFileMutation %d: %v", i, err)
+		}
+	}
+
+	if _, ok, err := b.LastFileAccess(ctx, "sess-fv", "a.go"); ok || err != nil {
+		t.Fatalf("LastFileAccess before tracking = ok=%v err=%v, want ok=false err=nil", ok, err)
+	}
+	if err := b.TrackFileAccess(ctx, "sess-fv", "a.go", 100); err != nil {
+		t.Fatalf("TrackFileAccess: %v", err)
+	}
+	if err := b.TrackFileAccess(ctx, "sess-fv", "a.go", 200); err != nil {
+		t.Fatalf("TrackFileAccess (upsert): %v", err)
+	}
+	at, ok, err := b.LastFileAccess(ctx, "sess-fv", "a.go")
+	if err != nil || !ok || at != 200 {
+		t.Fatalf("LastFileAccess = (%d, %v, %v), want (200, true, nil)", at, ok, err)
+	}
+	if _, ok, _ := b.LastFileAccess(ctx, "sess-fv", "other.go"); ok {
+		t.Fatalf("LastFileAccess for untracked path = ok, want not ok")
+	}
+
+	// Session deletion cascades both tables in one transaction.
+	if err := b.DeleteSession(ctx, "sess-fv"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	if _, ok, err := b.LastFileAccess(ctx, "sess-fv", "a.go"); ok || err != nil {
+		t.Fatalf("LastFileAccess after DeleteSession = ok=%v err=%v, want ok=false err=nil", ok, err)
 	}
 }

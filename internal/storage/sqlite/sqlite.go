@@ -48,6 +48,7 @@ var migrations = []struct {
 	{16, migration016},
 	{17, migration017},
 	{18, migration018},
+	{19, migration019},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -575,4 +576,31 @@ const migration018 = `
 		data BLOB NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS message_attachments_message_idx ON message_attachments(message_id);
+`
+
+// migration019 adds the session file-version chain (RB-1 record side):
+// pre/post-mutation snapshots per (session, path) with hash dedupe and a
+// 20-version retention, plus the file_reads marker table behind the
+// stale-read guard. Restore consumers stay deferred (RB-L2-DEFER). No
+// foreign keys: session deletion cascades through explicit DELETEs (the
+// compactions FK showed the delete-order hazard that path creates).
+const migration019 = `
+	CREATE TABLE IF NOT EXISTS file_versions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		run_id TEXT NOT NULL DEFAULT '',
+		path TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		content_hash TEXT NOT NULL,
+		content BLOB NOT NULL,
+		created_at INTEGER NOT NULL,
+		UNIQUE(session_id, path, version)
+	);
+	CREATE INDEX IF NOT EXISTS file_versions_session_path_idx ON file_versions(session_id, path, version DESC);
+	CREATE TABLE IF NOT EXISTS file_reads (
+		session_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		read_at INTEGER NOT NULL,
+		PRIMARY KEY(session_id, path)
+	);
 `

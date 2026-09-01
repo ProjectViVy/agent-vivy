@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	schemaVersion    = 17
+	schemaVersion    = 18
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
@@ -195,6 +195,14 @@ func (b *Backend) migrate(ctx context.Context) error {
 		`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
 		17, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("storage: record postgres schema version 17: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, schemaV18Upgrade); err != nil {
+		return fmt.Errorf("storage: apply postgres schema 18: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
+		18, time.Now().UnixMilli()); err != nil {
+		return fmt.Errorf("storage: record postgres schema version 18: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("storage: commit postgres schema: %w", err)

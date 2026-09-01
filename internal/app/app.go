@@ -208,6 +208,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 
 		fileBackend = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
 		fileOps = fileBackend
+		fileBackend.SetFileVersionRecorder(runtime.NewFileVersionRecorder(backend, nil))
 	}
 	if cfg.Runtime.SkillsRoot != "" {
 		built, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
