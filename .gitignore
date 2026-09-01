@@ -23,8 +23,9 @@
 # Dependencies and build artifacts for any nested JS workspace
 node_modules/
 
-# UI build artifacts and deps. ui/dist/.keep stays committed so go:embed
-# compiles before the first Vite build.
+# UI build artifacts and deps. ui/dist is never committed (go:embed needs
+# it, but pnpm emptyOutDir wipes a committed .keep on every build); fresh
+# checkouts get it because `just ci` runs ui-ci before the Go-side vet.
 /ui/dist/*
 !/ui/dist/.keep
 

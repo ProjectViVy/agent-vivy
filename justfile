@@ -40,7 +40,11 @@ build-split:
     & "{{go}}" build -tags vivy_headless -o dist/vivy-backend.exe ./cmd/vivy; if ($LASTEXITCODE) { exit $LASTEXITCODE }
     Set-Location ui; pnpm build -- --outDir ../dist/vivy-ui --emptyOutDir
 
-ci: fmt-check vet test headless-compile plugin-ci ui-ci
+# ui-ci first: the embedded-UI package (ui/embed.go, go:embed all:dist)
+# cannot compile on a fresh checkout until the Vite build creates ui/dist,
+# and a committed ui/dist/.keep is not an option because pnpm's
+# emptyOutDir wipes it on every build.
+ci: fmt-check ui-ci vet test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
