@@ -93,10 +93,11 @@ func (t diagnosticsTool) Run(ctx context.Context, env plugin.Env, args json.RawM
 		return "", fmt.Errorf("lsp: read %s: %w", in.Path, err)
 	}
 	uri := pathToURI(root, in.Path)
+	base := srv.diagGeneration(uri)
 	if err := srv.openText(ctx, lang.Name, uri, string(body)); err != nil {
 		return "", err
 	}
-	timedOut, err := srv.waitForDiagnostics(ctx, uri, wait)
+	timedOut, err := srv.waitForDiagnostics(ctx, uri, base, wait)
 	if err != nil {
 		return "", err
 	}

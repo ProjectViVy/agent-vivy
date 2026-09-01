@@ -59,9 +59,52 @@ type didChangeParams struct {
 }
 
 type initializeParams struct {
-	ProcessID    *int     `json:"processId"`
-	RootURI      string   `json:"rootUri"`
-	Capabilities struct{} `json:"capabilities"`
+	ProcessID    *int   `json:"processId"`
+	RootURI      string `json:"rootUri"`
+	Capabilities struct {
+		General struct {
+			PositionEncodings []string `json:"positionEncodings"`
+		} `json:"general"`
+	} `json:"capabilities"`
+}
+
+// positionEncoding is the LSP 3.17 character unit negotiated at
+// initialize: utf-16 code units (the default), utf-8 bytes, or utf-32
+// code points.
+type positionEncoding string
+
+const (
+	posEncUTF8  positionEncoding = "utf-8"
+	posEncUTF16 positionEncoding = "utf-16"
+	posEncUTF32 positionEncoding = "utf-32"
+)
+
+// offeredPositionEncodings is the client preference list sent at
+// initialize. utf-16 first keeps the LSP default when the server ignores
+// the list.
+var offeredPositionEncodings = []string{
+	string(posEncUTF16), string(posEncUTF8), string(posEncUTF32),
+}
+
+// negotiatedEncoding reads the server-chosen positionEncoding from an
+// initialize result (capabilities.positionEncoding). Absent means the LSP
+// default utf-16; a value outside the three defined units also falls back
+// to utf-16.
+func negotiatedEncoding(raw json.RawMessage) positionEncoding {
+	var result struct {
+		Capabilities struct {
+			PositionEncoding string `json:"positionEncoding"`
+		} `json:"capabilities"`
+	}
+	if json.Unmarshal(raw, &result) != nil {
+		return posEncUTF16
+	}
+	switch positionEncoding(result.Capabilities.PositionEncoding) {
+	case posEncUTF8, posEncUTF32:
+		return positionEncoding(result.Capabilities.PositionEncoding)
+	default:
+		return posEncUTF16
+	}
 }
 
 type textDocumentIdentifier struct {
@@ -112,7 +155,7 @@ type renameParams struct {
 }
 
 // textEdit is one replacement inside a WorkspaceEdit. Range positions are
-// UTF-16 code units (the LSP default).
+// in the negotiated position encoding (utf-16 by default).
 type textEdit struct {
 	Range   span   `json:"range"`
 	NewText string `json:"newText"`
@@ -125,10 +168,11 @@ type workspaceEdit struct {
 	Changes map[string][]textEdit `json:"changes"`
 }
 
-// utf16Offset maps an LSP position (line, UTF-16 character) onto a byte
-// offset in content. A character beyond the line's length clamps to the
-// end of the line; a line beyond the file clamps to EOF.
-func utf16Offset(content string, pos position) int {
+// offsetAt maps an LSP position onto a byte offset in content, counting
+// characters in the negotiated encoding. A character beyond the line's
+// length clamps to the end of the line; a line beyond the file clamps to
+// EOF.
+func offsetAt(content string, pos position, enc positionEncoding) int {
 	lineStart := 0
 	line := 0
 	for line < pos.Line {
@@ -150,10 +194,17 @@ func utf16Offset(content string, pos position) int {
 			break
 		}
 		r, size := utf8.DecodeRuneInString(content[offset:])
-		if r >= 0x10000 {
-			units += 2
-		} else {
+		switch enc {
+		case posEncUTF8:
+			units += size
+		case posEncUTF32:
 			units++
+		default:
+			if r >= 0x10000 {
+				units += 2
+			} else {
+				units++
+			}
 		}
 		offset += size
 	}
@@ -161,8 +212,9 @@ func utf16Offset(content string, pos position) int {
 }
 
 // applyEdits folds a TextEdit list onto content. Edits are applied
-// back-to-front so earlier offsets stay valid.
-func applyEdits(content string, edits []textEdit) (string, error) {
+// back-to-front so earlier offsets stay valid. Positions are interpreted
+// in the negotiated encoding.
+func applyEdits(content string, edits []textEdit, enc positionEncoding) (string, error) {
 	sorted := append([]textEdit(nil), edits...)
 	sort.Slice(sorted, func(i, j int) bool {
 		si, sj := sorted[i].Range.Start, sorted[j].Range.Start
@@ -172,8 +224,8 @@ func applyEdits(content string, edits []textEdit) (string, error) {
 		return si.Character > sj.Character
 	})
 	for _, e := range sorted {
-		start := utf16Offset(content, e.Range.Start)
-		end := utf16Offset(content, e.Range.End)
+		start := offsetAt(content, e.Range.Start, enc)
+		end := offsetAt(content, e.Range.End, enc)
 		if start > end {
 			return "", fmt.Errorf("lsp: inverted edit range %d..%d", start, end)
 		}

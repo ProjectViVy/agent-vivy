@@ -240,7 +240,7 @@ func (t renameTool) Run(ctx context.Context, env plugin.Env, args json.RawMessag
 	sort.Slice(plans, func(i, j int) bool { return plans[i].rel < plans[j].rel })
 	var b strings.Builder
 	for _, p := range plans {
-		next, err := applyEdits(p.body, p.edits)
+		next, err := applyEdits(p.body, p.edits, srv.enc)
 		if err != nil {
 			return "", err
 		}
