@@ -108,8 +108,18 @@ Rules:
   failure of run X without naming X.
 - Use `err` for errors, never `error`/`e`/`cause`.
 - Never log provider keys, bot tokens, raw Journal blobs, or full user
-  payloads (D-010; redaction stays at the tool-result boundary via
+  payloads (D-010; the tool-result boundary redacts via
   `RedactSensitive`, and the audit sink logs sizes/digests only).
+- Defense in depth: the slog handler layer applies the same vocabulary
+  again (`logging.Redact` in `internal/logging/redact.go`). Every record
+  is pattern-redacted in its message and string attributes, and an
+  attribute whose key contains `token`/`secret`/`password`/`api_key`/
+  `authorization`/`credential` (case-insensitive) collapses to
+  `[REDACTED]`. The guard is always on for both sinks (`Setup` and
+  `SetupWorker`) with no config knob — a value that slipped past
+  call-site discipline never reaches the file. `tools.RedactSensitive`
+  delegates to `logging.Redact`, so both layers share one shape set and
+  marker vocabulary.
 - A few leaf helpers (e.g. `clampText`) legitimately have no id in
   scope; do not thread ids through signatures just to decorate one line.
 
@@ -138,5 +148,4 @@ stream), `warn` for 5xx. They never carry request or response payloads
 
 ## 7. Deferred (see docs/TODO.md §0.1)
 
-- Handler-level redaction as defense in depth behind the D-010
-  call-site discipline.
+None. Open logging items live in `docs/TODO.md` §0.1.
