@@ -426,3 +426,44 @@ func TestApplyEditsUTF16Offsets(t *testing.T) {
 		t.Fatalf("multi got %q, %v", got, err)
 	}
 }
+
+func TestObserveWriteBackfillsDiagnostics(t *testing.T) {
+	env := &fakeEnv{root: t.TempDir(), files: map[string]string{
+		"main.go":   "package main\n",
+		"notes.txt": "hello\n",
+	}}
+	p := &Plugin{mgr: newManager()}
+
+	got := p.ObserveWrite(context.Background(), env, []string{"main.go", "notes.txt"})
+	want := []string{"main.go:1:1: error: boom [test]"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("lines = %v, want %v", got, want)
+	}
+	if env.spawnCount != 1 {
+		t.Fatalf("only the go file must spawn a server: %d %v", env.spawnCount, env.commands)
+	}
+
+	// Server reuse on the next mutation; the fake reports a clean publish
+	// on didChange, so silence means nothing to report.
+	got = p.ObserveWrite(context.Background(), env, []string{"main.go"})
+	if len(got) != 0 {
+		t.Fatalf("second pass = %v, want none", got)
+	}
+	if env.spawnCount != 1 {
+		t.Fatalf("server not reused: %d", env.spawnCount)
+	}
+}
+
+func TestFormatDiagnosticLinesCapsAndCounts(t *testing.T) {
+	many := make([]diagnostic, maxBackfillLines+3)
+	lines := formatDiagnosticLines("a.go", many)
+	if len(lines) != maxBackfillLines+1 {
+		t.Fatalf("lines = %d", len(lines))
+	}
+	if lines[maxBackfillLines] != "... 3 more" {
+		t.Fatalf("cap note = %q", lines[maxBackfillLines])
+	}
+	if formatDiagnosticLines("a.go", nil) != nil {
+		t.Fatal("empty diagnostics must contribute nothing")
+	}
+}

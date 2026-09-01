@@ -101,6 +101,35 @@ type FileMutationResult struct {
 	Bytes   int    `json:"bytes"`
 	SHA256  string `json:"sha256"`
 	Diff    string `json:"diff,omitempty"`
+	// Diagnostics carries post-write lint/type findings collected from
+	// tool-world plugins (VC-3 backfill). Empty unless a source is wired
+	// and reported something for the touched file.
+	Diagnostics string `json:"diagnostics,omitempty"`
+}
+
+// WriteDiagnosticsSource is an optional FileOperations extension: after a
+// successful mutation the tools ask it for diagnostics on the touched
+// paths (VC-3 backfill). The composition root decides what backs it —
+// production wires the pluginhost bridge over registered tool-world
+// plugins.
+type WriteDiagnosticsSource interface {
+	WriteDiagnostics(ctx context.Context, paths []string) []string
+}
+
+// attachWriteDiagnostics fills result.Diagnostics from the ops surface
+// when it exposes a WriteDiagnosticsSource and the mutation actually
+// changed the file. Failures to collect never fail the mutation.
+func attachWriteDiagnostics(ctx context.Context, ops any, result FileMutationResult, paths ...string) FileMutationResult {
+	src, ok := ops.(WriteDiagnosticsSource)
+	if !ok || !result.Changed {
+		return result
+	}
+	lines := src.WriteDiagnostics(ctx, paths)
+	if len(lines) == 0 {
+		return result
+	}
+	result.Diagnostics = strings.Join(lines, "\n")
+	return result
 }
 
 // FileOperations is the non-Eino contract consumed by Vivy tools. Runtime
@@ -324,7 +353,7 @@ func (t *writeFileTool) InvokableRun(ctx context.Context, args json.RawMessage) 
 	if err != nil {
 		return "", err
 	}
-	return marshalToolResult(result)
+	return marshalToolResult(attachWriteDiagnostics(ctx, t.ops, result, input.Path))
 }
 
 func (t *writeFileTool) PrepareProposal(ctx context.Context, args json.RawMessage) (domain.ToolProposal, error) {
@@ -378,7 +407,7 @@ func (t *patchTool) InvokableRun(ctx context.Context, args json.RawMessage) (str
 	if err != nil {
 		return "", err
 	}
-	return marshalToolResult(result)
+	return marshalToolResult(attachWriteDiagnostics(ctx, t.ops, result, input.Path))
 }
 
 func (t *patchTool) PrepareProposal(ctx context.Context, args json.RawMessage) (domain.ToolProposal, error) {

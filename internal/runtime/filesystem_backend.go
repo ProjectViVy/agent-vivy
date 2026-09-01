@@ -51,13 +51,18 @@ type EinoFilesystemBackend struct {
 	maxListDepth   int
 	maxListEntries int
 	rgPath         string
+	// writeDiagnostics is the optional post-write diagnostics backfill
+	// source (VC-3). Set once by the composition root before serving;
+	// unread when nil.
+	writeDiagnostics tools.WriteDiagnosticsSource
 }
 
 var (
-	_ einofs.Backend             = (*EinoFilesystemBackend)(nil)
-	_ tools.FileOperations       = (*EinoFilesystemBackend)(nil)
-	_ tools.GrepOperations       = (*EinoFilesystemBackend)(nil)
-	_ tools.MultiPatchOperations = (*EinoFilesystemBackend)(nil)
+	_ einofs.Backend               = (*EinoFilesystemBackend)(nil)
+	_ tools.FileOperations         = (*EinoFilesystemBackend)(nil)
+	_ tools.GrepOperations         = (*EinoFilesystemBackend)(nil)
+	_ tools.MultiPatchOperations   = (*EinoFilesystemBackend)(nil)
+	_ tools.WriteDiagnosticsSource = (*EinoFilesystemBackend)(nil)
 )
 
 // NewEinoFilesystemBackend binds file operations to the existing per-run
@@ -74,6 +79,21 @@ func NewEinoFilesystemBackend(manager *WorkspaceManager, sandbox *SandboxManager
 		maxListDepth: maxListDepthLimit, maxListEntries: maxListEntriesLimit,
 		rgPath: rgPath,
 	}
+}
+
+// SetWriteDiagnostics wires the post-write diagnostics backfill source
+// (VC-3). Call once during composition, before the backend serves runs.
+func (b *EinoFilesystemBackend) SetWriteDiagnostics(src tools.WriteDiagnosticsSource) {
+	b.writeDiagnostics = src
+}
+
+// WriteDiagnostics forwards the tools.WriteDiagnosticsSource contract to
+// the wired source; without one there is nothing to report.
+func (b *EinoFilesystemBackend) WriteDiagnostics(ctx context.Context, paths []string) []string {
+	if b.writeDiagnostics == nil {
+		return nil
+	}
+	return b.writeDiagnostics.WriteDiagnostics(ctx, paths)
 }
 
 // ListDir implements tools.FileOperations with a bounded directory listing.
