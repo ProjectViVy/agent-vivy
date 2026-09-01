@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ListTodo, Menu, MessageSquare, Wifi, WifiOff } from 'lucide-react';
+import { ListTodo, Folder, Menu, MessageSquare, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar';
 import { SessionDrawer } from '@/components/chat/SessionDrawer';
 import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { ApprovalsView } from '@/components/approvals/ApprovalsView';
+import { FilesPanel } from '@/components/files/FilesPanel';
 import { WelcomeWizard } from '@/components/layout/WelcomeWizard';
 import { useVivyStore } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -34,6 +35,8 @@ function Layout() {
   const run = useVivyStore((state) => state.currentRun);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const setReviewCenterOpen = useVivyStore((state) => state.setReviewCenterOpen);
+  const filesPanelOpen = useVivyStore((state) => state.filesPanelOpen);
+  const setFilesPanelOpen = useVivyStore((state) => state.setFilesPanelOpen);
   const sessionDrawerOpen = useVivyStore((state) => state.sessionDrawerOpen);
   const setSessionDrawerOpen = useVivyStore((state) => state.setSessionDrawerOpen);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
@@ -148,6 +151,16 @@ function Layout() {
                 </SheetBody>
               </SheetContent>
             </Sheet>
+            <Button
+              variant="ghost"
+              size="icon"
+              title={t('layout.files')}
+              aria-label={t('layout.files')}
+              aria-expanded={filesPanelOpen}
+              onClick={() => setFilesPanelOpen(!filesPanelOpen)}
+            >
+              <Folder className="h-5 w-5" />
+            </Button>
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-hidden"><Outlet /></main>
@@ -172,6 +185,16 @@ function Layout() {
           </SheetHeader>
           <SheetBody className="overflow-hidden">
             <ApprovalsView panel />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
+      <Sheet open={filesPanelOpen} onOpenChange={setFilesPanelOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-[560px]">
+          <SheetHeader className="border-b">
+            <SheetTitle>{t('layout.files')}</SheetTitle>
+          </SheetHeader>
+          <SheetBody className="overflow-hidden p-0">
+            <FilesPanel />
           </SheetBody>
         </SheetContent>
       </Sheet>

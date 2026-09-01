@@ -81,6 +81,10 @@ export interface ChildRun { id: string; parent_run_id: string; root_run_id: stri
 export type ReviewKind = 'approval' | 'question';
 export type ReviewStatus = 'pending' | 'approved' | 'denied' | 'answered' | 'cancelled' | 'expired' | 'stale';
 export interface ReviewItem { id: string; kind: ReviewKind; status: ReviewStatus; session_id: string; session_title?: string; run_id: string; tool_call_id?: string; tool_name?: string; source?: string; actor?: string; created_at: number; expires_at: number; decided_at?: number; action?: string; target?: string; precondition_hash?: string; preview?: string; risk_findings?: string[]; arguments?: Record<string, unknown>; prompt?: string; decision_reason?: string; stale_reason?: string; error?: string; effect?: string; reversibility?: string; scope?: string; trust?: string }
+export interface WorkspaceFile { path: string; size: number }
+export interface WorkspaceFileContent { path: string; content: string; size: number; truncated: boolean; binary: boolean }
+export const listWorkspaceFiles = (runId: string) => request<{ files: WorkspaceFile[]; truncated: boolean }>('workspace/list', { run_id: runId });
+export const readWorkspaceFile = (runId: string, path: string) => request<WorkspaceFileContent>('workspace/read', { run_id: runId, path });
 export interface Settings {
   provider: string;
   default_model: string;

@@ -55,7 +55,7 @@ func (childControllerStub) CancelChild(context.Context, string) (ChildResult, er
 	return ChildResult{ID: "child-stub", Status: "cancelled"}, nil
 }
 
-func newControlTestEnv(t *testing.T) *controlTestEnv {
+func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTestEnv {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
@@ -82,7 +82,7 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 	for _, tool := range ts {
 		liveTools = append(liveTools, tool.Spec())
 	}
-	handler, err := NewControlHandler(ControlDeps{
+	deps := ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Todos: backend, Bus: bus, Service: service,
 		Crons: backend, CronRunner: service,
@@ -103,7 +103,11 @@ func newControlTestEnv(t *testing.T) *controlTestEnv {
 			},
 		}),
 		Children: childControllerStub{},
-	})
+	}
+	for _, mutate := range mutators {
+		mutate(&deps)
+	}
+	handler, err := NewControlHandler(deps)
 	if err != nil {
 		t.Fatal(err)
 	}
