@@ -333,17 +333,6 @@ func (b *EinoFilesystemBackend) SearchFiles(ctx context.Context, runID domain.Ru
 // WriteFile implements tools.FileOperations. The runtime adapter assumes the
 // caller has already passed policy/HITL; it still revalidates the target here.
 func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunID, req tools.FileWriteRequest) (tools.FileMutationResult, error) {
-	// Sandbox validation: check write permission
-	if b.sandbox != nil {
-		root, _, err := b.resolve(ctx, runID, req.Path, true)
-		if err == nil {
-			fullPath := filepath.Join(root, req.Path)
-			if err := b.sandbox.ValidatePathWithMode(fullPath, FileOpWrite, sandboxMode(ctx)); err != nil {
-				return tools.FileMutationResult{}, fmt.Errorf("sandbox: %w", err)
-			}
-		}
-	}
-
 	root, path, err := b.resolve(ctx, runID, req.Path, true)
 	if err != nil {
 		return tools.FileMutationResult{}, err
@@ -370,6 +359,15 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 		}
 		if _, _, err := b.resolve(ctx, runID, req.Path, true); err != nil {
 			return tools.FileMutationResult{}, err
+		}
+	}
+	// Sandbox validation runs only after the parents exist: the symlink walk
+	// needs real directories, and resolve() has already bounded the path to
+	// the workspace and rejected symlink components before anything is
+	// created (same order as download.go).
+	if b.sandbox != nil {
+		if err := b.sandbox.ValidatePathWithMode(path, FileOpWrite, sandboxMode(ctx)); err != nil {
+			return tools.FileMutationResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
 	if err := atomicWrite(path, []byte(req.Content), fileMode(path)); err != nil {
