@@ -94,6 +94,7 @@ func Setup(opts Options) (*slog.Logger, Effective, io.Closer, error) {
 	} else {
 		h = slog.NewJSONHandler(w, hopts)
 	}
+	h = newRedactingHandler(h)
 
 	return slog.New(h),
 		Effective{Level: strings.ToLower(level.String()), Format: format},
@@ -150,6 +151,7 @@ func SetupWorker() (*slog.Logger, io.Closer, string, error) {
 	} else {
 		h = slog.NewJSONHandler(f, hopts)
 	}
+	h = newRedactingHandler(h)
 	return slog.New(h), f, name, nil
 }
 

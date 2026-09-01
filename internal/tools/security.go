@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/logging"
 )
 
 // SafetyFinding is a bounded, user-visible policy signal. It never carries
@@ -18,8 +19,6 @@ type SafetyFinding struct {
 
 var (
 	promptInjectionPattern = regexp.MustCompile(`(?i)(ignore|disregard|override)\s+(all\s+)?(previous|prior|system)\s+instructions`)
-	secretPattern          = regexp.MustCompile(`(?i)\b(?:sk|rk|pk)-[A-Za-z0-9_-]{12,}\b|\bBearer\s+[A-Za-z0-9._-]{12,}`)
-	emailPattern           = regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`)
 )
 
 // ScanPrompt returns only coarse findings for suspicious user text. The
@@ -75,7 +74,8 @@ func ValidateArgsSafety(spec domain.ToolSpec, args json.RawMessage) error {
 
 // RedactSensitive removes common credential and email forms from tool data
 // before the result enters model context or a durable tool.finished payload.
+// The vocabulary is single-sourced in internal/logging so the handler-layer
+// guard and this boundary redact with the same shapes and markers.
 func RedactSensitive(text string) string {
-	text = secretPattern.ReplaceAllString(text, "[REDACTED_SECRET]")
-	return emailPattern.ReplaceAllString(text, "[REDACTED_EMAIL]")
+	return logging.Redact(text)
 }
