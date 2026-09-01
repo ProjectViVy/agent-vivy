@@ -2,8 +2,11 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Wire types for the LSP subset this plugin speaks. Positions use the
@@ -99,6 +102,84 @@ type symbolInformation struct {
 	Name     string   `json:"name"`
 	Kind     int      `json:"kind"`
 	Location location `json:"location"`
+}
+
+// renameParams is the textDocument/rename request.
+type renameParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     position               `json:"position"`
+	NewName      string                 `json:"newName"`
+}
+
+// textEdit is one replacement inside a WorkspaceEdit. Range positions are
+// UTF-16 code units (the LSP default).
+type textEdit struct {
+	Range   span   `json:"range"`
+	NewText string `json:"newText"`
+}
+
+// workspaceEdit is the textDocument/rename reply (changes shape only;
+// documentChanges requires a client capability this plugin does not
+// declare, so servers keep to the simple form).
+type workspaceEdit struct {
+	Changes map[string][]textEdit `json:"changes"`
+}
+
+// utf16Offset maps an LSP position (line, UTF-16 character) onto a byte
+// offset in content. A character beyond the line's length clamps to the
+// end of the line; a line beyond the file clamps to EOF.
+func utf16Offset(content string, pos position) int {
+	lineStart := 0
+	line := 0
+	for line < pos.Line {
+		nl := strings.IndexByte(content[lineStart:], '\n')
+		if nl < 0 {
+			return len(content)
+		}
+		lineStart += nl + 1
+		line++
+	}
+	lineEnd := len(content)
+	if nl := strings.IndexByte(content[lineStart:], '\n'); nl >= 0 {
+		lineEnd = lineStart + nl
+	}
+	units := 0
+	offset := lineStart
+	for offset < lineEnd {
+		if units >= pos.Character {
+			break
+		}
+		r, size := utf8.DecodeRuneInString(content[offset:])
+		if r >= 0x10000 {
+			units += 2
+		} else {
+			units++
+		}
+		offset += size
+	}
+	return offset
+}
+
+// applyEdits folds a TextEdit list onto content. Edits are applied
+// back-to-front so earlier offsets stay valid.
+func applyEdits(content string, edits []textEdit) (string, error) {
+	sorted := append([]textEdit(nil), edits...)
+	sort.Slice(sorted, func(i, j int) bool {
+		si, sj := sorted[i].Range.Start, sorted[j].Range.Start
+		if si.Line != sj.Line {
+			return si.Line > sj.Line
+		}
+		return si.Character > sj.Character
+	})
+	for _, e := range sorted {
+		start := utf16Offset(content, e.Range.Start)
+		end := utf16Offset(content, e.Range.End)
+		if start > end {
+			return "", fmt.Errorf("lsp: inverted edit range %d..%d", start, end)
+		}
+		content = content[:start] + e.NewText + content[end:]
+	}
+	return content, nil
 }
 
 // parseSymbols accepts both reply shapes: hierarchical documentSymbol

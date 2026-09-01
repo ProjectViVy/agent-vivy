@@ -117,6 +117,7 @@ func TestFormatDiagnostics(t *testing.T) {
 type fakeEnv struct {
 	root       string
 	files      map[string]string
+	written    map[string]string
 	spawnCount int
 	commands   []string
 }
@@ -131,14 +132,31 @@ func (f *fakeEnv) OpenRead(p string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(body)), nil
 }
 
-func (f *fakeEnv) OpenWrite(p string) (io.WriteCloser, error) { return nil, plugin.ErrDenied }
+func (f *fakeEnv) OpenWrite(p string) (io.WriteCloser, error) {
+	if f.written == nil {
+		f.written = map[string]string{}
+	}
+	return &memWriter{env: f, key: p}, nil
+}
+
+type memWriter struct {
+	env *fakeEnv
+	key string
+}
+
+func (w *memWriter) Write(p []byte) (int, error) {
+	w.env.written[w.key] += string(p)
+	return len(p), nil
+}
+
+func (w *memWriter) Close() error { return nil }
 
 func (f *fakeEnv) Spawn(_ context.Context, spec plugin.SpawnSpec) (plugin.Proc, error) {
 	f.spawnCount++
 	f.commands = append(f.commands, spec.Command)
 	toolInR, toolInW := io.Pipe()
 	toolOutR, toolOutW := io.Pipe()
-	go serveFakeLSP(toolInR, toolOutW)
+	go serveFakeLSP(toolInR, toolOutW, f.root)
 	return fakeProc{stdin: toolInW, stdout: toolOutR}, nil
 }
 
@@ -154,8 +172,9 @@ func (p fakeProc) Wait() error           { return nil }
 func (p fakeProc) Close() error          { return nil }
 
 // serveFakeLSP answers initialize, publishes one diagnostic on didOpen,
-// and a clean publish on didChange.
-func serveFakeLSP(r io.Reader, w io.Writer) {
+// and a clean publish on didChange. root enables handlers that build
+// workspace URIs (rename emits a second file's edit).
+func serveFakeLSP(r io.Reader, w io.Writer, root string) {
 	br := bufio.NewReader(r)
 	publish := func(uri string, diags []diagnostic) {
 		raw, _ := json.Marshal(publishDiagnosticsParams{URI: uri, Diagnostics: diags})
@@ -214,6 +233,32 @@ func serveFakeLSP(r io.Reader, w io.Writer) {
 				Children: []documentSymbol{{Name: "helper", Kind: 12, Range: span{Start: position{Line: 4, Character: 0}}}},
 			}}
 			raw, _ := json.Marshal(tree)
+			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: raw})
+		case "textDocument/rename":
+			var p renameParams
+			if json.Unmarshal(msg.Params, &p) != nil {
+				return
+			}
+			var we workspaceEdit
+			if p.NewName == "ESCAPE" {
+				we.Changes = map[string][]textEdit{
+					"file:///C:/outside/x.go": {{NewText: "x"}},
+				}
+			} else {
+				we.Changes = map[string][]textEdit{
+					p.TextDocument.URI: {{
+						Range:   span{Start: position{Line: 0, Character: 0}, End: position{Line: 0, Character: 7}},
+						NewText: p.NewName,
+					}},
+				}
+				if root != "" {
+					we.Changes[pathToURI(root, "util.go")] = []textEdit{{
+						Range:   span{Start: position{Line: 2, Character: 0}, End: position{Line: 2, Character: 0}},
+						NewText: "// renamed\n",
+					}}
+				}
+			}
+			raw, _ := json.Marshal(we)
 			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: raw})
 		}
 	}
@@ -316,5 +361,68 @@ func TestFormatLocationsNullAndSingle(t *testing.T) {
 	single := json.RawMessage(`{"uri":"` + pathToURI(root, "a.go") + `","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":3}}}`)
 	if got, _ := formatLocations(root, single); got != "a.go:3:1" {
 		t.Fatalf("single = %q", got)
+	}
+}
+
+func TestRenameToolAppliesWorkspaceEdit(t *testing.T) {
+	env := &fakeEnv{root: t.TempDir(), files: map[string]string{
+		"main.go": "package main\n\nfunc main() {}\n",
+		"util.go": "package main\n\n// helper\n",
+	}}
+	tool := renameTool{mgr: newManager()}
+	got, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"main.go","line":3,"column":6,"new_name":"renamed"}`))
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if got != "main.go (1 edits)\nutil.go (1 edits)" {
+		t.Fatalf("summary = %q", got)
+	}
+	if env.written["main.go"] != "renamed main\n\nfunc main() {}\n" {
+		t.Fatalf("main.go = %q", env.written["main.go"])
+	}
+	if env.written["util.go"] != "package main\n\n// renamed\n// helper\n" {
+		t.Fatalf("util.go = %q", env.written["util.go"])
+	}
+	if _, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"main.go","line":3,"column":6,"new_name":"ESCAPE"}`)); err == nil || !strings.Contains(err.Error(), "outside the workspace") {
+		t.Fatalf("escape err = %v", err)
+	}
+	if _, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"main.go","line":3,"column":6,"new_name":"  "}`)); err == nil || !strings.Contains(err.Error(), "new_name") {
+		t.Fatalf("blank name err = %v", err)
+	}
+}
+
+func TestApplyEditsUTF16Offsets(t *testing.T) {
+	content := "a := \"👍b\"\nnext\n"
+	// LSP reports the position after the surrogate pair (character 8);
+	// a naive rune count would land inside the emoji.
+	edits := []textEdit{{
+		Range:   span{Start: position{Line: 0, Character: 8}, End: position{Line: 0, Character: 9}},
+		NewText: "B",
+	}}
+	got, err := applyEdits(content, edits)
+	if err != nil {
+		t.Fatalf("applyEdits: %v", err)
+	}
+	if got != "a := \"👍B\"\nnext\n" {
+		t.Fatalf("got %q", got)
+	}
+	if strings.Count(got, "👍") != 1 {
+		t.Fatalf("emoji corrupted: %q", got)
+	}
+	// Insertion at end-of-line beyond the last character clamps.
+	got, err = applyEdits("ab\n", []textEdit{{
+		Range:   span{Start: position{Line: 0, Character: 9}, End: position{Line: 0, Character: 9}},
+		NewText: "c",
+	}})
+	if err != nil || got != "abc\n" {
+		t.Fatalf("clamp got %q, %v", got, err)
+	}
+	// A later edit must not shift an earlier one.
+	got, err = applyEdits("abcdef\n", []textEdit{
+		{Range: span{Start: position{Line: 0, Character: 0}, End: position{Line: 0, Character: 1}}, NewText: "X"},
+		{Range: span{Start: position{Line: 0, Character: 5}, End: position{Line: 0, Character: 6}}, NewText: "Y"},
+	})
+	if err != nil || got != "XbcdeY\n" {
+		t.Fatalf("multi got %q, %v", got, err)
 	}
 }
