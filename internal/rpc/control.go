@@ -728,9 +728,10 @@ func (h *controlHandler) createSession(ctx context.Context, request Request) (an
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	if params.Title == "" {
-		params.Title = "New session"
-	}
+	// An empty title stays empty: it marks the session untitled so the
+	// auto-titler can name it after the first exchange; clients render a
+	// localized placeholder.
+	params.Title = strings.TrimSpace(params.Title)
 	session := domain.Session{ID: domain.SessionID(newControlID("sess_")), Title: params.Title, CreatedAt: nowMillis()}
 	if mode, policy, ok := h.defaultPreset().Bundle(); ok {
 		session.SandboxMode = string(mode)

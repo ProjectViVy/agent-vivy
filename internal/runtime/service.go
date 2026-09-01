@@ -99,6 +99,10 @@ type ServiceDeps struct {
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
+	// Titles generates session auto-titles after the first completed
+	// exchange (VC-2 small→large chain). Nil keeps sessions untitled until
+	// a user renames them.
+	Titles TitleGenerator
 	// RebuildEngine rebuilds the Engine with a new config. App wires it to
 	// the composition root so settings saves can hot-swap compaction
 	// middleware; nil disables ScheduleEngineReload.
@@ -1177,6 +1181,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 	}
 	s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
+	s.maybeAutoTitle(ctx, sessionID)
 }
 
 // reserveMappedBudget charges durable non-terminal events and the logical

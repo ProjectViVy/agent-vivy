@@ -55,6 +55,10 @@ runtime:
   max_model_calls: 32
   max_run_tool_calls: 64
   max_run_retries: 3
+  # Optional cheaper model (same active provider, same key) for utility
+  # generations such as session auto-titles; failures fall back to the main
+  # model. Leave empty to always use the main model.
+  # small_model: gpt-4o-mini
   # Default: <user data root>/workspace (under the OS user home). One
   # private sandbox directory per background run lives under this root.
   # An AGENTS.md inside a run workspace is injected read-only into that

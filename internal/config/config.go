@@ -219,6 +219,12 @@ type Runtime struct {
 	Sandbox SandboxConfig `yaml:"sandbox"`
 	// Hooks configures user hook scripts around tool execution (D8).
 	Hooks HooksConfig `yaml:"hooks"`
+	// SmallModel optionally names a cheaper model from the same active
+	// provider for utility generations such as session auto-titles (VC-2).
+	// It rides the active provider's base URL and key, so provider/model
+	// management stays one data source; empty keeps the main model only.
+	// Failures fall back down the utility chain.
+	SmallModel string `yaml:"small_model"`
 }
 
 // HooksConfig is the user hook surface (D8). A hook script is a plain
@@ -623,6 +629,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxRunRetries < 0 {
 		return errors.New("runtime.max_run_retries must not be negative")
+	}
+	// small_model is an open-ended model id on the active provider; only
+	// structural sanity is checkable here. Unknown ids fail at generation
+	// time and fall back down the utility chain.
+	c.Runtime.SmallModel = strings.TrimSpace(c.Runtime.SmallModel)
+	if strings.ContainsAny(c.Runtime.SmallModel, "\r\n\x00") {
+		return errors.New("runtime.small_model must be a single model id")
 	}
 	if c.Runtime.WorkspaceRoot == "" {
 		return errors.New("runtime.workspace_root must not be empty")
