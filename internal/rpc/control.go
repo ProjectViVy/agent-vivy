@@ -324,7 +324,30 @@ type messageResult struct {
 	Role        domain.Role               `json:"role"`
 	Content     string                    `json:"content"`
 	Attachments []messageAttachmentResult `json:"attachments,omitempty"`
+	Provenance  *messageProvenanceResult  `json:"provenance,omitempty"`
 	CreatedAt   int64                     `json:"created_at"`
+}
+
+// messageProvenanceResult projects the world entry of one turn (CH-C1).
+// ui turns project no provenance at all — matching the domain rule that a
+// nil Provenance or empty Source reads as the built-in UI.
+type messageProvenanceResult struct {
+	Source           string `json:"source"`
+	Channel          string `json:"channel,omitempty"`
+	ChatID           string `json:"chat_id,omitempty"`
+	ChannelMessageID string `json:"channel_message_id,omitempty"`
+}
+
+func messageProvenance(message domain.Message) *messageProvenanceResult {
+	if message.EffectiveSource() != "channel" {
+		return nil
+	}
+	return &messageProvenanceResult{
+		Source:           "channel",
+		Channel:          message.Channel,
+		ChatID:           message.ChatID,
+		ChannelMessageID: message.ChannelMessageID,
+	}
 }
 
 // messageAttachmentResult returns one image inline as a data URL so the
@@ -825,7 +848,7 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
-		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt})
+		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, Provenance: messageProvenance(message), CreatedAt: message.CreatedAt})
 	}
 	return map[string]any{
 		"session":  toSessionResult(session),
@@ -882,7 +905,7 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
-		result := messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt}
+		result := messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, Provenance: messageProvenance(message), CreatedAt: message.CreatedAt}
 		for _, attachment := range message.Attachments {
 			result.Attachments = append(result.Attachments, messageAttachmentResult{
 				Name:     attachment.Name,

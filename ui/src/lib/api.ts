@@ -51,7 +51,9 @@ export interface Todo {
   created_at: number;
   updated_at: number;
 }
-export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number; attachments?: MessageAttachment[] }
+/** 消息世界入口出处（CH-C1）：仅 channel 轮携带，ui 轮不出该字段。 */
+export interface MessageProvenance { source: string; channel?: string; chat_id?: string; channel_message_id?: string }
+export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number; attachments?: MessageAttachment[]; provenance?: MessageProvenance }
 /** turn/start 附件输入：data 为原始 base64（不带 data: 前缀），服务端做类型/大小校验。 */
 export interface AttachmentInput { name?: string; mime_type: string; data: string }
 /** session/messages 返回的用户消息附件：data_url 为服务端拼好的 data URL。 */

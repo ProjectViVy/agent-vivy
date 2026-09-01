@@ -2031,3 +2031,69 @@ func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
 		t.Fatalf("data_url = %q, want %q", user.Attachments[0].DataURL, wantURL)
 	}
 }
+
+// TestControlMessageProvenanceProjected (CH-C1-N3): channel turns project
+// their world-entry provenance on both session/get and session/messages;
+// ui turns (empty source, the legacy shape) project none.
+func TestControlMessageProvenanceProjected(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "prov"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := domain.SessionID(session.ID)
+
+	uiMsg := domain.Message{ID: "m-ui", SessionID: sessionID, Role: domain.RoleUser, Content: "from the ui", CreatedAt: 1}
+	channelMsg := domain.Message{ID: "m-ch", SessionID: sessionID, Role: domain.RoleUser, Content: "from telegram", CreatedAt: 2,
+		Source: "channel", Channel: "telegram", ChatID: "chat-1", ChannelMessageID: "tg-42"}
+	if err := env.backend.AppendMessage(context.Background(), uiMsg); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.backend.AppendMessage(context.Background(), channelMsg); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, method := range []string{"session/get", "session/messages"} {
+		result, rpcErr := callControl(t, env.handler, method, map[string]string{"session_id": string(sessionID)})
+		if rpcErr != nil {
+			t.Fatal(rpcErr)
+		}
+		resultJSON, _ := json.Marshal(result)
+		var decoded struct {
+			Messages []messageResult `json:"messages"`
+		}
+		if err := json.Unmarshal(resultJSON, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		var ui, channel *messageResult
+		for index := range decoded.Messages {
+			switch decoded.Messages[index].ID {
+			case "m-ui":
+				ui = &decoded.Messages[index]
+			case "m-ch":
+				channel = &decoded.Messages[index]
+			}
+		}
+		if ui == nil || channel == nil {
+			t.Fatalf("%s: messages missing: %+v", method, decoded.Messages)
+		}
+		if ui.Provenance != nil {
+			t.Fatalf("%s: ui message carries provenance: %+v", method, ui.Provenance)
+		}
+		if !strings.Contains(string(resultJSON), `"provenance"`) {
+			t.Fatalf("%s: provenance key absent from payload", method)
+		}
+		if channel.Provenance == nil {
+			t.Fatalf("%s: channel message lost provenance", method)
+		}
+		if channel.Provenance.Source != "channel" || channel.Provenance.Channel != "telegram" ||
+			channel.Provenance.ChatID != "chat-1" || channel.Provenance.ChannelMessageID != "tg-42" {
+			t.Fatalf("%s: provenance = %+v", method, channel.Provenance)
+		}
+	}
+}
