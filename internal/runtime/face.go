@@ -21,7 +21,7 @@ func normalizeFace(face domain.Face) (domain.Face, error) {
 	if face.Valid() {
 		return face, nil
 	}
-	return "", errors.Join(ErrInvalidFace, errors.New("face must be web, tui, or code"))
+	return "", errors.Join(ErrInvalidFace, errors.New("face must be web, tui, code, or headless"))
 }
 
 type faceContextKey struct{}

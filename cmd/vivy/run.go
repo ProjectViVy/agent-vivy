@@ -1,0 +1,111 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"agent-vivy/internal/app"
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/logging"
+)
+
+// runUsage is the `vivy run` help text.
+const runUsage = `usage: vivy run [--continue] "prompt"
+   echo prompt | vivy run [--continue]
+
+Runs one prompt through the headless face: assistant text streams to
+stdout, tool and failure notices go to stderr, and the exit code mirrors
+the terminal event (0 completed, 1 failed, 2 cancelled). --continue
+attaches the prompt to the most recent session.
+`
+
+// runRun drives exactly one prompt through the headless face (D11). A
+// piped stdin replaces a missing prompt argument; an interactive call
+// with no argument is a usage error, not a hang waiting on a tty.
+func runRun(args []string) int {
+	continueNewest := false
+	var words []string
+	for _, arg := range args {
+		switch arg {
+		case "--continue", "-c":
+			continueNewest = true
+		case "--help", "-h":
+			fmt.Print(runUsage)
+			return 0
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(os.Stderr, "vivy run: unknown flag %s\n", arg)
+				fmt.Fprint(os.Stderr, runUsage)
+				return 1
+			}
+			words = append(words, arg)
+		}
+	}
+	prompt := strings.TrimSpace(strings.Join(words, " "))
+	if prompt == "" {
+		if stat, err := os.Stdin.Stat(); err == nil && stat.Mode()&os.ModeCharDevice == 0 {
+			data, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "vivy run: read stdin: %v\n", err)
+				return 1
+			}
+			prompt = strings.TrimSpace(string(data))
+		}
+	}
+	if prompt == "" {
+		fmt.Fprint(os.Stderr, runUsage)
+		return 1
+	}
+
+	// The worker branch owns stdout the same way: no log line may corrupt
+	// the assistant text stream. Bootstrap diagnostics go to stderr until
+	// the configured file sink is installed; the file sink itself gets
+	// Stdout=false permanently for this command.
+	bootstrap := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	cfg, err := loadConfig(bootstrap)
+	if err != nil {
+		bootstrap.Error("startup aborted", "err", err)
+		return 1
+	}
+	vivyLog, _, closeLog, err := logging.Setup(logging.Options{
+		Level:         cfg.Logging.Level,
+		Format:        cfg.Logging.Format,
+		Dir:           cfg.LogDirectory(),
+		RetentionDays: cfg.Logging.RetentionDays,
+		Stdout:        false,
+	})
+	if err != nil {
+		bootstrap.Error("startup aborted", "err", err)
+		return 1
+	}
+	defer closeLog.Close()
+	slog.SetDefault(vivyLog)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	result, err := app.RunHeadless(ctx, cfg, app.HeadlessOptions{
+		Prompt:         prompt,
+		ContinueNewest: continueNewest,
+		Out:            os.Stdout,
+		Err:            os.Stderr,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vivy run: %v\n", err)
+		return 1
+	}
+	switch result.Status {
+	case domain.RunCompleted:
+		return 0
+	case domain.RunCancelled:
+		return 2
+	default:
+		return 1
+	}
+}

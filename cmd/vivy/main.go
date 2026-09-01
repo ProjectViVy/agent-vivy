@@ -36,6 +36,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		os.Exit(runInit(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		os.Exit(runRun(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "tui" {
 		os.Exit(runTUI(os.Args[2:]))
 	}

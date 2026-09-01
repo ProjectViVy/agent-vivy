@@ -60,12 +60,47 @@ type App struct {
 	rpcToken   string
 }
 
+// AppOption tweaks one composition of the process. The zero value is the
+// default gateway assembly.
+type AppOption func(*appOptions)
+
+type appOptions struct {
+	channels bool
+	sink     runtime.EventSink
+}
+
+// WithoutEars composes the process with no channel Host: no partition, no
+// run hook, no StartAll. The headless face is one terminal-bound turn and
+// must never consume inbound channel traffic.
+func WithoutEars() AppOption { return func(o *appOptions) { o.channels = false } }
+
+// WithEventSink adds a second event sink next to the gateway bus. The
+// headless face renders the run stream for stdout/stderr through it.
+func WithEventSink(sink runtime.EventSink) AppOption {
+	return func(o *appOptions) { o.sink = sink }
+}
+
+// fanoutSink publishes one event to both the gateway bus and the extra
+// face sink, preserving the synchronous persist order.
+type fanoutSink struct {
+	primary, extra runtime.EventSink
+}
+
+func (f fanoutSink) Publish(ev domain.RunEvent) {
+	f.primary.Publish(ev)
+	f.extra.Publish(ev)
+}
+
 // New builds the app from a validated config. It returns an error only
 // for construction failures; an invalid config must be rejected earlier
 // by config.Load / config.Validate.
-func New(ctx context.Context, cfg config.Config) (*App, error) {
+func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error) {
 	logger := slog.Default()
 
+	ao := appOptions{channels: true}
+	for _, opt := range opts {
+		opt(&ao)
+	}
 	// Operator-managed preferences (network search, execute ceiling, the
 	// per-channel knobs) overlay the validated config. Provider keys are
 	// NOT applied to the process environment; ModelResolver reads
@@ -198,13 +233,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	mcpOps = mcpBackend
 	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
 	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
-	// The channels envelope may only name compiled-in channel plugins, and
-	// every channel-seam plugin must carry the plugin.Channel ABI (FR-10).
-	channelPlugins, err := partitionChannels(genPlugins, cfg.Channels)
-	if err != nil {
-		_ = backend.Close()
-		return nil, err
-	}
 	var lookup pluginhost.WorkspaceLookup
 	if workspaceManager != nil {
 		lookup = func(ctx context.Context) (string, error) {
@@ -271,25 +299,44 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	bus := events.NewBus(cfg.Runtime.StreamBuffer)
+	svcSink := runtime.EventSink(bus)
+	if ao.sink != nil {
+		svcSink = fanoutSink{primary: bus, extra: ao.sink}
+	}
 	// The ChannelHost is constructed before the runtime service so it can
 	// join the initial hook list. It receives only a Run callback — never
 	// *runtime.Service — so plugins cannot reach the runtime and the
-	// channelhost layer stays free of internal/runtime imports.
+	// channelhost layer stays free of internal/runtime imports. The
+	// channels envelope may only name compiled-in channel plugins, and
+	// every channel-seam plugin must carry the plugin.Channel ABI (FR-10).
+	// The headless face composes with no ears (WithoutEars).
 	var svc *runtime.Service
-	channelHost := channelhost.New(channelhost.Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
-			if svc == nil {
-				return "", errors.New("app: runtime service is not wired")
-			}
-			return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
-		},
-		Channels: channelPlugins,
-		Config:   cfg.Channels,
-		Logger:   logger,
-	})
+	var channelHost *channelhost.Host
+	if ao.channels {
+		channelPlugins, err := partitionChannels(genPlugins, cfg.Channels)
+		if err != nil {
+			_ = backend.Close()
+			return nil, err
+		}
+		channelHost = channelhost.New(channelhost.Deps{
+			Journal:  backend,
+			Messages: backend,
+			Sessions: backend,
+			Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+				if svc == nil {
+					return "", errors.New("app: runtime service is not wired")
+				}
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+			},
+			Channels: channelPlugins,
+			Config:   cfg.Channels,
+			Logger:   logger,
+		})
+	}
+	runHooks := []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}}
+	if channelHost != nil {
+		runHooks = append(runHooks, channelHost)
+	}
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:            backend,
 		Runs:               backend,
@@ -305,8 +352,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Workspaces:           workspaces,
 		Sessions:             backend,
 		PolicyDefaultProfile: domain.PolicyProfile(cfg.Governance.Profile),
-		Hooks:                []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}, channelHost},
-		Sink:                 bus,
+		Hooks:                runHooks,
+		Sink:                 svcSink,
 		Compactions:          backend,
 		Crons:                backend,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
@@ -458,10 +505,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	// Start the channel ears before the server listens (C3). Unconfigured
 	// and disabled channels are skipped; empty allow_from refuses Start
-	// for that channel. A wiring failure here aborts startup.
-	if err := channelHost.StartAll(ctx); err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: start channels: %w", err)
+	// for that channel. A wiring failure here aborts startup. The headless
+	// face has no ears.
+	if channelHost != nil {
+		if err := channelHost.StartAll(ctx); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: start channels: %w", err)
+		}
 	}
 
 	mux := http.NewServeMux()
