@@ -110,6 +110,16 @@
 | O5 | 恢复动作的治理：恒审批 vs 跟随审批策略 | 跟随策略 + precondition hash 强制；danger_full_access 下也保留 hash 校验（防覆盖并发写） |
 | O6 | bash 写坏的文件（非 write/patch 路径）是否纳入 L1 | 第一版不做文件级捕捉（bash 影响面靠沙箱+白名单约束）；记录为已知边界 |
 
+### 6.1 拍板（2026-09-01）
+
+用户拍板：**MVP 先对齐 Crush，附加功能暂缓**（原型 MVP 未出，不抢跑差异化）。
+
+- O1 → **记录侧 parity 进实现**（file_versions 落表 + 写工具挂链 + filetracker stale-read，VC-3 尾款承载）；恢复侧（L2 会话级回退 + restore RPC/UI）**移出 MVP**，挂 `docs/TODO.md` §0.1 `RB-L2-DEFER` 暂缓行。
+- O2 → 按建议执行：每 (session,path) 保 20 版、单版 1MB（记录侧写入时即生效）。
+- O3 → 按建议执行：新 `file_versions` 表（方案 A）。
+- O4/O5 → 随恢复侧挂起，RB-L2-DEFER 启动时再拍。
+- O6 → 维持建议：bash 影响面第一版不捕捉，记录为已知边界。
+
 ---
 
 ## 7. Eino 原生支持核查（2026-08-31 追加，应用户问"这些 eino 有没有原生支持"）
