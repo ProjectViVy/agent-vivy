@@ -234,3 +234,57 @@ func TestCronManualTriggerOfMissingJob(t *testing.T) {
 		t.Fatalf("trigger missing = %v, want storage.ErrNotFound", err)
 	}
 }
+
+// TFLAKE-CRON root fix: the delete-after-run contract is settleCronRun's
+// branch, so it is asserted synchronously here — no scheduler loop, no
+// wall-clock budget for the async fire→run→watch pipeline. The end-to-end
+// test above stays as the wiring canary.
+func TestCronSettleDeletesSuccessfulAtJob(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	st := svc.ensureCronState(CronSchedulerOptions{})
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now - 1000}
+		j.State.NextRunAtMs = now - 1000
+		j.DeleteAfterRun = true
+	})
+	entry := &cronActiveRun{snapshot: CronRunSnapshot{JobID: job.ID, RunID: "run_settle01", StartedAtMs: now}}
+
+	svc.settleCronRun(ctx, st, entry, job, domain.RunCompleted)
+
+	if _, err := backend.GetCronJob(ctx, job.ID); err != storage.ErrNotFound {
+		t.Fatalf("successful delete_after_run one-shot = %v, want storage.ErrNotFound", err)
+	}
+	if _, running := svc.ActiveCronRun(job.ID); running {
+		t.Fatal("active run not cleared after settle")
+	}
+}
+
+// The failure twin: a failed one-shot with delete_after_run must NOT be
+// deleted — the operator needs the error on the row to know why.
+func TestCronSettleKeepsFailedAtJobDisabled(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	st := svc.ensureCronState(CronSchedulerOptions{})
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now - 1000}
+		j.State.NextRunAtMs = now - 1000
+		j.DeleteAfterRun = true
+	})
+	entry := &cronActiveRun{snapshot: CronRunSnapshot{JobID: job.ID, RunID: "run_settle02", StartedAtMs: now}}
+
+	svc.settleCronRun(ctx, st, entry, job, domain.RunFailed)
+
+	settled, err := backend.GetCronJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("failed delete_after_run one-shot must survive: %v", err)
+	}
+	if settled.Enabled || settled.State.NextRunAtMs != 0 {
+		t.Fatalf("failed one-shot must be disabled without a next fire: %+v", settled)
+	}
+	if settled.State.LastStatus != "error" {
+		t.Fatalf("failed one-shot must record the error status: %+v", settled.State)
+	}
+}
