@@ -50,7 +50,7 @@
 |---|---|---|
 | multiedit | C | eino 只有单 edit；Crush 自写。小件 |
 | patch 空白容错回退 | C | Crush `normalizedReplace` 同款逻辑自写（行为对齐） |
-| stale-read filetracker + file_versions 存储 + 恢复 RPC | D | RB-1 L1/L2：治理核心（存储迁移+审批+Journal），Crush 版本链亦无恢复消费方 |
+| stale-read filetracker + file_versions 存储 + 恢复 RPC | D | RB-1 L1/L2：治理核心（存储迁移+审批+Journal），Crush 版本链亦无恢复消费方。2026-09-01 拍板：记录侧（file_versions + filetracker）随 VC-3 尾款落地；恢复 RPC 暂缓（RB-L2-DEFER，MVP 后再议） |
 | 后台 job 注册表（job_output/job_kill、超时转后台） | C | eino 只有协议位；Crush 自写。挂在 bash 工具实现内 |
 | 死循环检测（签名去重） | C | Crush 自写；Vivy 挂 MaxToolTurns 旁 |
 | 成本核算元数据表（context window/价格） | C | D9 拍板与 web provider/model 管理同步；Crush 用远端 Catwalk 我们明确不引 |
