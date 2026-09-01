@@ -1,10 +1,10 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Brain, Clock, Dna, LayoutDashboard, MessageSquare, NotebookPen, Plug, Settings, UserRound, VenetianMask, Zap } from 'lucide-react';
+import { Brain, Clock, Dna, LayoutDashboard, MessageSquare, NotebookPen, Plug, Settings, ShieldCheck, UserRound, VenetianMask, Zap } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 
-const NAV_ITEMS = [{ to: '/', icon: MessageSquare, labelKey: 'nav.chat', exact: true }, { to: '/dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' }, { to: '/cron-tasks', icon: Clock, labelKey: 'nav.cron' }] as const;
+const NAV_ITEMS = [{ to: '/', icon: MessageSquare, labelKey: 'nav.chat', exact: true }, { to: '/dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' }, { to: '/approvals', icon: ShieldCheck, labelKey: 'nav.approvals' }, { to: '/cron-tasks', icon: Clock, labelKey: 'nav.cron' }] as const;
 const VIVY_ITEMS = [{ to: '/persona', icon: UserRound, labelKey: 'nav.persona' }, { to: '/masks', icon: VenetianMask, labelKey: 'nav.masks' }, { to: '/evolution', icon: Dna, labelKey: 'nav.evolution' }, { to: '/memory', icon: Brain, labelKey: 'nav.memory' }, { to: '/notebook', icon: NotebookPen, labelKey: 'nav.notebook' }] as const;
 const TOOL_ITEMS = [{ to: '/mcp', icon: Plug, labelKey: 'nav.mcp' }, { to: '/skills', icon: Zap, labelKey: 'nav.skill' }] as const;
 
