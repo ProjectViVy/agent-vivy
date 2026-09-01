@@ -206,6 +206,7 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, 
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
+	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	if a.hooks != nil {
 		a.hooks.PostToolUse(ctx, ToolHookCall{
@@ -218,6 +219,7 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, 
 		}
 		return "", err
 	}
+	emitToolMounts(ctx, a.t.Spec().Name, mountsBefore)
 	result = untrustedToolResultHeader + tools.RedactSensitive(result)
 	// A multimodal parts envelope must reach normalizeEnhancedResult
 	// intact: byte compaction would corrupt it into unparseable JSON, so
@@ -227,6 +229,34 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, 
 		return result, nil
 	}
 	return compactToolResult(result, a.maxResultBytes), nil
+}
+
+// emitToolMounts journals tools newly mounted during a successful
+// invocation (TT-3): the model.request event records only the active
+// baseline, so the mount delta is its own audit event. The diff is
+// generic — any tool that activates hidden tools gets journaled, not
+// just skill_view.
+func emitToolMounts(ctx context.Context, toolName string, before []string) {
+	mounts := tools.MountedToolsFromContext(ctx)
+	if mounts == nil {
+		return
+	}
+	seen := make(map[string]struct{}, len(before))
+	for _, name := range before {
+		seen[name] = struct{}{}
+	}
+	var added []string
+	for _, name := range mounts.Mounted() {
+		if _, ok := seen[name]; !ok {
+			added = append(added, name)
+		}
+	}
+	if len(added) == 0 {
+		return
+	}
+	emitGovernanceEvent(ctx, GovernanceEvent{
+		Type: domain.EventToolMounted, ToolName: toolName, MountedTools: added,
+	})
 }
 
 func isToolPartsEnvelope(result string) bool {

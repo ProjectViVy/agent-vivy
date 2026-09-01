@@ -22,6 +22,7 @@ const (
 	EventToolProposalStale     EventType = "tool.proposal_stale"
 	EventToolStarted           EventType = "tool.started"
 	EventToolFinished          EventType = "tool.finished"
+	EventToolMounted           EventType = "tool.mounted"
 	EventPolicyEvaluated       EventType = "policy.evaluated"
 	EventHookStarted           EventType = "hook.started"
 	EventHookCompleted         EventType = "hook.completed"

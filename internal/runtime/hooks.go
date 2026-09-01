@@ -151,6 +151,9 @@ type GovernanceEvent struct {
 	PolicyHash string
 	Reason     string
 	DurationMs int64
+	// MountedTools lists the names newly mounted by this tool call
+	// (tool.mounted events, TT-3).
+	MountedTools []string
 	// Compaction fields for context.compacted events (numbers only, D-010).
 	Mode            string
 	BeforeTokens    int

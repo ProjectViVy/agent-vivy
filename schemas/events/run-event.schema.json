@@ -34,6 +34,7 @@
         "tool.proposal_stale",
         "tool.started",
         "tool.finished",
+        "tool.mounted",
         "policy.evaluated",
         "hook.started",
         "hook.completed",

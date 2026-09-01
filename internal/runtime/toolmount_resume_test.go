@@ -139,3 +139,66 @@ func TestServiceResumeRestoresSkillMountedTools(t *testing.T) {
 		t.Fatalf("echo_info did not complete successfully after resume; events = %v", events)
 	}
 }
+
+// TestServiceJournalRecordsSkillToolMounts pins TT-3: mounting hidden tools
+// mid-run journals its own tool.mounted audit event (model.request only
+// records the active baseline surface).
+func TestServiceJournalRecordsSkillToolMounts(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "mounts-journal.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	ts, err := tools.BuiltinWithCapabilities(backend, nil, mountSkillOps{}).Resolve([]string{tools.SkillViewName})
+	if err != nil {
+		t.Fatalf("resolve toolset: %v", err)
+	}
+	model := NewScriptedModel(
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "call-skill-view-2",
+			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
+		}}),
+		schema.AssistantMessage("Skill reviewed.", nil),
+	)
+	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	eng, err := NewEngine(ctx, model, ts, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
+		HiddenTools: []tools.Tool{tools.NewEchoInfo()},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
+		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
+	})
+
+	runID, err := svc.Run(ctx, "sess-mount-journal", "view the writer skill")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	var mounted *payloadToolMounted
+	for _, ev := range replayAll(t, backend, runID) {
+		if ev.Type != domain.EventToolMounted {
+			continue
+		}
+		var p payloadToolMounted
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			t.Fatalf("decode tool.mounted: %v", err)
+		}
+		mounted = &p
+	}
+	if mounted == nil {
+		t.Fatalf("no tool.mounted event journaled")
+	}
+	if mounted.ToolName != tools.SkillViewName || len(mounted.Tools) != 1 || mounted.Tools[0] != tools.EchoInfoName {
+		t.Fatalf("tool.mounted payload = %+v, want tool_name=%s tools=[%s]", mounted, tools.SkillViewName, tools.EchoInfoName)
+	}
+}
