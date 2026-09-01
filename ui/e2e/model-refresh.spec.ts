@@ -53,11 +53,13 @@ test('model list refresh syncs upstream models and persists them locally', async
   await page.getByRole('button', { name: ROW }).click();
   await expect(page.getByText('该供应商暂无模型，可点击上方「新增」按钮添加。')).toBeVisible();
 
-  // 点击「刷新」：上游模型出现，密钥以 Bearer 上行，成功后给出同步反馈。
+  // 点击「刷新」：上游模型出现（模型行是 button role；顶栏当前模型 span 会让
+  // getByText 的 gpt-4o-mini 撞 strict mode，故统一按按钮名断言），密钥以
+  // Bearer 上行，成功后给出同步反馈。
   await page.getByRole('button', { name: '刷新模型列表' }).click();
   await expect(page.getByText('已从上游同步 2 个模型')).toBeVisible();
-  await expect(page.getByText('gpt-4o', { exact: true })).toBeVisible();
-  await expect(page.getByText('gpt-4o-mini', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'gpt-4o', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'gpt-4o-mini', exact: true })).toBeVisible();
   expect(lastAuth).toBe('Bearer sk-e2e-secret');
 
   // 手动新增一个模型，再次刷新后仍保留（并集策略）。
@@ -69,11 +71,20 @@ test('model list refresh syncs upstream models and persists them locally', async
   await expect(page.getByText('已从上游同步 3 个模型')).toBeVisible();
   await expect(page.getByRole('button', { name: 'my-local-model', exact: true })).toBeVisible();
 
-  // 刷新落盘：重载后（来自后端注册表）模型列表仍在，密钥不出现。
+  // 刷新落盘：重载后（来自后端注册表）重新选中该供应商，模型列表仍在（模型
+  // 行为 button；顶栏 span 已改按按钮名断言），密钥不出现。
   await page.reload();
   await expect(page.getByRole('button', { name: ROW })).toBeVisible();
-  await expect(page.getByText('gpt-4o', { exact: true })).toBeVisible();
-  await expect(page.getByText('gpt-4o-mini', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: ROW }).click();
+  await expect(page.getByRole('button', { name: 'gpt-4o', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'gpt-4o-mini', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'my-local-model', exact: true })).toBeVisible();
   await expect(page.getByText('sk-e2e-secret')).toHaveCount(0);
+
+  // 收尾：把全局运行配置切回 openai / gpt-4o-mini（真实 UI 路径）。否则本测试
+  // 的临时 upstream 会留在全局 settings.base_url 上，污染后续 spec 的发送与
+  // 向导预填。aria-pressed 翻转代表 save RPC 已完成。
+  await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
+  await page.getByRole('button', { name: 'gpt-4o-mini', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'gpt-4o-mini', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
