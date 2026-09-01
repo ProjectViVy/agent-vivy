@@ -208,6 +208,16 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 		return tools.FileReadResult{}, fmt.Errorf("filesystem: read %s: %w", displayPath(root, path), err)
 	}
 	result := tools.FileReadResult{Path: displayPath(root, path), Bytes: len(data)}
+	if mime := imageMIME(path); mime != "" {
+		// Truncating an image corrupts it; over-cap images fail loudly
+		// instead (VC-3 read_file image support).
+		if len(data) > b.maxFileBytes {
+			return tools.FileReadResult{}, fmt.Errorf("filesystem: image %s is %d bytes, over the %d byte read cap; use a smaller image", displayPath(root, path), len(data), b.maxFileBytes)
+		}
+		result.ImageMIME = mime
+		result.ImageData = data
+		return result, nil
+	}
 	if len(data) > b.maxFileBytes {
 		data = data[:b.maxFileBytes]
 		result.Truncated = true
@@ -561,6 +571,11 @@ func (b *EinoFilesystemBackend) Read(ctx context.Context, req *einofs.ReadReques
 	if result.Binary {
 		return &einofs.FileContent{Content: "[binary file omitted]"}, nil
 	}
+	if result.ImageMIME != "" {
+		// The Eino middleware read path is text-only; point the model at
+		// the Vivy read_file tool, which attaches the image itself.
+		return &einofs.FileContent{Content: fmt.Sprintf("[image file %s (%s, %d bytes) — use the read_file tool to attach it]", result.Path, result.ImageMIME, result.Bytes)}, nil
+	}
 	return &einofs.FileContent{Content: result.Content}, nil
 }
 
@@ -854,6 +869,24 @@ func displayPath(root, path string) string {
 
 func isBinary(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data)
+}
+
+// imageMIME maps the image extensions read_file attaches for vision
+// models; the set matches the message-attachment allowlist. Empty for
+// everything else.
+func imageMIME(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return ""
+	}
 }
 
 func safeUTF8Prefix(value string, max int) int {
