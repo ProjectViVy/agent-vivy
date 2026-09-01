@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 )
@@ -58,6 +59,75 @@ type initializeParams struct {
 	ProcessID    *int     `json:"processId"`
 	RootURI      string   `json:"rootUri"`
 	Capabilities struct{} `json:"capabilities"`
+}
+
+type textDocumentIdentifier struct {
+	URI string `json:"uri"`
+}
+
+// location is one LSP Location (definition/reference hit).
+type location struct {
+	URI   string `json:"uri"`
+	Range span   `json:"range"`
+}
+
+type definitionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     position               `json:"position"`
+}
+
+type referenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+type referenceParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     position               `json:"position"`
+	Context      referenceContext       `json:"context"`
+}
+
+// documentSymbol is the hierarchical documentSymbol reply shape.
+type documentSymbol struct {
+	Name     string           `json:"name"`
+	Kind     int              `json:"kind"`
+	Range    span             `json:"range"`
+	Children []documentSymbol `json:"children,omitempty"`
+}
+
+// symbolInformation is the flat reply shape some servers use.
+type symbolInformation struct {
+	Name     string   `json:"name"`
+	Kind     int      `json:"kind"`
+	Location location `json:"location"`
+}
+
+// parseSymbols accepts both reply shapes: hierarchical documentSymbol
+// arrays and flat symbolInformation arrays (heuristic: an element that
+// carries a "location" key is the flat shape).
+func parseSymbols(raw json.RawMessage) ([]documentSymbol, []symbolInformation, error) {
+	var elements []json.RawMessage
+	if err := json.Unmarshal(raw, &elements); err != nil {
+		return nil, nil, err
+	}
+	for _, el := range elements {
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(el, &probe); err != nil {
+			return nil, nil, err
+		}
+		if _, ok := probe["location"]; ok {
+			var flat []symbolInformation
+			if err := json.Unmarshal(raw, &flat); err != nil {
+				return nil, nil, err
+			}
+			return nil, flat, nil
+		}
+		break
+	}
+	var tree []documentSymbol
+	if err := json.Unmarshal(raw, &tree); err != nil {
+		return nil, nil, err
+	}
+	return tree, nil, nil
 }
 
 // pathToURI converts a workspace-relative path into a file URI rooted at

@@ -187,6 +187,34 @@ func serveFakeLSP(r io.Reader, w io.Writer) {
 				return
 			}
 			publish(p.TextDocument.URI, []diagnostic{})
+		case "textDocument/definition":
+			var p definitionParams
+			if json.Unmarshal(msg.Params, &p) != nil {
+				return
+			}
+			raw, _ := json.Marshal([]location{{
+				URI:   p.TextDocument.URI,
+				Range: span{Start: position{Line: 5, Character: 2}},
+			}})
+			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: raw})
+		case "textDocument/references":
+			var p referenceParams
+			if json.Unmarshal(msg.Params, &p) != nil {
+				return
+			}
+			raw, _ := json.Marshal([]location{
+				{URI: p.TextDocument.URI, Range: span{Start: position{Line: 9, Character: 0}}},
+				{URI: p.TextDocument.URI, Range: span{Start: position{Line: 14, Character: 4}}},
+			})
+			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: raw})
+		case "textDocument/documentSymbol":
+			tree := []documentSymbol{{
+				Name: "main", Kind: 12,
+				Range:    span{Start: position{Line: 0, Character: 0}},
+				Children: []documentSymbol{{Name: "helper", Kind: 12, Range: span{Start: position{Line: 4, Character: 0}}}},
+			}}
+			raw, _ := json.Marshal(tree)
+			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: raw})
 		}
 	}
 }
@@ -230,5 +258,63 @@ func TestDiagnosticsToolArgValidation(t *testing.T) {
 	}
 	if env.spawnCount != 0 {
 		t.Fatalf("validation failures must not spawn: %d", env.spawnCount)
+	}
+}
+
+func TestDefinitionAndReferencesTools(t *testing.T) {
+	env := &fakeEnv{root: t.TempDir(), files: map[string]string{"main.go": "package main\n"}}
+	def := definitionTool{mgr: newManager()}
+	got, err := def.Run(context.Background(), env, json.RawMessage(`{"path":"main.go","line":6,"column":3}`))
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	if got != "main.go:6:3" {
+		t.Fatalf("definition = %q", got)
+	}
+
+	ref := referencesTool{mgr: newManager()}
+	got, err = ref.Run(context.Background(), env, json.RawMessage(`{"path":"main.go","line":1,"column":1,"include_declaration":true}`))
+	if err != nil {
+		t.Fatalf("references: %v", err)
+	}
+	want := "main.go:10:1\nmain.go:15:5"
+	if got != want {
+		t.Fatalf("references = %q, want %q", got, want)
+	}
+
+	if _, err := ref.Run(context.Background(), env, json.RawMessage(`{"path":"main.go","line":0,"column":1}`)); err == nil || !strings.Contains(err.Error(), "1-based") {
+		t.Fatalf("zero line err = %v", err)
+	}
+}
+
+func TestSymbolsTool(t *testing.T) {
+	env := &fakeEnv{root: t.TempDir(), files: map[string]string{"main.go": "package main\n"}}
+	tool := symbolsTool{mgr: newManager()}
+	got, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"main.go"}`))
+	if err != nil {
+		t.Fatalf("symbols: %v", err)
+	}
+	want := "function main :1:1\n  function helper :5:1"
+	if got != want {
+		t.Fatalf("symbols = %q, want %q", got, want)
+	}
+}
+
+func TestParseSymbolsFlatShape(t *testing.T) {
+	flatJSON := json.RawMessage(`[{"name":"main","kind":12,"location":{"uri":"file:///w/main.go","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":4}}}}]`)
+	tree, flat, err := parseSymbols(flatJSON)
+	if err != nil || len(tree) != 0 || len(flat) != 1 || flat[0].Name != "main" {
+		t.Fatalf("parseSymbols flat = %v %v %v", tree, flat, err)
+	}
+}
+
+func TestFormatLocationsNullAndSingle(t *testing.T) {
+	root := t.TempDir()
+	if got, _ := formatLocations(root, json.RawMessage("null")); got != "no matches" {
+		t.Fatalf("null = %q", got)
+	}
+	single := json.RawMessage(`{"uri":"` + pathToURI(root, "a.go") + `","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":3}}}`)
+	if got, _ := formatLocations(root, single); got != "a.go:3:1" {
+		t.Fatalf("single = %q", got)
 	}
 }
