@@ -107,13 +107,20 @@ func (s modelOverrideSource) Live() LiveSpec {
 	return live
 }
 
+// NewOverrideModel pins an auxiliary model id (session titles, compaction
+// summaries, …) over the active provider's live spec, so provider/model
+// management stays one data source (D-9). The id resolves at call time.
+func NewOverrideModel(catalog *Catalog, resolver SpecSource, modelID string) model.ToolCallingChatModel {
+	return NewResolvingChatModel(catalog, modelOverrideSource{base: resolver, model: strings.TrimSpace(modelID)})
+}
+
 // TitleCandidates builds the ordered title chain over the app composition:
 // the configured small model (same provider, pinned id) first, then the
 // main chat model.
 func TitleCandidates(catalog *Catalog, resolver SpecSource, main model.ToolCallingChatModel, smallModel string) []model.ToolCallingChatModel {
 	candidates := make([]model.ToolCallingChatModel, 0, 2)
 	if small := strings.TrimSpace(smallModel); small != "" && catalog != nil {
-		candidates = append(candidates, NewResolvingChatModel(catalog, modelOverrideSource{base: resolver, model: small}))
+		candidates = append(candidates, NewOverrideModel(catalog, resolver, small))
 	}
 	return append(candidates, main)
 }

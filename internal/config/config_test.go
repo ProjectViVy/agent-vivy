@@ -91,11 +91,16 @@ func TestCompactionConfigDefaultsAndValidation(t *testing.T) {
 		cfg.Runtime.Compaction.TriggerPercent != 80 || cfg.Runtime.Compaction.KeepRecent != 12 {
 		t.Fatalf("default compaction = %+v", cfg.Runtime.Compaction)
 	}
+	if cfg.Runtime.Compaction.SummaryModel != "" {
+		t.Fatalf("default summary_model = %q, want empty (main model summarises)", cfg.Runtime.Compaction.SummaryModel)
+	}
 	bad := []CompactionConfig{
 		{Enabled: true, MaxTokens: -1, TriggerPercent: 80, KeepRecent: 12},
 		{Enabled: true, MaxTokens: 0, TriggerPercent: 0, KeepRecent: 12},
 		{Enabled: true, MaxTokens: 0, TriggerPercent: 101, KeepRecent: 12},
 		{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 0},
+		{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12, SummaryModel: "two\nlines"},
+		{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12, SummaryModel: "nul\x00id"},
 	}
 	for i, c := range bad {
 		next := cfg
@@ -103,6 +108,29 @@ func TestCompactionConfigDefaultsAndValidation(t *testing.T) {
 		if err := next.Validate(); err == nil {
 			t.Errorf("case %d: expected validation error for %+v", i, c)
 		}
+	}
+	// summary_model is an open-ended id: whitespace is trimmed, content kept.
+	trimmed := cfg
+	trimmed.Runtime.Compaction.SummaryModel = "  qwen3-14b  "
+	if err := trimmed.Validate(); err != nil {
+		t.Fatalf("trimmable summary_model: %v", err)
+	}
+	if trimmed.Runtime.Compaction.SummaryModel != "qwen3-14b" {
+		t.Fatalf("summary_model = %q, want trimmed qwen3-14b", trimmed.Runtime.Compaction.SummaryModel)
+	}
+}
+
+// summary_model parses from the runtime.compaction block (CMP-2).
+func TestCompactionSummaryModelParses(t *testing.T) {
+	doc := strings.Replace(validDoc,
+		"runtime:\n  stream_buffer: 16",
+		"runtime:\n  compaction:\n    enabled: true\n    summary_model: qwen3-14b\n  stream_buffer: 16", 1)
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatalf("load summary_model doc: %v", err)
+	}
+	if cfg.Runtime.Compaction.SummaryModel != "qwen3-14b" {
+		t.Fatalf("summary_model = %q, want qwen3-14b", cfg.Runtime.Compaction.SummaryModel)
 	}
 }
 

@@ -111,6 +111,10 @@ runtime:
     # How many most-recent tool-call rounds the deterministic reduction
     # layer retains verbatim.
     keep_recent: 12
+    # Optional cheaper model (same active provider) that generates the
+    # compaction summary instead of the main model. Empty keeps the main
+    # model; a failed summary call falls back to the main model once.
+    # summary_model: qwen3-14b
   # Cron controls the scheduled-job scheduler behind the UI CRON panel.
   # Jobs fire agent turns in their own dedicated session; while disabled
   # the stored jobs simply never run.

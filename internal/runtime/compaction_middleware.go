@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/reduction"
@@ -90,7 +91,7 @@ func countMessageTokens(msgs []*schema.Message, tools []*schema.ToolInfo) (int, 
 // bridges. When the engine has no run context (e.g. Checkpoints nil in unit
 // tests), the event hooks are inert: they only fire when the run ctx carries
 // a governance sink, which the service always installs.
-func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*schema.Message], policy CompactionPolicy, feedBudgetBytes int) ([]adk.ChatModelAgentMiddleware, error) {
+func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*schema.Message], summaryModel model.BaseModel[*schema.Message], policy CompactionPolicy, feedBudgetBytes int) ([]adk.ChatModelAgentMiddleware, error) {
 	triggerTokens := policy.TriggerTokens(bytesToTokens(feedBudgetBytes))
 	if triggerTokens <= 0 {
 		triggerTokens = policy.TriggerTokens(0)
@@ -134,8 +135,39 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		return nil, fmt.Errorf("runtime: reduction middleware: %w", err)
 	}
 
+	// CMP-2: an optional cheaper summary model generates the summary; the
+	// main chat model stays the one-shot failover. With no override, the
+	// main model summarises directly and no failover is wired (a second
+	// identical call would be a pointless retry).
+	summModel := chatModel
+	var failover *summarization.FailoverConfig
+	if summaryModel != nil {
+		summModel = summaryModel
+		failover = &summarization.FailoverConfig{
+			MaxRetries: intPtr(1),
+			BackoffFunc: func(context.Context, int, *schema.Message, error) time.Duration {
+				return 0
+			},
+			GetFailoverModel: func(_ context.Context, fc *summarization.FailoverContext) (model.BaseModel[*schema.Message], []*schema.Message, error) {
+				// Mirror the middleware's default input: the original
+				// leading system messages are dropped (the summary
+				// instruction is re-supplied) and the rest is sandwiched
+				// between the middleware's system/user instructions.
+				input := make([]*schema.Message, 0, len(fc.OriginalMessages)+2)
+				input = append(input, fc.SystemInstruction)
+				rest := fc.OriginalMessages
+				for len(rest) > 0 && rest[0] != nil && rest[0].Role == schema.System {
+					rest = rest[1:]
+				}
+				input = append(input, rest...)
+				input = append(input, fc.UserInstruction)
+				return chatModel, input, nil
+			},
+		}
+	}
+
 	summ, err := summarization.New(ctx, &summarization.Config{
-		Model: chatModel,
+		Model: summModel,
 		Trigger: &summarization.TriggerCondition{
 			ContextTokens: triggerTokens,
 		},
@@ -149,6 +181,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		Retry: &summarization.RetryConfig{
 			MaxRetries: intPtr(0),
 		},
+		Failover: failover,
 		Callback: func(ctx context.Context, before, after adk.TypedChatModelAgentState[*schema.Message]) error {
 			beforeTokens, _ := countMessageTokens(before.Messages, before.ToolInfos)
 			afterTokens, _ := countMessageTokens(after.Messages, after.ToolInfos)

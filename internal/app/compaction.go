@@ -60,7 +60,7 @@ func mergedCompactionConfig(base config.CompactionConfig, overlay *settings.Comp
 // buildEngineConfig assembles the full EngineConfig from the validated
 // config plus the resolved compaction policy. It is shared by the startup
 // engine and the settings-save reload path so both see identical wiring.
-func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend, agentsMDBackend runtime.AgentsMDBackend, checkpoints *runtime.VersionedCheckpointStore, policy *runtime.PolicyEngine, hooks *runtime.ToolHookChain, cmp *runtime.CompactionPolicy) runtime.EngineConfig {
+func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend, agentsMDBackend runtime.AgentsMDBackend, checkpoints *runtime.VersionedCheckpointStore, policy *runtime.PolicyEngine, hooks *runtime.ToolHookChain, cmp *runtime.CompactionPolicy, summaryModel runtime.SummaryModel) runtime.EngineConfig {
 	engineCfg := runtime.EngineConfig{
 		StreamBuffer:         cfg.Runtime.StreamBuffer,
 		MaxEventPayloadBytes: cfg.Runtime.MaxEventPayloadBytes,
@@ -73,6 +73,9 @@ func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend
 		ToolHooks:            hooks,
 		AutoApproveTools:     cfg.Runtime.Sandbox.Approval.AutoApproveTools,
 		Compaction:           cmp,
+	}
+	if summaryModel != nil {
+		engineCfg.SummaryModel = summaryModel
 	}
 	if skillBackend != nil {
 		engineCfg.SkillBackend = skillBackend

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -313,6 +314,146 @@ func TestEngineReductionRunsBeforeSummarization(t *testing.T) {
 	}
 	if len(inputs[1]) >= len(inputs[0]) {
 		t.Fatalf("summarized main input (%d msgs) must be smaller than the summary-generation input (%d msgs)", len(inputs[1]), len(inputs[0]))
+	}
+}
+
+// failoverFake stands in for the configured summary model: it records its
+// inputs and fails its first failN Generate calls, then replies with the
+// fixed summary text.
+type failoverFake struct {
+	mu     sync.Mutex
+	calls  int
+	failN  int
+	reply  string
+	called int
+}
+
+func (f *failoverFake) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	f.mu.Lock()
+	f.calls++
+	n := f.calls
+	f.mu.Unlock()
+	if n <= f.failN {
+		return nil, errors.New("failoverFake: summary model down")
+	}
+	return schema.AssistantMessage(f.reply, nil), nil
+}
+
+func (f *failoverFake) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	msg, err := f.Generate(ctx, input, opts...)
+	if err != nil {
+		return nil, err
+	}
+	sr, sw := schema.Pipe[*schema.Message](1)
+	sw.Send(msg, nil)
+	sw.Close()
+	return sr, nil
+}
+
+func (f *failoverFake) attempts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// TestEngineSummaryModelPreferredWhenHealthy drives a run over the trigger
+// with a healthy configured summary model: the summary comes from the
+// summary model and the main model is only called for the final loop.
+func TestEngineSummaryModelPreferredWhenHealthy(t *testing.T) {
+	ctx := context.Background()
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	summary := &failoverFake{reply: "CHEAP-SUMMARY-cc"}
+	rec := &recordingModel{inner: NewScriptedModel(
+		schema.AssistantMessage("FINAL-ANSWER-mm", nil),
+	)}
+	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
+		StreamBuffer:         8,
+		MaxEventPayloadBytes: 64 << 10,
+		MaxContextBytes:      1 << 20,
+		Compaction: &CompactionPolicy{
+			Enabled: true, MaxTokens: 400, TriggerPercent: 50, KeepRecent: 100,
+		},
+		SummaryModel: summary,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	final := drainFinalText(t, eng.RunHistory(ctx, compactFeed(16)))
+	if final != "FINAL-ANSWER-mm" {
+		t.Fatalf("final answer = %q, want FINAL-ANSWER-mm", final)
+	}
+	if summary.attempts() != 1 {
+		t.Fatalf("summary model attempts = %d, want 1", summary.attempts())
+	}
+	// The main model is called exactly once: the main loop after the
+	// summary model already compressed the feed.
+	inputs := rec.snapshot()
+	if len(inputs) != 1 {
+		t.Fatalf("main model calls = %d, want 1 (main never summarized)", len(inputs))
+	}
+	if !strings.Contains(joinContent(inputs[0]), "CHEAP-SUMMARY-cc") {
+		t.Fatalf("main loop input lacks the summary model's summary: %q", joinContent(inputs[0]))
+	}
+}
+
+// TestEngineSummaryModelFailsOverToMain drives the CMP-2 failover: the
+// configured summary model errors, the middleware falls back to the main
+// chat model exactly once, and the run still completes with the summary.
+func TestEngineSummaryModelFailsOverToMain(t *testing.T) {
+	ctx := context.Background()
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	summary := &failoverFake{failN: 1, reply: "NEVER-REACHED"}
+	rec := &recordingModel{inner: NewScriptedModel(
+		schema.AssistantMessage("MAIN-FAILOVER-SUMMARY", nil),
+		schema.AssistantMessage("FINAL-ANSWER-ff", nil),
+	)}
+	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
+		StreamBuffer:         8,
+		MaxEventPayloadBytes: 64 << 10,
+		MaxContextBytes:      1 << 20,
+		Compaction: &CompactionPolicy{
+			Enabled: true, MaxTokens: 400, TriggerPercent: 50, KeepRecent: 100,
+		},
+		SummaryModel: summary,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	final := drainFinalText(t, eng.RunHistory(ctx, compactFeed(16)))
+	if final != "FINAL-ANSWER-ff" {
+		t.Fatalf("final answer = %q, want FINAL-ANSWER-ff", final)
+	}
+	if summary.attempts() != 1 {
+		t.Fatalf("summary model attempts = %d, want 1 (one failover attempt, no retry)", summary.attempts())
+	}
+	inputs := rec.snapshot()
+	if len(inputs) != 2 {
+		t.Fatalf("main model calls = %d, want 2 (failover summary + main loop)", len(inputs))
+	}
+	// The failover summary input mirrors the default shape: the middleware's
+	// system instruction first, the non-system feed in the middle, the user
+	// instruction last — the original leading system message is not
+	// duplicated.
+	failoverInput := inputs[0]
+	if len(failoverInput) == 0 || failoverInput[0].Role != schema.System {
+		t.Fatalf("failover input must start with the summary system instruction, got %v", failoverInput)
+	}
+	for _, msg := range failoverInput[1:] {
+		if msg != nil && msg.Role == schema.System {
+			t.Fatalf("failover input duplicates a system message: %q", msg.Content)
+		}
+	}
+	if !strings.Contains(joinContent(failoverInput), "execute all steps in order") {
+		t.Fatalf("failover input lost the original feed: %q", joinContent(failoverInput))
+	}
+	if !strings.Contains(joinContent(inputs[1]), "MAIN-FAILOVER-SUMMARY") {
+		t.Fatalf("main loop input lacks the failover summary: %q", joinContent(inputs[1]))
 	}
 }
 
