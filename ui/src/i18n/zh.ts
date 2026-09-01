@@ -251,6 +251,8 @@ refreshModels: '刷新模型列表',
     noResult: '尚无结果',
     waitComplete: '等待完成',
     noChildren: '没有子 Run',
+    review: '审批 {{count}}',
+    noReviews: '此 Run 没有审批或提问',
   },
   approvals: {
     title: '审批中心',
