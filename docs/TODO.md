@@ -54,7 +54,7 @@ Do not pick work from those tables. Closed-track filing:
 | CMP-2 | Context compaction：独立摘要模型 `summary_model` | OPEN | 2026-08-30 压缩沿用主模型；独立 `summary_model` 覆盖留待配置提案 |
 | CMP-3 | Context compaction：会话级摘要检索入口 | OPEN | 2026-08-30 摘要进入 feed（`session_compactions`），无 UI/检索面；属 G2 检索候选 |
 | UI-COMPOSER | 聊天框剩余伪操作按钮接后端：附件 / AutoDream / "＋更多" / 思考模式 / 询问模式 | OPEN | 2026-08-30 用户确认保留 UI 并告知；见 `docs/logs/2026-08-30-chatbox-buttons/summary.md`。执行模式 agent/plan 已接线（`RunMode` normal/plan） |
-| E2E-STALE | main 既有 e2e 失败：`ui/e2e/runtime.spec.ts` 设置-模型断言（密钥只由运行环境管理）与 `welcome-wizard.spec.ts` 配置模型步骤 | OPEN | 2026-08-30 chatbox-buttons lane 发现：干净 HEAD 上同样失败（runtime 卡设置-模型断言、wizard 卡"配置模型"），疑似相对 model-list-sync 过期；与聊天框改动无关 |
+| E2E-STALE | main 既有 e2e 失败：`ui/e2e/runtime.spec.ts` 设置-模型断言（密钥只由运行环境管理）与 `welcome-wizard.spec.ts` 配置模型步骤 | DONE | 2026-08-30 chatbox-buttons lane 发现：干净 HEAD 上同样失败（runtime 卡设置-模型断言、wizard 卡"配置模型"），疑似相对 model-list-sync 过期；与聊天框改动无关。2026-09-01 与 UI-E2E-STALE 同根同修（4 规格断言同步 + 3 真缺陷），见 `docs/logs/2026-09-01-ui-e2e-stale/` |
 | TFLAKE-CRON | `TestCronAtJobDeletesAfterSuccessfulRun`（internal/runtime）偶发超时 | OPEN | 2026-08-31 full-channel-body lane 观察：`-count=1` 全量跑 6.15s 失败一次，隔离重跑两次即绿；`time.Sleep`/真实时钟等待对机器负载敏感，候选修法为 fake clock 或轮询 channel 代替固定等待。2026-08-31 缓解（VC-1b lane 两次全量 ci 均被其击落）：判定为负载下 fire→run→settle 管线变慢超出固定 5s 预算（每 backend 单连接排除锁竞争），测试预算提至 30s 并在失败时 dump settled 行；fake-clock 根治仍留本行 |
 | TEST-1 | Mock-provider execute/commandline scenario for offline e2e | DONE | 2026-08-31 runtime mock provider and mock reply path removed; deterministic test doubles remain outside the provider catalog, and model-dependent browser scenarios use a real-provider gate |
 | CH-0 | Adopt `VIVY-CHANNEL-PACK.md` (C0 contract) | DONE | 2026-08-30 超级通道合同已采纳。演进树 `docs/architecture/VIVY-CHANNEL-EVOLUTION.md`。PLAN 包 `docs/plans/channel-epic/`。日历 §0.2 |
@@ -145,7 +145,7 @@ Do not pick work from those tables. Closed-track filing:
 | ST-SUB-1 | 合并 `feat/vivy-studio-submodule` 进主线 | OPEN | 2026-08-29 Studio 壳已独立仓 + submodule（见 `docs/logs/2026-08-29-vivy-studio-submodule/`）。分支待人工审阅后 merge/push；根树其他 lane 勿直接叠 |
 | ST-SUB-2 | vivy-source 插件安装改出 submodule 工作树 | OPEN | 现仍写入 `studio/<slug>/`（弄脏 `vivy-studio` WT）。可选迁到 `data/studio-home/source-plugins/` 并改 hub + launch 合并逻辑 |
 | ST-SUB-3 | 社区插件再拆嵌套 submodule（可选） | DEFERRED | 初版整树在 `vivy-studio`；体积/更新策略稳定后再拆 |
-| UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | OPEN | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。与 MCP 无关，未在本迭代改这条旧断言 |
+| UI-E2E-DRAW | `runtime.spec.ts` 仍断言聊天「画图」按钮 | DONE | 2026-08-30 MCP e2e 顺带跑该规格：`getByRole('button', { name: '画图' })` 已不存在于 `ChatInput`。2026-09-01 复查：该断言已在 UI-E2E-STALE 收口批次中随规格同步移除/改写，`just ui-e2e` 全绿，无遗留 |
 | UI-NETWORK-HTTP | `http_request`（网页抓取）尚无独立 UI 配置面 | OPEN | 2026-08-27 设置→网络工具已升级为真实分区（`NetworkToolsCard`，network_search 首选 provider + 可用性 roster，见 `docs/logs/2026-08-27-network-tools/`）；`http_request` 的启停与域名白名单仍由 `config.yaml` `runtime.http_allowed_hosts` / `tools.enabled` 控制，未进设置文档/RPC。打基础阶段刻意不做端到端；后续可把 http 启用/超时/白名单做成设置文档字段并加 RPC 段 |
 | UI-PROV-REGISTRY | 注册表 localStorage 存量数据无迁移路径 | OPEN | 2026-08-28 provider 写逻辑改为后端注册表后，旧 `vivy.ui.customProviders` localStorage 条目不再被读取（见 `docs/logs/2026-08-28-provider-direct-write/`）。本地用户需在设置页重新登记；如需自动迁移需 UI 一次性读旧 key 并逐条 `upsertProvider`（含是否回填 apiKey 的产品决策） |
 | UI-CHANNELS-BE | 通道配置为纯前端形态，后端通道读写与就绪报告未接入 | DONE | CH-C5 已领取并交付，见 docs/logs/2026-08-30-channel-c5/ |
@@ -155,7 +155,8 @@ Do not pick work from those tables. Closed-track filing:
 | TT-2 | 中断 run 的 resume 不恢复挂载集 | OPEN | 同上日志：resume 从 journal 恢复 selectedTools（active 基面），`MountedTools` 随 ctx 重建为空；恢复后模型需重新 `skill_view` 才能再调用技能声明的隐藏工具 |
 | TT-3 | `model.request.selected_tools` 不含 run 内挂载增量 | OPEN | journal 的 model.request 在 run 前记录基面（active）；`skill_view` 挂载只体现在后续 tool 事件与模型视图。如需审计挂载历史，可在挂载时发独立 journal 事件 |
 | TT-4 | 512 事件预算对正常工具 run 过紧 | DONE | 2026-08-31 关闭：`reserveMappedBudget` 豁免流式 chunk 事件（`model.delta`/`model.reasoning_delta`）计费，失控防护由 model_calls/tool_calls 预算承担；同日删除宿主 `config.yaml` 遗留的 2 工具 `tools.enabled` 覆盖。见 `docs/logs/2026-08-31-run-events-budget/` |
-| UI-I18N-COMPACTION | 通用页压缩卡片显示原始 i18n key | OPEN | 2026-08-31 设置→通用可见 `settings.compaction.*` 原始键（`CompactionSettingsCard` 的 t() 键在 zh/en locales 缺失，部分字段为硬编码中文）。功能真实可用，纯文案缺陷 |
+| UI-I18N-COMPACTION | 通用页压缩卡片显示原始 i18n key | DONE | 2026-09-01 根因 = 键位错配非键缺失：`compaction` 块挂在 `diva` 段（无任何 `diva.compaction` 引用的死块），组件读 `settings.compaction.*` 全部 miss。块移入 `settings` 段（zh/en 对等）+ 新增 11 键消化卡内全部硬编码中文（zh 文案逐字不变）；新增 `compaction-setting.spec.ts` 双语言回归规格。`just ui-e2e` 10 passed / 1 skipped；`just ci` 绿。见 `docs/logs/2026-09-01-compaction-i18n/` |
+| UI-DIVA-PREVIEW-I18N | `DivaSettingsPreview` 预览区整体硬编码中文 + 设置页「通用」tab 触发器硬编码 | OPEN | 2026-08-31 发现 UI-I18N-COMPACTION 时顺带确认（2026-09-01 修复压缩卡时再次实证）：`DivaSettingsPreview` 通用段（聊天显示/缓存与运行状态/关于 Vivy 及「压缩配置已毕业」迁移说明段落）全部硬编码中文，英文界面下显示中文；`SettingsView.tsx` 的 `通用` tab 触发器同样硬编码。预览区其余分区如需 i18n 一并处理 |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
@@ -513,6 +514,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-09-01 | UI-I18N-COMPACTION 通用页压缩卡 raw i18n 键修复 | 根因 = `compaction` 键块挂在 `diva` 段而组件读 `settings.compaction.*`（死块 + 键位错配）。块移入 `settings` 段（zh/en 对等）+ 新增 11 键消化卡内硬编码中文（zh 逐字不变）+ `CompactionSettingsCard` 10 处改 `t()` + 新增 `compaction-setting.spec.ts` 双语言回归规格。`just ui-e2e` 10 passed/1 skipped；`just ci` 绿。预览区硬编码欠账另开 UI-DIVA-PREVIEW-I18N。Filing: `docs/logs/2026-09-01-compaction-i18n/`. |
 | 2026-09-01 | UI-E2E-STALE e2e 规格过期断言同步 + 顺带修 3 个真缺陷 | 4 规格（runtime/welcome-wizard/language-setting/model-refresh）过期断言按现 UI 收窄定位器；内核 `settings.Save` 固定 tmp + 无锁并发损坏文档改 `os.CreateTemp` + `fileMu`（独立提交）；UI `confirmAddModel` 注册表写与应用改串行 await；向导补 `welcome.provider/providerPlaceholder` 缺键、删 5 死键、文案改「API Key 由运行环境注入」；model-refresh 加真实 UI 路径恢复步骤消除跨 spec 污染。`just ui-e2e` 9 passed/1 skipped；`just ci` 绿。Filing: `docs/logs/2026-09-01-ui-e2e-stale/`。 |
 | 2026-09-01 | SET-FILERACE 修复 `settings.Save` 并发写损坏文档（Windows rename access denied） | `internal/app/settings` 原固定 `path+".tmp"` 临时文件 + 无同步：并发 Save 交错写共享 tmp 可发布损坏文档；Windows 上 rename 覆盖被并发读句柄打开的文件报 Access is denied → 下次 Load 失败 → RPC internal error（detail 有意丢弃）。修法 = 包级 `fileMu` 串行化 Load 读窗口与 Save 写+rename 窗口 + `os.CreateTemp` 每次独占 tmp + 失败路径清理。新并发测试（8 写者×25 轮）含 `-race -count=3` 绿；`just ci` 绿；`just ui-e2e` model-refresh 不再 internal error。跨 handler 读改写 last-writer-wins 另开 §0.1 SET-RMW。Filing: `docs/logs/2026-09-01-settings-save-race/`. |
 | 2026-09-01 | WEB-2 修复 `EinoFilesystemBackend.WriteFile` sandbox 校验先于 `MkdirAll` 的受限模式误拒 | `ValidatePathWithMode` 的 `EvalSymlinks` 需父目录真实存在,workspace-write 下写全新嵌套目录报 "resolve parent symlinks"（danger 短路故测试从未暴露）。修法 = download.go 同款顺序「resolve→MkdirAll→Validate」:校验移至 MkdirAll 后、atomicWrite 前;resolve() 逐组件 Lstat 先行钳制 workspace 并拒 symlink 组件,建目录无法借道逃逸;同内容 no-op 写早退不过校验（零变更非安全属性）。回归用例 workspace-write 嵌套新建成功 + read-only 仍拒（ErrSandboxDenied）;runtime+tools 全包 `-race` 绿 + `just ci` 绿。Filing: `docs/logs/2026-09-01-web2-writefile-sandbox-order/`. |

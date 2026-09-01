@@ -108,16 +108,16 @@ export function CompactionSettingsCard() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="compaction-max-tokens">最大 tokens</Label>
-            <Input id="compaction-max-tokens" type="number" min={0} value={maxTokens} disabled={locked} onChange={(event) => setMaxTokens(Math.max(0, Number(event.target.value) || 0))} placeholder={String(base?.config_max_tokens || '自动')} />
-            <p className="text-xs text-muted-foreground">0 = 模型上下文窗口（未知时 128000）</p>
+            <Label htmlFor="compaction-max-tokens">{t('settings.compaction.maxTokensLabel')}</Label>
+            <Input id="compaction-max-tokens" type="number" min={0} value={maxTokens} disabled={locked} onChange={(event) => setMaxTokens(Math.max(0, Number(event.target.value) || 0))} placeholder={String(base?.config_max_tokens || t('settings.compaction.autoPlaceholder'))} />
+            <p className="text-xs text-muted-foreground">{t('settings.compaction.maxTokensHint')}</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="compaction-trigger-percent">压缩阈值 (%)</Label>
+            <Label htmlFor="compaction-trigger-percent">{t('settings.compaction.triggerLabel')}</Label>
             <Input id="compaction-trigger-percent" type="number" min={1} max={100} value={triggerPercent} disabled={locked} onChange={(event) => setTriggerPercent(Math.min(100, Math.max(1, Number(event.target.value) || 1)))} placeholder={String(base?.config_trigger_percent ?? 80)} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="compaction-keep-recent">保留最近消息</Label>
+            <Label htmlFor="compaction-keep-recent">{t('settings.compaction.keepRecentLabel')}</Label>
             <Input id="compaction-keep-recent" type="number" min={1} value={keepRecent} disabled={locked} onChange={(event) => setKeepRecent(Math.max(1, Number(event.target.value) || 1))} placeholder={String(base?.config_keep_recent ?? 12)} />
           </div>
         </div>
@@ -127,28 +127,28 @@ export function CompactionSettingsCard() {
           {activeSessionId && sessionContext ? (
             <div className="mt-2 space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">会话 feed 占用</span>
+                <span className="text-muted-foreground">{t('settings.compaction.feedUsage')}</span>
                 <span className="font-medium">{sessionContext.feed_tokens.toLocaleString()} / {sessionContext.model_limit_tokens.toLocaleString()} tokens</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div className={`h-full rounded-full transition-all ${wouldCompact ? 'bg-destructive' : pressure >= 60 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} />
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <Badge variant={wouldCompact ? 'secondary' : 'outline'}>{pressure}% 占用</Badge>
+                <Badge variant={wouldCompact ? 'secondary' : 'outline'}>{t('settings.compaction.pressureBadge', { percent: pressure })}</Badge>
                 <span>{wouldCompact ? t('settings.compaction.thresholdReached') : t('settings.compaction.notNeeded')}</span>
                 {Boolean(sessionContext.has_compaction_summary) ? <span>{t('settings.compaction.hasSummary')}</span> : null}
-                {last ? <span>最近压缩：{last.mode} {last.before_tokens.toLocaleString()} → {last.after_tokens.toLocaleString()} tokens</span> : null}
+                {last ? <span>{t('settings.compaction.lastCompaction', { mode: last.mode, before: last.before_tokens.toLocaleString(), after: last.after_tokens.toLocaleString() })}</span> : null}
               </div>
             </div>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">打开一个会话后显示真实占用；配置保存后对下一次运行生效。</p>
+            <p className="mt-2 text-sm text-muted-foreground">{t('settings.compaction.openSessionHint')}</p>
           )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" disabled={locked || saving} onClick={() => void save()}>{saving ? '保存中…' : t('settings.compaction.save')}</Button>
+          <Button type="button" disabled={locked || saving} onClick={() => void save()}>{saving ? t('settings.compaction.saving') : t('settings.compaction.save')}</Button>
           <Button type="button" variant="outline" disabled={!activeSessionId || compacting} onClick={() => void compactNow()}>
-            {compacting ? '压缩中…' : t('settings.compaction.run')}
+            {compacting ? t('settings.compaction.compacting') : t('settings.compaction.run')}
           </Button>
           <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => void loadSessionContext()}>{t('settings.compaction.refresh')}</Button>
         </div>
