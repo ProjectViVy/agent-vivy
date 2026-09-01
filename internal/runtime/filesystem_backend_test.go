@@ -40,6 +40,49 @@ func newFilesystemTestBackend(t *testing.T) (*EinoFilesystemBackend, Workspace, 
 	return NewEinoFilesystemBackend(manager, sandbox), workspace, runID
 }
 
+func TestEinoFilesystemBackendWriteFileConfinedFreshNestedDir(t *testing.T) {
+	manager, err := NewWorkspaceManager(filepath.Join(t.TempDir(), "workspaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := domain.RunID("run_confined_write")
+	workspace, err := manager.Ensure(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox, err := NewSandboxManager(domain.SandboxModeWorkspaceWrite, workspace.Path, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := NewEinoFilesystemBackend(manager, sandbox)
+	ctx := context.Background()
+
+	// WEB-2 regression: parents do not exist yet, so sandbox validation must
+	// run after MkdirAll (download.go order), not before it.
+	write, err := backend.WriteFile(ctx, runID, tools.FileWriteRequest{
+		Path: "a/b/c/new.txt", Content: "fresh", CreateParents: true,
+	})
+	if err != nil {
+		t.Fatalf("confined write to fresh nested dir = %v, want success", err)
+	}
+	if !write.Changed || write.Path != "a/b/c/new.txt" {
+		t.Fatalf("unexpected write result: %+v", write)
+	}
+	data, err := os.ReadFile(filepath.Join(workspace.Path, "a", "b", "c", "new.txt"))
+	if err != nil || string(data) != "fresh" {
+		t.Fatalf("read back = %q, %v", data, err)
+	}
+
+	readOnly, err := NewSandboxManager(domain.SandboxModeReadOnly, workspace.Path, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied := NewEinoFilesystemBackend(manager, readOnly)
+	if _, err := denied.WriteFile(ctx, runID, tools.FileWriteRequest{Path: "other.txt", Content: "x", CreateParents: true}); !errors.Is(err, ErrSandboxDenied) {
+		t.Fatalf("read-only write = %v, want ErrSandboxDenied", err)
+	}
+}
+
 func TestEinoFilesystemBackendReadWriteAndPatch(t *testing.T) {
 	backend, workspace, runID := newFilesystemTestBackend(t)
 	ctx := context.Background()
