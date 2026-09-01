@@ -43,6 +43,13 @@ type ToolHook interface {
 	PostToolUse(context.Context, ToolHookCall, string, error) error
 }
 
+// ToolMatcher narrows a hook to a subset of tools. Hooks implementing it
+// are skipped entirely (no events, no invocations) for tools they do not
+// match; unscoped hooks see every tool.
+type ToolMatcher interface {
+	MatchesTool(toolName string) bool
+}
+
 type ToolHookChain struct {
 	hooks   []ToolHook
 	timeout time.Duration
@@ -61,6 +68,9 @@ func (c *ToolHookChain) PreToolUse(ctx context.Context, call ToolHookCall) (json
 		return args, nil
 	}
 	for _, hook := range c.hooks {
+		if m, ok := hook.(ToolMatcher); ok && !m.MatchesTool(call.ToolName) {
+			continue
+		}
 		started := time.Now()
 		emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventHookStarted, ToolName: call.ToolName, HookName: hook.Name(), Phase: "pre"})
 		hookCtx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -109,6 +119,9 @@ func (c *ToolHookChain) PostToolUse(ctx context.Context, call ToolHookCall, resu
 		return
 	}
 	for _, hook := range c.hooks {
+		if m, ok := hook.(ToolMatcher); ok && !m.MatchesTool(call.ToolName) {
+			continue
+		}
 		started := time.Now()
 		emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventHookStarted, ToolName: call.ToolName, HookName: hook.Name(), Phase: "post"})
 		hookCtx, cancel := context.WithTimeout(ctx, c.timeout)

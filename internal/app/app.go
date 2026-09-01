@@ -282,7 +282,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
 	}
 	policy := policyEngine(cfg)
-	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout)
+	userHooks := scriptHooksForConfig(cfg, func(format string, args ...any) {
+		logger.Warn("hook registered but not approved", "detail", fmt.Sprintf(format, args...))
+	})
+	hooks := runtime.NewToolHookChain(cfg.Governance.HookTimeout, userHooks...)
 	// Resolve the effective context-compression policy against the model's
 	// context window (settings overlay already folded into cfg at startup).
 	modelWindow := 0
