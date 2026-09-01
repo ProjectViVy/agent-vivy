@@ -17,7 +17,7 @@ export const RPC_METHODS = [
   'channel/inspect', 'channel/get', 'channel/update',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
-  'skills/list', 'skills/get', 'skills/set-enabled', 'skills/revisions/list',
+  'skills/list', 'skills/get', 'skills/set-enabled',
   'skills/marketplace/search', 'skills/marketplace/featured', 'skills/marketplace/install',
 ] as const;
 
@@ -465,25 +465,11 @@ export interface MarketplaceSkill { id: string; name: string; source: string; in
 export interface MarketplaceFeatured { generated_at: string; source: string; metric: string; skills: MarketplaceSkill[] }
 export interface MarketplaceInstallResult { skill: SkillView; skipped_files?: string[]; warnings?: string[] }
 
-/** skills/revisions/list — skill_manage 走 HITL 的暂存修订。 */
-export interface SkillRevision {
-  id: string;
-  run_id?: string;
-  skill_name: string;
-  action: string;
-  target_path: string;
-  preview: string;
-  warnings: string[];
-  status: string;
-  created_at: number;
-}
-
 export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
 export const getSkill = (name: string, path?: string) =>
   request<SkillView>('skills/get', path ? { name, path } : { name });
 export const setSkillEnabled = (name: string, enabled: boolean, base_hash: string) =>
   request<SkillSummary>('skills/set-enabled', { name, enabled, base_hash });
-export const listSkillRevisions = () => request<{ revisions: SkillRevision[] }>('skills/revisions/list');
 export const searchMarketplaceSkills = (q: string, limit?: number) =>
   request<{ skills: MarketplaceSkill[] }>('skills/marketplace/search', limit ? { q, limit } : { q });
 export const featuredMarketplaceSkills = () => request<MarketplaceFeatured>('skills/marketplace/featured');
