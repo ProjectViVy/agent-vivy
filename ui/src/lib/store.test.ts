@@ -41,11 +41,11 @@ describe('Vivy store integrity', () => {
 
   it('creates and selects the first session during initialization when none exist', async () => {
     api.listSessions.mockResolvedValue({ sessions: [] });
-    api.createSession.mockResolvedValue({ id: 's-new', title: '新会话', created_at: 1 });
+    api.createSession.mockResolvedValue({ id: 's-new', title: '', created_at: 1 });
     api.listMessages.mockResolvedValue({ messages: [] });
     await useVivyStore.getState().initialize();
     expect(api.createSession).toHaveBeenCalledTimes(1);
-    expect(api.createSession).toHaveBeenCalledWith('新会话');
+    expect(api.createSession).toHaveBeenCalledWith('');
     expect(useVivyStore.getState()).toMatchObject({ initialized: true, activeSessionId: 's-new', sessionsPhase: 'ready', messagesPhase: 'empty' });
   });
 

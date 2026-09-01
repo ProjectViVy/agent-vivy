@@ -119,6 +119,27 @@ func callControl(t *testing.T, handler Handler, method string, params any) (any,
 	return handler.Handle(context.Background(), nil, Request{JSONRPC: "2.0", Method: method, Params: encoded})
 }
 
+func TestControlSessionCreateKeepsEmptyTitleUntitled(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "   "})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	// An empty title marks the session untitled for the auto-titler; the
+	// legacy "New session" defaulting is gone.
+	if session.Title != "" {
+		t.Fatalf("title = %q, want empty", session.Title)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/get", map[string]string{"session_id": string(session.ID)}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+}
+
 func TestControlHandlerUsesVersionedSnakeCaseContracts(t *testing.T) {
 	env := newControlTestEnv(t)
 	result, rpcErr := callControl(t, env.handler, "initialize", nil)

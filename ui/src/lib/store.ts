@@ -240,7 +240,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         let sessionItems = sessions.sessions;
         let initialSessionError: string | null = null;
         if (!sessionItems.length) {
-          try { sessionItems = [await api.createSession(t('errors.newSessionDefault'))]; }
+          try { sessionItems = [await api.createSession('')]; }
           catch (error) { initialSessionError = errorMessage(error); }
         }
         const saved = localStorage.getItem(ACTIVE_SESSION_KEY);
@@ -291,7 +291,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     try { const result = await api.listSessions(); set({ sessions: result.sessions, sessionsPhase: result.sessions.length ? 'ready' : 'empty' }); }
     catch (error) { set((state) => ({ sessionsPhase: state.sessions.length ? 'ready' : 'error', sessionsError: errorMessage(error) })); }
   },
-  createSession: async (title = t('errors.newSessionDefault')) => {
+  createSession: async (title = '') => {
     set({ sessionBusyId: 'create', sessionsError: null });
     try { const created = await api.createSession(title); set((state) => ({ sessions: [created, ...state.sessions], sessionsPhase: 'ready' })); await get().selectSession(created.id); return created; }
     catch (error) { set((state) => ({ sessionsError: errorMessage(error), sessionsPhase: state.sessions.length ? state.sessionsPhase : 'error' })); throw error; } finally { set({ sessionBusyId: null }); }

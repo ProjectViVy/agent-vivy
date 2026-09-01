@@ -362,6 +362,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Sink:                 svcSink,
 		Compactions:          backend,
 		Crons:                backend,
+		Titles:               provider.NewChainTitler(provider.TitleCandidates(catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
