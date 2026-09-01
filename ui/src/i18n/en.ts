@@ -253,6 +253,8 @@ refreshModels: 'Refresh model list',
     noResult: 'No result yet',
     waitComplete: 'Wait for completion',
     noChildren: 'No child runs',
+    review: 'Reviews {{count}}',
+    noReviews: 'No reviews for this run',
   },
   approvals: {
     title: 'Approvals',

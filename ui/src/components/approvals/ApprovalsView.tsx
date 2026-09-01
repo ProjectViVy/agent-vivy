@@ -1,42 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import type { ReviewStatus } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 import { MasterDetail } from '@/components/layout/MasterDetail';
-import { DiffView } from '@/components/ui/DiffView';
-import { looksLikeDiff } from '@/lib/diff';
+import { ReviewCard, statusLabel } from '@/components/approvals/ReviewCard';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { dateTimeLocale, useTranslation } from '@/i18n';
-
-type Translate = ReturnType<typeof useTranslation>['t'];
-
-function statusLabel(t: Translate, status: ReviewStatus): string {
-  return t(`approvals.status.${status}`);
-}
-
-/** 审批详情里的枚举值（可逆性/范围/信任）显示为本地化词条，未收录时保留原值。 */
-function localizeValue(t: Translate, value: string): string {
-  const normalized = value.toLowerCase();
-  const keyMap: Record<string, string> = {
-    reversible: 'approvals.values.reversible',
-    irreversible: 'approvals.values.irreversible',
-    conditionally_reversible: 'approvals.values.conditionally_reversible',
-    unknown: 'approvals.values.unknown',
-    workspace: 'approvals.values.workspace',
-    session: 'approvals.values.session',
-    run: 'approvals.values.runScope',
-    global: 'approvals.values.global',
-    trusted: 'approvals.values.trusted',
-    untrusted: 'approvals.values.untrusted',
-    restricted: 'approvals.values.restricted',
-  };
-  const key = keyMap[normalized];
-  return key ? t(key) : value;
-}
+import { useTranslation } from '@/i18n';
 
 export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   const reviews = useVivyStore((state) => state.reviews);
@@ -47,7 +18,6 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   const respond = useVivyStore((state) => state.respondReview);
   const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [text, setText] = useState('');
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -57,11 +27,6 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
 
   const selected = reviews.find((item) => item.id === selectedId) ?? null;
   const selectedBusy = selected !== null && busyIds.includes(selected.id);
-  const act = async (action: 'approve' | 'deny' | 'answer' | 'cancel') => {
-    if (!selected) return;
-    await respond(selected.id, action === 'answer' ? { action, answer: text } : action === 'deny' ? { action, reason: text } : { action });
-    setText('');
-  };
 
   const list = (
     <div className="space-y-2">
@@ -70,7 +35,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
           type="button"
           key={review.id}
           disabled={busyIds.includes(review.id)}
-          onClick={() => { setSelectedId(review.id); setText(''); }}
+          onClick={() => setSelectedId(review.id)}
           className={cn(
             'w-full cursor-pointer rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
             selectedId === review.id ? 'border-primary bg-primary/5' : 'bg-card hover:bg-muted/50',
@@ -87,68 +52,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   );
 
   const detail = selected ? (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2">
-          <span>{selected.kind === 'approval' ? t('approvals.approvalDetail') : t('approvals.questionDetail')}</span>
-          <Badge>{statusLabel(t, selected.status)}</Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-2">
-          <dt className="text-muted-foreground">{t('approvals.run')}</dt>
-          <dd className="min-w-0 break-all"><code>{selected.run_id}</code></dd>
-          {selected.action ? <><dt className="text-muted-foreground">{t('approvals.action')}</dt><dd className="min-w-0 break-words">{selected.action}</dd></> : null}
-          {selected.target ? <><dt className="text-muted-foreground">{t('approvals.target')}</dt><dd className="min-w-0 break-words">{selected.target}</dd></> : null}
-          {selected.effect ? <><dt className="text-muted-foreground">{t('approvals.effect')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.effect)}</dd></> : null}
-          {selected.reversibility ? <><dt className="text-muted-foreground">{t('approvals.reversibility')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.reversibility)}</dd></> : null}
-          {selected.scope ? <><dt className="text-muted-foreground">{t('approvals.scope')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.scope)}</dd></> : null}
-          {selected.trust ? <><dt className="text-muted-foreground">{t('approvals.trust')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.trust)}</dd></> : null}
-          {selected.actor ? <><dt className="text-muted-foreground">{t('approvals.actor')}</dt><dd className="min-w-0 break-words">{selected.actor}</dd></> : null}
-          <dt className="text-muted-foreground">{t('approvals.createdAt')}</dt><dd className="min-w-0 break-words">{new Date(selected.created_at).toLocaleString(dateTimeLocale())}</dd>
-          <dt className="text-muted-foreground">{t('approvals.expiresAt')}</dt><dd className="min-w-0 break-words">{new Date(selected.expires_at).toLocaleString(dateTimeLocale())}</dd>
-          {selected.decided_at ? <><dt className="text-muted-foreground">{t('approvals.decidedAt')}</dt><dd className="min-w-0 break-words">{new Date(selected.decided_at).toLocaleString(dateTimeLocale())}</dd></> : null}
-          {selected.precondition_hash ? <><dt className="text-muted-foreground">{t('approvals.precondition')}</dt><dd className="min-w-0 break-all"><code>{selected.precondition_hash}</code></dd></> : null}
-          {selected.stale_reason ? <><dt className="text-muted-foreground">{t('approvals.staleReason')}</dt><dd className="min-w-0 break-words">{selected.stale_reason}</dd></> : null}
-          {selected.decision_reason ? <><dt className="text-muted-foreground">{t('approvals.decisionReason')}</dt><dd className="min-w-0 break-words">{selected.decision_reason}</dd></> : null}
-          {selected.error ? <><dt className="text-muted-foreground">{t('approvals.errorLabel')}</dt><dd className="min-w-0 break-words text-destructive">{selected.error}</dd></> : null}
-        </dl>
-        {selected.prompt ? <div className="rounded-lg bg-muted p-3">{selected.prompt}</div> : null}
-        {selected.preview ? (looksLikeDiff(selected.preview)
-          ? <DiffView diff={selected.preview} />
-          : <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">{selected.preview}</pre>) : null}
-        {selected.risk_findings?.length ? (
-          <div>
-            <div className="font-medium text-destructive">{t('approvals.risk')}</div>
-            <ul className="mt-1 list-disc pl-5 text-muted-foreground">{selected.risk_findings.map((risk) => <li key={risk}>{risk}</li>)}</ul>
-          </div>
-        ) : null}
-        {selected.arguments ? (
-          <details>
-            <summary className="cursor-pointer text-muted-foreground">{t('approvals.redactedArgs')}</summary>
-            <pre className="mt-2 overflow-auto rounded bg-muted p-3 text-xs">{JSON.stringify(selected.arguments, null, 2)}</pre>
-          </details>
-        ) : null}
-        {selected.status === 'pending' ? (
-          <div className="space-y-2 border-t pt-4">
-            <Textarea value={text} disabled={selectedBusy} onChange={(event) => setText(event.target.value)} placeholder={selected.kind === 'question' ? t('approvals.answerPlaceholder') : t('approvals.denyReasonPlaceholder')} />
-            <div className="flex flex-wrap gap-2">
-              {selected.kind === 'approval' ? (
-                <>
-                  <Button disabled={selectedBusy} onClick={() => void act('approve')}>{selectedBusy ? t('approvals.processing') : t('approvals.approve')}</Button>
-                  <Button disabled={selectedBusy} variant="destructive" onClick={() => void act('deny')}>{t('approvals.deny')}</Button>
-                </>
-              ) : (
-                <>
-                  <Button disabled={selectedBusy || !text.trim()} onClick={() => void act('answer')}>{selectedBusy ? t('approvals.submitting') : t('approvals.submitAnswer')}</Button>
-                  <Button disabled={selectedBusy} variant="outline" onClick={() => void act('cancel')}>{t('approvals.cancelQuestion')}</Button>
-                </>
-              )}
-            </div>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+    <ReviewCard key={selected.id} review={selected} busy={selectedBusy} onRespond={(response) => respond(selected.id, response)} />
   ) : null;
 
   const header = (
