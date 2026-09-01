@@ -80,6 +80,7 @@ attributes. Standard keys:
 | `approval`, `question` | interaction ids |
 | `type` | event type / journal entry type |
 | `kind`, `reason`, `status` | discriminator fields |
+| `method`, `path` | HTTP access lines (gateway mux) |
 | `count`, `duration_ms`, `interval`, `limit` | metrics |
 
 Rules:
@@ -109,10 +110,16 @@ Rules:
 If you are unsure between `warn` and `error`: does the run/state
 survive and the user recover by retrying? Then `warn`.
 
+HTTP access lines are their own family: `internal/rpc.AccessLogMiddleware`
+wraps the gateway mux and logs one line per request with
+`method`/`path`/`status`/`duration_ms` — `info` normally, `debug` for
+`/healthz` probes (keeps container healthcheck noise out of the info
+stream), `warn` for 5xx. They never carry request or response payloads
+(D-010).
+
 ## 7. Deferred (see docs/TODO.md §0.1)
 
 - File logging for `vivy worker` child processes (multi-process writers
   need a per-worker sink design first).
-- HTTP access-log middleware on the gateway mux.
 - Handler-level redaction as defense in depth behind the D-010
   call-site discipline.
