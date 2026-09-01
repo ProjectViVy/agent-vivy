@@ -502,23 +502,28 @@ export function ModelSettingsCard() {
   };
 
   /**
-   * 「新增」手加模型：自定义供应商同时持久化进注册表列表；随后与点击模型同语义立即应用。
+   * 「新增」手加模型：自定义供应商先落注册表再应用（两写并发会竞争同一
+   * settings 文档）；应用语义与点击模型一致。
    */
-  const confirmAddModel = () => {
+  const confirmAddModel = async () => {
     const id = newModelId.trim();
     if (!id || !selectedEntry || locked) return;
     if (selectedEntry.custom && selectedEntry.registryId) {
       const registry = providerEntryById(providers, selectedEntry.registryId);
       if (registry) {
-        void saveProvider({
-          id: registry.id,
-          display_name: registry.display_name,
-          bundle: registry.bundle,
-          base_url: registry.base_url,
-          default_model: registry.default_model,
-          models: [...registry.models, id],
-          api_key: panelKey.trim(),
-        }).catch(() => undefined);
+        try {
+          await saveProvider({
+            id: registry.id,
+            display_name: registry.display_name,
+            bundle: registry.bundle,
+            base_url: registry.base_url,
+            default_model: registry.default_model,
+            models: [...registry.models, id],
+            api_key: panelKey.trim(),
+          });
+        } catch {
+          // providersError 已由 store 记录并渲染；仍应用本地选择。
+        }
       }
     }
     void applyModelNow(selectedEntry, id);
@@ -764,7 +769,7 @@ export function ModelSettingsCard() {
                           value={newModelId}
                           onChange={(event) => setNewModelId(event.target.value)}
                           onKeyDown={(event) => {
-                            if (event.key === 'Enter') confirmAddModel();
+                            if (event.key === 'Enter') void confirmAddModel();
                             if (event.key === 'Escape') { setAddingModel(false); setNewModelId(''); }
                           }}
                           placeholder={t('settingsModel.addModelPlaceholder')}
@@ -773,7 +778,7 @@ export function ModelSettingsCard() {
                         />
                         <button
                           type="button"
-                          onClick={confirmAddModel}
+                          onClick={() => void confirmAddModel()}
                           aria-label={t('settingsModel.addModelConfirm')}
                           title={t('settingsModel.addModelConfirm')}
                           className="cursor-pointer rounded p-1 text-primary transition-colors hover:bg-accent"

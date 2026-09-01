@@ -10,8 +10,10 @@ test('settings language tab switches interface language and persists', async ({ 
   // deep-link 落在语言分区，且显示的是中文文案（默认语言 zh）
   await expect(page.getByRole('tab', { name: '语言' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText(/选择界面语言/)).toBeVisible();
-  const zhOption = page.getByRole('button').filter({ hasText: 'CN' });
-  const enOption = page.getByRole('button').filter({ hasText: 'EN' });
+  // 语言选项限定在 LanguagePicker 的 role=group 内，避免命中顶栏模型切换器等含 "en" 的按钮
+  const picker = page.getByRole('group', { name: '语言' });
+  const zhOption = picker.getByRole('button').filter({ hasText: 'CN' });
+  const enOption = picker.getByRole('button').filter({ hasText: 'EN' });
   await expect(zhOption).toBeVisible();
   await expect(enOption).toBeVisible();
 
@@ -27,8 +29,8 @@ test('settings language tab switches interface language and persists', async ({ 
   await expect(page.getByRole('tab', { name: 'Language' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText(/Pick the interface language/)).toBeVisible();
 
-  // 切回简体中文，恢复中文文案
-  await page.getByRole('button').filter({ hasText: 'CN' }).click();
+  // 切回简体中文（分组名随界面语言变为 English 名）
+  await page.getByRole('group', { name: 'Language' }).getByRole('button').filter({ hasText: 'CN' }).click();
   await expect(page.getByText(/选择界面语言/)).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('vivy.language'))).toBe('zh');
 });

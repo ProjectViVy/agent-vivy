@@ -31,7 +31,7 @@ test('welcome wizard first-run, skip, rerun, save and deep link', async ({ page 
   await expect(dialog.getByRole('heading', { name: '配置模型' })).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: 'Provider' })).toHaveValue('openai');
   await expect(dialog.getByRole('textbox', { name: '默认模型' })).toHaveValue('gpt-4o-mini');
-  await expect(dialog.getByText('API 密钥通过运行环境变量注入，不在界面中填写或保存。')).toBeVisible();
+  await expect(dialog.getByText('API Key 只写入本机用户工作区，不会回传界面。下一条消息即走该供应商。')).toBeVisible();
 
   // 保留真实 provider 选择并保存，进入完成步骤
   await dialog.getByRole('button', { name: '下一步' }).click();
@@ -42,7 +42,11 @@ test('welcome wizard first-run, skip, rerun, save and deep link', async ({ page 
   await expect(dialog).toBeHidden();
   await expect(page).toHaveURL(/\/settings\?tab=model/);
   await expect(page.getByRole('tab', { name: '模型' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('textbox', { name: 'Provider' })).toHaveValue('openai');
+  // 模型 tab 已重构为供应商注册表 UI（无 Provider 输入框）：断言卡片与当前
+  // 供应商行（可访问名 "OpenAI 当前"；顶栏切换按钮的 aria-label 也含 OpenAI，
+  // 需用整名匹配避开）
+  await expect(page.getByText('已选模型', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'OpenAI 当前' })).toBeVisible();
 
   // 完成后再次刷新：向导保持关闭
   await page.reload();

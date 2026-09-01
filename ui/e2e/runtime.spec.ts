@@ -7,7 +7,8 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await expect(page.getByText('Vivy', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('还没有会话')).toHaveCount(0);
   await expect(page.getByPlaceholder('输入消息... (Enter 发送)')).toBeVisible();
-  await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
+  // 附件入口是 label[aria-label]（内嵌 file input），不是 button role
+  await expect(page.locator('[aria-label="附件"]')).toBeVisible();
   await expect(page.getByRole('button', { name: '新建会话' })).toBeVisible();
   // 语音与桌面伙伴已删除
   await expect(page.getByRole('button', { name: '语音' })).toHaveCount(0);
@@ -71,7 +72,7 @@ test('real control plane conversation, reload, review, settings and demos', asyn
 
   await page.getByRole('link', { name: '设置' }).click();
   await page.getByRole('tab', { name: '模型' }).click();
-  await expect(page.getByText('密钥只由运行环境管理')).toBeVisible();
+  await expect(page.getByText('已选模型', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: '人格' }).click();
   await expect(page.getByRole('heading', { name: '人格' })).toBeVisible();
   await expect(page.getByRole('button', { name: /IDENTITY\.MD/ })).toBeVisible();
@@ -82,7 +83,7 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   await page.getByRole('link', { name: '聊天' }).click();
   await page.getByRole('button', { name: '新建会话' }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('button', { name: '附件' })).toBeVisible();
+  await expect(page.locator('[aria-label="附件"]')).toBeVisible();
 
   await page.getByRole('link', { name: '中控台' }).click();
   await expect(page.getByRole('heading', { name: '中控台' })).toBeVisible();
