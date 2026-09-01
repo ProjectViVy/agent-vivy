@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -69,6 +70,37 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loaded, saved) {
 		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+}
+
+// Concurrent Saves must never publish a corrupt document: each call gets its
+// own temp file, so a reader always sees one complete (previous or new) doc.
+func TestSaveConcurrentWritersKeepDocumentValid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	var wg sync.WaitGroup
+	for writer := 0; writer < 8; writer++ {
+		wg.Add(1)
+		go func(writer int) {
+			defer wg.Done()
+			for round := 0; round < 25; round++ {
+				if _, err := Save(path, Settings{Provider: ProviderOpenAI, DefaultModel: "gpt-4o", BaseURL: "https://gw.example.com/v1"}); err != nil {
+					t.Errorf("save: %v", err)
+					return
+				}
+			}
+		}(writer)
+	}
+	wg.Wait()
+	if _, err := Load(path); err != nil {
+		t.Fatalf("document unreadable after concurrent saves: %v", err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, FileName+".*.tmp"))
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("expected no leftover temp files, got %v", leftovers)
 	}
 }
 
