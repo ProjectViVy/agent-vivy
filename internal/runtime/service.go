@@ -162,8 +162,8 @@ type pendingRun struct {
 	mapper        *eventMapper
 	selectedTools []string
 	// mounted is the run's skill-mount registry captured at suspend time.
-	// Mounts are memory-only (TT-3 journals them later), so restart
-	// recovery rebuilds pendingRun without one (nil → fresh registry).
+	// Restart recovery rebuilds it from the journal's tool.mounted events
+	// (recoveredMounts); nil means the run mounted nothing.
 	mounted        *tools.MountedTools
 	mode           domain.RunMode
 	profile        domain.PolicyProfile
@@ -825,7 +825,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, ledger: ledger}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
@@ -856,7 +856,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
-		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, ledger: ledger,
+		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
 	}
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -891,6 +891,44 @@ func (s *Service) recoverBudgetLedger(ctx context.Context, runID domain.RunID) *
 		return nil
 	}
 	return ledger
+}
+
+// recoveredMounts rebuilds the run's skill-mount registry from the
+// journal's tool.mounted events (TT-3). The live registry is memory-only,
+// so restart recovery would otherwise drop every mount made before the
+// restart and the resumed run would lose access to tools it had mounted.
+// Mounts are add-only within a run, so replaying the events in order
+// reproduces the suspend-time set exactly. nil when the run mounted
+// nothing — the same shape rebuildPending produced before mount recovery
+// existed.
+func (s *Service) recoveredMounts(ctx context.Context, runID domain.RunID) *tools.MountedTools {
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		slog.Warn("restart recovery: mount replay failed", "run", string(runID), "err", err)
+		return nil
+	}
+	defer func() { _ = it.Close() }()
+	var mounts *tools.MountedTools
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventToolMounted || len(event.Payload) == 0 {
+			continue
+		}
+		var p payloadToolMounted
+		if err := json.Unmarshal(event.Payload, &p); err != nil || len(p.Tools) == 0 {
+			slog.Warn("restart recovery: unreadable tool.mounted payload", "run", string(runID))
+			continue
+		}
+		if mounts == nil {
+			mounts = tools.NewMountedTools()
+		}
+		mounts.Mount(p.Tools...)
+	}
+	if err := it.Err(); err != nil {
+		slog.Warn("restart recovery: mount replay failed", "run", string(runID), "err", err)
+		return nil
+	}
+	return mounts
 }
 
 // approvalDetails recovers the interrupted tool and its request-scoped
