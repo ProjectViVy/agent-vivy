@@ -29,6 +29,7 @@ const telegramStatus: ChannelStatus = {
   },
   configured: true,
   enabled: false,
+  allow_from: ['alice'],
   started: false,
   token_env: 'TELEGRAM_BOT_TOKEN',
   token_env_set: false,
@@ -197,6 +198,15 @@ describe('channelPendingRestart（文档真值 vs 进程真值）', () => {
     ).toBe(true);
     expect(
       channelPendingRestart(telegramStatus, { ...telegramEnvelope, token_env: '' }),
+    ).toBe(true);
+  });
+
+  it('纯 allow_from 编辑（enabled/configured/token_env 全同）→ true', () => {
+    expect(
+      channelPendingRestart(telegramStatus, { ...telegramEnvelope, allow_from: ['alice', 'bob'] }),
+    ).toBe(true);
+    expect(
+      channelPendingRestart(telegramStatus, { ...telegramEnvelope, allow_from: [] }),
     ).toBe(true);
   });
 

@@ -183,6 +183,11 @@ type ChannelStatus struct {
 	Configured bool
 	// Enabled is the effective envelope switch; false when unconfigured.
 	Enabled bool
+	// AllowFrom is the startup-effective envelope's allowed-sender summary.
+	// Sender IDs are not secrets (D-010) and already cross channel/get;
+	// carrying them here lets the UI detect a pure allow_from edit as
+	// pending-restart. Nil when unconfigured.
+	AllowFrom []string
 	// Started reports a live adapter in this process.
 	Started bool
 	// TokenEnv is the envelope's declared token_env name; empty when none.
@@ -226,6 +231,7 @@ func (h *Host) Inspect() []ChannelStatus {
 		if envelope, ok := h.deps.Config[name]; ok {
 			status.Configured = true
 			status.Enabled = envelope.Enabled
+			status.AllowFrom = envelope.AllowFrom
 			status.TokenEnv = envelope.TokenEnv
 		}
 		if status.TokenEnv != "" {

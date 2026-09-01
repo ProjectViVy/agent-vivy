@@ -3073,6 +3073,12 @@ type channelStatusResult struct {
 	Configured bool `json:"configured"`
 	// Enabled is the effective envelope switch; false when unconfigured.
 	Enabled bool `json:"enabled"`
+	// AllowFrom is the startup-effective envelope's allowed-sender summary
+	// (process truth); channel/get folds the current settings overlay on
+	// top, so the difference is the pending-restart signal for pure
+	// allow_from edits. Always a JSON array; IDs only, never secrets
+	// (D-010).
+	AllowFrom []string `json:"allow_from"`
 	// Started reports a live adapter in this process.
 	Started bool `json:"started"`
 	// TokenEnv is the declared env NAME; the secret value never crosses
@@ -3105,11 +3111,16 @@ func toChannelCapsResult(c channelhost.Capabilities) channelCapsResult {
 }
 
 func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
+	allowFrom := s.AllowFrom
+	if allowFrom == nil {
+		allowFrom = []string{}
+	}
 	return channelStatusResult{
 		Name:         s.Name,
 		Capabilities: toChannelCapsResult(s.Capabilities),
 		Configured:   s.Configured,
 		Enabled:      s.Enabled,
+		AllowFrom:    allowFrom,
 		Started:      s.Started,
 		TokenEnv:     s.TokenEnv,
 		TokenEnvSet:  s.TokenEnvSet,

@@ -361,6 +361,10 @@ export interface ChannelStatus {
   capabilities: ChannelCapabilities;
   configured: boolean;
   enabled: boolean;
+  /** 启动生效 envelope 的 allow_from 摘要（进程真值），恒为数组；发送者
+   *  ID 不是密钥（D-010）。与 channel/get 的文档真值对比可发现纯
+   *  allow_from 编辑（待重启）。 */
+  allow_from: string[];
   started: boolean;
   /** 仅环境变量名（D-010）；密钥值永不在线。 */
   token_env: string;

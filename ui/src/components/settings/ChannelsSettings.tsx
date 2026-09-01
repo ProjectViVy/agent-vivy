@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { LayoutGrid, List, LoaderCircle, MessageSquare, Plus, RefreshCw } from 'lucide-react';
+import { AlertTriangle, LayoutGrid, List, LoaderCircle, MessageSquare, Plus, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -137,7 +137,7 @@ export function ChannelsSettings() {
 
   return (
     <div className="flex h-[min(44rem,calc(100dvh-16rem))] min-h-0 overflow-hidden rounded-lg border">
-      {viewMode === 'list' && !emptyGeneration ? (
+      {viewMode === 'list' && statuses.length > 0 ? (
         <div className="w-56 shrink-0 overflow-y-auto border-r bg-muted/30">
           {statuses.map((status) => (
             <button
@@ -204,7 +204,6 @@ export function ChannelsSettings() {
             >
               <List className="h-4 w-4" />
             </Button>
-            {error ? <span className="text-xs text-destructive">{error}</span> : null}
           </div>
           {addablePlatforms.length > 0 ? (
             <Button type="button" onClick={() => setWizardOpen(true)}>
@@ -218,6 +217,22 @@ export function ChannelsSettings() {
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <LoaderCircle className="mr-2 h-5 w-5 animate-spin" />
             <span className="text-sm">{t('channels.loading')}</span>
+          </div>
+        ) : error ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+            <AlertTriangle className="h-12 w-12 text-destructive/40" />
+            <p className="text-sm font-medium">{t('channels.inspectError')}</p>
+            <p className="max-w-md text-xs text-muted-foreground">{error}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busyName !== null}
+              onClick={() => void refreshChannels()}
+            >
+              <RefreshCw className="mr-1.5 h-4 w-4" />
+              {t('common.refresh')}
+            </Button>
           </div>
         ) : emptyGeneration ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
