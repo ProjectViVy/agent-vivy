@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -101,6 +102,87 @@ func (e hostedEnv) OpenWrite(name string) (io.WriteCloser, error) {
 		return nil, err
 	}
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+}
+
+// Spawn starts one child process behind GrantProcSpawn (VC-3, D4). The
+// command is a bare PATH name or a workspace-relative path; the child runs
+// in the workspace and outlives this tool call — WithoutCancel keeps the
+// context's values while dropping the run's cancellation, because a
+// language server must survive between calls. The plugin owns the process
+// until Close.
+func (e hostedEnv) Spawn(ctx context.Context, spec plugin.SpawnSpec) (plugin.Proc, error) {
+	if !e.has(plugin.GrantProcSpawn) {
+		return nil, plugin.ErrDenied
+	}
+	command, err := e.resolveCommand(spec.Command)
+	if err != nil {
+		return nil, err
+	}
+	root, err := e.workspace()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), command, spec.Args...)
+	cmd.Dir = root
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return nil, err
+	}
+	return hostedProc{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
+}
+
+// resolveCommand accepts a bare executable name (PATH lookup) or a
+// workspace-relative path with separators. Bare names must not be joined
+// onto the workspace, so the separator check precedes resolve.
+func (e hostedEnv) resolveCommand(command string) (string, error) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", plugin.ErrInvalidArgs
+	}
+	if !strings.ContainsAny(command, `/\`) && !filepath.IsAbs(command) && !strings.Contains(command, ":") {
+		return command, nil
+	}
+	return e.resolve(command)
+}
+
+type hostedProc struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+	stderr io.ReadCloser
+}
+
+func (p hostedProc) Stdin() io.WriteCloser { return p.stdin }
+func (p hostedProc) Stdout() io.ReadCloser { return p.stdout }
+func (p hostedProc) Stderr() io.ReadCloser { return p.stderr }
+
+func (p hostedProc) Wait() error { return p.cmd.Wait() }
+
+// Close kills the child and reaps it. Kill on an already-exited process is
+// an error on some platforms, so its result is deliberately ignored; Wait
+// reports the real outcome.
+func (p hostedProc) Close() error {
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
+	}
+	return p.cmd.Wait()
 }
 
 func (e hostedEnv) has(need plugin.Grant) bool {
