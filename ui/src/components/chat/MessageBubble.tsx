@@ -95,8 +95,13 @@ export function MessageBubble({
   };
 
   if (message.role === 'tool') return <ToolResultBubble message={message} />;
+  // channel 出处徽章（CH-C1-N3）：ui 轮无 provenance，不出任何标记。
+  const origin = message.provenance
+    ? [message.provenance.channel || message.provenance.source, message.provenance.chat_id].filter(Boolean).join(' · ')
+    : '';
   if (user) {
     return <article className="group my-4 flex min-w-0 justify-end"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-end">
+      {origin ? <div className="mb-0.5 px-1 text-[10px] text-muted-foreground">{origin}</div> : null}
       <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">
         {message.attachments?.length ? (
           <div className="mb-2 flex flex-wrap justify-end gap-1.5">
