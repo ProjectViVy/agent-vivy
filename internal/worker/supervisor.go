@@ -21,6 +21,7 @@ type Spec struct {
 	PolicyHash    string               `json:"policy_hash"`
 	WorkspaceID   string               `json:"workspace_id"`
 	Text          string               `json:"text"`
+	System        string               `json:"system,omitempty"`
 	ToolName      string               `json:"tool_name,omitempty"`
 	ToolArgs      any                  `json:"tool_args,omitempty"`
 	MaxTurns      int                  `json:"max_turns,omitempty"`
@@ -173,7 +174,7 @@ func (s *Supervisor) Run(ctx context.Context, spec Spec) (string, error) {
 	result, err := s.peer.Call(ctx, "worker/run", RunRequest{
 		RunID: string(spec.RunID), ParentRunID: string(spec.ParentRunID),
 		PolicyProfile: string(spec.PolicyProfile), PolicyHash: spec.PolicyHash,
-		WorkspaceID: spec.WorkspaceID, Text: spec.Text, ToolName: spec.ToolName, ToolArgs: spec.ToolArgs,
+		WorkspaceID: spec.WorkspaceID, Text: spec.Text, System: spec.System, ToolName: spec.ToolName, ToolArgs: spec.ToolArgs,
 		MaxTurns: spec.MaxTurns, Tools: spec.Tools,
 	})
 	if err != nil {
