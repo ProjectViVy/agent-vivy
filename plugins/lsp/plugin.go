@@ -33,7 +33,7 @@ func (p *Plugin) Name() string      { return "lsp" }
 func (p *Plugin) Seam() plugin.Seam { return plugin.SeamToolWorld }
 
 func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantFSRead, plugin.GrantProcSpawn}
+	return []plugin.Grant{plugin.GrantFSRead, plugin.GrantFSWrite, plugin.GrantProcSpawn}
 }
 
 func (p *Plugin) Tools() []plugin.Tool {
@@ -42,6 +42,7 @@ func (p *Plugin) Tools() []plugin.Tool {
 		definitionTool{mgr: p.mgr},
 		referencesTool{mgr: p.mgr},
 		symbolsTool{mgr: p.mgr},
+		renameTool{mgr: p.mgr},
 	}
 }
 

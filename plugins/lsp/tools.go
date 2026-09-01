@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"agent-vivy/sdk/plugin"
@@ -166,6 +167,97 @@ func (t symbolsTool) Run(ctx context.Context, env plugin.Env, args json.RawMessa
 		return "", fmt.Errorf("lsp: decode symbols: %w", err)
 	}
 	return formatSymbols(root, tree, flat), nil
+}
+
+type renameTool struct {
+	mgr *manager
+}
+
+func (renameTool) Name() string { return "lsp_rename" }
+
+// Effect write is deliberate: rename rewrites workspace files through
+// env.OpenWrite, so the kernel's write-approval path gates it like any
+// other mutating tool.
+func (renameTool) Effect() plugin.Effect { return plugin.EffectWrite }
+
+func (renameTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path of the file containing the symbol"},"line":{"type":"integer","description":"1-based line of the symbol"},"column":{"type":"integer","description":"1-based column of the symbol"},"new_name":{"type":"string","description":"New name for the symbol"}},"required":["path","line","column","new_name"]}`)
+}
+
+func (t renameTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (string, error) {
+	var in struct {
+		filePos
+		NewName string `json:"new_name"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return "", plugin.ErrInvalidArgs
+	}
+	if strings.TrimSpace(in.NewName) == "" {
+		return "", fmt.Errorf("lsp: new_name is required")
+	}
+	srv, uri, pos, err := syncOpen(ctx, env, t.mgr, args)
+	if err != nil {
+		return "", err
+	}
+	result, err := srv.call(ctx, "textDocument/rename", renameParams{
+		TextDocument: textDocumentIdentifier{URI: uri},
+		Position:     position{Line: pos.Line - 1, Character: pos.Column - 1},
+		NewName:      in.NewName,
+	})
+	if err != nil {
+		return "", err
+	}
+	var we workspaceEdit
+	if err := json.Unmarshal(result, &we); err != nil {
+		return "", fmt.Errorf("lsp: decode workspace edit: %w", err)
+	}
+	if len(we.Changes) == 0 {
+		return "no changes", nil
+	}
+	root := env.Workspace()
+	type plan struct {
+		rel   string
+		body  string
+		edits []textEdit
+	}
+	plans := make([]plan, 0, len(we.Changes))
+	for editURI, edits := range we.Changes {
+		rel, ok := uriToRel(root, editURI)
+		if !ok || !workspaceRel(rel) {
+			return "", fmt.Errorf("lsp: rename targets a file outside the workspace: %s", editURI)
+		}
+		rc, err := env.OpenRead(rel)
+		if err != nil {
+			return "", fmt.Errorf("lsp: read %s: %w", rel, err)
+		}
+		body, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			return "", fmt.Errorf("lsp: read %s: %w", rel, err)
+		}
+		plans = append(plans, plan{rel: rel, body: string(body), edits: edits})
+	}
+	sort.Slice(plans, func(i, j int) bool { return plans[i].rel < plans[j].rel })
+	var b strings.Builder
+	for _, p := range plans {
+		next, err := applyEdits(p.body, p.edits)
+		if err != nil {
+			return "", err
+		}
+		w, err := env.OpenWrite(p.rel)
+		if err != nil {
+			return "", fmt.Errorf("lsp: write %s: %w", p.rel, err)
+		}
+		_, err = io.WriteString(w, next)
+		if cerr := w.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return "", fmt.Errorf("lsp: write %s: %w", p.rel, err)
+		}
+		fmt.Fprintf(&b, "%s (%d edits)\n", p.rel, len(p.edits))
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // formatLocations renders a raw definition/references result: Location,

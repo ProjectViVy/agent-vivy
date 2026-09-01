@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "seam": "tool-world",
   "module": ".",
-  "grants": ["fs.read", "proc.spawn"],
+  "grants": ["fs.read", "fs.write", "proc.spawn"],
   "tools": [
     {
       "name": "lsp_diagnostics",
@@ -64,6 +64,21 @@
           "path": { "type": "string", "description": "Workspace-relative path of the file" }
         },
         "required": ["path"]
+      }
+    },
+    {
+      "name": "lsp_rename",
+      "effect": "write",
+      "description": "Rename the symbol at a 1-based line/column across the workspace. Rewrites affected files in place (write approval applies).",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Workspace-relative path of the file containing the symbol" },
+          "line": { "type": "integer", "description": "1-based line of the symbol" },
+          "column": { "type": "integer", "description": "1-based column of the symbol" },
+          "new_name": { "type": "string", "description": "New name for the symbol" }
+        },
+        "required": ["path", "line", "column", "new_name"]
       }
     }
   ]
