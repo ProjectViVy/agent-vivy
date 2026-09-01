@@ -204,6 +204,17 @@ func (e *hostEnv) Media() plugin.MediaStore {
 	return e.host.media
 }
 
+// Logger returns the Host logger pre-scoped to this channel — the
+// CH-C6-N1 optional face (plugin.ChannelLogger). Lifecycle events that
+// happen after Start returns (a supervised redial failing against a dead
+// gateway) are invisible to the Host; adapters that type-assert their env
+// to the face log through the kernel's structured handler instead of
+// staying silent. Adapters remain responsible for never logging secret
+// values (D-010).
+func (e *hostEnv) Logger() *slog.Logger {
+	return e.host.logger.With("channel", e.seam.Name())
+}
+
 func (e *hostEnv) hasGrant(need plugin.Grant) bool {
 	for _, grant := range e.seam.Grants() {
 		if grant == need {

@@ -1,6 +1,7 @@
 package dingtalk
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +34,7 @@ type fakeEnv struct {
 	secrets   map[string]string
 	client    *http.Client
 	openAPIHI string // host the factory saw, for assertions
+	logger    *slog.Logger
 
 	mu        sync.Mutex
 	published []plugin.InboundMessage
@@ -62,6 +65,10 @@ func (e *fakeEnv) PublishInbound(_ context.Context, msg plugin.InboundMessage) e
 }
 
 func (e *fakeEnv) Media() plugin.MediaStore { return nil }
+
+// Logger implements the optional plugin.ChannelLogger face; nil (unset)
+// keeps the supervisor silent, mirroring an env without the face.
+func (e *fakeEnv) Logger() *slog.Logger { return e.logger }
 
 func (e *fakeEnv) snapshot() []plugin.InboundMessage {
 	e.mu.Lock()
@@ -1002,4 +1009,112 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	if got := stub.ticketCount(); got != 1 {
 		t.Fatalf("ticket exchanges = %d, want exactly the initial one (no redial after stop)", got)
 	}
+}
+
+// --- supervised redial visibility (CH-C6-N1) -----------------------------------
+
+// logBuffer is a mutex-guarded bytes.Buffer: the supervisor logs from its
+// own goroutine while the test polls the output.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// shrinkStreamRedialDelay makes the supervised redial loop fast for
+// lifecycle tests; restored by cleanup (qq's shrinkRedialDelay pattern).
+func shrinkStreamRedialDelay(t *testing.T) {
+	t.Helper()
+	old := streamRedialDelay
+	streamRedialDelay = 20 * time.Millisecond
+	t.Cleanup(func() { streamRedialDelay = old })
+}
+
+// scriptedStream delegates to a fakeStream but consumes a plan of failures:
+// a true entry makes that Start call fail, a false one (or a drained plan)
+// delegates to the fake.
+type scriptedStream struct {
+	*fakeStream
+	mu   sync.Mutex
+	plan []bool
+}
+
+func (s *scriptedStream) Start(ctx context.Context) error {
+	s.mu.Lock()
+	fail := false
+	if len(s.plan) > 0 {
+		fail = s.plan[0]
+		s.plan = s.plan[1:]
+	}
+	s.mu.Unlock()
+	if fail {
+		return errors.New("gateway unreachable")
+	}
+	return s.fakeStream.Start(ctx)
+}
+
+// TestSuperviseRedialFailuresLogged (CH-C6-N1): failed redials and the
+// recovery are logged through the env's ChannelLogger face instead of
+// staying silent.
+func TestSuperviseRedialFailuresLogged(t *testing.T) {
+	shrinkStreamRedialDelay(t)
+	var buf logBuffer
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	env.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	stream := newFakeStream(nil)
+	// Plan: the initial connect succeeds, two redials fail, then the ear
+	// reconnects (drained plan = success).
+	scripted := &scriptedStream{fakeStream: stream, plan: []bool{false, true, true}}
+	spy := &factorySpy{f: func(streamCreds, string) streamClient { return scripted }}
+	p := New().(*Plugin)
+	p.newClient = spy.build
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+
+	waitFor(t, "two redial failure warnings", func() bool {
+		return strings.Count(buf.String(), "stream redial failed") >= 2
+	})
+	waitFor(t, "reconnect info line", func() bool {
+		return strings.Contains(buf.String(), "stream reconnected")
+	})
+	if !strings.Contains(buf.String(), "failed_attempts=2") {
+		t.Fatalf("reconnect line lacks the attempt count: %s", buf.String())
+	}
+}
+
+// TestSuperviseSilentWithoutLogFace (CH-C6-N1): an env without the
+// ChannelLogger face keeps the supervisor silent — the face is optional.
+func TestSuperviseSilentWithoutLogFace(t *testing.T) {
+	shrinkStreamRedialDelay(t)
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	stream := newFakeStream(nil)
+	scripted := &scriptedStream{fakeStream: stream, plan: []bool{false, true}}
+	spy := &factorySpy{f: func(streamCreds, string) streamClient { return scripted }}
+	p := New().(*Plugin)
+	p.newClient = spy.build
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+
+	// The loop must survive failed redials with no logger at all —
+	// wait out a few ticks without any panic, then confirm the fake kept
+	// being ticked (Start calls beyond the initial one happened).
+	waitFor(t, "ticked beyond the failed redial", func() bool {
+		_, starts, _ := stream.state()
+		return starts >= 2
+	})
 }

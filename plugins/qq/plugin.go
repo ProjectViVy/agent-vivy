@@ -49,6 +49,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -205,6 +206,13 @@ type Plugin struct {
 	// redial and the event handler before every publish, so neither a
 	// redial nor a late callback can resurrect a stopped ear.
 	stopped bool
+	// logger is the kernel log face captured at Start (the optional
+	// plugin.ChannelLogger face on the env, CH-C6-N1): failed redials,
+	// terminal give-ups, and reconnects surface through it instead of
+	// staying silent. Written once by Start before the supervisor
+	// goroutine exists and never mutated afterwards, so the loop reads it
+	// without the mutex; nil (env without the face) keeps the loop silent.
+	logger *slog.Logger
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -287,6 +295,11 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	// A new Start is a new ear: a Stop that ran before this Start must
 	// not deafen it. (Stop remains idempotent within an ear's lifetime.)
 	p.stopped = false
+	// The optional log face (CH-C6-N1): capture before the supervisor
+	// goroutine starts, per the field's set-once contract.
+	if lc, ok := env.(plugin.ChannelLogger); ok {
+		p.logger = lc.Logger()
+	}
 	p.mu.Unlock()
 	settings, err := DecodeSettings(env.Settings())
 	if err != nil {
@@ -537,6 +550,10 @@ func (p *Plugin) rememberChat(chatID, msgID string) {
 func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr chan<- error) {
 	defer close(done)
 
+	// failures counts consecutive failed attempts since the last live
+	// connection, purely for the CH-C6-N1 log lines below.
+	failures := 0
+
 	// reportOutcome hands the FIRST attempt's outcome to Start, exactly
 	// once, and reports whether this call did the sending. Every exit path
 	// calls it: Start has no other wakeup while the parent context is
@@ -602,6 +619,8 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			if report(fmt.Errorf("dial gateway: %w", err)) {
 				return
 			}
+			failures++
+			p.logRedialFailure("dial gateway", err, failures)
 			if !p.pause(ctx) {
 				return
 			}
@@ -631,6 +650,8 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			if report(fmt.Errorf("authenticate: %w", authErr)) {
 				return
 			}
+			failures++
+			p.logRedialFailure("authenticate", authErr, failures)
 			if !p.pause(ctx) {
 				return
 			}
@@ -657,8 +678,11 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 					return
 				}
 				if !handleDeath(ws, err) {
+					p.logGiveUp(err)
 					return
 				}
+				failures++
+				p.logRedialFailure("handshake", err, failures)
 				if !p.pause(ctx) {
 					return
 				}
@@ -679,6 +703,10 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		}
 
 		report(nil)
+		if failures > 0 && p.logger != nil {
+			p.logger.Info("qq: gateway reconnected", "failed_attempts", failures)
+		}
+		failures = 0
 
 		// Hold the connection until it dies or the context is cancelled.
 		select {
@@ -687,8 +715,11 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			// captured through this adapter's own handlers (READY session
 			// id, last dispatched event sequence).
 			if !handleDeath(ws, err) {
+				p.logGiveUp(err)
 				return
 			}
+			failures++
+			p.logRedialFailure("session", err, failures)
 		case <-ctx.Done():
 			p.closeAttempt(ws)
 			return
@@ -755,6 +786,27 @@ func (p *Plugin) pause(ctx context.Context) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// logRedialFailure warns one failed supervised attempt through the kernel
+// log face (CH-C6-N1). A nil logger (env without the face) stays silent.
+func (p *Plugin) logRedialFailure(stage string, err error, failures int) {
+	if p.logger == nil {
+		return
+	}
+	p.logger.Warn("qq: gateway attempt failed; will redial",
+		"stage", stage, "failures", failures, "err", err)
+}
+
+// logGiveUp errors when the supervisor gives up on the gateway for good
+// (a cannot-identify close): the ear stays started but deaf until the
+// channel restarts, so this line is the operator's one visible signal.
+func (p *Plugin) logGiveUp(err error) {
+	if p.logger == nil {
+		return
+	}
+	p.logger.Error("qq: gateway closed the bot permanently; the ear stays deaf until the channel restarts",
+		"err", err)
 }
 
 // Stop implements plugin.Channel: latch stopped, cancel the supervisor,

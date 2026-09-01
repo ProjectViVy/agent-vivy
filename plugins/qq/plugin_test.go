@@ -1,11 +1,13 @@
 package qq
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -79,6 +81,7 @@ func botgoSandbox(appID string, ts oauth2.TokenSource) qqAPI {
 // variables). Published inbound envelopes are recorded.
 type fakeEnv struct {
 	settings json.RawMessage
+	logger   *slog.Logger
 
 	mu        sync.Mutex
 	published []plugin.InboundMessage
@@ -109,6 +112,10 @@ func (e *fakeEnv) PublishInbound(_ context.Context, msg plugin.InboundMessage) e
 }
 
 func (e *fakeEnv) Media() plugin.MediaStore { return nil }
+
+// Logger implements the optional plugin.ChannelLogger face; nil (unset)
+// keeps the supervisor silent, mirroring an env without the face.
+func (e *fakeEnv) Logger() *slog.Logger { return e.logger }
 
 func (e *fakeEnv) snapshot() []plugin.InboundMessage {
 	e.mu.Lock()
@@ -1323,4 +1330,74 @@ func TestStopDuringFirstHandshakeReturns(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("Start did not return after Stop")
 	}
+}
+
+// --- supervised redial visibility (CH-C6-N1) -----------------------------------
+
+// logBuffer is a mutex-guarded bytes.Buffer: the supervisor logs from its
+// own goroutine while the test polls the output.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// TestRedialFailuresLogged (CH-C6-N1): after the first live attempt dies,
+// a refused dial and the eventual recovery are logged through the env's
+// ChannelLogger face instead of staying silent.
+func TestRedialFailuresLogged(t *testing.T) {
+	shrinkRedialDelay(t)
+	var buf logBuffer
+	h := newHarness(t, validSettings)
+	h.env.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	// Attempt #1 (the first redial after the drop) dials refused; every
+	// later attempt dials normally, so the ear recovers.
+	h.spy.onBuild = func(n int, f *fakeWS) {
+		if n == 1 {
+			f.connectErr = errors.New("refused")
+		}
+	}
+	h.start(t)
+
+	h.spy.nth(0).drop(errors.New("connection reset"))
+	waitFor(t, "session-death warning", func() bool {
+		return strings.Contains(buf.String(), "stage=session")
+	})
+	// The dial stage is logged as stage="dial gateway" (TextHandler
+	// quotes the space), so assert on the error text instead.
+	waitFor(t, "refused-dial warning", func() bool {
+		return strings.Contains(buf.String(), "err=refused")
+	})
+	waitFor(t, "reconnect info line", func() bool {
+		return strings.Contains(buf.String(), "gateway reconnected")
+	})
+	if !strings.Contains(buf.String(), "failed_attempts=2") {
+		t.Fatalf("reconnect line lacks the attempt count: %s", buf.String())
+	}
+}
+
+// TestGiveUpLogged (CH-C6-N1): the terminal cannot-identify give-up — the
+// ear stays started but deaf — errors through the log face.
+func TestGiveUpLogged(t *testing.T) {
+	shrinkRedialDelay(t)
+	var buf logBuffer
+	h := newHarness(t, validSettings)
+	h.env.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	h.start(t)
+
+	h.spy.nth(0).drop(errs.New(errs.CodeConnCloseCantIdentify, "bot delisted"))
+	waitFor(t, "give-up error line", func() bool {
+		return strings.Contains(buf.String(), "ear stays deaf until the channel restarts")
+	})
 }

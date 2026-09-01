@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -60,7 +61,8 @@ const singleChatType = "1"
 // redial while it is disconnected. The SDK's own auto-reconnect is
 // disabled (it redials forever on a background context, which would keep
 // the ear alive after Stop); this loop is the context-aware replacement.
-const streamRedialDelay = 3 * time.Second
+// A var so lifecycle tests can shrink it (qq's shrinkRedialDelay pattern).
+var streamRedialDelay = 3 * time.Second
 
 // webhookMaxBodyBytes bounds one sessionWebhook reply body read.
 const webhookMaxBodyBytes = 64 << 10
@@ -114,6 +116,13 @@ type Plugin struct {
 	// stopped latches once Stop ran; the supervisor checks it before
 	// every redial so a redial can never resurrect a stopped ear.
 	stopped bool
+	// logger is the kernel log face captured at Start (the optional
+	// plugin.ChannelLogger face on the env, CH-C6-N1): the supervisor
+	// reports failed redials and reconnects through it instead of staying
+	// silent. Written once by Start before the supervisor goroutine exists
+	// and never mutated afterwards, so the loop reads it without the
+	// mutex; nil (env without the face) keeps the loop silent.
+	logger *slog.Logger
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -213,6 +222,11 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	done := make(chan struct{})
 	p.mu.Lock()
 	p.http = env.HTTP()
+	// The optional log face (CH-C6-N1): capture before the supervisor
+	// goroutine starts, per the field's set-once contract.
+	if lc, ok := env.(plugin.ChannelLogger); ok {
+		p.logger = lc.Logger()
+	}
 	p.stream = stream
 	p.cancel = cancel
 	p.done = done
@@ -231,9 +245,12 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 // the conn, so the next tick redials) — but NOT on silent network death
 // (NAT timeout, read stall): the SDK never notices, Start keeps being a
 // no-op, and the ear stays deaf until process restart (CH-C6-N3). Failed
-// redials stay silent — the next tick retries, and Stop ends the loop.
+// redials stay visible — every failed attempt is warned through the
+// kernel log face (CH-C6-N1) and the recovery is logged — while Stop ends
+// the loop.
 func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 	defer close(done)
+	failures := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,8 +264,17 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 			return
 		}
 		if err := stream.Start(ctx); err != nil {
+			failures++
+			if p.logger != nil {
+				p.logger.Warn("dingtalk: stream redial failed; will retry",
+					"failures", failures, "err", err)
+			}
 			continue
 		}
+		if failures > 0 && p.logger != nil {
+			p.logger.Info("dingtalk: stream reconnected", "failed_attempts", failures)
+		}
+		failures = 0
 		// A redial that raced Stop must not leave an orphan socket behind.
 		p.mu.Lock()
 		stopped = p.stopped
