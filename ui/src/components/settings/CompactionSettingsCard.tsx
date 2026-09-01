@@ -7,22 +7,30 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { settingsUpdateFrom } from '@/lib/api';
-import { useVivyStore } from '@/lib/store';
+import { runActive, useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
 /**
  * 上下文压缩（真实）：配置持久化到 settings.yaml（settings/update），保存后
  * 立即（或最迟下一次 run）重建引擎的 Eino reduction + summarization 中间件；
  * 占用数字来自 session/context；「立即压缩」触发 context/compact 会话级压缩。
+ * 忙碌预判：后端 busy 为引擎全局（任一活动/排队运行，compaction_service 的
+ * s.active/s.pending），store 的 currentRun + backgroundRuns 任一非终结态
+ * 运行即禁用按钮并提示；409 仍作为竞态兜底。
  */
 export function CompactionSettingsCard() {
   const settings = useVivyStore((state) => state.settings);
   const sessionContext = useVivyStore((state) => state.sessionContext);
   const activeSessionId = useVivyStore((state) => state.activeSessionId);
+  const currentRun = useVivyStore((state) => state.currentRun);
+  const backgroundRuns = useVivyStore((state) => state.backgroundRuns);
   const saveSettings = useVivyStore((state) => state.saveSettings);
   const compactSession = useVivyStore((state) => state.compactSession);
   const loadSessionContext = useVivyStore((state) => state.loadSessionContext);
+  const loadBackgroundRuns = useVivyStore((state) => state.loadBackgroundRuns);
   const { t } = useTranslation();
+
+  const busy = runActive(currentRun) || backgroundRuns.some((run) => runActive(run));
 
   const base = settings?.compaction;
   const [enabled, setEnabled] = useState(base?.enabled ?? true);
@@ -147,10 +155,11 @@ export function CompactionSettingsCard() {
 
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" disabled={locked || saving} onClick={() => void save()}>{saving ? t('settings.compaction.saving') : t('settings.compaction.save')}</Button>
-          <Button type="button" variant="outline" disabled={!activeSessionId || compacting} onClick={() => void compactNow()}>
+          <Button type="button" variant="outline" disabled={!activeSessionId || compacting || busy} onClick={() => void compactNow()}>
             {compacting ? t('settings.compaction.compacting') : t('settings.compaction.run')}
           </Button>
-          <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => void loadSessionContext()}>{t('settings.compaction.refresh')}</Button>
+          <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => { void loadSessionContext(); void loadBackgroundRuns(); }}>{t('settings.compaction.refresh')}</Button>
+          {busy ? <span className="text-xs text-amber-600 dark:text-amber-400">{t('settings.compaction.busyHint')}</span> : null}
         </div>
         {feedback ? <p className="text-xs text-muted-foreground" aria-live="polite">{feedback}</p> : null}
       </CardContent>

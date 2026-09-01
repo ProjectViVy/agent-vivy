@@ -132,7 +132,7 @@ Do not pick work from those tables. Closed-track filing:
 | UI-AUDIT-REVIEW-INSPECTOR | Run Inspector 缺少 Review inline/tab | OPEN | 2026-08-31 审查确认 Review Center 有队列但 inspector 只有 run/background/children；与 HITL-04 及 `hitl-review-center.md` inline renderer 约束不符。 |
 | UI-AUDIT-RUN-DETAIL | Run event payload 仅放 HTML title，缺少可读详情 | OPEN | 2026-08-31 审查确认后端 `RunLogEvent` 有结构化 payload，但 UI 未提供键盘可达的事件详情；违反日志一等公民要求。 |
 | UI-AUDIT-REVIEW-FIELDS | Review 详情遗漏 expiry/stale/actor/precondition/terminal reason | OPEN | 2026-08-31 审查确认 API/后端 DTO 已有字段，ApprovalsView 未呈现，导致过期/失效原因不可审计。 |
-| UI-AUDIT-COMPACTION-BUSY | 立即压缩未预判 active/background run | OPEN | 2026-08-31 审查确认按钮可在后端 `ErrCompactionBusy` 条件下点击并收到 409。 |
+| UI-AUDIT-COMPACTION-BUSY | 立即压缩未预判 active/background run | DONE | 2026-08-31 审查确认按钮可在后端 `ErrCompactionBusy` 条件下点击并收到 409。2026-09-01 完成：卡片订阅 store 运行真相——`runActive(currentRun)`（挂接会话在途 turn，订阅实时更新）+ `backgroundRuns.some(runActive)`（后台注册表非终结态）任一命中即禁用「立即压缩」并显示 amber `settings.compaction.busyHint`（en/zh）；「刷新占用」联动 `loadBackgroundRuns()` 复核；`store.runActive` 导出复用。后端 busy 为引擎全局（compaction_service s.active/s.pending），409 保留为竞态/跨端盲区兜底 |
 | UI-AUDIT-REVIEW-BUSY-SCOPE | 单条 Review 响应锁住整个队列 | OPEN | 2026-08-31 审查确认 `reviewBusyId` 非空时所有行/刷新/动作禁用；应按 item 粒度锁定。 |
 | UI-AUDIT-REVIEW-NAV | `/approvals` 完整路由没有主导航入口 | OPEN | 2026-08-31 审查确认只能从聊天 shield 打开 sheet；跨 session Review Center 的 full main-area surface 不够可发现。 |
 | UI-MODEL-KEY-SCOPE | 同运行束下不同网关（base_url）无法各自独立密钥 | DONE | 2026-08-30 `ModelResolver` + `ModelSpec`：openai Ref 按次接收 APIKey/BaseURL，不再 `os.Getenv(bundle.EnvKey)`；注册表 `ActiveKey(bundle, base_url)` 成为产品路径。见 `docs/logs/2026-08-30-compile-model-resolver/` |
@@ -515,6 +515,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-09-01 | UI-AUDIT-COMPACTION-BUSY 立即压缩忙碌预判 | 卡片订阅 `currentRun`+`backgroundRuns`（`runActive` 导出复用），任一非终结态运行禁用「立即压缩」并提示（busyHint en/zh）；「刷新占用」联动 `loadBackgroundRuns()`。后端 busy 引擎全局（s.active/s.pending），409 兜底竞态/跨端前台盲区。`just ci` + `just ui-e2e` 绿。Filing: `docs/logs/2026-09-01-ui-audit-compaction-busy/`. |
 | 2026-09-01 | UI-AUDIT-DASHBOARD-LIVE Dashboard 概览接真实 RPC，删演示快照 | Overview 三格改 `session/list` + `background/list`（非终结态计数）+ `review/list`(pending)；近期活动卡整卡删除（无端点）；删 `getDemoDashboard`/`DEFAULT_DASHBOARD`/`DemoDashboardSnapshot`/`vivy.demo.dashboard` 与活动 i18n；组件正名 `DashboardView`（`components/dashboard/`）。轨迹 Tab 演示面另立 UI-TRAJECTORY-DEMO。`just ci` + `just ui-e2e`（10 passed/1 skipped，真实控制面）绿。Filing: `docs/logs/2026-09-01-ui-audit-dashboard-live/`. |
 | 2026-09-01 | UI-AUDIT-SKILLS-LIVE 复核：/skills 页已全量接真实 RPC，删除死 hook useSkills | 复核推翻行前提：`SkillsView` 直接调 `api.listSkills` / `getSkill` / `setSkillEnabled`（hash CAS，409 重读目录）/ `listSkillRevisions`，marketplace 由 capabilities 门控，错误/空/警告态齐全。唯一 demo 残留是零引用死 hook `hooks/useSkills.ts`（指向 `vivy.demo.skills`）——删除；demo-api 技能函数仍归 UI-EVO（Evolution 页）使用，保留。`just ci` 绿。Filing: `docs/logs/2026-09-01-ui-audit-skills-live/`. |
 | 2026-09-01 | CH-C7a-N1 feishu 首连 Stop 竞态送达 firstErr | 照抄 qq 恰一次 `report` 闭包 + `stopOutcome`：三条静默早退（循环顶/READY 等待 ctx.Done/READY 后 shouldContinue）全改走 report，成功路径也收编单点化；Stop 落在首连 READY 等待期时 Start 现在 2s 内带错返回（旧代码永久滞留）。`TestStopDuringFirstConnectReturns`（mutedReadyWS 掐 onReady）钉住回归。`-race -count=3` + feishu 全 module + `just ci` 绿。Filing: `docs/logs/2026-09-01-ch-c7a-n1-feishu-firsterr/`. |

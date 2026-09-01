@@ -23,7 +23,7 @@ export function setDemoData<T>(key: string, value: T): void {
 }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function runActive(run: api.Run | null): boolean { return !!run && !['completed', 'failed', 'cancelled'].includes(run.status); }
+export function runActive(run: api.Run | null): boolean { return !!run && !['completed', 'failed', 'cancelled'].includes(run.status); }
 function replay(events: RunEvent[], type: string): string { return events.filter((event) => event.type === type).map((event) => String(event.payload.delta ?? '')).join(''); }
 function lastRunId(messages: api.Message[]): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) if (messages[index].run_id) return messages[index].run_id ?? null;
