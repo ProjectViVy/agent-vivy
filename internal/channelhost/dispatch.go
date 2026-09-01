@@ -99,12 +99,18 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	if err != nil {
 		return fmt.Errorf("channelhost: start run for channel %s: %w", msg.Channel, err)
 	}
+	ch := h.channelByName(msg.Channel)
+	maxRunes := 0
+	if rl, ok := ch.(plugin.RunesLimiter); ok {
+		maxRunes = rl.MaxMessageRunes()
+	}
 	h.mu.Lock()
 	h.targets[runID] = outboundTarget{
 		sessionID: sessionID,
 		chatID:    msg.ChatID,
 		topicID:   msg.TopicID,
-		ch:        h.channelByName(msg.Channel),
+		ch:        ch,
+		maxRunes:  maxRunes,
 	}
 	h.mu.Unlock()
 	return nil
@@ -216,18 +222,70 @@ func (h *Host) deliverCompleted(runID domain.RunID, target outboundTarget) {
 			"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID)
 		return
 	}
-	ids, err := target.ch.Send(ctx, plugin.OutboundMessage{
-		ChatID:  target.chatID,
-		TopicID: target.topicID,
-		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
-	})
-	if err != nil {
-		h.logger.Error("channelhost: outbound delivery failed",
-			"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "err", err)
-		return
+	// CH-C4-N1: an adapter-declared outbound bound splits the reply into
+	// several sends instead of one delivery the platform would reject (the
+	// telegram failure that motivated the row). Chunk boundaries prefer a
+	// newline inside the window; a mid-word hard break is the fallback.
+	// Runes approximate platform character limits; an astral-heavy text
+	// may still edge past a UTF-16-counting ceiling, but never by the
+	// order of magnitude that caused the original total loss.
+	var delivered int
+	for _, chunk := range splitRunes(content, target.maxRunes) {
+		ids, err := target.ch.Send(ctx, plugin.OutboundMessage{
+			ChatID:  target.chatID,
+			TopicID: target.topicID,
+			Parts:   []plugin.Part{{Kind: plugin.PartText, Text: chunk}},
+		})
+		if err != nil {
+			h.logger.Error("channelhost: outbound delivery failed",
+				"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "err", err)
+			if delivered > 0 {
+				h.logger.Warn("channelhost: outbound delivery stopped mid-reply",
+					"run", string(runID), "channel", target.ch.Name(),
+					"chat_id", target.chatID, "delivered", delivered)
+			}
+			return
+		}
+		delivered += len(ids)
 	}
 	h.logger.Info("channelhost: outbound delivered",
-		"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "ids", len(ids))
+		"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "ids", delivered)
+}
+
+// splitRunes chunks content into pieces of at most limit runes. limit <= 0
+// returns the content unchanged. Each chunk breaks at the last newline
+// inside the window when one exists (keeps paragraph shapes readable);
+// otherwise it hard-breaks. No empty chunk escapes.
+func splitRunes(content string, limit int) []string {
+	runes := []rune(content)
+	if limit <= 0 || len(runes) <= limit {
+		return []string{content}
+	}
+	var out []string
+	for start := 0; start < len(runes); {
+		end := start + limit
+		if end >= len(runes) {
+			out = append(out, string(runes[start:]))
+			break
+		}
+		cut := end
+		if idx := lastNewline(runes[start:end]); idx > 0 {
+			cut = start + idx + 1
+		}
+		out = append(out, string(runes[start:cut]))
+		start = cut
+	}
+	return out
+}
+
+// lastNewline returns the index of the last '\n' in r, or -1.
+func lastNewline(r []rune) int {
+	for i := len(r) - 1; i >= 0; i-- {
+		if r[i] == '\n' {
+			return i
+		}
+	}
+	return -1
 }
 
 // channelByName resolves the tracking channel by name. A miss (nil

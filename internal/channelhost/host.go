@@ -27,6 +27,9 @@ type outboundTarget struct {
 	chatID    string
 	topicID   string
 	ch        plugin.Channel
+	// maxRunes is the adapter's outbound text bound (plugin.RunesLimiter,
+	// CH-C4-N1); 0 = the adapter declares no limit and gets whole messages.
+	maxRunes int
 }
 
 // Host owns the started channel adapters and the inbound/outbound

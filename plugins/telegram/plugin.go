@@ -61,6 +61,12 @@ type Plugin struct {
 // Compile-time assertion: a seam-channel plugin IS a Channel.
 var _ plugin.Channel = (*Plugin)(nil)
 
+// MaxMessageRunes implements plugin.RunesLimiter (CH-C4-N1): the Host
+// splits assistant replies at this bound before Send, so an over-limit
+// reply arrives as several messages instead of one rejected sendMessage.
+// Keep in sync with channel.max_message_runes in vivy-plugin.json.
+func (p *Plugin) MaxMessageRunes() int { return 4096 }
+
 // New is the pack-generated entry point (Register calls telegram.New()).
 func New() plugin.Plugin { return &Plugin{} }
 
