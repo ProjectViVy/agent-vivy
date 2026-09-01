@@ -8,12 +8,13 @@ package domain
 type Face string
 
 const (
-	FaceWeb  Face = "web"
-	FaceTui  Face = "tui"
-	FaceCode Face = "code"
+	FaceWeb      Face = "web"
+	FaceTui      Face = "tui"
+	FaceCode     Face = "code"
+	FaceHeadless Face = "headless"
 )
 
 // Valid reports whether the face is supported by the current harness.
 func (f Face) Valid() bool {
-	return f == FaceWeb || f == FaceTui || f == FaceCode
+	return f == FaceWeb || f == FaceTui || f == FaceCode || f == FaceHeadless
 }

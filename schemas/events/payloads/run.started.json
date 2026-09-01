@@ -26,9 +26,10 @@
       "enum": [
         "web",
         "tui",
-        "code"
+        "code",
+        "headless"
       ],
-      "description": "Entry assembly serving the run (web | tui | code). Journals written before faces existed mean web."
+      "description": "Entry assembly serving the run (web | tui | code | headless). Journals written before faces existed mean web."
     },
     "policy_profile": {
       "type": "string",
