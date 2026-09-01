@@ -219,7 +219,19 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, 
 		return "", err
 	}
 	result = untrustedToolResultHeader + tools.RedactSensitive(result)
+	// A multimodal parts envelope must reach normalizeEnhancedResult
+	// intact: byte compaction would corrupt it into unparseable JSON, so
+	// the budget is applied per part there instead. Media parts are sized
+	// at their source (e.g. the read_file image cap).
+	if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
+		return result, nil
+	}
 	return compactToolResult(result, a.maxResultBytes), nil
+}
+
+func isToolPartsEnvelope(result string) bool {
+	var envelope rawToolEnvelope
+	return json.Unmarshal([]byte(result), &envelope) == nil && len(envelope.Parts) > 0
 }
 
 // compactToolResult keeps a bounded head and tail around an explicit

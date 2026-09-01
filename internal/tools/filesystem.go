@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -59,6 +60,11 @@ type FileReadResult struct {
 	Bytes      int    `json:"bytes"`
 	Binary     bool   `json:"binary"`
 	Truncated  bool   `json:"truncated"`
+	// ImageMIME/ImageData carry an attachable image for vision models
+	// (VC-3). They never marshal here: the read tool renders them into the
+	// multimodal parts envelope the runtime adapter understands.
+	ImageMIME string `json:"-"`
+	ImageData []byte `json:"-"`
 }
 
 type FileSearchRequest struct {
@@ -206,7 +212,7 @@ func (t *listDirTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 
 func (t *readFileTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: ReadFileName, Description: "Reads a bounded text file from the current run workspace. Text content lines are prefixed with 1-based file line numbers (\"N\\tline\") so patch and start_line/end_line targets can be located exactly.", Readonly: true,
+		Name: ReadFileName, Description: "Reads a bounded text file from the current run workspace. Text content lines are prefixed with 1-based file line numbers (\"N\\tline\") so patch and start_line/end_line targets can be located exactly. Image files (png/jpeg/gif/webp) are attached as images for vision models.", Readonly: true,
 		Keywords: []string{"read", "file", "source", "cat"},
 		Params: map[string]domain.ToolParam{
 			"path":       {Desc: "Workspace-relative file path.", Required: true},
@@ -246,10 +252,35 @@ func (t *readFileTool) InvokableRun(ctx context.Context, args json.RawMessage) (
 	if err != nil {
 		return "", err
 	}
+	if result.ImageMIME != "" {
+		return marshalToolResult(imagePartsEnvelope(result))
+	}
 	if !result.Binary {
 		result.Content = numberFileLines(result.Content, result.StartLine)
 	}
 	return marshalToolResult(result)
+}
+
+// imagePartsEnvelope renders an attachable image in the runtime parts
+// envelope (text note first, then the base64 image), so the enhanced tool
+// adapter lifts it into multimodal tool output for vision models.
+func imagePartsEnvelope(result FileReadResult) toolPartsEnvelope {
+	return toolPartsEnvelope{Parts: []toolPart{
+		{Type: "text", Text: fmt.Sprintf("%s — image (%s, %d bytes); the image is attached after this text.", result.Path, result.ImageMIME, result.Bytes)},
+		{Type: "image", MIMEType: result.ImageMIME, Base64Data: base64.StdEncoding.EncodeToString(result.ImageData)},
+	}}
+}
+
+type toolPart struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Base64Data string `json:"base64data,omitempty"`
+	MIMEType   string `json:"mime_type,omitempty"`
+}
+
+type toolPartsEnvelope struct {
+	Parts []toolPart `json:"parts"`
 }
 
 // numberFileLines prefixes every content line with its 1-based file line

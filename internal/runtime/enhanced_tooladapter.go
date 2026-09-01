@@ -81,10 +81,18 @@ func normalizeEnhancedResult(result string, budget int) (*schema.ToolResult, err
 		default:
 			return nil, fmt.Errorf("runtime: unsupported enhanced tool part %q", raw.Type)
 		}
-		if budget > 0 {
+		if budget > 0 && part.Type == schema.ToolPartTypeText {
+			// Only text counts against the byte budget; media parts are
+			// bounded where they are produced. An over-budget text part is
+			// compacted head+tail instead of dropped.
 			encoded, _ := json.Marshal(part)
 			if used+len(encoded) > budget {
-				break
+				if remaining := budget - used; remaining > 0 {
+					part.Text = compactToolResult(part.Text, remaining)
+				} else {
+					part.Text = "[text part dropped: tool result budget exhausted]"
+				}
+				encoded, _ = json.Marshal(part)
 			}
 			used += len(encoded)
 		}
