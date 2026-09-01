@@ -337,20 +337,6 @@ type todoResult struct {
 	UpdatedAt   int64             `json:"updated_at"`
 }
 
-type preflightResult struct {
-	Status        runtime.PreflightStatus `json:"status"`
-	Mode          domain.RunMode          `json:"mode"`
-	PolicyProfile domain.PolicyProfile    `json:"policy_profile"`
-	PolicyHash    string                  `json:"policy_hash,omitempty"`
-	SelectedTools []string                `json:"selected_tools"`
-	ToolDecisions []policyDecisionResult  `json:"tool_decisions"`
-	ContextBytes  int                     `json:"context_bytes"`
-	HookReady     bool                    `json:"hook_ready"`
-	Warnings      []string                `json:"warnings"`
-	Blockers      []string                `json:"blockers"`
-	NextActions   []string                `json:"next_actions"`
-}
-
 type policyDecisionResult struct {
 	ToolName string                `json:"tool_name"`
 	Decision domain.PolicyDecision `json:"decision"`
@@ -416,7 +402,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	switch request.Method {
 	case "initialize", "capabilities":
 		capabilities := []string{
-			"session", "session.todos", "session.set_permission", "turn", "run", "preflight", "approval", "question", "review", "run.subscribe",
+			"session", "session.todos", "session.set_permission", "turn", "run", "approval", "question", "review", "run.subscribe",
 			"background.recover", "background.list", "background.attach",
 			"child.start", "child.get", "child.list", "child.wait", "child.cancel",
 			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
@@ -472,8 +458,6 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.triggerCron(ctx, request)
 	case "cron/stop":
 		return h.stopCron(request)
-	case "preflight/run":
-		return h.preflight(ctx, request)
 	case "turn/start":
 		return h.startTurn(ctx, request)
 	case "turn/interrupt", "run/cancel":
@@ -1478,20 +1462,6 @@ func (h *controlHandler) attachBackground(ctx context.Context, request Request) 
 	return backgroundResult{ID: run.ID, SessionID: run.SessionID, Status: run.Status, CreatedAt: run.CreatedAt, WorkspaceID: workspace.ID}, nil
 }
 
-func (h *controlHandler) preflight(ctx context.Context, request Request) (any, *Error) {
-	params, rpcErr := parseTurnParams(request)
-	if rpcErr != nil {
-		return nil, rpcErr
-	}
-	result, err := h.deps.Service.Preflight(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Profile: domain.PolicyProfile(params.PolicyProfile),
-	})
-	if err != nil {
-		return nil, runtimeError(err)
-	}
-	return toPreflightResult(result), nil
-}
-
 func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *Error) {
 	params, rpcErr := parseTurnParams(request)
 	if rpcErr != nil {
@@ -1878,18 +1848,6 @@ func parseSubscribeParams(request Request) (subscribeParams, *Error) {
 
 func toRunResult(run domain.Run) runResult {
 	return runResult{ID: run.ID, SessionID: run.SessionID, Status: run.Status, CreatedAt: run.CreatedAt}
-}
-
-func toPreflightResult(result runtime.PreflightResult) preflightResult {
-	decisions := make([]policyDecisionResult, 0, len(result.ToolDecisions))
-	for _, decision := range result.ToolDecisions {
-		decisions = append(decisions, policyDecisionResult{ToolName: decision.ToolName, Decision: decision.Decision, Reason: decision.Reason})
-	}
-	return preflightResult{
-		Status: result.Status, Mode: result.Mode, PolicyProfile: result.PolicyProfile, PolicyHash: result.PolicyHash,
-		SelectedTools: result.SelectedTools, ToolDecisions: decisions, ContextBytes: result.ContextBytes,
-		HookReady: result.HookReady, Warnings: result.Warnings, Blockers: result.Blockers, NextActions: result.NextActions,
-	}
 }
 
 func toEventResult(event domain.RunEvent) eventResult {

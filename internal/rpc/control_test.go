@@ -173,21 +173,6 @@ func TestControlHandlerUsesVersionedSnakeCaseContracts(t *testing.T) {
 		t.Fatalf("custom preset error = %v", rpcErr)
 	}
 
-	preflight, rpcErr := callControl(t, env.handler, "preflight/run", map[string]string{
-		"session_id": string(session.ID), "text": "hello",
-	})
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
-	}
-	preflightJSON, _ := json.Marshal(preflight)
-	var preview preflightResult
-	if err := json.Unmarshal(preflightJSON, &preview); err != nil {
-		t.Fatal(err)
-	}
-	if preview.PolicyProfile == "" || preview.Status == "" {
-		t.Fatalf("preflight = %+v", preview)
-	}
-
 	started, rpcErr := callControl(t, env.handler, "turn/start", map[string]string{
 		"session_id": string(session.ID), "text": "hello",
 	})
