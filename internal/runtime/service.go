@@ -158,9 +158,13 @@ type Service struct {
 }
 
 type pendingRun struct {
-	sessionID      domain.SessionID
-	mapper         *eventMapper
-	selectedTools  []string
+	sessionID     domain.SessionID
+	mapper        *eventMapper
+	selectedTools []string
+	// mounted is the run's skill-mount registry captured at suspend time.
+	// Mounts are memory-only (TT-3 journals them later), so restart
+	// recovery rebuilds pendingRun without one (nil → fresh registry).
+	mounted        *tools.MountedTools
 	mode           domain.RunMode
 	profile        domain.PolicyProfile
 	snapshot       domain.PolicySnapshot
@@ -1336,7 +1340,8 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
 		sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...),
-		mode: mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
+		mounted: tools.MountedToolsFromContext(ctx),
+		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
 	}
 	s.mu.Unlock()
@@ -1424,6 +1429,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	s.pending[runID] = pendingRun{
 		sessionID: sessionID, mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
+		mounted:       tools.MountedToolsFromContext(ctx),
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx),
 		face: runFace(ctx), questionID: question.ID, ledger: ledger,
@@ -1512,7 +1518,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
 	}()
 	return nil
@@ -1716,7 +1722,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
 	}()
 	return nil
@@ -1782,7 +1788,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	// A deferred settings-save engine rebuild applies here too, while the
 	// resumed run is not yet registered.
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
@@ -1797,6 +1803,15 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID)
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
+	// Restore the skill mounts captured at suspend time so tools mounted
+	// before the interrupt stay callable after resume (TT-2). A nil
+	// registry (restart recovery) falls back to a fresh one so a
+	// skill_view in the resumed segment can still mount new tools.
+	mounts := mounted
+	if mounts == nil {
+		mounts = tools.NewMountedTools()
+	}
+	ctx = tools.WithMountedTools(ctx, mounts)
 	ctx = tools.WithProposalData(ctx, proposalData)
 	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
 	if approvalID != "" {
