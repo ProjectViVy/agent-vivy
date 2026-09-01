@@ -449,8 +449,18 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		// replays the same document on the next launch.
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
 		TokenUsage:       backend,
-		MCP:              mcpBackend,
-		Frozen:           resolver.Frozen(),
+		// Model metadata rides the same provider catalog the runtime and
+		// compaction use (D9: no separate data source). Resolve failures
+		// mean unpriced/unknown, which the cost math reports as such.
+		ModelMeta: func(ctx context.Context, providerName, modelID string) domain.ModelInfo {
+			info, err := catalog.ResolveModelInfo(ctx, providerName, modelID)
+			if err != nil {
+				return domain.ModelInfo{}
+			}
+			return info
+		},
+		MCP:    mcpBackend,
+		Frozen: resolver.Frozen(),
 		OnSettingsChanged: func() {
 			resolver.Invalidate()
 			live := resolver.Current()

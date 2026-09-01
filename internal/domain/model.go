@@ -20,6 +20,15 @@ type ModelInfo struct {
 	// MaxOutputTokens is the maximum response length. Zero means unbounded
 	// or unknown.
 	MaxOutputTokens int
+	// InputPerMTokens and OutputPerMTokens are reference prices in USD per
+	// one million input/output tokens. Zero means unknown — cost math must
+	// treat the model as unpriced, never free.
+	InputPerMTokens  float64
+	OutputPerMTokens float64
+	// SupportsImages reports whether the model accepts image parts in
+	// multimodal input. Zero-value (false) is the conservative default for
+	// unknown models.
+	SupportsImages bool
 }
 
 // Valid reports whether the ModelInfo has been properly initialized with

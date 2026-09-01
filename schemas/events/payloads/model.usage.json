@@ -7,7 +7,12 @@
     "prompt_tokens": { "type": "integer", "minimum": 0 },
     "completion_tokens": { "type": "integer", "minimum": 0 },
     "total_tokens": { "type": "integer", "minimum": 0 },
-    "reasoning_tokens": { "type": "integer", "minimum": 0 }
+    "reasoning_tokens": { "type": "integer", "minimum": 0 },
+    "cached_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Prompt-token prefix served from the provider cache (prompt_tokens_details.cached_tokens). Omitted when the provider does not report it."
+    }
   },
   "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
   "additionalProperties": false

@@ -102,6 +102,10 @@ type ControlDeps struct {
 	// TokenUsage provides cross-run usage aggregation for stats/tokens.
 	// Nil disables the method.
 	TokenUsage storage.TokenUsageStore
+	// ModelMeta resolves reference model metadata (pricing, image support)
+	// for the stats/tokens cost math (D9). Nil or zero rates mark a route
+	// unpriced — the snapshot reports cost_known=false, never $0-free.
+	ModelMeta func(ctx context.Context, provider, model string) domain.ModelInfo
 	// MCP is the live Streamable HTTP catalog. Writes replace it immediately.
 	// Nil disables settings/mcp* methods.
 	MCP MCPCatalog
@@ -1532,6 +1536,15 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	attachments, rpcErr := attachmentsFromParams(params.Attachments)
 	if rpcErr != nil {
 		return nil, rpcErr
+	}
+	// SupportsImages gate (D9, VC-1g-2 carry-over): reject image
+	// attachments when the active route's metadata is known and says the
+	// model cannot take images. Unknown models keep the status-quo allow —
+	// gating on the zero-value default would break every custom gateway.
+	if len(attachments) > 0 {
+		if info := h.deps.Service.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("model %q does not support image attachments", info.ID)}
+		}
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),

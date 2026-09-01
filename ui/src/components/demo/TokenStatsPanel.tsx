@@ -120,11 +120,17 @@ export function TokenStatsPanel() {
       ) : snapshot ? (
         view === 'overview' ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <Metric label={t('token.totalTokens')} value={formatTokenCount(snapshot.total.total_tokens)} />
               <Metric label={t('token.input')} value={formatTokenCount(snapshot.total.total_input)} />
               <Metric label={t('token.output')} value={formatTokenCount(snapshot.total.total_output)} />
               <Metric label={t('token.requestCount')} value={String(snapshot.total.request_count)} />
+              <Metric
+                label={t('token.estimatedCost')}
+                value={snapshot.total.cost_known ? formatCostUSD(snapshot.total.total_cost_usd) : '—'}
+                muted={!snapshot.total.cost_known}
+                title={snapshot.total.cost_known ? undefined : t('token.unpriced')}
+              />
             </div>
 
             <section>
@@ -135,6 +141,7 @@ export function TokenStatsPanel() {
                     <TableHead>{t('token.model')}</TableHead>
                     <TableHead>{t('token.share')}</TableHead>
                     <TableHead className="text-right">{t('token.tokenColumn')}</TableHead>
+                    <TableHead className="text-right">{t('token.cost')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -148,6 +155,7 @@ export function TokenStatsPanel() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{formatTokenCount(model.total_tokens)}</TableCell>
+                      <CostCell costUSD={model.cost_usd} costKnown={model.cost_known} />
                     </TableRow>
                   ))}
                 </TableBody>
@@ -165,7 +173,10 @@ export function TokenStatsPanel() {
           <>
             <section>
               <h3 className="mb-3 text-sm font-semibold">{t('token.reasoningTokens')}</h3>
-              <Metric label={t('token.totalReasoning')} value={formatTokenCount(snapshot.total.total_reasoning)} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Metric label={t('token.totalReasoning')} value={formatTokenCount(snapshot.total.total_reasoning)} />
+                <Metric label={t('token.cacheTokens')} value={formatTokenCount(snapshot.total.total_cached)} />
+              </div>
             </section>
             <section>
               <h3 className="mb-3 text-sm font-semibold">{t('token.providers')}</h3>
@@ -235,13 +246,29 @@ function UsageTrendChart({ timeline }: { timeline: TokenUsageSnapshot['timeline'
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, muted, title }: { label: string; value: string; muted?: boolean; title?: string }) {
   return (
-    <div className="rounded-lg border p-4">
+    <div className="rounded-lg border p-4" title={title}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+      <p className={cn('mt-1 text-lg font-semibold tabular-nums', muted && 'text-muted-foreground')}>{value}</p>
     </div>
   );
+}
+
+function CostCell({ costUSD, costKnown }: { costUSD: number; costKnown: boolean }) {
+  const { t } = useTranslation();
+  if (!costKnown) {
+    return (
+      <TableCell className="text-right text-muted-foreground" title={t('token.unpriced')}>
+        —
+      </TableCell>
+    );
+  }
+  return <TableCell className="text-right tabular-nums">{formatCostUSD(costUSD)}</TableCell>;
+}
+
+function formatCostUSD(value: number): string {
+  return value >= 1 ? `$${value.toFixed(2)}` : `$${value.toFixed(4)}`;
 }
 
 function SessionTable({
@@ -271,6 +298,7 @@ function SessionTable({
                 <TableHead className="text-right">{t('token.output')}</TableHead>
               </>
             )}
+            <TableHead className="text-right">{t('token.cost')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -289,6 +317,7 @@ function SessionTable({
                   <TableCell className="text-right tabular-nums">{formatTokenCount(session.total_output)}</TableCell>
                 </>
               )}
+              <CostCell costUSD={session.cost_usd} costKnown={session.cost_known} />
             </TableRow>
           ))}
         </TableBody>

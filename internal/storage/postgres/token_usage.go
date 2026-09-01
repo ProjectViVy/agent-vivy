@@ -15,6 +15,7 @@ type payloadModelUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 	ReasoningTokens  int `json:"reasoning_tokens"`
+	CachedTokens     int `json:"cached_tokens"`
 }
 
 // payloadRunStarted mirrors runtime.payloadRunStarted for JSON decoding.
@@ -70,6 +71,7 @@ func (b *Backend) ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]s
 			CompletionTokens: usage.CompletionTokens,
 			TotalTokens:      usage.TotalTokens,
 			ReasoningTokens:  usage.ReasoningTokens,
+			CachedTokens:     usage.CachedTokens,
 		}
 		if len(startedRaw) > 0 {
 			var started payloadRunStarted

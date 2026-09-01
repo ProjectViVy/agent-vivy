@@ -30,6 +30,10 @@ type payloadModelUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
+	// CachedTokens is the prompt-token prefix served from the provider's
+	// cache (OpenAI prompt_tokens_details.cached_tokens); omitted when the
+	// provider does not report it.
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 // payloadContextCompacted records one context compression event. It carries

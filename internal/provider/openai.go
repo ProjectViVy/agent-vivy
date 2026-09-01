@@ -27,23 +27,35 @@ func (r *openaiRef) Name() string { return r.bundle.Name }
 // gateway URL for one process. Resolver reads it; this package does not.
 const APIBaseEnvVar = "VIVY_API_BASE"
 
-// knownOpenAIContextWindows maps well-known OpenAI-compatible model IDs to
-// their documented context windows (in tokens). This table is conservative;
-// unknown models fall back to zero (caller must use defaults).
-var knownOpenAIContextWindows = map[string]int{
-	"gpt-4":                  8192,
-	"gpt-4-0613":             8192,
-	"gpt-4-32k":              32768,
-	"gpt-4-32k-0613":         32768,
-	"gpt-4-turbo":            128000,
-	"gpt-4-turbo-2024-04-09": 128000,
-	"gpt-4o":                 128000,
-	"gpt-4o-mini":            128000,
-	"gpt-3.5-turbo":          16385,
-	"gpt-3.5-turbo-16k":      16385,
-	"o1":                     200000,
-	"o1-mini":                128000,
-	"o3-mini":                200000,
+// openAIModelMeta is the static reference metadata for one well-known
+// OpenAI-compatible model id (D9: metadata logic lives with the provider
+// catalog, not a second store). Prices are published reference values in
+// USD per one million tokens at the time of writing; a custom gateway
+// reselling the same model id may differ. Zero values mean unknown and
+// callers must use conservative defaults — never treat unpriced as free.
+type openAIModelMeta struct {
+	contextWindow  int
+	inputPerMTok   float64
+	outputPerMTok  float64
+	supportsImages bool
+}
+
+// knownOpenAIModels maps well-known model IDs to their reference metadata.
+// Unknown models fall back to the zero value (caller must use defaults).
+var knownOpenAIModels = map[string]openAIModelMeta{
+	"gpt-4":                  {contextWindow: 8192, inputPerMTok: 30.0, outputPerMTok: 60.0},
+	"gpt-4-0613":             {contextWindow: 8192, inputPerMTok: 30.0, outputPerMTok: 60.0},
+	"gpt-4-32k":              {contextWindow: 32768, inputPerMTok: 30.0, outputPerMTok: 60.0},
+	"gpt-4-32k-0613":         {contextWindow: 32768, inputPerMTok: 30.0, outputPerMTok: 60.0},
+	"gpt-4-turbo":            {contextWindow: 128000, inputPerMTok: 10.0, outputPerMTok: 30.0, supportsImages: true},
+	"gpt-4-turbo-2024-04-09": {contextWindow: 128000, inputPerMTok: 10.0, outputPerMTok: 30.0, supportsImages: true},
+	"gpt-4o":                 {contextWindow: 128000, inputPerMTok: 2.5, outputPerMTok: 10.0, supportsImages: true},
+	"gpt-4o-mini":            {contextWindow: 128000, inputPerMTok: 0.15, outputPerMTok: 0.6, supportsImages: true},
+	"gpt-3.5-turbo":          {contextWindow: 16385, inputPerMTok: 0.5, outputPerMTok: 1.5},
+	"gpt-3.5-turbo-16k":      {contextWindow: 16385, inputPerMTok: 0.5, outputPerMTok: 1.5},
+	"o1":                     {contextWindow: 200000, inputPerMTok: 15.0, outputPerMTok: 60.0, supportsImages: true},
+	"o1-mini":                {contextWindow: 128000, inputPerMTok: 1.1, outputPerMTok: 4.4},
+	"o3-mini":                {contextWindow: 200000, inputPerMTok: 1.1, outputPerMTok: 4.4},
 }
 
 func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallingChatModel, error) {
@@ -75,16 +87,16 @@ func (r *openaiRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		modelID = r.bundle.DefaultModel
 	}
 
-	ctxWindow := 0
-	if cw, ok := knownOpenAIContextWindows[modelID]; ok {
-		ctxWindow = cw
-	}
+	meta := knownOpenAIModels[modelID]
 
 	info := domain.ModelInfo{
-		ID:              modelID,
-		Provider:        r.bundle.Name,
-		ContextWindow:   ctxWindow, // zero means unknown; callers use defaults
-		MaxOutputTokens: 0,         // varies by model; let API decide
+		ID:               modelID,
+		Provider:         r.bundle.Name,
+		ContextWindow:    meta.contextWindow, // zero means unknown; callers use defaults
+		MaxOutputTokens:  0,                  // varies by model; let API decide
+		InputPerMTokens:  meta.inputPerMTok,
+		OutputPerMTokens: meta.outputPerMTok,
+		SupportsImages:   meta.supportsImages,
 	}
 	return info, nil
 }

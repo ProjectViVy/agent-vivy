@@ -400,13 +400,18 @@ export interface TokenUsageTotal {
   total_output: number;
   total_tokens: number;
   total_reasoning: number;
+  total_cached: number;
   request_count: number;
+  total_cost_usd: number;
+  cost_known: boolean;
 }
 
 export interface TokenModelShare {
   model: string;
   percentage: number;
   total_tokens: number;
+  cost_usd: number;
+  cost_known: boolean;
 }
 
 export interface TokenProviderGroup {
@@ -431,6 +436,8 @@ export interface TokenSessionUsage {
   total_input: number;
   total_output: number;
   total_tokens: number;
+  cost_usd: number;
+  cost_known: boolean;
 }
 
 export interface TokenUsageSnapshot {

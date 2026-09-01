@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 )
 
@@ -22,17 +23,26 @@ type TokenUsageSnapshot struct {
 }
 
 type tokenUsageTotal struct {
-	TotalInput     int `json:"total_input"`
-	TotalOutput    int `json:"total_output"`
-	TotalTokens    int `json:"total_tokens"`
-	TotalReasoning int `json:"total_reasoning"`
-	RequestCount   int `json:"request_count"`
+	TotalInput     int     `json:"total_input"`
+	TotalOutput    int     `json:"total_output"`
+	TotalTokens    int     `json:"total_tokens"`
+	TotalReasoning int     `json:"total_reasoning"`
+	TotalCached    int     `json:"total_cached"`
+	RequestCount   int     `json:"request_count"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	// CostKnown reports whether at least one usage row resolved to
+	// reference pricing. False means every row was unpriced (unknown
+	// model) and total_cost_usd is a zero placeholder — never read it as
+	// "free".
+	CostKnown bool `json:"cost_known"`
 }
 
 type tokenModelShare struct {
 	Model       string  `json:"model"`
 	Percentage  float64 `json:"percentage"`
 	TotalTokens int     `json:"total_tokens"`
+	CostUSD     float64 `json:"cost_usd"`
+	CostKnown   bool    `json:"cost_known"`
 }
 
 type tokenProviderGroup struct {
@@ -50,13 +60,15 @@ type tokenTimelinePoint struct {
 }
 
 type tokenSessionUsage struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	Model        string `json:"model"`
-	RequestCount int    `json:"request_count"`
-	TotalInput   int    `json:"total_input"`
-	TotalOutput  int    `json:"total_output"`
-	TotalTokens  int    `json:"total_tokens"`
+	ID           string  `json:"id"`
+	Title        string  `json:"title"`
+	Model        string  `json:"model"`
+	RequestCount int     `json:"request_count"`
+	TotalInput   int     `json:"total_input"`
+	TotalOutput  int     `json:"total_output"`
+	TotalTokens  int     `json:"total_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+	CostKnown    bool    `json:"cost_known"`
 }
 
 // validTokenPeriods enumerates accepted period values.
@@ -93,9 +105,28 @@ func sinceForPeriod(period string, tzOffsetMinutes int) (int64, error) {
 	return since.UnixMilli(), nil
 }
 
+// ModelMeta resolves reference metadata for one (provider, model) route.
+// Returning zero rates means unpriced/unknown — never treat that as free.
+type ModelMeta func(ctx context.Context, provider, model string) domain.ModelInfo
+
+// rowCostUSD prices one usage row. The second return is false when the
+// route has no reference pricing.
+func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float64, bool) {
+	if meta == nil {
+		return 0, false
+	}
+	info := meta(ctx, r.Provider, r.Model)
+	if info.InputPerMTokens == 0 && info.OutputPerMTokens == 0 {
+		return 0, false
+	}
+	cost := float64(r.PromptTokens)/1e6*info.InputPerMTokens +
+		float64(r.CompletionTokens)/1e6*info.OutputPerMTokens
+	return math.Round(cost*1e4) / 1e4, true
+}
+
 // buildTokenSnapshot aggregates raw usage rows into the snapshot shape.
 // Pure function — no I/O, fully testable.
-func buildTokenSnapshot(rows []storage.UsageRow, period string, tzOffsetMinutes int, sessionLimit int) TokenUsageSnapshot {
+func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period string, tzOffsetMinutes int, sessionLimit int, meta ModelMeta) TokenUsageSnapshot {
 	snap := TokenUsageSnapshot{Period: period}
 	if len(rows) == 0 {
 		snap.Models = []tokenModelShare{}
@@ -105,32 +136,53 @@ func buildTokenSnapshot(rows []storage.UsageRow, period string, tzOffsetMinutes 
 		return snap
 	}
 
-	// Totals
+	// Totals (cost from priced rows only; unpriced rows never read as free)
 	for _, r := range rows {
 		snap.Total.TotalInput += r.PromptTokens
 		snap.Total.TotalOutput += r.CompletionTokens
 		snap.Total.TotalTokens += r.TotalTokens
 		snap.Total.TotalReasoning += r.ReasoningTokens
+		snap.Total.TotalCached += r.CachedTokens
 		snap.Total.RequestCount++
+		if cost, ok := rowCostUSD(ctx, meta, r); ok {
+			snap.Total.TotalCostUSD += cost
+			snap.Total.CostKnown = true
+		}
 	}
+	snap.Total.TotalCostUSD = math.Round(snap.Total.TotalCostUSD*1e4) / 1e4
 
 	// Model distribution
-	modelTokens := make(map[string]int)
+	type modelAgg struct {
+		tokens    int
+		cost      float64
+		costKnown bool
+	}
+	modelAggs := make(map[string]*modelAgg)
 	for _, r := range rows {
 		key := r.Model
 		if key == "" {
 			key = "unknown"
 		}
-		modelTokens[key] += r.TotalTokens
+		agg, ok := modelAggs[key]
+		if !ok {
+			agg = &modelAgg{}
+			modelAggs[key] = agg
+		}
+		agg.tokens += r.TotalTokens
+		if cost, ok := rowCostUSD(ctx, meta, r); ok {
+			agg.cost += cost
+			agg.costKnown = true
+		}
 	}
 	totalTokens := snap.Total.TotalTokens
-	for model, tokens := range modelTokens {
+	for model, agg := range modelAggs {
 		pct := 0.0
 		if totalTokens > 0 {
-			pct = math.Round(float64(tokens)*1000/float64(totalTokens)) / 10
+			pct = math.Round(float64(agg.tokens)*1000/float64(totalTokens)) / 10
 		}
 		snap.Models = append(snap.Models, tokenModelShare{
-			Model: model, Percentage: pct, TotalTokens: tokens,
+			Model: model, Percentage: pct, TotalTokens: agg.tokens,
+			CostUSD: math.Round(agg.cost*1e4) / 1e4, CostKnown: agg.costKnown,
 		})
 	}
 	sort.Slice(snap.Models, func(i, j int) bool {
@@ -169,7 +221,7 @@ func buildTokenSnapshot(rows []storage.UsageRow, period string, tzOffsetMinutes 
 	snap.Timeline = buildTimeline(rows, period, tzOffsetMinutes)
 
 	// Sessions
-	snap.Sessions = buildSessionList(rows, sessionLimit)
+	snap.Sessions = buildSessionList(ctx, rows, sessionLimit, meta)
 
 	return snap
 }
@@ -272,7 +324,7 @@ func buildTimeline(rows []storage.UsageRow, period string, tzOffsetMinutes int) 
 	return points
 }
 
-func buildSessionList(rows []storage.UsageRow, limit int) []tokenSessionUsage {
+func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, meta ModelMeta) []tokenSessionUsage {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -282,6 +334,8 @@ func buildSessionList(rows []storage.UsageRow, limit int) []tokenSessionUsage {
 		totalInput   int
 		totalOutput  int
 		totalTokens  int
+		cost         float64
+		costKnown    bool
 		modelTokens  map[string]int
 		lastActivity int64
 	}
@@ -300,6 +354,10 @@ func buildSessionList(rows []storage.UsageRow, limit int) []tokenSessionUsage {
 		g.totalInput += r.PromptTokens
 		g.totalOutput += r.CompletionTokens
 		g.totalTokens += r.TotalTokens
+		if cost, ok := rowCostUSD(ctx, meta, r); ok {
+			g.cost += cost
+			g.costKnown = true
+		}
 		model := r.Model
 		if model == "" {
 			model = "unknown"
@@ -328,6 +386,8 @@ func buildSessionList(rows []storage.UsageRow, limit int) []tokenSessionUsage {
 			TotalInput:   g.totalInput,
 			TotalOutput:  g.totalOutput,
 			TotalTokens:  g.totalTokens,
+			CostUSD:      math.Round(g.cost*1e4) / 1e4,
+			CostKnown:    g.costKnown,
 		})
 	}
 	sort.Slice(sessions, func(i, j int) bool {
@@ -363,5 +423,5 @@ func (h *controlHandler) statsTokens(ctx context.Context, request Request) (any,
 	if err != nil {
 		return nil, internalError(err)
 	}
-	return buildTokenSnapshot(rows, params.Period, params.TZOffsetMin, params.SessionLimit), nil
+	return buildTokenSnapshot(ctx, rows, params.Period, params.TZOffsetMin, params.SessionLimit, h.deps.ModelMeta), nil
 }

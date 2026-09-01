@@ -263,6 +263,7 @@ func (m *eventMapper) usageEvent(usage *schema.TokenUsage) domain.RunEvent {
 	return m.build(domain.EventModelUsage, payloadModelUsage{
 		PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
 		TotalTokens: usage.TotalTokens, ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens,
+		CachedTokens: usage.PromptTokenDetails.CachedTokens,
 	})
 }
 

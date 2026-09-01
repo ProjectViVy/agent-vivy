@@ -159,6 +159,7 @@ type UsageRow struct {
 	CompletionTokens int
 	TotalTokens      int
 	ReasoningTokens  int
+	CachedTokens     int
 	Model            string
 	Provider         string
 }

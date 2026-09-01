@@ -208,3 +208,39 @@ func TestMain(m *testing.M) {
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	os.Exit(m.Run())
 }
+
+// TestOpenAIRefModelInfoMetadata covers the D9 metadata table: known ids
+// resolve reference pricing and image support; unknown ids stay zero
+// (callers must treat unpriced as unknown, never free).
+func TestOpenAIRefModelInfoMetadata(t *testing.T) {
+	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
+	if err != nil {
+		t.Fatalf("load bundle: %v", err)
+	}
+	ref := newOpenAIRef(b)
+	ctx := context.Background()
+
+	info, err := ref.ModelInfo(ctx, "gpt-4o")
+	if err != nil {
+		t.Fatalf("gpt-4o info: %v", err)
+	}
+	if info.ContextWindow != 128000 || info.InputPerMTokens != 2.5 || info.OutputPerMTokens != 10.0 || !info.SupportsImages {
+		t.Fatalf("gpt-4o info = %+v", info)
+	}
+
+	info, err = ref.ModelInfo(ctx, "gpt-3.5-turbo")
+	if err != nil {
+		t.Fatalf("gpt-3.5-turbo info: %v", err)
+	}
+	if info.SupportsImages {
+		t.Fatal("gpt-3.5-turbo must not claim image support")
+	}
+
+	info, err = ref.ModelInfo(ctx, "totally-custom-model")
+	if err != nil {
+		t.Fatalf("custom info: %v", err)
+	}
+	if info.ContextWindow != 0 || info.InputPerMTokens != 0 || info.OutputPerMTokens != 0 || info.SupportsImages {
+		t.Fatalf("unknown model must be all-zero metadata, got %+v", info)
+	}
+}
