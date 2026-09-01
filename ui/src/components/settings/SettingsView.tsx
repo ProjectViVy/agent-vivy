@@ -31,10 +31,6 @@ export function isSettingsTab(value: unknown): value is SettingsTab {
   return typeof value === 'string' && (SETTINGS_TAB_VALUES as readonly string[]).includes(value);
 }
 
-const DIVA_TAB_LABELS: Record<DivaAdditionalSection, string> = {
-  'self-evolution': '自进化',
-};
-
 export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   const connection = useVivyStore((state) => state.connection);
   const settings = useVivyStore((state) => state.settings);
@@ -62,7 +58,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
     const raw = form.execute_max_timeout.trim();
     const timeoutSeconds = raw === '' ? 0 : Number(raw);
     if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 0 || timeoutSeconds > 600) {
-      setFormError('执行超时上限必须留空(用配置默认值)或 0–600 之间的整数秒。');
+      setFormError(t('settings.executeTimeoutInvalid'));
       return;
     }
     setFormError(null);
@@ -72,49 +68,49 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-2xl font-bold">设置</h1>
-        <p className="mt-1 text-sm text-muted-foreground">真实运行配置、Vivy 功能与 Agent-Diva 前端迁移预览分区展示。</p>
+        <h1 className="text-2xl font-bold">{t('settings.title')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('settings.subtitle')}</p>
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)} className="mt-6">
           <TabsList className="w-full justify-start overflow-x-auto">
-            <TabsTrigger value="general">通用</TabsTrigger>
-            <TabsTrigger value="model">模型</TabsTrigger>
-            <TabsTrigger value="tools">工具</TabsTrigger>
-            <TabsTrigger value="vivy">Vivy 功能</TabsTrigger>
+            <TabsTrigger value="general">{t('settings.tabs.general')}</TabsTrigger>
+            <TabsTrigger value="model">{t('settings.tabs.model')}</TabsTrigger>
+            <TabsTrigger value="tools">{t('settings.tabs.tools')}</TabsTrigger>
+            <TabsTrigger value="vivy">{t('settings.tabs.vivy')}</TabsTrigger>
 <TabsTrigger value="language">{t('settings.tabs.language')}</TabsTrigger>
             <TabsTrigger value="channels">{t('settings.tabs.channels')}</TabsTrigger>
-            <TabsTrigger value="network">网络工具</TabsTrigger>
+            <TabsTrigger value="network">{t('settings.tabs.network')}</TabsTrigger>
             <TabsTrigger value="sandbox">{t('settings.tabs.sandbox')}</TabsTrigger>
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
               <TabsTrigger key={section} value={section}>
-                {DIVA_TAB_LABELS[section]}
-                <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">预览</span>
+                {t(`settings.tabs.${section === 'self-evolution' ? 'selfEvolution' : section}`)}
+                <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">{t('divaPreview.previewBadge')}</span>
               </TabsTrigger>
             ))}
           </TabsList>
 
           <TabsContent value="general" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>执行超时上限</CardTitle><CardDescription>execute / commandline 单次运行的最长等待。真实设置，保存后下次启动生效。</CardDescription></CardHeader>
+              <CardHeader><CardTitle>{t('settings.executeTimeoutTitle')}</CardTitle><CardDescription>{t('settings.executeTimeoutDescription')}</CardDescription></CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void submitSettings(); }}>
                   <div className="space-y-2">
-                    <Label htmlFor="execute-max-timeout">最长等待(秒)</Label>
+                    <Label htmlFor="execute-max-timeout">{t('settings.executeTimeoutLabel')}</Label>
                     <Input id="execute-max-timeout" type="number" min={0} max={600} step={1} value={form.execute_max_timeout} onChange={(event) => setForm({ ...form, execute_max_timeout: event.target.value })} placeholder={String(settings?.config_execute_max_timeout_seconds ?? 30)} disabled={locked} />
-                    <p className="text-xs text-muted-foreground">留空或 0 使用运行配置默认值;范围 0–600,硬顶 600 秒(10 分钟)。跑 go test、git clone 等慢命令时调大。</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.executeTimeoutHint')}</p>
                   </div>
-                  {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">此部署的设置为只读,请通过运行配置修改。</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? '保存中…' : '保存通用设置'}</Button>}
+                  {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">{t('settings.readOnlyNotice')}</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? t('settings.saving') : t('settings.saveGeneral')}</Button>}
                   {formError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
                   {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
                 </form>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>应用信息</CardTitle><CardDescription>当前 Vivy 应用状态与演示内容范围。</CardDescription></CardHeader>
+              <CardHeader><CardTitle>{t('settings.appInfoTitle')}</CardTitle><CardDescription>{t('settings.appInfoDescription')}</CardDescription></CardHeader>
               <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
-                <div><p className="text-muted-foreground">应用</p><p className="mt-1 font-medium">Vivy</p></div>
-                <div><p className="text-muted-foreground">版本</p><p className="mt-1 font-medium">1.0.0</p></div>
-                <div><p className="text-muted-foreground">控制面连接</p><p className="mt-1 font-medium">{connection}</p></div>
-                <div><p className="text-muted-foreground">演示内容</p><p className="mt-1 font-medium">仅保存在当前浏览器</p></div>
+                <div><p className="text-muted-foreground">{t('settings.app')}</p><p className="mt-1 font-medium">Vivy</p></div>
+                <div><p className="text-muted-foreground">{t('settings.version')}</p><p className="mt-1 font-medium">1.0.0</p></div>
+                <div><p className="text-muted-foreground">{t('settings.connection')}</p><p className="mt-1 font-medium">{connection}</p></div>
+                <div><p className="text-muted-foreground">{t('settings.demoContent')}</p><p className="mt-1 font-medium">{t('settings.demoContentValue')}</p></div>
               </CardContent>
             </Card>
             <ThemePicker />
@@ -146,16 +142,16 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             <Card>
               <CardHeader>
                 <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
-                <CardTitle>工具配置</CardTitle>
-                <CardDescription>激活与隐藏内置工具：激活的工具每次请求都绑定给模型，隐藏的工具不占上下文。</CardDescription>
+                <CardTitle>{t('settings.toolsTitle')}</CardTitle>
+                <CardDescription>{t('settings.toolsDescription')}</CardDescription>
               </CardHeader>
               <ToolsSettingsCard />
             </Card>
           </TabsContent>
 
           <TabsContent value="vivy" className="space-y-4">
-            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>生命周期</CardTitle><CardDescription>查看 Species、Generation、评测与晋升。</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">打开生命周期<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
-            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>Run Inspector</CardTitle><CardDescription>查看当前、后台与子 Run。</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] overflow-hidden p-0"><RunInspector /></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.lifecycleTitle')}</CardTitle><CardDescription>{t('settings.lifecycleDescription')}</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">{t('settings.openLifecycle')}<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.runInspectorTitle')}</CardTitle><CardDescription>{t('settings.runInspectorDescription')}</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] overflow-hidden p-0"><RunInspector /></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="language" className="space-y-4">

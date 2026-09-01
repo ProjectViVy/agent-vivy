@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,15 +32,17 @@ type ChatPreviewPrefs = {
 type EvolutionFrequency = 'daily' | 'weekly' | 'manual';
 
 function usePreviewFeedback() {
-  const [feedback, setFeedback] = useState('控件只改变当前页面的临时预览，不会写入运行配置。');
+  const { t } = useTranslation();
+  const [feedback, setFeedback] = useState(() => t('divaPreview.defaultFeedback'));
   return { feedback, notify: setFeedback };
 }
 
 function PreviewNotice() {
+  const { t } = useTranslation();
   return (
     <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
       <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-      <span><strong>Agent-Diva 迁移预览</strong> · 当前内容使用假数据，仅用于展示界面效果，不会保存或影响 Vivy 运行时。</span>
+      <span><strong>{t('divaPreview.noticeTitle')}</strong> · {t('divaPreview.noticeBody')}</span>
     </div>
   );
 }
@@ -118,6 +121,7 @@ function ToggleRow({
 }
 
 function GeneralPreview() {
+  const { t } = useTranslation();
   const [prefs, setPrefs] = useState<ChatPreviewPrefs>({
     cleanMode: false,
     autoExpandReasoning: true,
@@ -130,38 +134,38 @@ function GeneralPreview() {
 
   const updatePref = (key: keyof ChatPreviewPrefs, value: boolean) => {
     setPrefs((current) => ({ ...current, [key]: value }));
-    notify('聊天显示预览已更新。');
+    notify(t('divaPreview.chatDisplayUpdated'));
   };
 
   return (
     <PreviewFrame
       icon={SlidersHorizontal}
-      title="通用与关于"
-      description="迁移聊天显示偏好、上下文压缩、缓存状态和项目归属信息。"
-      feedback={cacheCleared ? '界面缓存清理已模拟完成，真实浏览器数据未被删除。' : feedback}
+      title={t('divaPreview.generalTitle')}
+      description={t('divaPreview.generalDescription')}
+      feedback={cacheCleared ? t('divaPreview.cacheClearedFeedback') : feedback}
     >
-      <PreviewCard title="聊天显示" description="这些开关只模拟 Agent-Diva 的消息展示偏好。">
+      <PreviewCard title={t('divaPreview.chatDisplayTitle')} description={t('divaPreview.chatDisplayDescription')}>
         <div className="space-y-3">
           <ToggleRow
-            title="简洁模式"
-            description="隐藏推理、工具细节和原始元数据的展开内容。"
+            title={t('divaPreview.cleanMode')}
+            description={t('divaPreview.cleanModeDescription')}
             checked={prefs.cleanMode}
             onCheckedChange={(checked) => updatePref('cleanMode', checked)}
           />
           <ToggleRow
-            title="自动展开推理"
+            title={t('divaPreview.autoExpandReasoning')}
             checked={prefs.autoExpandReasoning}
             disabled={prefs.cleanMode}
             onCheckedChange={(checked) => updatePref('autoExpandReasoning', checked)}
           />
           <ToggleRow
-            title="自动展开工具详情"
+            title={t('divaPreview.autoExpandToolDetails')}
             checked={prefs.autoExpandToolDetails}
             disabled={prefs.cleanMode}
             onCheckedChange={(checked) => updatePref('autoExpandToolDetails', checked)}
           />
           <ToggleRow
-            title="默认显示原始元数据"
+            title={t('divaPreview.showRawMeta')}
             checked={prefs.showRawMetaByDefault}
             disabled={prefs.cleanMode}
             onCheckedChange={(checked) => updatePref('showRawMetaByDefault', checked)}
@@ -169,26 +173,29 @@ function GeneralPreview() {
         </div>
       </PreviewCard>
 
-      <PreviewCard title="上下文压缩（已毕业为真实设置）" description="压缩配置已在「通用」页顶部真实生效（settings.yaml + 运行引擎），此处仅保留说明占位。">
-        <p className="text-sm text-muted-foreground">请使用上方「上下文压缩」卡片配置：启用开关、最大 tokens、压缩阈值与保留最近消息都会持久化并作用于每次运行的上下文压缩中间件（Eino reduction + summarization）。</p>
+      <PreviewCard
+        title={t('divaPreview.compactionGraduatedTitle')}
+        description={t('divaPreview.compactionGraduatedDescription')}
+      >
+        <p className="text-sm text-muted-foreground">{t('divaPreview.compactionGraduatedBody')}</p>
       </PreviewCard>
 
-      <PreviewCard title="缓存与运行状态" description="用静态状态展示 DIVA 通用设置中的运行摘要。">
+      <PreviewCard title={t('divaPreview.cacheTitle')} description={t('divaPreview.cacheDescription')}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">控制面</p><p className="mt-1 font-medium text-emerald-600">健康</p></div>
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Provider</p><p className="mt-1 font-medium">2 / 3 就绪</p></div>
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">通道</p><p className="mt-1 font-medium">1 / 3 就绪</p></div>
+          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{t('divaPreview.controlPlane')}</p><p className="mt-1 font-medium text-emerald-600">{t('divaPreview.statusHealthy')}</p></div>
+          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{t('divaPreview.providersLabel')}</p><p className="mt-1 font-medium">2 / 3 {t('divaPreview.readySuffix')}</p></div>
+          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{t('divaPreview.channelsLabel')}</p><p className="mt-1 font-medium">1 / 3 {t('divaPreview.readySuffix')}</p></div>
         </div>
-        <Button type="button" variant="outline" className="mt-4" onClick={() => { setCacheCleared(true); notify('界面缓存清理已模拟完成。'); }}>
-          {cacheCleared ? '已模拟清理缓存' : '清理界面缓存（预览）'}
+        <Button type="button" variant="outline" className="mt-4" onClick={() => { setCacheCleared(true); notify(t('divaPreview.cacheClearedShort')); }}>
+          {cacheCleared ? t('divaPreview.clearCacheDone') : t('divaPreview.clearCache')}
         </Button>
       </PreviewCard>
 
-      <PreviewCard title="关于 Vivy" description="DIVA About 设置合并到通用页，避免重复的应用信息入口。">
+      <PreviewCard title={t('divaPreview.aboutTitle')} description={t('divaPreview.aboutDescription')}>
         <dl className="grid gap-3 text-sm sm:grid-cols-3">
-          <div><dt className="text-muted-foreground">许可证</dt><dd className="mt-1 font-medium">MIT</dd></div>
-          <div><dt className="text-muted-foreground">维护方</dt><dd className="mt-1 font-medium">projectViVY</dd></div>
-          <div><dt className="text-muted-foreground">界面来源</dt><dd className="mt-1 font-medium">Vivy 前端</dd></div>
+          <div><dt className="text-muted-foreground">{t('divaPreview.license')}</dt><dd className="mt-1 font-medium">MIT</dd></div>
+          <div><dt className="text-muted-foreground">{t('divaPreview.maintainer')}</dt><dd className="mt-1 font-medium">projectViVY</dd></div>
+          <div><dt className="text-muted-foreground">{t('divaPreview.uiSource')}</dt><dd className="mt-1 font-medium">{t('divaPreview.uiSourceValue')}</dd></div>
         </dl>
       </PreviewCard>
     </PreviewFrame>
@@ -196,6 +203,7 @@ function GeneralPreview() {
 }
 
 function SelfEvolutionPreview() {
+  const { t } = useTranslation();
   const [enabled, setEnabled] = useState(true);
   const [frequency, setFrequency] = useState<EvolutionFrequency>('weekly');
   const [sessions, setSessions] = useState(5);
@@ -205,23 +213,23 @@ function SelfEvolutionPreview() {
 
   const toggleConfirmation = (action: DivaEvolutionAction, checked: boolean) => {
     setConfirmations((current) => ({ ...current, [action]: checked }));
-    notify(`${DIVA_EVOLUTION_ACTIONS.find((item) => item.id === action)?.label ?? '动作'}的确认策略已更新。`);
+    notify(t('divaPreview.confirmUpdated', { label: t(`divaPreview.actions.${action}`) }));
   };
 
   return (
-    <PreviewFrame icon={Sparkles} title="自进化" description="预览 AutoDream 触发条件与人工确认策略。" feedback={feedback}>
-      <PreviewCard title="自动整理" description="执行与合并能力尚未接入，所有数值均为假数据。">
+    <PreviewFrame icon={Sparkles} title={t('settings.tabs.selfEvolution')} description={t('divaPreview.selfEvolutionDescription')} feedback={feedback}>
+      <PreviewCard title={t('divaPreview.autoTidyTitle')} description={t('divaPreview.autoTidyDescription')}>
         <div className="space-y-4">
-          <ToggleRow title="启用自动整理" checked={enabled} onCheckedChange={(checked) => { setEnabled(checked); notify('自动整理预览已更新。'); }} />
+          <ToggleRow title={t('divaPreview.enableAutoTidy')} checked={enabled} onCheckedChange={(checked) => { setEnabled(checked); notify(t('divaPreview.autoTidyUpdated')); }} />
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2"><Label htmlFor="preview-evolution-frequency">运行频率</Label><Select value={frequency} onValueChange={(value: EvolutionFrequency) => { setFrequency(value); notify('自动整理频率预览已更新。'); }}><SelectTrigger id="preview-evolution-frequency"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="daily">每天</SelectItem><SelectItem value="weekly">每周</SelectItem><SelectItem value="manual">手动</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label htmlFor="preview-evolution-sessions">会话阈值</Label><Input id="preview-evolution-sessions" type="number" min={1} value={sessions} onChange={(event) => { setSessions(Math.max(1, Number(event.target.value) || 1)); notify('会话阈值预览已更新。'); }} /></div>
-            <div className="space-y-2"><Label htmlFor="preview-evolution-messages">消息阈值</Label><Input id="preview-evolution-messages" type="number" min={1} value={messages} onChange={(event) => { setMessages(Math.max(1, Number(event.target.value) || 1)); notify('消息阈值预览已更新。'); }} /></div>
+            <div className="space-y-2"><Label htmlFor="preview-evolution-frequency">{t('divaPreview.frequencyLabel')}</Label><Select value={frequency} onValueChange={(value: EvolutionFrequency) => { setFrequency(value); notify(t('divaPreview.frequencyUpdated')); }}><SelectTrigger id="preview-evolution-frequency"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="daily">{t('divaPreview.frequencyDaily')}</SelectItem><SelectItem value="weekly">{t('divaPreview.frequencyWeekly')}</SelectItem><SelectItem value="manual">{t('divaPreview.frequencyManual')}</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label htmlFor="preview-evolution-sessions">{t('divaPreview.sessionsLabel')}</Label><Input id="preview-evolution-sessions" type="number" min={1} value={sessions} onChange={(event) => { setSessions(Math.max(1, Number(event.target.value) || 1)); notify(t('divaPreview.sessionsUpdated')); }} /></div>
+            <div className="space-y-2"><Label htmlFor="preview-evolution-messages">{t('divaPreview.messagesLabel')}</Label><Input id="preview-evolution-messages" type="number" min={1} value={messages} onChange={(event) => { setMessages(Math.max(1, Number(event.target.value) || 1)); notify(t('divaPreview.messagesUpdated')); }} /></div>
           </div>
         </div>
       </PreviewCard>
-      <PreviewCard title="人工确认策略" description="预览阶段不允许自动合并，所有变更都要求人工确认。">
-        <div className="space-y-2">{DIVA_EVOLUTION_ACTIONS.map((action) => <ToggleRow key={action.id} title={action.label} checked={confirmations[action.id]} onCheckedChange={(checked) => toggleConfirmation(action.id, checked)} />)}</div>
+      <PreviewCard title={t('divaPreview.confirmTitle')} description={t('divaPreview.confirmDescription')}>
+        <div className="space-y-2">{DIVA_EVOLUTION_ACTIONS.map((action) => <ToggleRow key={action.id} title={t(`divaPreview.actions.${action.id}`)} checked={confirmations[action.id]} onCheckedChange={(checked) => toggleConfirmation(action.id, checked)} />)}</div>
       </PreviewCard>
     </PreviewFrame>
   );

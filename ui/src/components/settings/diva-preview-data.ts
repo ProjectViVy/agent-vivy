@@ -16,12 +16,13 @@ export const DIVA_ADDITIONAL_SECTIONS = DIVA_PREVIEW_SECTIONS.filter(
   (section): section is DivaAdditionalSection => section !== 'general',
 );
 
+// 动作名只留 id；显示文案在 i18n（divaPreview.actions.<id>）。
 export const DIVA_EVOLUTION_ACTIONS = [
-  { id: 'identity', label: '身份文档' },
-  { id: 'relationship', label: '关系文档' },
-  { id: 'commitment', label: '承诺记录' },
-  { id: 'sop', label: '操作规范' },
-  { id: 'deprecation', label: '弃用建议' },
+  { id: 'identity' },
+  { id: 'relationship' },
+  { id: 'commitment' },
+  { id: 'sop' },
+  { id: 'deprecation' },
 ] as const;
 
 export type DivaEvolutionAction = (typeof DIVA_EVOLUTION_ACTIONS)[number]['id'];
