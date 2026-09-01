@@ -20,8 +20,10 @@ import (
 // WorkspaceLookup returns the current run workspace. Missing lookups fail closed.
 type WorkspaceLookup func(ctx context.Context) (string, error)
 
-// Adapt turns compiled user plugins into first-class Vivy tools.
-func Adapt(plugins []plugin.Plugin, lookup WorkspaceLookup) []tools.Tool {
+// Adapt turns compiled user plugins into first-class Vivy tools. The
+// recorder (optional) routes plugin file writes into the kernel's
+// file_versions chain; nil keeps writes unrecorded.
+func Adapt(plugins []plugin.Plugin, lookup WorkspaceLookup, recorder tools.FileVersionRecorder) []tools.Tool {
 	var out []tools.Tool
 	for _, p := range plugins {
 		if p == nil {
@@ -36,16 +38,17 @@ func Adapt(plugins []plugin.Plugin, lookup WorkspaceLookup) []tools.Tool {
 			if t == nil || t.Name() == "" {
 				continue
 			}
-			out = append(out, hostedTool{plugin: p, tool: t, lookup: lookup})
+			out = append(out, hostedTool{plugin: p, tool: t, lookup: lookup, recorder: recorder})
 		}
 	}
 	return out
 }
 
 type hostedTool struct {
-	plugin plugin.Plugin
-	tool   plugin.Tool
-	lookup WorkspaceLookup
+	plugin   plugin.Plugin
+	tool     plugin.Tool
+	lookup   WorkspaceLookup
+	recorder tools.FileVersionRecorder
 }
 
 func (h hostedTool) Spec() domain.ToolSpec {
@@ -61,14 +64,15 @@ func (h hostedTool) Spec() domain.ToolSpec {
 }
 
 func (h hostedTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
-	env := hostedEnv{plugin: h.plugin, lookup: h.lookup, ctx: ctx}
+	env := hostedEnv{plugin: h.plugin, lookup: h.lookup, ctx: ctx, recorder: h.recorder}
 	return h.tool.Run(ctx, env, args)
 }
 
 type hostedEnv struct {
-	plugin plugin.Plugin
-	lookup WorkspaceLookup
-	ctx    context.Context
+	plugin   plugin.Plugin
+	lookup   WorkspaceLookup
+	ctx      context.Context
+	recorder tools.FileVersionRecorder
 }
 
 func (e hostedEnv) Workspace() string {
@@ -101,7 +105,7 @@ func (e hostedEnv) OpenWrite(name string) (io.WriteCloser, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	return e.openRecordingWrite(path)
 }
 
 // Spawn starts one child process behind GrantProcSpawn (VC-3, D4). The

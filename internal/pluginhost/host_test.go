@@ -21,7 +21,7 @@ func TestHelloStatRunsThroughEnv(t *testing.T) {
 	}
 	adapted := Adapt([]plugin.Plugin{hellofs.New()}, func(context.Context) (string, error) {
 		return root, nil
-	})
+	}, nil)
 	if len(adapted) != 1 || adapted[0].Spec().Name != "hello_stat" || !adapted[0].Spec().Readonly {
 		t.Fatalf("adapted = %#v", adapted)
 	}
@@ -164,7 +164,7 @@ func (stubTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (
 func TestAdaptSkipsChannelSeam(t *testing.T) {
 	adapted := Adapt([]plugin.Plugin{channelStub{}, hellofs.New()}, func(context.Context) (string, error) {
 		return t.TempDir(), nil
-	})
+	}, nil)
 	for _, tool := range adapted {
 		if tool.Spec().Name == "stub_tool" || tool.Spec().Keywords[0] == "stub-channel" {
 			t.Fatalf("channel plugin leaked into the tool table: %+v", tool.Spec())

@@ -161,6 +161,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	var workspaces runtime.WorkspaceAllocator
 	var fileOps tools.FileOperations
 	var fileBackend *runtime.EinoFilesystemBackend
+	var fileRecorder tools.FileVersionRecorder
 	var skillOps tools.SkillOperations
 	var skillBackend *runtime.EinoSkillBackend
 	var todoOps tools.TodoOperations
@@ -208,7 +209,8 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 
 		fileBackend = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
 		fileOps = fileBackend
-		fileBackend.SetFileVersionRecorder(runtime.NewFileVersionRecorder(backend, nil))
+		fileRecorder = runtime.NewFileVersionRecorder(backend, nil)
+		fileBackend.SetFileVersionRecorder(fileRecorder)
 	}
 	if cfg.Runtime.SkillsRoot != "" {
 		built, err := runtime.NewEinoSkillBackend(cfg.Runtime.SkillsRoot, backend)
@@ -279,7 +281,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		if err != nil {
 			return nil, nil, err
 		}
-		return append(resolved, pluginhost.Adapt(genPlugins, lookup)...), builtinRegistry.Except(enabled), nil
+		return append(resolved, pluginhost.Adapt(genPlugins, lookup, fileRecorder)...), builtinRegistry.Except(enabled), nil
 	}
 	ts, hidden, err := resolveActiveTools()
 	if err != nil {
