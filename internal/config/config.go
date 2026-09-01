@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -216,6 +217,42 @@ type Runtime struct {
 	Cron CronConfig `yaml:"cron"`
 	// Sandbox controls the file-effect policy boundary (D-021).
 	Sandbox SandboxConfig `yaml:"sandbox"`
+	// Hooks configures user hook scripts around tool execution (D8).
+	Hooks HooksConfig `yaml:"hooks"`
+}
+
+// HooksConfig is the user hook surface (D8). A hook script is a plain
+// command the operator registers in config; it never runs until the same
+// entry is explicitly marked approved — registration and arming are two
+// separate human gestures, so no script can start executing silently.
+type HooksConfig struct {
+	// PreToolUse lists scripts run before each tool call. Decisions ride
+	// the existing ToolHookChain and are journalled per run as
+	// hook.started / hook.completed / hook.blocked events.
+	PreToolUse []PreToolUseHook `yaml:"pre_tool_use"`
+}
+
+// PreToolUseHook is one user hook script (Claude-Code-style protocol:
+// the call payload goes to stdin as JSON; exit 2 denies with stderr as
+// the reason; exit 0 allows, with an optional stdout JSON envelope
+// carrying decision / reason / updated_input shallow-merged into the
+// tool arguments; any other exit fails closed).
+type PreToolUseHook struct {
+	// Matcher filters which tools trigger the hook: a glob over the tool
+	// name (path.Match semantics). Empty or "*" matches every tool.
+	Matcher string `yaml:"matcher"`
+	// Command is the shell command line executed per matching call. It is
+	// interpreted by the platform shell (cmd /c on Windows, sh -c
+	// elsewhere) exactly as written.
+	Command string `yaml:"command"`
+	// TimeoutMs bounds one hook invocation; 0 keeps the governance
+	// default (governance.hook_timeout). The effective bound is the
+	// shorter of the two.
+	TimeoutMs int `yaml:"timeout_ms"`
+	// Approved is the human arming switch (D8: first registration needs
+	// ask). A hook with approved=false is registered but inert — it is
+	// never executed — and startup logs loudly until it is approved.
+	Approved bool `yaml:"approved"`
 }
 
 // CronConfig is the operator switch for the cron scheduler. Jobs are only
@@ -737,6 +774,23 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.Sandbox.Network.DenyPrivateIPs {
 		// Validation only; actual enforcement happens at request time.
+	}
+
+	// Hook configuration validation (D8): a typo must not silently
+	// disable or mis-clamp a governance script.
+	const hookTimeoutCapMs = 60 * 60 * 1000
+	for i, hook := range c.Runtime.Hooks.PreToolUse {
+		if strings.TrimSpace(hook.Command) == "" {
+			return fmt.Errorf("runtime.hooks.pre_tool_use[%d].command must not be empty", i)
+		}
+		if hook.TimeoutMs < 0 || hook.TimeoutMs > hookTimeoutCapMs {
+			return fmt.Errorf("runtime.hooks.pre_tool_use[%d].timeout_ms %d must be 0 (governance default) or 1..%d", i, hook.TimeoutMs, hookTimeoutCapMs)
+		}
+		if hook.Matcher != "" && hook.Matcher != "*" {
+			if _, err := path.Match(hook.Matcher, "probe"); err != nil {
+				return fmt.Errorf("runtime.hooks.pre_tool_use[%d].matcher %q is not a valid glob: %v", i, hook.Matcher, err)
+			}
+		}
 	}
 
 	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {

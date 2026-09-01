@@ -639,3 +639,59 @@ func TestToolsSectionWithoutEnabledKeepsDefault(t *testing.T) {
 		t.Fatal("explicit empty tools.enabled must fail validation")
 	}
 }
+
+// TestHookConfigValidation covers the D8 hook entry surface: fields parse,
+// and a typo'd entry fails startup instead of silently mis-clamping
+// governance.
+func TestHookConfigValidation(t *testing.T) {
+	// hooks merges into the validDoc's existing runtime: section — a
+	// second top-level runtime key would be a YAML duplicate-key error.
+	hooksYAML := func(entry string) string {
+		return strings.Replace(validDoc,
+			"runtime:\n  stream_buffer: 16",
+			"runtime:\n  stream_buffer: 16\n  hooks:\n    pre_tool_use:\n"+entry,
+			1)
+	}
+	t.Setenv(envUserHome, filepath.Join(t.TempDir(), "home"))
+	cfg, err := Load(writeConfig(t, hooksYAML(`      - matcher: "bash"
+        command: "vivy-hook-guard --tool bash"
+        timeout_ms: 3000
+        approved: true
+`)))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	hooks := cfg.Runtime.Hooks.PreToolUse
+	if len(hooks) != 1 {
+		t.Fatalf("hooks = %#v, want one entry", hooks)
+	}
+	if hooks[0].Matcher != "bash" || hooks[0].Command != "vivy-hook-guard --tool bash" ||
+		hooks[0].TimeoutMs != 3000 || !hooks[0].Approved {
+		t.Fatalf("hook entry = %#v", hooks[0])
+	}
+
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"empty command", hooksYAML(`      - matcher: bash
+`), "command must not be empty"},
+		{"negative timeout", hooksYAML(`      - command: run
+        timeout_ms: -1
+`), "timeout_ms"},
+		{"timeout above cap", hooksYAML(`      - command: run
+        timeout_ms: 3600001
+`), "timeout_ms"},
+		{"bad matcher glob", hooksYAML(`      - command: run
+        matcher: "[a-"
+`), "not a valid glob"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Load(writeConfig(t, tc.yaml)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load err = %v, want contains %q", err, tc.want)
+			}
+		})
+	}
+}
