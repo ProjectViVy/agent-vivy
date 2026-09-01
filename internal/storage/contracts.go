@@ -187,6 +187,9 @@ type RunStore interface {
 	ListChildRuns(ctx context.Context, parentID domain.RunID) ([]domain.Run, error)
 	// ListRunTree returns all descendants of a root in creation order.
 	ListRunTree(ctx context.Context, rootID domain.RunID) ([]domain.Run, error)
+	// ListRunsBySession returns every run of a session in creation order,
+	// regardless of status.
+	ListRunsBySession(ctx context.Context, sessionID domain.SessionID) ([]domain.Run, error)
 }
 
 // ApprovalStore persists server-side approval decisions for effectful
