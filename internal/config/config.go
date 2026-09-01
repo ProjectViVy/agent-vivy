@@ -33,6 +33,11 @@ import (
 // Anything else (a literal key value) fails validation.
 var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
+// ValidEnvKey reports whether name is a well-formed environment variable
+// name usable as an env_key declaration (config fields and the opaque
+// channel settings `*_env` walk share this single pattern, CH-C6-N2).
+func ValidEnvKey(name string) bool { return envKeyPattern.MatchString(name) }
+
 // channelNamePattern constrains a channels map key to a plugin-name slug:
 // the Host (C3) matches it against the channel plugins compiled into the
 // running generation.
