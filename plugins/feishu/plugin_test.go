@@ -1298,3 +1298,47 @@ func readWSFrame(conn net.Conn) (opcode byte, body []byte, err error) {
 	}
 	return opcode, body, nil
 }
+
+// mutedReadyWS drops the plugin's ready callback: the fake connects but
+// the gateway never answers the handshake, so READY never fires.
+type mutedReadyWS struct{ *fakeWS }
+
+func (m mutedReadyWS) SetOnReady(func()) {}
+
+// TestStopDuringFirstConnectReturns (CH-C7a-N1): a Stop landing while the
+// FIRST attempt sits in the READY wait (a muted, never-answered connect)
+// must make Start return within a bounded wait — the supervisor reports
+// the interrupted first attempt to Start instead of exiting silently.
+// qq's TestStopDuringFirstHandshakeReturns is the template.
+func TestStopDuringFirstConnectReturns(t *testing.T) {
+	ws := newFakeWS(nil)
+	spy := &wsFactorySpy{f: func(onEvent eventFunc, _ wsCreds, _ string) wsClient {
+		ws.setOnEvent(onEvent)
+		return mutedReadyWS{ws}
+	}}
+	p := New().(*Plugin)
+	p.newWS = spy.build
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- p.Start(context.Background(), envFor(t,
+			`{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`"}`))
+	}()
+	// Let Start reach the READY wait: the fake client's Start is blocking.
+	waitFor(t, "first attempt stuck in the ready wait", func() bool {
+		_, starts, _ := ws.state()
+		return starts == 1
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop during first connect: %v", err)
+	}
+	select {
+	case err := <-startErr:
+		if err == nil {
+			t.Fatal("Start interrupted by Stop must return an error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return after Stop")
+	}
+}

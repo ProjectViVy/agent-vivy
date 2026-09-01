@@ -336,14 +336,38 @@ func (p *Plugin) messageHandler(env plugin.ChannelEnv) eventFunc {
 // SDK client is single-use — a stopped run is terminal), Start blocks
 // while the connection is healthy, and a returned Start means the attempt
 // is over. The first attempt's outcome is reported to Start through
-// firstErr; later failures stay silent — the next attempt retries, and
-// Stop ends the loop.
+// firstErr — including an exit that lost a race with Stop mid-connect (a
+// silent exit would hang Start forever); later failures stay silent — the
+// next attempt retries, and Stop ends the loop.
 func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr chan<- error) {
 	defer close(done)
+
+	// report hands the FIRST attempt's outcome to Start, exactly once, and
+	// is a no-op afterwards. Every exit path calls it: Start has no other
+	// wakeup while the parent context is still live, so a silent
+	// first-attempt exit (a Stop landing mid-connect, say) would hang Start
+	// until the caller's context ends.
+	reported := false
+	report := func(err error) {
+		if reported {
+			return
+		}
+		reported = true
+		firstErr <- err
+	}
+	// stopOutcome is the outcome of an exit that lost a race with Stop (or
+	// the run context) before the gateway answered anything.
+	stopOutcome := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errors.New("channel stopped while connecting")
+	}
 
 	first := true
 	for {
 		if !p.shouldContinue(ctx) {
+			report(stopOutcome())
 			return
 		}
 
@@ -364,7 +388,7 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 				// failed (credentials, gateway, handshake) or the run was
 				// closed mid-dial. Both end the first attempt; the error
 				// (even a cancellation) is what Start reports.
-				firstErr <- err
+				report(err)
 				return
 			}
 			if !p.pause(ctx) {
@@ -375,6 +399,7 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		case <-ctx.Done():
 			client.Close()
 			p.retire(client)
+			report(stopOutcome())
 			return
 		}
 
@@ -382,11 +407,12 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		if !p.shouldContinue(ctx) {
 			client.Close()
 			p.retire(client)
+			report(stopOutcome())
 			return
 		}
 
 		if first {
-			firstErr <- nil
+			report(nil)
 			first = false
 		}
 
