@@ -33,6 +33,7 @@ export const en: Dictionary = {
     chat: 'Chat',
     dashboard: 'Dashboard',
     cron: 'Cron Tasks',
+    approvals: 'Approvals',
     persona: 'Persona',
     masks: 'Masks',
     evolution: 'Evolution',

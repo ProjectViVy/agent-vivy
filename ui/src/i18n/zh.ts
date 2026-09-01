@@ -31,6 +31,7 @@ export const zh = {
     chat: '聊天',
     dashboard: '中控台',
     cron: '定时任务',
+    approvals: '审批中心',
     persona: '人格',
     masks: '面具',
     evolution: '进化',
