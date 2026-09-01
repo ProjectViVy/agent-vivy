@@ -13,11 +13,13 @@ import (
 
 // Backend identifiers allowed by schemas/providers.bundle.schema.json.
 const (
-	// BackendEinoOpenAI is the online eino-ext OpenAI component.
+	// BackendEinoOpenAI is the online eino-ext OpenAI component for
+	// OpenAI-compatible endpoints (gateways, DeepSeek, ZAI, Kimi, custom).
 	BackendEinoOpenAI = "eino-ext/openai"
-	// BackendVivyAnthropic is the Vivy-owned thin Anthropic Messages API
-	// adapter (no official Eino Anthropic component exists).
-	BackendVivyAnthropic = "vivy/anthropic"
+	// BackendEinoClaude is the online eino-ext Claude component for the
+	// Anthropic Messages API (research §8.5: the eino-ext component exists,
+	// so the self-owned adapter milestone was dropped).
+	BackendEinoClaude = "eino-ext/claude"
 )
 
 var (
@@ -122,10 +124,10 @@ func (b *Bundle) validate() error {
 		}
 	}
 	switch b.Backend {
-	case BackendEinoOpenAI, BackendVivyAnthropic:
+	case BackendEinoOpenAI, BackendEinoClaude:
 	default:
 		if b.Backend != "" {
-			errs = append(errs, fmt.Errorf("provider bundle: backend %q unsupported; want %s or %s", b.Backend, BackendEinoOpenAI, BackendVivyAnthropic))
+			errs = append(errs, fmt.Errorf("provider bundle: backend %q unsupported; want %s or %s", b.Backend, BackendEinoOpenAI, BackendEinoClaude))
 		}
 	}
 	if len(b.Models) == 0 {

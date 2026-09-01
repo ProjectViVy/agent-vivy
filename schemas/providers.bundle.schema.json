@@ -93,8 +93,8 @@
     },
     "backend": {
       "type": "string",
-      "enum": ["eino-ext/openai", "vivy/anthropic"],
-      "description": "Implementation backing this bundle: the online eino-ext OpenAI component, or the Vivy-owned thin Anthropic Messages API adapter (no official Eino Anthropic component exists)."
+      "enum": ["eino-ext/openai", "eino-ext/claude"],
+      "description": "Implementation backing this bundle: the online eino-ext OpenAI component for OpenAI-compatible endpoints, or the online eino-ext Claude component for the Anthropic Messages API."
     },
     "provenance": {
       "type": "object",
