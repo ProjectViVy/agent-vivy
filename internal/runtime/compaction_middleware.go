@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"path"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -10,8 +11,10 @@ import (
 	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
 )
 
 // compaction middleware wiring (research AGENT-LOOP-PORT-COMPARISON §4.3-E2):
@@ -87,11 +90,44 @@ func countMessageTokens(msgs []*schema.Message, tools []*schema.ToolInfo) (int, 
 	return total / 4, nil
 }
 
+// clearOffloadDir anchors the reduction clear offloads inside the run
+// workspace, one directory read_file can always reach.
+const clearOffloadDir = "compaction"
+
+// genClearOffloadPath mirrors Eino's default clear-offload path
+// (RootDir/clear/<call-id>) but anchors it at a workspace-relative,
+// forward-slash location so the persisted-output placeholder names a path
+// read_file can open on every platform. Provider-issued call ids become the
+// file name, so anything outside a bounded safe token set (traversal,
+// separators, empty) falls back to a generated id.
+func genClearOffloadPath(_ context.Context, detail *reduction.ToolDetail) (string, error) {
+	if detail != nil && detail.ToolContext != nil {
+		if id := safeOffloadCallID(detail.ToolContext.CallID); id != "" {
+			return path.Join(clearOffloadDir, "clear", id), nil
+		}
+	}
+	return path.Join(clearOffloadDir, "clear", uuid.NewString()), nil
+}
+
+func safeOffloadCallID(callID string) string {
+	if callID == "" || len(callID) > 128 {
+		return ""
+	}
+	for _, r := range callID {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		default:
+			return ""
+		}
+	}
+	return callID
+}
+
 // buildCompactionHandlers assembles the official Eino middlewares with Vivy
 // bridges. When the engine has no run context (e.g. Checkpoints nil in unit
 // tests), the event hooks are inert: they only fire when the run ctx carries
 // a governance sink, which the service always installs.
-func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*schema.Message], summaryModel model.BaseModel[*schema.Message], policy CompactionPolicy, feedBudgetBytes int) ([]adk.ChatModelAgentMiddleware, error) {
+func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*schema.Message], summaryModel model.BaseModel[*schema.Message], policy CompactionPolicy, feedBudgetBytes int, offload *EinoFilesystemBackend) ([]adk.ChatModelAgentMiddleware, error) {
 	triggerTokens := policy.TriggerTokens(bytesToTokens(feedBudgetBytes))
 	if triggerTokens <= 0 {
 		triggerTokens = policy.TriggerTokens(0)
@@ -100,6 +136,13 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 	if keepRecent <= 0 {
 		keepRecent = 12
 	}
+	// A typed-nil *EinoFilesystemBackend must not reach the middleware as a
+	// non-nil interface: eino would treat clear as offloading and every
+	// write would fail on the nil receiver.
+	var offloadBackend reduction.Backend
+	if offload != nil {
+		offloadBackend = offload
+	}
 
 	reducer, err := reduction.New(ctx, &reduction.Config{
 		// Vivy's tooladapter already bounds every single result
@@ -107,9 +150,14 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		// double-truncate, so keep only the deterministic clear phase.
 		SkipTruncation:            true,
 		SkipClear:                 false,
-		Backend:                   nil, // clear-only: in-memory placeholders, no offload (v1)
+		Backend:                   offloadBackend,
 		MaxTokensForClear:         int64(triggerTokens),
 		ClearRetentionSuffixLimit: keepRecent,
+		// CMP-1: with a backend wired, cleared tool results are written into
+		// the run workspace and the placeholder names the path so read_file
+		// can recover the content later in the same run.
+		GenClearOffloadFilePath: genClearOffloadPath,
+		ReadFileToolName:        tools.ReadFileName,
 		TokenCounter: func(_ context.Context, msgs []*schema.Message, tools []*schema.ToolInfo) (int64, error) {
 			n, err := countMessageTokens(msgs, tools)
 			return int64(n), err

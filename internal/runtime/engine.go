@@ -77,6 +77,11 @@ type EngineConfig struct {
 	// executable universe so a skill_view mount can use them mid-run, but
 	// the surface middleware never advertises them before they are mounted.
 	HiddenTools []tools.Tool
+	// OffloadBackend receives cleared tool results from the reduction
+	// middleware (CMP-1). Content lands in the run workspace under
+	// compaction/clear/<call-id> and the placeholder tells the model to
+	// recover it with read_file. Nil keeps placeholder-only clears.
+	OffloadBackend *EinoFilesystemBackend
 }
 
 // Engine owns the Eino ChatModelAgent + Runner behind the Vivy runtime.
@@ -154,7 +159,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		// summarization LLM-compacts what remains when the feed is still
 		// over the trigger. m is a model.ToolCallingChatModel, so it also
 		// satisfies the summarization middleware's BaseModel requirement.
-		compHandlers, err := buildCompactionHandlers(ctx, m, cfg.SummaryModel, *cfg.Compaction, cfg.MaxContextBytes)
+		compHandlers, err := buildCompactionHandlers(ctx, m, cfg.SummaryModel, *cfg.Compaction, cfg.MaxContextBytes, cfg.OffloadBackend)
 		if err != nil {
 			return nil, err
 		}

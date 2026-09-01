@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -659,3 +660,95 @@ type atomicInt struct {
 
 func (a *atomicInt) add(n int)  { a.mu.Lock(); a.v += n; a.mu.Unlock() }
 func (a *atomicInt) value() int { a.mu.Lock(); defer a.mu.Unlock(); return a.v }
+
+// TestEngineReductionOffloadsClearedToolResults drives a clear over the
+// trigger with the offload backend wired (CMP-1): every cleared echo result
+// must land in the run workspace under compaction/clear/<call-id>, the
+// placeholder must name the persisted path, and the offloaded content must
+// keep the original tool output.
+func TestEngineReductionOffloadsClearedToolResults(t *testing.T) {
+	ctx := tools.WithRunID(context.Background(), "run-offload")
+	wsRoot := t.TempDir()
+	manager, err := NewWorkspaceManager(wsRoot)
+	if err != nil {
+		t.Fatalf("workspace manager: %v", err)
+	}
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	scripted := NewScriptedModel(
+		schema.AssistantMessage("REDUCTION-SUMMARY-zz", nil),
+		schema.AssistantMessage("FINAL-ANSWER-rx", nil),
+	)
+	rec := &recordingModel{inner: scripted}
+	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
+		StreamBuffer:         8,
+		MaxEventPayloadBytes: 64 << 10,
+		MaxContextBytes:      1 << 20,
+		Compaction: &CompactionPolicy{
+			Enabled: true, MaxTokens: 800, TriggerPercent: 50, KeepRecent: 1,
+		},
+		OffloadBackend: NewEinoFilesystemBackend(manager, nil),
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	final := drainFinalText(t, eng.RunHistory(ctx, compactFeed(16)))
+	if final != "FINAL-ANSWER-rx" {
+		t.Fatalf("final answer = %q, want FINAL-ANSWER-rx", final)
+	}
+	inputs := rec.snapshot()
+	if len(inputs) != 2 {
+		t.Fatalf("model calls = %d, want 2", len(inputs))
+	}
+	summarizeInput := joinContent(inputs[0])
+	if !strings.Contains(summarizeInput, "persisted-output") || !strings.Contains(summarizeInput, "compaction/clear/") {
+		t.Fatalf("clear placeholder does not name the offload path: %q", summarizeInput)
+	}
+	offloadRoot := filepath.Join(wsRoot, "run-offload", "compaction", "clear")
+	entries, err := os.ReadDir(offloadRoot)
+	if err != nil {
+		t.Fatalf("read offload dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatalf("no offload files written under %s", offloadRoot)
+	}
+	for _, entry := range entries {
+		data, readErr := os.ReadFile(filepath.Join(offloadRoot, entry.Name()))
+		if readErr != nil {
+			t.Fatalf("read offload %s: %v", entry.Name(), readErr)
+		}
+		if !strings.Contains(string(data), strings.Repeat("b", 140)) {
+			snippet := string(data)
+			if len(snippet) > 160 {
+				snippet = snippet[:160]
+			}
+			t.Fatalf("offload %s lost the tool result content: %q", entry.Name(), snippet)
+		}
+	}
+}
+
+// TestSafeOffloadCallID pins the call-id allowlist: provider ids pass
+// through unchanged, traversal and separators fall back to generated ids.
+func TestSafeOffloadCallID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"call_0", "call_0"},
+		{"chatcmpl-ABC-123", "chatcmpl-ABC-123"},
+		{"", ""},
+		{"../../etc/passwd", ""},
+		{`..\evil`, ""},
+		{"has space", ""},
+		{"toolu_01abc/def", ""},
+		{strings.Repeat("a", 129), ""},
+		{strings.Repeat("a", 128), strings.Repeat("a", 128)},
+	}
+	for _, tc := range cases {
+		if got := safeOffloadCallID(tc.in); got != tc.want {
+			t.Fatalf("safeOffloadCallID(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
