@@ -52,7 +52,7 @@ export function MessageBubble({
   streaming?: boolean;
   /** 助手消息之前存在用户消息（有可重发的输入） */
   canRegenerate?: boolean;
-  /** 运行 / 预检期间禁用重试，对应 Agent-DIVA 的 isTyping */
+  /** 运行期间禁用重试，对应 Agent-DIVA 的 isTyping */
   actionsDisabled?: boolean;
   onRegenerate?: () => void;
 }) {

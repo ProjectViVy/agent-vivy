@@ -73,10 +73,6 @@ export const zh = {
   },
   chat: {
     startNew: '开始新的对话',
-    preflightHint: '发送消息后，Vivy 会先进行预检。',
-    preflightBlocked: '预检已阻止本次运行',
-    preflightWarned: '预检发现警告',
-    continue: '继续',
     toolResult: '工具结果',
     thinking: '思考过程',
     thinkingStreaming: '思考过程（进行中）',

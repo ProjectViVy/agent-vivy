@@ -75,10 +75,6 @@ export const en: Dictionary = {
   },
   chat: {
     startNew: 'Start a new conversation',
-    preflightHint: 'Vivy runs a preflight check before each turn.',
-    preflightBlocked: 'Preflight blocked this run',
-    preflightWarned: 'Preflight found warnings',
-    continue: 'Continue',
     toolResult: 'Tool result',
     thinking: 'Reasoning',
     thinkingStreaming: 'Reasoning (in progress)',
