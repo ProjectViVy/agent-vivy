@@ -116,6 +116,7 @@ func (h *Host) StartAll(ctx context.Context) error {
 			h.logger.Error("channelhost: refusing to start channel with empty allow_from", "channel", name)
 			continue
 		}
+		auditSettingsEnvNames(name, envelope, h.logger)
 		if err := ch.Start(ctx, h.envFor(ch)); err != nil {
 			h.setNote(name, fmt.Sprintf("start failed: %v", err))
 			h.logger.Error("channelhost: channel start failed", "channel", name, "err", err)

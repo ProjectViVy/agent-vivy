@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"agent-vivy/internal/config"
 	"agent-vivy/sdk/plugin"
 )
 
@@ -102,11 +104,43 @@ func (e *hostEnv) declaresEnvKey(envKey string) bool {
 			// declares no env_key name.
 			continue
 		}
+		if !config.ValidEnvKey(value.Value) {
+			// A malformed declared name (CH-C6-N2) declares nothing; the
+			// operator is warned at start time by auditSettingsEnvNames.
+			continue
+		}
 		if value.Value == envKey {
 			return true
 		}
 	}
 	return false
+}
+
+// auditSettingsEnvNames warns once per start about top-level settings
+// `*_env` entries whose declared name is malformed (CH-C6-N2). Such
+// entries grant no secret (declaresEnvKey refuses them); the warning makes
+// the reason operator-visible at start instead of a bare deny at runtime.
+// Declared values are environment variable names, never secret values, so
+// logging them carries no payload (D-010).
+func auditSettingsEnvNames(channel string, envelope config.ChannelEnvelope, logger *slog.Logger) {
+	node := envelope.Settings
+	if node.Kind != yaml.MappingNode {
+		return
+	}
+	content := node.Content
+	for i := 0; i+1 < len(content); i += 2 {
+		key, value := content[i], content[i+1]
+		if !strings.HasSuffix(key.Value, "_env") {
+			continue
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+			continue
+		}
+		if !config.ValidEnvKey(value.Value) {
+			logger.Warn("channelhost: settings *_env declares a malformed environment variable name; it grants no secret",
+				"channel", channel, "settings_key", key.Value, "declared_name", value.Value)
+		}
+	}
 }
 
 // HTTP returns the shared outbound-only client. There is no Listen

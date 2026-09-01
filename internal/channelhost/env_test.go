@@ -1,8 +1,10 @@
 package channelhost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -236,5 +238,71 @@ func TestEnvSettingsNullArrivesAsEmptyObject(t *testing.T) {
 	}
 	if len(obj) != 0 {
 		t.Fatalf("null settings arrived non-empty: %v", obj)
+	}
+}
+
+// TestSecretRefusesMalformedSettingsEnvName (CH-C6-N2): a top-level string
+// `*_env` entry whose declared name is not a well-formed environment
+// variable name grants no secret — even when a variable under that exact
+// malformed name is set, so the refusal is observable. A valid sibling
+// still resolves.
+func TestSecretRefusesMalformedSettingsEnvName(t *testing.T) {
+	t.Setenv("bad-name", "leak-attempt")
+	t.Setenv("VIVY_TEST_GOOD_NAME", "good-value")
+	var envelope config.ChannelEnvelope
+	if err := yaml.Unmarshal([]byte(
+		"enabled: true\n"+
+			"settings:\n"+
+			"  client_id_env: bad-name\n"+
+			"  client_secret_env: VIVY_TEST_GOOD_NAME\n"), &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	_, env := envHostWithEnvelope(t, "malformed", envelope)
+
+	if _, err := env.Secret("bad-name"); err == nil {
+		t.Fatal("malformed declared name must grant no secret, even when the variable is set")
+	} else if strings.Contains(err.Error(), "leak-attempt") {
+		t.Fatalf("error message leaks the value: %v", err)
+	}
+	if value, err := env.Secret("VIVY_TEST_GOOD_NAME"); err != nil || value != "good-value" {
+		t.Fatalf("valid sibling *_env declaration must still resolve: %q %v", value, err)
+	}
+}
+
+// TestStartAllWarnsMalformedSettingsEnvName (CH-C6-N2): the start path
+// surfaces each malformed top-level settings `*_env` declaration as a
+// warning naming the channel and settings key (names only, no values).
+func TestStartAllWarnsMalformedSettingsEnvName(t *testing.T) {
+	var buf bytes.Buffer
+	var envelope config.ChannelEnvelope
+	if err := yaml.Unmarshal([]byte(
+		"enabled: true\n"+
+			"allow_from: [alice]\n"+
+			"settings:\n"+
+			"  client_id_env: bad-name\n"+
+			"  client_secret_env: VIVY_TEST_GOOD_NAME\n"), &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	host := New(Deps{
+		Journal:  &recordingJournal{Journal: backend},
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{grantStub{name: "audit", grants: []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}}},
+		Config:   config.Channels{"audit": envelope},
+		Logger:   slog.New(slog.NewTextHandler(&buf, nil)),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "malformed environment variable name") ||
+		!strings.Contains(out, "client_id_env") || !strings.Contains(out, "bad-name") {
+		t.Fatalf("start log lacks the malformed *_env warning: %s", out)
+	}
+	if strings.Count(out, "malformed environment variable name") != 1 {
+		t.Fatalf("valid sibling must not be warned: %s", out)
 	}
 }
