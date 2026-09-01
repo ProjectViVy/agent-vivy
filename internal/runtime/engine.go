@@ -17,6 +17,12 @@ import (
 	"agent-vivy/internal/tools"
 )
 
+// SummaryModel is the opaque engine seam for an alternative compaction
+// summarizer (CMP-2). The app layer builds it in internal/provider (D9
+// override model) and passes it through without touching eino directly
+// (D-007 quarantine).
+type SummaryModel = model.BaseModel[*schema.Message]
+
 // EngineConfig carries the tunables the app layer reads from config.
 type EngineConfig struct {
 	// StreamBuffer sizes the downstream event fan-out channel (C4).
@@ -57,6 +63,10 @@ type EngineConfig struct {
 	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
 	// feed behavior.
 	Compaction *CompactionPolicy
+	// SummaryModel optionally overrides the model that generates
+	// compaction summaries (CMP-2). Nil keeps the main chat model. When
+	// set, a summary failure falls back to the main model once.
+	SummaryModel model.BaseModel[*schema.Message]
 	// AgentsMDBackend supplies workspace AGENTS.md content for the run
 	// preamble (D6). Nil disables injection. Eino's agentsmd middleware
 	// loads it per run and injects it transiently before the first user
@@ -144,7 +154,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		// summarization LLM-compacts what remains when the feed is still
 		// over the trigger. m is a model.ToolCallingChatModel, so it also
 		// satisfies the summarization middleware's BaseModel requirement.
-		compHandlers, err := buildCompactionHandlers(ctx, m, *cfg.Compaction, cfg.MaxContextBytes)
+		compHandlers, err := buildCompactionHandlers(ctx, m, cfg.SummaryModel, *cfg.Compaction, cfg.MaxContextBytes)
 		if err != nil {
 			return nil, err
 		}

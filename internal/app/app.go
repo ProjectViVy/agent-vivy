@@ -149,6 +149,14 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		modelID = defaultModelFor(cfg, providerName)
 	}
 	chatModel := provider.NewResolvingChatModel(catalog, resolver)
+	// CMP-2: optional cheaper compaction summary model, pinned to the
+	// active provider's live spec (D9 single data source). Nil keeps the
+	// main model as the summarizer. The value crosses into the engine as
+	// the opaque runtime.SummaryModel seam (D-007: no direct eino import).
+	var summaryModel runtime.SummaryModel
+	if id := cfg.Runtime.Compaction.SummaryModel; id != "" {
+		summaryModel = provider.NewOverrideModel(catalog, resolver, id)
+	}
 
 	var workspaces runtime.WorkspaceAllocator
 	var fileOps tools.FileOperations
@@ -302,7 +310,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		modelWindow = info.ContextWindow
 	}
 	cmp := compactionPolicyFor(cfg, nil, modelWindow)
-	engineCfg := buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp)
+	engineCfg := buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp, summaryModel)
 	engineCfg.HiddenTools = hidden
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
 	if err != nil {
@@ -512,7 +520,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			window := svc.GetModelInfo(context.Background()).ContextWindow
 			cmp := compactionPolicyFor(cfg, s.Compaction, window)
 			if toolsChanged || !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
-				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp)); err != nil {
+				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp, summaryModel)); err != nil {
 					logger.Warn("engine reload failed", "err", err)
 				}
 			}

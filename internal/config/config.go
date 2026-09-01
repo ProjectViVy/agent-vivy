@@ -287,6 +287,12 @@ type CompactionConfig struct {
 	// KeepRecent is how many most-recent tool-call rounds the deterministic
 	// reduction layer retains verbatim. >= 1; default 12.
 	KeepRecent int `yaml:"keep_recent"`
+	// SummaryModel optionally names a cheaper model on the same active
+	// provider that generates compaction summaries instead of the main
+	// chat model. Empty keeps the main model (CMP-2). The main model
+	// remains the automatic one-shot failover when the summary model
+	// errors.
+	SummaryModel string `yaml:"summary_model"`
 }
 
 // DefaultCompactionConfig returns the safe built-in compaction defaults.
@@ -663,6 +669,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.Compaction.KeepRecent < 1 {
 		return errors.New("runtime.compaction.keep_recent must be at least 1")
+	}
+	// summary_model is an open-ended model id on the active provider; only
+	// structural sanity is checkable here (same as runtime.small_model).
+	// Unknown ids surface as summary-model call errors and fail over to
+	// the main model.
+	c.Runtime.Compaction.SummaryModel = strings.TrimSpace(c.Runtime.Compaction.SummaryModel)
+	if strings.ContainsAny(c.Runtime.Compaction.SummaryModel, "\r\n\x00") {
+		return errors.New("runtime.compaction.summary_model must be a single model id")
 	}
 	for i, server := range c.Runtime.MCPServers {
 		if server.Name == "" || server.Endpoint == "" {
