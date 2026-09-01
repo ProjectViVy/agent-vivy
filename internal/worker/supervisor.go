@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/logging"
 	"agent-vivy/internal/rpc"
 )
 
@@ -33,6 +34,35 @@ type Authority struct {
 	Snapshot    domain.PolicySnapshot
 	WorkspaceID string
 	Budget      EventBudget
+	// Log carries the parent's validated log settings for the child's
+	// per-worker file sink (LOGGING.md §3). An empty Dir means the child
+	// runs without file logging, as before LOG-1.
+	Log WorkerLog
+}
+
+// WorkerLog is the supervisor-to-child logging handoff, exported through the
+// VIVY_WORKER_LOG_* environment and consumed by logging.SetupWorker.
+type WorkerLog struct {
+	Dir    string
+	Level  string
+	Format string
+}
+
+// workerLogEnv maps the handoff onto VIVY_WORKER_LOG_* entries, skipping
+// empty values so unset fields fall back to the parent-level defaults
+// already present in the child's inherited environment.
+func workerLogEnv(log WorkerLog) []string {
+	var env []string
+	if log.Dir != "" {
+		env = append(env, logging.EnvWorkerLogDir+"="+log.Dir)
+	}
+	if log.Level != "" {
+		env = append(env, logging.EnvWorkerLogLevel+"="+log.Level)
+	}
+	if log.Format != "" {
+		env = append(env, logging.EnvWorkerLogFormat+"="+log.Format)
+	}
+	return env
 }
 
 type EventBudget interface {
@@ -122,6 +152,9 @@ func StartWithBrokers(ctx context.Context, authority Authority, broker ToolBroke
 		return nil, fmt.Errorf("worker: open stdout: %w", err)
 	}
 	cmd.Stderr = io.Discard
+	if authority.Log.Dir != "" {
+		cmd.Env = append(os.Environ(), workerLogEnv(authority.Log)...)
+	}
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("worker: start process: %w", err)

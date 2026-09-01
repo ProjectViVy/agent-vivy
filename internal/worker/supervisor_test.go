@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"slices"
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/logging"
 )
 
 func TestAuthorityPinsParentPolicyAndWorkspace(t *testing.T) {
@@ -32,5 +34,24 @@ func TestAuthorityPinsParentPolicyAndWorkspace(t *testing.T) {
 				t.Fatal("authority widening must be rejected")
 			}
 		})
+	}
+}
+
+func TestWorkerLogEnv(t *testing.T) {
+	env := workerLogEnv(WorkerLog{Dir: "tmp/logs", Level: "warn", Format: "text"})
+	want := []string{
+		logging.EnvWorkerLogDir + "=tmp/logs",
+		logging.EnvWorkerLogLevel + "=warn",
+		logging.EnvWorkerLogFormat + "=text",
+	}
+	if !slices.Equal(env, want) {
+		t.Fatalf("workerLogEnv = %v, want %v", env, want)
+	}
+	if got := workerLogEnv(WorkerLog{}); got != nil {
+		t.Errorf("empty handoff = %v, want no env entries", got)
+	}
+	partial := workerLogEnv(WorkerLog{Dir: "tmp/logs"})
+	if !slices.Equal(partial, []string{logging.EnvWorkerLogDir + "=tmp/logs"}) {
+		t.Errorf("partial handoff = %v, want only the dir entry", partial)
 	}
 }

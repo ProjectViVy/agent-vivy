@@ -27,8 +27,29 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "worker" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := worker.Run(ctx, os.Stdin, os.Stdout); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
+		// The supervisor exports the parent's validated log settings through
+		// VIVY_WORKER_LOG_*; an unset dir keeps the child sink-free (protocol
+		// errors still reach the parent via RPC, never stdout).
+		wlog, closeWLog, wlogPath, werr := logging.SetupWorker()
+		if werr != nil {
+			_, _ = fmt.Fprintln(os.Stderr, werr)
+			os.Exit(1)
+		}
+		if wlog != nil {
+			slog.SetDefault(wlog)
+			defer closeWLog.Close()
+			wlog.Info("worker started", "pid", os.Getpid(), "path", wlogPath)
+		}
+		serveErr := worker.Run(ctx, os.Stdin, os.Stdout)
+		if wlog != nil {
+			if serveErr != nil {
+				wlog.Error("worker ended", "err", serveErr)
+			} else {
+				wlog.Info("worker ended")
+			}
+		}
+		if serveErr != nil {
+			_, _ = fmt.Fprintln(os.Stderr, serveErr)
 			os.Exit(1)
 		}
 		return

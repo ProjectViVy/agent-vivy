@@ -39,6 +39,7 @@ type workerManager struct {
 	maxResultSize    int
 	approvalLifetime time.Duration
 	model            runtime.WorkerChatModel
+	workerLog        worker.WorkerLog
 
 	mu             sync.Mutex
 	children       map[domain.RunID]*childHandle
@@ -62,7 +63,7 @@ type childHandle struct {
 	result controlrpc.ChildResult
 }
 
-func newWorkerManager(service *runtime.Service, runs storage.RunStore, approvals storage.ApprovalStore, policy *runtime.PolicyEngine, hooks *runtime.ToolHookChain, registered []tools.Tool, maxResultSize int, approvalLifetime time.Duration, model runtime.WorkerChatModel) *workerManager {
+func newWorkerManager(service *runtime.Service, runs storage.RunStore, approvals storage.ApprovalStore, policy *runtime.PolicyEngine, hooks *runtime.ToolHookChain, registered []tools.Tool, maxResultSize int, approvalLifetime time.Duration, model runtime.WorkerChatModel, workerLog worker.WorkerLog) *workerManager {
 	byName := make(map[string]tools.Tool, len(registered))
 	for _, tool := range registered {
 		byName[tool.Spec().Name] = tool
@@ -78,7 +79,7 @@ func newWorkerManager(service *runtime.Service, runs storage.RunStore, approvals
 	return &workerManager{
 		service: service, runs: runs, approvals: approvals, policy: policy, hooks: hooks,
 		tools: byName, toolOrder: order, maxResultSize: maxResultSize, approvalLifetime: approvalLifetime,
-		model: model, children: make(map[domain.RunID]*childHandle),
+		model: model, workerLog: workerLog, children: make(map[domain.RunID]*childHandle),
 		parentCounts: make(map[domain.RunID]int), approvalWaiter: make(map[string]chan worker.ApprovalWaitResult),
 		resolved: make(map[string]worker.ApprovalWaitResult),
 	}
@@ -182,7 +183,7 @@ func (m *workerManager) StartChild(ctx context.Context, request controlrpc.Child
 		m.finishChild(handle, "failed", "", "child model broker unavailable", "model_broker_unavailable")
 		return controlrpc.ChildResult{}, err
 	}
-	authority := worker.Authority{ParentRunID: parent.ID, Snapshot: snapshot, WorkspaceID: workspaceID, Budget: ledger}
+	authority := worker.Authority{ParentRunID: parent.ID, Snapshot: snapshot, WorkspaceID: workspaceID, Budget: ledger, Log: m.workerLog}
 	toolBroker := &childToolBroker{manager: m, childID: child.ID, parentID: parent.ID, profile: snapshot.Profile, policyHash: snapshot.Hash, ledger: ledger}
 	supervisor, err := worker.StartWithBrokers(childCtx, authority, toolBroker, &legacyModelBroker{inner: modelBroker, manager: m, childID: child.ID, ledger: ledger}, m, nil)
 	if err != nil {
