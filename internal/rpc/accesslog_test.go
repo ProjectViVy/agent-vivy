@@ -1,17 +1,43 @@
 package rpc
 
 import (
-	"bytes"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-func newAccessLogRecorder(level slog.Level) (*slog.Logger, *bytes.Buffer) {
-	var buf bytes.Buffer
+// syncBuffer is a mutex-guarded buffer: the websocket upgrade test reads
+// log output while the middleware writes it from the server goroutine
+// (a plain bytes.Buffer is a data race under -race).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func newAccessLogRecorder(level slog.Level) (*slog.Logger, *syncBuffer) {
+	var buf syncBuffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: level}))
 	return logger, &buf
 }
@@ -99,7 +125,14 @@ func TestAccessLogWebSocketUpgradeLogs101(t *testing.T) {
 	// default response deadline.
 	client := &http.Client{Timeout: 2 * time.Second}
 	_, _ = client.Get(srv.URL + "/rpc")
-	if !strings.Contains(buf.String(), "status=101") {
-		t.Fatalf("hijacked upgrade must log status=101: %q", buf.String())
+	// The middleware logs the 101 from the server goroutine after the
+	// hijacked handler returns; poll instead of one read so the ordering
+	// never decides the outcome.
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(buf.String(), "status=101") {
+		if time.Now().After(deadline) {
+			t.Fatalf("hijacked upgrade must log status=101: %q", buf.String())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
