@@ -10,7 +10,7 @@ import { DiffView } from '@/components/ui/DiffView';
 import { looksLikeDiff } from '@/lib/diff';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
 
 type Translate = ReturnType<typeof useTranslation>['t'];
 
@@ -104,6 +104,14 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
           {selected.reversibility ? <><dt className="text-muted-foreground">{t('approvals.reversibility')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.reversibility)}</dd></> : null}
           {selected.scope ? <><dt className="text-muted-foreground">{t('approvals.scope')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.scope)}</dd></> : null}
           {selected.trust ? <><dt className="text-muted-foreground">{t('approvals.trust')}</dt><dd className="min-w-0 break-words">{localizeValue(t, selected.trust)}</dd></> : null}
+          {selected.actor ? <><dt className="text-muted-foreground">{t('approvals.actor')}</dt><dd className="min-w-0 break-words">{selected.actor}</dd></> : null}
+          <dt className="text-muted-foreground">{t('approvals.createdAt')}</dt><dd className="min-w-0 break-words">{new Date(selected.created_at).toLocaleString(dateTimeLocale())}</dd>
+          <dt className="text-muted-foreground">{t('approvals.expiresAt')}</dt><dd className="min-w-0 break-words">{new Date(selected.expires_at).toLocaleString(dateTimeLocale())}</dd>
+          {selected.decided_at ? <><dt className="text-muted-foreground">{t('approvals.decidedAt')}</dt><dd className="min-w-0 break-words">{new Date(selected.decided_at).toLocaleString(dateTimeLocale())}</dd></> : null}
+          {selected.precondition_hash ? <><dt className="text-muted-foreground">{t('approvals.precondition')}</dt><dd className="min-w-0 break-all"><code>{selected.precondition_hash}</code></dd></> : null}
+          {selected.stale_reason ? <><dt className="text-muted-foreground">{t('approvals.staleReason')}</dt><dd className="min-w-0 break-words">{selected.stale_reason}</dd></> : null}
+          {selected.decision_reason ? <><dt className="text-muted-foreground">{t('approvals.decisionReason')}</dt><dd className="min-w-0 break-words">{selected.decision_reason}</dd></> : null}
+          {selected.error ? <><dt className="text-muted-foreground">{t('approvals.errorLabel')}</dt><dd className="min-w-0 break-words text-destructive">{selected.error}</dd></> : null}
         </dl>
         {selected.prompt ? <div className="rounded-lg bg-muted p-3">{selected.prompt}</div> : null}
         {selected.preview ? (looksLikeDiff(selected.preview)
