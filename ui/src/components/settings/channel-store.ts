@@ -17,8 +17,8 @@ import {
  *   ⊕ settings overlay）。
  * - 写入走 channel/update（settings overlay 条目），进程重启后才生效；
  *   UI 用文档真值与进程真值的差异展示"待重启"。
- * - 遗留 localStorage key `vivy.ui.channels` 不再读取：服务端是唯一
- *   真源，历史前端副本不做迁移（其中从未有过可信的密钥存储）。
+ * - 遗留 localStorage key `vivy.ui.channels` 只删不迁：服务端是唯一
+ *   真源，历史前端副本（可能含 token 残迹）随每次拉取清除（幂等）。
  */
 
 export interface ChannelsState {
@@ -59,8 +59,22 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+/**
+ * 只删不迁的遗留清扫：旧前端把通道副本（含可能的 token 残迹）留在
+ * localStorage；该键被忽略但无人清理。removeItem 幂等且廉价，每次拉取
+ * 顺带清一次；无 window（SSR/纯函数测试）或存储被禁时静默跳过。
+ */
+function sweepLegacyChannelsKey(): void {
+  try {
+    window.localStorage.removeItem('vivy.ui.channels');
+  } catch {
+    // 存储不可用：无事可清扫，也无需上报。
+  }
+}
+
 /** 拉取（或重拉）通道列表与各通道 envelope 并广播。 */
 export function refreshChannels(): Promise<void> {
+  sweepLegacyChannelsKey();
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = inspectChannels()
     .then(async (statuses) => {
