@@ -38,7 +38,6 @@ import type {
   PersonaHistoryRevision,
   ReportPeriod,
   PlanSidebarData,
-  DemoDashboardSnapshot,
   DemoTokenPeriod,
   DemoTokenUsageSnapshot,
   DemoMemoryItem,
@@ -66,7 +65,6 @@ const STORAGE_KEYS = {
   SKILL_DOCS: 'vivy.demo.skill-docs',
   AUTODREAM: 'vivy.demo.autodream',
   APPROVALS: 'vivy.demo.approvals',
-  DASHBOARD: 'vivy.demo.dashboard',
   MEMORY: 'vivy.demo.memory',
   COMPOSER: 'vivy.demo.composer',
   /** 按模型键名（provider/baseUrl/model）独立保存的演示生成参数 */
@@ -1484,18 +1482,6 @@ export async function generateNotebookReport(period: ReportPeriod): Promise<Note
 
 // ==================== Restored local demo surfaces ====================
 
-const DEFAULT_DASHBOARD: DemoDashboardSnapshot = {
-  sessionCount: 12,
-  activeRuns: 2,
-  pendingReviews: 1,
-  tokenUsage: 42860,
-  recentActivity: [
-    { id: 'activity-1', title: t('demo.dashboard.activityReportTitle'), detail: t('demo.dashboard.activityReportDetail'), occurredAt: t('demo.dashboard.activityReportAt') },
-    { id: 'activity-2', title: t('demo.dashboard.activitySkillTitle'), detail: t('demo.dashboard.activitySkillDetail'), occurredAt: t('demo.dashboard.activitySkillAt') },
-    { id: 'activity-3', title: t('demo.dashboard.activityCronTitle'), detail: t('demo.dashboard.activityCronDetail'), occurredAt: t('demo.dashboard.activityCronAt') },
-  ],
-};
-
 const DEFAULT_MEMORIES: DemoMemoryItem[] = [
   { id: 'memory-1', title: t('demo.memories.preferenceTitle'), category: 'preference', content: t('demo.memories.preferenceContent'), updatedAt: '2024-01-15T10:00:00Z' },
   { id: 'memory-2', title: t('demo.memories.projectTitle'), category: 'project', content: t('demo.memories.projectContent'), updatedAt: '2024-01-14T16:30:00Z' },
@@ -1517,11 +1503,6 @@ function readDemoValue<T>(key: string, fallback: T): T {
 function writeDemoValue<T>(key: string, value: T): T {
   localStorage.setItem(key, JSON.stringify(value));
   return value;
-}
-
-export async function getDemoDashboard(): Promise<DemoDashboardSnapshot> {
-  await delay(120);
-  return readDemoValue(STORAGE_KEYS.DASHBOARD, DEFAULT_DASHBOARD);
 }
 
 const TOKEN_PERIOD_SCALE: Record<DemoTokenPeriod, number> = {
