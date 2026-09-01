@@ -37,7 +37,12 @@ func (p *Plugin) Grants() []plugin.Grant {
 }
 
 func (p *Plugin) Tools() []plugin.Tool {
-	return []plugin.Tool{diagnosticsTool{mgr: p.mgr}}
+	return []plugin.Tool{
+		diagnosticsTool{mgr: p.mgr},
+		definitionTool{mgr: p.mgr},
+		referencesTool{mgr: p.mgr},
+		symbolsTool{mgr: p.mgr},
+	}
 }
 
 type diagnosticsTool struct {

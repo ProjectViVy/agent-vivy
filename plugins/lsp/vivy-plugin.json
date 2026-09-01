@@ -24,6 +24,47 @@
         },
         "required": ["path"]
       }
+    },
+    {
+      "name": "lsp_definition",
+      "effect": "read",
+      "description": "Go to the definition of the symbol at a 1-based line/column in a workspace file.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Workspace-relative path of the file" },
+          "line": { "type": "integer", "description": "1-based line of the symbol" },
+          "column": { "type": "integer", "description": "1-based column of the symbol" }
+        },
+        "required": ["path", "line", "column"]
+      }
+    },
+    {
+      "name": "lsp_references",
+      "effect": "read",
+      "description": "Find references to the symbol at a 1-based line/column in a workspace file.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Workspace-relative path of the file" },
+          "line": { "type": "integer", "description": "1-based line of the symbol" },
+          "column": { "type": "integer", "description": "1-based column of the symbol" },
+          "include_declaration": { "type": "boolean", "description": "Also report the declaration itself (default false)" }
+        },
+        "required": ["path", "line", "column"]
+      }
+    },
+    {
+      "name": "lsp_symbols",
+      "effect": "read",
+      "description": "List the symbols (functions, types, methods, ...) defined in a workspace file.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Workspace-relative path of the file" }
+        },
+        "required": ["path"]
+      }
     }
   ]
 }
