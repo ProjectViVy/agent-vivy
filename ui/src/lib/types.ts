@@ -601,14 +601,6 @@ export interface DemoGenParams {
   max_tokens: number;
 }
 
-export interface DemoDashboardSnapshot {
-  sessionCount: number;
-  activeRuns: number;
-  pendingReviews: number;
-  tokenUsage: number;
-  recentActivity: Array<{ id: string; title: string; detail: string; occurredAt: string }>;
-}
-
 export type DemoTokenPeriod = '1d' | '3d' | '1w' | '1m' | '6m' | '1y';
 
 export interface DemoTokenUsageTotal {
