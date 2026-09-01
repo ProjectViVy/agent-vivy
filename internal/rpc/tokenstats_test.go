@@ -1,13 +1,15 @@
 package rpc
 
 import (
+	"context"
 	"testing"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 )
 
 func TestBuildTokenSnapshotEmpty(t *testing.T) {
-	snap := buildTokenSnapshot(nil, "1d", 0, 50)
+	snap := buildTokenSnapshot(context.Background(), nil, "1d", 0, 50, nil)
 	if snap.Period != "1d" {
 		t.Fatalf("period = %q, want 1d", snap.Period)
 	}
@@ -34,7 +36,7 @@ func TestBuildTokenSnapshotAggregation(t *testing.T) {
 		{SessionID: "s1", SessionTitle: "Chat A", CreatedAt: 2000, PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30, ReasoningTokens: 7, Model: "deepseek-chat", Provider: "openai"},
 		{SessionID: "s2", SessionTitle: "Chat B", CreatedAt: 3000, PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8, ReasoningTokens: 0, Model: "gpt-4o", Provider: "openai"},
 	}
-	snap := buildTokenSnapshot(rows, "1d", 0, 50)
+	snap := buildTokenSnapshot(context.Background(), rows, "1d", 0, 50, nil)
 
 	if snap.Total.TotalInput != 35 {
 		t.Fatalf("total_input = %d, want 35", snap.Total.TotalInput)
@@ -95,7 +97,7 @@ func TestBuildTokenSnapshotSessionLimit(t *testing.T) {
 			Model: "m", Provider: "p",
 		}
 	}
-	snap := buildTokenSnapshot(rows, "1d", 0, 3)
+	snap := buildTokenSnapshot(context.Background(), rows, "1d", 0, 3, nil)
 	if len(snap.Sessions) > 3 {
 		t.Fatalf("sessions = %d, want <= 3 (limit)", len(snap.Sessions))
 	}
@@ -121,7 +123,7 @@ func TestBuildTokenSnapshotMissingRunStarted(t *testing.T) {
 	rows := []storage.UsageRow{
 		{SessionID: "s1", CreatedAt: 1000, PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, Model: "", Provider: ""},
 	}
-	snap := buildTokenSnapshot(rows, "1d", 0, 50)
+	snap := buildTokenSnapshot(context.Background(), rows, "1d", 0, 50, nil)
 	if snap.Total.RequestCount != 1 {
 		t.Fatalf("request_count = %d, want 1", snap.Total.RequestCount)
 	}
@@ -131,5 +133,76 @@ func TestBuildTokenSnapshotMissingRunStarted(t *testing.T) {
 	}
 	if len(snap.Providers) != 1 || snap.Providers[0].Key != "unknown" {
 		t.Fatalf("providers = %+v, want [{unknown ...}]", snap.Providers)
+	}
+}
+
+// TestBuildTokenSnapshotCost covers D9 cost math: priced rows sum per
+// model/session/total, unpriced rows are excluded (never read as free),
+// and the cost_known flags distinguish the two.
+func TestBuildTokenSnapshotCost(t *testing.T) {
+	ctx := context.Background()
+	meta := func(_ context.Context, provider, model string) domain.ModelInfo {
+		if model == "gpt-4o" {
+			return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 2.5, OutputPerMTokens: 10.0}
+		}
+		return domain.ModelInfo{}
+	}
+	rows := []storage.UsageRow{
+		{SessionID: "s1", SessionTitle: "priced", Model: "gpt-4o", Provider: "openai",
+			PromptTokens: 1_000_000, CompletionTokens: 100_000, TotalTokens: 1_100_000, CachedTokens: 400_000},
+		{SessionID: "s2", SessionTitle: "unpriced", Model: "custom-model", Provider: "openai",
+			PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000},
+	}
+	snap := buildTokenSnapshot(ctx, rows, "1m", 0, 50, meta)
+
+	if !snap.Total.CostKnown {
+		t.Fatal("total cost must be known when any row is priced")
+	}
+	// priced row: 1M*2.5/1M + 0.1M*10/1M = 2.5 + 1.0 = 3.5
+	if snap.Total.TotalCostUSD != 3.5 {
+		t.Fatalf("total cost = %v, want 3.5", snap.Total.TotalCostUSD)
+	}
+	if snap.Total.TotalCached != 400_000 {
+		t.Fatalf("total cached = %d, want 400000", snap.Total.TotalCached)
+	}
+	if len(snap.Models) != 2 {
+		t.Fatalf("models = %d, want 2", len(snap.Models))
+	}
+	byModel := map[string]tokenModelShare{}
+	for _, m := range snap.Models {
+		byModel[m.Model] = m
+	}
+	if m := byModel["gpt-4o"]; !m.CostKnown || m.CostUSD != 3.5 {
+		t.Fatalf("gpt-4o share = %+v, want cost 3.5 known", m)
+	}
+	if m := byModel["custom-model"]; m.CostKnown || m.CostUSD != 0 {
+		t.Fatalf("custom-model share = %+v, want unpriced (not free)", m)
+	}
+	if len(snap.Sessions) != 2 {
+		t.Fatalf("sessions = %d, want 2", len(snap.Sessions))
+	}
+	bySession := map[string]tokenSessionUsage{}
+	for _, s := range snap.Sessions {
+		bySession[s.ID] = s
+	}
+	if s := bySession["s1"]; !s.CostKnown || s.CostUSD != 3.5 {
+		t.Fatalf("priced session = %+v", s)
+	}
+	if s := bySession["s2"]; s.CostKnown || s.CostUSD != 0 {
+		t.Fatalf("unpriced session = %+v", s)
+	}
+
+	// All-unpriced snapshot: zero cost with cost_known=false.
+	allUnpriced := buildTokenSnapshot(ctx, rows[:1:1], "1d", 0, 50, func(context.Context, string, string) domain.ModelInfo {
+		return domain.ModelInfo{}
+	})
+	if allUnpriced.Total.CostKnown || allUnpriced.Total.TotalCostUSD != 0 {
+		t.Fatalf("all-unpriced total = %+v, want known=false cost=0", allUnpriced.Total)
+	}
+
+	// Nil resolver: nothing is ever priced.
+	nilMeta := buildTokenSnapshot(ctx, rows, "1d", 0, 50, nil)
+	if nilMeta.Total.CostKnown || nilMeta.Total.TotalCostUSD != 0 {
+		t.Fatalf("nil-resolver total = %+v", nilMeta.Total)
 	}
 }

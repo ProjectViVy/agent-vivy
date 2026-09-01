@@ -396,6 +396,7 @@ refreshModels: '刷新模型列表',
     session: '会话',
     requests: '请求',
     cost: '费用',
+    unpriced: '该模型暂无参考定价 — 费用不计入合计',
     emptyState: '所选周期内暂无模型调用记录。发起一次对话后，用量将自动出现在这里。',
   },
   mcp: {

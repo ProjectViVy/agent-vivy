@@ -398,6 +398,7 @@ refreshModels: 'Refresh model list',
     session: 'Session',
     requests: 'Requests',
     cost: 'Cost',
+    unpriced: 'Price unknown for this model — cost excluded from totals',
     emptyState: 'No model calls recorded in this period. Start a conversation and usage will appear here automatically.',
   },
   mcp: {
