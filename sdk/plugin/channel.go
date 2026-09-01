@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -107,6 +108,21 @@ type Part struct {
 // Minimal v1 surface; the first real adapter (C4) pins the ABI.
 type MediaStore interface {
 	Put(ctx context.Context, name string, r io.Reader) (ref string, err error)
+}
+
+// ChannelLogger is the optional logging face of ChannelEnv (CH-C6-N1).
+// Lifecycle events that happen after Start returns — a supervised redial
+// retrying against a revoked credential, a terminal give-up that leaves
+// the ear deaf — are invisible to the Host. Adapters type-assert their env
+// to this face and log through the kernel's structured handler instead of
+// staying silent. The face is optional on purpose: envs without it keep
+// adapters silent, so the ChannelEnv ABI stays additive and the wire
+// protocol grows no log channel until one is needed.
+type ChannelLogger interface {
+	// Logger returns a logger pre-scoped to this channel. Implementations
+	// must attach at least the channel name; adapters must not log secret
+	// values through it (D-010).
+	Logger() *slog.Logger
 }
 
 // RunesLimiter declares the adapter's outbound text bound — the platform

@@ -35,6 +35,28 @@ func (s grantStub) Send(context.Context, plugin.OutboundMessage) ([]string, erro
 // Compile-time: the env handed to adapters satisfies the ABI.
 var _ plugin.ChannelEnv = (*hostEnv)(nil)
 
+// TestChannelEnvLoggerFace (CH-C6-N1): the env exposes the optional
+// plugin.ChannelLogger face and the returned logger is pre-scoped with
+// the channel name, so adapter lifecycle lines land in the kernel log
+// under the right channel without the adapter naming itself.
+func TestChannelEnvLoggerFace(t *testing.T) {
+	var buf bytes.Buffer
+	host := New(Deps{Logger: slog.New(slog.NewTextHandler(&buf, nil))})
+	env := host.envFor(grantStub{name: "probe"})
+	lc, ok := env.(plugin.ChannelLogger)
+	if !ok {
+		t.Fatal("hostEnv must implement plugin.ChannelLogger")
+	}
+	logger := lc.Logger()
+	if logger == nil {
+		t.Fatal("Logger() returned nil")
+	}
+	logger.Warn("probe line")
+	if out := buf.String(); !strings.Contains(out, "channel=probe") || !strings.Contains(out, "probe line") {
+		t.Fatalf("channel-scoped logger output = %q", out)
+	}
+}
+
 func envHostWithEnvelope(t *testing.T, name string, envelope config.ChannelEnvelope) (*Host, plugin.ChannelEnv) {
 	t.Helper()
 	host := New(Deps{
