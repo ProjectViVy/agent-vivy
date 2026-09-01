@@ -269,13 +269,19 @@ func (s Settings) IsZero() bool {
 // renaming over a file another goroutine is reading fails with access
 // denied, and concurrent writes to a shared temp file could publish a
 // corrupt document; readers and writers take this lock around the file
-// I/O window.
+// I/O window. Update holds it across the whole read-modify-write, so a
+// fn that itself calls Load/Save/Update would deadlock and must not.
 var fileMu sync.Mutex
 
 func Load(path string) (Settings, error) {
 	fileMu.Lock()
+	defer fileMu.Unlock()
+	return load(path)
+}
+
+// load is the unlocked Load body; callers must hold fileMu.
+func load(path string) (Settings, error) {
 	data, err := os.ReadFile(path)
-	fileMu.Unlock()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Settings{}, nil
@@ -660,11 +666,21 @@ func (s Settings) UpsertChannelOverlay(entry ChannelOverlay) Settings {
 }
 
 // Save writes the settings atomically to path, creating parent directories.
-// It returns the persisted document so callers can echo it back.
+// It returns the persisted document so callers can echo it back. Cross-
+// handler read-modify-write cycles belong in Update, which keeps another
+// writer's concurrent change between load and commit instead of dropping it.
 func Save(path string, s Settings) (Settings, error) {
 	if err := s.Validate(); err != nil {
 		return Settings{}, err
 	}
+	fileMu.Lock()
+	defer fileMu.Unlock()
+	return write(path, s)
+}
+
+// write is the unlocked Save body; callers must hold fileMu and pass an
+// already-validated document.
+func write(path string, s Settings) (Settings, error) {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return Settings{}, fmt.Errorf("settings: create dir: %w", err)
@@ -678,8 +694,6 @@ func Save(path string, s Settings) (Settings, error) {
 	// one temp file could interleave their writes and publish a corrupt
 	// document, and on Windows renaming over a file a concurrent reader
 	// holds open fails with access denied.
-	fileMu.Lock()
-	defer fileMu.Unlock()
 	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return Settings{}, fmt.Errorf("settings: tmp: %w", err)
@@ -699,4 +713,45 @@ func Save(path string, s Settings) (Settings, error) {
 		return Settings{}, fmt.Errorf("settings: commit: %w", err)
 	}
 	return s, nil
+}
+
+// ValidationError marks a settings document rejected by Validate at a write
+// boundary. Callers map it onto bad-request errors instead of internal
+// failures.
+type ValidationError struct{ Err error }
+
+func (e *ValidationError) Error() string { return e.Err.Error() }
+func (e *ValidationError) Unwrap() error { return e.Err }
+
+// IsValidationError reports whether err is (or wraps) a *ValidationError.
+func IsValidationError(err error) bool {
+	var ve *ValidationError
+	return errors.As(err, &ve)
+}
+
+// Update runs fn against the current document under one fileMu hold —
+// load → fn → validate → write — so a handler-level read-modify-write can
+// never lose another writer's concurrent change. fn receives the decoded
+// document and returns the candidate to persist; returning an error aborts
+// the write and passes the error through verbatim, so callers can carry
+// their own domain errors across the transaction. A rejected candidate is
+// wrapped in *ValidationError; load, fn, and write errors come back as-is.
+// fn must not call Load/Save/Update (deadlock on fileMu) and must not retain
+// the passed document beyond the call. The returned Settings is the
+// persisted document.
+func Update(path string, fn func(Settings) (Settings, error)) (Settings, error) {
+	fileMu.Lock()
+	defer fileMu.Unlock()
+	current, err := load(path)
+	if err != nil {
+		return Settings{}, err
+	}
+	next, err := fn(current)
+	if err != nil {
+		return Settings{}, err
+	}
+	if err := next.Validate(); err != nil {
+		return Settings{}, &ValidationError{Err: err}
+	}
+	return write(path, next)
 }

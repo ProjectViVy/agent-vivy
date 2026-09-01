@@ -2476,54 +2476,52 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	// Load-then-merge keeps the registry entries and any other section the
-	// UI did not send; only the active selection fields are replaced.
-	cur, err := settings.Load(h.deps.SettingsPath)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	cur.Provider = params.Provider
-	cur.DefaultModel = params.DefaultModel
-	cur.BaseURL = params.BaseURL
-	// Empty api_key on select leaves the registry / overlay keys alone.
-	// A non-empty value still writes the legacy overlay for older clients.
-	if params.ApiKey != "" {
-		cur.ApiKey = params.ApiKey
-	}
-	cur.NetworkSearch = settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider}
-	cur.ExecuteMaxTimeoutSeconds = params.ExecuteMaxTimeoutSeconds
-	if params.Sandbox != nil {
-		cur.Sandbox.DefaultPreset = domain.PermissionPreset(params.Sandbox.DefaultPreset)
-		cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
-		if params.Sandbox.AllowedDomains != nil {
-			cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+	// The merge keeps the registry entries and any other section the UI did
+	// not send; only the active selection fields are replaced.
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		cur.Provider = params.Provider
+		cur.DefaultModel = params.DefaultModel
+		cur.BaseURL = params.BaseURL
+		// Empty api_key on select leaves the registry / overlay keys alone.
+		// A non-empty value still writes the legacy overlay for older clients.
+		if params.ApiKey != "" {
+			cur.ApiKey = params.ApiKey
 		}
-	}
-	if params.Compaction != nil {
-		if cur.Compaction == nil {
-			cur.Compaction = &settings.CompactionSettings{}
+		cur.NetworkSearch = settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider}
+		cur.ExecuteMaxTimeoutSeconds = params.ExecuteMaxTimeoutSeconds
+		if params.Sandbox != nil {
+			cur.Sandbox.DefaultPreset = domain.PermissionPreset(params.Sandbox.DefaultPreset)
+			cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
+			if params.Sandbox.AllowedDomains != nil {
+				cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+			}
 		}
-		if params.Compaction.Enabled != nil {
-			cur.Compaction.Enabled = params.Compaction.Enabled
+		if params.Compaction != nil {
+			if cur.Compaction == nil {
+				cur.Compaction = &settings.CompactionSettings{}
+			}
+			if params.Compaction.Enabled != nil {
+				cur.Compaction.Enabled = params.Compaction.Enabled
+			}
+			if params.Compaction.MaxTokens != 0 {
+				cur.Compaction.MaxTokens = params.Compaction.MaxTokens
+			}
+			if params.Compaction.TriggerPercent != 0 {
+				cur.Compaction.TriggerPercent = params.Compaction.TriggerPercent
+			}
+			if params.Compaction.KeepRecent != 0 {
+				cur.Compaction.KeepRecent = params.Compaction.KeepRecent
+			}
+			if cur.Compaction.Enabled == nil && cur.Compaction.MaxTokens == 0 &&
+				cur.Compaction.TriggerPercent == 0 && cur.Compaction.KeepRecent == 0 {
+				// Everything cleared again: config default stands.
+				cur.Compaction = nil
+			}
 		}
-		if params.Compaction.MaxTokens != 0 {
-			cur.Compaction.MaxTokens = params.Compaction.MaxTokens
-		}
-		if params.Compaction.TriggerPercent != 0 {
-			cur.Compaction.TriggerPercent = params.Compaction.TriggerPercent
-		}
-		if params.Compaction.KeepRecent != 0 {
-			cur.Compaction.KeepRecent = params.Compaction.KeepRecent
-		}
-		if cur.Compaction.Enabled == nil && cur.Compaction.MaxTokens == 0 &&
-			cur.Compaction.TriggerPercent == 0 && cur.Compaction.KeepRecent == 0 {
-			// Everything cleared again: config default stands.
-			cur.Compaction = nil
-		}
-	}
-	saved, err := settings.Save(h.deps.SettingsPath, cur)
-	if err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+		return cur, nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	// Write-through env apply: the resolved active key (registry entry
 	// wins, legacy overlay falls back) and base_url reach the running
@@ -2639,13 +2637,11 @@ func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
 		seen[name] = struct{}{}
 		next = append(next, name)
 	}
-	cur, err := settings.Load(h.deps.SettingsPath)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	cur.ToolsEnabled = &next
-	if _, err := settings.Save(h.deps.SettingsPath, cur); err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	if _, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		cur.ToolsEnabled = &next
+		return cur, nil
+	}); rpcErr != nil {
+		return nil, rpcErr
 	}
 	h.notifySettingsChanged()
 	return h.listTools()
@@ -2720,6 +2716,33 @@ func (h *controlHandler) loadSettingsOrError() (settings.Settings, *Error) {
 	return s, nil
 }
 
+// settingsFnError carries a handler *Error out of a settings.Update fn so
+// the caller can re-emit it verbatim after the transaction (errors.As).
+type settingsFnError struct{ err *Error }
+
+func (e *settingsFnError) Error() string { return e.err.Error() }
+func (e *settingsFnError) Unwrap() error { return e.err }
+
+// updateSettingsOrError runs fn as one settings.Update transaction and maps
+// the outcome onto the control-plane error surface: a fn *Error passes
+// through, a rejected candidate document becomes InvalidParams, and
+// document I/O failures stay internal errors. The returned Settings is the
+// persisted document.
+func (h *controlHandler) updateSettingsOrError(fn func(settings.Settings) (settings.Settings, error)) (settings.Settings, *Error) {
+	saved, err := settings.Update(h.deps.SettingsPath, fn)
+	var fnErr *settingsFnError
+	if errors.As(err, &fnErr) {
+		return settings.Settings{}, fnErr.err
+	}
+	if settings.IsValidationError(err) {
+		return settings.Settings{}, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if err != nil {
+		return settings.Settings{}, internalError(err)
+	}
+	return saved, nil
+}
+
 // listProviders returns the registry plus the active selection and config
 // defaults. Read-only deployments report read_only=true with an empty list.
 func (h *controlHandler) listProviders(ctx context.Context) (any, *Error) {
@@ -2755,10 +2778,6 @@ func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (a
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s, rpcErr := h.loadSettingsOrError()
-	if rpcErr != nil {
-		return nil, rpcErr
-	}
 	entry := settings.ProviderEntry{
 		ID:           params.ID,
 		DisplayName:  params.DisplayName,
@@ -2771,9 +2790,11 @@ func (h *controlHandler) upsertProvider(ctx context.Context, request Request) (a
 	if entry.ID == "" {
 		entry.ID = "custom-" + providerIDNonce()
 	}
-	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertProvider(entry))
-	if err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		return cur.UpsertProvider(entry), nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	// The persisted active selection resolves its key from this entry (by
 	// bundle+base_url); apply it to the environment at write time.
@@ -2808,26 +2829,24 @@ func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (a
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s, rpcErr := h.loadSettingsOrError()
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		next := make([]settings.ProviderEntry, 0, len(cur.Providers))
+		found := false
+		for _, e := range cur.Providers {
+			if e.ID == params.ID {
+				found = true
+				continue
+			}
+			next = append(next, e)
+		}
+		if !found {
+			return settings.Settings{}, &settingsFnError{&Error{Code: CodeNotFound, Message: "provider entry not found"}}
+		}
+		cur.Providers = next
+		return cur, nil
+	})
 	if rpcErr != nil {
 		return nil, rpcErr
-	}
-	next := make([]settings.ProviderEntry, 0, len(s.Providers))
-	found := false
-	for _, e := range s.Providers {
-		if e.ID == params.ID {
-			found = true
-			continue
-		}
-		next = append(next, e)
-	}
-	if !found {
-		return nil, &Error{Code: CodeNotFound, Message: "provider entry not found"}
-	}
-	s.Providers = next
-	saved, err := settings.Save(h.deps.SettingsPath, s)
-	if err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
@@ -2922,24 +2941,41 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 		return nil, &Error{Code: InternalError, Message: "refresh provider models: " + err.Error()}
 	}
 
-	// Union policy: upstream ids first (gateway order), then locally added
-	// ids upstream omits, so a manual "新增" entry survives a refresh.
-	merged := append([]string(nil), models...)
-	seen := make(map[string]bool, len(merged))
-	for _, m := range merged {
-		seen[m] = true
-	}
-	for _, m := range entry.Models {
-		if !seen[m] {
-			seen[m] = true
-			merged = append(merged, m)
+	// Phase 2 merges the fetched list into the fresh document inside one
+	// Update transaction: the row may have been created, edited, or deleted
+	// by another writer while the upstream call above ran without the
+	// settings lock.
+	byID := params.ID != ""
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		var target settings.ProviderEntry
+		found := false
+		for _, e := range cur.Providers {
+			if e.ID == entry.ID {
+				target, found = e, true
+				break
+			}
 		}
-	}
-	entry.Models = merged
-
-	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertProvider(entry))
-	if err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+		if !found {
+			if byID {
+				return settings.Settings{}, &settingsFnError{&Error{Code: CodeNotFound, Message: "provider entry not found"}}
+			}
+			// First refresh of a catalog vendor: a concurrent writer may
+			// have cloned it meanwhile; merge into that row instead of
+			// creating a duplicate (bundle, base_url).
+			if e, ok := cur.FindProvider(entry.Bundle, entry.BaseURL); ok {
+				target, found = e, true
+			}
+		}
+		if !found {
+			target = entry
+		}
+		// Union policy: upstream ids first (gateway order), then locally
+		// added ids upstream omits, so a manual "新增" entry survives.
+		target.Models = unionModels(models, target.Models)
+		return cur.UpsertProvider(target), nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	if h.deps.ApplySettingsEnv != nil {
 		h.deps.ApplySettingsEnv(saved)
@@ -2952,6 +2988,23 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 		}
 	}
 	return nil, internalError(fmt.Errorf("provider refresh did not persist entry"))
+}
+
+// unionModels merges the upstream ids first (gateway order), then the local
+// ids the upstream list omits, so manually added models survive a refresh.
+func unionModels(upstream, local []string) []string {
+	merged := append([]string(nil), upstream...)
+	seen := make(map[string]bool, len(merged))
+	for _, m := range merged {
+		seen[m] = true
+	}
+	for _, m := range local {
+		if !seen[m] {
+			seen[m] = true
+			merged = append(merged, m)
+		}
+	}
+	return merged
 }
 
 // providerIDNonce supplies a short random suffix for auto-generated entry
@@ -3167,18 +3220,16 @@ func (h *controlHandler) updateChannel(ctx context.Context, request Request) (an
 	if !h.compiledChannelSet()[params.Name] {
 		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("channel %q is not compiled into this generation", params.Name)}
 	}
-	s, rpcErr := h.loadSettingsOrError()
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		return cur.UpsertChannelOverlay(settings.ChannelOverlay{
+			Name:      params.Name,
+			Enabled:   params.Enabled,
+			AllowFrom: params.AllowFrom,
+			TokenEnv:  params.TokenEnv,
+		}), nil
+	})
 	if rpcErr != nil {
 		return nil, rpcErr
-	}
-	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertChannelOverlay(settings.ChannelOverlay{
-		Name:      params.Name,
-		Enabled:   params.Enabled,
-		AllowFrom: params.AllowFrom,
-		TokenEnv:  params.TokenEnv,
-	}))
-	if err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	h.notifySettingsChanged()
 	_ = ctx
@@ -3246,19 +3297,17 @@ func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s, rpcErr := h.loadSettingsOrError()
-	if rpcErr != nil {
-		return nil, rpcErr
-	}
 	entry := settings.MCPServer{
 		Name:     strings.TrimSpace(params.Name),
 		Endpoint: strings.TrimSpace(params.Endpoint),
 		AuthEnv:  strings.TrimSpace(params.AuthEnv),
 		Enabled:  params.Enabled,
 	}
-	saved, err := settings.Save(h.deps.SettingsPath, s.UpsertMCPServer(entry))
-	if err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		return cur.UpsertMCPServer(entry), nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	h.notifySettingsChanged()
 	_ = ctx
@@ -3280,16 +3329,14 @@ func (h *controlHandler) deleteMCP(ctx context.Context, request Request) (any, *
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	s, rpcErr := h.loadSettingsOrError()
-	if rpcErr != nil {
+	if _, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		next, ok := cur.DeleteMCPServer(params.Name)
+		if !ok {
+			return settings.Settings{}, &settingsFnError{&Error{Code: CodeNotFound, Message: "mcp server not found"}}
+		}
+		return next, nil
+	}); rpcErr != nil {
 		return nil, rpcErr
-	}
-	next, ok := s.DeleteMCPServer(params.Name)
-	if !ok {
-		return nil, &Error{Code: CodeNotFound, Message: "mcp server not found"}
-	}
-	if _, err := settings.Save(h.deps.SettingsPath, next); err != nil {
-		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	h.notifySettingsChanged()
 	_ = ctx
