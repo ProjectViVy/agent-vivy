@@ -96,18 +96,24 @@ func (b *Backend) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 
 // ListChildRuns returns direct children in creation order.
 func (b *Backend) ListChildRuns(ctx context.Context, parentID domain.RunID) ([]domain.Run, error) {
-	return b.listTreeRuns(ctx, `parent_run_id = ?`, parentID)
+	return b.listRunsWhere(ctx, `parent_run_id = ?`, parentID)
 }
 
 // ListRunTree returns all descendants of a root in creation order.
 func (b *Backend) ListRunTree(ctx context.Context, rootID domain.RunID) ([]domain.Run, error) {
-	return b.listTreeRuns(ctx, `root_run_id = ? AND id <> ?`, rootID, rootID)
+	return b.listRunsWhere(ctx, `root_run_id = ? AND id <> ?`, rootID, rootID)
 }
 
-func (b *Backend) listTreeRuns(ctx context.Context, predicate string, args ...domain.RunID) ([]domain.Run, error) {
+// ListRunsBySession returns every run of a session in creation order,
+// regardless of status (TT-1 session pin seeding).
+func (b *Backend) ListRunsBySession(ctx context.Context, sessionID domain.SessionID) ([]domain.Run, error) {
+	return b.listRunsWhere(ctx, `session_id = ?`, sessionID)
+}
+
+func (b *Backend) listRunsWhere(ctx context.Context, predicate string, args ...any) ([]domain.Run, error) {
 	rows, err := b.db.QueryContext(ctx,
 		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth
-		 FROM runs WHERE `+predicate+` ORDER BY created_at, id`, toAnyArgs(args)...)
+		 FROM runs WHERE `+predicate+` ORDER BY created_at, id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list run tree: %w", err)
 	}
@@ -124,12 +130,4 @@ func (b *Backend) listTreeRuns(ctx context.Context, predicate string, args ...do
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-func toAnyArgs(values []domain.RunID) []any {
-	args := make([]any, len(values))
-	for i, value := range values {
-		args[i] = value
-	}
-	return args
 }

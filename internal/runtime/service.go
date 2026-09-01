@@ -931,6 +931,53 @@ func (s *Service) recoveredMounts(ctx context.Context, runID domain.RunID) *tool
 	return mounts
 }
 
+// sessionMounts seeds the run's skill-mount registry from every prior run
+// of the same session (TT-1 session pin). The live registry is memory-only
+// and per-run, so without this seed a tool mounted by an earlier run is
+// invisible to the next one and the model must view the skill again. Like
+// recoveredMounts the replay is additive and creation-ordered, so the seed
+// reproduces the session's accumulated mounts; the current run is skipped
+// (it mounts nothing yet). Best-effort: listing or replay failures degrade
+// to fewer mounts with a warning and never fail the run.
+func (s *Service) sessionMounts(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) *tools.MountedTools {
+	prior, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		slog.Warn("session pin: run listing failed", "session", string(sessionID), "err", err)
+		return nil
+	}
+	var mounts *tools.MountedTools
+	for _, run := range prior {
+		if run.ID == runID {
+			continue
+		}
+		it, err := s.deps.Journal.Replay(ctx, run.ID, 0)
+		if err != nil {
+			slog.Warn("session pin: mount replay failed", "run", string(run.ID), "err", err)
+			continue
+		}
+		for it.Next() {
+			event := it.Value().Event
+			if event.Type != domain.EventToolMounted || len(event.Payload) == 0 {
+				continue
+			}
+			var p payloadToolMounted
+			if err := json.Unmarshal(event.Payload, &p); err != nil || len(p.Tools) == 0 {
+				slog.Warn("session pin: unreadable tool.mounted payload", "run", string(run.ID))
+				continue
+			}
+			if mounts == nil {
+				mounts = tools.NewMountedTools()
+			}
+			mounts.Mount(p.Tools...)
+		}
+		if err := it.Err(); err != nil {
+			slog.Warn("session pin: mount replay failed", "run", string(run.ID), "err", err)
+		}
+		_ = it.Close()
+	}
+	return mounts
+}
+
 // approvalDetails recovers the interrupted tool and its request-scoped
 // manifest from the durable approval event. Missing selection data is
 // handled by rebuildPending for compatibility with pre-H2 events.
@@ -1072,8 +1119,14 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID)
 	// Per-run mount registry: skill_view records declared tools here so the
 	// surface middleware can advertise them and the adapter can admit them
-	// for the remainder of this run.
-	runCtx = tools.WithMountedTools(runCtx, tools.NewMountedTools())
+	// for the remainder of this run. TT-1 session pin: the fresh registry is
+	// seeded with the mounts prior runs of this session accumulated, so a
+	// skill mounted once stays callable without re-viewing.
+	mounts := s.sessionMounts(ctx, sessionID, m.runID)
+	if mounts == nil {
+		mounts = tools.NewMountedTools()
+	}
+	runCtx = tools.WithMountedTools(runCtx, mounts)
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))

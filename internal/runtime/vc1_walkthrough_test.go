@@ -15,9 +15,26 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
 )
+
+// waitForWalkthroughStatus is waitForRunStatus with a race-tolerant
+// deadline: this test's bash steps spawn real shells, which -race slows
+// past the shared 5s bound.
+func waitForWalkthroughStatus(t *testing.T, runs storage.RunStore, runID domain.RunID, want domain.RunStatus) {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		r, err := runs.GetRun(context.Background(), runID)
+		if err == nil && r.Status == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("run %s never reached status %s", runID, want)
+}
 
 // TestVC1Walkthrough replays a scripted Vivy-Code turn over the full stack:
 // the model writes a failing script, reads it back, locates the defect with
@@ -109,7 +126,9 @@ func TestVC1Walkthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	// The bash step spawns real shell processes per tool call, which is
+	// slow under -race; the shared 5s helper is too tight there.
+	waitForWalkthroughStatus(t, backend, runID, domain.RunCompleted)
 
 	events := replayAll(t, backend, runID)
 	if i := indexOfType(events, domain.EventToolApprovalRequired); i >= 0 {

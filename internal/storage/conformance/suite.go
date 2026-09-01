@@ -65,9 +65,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-16", "replay after disconnect (after_seq tail)", cnReplayAfterDisconnect},
 		{"CN-17", "message provenance round-trip", cnMessageProvenance},
 		{"CN-18", "file version chain + stale-read tracker", cnFileVersionChain},
+		{"CN-19", "runs listed by session", cnRunsBySession},
 	}
-	if len(cases) != 18 {
-		t.Fatalf("conformance suite must carry exactly 18 cases, got %d", len(cases))
+	if len(cases) != 19 {
+		t.Fatalf("conformance suite must carry exactly 19 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -644,5 +645,34 @@ func cnFileVersionChain(t *testing.T, h Harness) {
 	}
 	if _, ok, err := b.LastFileAccess(ctx, "sess-fv", "a.go"); ok || err != nil {
 		t.Fatalf("LastFileAccess after DeleteSession = ok=%v err=%v, want ok=false err=nil", ok, err)
+	}
+}
+
+func cnRunsBySession(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	runs := []domain.Run{
+		{ID: "run-a", SessionID: "sess-pin", Status: domain.RunCompleted, CreatedAt: 1},
+		{ID: "run-b", SessionID: "sess-pin", Status: domain.RunActive, CreatedAt: 2},
+		{ID: "run-x", SessionID: "sess-other", Status: domain.RunActive, CreatedAt: 3},
+	}
+	for _, r := range runs {
+		if err := b.CreateRun(ctx, r); err != nil {
+			t.Fatalf("CreateRun %s: %v", r.ID, err)
+		}
+	}
+	got, err := b.ListRunsBySession(ctx, "sess-pin")
+	if err != nil {
+		t.Fatalf("ListRunsBySession: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "run-a" || got[1].ID != "run-b" {
+		t.Fatalf("ListRunsBySession(sess-pin) = %+v, want [run-a run-b] in creation order", got)
+	}
+	if got[1].Status != domain.RunActive || got[0].Status != domain.RunCompleted {
+		t.Fatalf("ListRunsBySession must return all statuses, got %s then %s", got[0].Status, got[1].Status)
+	}
+	empty, err := b.ListRunsBySession(ctx, "sess-none")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("ListRunsBySession(unknown) = %+v, %v; want empty, nil", empty, err)
 	}
 }
