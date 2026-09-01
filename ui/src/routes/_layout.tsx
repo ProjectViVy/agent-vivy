@@ -41,7 +41,7 @@ function Layout() {
   const setSessionDrawerOpen = useVivyStore((state) => state.setSessionDrawerOpen);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
-  const reviewBusyId = useVivyStore((state) => state.reviewBusyId);
+  const reviewResponding = useVivyStore((state) => state.reviewBusyIds.length > 0);
   const initialized = useVivyStore((state) => state.initialized);
   const initializationError = useVivyStore((state) => state.initializationError);
 
@@ -172,13 +172,13 @@ function Layout() {
           </SheetContent>
         </Sheet>
       ) : null}
-      <Sheet open={reviewCenterOpen} onOpenChange={(open) => { if (open || !reviewBusyId) setReviewCenterOpen(open); }}>
+      <Sheet open={reviewCenterOpen} onOpenChange={(open) => { if (open || !reviewResponding) setReviewCenterOpen(open); }}>
         <SheetContent
           side="right"
           className="w-full sm:max-w-[560px]"
-          closeDisabled={!!reviewBusyId}
-          onEscapeKeyDown={(event) => { if (reviewBusyId) event.preventDefault(); }}
-          onPointerDownOutside={(event) => { if (reviewBusyId) event.preventDefault(); }}
+          closeDisabled={reviewResponding}
+          onEscapeKeyDown={(event) => { if (reviewResponding) event.preventDefault(); }}
+          onPointerDownOutside={(event) => { if (reviewResponding) event.preventDefault(); }}
         >
           <SheetHeader className="border-b">
             <SheetTitle>{t('layout.reviewCenter')}</SheetTitle>
