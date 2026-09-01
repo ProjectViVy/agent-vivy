@@ -243,6 +243,12 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			return ws.Path, nil
 		}
 	}
+	// Post-write diagnostics backfill (VC-3): mutation tool results pick up
+	// lint/type findings from tool-world plugins implementing the observer
+	// capability; without observers the bridge reports nothing.
+	if fileBackend != nil {
+		fileBackend.SetWriteDiagnostics(pluginhost.NewDiagnosticBridge(genPlugins, lookup))
+	}
 	// The builtin registry is built once and re-resolved per engine build:
 	// Resolve filters by the active name list (settings tools_enabled
 	// overlay when written, config default otherwise).

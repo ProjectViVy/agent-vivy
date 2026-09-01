@@ -107,6 +107,20 @@ type Tool interface {
 	Run(ctx context.Context, env Env, args json.RawMessage) (string, error)
 }
 
+// DiagnosticObserver is an optional tool-world capability (VC-3 backfill).
+// After the kernel's file mutation tools (write_file/patch/multiedit)
+// change a file, the kernel asks every tool-world plugin implementing this
+// interface for diagnostics on the touched paths and attaches the lines to
+// the mutation result, so lint/type errors reach the model without a
+// separate call. Lines are pre-formatted text; return nil when there is
+// nothing to report. Implementations must respect ctx cancellation, use
+// only the granted Env, and keep the output bounded — the kernel decides
+// what it forwards.
+type DiagnosticObserver interface {
+	Plugin
+	ObserveWrite(ctx context.Context, env Env, paths []string) []string
+}
+
 // SpawnSpec names one child process. Command is either a bare executable
 // name (resolved through PATH) or a workspace-relative path; absolute
 // paths and workspace escapes fail closed. The child runs with its working

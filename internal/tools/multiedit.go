@@ -97,7 +97,7 @@ func (t *multiEditTool) InvokableRun(ctx context.Context, args json.RawMessage) 
 	if err != nil {
 		return "", err
 	}
-	return marshalToolResult(result)
+	return marshalToolResult(attachWriteDiagnostics(ctx, t.ops, result, req.Path))
 }
 
 func (t *multiEditTool) PrepareProposal(ctx context.Context, args json.RawMessage) (domain.ToolProposal, error) {
