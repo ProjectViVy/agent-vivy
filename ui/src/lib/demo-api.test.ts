@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { formatTokenCost, formatTokenCount, getDemoDashboard, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } from './demo-api';
+import { formatTokenCost, formatTokenCount, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } from './demo-api';
 
 const values = new Map<string, string>();
 
@@ -25,8 +25,8 @@ async function settle<T>(promise: Promise<T>): Promise<T> {
 
 describe('restored local demo API', () => {
   it('initializes every restored surface under vivy.demo.* keys', async () => {
-    await settle(Promise.all([getDemoDashboard(), getDemoMemories()]));
-    expect([...values.keys()].sort()).toEqual(['vivy.demo.dashboard', 'vivy.demo.memory']);
+    await settle(getDemoMemories());
+    expect([...values.keys()].sort()).toEqual(['vivy.demo.memory']);
   });
 
   it('persists composer interactions', async () => {
@@ -37,10 +37,10 @@ describe('restored local demo API', () => {
   });
 
   it('recovers a restored surface from malformed local data', async () => {
-    values.set('vivy.demo.dashboard', '{not-json');
-    const dashboard = await settle(getDemoDashboard());
-    expect(dashboard.sessionCount).toBe(12);
-    expect(() => JSON.parse(values.get('vivy.demo.dashboard') ?? '')).not.toThrow();
+    values.set('vivy.demo.memory', '{not-json');
+    const memories = await settle(getDemoMemories());
+    expect(memories).toHaveLength(3);
+    expect(() => JSON.parse(values.get('vivy.demo.memory') ?? '')).not.toThrow();
   });
 
   it('returns a period-scoped token snapshot without writing localStorage', async () => {
