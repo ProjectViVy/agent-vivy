@@ -82,6 +82,11 @@ func (b *Backend) RecordFileMutation(ctx context.Context, sessionID domain.Sessi
 }
 
 func insertFileVersion(ctx context.Context, tx *sql.Tx, sessionID domain.SessionID, runID domain.RunID, path string, version int64, content []byte) error {
+	// A brand-new file's pre-mutation content arrives as nil; storing NULL
+	// would violate the NOT NULL constraint on file_versions.content.
+	if content == nil {
+		content = []byte{}
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO file_versions (session_id, run_id, path, version, content_hash, content, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,

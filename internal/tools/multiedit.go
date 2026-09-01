@@ -46,7 +46,7 @@ func (t *multiEditTool) Spec() domain.ToolSpec {
 		Keywords: []string{"multiedit", "edit", "patch", "replace", "batch"},
 		Params: map[string]domain.ToolParam{
 			"path":  {Desc: "Workspace-relative file path.", Required: true},
-			"edits": {Desc: "Array of {old_string, new_string, replace_all} replacements applied in order.", Required: true},
+			"edits": {Desc: "Array of {old_string, new_string, replace_all} replacements applied in order.", Required: true, Type: "array"},
 		},
 	}
 }
