@@ -588,7 +588,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		rpcToken: rpcToken,
 		httpServer: &http.Server{
 			Addr:              cfg.Server.Addr,
-			Handler:           mux,
+			Handler:           controlrpc.AccessLogMiddleware(logger, mux),
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}, nil
