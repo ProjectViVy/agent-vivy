@@ -109,6 +109,16 @@ type MediaStore interface {
 	Put(ctx context.Context, name string, r io.Reader) (ref string, err error)
 }
 
+// RunesLimiter declares the adapter's outbound text bound — the platform
+// message-size ceiling its manifest documents as channel.max_message_runes
+// (telegram: 4096). The Host splits long assistant replies at this bound
+// before Send (CH-C4-N1), so an over-limit reply degrades into several
+// messages instead of one failed delivery. Adapters without the capability
+// receive whole messages and stay responsible for their own limits.
+type RunesLimiter interface {
+	MaxMessageRunes() int
+}
+
 // Typing signals "typing…" on a chat.
 //
 // Minimal v1 surface; the first real adapter (C4) pins the ABI.

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"agent-vivy/internal/channelhost/fake"
 	"agent-vivy/internal/config"
@@ -514,6 +515,141 @@ func TestConcurrentInboundSameChatDispatch(t *testing.T) {
 	}
 	if len(sessions) != 1 {
 		t.Fatalf("sessions = %d rows, want exactly 1 under the concurrent burst", len(sessions))
+	}
+}
+
+// runesLimited wraps a fake channel with the plugin.RunesLimiter
+// capability so tests can drive the CH-C4-N1 splitting path without
+// teaching the fake (which stays capability-free) about limits.
+type runesLimited struct {
+	plugin.Channel
+	runes int
+}
+
+func (c runesLimited) MaxMessageRunes() int { return c.runes }
+
+// TestSplitRunes pins the chunking rules: no limit passes through, exact
+// fit stays whole, over-limit hard-breaks at the rune boundary, and a
+// newline inside the window wins over a mid-word break. A newline at the
+// window start never produces an empty chunk.
+func TestSplitRunes(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		limit   int
+		want    []string
+	}{
+		{"no limit", "abc", 0, []string{"abc"}},
+		{"negative limit", "abc", -1, []string{"abc"}},
+		{"exact fit", "abcd", 4, []string{"abcd"}},
+		{"under limit", "abc", 4, []string{"abc"}},
+		{"hard break", "abcdef", 4, []string{"abcd", "ef"}},
+		{"newline preferred", "ab\ncdef", 4, []string{"ab\n", "cdef"}},
+		{"newline at zero ignored", "\ncdef", 4, []string{"\ncde", "f"}},
+		{"last newline in window", "ab\ncd\nefgh", 5, []string{"ab\n", "cd\n", "efgh"}},
+		{"multibyte runes", "aé字字字", 3, []string{"aé字", "字字"}},
+	}
+	for _, tc := range cases {
+		got := splitRunes(tc.content, tc.limit)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: splitRunes(%q,%d) = %q, want %q", tc.name, tc.content, tc.limit, got, tc.want)
+		}
+		var joined strings.Builder
+		for i, chunk := range got {
+			if chunk == "" {
+				t.Fatalf("%s: empty chunk at %d", tc.name, i)
+			}
+			joined.WriteString(chunk)
+			if tc.limit > 0 && utf8.RuneCountInString(chunk) > tc.limit {
+				t.Fatalf("%s: chunk %q exceeds limit %d", tc.name, chunk, tc.limit)
+			}
+		}
+		if joined.String() != tc.content {
+			t.Fatalf("%s: chunks %q reassemble to %q, want the original", tc.name, got, joined.String())
+		}
+	}
+}
+
+// TestDeliverySplitsAtAdapterRunesLimit drives CH-C4-N1 end to end: an
+// adapter declaring a bound receives an over-limit reply as sequential
+// in-order sends that reassemble to the original text; an adapter without
+// the capability still gets the whole message.
+func TestDeliverySplitsAtAdapterRunesLimit(t *testing.T) {
+	ctx := context.Background()
+	long := strings.Repeat("段落", 10) + "\n" + strings.Repeat("tail", 10) // 21 + 40 runes
+	for _, tc := range []struct {
+		name      string
+		limit     int // 0 = the adapter does not implement RunesLimiter
+		wantParts int
+	}{
+		{"limited adapter splits", 50, 2},
+		{"unlimited adapter gets whole message", 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := openBackend(t)
+			runs := &runRecorder{messages: backend}
+			fakeCh := fake.New()
+			var ch plugin.Channel = fakeCh
+			if tc.limit != 0 {
+				ch = runesLimited{Channel: fakeCh, runes: tc.limit}
+			}
+			host := New(Deps{
+				Journal:  backend,
+				Messages: backend,
+				Sessions: backend,
+				Run:      runs.run,
+				Channels: []plugin.Channel{ch},
+				Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+				Logger:   testLogger(),
+			})
+			env := host.envFor(ch)
+			if err := env.PublishInbound(ctx, plugin.InboundMessage{
+				Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-long",
+				Parts: []plugin.Part{{Kind: plugin.PartText, Text: "long please"}},
+			}); err != nil {
+				t.Fatalf("publish inbound: %v", err)
+			}
+			call := runs.snapshot()[0]
+			if err := backend.AppendMessage(ctx, domain.Message{
+				ID: "msg-long", SessionID: call.sessionID, RunID: call.runID,
+				Role: domain.RoleAssistant, CreatedAt: time.Now().UnixMilli(),
+				Content: long,
+			}); err != nil {
+				t.Fatalf("seed assistant message: %v", err)
+			}
+			host.OnRunEvent(ctx, domain.RunEvent{
+				RunID: call.runID, Type: domain.EventRunCompleted,
+				CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1,
+			})
+			// Delivery hops off the runtime goroutine; poll until every
+			// expected envelope landed (sends are sequential, so a count
+			// below the expectation just means the next chunk is in flight).
+			var sent []plugin.OutboundMessage
+			deadline := time.Now().Add(2 * time.Second)
+			for {
+				sent = fakeCh.Snapshot()
+				if len(sent) >= tc.wantParts {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("delivered %d envelopes, want %d", len(sent), tc.wantParts)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			var joined strings.Builder
+			for i, msg := range sent {
+				if msg.ChatID != "chat-1" {
+					t.Fatalf("envelope %d chat = %q, want chat-1", i, msg.ChatID)
+				}
+				if len(msg.Parts) != 1 || msg.Parts[0].Kind != plugin.PartText {
+					t.Fatalf("envelope %d parts = %+v, want one text part", i, msg.Parts)
+				}
+				joined.WriteString(msg.Parts[0].Text)
+			}
+			if joined.String() != long {
+				t.Fatalf("reassembled reply %q, want the original text", joined.String())
+			}
+		})
 	}
 }
 
