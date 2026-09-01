@@ -33,8 +33,7 @@ func (c *Catalog) Bundle(name string) (Bundle, bool) {
 }
 
 // For resolves name to a Ref. Bundle-backed providers require their bundle
-// to be loaded, and the
-// Vivy-owned Anthropic Messages API adapter is not wired yet.
+// to be loaded.
 func (c *Catalog) For(name string) (Ref, error) {
 	b, ok := c.bundles[name]
 	if !ok {
@@ -43,8 +42,8 @@ func (c *Catalog) For(name string) (Ref, error) {
 	switch b.Backend {
 	case BackendEinoOpenAI:
 		return newOpenAIRef(b), nil
-	case BackendVivyAnthropic:
-		return nil, fmt.Errorf("provider %q: backend %s not wired yet; the Vivy-owned Anthropic Messages API adapter lands in a later milestone", name, b.Backend)
+	case BackendEinoClaude:
+		return newClaudeRef(b), nil
 	default:
 		return nil, fmt.Errorf("provider %q: unknown backend %q", name, b.Backend)
 	}

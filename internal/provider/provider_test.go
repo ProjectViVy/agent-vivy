@@ -47,8 +47,8 @@ func TestLoadBundleAnthropicFixture(t *testing.T) {
 	if b.EnvKey != "ANTHROPIC_API_KEY" {
 		t.Fatalf("env_key = %q, want ANTHROPIC_API_KEY", b.EnvKey)
 	}
-	if b.Backend != BackendVivyAnthropic {
-		t.Fatalf("backend = %q, want %s", b.Backend, BackendVivyAnthropic)
+	if b.Backend != BackendEinoClaude {
+		t.Fatalf("backend = %q, want %s", b.Backend, BackendEinoClaude)
 	}
 	assertProvenance(t, b, "anthropic")
 }
@@ -170,17 +170,17 @@ func TestOpenAIRefUsesSpecNotEnv(t *testing.T) {
 	}
 }
 
-func TestCatalogAnthropicNotWired(t *testing.T) {
+func TestCatalogAnthropicResolvesClaudeRef(t *testing.T) {
 	b, err := LoadBundle(filepath.Join(fixturesDir, "anthropic.yaml"))
 	if err != nil {
 		t.Fatalf("load bundle: %v", err)
 	}
-	_, err = NewCatalog(b).For("anthropic")
-	if err == nil {
-		t.Fatal("anthropic must not resolve while unwired")
+	ref, err := NewCatalog(b).For("anthropic")
+	if err != nil {
+		t.Fatalf("anthropic must resolve via the claude backend: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not wired yet") {
-		t.Fatalf("error must say backend not wired yet: %v", err)
+	if _, err := ref.Model(context.Background(), ModelSpec{ID: "claude-sonnet-4-5", APIKey: "k"}); err != nil {
+		t.Fatalf("model construction: %v", err)
 	}
 }
 

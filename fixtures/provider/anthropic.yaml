@@ -28,7 +28,7 @@ models:
   - claude-sonnet-4-5
   - claude-haiku-4-5
 model_overrides: []
-backend: vivy/anthropic
+backend: eino-ext/claude
 
 provenance:
   source: agent-diva/agent-diva-providers/src/providers.yaml
@@ -36,6 +36,8 @@ provenance:
   derived_at: "2026-08-07"
   note: >-
     Re-derived into the Vivy bundle schema with a backend field. Backend is
-    the Vivy-owned thin Messages API adapter because no official Eino
-    Anthropic model component exists. Legacy claude-3 generation models
-    dropped from the V0 catalog; the four current-generation models retained.
+    the eino-ext Claude component (research 2026-08-31 §8.5: the component
+    exists, so the earlier plan of a Vivy-owned thin Messages API adapter —
+    recorded here as "no official Eino Anthropic component exists" — was
+    dropped). Legacy claude-3 generation models dropped from the V0 catalog;
+    the four current-generation models retained.
