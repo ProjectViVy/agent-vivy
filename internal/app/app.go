@@ -470,7 +470,13 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			}
 			return info
 		},
-		MCP:    mcpBackend,
+		MCP: mcpBackend,
+		WorkspaceFiles: func() controlrpc.WorkspaceFiles {
+			if workspaceManager == nil {
+				return nil
+			}
+			return runtime.NewWorkspaceFiles(workspaceManager, 0)
+		}(),
 		Frozen: resolver.Frozen(),
 		OnSettingsChanged: func() {
 			resolver.Invalidate()

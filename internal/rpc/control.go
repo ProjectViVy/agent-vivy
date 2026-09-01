@@ -109,6 +109,10 @@ type ControlDeps struct {
 	// MCP is the live Streamable HTTP catalog. Writes replace it immediately.
 	// Nil disables settings/mcp* methods.
 	MCP MCPCatalog
+	// WorkspaceFiles is the read-only UI accessor over run workspaces for
+	// the file preview panel (workspace/list, workspace/read). Nil disables
+	// the workspace/* method family.
+	WorkspaceFiles WorkspaceFiles
 	// Frozen is true when this process is locked to an ENV session. Provider
 	// writes are rejected and the UI is read-only for model fields.
 	Frozen bool
@@ -512,6 +516,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.unsubscribe(request)
 	case "run/log":
 		return h.runLog(ctx, request)
+	case "workspace/list":
+		return h.workspaceList(ctx, request)
+	case "workspace/read":
+		return h.workspaceRead(ctx, request)
 	case "approval/list":
 		return h.listApprovals(ctx)
 	case "approval/respond":
@@ -1594,6 +1602,60 @@ func (h *controlHandler) runLog(ctx context.Context, request Request) (any, *Err
 		return nil, internalError(err)
 	}
 	return map[string]any{"events": entries}, nil
+}
+
+// WorkspaceFiles is the control-plane seam over run workspaces. It is
+// read-only and bounded; the runtime implementation owns path safety.
+type WorkspaceFiles interface {
+	List(ctx context.Context, runID domain.RunID) ([]runtime.WorkspaceFileInfo, bool, error)
+	Read(ctx context.Context, runID domain.RunID, path string) (runtime.ReadFileResult, error)
+}
+
+func (h *controlHandler) workspaceList(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.WorkspaceFiles == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "workspace files are not configured"}
+	}
+	var params struct {
+		RunID string `json:"run_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.RunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "run_id is required"}
+	}
+	files, truncated, err := h.deps.WorkspaceFiles.List(ctx, domain.RunID(params.RunID))
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return map[string]any{"files": files, "truncated": truncated}, nil
+}
+
+func (h *controlHandler) workspaceRead(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.WorkspaceFiles == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "workspace files are not configured"}
+	}
+	var params struct {
+		RunID string `json:"run_id"`
+		Path  string `json:"path"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.RunID == "" || params.Path == "" {
+		return nil, &Error{Code: InvalidParams, Message: "run_id and path are required"}
+	}
+	result, err := h.deps.WorkspaceFiles.Read(ctx, domain.RunID(params.RunID), params.Path)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return map[string]any{
+		"path":      result.Path,
+		"content":   result.Content,
+		"size":      result.Size,
+		"truncated": result.Truncated,
+		"binary":    result.Binary,
+	}, nil
 }
 
 func (h *controlHandler) listApprovals(ctx context.Context) (any, *Error) {

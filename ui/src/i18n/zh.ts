@@ -49,6 +49,18 @@ export const zh = {
     sessions: '会话',
     todos: '待办事项',
     reviewCenter: '审批中心',
+    files: '文件',
+  },
+  files: {
+    noRun: '开始一次运行后可查看其工作区文件',
+    count: '{{count}} 个文件',
+    refresh: '刷新',
+    empty: '工作区还没有文件',
+    listTruncated: '列表已截断——请减少文件数量',
+    binary: '二进制文件——无文本预览',
+    truncated: '预览已按字节上限截断',
+    loading: '加载中…',
+    pick: '选择一个文件进行预览',
   },
   todos: {
     title: '任务',

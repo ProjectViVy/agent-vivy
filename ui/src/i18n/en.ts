@@ -51,6 +51,18 @@ export const en: Dictionary = {
     sessions: 'Sessions',
     todos: 'To-dos',
     reviewCenter: 'Approvals',
+    files: 'Files',
+  },
+  files: {
+    noRun: 'Start a run to see its workspace files',
+    count: '{{count}} files',
+    refresh: 'Refresh',
+    empty: 'No files in this workspace yet',
+    listTruncated: 'Listing truncated — show fewer files',
+    binary: 'Binary file — no text preview',
+    truncated: 'Preview truncated at the byte cap',
+    loading: 'Loading…',
+    pick: 'Pick a file to preview',
   },
   todos: {
     title: 'Tasks',

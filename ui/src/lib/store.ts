@@ -70,6 +70,7 @@ interface RuntimeState {
   reviewsError: string | null;
   reviewBusyId: string | null;
   reviewCenterOpen: boolean;
+  filesPanelOpen: boolean;
   sessionDrawerOpen: boolean;
   settings: api.Settings | null;
   settingsPhase: Phase;
@@ -108,6 +109,7 @@ interface RuntimeState {
   loadReviews: () => Promise<void>;
   respondReview: (id: string, response: { action: 'approve' | 'deny' | 'answer' | 'cancel'; reason?: string; answer?: string }) => Promise<void>;
   setReviewCenterOpen: (open: boolean) => void;
+  setFilesPanelOpen: (open: boolean) => void;
   setSessionDrawerOpen: (open: boolean) => void;
   loadTodos: (sessionId?: string) => Promise<void>;
   setTodoPanelOpen: (open: boolean) => void;
@@ -224,7 +226,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
-  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyId: null, reviewCenterOpen: false, sessionDrawerOpen: false,
+  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyId: null, reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
   settings: null, settingsPhase: 'idle', settingsError: null,
   providers: [], providersPhase: 'idle', providersError: null,
   species: null, generations: [], evals: [], promotions: [], lifecyclePhase: 'idle', lifecycleError: null, lifecycleBusy: false,
@@ -423,6 +425,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     catch (error) { set({ reviewsError: errorMessage(error) }); throw error; } finally { set({ reviewBusyId: null }); }
   },
   setReviewCenterOpen: (open) => set({ reviewCenterOpen: open }),
+  setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
   setSessionDrawerOpen: (open) => set({ sessionDrawerOpen: open }),
   loadSettings: async () => { set({ settingsPhase: 'loading', settingsError: null }); try { set({ settings: await api.getSettings(), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); } },
   saveSettings: async (value) => { set({ settingsPhase: 'processing', settingsError: null }); try { set({ settings: await api.updateSettings(value), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); throw error; } },
