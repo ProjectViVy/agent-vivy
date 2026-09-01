@@ -391,6 +391,132 @@ func TestChannelSessionIDDeterministic(t *testing.T) {
 	}
 }
 
+// TestEnsureSessionConcurrentSameChat drives CH-C4-N2: a burst of
+// concurrent inbound for one chat races EnsureSession's read→create→
+// re-read path. Every caller must receive the same deterministic id
+// with no error — the losers of the unique insert re-read the winner's
+// row — and exactly one session lands in the store.
+func TestEnsureSessionConcurrentSameChat(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	host := New(Deps{
+		Journal:  backend,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Logger:   testLogger(),
+	})
+	ctx := context.Background()
+
+	const n = 32
+	ids := make([]domain.SessionID, n)
+	errs := make([]error, n)
+	var ready sync.WaitGroup
+	ready.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer ready.Done()
+			ids[i], errs[i] = host.EnsureSession(ctx, "fake", "chat-1", "")
+		}(i)
+	}
+	ready.Wait()
+
+	want := ChannelSessionID("fake", "chat-1", "")
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			t.Fatalf("EnsureSession caller %d: %v", i, errs[i])
+		}
+		if ids[i] != want {
+			t.Fatalf("EnsureSession caller %d = %q, want %q", i, ids[i], want)
+		}
+	}
+	sessions, err := backend.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %d rows, want exactly 1 (no duplicate create)", len(sessions))
+	}
+	if sessions[0].Title != "channel/fake/chat-1" {
+		t.Fatalf("session title = %q, want channel/fake/chat-1", sessions[0].Title)
+	}
+}
+
+// TestConcurrentInboundSameChatDispatch is the end-to-end face of the
+// same burst: N allowed inbound messages for one chat dispatched
+// concurrently through the full publish pipeline. All N runs must open
+// on the one deterministic session with their own provenance, all N
+// user turns and N journal commits must land, and the session must be
+// created exactly once (run with -race).
+func TestConcurrentInboundSameChatDispatch(t *testing.T) {
+	backend := openBackend(t)
+	journal := &recordingJournal{Journal: backend}
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:  journal,
+		Messages: backend,
+		Sessions: backend,
+		Run:      runs.run,
+		Channels: []plugin.Channel{ch},
+		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:   testLogger(),
+	})
+	ctx := context.Background()
+	env := host.envFor(ch)
+
+	const n = 8
+	var ready sync.WaitGroup
+	ready.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer ready.Done()
+			_ = env.PublishInbound(ctx, plugin.InboundMessage{
+				Channel: "fake", ChatID: "chat-1", Sender: "alice",
+				MessageID: fmt.Sprintf("m-burst-%d", i),
+				Parts:     []plugin.Part{{Kind: plugin.PartText, Text: fmt.Sprintf("burst %d", i)}},
+			})
+		}(i)
+	}
+	ready.Wait()
+
+	want := ChannelSessionID("fake", "chat-1", "")
+	calls := runs.snapshot()
+	if len(calls) != n {
+		t.Fatalf("run calls = %d, want %d", len(calls), n)
+	}
+	seen := map[domain.RunID]bool{}
+	for _, call := range calls {
+		if call.sessionID != want {
+			t.Fatalf("run opened on %q, want the deterministic channel session %q", call.sessionID, want)
+		}
+		if call.prov == nil || call.prov.Source != "channel" || call.prov.ChatID != "chat-1" {
+			t.Fatalf("run provenance = %+v, want channel provenance for chat-1", call.prov)
+		}
+		if seen[call.runID] {
+			t.Fatalf("run id %q dispatched twice", call.runID)
+		}
+		seen[call.runID] = true
+	}
+	if commits := journal.snapshot(); len(commits) != n {
+		t.Fatalf("journal commits = %d, want %d (one channel.inbound per message)", len(commits), n)
+	}
+	msgs, err := backend.ListMessages(ctx, want)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != n {
+		t.Fatalf("user messages = %d, want %d", len(msgs), n)
+	}
+	sessions, err := backend.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %d rows, want exactly 1 under the concurrent burst", len(sessions))
+	}
+}
+
 // TestOnRunEventDeliversAssistantReply: a tracked run.completed delivers
 // the run's last assistant message to the originating chat, exactly once.
 func TestOnRunEventDeliversAssistantReply(t *testing.T) {
