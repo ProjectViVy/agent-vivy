@@ -102,8 +102,9 @@ describe('refreshChannels（服务端真源）', () => {
     expect(state.envelopes.telegram).toBeUndefined();
   });
 
-  it('遗留 localStorage（vivy.ui.channels）不再是真源：email/neuro-link 等历史副本被忽略', async () => {
+  it('遗留 localStorage（vivy.ui.channels）只删不迁：首次拉取即清除，且从不写回', async () => {
     const storage = new Map<string, string>();
+    const written: string[] = [];
     storage.set(
       'vivy.ui.channels',
       JSON.stringify({ email: { enabled: true }, 'neuro-link': { enabled: true }, telegram: { enabled: true, token: 'legacy' } }),
@@ -111,7 +112,13 @@ describe('refreshChannels（服务端真源）', () => {
     vi.stubGlobal('window', {
       localStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
-        setItem: (key: string, value: string) => { storage.set(key, value); },
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+          written.push(key);
+        },
+        removeItem: (key: string) => {
+          storage.delete(key);
+        },
       },
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
@@ -122,10 +129,9 @@ describe('refreshChannels（服务端真源）', () => {
     const state = getChannelsState();
     expect(state.statuses.map((s) => s.name)).toEqual(['telegram']);
     expect(state.envelopes.telegram).toEqual(telegramEnvelope);
-    // localStorage 从未被读取，也就从未被写入。
-    expect(storage.get('vivy.ui.channels')).toBe(
-      JSON.stringify({ email: { enabled: true }, 'neuro-link': { enabled: true }, telegram: { enabled: true, token: 'legacy' } }),
-    );
+    // 残留副本被删除（可能含 token 残迹），且没有任何迁移/写回。
+    expect(storage.get('vivy.ui.channels')).toBeUndefined();
+    expect(written).toEqual([]);
   });
 });
 
