@@ -26,6 +26,7 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	genplugins "agent-vivy/internal/generated/plugins"
+	"agent-vivy/internal/logging"
 	"agent-vivy/internal/pluginhost"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
@@ -35,6 +36,7 @@ import (
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
+	"agent-vivy/internal/worker"
 	"agent-vivy/sdk/plugin"
 	"agent-vivy/ui"
 )
@@ -390,7 +392,14 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		},
 	})
 	svc.SetCatalog(catalog)
-	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel)
+	// Worker children inherit the parent's effective log settings so their
+	// per-worker file sink matches this process (LOGGING.md §3); an empty
+	// handoff would leave child diagnostics invisible.
+	effLog, err := logging.ResolveEffective(cfg.Logging.Level, cfg.Logging.Format)
+	if err != nil {
+		return nil, fmt.Errorf("app: resolve worker log settings: %w", err)
+	}
+	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel, worker.WorkerLog{Dir: cfg.LogDirectory(), Level: effLog.Level, Format: effLog.Format})
 	agentOps.arm(workerManager)
 	svc.SetChildApprovalRouter(workerManager)
 

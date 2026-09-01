@@ -45,7 +45,7 @@ func newChildBrokerTest(t *testing.T) (*workerManager, *sqlite.Backend, domain.R
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
 		Workspaces: workspace, Sink: bus,
 	})
-	manager := newWorkerManager(service, backend, backend, policy, runtime.NewToolHookChain(time.Second), []tools.Tool{tools.NewWriteNote(backend)}, 4096, time.Minute, model)
+	manager := newWorkerManager(service, backend, backend, policy, runtime.NewToolHookChain(time.Second), []tools.Tool{tools.NewWriteNote(backend)}, 4096, time.Minute, model, worker.WorkerLog{})
 	service.SetChildApprovalRouter(manager)
 	snapshot, err := policy.Snapshot(domain.PolicyProfileDefault)
 	if err != nil {

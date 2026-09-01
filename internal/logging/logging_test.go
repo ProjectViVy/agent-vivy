@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -189,5 +190,89 @@ func TestCleanOldLogs(t *testing.T) {
 	}
 	if _, err := os.Stat(old); os.IsNotExist(err) {
 		t.Error("keep-all removed the old file")
+	}
+}
+
+func TestResolveEffective(t *testing.T) {
+	eff, err := ResolveEffective("warning", "text")
+	if err != nil || eff.Level != "warn" || eff.Format != "text" {
+		t.Fatalf("ResolveEffective(warning, text) = %+v, %v; want warn/text", eff, err)
+	}
+	// Negative cases before the env overrides: env wins over config, so
+	// setting VIVY_LOG_* first would mask the invalid configured values.
+	if _, err := ResolveEffective("loud", "json"); err == nil {
+		t.Error("ResolveEffective accepted an invalid level")
+	}
+	if _, err := ResolveEffective("info", "xml"); err == nil {
+		t.Error("ResolveEffective accepted an invalid format")
+	}
+	t.Setenv(EnvLevel, "debug")
+	t.Setenv(EnvFormat, "json")
+	eff, err = ResolveEffective("warn", "text")
+	if err != nil || eff.Level != "debug" || eff.Format != "json" {
+		t.Fatalf("ResolveEffective with env override = %+v, %v; want debug/json", eff, err)
+	}
+}
+
+func TestSetupWorkerDisabledWithoutDir(t *testing.T) {
+	t.Setenv(EnvWorkerLogDir, "")
+	logger, closer, path, err := SetupWorker()
+	if err != nil || logger != nil || closer != nil || path != "" {
+		t.Fatalf("SetupWorker without dir = %v, %v, %q, %v; want a disabled sink", logger, closer, path, err)
+	}
+}
+
+func TestSetupWorkerFileSink(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(EnvWorkerLogDir, dir)
+	t.Setenv(EnvWorkerLogLevel, "debug")
+	t.Setenv(EnvWorkerLogFormat, "text")
+	logger, closer, path, err := SetupWorker()
+	if err != nil {
+		t.Fatalf("SetupWorker: %v", err)
+	}
+	if logger == nil || closer == nil {
+		t.Fatal("SetupWorker returned a nil sink although the dir env is set")
+	}
+	defer closer.Close()
+	want := filepath.Join(dir, fmt.Sprintf("%s.worker-%d", FilePrefix, os.Getpid()))
+	if path != want {
+		t.Fatalf("path = %q; want %q", path, want)
+	}
+	logger.Info("worker hello", "run", "r-1")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read worker file: %v", err)
+	}
+	line := string(data)
+	if !strings.Contains(line, `msg="worker hello"`) ||
+		!strings.Contains(line, "level=INFO") ||
+		!strings.Contains(line, "run=r-1") ||
+		!strings.Contains(line, "source") {
+		t.Errorf("text line missing msg/level/run/source: %s", line)
+	}
+}
+
+func TestSetupWorkerStrictAndFallback(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(EnvWorkerLogDir, dir)
+	t.Setenv(EnvWorkerLogLevel, "loud")
+	if _, _, _, err := SetupWorker(); err == nil {
+		t.Fatal("SetupWorker accepted an invalid VIVY_WORKER_LOG_LEVEL")
+	}
+	t.Setenv(EnvWorkerLogLevel, "")
+	t.Setenv(EnvLevel, "error")
+	logger, closer, _, err := SetupWorker()
+	if err != nil {
+		t.Fatalf("SetupWorker: %v", err)
+	}
+	defer closer.Close()
+	logger.Warn("below threshold")
+	data, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("%s.worker-%d", FilePrefix, os.Getpid())))
+	if err != nil {
+		t.Fatalf("read worker file: %v", err)
+	}
+	if strings.Contains(string(data), "below threshold") {
+		t.Errorf("VIVY_LOG_LEVEL fallback not applied: %s", data)
 	}
 }

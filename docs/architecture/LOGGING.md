@@ -10,14 +10,18 @@ diagnostics to stderr and are out of scope here.
 ## 1. One init path
 
 All kernel logging goes through `log/slog`. There is exactly one setup
-function, `logging.Setup` (`internal/logging/logging.go`), and exactly
-one two-phase wiring in `cmd/vivy/main.go`:
+function per process kind in `internal/logging/logging.go`:
 
-1. A bootstrap JSON logger on stdout handles the earliest messages
-   (config load failure, logging setup failure).
-2. After config load, `logging.Setup` replaces the default logger
-   (`slog.SetDefault`) and logs the `logging initialized` milestone with
-   the effective level/format/dir.
+- `logging.Setup` — the `vivy.exe` service process, wired by the
+  two-phase bootstrap in `cmd/vivy/main.go`:
+  1. A bootstrap JSON logger on stdout handles the earliest messages
+     (config load failure, logging setup failure).
+  2. After config load, `logging.Setup` replaces the default logger
+     (`slog.SetDefault`) and logs the `logging initialized` milestone
+     with the effective level/format/dir.
+- `logging.SetupWorker` — a `vivy worker` child process. It installs
+  the per-worker file sink (§3) before the protocol loop starts and is
+  wired only in `cmd/vivy/main.go`'s worker branch.
 
 Never create ad-hoc `slog.Handler`s, stdlib `log.Logger`s, or
 `fmt.Println` diagnostics in `internal/...`. The worker subcommand
@@ -44,6 +48,13 @@ the config file:
 Both are parsed strictly: an invalid value aborts startup with a clear
 error instead of silently keeping the configured value.
 
+A second family, `VIVY_WORKER_LOG_DIR` / `VIVY_WORKER_LOG_LEVEL` /
+`VIVY_WORKER_LOG_FORMAT`, is **not** an operator override: the
+supervisor exports it when spawning `vivy worker` children and it is
+consumed only by `logging.SetupWorker` (§3). Resolution precedence in
+the child is the worker env, then the inherited `VIVY_LOG_*` values,
+then the built-in defaults.
+
 ## 3. Destinations
 
 - Default sink: stdout (when `stdout: true`) **plus** a daily-rotated
@@ -53,6 +64,14 @@ error instead of silently keeping the configured value.
   formality, not a flush dependency.
 - At startup, files matching `vivy.log*` older than `retention_days`
   (by mtime) are deleted. `0` disables deletion.
+- Each `vivy worker` child writes its own append-only file
+  `<dir>/vivy.log.worker-<pid>`: one writer per file, no rotation and
+  no sweep in the child, never stdout (the JSONL protocol owns it). The
+  supervisor hands off the parent's effective level/format (resolved by
+  `logging.ResolveEffective`, same precedence as `Setup`) plus the log
+  dir; without the dir env the child runs sink-free as before. Because
+  the file name shares the `vivy.log` prefix, the parent's startup
+  retention sweep prunes a dead worker's file automatically.
 - Log files are runtime scratch beside the Journal, not product
   history. They are never read back by the kernel, and Studio sessions
   must not treat them as tenant data (air gap, ST-2). The durable record
@@ -119,7 +138,5 @@ stream), `warn` for 5xx. They never carry request or response payloads
 
 ## 7. Deferred (see docs/TODO.md §0.1)
 
-- File logging for `vivy worker` child processes (multi-process writers
-  need a per-worker sink design first).
 - Handler-level redaction as defense in depth behind the D-010
   call-site discipline.
