@@ -94,6 +94,14 @@ type payloadToolFinished struct {
 	Error      string            `json:"error,omitempty"`
 }
 
+// payloadToolMounted journals the tools a mounting tool (today: skill_view)
+// newly activated mid-run. ToolName is the mounting tool; Tools lists only
+// the names that became mounted by this call (TT-3 audit trail).
+type payloadToolMounted struct {
+	ToolName string   `json:"tool_name"`
+	Tools    []string `json:"tools"`
+}
+
 // payloadToolApprovalRequired is committed in the single journal commit
 // that follows a durable checkpoint (D-029 write order).
 type payloadToolApprovalRequired struct {

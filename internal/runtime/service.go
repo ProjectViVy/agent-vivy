@@ -2133,6 +2133,10 @@ func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, led
 				Decision: event.Decision, Profile: string(event.Profile), Reason: event.Reason,
 				DurationMs: event.DurationMs,
 			}
+		case domain.EventToolMounted:
+			payload = payloadToolMounted{
+				ToolName: event.ToolName, Tools: append([]string(nil), event.MountedTools...),
+			}
 		case domain.EventContextCompacted:
 			payload = payloadContextCompacted{
 				Mode: event.Mode, BeforeTokens: event.BeforeTokens, AfterTokens: event.AfterTokens,
