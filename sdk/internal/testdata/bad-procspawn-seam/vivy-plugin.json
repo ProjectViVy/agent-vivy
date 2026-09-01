@@ -1,0 +1,16 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "bad-procspawn-seam",
+  "version": "0.1.0",
+  "seam": "tool",
+  "module": ".",
+  "grants": ["fs.read", "proc.spawn"],
+  "tools": [
+    {
+      "name": "noop",
+      "effect": "read",
+      "description": "negative fixture: proc.spawn outside the tool-world seam",
+      "schema": { "type": "object" }
+    }
+  ]
+}

@@ -52,6 +52,13 @@ const (
 	// names through ChannelEnv.Secret. Values are fail-closed and never
 	// logged.
 	GrantSecretRead Grant = "secret.read"
+	// GrantProcSpawn allows starting child processes through Env.Spawn.
+	// The child's working directory is pinned to the plugin workspace; the
+	// spawned process outlives the tool call that started it and remains
+	// the plugin's responsibility until Close. os/exec stays banned in
+	// plugin sources — spawn is a kernel-hosted capability exactly like
+	// Listen is a ChannelHost capability (VC-3, D4).
+	GrantProcSpawn Grant = "proc.spawn"
 )
 
 // Valid reports whether the grant is part of the known vocabulary. Whether
@@ -61,7 +68,7 @@ func (g Grant) Valid() bool {
 	switch g {
 	case GrantFSRead, GrantFSWrite,
 		GrantChannelPoll, GrantChannelWebhook, GrantChannelListen, GrantChannelA2A,
-		GrantSecretRead:
+		GrantSecretRead, GrantProcSpawn:
 		return true
 	default:
 		return false
@@ -100,11 +107,32 @@ type Tool interface {
 	Run(ctx context.Context, env Env, args json.RawMessage) (string, error)
 }
 
+// SpawnSpec names one child process. Command is either a bare executable
+// name (resolved through PATH) or a workspace-relative path; absolute
+// paths and workspace escapes fail closed. The child runs with its working
+// directory pinned to the plugin workspace and inherits the species
+// environment.
+type SpawnSpec struct {
+	Command string
+	Args    []string
+}
+
+// Proc is one spawned child process. Stdout/stderr are blocking readers;
+// Wait blocks until exit and Close kills it.
+type Proc interface {
+	Stdin() io.WriteCloser
+	Stdout() io.ReadCloser
+	Stderr() io.ReadCloser
+	Wait() error
+	Close() error
+}
+
 // Env is the only world a plugin may touch. Missing grants fail closed.
 type Env interface {
 	Workspace() string
 	OpenRead(path string) (io.ReadCloser, error)
 	OpenWrite(path string) (io.WriteCloser, error)
+	Spawn(ctx context.Context, spec SpawnSpec) (Proc, error)
 }
 
 var (

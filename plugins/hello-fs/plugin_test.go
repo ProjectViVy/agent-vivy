@@ -28,6 +28,10 @@ func (m memEnv) OpenWrite(string) (io.WriteCloser, error) {
 	return nil, plugin.ErrDenied
 }
 
+func (m memEnv) Spawn(context.Context, plugin.SpawnSpec) (plugin.Proc, error) {
+	return nil, plugin.ErrDenied
+}
+
 func TestHelloStatReadsThroughEnv(t *testing.T) {
 	p := New()
 	if p.Name() != "hello-fs" || p.Seam() != plugin.SeamToolWorld {

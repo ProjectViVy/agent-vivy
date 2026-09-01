@@ -83,8 +83,14 @@ func checkManifest(dir string, m manifest) []string {
 			continue
 		}
 		// Channel-family grants exist only for the channel seam; no other
-		// seam may declare them.
+		// seam may declare them. proc.spawn is the tool-world sibling
+		// restriction (VC-3, D4): only a tool-world plugin may run child
+		// processes, because only there a spawned language server's tools
+		// are model-reachable.
 		if isChannelGrant(grant) && seam != plugin.SeamChannel {
+			issues = append(issues, fmt.Sprintf("grant %q is not available to seam %q", grant, m.Seam))
+		}
+		if grant == string(plugin.GrantProcSpawn) && seam != plugin.SeamToolWorld {
 			issues = append(issues, fmt.Sprintf("grant %q is not available to seam %q", grant, m.Seam))
 		}
 	}

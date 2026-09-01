@@ -1,0 +1,29 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "lsp",
+  "version": "0.1.0",
+  "seam": "tool-world",
+  "module": ".",
+  "grants": ["fs.read", "proc.spawn"],
+  "tools": [
+    {
+      "name": "lsp_diagnostics",
+      "effect": "read",
+      "description": "Language-server diagnostics for a workspace file. Starts/reuses the server for the file's language (gopls, typescript-language-server, pyright-langserver, rust-analyzer), opens the file from disk, and waits for a diagnostics publish. Reports saved content only.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Workspace-relative path of the file to check"
+          },
+          "wait_ms": {
+            "type": "integer",
+            "description": "Milliseconds to wait for diagnostics to arrive (default 3000, max 15000)"
+          }
+        },
+        "required": ["path"]
+      }
+    }
+  ]
+}

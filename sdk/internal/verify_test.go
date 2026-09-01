@@ -56,6 +56,10 @@ func TestVerifyRejectsForbiddenPlugins(t *testing.T) {
 		{"bad-channel-transport", `channel.transport "webhook" is not allowed in this batch`},
 		{"bad-channel-dup-grant", `grant "channel.poll" is duplicated`},
 		{"bad-tool-channel-grant", `grant "channel.poll" is not available to seam "tool"`},
+		// VC-3 (D4): proc.spawn is a tool-world-only grant — a tool-seam
+		// plugin declaring it is rejected at the manifest, before any code
+		// is linked.
+		{"bad-procspawn-seam", `grant "proc.spawn" is not available to seam "tool"`},
 		{"bad-channel-runes", "channel.max_message_runes must not be negative"},
 	}
 	for _, tc := range cases {

@@ -1,0 +1,234 @@
+package lsp
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+	"testing"
+
+	"agent-vivy/sdk/plugin"
+)
+
+func TestJSONRPCRoundTrip(t *testing.T) {
+	var buf strings.Builder
+	id := int64(7)
+	if err := writeMessage(&buf, rpcMessage{ID: &id, Method: "initialize", Params: json.RawMessage(`{"a":1}`)}); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := readMessage(bufio.NewReader(strings.NewReader(buf.String())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.ID == nil || *msg.ID != 7 || msg.Method != "initialize" || string(msg.Params) != `{"a":1}` {
+		t.Fatalf("decoded = %+v", msg)
+	}
+}
+
+func TestJSONRPCSkipsContentTypeHeader(t *testing.T) {
+	wire := "Content-Length: 2\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}"
+	if _, err := readMessage(bufio.NewReader(strings.NewReader(wire))); err != nil {
+		t.Fatalf("decode with extra header: %v", err)
+	}
+}
+
+func TestLanguageFor(t *testing.T) {
+	cases := map[string]string{
+		"a.go": "gopls",
+		"B.TS": "typescript-language-server",
+		"c.py": "pyright-langserver",
+		"d.rs": "rust-analyzer",
+	}
+	for path, want := range cases {
+		lang, ok := languageFor(path)
+		if !ok || lang.Command != want {
+			t.Fatalf("languageFor(%q) = %+v, %v", path, lang, ok)
+		}
+	}
+	if _, ok := languageFor("notes.txt"); ok {
+		t.Fatal("notes.txt should have no server")
+	}
+}
+
+func TestWorkspaceRel(t *testing.T) {
+	accept := []string{"main.go", "src/x.ts", "./a.go", "a/b/c.py"}
+	reject := []string{"", "../x.go", "/abs.go", `C:\x.go`, "C:/x.go", "a/../../b.go"}
+	for _, p := range accept {
+		if !workspaceRel(p) {
+			t.Fatalf("workspaceRel(%q) = false", p)
+		}
+	}
+	for _, p := range reject {
+		if workspaceRel(p) {
+			t.Fatalf("workspaceRel(%q) = true", p)
+		}
+	}
+}
+
+func TestPathToURIRel(t *testing.T) {
+	root := t.TempDir()
+	uri := pathToURI(root, "src/main.go")
+	if !strings.HasPrefix(uri, "file:///") {
+		t.Fatalf("uri = %q", uri)
+	}
+	rel, ok := uriToRel(root, uri)
+	if !ok || rel != "src/main.go" {
+		t.Fatalf("uriToRel = %q, %v", rel, ok)
+	}
+	// Drive-letter case differences on Windows still map to the same file.
+	alt := strings.ToUpper(uri[:8]) + uri[8:]
+	if rel2, ok := uriToRel(root, alt); !ok || rel2 != "src/main.go" {
+		t.Fatalf("case-shifted uri mapped to %q, %v", rel2, ok)
+	}
+	// A URI outside the workspace is reported verbatim, not relativized.
+	foreign, ok := uriToRel(root, "file:///C:/elsewhere/x.go")
+	if ok || foreign != "file:///C:/elsewhere/x.go" {
+		t.Fatalf("foreign uri = %q, %v", foreign, ok)
+	}
+}
+
+func TestFormatDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	uri := pathToURI(root, "main.go")
+	got := formatDiagnostics(root, uri, []diagnostic{
+		{Range: span{Start: position{Line: 0, Character: 0}}, Severity: 1, Message: "boom", Source: "compiler"},
+	}, false)
+	if got != "main.go:1:1: error: boom [compiler]" {
+		t.Fatalf("got %q", got)
+	}
+	if got := formatDiagnostics(root, uri, nil, false); got != "no diagnostics" {
+		t.Fatalf("empty = %q", got)
+	}
+	if got := formatDiagnostics(root, uri, nil, true); !strings.Contains(got, "wait_ms elapsed") {
+		t.Fatalf("timeout = %q", got)
+	}
+	many := make([]diagnostic, maxReportedDiagnostics+5)
+	out := formatDiagnostics(root, uri, many, false)
+	if !strings.Contains(out, "... 5 more") {
+		t.Fatalf("truncation missing: %q", out[len(out)-40:])
+	}
+}
+
+// fakeEnv is a full plugin.Env whose Spawn runs an in-memory fake language
+// server over io.Pipes, so the whole client path is exercised without a
+// real server binary.
+type fakeEnv struct {
+	root       string
+	files      map[string]string
+	spawnCount int
+	commands   []string
+}
+
+func (f *fakeEnv) Workspace() string { return f.root }
+
+func (f *fakeEnv) OpenRead(p string) (io.ReadCloser, error) {
+	body, ok := f.files[p]
+	if !ok {
+		return nil, fmt.Errorf("no such file: %s", p)
+	}
+	return io.NopCloser(strings.NewReader(body)), nil
+}
+
+func (f *fakeEnv) OpenWrite(p string) (io.WriteCloser, error) { return nil, plugin.ErrDenied }
+
+func (f *fakeEnv) Spawn(_ context.Context, spec plugin.SpawnSpec) (plugin.Proc, error) {
+	f.spawnCount++
+	f.commands = append(f.commands, spec.Command)
+	toolInR, toolInW := io.Pipe()
+	toolOutR, toolOutW := io.Pipe()
+	go serveFakeLSP(toolInR, toolOutW)
+	return fakeProc{stdin: toolInW, stdout: toolOutR}, nil
+}
+
+type fakeProc struct {
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+}
+
+func (p fakeProc) Stdin() io.WriteCloser { return p.stdin }
+func (p fakeProc) Stdout() io.ReadCloser { return p.stdout }
+func (p fakeProc) Stderr() io.ReadCloser { return io.NopCloser(strings.NewReader("")) }
+func (p fakeProc) Wait() error           { return nil }
+func (p fakeProc) Close() error          { return nil }
+
+// serveFakeLSP answers initialize, publishes one diagnostic on didOpen,
+// and a clean publish on didChange.
+func serveFakeLSP(r io.Reader, w io.Writer) {
+	br := bufio.NewReader(r)
+	publish := func(uri string, diags []diagnostic) {
+		raw, _ := json.Marshal(publishDiagnosticsParams{URI: uri, Diagnostics: diags})
+		_ = writeMessage(w, rpcMessage{Method: "textDocument/publishDiagnostics", Params: raw})
+	}
+	for {
+		msg, err := readMessage(br)
+		if err != nil {
+			return
+		}
+		switch msg.Method {
+		case "initialize":
+			_ = writeMessage(w, rpcMessage{ID: msg.ID, Result: json.RawMessage(`{"capabilities":{}}`)})
+		case "initialized":
+		case "textDocument/didOpen":
+			var p didOpenParams
+			if json.Unmarshal(msg.Params, &p) != nil {
+				return
+			}
+			publish(p.TextDocument.URI, []diagnostic{{
+				Range:    span{Start: position{Line: 0, Character: 0}},
+				Severity: 1,
+				Message:  "boom",
+				Source:   "test",
+			}})
+		case "textDocument/didChange":
+			var p didChangeParams
+			if json.Unmarshal(msg.Params, &p) != nil {
+				return
+			}
+			publish(p.TextDocument.URI, []diagnostic{})
+		}
+	}
+}
+
+func TestDiagnosticsToolEndToEnd(t *testing.T) {
+	env := &fakeEnv{root: t.TempDir(), files: map[string]string{"main.go": "package main\n"}}
+	tool := diagnosticsTool{mgr: newManager()}
+
+	first, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"main.go"}`))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(first, "main.go:1:1: error: boom [test]") {
+		t.Fatalf("first = %q", first)
+	}
+	if env.spawnCount != 1 || env.commands[0] != "gopls" {
+		t.Fatalf("spawn = %d %v", env.spawnCount, env.commands)
+	}
+
+	env.files["main.go"] = "package main // fixed\n"
+	second, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"main.go"}`))
+	if err != nil {
+		t.Fatalf("run 2: %v", err)
+	}
+	if second != "no diagnostics" {
+		t.Fatalf("second = %q", second)
+	}
+	if env.spawnCount != 1 {
+		t.Fatalf("server not reused: spawns = %d", env.spawnCount)
+	}
+}
+
+func TestDiagnosticsToolArgValidation(t *testing.T) {
+	env := &fakeEnv{root: t.TempDir()}
+	tool := diagnosticsTool{mgr: newManager()}
+	if _, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"../out.go"}`)); err != plugin.ErrInvalidArgs {
+		t.Fatalf("escape err = %v", err)
+	}
+	if _, err := tool.Run(context.Background(), env, json.RawMessage(`{"path":"notes.txt"}`)); err == nil || !strings.Contains(err.Error(), "no language server") {
+		t.Fatalf("unknown ext err = %v", err)
+	}
+	if env.spawnCount != 0 {
+		t.Fatalf("validation failures must not spawn: %d", env.spawnCount)
+	}
+}

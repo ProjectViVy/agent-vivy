@@ -3,8 +3,11 @@ package pluginhost
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	hellofs "agent-vivy/plugins/hello-fs"
@@ -36,6 +39,99 @@ func TestMissingGrantDenied(t *testing.T) {
 	if _, err := env.OpenWrite("x"); err != plugin.ErrDenied {
 		t.Fatalf("err = %v", err)
 	}
+	if _, err := env.Spawn(context.Background(), plugin.SpawnSpec{Command: "cmd"}); err != plugin.ErrDenied {
+		t.Fatalf("spawn err = %v, want ErrDenied", err)
+	}
+}
+
+// spawnStub carries the proc.spawn grant so the host tests can exercise
+// the real exec path against a shell child.
+type spawnStub struct{}
+
+func (spawnStub) Name() string      { return "spawn-stub" }
+func (spawnStub) Seam() plugin.Seam { return plugin.SeamToolWorld }
+func (spawnStub) Grants() []plugin.Grant {
+	return []plugin.Grant{plugin.GrantFSRead, plugin.GrantProcSpawn}
+}
+func (spawnStub) Tools() []plugin.Tool { return []plugin.Tool{stubTool{}} }
+
+func TestSpawnRunsChildInWorkspace(t *testing.T) {
+	root := t.TempDir()
+	env := hostedEnv{plugin: spawnStub{}, lookup: func(context.Context) (string, error) { return root, nil }}
+
+	echo, args := echoCommand()
+	proc, err := env.Spawn(context.Background(), plugin.SpawnSpec{Command: echo, Args: args})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	body, err := io.ReadAll(proc.Stdout())
+	if err != nil {
+		t.Fatalf("stdout: %v", err)
+	}
+	_ = proc.Stdin().Close()
+	if err := proc.Wait(); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	if !strings.Contains(string(body), "hello") {
+		t.Fatalf("stdout = %q", string(body))
+	}
+
+	cwd, cwdArgs := cwdCommand()
+	proc2, err := env.Spawn(context.Background(), plugin.SpawnSpec{Command: cwd, Args: cwdArgs})
+	if err != nil {
+		t.Fatalf("spawn cwd: %v", err)
+	}
+	body2, _ := io.ReadAll(proc2.Stdout())
+	_ = proc2.Stdin().Close()
+	if err := proc2.Wait(); err != nil {
+		t.Fatalf("wait cwd: %v", err)
+	}
+	if !strings.Contains(string(body2), filepath.Base(root)) {
+		t.Fatalf("child cwd = %q, want inside workspace %q", string(body2), root)
+	}
+}
+
+func TestSpawnRejectsWorkspaceEscapes(t *testing.T) {
+	env := hostedEnv{plugin: spawnStub{}, lookup: func(context.Context) (string, error) { return t.TempDir(), nil }}
+	for _, command := range []string{"", "../evil", `C:\Windows\System32\cmd.exe`, "/bin/sh"} {
+		if _, err := env.Spawn(context.Background(), plugin.SpawnSpec{Command: command}); err != plugin.ErrInvalidArgs {
+			t.Fatalf("command %q err = %v, want ErrInvalidArgs", command, err)
+		}
+	}
+}
+
+func TestSpawnCloseKillsChild(t *testing.T) {
+	root := t.TempDir()
+	env := hostedEnv{plugin: spawnStub{}, lookup: func(context.Context) (string, error) { return root, nil }}
+	sleep, args := sleepCommand()
+	proc, err := env.Spawn(context.Background(), plugin.SpawnSpec{Command: sleep, Args: args})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if err := proc.Close(); err == nil {
+		t.Fatal("killed child Wait should report a non-zero exit, got nil")
+	}
+}
+
+func echoCommand() (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd", []string{"/c", "echo", "hello"}
+	}
+	return "sh", []string{"-c", "echo hello"}
+}
+
+func cwdCommand() (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd", []string{"/c", "cd"}
+	}
+	return "pwd", nil
+}
+
+func sleepCommand() (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd", []string{"/c", "waitfor", "/t", "5", "vivy-spawn-test"}
+	}
+	return "sleep", []string{"30"}
 }
 
 // channelStub implements plugin.Plugin AND plugin.Channel. Its Tools()
