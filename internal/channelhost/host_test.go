@@ -882,6 +882,9 @@ func TestInspectNotesRecordStartAllDecisions(t *testing.T) {
 	if started.Capabilities != (Capabilities{}) {
 		t.Fatalf("fake capabilities = %+v, want none", started.Capabilities)
 	}
+	if got := started.AllowFrom; len(got) != 1 || got[0] != "alice" {
+		t.Fatalf("started allow_from = %v, want the startup-effective summary [alice]", got)
+	}
 	failed := statuses[1]
 	if failed.Started || !failed.Configured || !failed.Enabled {
 		t.Fatalf("failed status = %+v, want configured+enabled but not started", failed)
@@ -918,6 +921,9 @@ func TestInspectNotesForSkips(t *testing.T) {
 	}
 	if statuses[0].Started || statuses[0].Configured || statuses[0].Enabled {
 		t.Fatalf("unconfigured status = %+v", statuses[0])
+	}
+	if statuses[0].AllowFrom != nil {
+		t.Fatalf("unconfigured allow_from = %v, want nil", statuses[0].AllowFrom)
 	}
 
 	// Disabled envelope.

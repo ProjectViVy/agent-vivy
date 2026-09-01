@@ -978,6 +978,7 @@ refreshModels: '刷新模型列表',
   channels: {
     channels: '通道',
     loading: '正在读取通道…',
+    inspectError: '通道列表加载失败',
     enabled: '已启用',
     disabled: '已禁用',
     status: '状态',

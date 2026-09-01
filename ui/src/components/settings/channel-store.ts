@@ -131,8 +131,10 @@ export async function disableChannel(name: string): Promise<ChannelEnvelope> {
 }
 
 /**
- * "待重启"判定：文档真值与进程真值出现差异。allow_from 不在 inspect
- * 表面，不参与对比；状态或 envelope 未就绪时不判 pending。
+ * "待重启"判定：文档真值与进程真值出现差异。allow_from 在 inspect 表面
+ * （启动生效摘要），纯 allow_from 编辑同样判 pending；顺序敏感——两侧都
+ * 保存写入顺序，仅重排也算差异，重启后自然消除。状态或 envelope 未就绪
+ * 时不判 pending。
  */
 export function channelPendingRestart(
   status: ChannelStatus | undefined,
@@ -142,6 +144,11 @@ export function channelPendingRestart(
   return (
     envelope.enabled !== status.enabled ||
     envelope.configured !== status.configured ||
-    envelope.token_env !== status.token_env
+    envelope.token_env !== status.token_env ||
+    !allowFromEqual(envelope.allow_from, status.allow_from)
   );
+}
+
+function allowFromEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
 }

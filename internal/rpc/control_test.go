@@ -1783,6 +1783,9 @@ func TestChannelInspectRPC(t *testing.T) {
 	if status.Note != "disabled" {
 		t.Fatalf("note = %q, want the disabled reason", status.Note)
 	}
+	if len(status.AllowFrom) != 1 || status.AllowFrom[0] != "alice" {
+		t.Fatalf("allow_from = %v, want the startup-effective summary [alice]", status.AllowFrom)
+	}
 	if status.TokenEnv != "VIVY_TEST_FAKE_CHANNEL_TOKEN" || status.TokenEnvSet {
 		t.Fatalf("token surface = %q set=%v, want the env NAME with set=false (unset variable)", status.TokenEnv, status.TokenEnvSet)
 	}
@@ -1793,6 +1796,16 @@ func TestChannelInspectRPC(t *testing.T) {
 	}
 	if !inspected.([]channelStatusResult)[0].TokenEnvSet {
 		t.Fatal("token_env_set = false for a set variable")
+	}
+}
+
+// TestChannelInspectAllowFromAlwaysArray: an unconfigured channel has no
+// allow list, but the wire still carries [] rather than null so the UI can
+// compare document truth against it element-wise.
+func TestChannelInspectAllowFromAlwaysArray(t *testing.T) {
+	got := toChannelStatusResult(channelhost.ChannelStatus{Name: "fake"})
+	if got.AllowFrom == nil || len(got.AllowFrom) != 0 {
+		t.Fatalf("allow_from = %#v, want a non-nil empty array", got.AllowFrom)
 	}
 }
 

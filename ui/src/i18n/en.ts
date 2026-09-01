@@ -980,6 +980,7 @@ refreshModels: 'Refresh model list',
   channels: {
     channels: 'Channels',
     loading: 'Loading channels…',
+    inspectError: 'Failed to load the channel list',
     enabled: 'Enabled',
     disabled: 'Disabled',
     status: 'Status',
