@@ -42,7 +42,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   const reviews = useVivyStore((state) => state.reviews);
   const phase = useVivyStore((state) => state.reviewsPhase);
   const error = useVivyStore((state) => state.reviewsError);
-  const busyId = useVivyStore((state) => state.reviewBusyId);
+  const busyIds = useVivyStore((state) => state.reviewBusyIds);
   const load = useVivyStore((state) => state.loadReviews);
   const respond = useVivyStore((state) => state.respondReview);
   const { t } = useTranslation();
@@ -56,7 +56,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
   }, [reviews, selectedId, panel]);
 
   const selected = reviews.find((item) => item.id === selectedId) ?? null;
-  const busy = busyId !== null;
+  const selectedBusy = selected !== null && busyIds.includes(selected.id);
   const act = async (action: 'approve' | 'deny' | 'answer' | 'cancel') => {
     if (!selected) return;
     await respond(selected.id, action === 'answer' ? { action, answer: text } : action === 'deny' ? { action, reason: text } : { action });
@@ -69,7 +69,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
         <button
           type="button"
           key={review.id}
-          disabled={busy}
+          disabled={busyIds.includes(review.id)}
           onClick={() => { setSelectedId(review.id); setText(''); }}
           className={cn(
             'w-full cursor-pointer rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
@@ -131,17 +131,17 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
         ) : null}
         {selected.status === 'pending' ? (
           <div className="space-y-2 border-t pt-4">
-            <Textarea value={text} disabled={busy} onChange={(event) => setText(event.target.value)} placeholder={selected.kind === 'question' ? t('approvals.answerPlaceholder') : t('approvals.denyReasonPlaceholder')} />
+            <Textarea value={text} disabled={selectedBusy} onChange={(event) => setText(event.target.value)} placeholder={selected.kind === 'question' ? t('approvals.answerPlaceholder') : t('approvals.denyReasonPlaceholder')} />
             <div className="flex flex-wrap gap-2">
               {selected.kind === 'approval' ? (
                 <>
-                  <Button disabled={busy} onClick={() => void act('approve')}>{busyId === selected.id ? t('approvals.processing') : t('approvals.approve')}</Button>
-                  <Button disabled={busy} variant="destructive" onClick={() => void act('deny')}>{t('approvals.deny')}</Button>
+                  <Button disabled={selectedBusy} onClick={() => void act('approve')}>{selectedBusy ? t('approvals.processing') : t('approvals.approve')}</Button>
+                  <Button disabled={selectedBusy} variant="destructive" onClick={() => void act('deny')}>{t('approvals.deny')}</Button>
                 </>
               ) : (
                 <>
-                  <Button disabled={busy || !text.trim()} onClick={() => void act('answer')}>{busyId === selected.id ? t('approvals.submitting') : t('approvals.submitAnswer')}</Button>
-                  <Button disabled={busy} variant="outline" onClick={() => void act('cancel')}>{t('approvals.cancelQuestion')}</Button>
+                  <Button disabled={selectedBusy || !text.trim()} onClick={() => void act('answer')}>{selectedBusy ? t('approvals.submitting') : t('approvals.submitAnswer')}</Button>
+                  <Button disabled={selectedBusy} variant="outline" onClick={() => void act('cancel')}>{t('approvals.cancelQuestion')}</Button>
                 </>
               )}
             </div>
@@ -159,7 +159,7 @@ export function ApprovalsView({ panel = false }: { panel?: boolean }) {
           <p className="mt-1 text-sm text-muted-foreground">{t('approvals.subtitle')}</p>
         </div>
       ) : null}
-      <Button variant="outline" disabled={busy || phase === 'loading' || phase === 'refreshing'} onClick={() => void load()}>{phase === 'refreshing' ? t('approvals.refreshing') : t('common.refresh')}</Button>
+      <Button variant="outline" disabled={phase === 'loading' || phase === 'refreshing'} onClick={() => void load()}>{phase === 'refreshing' ? t('approvals.refreshing') : t('common.refresh')}</Button>
     </div>
   );
 

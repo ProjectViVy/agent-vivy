@@ -68,7 +68,7 @@ interface RuntimeState {
   reviews: api.ReviewItem[];
   reviewsPhase: Phase;
   reviewsError: string | null;
-  reviewBusyId: string | null;
+  reviewBusyIds: string[];
   reviewCenterOpen: boolean;
   filesPanelOpen: boolean;
   sessionDrawerOpen: boolean;
@@ -226,7 +226,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   currentRun: null, runEvents: [], streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [],
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
-  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyId: null, reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
+  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
   settings: null, settingsPhase: 'idle', settingsError: null,
   providers: [], providersPhase: 'idle', providersError: null,
   species: null, generations: [], evals: [], promotions: [], lifecyclePhase: 'idle', lifecycleError: null, lifecycleBusy: false,
@@ -414,15 +414,15 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     catch (error) { if (epoch === reviewEpoch) set({ reviewsPhase: 'error', reviewsError: errorMessage(error) }); }
   },
   respondReview: async (id, response) => {
-    if (get().reviewBusyId) return;
-    set({ reviewBusyId: id, reviewsError: null });
+    if (get().reviewBusyIds.includes(id)) return;
+    set((state) => ({ reviewBusyIds: [...state.reviewBusyIds, id], reviewsError: null }));
     try {
       await api.respondReview(id, response);
       const status: api.ReviewStatus = response.action === 'approve' ? 'approved' : response.action === 'deny' ? 'denied' : response.action === 'answer' ? 'answered' : 'cancelled';
       set((state) => ({ reviews: state.reviews.map((review) => review.id === id ? { ...review, status } : review), reviewsPhase: 'ready' }));
       await get().loadReviews();
     }
-    catch (error) { set({ reviewsError: errorMessage(error) }); throw error; } finally { set({ reviewBusyId: null }); }
+    catch (error) { set({ reviewsError: errorMessage(error) }); throw error; } finally { set((state) => ({ reviewBusyIds: state.reviewBusyIds.filter((busy) => busy !== id) })); }
   },
   setReviewCenterOpen: (open) => set({ reviewCenterOpen: open }),
   setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
