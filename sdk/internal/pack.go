@@ -10,10 +10,12 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,11 +32,26 @@ type Artifact struct {
 	Recipe         domain.AssemblyRecipe  `json:"recipe"`
 	Phase          domain.GenerationPhase `json:"phase"`
 	Tools          []artifactTool         `json:"tools,omitempty"`
+	Plugins        []artifactPlugin       `json:"plugins,omitempty"`
 }
 
 type artifactTool struct {
 	Name     string `json:"name"`
 	Readonly bool   `json:"readonly"`
+}
+
+// artifactPlugin is the seam-classified manifest projection of one packed
+// plugin (VIVY-CHANNEL-PACK.md §10): a channel plugin carries its
+// transport and is listed as channel — never as a model tool. TreeHash
+// pins the exact source tree the EXE was built from.
+type artifactPlugin struct {
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Seam      string   `json:"seam"`
+	Grants    []string `json:"grants,omitempty"`
+	Transport string   `json:"transport,omitempty"`
+	SourceRef string   `json:"source_ref"`
+	TreeHash  string   `json:"tree_hash"`
 }
 
 type packOptions struct {
@@ -87,6 +104,7 @@ func Pack(opt packOptions) (Artifact, error) {
 	}
 	var selected []packedPlugin
 	var tools []artifactTool
+	var pluginEntries []artifactPlugin
 	var names []string
 	seen := make(map[string]bool)
 	for _, spec := range opt.With {
@@ -113,6 +131,23 @@ func Pack(opt packOptions) (Artifact, error) {
 		if err != nil {
 			return Artifact{}, err
 		}
+		treeHash, err := hashPluginTree(dir)
+		if err != nil {
+			return Artifact{}, err
+		}
+		transport := ""
+		if man.Channel != nil {
+			transport = man.Channel.Transport
+		}
+		pluginEntries = append(pluginEntries, artifactPlugin{
+			Name:      man.Name,
+			Version:   man.Version,
+			Seam:      man.Seam,
+			Grants:    append([]string(nil), man.Grants...),
+			Transport: transport,
+			SourceRef: fileRefPrefix + dir,
+			TreeHash:  treeHash,
+		})
 		pkg, err := pluginPackageName(dir)
 		if err != nil {
 			return Artifact{}, err
@@ -242,8 +277,9 @@ func Pack(opt packOptions) (Artifact, error) {
 			World:   "sandbox",
 			Plugins: names,
 		},
-		Phase: domain.GenerationBuilt,
-		Tools: tools,
+		Phase:   domain.GenerationBuilt,
+		Tools:   tools,
+		Plugins: pluginEntries,
 	}
 	raw, err := json.MarshalIndent(art, "", "  ")
 	if err != nil {
@@ -665,6 +701,42 @@ func hashFile(path string) (string, error) {
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// hashPluginTree fingerprints a plugin's source tree: every regular
+// file's slash-relative path and length-prefixed content, walked in
+// sorted order, so the same tree yields the same digest on every OS and
+// any byte change yields a different one.
+func hashPluginTree(dir string) (string, error) {
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("sdk: walk %s: %w", dir, err)
+	}
+	sort.Strings(files)
+	h := sha256.New()
+	for _, path := range files {
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return "", fmt.Errorf("sdk: rel %s: %w", path, err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("sdk: read %s: %w", path, err)
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), len(data))
+		_, _ = h.Write(data)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
