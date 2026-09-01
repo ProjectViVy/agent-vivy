@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -263,8 +264,18 @@ func (s Settings) IsZero() bool {
 
 // Load reads and validates the settings document at path. A missing file is
 // not an error: it returns the zero Settings so the config defaults stand.
+
+// fileMu serializes access to the settings document file. On Windows,
+// renaming over a file another goroutine is reading fails with access
+// denied, and concurrent writes to a shared temp file could publish a
+// corrupt document; readers and writers take this lock around the file
+// I/O window.
+var fileMu sync.Mutex
+
 func Load(path string) (Settings, error) {
+	fileMu.Lock()
 	data, err := os.ReadFile(path)
+	fileMu.Unlock()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Settings{}, nil
@@ -663,11 +674,28 @@ func Save(path string, s Settings) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("settings: marshal: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// Unique temp file per call, under fileMu: two concurrent Saves sharing
+	// one temp file could interleave their writes and publish a corrupt
+	// document, and on Windows renaming over a file a concurrent reader
+	// holds open fails with access denied.
+	fileMu.Lock()
+	defer fileMu.Unlock()
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return Settings{}, fmt.Errorf("settings: tmp: %w", err)
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return Settings{}, fmt.Errorf("settings: write: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return Settings{}, fmt.Errorf("settings: write: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
 		return Settings{}, fmt.Errorf("settings: commit: %w", err)
 	}
 	return s, nil
