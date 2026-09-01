@@ -21,7 +21,13 @@ vet:
     & "{{go}}" vet ./...
 
 fmt-check:
-    powershell -NoProfile -Command '$files = rg --files cmd internal sdk ui -g ''*.go''; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
+    powershell -NoProfile -Command '$files = rg --files cmd internal sdk ui plugins -g ''*.go''; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
+
+# Per-module vet+test for plugins/* independent modules (each with its own
+# go.mod; hello-fs belongs to the main module and is covered by vet/test).
+# No artifact builds — packing stays the vivy-sdk five-step path.
+plugin-ci:
+    powershell -NoProfile -Command '$mods = Get-ChildItem plugins -Directory | Where-Object { Test-Path (Join-Path $_.FullName ''go.mod'') }; $fail = 0; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $m.Name); Push-Location $m.FullName; & ''{{go}}'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''{{go}}'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location }; exit $fail'
 
 ui-ci:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
@@ -34,7 +40,7 @@ build-split:
     & "{{go}}" build -tags vivy_headless -o dist/vivy-backend.exe ./cmd/vivy; if ($LASTEXITCODE) { exit $LASTEXITCODE }
     Set-Location ui; pnpm build -- --outDir ../dist/vivy-ui --emptyOutDir
 
-ci: fmt-check vet test headless-compile ui-ci
+ci: fmt-check vet test headless-compile plugin-ci ui-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
