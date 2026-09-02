@@ -32,8 +32,8 @@ const HOUR_MS = 60 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_TZ = 'Asia/Shanghai';
 const emptyForm = {
-  name: '', enabled: true, scheduleKind: 'cron' as Exclude<ScheduleKind, 'at'>,
-  cronExpr: '0 9 * * *', everyHours: 24, message: '',
+  name: '', enabled: true, scheduleKind: 'cron' as ScheduleKind,
+  cronExpr: '0 9 * * *', everyHours: 24, atValue: '', message: '',
 };
 function cronStatusLabel(status: string): string {
   // 后端终态是 ok|error（diva 语义）；ok 展示为“已完成”。
@@ -53,7 +53,13 @@ function formatSchedule(job: CronJobDto) {
     if (interval >= HOUR_MS && interval % HOUR_MS === 0) return t('cron.scheduleFormat.everyHours', { count: interval / HOUR_MS });
     return t('cron.scheduleFormat.everyMinutes', { count: Math.max(1, Math.round(interval / 60000)) });
   }
-  return t('cron.scheduleFormat.once');
+  return t('cron.scheduleFormat.onceAt', { time: formatTime(job.schedule.atMs) });
+}
+
+function toDatetimeLocal(ms: number) {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function formatTime(value?: number | null) {
@@ -161,9 +167,10 @@ export function CronTaskManagementView() {
     setFormData({
       name: job.name,
       enabled: job.enabled,
-      scheduleKind: job.schedule.kind === 'every' ? 'every' : 'cron',
+      scheduleKind: job.schedule.kind,
       cronExpr: job.schedule.expr || '0 9 * * *',
       everyHours: Math.max(0.25, (job.schedule.everyMs || 24 * HOUR_MS) / HOUR_MS),
+      atValue: job.schedule.atMs ? toDatetimeLocal(job.schedule.atMs) : '',
       message: job.payload.message,
     });
     setFormError(''); setShowForm(true);
@@ -178,10 +185,18 @@ export function CronTaskManagementView() {
     if (formData.scheduleKind === 'every' && (!Number.isFinite(formData.everyHours) || formData.everyHours <= 0)) {
       setFormError(t('cron.errors.intervalPositive')); return;
     }
+    let atTime = 0;
+    if (formData.scheduleKind === 'at') {
+      atTime = new Date(formData.atValue).getTime();
+      if (!formData.atValue || !Number.isFinite(atTime)) { setFormError(t('cron.errors.atTimeRequired')); return; }
+      if (atTime <= Date.now()) { setFormError(t('cron.errors.atTimeFuture')); return; }
+    }
     if (!message) { setFormError(t('cron.errors.messageRequired')); return; }
     const schedule = formData.scheduleKind === 'cron'
       ? { kind: 'cron' as const, expr: cronExpr, tz: DEFAULT_TZ }
-      : { kind: 'every' as const, everyMs: Math.round(formData.everyHours * HOUR_MS) };
+      : formData.scheduleKind === 'at'
+        ? { kind: 'at' as const, atMs: atTime }
+        : { kind: 'every' as const, everyMs: Math.round(formData.everyHours * HOUR_MS) };
     const payload = { kind: 'agent_turn', message, deliver: false };
     const input: CronJobInput = { name, enabled: formData.enabled, schedule, payload, delete_after_run: false };
 
@@ -386,9 +401,11 @@ export function CronTaskManagementView() {
               <Switch id="cron-form-enabled" checked={formData.enabled} onCheckedChange={(enabled) => setFormData((current) => ({ ...current, enabled }))} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>{t('cron.scheduleKind')}</Label><Select value={formData.scheduleKind} onValueChange={(scheduleKind) => setFormData((current) => ({ ...current, scheduleKind: scheduleKind as Exclude<ScheduleKind, 'at'> }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cron">{t('cron.cronOption')}</SelectItem><SelectItem value="every">{t('cron.everyOption')}</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>{t('cron.scheduleKind')}</Label><Select value={formData.scheduleKind} onValueChange={(scheduleKind) => setFormData((current) => ({ ...current, scheduleKind: scheduleKind as ScheduleKind }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cron">{t('cron.cronOption')}</SelectItem><SelectItem value="every">{t('cron.everyOption')}</SelectItem><SelectItem value="at">{t('cron.atOption')}</SelectItem></SelectContent></Select></div>
               {formData.scheduleKind === 'cron' ? (
                 <div className="space-y-2"><Label htmlFor="cron-expression">{t('cron.cronExprLabel')}</Label><Input id="cron-expression" value={formData.cronExpr} onChange={(event) => setFormData((current) => ({ ...current, cronExpr: event.target.value }))} placeholder="0 9 * * *" /></div>
+              ) : formData.scheduleKind === 'at' ? (
+                <div className="space-y-2"><Label htmlFor="cron-at">{t('cron.atLabel')}</Label><Input id="cron-at" type="datetime-local" value={formData.atValue} onChange={(event) => setFormData((current) => ({ ...current, atValue: event.target.value }))} /></div>
               ) : (
                 <div className="space-y-2"><Label htmlFor="cron-hours">{t('cron.intervalHours')}</Label><Input id="cron-hours" type="number" min="0.25" step="0.25" value={formData.everyHours} onChange={(event) => setFormData((current) => ({ ...current, everyHours: Number(event.target.value) }))} /></div>
               )}
