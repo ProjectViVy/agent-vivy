@@ -58,6 +58,7 @@ type App struct {
 	worker   *workerManager
 	resolver *ModelResolver
 
+	control    controlrpc.Handler
 	httpServer *http.Server
 	rpcToken   string
 }
@@ -68,6 +69,7 @@ type AppOption func(*appOptions)
 
 type appOptions struct {
 	channels bool
+	gateway  bool
 	sink     runtime.EventSink
 }
 
@@ -75,6 +77,14 @@ type appOptions struct {
 // run hook, no StartAll. The headless face is one terminal-bound turn and
 // must never consume inbound channel traffic.
 func WithoutEars() AppOption { return func(o *appOptions) { o.channels = false } }
+
+// WithoutGateway composes the process with no HTTP gateway: no listener, no
+// mux, no embedded UI, no browser origin policy (VIVY-FACE-PACK §7 — HTTP
+// listening is faces/web's effect, not a kernel obligation). The control
+// plane stays reachable in-process via DialControl, so a face can drive the
+// same JSON-RPC methods as the web face. WithEventSink is the streaming
+// path for such faces.
+func WithoutGateway() AppOption { return func(o *appOptions) { o.gateway = false } }
 
 // WithEventSink adds a second event sink next to the gateway bus. The
 // headless face renders the run stream for stdout/stderr through it.
@@ -99,7 +109,7 @@ func (f fanoutSink) Publish(ev domain.RunEvent) {
 func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error) {
 	logger := slog.Default()
 
-	ao := appOptions{channels: true}
+	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
 		opt(&ao)
 	}
@@ -111,9 +121,13 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// generation actually carries.
 	genPlugins := genplugins.Register()
 	cfg = applySettingsOverlay(ctx, logger, cfg, compiledChannelNames(genPlugins))
-	originPolicy, err := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
-	if err != nil {
-		return nil, fmt.Errorf("app: configure browser origins: %w", err)
+	var originPolicy controlrpc.OriginPolicy
+	if ao.gateway {
+		policy, policyErr := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
+		if policyErr != nil {
+			return nil, fmt.Errorf("app: configure browser origins: %w", policyErr)
+		}
+		originPolicy = policy
 	}
 
 	dataRoot := cfg.DataDirectory()
@@ -572,6 +586,25 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		}
 	}
 
+	app := &App{
+		cfg:      cfg,
+		logger:   logger,
+		service:  svc,
+		channels: channelHost,
+		backend:  backend,
+		worker:   workerManager,
+		resolver: resolver,
+		control:  controlHandler,
+		rpcToken: rpcToken,
+	}
+	// The gateway is faces/web's effect: the mux, the embedded UI shell and
+	// the loopback listener exist only in the gateway assembly (face-pack
+	// §3). A gateway-less generation reaches the identical control plane
+	// through DialControl instead.
+	if !ao.gateway {
+		return app, nil
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/rpc", controlrpc.WebSocketServer{Handler: controlHandler, Token: rpcToken, Origins: originPolicy})
 	mux.HandleFunc("/rpc/bootstrap", func(w http.ResponseWriter, r *http.Request) {
@@ -597,21 +630,12 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// supplies a 404 handler while retaining the same control plane.
 	mux.Handle("/", ui.Handler())
 
-	return &App{
-		cfg:      cfg,
-		logger:   logger,
-		service:  svc,
-		channels: channelHost,
-		backend:  backend,
-		worker:   workerManager,
-		resolver: resolver,
-		rpcToken: rpcToken,
-		httpServer: &http.Server{
-			Addr:              cfg.Server.Addr,
-			Handler:           controlrpc.AccessLogMiddleware(logger, mux),
-			ReadHeaderTimeout: 5 * time.Second,
-		},
-	}, nil
+	app.httpServer = &http.Server{
+		Addr:              cfg.Server.Addr,
+		Handler:           controlrpc.AccessLogMiddleware(logger, mux),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	return app, nil
 }
 
 func policyEngine(cfg config.Config) *runtime.PolicyEngine {
@@ -938,7 +962,9 @@ func defaultModelFor(cfg config.Config, providerName string) string {
 
 // Run blocks until ctx is cancelled or the server fails. On cancellation
 // it shuts down components in reverse startup order with a bounded grace
-// period and returns the shutdown error, if any.
+// period and returns the shutdown error, if any. A gateway-less assembly
+// has no listener: it blocks on ctx alone while faces drive the in-process
+// control plane, then takes the same reverse-order shutdown.
 func (a *App) Run(ctx context.Context) error {
 	a.service.StartInteractionSweeper(context.Background(), time.Second)
 	defer a.service.StopInteractionSweeper()
@@ -948,14 +974,20 @@ func (a *App) Run(ctx context.Context) error {
 		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
 		defer a.service.StopCronScheduler()
 	}
+	// The listener is faces/web's effect (VIVY-FACE-PACK §7); a
+	// gateway-less assembly has no server error source to wait on.
 	errCh := make(chan error, 1)
-	go func() {
-		a.logger.Info("vivy starting", "addr", a.cfg.Server.Addr)
-		if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("http server: %w", err)
-		}
+	if a.httpServer != nil {
+		go func() {
+			a.logger.Info("vivy starting", "addr", a.cfg.Server.Addr)
+			if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("http server: %w", err)
+			}
+			close(errCh)
+		}()
+	} else {
 		close(errCh)
-	}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -992,8 +1024,10 @@ func (a *App) Run(ctx context.Context) error {
 	if !a.service.WaitIdle(shutdownCtx) {
 		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
 	}
-	if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutdown http server: %w", err)
+	if a.httpServer != nil {
+		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown http server: %w", err)
+		}
 	}
 	if err := a.backend.Close(); err != nil {
 		return fmt.Errorf("close storage: %w", err)

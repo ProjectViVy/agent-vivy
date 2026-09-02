@@ -64,7 +64,7 @@ func RunHeadless(ctx context.Context, cfg config.Config, opts HeadlessOptions) (
 		return HeadlessResult{}, errors.New("app: headless requires output and error writers")
 	}
 	sink := newHeadlessSink(opts.Out, opts.Err)
-	a, err := New(ctx, cfg, WithoutEars(), WithEventSink(sink))
+	a, err := New(ctx, cfg, WithoutEars(), WithoutGateway(), WithEventSink(sink))
 	if err != nil {
 		return HeadlessResult{}, err
 	}
