@@ -225,6 +225,7 @@ type turnParams struct {
 	Mode          string           `json:"mode,omitempty"`
 	Face          string           `json:"face,omitempty"`
 	PolicyProfile string           `json:"policy_profile,omitempty"`
+	Thinking      string           `json:"thinking,omitempty"`
 	Attachments   []turnAttachment `json:"attachments,omitempty"`
 }
 
@@ -1656,7 +1657,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
-		Attachments: attachments,
+		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments,
 	})
 	if err != nil {
 		return nil, runtimeError(err)
@@ -3654,7 +3655,7 @@ func studioError(err error) *Error {
 
 func runtimeError(err error) *Error {
 	switch {
-	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
+	case errors.Is(err, runtime.ErrInvalidRunMode), errors.Is(err, runtime.ErrInvalidFace), errors.Is(err, runtime.ErrInvalidPolicyProfile), errors.Is(err, runtime.ErrInvalidThinkingMode), errors.Is(err, runtime.ErrQuestionInvalidAnswer), errors.Is(err, runtime.ErrApprovalInvalidDecision), errors.Is(err, runtime.ErrApprovalInvalidReason):
 		return &Error{Code: InvalidParams, Message: err.Error()}
 	case errors.Is(err, runtime.ErrApprovalAlreadyDecided), errors.Is(err, runtime.ErrApprovalExpired), errors.Is(err, runtime.ErrQuestionAlreadyAnswered), errors.Is(err, runtime.ErrQuestionExpired), errors.Is(err, runtime.ErrRecoveryBusy):
 		return &Error{Code: CodeConflict, Message: err.Error()}

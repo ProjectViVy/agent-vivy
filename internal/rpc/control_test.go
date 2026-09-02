@@ -2412,3 +2412,55 @@ func TestTrajectorySessionRoute(t *testing.T) {
 		t.Fatalf("requests = %+v", session.Requests)
 	}
 }
+
+// TestTurnStartThinkingRoute pins the turn/start thinking boundary: an
+// unknown preference is an InvalidParams before anything persists, a valid
+// one starts the run, and session/context always reports the D9 gate flag.
+func TestTurnStartThinkingRoute(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "Thinking"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := string(session.ID)
+
+	if _, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": sessionID, "text": "hi", "thinking": "execute",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("error = %v, want InvalidParams", rpcErr)
+	}
+
+	started, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": sessionID, "text": "hi", "thinking": "on",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	startedJSON, _ := json.Marshal(started)
+	var run struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(startedJSON, &run); err != nil || run.RunID == "" {
+		t.Fatalf("turn/start result = %s (err %v)", startedJSON, err)
+	}
+
+	contextResult, rpcErr := callControl(t, env.handler, "session/context", map[string]string{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	contextJSON, _ := json.Marshal(contextResult)
+	var context struct {
+		ThinkingSupported bool `json:"thinking_supported"`
+	}
+	if err := json.Unmarshal(contextJSON, &context); err != nil {
+		t.Fatal(err)
+	}
+	if context.ThinkingSupported {
+		t.Fatal("thinking_supported = true, want false without a thinking-capable route")
+	}
+}

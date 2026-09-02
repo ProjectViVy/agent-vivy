@@ -17,6 +17,12 @@ import (
 // current-generation models; per-call model.WithMaxTokens overrides it.
 const claudeDefaultMaxTokens = 8192
 
+// claudeThinkingBudgetTokens is the extended-thinking token budget applied
+// when a run asks for thinking (domain.ThinkingModeOn). It must stay below
+// claudeDefaultMaxTokens: the Anthropic API requires max_tokens to exceed
+// the thinking budget.
+const claudeThinkingBudgetTokens = 4096
+
 // claudeRef wires the anthropic bundle to the online eino-ext Claude
 // component (Anthropic Messages API). Construction happens at Model() call
 // time from the supplied ModelSpec; no network traffic happens before the
@@ -74,17 +80,20 @@ type anthropicModelMeta struct {
 	inputPerMTok   float64
 	outputPerMTok  float64
 	supportsImages bool
+	// supportsThinking marks models that accept the Anthropic extended
+	// thinking parameter (Claude 3.7 Sonnet and later generations).
+	supportsThinking bool
 }
 
 var knownAnthropicModels = map[string]anthropicModelMeta{
-	"claude-opus-4-5":            {contextWindow: 200000, inputPerMTok: 5.0, outputPerMTok: 25.0, supportsImages: true},
-	"claude-opus-4-1":            {contextWindow: 200000, inputPerMTok: 15.0, outputPerMTok: 75.0, supportsImages: true},
-	"claude-opus-4":              {contextWindow: 200000, inputPerMTok: 15.0, outputPerMTok: 75.0, supportsImages: true},
-	"claude-sonnet-4-5":          {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true},
-	"claude-sonnet-4":            {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true},
-	"claude-haiku-4-5":           {contextWindow: 200000, inputPerMTok: 1.0, outputPerMTok: 5.0, supportsImages: true},
-	"claude-3-7-sonnet":          {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true},
-	"claude-3-7-sonnet-20250219": {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true},
+	"claude-opus-4-5":            {contextWindow: 200000, inputPerMTok: 5.0, outputPerMTok: 25.0, supportsImages: true, supportsThinking: true},
+	"claude-opus-4-1":            {contextWindow: 200000, inputPerMTok: 15.0, outputPerMTok: 75.0, supportsImages: true, supportsThinking: true},
+	"claude-opus-4":              {contextWindow: 200000, inputPerMTok: 15.0, outputPerMTok: 75.0, supportsImages: true, supportsThinking: true},
+	"claude-sonnet-4-5":          {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true, supportsThinking: true},
+	"claude-sonnet-4":            {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true, supportsThinking: true},
+	"claude-haiku-4-5":           {contextWindow: 200000, inputPerMTok: 1.0, outputPerMTok: 5.0, supportsImages: true, supportsThinking: true},
+	"claude-3-7-sonnet":          {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true, supportsThinking: true},
+	"claude-3-7-sonnet-20250219": {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true, supportsThinking: true},
 	"claude-3-5-sonnet":          {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true},
 	"claude-3-5-sonnet-20241022": {contextWindow: 200000, inputPerMTok: 3.0, outputPerMTok: 15.0, supportsImages: true},
 	"claude-3-5-haiku":           {contextWindow: 200000, inputPerMTok: 0.8, outputPerMTok: 4.0},
@@ -106,6 +115,7 @@ func (r *claudeRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		InputPerMTokens:  meta.inputPerMTok,
 		OutputPerMTokens: meta.outputPerMTok,
 		SupportsImages:   meta.supportsImages,
+		SupportsThinking: meta.supportsThinking,
 	}
 	return info, nil
 }
