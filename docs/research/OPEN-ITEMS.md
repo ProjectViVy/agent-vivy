@@ -47,7 +47,7 @@ P1-5 (QwenPaw location) remains as SR-4 / P2-3 — it never blocked V0.
 
 | ID | Item | Status | Owner | Closes |
 |---|---|---|---|---|
-| P2-1 | Diva capability inventory document: list every Diva capability, tag with `Keep / Adapt / Defer / Drop`, link to capability proposals. | PENDING | John | OQ-1, PRD §6.3 |
+| P2-1 | Diva capability inventory document: list every Diva capability, tag with `Keep / Adapt / Defer / Drop`, link to capability proposals. | **DONE 2026-09-02** | John | OQ-1, PRD §6.3 — `diva-capability-inventory.md`（68 行，Keep 29 / Adapt 15 / Defer 18 / Drop 6） |
 | P2-2 | First capability proposal after V0 ships. | DONE | — | V1 MA-1..MA-4 shipped 2026-08-08; Channel Pack proposal 2026-08-25 is the next unadopted proposal |
 | P2-3 | QwenPaw filesystem journal backend probe spec — standalone artifact; out of V0 scope. | DEFERRED | John | D-031 |
 | P2-4 | Long-term 板块 map (provider / runtime / session / memory / tools / events / ui) for V3 redesign. | DEFERRED | user + architect | OQ-9 |
@@ -57,8 +57,8 @@ P1-5 (QwenPaw location) remains as SR-4 / P2-3 — it never blocked V0.
 
 | ID | Item | Status | Owner |
 |---|---|---|---|
-| P3-1 | Verify upstream LICENSE for `claude-code` (currently no LICENSE file found locally). | PENDING | user |
-| P3-2 | Human review of `rig` LICENSE (custom Playgrounds Analytics form). | PENDING | user |
+| P3-1 | Verify upstream LICENSE for `claude-code` (currently no LICENSE file found locally). | **DONE 2026-09-02** — 上游专有 | `license-review-2026-09-02.md` |
+| P3-2 | Human review of `rig` LICENSE (custom Playgrounds Analytics form). | **DONE 2026-09-02** — 标准 MIT，误读更正 | `license-review-2026-09-02.md` |
 | P3-3 | Evaluate whether any "Defer" reference project is actually a better V0 application-assembly reference than Crush. | PENDING | user + future architect |
 | P3-4 | Review whether Crush's FSL-1.1-MIT allows deeper reuse than V0 currently plans. | DEFERRED | user |
 | P3-5 | Decide whether the storage architecture addendum should be (a) adopted as-is, (b) adopted with edits after ADR baseline reconciles, or (c) treated as proposal-only with D-026..D-033 capturing the substance. | DONE | ADR-001..008 + D-026..D-033; addendum remains historical |

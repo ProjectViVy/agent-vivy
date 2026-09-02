@@ -108,12 +108,12 @@ Do not pick work from those tables. Closed-track filing:
 | HITL-P1-6 | External notifications | OPEN | |
 | HITL-P1-7 | Generic edit + bulk approval | DEFERRED | Explicitly not P0 |
 | MEM-1 | Memory / BML / Laputa / AutoDream / Evolution / RAG | DEFERRED | Direction non-goal until a capability proposal |
-| P2-1 | Full Diva capability inventory (Keep/Adapt/Defer/Drop) | OPEN | `AGENT-VIVY-ASSEMBLY-OPTIONS.md` is only a V0 stand-in |
-| P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; needs SR-4 first |
-| SR-4 | QwenPaw vendor vs external | OPEN | Before any fsjournal probe |
+| P2-1 | Full Diva capability inventory (Keep/Adapt/Defer/Drop) | DONE 2026-09-02 | 2026-09-02 全量清单交付：68 行、10 域（会话/provider/工具/沙箱/通道/记忆/技能文件/GUI/CLI），Keep 29（已交付 28 + 待提案 1：消息编辑/回退/分叉）· Adapt 15 · Defer 18 · Drop 6；逐行附 agent-diva 证据路径 + Vivy 现状对照；`AGENT-VIVY-ASSEMBLY-OPTIONS.md` §5 的 V0 占位由其取代；再入规则重申（tag≠实施授权）。Filing: `docs/research/diva-capability-inventory.md` |
+| P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; SR-4 已裁定（2026-09-02）：QwenPaw 保持外部获取，探针立项时按 `qwenpaw-vendor-ruling.md` 重验 |
+| SR-4 | QwenPaw vendor vs external | DONE 2026-09-02 | 2026-09-02 裁定：**保持外部（external-by-URL），不 vendor**——无已核验使用场景（P2-3 DEFERRED）、Apache-2.0 随时可取、避免第二个"索引声称在/磁盘没有"的陈旧事实源；§3.17 核验结论已保全，重验优于信旧拷贝；推翻条件=fsjournal 探针立项或能力提案明确需要实现级参考。Filing: `docs/research/qwenpaw-vendor-ruling.md`（RI-OQ-5 一并 RESOLVED） |
 | P2-4 | Long-term 板块 map for V3 | DEFERRED | |
-| P3-1 | claude-code upstream LICENSE | OPEN | Ambient; before any reuse |
-| P3-2 | Human review of `rig` LICENSE | OPEN | Ambient; before any reuse |
+| P3-1 | claude-code upstream LICENSE | DONE 2026-09-02 | 上游 `anthropics/claude-code` LICENSE.md 全文核验：**专有**（"© Anthropic PBC. All rights reserved. Use is subject to Anthropic's Commercial Terms of Service."；GitHub 检测 license=None）。禁止任何源码/资产复用，Defer 立场从"缺席推断"升级为"上游明文"；本地副本已清理。Filing: `docs/research/license-review-2026-09-02.md` §1 |
+| P3-2 | Human review of `rig` LICENSE | DONE 2026-09-02 | 上游 `0xPlaygrounds/rig` LICENSE 全文核验：**标准 MIT**（2026-08-06 把标准 MIT 版权行误读为自定义许可，疑云解除）。Vivy intent 维持 Drop（Rust，Eino 已覆盖同缝）；未来 SystemV 探针时 rig 为许可安全候选。本地副本已清理。Filing: `docs/research/license-review-2026-09-02.md` §2 |
 | UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
 | UI-TOKEN | 中控台 Token 统计接真实用量账本 | DONE | 2026-08-29 `stats/tokens` RPC + `TokenUsageStore` 聚合 Journal `model.usage` 事件；面板改用真实数据，移除 DemoBanner。见 `docs/logs/2026-08-29-dashboard-token-stats-live/` |
 | SBX-OS | OS 级进程沙箱（bwrap / Seatbelt / Windows ACL） | DEFERRED | EINO 当前只做工作区路径 + 命令白名单 + HTTP 策略，不是 DSH 进程沙箱 |
@@ -517,6 +517,9 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-09-02 | P2-1 Diva 全量能力清单 | `morediva/agent-diva` 现场盘点（README/AGENTS-ARCH/crates/GUI 命令 grep）：68 行 10 域，Keep 29（28 已交付 + 1 待提案：UI-CHAT-ACT 截断/分叉）· Adapt 15 · Defer 18 · Drop 6；逐行证据路径 + Vivy 现状对照；取代 ASSEMBLY-OPTIONS §5 的 V0 占位；再入规则重申（tag≠实施授权）。docs-only，`just ci` 绿。Filing: `docs/research/diva-capability-inventory.md`. |
+| 2026-09-02 | SR-4 QwenPaw vendor 裁定：保持外部 | 不 vendor 进 `.workspace/`：无已核验场景（P2-3 DEFERRED）、Apache-2.0 随时可取、磁盘卫生；RI-OQ-5 RESOLVED；P2-3 行补注，状态不变。docs-only，`just ci` 绿。Filing: `docs/research/qwenpaw-vendor-ruling.md`. |
+| 2026-09-02 | P3-1/P3-2 参考项目许可审查 | claude-code 上游=**专有**（Anthropic PBC all-rights-reserved + Commercial ToS；GitHub license=None）——禁止源码/资产复用，Defer 立场升级为明文证实；rig 上游=**标准 MIT**（此前把版权行误读为自定义许可，疑云解除；intent 维持 Drop，SystemV 时为许可安全候选）。两棵本地副本均已清理，REFERENCE-INDEX §3.3/§3.15 同步改写 + RI-OQ-1/2/5 关闭。docs-only，`just ci` 绿。Filing: `docs/research/license-review-2026-09-02.md`. |
 | 2026-09-02 | UI-COMPOSER / UI-CHAT-TOOLBAR 可行部分：思考模式 D9 门控端到端 | domain `ThinkingMode`（auto/on/off）run 级 context 携带 + `ModelInfo.SupportsThinking`（Anthropic 目录 3.7+/4+ 代际标注）；`resolvingChatModel` 每调用读 runCtx，on+支持时注入 `einoclaude.WithThinking`（预算 4096 < max_tokens 8192），未知/非 Anthropic 一律不发（与 SupportsImages 门同构）；`turn/start` 新增 `thinking`（无效值持久化前 InvalidParams）、`session/context` 新增 `thinking_supported`；UI 选择器 D9 门控可见（无死控件），偏好随直发与排队链贯通 ChatInput→ChatView→store→api。测试：provider 本地 Anthropic 服务器断言 outbound thinking 键（4 用例）、runtime 归一化+ctx 贯通+无效拒绝、RPC 路由、store 队列贯通；e2e `thinking-gate.spec.ts`（无 provider 环境选择器隐藏、附件仍在）。OpenAI reasoning_effort 与强制 off 未接（见 summary）；AutoDream/询问模式维持 stub。Filing: `docs/logs/2026-09-02-thinking-mode-d9/`. |
 | 2026-09-02 | FACE-TUI-1 前置复核 + F0 paperwork 补档 | `VIVY-FACE-PACK.md` 状态提案→方向采纳（D2 已拍板、paperwork 漏执行）：ASSEMBLY 头注、SELF-EVOLVING-GATEWAY 内核名单加 FaceHost、PLUGIN-SPEC `seam: face` 正式分流声明；FACE-TUI-1 行注更正（F1 无网页控制面 + FaceHost/SDK Face 契约 + faces/tui 器官 + pack `face:` 键 = 2–3 片，非单切片）。docs-only，`just ci` 绿。Filing: `docs/logs/2026-09-02-face-pack-f0-paperwork/`. |
 | 2026-09-02 | UI-TRAJ / UI-TRAJECTORY-DEMO 轨迹面板接真实数据 | 内核 `trajectory/session` RPC：`Service.SessionTrajectory` 把会话最近 N 个 run 的 run_events+messages 投影为 turn 级轨迹（一 run 一回合、模型调用为 Step；usage/重试/工具行/压缩行/失败行；文本 8 KiB 界、limit 默认 20 上限 50；载荷仅哈希+字节长度守 D-010）；RPC handler + 单测、三个投影测试（手工两 run/limit 钳制/Echo 真实 run）。UI：api.ts wire 类型 + `fetchSessionTrajectory`；展示层类型抽 `trajectory-types.ts`，wire→camelCase 映射 `trajectory-session.ts`；`TrajectoryPanel` 会话选择器（默认首会话）+刷新 + 骨架/空态/错误条，折叠/搜索/选区/详情交互全部作用于真实数据；`trajectory-demo-data.ts` 降级 utils 测试夹具；i18n en/zh 同步。`just ci` CI-EXIT:0 + 3015 冒烟。Filing: `docs/logs/2026-09-02-traj-session-rpc/`. |
