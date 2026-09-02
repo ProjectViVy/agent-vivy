@@ -19,11 +19,15 @@ const (
 	// kernel ChannelHost (VIVY-CHANNEL-PACK.md), never the model tool
 	// table: channel plugins are never Adapt-ed into tools.
 	SeamChannel Seam = "channel"
+	// SeamFace marks a face organ (VIVY-FACE-PACK.md §6): a mouth of the
+	// species body hosted by the kernel FaceHost. A face is a
+	// control-plane client — it is never a model tool.
+	SeamFace Seam = "face"
 )
 
 func (s Seam) Valid() bool {
 	switch s {
-	case SeamTool, SeamToolWorld, SeamProvider, SeamChannel:
+	case SeamTool, SeamToolWorld, SeamProvider, SeamChannel, SeamFace:
 		return true
 	default:
 		return false
@@ -59,6 +63,14 @@ const (
 	// plugin sources — spawn is a kernel-hosted capability exactly like
 	// Listen is a ChannelHost capability (VC-3, D4).
 	GrantProcSpawn Grant = "proc.spawn"
+	// Face-family grants (VIVY-FACE-PACK.md §6). A face organ is a
+	// control-plane client, not a model tool: tty is the right to draw to
+	// and read from the terminal, argv the right to read its command-line
+	// arguments, rpc.client the right to call the kernel control plane
+	// through FaceEnv.Call. No other grant is meaningful to a face.
+	GrantTTY       Grant = "tty"
+	GrantArgv      Grant = "argv"
+	GrantRPCClient Grant = "rpc.client"
 )
 
 // Valid reports whether the grant is part of the known vocabulary. Whether
@@ -68,7 +80,8 @@ func (g Grant) Valid() bool {
 	switch g {
 	case GrantFSRead, GrantFSWrite,
 		GrantChannelPoll, GrantChannelWebhook, GrantChannelListen, GrantChannelA2A,
-		GrantSecretRead, GrantProcSpawn:
+		GrantSecretRead, GrantProcSpawn,
+		GrantTTY, GrantArgv, GrantRPCClient:
 		return true
 	default:
 		return false

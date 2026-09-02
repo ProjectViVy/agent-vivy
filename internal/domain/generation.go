@@ -8,6 +8,10 @@ type AssemblyRecipe struct {
 	Providers []string `json:"providers,omitempty"`
 	Tools     []string `json:"tools,omitempty"`
 	Plugins   []string `json:"plugins,omitempty"`
+	// Face names the seam-face organ compiled into this generation
+	// (VIVY-FACE-PACK.md §6), e.g. "headless". Empty keeps the built-in
+	// launcher (`vivy run` kernel headless loop).
+	Face string `json:"face,omitempty"`
 }
 
 type GenerationPhase string

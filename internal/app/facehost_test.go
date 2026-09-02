@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/plugin"
 )
 
 // The gateway-less assembly (VIVY-FACE-PACK §7, F1) drives the same control
@@ -268,6 +270,79 @@ func TestLoopbackControlCompletesApprovedConversation(t *testing.T) {
 	}
 	if !finalText {
 		t.Fatalf("final assistant text missing after the approved round: %v", messages)
+	}
+}
+
+// TestRunFaceWithoutOrganFails pins the launcher contract: composing run
+// through a face with no organ compiled in fails loudly instead of
+// silently falling back.
+func TestRunFaceWithoutOrganFails(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	t.Setenv("ANTHROPIC_API_KEY", "facehost-test-key")
+	t.Setenv("VIVY_PROVIDER", "anthropic")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	_, err := RunFace(ctx, newAnthropicTestConfig(t), nil, plugin.FaceOptions{
+		Prompt: "x", Out: io.Discard, Err: io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "no face organ") {
+		t.Fatalf("RunFace(nil ctor) = %v, want the no-organ error", err)
+	}
+}
+
+// stubFace is a minimal seam-face organ: it proves the launcher hands the
+// invocation payload through and the FaceEnv reaches the real control
+// plane, without owning the conversation flow (that is faces/headless's).
+type stubFace struct {
+	opts plugin.FaceOptions
+	kind string
+}
+
+func (f *stubFace) Kind() string { return f.kind }
+
+func (f *stubFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, error) {
+	if f.opts.Out == nil || f.opts.Err == nil {
+		return plugin.FaceResult{}, errors.New("stub: launcher dropped the writers")
+	}
+	env.OnEvent(func(string, json.RawMessage) {})
+	if _, err := env.Call(ctx, "initialize", nil); err != nil {
+		return plugin.FaceResult{}, err
+	}
+	session, err := env.Call(ctx, "session/create", map[string]any{"title": "runface-stub"})
+	if err != nil {
+		return plugin.FaceResult{}, err
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(session, &created); err != nil || created.ID == "" {
+		return plugin.FaceResult{}, fmt.Errorf("stub: session/create returned %s", session)
+	}
+	return plugin.FaceResult{Status: "completed"}, nil
+}
+
+// TestRunFaceServesGatewaylessControlPlane pins the F2 launcher half: a
+// face organ drives the real control plane through FaceEnv with no
+// listener, and the kind/kind-match plumbing stays out of its way.
+func TestRunFaceServesGatewaylessControlPlane(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	t.Setenv("ANTHROPIC_API_KEY", "facehost-test-key")
+	t.Setenv("VIVY_PROVIDER", "anthropic")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ctor := func(opts plugin.FaceOptions) plugin.Face {
+		return &stubFace{opts: opts, kind: "stub"}
+	}
+	result, err := RunFace(ctx, newAnthropicTestConfig(t), ctor, plugin.FaceOptions{
+		Prompt: "hello", Out: io.Discard, Err: io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("RunFace: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("status = %q, want completed", result.Status)
 	}
 }
 
