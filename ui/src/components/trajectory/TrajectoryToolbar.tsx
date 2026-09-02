@@ -7,7 +7,7 @@ import { Clock3, Search, UnfoldVertical, FoldVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/i18n';
-import type { TrajectoryTimelineMode } from './trajectory-demo-data';
+import type { TrajectoryTimelineMode } from './trajectory-types';
 
 export interface TrajectoryToolbarProps {
   mode: TrajectoryTimelineMode;

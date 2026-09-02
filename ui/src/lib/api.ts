@@ -3,7 +3,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
-  'session/context', 'context/compact', 'session/compactions',
+  'session/context', 'context/compact', 'session/compactions', 'trajectory/session',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -597,3 +597,59 @@ export const updateCronJob = (id: string, input: CronJobInput) => request<{ job:
 export const deleteCronJob = (id: string) => request<{ deleted: boolean }>('cron/delete', { id });
 export const triggerCronJob = (id: string) => request<{ job: CronJobDto }>('cron/trigger', { id });
 export const stopCronJob = (id: string) => request<{ stopped: boolean }>('cron/stop', { id });
+
+// ==================== Trajectory（UI-TRAJ，turn/session RPC 真实数据） ====================
+
+export interface TrajectoryTokensWire {
+  input?: number;
+  output?: number;
+  think?: number;
+  cache_read?: number;
+  cache_write?: number;
+}
+
+export interface TrajectoryRecordWire {
+  index: number;
+  id: string;
+  turn: number | null;
+  group: string;
+  kind: string;
+  text: string;
+  time_seconds?: number | null;
+  started_at?: number | null;
+  tokens?: TrajectoryTokensWire;
+  result?: string;
+  is_error?: boolean;
+  input_detail?: string;
+  output_detail?: string;
+  call_id?: string;
+  provider?: string;
+  model?: string;
+  opens_turn?: boolean;
+}
+
+export interface TrajectoryRequestWire {
+  number: number;
+  turn: number | null;
+  group: string;
+  status: string;
+  started_at: number;
+  completed_at: number;
+  provider?: string;
+  model?: string;
+  usage: TrajectoryTokensWire;
+  retry?: number;
+  messages?: number;
+  preamble_bytes?: number;
+  error?: string;
+}
+
+export interface TrajectorySessionWire {
+  session_id: string;
+  turns: number;
+  records: TrajectoryRecordWire[];
+  requests: TrajectoryRequestWire[];
+}
+
+export const fetchSessionTrajectory = (sessionId: string, limit?: number) =>
+  request<TrajectorySessionWire>('trajectory/session', limit ? { session_id: sessionId, limit } : { session_id: sessionId });

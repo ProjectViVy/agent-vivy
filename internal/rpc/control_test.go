@@ -2364,3 +2364,51 @@ func TestMarketplaceInstallModeAndCheckRoute(t *testing.T) {
 		t.Fatalf("unconfigured marketplace error = %v", rpcErr)
 	}
 }
+
+// TestTrajectorySessionRoute checks the trajectory/session route: invalid
+// params without session_id and the projected shape over a seeded run.
+func TestTrajectorySessionRoute(t *testing.T) {
+	env := newControlTestEnv(t)
+	ctx := context.Background()
+
+	if _, rpcErr := callControl(t, env.handler, "trajectory/session", map[string]any{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing session_id error = %v", rpcErr)
+	}
+
+	sessionID := domain.SessionID("sess-traj")
+	runID := domain.RunID("run-traj")
+	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.backend.AppendMessage(ctx, domain.Message{ID: "m1", SessionID: sessionID, RunID: runID,
+		Role: domain.RoleUser, CreatedAt: 1100, Content: "hello trajectory rpc"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{
+		Type: domain.EventRunStarted, CreatedAt: 1200, PayloadVersion: 1,
+		Payload: []byte(`{"provider":"test","model":"m1","mode":"chat"}`),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, rpcErr := callControl(t, env.handler, "trajectory/session", map[string]any{"session_id": string(sessionID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	session, ok := result.(runtime.TrajectorySession)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if session.SessionID != string(sessionID) || session.Turns != 1 || len(session.Records) != 2 {
+		t.Fatalf("session = %+v", session)
+	}
+	if session.Records[0].Kind != "system" || session.Records[0].Turn != nil {
+		t.Fatalf("system record = %+v", session.Records[0])
+	}
+	if session.Records[1].Kind != "user" || session.Records[1].Turn == nil || *session.Records[1].Turn != 1 || !session.Records[1].OpensTurn {
+		t.Fatalf("user record = %+v", session.Records[1])
+	}
+	if len(session.Requests) != 0 {
+		t.Fatalf("requests = %+v", session.Requests)
+	}
+}
