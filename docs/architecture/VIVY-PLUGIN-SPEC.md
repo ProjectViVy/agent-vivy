@@ -9,7 +9,7 @@
 > 本批通道适配器是例外：它们是可选耳朵，不是内核，因此也住在 `plugins/`，清单必须 `seam: channel`（见 `VIVY-ASSEMBLY.md` 与 `VIVY-CHANNEL-PACK.md`）。
 > Skill 文本不是插件。远程 MCP / provider 地址是配置，不是插件。
 > `seam: channel` 已由 **`VIVY-CHANNEL-PACK.md`** 扩入（方向采纳 2026-08-30）。通道插件零个 `tools`，不进工具表。Host 在内核。
-> `seam: face`（出厂 `faces/` 与用户插件共用 ABI）见 **`VIVY-FACE-PACK.md`**。本文件未扩 seam 之前，face 清单不得当 tool 插件提交。
+> `seam: face`（出厂 `faces/` 与用户插件共用 ABI）已由 **`VIVY-FACE-PACK.md`** 扩入（方向采纳 2026-08-31，VC 决策 D2）。face 清单零个 `tools`，禁止 `net.Listen`；kind/listen/grants 规则见该合同 §6。出厂脸走配方 `face:`，用户脸走 `plugins/` + `seam: face` 且**替换**出厂脸。
 
 ---
 
