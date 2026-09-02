@@ -77,7 +77,7 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
-		Sessions: backend, Crons: backend, Sink: bus,
+		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
 	for _, tool := range ts {
@@ -86,7 +86,7 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 	deps := ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Todos: backend, Bus: bus, Service: service,
-		Crons: backend, CronRunner: service,
+		Crons: backend, CronRunner: service, Truncations: backend,
 		Studio: studio.NewService(backend),
 		Live: studio.LiveView{
 			Provider:      "test",
@@ -538,7 +538,7 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
-		Sessions: backend, Crons: backend, Sink: bus,
+		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
 	handler, err := NewControlHandler(ControlDeps{
@@ -801,7 +801,7 @@ func TestToolsCatalogListAndSetActive(t *testing.T) {
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
-		Sessions: backend, Crons: backend, Sink: bus,
+		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	var changes int
 	handler, err := NewControlHandler(ControlDeps{
@@ -886,7 +886,7 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
-		Sessions: backend, Crons: backend, Sink: bus,
+		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	catalog := &mcpCatalogStub{listed: tools.MCPListResponse{Tools: []tools.MCPTool{{Name: "echo"}}, Untrusted: true}}
 	var changes int
@@ -1016,7 +1016,7 @@ func newSettingsHandlerEnvWith(t *testing.T, probe *settingsApplierProbe, mutate
 	bus := events.NewBus(8)
 	service := runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
-		Sessions: backend, Crons: backend, Sink: bus,
+		Sessions: backend, Crons: backend, Sink: bus, Truncations: backend,
 	})
 	settingsPath := filepath.Join(t.TempDir(), "agent-home", "settings.yaml")
 	deps := ControlDeps{
@@ -2462,5 +2462,67 @@ func TestTurnStartThinkingRoute(t *testing.T) {
 	}
 	if context.ThinkingSupported {
 		t.Fatal("thinking_supported = true, want false without a thinking-capable route")
+	}
+}
+
+func TestSessionRewindRoute(t *testing.T) {
+	env := newControlTestEnv(t)
+	ctx := context.Background()
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []domain.Message{
+		{ID: "msg-1", SessionID: session.ID, Role: domain.RoleUser, Content: "one"},
+		{ID: "msg-2", SessionID: session.ID, Role: domain.RoleAssistant, Content: "two"},
+		{ID: "msg-3", SessionID: session.ID, Role: domain.RoleUser, Content: "three"},
+	} {
+		if err := env.backend.AppendMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, rpcErr := callControl(t, env.handler, "session/rewind", map[string]string{
+		"session_id": string(session.ID), "message_id": "msg-2",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	resultJSON, _ := json.Marshal(result)
+	var rewound struct {
+		CutoffMessageID string `json:"cutoff_message_id"`
+		RemainingCount  int    `json:"remaining_count"`
+	}
+	if err := json.Unmarshal(resultJSON, &rewound); err != nil {
+		t.Fatal(err)
+	}
+	if rewound.CutoffMessageID != "msg-2" || rewound.RemainingCount != 1 {
+		t.Fatalf("rewind result = %s, want cutoff msg-2 with 1 remaining", resultJSON)
+	}
+
+	listed, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, _ := json.Marshal(listed)
+	if !strings.Contains(string(listedJSON), `"one"`) || strings.Contains(string(listedJSON), `"two"`) || strings.Contains(string(listedJSON), `"three"`) {
+		t.Fatalf("session/messages after rewind = %s, want only msg-1", listedJSON)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "session/rewind", map[string]string{"session_id": string(session.ID), "message_id": "msg-9"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown cutoff err = %v, want CodeNotFound", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/rewind", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing fields err = %v, want InvalidParams", rpcErr)
+	}
+	if err := env.backend.CreateRun(ctx, domain.Run{ID: "run-busy", SessionID: session.ID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/rewind", map[string]string{"session_id": string(session.ID), "message_id": "msg-1"}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("busy session err = %v, want CodeConflict", rpcErr)
 	}
 }

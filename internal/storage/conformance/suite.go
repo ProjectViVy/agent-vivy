@@ -67,9 +67,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-18", "file version chain + stale-read tracker", cnFileVersionChain},
 		{"CN-19", "runs listed by session", cnRunsBySession},
 		{"CN-20", "compactions listed by session", cnCompactionsBySession},
+		{"CN-21", "session truncation markers", cnSessionTruncationMarkers},
 	}
-	if len(cases) != 20 {
-		t.Fatalf("conformance suite must carry exactly 20 cases, got %d", len(cases))
+	if len(cases) != 21 {
+		t.Fatalf("conformance suite must carry exactly 21 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -717,5 +718,47 @@ func cnCompactionsBySession(t *testing.T, h Harness) {
 	}
 	if zero, err := b.ListSessionCompactions(ctx, "sess-cp", 0); err != nil || len(zero) != 0 {
 		t.Fatalf("limit=0 = %+v, %v; want empty, nil", zero, err)
+	}
+}
+
+func cnSessionTruncationMarkers(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	if _, ok, err := b.LatestSessionTruncation(ctx, "sess-tw"); err != nil || ok {
+		t.Fatalf("no-marker read = ok=%v, %v; want false, nil", ok, err)
+	}
+	messages := []domain.Message{
+		{ID: "msg-1", Role: domain.RoleUser, Content: "one"},
+		{ID: "msg-2", Role: domain.RoleAssistant, Content: "two"},
+		{ID: "msg-3", Role: domain.RoleUser, Content: "three"},
+		{ID: "msg-4", Role: domain.RoleAssistant, Content: "four"},
+	}
+	for _, marker := range []storage.SessionTruncation{
+		{SessionID: "sess-tw", CutoffMessageID: "msg-3", Reason: storage.TruncationRewind, CreatedAt: 100},
+		{SessionID: "sess-tw", CutoffMessageID: "msg-2", Reason: storage.TruncationRewind, CreatedAt: 200},
+		{SessionID: "sess-other", CutoffMessageID: "msg-1", Reason: storage.TruncationEdit, CreatedAt: 300},
+	} {
+		if err := b.RecordSessionTruncation(ctx, marker); err != nil {
+			t.Fatalf("RecordSessionTruncation %s: %v", marker.CutoffMessageID, err)
+		}
+	}
+	got, ok, err := b.LatestSessionTruncation(ctx, "sess-tw")
+	if err != nil || !ok {
+		t.Fatalf("LatestSessionTruncation = ok=%v, %v; want true, nil", ok, err)
+	}
+	if got.CutoffMessageID != "msg-2" || got.Reason != storage.TruncationRewind {
+		t.Fatalf("latest marker = %+v, want msg-2 rewind (newest wins per session)", got)
+	}
+	folded := storage.ApplySessionTruncation(messages, got)
+	if len(folded) != 1 || folded[0].ID != "msg-1" {
+		t.Fatalf("rewind fold = %+v, want messages before the cutoff (exclusive)", folded)
+	}
+	kept := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationFork, CutoffMessageID: "msg-2"})
+	if len(kept) != len(messages) {
+		t.Fatalf("fork fold = %d rows, want unfiltered (fork markers filter nothing)", len(kept))
+	}
+	failOpen := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationRewind, CutoffMessageID: "msg-gone"})
+	if len(failOpen) != len(messages) {
+		t.Fatalf("stale-cutoff fold = %d rows, want unfiltered (fail-open)", len(failOpen))
 	}
 }

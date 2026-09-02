@@ -96,6 +96,10 @@ type ServiceDeps struct {
 	// (context/compact + feed folding). Nil keeps automatic in-run
 	// compression working; only durable summary folding is disabled.
 	Compactions storage.CompactionStore
+	// Truncations persists the session rewind/edit/fork cutoff markers
+	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
+	// full history stays in every view and session/rewind is refused.
+	Truncations storage.TruncationStore
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -1159,6 +1163,9 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
 		stored = nil
 	}
+	// Rewind cutoff first (JOURNAL-REWIND-AND-FORK): the truncation winnows
+	// the raw rows, then compaction folds what remains.
+	stored = s.effectiveSessionMessages(ctx, sessionID, stored)
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
 	msgs, stats, err := buildRunContext(ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,

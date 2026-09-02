@@ -382,6 +382,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Hooks:                runHooks,
 		Sink:                 svcSink,
 		Compactions:          backend,
+		Truncations:          backend,
 		Crons:                backend,
 		Titles:               provider.NewChainTitler(provider.TitleCandidates(catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
@@ -447,6 +448,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Marketplace:    marketplace,
 		SkillRevisions: backend,
 		Compactions:    backend,
+		Truncations:    backend,
 		Crons:          backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{

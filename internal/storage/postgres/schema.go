@@ -226,6 +226,17 @@ CREATE TABLE session_compactions (
 );
 CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, created_at DESC);
 
+CREATE TABLE session_truncations (
+	id BIGSERIAL PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	cutoff_message_id TEXT NOT NULL,
+	reason TEXT NOT NULL,
+	fork_session_id TEXT NOT NULL DEFAULT '',
+	created_at BIGINT NOT NULL,
+	FOREIGN KEY(session_id) REFERENCES sessions(id)
+);
+CREATE INDEX session_truncations_session_idx ON session_truncations(session_id, id DESC);
+
 CREATE TABLE cron_jobs (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
