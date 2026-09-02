@@ -55,9 +55,12 @@ type EngineConfig struct {
 	// session approval policy "auto".
 	AutoApproveTools []string
 	// SkillBackend wires Eino's skill middleware so the model can discover
-	// and load SKILL.md content without a keyword match. Nil leaves the
-	// existing catalog-only tools (skills_list / skill_view / skill_manage)
-	// as the only Skill surface. Mutation stays on skill_manage.
+	// and load SKILL.md content without a keyword match, and — when the
+	// backend implements AlwaysSkills — injects `always: true` skill bodies
+	// into every model call within the always budget (SKILL-MKT-2). Nil
+	// leaves the existing catalog-only tools (skills_list / skill_view /
+	// skill_manage) as the only Skill surface. Mutation stays on
+	// skill_manage.
 	SkillBackend einoskill.Backend
 	// Compaction enables the Eino-native context compression middlewares
 	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
@@ -164,6 +167,13 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, err
 		}
 		handlers = append(handlers, compHandlers...)
+	}
+	if alwaysHandler := buildAlwaysSkillsHandler(cfg.SkillBackend); alwaysHandler != nil {
+		// Registered after the compaction handlers for the same reason as
+		// AGENTS.md (transient injections must not be summarized away) and
+		// before the agentsmd handler so workspace instructions stay
+		// closest to the first user turn.
+		handlers = append(handlers, alwaysHandler)
 	}
 	if mdHandler, err := buildAgentsMDHandler(ctx, cfg.AgentsMDBackend); err != nil {
 		return nil, err

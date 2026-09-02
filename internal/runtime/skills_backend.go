@@ -270,6 +270,7 @@ type loadedSkill struct {
 	name          string
 	hash          string
 	enabled       bool
+	always        bool
 	declaredTools []string
 	warnings      []string
 }
@@ -324,7 +325,7 @@ func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSk
 	}
 	hash := sha256Hex(data)
 	return loadedSkill{front: local.eino(), content: content, dir: dir, name: name, hash: hash, enabled: enabled,
-		declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data))}, nil
+		always: local.Always, declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data))}, nil
 }
 
 func (b *EinoSkillBackend) summary(item loadedSkill) tools.SkillSummary {
@@ -572,8 +573,11 @@ type skillFrontMatter struct {
 	Model       string `yaml:"model,omitempty"`
 	// Tools names the tool surface this skill mounts when viewed. Canonical
 	// on re-render so skill_manage edits never drop the declaration.
-	Tools   []string `yaml:"tools,omitempty"`
-	Enabled *bool    `yaml:"enabled,omitempty"`
+	Tools []string `yaml:"tools,omitempty"`
+	// Always keeps the skill body injected into every model call within
+	// the always-injection budget (SKILL-MKT-2). Absent means false.
+	Always  bool  `yaml:"always,omitempty"`
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 func (f skillFrontMatter) eino() einoskill.FrontMatter {
