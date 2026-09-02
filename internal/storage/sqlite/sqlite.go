@@ -49,6 +49,7 @@ var migrations = []struct {
 	{17, migration017},
 	{18, migration018},
 	{19, migration019},
+	{20, migration020},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -603,4 +604,21 @@ const migration019 = `
 		read_at INTEGER NOT NULL,
 		PRIMARY KEY(session_id, path)
 	);
+`
+
+// migration020 adds the session truncation markers behind logical
+// rewind/edit/fork (JOURNAL-REWIND-AND-FORK): one marker row per user
+// action, newest wins; messages and run_events stay append-only and are
+// filtered at read time. No foreign keys, same delete-order rationale as
+// migration019 — session deletion cascades through explicit DELETEs.
+const migration020 = `
+	CREATE TABLE IF NOT EXISTS session_truncations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		cutoff_message_id TEXT NOT NULL,
+		reason TEXT NOT NULL,
+		fork_session_id TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS session_truncations_session_idx ON session_truncations(session_id, id DESC);
 `

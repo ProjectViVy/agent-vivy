@@ -320,6 +320,54 @@ type CompactionStore interface {
 	ListSessionCompactions(ctx context.Context, sessionID domain.SessionID, limit int) ([]SessionCompaction, error)
 }
 
+// Truncation reasons. Rewind/edit markers cut the session view at the
+// cutoff message (inclusive); fork markers record the fork point for
+// audit and never filter.
+const (
+	TruncationRewind = "rewind"
+	TruncationEdit   = "edit"
+	TruncationFork   = "fork"
+)
+
+// SessionTruncation is a logical cutoff marker (JOURNAL-REWIND-AND-FORK):
+// the message named by CutoffMessageID and everything after it leaves the
+// session view — model context and UI alike — while every row stays on
+// disk. The newest marker per session wins.
+type SessionTruncation struct {
+	SessionID       domain.SessionID
+	CutoffMessageID string
+	Reason          string // TruncationRewind / TruncationEdit / TruncationFork
+	ForkSessionID   string // set when Reason == TruncationFork
+	CreatedAt       int64  // unix milli
+}
+
+// TruncationStore persists session truncation markers. Rows are never
+// updated or deleted (DeleteSession drops them with the session); a
+// rewind is just a new marker.
+type TruncationStore interface {
+	RecordSessionTruncation(ctx context.Context, t SessionTruncation) error
+	// LatestSessionTruncation returns the newest marker for the session;
+	// ok=false when none exists.
+	LatestSessionTruncation(ctx context.Context, sessionID domain.SessionID) (SessionTruncation, bool, error)
+}
+
+// ApplySessionTruncation filters a ListMessages slice by one marker: every
+// message from the cutoff message (inclusive) onward is dropped, matching
+// the store's own creation order. A fork marker filters nothing, and a
+// marker whose cutoff message is not in the slice is stale and ignored
+// (rows are append-only, so this only guards deleted edge cases).
+func ApplySessionTruncation(messages []domain.Message, t SessionTruncation) []domain.Message {
+	if t.Reason == TruncationFork {
+		return messages
+	}
+	for i, message := range messages {
+		if message.ID == t.CutoffMessageID {
+			return messages[:i]
+		}
+	}
+	return messages
+}
+
 // FileVersion retention knobs (RB-1 O2 ruling): the chain keeps the newest
 // 20 versions per (session, path) and never archives a version larger than
 // 1MB — the same byte cap the file tools enforce on write content.
@@ -369,6 +417,7 @@ type Engine interface {
 	SkillRevisionStore
 	TodoStore
 	CompactionStore
+	TruncationStore
 	CronStore
 	FileVersionStore
 	StudioStore

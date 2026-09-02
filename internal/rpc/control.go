@@ -63,6 +63,10 @@ type ControlDeps struct {
 	// Compactions lists session-level compaction records for
 	// session/compactions. Nil disables the method.
 	Compactions storage.CompactionStore
+	// Truncations reads the session rewind cutoff markers behind
+	// session/messages filtering and session/rewind. Nil leaves the full
+	// history in every view and disables the method.
+	Truncations storage.TruncationStore
 	Bus         *events.Bus
 	Service     *runtime.Service
 	Studio      *studio.Service
@@ -485,7 +489,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"channel.inspect", "channel.get", "channel.update",
-			"session.context", "context.compact",
+			"session.context", "context.compact", "session.rewind",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
 			"skills.list", "skills.get",
@@ -518,6 +522,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.sessionContext(ctx, request)
 	case "context/compact":
 		return h.compactContext(ctx, request)
+	case "session/rewind":
+		return h.rewindSession(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
 	case "session/compactions":
@@ -914,6 +920,11 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 	if err != nil {
 		return nil, internalError(err)
 	}
+	if h.deps.Truncations != nil {
+		if marker, ok, err := h.deps.Truncations.LatestSessionTruncation(ctx, domain.SessionID(params.SessionID)); err == nil && ok {
+			messages = storage.ApplySessionTruncation(messages, marker)
+		}
+	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
 		result := messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, Provenance: messageProvenance(message), CreatedAt: message.CreatedAt}
@@ -963,6 +974,38 @@ func (h *controlHandler) compactContext(ctx context.Context, request Request) (a
 	}
 	if errors.Is(err, runtime.ErrCompactionNotNeeded) || errors.Is(err, runtime.ErrCompactionNothingToDo) {
 		return result, nil
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+type rewindParams struct {
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+}
+
+// rewindSession truncates the session's visible history at a cutoff
+// message (JOURNAL-REWIND-AND-FORK R1). Rows are never deleted: the
+// marker filters the live views, the Journal stays append-only.
+func (h *controlHandler) rewindSession(ctx context.Context, request Request) (any, *Error) {
+	var params rewindParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.SessionID == "" || params.MessageID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and message_id are required"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.RewindSession(ctx, domain.SessionID(params.SessionID), params.MessageID)
+	if errors.Is(err, runtime.ErrSessionBusy) {
+		return nil, &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if errors.Is(err, runtime.ErrInvalidCutoff) || errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
 	}
 	if err != nil {
 		return nil, internalError(err)
