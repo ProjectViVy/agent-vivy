@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { settingsUpdateFrom } from '@/lib/api';
+import { listSessionCompactions, settingsUpdateFrom, type SessionCompactionRecord } from '@/lib/api';
 import { runActive, useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 
@@ -41,6 +41,29 @@ export function CompactionSettingsCard() {
   const [compacting, setCompacting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const locked = settings?.read_only || Boolean(settings?.frozen);
+
+  const [history, setHistory] = useState<SessionCompactionRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const refreshHistory = useCallback(async (sessionId: string) => {
+    setHistoryLoading(true);
+    try {
+      const res = await listSessionCompactions(sessionId, 50);
+      setHistory(res.compactions ?? []);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      setHistory([]);
+      return;
+    }
+    void refreshHistory(activeSessionId);
+  }, [activeSessionId, refreshHistory]);
 
   useEffect(() => {
     if (!base) return;
@@ -84,6 +107,7 @@ export function CompactionSettingsCard() {
           before: result.before_tokens.toLocaleString(),
           after: result.after_tokens.toLocaleString(),
         }));
+        void refreshHistory(activeSessionId);
       }
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : String(error));
@@ -153,12 +177,37 @@ export function CompactionSettingsCard() {
           )}
         </div>
 
+        <div className="rounded-lg border p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">{t('settings.compaction.historyTitle')}</p>
+            {historyLoading ? <span className="text-xs text-muted-foreground" aria-live="polite">{t('settings.compaction.historyLoading')}</span> : null}
+          </div>
+          {!activeSessionId ? (
+            <p className="mt-2 text-sm text-muted-foreground">{t('settings.compaction.historyOpenSessionHint')}</p>
+          ) : history.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground" data-testid="compaction-history-empty">{t('settings.compaction.historyEmpty')}</p>
+          ) : (
+            <ul className="mt-2 space-y-2" data-testid="compaction-history">
+              {history.map((record) => (
+                <li key={`${record.run_id}-${record.created_at}`} className="rounded-md bg-muted/40 p-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant="outline">{t('settings.compaction.historyRun', { runId: record.run_id })}</Badge>
+                    <span>{new Date(record.created_at).toLocaleString()}</span>
+                    <span>{t('settings.compaction.historyDropped', { count: record.dropped_count })}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-sm">{record.summary}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" disabled={locked || saving} onClick={() => void save()}>{saving ? t('settings.compaction.saving') : t('settings.compaction.save')}</Button>
           <Button type="button" variant="outline" disabled={!activeSessionId || compacting || busy} onClick={() => void compactNow()}>
             {compacting ? t('settings.compaction.compacting') : t('settings.compaction.run')}
           </Button>
-          <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => { void loadSessionContext(); void loadBackgroundRuns(); }}>{t('settings.compaction.refresh')}</Button>
+          <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => { void loadSessionContext(); void loadBackgroundRuns(); if (activeSessionId) void refreshHistory(activeSessionId); }}>{t('settings.compaction.refresh')}</Button>
           {busy ? <span className="text-xs text-amber-600 dark:text-amber-400">{t('settings.compaction.busyHint')}</span> : null}
         </div>
         {feedback ? <p className="text-xs text-muted-foreground" aria-live="polite">{feedback}</p> : null}

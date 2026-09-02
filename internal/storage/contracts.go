@@ -315,6 +315,9 @@ type CompactionStore interface {
 	// LatestSessionCompaction returns the newest record for the session;
 	// ok=false when none exists.
 	LatestSessionCompaction(ctx context.Context, sessionID domain.SessionID) (SessionCompaction, bool, error)
+	// ListSessionCompactions returns up to limit records for the session,
+	// newest first; limit <= 0 yields no rows.
+	ListSessionCompactions(ctx context.Context, sessionID domain.SessionID, limit int) ([]SessionCompaction, error)
 }
 
 // FileVersion retention knobs (RB-1 O2 ruling): the chain keeps the newest

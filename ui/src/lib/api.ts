@@ -3,7 +3,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
-  'session/context', 'context/compact',
+  'session/context', 'context/compact', 'session/compactions',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -77,6 +77,8 @@ export interface SessionContext {
 }
 /** context/compact 结果。 */
 export interface CompactResult { before_tokens: number; after_tokens: number; folded_messages: number; skipped: boolean }
+/** session/compactions 单条记录：summary 为不可信生成内容，仅展示。 */
+export interface SessionCompactionRecord { run_id: string; created_at: number; tail_from: number; dropped_count: number; summary: string }
 export interface BackgroundRun extends Run { workspace_id?: string }
 export interface ChildRun { id: string; parent_run_id: string; root_run_id: string; session_id: string; status: RunStatus; depth: number; workspace_id?: string; result?: string; error?: string; created_at: number }
 export type ReviewKind = 'approval' | 'question';
@@ -211,6 +213,8 @@ export const deleteSession = (id: string) => request<unknown>('session/delete', 
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
 export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
+export const listSessionCompactions = (sessionId: string, limit = 50) =>
+  request<{ compactions: SessionCompactionRecord[] }>('session/compactions', { session_id: sessionId, limit });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
 export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal', face?: Face, attachments?: AttachmentInput[]) => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode, face, attachments });
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });
