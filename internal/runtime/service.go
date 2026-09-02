@@ -192,6 +192,9 @@ type RunOptions struct {
 	// persists them with the user row and the context build turns them
 	// into multimodal input parts.
 	Attachments []domain.Attachment
+	// Thinking is the per-run extended-thinking preference. Empty means
+	// auto: normalizeThinkingMode maps it before the run starts.
+	Thinking domain.ThinkingMode
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -293,6 +296,10 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return "", err
 	}
+	thinking, err := normalizeThinkingMode(options.Thinking)
+	if err != nil {
+		return "", err
+	}
 	face, err := normalizeFace(options.Face)
 	if err != nil {
 		return "", err
@@ -368,6 +375,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	// refreshes must not cancel the work (AS-7). Cancel/CancelAll hold the
 	// only handles that end it early.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	runCtx = domain.WithThinkingMode(runCtx, thinking)
 	s.mu.Lock()
 	s.active[runID] = cancel
 	s.ledgers[runID] = ledger

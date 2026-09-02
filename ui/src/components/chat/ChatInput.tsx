@@ -11,15 +11,15 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { AttachmentInput, PermissionPreset, RunMode, SessionContext } from '@/lib/api';
+import type { AttachmentInput, PermissionPreset, RunMode, SessionContext, ThinkingMode } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 
 interface ChatInputProps {
-  onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[]) => Promise<void> | void;
+  onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
   /** 运行期间发送走排队（对照 Crush）：跳过 UI 预检，服务端门禁仍然生效。 */
-  onQueue?: (content: string, mode: RunMode, attachments?: AttachmentInput[]) => Promise<void> | void;
+  onQueue?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
   onCancel?: () => Promise<void> | void;
   disabled?: boolean;
   running?: boolean;
@@ -29,7 +29,6 @@ interface ChatInputProps {
 }
 
 type ExecMode = 'agent' | 'plan' | 'ask';
-type ThinkingMode = 'auto' | 'on' | 'off';
 type PermissionMode = 'cautious' | 'smart' | 'trusted';
 
 const ESTIMATED_CONTEXT_LIMIT_TOKENS = 128000;
@@ -164,13 +163,13 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
     const outgoing = pending.length ? pending : undefined;
     if (running) {
       // 运行中不阻断输入：入队等待本轮结束（对照 Crush 队列 pill）。
-      await onQueue?.(content, mode, outgoing);
+      await onQueue?.(content, mode, outgoing, thinkingMode);
       setValue('');
       setPending([]);
       return;
     }
     try {
-      await onSend(content, mode, outgoing);
+      await onSend(content, mode, outgoing, thinkingMode);
       setValue('');
       setPending([]);
     } catch {
@@ -243,31 +242,34 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden" disabled={disabled} onChange={(event) => { void addFiles(event.target.files ?? []); event.target.value = ''; }} />
       </label>
 
-      {/* 思考模式选择 */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.thinkingMode')} aria-label={t('chatInput.thinkingMode')}>
-            {thinkingModeOption.filled
-              ? <thinkingModeOption.icon className="h-4 w-4" fill="currentColor" />
-              : <thinkingModeOption.icon className="h-4 w-4" />}
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="bottom" align="start" className="min-w-36 p-1.5">
-          {THINKING_MODES.map((mode) => (
-            <DropdownMenuItem
-              key={mode.value}
-              onSelect={() => setThinkingMode(mode.value)}
-              className={cn('gap-2', thinkingMode === mode.value && 'bg-accent text-accent-foreground')}
-            >
-              {mode.filled
-                ? <mode.icon className="size-4 shrink-0" fill="currentColor" />
-                : <mode.icon className="size-4 shrink-0" />}
-              <span className="flex-1">{t(mode.label)}</span>
-              {thinkingMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* 思考模式选择：D9 门控 — 仅当会话上下文报告活动模型支持思考时出现；
+          发送链始终携带当前偏好（默认 auto），由服务端最终裁决。 */}
+      {context?.thinking_supported ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.thinkingMode')} aria-label={t('chatInput.thinkingMode')}>
+              {thinkingModeOption.filled
+                ? <thinkingModeOption.icon className="h-4 w-4" fill="currentColor" />
+                : <thinkingModeOption.icon className="h-4 w-4" />}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="bottom" align="start" className="min-w-36 p-1.5">
+            {THINKING_MODES.map((mode) => (
+              <DropdownMenuItem
+                key={mode.value}
+                onSelect={() => setThinkingMode(mode.value)}
+                className={cn('gap-2', thinkingMode === mode.value && 'bg-accent text-accent-foreground')}
+              >
+                {mode.filled
+                  ? <mode.icon className="size-4 shrink-0" fill="currentColor" />
+                  : <mode.icon className="size-4 shrink-0" />}
+                <span className="flex-1">{t(mode.label)}</span>
+                {thinkingMode === mode.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
 
       {/* AutoDream 触发 */}
       <button type="button" onClick={() => showNotice(t('chatInput.autodreamUnavailable'))} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.autodreamTrigger')} aria-label={t('chatInput.autodreamTrigger')}><GitBranch className="h-4 w-4" /></button>

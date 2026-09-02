@@ -56,6 +56,8 @@ export interface MessageProvenance { source: string; channel?: string; chat_id?:
 export interface Message { id: string; run_id?: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; created_at: number; attachments?: MessageAttachment[]; provenance?: MessageProvenance }
 /** turn/start 附件输入：data 为原始 base64（不带 data: 前缀），服务端做类型/大小校验。 */
 export interface AttachmentInput { name?: string; mime_type: string; data: string }
+/** turn/start 思考偏好：on 仅在模型元数据支持时由内核翻译为 provider 原生参数。 */
+export type ThinkingMode = 'auto' | 'on' | 'off';
 /** session/messages 返回的用户消息附件：data_url 为服务端拼好的 data URL。 */
 export interface MessageAttachment { name?: string; mime_type: string; data_url: string }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
@@ -69,6 +71,7 @@ export interface SessionContext {
   feed_tokens: number;
   limit_bytes: number;
   model_limit_tokens: number;
+  thinking_supported: boolean;
   compaction_enabled: boolean;
   trigger_tokens: number;
   would_compact: boolean;
@@ -235,7 +238,7 @@ export const compactSession = (sessionId: string) => request<CompactResult>('con
 export const listSessionCompactions = (sessionId: string, limit = 50) =>
   request<{ compactions: SessionCompactionRecord[] }>('session/compactions', { session_id: sessionId, limit });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });
-export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal', face?: Face, attachments?: AttachmentInput[]) => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode, face, attachments });
+export const startTurn = (sessionId: string, text: string, mode: RunMode = 'normal', face?: Face, attachments?: AttachmentInput[], thinking?: ThinkingMode) => request<{ run_id: string; status: RunStatus }>('turn/start', { session_id: sessionId, text, mode, face, attachments, thinking });
 export const interruptRun = (runId: string) => request<{ run_id: string; status: string }>('turn/interrupt', { run_id: runId });
 export const cancelRun = (runId: string) => request<{ run_id: string; status: string }>('run/cancel', { run_id: runId });
 export const getRun = (runId: string) => request<Run>('run/get', { run_id: runId });

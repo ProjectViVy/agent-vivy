@@ -29,6 +29,11 @@ type ModelInfo struct {
 	// multimodal input. Zero-value (false) is the conservative default for
 	// unknown models.
 	SupportsImages bool
+	// SupportsThinking reports whether the model accepts an explicit
+	// extended-thinking request (per-call option). Zero-value (false) is
+	// the conservative default: the UI hides the thinking selector and the
+	// run path sends no thinking option for unknown models.
+	SupportsThinking bool
 }
 
 // Valid reports whether the ModelInfo has been properly initialized with

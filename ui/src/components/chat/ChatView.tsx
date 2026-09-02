@@ -1,4 +1,4 @@
-import type { AttachmentInput, Face, RunMode } from '@/lib/api';
+import type { AttachmentInput, Face, RunMode, ThinkingMode } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { faceForMaskId, useActiveMaskId } from '@/components/masks/mask-catalog';
 import { useVivyStore } from '@/lib/store';
@@ -35,8 +35,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const face = faceForMaskId(activeMaskId);
   const running = !!run && !['completed', 'failed', 'cancelled'].includes(run.status);
 
-  const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[]) => {
-    await startRun(sessionId, text, mode, face, attachments);
+  const submit = async (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) => {
+    await startRun(sessionId, text, mode, face, attachments, thinking);
   };
   // 重新生成（对照 Agent-DIVA）：Journal 是追加式事实源，无法就地覆盖，
   // 映射为用目标助手消息之前最近一条用户输入重新走一轮。
@@ -60,7 +60,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {runError ? <RecoverableError className="my-3" compact error={runError} /> : null}
         </div></ScrollArea>
         <TodoProgressStrip />
-        <ChatInput onSend={submit} onQueue={(text, mode, attachments) => enqueueMessage(text, mode, face, attachments)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} />
+        <ChatInput onSend={submit} onQueue={(text, mode, attachments, thinking) => enqueueMessage(text, mode, face, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

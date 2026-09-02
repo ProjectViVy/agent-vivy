@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"sync"
 
+	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"agent-vivy/internal/domain"
 )
 
 // ErrModelNotConfigured is returned when no provider has been selected. It
@@ -51,7 +54,7 @@ func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.Message,
 	if err != nil {
 		return nil, err
 	}
-	return inner.Generate(ctx, in, opts...)
+	return inner.Generate(ctx, in, append(opts, m.thinkingOptions(ctx)...)...)
 }
 
 func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
@@ -59,7 +62,7 @@ func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, o
 	if err != nil {
 		return nil, err
 	}
-	return inner.Stream(ctx, in, opts...)
+	return inner.Stream(ctx, in, append(opts, m.thinkingOptions(ctx)...)...)
 }
 
 func (m *resolvingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
@@ -98,12 +101,34 @@ type resolvingChatModelWithTools struct {
 	tools  []*schema.ToolInfo
 }
 
+// thinkingOptions translates the run's thinking preference (domain context)
+// into a provider-native per-call option. Only "on" injects anything: for
+// models without an explicit request the provider default applies. The
+// Anthropic path is the one wired knob this generation; the option is
+// gated on D9 model metadata so models that reject the thinking parameter
+// never receive it (unknown models keep the conservative off).
+func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
+	if domain.ThinkingModeFromContext(ctx) != domain.ThinkingModeOn {
+		return nil
+	}
+	live := m.src.Live()
+	bundle, ok := m.catalog.Bundle(live.Provider)
+	if !ok || bundle.Backend != BackendEinoClaude {
+		return nil
+	}
+	info, err := m.catalog.ResolveModelInfo(ctx, live.Provider, live.Model)
+	if err != nil || !info.SupportsThinking {
+		return nil
+	}
+	return []model.Option{einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: claudeThinkingBudgetTokens})}
+}
+
 func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	inner, err := m.bound(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return inner.Generate(ctx, in, opts...)
+	return inner.Generate(ctx, in, append(opts, m.parent.thinkingOptions(ctx)...)...)
 }
 
 func (m *resolvingChatModelWithTools) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
@@ -111,7 +136,7 @@ func (m *resolvingChatModelWithTools) Stream(ctx context.Context, in []*schema.M
 	if err != nil {
 		return nil, err
 	}
-	return inner.Stream(ctx, in, opts...)
+	return inner.Stream(ctx, in, append(opts, m.parent.thinkingOptions(ctx)...)...)
 }
 
 func (m *resolvingChatModelWithTools) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {

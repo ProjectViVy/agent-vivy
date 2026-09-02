@@ -49,6 +49,10 @@ type ContextStatusResult struct {
 	// provider model context window (128000 when unknown).
 	LimitBytes       int `json:"limit_bytes"`
 	ModelLimitTokens int `json:"model_limit_tokens"`
+	// ThinkingSupported mirrors D9 model metadata: whether the active
+	// route's model accepts an explicit extended-thinking request. The
+	// chat input gates its thinking selector on this flag.
+	ThinkingSupported bool `json:"thinking_supported"`
 	// CompactionEnabled mirrors the effective compaction policy.
 	CompactionEnabled bool `json:"compaction_enabled"`
 	// TriggerTokens is the in-run threshold; WouldCompact tells whether the
@@ -88,6 +92,7 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	out.HasCompactionSummary = foldedOK
 
 	info := s.GetModelInfo(ctx)
+	out.ThinkingSupported = info.SupportsThinking
 	if info.ContextWindow > 0 {
 		out.ModelLimitTokens = info.ContextWindow
 	} else {
