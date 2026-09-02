@@ -40,6 +40,7 @@ const (
 	EventChildCancelled        EventType = "child.cancelled"
 	EventContextCompacted      EventType = "context.compacted"
 	EventSessionTruncated      EventType = "session.truncated"
+	EventSessionForked         EventType = "session.forked"
 	EventRunCompleted          EventType = "run.completed"
 	EventRunFailed             EventType = "run.failed"
 	EventRunCancelled          EventType = "run.cancelled"
@@ -81,6 +82,7 @@ var EventTypes = []EventType{
 	EventChildCancelled,
 	EventContextCompacted,
 	EventSessionTruncated,
+	EventSessionForked,
 	EventRunCompleted,
 	EventRunFailed,
 	EventRunCancelled,

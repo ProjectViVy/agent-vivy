@@ -40,13 +40,13 @@ test('real control plane conversation, reload, review, settings and demos', asyn
   const assistantArticle = page.locator('article').filter({ hasText: /hello vivy/ }).last();
   await expect(assistantArticle).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/mock reply/i)).toHaveCount(0);
-  // 消息功能栏（对照 Agent-DIVA 移植）：助手消息有复制/重新生成，回退与分叉为占位
+  // 消息功能栏（对照 Agent-DIVA 移植）：编辑 / 回退 / 分叉均已接线（UI-CHAT-ACT R2）
   await expect(assistantArticle.getByRole('button', { name: '复制' })).toBeVisible();
   await expect(assistantArticle.getByRole('button', { name: '重新生成' })).toBeEnabled();
-  await expect(assistantArticle.getByRole('button', { name: '回到这里' })).toBeDisabled();
-  await expect(assistantArticle.getByRole('button', { name: '从此分叉' })).toBeDisabled();
+  await expect(assistantArticle.getByRole('button', { name: '回到这里' })).toBeEnabled();
+  await expect(assistantArticle.getByRole('button', { name: '从此分叉' })).toBeEnabled();
   const userArticle = page.locator('article').filter({ hasText: 'hello vivy' }).first();
-  await expect(userArticle.getByRole('button', { name: '编辑' })).toBeDisabled();
+  await expect(userArticle.getByRole('button', { name: '编辑' })).toBeEnabled();
   // 用户消息操作栏（参考 ChatGPT）：复制 + 编辑，悬停浮现、平时隐藏；无回退 / 分叉
   const userActions = userArticle.getByRole('button', { name: '复制' }).locator('..');
   await expect(userActions).toHaveCSS('opacity', '0');

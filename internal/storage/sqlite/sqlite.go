@@ -609,13 +609,17 @@ const migration019 = `
 // migration020 adds the session truncation markers behind logical
 // rewind/edit/fork (JOURNAL-REWIND-AND-FORK): one marker row per user
 // action, newest wins; messages and run_events stay append-only and are
-// filtered at read time. No foreign keys, same delete-order rationale as
-// migration019 — session deletion cascades through explicit DELETEs.
+// filtered at read time. The fold hides the closed id range
+// [cutoff_message_id, tail_message_id] — tail is the session's last message
+// at marker time, so turns appended after a rewind stay visible. No foreign
+// keys, same delete-order rationale as migration019 — session deletion
+// cascades through explicit DELETEs.
 const migration020 = `
 	CREATE TABLE IF NOT EXISTS session_truncations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		session_id TEXT NOT NULL,
 		cutoff_message_id TEXT NOT NULL,
+		tail_message_id TEXT NOT NULL DEFAULT '',
 		reason TEXT NOT NULL,
 		fork_session_id TEXT NOT NULL DEFAULT '',
 		created_at INTEGER NOT NULL

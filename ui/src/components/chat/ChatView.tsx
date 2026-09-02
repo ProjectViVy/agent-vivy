@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { AttachmentInput, Face, RunMode, ThinkingMode } from '@/lib/api';
 import { regeneratePrompt } from '@/lib/chat-actions';
 import { faceForMaskId, useActiveMaskId } from '@/components/masks/mask-catalog';
@@ -27,6 +28,10 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const enqueueMessage = useVivyStore((state) => state.enqueueMessage);
   const selectSession = useVivyStore((state) => state.selectSession);
   const cancelRun = useVivyStore((state) => state.cancelCurrentRun);
+  const rewindSession = useVivyStore((state) => state.rewindSession);
+  const forkSession = useVivyStore((state) => state.forkSession);
+  const [draftPreset, setDraftPreset] = useState<{ text: string; seq: number } | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
   const mobile = useIsMobile();
@@ -46,6 +51,30 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     void submit(text);
   };
   const actionsDisabled = running || runBusy;
+  // 编辑 / 回退 / 分叉（设计 §5）：Journal 追加式，编辑 = 回退到该输入再重发；
+  // 回退后把仍在上下文里的最近一条用户输入预填进输入框；分叉成功后跳到新会话。
+  const handleEdit = async (messageId: string, newText: string) => {
+    setActionError(null);
+    try {
+      await rewindSession(sessionId, messageId);
+      await submit(newText);
+    } catch (error) { setActionError(error); }
+  };
+  const handleRewind = async (messageId: string) => {
+    setActionError(null);
+    try {
+      const remaining = await rewindSession(sessionId, messageId);
+      const lastUser = [...remaining].reverse().find((message) => message.role === 'user');
+      if (lastUser) setDraftPreset({ text: lastUser.content, seq: Date.now() });
+    } catch (error) { setActionError(error); }
+  };
+  const handleFork = async (messageId: string) => {
+    setActionError(null);
+    try {
+      const forkedId = await forkSession(sessionId, messageId);
+      await selectSession(forkedId);
+    } catch (error) { setActionError(error); }
+  };
   const streamMessage = streamingText || streamingReasoning ? { id: `stream-${run?.id}`, run_id: run?.id, role: 'assistant' as const, content: streamingText, created_at: Date.now() } : null;
 
   return (
@@ -55,12 +84,13 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
           {phase === 'empty' && !streamMessage && !runError ? <div className="py-24"><p className="text-center text-lg text-muted-foreground">{t('chat.startNew')}</p></div> : null}
-          {messages.map((message) => <MessageBubble key={message.id} message={message} canRegenerate={regeneratePrompt(messages, message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(message.id)} />)}
+          {messages.map((message) => <MessageBubble key={message.id} message={message} canRegenerate={regeneratePrompt(messages, message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(message.id)} onEditConfirm={(text) => void handleEdit(message.id, text)} onRewind={() => void handleRewind(message.id)} onFork={() => void handleFork(message.id)} />)}
           {streamMessage ? <MessageBubble message={streamMessage} reasoning={streamingReasoning} streaming /> : null}
           {runError ? <RecoverableError className="my-3" compact error={runError} /> : null}
+          {actionError ? <RecoverableError className="my-3" compact error={actionError} onRetry={() => setActionError(null)} /> : null}
         </div></ScrollArea>
         <TodoProgressStrip />
-        <ChatInput onSend={submit} onQueue={(text, mode, attachments, thinking) => enqueueMessage(text, mode, face, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} />
+        <ChatInput onSend={submit} onQueue={(text, mode, attachments, thinking) => enqueueMessage(text, mode, face, attachments, thinking)} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

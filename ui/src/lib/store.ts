@@ -117,6 +117,10 @@ interface RuntimeState {
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
   loadSessionContext: (sessionId?: string) => Promise<void>;
   compactSession: (sessionId: string) => Promise<api.CompactResult>;
+  /** session/rewind 后重读消息；返回刷新后的可见视图。 */
+  rewindSession: (sessionId: string, messageId: string) => Promise<api.Message[]>;
+  /** session/fork 后刷新会话列表；返回新会话 id（导航由调用方做）。 */
+  forkSession: (sessionId: string, messageId: string, title?: string) => Promise<string>;
   loadProviders: () => Promise<void>;
   saveProvider: (input: api.ProviderEntryInput) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
@@ -434,6 +438,16 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     const result = await api.compactSession(sessionId);
     await loadContextIntoStore(sessionId);
     return result;
+  },
+  rewindSession: async (sessionId, messageId) => {
+    await api.rewindSession(sessionId, messageId);
+    void loadContextIntoStore(sessionId);
+    return loadMessagesIntoStore(sessionId, sessionEpoch);
+  },
+  forkSession: async (sessionId, messageId, title) => {
+    const result = await api.forkSession(sessionId, messageId, title);
+    await get().loadSessions();
+    return result.session_id;
   },
   loadProviders: async () => { set({ providersPhase: 'loading', providersError: null }); try { const view = await api.listProviders(); set({ providers: view.entries, providersPhase: 'ready' }); } catch (error) { set({ providersPhase: 'error', providersError: errorMessage(error) }); } },
   saveProvider: async (input) => {

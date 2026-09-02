@@ -3,7 +3,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
-  'session/context', 'context/compact', 'session/compactions', 'trajectory/session',
+  'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -235,6 +235,12 @@ export const deleteSession = (id: string) => request<unknown>('session/delete', 
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });
 export const compactSession = (sessionId: string) => request<CompactResult>('context/compact', { session_id: sessionId });
+/** session/rewind：截点互斥（含截点）之后退出上下文，行留档不删除。 */
+export const rewindSession = (sessionId: string, messageId: string) =>
+  request<{ cutoff_message_id: string; remaining_count: number }>('session/rewind', { session_id: sessionId, message_id: messageId });
+/** session/fork：以截点（含）为止的历史复制出新会话，原会话不动。 */
+export const forkSession = (sessionId: string, messageId: string, title?: string) =>
+  request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/fork', { session_id: sessionId, message_id: messageId, title });
 export const listSessionCompactions = (sessionId: string, limit = 50) =>
   request<{ compactions: SessionCompactionRecord[] }>('session/compactions', { session_id: sessionId, limit });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });

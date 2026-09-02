@@ -2512,6 +2512,18 @@ func TestSessionRewindRoute(t *testing.T) {
 	if !strings.Contains(string(listedJSON), `"one"`) || strings.Contains(string(listedJSON), `"two"`) || strings.Contains(string(listedJSON), `"three"`) {
 		t.Fatalf("session/messages after rewind = %s, want only msg-1", listedJSON)
 	}
+	// A turn started after the rewind (the edit flow) must stay visible.
+	if err := env.backend.AppendMessage(ctx, domain.Message{ID: "msg-4", SessionID: session.ID, Role: domain.RoleUser, Content: "fresh"}); err != nil {
+		t.Fatal(err)
+	}
+	relisted, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	relistedJSON, _ := json.Marshal(relisted)
+	if !strings.Contains(string(relistedJSON), `"one"`) || !strings.Contains(string(relistedJSON), `"fresh"`) || strings.Contains(string(relistedJSON), `"two"`) {
+		t.Fatalf("session/messages after post-rewind turn = %s, want msg-1 + fresh", relistedJSON)
+	}
 
 	if _, rpcErr := callControl(t, env.handler, "session/rewind", map[string]string{"session_id": string(session.ID), "message_id": "msg-9"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
 		t.Fatalf("unknown cutoff err = %v, want CodeNotFound", rpcErr)
@@ -2524,5 +2536,84 @@ func TestSessionRewindRoute(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, env.handler, "session/rewind", map[string]string{"session_id": string(session.ID), "message_id": "msg-1"}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("busy session err = %v, want CodeConflict", rpcErr)
+	}
+}
+
+func TestSessionForkRoute(t *testing.T) {
+	env := newControlTestEnv(t)
+	ctx := context.Background()
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "origin"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []domain.Message{
+		{ID: "msg-1", SessionID: session.ID, Role: domain.RoleUser, Content: "one"},
+		{ID: "msg-2", SessionID: session.ID, Role: domain.RoleAssistant, Content: "two"},
+	} {
+		if err := env.backend.AppendMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, rpcErr := callControl(t, env.handler, "session/fork", map[string]string{
+		"session_id": string(session.ID), "message_id": "msg-2", "title": "branch",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	resultJSON, _ := json.Marshal(result)
+	var forked struct {
+		SessionID          string `json:"session_id"`
+		ForkPointMessageID string `json:"fork_point_message_id"`
+		CopiedCount        int    `json:"copied_count"`
+	}
+	if err := json.Unmarshal(resultJSON, &forked); err != nil {
+		t.Fatal(err)
+	}
+	if forked.SessionID == "" || forked.SessionID == string(session.ID) || forked.ForkPointMessageID != "msg-2" || forked.CopiedCount != 2 {
+		t.Fatalf("fork result = %s, want new session with msg-2 point and 2 copied rows", resultJSON)
+	}
+	// The child carries the requested title and the copied history.
+	childGet, rpcErr := callControl(t, env.handler, "session/get", map[string]string{"session_id": forked.SessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	childJSON, _ := json.Marshal(childGet)
+	var childEnvelope struct {
+		Session sessionResult `json:"session"`
+	}
+	if err := json.Unmarshal(childJSON, &childEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	child := childEnvelope.Session
+	if child.Title != "branch" {
+		t.Fatalf("child session = %s, want title branch", childJSON)
+	}
+	childMsgs, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": forked.SessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	childMsgsJSON, _ := json.Marshal(childMsgs)
+	if !strings.Contains(string(childMsgsJSON), `"one"`) || !strings.Contains(string(childMsgsJSON), `"two"`) {
+		t.Fatalf("child messages = %s, want copied history", childMsgsJSON)
+	}
+	// The parent keeps its full view.
+	parentMsgs, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	parentMsgsJSON, _ := json.Marshal(parentMsgs)
+	if !strings.Contains(string(parentMsgsJSON), `"one"`) || !strings.Contains(string(parentMsgsJSON), `"two"`) {
+		t.Fatalf("parent messages = %s, want unfiltered original view", parentMsgsJSON)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/fork", map[string]string{"session_id": string(session.ID), "message_id": "msg-9"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown fork point err = %v, want CodeNotFound", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/fork", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing message_id err = %v, want InvalidParams", rpcErr)
 	}
 }
