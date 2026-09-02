@@ -70,6 +70,11 @@ var channelNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // clamped, so it is rejected here up front.
 const maxExecuteTimeoutSeconds = 600
 
+// maxHTTPTimeoutSeconds mirrors the runtime HTTP backend clamp ceiling: the
+// backend clamps rather than fails, but a settings override beyond it would
+// never take effect, so it is rejected here up front.
+const maxHTTPTimeoutSeconds = 120
+
 // Settings is the persisted, non-secret model provider selection plus the
 // network_search preference and the execute ceiling override.
 type Settings struct {
@@ -118,6 +123,11 @@ type Settings struct {
 	// present overlay also keep the config values. Enabled distinguishes
 	// "unset" from an explicit false.
 	Compaction *CompactionSettings `yaml:"compaction"`
+	// HTTP overlays config runtime.http_allowed_hosts / http_timeout_seconds
+	// for the read-only http_request tool. A nil pointer means "use config
+	// default"; a nil AllowedHosts inside a present overlay keeps the config
+	// hosts. The runtime backend clamps the timeout to 1..120.
+	HTTP *HTTPSettings `yaml:"http"`
 	// Channels is the per-channel overlay for compiled-in channel plugins.
 	// Each entry carries at most the three UI knobs (enabled, allow_from,
 	// token_env) and merges over the config.yaml channels envelope; the
@@ -136,6 +146,15 @@ type CompactionSettings struct {
 	MaxTokens      int   `yaml:"max_tokens,omitempty"`
 	TriggerPercent int   `yaml:"trigger_percent,omitempty"`
 	KeepRecent     int   `yaml:"keep_recent,omitempty"`
+}
+
+// HTTPSettings is the UI-managed overlay for the read-only http_request
+// tool (settings.yaml http). Nil AllowedHosts keeps the config allowlist;
+// TimeoutSeconds 0 keeps the config value; the runtime backend clamps the
+// effective timeout to 1..120 seconds.
+type HTTPSettings struct {
+	AllowedHosts   *[]string `yaml:"allowed_hosts,omitempty"`
+	TimeoutSeconds int       `yaml:"timeout_seconds,omitempty"`
 }
 
 // ChannelOverlay is the UI-managed overlay for one compiled-in channel
@@ -259,6 +278,7 @@ func (s Settings) IsZero() bool {
 		s.Sandbox.Network.DenyPrivateIPs == nil &&
 		len(s.Sandbox.Network.AllowedDomains) == 0 &&
 		s.Compaction == nil &&
+		s.HTTP == nil &&
 		len(s.Channels) == 0
 }
 
@@ -315,6 +335,11 @@ func load(path string) (Settings, error) {
 		// An explicitly-empty compaction overlay means "config default";
 		// normalize to nil so a document round-trip is stable.
 		s.Compaction = nil
+	}
+	if s.HTTP != nil && s.HTTP.AllowedHosts == nil && s.HTTP.TimeoutSeconds == 0 {
+		// An explicitly-empty http overlay means "config default"; normalize
+		// to nil so a document round-trip is stable.
+		s.HTTP = nil
 	}
 	if len(s.Channels) == 0 {
 		s.Channels = nil
@@ -420,6 +445,20 @@ func (s Settings) Validate() error {
 		}
 		if s.Compaction.KeepRecent < 0 {
 			return errors.New("settings: compaction.keep_recent must be 0 (config default) or at least 1")
+		}
+	}
+	if s.HTTP != nil {
+		// 0 keeps the config value; anything above the runtime clamp ceiling
+		// would never take effect, so it is rejected up front.
+		if s.HTTP.TimeoutSeconds < 0 || s.HTTP.TimeoutSeconds > maxHTTPTimeoutSeconds {
+			return fmt.Errorf("settings: http.timeout_seconds must be 0 (config default) or between 1 and %d", maxHTTPTimeoutSeconds)
+		}
+		if s.HTTP.AllowedHosts != nil {
+			for i, host := range *s.HTTP.AllowedHosts {
+				if strings.TrimSpace(host) == "" {
+					return fmt.Errorf("settings: http.allowed_hosts[%d] must not be empty", i)
+				}
+			}
 		}
 	}
 	if err := validateChannels(s.Channels); err != nil {

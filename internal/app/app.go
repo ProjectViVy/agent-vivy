@@ -237,7 +237,9 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	searchService := runtime.NewNetworkSearchService(nil, nil)
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
-	httpOps = runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
+	httpBackend := runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, cfg.Runtime.HTTPTimeoutSeconds, sandboxManager)
+	httpOps = httpBackend
+	applyLiveHTTPSettings(httpBackend, settings.Path(dataRoot), cfg)
 	fetchOps = runtime.NewEinoWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
 	if fileBackend != nil {
 		downloadOps = runtime.NewEinoDownloadBackend(fileBackend, sandboxManager)
@@ -465,6 +467,8 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		ExecuteAllowedCommands:         append([]string(nil), cfg.Runtime.ExecuteAllowedCommands...),
 		ConfigSandboxDenyPrivateIPs:    cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
 		ConfigSandboxAllowedDomains:    append([]string(nil), cfg.Runtime.Sandbox.Network.AllowedDomains...),
+		ConfigHTTPAllowedHosts:         append([]string(nil), cfg.Runtime.HTTPAllowedHosts...),
+		ConfigHTTPTimeoutSeconds:       cfg.Runtime.HTTPTimeoutSeconds,
 		ConfigCompaction:               cmp,
 		// Channel ears: the Host exposes the compiled-in set and the process
 		// truth of the last StartAll; channel writes go through the settings
@@ -512,6 +516,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			}
 			svc.SetModel(name, id)
 			applyLiveSandboxSettings(sandboxManager, settings.Path(dataRoot), cfg)
+			applyLiveHTTPSettings(httpBackend, settings.Path(dataRoot), cfg)
 			s, err := settings.Load(settings.Path(dataRoot))
 			if err != nil {
 				logger.Warn("mcp overlay reload skipped", "err", err)
@@ -864,6 +869,30 @@ func applyLiveSandboxSettings(manager *runtime.SandboxManager, path string, cfg 
 		allowed = append([]string(nil), s.Sandbox.Network.AllowedDomains...)
 	}
 	manager.SetNetworkPolicy(domain.NetworkPolicy{AllowedDomains: allowed, DenyPrivateIPs: denyPrivate})
+}
+
+// applyLiveHTTPSettings merges the settings.yaml http overlay over the
+// config defaults and live-applies the result to the running HTTP backend
+// (allowlist + request timeout). The startup path replays the same document.
+func applyLiveHTTPSettings(backend *runtime.EinoHTTPBackend, path string, cfg config.Config) {
+	if backend == nil {
+		return
+	}
+	s, err := settings.Load(path)
+	if err != nil {
+		return
+	}
+	hosts := append([]string(nil), cfg.Runtime.HTTPAllowedHosts...)
+	timeout := cfg.Runtime.HTTPTimeoutSeconds
+	if s.HTTP != nil {
+		if s.HTTP.AllowedHosts != nil {
+			hosts = append([]string(nil), *s.HTTP.AllowedHosts...)
+		}
+		if s.HTTP.TimeoutSeconds != 0 {
+			timeout = s.HTTP.TimeoutSeconds
+		}
+	}
+	backend.SetConfig(hosts, timeout)
 }
 
 func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) {
