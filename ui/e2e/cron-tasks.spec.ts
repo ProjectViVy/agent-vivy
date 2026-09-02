@@ -40,3 +40,26 @@ test('cron page schedules real jobs and closes the trigger loop without demo sto
   await page.getByRole('button', { name: '删除任务' }).click();
   await expect(page.getByText('还没有定时任务')).toBeVisible();
 });
+
+// UI-CRON-P2（可行部分）：`at`（定时一次）暴露进表单——离线可测：选项出现、
+// 选中后出现触发时间字段、过去时间被未来校验拦下（不发创建请求，不依赖供应商）。
+test('cron form exposes one-shot at scheduling with future-time validation', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  await page.goto('/cron-tasks');
+
+  await page.getByRole('button', { name: '新建任务' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox').click();
+  await page.getByRole('option', { name: '定时一次' }).click();
+
+  const atInput = dialog.locator('#cron-at');
+  await expect(atInput).toBeVisible();
+  await expect(atInput).toHaveAttribute('type', 'datetime-local');
+
+  await page.getByLabel('任务名称').fill('e2e 一次性任务');
+  await page.getByLabel('任务内容').fill('e2e at ping');
+  await atInput.fill('2020-01-01T00:00');
+  await dialog.getByRole('button', { name: '创建任务' }).click();
+
+  await expect(page.getByText('触发时间必须晚于当前时间。')).toBeVisible();
+});
