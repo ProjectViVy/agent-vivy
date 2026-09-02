@@ -206,6 +206,10 @@ type Runtime struct {
 	HTTPAllowedHosts []string `yaml:"http_allowed_hosts"`
 	// HTTPMaxResponseBytes bounds one HTTP response entering the model context.
 	HTTPMaxResponseBytes int `yaml:"http_max_response_bytes"`
+	// HTTPTimeoutSeconds bounds one HTTP tool request (default 10). Values
+	// outside 1..120 are clamped by the runtime backend, so a typo can
+	// neither disable the timeout nor stall a run for minutes.
+	HTTPTimeoutSeconds int `yaml:"http_timeout_seconds"`
 	// MCPServers are explicitly configured Streamable HTTP JSON-RPC servers.
 	MCPServers []MCPServer `yaml:"mcp_servers"`
 	// ExecuteAllowedCommands is the executable allowlist for local process tools.
@@ -499,6 +503,7 @@ func Default() Config {
 			SkillsMarketplaceURL:     DefaultSkillsMarketplaceURL,
 			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
 			HTTPMaxResponseBytes:     1 << 20,
+			HTTPTimeoutSeconds:       10,
 			ExecuteAllowedCommands:   []string{"go", "git", "rg"},
 			ExecuteMaxTimeoutSeconds: 30,
 			Compaction:               DefaultCompactionConfig(),

@@ -102,6 +102,7 @@ export interface Settings {
   config_execute_max_timeout_seconds?: number;
   sandbox?: SandboxSettingsView;
   compaction?: CompactionSettingsView;
+  http?: HTTPSettingsView;
 }
 export interface NetworkSearchProviderInfo {
   name: string;
@@ -124,6 +125,14 @@ export interface CompactionSettingsView {
   config_max_tokens: number;
   config_trigger_percent: number;
   config_keep_recent: number;
+}
+/** settings/get http 段：http_request 有效白名单/超时 + 配置回退。 */
+export interface HTTPSettingsView {
+  allowed_hosts: string[];
+  timeout_seconds: number;
+  config_allowed_hosts: string[];
+  config_timeout_seconds: number;
+  overlay_set: boolean;
 }
 /** settings/update 载荷：选模型不发送 api_key（注册表条目保留密钥）。 */
 export interface SandboxSettingsView {
@@ -149,6 +158,10 @@ export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base
     trigger_percent: number;
     keep_recent: number;
   };
+  http?: {
+    allowed_hosts: string[];
+    timeout_seconds: number;
+  };
 };
 
 /** settings/update 是整文档替换：未发送的分区会被清掉，调用方必须带上未改动的 overlay。 */
@@ -170,6 +183,11 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
       keep_recent: settings.compaction.keep_recent,
     }
     : undefined);
+  // http 段只在已有覆盖层时回传（settings/get 恒返回该段；把配置默认值
+  // 当覆盖层写回会让 overlay_set 误亮）。其他分区保存不得凭空造出覆盖层。
+  const http = patch.http ?? (settings?.http?.overlay_set
+    ? { allowed_hosts: settings.http.allowed_hosts ?? [], timeout_seconds: settings.http.timeout_seconds }
+    : undefined);
   return {
     provider: patch.provider ?? settings?.provider ?? '',
     default_model: patch.default_model ?? settings?.default_model ?? '',
@@ -178,6 +196,7 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
     execute_max_timeout_seconds: patch.execute_max_timeout_seconds ?? settings?.execute_max_timeout_seconds ?? 0,
     ...(sandbox ? { sandbox } : {}),
     ...(compaction ? { compaction } : {}),
+    ...(http ? { http } : {}),
   };
 }
 export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }

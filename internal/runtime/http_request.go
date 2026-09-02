@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -16,9 +17,14 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-const defaultHTTPResponseBytes = 1 << 20
+const (
+	defaultHTTPResponseBytes = 1 << 20
+	defaultHTTPTimeout       = 10 * time.Second
+	maxHTTPTimeout           = 120 * time.Second
+)
 
 type EinoHTTPBackend struct {
+	mu           sync.RWMutex
 	client       *http.Client
 	sandbox      *SandboxManager
 	allowedHosts []string
@@ -27,7 +33,7 @@ type EinoHTTPBackend struct {
 
 var _ tools.HTTPOperations = (*EinoHTTPBackend)(nil)
 
-func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int, sandbox *SandboxManager) *EinoHTTPBackend {
+func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int, timeoutSeconds int, sandbox *SandboxManager) *EinoHTTPBackend {
 	if maxBodyBytes <= 0 || maxBodyBytes > 8<<20 {
 		maxBodyBytes = defaultHTTPResponseBytes
 	}
@@ -45,12 +51,46 @@ func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int, sandbox *Sandbo
 		IdleConnTimeout:   30 * time.Second,
 	}
 	return &EinoHTTPBackend{
-		client:       &http.Client{Transport: transport, Timeout: 10 * time.Second},
+		client:       &http.Client{Transport: transport, Timeout: httpTimeout(timeoutSeconds)},
 		sandbox:      sandbox,
 		allowedHosts: hosts,
 		maxBodyBytes: maxBodyBytes,
 	}
 }
+
+// httpTimeout clamps an operator-supplied seconds value: 0 (or negative)
+// keeps the 10s default and values beyond the 120s ceiling are clamped, so
+// a typo can neither disable the timeout nor stall a run for minutes.
+func httpTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		return defaultHTTPTimeout
+	}
+	if seconds > 120 {
+		return maxHTTPTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// SetConfig live-applies the operator-managed allowlist and request timeout
+// (settings.yaml http overlay). Hosts are normalized the same way the
+// constructor normalizes them; nil keeps the current list.
+func (b *EinoHTTPBackend) SetConfig(allowedHosts []string, timeoutSeconds int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if allowedHosts != nil {
+		hosts := make([]string, 0, len(allowedHosts))
+		for _, host := range allowedHosts {
+			if normalized := normalizeAllowedHost(host); normalized != "" {
+				hosts = append(hosts, normalized)
+			}
+		}
+		b.allowedHosts = hosts
+	}
+	if b.client != nil {
+		b.client.Timeout = httpTimeout(timeoutSeconds)
+	}
+}
+
 func (b *EinoHTTPBackend) Request(ctx context.Context, _ domain.RunID, input tools.HTTPRequest) (tools.HTTPResponse, error) {
 	method := strings.ToUpper(strings.TrimSpace(input.Method))
 	if method == "" {
@@ -87,7 +127,9 @@ func (b *EinoHTTPBackend) Request(ctx context.Context, _ domain.RunID, input too
 	for key, value := range input.Headers {
 		req.Header.Set(key, value)
 	}
+	b.mu.RLock()
 	client := *b.client
+	b.mu.RUnlock()
 	client.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
 		if next.URL.User != nil || next.URL.Host != u.Host || !b.hostAllowed(next.URL.Hostname()) || queryHasCredential(next.URL.Query()) {
 			return errors.New("http request: redirect leaves the allowlisted, credential-free surface")
@@ -121,6 +163,8 @@ func (b *EinoHTTPBackend) Request(ctx context.Context, _ domain.RunID, input too
 
 func (b *EinoHTTPBackend) hostAllowed(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	for _, allowed := range b.allowedHosts {
 		if strings.HasPrefix(allowed, "*.") {
 			base := strings.TrimPrefix(allowed, "*.")

@@ -95,6 +95,12 @@ type ControlDeps struct {
 	ConfigSandboxDenyPrivateIPs bool
 	// ConfigSandboxAllowedDomains is the production config domain allowlist.
 	ConfigSandboxAllowedDomains []string
+	// ConfigHTTPAllowedHosts is the production config http_request allowlist
+	// (non-secret), surfaced by settings/get as the UI fallback.
+	ConfigHTTPAllowedHosts []string
+	// ConfigHTTPTimeoutSeconds is the production config http_request request
+	// timeout, surfaced by settings/get as the UI fallback.
+	ConfigHTTPTimeoutSeconds int
 	// ApplySettingsEnv applies a persisted settings document's non-secret
 	// overlays to the running process environment (VIVY_API_BASE for
 	// base_url, the active bundle's env_key for the resolved api_key). It is
@@ -2330,6 +2336,9 @@ type settingsResult struct {
 	// Compaction is the effective context compression policy plus the config
 	// defaults the UI falls back to when a field is cleared.
 	Compaction compactionSettingsResult `json:"compaction"`
+	// HTTP is the effective http_request surface (allowlist + timeout) plus
+	// the config defaults the UI falls back to when a field is cleared.
+	HTTP httpSettingsResult `json:"http"`
 }
 
 // compactionSettingsResult is the wire shape of the compaction overlay:
@@ -2432,6 +2441,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	savedSearchProvider := ""
 	var savedSandbox settings.SandboxSettings
 	var savedCompaction *settings.CompactionSettings
+	var savedHTTP *settings.HTTPSettings
 	if h.deps.SettingsPath != "" {
 		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
 			out.Provider = s.Provider
@@ -2442,6 +2452,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
 			savedSandbox = s.Sandbox
 			savedCompaction = s.Compaction
+			savedHTTP = s.HTTP
 		}
 	}
 	// Reflect the production config defaults so the UI can show what a
@@ -2452,6 +2463,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out.NetworkSearch = networkSearchView(savedSearchProvider, h.deps.ConfigNetworkSearchProvider)
 	out.Sandbox = h.sandboxView(savedSandbox)
 	out.Compaction = h.compactionView(savedCompaction)
+	out.HTTP = h.httpView(savedHTTP)
 	return out, nil
 }
 
@@ -2478,6 +2490,48 @@ func (h *controlHandler) sandboxView(saved settings.SandboxSettings) sandboxSett
 		AllowedDomains:         domains,
 		WorkspaceRoot:          h.deps.SandboxWorkspaceRoot,
 		ExecuteAllowedCommands: append([]string(nil), h.deps.ExecuteAllowedCommands...),
+	}
+}
+
+// httpSettingsResult is the wire shape of the http_request overlay:
+// effective values plus the config-file fallbacks for display.
+type httpSettingsResult struct {
+	AllowedHosts         []string `json:"allowed_hosts"`
+	TimeoutSeconds       int      `json:"timeout_seconds"`
+	ConfigAllowedHosts   []string `json:"config_allowed_hosts"`
+	ConfigTimeoutSeconds int      `json:"config_timeout_seconds"`
+	OverlaySet           bool     `json:"overlay_set"`
+}
+
+// httpView merges the saved http_request overlay over the config default
+// for the Settings UI. A nil overlay (or nil hosts / zero timeout inside a
+// present overlay) keeps the config value, mirroring the compaction view.
+func (h *controlHandler) httpView(saved *settings.HTTPSettings) httpSettingsResult {
+	configHosts := append([]string(nil), h.deps.ConfigHTTPAllowedHosts...)
+	if configHosts == nil {
+		configHosts = []string{}
+	}
+	hosts := append([]string(nil), configHosts...)
+	timeout := h.deps.ConfigHTTPTimeoutSeconds
+	overlaySet := false
+	if saved != nil {
+		overlaySet = true
+		if saved.AllowedHosts != nil {
+			hosts = append([]string(nil), *saved.AllowedHosts...)
+		}
+		if saved.TimeoutSeconds != 0 {
+			timeout = saved.TimeoutSeconds
+		}
+	}
+	if hosts == nil {
+		hosts = []string{}
+	}
+	return httpSettingsResult{
+		AllowedHosts:         hosts,
+		TimeoutSeconds:       timeout,
+		ConfigAllowedHosts:   configHosts,
+		ConfigTimeoutSeconds: h.deps.ConfigHTTPTimeoutSeconds,
+		OverlaySet:           overlaySet,
 	}
 }
 
@@ -2518,6 +2572,14 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 			TriggerPercent int   `json:"trigger_percent"`
 			KeepRecent     int   `json:"keep_recent"`
 		} `json:"compaction"`
+		// HTTP is the http_request overlay; absent keeps the previous value,
+		// an absent hosts list inside a present block keeps the current
+		// allowlist, an explicit empty list is the deny-all surface, and
+		// timeout 0 keeps the current value.
+		HTTP *struct {
+			AllowedHosts   []string `json:"allowed_hosts"`
+			TimeoutSeconds int      `json:"timeout_seconds"`
+		} `json:"http"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
@@ -2564,6 +2626,18 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 				cur.Compaction = nil
 			}
 		}
+		if params.HTTP != nil {
+			if cur.HTTP == nil {
+				cur.HTTP = &settings.HTTPSettings{}
+			}
+			if params.HTTP.AllowedHosts != nil {
+				hosts := append([]string(nil), params.HTTP.AllowedHosts...)
+				cur.HTTP.AllowedHosts = &hosts
+			}
+			if params.HTTP.TimeoutSeconds != 0 {
+				cur.HTTP.TimeoutSeconds = params.HTTP.TimeoutSeconds
+			}
+		}
 		return cur, nil
 	})
 	if rpcErr != nil {
@@ -2594,6 +2668,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		NetworkSearch:                  networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
 		Sandbox:                        h.sandboxView(saved.Sandbox),
 		Compaction:                     h.compactionView(saved.Compaction),
+		HTTP:                           h.httpView(saved.HTTP),
 	}, nil
 }
 

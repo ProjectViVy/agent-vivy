@@ -303,6 +303,61 @@ func TestValidateCompactionOverlayBounds(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadHTTPOverlay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	hosts := []string{"api.example.dev", "*.internal.example"}
+	saved, err := Save(path, Settings{HTTP: &HTTPSettings{
+		AllowedHosts: &hosts, TimeoutSeconds: 45,
+	}})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, saved) || loaded.HTTP == nil ||
+		loaded.HTTP.AllowedHosts == nil ||
+		!reflect.DeepEqual(*loaded.HTTP.AllowedHosts, hosts) ||
+		loaded.HTTP.TimeoutSeconds != 45 {
+		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved, loaded)
+	}
+	if loaded.IsZero() {
+		t.Fatal("non-empty http overlay must not look zero")
+	}
+	// An empty overlay normalizes to nil on load (config default stands).
+	if _, err := Save(path, Settings{HTTP: &HTTPSettings{}}); err != nil {
+		t.Fatalf("save empty overlay: %v", err)
+	}
+	zeroLoaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load empty overlay: %v", err)
+	}
+	if zeroLoaded.HTTP != nil {
+		t.Fatalf("empty http overlay should normalize to nil, got %+v", zeroLoaded.HTTP)
+	}
+}
+
+func TestValidateHTTPOverlayBounds(t *testing.T) {
+	hosts := []string{"api.example.dev"}
+	valid := Settings{HTTP: &HTTPSettings{AllowedHosts: &hosts, TimeoutSeconds: 0}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("zero timeout (config default) should validate: %v", err)
+	}
+	emptyHosts := []string{" "}
+	if err := (Settings{HTTP: &HTTPSettings{AllowedHosts: &emptyHosts}}).Validate(); err == nil {
+		t.Fatal("expected error for empty allowed host")
+	}
+	for _, bad := range []HTTPSettings{
+		{TimeoutSeconds: -1},
+		{TimeoutSeconds: 121},
+	} {
+		if err := (Settings{HTTP: &bad}).Validate(); err == nil {
+			t.Fatalf("expected error for timeout %d", bad.TimeoutSeconds)
+		}
+	}
+}
+
 func TestSaveAndLoadSandboxPreset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
 	deny := false

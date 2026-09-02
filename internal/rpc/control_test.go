@@ -2194,3 +2194,91 @@ func TestControlMessageProvenanceProjected(t *testing.T) {
 		}
 	}
 }
+
+func TestControlHandlerHTTPSettingsSegment(t *testing.T) {
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(d *ControlDeps) {
+		d.ConfigHTTPAllowedHosts = []string{"localhost", "127.0.0.1"}
+		d.ConfigHTTPTimeoutSeconds = 10
+	})
+
+	// settings/get reports config defaults with no overlay.
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get := result.(settingsResult)
+	if strings.Join(get.HTTP.AllowedHosts, ",") != "localhost,127.0.0.1" ||
+		get.HTTP.TimeoutSeconds != 10 || get.HTTP.OverlaySet ||
+		strings.Join(get.HTTP.ConfigAllowedHosts, ",") != "localhost,127.0.0.1" ||
+		get.HTTP.ConfigTimeoutSeconds != 10 {
+		t.Fatalf("http defaults = %+v", get.HTTP)
+	}
+
+	// Update persists the overlay; hosts and timeout are echoed back.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"http": map[string]any{"allowed_hosts": []string{"api.example.dev", "*.corp.dev"}, "timeout_seconds": 45},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if !get.HTTP.OverlaySet ||
+		strings.Join(get.HTTP.AllowedHosts, ",") != "api.example.dev,*.corp.dev" ||
+		get.HTTP.TimeoutSeconds != 45 {
+		t.Fatalf("http overlay = %+v", get.HTTP)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.HTTP == nil || loaded.HTTP.AllowedHosts == nil ||
+		len(*loaded.HTTP.AllowedHosts) != 2 || loaded.HTTP.TimeoutSeconds != 45 {
+		t.Fatalf("http overlay not persisted: %+v", loaded.HTTP)
+	}
+
+	// A present block with an explicit empty hosts list is the deny-all
+	// surface; timeout 0 keeps the current value.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"http": map[string]any{"allowed_hosts": []string{}, "timeout_seconds": 0},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if !get.HTTP.OverlaySet || len(get.HTTP.AllowedHosts) != 0 || get.HTTP.TimeoutSeconds != 45 {
+		t.Fatalf("deny-all http overlay = %+v", get.HTTP)
+	}
+
+	// Restoring the config values keeps the overlay but the effective
+	// surface matches the config defaults again.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"http": map[string]any{"allowed_hosts": []string{"localhost", "127.0.0.1"}, "timeout_seconds": 10},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get = result.(settingsResult)
+	if strings.Join(get.HTTP.AllowedHosts, ",") != "localhost,127.0.0.1" || get.HTTP.TimeoutSeconds != 10 {
+		t.Fatalf("restored http overlay = %+v", get.HTTP)
+	}
+
+	// An out-of-range timeout is rejected by document validation.
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"http": map[string]any{"timeout_seconds": 999},
+	}); rpcErr == nil {
+		t.Fatal("expected timeout 999 to be rejected")
+	}
+	if probe.n != 3 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 3", probe.n)
+	}
+}
