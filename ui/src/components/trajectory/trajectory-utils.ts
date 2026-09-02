@@ -4,7 +4,7 @@
  * 与 `trajectory-record.ts` 的格式化/投影语义，无 React 依赖，便于单测。
  */
 
-import type { TrajectoryRecord, TrajectoryTimelineMode, TrajectoryTimeRange } from './trajectory-demo-data';
+import type { TrajectoryRecord, TrajectoryTimelineMode, TrajectoryTimeRange } from './trajectory-types';
 
 /** 一条时间轴条带（记录在所选投影域内的位置）。 */
 export interface TrajectoryTimelineSpan {

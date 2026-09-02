@@ -11,7 +11,7 @@ import {
   TRAJECTORY_KIND_LABEL,
   type TrajectoryRecord,
   type TrajectoryRequest,
-} from './trajectory-demo-data';
+} from './trajectory-types';
 import { formatDurationMs, turnLabel } from './trajectory-utils';
 
 export interface TrajectoryDetailPanelProps {

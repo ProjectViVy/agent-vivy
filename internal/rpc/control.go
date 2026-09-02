@@ -521,6 +521,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listTodos(ctx, request)
 	case "session/compactions":
 		return h.listSessionCompactions(ctx, request)
+	case "trajectory/session":
+		return h.sessionTrajectory(ctx, request)
 	case "cron/list":
 		return h.listCrons(ctx)
 	case "cron/create":
@@ -1698,6 +1700,32 @@ func (h *controlHandler) runLog(ctx context.Context, request Request) (any, *Err
 		return nil, internalError(err)
 	}
 	return map[string]any{"events": entries}, nil
+}
+
+// sessionTrajectory serves trajectory/session: the session's turn-level
+// trajectory projection (UI-TRAJ) folded from run_events + messages.
+func (h *controlHandler) sessionTrajectory(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "trajectory is not configured"}
+	}
+	var params struct {
+		SessionID string `json:"session_id"`
+		Limit     int    `json:"limit,omitempty"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	session, err := h.deps.Service.SessionTrajectory(ctx, domain.SessionID(params.SessionID), params.Limit)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+		}
+		return nil, internalError(err)
+	}
+	return session, nil
 }
 
 // WorkspaceFiles is the control-plane seam over run workspaces. It is

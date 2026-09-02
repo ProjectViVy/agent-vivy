@@ -16,7 +16,7 @@ import { useTranslation } from '@/i18n';
 import {
   TRAJECTORY_KIND_LABEL,
   type TrajectoryRecord,
-} from './trajectory-demo-data';
+} from './trajectory-types';
 import {
   turnLabel,
   turnStartIndexes,

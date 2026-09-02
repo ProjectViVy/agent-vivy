@@ -11,7 +11,7 @@ import type {
   TrajectoryRecord,
   TrajectoryTimelineMode,
   TrajectoryTimeRange,
-} from './trajectory-demo-data';
+} from './trajectory-types';
 import {
   deriveTrajectoryTimeline,
   formatDurationMs,

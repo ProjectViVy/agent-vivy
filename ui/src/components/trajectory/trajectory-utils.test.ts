@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEMO_TRAJECTORY_RECORDS,
-  DEMO_TRAJECTORY_REQUESTS,
-  TRAJECTORY_KIND_LABEL,
-  type TrajectoryCellKind,
-} from './trajectory-demo-data';
+import { TRAJECTORY_KIND_LABEL, type TrajectoryCellKind } from './trajectory-types';
+import { DEMO_TRAJECTORY_RECORDS, DEMO_TRAJECTORY_REQUESTS } from './trajectory-demo-data';
 import {
   buildDisplayRows,
   deriveTrajectoryTimeline,
