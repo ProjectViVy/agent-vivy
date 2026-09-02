@@ -87,22 +87,65 @@ type MarketplaceFeatured struct {
 	Skills      []MarketplaceSkill `json:"skills"`
 }
 
-// MarketplaceInstallResult reports one create-only marketplace install.
-// SkippedFiles lists snapshot paths Vivy cannot host (outside SKILL.md and
-// the references/templates/scripts/assets directories).
+// MarketplaceInstallResult reports one marketplace install. Outcome is
+// "created" for a fresh install, "upgraded" for an in-place upgrade that
+// replaced the hosted file set, and "up_to_date" when the installed content
+// already matches the snapshot byte-for-byte. SkippedFiles lists snapshot
+// paths Vivy cannot host (outside SKILL.md and the
+// references/templates/scripts/assets directories).
 type MarketplaceInstallResult struct {
 	Skill        SkillView `json:"skill"`
+	Outcome      string    `json:"outcome"`
 	SkippedFiles []string  `json:"skipped_files,omitempty"`
 	Warnings     []string  `json:"warnings,omitempty"`
 }
 
+// MarketplaceInstallMode selects between fresh installs and in-place
+// upgrades. The zero value is a create: an existing skill name is a
+// conflict. "upgrade" replaces the hosted file set of a marketplace-managed
+// skill with the snapshot content.
+type MarketplaceInstallMode string
+
+const (
+	MarketplaceInstallCreate  MarketplaceInstallMode = "create"
+	MarketplaceInstallUpgrade MarketplaceInstallMode = "upgrade"
+)
+
+// MarketplaceInstallResult.Outcome values (past tense: what happened).
+const (
+	MarketplaceOutcomeCreated  = "created"
+	MarketplaceOutcomeUpgraded = "upgraded"
+)
+
+// MarketplaceUpdateCheckStatus classifies one installed skill against the
+// marketplace snapshot: not_installed (no skill dir), unmanaged (no
+// provenance manifest — hand-placed skill), up_to_date, upgrade_available.
+const (
+	MarketplaceUpdateNotInstalled     = "not_installed"
+	MarketplaceUpdateUnmanaged        = "unmanaged"
+	MarketplaceUpdateUpToDate         = "up_to_date"
+	MarketplaceUpdateUpgradeAvailable = "upgrade_available"
+)
+
+// MarketplaceUpdateCheck reports the version relationship between one
+// installed skill and the marketplace snapshot named in its provenance
+// manifest. SnapshotHash echoes the upstream hash when a download happened.
+type MarketplaceUpdateCheck struct {
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	MarketplaceID string `json:"marketplace_id,omitempty"`
+	SnapshotHash  string `json:"snapshot_hash,omitempty"`
+}
+
 // SkillsMarketplace is the control-plane surface over the skills.sh
-// directory. Search and Featured are read-only; Install writes a new Skill
-// package into skills_root (create-only, 409 on an existing name).
+// directory. Search and Featured are read-only; Install writes a Skill
+// package into skills_root (create by default, in-place upgrade by mode);
+// Check compares one installed skill against its marketplace origin.
 type SkillsMarketplace interface {
 	SearchMarketplace(ctx context.Context, query string, limit int) ([]MarketplaceSkill, error)
 	FeaturedMarketplace(ctx context.Context) (MarketplaceFeatured, error)
-	InstallMarketplace(ctx context.Context, id string) (MarketplaceInstallResult, error)
+	InstallMarketplace(ctx context.Context, id string, mode MarketplaceInstallMode) (MarketplaceInstallResult, error)
+	CheckMarketplaceUpdate(ctx context.Context, name string) (MarketplaceUpdateCheck, error)
 }
 
 type skillsListTool struct{ ops SkillOperations }

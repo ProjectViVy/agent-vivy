@@ -2282,3 +2282,85 @@ func TestControlHandlerHTTPSettingsSegment(t *testing.T) {
 		t.Fatalf("OnSettingsChanged calls = %d, want 3", probe.n)
 	}
 }
+
+type marketplaceFake struct {
+	installID   string
+	installMode tools.MarketplaceInstallMode
+	installErr  error
+	checkName   string
+	check       tools.MarketplaceUpdateCheck
+	checkErr    error
+}
+
+func (f *marketplaceFake) SearchMarketplace(context.Context, string, int) ([]tools.MarketplaceSkill, error) {
+	return nil, nil
+}
+
+func (f *marketplaceFake) FeaturedMarketplace(context.Context) (tools.MarketplaceFeatured, error) {
+	return tools.MarketplaceFeatured{}, nil
+}
+
+func (f *marketplaceFake) InstallMarketplace(_ context.Context, id string, mode tools.MarketplaceInstallMode) (tools.MarketplaceInstallResult, error) {
+	f.installID, f.installMode = id, mode
+	if f.installErr != nil {
+		return tools.MarketplaceInstallResult{}, f.installErr
+	}
+	return tools.MarketplaceInstallResult{Outcome: tools.MarketplaceOutcomeCreated}, nil
+}
+
+func (f *marketplaceFake) CheckMarketplaceUpdate(_ context.Context, name string) (tools.MarketplaceUpdateCheck, error) {
+	f.checkName = name
+	if f.checkErr != nil {
+		return tools.MarketplaceUpdateCheck{}, f.checkErr
+	}
+	return f.check, nil
+}
+
+func TestMarketplaceInstallModeAndCheckRoute(t *testing.T) {
+	fake := &marketplaceFake{
+		check: tools.MarketplaceUpdateCheck{Name: "demo-skill", Status: tools.MarketplaceUpdateUpgradeAvailable, MarketplaceID: "o/r/demo-skill"},
+	}
+	probe := &settingsApplierProbe{}
+	env, _ := newSettingsHandlerEnvWith(t, probe, func(d *ControlDeps) { d.Marketplace = fake })
+
+	if _, rpcErr := callControl(t, env.handler, "skills/marketplace/install", map[string]any{
+		"id": "o/r/demo-skill", "mode": "replace",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("bad mode error = %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "skills/marketplace/install", map[string]any{
+		"id": "o/r/demo-skill", "mode": "upgrade",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if fake.installID != "o/r/demo-skill" || fake.installMode != tools.MarketplaceInstallUpgrade {
+		t.Fatalf("install passthrough = %q mode %q", fake.installID, fake.installMode)
+	}
+	if _, rpcErr := callControl(t, env.handler, "skills/marketplace/install", map[string]any{
+		"id": "o/r/demo-skill",
+	}); rpcErr != nil || fake.installMode != tools.MarketplaceInstallCreate {
+		t.Fatalf("default mode = %q err %v", fake.installMode, rpcErr)
+	}
+	fake.installErr = errString(`skills: skill "demo-skill" is not marketplace-managed; remove it and reinstall to upgrade`)
+	if _, rpcErr := callControl(t, env.handler, "skills/marketplace/install", map[string]any{"id": "o/r/demo-skill"}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("unmanaged upgrade error = %v", rpcErr)
+	}
+	fake.installErr = nil
+
+	result, rpcErr := callControl(t, env.handler, "skills/marketplace/check", map[string]any{"name": "demo-skill"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	check, ok := result.(tools.MarketplaceUpdateCheck)
+	if !ok || check.Status != tools.MarketplaceUpdateUpgradeAvailable || check.Name != "demo-skill" || fake.checkName != "demo-skill" {
+		t.Fatalf("check result = %+v ok=%v fakeName=%q", result, ok, fake.checkName)
+	}
+	if _, rpcErr := callControl(t, env.handler, "skills/marketplace/check", map[string]any{"name": " "}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("empty name error = %v", rpcErr)
+	}
+
+	bare, _ := newSettingsHandlerEnvWith(t, probe, nil)
+	if _, rpcErr := callControl(t, bare.handler, "skills/marketplace/check", map[string]any{"name": "demo-skill"}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("unconfigured marketplace error = %v", rpcErr)
+	}
+}

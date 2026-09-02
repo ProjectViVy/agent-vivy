@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -79,7 +81,7 @@ func TestMarketplaceInstallWritesLoaderValidSkill(t *testing.T) {
 			"hash": "abc123",
 		})
 	})
-	result, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill")
+	result, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "")
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -99,8 +101,8 @@ func TestMarketplaceInstallWritesLoaderValidSkill(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].Name != "demo-skill" {
 		t.Fatalf("ListSkills after install = %+v, err %v", items, err)
 	}
-	// Reinstall is create-only: the second attempt is a conflict.
-	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill"); err == nil || !strings.Contains(err.Error(), "already exists") {
+	// Reinstall defaults to create: the second attempt is a conflict.
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", ""); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("reinstall error = %v", err)
 	}
 }
@@ -123,7 +125,7 @@ func TestMarketplaceInstallRejectsInvalidSnapshots(t *testing.T) {
 			service, _, _ := newMarketplaceTestService(t, func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"files": testCase.files, "hash": "h"})
 			})
-			if _, err := service.InstallMarketplace(context.Background(), testCase.id); err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
+			if _, err := service.InstallMarketplace(context.Background(), testCase.id, ""); err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
 				t.Fatalf("install error = %v, want %q", err, testCase.wantErr)
 			}
 		})
@@ -135,7 +137,7 @@ func TestMarketplaceInstallRejectsIDsVivyCannotHost(t *testing.T) {
 		t.Fatal("upstream must not be called for invalid ids")
 	})
 	for _, id := range []string{"owner/repo", "owner/repo/slug/extra", "/repo/slug", "owner/repo/with.dot", "../../etc/passwd"} {
-		if _, err := service.InstallMarketplace(context.Background(), id); err == nil {
+		if _, err := service.InstallMarketplace(context.Background(), id, ""); err == nil {
 			t.Fatalf("id %q must be rejected", id)
 		}
 	}
@@ -198,4 +200,185 @@ func TestFeaturedSnapshotParses(t *testing.T) {
 
 func TestMarketplaceFeaturedImplementsControlSurface(t *testing.T) {
 	var _ tools.SkillsMarketplace = (*MarketplaceService)(nil)
+}
+
+func marketplaceSnapshotHandler(version int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/download/vercel-labs/skills/demo-skill" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		doc := fmt.Sprintf("---\nname: demo-skill\ndescription: Marketplace skill v%d\n---\n\nBody v%d.\n", version, version)
+		files := []map[string]string{{"path": "SKILL.md", "contents": doc}}
+		if version == 1 {
+			files = append(files, map[string]string{"path": "references/guide.md", "contents": "guide v1"})
+		} else {
+			files = append(files, map[string]string{"path": "references/extra.md", "contents": "extra v2"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"files": files, "hash": fmt.Sprintf("hash-v%d", version)})
+	}
+}
+
+func readSkillFile(t *testing.T, backend *EinoSkillBackend, parts ...string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(append([]string{backend.root, "demo-skill"}, parts...)...))
+	if err != nil {
+		t.Fatalf("read %v: %v", parts, err)
+	}
+	return string(data)
+}
+
+func TestMarketplaceUpgradeMirrorsSnapshot(t *testing.T) {
+	version := 1
+	service, backend, _ := newMarketplaceTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		marketplaceSnapshotHandler(version)(w, r)
+	})
+	created, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "")
+	if err != nil || created.Outcome != "created" {
+		t.Fatalf("create outcome = %q err %v", created.Outcome, err)
+	}
+	// Hand-placed extras: a hosted file the snapshot drops and a root file
+	// outside Vivy's hosted set that must survive the upgrade.
+	if err := os.WriteFile(filepath.Join(backend.root, "demo-skill", "references", "user-notes.md"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backend.root, "demo-skill", "NOTES.md"), []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	version = 2
+	upgraded, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "upgrade")
+	if err != nil || upgraded.Outcome != "upgraded" {
+		t.Fatalf("upgrade outcome = %q err %v", upgraded.Outcome, err)
+	}
+	if readSkillFile(t, backend, "SKILL.md") != "---\nname: demo-skill\ndescription: Marketplace skill v2\n---\n\nBody v2.\n" {
+		t.Fatalf("SKILL.md not swapped: %q", readSkillFile(t, backend, "SKILL.md"))
+	}
+	if readSkillFile(t, backend, "references", "extra.md") != "extra v2" {
+		t.Fatal("added snapshot file missing")
+	}
+	if _, err := os.Stat(filepath.Join(backend.root, "demo-skill", "references", "guide.md")); !os.IsNotExist(err) {
+		t.Fatalf("dropped snapshot file still present: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(backend.root, "demo-skill", "references", "user-notes.md")); !os.IsNotExist(err) {
+		t.Fatal("stale hosted file survived the upgrade")
+	}
+	if readSkillFile(t, backend, "NOTES.md") != "keep me" {
+		t.Fatal("root extra file must survive an upgrade")
+	}
+	var manifest struct {
+		MarketplaceID string `json:"marketplace_id"`
+		SnapshotHash  string `json:"snapshot_hash"`
+		InstalledAt   string `json:"installed_at"`
+		UpgradedAt    string `json:"upgraded_at"`
+	}
+	data, err := os.ReadFile(filepath.Join(backend.root, "demo-skill", ".vivy-skill.json"))
+	if err != nil {
+		t.Fatalf("manifest missing: %v", err)
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.MarketplaceID != "vercel-labs/skills/demo-skill" || manifest.SnapshotHash != "hash-v2" ||
+		manifest.InstalledAt == "" || manifest.UpgradedAt == "" {
+		t.Fatalf("manifest after upgrade = %+v", manifest)
+	}
+	// Create mode still refuses to touch the existing skill.
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", ""); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("create-over-existing error = %v", err)
+	}
+	items, err := backend.ListSkills(context.Background(), "")
+	if err != nil || len(items) != 1 || items[0].Name != "demo-skill" {
+		t.Fatalf("ListSkills after upgrade = %+v, err %v", items, err)
+	}
+}
+
+func TestMarketplaceUpgradeUpToDateWritesNothing(t *testing.T) {
+	service, backend, _ := newMarketplaceTestService(t, marketplaceSnapshotHandler(1))
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", ""); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	before, err := os.ReadFile(filepath.Join(backend.root, "demo-skill", ".vivy-skill.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "upgrade")
+	if err != nil || result.Outcome != "up_to_date" {
+		t.Fatalf("outcome = %q err %v", result.Outcome, err)
+	}
+	after, err := os.ReadFile(filepath.Join(backend.root, "demo-skill", ".vivy-skill.json"))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("up_to_date must leave the manifest untouched (equal=%v err=%v)", bytes.Equal(before, after), err)
+	}
+	if _, err := os.Stat(filepath.Join(backend.root, "demo-skill", "references", "guide.md")); err != nil {
+		t.Fatalf("content must be preserved: %v", err)
+	}
+}
+
+func TestMarketplaceUpgradeGuards(t *testing.T) {
+	// Unknown install mode.
+	service, backend, _ := newMarketplaceTestService(t, marketplaceSnapshotHandler(1))
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "replace"); err == nil || !strings.Contains(err.Error(), "unknown install mode") {
+		t.Fatalf("mode error = %v", err)
+	}
+	// Hand-placed skill has no manifest: upgrade refuses.
+	if err := os.MkdirAll(filepath.Join(backend.root, "demo-skill"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backend.root, "demo-skill", "SKILL.md"), []byte(marketplaceSkillDoc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "upgrade"); err == nil || !strings.Contains(err.Error(), "not marketplace-managed") {
+		t.Fatalf("unmanaged upgrade error = %v", err)
+	}
+	// Manifest from another origin: id mismatch refuses.
+	manifest := `{"marketplace_id":"other/skills/demo-skill","installed_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(backend.root, "demo-skill", ".vivy-skill.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", "upgrade"); err == nil || !strings.Contains(err.Error(), "was installed from") {
+		t.Fatalf("id mismatch error = %v", err)
+	}
+}
+
+func TestMarketplaceCheckUpdateStatuses(t *testing.T) {
+	version := 1
+	service, backend, _ := newMarketplaceTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		marketplaceSnapshotHandler(version)(w, r)
+	})
+	ghost, err := service.CheckMarketplaceUpdate(context.Background(), "ghost-skill")
+	if err != nil || ghost.Status != tools.MarketplaceUpdateNotInstalled {
+		t.Fatalf("not_installed check = %+v err %v", ghost, err)
+	}
+	if _, err := service.CheckMarketplaceUpdate(context.Background(), "BAD NAME"); err == nil {
+		t.Fatal("invalid name must be rejected")
+	}
+	if err := os.MkdirAll(filepath.Join(backend.root, "demo-skill"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backend.root, "demo-skill", "SKILL.md"), []byte(marketplaceSkillDoc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unmanaged, err := service.CheckMarketplaceUpdate(context.Background(), "demo-skill")
+	if err != nil || unmanaged.Status != tools.MarketplaceUpdateUnmanaged {
+		t.Fatalf("unmanaged check = %+v err %v", unmanaged, err)
+	}
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", ""); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("install over hand-placed skill error = %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(backend.root, "demo-skill")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.InstallMarketplace(context.Background(), "vercel-labs/skills/demo-skill", ""); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	upToDate, err := service.CheckMarketplaceUpdate(context.Background(), "demo-skill")
+	if err != nil || upToDate.Status != tools.MarketplaceUpdateUpToDate || upToDate.SnapshotHash != "hash-v1" ||
+		upToDate.MarketplaceID != "vercel-labs/skills/demo-skill" {
+		t.Fatalf("up_to_date check = %+v err %v", upToDate, err)
+	}
+	version = 2
+	available, err := service.CheckMarketplaceUpdate(context.Background(), "demo-skill")
+	if err != nil || available.Status != tools.MarketplaceUpdateUpgradeAvailable {
+		t.Fatalf("upgrade_available check = %+v err %v", available, err)
+	}
 }

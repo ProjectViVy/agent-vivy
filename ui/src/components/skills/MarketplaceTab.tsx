@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/i18n';
-import { Download, LoaderCircle, PackageOpen, RefreshCw, Search } from 'lucide-react';
+import { Download, LoaderCircle, PackageOpen, RefreshCw, Search, SearchCheck } from 'lucide-react';
 import * as api from '@/lib/api';
 
 interface MarketplaceTabProps {
@@ -31,7 +31,9 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
   const [featured, setFeatured] = useState<api.MarketplaceFeatured | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [checks, setChecks] = useState<Record<string, api.MarketplaceUpdateCheck>>({});
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
@@ -74,11 +76,19 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
-  const install = useCallback(async (id: string) => {
+  const install = useCallback(async (id: string, mode?: 'create' | 'upgrade') => {
     try {
       setBusyId(id);
       setError(null);
-      await api.installMarketplaceSkill(id);
+      setNotice(null);
+      const result = await api.installMarketplaceSkill(id, mode);
+      setChecks((prev) => {
+        const next = { ...prev };
+        delete next[slugOf(id)];
+        return next;
+      });
+      if (result.outcome === 'upgraded') setNotice(t('skills.marketplace.outcomeUpgraded'));
+      else if (result.outcome === 'up_to_date') setNotice(t('skills.marketplace.outcomeUpToDate'));
       onInstalledChange();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('skills.marketplace.installFailed'));
@@ -86,6 +96,21 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
       setBusyId(null);
     }
   }, [onInstalledChange, t]);
+
+  const checkUpdate = useCallback(async (id: string) => {
+    const slug = slugOf(id);
+    try {
+      setBusyId(id);
+      setError(null);
+      setNotice(null);
+      const check = await api.checkMarketplaceUpdate(slug);
+      setChecks((prev) => ({ ...prev, [slug]: check }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('skills.marketplace.checkFailed'));
+    } finally {
+      setBusyId(null);
+    }
+  }, [t]);
 
   const entries = debouncedQuery.trim().length >= 2 ? results : (featured?.skills ?? []);
   const snapshotDate = featured ? new Date(featured.generated_at).toLocaleDateString() : '';
@@ -124,6 +149,11 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
           </CardContent>
         </Card>
       )}
+      {notice && (
+        <Card>
+          <CardContent className="py-3 text-sm">{notice}</CardContent>
+        </Card>
+      )}
 
       <div className="min-h-0 flex-1 overflow-auto">
         {loading && entries.length === 0 ? (
@@ -142,7 +172,9 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
         ) : (
           <div className="space-y-2">
             {entries.map((entry) => {
-              const installed = installedNames.includes(slugOf(entry.id));
+              const slug = slugOf(entry.id);
+              const installed = installedNames.includes(slug);
+              const check = checks[slug];
               const busy = busyId === entry.id;
               return (
                 <Card key={entry.id}>
@@ -154,10 +186,26 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
                       </div>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{entry.source}</p>
                     </div>
-                    <Button size="sm" disabled={installed || busy} onClick={() => void install(entry.id)}>
-                      {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                      {installed ? t('skills.marketplace.installedLabel') : busy ? t('skills.marketplace.installing') : t('skills.marketplace.install')}
-                    </Button>
+                    {!installed ? (
+                      <Button size="sm" disabled={busy} onClick={() => void install(entry.id)}>
+                        {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                        {busy ? t('skills.marketplace.installing') : t('skills.marketplace.install')}
+                      </Button>
+                    ) : check?.status === 'upgrade_available' ? (
+                      <Button size="sm" disabled={busy} onClick={() => void install(entry.id, 'upgrade')}>
+                        {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                        {busy ? t('skills.marketplace.upgrading') : t('skills.marketplace.upgrade')}
+                      </Button>
+                    ) : (
+                      <div className="flex shrink-0 items-center gap-2">
+                        {check?.status === 'up_to_date' ? <Badge variant="outline">{t('skills.marketplace.upToDate')}</Badge> : null}
+                        {check?.status === 'unmanaged' ? <span className="max-w-40 text-right text-xs text-muted-foreground">{t('skills.marketplace.unmanagedHint')}</span> : null}
+                        <Button variant="outline" size="sm" disabled={busy} onClick={() => void checkUpdate(entry.id)}>
+                          {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <SearchCheck className="mr-2 h-4 w-4" />}
+                          {t('skills.marketplace.checkUpdate')}
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               );

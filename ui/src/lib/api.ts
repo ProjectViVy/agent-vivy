@@ -509,7 +509,13 @@ export interface SkillView extends SkillSummary {
 /** skills/marketplace/* — skills.sh 目录条目；id 形如 owner/repo/slug。 */
 export interface MarketplaceSkill { id: string; name: string; source: string; installs: number }
 export interface MarketplaceFeatured { generated_at: string; source: string; metric: string; skills: MarketplaceSkill[] }
-export interface MarketplaceInstallResult { skill: SkillView; skipped_files?: string[]; warnings?: string[] }
+export interface MarketplaceInstallResult { skill: SkillView; outcome: 'created' | 'upgraded' | 'up_to_date'; skipped_files?: string[]; warnings?: string[] }
+export interface MarketplaceUpdateCheck {
+  name: string;
+  status: 'not_installed' | 'unmanaged' | 'up_to_date' | 'upgrade_available';
+  marketplace_id?: string;
+  snapshot_hash?: string;
+}
 
 export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
 export const getSkill = (name: string, path?: string) =>
@@ -519,8 +525,10 @@ export const setSkillEnabled = (name: string, enabled: boolean, base_hash: strin
 export const searchMarketplaceSkills = (q: string, limit?: number) =>
   request<{ skills: MarketplaceSkill[] }>('skills/marketplace/search', limit ? { q, limit } : { q });
 export const featuredMarketplaceSkills = () => request<MarketplaceFeatured>('skills/marketplace/featured');
-export const installMarketplaceSkill = (id: string) =>
-  request<MarketplaceInstallResult>('skills/marketplace/install', { id });
+export const installMarketplaceSkill = (id: string, mode?: 'create' | 'upgrade') =>
+  request<MarketplaceInstallResult>('skills/marketplace/install', mode ? { id, mode } : { id });
+export const checkMarketplaceUpdate = (name: string) =>
+  request<MarketplaceUpdateCheck>('skills/marketplace/check', { name });
 
 // ==================== Cron（定时任务，后端真实 RPC） ====================
 
