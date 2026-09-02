@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/sdk/plugin"
 )
 
 const fileRefPrefix = "file:"
@@ -33,6 +34,19 @@ type Artifact struct {
 	Phase          domain.GenerationPhase `json:"phase"`
 	Tools          []artifactTool         `json:"tools,omitempty"`
 	Plugins        []artifactPlugin       `json:"plugins,omitempty"`
+	Face           *artifactFace          `json:"face,omitempty"`
+}
+
+// artifactFace is the seam-classified manifest projection of the packed
+// face organ (VIVY-FACE-PACK.md §10): at most one per generation, never
+// a model tool.
+type artifactFace struct {
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Kind      string   `json:"kind"`
+	Grants    []string `json:"grants,omitempty"`
+	SourceRef string   `json:"source_ref"`
+	TreeHash  string   `json:"tree_hash"`
 }
 
 type artifactTool struct {
@@ -56,6 +70,7 @@ type artifactPlugin struct {
 
 type packOptions struct {
 	With []string
+	Face string
 	Out  string
 }
 
@@ -69,6 +84,15 @@ func parsePackArgs(args []string) (packOptions, error) {
 			}
 			i++
 			opt.With = append(opt.With, args[i])
+		case "--face":
+			if i+1 >= len(args) {
+				return packOptions{}, fmt.Errorf("sdk: --face needs a face organ name or directory")
+			}
+			i++
+			if opt.Face != "" {
+				return packOptions{}, fmt.Errorf("sdk: --face was given twice (one generation, one mouth)")
+			}
+			opt.Face = args[i]
 		case "--out":
 			if i+1 >= len(args) {
 				return packOptions{}, fmt.Errorf("sdk: --out needs a directory")
@@ -93,10 +117,12 @@ type packedPlugin struct {
 	man        manifest
 }
 
-// Pack verifies named plugins and links them into a new species EXE.
+// Pack verifies named organs and links them into a new species EXE.
+// --with selects plugins (model tool sources); --face selects the one
+// seam-face organ the generation's `vivy run` serves through.
 func Pack(opt packOptions) (Artifact, error) {
-	if len(opt.With) == 0 {
-		return Artifact{}, fmt.Errorf("sdk: pack requires --with <plugin>")
+	if len(opt.With) == 0 && opt.Face == "" {
+		return Artifact{}, fmt.Errorf("sdk: pack requires --with <plugin> or --face <organ>")
 	}
 	root, err := findModuleRoot(".")
 	if err != nil {
@@ -175,6 +201,63 @@ func Pack(opt packOptions) (Artifact, error) {
 			tools = append(tools, artifactTool{Name: tool.Name, Readonly: tool.Effect == "read"})
 		}
 	}
+	// The face organ (VIVY-FACE-PACK.md §6): at most one per generation —
+	// one body, one mouth. Its constructor replaces the committed
+	// internal/generated/face register at build time; the committed default
+	// keeps `vivy run` on the built-in kernel headless loop.
+	var faceOrgan *packedPlugin
+	var faceEntry *artifactFace
+	if opt.Face != "" {
+		dir, err := resolveFaceDir(root, opt.Face)
+		if err != nil {
+			return Artifact{}, err
+		}
+		rep, err := Verify(dir)
+		if err != nil {
+			return Artifact{}, err
+		}
+		if !rep.OK {
+			return Artifact{}, fmt.Errorf("sdk: verify %s failed: %s", dir, strings.Join(rep.Issues, "; "))
+		}
+		man, err := loadManifest(dir)
+		if err != nil {
+			return Artifact{}, err
+		}
+		if plugin.Seam(man.Seam) != plugin.SeamFace {
+			return Artifact{}, fmt.Errorf("sdk: %s is seam %q, not a face organ", dir, man.Seam)
+		}
+		treeHash, err := hashPluginTree(dir)
+		if err != nil {
+			return Artifact{}, err
+		}
+		pkg, err := pluginPackageName(dir)
+		if err != nil {
+			return Artifact{}, err
+		}
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return Artifact{}, err
+		}
+		impPath := "agent-vivy/" + filepath.ToSlash(rel)
+		standalone := false
+		if modPath, ok := standaloneModulePath(dir); ok {
+			impPath = modPath
+			standalone = true
+		}
+		faceOrgan = &packedPlugin{
+			dir: dir, name: man.Name, pkg: pkg,
+			impPath: impPath, standalone: standalone,
+			man: man,
+		}
+		faceEntry = &artifactFace{
+			Name:      man.Name,
+			Version:   man.Version,
+			Kind:      man.Face.Kind,
+			Grants:    append([]string(nil), man.Grants...),
+			SourceRef: fileRefPrefix + dir,
+			TreeHash:  treeHash,
+		}
+	}
 	goBin, err := goToolchain()
 	if err != nil {
 		return Artifact{}, err
@@ -210,6 +293,13 @@ func Pack(opt packOptions) (Artifact, error) {
 	overlayDoc := map[string]map[string]string{
 		"Replace": {liveRegister: overlaySrc},
 	}
+	if faceOrgan != nil {
+		overlayFaceSrc := filepath.Join(tmp, "zz_face.go")
+		if err := os.WriteFile(overlayFaceSrc, []byte(generateFaceRegister(packedPluginForGen{pkg: faceOrgan.pkg, impPath: faceOrgan.impPath})), 0o600); err != nil {
+			return Artifact{}, err
+		}
+		overlayDoc["Replace"][filepath.Join(root, "internal", "generated", "face", "zz_face.go")] = overlayFaceSrc
+	}
 	// Standalone plugins (own go.mod) are imported by their module path in
 	// the generated Register(), so the main build also needs a go.mod that
 	// requires and replaces them plus their third-party dependency
@@ -228,6 +318,9 @@ func Pack(opt packOptions) (Artifact, error) {
 		if p.standalone {
 			standalonePlugins = append(standalonePlugins, p)
 		}
+	}
+	if faceOrgan != nil && faceOrgan.standalone {
+		standalonePlugins = append(standalonePlugins, *faceOrgan)
 	}
 	overlayJSON, err := json.Marshal(overlayDoc)
 	if err != nil {
@@ -281,6 +374,10 @@ func Pack(opt packOptions) (Artifact, error) {
 		Tools:   tools,
 		Plugins: pluginEntries,
 	}
+	if faceEntry != nil {
+		art.Recipe.Face = faceEntry.Name
+		art.Face = faceEntry
+	}
 	raw, err := json.MarshalIndent(art, "", "  ")
 	if err != nil {
 		return Artifact{}, err
@@ -333,6 +430,20 @@ func resolvePluginDir(root, spec string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("sdk: plugin %q not found", spec)
+}
+
+// resolveFaceDir resolves a --face spec the same way resolvePluginDir
+// resolves a --with spec, with the organ home faces/ as the convention
+// candidate (VIVY-FACE-PACK.md §6).
+func resolveFaceDir(root, spec string) (string, error) {
+	candidates := []string{spec, filepath.Join(root, spec), filepath.Join(root, "faces", spec)}
+	for _, candidate := range candidates {
+		info, err := os.Stat(filepath.Join(candidate, "vivy-plugin.json"))
+		if err == nil && !info.IsDir() {
+			return filepath.Abs(candidate)
+		}
+	}
+	return "", fmt.Errorf("sdk: face organ %q not found", spec)
 }
 
 // standaloneModulePath parses the `module <path>` line of a plugin's own
@@ -673,6 +784,20 @@ func generateRegister(plugins []packedPluginForGen) string {
 		fmt.Fprintf(&b, "\t\t%s.New(),\n", p.pkg)
 	}
 	b.WriteString("\t}\n}\n")
+	return b.String()
+}
+
+// generateFaceRegister replaces the committed internal/generated/face
+// register with one that serves the packed organ's constructor. The
+// organ's New(plugin.FaceOptions) plugin.Face is directly assignable to
+// plugin.FaceConstructor.
+func generateFaceRegister(organ packedPluginForGen) string {
+	var b strings.Builder
+	b.WriteString("// Code generated by vivy-sdk pack. DO NOT EDIT.\n\npackage face\n\nimport (\n")
+	fmt.Fprintf(&b, "\t%s %q\n", organ.pkg, organ.impPath)
+	b.WriteString("\n\t\"agent-vivy/sdk/plugin\"\n)\n\nfunc Register() plugin.FaceConstructor {\n\treturn ")
+	b.WriteString(organ.pkg)
+	b.WriteString(".New\n}\n")
 	return b.String()
 }
 

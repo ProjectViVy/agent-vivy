@@ -1,0 +1,9 @@
+{
+  "apiVersion": "vivy.plugin/v0",
+  "name": "headless",
+  "version": "0.1.0",
+  "seam": "face",
+  "module": ".",
+  "grants": ["tty", "argv", "rpc.client"],
+  "face": { "kind": "headless", "listen": false }
+}

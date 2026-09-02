@@ -12,7 +12,9 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/generated/face"
 	"agent-vivy/internal/logging"
+	"agent-vivy/sdk/plugin"
 )
 
 // runUsage is the `vivy run` help text.
@@ -89,6 +91,30 @@ func runRun(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// A generation packed --face serves run through its organ (face-pack
+	// §6); the committed body has none and keeps the built-in kernel
+	// headless loop. Exit codes mirror the terminal either way.
+	if ctor := face.Register(); ctor != nil {
+		result, err := app.RunFace(ctx, cfg, ctor, plugin.FaceOptions{
+			Prompt:         prompt,
+			ContinueNewest: continueNewest,
+			Out:            os.Stdout,
+			Err:            os.Stderr,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "vivy run: %v\n", err)
+			return 1
+		}
+		switch result.Status {
+		case "completed":
+			return 0
+		case "cancelled":
+			return 2
+		default:
+			return 1
+		}
+	}
 
 	result, err := app.RunHeadless(ctx, cfg, app.HeadlessOptions{
 		Prompt:         prompt,

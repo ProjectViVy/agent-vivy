@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"agent-vivy/sdk/plugin"
 )
 
 // Report is the result of verifying one plugin directory.
@@ -39,7 +41,7 @@ func Verify(dir string) (Report, error) {
 	rep.Issues = append(rep.Issues, checkManifest(abs, man)...)
 	files, parseIssues := parsePluginSources(abs)
 	rep.Issues = append(rep.Issues, parseIssues...)
-	rep.Issues = append(rep.Issues, checkSources(files)...)
+	rep.Issues = append(rep.Issues, checkSources(files, plugin.Seam(man.Seam))...)
 	if len(rep.Issues) == 0 {
 		rep.Issues = append(rep.Issues, checkLinkable(abs)...)
 	}

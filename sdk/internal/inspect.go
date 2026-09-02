@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"agent-vivy/sdk/plugin"
 )
 
 type sourceFile struct {
@@ -76,7 +78,7 @@ var bannedImportSubstrings = map[string]string{
 	".workspace": "reference material must be rewritten, not imported (picoclaw/.workspace)",
 }
 
-func checkSources(files []sourceFile) []string {
+func checkSources(files []sourceFile, seam plugin.Seam) []string {
 	var issues []string
 	hasCtor := false
 	for _, src := range files {
@@ -98,12 +100,20 @@ func checkSources(files []sourceFile) []string {
 		}
 		issues = append(issues, bannedCalls(src, imports)...)
 		issues = append(issues, bannedEmbeds(src)...)
-		if hasNewPlugin(src.file) {
+		if seam == plugin.SeamFace {
+			if hasNewFace(src.file) {
+				hasCtor = true
+			}
+		} else if hasNewPlugin(src.file) {
 			hasCtor = true
 		}
 	}
 	if !hasCtor {
-		issues = append(issues, "missing func New() plugin.Plugin")
+		if seam == plugin.SeamFace {
+			issues = append(issues, "missing func New(plugin.FaceOptions) plugin.Face")
+		} else {
+			issues = append(issues, "missing func New() plugin.Plugin")
+		}
 	}
 	return issues
 }
@@ -234,6 +244,37 @@ func hasNewPlugin(file *ast.File) bool {
 		}
 	}
 	return false
+}
+
+// hasNewFace recognizes the seam-face constructor: the launcher hands the
+// invocation payload in, the organ hands a Face back.
+func hasNewFace(file *ast.File) bool {
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Name.Name != "New" || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 {
+			continue
+		}
+		if !exprIsPluginSel(fn.Type.Params.List[0].Type, "FaceOptions") {
+			continue
+		}
+		if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
+			continue
+		}
+		if !exprIsPluginSel(fn.Type.Results.List[0].Type, "Face") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func exprIsPluginSel(expr ast.Expr, name string) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "plugin" && sel.Sel.Name == name
 }
 
 func rel(root, path string) string {

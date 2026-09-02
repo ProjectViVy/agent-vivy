@@ -27,6 +27,7 @@ type manifest struct {
 	Grants     []string         `json:"grants"`
 	Tools      []manifestTool   `json:"tools"`
 	Channel    *manifestChannel `json:"channel"`
+	Face       *manifestFace    `json:"face"`
 }
 
 // manifestChannel is the channel envelope of a seam-channel manifest
@@ -34,6 +35,16 @@ type manifest struct {
 type manifestChannel struct {
 	Transport       string `json:"transport"`
 	MaxMessageRunes int    `json:"max_message_runes"`
+}
+
+// manifestFace is the face envelope of a seam-face manifest
+// (VIVY-FACE-PACK.md §6). Kind names the presentation family and must
+// match the organ's plugin.Face Kind(); Listen must stay false in this
+// batch — HTTP listening is a face's own effect (e.g. faces/web), never
+// the kernel's obligation.
+type manifestFace struct {
+	Kind   string `json:"kind"`
+	Listen bool   `json:"listen"`
 }
 
 type manifestTool struct {
@@ -94,10 +105,14 @@ func checkManifest(dir string, m manifest) []string {
 			issues = append(issues, fmt.Sprintf("grant %q is not available to seam %q", grant, m.Seam))
 		}
 	}
-	if seam != plugin.SeamChannel {
+	switch seam {
+	case plugin.SeamChannel:
+		return append(issues, checkChannelManifest(m)...)
+	case plugin.SeamFace:
+		return append(issues, checkFaceManifest(m)...)
+	default:
 		return append(issues, checkToolManifest(m)...)
 	}
-	return append(issues, checkChannelManifest(m)...)
 }
 
 // isChannelGrant reports whether a grant belongs to the channel family.
@@ -110,10 +125,24 @@ func isChannelGrant(grant string) bool {
 	}
 }
 
+// isFaceGrant reports whether a grant belongs to the face family
+// (VIVY-FACE-PACK.md §6): terminal, argv, and control-plane client.
+func isFaceGrant(grant string) bool {
+	switch plugin.Grant(grant) {
+	case plugin.GrantTTY, plugin.GrantArgv, plugin.GrantRPCClient:
+		return true
+	default:
+		return false
+	}
+}
+
 // checkToolManifest holds the seam-tool/tool-world/provider rules: a
 // non-channel seam is a model tool source and must list at least one tool.
 func checkToolManifest(m manifest) []string {
 	var issues []string
+	if m.Face != nil {
+		issues = append(issues, "face object requires seam face")
+	}
 	if len(m.Tools) == 0 {
 		issues = append(issues, "tools must list at least one tool")
 	}
@@ -179,4 +208,38 @@ func schemaObject(raw json.RawMessage) bool {
 		return false
 	}
 	return true
+}
+
+// checkFaceManifest holds the seam-face rules (VIVY-FACE-PACK.md §6): a
+// face is consumed by the kernel FaceHost as a control-plane client, so
+// it forbids tools, admits only face-family grants, and requires a face
+// object with a known kind and no listening effect.
+func checkFaceManifest(m manifest) []string {
+	var issues []string
+	if len(m.Tools) > 0 {
+		issues = append(issues, "seam face forbids tools (a face is a control-plane client, not a model tool)")
+	}
+	seen := map[string]struct{}{}
+	for _, grant := range m.Grants {
+		if _, ok := seen[grant]; ok {
+			issues = append(issues, fmt.Sprintf("grant %q is duplicated", grant))
+		}
+		seen[grant] = struct{}{}
+		if !isFaceGrant(grant) {
+			issues = append(issues, fmt.Sprintf("grant %q is not available to seam %q", grant, m.Seam))
+		}
+	}
+	if m.Face == nil {
+		issues = append(issues, `seam face requires a "face" object with kind web|tui|headless`)
+		return issues
+	}
+	switch m.Face.Kind {
+	case "web", "tui", "headless":
+	default:
+		issues = append(issues, fmt.Sprintf("face.kind %q is not a face family (web|tui|headless)", m.Face.Kind))
+	}
+	if m.Face.Listen {
+		issues = append(issues, "face.listen must be false in this batch (listening is the face's own effect)")
+	}
+	return issues
 }
