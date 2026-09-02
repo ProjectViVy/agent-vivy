@@ -44,7 +44,7 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink, Truncations: backend,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: sink, Truncations: backend,
 	})
 	return svc, backend, sink
 }

@@ -98,6 +98,12 @@ export const zh = {
     rewind: '回到这里',
     fork: '从此分叉',
     pending: '待实现',
+    editSave: '保存并重跑',
+    editCancel: '取消',
+    rewindConfirmTitle: '回到这里？',
+    rewindConfirmBody: '该消息及其后的内容将退出上下文；原文留档，不会删除。',
+    forkConfirmTitle: '从此分叉？',
+    forkConfirmBody: '将以该消息为止的历史创建新会话；原会话保持不变。',
   },
   diff: {
     unified: '统一视图',

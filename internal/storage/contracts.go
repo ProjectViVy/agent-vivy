@@ -324,20 +324,25 @@ type CompactionStore interface {
 // cutoff message (inclusive); fork markers record the fork point for
 // audit and never filter.
 const (
-	TruncationRewind = "rewind"
-	TruncationEdit   = "edit"
-	TruncationFork   = "fork"
+	TruncationRewind     = "rewind"
+	TruncationEdit       = "edit"
+	TruncationFork       = "fork"
+	TruncationForkedFrom = "forked-from" // provenance row on the fork CHILD
 )
 
 // SessionTruncation is a logical cutoff marker (JOURNAL-REWIND-AND-FORK):
-// the message named by CutoffMessageID and everything after it leaves the
-// session view — model context and UI alike — while every row stays on
-// disk. The newest marker per session wins.
+// the closed range [CutoffMessageID, TailMessageID] leaves the session view
+// — model context and UI alike — while every row stays on disk. Tail is the
+// session's last message at marker time, so turns appended AFTER the rewind
+// stay visible (the edit flow is rewind + a new turn; without the tail
+// anchor the fold would hide the retry forever). The view is the complement
+// of the union of all rewind/edit ranges; fork anchors never control it.
 type SessionTruncation struct {
 	SessionID       domain.SessionID
 	CutoffMessageID string
-	Reason          string // TruncationRewind / TruncationEdit / TruncationFork
-	ForkSessionID   string // set when Reason == TruncationFork
+	TailMessageID   string // session's last message id at marker time
+	Reason          string // TruncationRewind / TruncationEdit / TruncationFork / TruncationForkedFrom
+	ForkSessionID   string // set for fork / forked-from rows
 	CreatedAt       int64  // unix milli
 }
 
@@ -346,26 +351,76 @@ type SessionTruncation struct {
 // rewind is just a new marker.
 type TruncationStore interface {
 	RecordSessionTruncation(ctx context.Context, t SessionTruncation) error
-	// LatestSessionTruncation returns the newest marker for the session;
-	// ok=false when none exists.
+	// LatestSessionTruncation returns the newest marker of ANY reason for
+	// the session (audit reads; may be a fork provenance anchor); ok=false
+	// when none exists.
 	LatestSessionTruncation(ctx context.Context, sessionID domain.SessionID) (SessionTruncation, bool, error)
+	// ListViewTruncations returns every view-controlling marker
+	// (rewind/edit) for the session in insertion order. The view is the
+	// complement of the UNION of their closed ranges: successive discards
+	// accumulate (the edit flow is rewind + a fresh turn, then possibly
+	// another rewind), and fork provenance anchors written later never
+	// resurrect earlier ranges nor do they filter.
+	ListViewTruncations(ctx context.Context, sessionID domain.SessionID) ([]SessionTruncation, error)
 }
 
-// ApplySessionTruncation filters a ListMessages slice by one marker: every
-// message from the cutoff message (inclusive) onward is dropped, matching
-// the store's own creation order. A fork marker filters nothing, and a
-// marker whose cutoff message is not in the slice is stale and ignored
-// (rows are append-only, so this only guards deleted edge cases).
+// ApplySessionTruncation filters a ListMessages slice by one marker: the
+// closed id range [cutoff, tail] — the suffix that existed when the marker
+// was written — is dropped; messages appended after it survive. Only
+// truncating reasons (rewind/edit) filter — fork and forked-from markers
+// are pure provenance anchors. A marker whose cutoff or tail id is not in
+// the slice is stale and ignored (fail open; rows are append-only, so this
+// only guards deleted edge cases).
 func ApplySessionTruncation(messages []domain.Message, t SessionTruncation) []domain.Message {
-	if t.Reason == TruncationFork {
+	return ApplySessionTruncations(messages, []SessionTruncation{t})
+}
+
+// ApplySessionTruncations filters a ListMessages slice by the union of all
+// view-controlling markers: every closed range [cutoff, tail] of a
+// rewind/edit marker is dropped; rows appended between markers stay unless
+// a later range captures them. Each marker resolves its anchors against the
+// current list independently; an unresolvable or fork-reason marker filters
+// nothing.
+func ApplySessionTruncations(messages []domain.Message, markers []SessionTruncation) []domain.Message {
+	if len(markers) == 0 {
 		return messages
 	}
-	for i, message := range messages {
-		if message.ID == t.CutoffMessageID {
-			return messages[:i]
+	drop := make([]bool, len(messages))
+	dropped := false
+	for _, marker := range markers {
+		if marker.Reason != TruncationRewind && marker.Reason != TruncationEdit {
+			continue
+		}
+		cutoff, tail := -1, -1
+		for i, message := range messages {
+			// A message id matches at most one anchor; when the rewind targets
+			// the last message the cutoff and tail ids are EQUAL and both must
+			// resolve to the same index or the fold silently fails open.
+			if message.ID == marker.CutoffMessageID && cutoff < 0 {
+				cutoff = i
+			}
+			if message.ID == marker.TailMessageID && tail < 0 {
+				tail = i
+			}
+		}
+		if cutoff < 0 || tail < cutoff {
+			continue
+		}
+		dropped = true
+		for i := cutoff; i <= tail; i++ {
+			drop[i] = true
 		}
 	}
-	return messages
+	if !dropped {
+		return messages
+	}
+	kept := make([]domain.Message, 0, len(messages))
+	for i, message := range messages {
+		if !drop[i] {
+			kept = append(kept, message)
+		}
+	}
+	return kept
 }
 
 // FileVersion retention knobs (RB-1 O2 ruling): the chain keeps the newest

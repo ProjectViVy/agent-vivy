@@ -100,6 +100,12 @@ export const en: Dictionary = {
     rewind: 'Rewind to here',
     fork: 'Fork from here',
     pending: 'Not yet available',
+    editSave: 'Save & rerun',
+    editCancel: 'Cancel',
+    rewindConfirmTitle: 'Rewind here?',
+    rewindConfirmBody: 'This message and everything after it leaves the context; the original stays archived, never deleted.',
+    forkConfirmTitle: 'Fork from here?',
+    forkConfirmBody: 'Creates a new session from the history up to this message; the original session stays untouched.',
   },
   diff: {
     unified: 'Unified',

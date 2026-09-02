@@ -43,7 +43,8 @@
 CREATE TABLE session_truncations (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,   -- pg: BIGSERIAL
     session_id    TEXT NOT NULL,
-    cutoff_message_id TEXT NOT NULL,   -- 该消息（含）及其后全部作废
+    cutoff_message_id TEXT NOT NULL,   -- 作废区间起点（含）
+    tail_message_id   TEXT NOT NULL DEFAULT '',  -- 标记时刻会话末条消息 id（含）
     reason        TEXT NOT NULL,       -- 'rewind' | 'edit' | 'fork'
     fork_session_id TEXT,              -- reason='fork' 时指向新会话
     created_at    INTEGER NOT NULL
@@ -51,14 +52,15 @@ CREATE TABLE session_truncations (
 CREATE INDEX idx_session_truncations_session ON session_truncations(session_id, id);
 ```
 
-- **有效截断 = 该 session 最新一条标记**（`latestSessionTruncation(sessionID)`；旧行永远保留——作废的作废本身也是事实）。
-- 消息表行**原样保留**：cutoff 之后的消息在读取层被过滤，不是被删。审计轴完整：run_events、被截消息、截断标记三者都可回放。
+- **有效截断 = 该 session 全部 rewind/edit 标记的并集**（R2 修正，e2e 回放抓出：编辑流 = rewind + 新回合 + 可能再次 rewind，若"最新一条标记胜出"，第二次回退会把第一次已作废的区间复活；视图 = 存储列表减去各闭区间 `[cutoff, tail]` 的并集。fork/forked-from 锚行不进视图折叠，也不得顶掉 rewind 标记——视图读取走 `ListViewTruncations`（仅 rewind/edit），审计读取走 `LatestSessionTruncation`（任意原因最新）。旧行永远保留——作废的作废本身也是事实）。
+- 消息表行**原样保留**：被截区间内的消息在读取层被过滤，不是被删。审计轴完整：run_events、被截消息、截断标记三者都可回放。
+- **尾锚（tail anchor）**：截断隐藏的是**闭区间 `[cutoff, tail]`**——标记时刻会话里已存在的最后一条消息。rewind 之后追加的新回合（id 在 tail 之外）保持可见：编辑流 = rewind + 全新 `turn/start`，若无尾锚，折叠会把重试本身永久藏掉（R2 e2e 离线回放抓出的设计缺陷，初版"cutoff 之后全部作废"的开放区间语义已废弃）。未知 cutoff/tail 一律 fail-open（不折叠）。
 - 大小预算：标记行只存 id 不存内容，无 1MB 类上限问题；每会话标记数天然有界（每次人工动作一条）。
-- conformance 套件新增组（守卫 20→21+）：`latest` 决胜、跨会话隔离、空会话零标记、标记对 `ListMessages`/`runMessages` 的过滤效应。
+- conformance 套件新增组（守卫 20→21+）：`latest` 决胜、跨会话隔离、空会话零标记、标记对 `ListMessages`/`runMessages` 的过滤效应、**rewind 后追加回合的可见性**。
 
 ### 2.2 读取层折叠（单一过滤点）
 
-`ListMessages` 的**运行时消费方**统一改为"先取 latest truncation，再按 `created_at >= cutoff.created_at` 剔除"：
+`ListMessages` 的**运行时消费方**统一改为"取该 session 全部 rewind/edit 标记，按闭区间 `[cutoff, tail]` **并集**剔除"（尾锚语义见 §2.1）：
 
 - `runMessages`（模型上下文，service.go:1151-1179）——截断后模型看到的历史以 cutoff 为界；
 - `session/messages` RPC（UI 列表，control.go:908）——UI 同样看到截断后视图（旧消息在数据库里，但产品视图以有效截断为准）；
@@ -105,8 +107,8 @@ CREATE INDEX idx_session_truncations_session ON session_truncations(session_id, 
 
 1. busy 检查（原会话）；
 2. 新建 session（`SessionStore.CreateSession`，title 默认 `原标题 · 分叉`）；
-3. **复制** ≤ message_id 的消息行到新 session（含附件引用；附件 data_url 本就内联在消息行）。复制而非引用：fork 后两个会话各自独立演化，避免跨会话读穿透；成本 = 一次有界 INSERT（会话历史已是 MB 级预算）；
-4. 在**原会话**写 truncation 标记？——**否**。fork 原会话不变！标记写在原会话仅为记录 fork 事实，但 reason='fork' 的标记**不改变原会话视图**（cutoff_message_id 记为 fork 点、过滤规则对 reason='fork' 跳过过滤、只作审计与防重放锚）。另在**新会话**写 `fork_session_id` 反向溯源行（reason='forked-from'，同样不过滤）。
+3. **复制** ≤ message_id 的**有效视图**消息行到新 session（含附件引用；附件 data_url 本就内联在消息行）。复制而非引用：fork 后两个会话各自独立演化，避免跨会话读穿透；成本 = 一次有界 INSERT（会话历史已是 MB 级预算）。R2 修正（e2e 回放抓出）：截点定位与复制均按**有效视图**（截断标记折叠后的行）而非原始 stored 列表——已被 rewind 折出的行不得在子会话复活，子会话上下文 = 原会话 fork 点处的可见上下文；对已折叠消息请求 rewind/fork → `ErrInvalidCutoff`；
+4. 在**原会话**写 truncation 标记？——**否**。fork 原会话不变！标记写在原会话仅为记录 fork 事实，但 reason='fork' 的标记**不改变原会话视图**（cutoff_message_id 记为 fork 点、过滤规则对 reason='fork' 跳过过滤、只作审计与防重放锚）。另在**新会话**写 `fork_session_id` 反向溯源行（reason='forked-from'，同样不过滤）。R2 补签（e2e 回放抓出）：锚行**也不得遮蔽**视图规则——视图读取（`LatestViewTruncation`，只取 rewind/edit 最新）与审计读取（`LatestSessionTruncation`，任意原因最新）分离；若视图读取也取"最新行"，晚写的 fork 锚会顶掉更早的 rewind 标记令折叠复原；
 5. 新会话写入 `session.forked` 事件（payload 带 parent_session_id + fork 点），返回新 session_id；UI 跳转新会话。
 
 **不采用 child-run 语义的原因**：fork 的产物是一个用户可见的**会话**（可继续多回合、有自己的 compaction/待办/审批），而 child run 是单回合执行单元且重启不重执行——二者生命周期不同构。
@@ -151,6 +153,6 @@ CREATE INDEX idx_session_truncations_session ON session_truncations(session_id, 
 
 ## 8. 公开问题（实现前需拍板）
 
-1. `cutoff_message_id` 用消息 id 还是 `(created_at, id)` 复合决胜（messages 表同 created_at 并列时的确定性）——倾向复合，conformance 钉死。
+1. ~~`cutoff_message_id` 用消息 id 还是 `(created_at, id)` 复合决胜~~ **已拍板（R2）**：折叠按**列表位置**匹配 id（`ListMessages` 次序即权威），不比 created_at；追加 **`tail_message_id` 尾锚**限定作废闭区间（§2.1），位置匹配天然避开同 created_at 并列问题，conformance CN-21 钉死。
 2. fork 复制的附件大消息是否设条数上限——倾向沿用会话历史既有预算，不新设。
 3. `session.truncated` 事件是否要进 `session/context` 的折叠摘要提示——倾向不进（截断是用户动作，不是上下文预算事件）。

@@ -26,6 +26,8 @@ interface ChatInputProps {
   placeholder?: string;
   /** 服务端 session/context 真实占用；null 时环显示 0。 */
   context?: SessionContext | null;
+  /** 回退预填：seq 变化时把文本写入草稿并聚焦输入框。 */
+  draftPreset?: { text: string; seq: number } | null;
 }
 
 type ExecMode = 'agent' | 'plan' | 'ask';
@@ -71,7 +73,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
   { value: 'trusted', icon: CheckCircle, label: 'chatInput.permissionTrusted', desc: 'chatInput.permissionTrustedDesc' },
 ];
 
-export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeholder, context = null }: ChatInputProps) {
+export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<AttachmentInput[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -131,6 +133,14 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
   // 切换会话时丢弃待发送附件（队列在 store 内清空，本地草稿附件保持同生命周期）。
   useEffect(() => { setPending([]); }, [activeSessionId]);
+  // 回退预填：同一 seq 只应用一次（ref 防重复），写入草稿后聚焦。
+  const appliedPresetSeq = useRef(0);
+  useEffect(() => {
+    if (!draftPreset || draftPreset.seq === appliedPresetSeq.current) return;
+    appliedPresetSeq.current = draftPreset.seq;
+    setValue(draftPreset.text);
+    textareaRef.current?.focus();
+  }, [draftPreset]);
 
   const showNotice = (message: string) => {
     setNotice(message);

@@ -734,9 +734,9 @@ func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 		{ID: "msg-4", Role: domain.RoleAssistant, Content: "four"},
 	}
 	for _, marker := range []storage.SessionTruncation{
-		{SessionID: "sess-tw", CutoffMessageID: "msg-3", Reason: storage.TruncationRewind, CreatedAt: 100},
-		{SessionID: "sess-tw", CutoffMessageID: "msg-2", Reason: storage.TruncationRewind, CreatedAt: 200},
-		{SessionID: "sess-other", CutoffMessageID: "msg-1", Reason: storage.TruncationEdit, CreatedAt: 300},
+		{SessionID: "sess-tw", CutoffMessageID: "msg-3", TailMessageID: "msg-4", Reason: storage.TruncationRewind, CreatedAt: 100},
+		{SessionID: "sess-tw", CutoffMessageID: "msg-2", TailMessageID: "msg-4", Reason: storage.TruncationRewind, CreatedAt: 200},
+		{SessionID: "sess-other", CutoffMessageID: "msg-1", TailMessageID: "msg-4", Reason: storage.TruncationEdit, CreatedAt: 300},
 	} {
 		if err := b.RecordSessionTruncation(ctx, marker); err != nil {
 			t.Fatalf("RecordSessionTruncation %s: %v", marker.CutoffMessageID, err)
@@ -746,19 +746,70 @@ func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 	if err != nil || !ok {
 		t.Fatalf("LatestSessionTruncation = ok=%v, %v; want true, nil", ok, err)
 	}
-	if got.CutoffMessageID != "msg-2" || got.Reason != storage.TruncationRewind {
-		t.Fatalf("latest marker = %+v, want msg-2 rewind (newest wins per session)", got)
+	if got.CutoffMessageID != "msg-2" || got.TailMessageID != "msg-4" || got.Reason != storage.TruncationRewind {
+		t.Fatalf("latest marker = %+v, want msg-2..msg-4 rewind (newest wins per session)", got)
 	}
 	folded := storage.ApplySessionTruncation(messages, got)
 	if len(folded) != 1 || folded[0].ID != "msg-1" {
-		t.Fatalf("rewind fold = %+v, want messages before the cutoff (exclusive)", folded)
+		t.Fatalf("rewind fold = %+v, want messages before the cutoff", folded)
 	}
-	kept := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationFork, CutoffMessageID: "msg-2"})
-	if len(kept) != len(messages) {
-		t.Fatalf("fork fold = %d rows, want unfiltered (fork markers filter nothing)", len(kept))
+	// A turn appended after the rewind sits beyond the tail anchor and must
+	// stay visible — the edit flow is rewind + a fresh turn/start.
+	afterTurn := append(append([]domain.Message{}, messages...), domain.Message{ID: "msg-5", Role: domain.RoleUser, Content: "five"})
+	refolded := storage.ApplySessionTruncation(afterTurn, got)
+	if len(refolded) != 2 || refolded[0].ID != "msg-1" || refolded[1].ID != "msg-5" {
+		t.Fatalf("post-rewind fold = %+v, want msg-1 + the new turn", refolded)
+	}
+	// A later fork anchor is audit-only: it shows up as the newest row for
+	// audit reads but never enters the view fold nor shadows view markers.
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: "sess-tw", CutoffMessageID: "msg-4", TailMessageID: "msg-4", Reason: storage.TruncationFork, ForkSessionID: "sess-fk", CreatedAt: 400}); err != nil {
+		t.Fatalf("RecordSessionTruncation fork anchor: %v", err)
+	}
+	if audit, ok, err := b.LatestSessionTruncation(ctx, "sess-tw"); err != nil || !ok || audit.Reason != storage.TruncationFork {
+		t.Fatalf("latest audit marker = %+v, ok=%v, err=%v; want the fork anchor", audit, ok, err)
+	}
+	viewMarkers, err := b.ListViewTruncations(ctx, "sess-tw")
+	if err != nil || len(viewMarkers) != 2 {
+		t.Fatalf("ListViewTruncations = %d markers, %v; want only the 2 rewind rows (fork anchor excluded)", len(viewMarkers), err)
+	}
+	foldedUnion := storage.ApplySessionTruncations(messages, viewMarkers)
+	if len(foldedUnion) != 1 || foldedUnion[0].ID != "msg-1" {
+		t.Fatalf("union fold = %+v, want msg-1 (successive rewinds accumulate)", foldedUnion)
+	}
+	// Non-contiguous ranges: a row appended between two rewinds stays
+	// visible unless a later range captures it.
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: "sess-un", CutoffMessageID: "msg-2", TailMessageID: "msg-2", Reason: storage.TruncationEdit, CreatedAt: 10}); err != nil {
+		t.Fatalf("RecordSessionTruncation un/1: %v", err)
+	}
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: "sess-un", CutoffMessageID: "msg-4", TailMessageID: "msg-4", Reason: storage.TruncationEdit, CreatedAt: 20}); err != nil {
+		t.Fatalf("RecordSessionTruncation un/2: %v", err)
+	}
+	unMarkers, err := b.ListViewTruncations(ctx, "sess-un")
+	if err != nil || len(unMarkers) != 2 {
+		t.Fatalf("sess-un ListViewTruncations = %d markers, %v; want 2", len(unMarkers), err)
+	}
+	unFolded := storage.ApplySessionTruncations(messages, unMarkers)
+	if len(unFolded) != 2 || unFolded[0].ID != "msg-1" || unFolded[1].ID != "msg-3" {
+		t.Fatalf("non-contiguous union fold = %+v, want msg-1 + msg-3", unFolded)
+	}
+	for _, reason := range []string{storage.TruncationFork, storage.TruncationForkedFrom} {
+		kept := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: reason, CutoffMessageID: "msg-2"})
+		if len(kept) != len(messages) {
+			t.Fatalf("%s fold = %d rows, want unfiltered (provenance markers filter nothing)", reason, len(kept))
+		}
 	}
 	failOpen := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationRewind, CutoffMessageID: "msg-gone"})
 	if len(failOpen) != len(messages) {
 		t.Fatalf("stale-cutoff fold = %d rows, want unfiltered (fail-open)", len(failOpen))
+	}
+	failOpenTail := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationRewind, CutoffMessageID: "msg-2", TailMessageID: "msg-gone"})
+	if len(failOpenTail) != len(messages) {
+		t.Fatalf("stale-tail fold = %d rows, want unfiltered (fail-open)", len(failOpenTail))
+	}
+	// Rewinding the LAST message makes cutoff and tail the SAME id; both
+	// anchors must resolve or the fold silently fails open.
+	lastFold := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationEdit, CutoffMessageID: "msg-4", TailMessageID: "msg-4"})
+	if len(lastFold) != 3 || lastFold[2].ID != "msg-3" {
+		t.Fatalf("cutoff==tail fold = %+v, want msg-1..msg-3", lastFold)
 	}
 }

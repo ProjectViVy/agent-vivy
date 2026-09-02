@@ -489,7 +489,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"channel.inspect", "channel.get", "channel.update",
-			"session.context", "context.compact", "session.rewind",
+			"session.context", "context.compact", "session.rewind", "session.fork",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
 			"skills.list", "skills.get",
@@ -524,6 +524,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.compactContext(ctx, request)
 	case "session/rewind":
 		return h.rewindSession(ctx, request)
+	case "session/fork":
+		return h.forkSession(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
 	case "session/compactions":
@@ -921,8 +923,8 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		return nil, internalError(err)
 	}
 	if h.deps.Truncations != nil {
-		if marker, ok, err := h.deps.Truncations.LatestSessionTruncation(ctx, domain.SessionID(params.SessionID)); err == nil && ok {
-			messages = storage.ApplySessionTruncation(messages, marker)
+		if markers, err := h.deps.Truncations.ListViewTruncations(ctx, domain.SessionID(params.SessionID)); err == nil && len(markers) > 0 {
+			messages = storage.ApplySessionTruncations(messages, markers)
 		}
 	}
 	out := make([]messageResult, 0, len(messages))
@@ -1001,6 +1003,38 @@ func (h *controlHandler) rewindSession(ctx context.Context, request Request) (an
 		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
 	}
 	result, err := h.deps.Service.RewindSession(ctx, domain.SessionID(params.SessionID), params.MessageID)
+	if errors.Is(err, runtime.ErrSessionBusy) {
+		return nil, &Error{Code: CodeConflict, Message: err.Error()}
+	}
+	if errors.Is(err, runtime.ErrInvalidCutoff) || errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+type forkParams struct {
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+	Title     string `json:"title"`
+}
+
+// forkSession copies the history up to the fork point into a new session
+// (JOURNAL-REWIND-AND-FORK R2). The original session keeps its full view.
+func (h *controlHandler) forkSession(ctx context.Context, request Request) (any, *Error) {
+	var params forkParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if params.SessionID == "" || params.MessageID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and message_id are required"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "runtime service is not configured"}
+	}
+	result, err := h.deps.Service.ForkSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Title)
 	if errors.Is(err, runtime.ErrSessionBusy) {
 		return nil, &Error{Code: CodeConflict, Message: err.Error()}
 	}
