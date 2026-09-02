@@ -66,9 +66,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-17", "message provenance round-trip", cnMessageProvenance},
 		{"CN-18", "file version chain + stale-read tracker", cnFileVersionChain},
 		{"CN-19", "runs listed by session", cnRunsBySession},
+		{"CN-20", "compactions listed by session", cnCompactionsBySession},
 	}
-	if len(cases) != 19 {
-		t.Fatalf("conformance suite must carry exactly 19 cases, got %d", len(cases))
+	if len(cases) != 20 {
+		t.Fatalf("conformance suite must carry exactly 20 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -674,5 +675,47 @@ func cnRunsBySession(t *testing.T, h Harness) {
 	empty, err := b.ListRunsBySession(ctx, "sess-none")
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("ListRunsBySession(unknown) = %+v, %v; want empty, nil", empty, err)
+	}
+}
+
+func cnCompactionsBySession(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	records := []storage.SessionCompaction{
+		{SessionID: "sess-cp", RunID: "run-c1", Summary: "older", TailFrom: 100, DroppedCount: 4, CreatedAt: 100},
+		{SessionID: "sess-cp", RunID: "run-c2", Summary: "newer", TailFrom: 200, DroppedCount: 6, CreatedAt: 200},
+		{SessionID: "sess-cp", RunID: "run-c9", Summary: "tie-newest", TailFrom: 300, DroppedCount: 2, CreatedAt: 200},
+		{SessionID: "sess-other", RunID: "run-z", Summary: "elsewhere", TailFrom: 400, DroppedCount: 1, CreatedAt: 300},
+	}
+	for _, rec := range records {
+		if err := b.SaveSessionCompaction(ctx, rec); err != nil {
+			t.Fatalf("SaveSessionCompaction %s: %v", rec.RunID, err)
+		}
+	}
+	got, err := b.ListSessionCompactions(ctx, "sess-cp", 10)
+	if err != nil {
+		t.Fatalf("ListSessionCompactions: %v", err)
+	}
+	wantOrder := []domain.RunID{"run-c9", "run-c2", "run-c1"}
+	if len(got) != len(wantOrder) {
+		t.Fatalf("ListSessionCompactions = %d rows, want %d", len(got), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if got[i].RunID != want {
+			t.Fatalf("row %d = %s, want %s (newest first)", i, got[i].RunID, want)
+		}
+	}
+	if got[0].Summary != "tie-newest" || got[0].DroppedCount != 2 || got[0].TailFrom != 300 {
+		t.Fatalf("row 0 fields = %+v, want tie-newest record", got[0])
+	}
+	capped, err := b.ListSessionCompactions(ctx, "sess-cp", 2)
+	if err != nil || len(capped) != 2 || capped[0].RunID != "run-c9" {
+		t.Fatalf("limit=2 = %+v, %v; want top 2 newest", capped, err)
+	}
+	if none, err := b.ListSessionCompactions(ctx, "sess-none", 10); err != nil || len(none) != 0 {
+		t.Fatalf("unknown session = %+v, %v; want empty, nil", none, err)
+	}
+	if zero, err := b.ListSessionCompactions(ctx, "sess-cp", 0); err != nil || len(zero) != 0 {
+		t.Fatalf("limit=0 = %+v, %v; want empty, nil", zero, err)
 	}
 }

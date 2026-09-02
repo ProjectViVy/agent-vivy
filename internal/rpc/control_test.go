@@ -21,6 +21,7 @@ import (
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/testsupport"
@@ -1515,6 +1516,104 @@ func TestControlHandlerListsSessionTodos(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, unwired, "session/todos", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != MethodNotFound {
 		t.Fatalf("unwired todos error = %v", rpcErr)
+	}
+}
+
+func TestControlHandlerListsSessionCompactions(t *testing.T) {
+	env := newControlTestEnv(t, func(d *ControlDeps) {
+		d.Compactions = d.Sessions.(storage.CompactionStore)
+	})
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "Compactions"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+
+	empty, rpcErr := callControl(t, env.handler, "session/compactions", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	emptyJSON, _ := json.Marshal(empty)
+	var emptyOut struct {
+		Compactions []compactionResult `json:"compactions"`
+	}
+	if err := json.Unmarshal(emptyJSON, &emptyOut); err != nil {
+		t.Fatal(err)
+	}
+	if emptyOut.Compactions == nil || len(emptyOut.Compactions) != 0 {
+		t.Fatalf("empty compactions = %+v, want []", emptyOut.Compactions)
+	}
+
+	ctx := context.Background()
+	records := []storage.SessionCompaction{
+		{SessionID: session.ID, RunID: "run-old", Summary: "older summary", TailFrom: 100, DroppedCount: 4, CreatedAt: 100},
+		{SessionID: session.ID, RunID: "run-new", Summary: "newer summary", TailFrom: 200, DroppedCount: 7, CreatedAt: 200},
+		{SessionID: "sess-elsewhere", RunID: "run-x", Summary: "elsewhere", TailFrom: 300, DroppedCount: 1, CreatedAt: 300},
+	}
+	for _, rec := range records {
+		if err := env.backend.SaveSessionCompaction(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	listed, rpcErr := callControl(t, env.handler, "session/compactions", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, _ := json.Marshal(listed)
+	var out struct {
+		Compactions []compactionResult `json:"compactions"`
+	}
+	if err := json.Unmarshal(listedJSON, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Compactions) != 2 || out.Compactions[0].RunID != "run-new" || out.Compactions[1].RunID != "run-old" {
+		t.Fatalf("compactions = %+v, want [run-new run-old] newest first", out.Compactions)
+	}
+	newest := out.Compactions[0]
+	if newest.Summary != "newer summary" || newest.TailFrom != 200 || newest.DroppedCount != 7 || newest.CreatedAt != 200 {
+		t.Fatalf("newest record = %+v", newest)
+	}
+
+	capped, rpcErr := callControl(t, env.handler, "session/compactions", map[string]any{"session_id": string(session.ID), "limit": 1})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	cappedJSON, _ := json.Marshal(capped)
+	var cappedOut struct {
+		Compactions []compactionResult `json:"compactions"`
+	}
+	if err := json.Unmarshal(cappedJSON, &cappedOut); err != nil {
+		t.Fatal(err)
+	}
+	if len(cappedOut.Compactions) != 1 || cappedOut.Compactions[0].RunID != "run-new" {
+		t.Fatalf("limit=1 = %+v, want only run-new", cappedOut.Compactions)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "session/compactions", map[string]string{"session_id": "missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("missing session error = %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/compactions", map[string]string{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing session_id error = %v", rpcErr)
+	}
+
+	unwiredBus := events.NewBus(8)
+	unwired, err := NewControlHandler(ControlDeps{
+		Sessions: env.backend, Messages: env.backend, Runs: env.backend, Journal: env.backend,
+		Approvals: env.backend, Questions: env.backend, Bus: unwiredBus,
+		Service: runtime.NewService(nil, "test", "test-model", runtime.ServiceDeps{
+			Journal: env.backend, Runs: env.backend, Messages: env.backend, Approvals: env.backend, Questions: env.backend, Sink: unwiredBus,
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, unwired, "session/compactions", map[string]string{"session_id": string(session.ID)}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("unwired compactions error = %v", rpcErr)
 	}
 }
 

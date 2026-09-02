@@ -32,3 +32,27 @@ test('compaction card renders localized labels without raw i18n keys', async ({ 
   await expect(page.getByText('保存中…', { exact: true })).toHaveCount(0);
   await expect(page.getByText(/settings\.compaction\./)).toHaveCount(0);
 });
+
+// CMP-3：压缩历史面板随卡渲染——无会话时给引导文案，有会话且无记录时给空态；
+// 历史条目/空态/引导都必须来自 i18n，不得出现原始键。
+test('compaction card shows localized compaction history panel', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  await page.goto('/settings?tab=general');
+
+  await expect(page.getByText('压缩历史', { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId('compaction-history-empty')
+      .or(page.getByText('打开一个会话后查看其压缩历史。'))
+  ).toBeVisible();
+  await expect(page.getByText(/settings\.compaction\.history/)).toHaveCount(0);
+
+  await page.evaluate(() => localStorage.setItem('vivy.language', 'en'));
+  await page.reload();
+
+  await expect(page.getByText('Compaction history', { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId('compaction-history-empty')
+      .or(page.getByText('Open a session to see its compaction history.'))
+  ).toBeVisible();
+  await expect(page.getByText(/settings\.compaction\.history/)).toHaveCount(0);
+});

@@ -53,3 +53,37 @@ func (b *Backend) LatestSessionCompaction(ctx context.Context, sessionID domain.
 	c.Summary = string(summary)
 	return c, true, nil
 }
+
+// ListSessionCompactions returns the session's records newest first.
+func (b *Backend) ListSessionCompactions(ctx context.Context, sessionID domain.SessionID, limit int) ([]storage.SessionCompaction, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := b.db.QueryContext(ctx, `
+		SELECT session_id, run_id, summary, tail_from, dropped_count, created_at
+		FROM session_compactions WHERE session_id = ?
+		ORDER BY created_at DESC, run_id DESC LIMIT ?`, sessionID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("storage: list session compactions: %w", err)
+	}
+	defer rows.Close()
+	var out []storage.SessionCompaction
+	for rows.Next() {
+		var (
+			c          storage.SessionCompaction
+			sid, runID string
+			summary    []byte
+		)
+		if err := rows.Scan(&sid, &runID, &summary, &c.TailFrom, &c.DroppedCount, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("storage: list session compactions: %w", err)
+		}
+		c.SessionID = domain.SessionID(sid)
+		c.RunID = domain.RunID(runID)
+		c.Summary = string(summary)
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: list session compactions: %w", err)
+	}
+	return out, nil
+}

@@ -60,12 +60,15 @@ type ControlDeps struct {
 	// SkillRevisions lists staged HITL Skill mutations for
 	// skills/revisions/list. Nil disables the method.
 	SkillRevisions storage.SkillRevisionStore
-	Bus            *events.Bus
-	Service        *runtime.Service
-	Studio         *studio.Service
-	Live           studio.LiveView
-	Eval           eval.Starter
-	Children       ChildController
+	// Compactions lists session-level compaction records for
+	// session/compactions. Nil disables the method.
+	Compactions storage.CompactionStore
+	Bus         *events.Bus
+	Service     *runtime.Service
+	Studio      *studio.Service
+	Live        studio.LiveView
+	Eval        eval.Starter
+	Children    ChildController
 	// SettingsPath is the operator-managed model provider settings document.
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
@@ -201,6 +204,13 @@ type controlHandler struct {
 
 type sessionParams struct {
 	SessionID string `json:"session_id"`
+}
+
+// sessionCompactionsParams extends sessionParams with a result cap for
+// session/compactions (clamped server-side to 200).
+type sessionCompactionsParams struct {
+	SessionID string `json:"session_id"`
+	Limit     int    `json:"limit,omitempty"`
 }
 
 type turnParams struct {
@@ -498,6 +508,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.compactContext(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
+	case "session/compactions":
+		return h.listSessionCompactions(ctx, request)
 	case "cron/list":
 		return h.listCrons(ctx)
 	case "cron/create":
@@ -1171,6 +1183,60 @@ func (h *controlHandler) listTodos(ctx context.Context, request Request) (any, *
 		})
 	}
 	return map[string]any{"todos": out}, nil
+}
+
+// ---- Session compactions (CMP-3) ----
+
+type compactionResult struct {
+	RunID        string `json:"run_id"`
+	CreatedAt    int64  `json:"created_at"`
+	TailFrom     int64  `json:"tail_from"`
+	DroppedCount int    `json:"dropped_count"`
+	Summary      string `json:"summary"`
+}
+
+// listSessionCompactions serves session/compactions: the session's durable
+// compaction records, newest first. Summary text is untrusted generated
+// content passed through verbatim.
+func (h *controlHandler) listSessionCompactions(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Compactions == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "compaction store is not configured"}
+	}
+	var params sessionCompactionsParams
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	sessionID := domain.SessionID(params.SessionID)
+	if _, err := h.deps.Sessions.GetSession(ctx, sessionID); errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+	} else if err != nil {
+		return nil, internalError(err)
+	}
+	limit := 50
+	if params.Limit > 0 {
+		limit = params.Limit
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	records, err := h.deps.Compactions.ListSessionCompactions(ctx, sessionID, limit)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	out := make([]compactionResult, 0, len(records))
+	for _, rec := range records {
+		out = append(out, compactionResult{
+			RunID:        string(rec.RunID),
+			CreatedAt:    rec.CreatedAt,
+			TailFrom:     rec.TailFrom,
+			DroppedCount: rec.DroppedCount,
+			Summary:      rec.Summary,
+		})
+	}
+	return map[string]any{"compactions": out}, nil
 }
 
 // ---- Cron (scheduled jobs) ----

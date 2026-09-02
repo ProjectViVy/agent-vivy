@@ -444,6 +444,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
 		Marketplace:    marketplace,
 		SkillRevisions: backend,
+		Compactions:    backend,
 		Crons:          backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
