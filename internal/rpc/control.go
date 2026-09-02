@@ -310,7 +310,12 @@ type marketplaceSearchParams struct {
 }
 
 type marketplaceInstallParams struct {
-	ID string `json:"id"`
+	ID   string `json:"id"`
+	Mode string `json:"mode,omitempty"`
+}
+
+type marketplaceCheckParams struct {
+	Name string `json:"name"`
 }
 
 type skillRevisionResult struct {
@@ -643,6 +648,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.featuredMarketplace(ctx)
 	case "skills/marketplace/install":
 		return h.installMarketplace(ctx, request)
+	case "skills/marketplace/check":
+		return h.checkMarketplaceUpdate(ctx, request)
 	default:
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
@@ -1121,11 +1128,36 @@ func (h *controlHandler) installMarketplace(ctx context.Context, request Request
 	if strings.TrimSpace(params.ID) == "" {
 		return nil, &Error{Code: InvalidParams, Message: "id is required"}
 	}
-	result, err := h.deps.Marketplace.InstallMarketplace(ctx, params.ID)
+	mode := tools.MarketplaceInstallMode(params.Mode)
+	if mode == "" {
+		mode = tools.MarketplaceInstallCreate
+	}
+	if mode != tools.MarketplaceInstallCreate && mode != tools.MarketplaceInstallUpgrade {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("mode must be create or upgrade, got %q", params.Mode)}
+	}
+	result, err := h.deps.Marketplace.InstallMarketplace(ctx, params.ID, mode)
 	if err != nil {
 		return nil, marketplaceError(err)
 	}
 	return result, nil
+}
+
+func (h *controlHandler) checkMarketplaceUpdate(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Marketplace == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skills marketplace is not configured"}
+	}
+	var params marketplaceCheckParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.Name) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "name is required"}
+	}
+	check, err := h.deps.Marketplace.CheckMarketplaceUpdate(ctx, params.Name)
+	if err != nil {
+		return nil, marketplaceError(err)
+	}
+	return check, nil
 }
 
 func marketplaceError(err error) *Error {
@@ -1133,7 +1165,7 @@ func marketplaceError(err error) *Error {
 	if errors.As(err, &upstream) {
 		return &Error{Code: CodeBadGateway, Message: err.Error()}
 	}
-	if strings.Contains(err.Error(), "already exists") {
+	if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "not marketplace-managed") || strings.Contains(err.Error(), "was installed from") {
 		return &Error{Code: CodeConflict, Message: err.Error()}
 	}
 	if strings.Contains(err.Error(), "not found") {
