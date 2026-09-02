@@ -2,7 +2,7 @@
 
 > 状态：**提案**。服从重构世界、`SELF-EVOLVING-GATEWAY.md` 与 **`VIVY-STUDIO.md`**。
 > channel 作为超级通道见 **`VIVY-CHANNEL-PACK.md`**（**方向已采纳** 2026-08-30）。Host 在内核；本批适配器是 `plugins/` + `seam: channel`，**不**增加 `channels:` 配方键。
-> face 作为一等装配单元见 **`VIVY-FACE-PACK.md`**（提案；未采纳前本表不增加 `face:` 行）。
+> face 作为一等装配单元见 **`VIVY-FACE-PACK.md`**（**方向已采纳** 2026-08-31，VC 决策 D2）。出厂脸走配方 `face:` 恰好一张；用户脸走 `plugins/` + `seam: face`。
 > 日期：2026-08-15（Studio 纠正：装配发生在独立 Studio 应用里，不在网关里）
 > 对照：DeepSeek Harness 的 profile / bundle / 按职责命名的包，不是对照它的热加载。
 

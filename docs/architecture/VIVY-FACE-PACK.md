@@ -1,6 +1,6 @@
 # Vivy Face Pack — 出厂 face 的冷拔插
 
-> 状态：**提案**。未采纳前不改内核、不改 `sdk/plugin` 的已落地缝。
+> 状态：**方向采纳**（2026-08-31，VC 决策 D2：`face: web | tui | headless` 一等装配 + 用户 `seam: face`；安卓是下游产品用内核）。§14 的四个开放问题在各自实施片（F2/F3/F4）开工前按推荐值呈报拍板。
 > 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、`VIVY-PLUGIN-SPEC.md`、**`VIVY-STUDIO.md`**、PRD §5.0 / D-016。
 > 日期：2026-08-29
 >

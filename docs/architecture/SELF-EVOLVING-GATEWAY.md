@@ -169,6 +169,7 @@ Policy 准入（deny / prompt / allow，不可变 hash）
 只读 inspect 的实现
 进程监督（仅 worker，不含外置插件、不含 Studio）
 ChannelHost（世界入口：准入、会话映射、channel.inbound、出站；永不插件化）
+FaceHost（本代嘴的选择与宿主：一代恰好一张脸，face 是配方器官；永不插件化）
 ```
 
 以后 V3 可以换内核，那是**晋级新一代物种**，不是热卸。
