@@ -53,6 +53,10 @@ ui-e2e:
 run:
     & "{{go}}" run ./cmd/vivy
 
+# Start the real VIVY CODE terminal face in the current project.
+tui:
+    & "{{go}}" run ./cmd/vivy tui
+
 # One-click split loop: backend :8787 + Vite :3015. Ctrl+C stops both.
 dev:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1
