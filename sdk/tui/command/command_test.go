@@ -119,7 +119,7 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	r := DefaultRegistry()
-	for _, input := range []string{"/thinking", "/thinking on", "/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/files run-1 path.txt", "/tools"} {
+	for _, input := range []string{"/thinking", "/thinking on", "/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -128,7 +128,7 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 			t.Fatalf("Validate(%q): %v", input, err)
 		}
 	}
-	for _, input := range []string{"/thinking max", "/thinking on extra", "/compact now", "/fork", "/rewind", "/stats 2h", "/tools extra", "/files a b c"} {
+	for _, input := range []string{"/thinking max", "/thinking on extra", "/compact now", "/fork", "/rewind", "/stats 2h", "/mcp resources", "/mcp resources docs extra", "/mcp read docs", "/mcp read docs \"\"", "/mcp read docs uri extra", "/tools extra", "/files a b c"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", input, err)
@@ -148,6 +148,12 @@ func TestFormatResultLabelsScopesAndSkippedCompaction(t *testing.T) {
 	}
 	if got := FormatResult("mcp", []byte(`{"servers":[]}`)); !strings.Contains(got, "configured MCP") || strings.Contains(got, "connected") {
 		t.Fatalf("mcp scope label = %q", got)
+	}
+	if got := FormatResult("mcp", []byte(`{"server":"docs","resources":[{"uri":"docs://guide"}],"untrusted":true}`)); !strings.Contains(got, "untrusted") || strings.Contains(got, "mounted") == false {
+		t.Fatalf("mcp resources scope label = %q", got)
+	}
+	if got := FormatResult("mcp", []byte(`{"server":"docs","uri":"docs://guide","contents":[{"text":"hello"}],"untrusted":true}`)); !strings.Contains(got, "untrusted") || !strings.Contains(got, "read-only") {
+		t.Fatalf("mcp read scope label = %q", got)
 	}
 }
 

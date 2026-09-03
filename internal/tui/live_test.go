@@ -427,6 +427,10 @@ func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
 			return map[string]any{"servers": []any{map[string]any{"name": "docs", "status": "idle"}}}, nil
 		case "settings/mcp/probe":
 			return map[string]any{"name": "docs", "status": "ok", "tool_count": 1}, nil
+		case "settings/mcp/resources":
+			return map[string]any{"server": "docs", "resources": []any{map[string]any{"uri": "docs://guide", "name": "guide"}}, "untrusted": true}, nil
+		case "settings/mcp/read":
+			return map[string]any{"server": "docs", "uri": "docs://guide", "contents": []any{map[string]any{"uri": "docs://guide", "text": "hello"}}, "untrusted": true}, nil
 		case "tools/list":
 			return map[string]any{"active": []string{"read_file"}}, nil
 		case "workspace/list":
@@ -459,6 +463,8 @@ func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
 		{"skills", []string{"writer"}, "skills/get", "guide"},
 		{"mcp", nil, "settings/mcp", "docs"},
 		{"mcp", []string{"docs"}, "settings/mcp/probe", "tool_count"},
+		{"mcp", []string{"resources", "docs"}, "settings/mcp/resources", "docs://guide"},
+		{"mcp", []string{"read", "docs", "docs://guide"}, "settings/mcp/read", "hello"},
 		{"tools", nil, "tools/list", "read_file"},
 		{"files", []string{"run_1"}, "workspace/list", "README.md"},
 		{"files", []string{"run_1", "README.md"}, "workspace/read", "hello"},

@@ -17,8 +17,8 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 	var listCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Method string `json:"method"`
-			ID     any    `json:"id"`
+			Method string          `json:"method"`
+			ID     json.RawMessage `json:"id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode request: %v", err)
@@ -29,7 +29,7 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 		case "initialize":
 			initializes.Add(1)
 			w.Header().Set("Mcp-Session-Id", "session")
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}`))
+			writeMCPResult(w, request.ID, `{"protocolVersion":"2024-11-05"}`)
 		case "notifications/initialized":
 			_, _ = w.Write([]byte(`{}`))
 		case "tools/list":
@@ -37,9 +37,9 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"echo","description":"remote echo","inputSchema":{"type":"object"}}]}}`))
+			writeMCPResult(w, request.ID, `{"tools":[{"name":"echo","description":"remote echo","inputSchema":{"type":"object"}}]}`)
 		case "tools/call":
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"remote output"}]}}`))
+			writeMCPResult(w, request.ID, `{"content":[{"type":"text","text":"remote output"}]}`)
 		default:
 			t.Errorf("unexpected MCP method %q", request.Method)
 		}
@@ -69,17 +69,18 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 func TestEinoMCPBackendBoundsRemoteOutputAndRejectsUnknownServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Method string `json:"method"`
+			Method string          `json:"method"`
+			ID     json.RawMessage `json:"id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		w.Header().Set("Content-Type", "application/json")
 		switch request.Method {
 		case "initialize":
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}`))
+			writeMCPResult(w, request.ID, `{"protocolVersion":"2024-11-05"}`)
 		case "notifications/initialized":
 			_, _ = w.Write([]byte(`{}`))
 		case "tools/call":
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"` + strings.Repeat("x", maxMCPContentBytes+1024) + `"}]}}`))
+			writeMCPResult(w, request.ID, `{"content":[{"type":"text","text":"`+strings.Repeat("x", maxMCPContentBytes+1024)+`"}]}`)
 		}
 	}))
 	defer server.Close()
@@ -157,18 +158,287 @@ func TestEinoMCPBackendParsesSSEJSON(t *testing.T) {
 	}
 }
 
+func TestEinoMCPBackendListsAndReadsResourcesJSON(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+			Params struct {
+				Cursor string `json:"cursor"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		methods = append(methods, request.Method)
+		w.Header().Set("Content-Type", "application/json")
+		if request.Method != "initialize" && r.Header.Get("MCP-Protocol-Version") != "2024-11-05" {
+			t.Errorf("%s protocol header = %q", request.Method, r.Header.Get("MCP-Protocol-Version"))
+		}
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"resources":{"listChanged":true}}}}`))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "resources/list":
+			if request.Params.Cursor == "" {
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"resources":[{"uri":"docs://guide","name":"guide","title":"Guide","description":"remote guide","mimeType":"text/markdown","size":42,"annotations":{"audience":["user"]},"_meta":{"origin":"remote"}}],"nextCursor":" page-2 "}}`))
+			} else if request.Params.Cursor == " page-2 " {
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,"result":{"resources":[{"uri":"docs://faq","name":"faq"}]}}`))
+			} else {
+				t.Errorf("unexpected resources cursor %q", request.Params.Cursor)
+			}
+		case "resources/read":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":4,"result":{"contents":[{"uri":"docs://guide","mimeType":"text/markdown","text":"# Hello"},{"uri":"docs://guide","mimeType":"application/octet-stream","blob":"AQI="}]}}`))
+		default:
+			t.Errorf("unexpected MCP method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	listed, err := backend.ListResources(context.Background(), "", "docs")
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	if listed.Server != "docs" || !listed.Untrusted || len(listed.Resources) != 2 {
+		t.Fatalf("listed = %#v", listed)
+	}
+	resource := listed.Resources[0]
+	if resource.Server != "docs" || resource.URI != "docs://guide" || resource.Name != "guide" || resource.Title != "Guide" || resource.Description != "remote guide" || resource.MIME != "text/markdown" || resource.Size != 42 {
+		t.Fatalf("resource = %#v", resource)
+	}
+	if string(resource.Annotations) != `{"audience":["user"]}` || string(resource.Meta) != `{"origin":"remote"}` {
+		t.Fatalf("resource metadata = annotations %s meta %s", resource.Annotations, resource.Meta)
+	}
+
+	read, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "docs", URI: "docs://guide"})
+	if err != nil {
+		t.Fatalf("read resource: %v", err)
+	}
+	if read.Server != "docs" || read.URI != "docs://guide" || !read.Untrusted || len(read.Contents) != 2 {
+		t.Fatalf("read = %#v", read)
+	}
+	if got := read.Contents[0]; got.URI != "docs://guide" || got.MIME != "text/markdown" || got.Text == nil || *got.Text != "# Hello" || got.Blob != nil {
+		t.Fatalf("text content = %#v", got)
+	}
+	if got := read.Contents[1]; got.MIME != "application/octet-stream" || got.Blob == nil || *got.Blob != "AQI=" || got.Text != nil {
+		t.Fatalf("blob content = %#v", got)
+	}
+	if strings.Join(methods, ",") != "initialize,notifications/initialized,resources/list,resources/list,resources/read" {
+		t.Fatalf("methods = %v", methods)
+	}
+
+	if _, err := backend.ListResources(context.Background(), "", "missing"); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("unknown list error = %v", err)
+	}
+	if _, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "missing", URI: "docs://guide"}); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("unknown read error = %v", err)
+	}
+}
+
+func TestEinoMCPBackendParsesSSEResources(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\"}}\n\n"))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte("event: message\ndata: {}\n\n"))
+		case "resources/list":
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resources\":[{\"uri\":\"sse://one\",\"name\":\"one\"}]}}\n\n"))
+		case "resources/read":
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"contents\":[{\"uri\":\"sse://one\",\"text\":\"sse text\"}]}}\n\n"))
+		default:
+			t.Errorf("unexpected MCP method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "sse", Endpoint: server.URL}}, server.Client())
+	listed, err := backend.ListResources(context.Background(), "", "sse")
+	if err != nil || len(listed.Resources) != 1 || listed.Resources[0].URI != "sse://one" {
+		t.Fatalf("sse resources = %#v err=%v", listed, err)
+	}
+	read, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "sse", URI: "sse://one"})
+	if err != nil || len(read.Contents) != 1 || read.Contents[0].Text == nil || *read.Contents[0].Text != "sse text" {
+		t.Fatalf("sse read = %#v err=%v", read, err)
+	}
+}
+
+func TestEinoMCPBackendBoundsResourceContentAndResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}`))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "resources/read":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"contents":[{"uri":"docs://big","text":"` + strings.Repeat("x", maxMCPContentBytes+1024) + `"}]}}`))
+		case "resources/list":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,"result":{"resources":[{"uri":"docs://big","description":"` + strings.Repeat("d", maxMCPContentBytes+1024) + `","annotations":{"large":"` + strings.Repeat("a", 1024) + `"}}]}}`))
+		}
+	}))
+	defer server.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	read, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "docs", URI: "docs://big"})
+	if err != nil {
+		t.Fatalf("read bounded resource: %v", err)
+	}
+	if len(read.Contents) != 1 || read.Contents[0].Text == nil || len(*read.Contents[0].Text) == 0 || read.Contents[0].Blob != nil || mcpResourceContentSize(read.Contents[0]) > maxMCPContentBytes {
+		t.Fatalf("bounded content = %#v", read.Contents[0])
+	}
+	listed, err := backend.ListResources(context.Background(), "", "docs")
+	if err != nil {
+		t.Fatalf("list bounded resources: %v", err)
+	}
+	if len(listed.Resources) != 1 || mcpResourceSize(listed.Resources[0]) > maxMCPContentBytes {
+		t.Fatalf("bounded list = %#v", listed)
+	}
+
+	backend.maxResponseBytes = 128
+	if _, err := backend.ListResources(context.Background(), "", "docs"); err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("oversize response error = %v", err)
+	}
+	if _, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "docs", URI: strings.Repeat("u", maxMCPContentBytes+1)}); err == nil || !strings.Contains(err.Error(), "URI exceeds size limit") {
+		t.Fatalf("oversize URI error = %v", err)
+	}
+}
+
+func TestEinoMCPBackendRejectsMalformedResourceContentAndPreservesURI(t *testing.T) {
+	var response string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string          `json:"method"`
+			ID     json.RawMessage `json:"id"`
+			Params struct {
+				URI string `json:"uri"`
+			} `json:"params"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			writeMCPResult(w, request.ID, `{"protocolVersion":"2024-11-05"}`)
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "resources/read":
+			if request.Params.URI != " docs://opaque " {
+				t.Errorf("URI changed in transit: %q", request.Params.URI)
+			}
+			writeMCPResult(w, request.ID, response)
+		}
+	}))
+	defer server.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	for _, malformed := range []string{
+		`{"contents":[{"text":"missing uri"}]}`,
+		`{"contents":[{"uri":"docs://bad"}]}`,
+		`{"contents":[{"uri":"docs://bad","text":"x","blob":"eA=="}]}`,
+	} {
+		response = malformed
+		if _, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "docs", URI: " docs://opaque "}); err == nil {
+			t.Fatalf("malformed resource content accepted: %s", malformed)
+		}
+	}
+	for _, valid := range []struct {
+		response string
+		text     bool
+	}{
+		{response: `{"contents":[{"uri":"docs://empty","text":""}]}`, text: true},
+		{response: `{"contents":[{"uri":"docs://empty","blob":""}]}`},
+	} {
+		response = valid.response
+		read, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "docs", URI: " docs://opaque "})
+		if err != nil || len(read.Contents) != 1 {
+			t.Fatalf("valid empty resource rejected: response=%s read=%#v err=%v", valid.response, read, err)
+		}
+		if valid.text && (read.Contents[0].Text == nil || read.Contents[0].Blob != nil) {
+			t.Fatalf("empty text representation lost: %#v", read.Contents[0])
+		}
+		if !valid.text && (read.Contents[0].Blob == nil || read.Contents[0].Text != nil) {
+			t.Fatalf("empty blob representation lost: %#v", read.Contents[0])
+		}
+	}
+}
+
+func TestEinoMCPBackendBoundsMultiServerResourceFanout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string          `json:"method"`
+			ID     json.RawMessage `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			writeMCPResult(w, request.ID, `{"protocolVersion":"2024-11-05"}`)
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "resources/list":
+			writeMCPResult(w, request.ID, `{"resources":[{"uri":"docs://large","description":"`+strings.Repeat("x", 200<<10)+`"}]}`)
+		}
+	}))
+	defer server.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "one", Endpoint: server.URL}, {Name: "two", Endpoint: server.URL}}, server.Client())
+	listed, err := backend.ListResources(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, resource := range listed.Resources {
+		total += mcpResourceSize(resource)
+	}
+	if total > maxMCPContentBytes {
+		t.Fatalf("fanout projection = %d bytes, limit = %d", total, maxMCPContentBytes)
+	}
+}
+
+func mcpResourceSize(resource tools.MCPResource) int {
+	return len(resource.Server) + len(resource.URI) + len(resource.Name) + len(resource.Title) + len(resource.Description) + len(resource.MIME) + len(resource.Annotations) + len(resource.Meta)
+}
+
+func mcpResourceContentSize(content tools.MCPResourceContent) int {
+	size := len(content.URI) + len(content.MIME) + len(content.Annotations) + len(content.Meta)
+	if content.Text != nil {
+		size += len(*content.Text)
+	}
+	if content.Blob != nil {
+		size += len(*content.Blob)
+	}
+	return size
+}
+
 func writeMCPJSON(w http.ResponseWriter, r *http.Request, result string) {
 	var request struct {
-		Method string `json:"method"`
+		Method string          `json:"method"`
+		ID     json.RawMessage `json:"id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	w.Header().Set("Content-Type", "application/json")
 	switch request.Method {
 	case "initialize":
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}`))
+		writeMCPResult(w, request.ID, `{"protocolVersion":"2024-11-05"}`)
 	case "notifications/initialized":
 		_, _ = w.Write([]byte(`{}`))
 	case "tools/list":
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":` + result + `}`))
+		writeMCPResult(w, request.ID, result)
 	}
+}
+
+func writeMCPResult(w http.ResponseWriter, id json.RawMessage, result string) {
+	_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":` + result + `}`))
 }
