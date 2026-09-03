@@ -15,6 +15,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"agent-vivy/sdk/plugin"
 
@@ -45,13 +47,14 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: initialize: %w", err)
 	}
 	live := NewLive(client, LiveOptions{
-		Host:           "vivy",
-		Title:          "VIVY",
+		Host:           "local project",
+		Title:          "VIVY CODE",
 		InitialPrompt:  f.opts.Prompt,
 		ContinueNewest: f.opts.ContinueNewest,
 	})
 	defer live.Close()
 
+	configureColor(f.opts.Out)
 	program := tea.NewProgram(view.New(live), tea.WithAltScreen(), tea.WithOutput(f.opts.Out))
 	_, programErr := program.Run()
 	shutdownRun(ctx, client, live)
@@ -59,6 +62,20 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: %w", programErr)
 	}
 	return plugin.FaceResult{Status: "completed"}, nil
+}
+
+func configureColor(out io.Writer) {
+	if os.Getenv("NO_COLOR") != "" {
+		return
+	}
+	f, ok := out.(*os.File)
+	if !ok {
+		return
+	}
+	stat, err := f.Stat()
+	if err == nil && stat.Mode()&os.ModeCharDevice != 0 {
+		lipgloss.SetColorProfile(termenv.TrueColor)
+	}
 }
 
 // shutdownRun cancels a run still mid-flight when the operator quits and

@@ -13,11 +13,13 @@ import (
 	"github.com/gorilla/websocket"
 
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/sdk/plugin"
 )
 
 // Client is one in-process JSON-RPC peer attached to the control plane.
 type Client struct {
 	peer *controlrpc.Peer
+	call func(context.Context, string, any) (json.RawMessage, error)
 
 	mu     sync.Mutex
 	notify func(method string, params json.RawMessage)
@@ -30,18 +32,30 @@ func Attach(peer *controlrpc.Peer) *Client {
 	return client
 }
 
+// AttachFaceEnv adapts the gateway-less FaceHost control plane to the same
+// client used by the resident-gateway TUI.
+func AttachFaceEnv(env plugin.FaceEnv) *Client {
+	c := &Client{call: env.Call}
+	env.OnEvent(c.dispatch)
+	return c
+}
+
+func (c *Client) dispatch(method string, params json.RawMessage) {
+	c.mu.Lock()
+	notify := c.notify
+	c.mu.Unlock()
+	if notify != nil {
+		notify(method, params)
+	}
+}
+
 // Handler implements controlrpc.Handler so the peer can deliver
 // notifications (run/event) while Call waits for responses.
 func (c *Client) Handle(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 	if request.Method == "" {
 		return nil, nil
 	}
-	c.mu.Lock()
-	notify := c.notify
-	c.mu.Unlock()
-	if notify != nil {
-		notify(request.Method, request.Params)
-	}
+	c.dispatch(request.Method, request.Params)
 	return nil, nil
 }
 
@@ -54,7 +68,13 @@ func (c *Client) OnNotify(fn func(method string, params json.RawMessage)) {
 
 // Call issues one JSON-RPC method and waits for its result.
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	if c == nil || c.peer == nil {
+	if c == nil {
+		return nil, fmt.Errorf("tui: client is not connected")
+	}
+	if c.call != nil {
+		return c.call(ctx, method, params)
+	}
+	if c.peer == nil {
 		return nil, fmt.Errorf("tui: client is not connected")
 	}
 	return c.peer.Call(ctx, method, params)

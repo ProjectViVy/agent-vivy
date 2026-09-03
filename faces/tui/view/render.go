@@ -57,7 +57,7 @@ func (m Model) renderCompact(l layout, p Palette) string {
 func (m Model) renderCompactHeader(l layout, p Palette) string {
 	session := m.driver.Active()
 	meta := m.driver.Meta()
-	logo := p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY") + " "
+	logo := p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY CODE") + " "
 	label := session.Title
 	if meta.Mode == "live" && meta.Host != "" {
 		label = fmt.Sprintf("%s · %s", session.Title, meta.Host)
@@ -76,7 +76,7 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 	meta := m.driver.Meta()
 	var b strings.Builder
 	// Crush: fixed logo on top of sidebar.
-	b.WriteString(p.SidebarLogo.Render(" Vivy"))
+	b.WriteString(p.SidebarLogo.Render(" VIVY CODE"))
 	b.WriteByte('\n')
 	b.WriteString(p.Dim.Render(" ─────────────"))
 	b.WriteByte('\n')
@@ -154,6 +154,10 @@ func renderMessage(message surface.Message, width int, p Palette) []string {
 	}
 	bar := p.AsstBar.Render("┃ ")
 	style := p.Assistant
+	if message.Reasoning {
+		bar = p.ReasoningBar.Render("┊ ")
+		style = p.Reasoning
+	}
 	switch message.Role {
 	case roleUser:
 		bar = p.UserBar.Render("┃ ")
@@ -183,13 +187,14 @@ func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 	case "done":
 		icon = p.ToolOK.Render("✔")
 	case "denied", "failed":
-		icon = "✖"
+		icon = p.ToolFail.Render("✖")
 	}
 	title := fmt.Sprintf("%s %s  %s", icon, tool.ToolName, tool.Status)
 	body := tool.Preview
 	if tool.Status != "pending" && tool.Result != "" {
 		body = tool.Result
 	}
+	body = renderDiffBody(body, p)
 	inner := title
 	if body != "" {
 		inner = title + "\n" + body
@@ -202,6 +207,30 @@ func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 		indented = append(indented, "  "+line)
 	}
 	return indented
+}
+
+func renderDiffBody(body string, p Palette) string {
+	if !strings.Contains(body, "@@") && !strings.Contains(body, "\n+") && !strings.Contains(body, "\n-") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	adds, dels := 0, 0
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			adds++
+			lines[i] = p.DiffAdd.Render(line)
+		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			dels++
+			lines[i] = p.DiffDel.Render(line)
+		case strings.HasPrefix(line, "@@"):
+			lines[i] = p.DiffHunk.Render(line)
+		}
+	}
+	if adds+dels > 0 {
+		lines = append([]string{p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}, lines...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderEditor(width int, p Palette) string {
@@ -234,6 +263,7 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		p.HelpKey.Render("enter") + p.HelpDesc.Render(" send"),
 		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" approve"),
 		p.HelpKey.Render("^n") + p.HelpDesc.Render(" new"),
+		p.HelpKey.Render("^y") + p.HelpDesc.Render(" permission"),
 		p.HelpKey.Render("esc") + p.HelpDesc.Render(" cancel"),
 		p.HelpKey.Render("^c") + p.HelpDesc.Render(" quit"),
 	}

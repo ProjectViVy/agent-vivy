@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
@@ -54,5 +55,12 @@ func TestDecodeStreamEventEnvelope(t *testing.T) {
 	}
 	if payloadString(event.Payload, "delta") != "x" {
 		t.Fatalf("payload = %s", event.Payload)
+	}
+}
+
+func TestToolResultProjectsDiffAndDiagnostics(t *testing.T) {
+	notice := interpret(streamEvent{Type: domain.EventToolFinished, Payload: json.RawMessage(`{"tool_name":"patch","result":"{\"path\":\"a.go\",\"diff\":\"@@ -1 +1 @@\\n-old\\n+new\",\"diagnostics\":\"ok\"}"}`)})
+	if notice.Kind != "tool_finished" || !strings.Contains(notice.Line, "a.go") || !strings.Contains(notice.Line, "+new") || !strings.Contains(notice.Line, "Diagnostics") {
+		t.Fatalf("notice = %+v", notice)
 	}
 }

@@ -198,7 +198,7 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	env.mu.Lock()
 	_ = json.Unmarshal(env.params["turn/start"], &turnParams)
 	env.mu.Unlock()
-	if turnParams.Face != "tui" {
+	if turnParams.Face != "code" {
 		t.Fatalf("turn/start face = %q", turnParams.Face)
 	}
 
@@ -427,7 +427,7 @@ func TestViewRendersShellWithoutDriver(t *testing.T) {
 	wide := view.New(nil)
 	updated, _ := wide.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	wideView := updated.(view.Model).View()
-	if !strings.Contains(wideView, "Vivy") || !strings.Contains(wideView, "Sessions") {
+	if !strings.Contains(wideView, "VIVY CODE") || !strings.Contains(wideView, "Sessions") {
 		t.Fatalf("missing sidebar skeleton in wide view:\n%s", wideView)
 	}
 	compact := view.New(nil)

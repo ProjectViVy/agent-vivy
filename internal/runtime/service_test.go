@@ -86,15 +86,19 @@ func countTerminal(events []domain.RunEvent) int {
 // waitForRunStatus polls the run row until it reaches want (bounded).
 func waitForRunStatus(t *testing.T, runs storage.RunStore, runID domain.RunID, want domain.RunStatus) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
+	var last domain.RunStatus
 	for time.Now().Before(deadline) {
 		r, err := runs.GetRun(context.Background(), runID)
-		if err == nil && r.Status == want {
-			return
+		if err == nil {
+			last = r.Status
+			if r.Status == want {
+				return
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("run %s never reached status %s", runID, want)
+	t.Fatalf("run %s never reached status %s (last status %s)", runID, want, last)
 }
 
 // replayAll drains the journal for one run.

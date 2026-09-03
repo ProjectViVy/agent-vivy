@@ -2,7 +2,10 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -10,9 +13,34 @@ import (
 
 func requireBash(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash is not available on this host")
 	}
+}
+
+func testJobSpec(script string, delay time.Duration) JobSpec {
+	if runtime.GOOS != "windows" {
+		return JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", script}}
+	}
+	return JobSpec{Display: "embedded shell", Run: func(ctx context.Context, stdout, _ io.Writer) error {
+		if strings.Contains(script, "vivy_job_marker") {
+			_, _ = fmt.Fprintln(stdout, "vivy_job_marker")
+		}
+		if delay <= 0 {
+			return nil
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}}
 }
 
 func waitForJobOutput(t *testing.T, r *JobRegistry, id string) JobReadResult {
@@ -59,7 +87,7 @@ func TestJobRegistryRunUntilCompletes(t *testing.T) {
 	requireBash(t)
 	r := NewJobRegistry()
 	ctx := context.Background()
-	id, res, err := r.RunUntil(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "echo vivy_job_marker"}}, 5*time.Second)
+	id, res, err := r.RunUntil(ctx, testJobSpec("echo vivy_job_marker", 0), 5*time.Second)
 	if err != nil {
 		t.Fatalf("run until: %v", err)
 	}
@@ -75,7 +103,7 @@ func TestJobRegistryRunUntilAdoptsOnTimeout(t *testing.T) {
 	requireBash(t)
 	r := NewJobRegistry()
 	ctx := context.Background()
-	id, res, err := r.RunUntil(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "echo vivy_job_marker; sleep 30"}}, 300*time.Millisecond)
+	id, res, err := r.RunUntil(ctx, testJobSpec("echo vivy_job_marker; sleep 30", 30*time.Second), 300*time.Millisecond)
 	if err != nil {
 		t.Fatalf("run until: %v", err)
 	}
@@ -105,7 +133,7 @@ func TestJobRegistryLaunchReadKill(t *testing.T) {
 	r := NewJobRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	id, err := r.Launch(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "echo vivy_job_marker; sleep 30"}})
+	id, err := r.Launch(ctx, testJobSpec("echo vivy_job_marker; sleep 30", 30*time.Second))
 	if err != nil {
 		t.Fatalf("launch: %v", err)
 	}
@@ -128,7 +156,7 @@ func TestJobRegistryRunContextCancelsJobs(t *testing.T) {
 	requireBash(t)
 	r := NewJobRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
-	id, err := r.Launch(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "sleep 30"}})
+	id, err := r.Launch(ctx, testJobSpec("sleep 30", 30*time.Second))
 	if err != nil {
 		t.Fatalf("launch: %v", err)
 	}
@@ -141,7 +169,7 @@ func TestJobRegistryForegroundRunContextError(t *testing.T) {
 	r := NewJobRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err := r.RunUntil(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "sleep 30"}}, 5*time.Second)
+	_, _, err := r.RunUntil(ctx, testJobSpec("sleep 30", 30*time.Second), 5*time.Second)
 	if err == nil {
 		t.Fatal("cancelled context returned no error for a foreground run")
 	}
@@ -164,13 +192,13 @@ func TestJobRegistryLaunchLimit(t *testing.T) {
 	defer cancel()
 	ids := make([]string, 0, maxRunningJobs)
 	for i := 0; i < maxRunningJobs; i++ {
-		id, err := r.Launch(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "sleep 2"}})
+		id, err := r.Launch(ctx, testJobSpec("sleep 2", 2*time.Second))
 		if err != nil {
 			t.Fatalf("launch %d: %v", i, err)
 		}
 		ids = append(ids, id)
 	}
-	if _, err := r.Launch(ctx, JobSpec{Display: "bash", Path: "bash", Args: []string{"-c", "sleep 2"}}); err == nil || !strings.Contains(err.Error(), "limit") {
+	if _, err := r.Launch(ctx, testJobSpec("sleep 2", 2*time.Second)); err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("over-limit launch error = %v, want limit rejection", err)
 	}
 	for _, id := range ids {

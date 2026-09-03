@@ -110,7 +110,7 @@ func (c *client) startTurn(ctx context.Context, sessionID, text string) (runAcce
 	raw, err := c.Call(ctx, "turn/start", map[string]string{
 		"session_id": sessionID,
 		"text":       text,
-		"face":       FaceKind,
+		"face":       "code",
 	})
 	if err != nil {
 		return runAccepted{}, err
@@ -123,6 +123,18 @@ func (c *client) startTurn(ctx context.Context, sessionID, text string) (runAcce
 		return runAccepted{}, fmt.Errorf("tui: turn/start returned no run_id")
 	}
 	return accepted, nil
+}
+
+func (c *client) setSessionPermission(ctx context.Context, sessionID, preset string) (sessionView, error) {
+	raw, err := c.Call(ctx, "session/set_permission", map[string]string{"session_id": sessionID, "preset": preset})
+	if err != nil {
+		return sessionView{}, err
+	}
+	var session sessionView
+	if err := json.Unmarshal(raw, &session); err != nil {
+		return sessionView{}, fmt.Errorf("tui: session/set_permission: %w", err)
+	}
+	return session, nil
 }
 
 func (c *client) subscribe(ctx context.Context, runID string) error {

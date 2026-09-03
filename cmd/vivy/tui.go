@@ -3,20 +3,24 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/logging"
 	"agent-vivy/internal/tui"
 	"agent-vivy/internal/tui/view"
+	"agent-vivy/sdk/plugin"
 )
 
 func runTUI(args []string) int {
 	addr := ""
 	title := "TUI"
-	mode := "" // demo | plain | live
+	mode := "" // local | demo | plain | live
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--demo":
@@ -53,8 +57,7 @@ func runTUI(args []string) int {
 		}
 	}
 	if mode == "" {
-		// Prefer the fullscreen skeleton when no gateway target was named.
-		mode = "demo"
+		mode = "local"
 	}
 	if mode == "demo" {
 		if err := view.RunDemo(); err != nil {
@@ -73,18 +76,57 @@ func runTUI(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if mode == "local" {
+		bootstrap := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		cfg, err := loadConfig(bootstrap)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "vivy tui: resolve current project:", err)
+			return 1
+		}
+		cfg.Runtime.World = "local"
+		cfg.Runtime.WorkspaceRoot = cwd
+		cfg.Runtime.Sandbox.WorkspaceRoot = cwd
+		if err := cfg.Validate(); err != nil {
+			fmt.Fprintln(os.Stderr, "vivy tui:", err)
+			return 1
+		}
+		vivyLog, _, closeLog, err := logging.Setup(logging.Options{
+			Level: cfg.Logging.Level, Format: cfg.Logging.Format,
+			Dir: cfg.LogDirectory(), RetentionDays: cfg.Logging.RetentionDays,
+			Stdout: false,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "vivy tui:", err)
+			return 1
+		}
+		defer closeLog.Close()
+		slog.SetDefault(vivyLog)
+		result, err := app.RunFace(ctx, cfg, tui.NewFace, plugin.FaceOptions{Out: os.Stdout, Err: os.Stderr})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "vivy tui:", err)
+			return 1
+		}
+		if result.Status != "completed" {
+			return 1
+		}
+		return 0
+	}
 
 	client, err := tui.Dial(ctx, addr, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, "start the gateway first: vivy")
-		fmt.Fprintln(os.Stderr, "or run the offline demo skeleton: vivy tui --demo")
 		return 1
 	}
 	defer client.Close()
 
 	if mode == "live" {
-		live := tui.NewLive(client, tui.LiveOptions{Host: addr, Title: title})
+		live := tui.NewLive(client, tui.LiveOptions{Host: addr, Title: title, Face: "code"})
 		defer live.Close()
 		if err := view.Run(live); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -113,13 +155,14 @@ func defaultListenAddr() string {
 
 const tuiUsage = `vivy tui — terminal face
 
+  vivy tui                        real VIVY CODE in the current project
   vivy tui --demo                 fullscreen Crush-style skeleton (offline demo data)
   vivy tui --live [--addr host]   fullscreen shell on a resident gateway
   vivy tui --plain [--addr host]  line REPL over a resident gateway
   vivy tui --addr host:port       same as --plain
 
---demo does not dial the gateway and does not start a second kernel.
+The default command composes the existing Vivy kernel in-process, uses the
+current directory as its governed workspace, and starts turns as face=code.
+--demo is an explicit development fixture and never a product fallback.
 --live fails loudly if the gateway is down (does not fall back to demo).
-Default with no flags is --demo. The packed faces/tui organ in
-docs/architecture/VIVY-FACE-PACK.md is a later generation.
 `

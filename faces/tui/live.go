@@ -29,6 +29,7 @@ type Live struct {
 	runID   string
 	gate    *surface.Gate
 	lastErr string
+	queue   []string
 
 	initialPrompt  string
 	continueNewest bool
@@ -142,17 +143,24 @@ func (l *Live) PendingGate() *surface.Gate {
 func (l *Live) Meta() surface.Meta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	footer := "live"
+	footer := l.title
+	if footer == "" {
+		footer = "VIVY CODE"
+	}
 	if l.host != "" {
-		footer = "live · " + l.host
+		footer += " · " + l.host
 	}
 	if l.busy {
 		footer += " · run…"
+	}
+	if len(l.queue) > 0 {
+		footer += fmt.Sprintf(" · queued %d", len(l.queue))
 	}
 	return surface.Meta{
 		Mode:   "live",
 		Host:   l.host,
 		Busy:   l.busy,
+		Queued: len(l.queue),
 		RunID:  l.runID,
 		Error:  l.lastErr,
 		Footer: footer,
@@ -188,8 +196,9 @@ type liveTurnStartedMsg struct {
 
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
 type liveRPCMsg struct {
-	Kind string
-	Err  error
+	Kind   string
+	Preset string
+	Err    error
 }
 
 // Init implements surface.Driver.
@@ -260,7 +269,10 @@ func trimTitle(prompt string) string {
 func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case liveTickMsg:
-		l.drainEvents()
+		finished := l.drainEvents()
+		if finished {
+			return tea.Batch(l.dequeueCmd(), l.tickCmd())
+		}
 		return l.tickCmd()
 	case liveBootMsg:
 		return l.applyBoot(msg)
@@ -373,19 +385,41 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	if msg.Kind == "approval" || msg.Kind == "question" {
 		l.gate = nil
 	}
+	if msg.Kind == "permission" && msg.Preset != "" {
+		for i := range l.sessions {
+			if l.sessions[i].ID == l.activeID {
+				l.sessions[i].PermissionPreset = msg.Preset
+				break
+			}
+		}
+	}
 	l.lastErr = ""
 	return nil
 }
 
-func (l *Live) drainEvents() {
+func (l *Live) drainEvents() bool {
+	finished := false
 	for {
 		select {
 		case notice := <-l.events:
 			l.applyNotice(notice)
+			finished = finished || notice.Kind == "done"
 		default:
-			return
+			return finished
 		}
 	}
+}
+
+func (l *Live) dequeueCmd() tea.Cmd {
+	l.mu.Lock()
+	if l.busy || l.gate != nil || len(l.queue) == 0 {
+		l.mu.Unlock()
+		return nil
+	}
+	text := l.queue[0]
+	l.queue = l.queue[1:]
+	l.mu.Unlock()
+	return l.Send(text)
 }
 
 func (l *Live) applyNotice(notice eventNotice) {
@@ -396,15 +430,33 @@ func (l *Live) applyNotice(notice eventNotice) {
 	}
 	switch notice.Kind {
 	case "delta":
-		l.ensureAssistantDraftLocked()
 		msgs := l.messages[l.activeID]
+		for i := range msgs {
+			if msgs[i].Reasoning {
+				msgs[i].Streaming = false
+			}
+		}
+		l.messages[l.activeID] = msgs
+		l.ensureAssistantDraftLocked()
+		msgs = l.messages[l.activeID]
 		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == roleAssistant && msgs[i].Streaming {
+			if msgs[i].Role == roleAssistant && msgs[i].Streaming && !msgs[i].Reasoning {
 				msgs[i].Content += notice.Delta
 				l.messages[l.activeID] = msgs
 				return
 			}
 		}
+	case "reasoning":
+		msgs := l.messages[l.activeID]
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Reasoning && msgs[i].Streaming {
+				msgs[i].Content += notice.Delta
+				l.messages[l.activeID] = msgs
+				return
+			}
+			break
+		}
+		l.appendLocked(surface.Message{ID: l.nextID("thinking"), Role: roleAssistant, Content: notice.Delta, Streaming: true, Reasoning: true})
 	case "tool_requested":
 		l.finishStreamingLocked()
 		l.appendLocked(surface.Message{
@@ -413,7 +465,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 			Tool: &surface.ToolCard{
 				ToolName: notice.Message,
 				Status:   "pending",
-				Preview:  "",
+				Preview:  notice.Line,
 			},
 		})
 	case "tool_finished":
@@ -426,6 +478,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 					msgs[i].Tool.Result = notice.Line
 				} else {
 					msgs[i].Tool.Status = "done"
+					msgs[i].Tool.Result = notice.Line
 					if msgs[i].Tool.Result == "" {
 						msgs[i].Tool.Result = "done"
 					}
@@ -469,8 +522,6 @@ func (l *Live) applyNotice(notice eventNotice) {
 				})
 			}
 		}
-	case "line":
-		// reasoning / misc — ignore in chat projection for the thin face
 	case "done":
 		l.finishStreamingLocked()
 		l.busy = false
@@ -489,7 +540,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 func (l *Live) ensureAssistantDraftLocked() {
 	msgs := l.messages[l.activeID]
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == roleAssistant && msgs[i].Streaming {
+		if msgs[i].Role == roleAssistant && msgs[i].Streaming && !msgs[i].Reasoning {
 			return
 		}
 		// If last assistant is complete and we stream again, fall through.
@@ -610,8 +661,9 @@ func (l *Live) Send(text string) tea.Cmd {
 	}
 	l.mu.Lock()
 	if l.busy || l.gate != nil {
+		l.queue = append(l.queue, text)
 		l.mu.Unlock()
-		return nil
+		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
 	sessionID := l.activeID
 	l.appendLocked(surface.Message{
@@ -692,6 +744,39 @@ func (l *Live) AnswerQuestion(answer string) tea.Cmd {
 		err := l.client.respondQuestion(ctx, id, answer)
 		return liveRPCMsg{Kind: "question", Err: err}
 	}
+}
+
+func (l *Live) SetPermission(preset string) tea.Cmd {
+	preset = strings.TrimSpace(preset)
+	if preset != "cautious" && preset != "smart" && preset != "trusted" {
+		return nil
+	}
+	l.mu.Lock()
+	sessionID := l.activeID
+	busy := l.busy || l.gate != nil
+	l.mu.Unlock()
+	if sessionID == "" || busy {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		session, err := l.client.setSessionPermission(ctx, sessionID, preset)
+		if session.PermissionPreset != "" {
+			preset = session.PermissionPreset
+		}
+		return liveRPCMsg{Kind: "permission", Preset: preset, Err: err}
+	}
+}
+
+func (l *Live) ClearQueue() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.queue) == 0 {
+		return false
+	}
+	l.queue = nil
+	return true
 }
 
 // Cancel implements surface.Driver.

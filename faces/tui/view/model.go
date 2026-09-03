@@ -92,6 +92,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			// no-op on the gate body so the operator still y/n (or types an answer).
 			return m, nil
 		}
+		if meta.Queued > 0 {
+			m.driver.ClearQueue()
+			return m, nil
+		}
 		if meta.Busy {
 			return m, m.driver.Cancel()
 		}
@@ -101,6 +105,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if gate == nil && !meta.Busy {
 			m.input = ""
 			return m, m.driver.NewSession("")
+		}
+		return m, nil
+	case tea.KeyCtrlY:
+		if gate == nil && !meta.Busy {
+			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset))
 		}
 		return m, nil
 	case tea.KeyTab:
@@ -130,9 +139,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.input = ""
 				return m, m.driver.AnswerQuestion(answer)
 			}
-			return m, nil
-		}
-		if meta.Busy {
 			return m, nil
 		}
 		text := m.input
@@ -180,6 +186,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func nextPermission(current string) string {
+	switch current {
+	case "cautious":
+		return "smart"
+	case "smart":
+		return "trusted"
+	default:
+		return "cautious"
+	}
 }
 
 // Run starts the fullscreen Bubble Tea program on the given driver.

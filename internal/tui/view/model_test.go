@@ -5,9 +5,31 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"agent-vivy/internal/tui/demo"
 )
+
+func TestVivyRolePaletteEmitsTrueColor(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	got := defaultPalette().LogoWord.Render("VIVY")
+	if !strings.Contains(got, "\x1b[") || !strings.Contains(got, "38;2;167;139;250") {
+		t.Fatalf("logo color missing from %q", got)
+	}
+}
+
+func TestPermissionCycle(t *testing.T) {
+	if got := nextPermission("cautious"); got != "smart" {
+		t.Fatalf("cautious -> %q", got)
+	}
+	if got := nextPermission("smart"); got != "trusted" {
+		t.Fatalf("smart -> %q", got)
+	}
+	if got := nextPermission("trusted"); got != "cautious" {
+		t.Fatalf("trusted -> %q", got)
+	}
+}
 
 func TestViewContainsCrushSkeleton(t *testing.T) {
 	m := New(demo.NewStore())
@@ -15,8 +37,8 @@ func TestViewContainsCrushSkeleton(t *testing.T) {
 	m = updated.(Model)
 	got := m.View()
 	for _, want := range []string{
-		"Vivy",     // sidebar logo
-		"Sessions", // sidebar section
+		"VIVY CODE", // sidebar logo
+		"Sessions",  // sidebar section
 		"审批中",
 		"过夜",
 		"write_file",
