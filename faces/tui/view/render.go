@@ -273,6 +273,9 @@ func (m Model) renderDialog(gate *surface.Gate, l layout, p Palette) string {
 	if gate.Kind == "question" {
 		help = p.Dim.Render("type answer · enter submit")
 	}
+	if gate.Submitting {
+		help = p.Dim.Render("submitting…")
+	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", help)
 	w := min(l.width-6, 64)
 	return p.Dialog.Width(w).Render(inner)

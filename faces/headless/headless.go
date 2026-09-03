@@ -64,6 +64,15 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 	if err := json.Unmarshal(turn, &start); err != nil || start.RunID == "" {
 		return plugin.FaceResult{}, fmt.Errorf("headless: turn/start returned %s", turn)
 	}
+	terminal := make(chan string, 1)
+	// FaceHost drops notifications delivered before OnEvent is registered.
+	// Register before subscribing because run/subscribe may synchronously
+	// replay a terminal event for a fast run.
+	env.OnEvent(func(method string, params json.RawMessage) {
+		if method == "run/event" {
+			f.onEvent(params, start.RunID, env, terminal)
+		}
+	})
 	sub, err := env.Call(ctx, "run/subscribe", map[string]any{"run_id": start.RunID})
 	if err != nil {
 		return plugin.FaceResult{}, fmt.Errorf("headless: run/subscribe: %w", err)
@@ -72,13 +81,6 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 		SubscriptionID string `json:"subscription_id"`
 	}
 	_ = json.Unmarshal(sub, &stream)
-
-	terminal := make(chan string, 1)
-	env.OnEvent(func(method string, params json.RawMessage) {
-		if method == "run/event" {
-			f.onEvent(params, start.RunID, env, terminal)
-		}
-	})
 
 	select {
 	case status := <-terminal:
