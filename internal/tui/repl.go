@@ -11,20 +11,14 @@ import (
 	"sync"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/sdk/tui/command"
 )
 
 const banner = `vivy tui  —  control-plane client, not a second kernel
 connected to the resident gateway. type /help. Ctrl+C or /quit to leave.
 `
 
-const helpText = `commands
-  /help              this text
-  /sessions          list sessions
-  /session <id>      switch to an existing session
-  /new [title]       start a new session
-  /cancel            cancel the in-flight run
-  /quit              leave the TTY (gateway keeps running)
-
+const helpNotes = `
 plain lines are sent as the next user turn.
 
 when a tool needs approval, the next line is y or n
@@ -101,6 +95,9 @@ type repl struct {
 	busy    bool
 	runID   string
 	pending *gatePrompt
+	// pendingDelete is a local confirmation barrier. A delete command never
+	// mutates a session until the following line is an explicit y/yes.
+	pendingDelete string
 
 	events chan eventNotice
 }
@@ -121,7 +118,7 @@ func (r *repl) loop(ctx context.Context) error {
 			fmt.Fprintln(r.out)
 			return nil
 		}
-		line := strings.TrimSpace(r.in.Text())
+		line := r.in.Text()
 		if err := r.handleLine(ctx, line); err != nil {
 			if err == io.EOF {
 				return nil
@@ -137,6 +134,9 @@ func (r *repl) promptLocked() string {
 			return "approve? [y/n] "
 		}
 		return "answer> "
+	}
+	if r.pendingDelete != "" {
+		return "delete " + r.pendingDelete + "? [y/n] "
 	}
 	if r.busy {
 		return "… "
@@ -164,11 +164,23 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 		}
 		return nil
 	}
-	if line == "" {
+	r.mu.Lock()
+	pendingDelete := r.pendingDelete
+	r.mu.Unlock()
+	if pendingDelete != "" {
+		return r.handleDeleteConfirmation(ctx, pendingDelete, line)
+	}
+	parsed, err := command.DefaultRegistry().Parse(line)
+	if err != nil {
+		fmt.Fprintf(r.out, "vivy: %v\n", err)
 		return nil
 	}
-	if strings.HasPrefix(line, "/") {
-		return r.handleCommand(ctx, line, busy, runID)
+	if parsed.IsCommand() {
+		return r.handleCommand(ctx, parsed.Invocation, busy, runID)
+	}
+	line = parsed.Text
+	if strings.TrimSpace(line) == "" {
+		return nil
 	}
 	if busy {
 		fmt.Fprintln(r.out, "(run in flight; /cancel or wait)")
@@ -177,32 +189,77 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 	return r.sendTurn(ctx, line)
 }
 
-func (r *repl) handleCommand(ctx context.Context, line string, busy bool, runID string) error {
-	fields := strings.Fields(line)
-	cmd := strings.ToLower(fields[0])
-	switch cmd {
-	case "/help", "/?":
-		fmt.Fprint(r.out, helpText)
+func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation, busy bool, runID string) error {
+	if invocation == nil {
+		fmt.Fprintln(r.out, "unknown command (/help)")
 		return nil
-	case "/quit", "/exit", "/q":
+	}
+	spec, ok := command.DefaultRegistry().Lookup(invocation.Name)
+	if !ok {
+		fmt.Fprintf(r.out, "unknown command /%s  (/help)\n", invocation.Name)
+		return nil
+	}
+	cmd := spec.Name
+	args := invocation.Args
+	switch cmd {
+	case "help":
+		fmt.Fprint(r.out, command.DefaultRegistry().Help())
+		fmt.Fprint(r.out, helpNotes)
+		return nil
+	case "quit":
+		if len(args) != 0 {
+			fmt.Fprintln(r.out, "usage: /quit")
+			return nil
+		}
 		return io.EOF
-	case "/cancel":
+	case "status":
+		if len(args) != 0 {
+			fmt.Fprintln(r.out, "usage: /status")
+			return nil
+		}
+		r.mu.Lock()
+		active := r.session
+		busyNow, currentRun := r.busy, r.runID
+		r.mu.Unlock()
+		state := "idle"
+		if busyNow {
+			state = "running"
+		}
+		fmt.Fprintf(r.out, "session: %s (%s)\nrun: %s", active.ID, active.Title, state)
+		if currentRun != "" {
+			fmt.Fprintf(r.out, " (%s)", currentRun)
+		}
+		fmt.Fprintln(r.out)
+		if active.PermissionPreset != "" {
+			fmt.Fprintf(r.out, "permission: %s\n", active.PermissionPreset)
+		}
+		return nil
+	case "cancel":
+		if len(args) != 0 {
+			fmt.Fprintln(r.out, "usage: /cancel")
+			return nil
+		}
 		if !busy || runID == "" {
 			fmt.Fprintln(r.out, "(nothing to cancel)")
 			return nil
 		}
 		if err := r.client.cancelRun(ctx, runID); err != nil {
 			fmt.Fprintf(r.out, "cancel: %v\n", err)
+			return nil
 		}
-		return nil
-	case "/new":
+		// The line REPL has no background event pump. Keep consuming this run's
+		// journal stream until its terminal event so busy/runID are cleared and
+		// a cancelled run cannot leave the prompt permanently wedged.
+		fmt.Fprint(r.out, "vivy: ")
+		return r.drainRun(ctx)
+	case "new":
 		if busy {
 			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
 			return nil
 		}
 		title := "TUI"
-		if len(fields) > 1 {
-			title = strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+		if len(args) > 0 {
+			title = strings.TrimSpace(strings.Join(args, " "))
 		}
 		session, err := r.client.createSession(ctx, title)
 		if err != nil {
@@ -214,7 +271,11 @@ func (r *repl) handleCommand(ctx context.Context, line string, busy bool, runID 
 		r.mu.Unlock()
 		fmt.Fprintf(r.out, "session %s\n", session.ID)
 		return nil
-	case "/sessions":
+	case "sessions":
+		if len(args) != 0 {
+			fmt.Fprintln(r.out, "usage: /sessions")
+			return nil
+		}
 		sessions, err := r.client.listSessions(ctx)
 		if err != nil {
 			fmt.Fprintf(r.out, "sessions: %v\n", err)
@@ -228,8 +289,8 @@ func (r *repl) handleCommand(ctx context.Context, line string, busy bool, runID 
 			fmt.Fprintf(r.out, "%s %s  %s\n", mark, session.ID, session.Title)
 		}
 		return nil
-	case "/session":
-		if len(fields) < 2 {
+	case "session":
+		if len(args) != 1 {
 			fmt.Fprintln(r.out, "usage: /session <id>")
 			return nil
 		}
@@ -237,7 +298,7 @@ func (r *repl) handleCommand(ctx context.Context, line string, busy bool, runID 
 			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
 			return nil
 		}
-		id := fields[1]
+		id := args[0]
 		messages, err := r.client.sessionMessages(ctx, id)
 		if err != nil {
 			fmt.Fprintf(r.out, "session: %v\n", err)
@@ -249,10 +310,159 @@ func (r *repl) handleCommand(ctx context.Context, line string, busy bool, runID 
 		fmt.Fprint(r.out, formatHistory(messages))
 		fmt.Fprintf(r.out, "session %s\n", id)
 		return nil
+	case "rename":
+		if len(args) == 0 {
+			fmt.Fprintln(r.out, "usage: /rename <title>")
+			return nil
+		}
+		if busy {
+			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
+			return nil
+		}
+		r.mu.Lock()
+		id := r.session.ID
+		r.mu.Unlock()
+		if id == "" {
+			fmt.Fprintln(r.out, "rename: no active session")
+			return nil
+		}
+		session, err := r.client.renameSession(ctx, id, strings.TrimSpace(strings.Join(args, " ")))
+		if err != nil {
+			fmt.Fprintf(r.out, "rename: %v\n", err)
+			return nil
+		}
+		r.mu.Lock()
+		r.session = session
+		r.mu.Unlock()
+		fmt.Fprintf(r.out, "session %s renamed\n", session.ID)
+		return nil
+	case "delete":
+		if len(args) > 1 {
+			fmt.Fprintln(r.out, "usage: /delete [id]")
+			return nil
+		}
+		if busy {
+			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
+			return nil
+		}
+		id := ""
+		if len(args) == 1 {
+			id = strings.TrimSpace(args[0])
+		} else {
+			r.mu.Lock()
+			id = r.session.ID
+			r.mu.Unlock()
+		}
+		if id == "" {
+			fmt.Fprintln(r.out, "delete: no session selected")
+			return nil
+		}
+		sessions, err := r.client.listSessions(ctx)
+		if err != nil {
+			fmt.Fprintf(r.out, "delete: %v\n", err)
+			return nil
+		}
+		found := false
+		for _, session := range sessions {
+			if session.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fmt.Fprintf(r.out, "delete: session not found: %s\n", id)
+			return nil
+		}
+		r.mu.Lock()
+		r.pendingDelete = id
+		r.mu.Unlock()
+		fmt.Fprintf(r.out, "delete %s? type y or n\n", id)
+		return nil
+	case "queue":
+		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
+			fmt.Fprintln(r.out, "usage: /queue clear")
+			return nil
+		}
+		fmt.Fprintln(r.out, "queue is empty")
+		return nil
+	case "permission":
+		if len(args) > 1 {
+			fmt.Fprintln(r.out, "usage: /permission [cautious|smart|trusted]")
+			return nil
+		}
+		if busy {
+			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
+			return nil
+		}
+		preset := ""
+		if len(args) == 1 {
+			preset = strings.ToLower(strings.TrimSpace(args[0]))
+		} else {
+			r.mu.Lock()
+			preset = nextCommandPermission(r.session.PermissionPreset)
+			r.mu.Unlock()
+		}
+		if preset != "cautious" && preset != "smart" && preset != "trusted" {
+			fmt.Fprintln(r.out, "permission must be cautious, smart, or trusted")
+			return nil
+		}
+		r.mu.Lock()
+		id := r.session.ID
+		r.mu.Unlock()
+		session, err := r.client.setSessionPermission(ctx, id, preset)
+		if err != nil {
+			fmt.Fprintf(r.out, "permission: %v\n", err)
+			return nil
+		}
+		r.mu.Lock()
+		r.session = session
+		r.mu.Unlock()
+		fmt.Fprintf(r.out, "permission: %s\n", session.PermissionPreset)
+		return nil
 	default:
-		fmt.Fprintf(r.out, "unknown command %s  (/help)\n", cmd)
+		fmt.Fprintf(r.out, "unknown command /%s  (/help)\n", cmd)
 		return nil
 	}
+}
+
+func (r *repl) handleDeleteConfirmation(ctx context.Context, id, line string) error {
+	decision, ok := parseApproval(line)
+	if !ok {
+		fmt.Fprintln(r.out, "type y or n")
+		return nil
+	}
+	if decision == domain.ApprovalDenied {
+		r.mu.Lock()
+		r.pendingDelete = ""
+		r.mu.Unlock()
+		fmt.Fprintln(r.out, "delete cancelled")
+		return nil
+	}
+	if err := r.client.deleteSession(ctx, id); err != nil {
+		fmt.Fprintf(r.out, "delete: %v\n", err)
+		return nil
+	}
+	r.mu.Lock()
+	active := r.session.ID == id
+	r.pendingDelete = ""
+	r.mu.Unlock()
+	fmt.Fprintf(r.out, "session %s deleted\n", id)
+	if !active {
+		return nil
+	}
+	// Keep the REPL usable after deleting its active session. The new session
+	// is created only after the delete has succeeded; a failed create leaves a
+	// visible error instead of pretending the old session still exists.
+	session, err := r.client.createSession(ctx, "TUI")
+	if err != nil {
+		fmt.Fprintf(r.out, "new session: %v\n", err)
+		return nil
+	}
+	r.mu.Lock()
+	r.session = session
+	r.mu.Unlock()
+	fmt.Fprintf(r.out, "session %s\n", session.ID)
+	return nil
 }
 
 func (r *repl) handleGate(ctx context.Context, pending *gatePrompt, line string) error {

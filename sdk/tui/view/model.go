@@ -3,6 +3,7 @@
 package view
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"agent-vivy/sdk/tui/command"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -18,6 +20,8 @@ const (
 	approvalApproved = "approved"
 	approvalDenied   = "denied"
 )
+
+var commandRegistry = command.DefaultRegistry()
 
 // Model is the single Bubble Tea model used by both first-party terminal
 // faces. The Sessions dialog state is transient UI state; session data itself
@@ -41,6 +45,9 @@ type Model struct {
 	sessionActionBusy  bool
 	sessionError       string
 	sessionRequest     uint64
+
+	commandOverlayTitle string
+	commandOverlay      string
 }
 
 // New returns a model bound to the given driver.
@@ -90,6 +97,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Kind == "question" {
 			m.input = ""
 		}
+	case surface.CommandResultMsg:
+		m.applyCommandResult(msg)
 	case surface.ErrMsg:
 		// The driver stores transport errors in Meta. Keep the dialog snapshot
 		// and local input intact so a retry does not discard user work.
@@ -122,8 +131,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// let a secondary dialog hide it or mutate another session through it.
 		return m, nil
 	}
+	if gate != nil && m.commandOverlay != "" {
+		// A gate arriving asynchronously is always more important than a local
+		// command result. Drop the secondary overlay before routing input.
+		m.commandOverlayTitle = ""
+		m.commandOverlay = ""
+	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
+	}
+	if gate == nil && m.commandOverlay != "" {
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			return m, tea.Quit
+		case tea.KeyEsc, tea.KeyEnter:
+			m.commandOverlayTitle = ""
+			m.commandOverlay = ""
+		}
+		return m, nil
 	}
 	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
 		return m, nil
@@ -171,13 +196,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		text := m.input
-		cmd := m.driver.Send(text)
-		if cmd == nil {
-			return m, nil
-		}
-		m.input = ""
-		return m, cmd
+		return m.submitInput()
 	case tea.KeyBackspace:
 		if gate != nil && gate.Kind == "approval" {
 			return m, nil
@@ -219,6 +238,290 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) submitInput() (Model, tea.Cmd) {
+	parsed, err := commandRegistry.Parse(m.input)
+	if err != nil {
+		// Keep malformed/unknown command text in the editor so the operator can
+		// dismiss the local error and correct it without retyping.
+		return m.showCommandError(err), nil
+	}
+	if !parsed.IsCommand() {
+		cmd := m.driver.Send(parsed.Text)
+		if cmd != nil {
+			m.input = ""
+		}
+		return m, cmd
+	}
+	m.input = ""
+	return m.dispatchCommand(parsed.Invocation)
+}
+
+func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) {
+	if invocation == nil {
+		return m.showCommandError(fmt.Errorf("missing command")), nil
+	}
+	spec, ok := commandRegistry.Lookup(invocation.Name)
+	if !ok {
+		// Registry.Parse already performs this check. Keep the guard here so a
+		// future registry change cannot turn an unknown slash line into model
+		// text.
+		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
+	}
+	name := spec.Name
+	args := invocation.Args
+	switch name {
+	case "help":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("usage: /help")), nil
+		}
+		m.commandOverlayTitle = "Commands"
+		m.commandOverlay = commandRegistry.Help()
+		return m, nil
+	case "status":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("usage: /status")), nil
+		}
+		m.commandOverlayTitle = "Status"
+		m.commandOverlay = m.statusText()
+		return m, nil
+	case "sessions":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("usage: /sessions")), nil
+		}
+		return m.openSessions()
+	case "new":
+		if len(args) > 1 && strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return m.showCommandError(fmt.Errorf("usage: /new [title]")), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "session":
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return m.showCommandError(fmt.Errorf("usage: /session <id>")), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "rename":
+		if len(args) == 0 || strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return m.showCommandError(fmt.Errorf("usage: /rename <title>")), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "delete":
+		if len(args) > 1 {
+			return m.showCommandError(fmt.Errorf("usage: /delete [id]")), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		id := ""
+		if len(args) == 1 {
+			id = strings.TrimSpace(args[0])
+		}
+		return m.openSessionsForDelete(id)
+	case "cancel":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("usage: /cancel")), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "queue":
+		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
+			return m.showCommandError(fmt.Errorf("usage: /queue clear")), nil
+		}
+		return m.executeDriverCommand(name, args)
+	case "permission":
+		if len(args) > 1 {
+			return m.showCommandError(fmt.Errorf("usage: /permission [cautious|smart|trusted]")), nil
+		}
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		if len(args) == 1 {
+			preset := strings.ToLower(strings.TrimSpace(args[0]))
+			if preset != "cautious" && preset != "smart" && preset != "trusted" {
+				return m.showCommandError(fmt.Errorf("permission must be cautious, smart, or trusted")), nil
+			}
+		}
+		return m.executeDriverCommand(name, args)
+	case "quit":
+		if len(args) != 0 {
+			return m.showCommandError(fmt.Errorf("usage: /quit")), nil
+		}
+		return m, tea.Quit
+	default:
+		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
+	}
+}
+
+func (m Model) commandBlocked(name string) (bool, string) {
+	if gate := m.driver.PendingGate(); gate != nil {
+		return true, "a pending gate must be answered first"
+	}
+	if m.driver.Meta().Busy {
+		return true, fmt.Sprintf("run in flight; /%s is unavailable (use /cancel)", name)
+	}
+	return false, ""
+}
+
+func (m Model) executeDriverCommand(name string, args []string) (Model, tea.Cmd) {
+	if executor, ok := m.driver.(surface.CommandExecutor); ok {
+		if cmd := executor.ExecuteCommand(name, append([]string(nil), args...)); cmd != nil {
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("/%s is unavailable", name)), nil
+	}
+
+	// Compatibility path for small/demo drivers. The same busy/gate checks
+	// above apply before any mutation reaches this fallback.
+	switch name {
+	case "new":
+		return m, m.driver.NewSession(strings.TrimSpace(strings.Join(args, " ")))
+	case "session":
+		controller, ok := m.driver.(surface.SessionController)
+		if !ok {
+			return m.showCommandError(fmt.Errorf("/session is unavailable")), nil
+		}
+		if cmd := controller.SelectSession(args[0]); cmd != nil {
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("/session is unavailable")), nil
+	case "rename":
+		controller, ok := m.driver.(surface.SessionController)
+		active := m.driver.Active()
+		if !ok || active.ID == "" {
+			return m.showCommandError(fmt.Errorf("/rename is unavailable")), nil
+		}
+		if cmd := controller.RenameSession(active.ID, strings.TrimSpace(strings.Join(args, " "))); cmd != nil {
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("/rename is unavailable")), nil
+	case "cancel":
+		if !m.driver.Meta().Busy {
+			return m.showCommandError(fmt.Errorf("nothing to cancel")), nil
+		}
+		if cmd := m.driver.Cancel(); cmd != nil {
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("cancel is unavailable")), nil
+	case "queue":
+		if m.driver.ClearQueue() {
+			return m.showCommandResult("Queue", "queued turns cleared"), nil
+		}
+		return m.showCommandResult("Queue", "queue is already empty"), nil
+	case "permission":
+		preset := ""
+		if len(args) == 1 {
+			preset = strings.ToLower(strings.TrimSpace(args[0]))
+		} else {
+			preset = nextPermission(m.driver.Active().PermissionPreset)
+		}
+		if cmd := m.driver.SetPermission(preset); cmd != nil {
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("permission change is unavailable")), nil
+	}
+	return m.showCommandError(fmt.Errorf("/%s is unavailable", name)), nil
+}
+
+func (m Model) openSessionsForDelete(id string) (Model, tea.Cmd) {
+	if id == "" {
+		id = m.driver.Active().ID
+	}
+	if id == "" {
+		return m.showCommandError(fmt.Errorf("no active session")), nil
+	}
+	m, cmd := m.openSessions()
+	if len(m.sessionRows) > 0 {
+		found := false
+		for _, row := range m.sessionRows {
+			if row.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.sessionError = "session not found: " + id
+			return m, cmd
+		}
+	}
+	m.sessionDeleteID = id
+	return m, cmd
+}
+
+func (m Model) showCommandResult(title, output string) Model {
+	m.commandOverlayTitle = title
+	m.commandOverlay = strings.TrimSpace(output)
+	return m
+}
+
+func (m Model) showCommandError(err error) Model {
+	if err == nil {
+		return m
+	}
+	return m.showCommandResult("Command error", err.Error())
+}
+
+func (m *Model) applyCommandResult(msg surface.CommandResultMsg) {
+	if msg.Err != nil {
+		next := m.showCommandError(msg.Err)
+		*m = next
+		return
+	}
+	if strings.TrimSpace(msg.Output) != "" {
+		next := m.showCommandResult("Command", msg.Output)
+		*m = next
+	}
+}
+
+func (m Model) statusText() string {
+	meta := m.driver.Meta()
+	active := m.driver.Active()
+	var lines []string
+	if active.ID == "" {
+		lines = append(lines, "session: none")
+	} else {
+		title := strings.TrimSpace(active.Title)
+		if title == "" {
+			title = "untitled session"
+		}
+		lines = append(lines, "session: "+title, "id: "+active.ID)
+	}
+	if meta.Busy {
+		line := "run: active"
+		if meta.RunID != "" {
+			line += " (" + meta.RunID + ")"
+		}
+		lines = append(lines, line)
+	} else {
+		lines = append(lines, "run: idle")
+	}
+	lines = append(lines, fmt.Sprintf("queue: %d", meta.Queued))
+	if active.PermissionPreset != "" {
+		lines = append(lines, "permission: "+active.PermissionPreset)
+	}
+	if provider, ok := m.driver.(surface.SidebarProvider); ok {
+		snapshot := provider.Sidebar()
+		if snapshot.HasContext {
+			ctx := snapshot.Context
+			if ctx.ModelLimitTokens > 0 {
+				lines = append(lines, fmt.Sprintf("context: %d/%d tokens", ctx.FeedTokens, ctx.ModelLimitTokens))
+			} else if ctx.FeedTokens > 0 {
+				lines = append(lines, fmt.Sprintf("context: %d tokens", ctx.FeedTokens))
+			}
+		}
+	}
+	if strings.TrimSpace(meta.Error) != "" {
+		lines = append(lines, "error: "+meta.Error)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) openSessions() (Model, tea.Cmd) {

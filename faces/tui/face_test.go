@@ -187,7 +187,7 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	live := bootLive(t, env, LiveOptions{Host: "vivy", Title: "VIVY"})
 
-	cmd := live.Send("hello")
+	cmd := live.Send("  hello  ")
 	started := mustMsg[liveTurnStartedMsg](t, cmd)
 	if started.Err != nil || started.RunID != "run_1" {
 		t.Fatalf("started = %+v", started)
@@ -209,6 +209,9 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	env.mu.Unlock()
 	if turnParams.Face != "code" {
 		t.Fatalf("turn/start face = %q", turnParams.Face)
+	}
+	if turnParams.Text != "  hello  " {
+		t.Fatalf("turn/start text lost whitespace: %q", turnParams.Text)
 	}
 
 	env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "hi"})

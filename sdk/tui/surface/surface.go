@@ -109,6 +109,24 @@ type Driver interface {
 	Cancel() tea.Cmd
 }
 
+// CommandExecutor is the optional command adapter implemented by live
+// drivers. The shared view validates/parses command syntax and policy before
+// calling this seam; the driver only translates an already-canonical command
+// into its authoritative async operation. Drivers that do not implement it
+// are handled by the view's safe compatibility path.
+type CommandExecutor interface {
+	ExecuteCommand(name string, args []string) tea.Cmd
+}
+
+// CommandResultMsg carries a local command result back into the shared Tea
+// state. It is intentionally not printed directly: the view renders it in a
+// transient overlay and keeps the packed and built-in faces identical.
+type CommandResultMsg struct {
+	Name   string
+	Output string
+	Err    error
+}
+
 // SidebarProvider supplies authoritative active-session details to the view.
 // It is optional so small offline drivers can render only the data they own.
 type SidebarProvider interface {
