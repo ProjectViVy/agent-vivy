@@ -285,6 +285,12 @@ func (s *Service) Run(ctx context.Context, sessionID domain.SessionID, userText 
 // RunWithOptions starts one run with an explicit harness policy. The mode is
 // validated before any user message, run row, or event is persisted.
 func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions) (domain.RunID, error) {
+	return s.runWithOptions(ctx, sessionID, userText, options, nil)
+}
+
+type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.RunEvent, error)
+
+func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
 	}
@@ -337,7 +343,7 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 	}
 	now := time.Now().UnixMilli()
 
-	if err := s.deps.Messages.AppendMessage(ctx, domain.Message{
+	message := domain.Message{
 		ID:               newMessageID(),
 		SessionID:        sessionID,
 		RunID:            runID,
@@ -349,13 +355,9 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		Channel:          provenance.Channel,
 		ChatID:           provenance.ChatID,
 		ChannelMessageID: provenance.ChannelMessageID,
-	}); err != nil {
-		return "", fmt.Errorf("runtime: append user message: %w", err)
 	}
-	if err := s.deps.Runs.CreateRun(ctx, domain.Run{
+	run := domain.Run{
 		ID: runID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: now,
-	}); err != nil {
-		return "", fmt.Errorf("runtime: create run: %w", err)
 	}
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
@@ -364,16 +366,28 @@ func (s *Service) RunWithOptions(ctx context.Context, sessionID domain.SessionID
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
-	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
-	if err != nil {
-		return "", fmt.Errorf("runtime: persist run.started: %w", err)
+	if persist != nil {
+		started, err = persist(message, run, started)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
+			return "", fmt.Errorf("runtime: append user message: %w", err)
+		}
+		if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
+			return "", fmt.Errorf("runtime: create run: %w", err)
+		}
+		seq, appendErr := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}})
+		if appendErr != nil {
+			return "", fmt.Errorf("runtime: persist run.started: %w", appendErr)
+		}
+		started.Seq = seq
+		if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
+			return "", fmt.Errorf("runtime: activate run: %w", err)
+		}
 	}
-	started.Seq = seq
 	s.publish(ctx, started)
-
-	if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
-		return "", fmt.Errorf("runtime: activate run: %w", err)
-	}
 
 	// Detach the run from the request lifecycle: RPC disconnects and page
 	// refreshes must not cancel the work (AS-7). Cancel/CancelAll hold the
@@ -1165,7 +1179,10 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 	}
 	// Rewind cutoff first (JOURNAL-REWIND-AND-FORK): the truncation winnows
 	// the raw rows, then compaction folds what remains.
-	stored = s.effectiveSessionMessages(ctx, sessionID, stored)
+	stored, err = s.effectiveSessionMessages(ctx, sessionID, stored)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
 	msgs, stats, err := buildRunContext(ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,

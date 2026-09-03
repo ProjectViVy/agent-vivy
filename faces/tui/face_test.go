@@ -186,6 +186,8 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 		t.Fatalf("started = %+v", started)
 	}
 	live.Handle(started)
+	subscribed := mustMsg[liveSubscribedMsg](t, live.subscribeCmd(started.RunID))
+	live.Handle(subscribed)
 	if !live.Meta().Busy {
 		t.Fatal("expected busy")
 	}
@@ -217,6 +219,68 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	}
 	if asst != "hi" {
 		t.Fatalf("assistant = %q msgs=%+v", asst, live.ActiveMessages())
+	}
+}
+
+func TestLiveEventQueueDoesNotDropBurst(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.busy = true
+	live.runID = "run_1"
+	live.mu.Unlock()
+	for i := 0; i < 512; i++ {
+		env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "x"})
+	}
+	env.deliver(t, "run_1", "run.completed", map[string]any{})
+	live.drainEvents()
+	var got string
+	for _, msg := range live.ActiveMessages() {
+		if msg.Role == roleAssistant {
+			got += msg.Content
+		}
+	}
+	if len(got) != 512 {
+		t.Fatalf("delta length = %d, want 512", len(got))
+	}
+	if live.Meta().Busy {
+		t.Fatal("terminal event was not applied")
+	}
+}
+
+func TestApprovalFailureKeepsGateRetryable(t *testing.T) {
+	script := baseScript()
+	script["approval/respond"] = func(json.RawMessage) (any, error) { return nil, fmt.Errorf("temporary") }
+	env := &fakeEnv{script: script}
+	live := bootLive(t, env, LiveOptions{})
+	env.deliver(t, "run_1", "tool.approval_required", map[string]string{"approval_id": "appr_1", "tool_name": "write"})
+	live.drainEvents()
+	cmd := live.DecideApproval(decisionApproved)
+	if live.DecideApproval(decisionApproved) != nil {
+		t.Fatal("duplicate submit was accepted")
+	}
+	live.Handle(mustMsg[liveRPCMsg](t, cmd))
+	gate := live.PendingGate()
+	if gate == nil || gate.Submitting {
+		t.Fatalf("gate not retryable: %+v", gate)
+	}
+}
+
+func TestQuestionFailureKeepsGateRetryable(t *testing.T) {
+	script := baseScript()
+	script["question/respond"] = func(json.RawMessage) (any, error) { return nil, fmt.Errorf("temporary") }
+	env := &fakeEnv{script: script}
+	live := bootLive(t, env, LiveOptions{})
+	env.deliver(t, "run_1", "user.question_required", map[string]string{"question_id": "q_1", "prompt": "pick"})
+	live.drainEvents()
+	cmd := live.AnswerQuestion("blue")
+	if live.AnswerQuestion("blue") != nil {
+		t.Fatal("duplicate submit was accepted")
+	}
+	live.Handle(mustMsg[liveRPCMsg](t, cmd))
+	gate := live.PendingGate()
+	if gate == nil || gate.Submitting {
+		t.Fatalf("gate not retryable: %+v", gate)
 	}
 }
 

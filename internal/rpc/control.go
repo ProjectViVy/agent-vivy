@@ -233,6 +233,16 @@ type turnParams struct {
 	Attachments   []turnAttachment `json:"attachments,omitempty"`
 }
 
+type editSessionParams struct {
+	SessionID     string `json:"session_id"`
+	MessageID     string `json:"message_id"`
+	Text          string `json:"text"`
+	Mode          string `json:"mode,omitempty"`
+	Face          string `json:"face,omitempty"`
+	PolicyProfile string `json:"policy_profile,omitempty"`
+	Thinking      string `json:"thinking,omitempty"`
+}
+
 // turnAttachment carries one image on a turn/start call (VC-1g-2).
 // Data is the raw image bytes, base64-encoded.
 type turnAttachment struct {
@@ -489,7 +499,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"channel.inspect", "channel.get", "channel.update",
-			"session.context", "context.compact", "session.rewind", "session.fork",
+			"session.context", "context.compact", "session.rewind", "session.fork", "session.edit",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
 			"skills.list", "skills.get",
@@ -526,6 +536,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.rewindSession(ctx, request)
 	case "session/fork":
 		return h.forkSession(ctx, request)
+	case "session/edit":
+		return h.editSession(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
 	case "session/compactions":
@@ -923,7 +935,11 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		return nil, internalError(err)
 	}
 	if h.deps.Truncations != nil {
-		if markers, err := h.deps.Truncations.ListViewTruncations(ctx, domain.SessionID(params.SessionID)); err == nil && len(markers) > 0 {
+		markers, err := h.deps.Truncations.ListViewTruncations(ctx, domain.SessionID(params.SessionID))
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if len(markers) > 0 {
 			messages = storage.ApplySessionTruncations(messages, markers)
 		}
 	}
@@ -1735,6 +1751,23 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments,
+	})
+	if err != nil {
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+}
+
+func (h *controlHandler) editSession(ctx context.Context, request Request) (any, *Error) {
+	var params editSessionParams
+	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.MessageID == "" || strings.TrimSpace(params.Text) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id, message_id and text are required"}
+	}
+	runID, err := h.deps.Service.EditSession(ctx, domain.SessionID(params.SessionID), params.MessageID, params.Text, runtime.RunOptions{
+		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile), Thinking: domain.ThinkingMode(params.Thinking),
 	})
 	if err != nil {
 		return nil, runtimeError(err)

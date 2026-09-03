@@ -108,7 +108,10 @@ func (s *Service) SessionTrajectory(ctx context.Context, sessionID domain.Sessio
 	if err != nil {
 		return TrajectorySession{}, err
 	}
-	messages = s.effectiveSessionMessages(ctx, sessionID, messages)
+	messages, err = s.effectiveSessionMessages(ctx, sessionID, messages)
+	if err != nil {
+		return TrajectorySession{}, err
+	}
 	userText := make(map[domain.RunID]string)
 	for _, message := range messages {
 		if message.Role != domain.RoleUser || message.RunID == "" {

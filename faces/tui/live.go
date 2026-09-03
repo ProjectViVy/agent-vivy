@@ -36,9 +36,11 @@ type Live struct {
 
 	seq int
 
-	events chan eventNotice
-	ctx    context.Context
-	cancel context.CancelFunc
+	eventMu   sync.Mutex
+	events    []eventNotice
+	eventWake chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // LiveOptions configure one live fullscreen session.
@@ -65,7 +67,7 @@ func NewLive(client *client, opts LiveOptions) *Live {
 		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
 		continueNewest: opts.ContinueNewest,
 		messages:       map[string][]surface.Message{},
-		events:         make(chan eventNotice, 128),
+		eventWake:      make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
 	}
@@ -81,15 +83,12 @@ func NewLive(client *client, opts LiveOptions) *Live {
 		if notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
 			return
 		}
+		l.eventMu.Lock()
+		l.events = append(l.events, notice)
+		l.eventMu.Unlock()
 		select {
-		case l.events <- notice:
-		case <-l.ctx.Done():
+		case l.eventWake <- struct{}{}:
 		default:
-			// Drop if UI is stalled; next poll still drains what it can.
-			select {
-			case l.events <- notice:
-			default:
-			}
 		}
 	})
 	return l
@@ -187,18 +186,25 @@ type liveLoadedMsg struct {
 	Err      error
 }
 
-// liveTurnStartedMsg is returned after turn/start + subscribe.
+// liveTurnStartedMsg is returned after turn/start. Subscription happens only
+// after Handle installs run ownership, so replayed events cannot win the race.
 type liveTurnStartedMsg struct {
 	UserText string
 	RunID    string
 	Err      error
 }
 
+type liveSubscribedMsg struct {
+	RunID string
+	Err   error
+}
+
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
 type liveRPCMsg struct {
-	Kind   string
-	Preset string
-	Err    error
+	Kind    string
+	Preset  string
+	Outcome string
+	Err     error
 }
 
 // Init implements surface.Driver.
@@ -280,6 +286,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyLoaded(msg)
 	case liveTurnStartedMsg:
 		return l.applyTurnStarted(msg)
+	case liveSubscribedMsg:
+		return l.applySubscribed(msg)
 	case liveRPCMsg:
 		return l.applyRPC(msg)
 	case surface.ErrMsg:
@@ -355,7 +363,6 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 
 func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
 		l.busy = false
@@ -366,13 +373,43 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 			Role:    roleAssistant,
 			Content: "turn failed: " + shortErr(msg.Err),
 		})
+		l.mu.Unlock()
 		return nil
 	}
 	l.busy = true
 	l.runID = msg.RunID
 	l.lastErr = ""
 	l.ensureAssistantDraftLocked()
-	return nil
+	l.mu.Unlock()
+	return l.subscribeCmd(msg.RunID)
+}
+
+func (l *Live) subscribeCmd(runID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		return liveSubscribedMsg{RunID: runID, Err: l.client.subscribe(ctx, runID)}
+	}
+}
+
+func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
+	if msg.Err == nil {
+		return nil
+	}
+	l.mu.Lock()
+	if l.runID == msg.RunID {
+		l.lastErr = shortErr(msg.Err)
+		l.busy = false
+		l.runID = ""
+		l.finishStreamingLocked()
+	}
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 10*time.Second)
+		defer cancel()
+		_ = l.client.cancelRun(ctx, msg.RunID)
+		return surface.RefreshMsg{}
+	}
 }
 
 func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
@@ -380,9 +417,21 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	defer l.mu.Unlock()
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
+		if l.gate != nil && l.gate.Kind == msg.Kind {
+			l.gate.Submitting = false
+		}
 		return nil
 	}
 	if msg.Kind == "approval" || msg.Kind == "question" {
+		if msg.Kind == "approval" && l.gate != nil {
+			for i := range l.messages[l.activeID] {
+				tool := l.messages[l.activeID][i].Tool
+				if tool != nil && tool.ApprovalID == l.gate.ID {
+					tool.Status = "done"
+					tool.Result = msg.Outcome
+				}
+			}
+		}
 		l.gate = nil
 	}
 	if msg.Kind == "permission" && msg.Preset != "" {
@@ -394,20 +443,27 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 		}
 	}
 	l.lastErr = ""
+	if msg.Kind == "approval" || msg.Kind == "question" {
+		return func() tea.Msg { return surface.GateResolvedMsg{Kind: msg.Kind} }
+	}
 	return nil
 }
 
 func (l *Live) drainEvents() bool {
 	finished := false
-	for {
-		select {
-		case notice := <-l.events:
-			l.applyNotice(notice)
-			finished = finished || notice.Kind == "done"
-		default:
-			return finished
-		}
+	l.eventMu.Lock()
+	pending := l.events
+	l.events = nil
+	l.eventMu.Unlock()
+	for _, notice := range pending {
+		l.applyNotice(notice)
+		finished = finished || notice.Kind == "done"
 	}
+	select {
+	case <-l.eventWake:
+	default:
+	}
+	return finished
 }
 
 func (l *Live) dequeueCmd() tea.Cmd {
@@ -681,9 +737,6 @@ func (l *Live) Send(text string) tea.Cmd {
 		if err != nil {
 			return liveTurnStartedMsg{UserText: text, Err: err}
 		}
-		if err := l.client.subscribe(ctx, accepted.RunID); err != nil {
-			return liveTurnStartedMsg{UserText: text, RunID: accepted.RunID, Err: err}
-		}
 		return liveTurnStartedMsg{UserText: text, RunID: accepted.RunID}
 	}
 }
@@ -692,34 +745,19 @@ func (l *Live) Send(text string) tea.Cmd {
 func (l *Live) DecideApproval(decision string) tea.Cmd {
 	l.mu.Lock()
 	gate := l.gate
-	if gate == nil || gate.Kind != "approval" || gate.ID == "" {
+	if gate == nil || gate.Kind != "approval" || gate.ID == "" || gate.Submitting {
 		l.mu.Unlock()
 		return nil
 	}
 	id := gate.ID
-	// Optimistic tool card update.
-	msgs := l.messages[l.activeID]
-	for i := range msgs {
-		if msgs[i].Tool != nil && (msgs[i].Tool.ApprovalID == id || msgs[i].Tool.Status == "pending") {
-			if decision == decisionApproved {
-				msgs[i].Tool.Status = "done"
-				msgs[i].Tool.Result = "approved"
-			} else {
-				msgs[i].Tool.Status = "denied"
-				msgs[i].Tool.Result = "denied"
-			}
-			break
-		}
-	}
-	l.messages[l.activeID] = msgs
-	l.gate = nil
+	gate.Submitting = true
 	l.mu.Unlock()
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
 		err := l.client.respondApproval(ctx, id, decision)
-		return liveRPCMsg{Kind: "approval", Err: err}
+		return liveRPCMsg{Kind: "approval", Outcome: decision, Err: err}
 	}
 }
 
@@ -731,18 +769,18 @@ func (l *Live) AnswerQuestion(answer string) tea.Cmd {
 	}
 	l.mu.Lock()
 	gate := l.gate
-	if gate == nil || gate.Kind != "question" || gate.ID == "" {
+	if gate == nil || gate.Kind != "question" || gate.ID == "" || gate.Submitting {
 		l.mu.Unlock()
 		return nil
 	}
 	id := gate.ID
-	l.gate = nil
+	gate.Submitting = true
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
 		err := l.client.respondQuestion(ctx, id, answer)
-		return liveRPCMsg{Kind: "question", Err: err}
+		return liveRPCMsg{Kind: "question", Outcome: answer, Err: err}
 	}
 }
 

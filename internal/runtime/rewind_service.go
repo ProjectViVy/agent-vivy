@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -30,6 +31,31 @@ type RewindResult struct {
 	RemainingCount  int    `json:"remaining_count"`
 }
 
+// EditSession atomically replaces the visible suffix with a new user turn and
+// active run. Validation happens before the transaction; engine execution is
+// launched only after marker, message, run row, and run.started all commit.
+func (s *Service) EditSession(ctx context.Context, sessionID domain.SessionID, messageID, text string, options RunOptions) (domain.RunID, error) {
+	mutations, ok := s.deps.Truncations.(storage.HistoryMutationStore)
+	if !ok {
+		return "", ErrRewindNotWired
+	}
+	if err := s.rejectBusySession(ctx, sessionID); err != nil {
+		return "", err
+	}
+	stored, _, _, err := s.sessionViewCutoff(ctx, sessionID, messageID)
+	if err != nil {
+		return "", err
+	}
+	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
+	return s.runWithOptions(ctx, sessionID, text, options, func(message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error) {
+		committed, err := mutations.CommitSessionEdit(ctx, marker, message, run, event)
+		if err != nil {
+			return event, fmt.Errorf("runtime: commit session edit: %w", err)
+		}
+		return committed, nil
+	})
+}
+
 // payloadSessionTruncated journals the audit trail of one rewind.
 type payloadSessionTruncated struct {
 	SessionID       string `json:"session_id"`
@@ -56,6 +82,10 @@ func (s *Service) RewindSession(ctx context.Context, sessionID domain.SessionID,
 	if s.deps.Truncations == nil {
 		return RewindResult{}, ErrRewindNotWired
 	}
+	mutations, ok := s.deps.Truncations.(storage.HistoryMutationStore)
+	if !ok {
+		return RewindResult{}, ErrRewindNotWired
+	}
 	if err := s.rejectBusySession(ctx, sessionID); err != nil {
 		return RewindResult{}, err
 	}
@@ -73,17 +103,20 @@ func (s *Service) RewindSession(ctx context.Context, sessionID domain.SessionID,
 		Reason:          storage.TruncationRewind,
 		CreatedAt:       time.Now().UnixMilli(),
 	}
-	if err := s.deps.Truncations.RecordSessionTruncation(ctx, marker); err != nil {
-		return RewindResult{}, fmt.Errorf("runtime: record session truncation: %w", err)
-	}
 	runID := domain.RunID(newPrefixedID("tr_"))
-	if _, err := s.RecordExternalRunEvent(ctx, runID, domain.EventSessionTruncated, payloadSessionTruncated{
+	event, err := historyEvent(runID, domain.EventSessionTruncated, payloadSessionTruncated{
 		SessionID:       string(sessionID),
 		CutoffMessageID: messageID,
 		Reason:          storage.TruncationRewind,
-	}); err != nil {
+	})
+	if err != nil {
+		return RewindResult{}, err
+	}
+	event, err = mutations.CommitSessionRewind(ctx, marker, event)
+	if err != nil {
 		return RewindResult{}, fmt.Errorf("runtime: persist truncation event: %w", err)
 	}
+	s.publish(ctx, event)
 	return RewindResult{CutoffMessageID: messageID, RemainingCount: cutoffIdx}, nil
 }
 
@@ -105,6 +138,10 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 		return ForkResult{}, errors.New("runtime: service not wired")
 	}
 	if s.deps.Truncations == nil {
+		return ForkResult{}, ErrRewindNotWired
+	}
+	mutations, ok := s.deps.Truncations.(storage.HistoryMutationStore)
+	if !ok {
 		return ForkResult{}, ErrRewindNotWired
 	}
 	if err := s.rejectBusySession(ctx, sessionID); err != nil {
@@ -130,56 +167,55 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 		SandboxMode:    source.SandboxMode,
 		ApprovalPolicy: source.ApprovalPolicy,
 	}
-	if err := s.deps.Sessions.CreateSession(ctx, child); err != nil {
-		return ForkResult{}, fmt.Errorf("runtime: create fork session: %w", err)
-	}
 	// Message ids are globally unique, so copies get fresh ids; the run
 	// references keep pointing at the parent's runs (audit-true: the
 	// content did originate there) while the child's run-driven trajectory
 	// starts empty (design §3.4). Copies come from the EFFECTIVE view: rows
 	// already folded out by a rewind must not resurrect in the child — the
 	// child's context equals the parent's visible context at the fork point.
-	copied := effective[:cutoffIdx+1]
+	copied := append([]domain.Message(nil), effective[:cutoffIdx+1]...)
 	childForkPointID := ""
-	for _, message := range copied {
+	for i, message := range copied {
 		message.SessionID = newID
 		message.ID = newMessageID()
 		childForkPointID = message.ID
-		if err := s.deps.Messages.AppendMessage(ctx, message); err != nil {
-			return ForkResult{}, fmt.Errorf("runtime: copy message: %w", err)
-		}
+		copied[i] = message
 	}
 	// Provenance markers: the fork point on the parent (parent's message
 	// id) and a back-reference on the child (the child's own copy of that
 	// message). Neither filters (ApplySessionTruncation only honors
 	// rewind/edit); they exist so the audit trail names the relationship.
 	// Tails are recorded for the same audit symmetry but filter nothing.
-	if err := s.deps.Truncations.RecordSessionTruncation(ctx, storage.SessionTruncation{
+	markers := []storage.SessionTruncation{{
 		SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationFork,
 		ForkSessionID: string(newID), CreatedAt: now,
-	}); err != nil {
-		return ForkResult{}, fmt.Errorf("runtime: record fork marker: %w", err)
-	}
-	if err := s.deps.Truncations.RecordSessionTruncation(ctx, storage.SessionTruncation{
+	}, {
 		SessionID: newID, CutoffMessageID: childForkPointID, TailMessageID: childForkPointID, Reason: storage.TruncationForkedFrom,
 		ForkSessionID: string(sessionID), CreatedAt: now,
-	}); err != nil {
-		return ForkResult{}, fmt.Errorf("runtime: record forked-from marker: %w", err)
-	}
-	if _, err := s.RecordExternalRunEvent(ctx, domain.RunID(newPrefixedID("tr_")), domain.EventSessionTruncated, payloadSessionTruncated{
+	}}
+	parentEvent, err := historyEvent(domain.RunID(newPrefixedID("tr_")), domain.EventSessionTruncated, payloadSessionTruncated{
 		SessionID:       string(sessionID),
 		CutoffMessageID: messageID,
 		Reason:          storage.TruncationFork,
 		ForkSessionID:   string(newID),
-	}); err != nil {
-		return ForkResult{}, fmt.Errorf("runtime: persist fork event: %w", err)
+	})
+	if err != nil {
+		return ForkResult{}, err
 	}
-	if _, err := s.RecordExternalRunEvent(ctx, domain.RunID(newPrefixedID("tr_")), domain.EventSessionForked, payloadSessionForked{
+	childEvent, err := historyEvent(domain.RunID(newPrefixedID("tr_")), domain.EventSessionForked, payloadSessionForked{
 		SessionID:          string(newID),
 		ParentSessionID:    string(sessionID),
 		ForkPointMessageID: messageID,
-	}); err != nil {
-		return ForkResult{}, fmt.Errorf("runtime: persist forked event: %w", err)
+	})
+	if err != nil {
+		return ForkResult{}, err
+	}
+	events, err := mutations.CommitSessionFork(ctx, child, copied, markers, []domain.RunEvent{parentEvent, childEvent})
+	if err != nil {
+		return ForkResult{}, fmt.Errorf("runtime: commit session fork: %w", err)
+	}
+	for _, event := range events {
+		s.publish(ctx, event)
 	}
 	return ForkResult{SessionID: string(newID), ForkPointMessageID: messageID, CopiedCount: len(copied)}, nil
 }
@@ -209,7 +245,10 @@ func (s *Service) sessionViewCutoff(ctx context.Context, sessionID domain.Sessio
 	if err != nil {
 		return nil, nil, -1, fmt.Errorf("runtime: list session messages: %w", err)
 	}
-	effective = s.effectiveSessionMessages(ctx, sessionID, stored)
+	effective, err = s.effectiveSessionMessages(ctx, sessionID, stored)
+	if err != nil {
+		return nil, nil, -1, err
+	}
 	for i, message := range effective {
 		if message.ID == messageID {
 			return stored, effective, i, nil
@@ -222,13 +261,24 @@ func (s *Service) sessionViewCutoff(ctx context.Context, sessionID domain.Sessio
 // all view-controlling markers. It is the single filter every session view
 // shares (model context, session/messages, trajectory). A nil or failing
 // truncation store leaves the history untouched.
-func (s *Service) effectiveSessionMessages(ctx context.Context, sessionID domain.SessionID, stored []domain.Message) []domain.Message {
+func (s *Service) effectiveSessionMessages(ctx context.Context, sessionID domain.SessionID, stored []domain.Message) ([]domain.Message, error) {
 	if s.deps.Truncations == nil {
-		return stored
+		return stored, nil
 	}
 	markers, err := s.deps.Truncations.ListViewTruncations(ctx, sessionID)
-	if err != nil || len(markers) == 0 {
-		return stored
+	if err != nil {
+		return nil, fmt.Errorf("runtime: list session truncations: %w", err)
 	}
-	return storage.ApplySessionTruncations(stored, markers)
+	if len(markers) == 0 {
+		return stored, nil
+	}
+	return storage.ApplySessionTruncations(stored, markers), nil
+}
+
+func historyEvent(runID domain.RunID, typ domain.EventType, payload any) (domain.RunEvent, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("runtime: marshal history event: %w", err)
+	}
+	return domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: data}, nil
 }
