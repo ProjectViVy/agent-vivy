@@ -17,6 +17,10 @@ const (
 	Plain Kind = iota
 	// Command is a slash command parsed into Invocation.
 	Command
+	// Unavailable is a locally recognized command prefix whose effect is not
+	// wired in this face. It must never be sent to the model. Text preserves
+	// the original input so the editor can keep the draft for correction.
+	Unavailable
 )
 
 // Invocation is one syntactically valid slash command.
@@ -32,13 +36,19 @@ type Invocation struct {
 // Result is the classification of one editor line. A plain result has a nil
 // Invocation; a command result has the parsed invocation and an empty Text.
 type Result struct {
-	Kind       Kind
-	Text       string
-	Invocation *Invocation
+	Kind              Kind
+	Text              string
+	Invocation        *Invocation
+	UnavailableReason string
 }
 
 // IsCommand reports whether the result is a slash command.
 func (r Result) IsCommand() bool { return r.Kind == Command && r.Invocation != nil }
+
+// IsUnavailable reports a recognized local-only prefix without an available
+// control-plane implementation. Callers must render the reason locally and
+// must not forward Text to the model or execute it on the host.
+func (r Result) IsUnavailable() bool { return r.Kind == Unavailable }
 
 // SyntaxError identifies a malformed command line. Offset is a rune offset,
 // which keeps diagnostics useful for Unicode input.
@@ -74,11 +84,27 @@ func (e *UnknownCommandError) Error() string {
 // marker, so //hello becomes the literal model text /hello.
 func Parse(input string) (Result, error) {
 	trimmed := strings.TrimLeftFunc(input, unicode.IsSpace)
+	prefix := input[:len(input)-len(trimmed)]
 	if !strings.HasPrefix(trimmed, "/") {
+		// Double prefixes escape one marker. A single !/@ is intentionally a
+		// local unavailable result until a governed shell/workspace RPC exists;
+		// silently treating it as model text would make the command surface
+		// ambiguous and unsafe.
+		if strings.HasPrefix(trimmed, "!!") {
+			return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
+		}
+		if strings.HasPrefix(trimmed, "@@") {
+			return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
+		}
+		if strings.HasPrefix(trimmed, "!") {
+			return Result{Kind: Unavailable, Text: input, UnavailableReason: "shell commands are unavailable in this face; use a governed tool or /help"}, nil
+		}
+		if strings.HasPrefix(trimmed, "@") {
+			return Result{Kind: Unavailable, Text: input, UnavailableReason: "workspace references are unavailable in this face; use a governed tool or /help"}, nil
+		}
 		return Result{Kind: Plain, Text: input}, nil
 	}
 	if strings.HasPrefix(trimmed, "//") {
-		prefix := input[:len(input)-len(trimmed)]
 		return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
 	}
 
@@ -206,6 +232,84 @@ func (r Registry) Parse(input string) (Result, error) {
 	return result, nil
 }
 
+// Validate checks the argument contract for a registered command. Parsing is
+// deliberately separate so editors can preserve a syntactically valid draft
+// while still rejecting a bad invocation before any RPC is sent.
+func (r Registry) Validate(invocation *Invocation) error {
+	if invocation == nil {
+		return &SyntaxError{Offset: 1, Message: "command name is required"}
+	}
+	spec, ok := r.Lookup(invocation.Name)
+	if !ok {
+		return &UnknownCommandError{Name: invocation.Name}
+	}
+	args := invocation.Args
+	usage := func() error { return fmt.Errorf("usage: %s", spec.Usage) }
+	count := func(min, max int) error {
+		if len(args) < min || (max >= 0 && len(args) > max) {
+			return usage()
+		}
+		return nil
+	}
+	switch spec.Name {
+	case "help", "status", "sessions", "cancel", "compact", "todos", "mcp", "tools", "quit":
+		if spec.Name == "mcp" {
+			return count(0, 1)
+		}
+		return count(0, 0)
+	case "new":
+		return count(0, -1)
+	case "session":
+		return count(1, 1)
+	case "rename":
+		if len(args) == 0 || strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return usage()
+		}
+		return nil
+	case "delete":
+		return count(0, 1)
+	case "queue":
+		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
+			return usage()
+		}
+		return nil
+	case "permission":
+		if err := count(0, 1); err != nil {
+			return err
+		}
+		if len(args) == 1 {
+			switch strings.ToLower(strings.TrimSpace(args[0])) {
+			case "cautious", "smart", "trusted":
+			default:
+				return fmt.Errorf("permission must be cautious, smart, or trusted")
+			}
+		}
+		return nil
+	case "fork":
+		return count(1, 2)
+	case "rewind":
+		return count(1, 1)
+	case "stats":
+		if err := count(0, 1); err != nil {
+			return err
+		}
+		if len(args) == 1 {
+			switch strings.ToLower(strings.TrimSpace(args[0])) {
+			case "1d", "3d", "1w", "1m", "6m", "1y":
+			default:
+				return fmt.Errorf("stats period must be 1d, 3d, 1w, 1m, 6m, or 1y")
+			}
+		}
+		return nil
+	case "skills":
+		return count(0, 1)
+	case "files":
+		return count(0, 2)
+	default:
+		return nil
+	}
+}
+
 // Help returns the stable built-in help text for a registry.
 func (r Registry) Help() string {
 	var b strings.Builder
@@ -243,6 +347,15 @@ func DefaultRegistry() Registry {
 		Spec{Name: "cancel", Usage: "/cancel", Description: "cancel the active run"},
 		Spec{Name: "queue", Usage: "/queue clear", Description: "clear queued turns"},
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: "set or cycle permission"},
+		Spec{Name: "compact", Usage: "/compact", Description: "compact the active session context"},
+		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: "fork the active session at a message"},
+		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: "rewind the active session view"},
+		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: "show active-session todos"},
+		Spec{Name: "stats", Usage: "/stats [period]", Description: "show token usage statistics"},
+		Spec{Name: "skills", Usage: "/skills [name]", Description: "list or view installed skills"},
+		Spec{Name: "mcp", Usage: "/mcp [server]", Description: "show configured MCP servers"},
+		Spec{Name: "files", Usage: "/files [run_id [path]]", Description: "list or read a governed run workspace"},
+		Spec{Name: "tools", Usage: "/tools", Description: "show the registered tool catalog"},
 		Spec{Name: "quit", Aliases: []string{"exit", "q"}, Usage: "/quit", Description: "leave the TUI"},
 	)
 	if err != nil {

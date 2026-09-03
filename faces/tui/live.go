@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"agent-vivy/sdk/tui/command"
 	"agent-vivy/sdk/tui/stream"
 	"example.com/vivy/faces/tui/surface"
 )
@@ -31,11 +32,12 @@ type Live struct {
 	sessionRequest uint64
 	loadPending    bool
 
-	busy    bool
-	runID   string
-	gate    *surface.Gate
-	lastErr string
-	queue   []string
+	busy            bool
+	runID           string
+	gate            *surface.Gate
+	lastErr         string
+	queue           []string
+	commandInFlight bool
 
 	initialPrompt  string
 	continueNewest bool
@@ -349,6 +351,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applySubscribed(msg)
 	case liveRPCMsg:
 		return l.applyRPC(msg)
+	case surface.CommandResultMsg:
+		return l.applyCommandResult(msg)
 	case surface.SessionsMsg:
 		return l.applySessionsMsg(msg)
 	case surface.ErrMsg:
@@ -550,6 +554,44 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	l.lastErr = ""
 	if msg.Kind == "approval" || msg.Kind == "question" {
 		return func() tea.Msg { return surface.GateResolvedMsg{Kind: msg.Kind} }
+	}
+	return nil
+}
+
+func (l *Live) applyCommandResult(msg surface.CommandResultMsg) tea.Cmd {
+	if !msg.Mutation {
+		return nil
+	}
+	l.mu.Lock()
+	l.commandInFlight = false
+	sameSession := msg.SessionID == "" || msg.SessionID == l.activeID
+	l.mu.Unlock()
+	if msg.Err != nil || !sameSession {
+		return nil
+	}
+	switch msg.Name {
+	case "compact", "rewind":
+		return l.loadSessionCmd(msg.SessionID)
+	case "fork":
+		var result struct {
+			SessionID string `json:"session_id"`
+		}
+		if err := json.Unmarshal([]byte(msg.Output), &result); err != nil || strings.TrimSpace(result.SessionID) == "" {
+			return nil
+		}
+		l.mu.Lock()
+		found := false
+		for _, session := range l.sessions {
+			if session.ID == result.SessionID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			l.sessions = append(l.sessions, surface.Session{ID: result.SessionID})
+		}
+		l.mu.Unlock()
+		return l.loadSessionCmd(result.SessionID)
 	}
 	return nil
 }
@@ -922,6 +964,13 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 			}
 		}
 		l.mu.Unlock()
+		if session.Title == "" {
+			if fetched, fetchErr := l.client.getSession(ctx, id); fetchErr == nil {
+				session = surface.Session{
+					ID: fetched.ID, Title: fetched.Title, PermissionPreset: fetched.PermissionPreset, CreatedAt: fetched.CreatedAt,
+				}
+			}
+		}
 		snapshot := surface.Sidebar{Session: session}
 		if contextStatus, contextErr := l.client.sessionContext(ctx, id); contextErr == nil {
 			snapshot.Context = surface.Context{
@@ -1051,9 +1100,18 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	if name == "" {
 		return commandResultCmd(name, "", errors.New("command name is required"))
 	}
-	if name != "cancel" && name != "queue" {
+	registry := command.DefaultRegistry()
+	spec, ok := registry.Lookup(name)
+	if !ok {
+		return commandResultCmd(name, "", fmt.Errorf("unknown command /%s", name))
+	}
+	name = spec.Name
+	if err := registry.Validate(&command.Invocation{Name: name, Args: args}); err != nil {
+		return commandResultCmd(name, "", err)
+	}
+	if commandMutates(name) && name != "cancel" && name != "queue" {
 		l.mu.Lock()
-		blocked := l.busy || l.gate != nil
+		blocked := l.busy || l.gate != nil || l.loadPending || l.commandInFlight
 		l.mu.Unlock()
 		if blocked {
 			return commandResultCmd(name, "", errors.New("a run or gate is active; finish it before changing session state"))
@@ -1119,8 +1177,105 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 			return cmd
 		}
 		return commandResultCmd(name, "", errors.New("permission change is unavailable"))
+	case "compact":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New("no active session"))
+		}
+		return l.commandRPCCmd(name, "context/compact", map[string]string{"session_id": sessionID})
+	case "fork":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New("no active session"))
+		}
+		params := map[string]string{"session_id": sessionID, "message_id": args[0]}
+		if len(args) == 2 {
+			params["title"] = strings.TrimSpace(args[1])
+		}
+		return l.commandRPCCmd(name, "session/fork", params)
+	case "rewind":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New("no active session"))
+		}
+		return l.commandRPCCmd(name, "session/rewind", map[string]string{"session_id": sessionID, "message_id": args[0]})
+	case "todos":
+		sessionID, ok := l.commandSessionID()
+		if !ok {
+			return commandResultCmd(name, "", errors.New("no active session"))
+		}
+		return l.commandRPCCmd(name, "session/todos", map[string]string{"session_id": sessionID})
+	case "stats":
+		params := map[string]string{}
+		if len(args) == 1 {
+			params["period"] = strings.ToLower(strings.TrimSpace(args[0]))
+		}
+		return l.commandRPCCmd(name, "stats/tokens", params)
+	case "skills":
+		if len(args) == 1 {
+			return l.commandRPCCmd(name, "skills/get", map[string]string{"name": args[0]})
+		}
+		return l.commandRPCCmd(name, "skills/list", nil)
+	case "mcp":
+		if len(args) == 1 {
+			return l.commandRPCCmd(name, "settings/mcp/probe", map[string]string{"name": args[0]})
+		}
+		return l.commandRPCCmd(name, "settings/mcp", nil)
+	case "files":
+		runID := ""
+		if len(args) > 0 {
+			runID = strings.TrimSpace(args[0])
+		} else {
+			l.mu.Lock()
+			runID = l.runID
+			l.mu.Unlock()
+		}
+		if runID == "" {
+			return commandResultCmd(name, "", errors.New("a run_id is required; workspace files are scoped to a run"))
+		}
+		if len(args) == 2 {
+			return l.commandRPCCmd(name, "workspace/read", map[string]string{"run_id": runID, "path": args[1]})
+		}
+		return l.commandRPCCmd(name, "workspace/list", map[string]string{"run_id": runID})
+	case "tools":
+		return l.commandRPCCmd(name, "tools/list", nil)
 	default:
 		return commandResultCmd(name, "", fmt.Errorf("/%s is handled by the shared view or is unavailable", name))
+	}
+}
+
+func commandMutates(name string) bool {
+	switch name {
+	case "new", "session", "rename", "delete", "permission", "compact", "fork", "rewind":
+		return true
+	default:
+		return false
+	}
+}
+
+func (l *Live) commandSessionID() (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.activeID, l.activeID != ""
+}
+
+func (l *Live) commandRPCCmd(name, method string, params any) tea.Cmd {
+	sessionID := ""
+	if commandMutates(name) {
+		l.mu.Lock()
+		if l.busy || l.gate != nil || l.loadPending || l.commandInFlight {
+			l.mu.Unlock()
+			return commandResultCmd(name, "", errors.New("a session operation is already in flight or the session is busy"))
+		}
+		sessionID = l.activeID
+		l.commandInFlight = true
+		l.mu.Unlock()
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 20*time.Second)
+		defer cancel()
+		raw, err := l.client.Call(ctx, method, params)
+		return surface.CommandResultMsg{Name: name, Output: command.FormatResult(name, raw), Err: err, Mutation: commandMutates(name), SessionID: sessionID}
 	}
 }
 

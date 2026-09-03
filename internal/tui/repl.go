@@ -98,8 +98,18 @@ type repl struct {
 	// pendingDelete is a local confirmation barrier. A delete command never
 	// mutates a session until the following line is an explicit y/yes.
 	pendingDelete string
+	// pendingMutation is the same confirmation barrier for session context
+	// mutations. The captured session id is an epoch guard: if the operator
+	// changes sessions before confirming, the RPC is refused.
+	pendingMutation *pendingMutationCommand
 
 	events chan eventNotice
+}
+
+type pendingMutationCommand struct {
+	Name      string
+	Args      []string
+	SessionID string
 }
 
 func (r *repl) loop(ctx context.Context) error {
@@ -138,6 +148,9 @@ func (r *repl) promptLocked() string {
 	if r.pendingDelete != "" {
 		return "delete " + r.pendingDelete + "? [y/n] "
 	}
+	if r.pendingMutation != nil {
+		return r.pendingMutation.Name + "? [y/n] "
+	}
 	if r.busy {
 		return "… "
 	}
@@ -170,12 +183,26 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 	if pendingDelete != "" {
 		return r.handleDeleteConfirmation(ctx, pendingDelete, line)
 	}
+	r.mu.Lock()
+	pendingMutation := r.pendingMutation
+	r.mu.Unlock()
+	if pendingMutation != nil {
+		return r.handleMutationConfirmation(ctx, pendingMutation, line)
+	}
 	parsed, err := command.DefaultRegistry().Parse(line)
 	if err != nil {
 		fmt.Fprintf(r.out, "vivy: %v\n", err)
 		return nil
 	}
+	if parsed.IsUnavailable() {
+		fmt.Fprintf(r.out, "vivy: %s\n", parsed.UnavailableReason)
+		return nil
+	}
 	if parsed.IsCommand() {
+		if err := command.DefaultRegistry().Validate(parsed.Invocation); err != nil {
+			fmt.Fprintf(r.out, "vivy: %v\n", err)
+			return nil
+		}
 		return r.handleCommand(ctx, parsed.Invocation, busy, runID)
 	}
 	line = parsed.Text
@@ -419,10 +446,118 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		r.mu.Unlock()
 		fmt.Fprintf(r.out, "permission: %s\n", session.PermissionPreset)
 		return nil
+	case "compact":
+		if busy {
+			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
+			return nil
+		}
+		r.mu.Lock()
+		sessionID := r.session.ID
+		r.pendingMutation = &pendingMutationCommand{Name: "compact", SessionID: sessionID}
+		r.mu.Unlock()
+		if sessionID == "" {
+			r.mu.Lock()
+			r.pendingMutation = nil
+			r.mu.Unlock()
+			fmt.Fprintln(r.out, "compact: no active session")
+			return nil
+		}
+		fmt.Fprintln(r.out, "compact active session? type y or n")
+		return nil
+	case "fork":
+		if busy {
+			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
+			return nil
+		}
+		r.mu.Lock()
+		sessionID := r.session.ID
+		r.pendingMutation = &pendingMutationCommand{Name: "fork", Args: append([]string(nil), args...), SessionID: sessionID}
+		r.mu.Unlock()
+		if sessionID == "" {
+			r.mu.Lock()
+			r.pendingMutation = nil
+			r.mu.Unlock()
+			fmt.Fprintln(r.out, "fork: no active session")
+			return nil
+		}
+		fmt.Fprintf(r.out, "fork at message %s? type y or n\n", args[0])
+		return nil
+	case "rewind":
+		if busy {
+			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
+			return nil
+		}
+		r.mu.Lock()
+		sessionID := r.session.ID
+		r.pendingMutation = &pendingMutationCommand{Name: "rewind", Args: append([]string(nil), args...), SessionID: sessionID}
+		r.mu.Unlock()
+		if sessionID == "" {
+			r.mu.Lock()
+			r.pendingMutation = nil
+			r.mu.Unlock()
+			fmt.Fprintln(r.out, "rewind: no active session")
+			return nil
+		}
+		fmt.Fprintf(r.out, "rewind at message %s? type y or n\n", args[0])
+		return nil
+	case "todos":
+		r.mu.Lock()
+		sessionID := r.session.ID
+		r.mu.Unlock()
+		if sessionID == "" {
+			fmt.Fprintln(r.out, "todos: no active session")
+			return nil
+		}
+		return r.printCommandRPC(ctx, "todos", "session/todos", map[string]string{"session_id": sessionID})
+	case "stats":
+		params := map[string]string{}
+		if len(args) == 1 {
+			params["period"] = strings.ToLower(args[0])
+		}
+		return r.printCommandRPC(ctx, "stats", "stats/tokens", params)
+	case "skills":
+		if len(args) == 1 {
+			return r.printCommandRPC(ctx, "skills", "skills/get", map[string]string{"name": args[0]})
+		}
+		return r.printCommandRPC(ctx, "skills", "skills/list", nil)
+	case "mcp":
+		if len(args) == 1 {
+			return r.printCommandRPC(ctx, "mcp", "settings/mcp/probe", map[string]string{"name": args[0]})
+		}
+		return r.printCommandRPC(ctx, "mcp", "settings/mcp", nil)
+	case "files":
+		fileRunID := ""
+		if len(args) > 0 {
+			fileRunID = strings.TrimSpace(args[0])
+		} else {
+			fileRunID = runID
+		}
+		if fileRunID == "" {
+			fmt.Fprintln(r.out, "files: a run_id is required; workspace files are scoped to a run")
+			return nil
+		}
+		if len(args) == 2 {
+			return r.printCommandRPC(ctx, "files", "workspace/read", map[string]string{"run_id": fileRunID, "path": args[1]})
+		}
+		return r.printCommandRPC(ctx, "files", "workspace/list", map[string]string{"run_id": fileRunID})
+	case "tools":
+		return r.printCommandRPC(ctx, "tools", "tools/list", nil)
 	default:
 		fmt.Fprintf(r.out, "unknown command /%s  (/help)\n", cmd)
 		return nil
 	}
+}
+
+func (r *repl) printCommandRPC(ctx context.Context, name, method string, params any) error {
+	raw, err := r.client.Call(ctx, method, params)
+	if err != nil {
+		fmt.Fprintf(r.out, "%s: %v\n", name, err)
+		return nil
+	}
+	if output := command.FormatResult(name, raw); output != "" {
+		fmt.Fprintln(r.out, output)
+	}
+	return nil
 }
 
 func (r *repl) handleDeleteConfirmation(ctx context.Context, id, line string) error {
@@ -463,6 +598,121 @@ func (r *repl) handleDeleteConfirmation(ctx context.Context, id, line string) er
 	r.mu.Unlock()
 	fmt.Fprintf(r.out, "session %s\n", session.ID)
 	return nil
+}
+
+func (r *repl) handleMutationConfirmation(ctx context.Context, pending *pendingMutationCommand, line string) error {
+	decision, ok := parseApproval(line)
+	if !ok {
+		fmt.Fprintln(r.out, "type y or n")
+		return nil
+	}
+	if decision == domain.ApprovalDenied {
+		r.mu.Lock()
+		r.pendingMutation = nil
+		r.mu.Unlock()
+		fmt.Fprintln(r.out, "command cancelled")
+		return nil
+	}
+	r.mu.Lock()
+	currentID := r.session.ID
+	busy := r.busy
+	r.pendingMutation = nil
+	r.mu.Unlock()
+	if busy {
+		fmt.Fprintln(r.out, "(run started before confirmation; command cancelled)")
+		return nil
+	}
+	if currentID != pending.SessionID {
+		fmt.Fprintln(r.out, "active session changed; command cancelled")
+		return nil
+	}
+	params := map[string]string{"session_id": pending.SessionID}
+	switch pending.Name {
+	case "compact":
+		_, ok := r.callCommandRPC(ctx, pending.Name, "context/compact", params)
+		if !ok {
+			return nil
+		}
+		// The line face does not retain a context panel, but re-reading the
+		// authoritative context makes the next visible snapshot converge with
+		// the mutation instead of relying on the command response alone.
+		contextRaw, err := r.client.Call(ctx, "session/context", params)
+		if err != nil {
+			fmt.Fprintf(r.out, "compact refresh: %v\n", err)
+			return nil
+		}
+		fmt.Fprintln(r.out, "refreshed session context")
+		fmt.Fprintln(r.out, command.FormatJSON(contextRaw))
+		return nil
+	case "fork":
+		if len(pending.Args) == 0 {
+			fmt.Fprintln(r.out, "usage: /fork <message_id> [title]")
+			return nil
+		}
+		params["message_id"] = pending.Args[0]
+		if len(pending.Args) == 2 {
+			params["title"] = pending.Args[1]
+		}
+		raw, ok := r.callCommandRPC(ctx, pending.Name, "session/fork", params)
+		if !ok {
+			return nil
+		}
+		var result struct {
+			SessionID string `json:"session_id"`
+		}
+		if err := json.Unmarshal(raw, &result); err != nil || strings.TrimSpace(result.SessionID) == "" {
+			fmt.Fprintln(r.out, "fork: response did not identify the new session")
+			return nil
+		}
+		session, err := r.client.getSession(ctx, result.SessionID)
+		if err != nil {
+			fmt.Fprintf(r.out, "fork refresh: %v\n", err)
+			return nil
+		}
+		messages, err := r.client.sessionMessages(ctx, result.SessionID)
+		if err != nil {
+			fmt.Fprintf(r.out, "fork history: %v\n", err)
+			return nil
+		}
+		r.mu.Lock()
+		r.session = session
+		r.mu.Unlock()
+		fmt.Fprint(r.out, formatHistory(messages))
+		fmt.Fprintf(r.out, "session %s\n", session.ID)
+		return nil
+	case "rewind":
+		if len(pending.Args) == 0 {
+			fmt.Fprintln(r.out, "usage: /rewind <message_id>")
+			return nil
+		}
+		params["message_id"] = pending.Args[0]
+		if _, ok := r.callCommandRPC(ctx, pending.Name, "session/rewind", params); !ok {
+			return nil
+		}
+		messages, err := r.client.sessionMessages(ctx, pending.SessionID)
+		if err != nil {
+			fmt.Fprintf(r.out, "rewind refresh: %v\n", err)
+			return nil
+		}
+		fmt.Fprint(r.out, formatHistory(messages))
+		fmt.Fprintf(r.out, "session %s refreshed\n", pending.SessionID)
+		return nil
+	default:
+		fmt.Fprintf(r.out, "unknown mutation /%s\n", pending.Name)
+		return nil
+	}
+}
+
+func (r *repl) callCommandRPC(ctx context.Context, name, method string, params any) ([]byte, bool) {
+	raw, err := r.client.Call(ctx, method, params)
+	if err != nil {
+		fmt.Fprintf(r.out, "%s: %v\n", name, err)
+		return nil, false
+	}
+	if output := command.FormatResult(name, raw); output != "" {
+		fmt.Fprintln(r.out, output)
+	}
+	return raw, true
 }
 
 func (r *repl) handleGate(ctx context.Context, pending *gatePrompt, line string) error {

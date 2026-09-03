@@ -105,6 +105,23 @@ func (c *client) listSessions(ctx context.Context) ([]sessionView, error) {
 	return envelope.Sessions, nil
 }
 
+func (c *client) getSession(ctx context.Context, sessionID string) (sessionView, error) {
+	raw, err := c.Call(ctx, "session/get", map[string]string{"session_id": sessionID})
+	if err != nil {
+		return sessionView{}, err
+	}
+	var envelope struct {
+		Session sessionView `json:"session"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return sessionView{}, fmt.Errorf("tui: session/get: %w", err)
+	}
+	if envelope.Session.ID == "" {
+		return sessionView{}, fmt.Errorf("tui: session/get returned no id")
+	}
+	return envelope.Session, nil
+}
+
 func (c *client) sessionContext(ctx context.Context, sessionID string) (contextView, error) {
 	raw, err := c.Call(ctx, "session/context", map[string]string{"session_id": sessionID})
 	if err != nil {

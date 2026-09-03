@@ -183,6 +183,126 @@ func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	}
 }
 
+func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["context/compact"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"before_tokens": 20, "after_tokens": 8}, nil
+	}
+	env.script["session/todos"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"todos": []any{map[string]any{"subject": "ship", "status": "pending"}}}, nil
+	}
+	env.script["stats/tokens"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"period": "1w", "total": map[string]any{"total_tokens": 42, "cost_known": false}}, nil
+	}
+	env.script["skills/list"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"skills": []any{map[string]any{"name": "writer", "enabled": true}}}, nil
+	}
+	env.script["skills/get"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"name": "writer", "content": "guide"}, nil
+	}
+	env.script["settings/mcp"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"servers": []any{map[string]any{"name": "docs", "status": "idle"}}}, nil
+	}
+	env.script["settings/mcp/probe"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"name": "docs", "status": "ok", "tool_count": 1}, nil
+	}
+	env.script["tools/list"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"active": []string{"read_file"}}, nil
+	}
+	env.script["workspace/list"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"files": []any{map[string]any{"path": "README.md"}}}, nil
+	}
+	env.script["workspace/read"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"path": "README.md", "content": "hello"}, nil
+	}
+	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+
+	tests := []struct {
+		name   string
+		args   []string
+		method string
+		want   string
+	}{
+		{"compact", nil, "context/compact", "before_tokens"},
+		{"todos", nil, "session/todos", "ship"},
+		{"stats", []string{"1w"}, "stats/tokens", "total_tokens"},
+		{"skills", nil, "skills/list", "writer"},
+		{"skills", []string{"writer"}, "skills/get", "guide"},
+		{"mcp", nil, "settings/mcp", "docs"},
+		{"mcp", []string{"docs"}, "settings/mcp/probe", "tool_count"},
+		{"tools", nil, "tools/list", "read_file"},
+		{"files", []string{"run_1"}, "workspace/list", "README.md"},
+		{"files", []string{"run_1", "README.md"}, "workspace/read", "hello"},
+	}
+	for _, tc := range tests {
+		msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand(tc.name, tc.args))
+		if msg.Err != nil || !strings.Contains(msg.Output, tc.want) {
+			t.Fatalf("/%s %v = %+v, want %s containing %q", tc.name, tc.args, msg, tc.method, tc.want)
+		}
+		env.mu.Lock()
+		gotMethod := env.calls[len(env.calls)-1]
+		env.mu.Unlock()
+		if gotMethod != tc.method {
+			t.Fatalf("/%s called %s, want %s", tc.name, gotMethod, tc.method)
+		}
+	}
+}
+
+func TestLiveAdvancedCommandValidationAndScopedFilesFailClosed(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	live := bootLive(t, env, LiveOptions{})
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"stats", []string{"2h"}, "stats period"},
+		{"tools", []string{"extra"}, "usage"},
+		{"files", nil, "run_id is required"},
+	} {
+		msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand(tc.name, tc.args))
+		if msg.Err == nil || !strings.Contains(msg.Err.Error(), tc.want) {
+			t.Fatalf("/%s %v = %+v, want local %q", tc.name, tc.args, msg, tc.want)
+		}
+	}
+}
+
+func TestLiveForkCommandRefreshesAndSwitchesToForkedSession(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["session/fork"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"session_id": "sess_fork", "fork_point_message_id": "msg_1", "copied_count": 1}, nil
+	}
+	env.script["session/get"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"session": map[string]any{"id": "sess_fork", "title": "branch", "permission_preset": "smart"}}, nil
+	}
+	env.script["session/messages"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"messages": []any{map[string]any{"id": "msg_1", "role": "user", "content": "copied"}}}, nil
+	}
+	env.script["session/context"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"feed_tokens": 1, "model_limit_tokens": 100}, nil
+	}
+	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+	result := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("fork", []string{"msg_1", "branch"}))
+	if result.Err != nil || !result.Mutation || result.SessionID != "sess_1" {
+		t.Fatalf("fork result = %+v", result)
+	}
+	load := live.Handle(result)
+	loaded := mustMsg[liveLoadedMsg](t, load)
+	if loaded.Err != nil || loaded.Session.ID != "sess_fork" || loaded.Session.Title != "branch" {
+		t.Fatalf("fork reload = %+v", loaded)
+	}
+	live.Handle(loaded)
+	if got := live.Active(); got.ID != "sess_fork" || got.Title != "branch" {
+		t.Fatalf("active after fork = %+v", got)
+	}
+}
+
 func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	live := bootLive(t, env, LiveOptions{Host: "vivy", Title: "VIVY"})

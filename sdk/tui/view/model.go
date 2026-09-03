@@ -48,6 +48,9 @@ type Model struct {
 
 	commandOverlayTitle string
 	commandOverlay      string
+	commandConfirmName  string
+	commandConfirmArgs  []string
+	commandConfirmSID   string
 }
 
 // New returns a model bound to the given driver.
@@ -137,8 +140,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.commandOverlayTitle = ""
 		m.commandOverlay = ""
 	}
+	if gate != nil && m.commandConfirmName != "" {
+		m.clearCommandConfirmation()
+	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
+	}
+	if gate == nil && m.commandConfirmName != "" {
+		return m.handleCommandConfirmation(msg)
 	}
 	if gate == nil && m.commandOverlay != "" {
 		switch msg.Type {
@@ -247,12 +256,18 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		// dismiss the local error and correct it without retyping.
 		return m.showCommandError(err), nil
 	}
+	if parsed.IsUnavailable() {
+		return m.showCommandError(fmt.Errorf("%s", parsed.UnavailableReason)), nil
+	}
 	if !parsed.IsCommand() {
 		cmd := m.driver.Send(parsed.Text)
 		if cmd != nil {
 			m.input = ""
 		}
 		return m, cmd
+	}
+	if err := commandRegistry.Validate(parsed.Invocation); err != nil {
+		return m.showCommandError(err), nil
 	}
 	m.input = ""
 	return m.dispatchCommand(parsed.Invocation)
@@ -351,6 +366,20 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			}
 		}
 		return m.executeDriverCommand(name, args)
+	case "compact":
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.confirmCommand(name, args)
+	case "fork", "rewind":
+		if blocked, reason := m.commandBlocked(name); blocked {
+			return m.showCommandError(fmt.Errorf("%s", reason)), nil
+		}
+		return m.confirmCommand(name, args)
+	case "todos", "stats", "skills", "mcp", "files", "tools":
+		// These commands are read-only snapshots. They remain useful while a
+		// run is streaming; the driver still owns the authoritative RPC state.
+		return m.executeDriverCommand(name, args)
 	case "quit":
 		if len(args) != 0 {
 			return m.showCommandError(fmt.Errorf("usage: /quit")), nil
@@ -359,6 +388,51 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 	default:
 		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
 	}
+}
+
+func (m Model) confirmCommand(name string, args []string) (Model, tea.Cmd) {
+	sessionID := m.driver.Active().ID
+	if sessionID == "" {
+		return m.showCommandError(fmt.Errorf("no active session")), nil
+	}
+	m.commandConfirmName = name
+	m.commandConfirmArgs = append([]string(nil), args...)
+	m.commandConfirmSID = sessionID
+	return m, nil
+}
+
+func (m Model) handleCommandConfirmation(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+	decision := ""
+	if msg.Type == tea.KeyRunes {
+		decision = strings.ToLower(strings.TrimSpace(string(msg.Runes)))
+	}
+	if msg.Type == tea.KeyEsc || decision == "n" || decision == "no" {
+		m.clearCommandConfirmation()
+		return m, nil
+	}
+	if decision != "y" && decision != "yes" {
+		return m, nil
+	}
+	name := m.commandConfirmName
+	args := append([]string(nil), m.commandConfirmArgs...)
+	sessionID := m.commandConfirmSID
+	m.clearCommandConfirmation()
+	if m.driver.Active().ID != sessionID {
+		return m.showCommandError(fmt.Errorf("active session changed; /%s cancelled", name)), nil
+	}
+	if blocked, reason := m.commandBlocked(name); blocked {
+		return m.showCommandError(fmt.Errorf("%s", reason)), nil
+	}
+	return m.executeDriverCommand(name, args)
+}
+
+func (m *Model) clearCommandConfirmation() {
+	m.commandConfirmName = ""
+	m.commandConfirmArgs = nil
+	m.commandConfirmSID = ""
 }
 
 func (m Model) commandBlocked(name string) (bool, string) {

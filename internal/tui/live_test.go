@@ -334,6 +334,161 @@ func TestLivePermissionSwitchPersists(t *testing.T) {
 	}
 }
 
+func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
+	var methods []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		methods = append(methods, request.Method)
+		switch request.Method {
+		case "context/compact":
+			return map[string]any{"before_tokens": 20, "after_tokens": 8}, nil
+		case "session/todos":
+			return map[string]any{"todos": []any{map[string]any{"subject": "ship", "status": "pending"}}}, nil
+		case "stats/tokens":
+			return map[string]any{"period": "1w", "total": map[string]any{"total_tokens": 42, "cost_known": false}}, nil
+		case "skills/list":
+			return map[string]any{"skills": []any{map[string]any{"name": "writer", "enabled": true}}}, nil
+		case "skills/get":
+			return map[string]any{"name": "writer", "content": "guide"}, nil
+		case "settings/mcp":
+			return map[string]any{"servers": []any{map[string]any{"name": "docs", "status": "idle"}}}, nil
+		case "settings/mcp/probe":
+			return map[string]any{"name": "docs", "status": "ok", "tool_count": 1}, nil
+		case "tools/list":
+			return map[string]any{"active": []string{"read_file"}}, nil
+		case "workspace/list":
+			return map[string]any{"files": []any{map[string]any{"path": "README.md"}}}, nil
+		case "workspace/read":
+			return map[string]any{"path": "README.md", "content": "hello"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.sessions = []surface.Session{{ID: "sess_1", Title: "one"}}
+	live.mu.Unlock()
+
+	tests := []struct {
+		name   string
+		args   []string
+		method string
+		want   string
+	}{
+		{"compact", nil, "context/compact", "before_tokens"},
+		{"todos", nil, "session/todos", "ship"},
+		{"stats", []string{"1w"}, "stats/tokens", "total_tokens"},
+		{"skills", nil, "skills/list", "writer"},
+		{"skills", []string{"writer"}, "skills/get", "guide"},
+		{"mcp", nil, "settings/mcp", "docs"},
+		{"mcp", []string{"docs"}, "settings/mcp/probe", "tool_count"},
+		{"tools", nil, "tools/list", "read_file"},
+		{"files", []string{"run_1"}, "workspace/list", "README.md"},
+		{"files", []string{"run_1", "README.md"}, "workspace/read", "hello"},
+	}
+	for _, tc := range tests {
+		msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand(tc.name, tc.args))
+		if msg.Err != nil || !strings.Contains(msg.Output, tc.want) {
+			t.Fatalf("/%s %v = %+v, want %s containing %q", tc.name, tc.args, msg, tc.method, tc.want)
+		}
+		if methods[len(methods)-1] != tc.method {
+			t.Fatalf("/%s called %s, want %s", tc.name, methods[len(methods)-1], tc.method)
+		}
+	}
+}
+
+func TestLiveAdvancedCommandValidationAndScopedFilesFailClosed(t *testing.T) {
+	client, stop := attachTestClient(t, controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+	}))
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"stats", []string{"2h"}, "stats period"},
+		{"tools", []string{"extra"}, "usage"},
+		{"files", nil, "run_id is required"},
+	} {
+		msg := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand(tc.name, tc.args))
+		if msg.Err == nil || !strings.Contains(msg.Err.Error(), tc.want) {
+			t.Fatalf("/%s %v = %+v, want local %q", tc.name, tc.args, msg, tc.want)
+		}
+	}
+}
+
+func TestLiveForkCommandRefreshesAndSwitchesToForkedSession(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/fork":
+			return map[string]any{"session_id": "sess_fork", "fork_point_message_id": "msg_1", "copied_count": 1}, nil
+		case "session/get":
+			return map[string]any{"session": map[string]any{"id": "sess_fork", "title": "branch", "permission_preset": "smart"}}, nil
+		case "session/messages":
+			return map[string]any{"messages": []any{map[string]any{"id": "msg_1", "role": "user", "content": "copied"}}}, nil
+		case "session/context":
+			return map[string]any{"feed_tokens": 1, "model_limit_tokens": 100}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.sessions = []surface.Session{{ID: "sess_1", Title: "one"}}
+	live.mu.Unlock()
+	result := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("fork", []string{"msg_1", "branch"}))
+	if result.Err != nil || !result.Mutation || result.SessionID != "sess_1" {
+		t.Fatalf("fork result = %+v", result)
+	}
+	load := live.Handle(result)
+	loaded := mustMsg[liveLoadedMsg](t, load)
+	if loaded.Err != nil || loaded.Session.ID != "sess_fork" || loaded.Session.Title != "branch" {
+		t.Fatalf("fork reload = %+v", loaded)
+	}
+	live.Handle(loaded)
+	if got := live.Active(); got.ID != "sess_fork" || got.Title != "branch" {
+		t.Fatalf("active after fork = %+v", got)
+	}
+}
+
+func TestLiveMutationCommandInFlightAndRefreshGuard(t *testing.T) {
+	client, stop := attachTestClient(t, controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method == "context/compact" {
+			return map[string]any{"before_tokens": 10, "after_tokens": 4, "folded_messages": 1, "skipped": false}, nil
+		}
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+	}))
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.commandInFlight = true
+	live.mu.Unlock()
+	blocked := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("compact", nil))
+	if blocked.Err == nil || !strings.Contains(blocked.Err.Error(), "run or gate") {
+		t.Fatalf("duplicate mutation was not rejected: %+v", blocked)
+	}
+	live.mu.Lock()
+	live.commandInFlight = false
+	live.loadPending = true
+	live.mu.Unlock()
+	blocked = mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("rewind", []string{"msg_1"}))
+	if blocked.Err == nil || !strings.Contains(blocked.Err.Error(), "run or gate") {
+		t.Fatalf("load-pending mutation was not rejected: %+v", blocked)
+	}
+}
+
 func TestLiveGateFailuresRemainRetryable(t *testing.T) {
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		if request.Method == "approval/respond" || request.Method == "question/respond" {

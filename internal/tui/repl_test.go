@@ -144,6 +144,150 @@ func TestREPLCommandsUseSharedParserAndNeverForwardUnknownSlash(t *testing.T) {
 	}
 }
 
+func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
+	var methods []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		methods = append(methods, request.Method)
+		switch request.Method {
+		case "context/compact":
+			return map[string]any{"before_tokens": 20, "after_tokens": 8}, nil
+		case "session/context":
+			return map[string]any{"feed_tokens": 8, "total_messages": 2}, nil
+		case "session/fork":
+			return map[string]any{"session_id": "sess_fork", "fork_point_message_id": "msg_1", "copied_count": 1}, nil
+		case "session/get":
+			return map[string]any{"session": map[string]any{"id": "sess_fork", "title": "branch", "permission_preset": "smart"}}, nil
+		case "session/rewind":
+			return map[string]any{"cutoff_message_id": "msg_1", "remaining_count": 1}, nil
+		case "session/messages":
+			return map[string]any{"messages": []any{map[string]any{"id": "msg_1", "role": "user", "content": "kept"}}}, nil
+		case "session/todos":
+			return map[string]any{"todos": []any{map[string]any{"subject": "ship"}}}, nil
+		case "stats/tokens":
+			return map[string]any{"period": "1w", "total": map[string]any{"total_tokens": 42, "cost_known": false}}, nil
+		case "skills/list":
+			return map[string]any{"skills": []any{map[string]any{"name": "writer"}}}, nil
+		case "settings/mcp":
+			return map[string]any{"servers": []any{map[string]any{"name": "docs"}}}, nil
+		case "tools/list":
+			return map[string]any{"active": []string{"read_file"}}, nil
+		case "workspace/list":
+			return map[string]any{"files": []any{map[string]any{"path": "README.md"}}}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1", Title: "one"},
+		runID:   "run_1",
+		events:  make(chan eventNotice, 1),
+	}
+	for _, line := range []string{"!echo", "@README.md"} {
+		if err := r.handleLine(context.Background(), line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(methods) != 0 {
+		t.Fatalf("unavailable prefixes unexpectedly called RPCs: %v", methods)
+	}
+	for _, tc := range []struct {
+		line   string
+		method string
+		want   string
+	}{
+		{"/todos", "session/todos", "ship"},
+		{"/stats 1w", "stats/tokens", "total_tokens"},
+		{"/skills", "skills/list", "writer"},
+		{"/mcp", "settings/mcp", "docs"},
+		{"/tools", "tools/list", "read_file"},
+		{"/files run_1", "workspace/list", "README.md"},
+	} {
+		if err := r.handleLine(context.Background(), tc.line); err != nil {
+			t.Fatal(err)
+		}
+		if len(methods) == 0 || methods[len(methods)-1] != tc.method {
+			t.Fatalf("%s called %v, want %s", tc.line, methods, tc.method)
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Fatalf("%s output missing %q:\n%s", tc.line, tc.want, out.String())
+		}
+	}
+	if err := r.handleLine(context.Background(), "/compact"); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) == 0 || methods[len(methods)-1] != "workspace/list" {
+		t.Fatalf("compact asked for confirmation but called RPCs: %v", methods)
+	}
+	if err := r.handleLine(context.Background(), "y"); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) == 0 || methods[len(methods)-1] != "session/context" || !strings.Contains(out.String(), "before_tokens") || !strings.Contains(out.String(), "feed_tokens") {
+		t.Fatalf("confirmed compact did not call/render result: methods=%v output=%s", methods, out.String())
+	}
+	if err := r.handleLine(context.Background(), "/fork msg_1 branch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handleLine(context.Background(), "yes"); err != nil {
+		t.Fatal(err)
+	}
+	if r.session.ID != "sess_fork" || r.session.Title != "branch" || methods[len(methods)-1] != "session/messages" {
+		t.Fatalf("confirmed fork did not converge to forked session: session=%+v methods=%v", r.session, methods)
+	}
+	if err := r.handleLine(context.Background(), "/rewind msg_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handleLine(context.Background(), "y"); err != nil {
+		t.Fatal(err)
+	}
+	if methods[len(methods)-1] != "session/messages" || !strings.Contains(out.String(), "you: kept") {
+		t.Fatalf("confirmed rewind did not refresh history: methods=%v output=%s", methods, out.String())
+	}
+	if !strings.Contains(out.String(), "shell commands are unavailable") || !strings.Contains(out.String(), "workspace references are unavailable") {
+		t.Fatalf("local unavailable diagnostics missing:\n%s", out.String())
+	}
+}
+
+func TestREPLEscapedLocalPrefixesBecomeModelText(t *testing.T) {
+	var turns []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "turn/start":
+			var params struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			turns = append(turns, params.Text)
+			return map[string]any{"run_id": "run_1", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]any{"status": "subscribed"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	r := &repl{
+		client:  client,
+		out:     &bytes.Buffer{},
+		session: sessionView{ID: "sess_1"},
+		events:  make(chan eventNotice, 1),
+	}
+	for _, input := range []string{"!!echo safe", "@@README.md"} {
+		r.events <- eventNotice{Done: true}
+		if err := r.handleLine(context.Background(), input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(turns) != 2 || turns[0] != "!echo safe" || turns[1] != "@README.md" {
+		t.Fatalf("escaped prefix turns = %#v", turns)
+	}
+}
+
 func TestREPLGateTakesPriorityOverSlashParser(t *testing.T) {
 	var turnCalls int
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {

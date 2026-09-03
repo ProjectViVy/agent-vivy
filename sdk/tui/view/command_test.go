@@ -55,6 +55,22 @@ func TestEnterUnknownSlashCommandNeverSendsToDriver(t *testing.T) {
 	}
 }
 
+func TestEnterSingleBangAndAtNeverSendToModel(t *testing.T) {
+	for _, input := range []string{"!echo hi", "@README.md"} {
+		d := &testDriver{}
+		m := New(d)
+		m.input = input
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = updated.(Model)
+		if cmd != nil || d.sent != "" {
+			t.Fatalf("input %q escaped local guard: sent=%q cmd=%v", input, d.sent, cmd != nil)
+		}
+		if !strings.Contains(m.View(), "unavailable") {
+			t.Fatalf("input %q missing unavailable diagnostic:\n%s", input, m.View())
+		}
+	}
+}
+
 func TestAsyncCommandResultIsRendered(t *testing.T) {
 	m := New(&testDriver{})
 	updated, _ := m.Update(surface.CommandResultMsg{Output: "queued turns cleared"})
@@ -153,6 +169,41 @@ func TestGateHasPriorityOverSlashCommands(t *testing.T) {
 	m = updated.(Model)
 	if cmd != nil || d.commandName != "" || m.commandOverlay != "" {
 		t.Fatalf("gate did not take priority: cmd=%v command=%q overlay=%q", cmd != nil, d.commandName, m.commandOverlay)
+	}
+}
+
+func TestAdvancedSessionCommandsRequireConfirmation(t *testing.T) {
+	d := &commandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "sess_1", Title: "one"}}, active: "sess_1"}}
+	m := New(d)
+	for _, input := range []string{"/compact", "/fork msg-1", "/rewind msg-1"} {
+		m.input = input
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = updated.(Model)
+		if cmd != nil || m.commandConfirmName == "" || d.commandName != "" {
+			t.Fatalf("%s bypassed confirmation: cmd=%v confirm=%q driver=%q", input, cmd != nil, m.commandConfirmName, d.commandName)
+		}
+		if !strings.Contains(m.View(), "confirm") {
+			t.Fatalf("%s confirmation was not rendered:\n%s", input, m.View())
+		}
+		updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		m = updated.(Model)
+		if cmd != nil || m.commandConfirmName != "" {
+			t.Fatalf("%s denial left confirmation active", input)
+		}
+	}
+}
+
+func TestAdvancedSessionCommandConfirmationGuardsSessionEpoch(t *testing.T) {
+	d := &commandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "sess_1", Title: "one"}, {ID: "sess_2", Title: "two"}}, active: "sess_1"}}
+	m := New(d)
+	m.input = "/rewind msg-1"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	d.active = "sess_2"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(Model)
+	if cmd != nil || d.commandName != "" || !strings.Contains(m.View(), "active session changed") {
+		t.Fatalf("session epoch guard failed: cmd=%v driver=%q view=%s", cmd != nil, d.commandName, m.View())
 	}
 }
 
