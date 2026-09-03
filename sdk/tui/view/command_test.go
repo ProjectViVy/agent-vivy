@@ -135,6 +135,41 @@ func TestCommandHelpStatusAndSessionsStayInSharedTeaState(t *testing.T) {
 	}
 }
 
+func TestThinkingCommandAndShortcutUseTruthfulModelCapability(t *testing.T) {
+	d := &testDriver{sidebar: surface.Sidebar{HasContext: true, Context: surface.Context{ThinkingSupported: true}}}
+	m := New(d)
+	m.input = "/thinking on"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || d.thinking != "on" || !strings.Contains(m.View(), "thinking: on") {
+		t.Fatalf("thinking command = mode %q cmd=%v\n%s", d.thinking, cmd != nil, m.View())
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	m = updated.(Model)
+	if cmd != nil || d.thinking != "off" {
+		t.Fatalf("Ctrl+T did not cycle snapshotted preference: %q", d.thinking)
+	}
+
+	unsupported := &testDriver{sidebar: surface.Sidebar{HasContext: true}}
+	m = New(unsupported)
+	m.input = "/thinking on"
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || unsupported.thinking == "on" || !strings.Contains(m.View(), "unavailable for the active model") {
+		t.Fatalf("unsupported model accepted thinking: mode=%q view=%s", unsupported.thinking, m.View())
+	}
+	unknown := &testDriver{}
+	m = New(unknown)
+	m.input = "/thinking on"
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if unknown.thinking == "on" || strings.Contains(m.renderHelp(computeLayout(120, 30), DefaultPalette()), "^t") {
+		t.Fatalf("unknown capability exposed or accepted thinking: mode=%q", unknown.thinking)
+	}
+}
+
 func TestCommandDeleteUsesExistingConfirmationAndBusyFailsClosed(t *testing.T) {
 	d := &commandDriver{testDriver: &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current"}, {ID: "other", Title: "Other"}},

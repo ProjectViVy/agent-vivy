@@ -128,10 +128,13 @@ func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 	return envelope.Messages, nil
 }
 
-func (c *Client) startTurn(ctx context.Context, sessionID, text, face string) (runAccepted, error) {
+func (c *Client) startTurn(ctx context.Context, sessionID, text, face, thinking string) (runAccepted, error) {
 	params := map[string]string{"session_id": sessionID, "text": text}
 	if strings.TrimSpace(face) != "" {
 		params["face"] = face
+	}
+	if strings.TrimSpace(thinking) != "" {
+		params["thinking"] = thinking
 	}
 	raw, err := c.Call(ctx, "turn/start", params)
 	if err != nil {

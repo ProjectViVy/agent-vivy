@@ -56,11 +56,12 @@ func RunREPL(ctx context.Context, client *Client, opts Options) error {
 	}
 
 	repl := &repl{
-		client:  client,
-		in:      bufio.NewScanner(in),
-		out:     out,
-		session: session,
-		events:  make(chan eventNotice, 64),
+		client:       client,
+		in:           bufio.NewScanner(in),
+		out:          out,
+		session:      session,
+		thinkingMode: "auto",
+		events:       make(chan eventNotice, 64),
 	}
 	client.OnNotify(func(method string, params json.RawMessage) {
 		if method != "run/event" {
@@ -90,6 +91,8 @@ type repl struct {
 	in      *bufio.Scanner
 	out     io.Writer
 	session sessionView
+	// thinkingMode is a draft preference and is snapshotted by sendTurn.
+	thinkingMode string
 
 	mu      sync.Mutex
 	busy    bool
@@ -247,6 +250,7 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		r.mu.Lock()
 		active := r.session
 		busyNow, currentRun := r.busy, r.runID
+		thinking := normalizeREPLThinking(r.thinkingMode)
 		r.mu.Unlock()
 		state := "idle"
 		if busyNow {
@@ -260,6 +264,7 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		if active.PermissionPreset != "" {
 			fmt.Fprintf(r.out, "permission: %s\n", active.PermissionPreset)
 		}
+		fmt.Fprintf(r.out, "thinking (next turn): %s\n", thinking)
 		return nil
 	case "cancel":
 		if len(args) != 0 {
@@ -445,6 +450,33 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		r.session = session
 		r.mu.Unlock()
 		fmt.Fprintf(r.out, "permission: %s\n", session.PermissionPreset)
+		return nil
+	case "thinking":
+		mode := ""
+		if len(args) == 1 {
+			mode = strings.ToLower(strings.TrimSpace(args[0]))
+		}
+		r.mu.Lock()
+		if mode == "" {
+			mode = nextREPLThinking(r.thinkingMode)
+		}
+		sessionID := r.session.ID
+		r.mu.Unlock()
+		if mode == "on" {
+			contextStatus, err := r.client.sessionContext(ctx, sessionID)
+			if err != nil {
+				fmt.Fprintf(r.out, "thinking: capability check failed: %v\n", err)
+				return nil
+			}
+			if !contextStatus.ThinkingSupported {
+				fmt.Fprintln(r.out, "thinking: extended thinking is unavailable for the active model")
+				return nil
+			}
+		}
+		r.mu.Lock()
+		r.thinkingMode = mode
+		r.mu.Unlock()
+		fmt.Fprintf(r.out, "next turn thinking: %s\n", mode)
 		return nil
 	case "compact":
 		if busy {
@@ -755,7 +787,27 @@ func parseApproval(line string) (string, bool) {
 }
 
 func (r *repl) sendTurn(ctx context.Context, text string) error {
-	accepted, err := r.client.startTurn(ctx, r.session.ID, text, "code")
+	r.mu.Lock()
+	thinking := normalizeREPLThinking(r.thinkingMode)
+	sessionID := r.session.ID
+	r.mu.Unlock()
+	if thinking == "on" {
+		contextStatus, err := r.client.sessionContext(ctx, sessionID)
+		if err != nil {
+			r.mu.Lock()
+			r.thinkingMode = "auto"
+			r.mu.Unlock()
+			thinking = "auto"
+			fmt.Fprintf(r.out, "thinking: capability check failed; using auto: %v\n", err)
+		} else if !contextStatus.ThinkingSupported {
+			r.mu.Lock()
+			r.thinkingMode = "auto"
+			r.mu.Unlock()
+			thinking = "auto"
+			fmt.Fprintln(r.out, "thinking: active model no longer supports on; using auto")
+		}
+	}
+	accepted, err := r.client.startTurn(ctx, sessionID, text, "code", thinking)
 	if err != nil {
 		fmt.Fprintf(r.out, "turn: %v\n", err)
 		return nil
@@ -770,6 +822,25 @@ func (r *repl) sendTurn(ctx context.Context, text string) error {
 	r.mu.Unlock()
 	fmt.Fprint(r.out, "vivy: ")
 	return r.drainRun(ctx)
+}
+
+func normalizeREPLThinking(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "on" || mode == "off" {
+		return mode
+	}
+	return "auto"
+}
+
+func nextREPLThinking(current string) string {
+	switch normalizeREPLThinking(current) {
+	case "auto":
+		return "on"
+	case "on":
+		return "off"
+	default:
+		return "auto"
+	}
 }
 
 func (r *repl) drainRun(ctx context.Context) error {

@@ -40,7 +40,8 @@ type Live struct {
 	runID           string
 	gate            *surface.Gate
 	lastErr         string
-	queue           []string
+	queue           []queuedTurn
+	thinkingMode    string
 	commandInFlight bool
 
 	seq int
@@ -55,6 +56,11 @@ type Live struct {
 	eventWake chan struct{}
 	ctx       context.Context
 	cancel    context.CancelFunc
+}
+
+type queuedTurn struct {
+	Text     string
+	Thinking string
 }
 
 // LiveOptions configure one live fullscreen session.
@@ -83,6 +89,7 @@ func NewLive(client *Client, opts LiveOptions) *Live {
 		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
 		continueNewest: opts.ContinueNewest,
 		messages:       map[string][]surface.Message{},
+		thinkingMode:   "auto",
 		eventWake:      make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -431,6 +438,9 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 		if l.sidebar.Session.ID == "" {
 			l.sidebar.Session = msg.Session
 		}
+		if l.thinkingMode == "on" && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
+			l.thinkingMode = "auto"
+		}
 	}
 	l.gate = nil
 	l.busy = false
@@ -680,10 +690,10 @@ func (l *Live) dequeueCmd() tea.Cmd {
 		l.mu.Unlock()
 		return nil
 	}
-	text := l.queue[0]
+	turn := l.queue[0]
 	l.queue = l.queue[1:]
 	l.mu.Unlock()
-	return l.Send(text)
+	return l.send(turn.Text, turn.Thinking)
 }
 
 func (l *Live) applyNotice(notice eventNotice) {
@@ -776,12 +786,24 @@ func (l *Live) NewSession(title string) tea.Cmd {
 		if err != nil {
 			return liveLoadedMsg{Request: request, Err: err}
 		}
+		snapshot := surface.Sidebar{Session: surface.Session{
+			ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
+		}}
+		if contextStatus, contextErr := l.client.sessionContext(ctx, created.ID); contextErr == nil {
+			snapshot.Context = surface.Context{
+				FeedTokens: contextStatus.FeedTokens, ModelLimitTokens: contextStatus.ModelLimitTokens,
+				TriggerTokens: contextStatus.TriggerTokens, TotalMessages: contextStatus.TotalMessages,
+				FeedMessages: contextStatus.FeedMessages, ThinkingSupported: contextStatus.ThinkingSupported,
+				CompactionEnabled: contextStatus.CompactionEnabled, WouldCompact: contextStatus.WouldCompact,
+				HasCompactionSummary: contextStatus.HasCompactionSummary,
+			}
+			snapshot.HasContext = true
+		}
 		return liveLoadedMsg{
-			Request: request,
-			Session: surface.Session{
-				ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
-			},
+			Request:  request,
+			Session:  snapshot.Session,
 			Messages: nil,
+			Sidebar:  snapshot,
 		}
 	}
 }
@@ -998,6 +1020,13 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 
 // Send implements surface.Driver.
 func (l *Live) Send(text string) tea.Cmd {
+	l.mu.Lock()
+	thinking := l.thinkingMode
+	l.mu.Unlock()
+	return l.send(text, thinking)
+}
+
+func (l *Live) send(text, thinking string) tea.Cmd {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
@@ -1007,7 +1036,7 @@ func (l *Live) Send(text string) tea.Cmd {
 		return nil
 	}
 	if l.busy || l.gate != nil {
-		l.queue = append(l.queue, text)
+		l.queue = append(l.queue, queuedTurn{Text: text, Thinking: thinking})
 		l.mu.Unlock()
 		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
@@ -1023,12 +1052,38 @@ func (l *Live) Send(text string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		accepted, err := l.client.startTurn(ctx, sessionID, text, l.face)
+		accepted, err := l.client.startTurn(ctx, sessionID, text, l.face, thinking)
 		if err != nil {
 			return liveTurnStartedMsg{UserText: text, Err: err}
 		}
 		return liveTurnStartedMsg{UserText: text, RunID: accepted.RunID}
 	}
+}
+
+// ThinkingMode returns the draft preference used for the next turn.
+func (l *Live) ThinkingMode() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.thinkingMode == "" {
+		return "auto"
+	}
+	return l.thinkingMode
+}
+
+// SetThinkingMode updates only future turns. Send snapshots the value so a
+// later toggle cannot retroactively change already queued work.
+func (l *Live) SetThinkingMode(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "auto" && mode != "on" && mode != "off" {
+		return errors.New("thinking must be auto, on, or off")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if mode == "on" && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
+		return errors.New("extended thinking is unavailable for the active model")
+	}
+	l.thinkingMode = mode
+	return nil
 }
 
 // DecideApproval implements surface.Driver.

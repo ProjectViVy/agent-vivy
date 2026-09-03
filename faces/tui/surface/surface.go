@@ -19,6 +19,7 @@ type ErrMsg = shared.ErrMsg
 type RefreshMsg = shared.RefreshMsg
 type GateResolvedMsg = shared.GateResolvedMsg
 type SidebarProvider = shared.SidebarProvider
+type ThinkingController = shared.ThinkingController
 type SessionController = shared.SessionController
 type SessionsMsg = shared.SessionsMsg
 

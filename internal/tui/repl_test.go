@@ -254,14 +254,19 @@ func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
 
 func TestREPLEscapedLocalPrefixesBecomeModelText(t *testing.T) {
 	var turns []string
+	var thinking []string
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		switch request.Method {
+		case "session/context":
+			return map[string]any{"thinking_supported": true}, nil
 		case "turn/start":
 			var params struct {
-				Text string `json:"text"`
+				Text     string `json:"text"`
+				Thinking string `json:"thinking"`
 			}
 			_ = json.Unmarshal(request.Params, &params)
 			turns = append(turns, params.Text)
+			thinking = append(thinking, params.Thinking)
 			return map[string]any{"run_id": "run_1", "status": "accepted"}, nil
 		case "run/subscribe":
 			return map[string]any{"status": "subscribed"}, nil
@@ -277,6 +282,9 @@ func TestREPLEscapedLocalPrefixesBecomeModelText(t *testing.T) {
 		session: sessionView{ID: "sess_1"},
 		events:  make(chan eventNotice, 1),
 	}
+	if err := r.handleLine(context.Background(), "/thinking on"); err != nil {
+		t.Fatal(err)
+	}
 	for _, input := range []string{"!!echo safe", "@@README.md"} {
 		r.events <- eventNotice{Done: true}
 		if err := r.handleLine(context.Background(), input); err != nil {
@@ -285,6 +293,9 @@ func TestREPLEscapedLocalPrefixesBecomeModelText(t *testing.T) {
 	}
 	if len(turns) != 2 || turns[0] != "!echo safe" || turns[1] != "@README.md" {
 		t.Fatalf("escaped prefix turns = %#v", turns)
+	}
+	if strings.Join(thinking, ",") != "on,on" {
+		t.Fatalf("REPL turn thinking modes = %v", thinking)
 	}
 }
 
@@ -416,7 +427,7 @@ func TestREPLTurnStartAndSubscribeRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := client.startTurn(ctx, session.ID, "hello", "code")
+	accepted, err := client.startTurn(ctx, session.ID, "hello", "code", "auto")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,6 +135,15 @@ type SidebarProvider interface {
 	Sidebar() Sidebar
 }
 
+// ThinkingController owns the draft-time extended-thinking preference. The
+// preference is local to this TUI instance and is snapshotted when a turn is
+// sent or queued; the control plane remains authoritative about whether the
+// active model supports thinking.
+type ThinkingController interface {
+	ThinkingMode() string
+	SetThinkingMode(mode string) error
+}
+
 // SessionController supplies the independent Sessions dialog actions. The
 // fullscreen view checks this interface rather than baking RPC knowledge into
 // the shared renderer.
