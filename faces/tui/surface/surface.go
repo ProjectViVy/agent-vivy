@@ -6,6 +6,8 @@ package surface
 import shared "agent-vivy/sdk/tui/surface"
 
 type Session = shared.Session
+type Context = shared.Context
+type Sidebar = shared.Sidebar
 type ToolCard = shared.ToolCard
 type Message = shared.Message
 type Gate = shared.Gate
@@ -14,6 +16,9 @@ type Driver = shared.Driver
 type ErrMsg = shared.ErrMsg
 type RefreshMsg = shared.RefreshMsg
 type GateResolvedMsg = shared.GateResolvedMsg
+type SidebarProvider = shared.SidebarProvider
+type SessionController = shared.SessionController
+type SessionsMsg = shared.SessionsMsg
 
 const (
 	RoleUser      = shared.RoleUser

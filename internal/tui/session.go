@@ -13,6 +13,19 @@ type sessionView struct {
 	ID               string `json:"id"`
 	Title            string `json:"title"`
 	PermissionPreset string `json:"permission_preset"`
+	CreatedAt        int64  `json:"created_at"`
+}
+
+type contextView struct {
+	FeedTokens           int  `json:"feed_tokens"`
+	ModelLimitTokens     int  `json:"model_limit_tokens"`
+	TriggerTokens        int  `json:"trigger_tokens"`
+	TotalMessages        int  `json:"total_messages"`
+	FeedMessages         int  `json:"feed_messages"`
+	ThinkingSupported    bool `json:"thinking_supported"`
+	CompactionEnabled    bool `json:"compaction_enabled"`
+	WouldCompact         bool `json:"would_compact"`
+	HasCompactionSummary bool `json:"has_compaction_summary"`
 }
 
 type messageView struct {
@@ -53,6 +66,35 @@ func (c *Client) listSessions(ctx context.Context) ([]sessionView, error) {
 		return nil, fmt.Errorf("tui: session/list: %w", err)
 	}
 	return envelope.Sessions, nil
+}
+
+func (c *Client) sessionContext(ctx context.Context, sessionID string) (contextView, error) {
+	raw, err := c.Call(ctx, "session/context", map[string]string{"session_id": sessionID})
+	if err != nil {
+		return contextView{}, err
+	}
+	var view contextView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return contextView{}, fmt.Errorf("tui: session/context: %w", err)
+	}
+	return view, nil
+}
+
+func (c *Client) renameSession(ctx context.Context, sessionID, title string) (sessionView, error) {
+	raw, err := c.Call(ctx, "session/rename", map[string]string{"session_id": sessionID, "title": title})
+	if err != nil {
+		return sessionView{}, err
+	}
+	var session sessionView
+	if err := json.Unmarshal(raw, &session); err != nil {
+		return sessionView{}, fmt.Errorf("tui: session/rename: %w", err)
+	}
+	return session, nil
+}
+
+func (c *Client) deleteSession(ctx context.Context, sessionID string) error {
+	_, err := c.Call(ctx, "session/delete", map[string]string{"session_id": sessionID})
+	return err
 }
 
 func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messageView, error) {

@@ -87,6 +87,13 @@ func (s *Store) ActiveMessages() []surface.Message {
 	return append([]surface.Message(nil), s.messages[s.activeID]...)
 }
 
+// Sidebar implements surface.SidebarProvider. The deterministic demo owns
+// the active session identity and permission preset, but has no server-backed
+// context meter, so it deliberately leaves Context absent.
+func (s *Store) Sidebar() surface.Sidebar {
+	return surface.Sidebar{Session: s.Active()}
+}
+
 // PendingGate implements surface.Driver.
 func (s *Store) PendingGate() *surface.Gate {
 	for _, message := range s.messages[s.activeID] {
@@ -164,15 +171,67 @@ func (s *Store) ClearQueue() bool { return false }
 // Cancel implements surface.Driver (demo has nothing in flight).
 func (s *Store) Cancel() tea.Cmd { return nil }
 
+// RefreshSessions implements the shared Sessions dialog seam.
+func (s *Store) RefreshSessions() tea.Cmd {
+	return func() tea.Msg {
+		return surface.SessionsMsg{Action: "list", Sessions: s.Sessions()}
+	}
+}
+
+// RenameSession implements the shared Sessions dialog seam.
+func (s *Store) RenameSession(id, title string) tea.Cmd {
+	title = strings.TrimSpace(title)
+	for i := range s.sessions {
+		if s.sessions[i].ID != id {
+			continue
+		}
+		if title == "" {
+			return func() tea.Msg {
+				return surface.SessionsMsg{Action: "rename", ID: id, Err: fmt.Errorf("title cannot be empty")}
+			}
+		}
+		s.sessions[i].Title = title
+		updated := s.sessions[i]
+		return func() tea.Msg { return surface.SessionsMsg{Action: "rename", ID: id, Session: updated} }
+	}
+	return func() tea.Msg {
+		return surface.SessionsMsg{Action: "rename", ID: id, Err: fmt.Errorf("session not found")}
+	}
+}
+
+// DeleteSession implements the shared Sessions dialog seam.
+func (s *Store) DeleteSession(id string) tea.Cmd {
+	for i, session := range s.sessions {
+		if session.ID != id {
+			continue
+		}
+		s.sessions = append(s.sessions[:i], s.sessions[i+1:]...)
+		delete(s.messages, id)
+		if s.activeID == id {
+			if len(s.sessions) > 0 {
+				s.activeID = s.sessions[0].ID
+			} else {
+				s.activeID = ""
+			}
+		}
+		return func() tea.Msg { return surface.SessionsMsg{Action: "delete", ID: id} }
+	}
+	return func() tea.Msg {
+		return surface.SessionsMsg{Action: "delete", ID: id, Err: fmt.Errorf("session not found")}
+	}
+}
+
 // SelectSession switches the active session by id. Unknown ids are ignored.
-// Kept for tests.
-func (s *Store) SelectSession(id string) {
+// It returns a redraw command for the shared Sessions dialog; callers that
+// only need the historical synchronous test seam may ignore the result.
+func (s *Store) SelectSession(id string) tea.Cmd {
 	for _, session := range s.sessions {
 		if session.ID == id {
 			s.activeID = id
-			return
+			return func() tea.Msg { return surface.RefreshMsg{} }
 		}
 	}
+	return nil
 }
 
 func (s *Store) moveSession(delta int) {

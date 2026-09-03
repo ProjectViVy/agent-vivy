@@ -1,17 +1,9 @@
 package view
 
-// layout is Crush chat geometry reduced to string cells:
-//
-//	wide:   [ main+editor | sidebar ]
-//	          -------------
-//	          help
-//
-//	compact: header
-//	         main
-//	         editor
-//	         help
-//
-// No top header bar in wide mode — logo lives in the sidebar (Crush).
+// layout is the Crush chat geometry reduced to terminal cells. A sidebar is
+// only useful when both axes leave enough room for the chat and editor; this
+// mirrors Crush's compact decision instead of letting a short terminal grow
+// a clipped right rail.
 type layout struct {
 	width, height int
 	sidebarW      int
@@ -24,8 +16,9 @@ type layout struct {
 }
 
 const (
-	sidebarBreakpoint = 100
-	defaultSidebarW   = 32 // Crush sidebarWidth
+	sidebarBreakpoint = 120
+	minimumWideHeight = 30
+	defaultSidebarW   = 32
 	compactHeaderH    = 1
 	editorHeight      = 3
 	statusHeight      = 1
@@ -39,7 +32,7 @@ func computeLayout(width, height int) layout {
 		height:      max(1, height),
 		editorH:     editorHeight,
 		statusH:     statusHeight,
-		showSidebar: width >= sidebarBreakpoint,
+		showSidebar: width >= sidebarBreakpoint && height >= minimumWideHeight,
 		sidebarW:    defaultSidebarW,
 		marginX:     appMarginX,
 		marginY:     appMarginY,
@@ -47,11 +40,6 @@ func computeLayout(width, height int) layout {
 	if !l.showSidebar {
 		l.sidebarW = 0
 		l.headerH = compactHeaderH
-	}
-	// Keep sidebar from eating the chat on mid widths.
-	inner := l.innerW()
-	if l.showSidebar && l.sidebarW >= inner-40 {
-		l.sidebarW = max(18, inner/4)
 	}
 	return l
 }
@@ -61,21 +49,19 @@ func (l layout) innerW() int {
 }
 
 func (l layout) innerH() int {
-	// top+bottom margin around app; status sits in bottom margin row conceptually
 	return max(1, l.height-2*l.marginY-l.statusH)
 }
 
 func (l layout) mainW() int {
 	w := l.innerW() - l.sidebarW
 	if l.showSidebar {
-		// 1 col gap between main and sidebar (Crush sideRect.Min.X += 1)
-		w = max(1, w-1)
+		w-- // one cell between chat and sidebar, as in Crush.
 	}
 	return max(1, w)
 }
 
 func (l layout) mainH() int {
-	return max(1, l.innerH()-l.headerH-l.editorH-1) // -1 bottom margin under chat
+	return max(1, l.innerH()-l.headerH-l.editorH-1)
 }
 
 func max(a, b int) int {

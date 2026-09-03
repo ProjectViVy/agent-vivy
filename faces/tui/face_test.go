@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"agent-vivy/sdk/plugin"
+	"example.com/vivy/faces/tui/surface"
 
 	"example.com/vivy/faces/tui/view"
 )
@@ -517,6 +518,51 @@ func TestViewRendersShellWithoutDriver(t *testing.T) {
 	compactView := updated.(view.Model).View()
 	if !strings.Contains(compactView, "VIVY") {
 		t.Fatalf("missing wordmark in compact view:\n%s", compactView)
+	}
+}
+
+func TestLiveSessionMutationFailuresDoNotOptimisticallyChangeState(t *testing.T) {
+	script := baseScript()
+	script["session/rename"] = func(json.RawMessage) (any, error) { return nil, fmt.Errorf("temporary rename failure") }
+	script["session/delete"] = func(json.RawMessage) (any, error) { return nil, fmt.Errorf("temporary delete failure") }
+	env := &fakeEnv{script: script}
+	live := bootLive(t, env, LiveOptions{})
+
+	rename := mustMsg[surface.SessionsMsg](t, live.RenameSession("sess_1", "renamed"))
+	if rename.Err == nil {
+		t.Fatal("rename failure was swallowed")
+	}
+	live.Handle(rename)
+	if got := live.Active().Title; got != "one" {
+		t.Fatalf("failed rename changed title to %q", got)
+	}
+
+	deleted := mustMsg[surface.SessionsMsg](t, live.DeleteSession("sess_1"))
+	if deleted.Err == nil {
+		t.Fatal("delete failure was swallowed")
+	}
+	live.Handle(deleted)
+	if got := live.Active().ID; got != "sess_1" {
+		t.Fatalf("failed delete changed active session to %q", got)
+	}
+}
+
+func TestLiveIgnoresOutOfOrderSessionLoads(t *testing.T) {
+	live := &Live{messages: map[string][]surface.Message{}, loadRequest: 2}
+	live.applyLoaded(liveLoadedMsg{Request: 2, Session: surface.Session{ID: "newest", Title: "Newest"}})
+	live.applyLoaded(liveLoadedMsg{Request: 1, Session: surface.Session{ID: "stale", Title: "Stale"}})
+	if got := live.Active().ID; got != "newest" {
+		t.Fatalf("stale load overwrote newest selection: %q", got)
+	}
+}
+
+func TestLiveBlocksSendWhileSessionLoadIsPending(t *testing.T) {
+	live := &Live{messages: map[string][]surface.Message{}, activeID: "old", loadPending: true}
+	if cmd := live.Send("must stay a draft"); cmd != nil {
+		t.Fatal("send started while a session load was pending")
+	}
+	if live.busy || len(live.messages["old"]) != 0 || len(live.queue) != 0 {
+		t.Fatalf("blocked send mutated live state: busy=%v messages=%d queue=%d", live.busy, len(live.messages["old"]), len(live.queue))
 	}
 }
 

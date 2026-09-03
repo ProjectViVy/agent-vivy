@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -22,9 +23,13 @@ type Live struct {
 
 	mu sync.Mutex
 
-	sessions []surface.Session
-	messages map[string][]surface.Message
-	activeID string
+	sessions       []surface.Session
+	messages       map[string][]surface.Message
+	activeID       string
+	sidebar        surface.Sidebar
+	loadRequest    uint64
+	sessionRequest uint64
+	loadPending    bool
 
 	busy    bool
 	runID   string
@@ -121,6 +126,32 @@ func (l *Live) Active() surface.Session {
 	return surface.Session{}
 }
 
+// Sidebar implements surface.SidebarProvider. Only active-session facts and
+// server-reported context pressure are exposed to the shared renderer.
+func (l *Live) Sidebar() surface.Sidebar {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	snapshot := l.sidebar
+	if snapshot.Session.ID == "" {
+		for _, session := range l.sessions {
+			if session.ID == l.activeID {
+				snapshot.Session = session
+				break
+			}
+		}
+	}
+	return snapshot
+}
+
+func (l *Live) activeSessionLocked() surface.Session {
+	for _, session := range l.sessions {
+		if session.ID == l.activeID {
+			return session
+		}
+	}
+	return surface.Session{}
+}
+
 // ActiveMessages implements surface.Driver.
 func (l *Live) ActiveMessages() []surface.Message {
 	l.mu.Lock()
@@ -175,13 +206,16 @@ type liveBootMsg struct {
 	Sessions []surface.Session
 	ActiveID string
 	Messages []surface.Message
+	Sidebar  surface.Sidebar
 	Err      error
 }
 
 // liveLoadedMsg is history after a session switch / new session.
 type liveLoadedMsg struct {
+	Request  uint64
 	Session  surface.Session
 	Messages []surface.Message
+	Sidebar  surface.Sidebar
 	Replace  bool // true = set sessions list from Session only append path
 	Sessions []surface.Session
 	Err      error
@@ -232,7 +266,7 @@ func (l *Live) bootCmd() tea.Cmd {
 		out := make([]surface.Session, 0, len(sessions))
 		for _, s := range sessions {
 			out = append(out, surface.Session{
-				ID: s.ID, Title: s.Title, PermissionPreset: s.PermissionPreset,
+				ID: s.ID, Title: s.Title, PermissionPreset: s.PermissionPreset, CreatedAt: s.CreatedAt,
 			})
 		}
 		activeID := ""
@@ -249,7 +283,7 @@ func (l *Live) bootCmd() tea.Cmd {
 			}
 			// Newest first, matching session/list ordering.
 			out = append([]surface.Session{{
-				ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset,
+				ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
 			}}, out...)
 			activeID = created.ID
 		} else {
@@ -260,7 +294,26 @@ func (l *Live) bootCmd() tea.Cmd {
 			}
 			messages = mapHistory(msgs)
 		}
-		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages}
+		snapshot := surface.Sidebar{}
+		if activeID != "" {
+			for _, session := range out {
+				if session.ID == activeID {
+					snapshot.Session = session
+					break
+				}
+			}
+			if contextStatus, contextErr := l.client.sessionContext(ctx, activeID); contextErr == nil {
+				snapshot.Context = surface.Context{
+					FeedTokens: contextStatus.FeedTokens, ModelLimitTokens: contextStatus.ModelLimitTokens,
+					TriggerTokens: contextStatus.TriggerTokens, TotalMessages: contextStatus.TotalMessages,
+					FeedMessages: contextStatus.FeedMessages, ThinkingSupported: contextStatus.ThinkingSupported,
+					CompactionEnabled: contextStatus.CompactionEnabled, WouldCompact: contextStatus.WouldCompact,
+					HasCompactionSummary: contextStatus.HasCompactionSummary,
+				}
+				snapshot.HasContext = true
+			}
+		}
+		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot}
 	}
 }
 
@@ -296,6 +349,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applySubscribed(msg)
 	case liveRPCMsg:
 		return l.applyRPC(msg)
+	case surface.SessionsMsg:
+		return l.applySessionsMsg(msg)
 	case surface.ErrMsg:
 		l.mu.Lock()
 		if msg.Err != nil {
@@ -321,6 +376,10 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	l.sessions = msg.Sessions
 	l.activeID = msg.ActiveID
 	l.messages[msg.ActiveID] = msg.Messages
+	l.sidebar = msg.Sidebar
+	if l.sidebar.Session.ID == "" {
+		l.sidebar.Session = l.activeSessionLocked()
+	}
 	l.lastErr = ""
 	if l.initialPrompt != "" {
 		autoSend = l.initialPrompt
@@ -336,6 +395,10 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if msg.Request > 0 && msg.Request != l.loadRequest {
+		return nil
+	}
+	l.loadPending = false
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
 		return nil
@@ -359,6 +422,10 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	}
 	if msg.Session.ID != "" {
 		l.messages[msg.Session.ID] = msg.Messages
+		l.sidebar = msg.Sidebar
+		if l.sidebar.Session.ID == "" {
+			l.sidebar.Session = msg.Session
+		}
 	}
 	l.gate = nil
 	l.busy = false
@@ -650,6 +717,9 @@ func (l *Live) NewSession(title string) tea.Cmd {
 		l.mu.Unlock()
 		return nil
 	}
+	l.loadRequest++
+	request := l.loadRequest
+	l.loadPending = true
 	l.mu.Unlock()
 	title = strings.TrimSpace(title)
 	if title == "" {
@@ -660,24 +730,187 @@ func (l *Live) NewSession(title string) tea.Cmd {
 		defer cancel()
 		created, err := l.client.createSession(ctx, title)
 		if err != nil {
-			return liveLoadedMsg{Err: err}
+			return liveLoadedMsg{Request: request, Err: err}
 		}
 		return liveLoadedMsg{
+			Request: request,
 			Session: surface.Session{
-				ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset,
+				ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
 			},
 			Messages: nil,
 		}
 	}
 }
 
+// RefreshSessions implements surface.SessionController.
+func (l *Live) RefreshSessions() tea.Cmd {
+	l.mu.Lock()
+	l.sessionRequest++
+	request := l.sessionRequest
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		sessions, err := l.client.listSessions(ctx)
+		if err != nil {
+			return surface.SessionsMsg{Action: "list", Request: request, Err: err}
+		}
+		out := make([]surface.Session, 0, len(sessions))
+		for _, session := range sessions {
+			out = append(out, surface.Session{
+				ID: session.ID, Title: session.Title, PermissionPreset: session.PermissionPreset,
+				CreatedAt: session.CreatedAt,
+			})
+		}
+		return surface.SessionsMsg{Action: "list", Request: request, Sessions: out}
+	}
+}
+
+// SelectSession implements surface.SessionController.
+func (l *Live) SelectSession(id string) tea.Cmd {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	l.mu.Lock()
+	busy := l.busy
+	l.mu.Unlock()
+	if busy {
+		return nil
+	}
+	return l.loadSessionCmd(id)
+}
+
+// RenameSession implements surface.SessionController.
+func (l *Live) RenameSession(id, title string) tea.Cmd {
+	id = strings.TrimSpace(id)
+	title = strings.TrimSpace(title)
+	if id == "" || title == "" {
+		return nil
+	}
+	l.mu.Lock()
+	l.sessionRequest++
+	request := l.sessionRequest
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		session, err := l.client.renameSession(ctx, id, title)
+		if err != nil {
+			return surface.SessionsMsg{Action: "rename", Request: request, ID: id, Err: err}
+		}
+		return surface.SessionsMsg{Action: "rename", Request: request, ID: id, Session: surface.Session{
+			ID: session.ID, Title: session.Title, PermissionPreset: session.PermissionPreset, CreatedAt: session.CreatedAt,
+		}}
+	}
+}
+
+// DeleteSession implements surface.SessionController.
+func (l *Live) DeleteSession(id string) tea.Cmd {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	l.mu.Lock()
+	busy := l.busy && l.activeID == id
+	l.mu.Unlock()
+	if busy {
+		return func() tea.Msg {
+			return surface.SessionsMsg{Action: "delete", ID: id, Err: errors.New("cannot delete the active session while a run is in progress")}
+		}
+	}
+	l.mu.Lock()
+	l.sessionRequest++
+	request := l.sessionRequest
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		err := l.client.deleteSession(ctx, id)
+		return surface.SessionsMsg{Action: "delete", Request: request, ID: id, Err: err}
+	}
+}
+
+func (l *Live) applySessionsMsg(msg surface.SessionsMsg) tea.Cmd {
+	l.mu.Lock()
+	if msg.Request > 0 && msg.Request != l.sessionRequest {
+		l.mu.Unlock()
+		return nil
+	}
+	l.mu.Unlock()
+	if msg.Err != nil {
+		l.mu.Lock()
+		l.lastErr = shortErr(msg.Err)
+		l.mu.Unlock()
+		return nil
+	}
+	switch msg.Action {
+	case "list":
+		l.mu.Lock()
+		l.sessions = append([]surface.Session(nil), msg.Sessions...)
+		for _, session := range l.sessions {
+			if session.ID == l.activeID && l.sidebar.Session.ID == session.ID {
+				l.sidebar.Session = session
+				break
+			}
+		}
+		l.lastErr = ""
+		l.mu.Unlock()
+	case "rename":
+		l.mu.Lock()
+		for i := range l.sessions {
+			if l.sessions[i].ID == msg.ID {
+				l.sessions[i] = msg.Session
+				break
+			}
+		}
+		if l.sidebar.Session.ID == msg.ID {
+			l.sidebar.Session = msg.Session
+		}
+		l.lastErr = ""
+		l.mu.Unlock()
+	case "delete":
+		l.mu.Lock()
+		remaining := l.sessions[:0]
+		for _, session := range l.sessions {
+			if session.ID != msg.ID {
+				remaining = append(remaining, session)
+			}
+		}
+		l.sessions = remaining
+		delete(l.messages, msg.ID)
+		loadID := ""
+		if l.activeID == msg.ID {
+			if len(l.sessions) > 0 {
+				loadID = l.sessions[0].ID
+				l.activeID = loadID
+				l.sidebar = surface.Sidebar{Session: l.sessions[0]}
+			} else {
+				l.activeID = ""
+				l.sidebar = surface.Sidebar{}
+			}
+		}
+		l.lastErr = ""
+		l.mu.Unlock()
+		if loadID != "" {
+			return l.loadSessionCmd(loadID)
+		}
+	}
+	return nil
+}
+
 func (l *Live) loadSessionCmd(id string) tea.Cmd {
+	l.mu.Lock()
+	l.loadRequest++
+	request := l.loadRequest
+	l.loadPending = true
+	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
 		msgs, err := l.client.sessionMessages(ctx, id)
 		if err != nil {
-			return liveLoadedMsg{Err: err}
+			return liveLoadedMsg{Request: request, Err: err}
 		}
 		// Title may be unknown if only id known — keep existing row title via ID match.
 		l.mu.Lock()
@@ -689,9 +922,22 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 			}
 		}
 		l.mu.Unlock()
+		snapshot := surface.Sidebar{Session: session}
+		if contextStatus, contextErr := l.client.sessionContext(ctx, id); contextErr == nil {
+			snapshot.Context = surface.Context{
+				FeedTokens: contextStatus.FeedTokens, ModelLimitTokens: contextStatus.ModelLimitTokens,
+				TriggerTokens: contextStatus.TriggerTokens, TotalMessages: contextStatus.TotalMessages,
+				FeedMessages: contextStatus.FeedMessages, ThinkingSupported: contextStatus.ThinkingSupported,
+				CompactionEnabled: contextStatus.CompactionEnabled, WouldCompact: contextStatus.WouldCompact,
+				HasCompactionSummary: contextStatus.HasCompactionSummary,
+			}
+			snapshot.HasContext = true
+		}
 		return liveLoadedMsg{
+			Request:  request,
 			Session:  session,
 			Messages: mapHistory(msgs),
+			Sidebar:  snapshot,
 		}
 	}
 }
@@ -703,6 +949,10 @@ func (l *Live) Send(text string) tea.Cmd {
 		return nil
 	}
 	l.mu.Lock()
+	if l.loadPending {
+		l.mu.Unlock()
+		return nil
+	}
 	if l.busy || l.gate != nil {
 		l.queue = append(l.queue, text)
 		l.mu.Unlock()

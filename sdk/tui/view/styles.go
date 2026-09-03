@@ -2,8 +2,8 @@ package view
 
 import "github.com/charmbracelet/lipgloss"
 
-// Palette mirrors Crush's quickStyle roles enough for a skeleton:
-// base fg, subtle text, primary accent, success prompt, warning gate.
+// Palette is the single visual vocabulary used by the built-in and packed
+// TUI faces. It intentionally contains roles, not page-specific colours.
 type Palette struct {
 	Logo         lipgloss.Style
 	LogoWord     lipgloss.Style
@@ -35,13 +35,16 @@ type Palette struct {
 	HelpDesc     lipgloss.Style
 	Dialog       lipgloss.Style
 	DialogTitle  lipgloss.Style
+	DialogBody   lipgloss.Style
+	DialogFooter lipgloss.Style
 	Dim          lipgloss.Style
 	Separator    lipgloss.Style
 }
 
-func defaultPalette() Palette {
-	// Crush-ish dark: charcoal base, violet primary, green success prompt,
-	// fluorite teal as Vivy brand secondary on the active session.
+// DefaultPalette returns the stable dark palette shared by both first-party
+// faces. It is exported so compatibility wrappers can retain their old
+// package-local test seam without duplicating style construction.
+func DefaultPalette() Palette {
 	primary := lipgloss.Color("#A78BFA")
 	secondary := lipgloss.Color("#2DD4BF")
 	fg := lipgloss.Color("#E4E4E7")
@@ -80,8 +83,10 @@ func defaultPalette() Palette {
 		Status:       lipgloss.NewStyle().Foreground(muted),
 		HelpKey:      lipgloss.NewStyle().Foreground(primary),
 		HelpDesc:     lipgloss.NewStyle().Foreground(subtle),
-		Dialog:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(warn).Padding(1, 2),
-		DialogTitle:  lipgloss.NewStyle().Foreground(warn).Bold(true),
+		Dialog:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(primary).Padding(1, 2),
+		DialogTitle:  lipgloss.NewStyle().Foreground(primary).Bold(true),
+		DialogBody:   lipgloss.NewStyle().Foreground(fg),
+		DialogFooter: lipgloss.NewStyle().Foreground(muted),
 		Dim:          lipgloss.NewStyle().Foreground(subtle),
 		Separator:    lipgloss.NewStyle().Foreground(subtle),
 	}
