@@ -300,7 +300,7 @@ func (r *repl) sendTurn(ctx context.Context, text string) error {
 		fmt.Fprintf(r.out, "turn: %v\n", err)
 		return nil
 	}
-	if err := r.client.subscribe(ctx, accepted.RunID); err != nil {
+	if err := r.client.subscribe(ctx, accepted.RunID, 0); err != nil {
 		fmt.Fprintf(r.out, "subscribe: %v\n", err)
 		return nil
 	}

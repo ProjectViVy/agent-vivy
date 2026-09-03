@@ -160,9 +160,13 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 		if reasoning := reasoningText(chunk); reasoning != "" {
 			out = append(out, m.reasoningEvent(reasoning))
 		}
-		out = append(out, m.deltaEvent(chunk.Content))
-		m.pendingText.WriteString(chunk.Content)
-		m.hasPending = true
+		// Reasoning-only provider chunks commonly carry an empty Content.
+		// A real content delta is the boundary between reasoning and answer.
+		if chunk.Content != "" {
+			out = append(out, m.deltaEvent(chunk.Content))
+			m.pendingText.WriteString(chunk.Content)
+			m.hasPending = true
+		}
 	}
 	if mv.Role == schema.Tool {
 		events, err := m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")

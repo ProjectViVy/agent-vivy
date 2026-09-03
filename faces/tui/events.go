@@ -36,12 +36,14 @@ const (
 
 type streamEvent struct {
 	RunID   string
+	Seq     int
 	Type    eventType
 	Payload json.RawMessage
 }
 
 type eventNotice struct {
 	RunID   string
+	Seq     int
 	Kind    string
 	Line    string
 	Delta   string
@@ -62,6 +64,7 @@ func decodeStreamEvent(params json.RawMessage) (streamEvent, bool) {
 	var envelope struct {
 		Event struct {
 			RunID   string          `json:"run_id"`
+			Seq     int             `json:"seq"`
 			Type    eventType       `json:"type"`
 			Payload json.RawMessage `json:"payload"`
 		} `json:"event"`
@@ -74,13 +77,14 @@ func decodeStreamEvent(params json.RawMessage) (streamEvent, bool) {
 	}
 	return streamEvent{
 		RunID:   envelope.Event.RunID,
+		Seq:     envelope.Event.Seq,
 		Type:    envelope.Event.Type,
 		Payload: envelope.Event.Payload,
 	}, true
 }
 
 func interpret(event streamEvent) eventNotice {
-	base := eventNotice{RunID: event.RunID}
+	base := eventNotice{RunID: event.RunID, Seq: event.Seq}
 	switch event.Type {
 	case eventModelDelta:
 		base.Kind = "delta"
@@ -89,7 +93,7 @@ func interpret(event streamEvent) eventNotice {
 	case eventModelReasoningDelta:
 		text := payloadString(event.Payload, "delta")
 		if text == "" {
-			return eventNotice{}
+			return base
 		}
 		base.Kind = "reasoning"
 		base.Delta = text
@@ -151,7 +155,7 @@ func interpret(event streamEvent) eventNotice {
 		base.Message = "cancelled"
 		return base
 	default:
-		return eventNotice{}
+		return base
 	}
 }
 

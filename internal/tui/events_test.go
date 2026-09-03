@@ -49,8 +49,8 @@ func TestInterpretApprovalGate(t *testing.T) {
 }
 
 func TestDecodeStreamEventEnvelope(t *testing.T) {
-	event, ok := decodeStreamEvent(json.RawMessage(`{"subscription_id":"sub","event":{"type":"model.delta","payload":{"delta":"x"}}}`))
-	if !ok || event.Type != domain.EventModelDelta {
+	event, ok := decodeStreamEvent(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload":{"delta":"x"}}}`))
+	if !ok || event.Type != domain.EventModelDelta || event.RunID != "run_1" || event.Seq != 7 {
 		t.Fatalf("event = %+v ok=%v", event, ok)
 	}
 	if payloadString(event.Payload, "delta") != "x" {
