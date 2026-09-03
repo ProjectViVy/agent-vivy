@@ -514,6 +514,67 @@ func TestLiveMoveSessionLoadsMessages(t *testing.T) {
 	}
 }
 
+func TestLiveSessionMutationFailuresDoNotOptimisticallyChangeState(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/list":
+			return map[string]any{"sessions": []map[string]string{{"id": "sess_1", "title": "original", "permission_preset": "smart"}}}, nil
+		case "session/messages":
+			return map[string]any{"messages": []any{}}, nil
+		case "session/rename", "session/delete":
+			return nil, &controlrpc.Error{Code: controlrpc.CodeConflict, Message: "temporary failure"}
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	boot := mustMsg[liveBootMsg](t, live.bootCmd())
+	if boot.Err != nil {
+		t.Fatal(boot.Err)
+	}
+	live.Handle(boot)
+
+	rename := mustMsg[surface.SessionsMsg](t, live.RenameSession("sess_1", "renamed"))
+	if rename.Err == nil {
+		t.Fatal("rename failure was swallowed")
+	}
+	live.Handle(rename)
+	if got := live.Active().Title; got != "original" {
+		t.Fatalf("failed rename changed title to %q", got)
+	}
+
+	deleted := mustMsg[surface.SessionsMsg](t, live.DeleteSession("sess_1"))
+	if deleted.Err == nil {
+		t.Fatal("delete failure was swallowed")
+	}
+	live.Handle(deleted)
+	if got := live.Active().ID; got != "sess_1" {
+		t.Fatalf("failed delete changed active session to %q", got)
+	}
+}
+
+func TestLiveIgnoresOutOfOrderSessionLoads(t *testing.T) {
+	live := &Live{messages: map[string][]surface.Message{}, loadRequest: 2}
+	live.applyLoaded(liveLoadedMsg{Request: 2, Session: surface.Session{ID: "newest", Title: "Newest"}})
+	live.applyLoaded(liveLoadedMsg{Request: 1, Session: surface.Session{ID: "stale", Title: "Stale"}})
+	if got := live.Active().ID; got != "newest" {
+		t.Fatalf("stale load overwrote newest selection: %q", got)
+	}
+}
+
+func TestLiveBlocksSendWhileSessionLoadIsPending(t *testing.T) {
+	live := &Live{messages: map[string][]surface.Message{}, activeID: "old", loadPending: true}
+	if cmd := live.Send("must stay a draft"); cmd != nil {
+		t.Fatal("send started while a session load was pending")
+	}
+	if live.busy || len(live.messages["old"]) != 0 || len(live.queue) != 0 {
+		t.Fatalf("blocked send mutated live state: busy=%v messages=%d queue=%d", live.busy, len(live.messages["old"]), len(live.queue))
+	}
+}
+
 func pushRunEvent(live *Live, runID string, seq int, typ string, payload any) {
 	rawPayload, _ := json.Marshal(payload)
 	params, _ := json.Marshal(map[string]any{

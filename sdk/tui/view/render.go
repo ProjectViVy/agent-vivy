@@ -6,8 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tui/surface"
+	"agent-vivy/sdk/tui/surface"
 )
 
 const headerDiag = "╱"
@@ -23,21 +22,19 @@ func (m Model) renderFrame() string {
 		app = m.renderCompact(l, p)
 	}
 	help := m.renderHelp(l, p)
-
-	// Outer vertical: top margin + app + help (Crush helpRect under appRect).
-	topPad := strings.Repeat(" ", l.width)
-	frame := lipgloss.JoinVertical(lipgloss.Left, topPad, app, help)
-	// Ensure exact height by padding/truncating.
+	frame := lipgloss.JoinVertical(lipgloss.Left, strings.Repeat(" ", l.width), app, help)
 	frame = fitHeight(frame, l.width, l.height)
 
 	if gate := m.driver.PendingGate(); gate != nil {
-		return placeOverlay(frame, m.renderDialog(gate, l, p), l.width, l.height)
+		return placeOverlay(frame, m.renderGateDialog(gate, l, p), l.width, l.height)
+	}
+	if m.sessionsOpen {
+		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
 	}
 	return frame
 }
 
 func (m Model) renderWide(l layout, p Palette) string {
-	// Crush: main stack (chat + editor) | sidebar
 	chat := m.renderChat(l.mainW(), l.mainH(), p)
 	editor := m.renderEditor(l.mainW(), p)
 	mainCol := lipgloss.JoinVertical(lipgloss.Left, chat, "", editor)
@@ -60,85 +57,100 @@ func (m Model) renderCompactHeader(l layout, p Palette) string {
 	meta := m.driver.Meta()
 	logo := p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY CODE") + " "
 	label := session.Title
+	if label == "" {
+		label = "untitled session"
+	}
 	if meta.Mode == "live" && meta.Host != "" {
-		label = fmt.Sprintf("%s · %s", session.Title, meta.Host)
+		label = fmt.Sprintf("%s · %s", label, meta.Host)
 	} else if meta.Mode == "demo" {
-		label = fmt.Sprintf("demo · %s", session.Title)
+		label = fmt.Sprintf("demo · %s", label)
 	}
 	headerMeta := p.HeaderMeta.Render(label)
 	used := lipgloss.Width(logo) + lipgloss.Width(headerMeta) + 1
 	diags := max(3, l.innerW()-used)
-	mid := p.Diagonals.Render(strings.Repeat(headerDiag, diags))
-	line := logo + mid + " " + headerMeta
+	line := logo + p.Diagonals.Render(strings.Repeat(headerDiag, diags)) + " " + headerMeta
 	return truncate(line, l.innerW())
 }
 
+// renderSidebar intentionally contains no session collection. Crush uses the
+// right rail for the active session and live context details; the collection
+// is a separate Ctrl+S surface so the chat remains the primary workspace.
 func (m Model) renderSidebar(width, height int, p Palette) string {
-	meta := m.driver.Meta()
+	active := m.driver.Active()
+	snapshot := surface.Sidebar{Session: active}
+	if provider, ok := m.driver.(surface.SidebarProvider); ok {
+		provided := provider.Sidebar()
+		if provided.Session.ID == "" {
+			provided.Session = active
+		}
+		snapshot = provided
+	}
+
 	var b strings.Builder
-	// Crush: fixed logo on top of sidebar.
 	b.WriteString(p.SidebarLogo.Render(" VIVY CODE"))
 	b.WriteByte('\n')
 	b.WriteString(p.Dim.Render(" ─────────────"))
 	b.WriteByte('\n')
-	b.WriteString(p.Dim.Render(" Sessions"))
-	b.WriteByte('\n')
-	activeID := m.driver.Active().ID
-	for _, session := range m.driver.Sessions() {
-		mark := "  "
-		style := p.Idle
-		if session.ID == activeID {
-			mark = "▸ "
-			style = p.Active
-		}
-		line := mark + session.Title
-		preset := session.PermissionPreset
-		if preset != "" {
-			line = truncate(line, width-2)
-			b.WriteString(style.Render(truncate(line, width-1)))
-			b.WriteByte('\n')
-			b.WriteString(p.Dim.Render(truncate("  "+preset, width-1)))
-			b.WriteByte('\n')
-			continue
-		}
-		b.WriteString(style.Render(truncate(line, width-1)))
+	title := strings.TrimSpace(snapshot.Session.Title)
+	if title == "" {
+		title = "untitled session"
+	}
+	titleLines := wrapText(title, max(8, width-2))
+	if len(titleLines) > 2 {
+		titleLines = titleLines[:2]
+	}
+	for _, line := range titleLines {
+		b.WriteString(p.Active.Render(" " + line))
 		b.WriteByte('\n')
 	}
-	b.WriteByte('\n')
-	if meta.Mode == "live" {
-		b.WriteString(p.Dim.Render(" live"))
+	if preset := strings.TrimSpace(snapshot.Session.PermissionPreset); preset != "" {
+		b.WriteString(p.Dim.Render(truncate(" permission · "+preset, width-1)))
 		b.WriteByte('\n')
-		host := meta.Host
-		if host == "" {
-			host = "connected"
-		}
-		b.WriteString(p.Dim.Render(truncate(" "+host, width-1)))
-		if meta.Busy {
-			b.WriteByte('\n')
-			b.WriteString(p.Dim.Render(truncate(" run…", width-1)))
-		}
-	} else {
-		b.WriteString(p.Dim.Render(" demo"))
-		b.WriteByte('\n')
-		b.WriteString(p.Dim.Render(" not connected"))
 	}
-	if meta.Error != "" {
+	if snapshot.HasContext {
 		b.WriteByte('\n')
-		b.WriteString(p.PromptWarn.Render(truncate(" ! "+meta.Error, width-1)))
+		b.WriteString(p.Dim.Render(" Context"))
+		b.WriteByte('\n')
+		ctx := snapshot.Context
+		switch {
+		case ctx.ModelLimitTokens > 0:
+			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %s / %s tokens", compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens)), width-1)))
+		case ctx.FeedTokens > 0:
+			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %s tokens", compactNumber(ctx.FeedTokens)), width-1)))
+		}
+		if ctx.TotalMessages > 0 {
+			b.WriteByte('\n')
+			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %d messages", ctx.TotalMessages), width-1)))
+		}
+		if ctx.CompactionEnabled {
+			b.WriteByte('\n')
+			compaction := " compaction on"
+			if ctx.WouldCompact {
+				compaction = " compaction needed"
+			}
+			b.WriteString(p.Dim.Render(compaction))
+		}
+	}
+	if errText := strings.TrimSpace(m.driver.Meta().Error); errText != "" {
+		b.WriteByte('\n')
+		b.WriteString(p.PromptWarn.Render(truncate(" ! "+errText, width-1)))
 	}
 	box := strings.TrimRight(b.String(), "\n")
 	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
+}
+
+func compactNumber(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func (m Model) renderChat(width, height int, p Palette) string {
 	messages := m.driver.ActiveMessages()
 	var lines []string
 	if len(messages) == 0 {
-		lines = append(lines,
-			p.Dim.Render(""),
-			p.LogoWord.Render(" 寻找真心之旅"),
-			p.Dim.Render(" empty session · type to draft"),
-		)
+		lines = append(lines, p.Dim.Render(""), p.LogoWord.Render(" 寻找真心之旅"), p.Dim.Render(" empty session · type to draft"))
 	}
 	for _, message := range messages {
 		lines = append(lines, renderMessage(message, width, p)...)
@@ -160,11 +172,9 @@ func renderMessage(message surface.Message, width int, p Palette) []string {
 		style = p.Reasoning
 	}
 	switch message.Role {
-	case string(domain.RoleUser):
+	case surface.RoleUser:
 		bar = p.UserBar.Render("┃ ")
 		style = p.User
-	case string(domain.RoleAssistant):
-		// Crush assistant often omits a loud "assistant:" prefix; keep content.
 	}
 	text := message.Content
 	if message.Streaming {
@@ -198,11 +208,10 @@ func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 	body = renderDiffBody(body, p)
 	inner := title
 	if body != "" {
-		inner = title + "\n" + body
+		inner += "\n" + body
 	}
-	boxW := min(width-4, 56)
+	boxW := max(1, min(width-4, 56))
 	box := style.Width(boxW).Render(inner)
-	// Indent tool cards under the message gutter.
 	indented := make([]string, 0)
 	for _, line := range strings.Split(box, "\n") {
 		indented = append(indented, "  "+line)
@@ -229,39 +238,37 @@ func renderDiffBody(body string, p Palette) string {
 		}
 	}
 	if adds+dels > 0 {
-		stats := p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))
-		lines = append([]string{stats}, lines...)
+		lines = append([]string{p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}, lines...)
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderEditor(width int, p Palette) string {
 	gate := m.driver.PendingGate()
-	var prompt string
+	prompt := p.Prompt.Render("::: ")
 	if gate != nil {
-		prompt = p.PromptWarn.Render(" ! ") + p.Prompt.Render("::: ")
-	} else {
-		prompt = p.Prompt.Render("::: ")
+		prompt = p.PromptWarn.Render(" ! ") + prompt
 	}
-	// Multi-line input: show last line in the single-row editor chrome.
 	display := m.input
 	if i := strings.LastIndex(display, "\n"); i >= 0 {
 		display = display[i+1:]
 	}
-	line := prompt + display
-	// Crush editor sits without a heavy double rule; a single subtle rule above.
-	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
 	cursor := p.Dim.Render("█")
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
 	}
-	return p.Editor.Width(width).Render(rule + "\n" + truncate(line+cursor, width))
+	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
+	return p.Editor.Width(width).Render(rule + "\n" + truncate(prompt+display+cursor, width))
 }
 
 func (m Model) renderHelp(l layout, p Palette) string {
 	meta := m.driver.Meta()
+	selector := " sessions"
+	if l.showSidebar {
+		selector = " Sessions"
+	}
 	parts := []string{
-		p.HelpKey.Render("tab") + p.HelpDesc.Render(" sessions"),
+		p.HelpKey.Render("^s") + p.HelpDesc.Render(selector),
 		p.HelpKey.Render("enter") + p.HelpDesc.Render(" send"),
 		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" approve"),
 		p.HelpKey.Render("^n") + p.HelpDesc.Render(" new"),
@@ -274,7 +281,7 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		if meta.Mode == "live" {
 			footer = "live"
 			if meta.Host != "" {
-				footer = "live · " + meta.Host
+				footer += " · " + meta.Host
 			}
 			if meta.Busy {
 				footer += " · run…"
@@ -287,29 +294,84 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		footer = "err · " + meta.Error
 	}
 	parts = append(parts, p.HelpDesc.Render("· "+footer))
-	line := " " + strings.Join(parts, p.HelpDesc.Render("  "))
-	return p.Status.Width(l.width).Render(truncate(line, l.width))
+	return p.Status.Width(l.width).Render(truncate(" "+strings.Join(parts, p.HelpDesc.Render("  ")), l.width))
 }
 
-func (m Model) renderDialog(gate *surface.Gate, l layout, p Palette) string {
+func (m Model) renderGateDialog(gate *surface.Gate, l layout, p Palette) string {
 	kind := gate.Kind
-	if kind == "" {
-		kind = "permission"
-	}
-	if kind == "approval" {
+	if kind == "" || kind == "approval" {
 		kind = "permission"
 	}
 	title := p.DialogTitle.Render(kind + "  ·  " + gate.Title)
-	body := p.Chat.Render(gate.Body)
-	help := p.Dim.Render("y approve    n deny")
+	body := p.DialogBody.Render(gate.Body)
+	help := p.DialogFooter.Render("y approve    n deny")
 	if gate.Kind == "question" {
-		help = p.Dim.Render("type answer · enter submit")
+		help = p.DialogFooter.Render("type answer · enter submit")
 	}
 	if gate.Submitting {
-		help = p.Dim.Render("submitting…")
+		help = p.DialogFooter.Render("submitting…")
 	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", help)
-	w := min(l.width-6, 64)
+	w := max(1, min(l.width-6, 64))
+	return p.Dialog.Width(w).Render(inner)
+}
+
+func (m Model) renderSessionsDialog(l layout, p Palette) string {
+	rows := m.filteredSessions()
+	title := p.DialogTitle.Render("Sessions")
+	filter := "filter: " + m.sessionFilter
+	if m.sessionFilter == "" {
+		filter = "filter title…"
+	}
+	lines := []string{title, p.DialogFooter.Render(filter)}
+	if m.sessionLoading {
+		lines = append(lines, "", p.DialogFooter.Render("loading sessions…"))
+	} else if len(rows) == 0 {
+		lines = append(lines, "", p.DialogFooter.Render("no matching sessions"))
+	} else {
+		lines = append(lines, "")
+		windowRows := max(1, (max(4, l.height-12))/2)
+		start := max(0, m.sessionCursor-windowRows/2)
+		if start+windowRows > len(rows) {
+			start = max(0, len(rows)-windowRows)
+		}
+		end := min(len(rows), start+windowRows)
+		for i := start; i < end; i++ {
+			row := rows[i]
+			marker := "  "
+			style := p.Idle
+			if i == m.sessionCursor {
+				marker = "▸ "
+				style = p.Active
+			}
+			name := strings.TrimSpace(row.Title)
+			if name == "" {
+				name = "untitled session"
+			}
+			lines = append(lines, style.Render(truncate(marker+name, max(8, l.width-14))))
+			lines = append(lines, p.Dim.Render(truncate("   "+row.ID, max(8, l.width-14))))
+		}
+	}
+	lines = append(lines, "")
+	if m.sessionRenaming {
+		lines = append(lines, p.DialogFooter.Render("rename: "+m.sessionRenameInput+"█"), p.DialogFooter.Render("enter confirm · esc cancel"))
+	} else if m.sessionDeleteID != "" {
+		name := m.sessionDeleteID
+		for _, row := range rows {
+			if row.ID == m.sessionDeleteID {
+				name = row.Title
+				break
+			}
+		}
+		lines = append(lines, p.PromptWarn.Render(truncate("delete "+name+"?", max(8, l.width-14))), p.DialogFooter.Render("y delete · n/esc cancel"))
+	} else {
+		lines = append(lines, p.DialogFooter.Render("↑/↓ move · enter/tab choose · ^r rename · ^x delete"))
+	}
+	if m.sessionError != "" {
+		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
+	}
+	inner := strings.Join(lines, "\n")
+	w := max(1, min(l.width-8, 72))
 	return p.Dialog.Width(w).Render(inner)
 }
 
@@ -321,9 +383,7 @@ func padHorizontal(content string, margin, totalWidth int) string {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		lines[i] = pad + line
-		// right pad to total width
-		w := lipgloss.Width(lines[i])
-		if w < totalWidth {
+		if w := lipgloss.Width(lines[i]); w < totalWidth {
 			lines[i] += strings.Repeat(" ", totalWidth-w)
 		}
 	}
@@ -331,18 +391,7 @@ func padHorizontal(content string, margin, totalWidth int) string {
 }
 
 func fitHeight(content string, width, height int) string {
-	lines := strings.Split(content, "\n")
-	out := make([]string, 0, height)
-	for _, line := range lines {
-		out = append(out, padRight(truncate(line, width), width))
-		if len(out) == height {
-			break
-		}
-	}
-	for len(out) < height {
-		out = append(out, strings.Repeat(" ", width))
-	}
-	return strings.Join(out, "\n")
+	return strings.Join(padLines(strings.Split(content, "\n"), width, height), "\n")
 }
 
 func placeOverlay(base, overlay string, width, height int) string {
@@ -350,43 +399,36 @@ func placeOverlay(base, overlay string, width, height int) string {
 	overLines := strings.Split(overlay, "\n")
 	ow := 0
 	for _, line := range overLines {
-		if w := lipgloss.Width(line); w > ow {
-			ow = w
-		}
+		ow = max(ow, lipgloss.Width(line))
 	}
-	oh := len(overLines)
-	row := max(0, (height-oh)/2)
+	row := max(0, (height-len(overLines))/2)
 	col := max(0, (width-ow)/2)
 	for i, line := range overLines {
 		r := row + i
-		if r < 0 || r >= len(baseLines) {
-			continue
+		if r >= 0 && r < len(baseLines) {
+			baseLines[r] = overlayLine(baseLines[r], line, col, width)
 		}
-		baseLines[r] = overlayLine(baseLines[r], line, col, width)
 	}
 	return strings.Join(baseLines, "\n")
 }
 
 func overlayLine(base, over string, col, width int) string {
 	plain := stripForPad(base)
-	if len([]rune(plain)) < width {
-		plain += strings.Repeat(" ", width-len([]rune(plain)))
+	if lipgloss.Width(plain) < width {
+		plain += strings.Repeat(" ", width-lipgloss.Width(plain))
 	}
 	runes := []rune(plain)
-	or := []rune(stripForPad(over))
-	for i := 0; i < len(or) && col+i < len(runes); i++ {
-		runes[col+i] = or[i]
+	overPlain := stripForPad(over)
+	overRunes := []rune(overPlain)
+	for i := 0; i < len(overRunes) && col+i < len(runes); i++ {
+		runes[col+i] = overRunes[i]
 	}
 	if col == 0 && lipgloss.Width(over) >= width {
 		return over
 	}
 	left := string(runes[:min(col, len(runes))])
-	rightStart := col + lipgloss.Width(over)
-	right := ""
-	if rightStart < len(runes) {
-		right = string(runes[rightStart:])
-	}
-	return left + over + right
+	rightStart := min(len(runes), col+lipgloss.Width(over))
+	return left + over + string(runes[rightStart:])
 }
 
 func stripForPad(s string) string {
@@ -409,8 +451,7 @@ func stripForPad(s string) string {
 }
 
 func padBlock(content string, width, height int) string {
-	lines := padLines(strings.Split(content, "\n"), width, height)
-	return strings.Join(lines, "\n")
+	return strings.Join(padLines(strings.Split(content, "\n"), width, height), "\n")
 }
 
 func padLines(lines []string, width, height int) []string {
@@ -449,7 +490,6 @@ func wrapText(text string, width int) []string {
 	if text == "" {
 		return []string{""}
 	}
-	// Preserve explicit newlines from multi-line drafts / tool bodies.
 	var lines []string
 	for _, para := range strings.Split(text, "\n") {
 		words := strings.Fields(para)
@@ -457,7 +497,7 @@ func wrapText(text string, width int) []string {
 			lines = append(lines, "")
 			continue
 		}
-		var cur string
+		cur := ""
 		for _, word := range words {
 			if cur == "" {
 				cur = word
@@ -487,10 +527,10 @@ func truncate(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	runes := []rune(s)
-	if width <= 1 {
+	if width == 1 {
 		return "…"
 	}
+	runes := []rune(s)
 	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
 		runes = runes[:len(runes)-1]
 	}
@@ -498,9 +538,8 @@ func truncate(s string, width int) string {
 }
 
 func padRight(s string, width int) string {
-	w := lipgloss.Width(s)
-	if w >= width {
-		return s
+	if w := lipgloss.Width(s); w < width {
+		return s + strings.Repeat(" ", width-w)
 	}
-	return s + strings.Repeat(" ", width-w)
+	return s
 }

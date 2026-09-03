@@ -40,16 +40,18 @@ func TestViewContainsCrushSkeleton(t *testing.T) {
 		"VIVY CODE", // sidebar logo
 		"Sessions",  // sidebar section
 		"审批中",
-		"过夜",
 		"write_file",
 		":::", // Crush editor prompt
-		"tab", // help keys
+		"^s",  // sessions dialog shortcut
 		"demo",
 		"permission", // overlay title
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in view:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "过夜") {
+		t.Fatalf("wide sidebar must not render the session collection:\n%s", got)
 	}
 	// Wide layout: no top "vivy tui · demo" strip; logo is in the sidebar.
 	if strings.Contains(got, "vivy tui · demo") {
