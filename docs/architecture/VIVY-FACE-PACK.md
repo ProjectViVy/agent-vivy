@@ -4,6 +4,12 @@
 > 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、`VIVY-PLUGIN-SPEC.md`、**`VIVY-STUDIO.md`**、PRD §5.0 / D-016。
 > 日期：2026-08-29
 >
+> **2026-09-04 修订（覆盖旧 D1/NG-11 的产品形态结论）：** 第一方
+> `vivy-code.exe` 现在是允许的独立 TUI 制品。它不是第二套内核：仍复用同一
+> app/runtime/provider/tool/FaceHost；但进程边界独立。`vivy.exe` 与所有
+> `vivy-code.exe` 实例共享 config/settings/skills，每个 code 实例使用独立
+> SQLite Journal 与运行目录，因此不共享会话记录，也不竞争 organism lease。
+>
 > 对照证据（只读，不是依赖）：DeepSeek Harness 的 `dsh-base` + `dsh-web-app` /
 > `dsh-headless` 分层；[oh-dsh](https://github.com/hust-open-atom-club/oh-dsh)
 > 的 Desktop / Web / TUI surface profile；`.workspace/crush` 的终端交互手感。
@@ -75,7 +81,7 @@
 | 出厂 TUI 放进 `plugins/` | 冒充用户层（`VIVY-ASSEMBLY.md`） |
 | 改 yaml / flag 就把网页藏起来，冒充 coding 物种 | 资产还在、端口还在；不是「不带 web」 |
 | 运行时 `vivy plugin add tui` | NG-15；Go 卸不掉原生代码 |
-| 独立 `vivy-tui.exe` | NG-11 第二种身体 |
+| 复制内核形成独立 `vivy-tui.exe` | NG-11 仍禁止第二套 runtime；第一方薄启动器 `vivy-code.exe` 是 2026-09-04 明确批准的例外，复用同一内核且隔离 Journal |
 | face 插件 `net.Listen` / 自开 loop | 插件不是进程；loop 是内核 |
 | face 插件写 Journal / 改 policy / 读密钥值 | 环境不能是种群成员 |
 | `--yolo` 当默认 | 心在人这边 |

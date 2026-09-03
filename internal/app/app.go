@@ -68,9 +68,10 @@ type App struct {
 type AppOption func(*appOptions)
 
 type appOptions struct {
-	channels bool
-	gateway  bool
-	sink     runtime.EventSink
+	channels     bool
+	gateway      bool
+	sink         runtime.EventSink
+	settingsPath string
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -90,6 +91,15 @@ func WithoutGateway() AppOption { return func(o *appOptions) { o.gateway = false
 // headless face renders the run stream for stdout/stderr through it.
 func WithEventSink(sink runtime.EventSink) AppOption {
 	return func(o *appOptions) { o.sink = sink }
+}
+
+// WithSettingsPath points this process at a shared operator settings file
+// while allowing its Journal and other runtime state to live elsewhere.
+// This is used by independent code-face processes: provider/model/operator
+// preferences are shared, but sessions, runs, approvals, and checkpoints are
+// isolated in each process's own storage directory.
+func WithSettingsPath(path string) AppOption {
+	return func(o *appOptions) { o.settingsPath = path }
 }
 
 // fanoutSink publishes one event to both the gateway bus and the extra
@@ -113,6 +123,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	for _, opt := range opts {
 		opt(&ao)
 	}
+	liveSettingsPath := ao.settingsPath
+	if liveSettingsPath == "" {
+		liveSettingsPath = settings.Path(cfg.DataDirectory())
+	}
 	// Operator-managed preferences (network search, execute ceiling, the
 	// per-channel knobs) overlay the validated config. Provider keys are
 	// NOT applied to the process environment; ModelResolver reads
@@ -120,7 +134,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// registered first so the channels overlay can only name channels this
 	// generation actually carries.
 	genPlugins := genplugins.Register()
-	cfg = applySettingsOverlay(ctx, logger, cfg, compiledChannelNames(genPlugins))
+	cfg = applySettingsOverlayAt(ctx, logger, cfg, liveSettingsPath, compiledChannelNames(genPlugins))
 	var originPolicy controlrpc.OriginPolicy
 	if ao.gateway {
 		policy, policyErr := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
@@ -154,7 +168,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
 	}
 	catalog := provider.NewCatalog(openaiBundle, anthropicBundle)
-	resolver := newModelResolver(cfg, settings.Path(dataRoot), catalog)
+	resolver := newModelResolver(cfg, liveSettingsPath, catalog)
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -259,7 +273,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	searchOps = searchService
 	httpBackend := runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, cfg.Runtime.HTTPTimeoutSeconds, sandboxManager)
 	httpOps = httpBackend
-	applyLiveHTTPSettings(httpBackend, settings.Path(dataRoot), cfg)
+	applyLiveHTTPSettings(httpBackend, liveSettingsPath, cfg)
 	fetchOps = runtime.NewEinoWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
 	if fileBackend != nil {
 		downloadOps = runtime.NewEinoDownloadBackend(fileBackend, sandboxManager)
@@ -298,7 +312,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// behavior); only builtins participate in the active/hidden split.
 	resolveActiveTools := func() ([]tools.Tool, []tools.Tool, error) {
 		enabled := cfg.Tools.Enabled
-		if s, err := settings.Load(settings.Path(dataRoot)); err == nil && s.ToolsEnabled != nil {
+		if s, err := settings.Load(liveSettingsPath); err == nil && s.ToolsEnabled != nil {
 			enabled = append([]string(nil), *s.ToolsEnabled...)
 		}
 		resolved, err := builtinRegistry.Resolve(enabled)
@@ -479,7 +493,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		},
 		Eval:                           evalRunner,
 		Children:                       workerManager,
-		SettingsPath:                   settings.Path(dataRoot),
+		SettingsPath:                   liveSettingsPath,
 		ConfigProvider:                 providerName,
 		ConfigModel:                    modelID,
 		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
@@ -537,9 +551,9 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 				id = defaultModelFor(cfg, name)
 			}
 			svc.SetModel(name, id)
-			applyLiveSandboxSettings(sandboxManager, settings.Path(dataRoot), cfg)
-			applyLiveHTTPSettings(httpBackend, settings.Path(dataRoot), cfg)
-			s, err := settings.Load(settings.Path(dataRoot))
+			applyLiveSandboxSettings(sandboxManager, liveSettingsPath, cfg)
+			applyLiveHTTPSettings(httpBackend, liveSettingsPath, cfg)
+			s, err := settings.Load(liveSettingsPath)
 			if err != nil {
 				logger.Warn("mcp overlay reload skipped", "err", err)
 				return
@@ -702,8 +716,10 @@ func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Setting
 // channels that are no longer compiled-in are dropped (with a warning)
 // instead of failing startup.
 func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.Config, compiledChannels []string) config.Config {
-	dataRoot := cfg.DataDirectory()
-	path := settings.Path(dataRoot)
+	return applySettingsOverlayAt(ctx, logger, cfg, settings.Path(cfg.DataDirectory()), compiledChannels)
+}
+
+func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config.Config, path string, compiledChannels []string) config.Config {
 	s, err := settings.Load(path)
 	if err != nil {
 		logger.Warn("settings overlay skipped", "path", path, "err", err)

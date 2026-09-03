@@ -6,7 +6,9 @@
 // execute ceiling override, the sandbox overlay, the MCP server overlay,
 // and the per-channel knobs overlay. These live in the shared user
 // workspace (~/.vivy/settings.yaml) so every Vivy version reads the same
-// API and system configuration. The Journal (vivy.db) sits beside this file.
+// API and system configuration. The web process normally keeps its Journal
+// beside this file; independent code-face processes deliberately point back
+// to this settings file while storing their Journals elsewhere.
 //
 // Secrets: committed config still holds env_key names only (D-010). This
 // runtime settings document may hold plaintext api_key values (file mode

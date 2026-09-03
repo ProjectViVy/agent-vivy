@@ -1,7 +1,9 @@
 # agent-vivy
 
-Implementation home of the Vivy species (`vivy.exe`) and the first-party
-Studio overlay. Canonical product rules: `docs/architecture/VIVY-STUDIO.md`.
+Implementation home of the Vivy species (`vivy.exe`), the independent
+VIVY CODE terminal (`vivy-code.exe`), and the first-party Studio overlay.
+Canonical product rules: `docs/architecture/VIVY-STUDIO.md` and
+`docs/architecture/VIVY-FACE-PACK.md`.
 
 ## Scope Separation: Vivy vs Vivy Studio
 

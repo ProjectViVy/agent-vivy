@@ -37,6 +37,7 @@ just build         # go build ./...
 just test          # go test ./...
 just ci            # Go fmt/vet/test + UI install/typecheck/unit/build
 just run           # run the vivy process (health endpoint on :8787)
+just tui           # build and run an independent VIVY CODE TUI
 just dev           # one-click split loop: backend :8787 + Vite :3015
 just build-split   # build a headless backend plus standalone ui under dist/
 just docker-up     # one-container image, SQLite on a volume, host 127.0.0.1:8787
@@ -73,7 +74,8 @@ you need the packaged headless backend and standalone static UI.
 ## Layout
 
 ```text
-cmd/vivy/          species entrypoint (daily gateway + worker + `tui` client)
+cmd/vivy/          species entrypoint (daily gateway + worker + compatibility `tui` client)
+cmd/vivy-code/     independent VIVY CODE binary; shared config, private Journal per launch
 sdk/               vivy-sdk binary (verify/pack); invoked by Studio, not by vivy.exe
 sdk/plugin/        author import window
 internal/app/      composition and lifecycle
@@ -107,6 +109,15 @@ the backend config to the exact loopback origin serving the static UI, then
 set `controlPlaneUrl` in `dist/vivy-ui/vivy-config.json` to the backend URL.
 The split build is intentionally loopback-only; it is not a remote or
 multi-user deployment mode.
+
+`vivy-code.exe` is a first-party terminal product built from the same kernel,
+not a forked runtime. It reads the same `config.yaml` / `VIVY_CONFIG`, provider
+environment variables, shared `settings.yaml`, and skills root as `vivy.exe`.
+Each launch allocates its own SQLite Journal and runtime/log directory under
+`<shared-data-root>/code-instances/`, so multiple TUI processes and the web
+process can run concurrently without sharing sessions, messages, approvals,
+runs, or checkpoints. `just tui` builds the headless-tagged binary and starts
+it in the current project.
 
 ## Hard rules (from the dossier)
 
