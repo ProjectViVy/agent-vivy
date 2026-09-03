@@ -110,6 +110,12 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 		b.WriteString(p.Dim.Render(truncate(" permission · "+preset, width-1)))
 		b.WriteByte('\n')
 	}
+	if snapshot.HasContext && snapshot.Context.ThinkingSupported {
+		if controller, ok := m.driver.(surface.ThinkingController); ok {
+			b.WriteString(p.Dim.Render(truncate(" draft thinking · "+controller.ThinkingMode(), width-1)))
+			b.WriteByte('\n')
+		}
+	}
 	if snapshot.HasContext {
 		b.WriteByte('\n')
 		b.WriteString(p.Dim.Render(" Context"))
@@ -278,6 +284,11 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		p.HelpKey.Render("^y") + p.HelpDesc.Render(" permission"),
 		p.HelpKey.Render("esc") + p.HelpDesc.Render(" cancel"),
 		p.HelpKey.Render("^c") + p.HelpDesc.Render(" quit"),
+	}
+	if provider, ok := m.driver.(surface.SidebarProvider); ok {
+		if controller, controlled := m.driver.(surface.ThinkingController); controlled && provider.Sidebar().HasContext && provider.Sidebar().Context.ThinkingSupported {
+			parts = append(parts[:5], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+controller.ThinkingMode())}, parts[5:]...)...)
+		}
 	}
 	footer := meta.Footer
 	if footer == "" {

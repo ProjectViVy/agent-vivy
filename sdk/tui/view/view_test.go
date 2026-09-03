@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ type testDriver struct {
 	gate        *surface.Gate
 	sendBlocked bool
 	sent        string
+	thinking    string
 }
 
 func (d *testDriver) Sessions() []surface.Session {
@@ -73,6 +75,19 @@ func (d *testDriver) SetPermission(string) tea.Cmd  { return nil }
 func (d *testDriver) ClearQueue() bool              { return false }
 func (d *testDriver) Cancel() tea.Cmd               { return nil }
 func (d *testDriver) Sidebar() surface.Sidebar      { return d.sidebar }
+func (d *testDriver) ThinkingMode() string {
+	if d.thinking == "" {
+		return "auto"
+	}
+	return d.thinking
+}
+func (d *testDriver) SetThinkingMode(mode string) error {
+	if mode == "on" && (!d.sidebar.HasContext || !d.sidebar.Context.ThinkingSupported) {
+		return fmt.Errorf("extended thinking is unavailable for the active model")
+	}
+	d.thinking = mode
+	return nil
+}
 func (d *testDriver) RefreshSessions() tea.Cmd {
 	return func() tea.Msg { return surface.SessionsMsg{Action: "list", Sessions: d.Sessions()} }
 }

@@ -285,6 +285,18 @@ func (r Registry) Validate(invocation *Invocation) error {
 			}
 		}
 		return nil
+	case "thinking":
+		if err := count(0, 1); err != nil {
+			return err
+		}
+		if len(args) == 1 {
+			switch strings.ToLower(strings.TrimSpace(args[0])) {
+			case "auto", "on", "off":
+			default:
+				return fmt.Errorf("thinking must be auto, on, or off")
+			}
+		}
+		return nil
 	case "fork":
 		return count(1, 2)
 	case "rewind":
@@ -347,6 +359,7 @@ func DefaultRegistry() Registry {
 		Spec{Name: "cancel", Usage: "/cancel", Description: "cancel the active run"},
 		Spec{Name: "queue", Usage: "/queue clear", Description: "clear queued turns"},
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: "set or cycle permission"},
+		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: "set or cycle extended thinking"},
 		Spec{Name: "compact", Usage: "/compact", Description: "compact the active session context"},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: "fork the active session at a message"},
 		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: "rewind the active session view"},

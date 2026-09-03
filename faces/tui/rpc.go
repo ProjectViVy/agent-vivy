@@ -165,11 +165,12 @@ func (c *client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 	return envelope.Messages, nil
 }
 
-func (c *client) startTurn(ctx context.Context, sessionID, text string) (runAccepted, error) {
+func (c *client) startTurn(ctx context.Context, sessionID, text, thinking string) (runAccepted, error) {
 	raw, err := c.Call(ctx, "turn/start", map[string]string{
 		"session_id": sessionID,
 		"text":       text,
 		"face":       "code",
+		"thinking":   thinking,
 	})
 	if err != nil {
 		return runAccepted{}, err

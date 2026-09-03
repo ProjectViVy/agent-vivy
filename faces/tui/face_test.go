@@ -183,6 +183,71 @@ func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	}
 }
 
+func TestLiveNewSessionLoadsThinkingCapability(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){
+		"session/create": func(json.RawMessage) (any, error) {
+			return map[string]string{"id": "sess_new", "title": "new", "permission_preset": "smart"}, nil
+		},
+		"session/context": func(json.RawMessage) (any, error) {
+			return map[string]any{"thinking_supported": true, "feed_tokens": 0}, nil
+		},
+	}}
+	live := NewLive(newClient(env), LiveOptions{})
+	defer live.Close()
+	loaded := mustMsg[liveLoadedMsg](t, live.NewSession("new"))
+	if loaded.Err != nil || !loaded.Sidebar.HasContext || !loaded.Sidebar.Context.ThinkingSupported {
+		t.Fatalf("new session context = %+v", loaded)
+	}
+	live.Handle(loaded)
+	if err := live.SetThinkingMode("on"); err != nil {
+		t.Fatalf("new supported session rejected thinking: %v", err)
+	}
+}
+
+func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
+	var got []string
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Thinking string `json:"thinking"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		got = append(got, params.Thinking)
+		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(got)), "status": "accepted"}, nil
+	}
+	live := NewLive(newClient(env), LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.sidebar = surface.Sidebar{HasContext: true, Context: surface.Context{ThinkingSupported: true}}
+	live.mu.Unlock()
+	_ = mustMsg[liveTurnStartedMsg](t, live.Send("first"))
+	if err := live.SetThinkingMode("on"); err != nil {
+		t.Fatal(err)
+	}
+	_ = live.Send("queued")
+	if err := live.SetThinkingMode("off"); err != nil {
+		t.Fatal(err)
+	}
+	live.mu.Lock()
+	live.busy = false
+	live.mu.Unlock()
+	_ = mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
+	if strings.Join(got, ",") != "auto,on" {
+		t.Fatalf("turn thinking modes = %v, want queued snapshot auto,on", got)
+	}
+	if live.ThinkingMode() != "off" {
+		t.Fatalf("draft thinking mode = %q", live.ThinkingMode())
+	}
+	live.mu.Lock()
+	live.thinkingMode = "on"
+	live.mu.Unlock()
+	live.applyLoaded(liveLoadedMsg{Session: surface.Session{ID: "sess_2"}, Sidebar: surface.Sidebar{HasContext: true}})
+	if live.ThinkingMode() != "auto" {
+		t.Fatalf("unsupported session retained thinking on: %q", live.ThinkingMode())
+	}
+}
+
 func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	env.script["context/compact"] = func(json.RawMessage) (any, error) {

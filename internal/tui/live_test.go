@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -133,6 +134,31 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	}
 	if asst != "hi" {
 		t.Fatalf("assistant = %q msgs=%+v", asst, live.ActiveMessages())
+	}
+}
+
+func TestLiveNewSessionLoadsThinkingCapability(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/create":
+			return map[string]string{"id": "sess_new", "title": "new", "permission_preset": "smart"}, nil
+		case "session/context":
+			return map[string]any{"thinking_supported": true, "feed_tokens": 0}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	loaded := mustMsg[liveLoadedMsg](t, live.NewSession("new"))
+	if loaded.Err != nil || !loaded.Sidebar.HasContext || !loaded.Sidebar.Context.ThinkingSupported {
+		t.Fatalf("new session context = %+v", loaded)
+	}
+	live.Handle(loaded)
+	if err := live.SetThinkingMode("on"); err != nil {
+		t.Fatalf("new supported session rejected thinking: %v", err)
 	}
 }
 
@@ -331,6 +357,54 @@ func TestLivePermissionSwitchPersists(t *testing.T) {
 	live.Handle(msg)
 	if gotPreset != "trusted" || live.Active().PermissionPreset != "trusted" {
 		t.Fatalf("permission = %q / %+v", gotPreset, live.Active())
+	}
+}
+
+func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
+	var got []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method != "turn/start" {
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+		var params struct {
+			Thinking string `json:"thinking"`
+		}
+		_ = json.Unmarshal(request.Params, &params)
+		got = append(got, params.Thinking)
+		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(got)), "status": "accepted"}, nil
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.sidebar = surface.Sidebar{HasContext: true, Context: surface.Context{ThinkingSupported: true}}
+	live.mu.Unlock()
+	_ = mustMsg[liveTurnStartedMsg](t, live.Send("first"))
+	if err := live.SetThinkingMode("on"); err != nil {
+		t.Fatal(err)
+	}
+	_ = live.Send("queued")
+	if err := live.SetThinkingMode("off"); err != nil {
+		t.Fatal(err)
+	}
+	live.mu.Lock()
+	live.busy = false
+	live.mu.Unlock()
+	_ = mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
+	if strings.Join(got, ",") != "auto,on" {
+		t.Fatalf("turn thinking modes = %v, want queued snapshot auto,on", got)
+	}
+	if live.ThinkingMode() != "off" {
+		t.Fatalf("draft thinking mode = %q", live.ThinkingMode())
+	}
+	live.mu.Lock()
+	live.thinkingMode = "on"
+	live.mu.Unlock()
+	live.applyLoaded(liveLoadedMsg{Session: surface.Session{ID: "sess_2"}, Sidebar: surface.Sidebar{HasContext: true}})
+	if live.ThinkingMode() != "auto" {
+		t.Fatalf("unsupported session retained thinking on: %q", live.ThinkingMode())
 	}
 }
 

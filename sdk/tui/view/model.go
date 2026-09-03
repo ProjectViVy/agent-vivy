@@ -191,6 +191,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset))
 		}
 		return m, nil
+	case tea.KeyCtrlT:
+		if gate != nil {
+			return m, nil
+		}
+		return m.setThinking("")
 	case tea.KeyTab, tea.KeyShiftTab, tea.KeyUp, tea.KeyDown:
 		// Session navigation belongs to the explicit Ctrl+S dialog. Keeping
 		// arrows in the editor avoids the old hidden-session sidebar behavior.
@@ -366,6 +371,12 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			}
 		}
 		return m.executeDriverCommand(name, args)
+	case "thinking":
+		mode := ""
+		if len(args) == 1 {
+			mode = strings.ToLower(strings.TrimSpace(args[0]))
+		}
+		return m.setThinking(mode)
 	case "compact":
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -387,6 +398,34 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m, tea.Quit
 	default:
 		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
+	}
+}
+
+func (m Model) setThinking(mode string) (Model, tea.Cmd) {
+	controller, ok := m.driver.(surface.ThinkingController)
+	if !ok {
+		return m.showCommandError(fmt.Errorf("thinking control is unavailable")), nil
+	}
+	if mode == "" {
+		mode = nextThinking(controller.ThinkingMode())
+	}
+	if mode != "auto" && mode != "on" && mode != "off" {
+		return m.showCommandError(fmt.Errorf("thinking must be auto, on, or off")), nil
+	}
+	if err := controller.SetThinkingMode(mode); err != nil {
+		return m.showCommandError(err), nil
+	}
+	return m.showCommandResult("Thinking", "next turn thinking: "+mode), nil
+}
+
+func nextThinking(current string) string {
+	switch strings.ToLower(strings.TrimSpace(current)) {
+	case "auto":
+		return "on"
+	case "on":
+		return "off"
+	default:
+		return "auto"
 	}
 }
 
@@ -580,6 +619,9 @@ func (m Model) statusText() string {
 	lines = append(lines, fmt.Sprintf("queue: %d", meta.Queued))
 	if active.PermissionPreset != "" {
 		lines = append(lines, "permission: "+active.PermissionPreset)
+	}
+	if controller, ok := m.driver.(surface.ThinkingController); ok {
+		lines = append(lines, "thinking (next turn): "+controller.ThinkingMode())
 	}
 	if provider, ok := m.driver.(surface.SidebarProvider); ok {
 		snapshot := provider.Sidebar()
