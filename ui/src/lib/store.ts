@@ -94,6 +94,7 @@ interface RuntimeState {
   deleteSession: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   startRun: (sessionId: string, text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => Promise<void>;
+	editSession: (sessionId: string, messageId: string, text: string, mode?: api.RunMode, face?: api.Face, thinking?: api.ThinkingMode) => Promise<void>;
   enqueueMessage: (text: string, mode?: api.RunMode, face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => void;
   removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
@@ -379,6 +380,19 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       startSubscription(run.id, 0);
     } catch (error) { set({ runError: errorMessage(error) }); throw error; } finally { set({ runBusy: false }); }
   },
+	editSession: async (sessionId, messageId, text, mode = 'normal', face?: api.Face, thinking?: api.ThinkingMode) => {
+		if (get().activeSessionId !== sessionId || runActive(get().currentRun) || get().runBusy) return;
+		set({ runBusy: true, runError: null });
+		try {
+			const result = await api.editSession(sessionId, messageId, text, mode, face, thinking);
+			if (get().activeSessionId !== sessionId) { await get().loadBackgroundRuns(); return; }
+			const run: api.Run = { id: result.run_id, session_id: sessionId, status: result.status, created_at: Date.now() };
+			await loadMessagesIntoStore(sessionId, sessionEpoch);
+			set((state) => ({ currentRun: run, runEvents: [], streamingText: '', streamingReasoning: '', connection: 'connecting', backgroundRuns: [run, ...state.backgroundRuns.filter((item) => item.id !== run.id)], backgroundPhase: 'ready' }));
+			startSubscription(run.id, 0);
+		} catch (error) { set({ runError: errorMessage(error) }); throw error; }
+		finally { set({ runBusy: false }); }
+	},
   enqueueMessage: (text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => set((state) => ({ queuedMessages: [...state.queuedMessages, { id: `queued-${++queuedSeq}`, text, mode, face, attachments, thinking }] })),
   removeQueuedMessage: (id) => set((state) => ({ queuedMessages: state.queuedMessages.filter((item) => item.id !== id) })),
   clearQueue: () => set({ queuedMessages: [] }),

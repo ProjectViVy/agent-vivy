@@ -25,6 +25,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const streamingReasoning = useVivyStore((state) => state.streamingReasoning);
   const sessionContext = useVivyStore((state) => state.sessionContext);
   const startRun = useVivyStore((state) => state.startRun);
+	const editSession = useVivyStore((state) => state.editSession);
   const enqueueMessage = useVivyStore((state) => state.enqueueMessage);
   const selectSession = useVivyStore((state) => state.selectSession);
   const cancelRun = useVivyStore((state) => state.cancelCurrentRun);
@@ -58,8 +59,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     setActionError(null);
 	setHistoryAction(true);
     try {
-      await rewindSession(sessionId, messageId);
-      await submit(newText);
+	  await editSession(sessionId, messageId, newText, 'normal', face);
 	} catch (error) { setActionError(error); throw error; }
 	finally { setHistoryAction(false); }
   };

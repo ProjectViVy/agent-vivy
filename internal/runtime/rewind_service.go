@@ -31,6 +31,31 @@ type RewindResult struct {
 	RemainingCount  int    `json:"remaining_count"`
 }
 
+// EditSession atomically replaces the visible suffix with a new user turn and
+// active run. Validation happens before the transaction; engine execution is
+// launched only after marker, message, run row, and run.started all commit.
+func (s *Service) EditSession(ctx context.Context, sessionID domain.SessionID, messageID, text string, options RunOptions) (domain.RunID, error) {
+	mutations, ok := s.deps.Truncations.(storage.HistoryMutationStore)
+	if !ok {
+		return "", ErrRewindNotWired
+	}
+	if err := s.rejectBusySession(ctx, sessionID); err != nil {
+		return "", err
+	}
+	stored, _, _, err := s.sessionViewCutoff(ctx, sessionID, messageID)
+	if err != nil {
+		return "", err
+	}
+	marker := storage.SessionTruncation{SessionID: sessionID, CutoffMessageID: messageID, TailMessageID: stored[len(stored)-1].ID, Reason: storage.TruncationEdit, CreatedAt: time.Now().UnixMilli()}
+	return s.runWithOptions(ctx, sessionID, text, options, func(message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error) {
+		committed, err := mutations.CommitSessionEdit(ctx, marker, message, run, event)
+		if err != nil {
+			return event, fmt.Errorf("runtime: commit session edit: %w", err)
+		}
+		return committed, nil
+	})
+}
+
 // payloadSessionTruncated journals the audit trail of one rewind.
 type payloadSessionTruncated struct {
 	SessionID       string `json:"session_id"`

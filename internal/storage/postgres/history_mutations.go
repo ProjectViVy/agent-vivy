@@ -29,6 +29,35 @@ func (b *Backend) CommitSessionRewind(ctx context.Context, marker storage.Sessio
 	return event, nil
 }
 
+func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionTruncation, m domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error) {
+	tx, err := b.db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return event, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := postgresInsertMarker(ctx, tx, marker); err != nil {
+		return event, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,run_id,role,created_at,content,tool_call_id,tool_name,tool_args,source,channel,chat_id,channel_message_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, m.ID, m.SessionID, m.RunID, m.Role, m.CreatedAt, m.Content, m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID); err != nil {
+		return event, err
+	}
+	for i, a := range m.Attachments {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_attachments (message_id,position,name,mime_type,data) VALUES ($1,$2,$3,$4,$5)`, m.ID, i, a.Name, a.MimeType, a.Data); err != nil {
+			return event, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, run.ID, run.SessionID, domain.RunActive, run.CreatedAt, domain.RunKindPrimary, "", run.ID, 0); err != nil {
+		return event, err
+	}
+	if err := postgresInsertHistoryEvent(ctx, tx, &event); err != nil {
+		return event, err
+	}
+	if err := tx.Commit(); err != nil {
+		return event, err
+	}
+	return event, nil
+}
+
 func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, messages []domain.Message, markers []storage.SessionTruncation, events []domain.RunEvent) ([]domain.RunEvent, error) {
 	tx, err := b.db.SQL.BeginTx(ctx, nil)
 	if err != nil {

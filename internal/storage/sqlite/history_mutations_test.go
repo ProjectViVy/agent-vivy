@@ -43,3 +43,30 @@ func TestCommitSessionForkRollsBackChildWhenEventFails(t *testing.T) {
 		t.Fatalf("child survived rollback: %v", err)
 	}
 }
+
+func TestCommitSessionEditRollsBackEveryRowWhenEventFails(t *testing.T) {
+	b := openBackend(t)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "s", Title: "s", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.db.ExecContext(ctx, `CREATE TRIGGER fail_history_event BEFORE INSERT ON run_events BEGIN SELECT RAISE(ABORT, 'event failed'); END`); err != nil {
+		t.Fatal(err)
+	}
+	marker := storage.SessionTruncation{SessionID: "s", CutoffMessageID: "old", TailMessageID: "old", Reason: storage.TruncationEdit, CreatedAt: 2}
+	message := domain.Message{ID: "new", SessionID: "s", RunID: "run", Role: domain.RoleUser, Content: "replacement", CreatedAt: 2}
+	run := domain.Run{ID: "run", SessionID: "s", Status: domain.RunAccepted, CreatedAt: 2}
+	event := domain.RunEvent{RunID: "run", Type: domain.EventRunStarted, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{}`)}
+	if _, err := b.CommitSessionEdit(ctx, marker, message, run, event); err == nil {
+		t.Fatal("expected injected event failure")
+	}
+	if markers, err := b.ListViewTruncations(ctx, "s"); err != nil || len(markers) != 0 {
+		t.Fatalf("markers survived: %+v %v", markers, err)
+	}
+	if messages, err := b.ListMessages(ctx, "s"); err != nil || len(messages) != 0 {
+		t.Fatalf("messages survived: %+v %v", messages, err)
+	}
+	if _, err := b.GetRun(ctx, "run"); err != storage.ErrNotFound {
+		t.Fatalf("run survived: %v", err)
+	}
+}
