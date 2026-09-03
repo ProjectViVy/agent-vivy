@@ -36,10 +36,11 @@ type Message struct {
 
 // Gate is the modal approval / question overlay.
 type Gate struct {
-	Kind  string // approval | question
-	ID    string
-	Title string
-	Body  string
+	Kind       string // approval | question
+	ID         string
+	Title      string
+	Body       string
+	Submitting bool
 }
 
 // Meta is footer / chrome status for the active driver.
@@ -83,3 +84,7 @@ type ErrMsg struct {
 // RefreshMsg asks the view to re-render after driver state changed.
 // Drivers may return nil instead; the view always redraws after Update.
 type RefreshMsg struct{}
+
+// GateResolvedMsg lets the view clear local input only after the remote
+// approval/question response was durably accepted.
+type GateResolvedMsg struct{ Kind string }

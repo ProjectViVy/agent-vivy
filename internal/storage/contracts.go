@@ -364,6 +364,15 @@ type TruncationStore interface {
 	ListViewTruncations(ctx context.Context, sessionID domain.SessionID) ([]SessionTruncation, error)
 }
 
+// HistoryMutationStore commits the multi-row history operations as one
+// database transaction. Events are returned with their assigned sequence and
+// must only be published after this call succeeds.
+type HistoryMutationStore interface {
+	CommitSessionRewind(ctx context.Context, marker SessionTruncation, event domain.RunEvent) (domain.RunEvent, error)
+	CommitSessionFork(ctx context.Context, child domain.Session, messages []domain.Message, markers []SessionTruncation, events []domain.RunEvent) ([]domain.RunEvent, error)
+	CommitSessionEdit(ctx context.Context, marker SessionTruncation, message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error)
+}
+
 // ApplySessionTruncation filters a ListMessages slice by one marker: the
 // closed id range [cutoff, tail] — the suffix that existed when the marker
 // was written — is dropped; messages appended after it survive. Only
@@ -473,6 +482,7 @@ type Engine interface {
 	TodoStore
 	CompactionStore
 	TruncationStore
+	HistoryMutationStore
 	CronStore
 	FileVersionStore
 	StudioStore

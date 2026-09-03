@@ -18,9 +18,10 @@ import (
 // run/subscribe → run/event notifications) without composing the engine.
 
 type fakeEnv struct {
-	mu      sync.Mutex
-	calls   []string
-	handler func(method string, params json.RawMessage)
+	mu                 sync.Mutex
+	calls              []string
+	handler            func(method string, params json.RawMessage)
+	deliverOnSubscribe bool
 }
 
 func (e *fakeEnv) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -37,12 +38,23 @@ func (e *fakeEnv) Call(ctx context.Context, method string, params any) (json.Raw
 	case "turn/start":
 		return json.RawMessage(`{"run_id":"run_1"}`), nil
 	case "run/subscribe":
+		if e.deliverOnSubscribe {
+			e.deliver("run.completed", `{}`)
+		}
 		return json.RawMessage(`{"subscription_id":"sub_1","run_id":"run_1"}`), nil
 	case "run/cancel":
 		go e.deliver("run.cancelled", `{}`)
 		return json.RawMessage(`{"cancelled":true}`), nil
 	}
 	return nil, nil
+}
+
+func TestSynchronousSubscribeReplayCannotLoseTerminal(t *testing.T) {
+	f, _, _ := newFace(t, "fast", false)
+	env := &fakeEnv{deliverOnSubscribe: true}
+	if result := runFace(t, f, env); result.Status != "completed" {
+		t.Fatalf("status = %q, want completed", result.Status)
+	}
 }
 
 func (e *fakeEnv) OnEvent(handler func(method string, params json.RawMessage)) {

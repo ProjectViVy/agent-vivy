@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,9 +30,9 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
   const [results, setResults] = useState<api.MarketplaceSkill[]>([]);
   const [featured, setFeatured] = useState<api.MarketplaceFeatured | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+	const [queryError, setQueryError] = useState<string | null>(null);
+	const [operations, setOperations] = useState<Record<string, { busy: boolean; message?: string; error?: string }>>({});
+	const requestId = useRef(0);
   const [checks, setChecks] = useState<Record<string, api.MarketplaceUpdateCheck>>({});
 
   useEffect(() => {
@@ -41,27 +41,30 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
   }, [query]);
 
   const loadFeatured = useCallback(async () => {
+	const id = ++requestId.current;
     try {
       setLoading(true);
-      setError(null);
-      setFeatured(await api.featuredMarketplaceSkills());
+	  setQueryError(null);
+	  const next = await api.featuredMarketplaceSkills();
+	  if (id === requestId.current) setFeatured(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('skills.marketplace.loadFailed'));
+	  if (id === requestId.current) setQueryError(err instanceof Error ? err.message : t('skills.marketplace.loadFailed'));
     } finally {
-      setLoading(false);
+	  if (id === requestId.current) setLoading(false);
     }
   }, [t]);
 
   const search = useCallback(async (term: string) => {
+	const id = ++requestId.current;
     try {
       setLoading(true);
-      setError(null);
+	  setQueryError(null);
       const data = await api.searchMarketplaceSkills(term);
-      setResults(data.skills);
+	  if (id === requestId.current) setResults(data.skills);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('skills.marketplace.loadFailed'));
+	  if (id === requestId.current) setQueryError(err instanceof Error ? err.message : t('skills.marketplace.loadFailed'));
     } finally {
-      setLoading(false);
+	  if (id === requestId.current) setLoading(false);
     }
   }, [t]);
 
@@ -69,7 +72,8 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
     const term = debouncedQuery.trim();
     if (term.length < 2) {
       setResults([]);
-      if (featured === null) void loadFeatured();
+	  if (featured === null) void loadFeatured();
+	  else { requestId.current += 1; setLoading(false); setQueryError(null); }
       return;
     }
     void search(term);
@@ -77,38 +81,32 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
   }, [debouncedQuery]);
 
   const install = useCallback(async (id: string, mode?: 'create' | 'upgrade') => {
+	const slug = slugOf(id);
     try {
-      setBusyId(id);
-      setError(null);
-      setNotice(null);
+	  setOperations((prev) => ({ ...prev, [slug]: { busy: true } }));
       const result = await api.installMarketplaceSkill(id, mode);
       setChecks((prev) => {
         const next = { ...prev };
         delete next[slugOf(id)];
         return next;
       });
-      if (result.outcome === 'upgraded') setNotice(t('skills.marketplace.outcomeUpgraded'));
-      else if (result.outcome === 'up_to_date') setNotice(t('skills.marketplace.outcomeUpToDate'));
+	  const message = result.outcome === 'upgraded' ? t('skills.marketplace.outcomeUpgraded') : result.outcome === 'up_to_date' ? t('skills.marketplace.outcomeUpToDate') : undefined;
+	  setOperations((prev) => ({ ...prev, [slug]: { busy: false, message } }));
       onInstalledChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('skills.marketplace.installFailed'));
-    } finally {
-      setBusyId(null);
+	  setOperations((prev) => ({ ...prev, [slug]: { busy: false, error: err instanceof Error ? err.message : t('skills.marketplace.installFailed') } }));
     }
   }, [onInstalledChange, t]);
 
   const checkUpdate = useCallback(async (id: string) => {
     const slug = slugOf(id);
     try {
-      setBusyId(id);
-      setError(null);
-      setNotice(null);
+	  setOperations((prev) => ({ ...prev, [slug]: { busy: true } }));
       const check = await api.checkMarketplaceUpdate(slug);
       setChecks((prev) => ({ ...prev, [slug]: check }));
+	  setOperations((prev) => ({ ...prev, [slug]: { busy: false } }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('skills.marketplace.checkFailed'));
-    } finally {
-      setBusyId(null);
+	  setOperations((prev) => ({ ...prev, [slug]: { busy: false, error: err instanceof Error ? err.message : t('skills.marketplace.checkFailed') } }));
     }
   }, [t]);
 
@@ -139,22 +137,16 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
         {debouncedQuery.trim().length < 2 && featured && ` · ${t('skills.marketplace.featuredSnapshot', { date: snapshotDate })}`}
       </p>
 
-      {error && (
+	  {queryError && (
         <Card>
           <CardContent className="flex items-center justify-between gap-3 py-3 text-sm">
-            <span className="min-w-0 break-all text-destructive">{error}</span>
+			<span className="min-w-0 break-all text-destructive">{queryError}</span>
             <Button variant="outline" size="sm" onClick={() => void (debouncedQuery.trim().length >= 2 ? search(debouncedQuery.trim()) : loadFeatured())}>
               {t('common.retry')}
             </Button>
           </CardContent>
         </Card>
       )}
-      {notice && (
-        <Card>
-          <CardContent className="py-3 text-sm">{notice}</CardContent>
-        </Card>
-      )}
-
       <div className="min-h-0 flex-1 overflow-auto">
         {loading && entries.length === 0 ? (
           <div className="space-y-2">
@@ -175,7 +167,8 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
               const slug = slugOf(entry.id);
               const installed = installedNames.includes(slug);
               const check = checks[slug];
-              const busy = busyId === entry.id;
+			  const operation = operations[slug];
+			  const busy = operation?.busy ?? false;
               return (
                 <Card key={entry.id}>
                   <CardContent className="flex items-center justify-between gap-3 py-3">
@@ -185,6 +178,8 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
                         <Badge variant="secondary" className="shrink-0">{formatCount(entry.installs)}</Badge>
                       </div>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{entry.source}</p>
+					  {operation?.error ? <p className="mt-1 text-xs text-destructive" role="alert">{operation.error}</p> : null}
+					  {operation?.message ? <p className="mt-1 text-xs text-muted-foreground">{operation.message}</p> : null}
                     </div>
                     {!installed ? (
                       <Button size="sm" disabled={busy} onClick={() => void install(entry.id)}>

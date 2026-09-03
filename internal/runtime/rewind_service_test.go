@@ -45,7 +45,7 @@ func TestRewindSessionMarksAndFilters(t *testing.T) {
 	if marker.CutoffMessageID != "msg-3" || marker.TailMessageID != "msg-4" || marker.Reason != storage.TruncationRewind {
 		t.Fatalf("marker = %+v, want msg-3 rewind with tail msg-4", marker)
 	}
-	folded := svc.effectiveSessionMessages(ctx, "sess-rw", mustListMessages(t, svc, "sess-rw"))
+	folded := mustEffectiveMessages(t, svc, ctx, "sess-rw")
 	if len(folded) != 2 || folded[0].ID != "msg-1" || folded[1].ID != "msg-2" {
 		t.Fatalf("effective view = %+v, want msg-1..msg-2", folded)
 	}
@@ -54,7 +54,7 @@ func TestRewindSessionMarksAndFilters(t *testing.T) {
 	if err := svc.deps.Messages.AppendMessage(ctx, domain.Message{ID: "msg-5", SessionID: "sess-rw", Role: domain.RoleUser, Content: "five", CreatedAt: 5}); err != nil {
 		t.Fatalf("AppendMessage post-rewind turn: %v", err)
 	}
-	retried := svc.effectiveSessionMessages(ctx, "sess-rw", mustListMessages(t, svc, "sess-rw"))
+	retried := mustEffectiveMessages(t, svc, ctx, "sess-rw")
 	if len(retried) != 3 || retried[0].ID != "msg-1" || retried[1].ID != "msg-2" || retried[2].ID != "msg-5" {
 		t.Fatalf("post-rewind view = %+v, want msg-1..msg-2 plus the new turn", retried)
 	}
@@ -151,11 +151,10 @@ func TestForkSessionCopiesHistoryAndAnchors(t *testing.T) {
 	}
 	// Neither marker filters: the child keeps its copied view, the parent
 	// keeps its full view.
-	if childView := svc.effectiveSessionMessages(ctx, domain.SessionID(result.SessionID), childMsgs); len(childView) != 2 {
+	if childView := mustEffectiveMessages(t, svc, ctx, domain.SessionID(result.SessionID)); len(childView) != 2 {
 		t.Fatalf("child view after forked-from marker = %d rows, want unfiltered", len(childView))
 	}
-	parentMsgs := mustListMessages(t, svc, "sess-src")
-	if parentView := svc.effectiveSessionMessages(ctx, "sess-src", parentMsgs); len(parentView) != 4 {
+	if parentView := mustEffectiveMessages(t, svc, ctx, "sess-src"); len(parentView) != 4 {
 		t.Fatalf("parent view after fork marker = %d rows, want unfiltered", len(parentView))
 	}
 	parentMarker, ok, err := backend.LatestSessionTruncation(ctx, "sess-src")
@@ -218,7 +217,7 @@ func TestRewindAndForkRespectEffectiveView(t *testing.T) {
 	}
 	// The fork anchor on the parent must not shadow the rewind marker:
 	// folded rows stay folded after a fork.
-	if view := svc.effectiveSessionMessages(ctx, "sess-ef", mustListMessages(t, svc, "sess-ef")); len(view) != 1 || view[0].ID != "msg-1" {
+	if view := mustEffectiveMessages(t, svc, ctx, "sess-ef"); len(view) != 1 || view[0].ID != "msg-1" {
 		t.Fatalf("parent view after fork anchor = %+v, want the rewind still in force", view)
 	}
 
@@ -229,7 +228,7 @@ func TestRewindAndForkRespectEffectiveView(t *testing.T) {
 	if remaining.RemainingCount != 0 {
 		t.Fatalf("remaining = %d, want 0 (view-relative count)", remaining.RemainingCount)
 	}
-	if view := svc.effectiveSessionMessages(ctx, "sess-ef", mustListMessages(t, svc, "sess-ef")); len(view) != 0 {
+	if view := mustEffectiveMessages(t, svc, ctx, "sess-ef"); len(view) != 0 {
 		t.Fatalf("parent view = %+v, want empty", view)
 	}
 }
@@ -255,9 +254,26 @@ func TestSuccessiveRewindsAccumulate(t *testing.T) {
 	if remaining.RemainingCount != 1 {
 		t.Fatalf("remaining = %d, want 1 (only msg-1 left)", remaining.RemainingCount)
 	}
-	view := svc.effectiveSessionMessages(ctx, "sess-ac", mustListMessages(t, svc, "sess-ac"))
+	view := mustEffectiveMessages(t, svc, ctx, "sess-ac")
 	if len(view) != 1 || view[0].ID != "msg-1" {
 		t.Fatalf("view = %+v, want msg-1 (both discard ranges folded)", view)
+	}
+}
+
+func TestEditSessionCommitsReplacementAndRunTogether(t *testing.T) {
+	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	appendRewindFixture(t, svc, "sess-edit")
+	runID, err := svc.EditSession(ctx, "sess-edit", "msg-2", "replacement", RunOptions{})
+	if err != nil {
+		t.Fatalf("EditSession: %v", err)
+	}
+	view := mustEffectiveMessages(t, svc, ctx, "sess-edit")
+	if len(view) != 2 || view[0].ID != "msg-1" || view[1].Content != "replacement" || view[1].RunID != runID {
+		t.Fatalf("edited view = %+v", view)
+	}
+	if _, err := svc.deps.Runs.GetRun(ctx, runID); err != nil {
+		t.Fatalf("GetRun: %v", err)
 	}
 }
 
@@ -266,6 +282,15 @@ func mustListMessages(t *testing.T, svc *Service, sessionID domain.SessionID) []
 	messages, err := svc.deps.Messages.ListMessages(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("ListMessages: %v", err)
+	}
+	return messages
+}
+
+func mustEffectiveMessages(t *testing.T, svc *Service, ctx context.Context, sessionID domain.SessionID) []domain.Message {
+	t.Helper()
+	messages, err := svc.effectiveSessionMessages(ctx, sessionID, mustListMessages(t, svc, sessionID))
+	if err != nil {
+		t.Fatalf("effectiveSessionMessages: %v", err)
 	}
 	return messages
 }
