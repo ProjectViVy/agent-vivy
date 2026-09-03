@@ -69,8 +69,12 @@ func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 	return envelope.Messages, nil
 }
 
-func (c *Client) startTurn(ctx context.Context, sessionID, text string) (runAccepted, error) {
-	raw, err := c.Call(ctx, "turn/start", map[string]string{"session_id": sessionID, "text": text})
+func (c *Client) startTurn(ctx context.Context, sessionID, text, face string) (runAccepted, error) {
+	params := map[string]string{"session_id": sessionID, "text": text}
+	if strings.TrimSpace(face) != "" {
+		params["face"] = face
+	}
+	raw, err := c.Call(ctx, "turn/start", params)
 	if err != nil {
 		return runAccepted{}, err
 	}
@@ -108,6 +112,21 @@ func (c *Client) respondQuestion(ctx context.Context, questionID, answer string)
 		"answer":      answer,
 	})
 	return err
+}
+
+func (c *Client) setSessionPermission(ctx context.Context, sessionID, preset string) (sessionView, error) {
+	raw, err := c.Call(ctx, "session/set_permission", map[string]string{
+		"session_id": sessionID,
+		"preset":     preset,
+	})
+	if err != nil {
+		return sessionView{}, err
+	}
+	var session sessionView
+	if err := json.Unmarshal(raw, &session); err != nil {
+		return sessionView{}, fmt.Errorf("tui: session/set_permission: %w", err)
+	}
+	return session, nil
 }
 
 func formatHistory(messages []messageView) string {

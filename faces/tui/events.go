@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // eventType is the subset of the kernel RunEvent vocabulary the thin TUI
@@ -91,13 +91,13 @@ func interpret(event streamEvent) eventNotice {
 		if text == "" {
 			return eventNotice{}
 		}
-		base.Kind = "line"
-		base.Line = "thinking: " + strings.TrimSpace(text)
+		base.Kind = "reasoning"
+		base.Delta = text
 		return base
 	case eventToolRequested:
 		name := payloadString(event.Payload, "tool_name")
 		base.Kind = "tool_requested"
-		base.Line = "tool " + name
+		base.Line = payloadObject(event.Payload, "args")
 		base.Message = name
 		return base
 	case eventToolFinished:
@@ -105,17 +105,20 @@ func interpret(event streamEvent) eventNotice {
 		errText := payloadString(event.Payload, "error")
 		base.Kind = "tool_finished"
 		base.Message = name
+		base.Line = displayToolResult(payloadString(event.Payload, "result"))
 		if errText != "" {
 			base.Failed = true
 			base.Line = fmt.Sprintf("tool %s failed: %s", name, errText)
 			return base
 		}
-		base.Line = "tool " + name + " done"
+		if base.Line == "" {
+			base.Line = "tool " + name + " done"
+		}
 		return base
 	case eventToolApprovalRequired:
 		id := payloadString(event.Payload, "approval_id")
 		name := payloadString(event.Payload, "tool_name")
-		preview := payloadString(event.Payload, "preview")
+		preview := payloadObject(event.Payload, "args")
 		body := name
 		if preview != "" {
 			body = name + "\n" + preview
@@ -150,6 +153,41 @@ func interpret(event streamEvent) eventNotice {
 	default:
 		return eventNotice{}
 	}
+}
+
+func displayToolResult(result string) string {
+	var mutation struct {
+		Path        string `json:"path"`
+		Diff        string `json:"diff"`
+		Diagnostics string `json:"diagnostics"`
+	}
+	if json.Unmarshal([]byte(result), &mutation) == nil && mutation.Diff != "" {
+		out := mutation.Path
+		if out != "" {
+			out += "\n"
+		}
+		out += mutation.Diff
+		if mutation.Diagnostics != "" {
+			out += "\n\nDiagnostics:\n" + mutation.Diagnostics
+		}
+		return out
+	}
+	return result
+}
+
+func payloadObject(raw json.RawMessage, key string) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil || len(obj[key]) == 0 {
+		return ""
+	}
+	var compact bytes.Buffer
+	if json.Compact(&compact, obj[key]) != nil {
+		return ""
+	}
+	return compact.String()
 }
 
 func payloadString(raw json.RawMessage, key string) string {

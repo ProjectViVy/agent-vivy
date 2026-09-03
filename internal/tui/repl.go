@@ -295,7 +295,7 @@ func parseApproval(line string) (string, bool) {
 }
 
 func (r *repl) sendTurn(ctx context.Context, text string) error {
-	accepted, err := r.client.startTurn(ctx, r.session.ID, text)
+	accepted, err := r.client.startTurn(ctx, r.session.ID, text, "code")
 	if err != nil {
 		fmt.Fprintf(r.out, "turn: %v\n", err)
 		return nil

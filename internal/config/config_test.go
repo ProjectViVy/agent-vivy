@@ -10,6 +10,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestRuntimeWorldDefaultsAndValidation(t *testing.T) {
+	cfg := Default()
+	if cfg.Runtime.World != "sandbox" {
+		t.Fatalf("default runtime world = %q", cfg.Runtime.World)
+	}
+	cfg.Runtime.World = "LOCAL"
+	if err := cfg.Validate(); err != nil || cfg.Runtime.World != "local" {
+		t.Fatalf("local world validation = %q, %v", cfg.Runtime.World, err)
+	}
+	cfg.Runtime.World = "host-everything"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "runtime.world") {
+		t.Fatalf("invalid world error = %v", err)
+	}
+}
+
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")

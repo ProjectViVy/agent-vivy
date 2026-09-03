@@ -194,6 +194,11 @@ type Runtime struct {
 	MaxRunRetries int `yaml:"max_run_retries"`
 	// WorkspaceRoot contains one private sandbox directory per background run.
 	WorkspaceRoot string `yaml:"workspace_root"`
+	// World selects the filesystem world exposed to runs. "sandbox" keeps
+	// one private directory per run; "local" mounts WorkspaceRoot itself.
+	// Local is intended for the interactive code face and remains bounded by
+	// the same sandbox and approval policy as every other run.
+	World string `yaml:"world"`
 	// SkillsRoot is a trusted, non-executable directory containing SKILL.md
 	// packages. Skill content remains untrusted data at runtime.
 	SkillsRoot string `yaml:"skills_root"`
@@ -499,6 +504,7 @@ func Default() Config {
 			MaxRunToolCalls:          defaultMaxRunToolCalls,
 			MaxRunRetries:            defaultMaxRunRetries,
 			WorkspaceRoot:            filepath.Join(root, "workspace"),
+			World:                    "sandbox",
 			SkillsRoot:               filepath.Join(root, "skills"),
 			SkillsMarketplaceURL:     DefaultSkillsMarketplaceURL,
 			HTTPAllowedHosts:         []string{"localhost", "127.0.0.1", "::1"},
@@ -655,6 +661,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.WorkspaceRoot == "" {
 		return errors.New("runtime.workspace_root must not be empty")
+	}
+	c.Runtime.World = strings.ToLower(strings.TrimSpace(c.Runtime.World))
+	if c.Runtime.World == "" {
+		c.Runtime.World = "sandbox"
+	}
+	if c.Runtime.World != "sandbox" && c.Runtime.World != "local" {
+		return fmt.Errorf("runtime.world %q is unsupported; use sandbox or local", c.Runtime.World)
 	}
 	if c.Runtime.SkillsRoot == "" {
 		return errors.New("runtime.skills_root must not be empty")

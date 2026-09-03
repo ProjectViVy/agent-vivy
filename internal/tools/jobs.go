@@ -45,6 +45,10 @@ type JobSpec struct {
 	Args    []string
 	Dir     string
 	Env     []string
+	// Run provides an in-process command implementation. When set, Path and
+	// Args are ignored while lifecycle/output/cancellation still use the same
+	// bounded job registry.
+	Run func(context.Context, io.Writer, io.Writer) error
 }
 
 // JobReadResult is what job_output returns: new output since the previous
@@ -136,8 +140,9 @@ type job struct {
 	status   JobStatus
 	exitCode int
 
-	cmd  *exec.Cmd
-	done chan struct{}
+	cmd    *exec.Cmd
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func (j *job) read() JobReadResult {
@@ -261,7 +266,11 @@ func (r *JobRegistry) Kill(id string) (JobKillResult, error) {
 	if j.status != JobRunning {
 		return JobKillResult{JobID: j.id, Status: j.status}, nil
 	}
-	_ = j.cmd.Process.Kill()
+	if j.cmd != nil && j.cmd.Process != nil {
+		_ = j.cmd.Process.Kill()
+	} else if j.cancel != nil {
+		j.cancel()
+	}
 	j.status, j.exitCode = JobKilled, -1
 	return JobKillResult{JobID: j.id, Status: JobKilled}, nil
 }
@@ -269,6 +278,20 @@ func (r *JobRegistry) Kill(id string) (JobKillResult, error) {
 // spawn starts the process with readers and a finalizer; the job is not
 // yet registered or counted against the limit.
 func (r *JobRegistry) spawn(ctx context.Context, spec JobSpec) (*job, error) {
+	if spec.Run != nil {
+		jobCtx, cancel := context.WithCancel(ctx)
+		j := &job{
+			display: spec.Display, started: time.Now(), status: JobRunning, exitCode: -1,
+			stdout: newJobStream(maxJobOutputBytes), stderr: newJobStream(maxJobOutputBytes),
+			cancel: cancel, done: make(chan struct{}),
+		}
+		go func() {
+			runErr := spec.Run(jobCtx, j.stdout, j.stderr)
+			j.finish(runErr, jobCtx.Err())
+			close(j.done)
+		}()
+		return j, nil
+	}
 	cmd := exec.CommandContext(ctx, spec.Path, spec.Args...)
 	cmd.Dir = spec.Dir
 	cmd.Env = spec.Env
@@ -335,7 +358,11 @@ func (r *JobRegistry) evictOldestTerminalLocked() bool {
 }
 
 func (r *JobRegistry) discard(j *job) {
-	_ = j.cmd.Process.Kill()
+	if j.cmd != nil && j.cmd.Process != nil {
+		_ = j.cmd.Process.Kill()
+	} else if j.cancel != nil {
+		j.cancel()
+	}
 	<-j.done
 }
 

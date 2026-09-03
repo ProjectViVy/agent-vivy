@@ -10,6 +10,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/internal/tui/surface"
 )
 
 func TestLiveBootListsOrCreatesSession(t *testing.T) {
@@ -55,6 +56,7 @@ func TestLiveBootListsOrCreatesSession(t *testing.T) {
 }
 
 func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
+	var gotFace string
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		switch request.Method {
 		case "session/list":
@@ -66,6 +68,11 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 		case "session/messages":
 			return map[string]any{"messages": []any{}}, nil
 		case "turn/start":
+			var params struct {
+				Face string `json:"face"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotFace = params.Face
 			return map[string]string{"run_id": "run_1", "status": "accepted"}, nil
 		case "run/subscribe":
 			return map[string]string{"subscription_id": "sub_1"}, nil
@@ -92,6 +99,9 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 		t.Fatalf("started = %+v", started)
 	}
 	live.Handle(started)
+	if gotFace != "code" {
+		t.Fatalf("turn face = %q, want code", gotFace)
+	}
 	if !live.Meta().Busy {
 		t.Fatal("expected busy")
 	}
@@ -116,6 +126,55 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	}
 	if asst != "hi" {
 		t.Fatalf("assistant = %q msgs=%+v", asst, live.ActiveMessages())
+	}
+}
+
+func TestLivePermissionSwitchPersists(t *testing.T) {
+	var gotPreset string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/list":
+			return map[string]any{"sessions": []map[string]string{{"id": "sess_1", "title": "one", "permission_preset": "smart"}}}, nil
+		case "session/messages":
+			return map[string]any{"messages": []any{}}, nil
+		case "session/set_permission":
+			var params struct {
+				Preset string `json:"preset"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotPreset = params.Preset
+			return map[string]string{"id": "sess_1", "title": "one", "permission_preset": params.Preset}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.Handle(mustMsg[liveBootMsg](t, live.bootCmd()))
+	msg := mustMsg[liveRPCMsg](t, live.SetPermission("trusted"))
+	live.Handle(msg)
+	if gotPreset != "trusted" || live.Active().PermissionPreset != "trusted" {
+		t.Fatalf("permission = %q / %+v", gotPreset, live.Active())
+	}
+}
+
+func TestLiveQueuesWhileBusyAndEscCanClear(t *testing.T) {
+	live := &Live{
+		messages: map[string][]surface.Message{"sess_1": nil},
+		activeID: "sess_1",
+		busy:     true,
+		ctx:      context.Background(),
+	}
+	if cmd := live.Send("second task"); cmd == nil {
+		t.Fatal("queued send should refresh the view")
+	}
+	if live.Meta().Queued != 1 {
+		t.Fatalf("queued = %d", live.Meta().Queued)
+	}
+	if !live.ClearQueue() || live.Meta().Queued != 0 {
+		t.Fatalf("queue did not clear: %+v", live.Meta())
 	}
 }
 

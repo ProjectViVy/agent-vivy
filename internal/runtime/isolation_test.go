@@ -60,3 +60,28 @@ func TestWorkspaceManagerRejectsTraversalAndSymlink(t *testing.T) {
 		t.Fatal("want symlink workspace rejection")
 	}
 }
+
+func TestLocalWorkspaceManagerMountsProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	m, err := NewLocalWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := m.Ensure(context.Background(), domain.RunID("run_one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := m.Ensure(context.Background(), domain.RunID("run_two"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.ID != "local" || one.Path != root || two != one {
+		t.Fatalf("local workspaces = %+v %+v, want shared root %q", one, two, root)
+	}
+	if err := m.ValidatePath(filepath.Join(root, "child.txt")); err != nil {
+		t.Fatalf("validate child: %v", err)
+	}
+	if err := m.ValidatePath(filepath.Join(root, "..", "outside.txt")); err == nil {
+		t.Fatal("want local world escape rejection")
+	}
+}

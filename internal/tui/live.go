@@ -16,9 +16,12 @@ import (
 
 // Live is a surface.Driver backed by a control-plane Client.
 type Live struct {
-	client *Client
-	host   string
-	title  string
+	client         *Client
+	host           string
+	title          string
+	face           string
+	initialPrompt  string
+	continueNewest bool
 
 	mu sync.Mutex
 
@@ -30,6 +33,7 @@ type Live struct {
 	runID   string
 	gate    *surface.Gate
 	lastErr string
+	queue   []string
 
 	seq int
 
@@ -40,24 +44,33 @@ type Live struct {
 
 // LiveOptions configure one live fullscreen session.
 type LiveOptions struct {
-	Host  string
-	Title string
+	Host           string
+	Title          string
+	Face           string
+	InitialPrompt  string
+	ContinueNewest bool
 }
 
 // NewLive wraps a connected client. Call Init from the Bubble Tea model.
 func NewLive(client *Client, opts LiveOptions) *Live {
 	if opts.Title == "" {
-		opts.Title = "TUI"
+		opts.Title = "VIVY CODE"
+	}
+	if strings.TrimSpace(opts.Face) == "" {
+		opts.Face = string(domain.FaceCode)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	l := &Live{
-		client:   client,
-		host:     strings.TrimSpace(opts.Host),
-		title:    opts.Title,
-		messages: map[string][]surface.Message{},
-		events:   make(chan eventNotice, 128),
-		ctx:      ctx,
-		cancel:   cancel,
+		client:         client,
+		host:           strings.TrimSpace(opts.Host),
+		title:          opts.Title,
+		face:           opts.Face,
+		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
+		continueNewest: opts.ContinueNewest,
+		messages:       map[string][]surface.Message{},
+		events:         make(chan eventNotice, 128),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 	client.OnNotify(func(method string, params json.RawMessage) {
 		if method != "run/event" {
@@ -133,17 +146,24 @@ func (l *Live) PendingGate() *surface.Gate {
 func (l *Live) Meta() surface.Meta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	footer := "live"
+	footer := l.title
+	if footer == "" {
+		footer = "VIVY CODE"
+	}
 	if l.host != "" {
-		footer = "live · " + l.host
+		footer += " · " + l.host
 	}
 	if l.busy {
 		footer += " · run…"
+	}
+	if len(l.queue) > 0 {
+		footer += fmt.Sprintf(" · queued %d", len(l.queue))
 	}
 	return surface.Meta{
 		Mode:   "live",
 		Host:   l.host,
 		Busy:   l.busy,
+		Queued: len(l.queue),
 		RunID:  l.runID,
 		Error:  l.lastErr,
 		Footer: footer,
@@ -179,8 +199,9 @@ type liveTurnStartedMsg struct {
 
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
 type liveRPCMsg struct {
-	Kind string
-	Err  error
+	Kind   string
+	Preset string
+	Err    error
 }
 
 // Init implements surface.Driver.
@@ -210,8 +231,13 @@ func (l *Live) bootCmd() tea.Cmd {
 		}
 		activeID := ""
 		var messages []surface.Message
-		if len(out) == 0 {
-			created, err := l.client.createSession(ctx, l.title)
+		startFresh := len(out) == 0 || (l.initialPrompt != "" && !l.continueNewest)
+		if startFresh {
+			title := l.title
+			if l.initialPrompt != "" {
+				title = trimTitle(l.initialPrompt)
+			}
+			created, err := l.client.createSession(ctx, title)
 			if err != nil {
 				return liveBootMsg{Err: err}
 			}
@@ -235,7 +261,10 @@ func (l *Live) bootCmd() tea.Cmd {
 func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case liveTickMsg:
-		l.drainEvents()
+		finished := l.drainEvents()
+		if finished {
+			return tea.Batch(l.dequeueCmd(), l.tickCmd())
+		}
 		return l.tickCmd()
 	case liveBootMsg:
 		return l.applyBoot(msg)
@@ -256,21 +285,38 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 }
 
 func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
+	autoSend := ""
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
 		if len(msg.Sessions) > 0 {
 			l.sessions = msg.Sessions
 			l.activeID = msg.ActiveID
 		}
+		l.mu.Unlock()
 		return nil
 	}
 	l.sessions = msg.Sessions
 	l.activeID = msg.ActiveID
 	l.messages[msg.ActiveID] = msg.Messages
 	l.lastErr = ""
+	if l.initialPrompt != "" {
+		autoSend = l.initialPrompt
+		l.initialPrompt = ""
+	}
+	l.mu.Unlock()
+	if autoSend != "" {
+		return l.Send(autoSend)
+	}
 	return nil
+}
+
+func trimTitle(prompt string) string {
+	runes := []rune(strings.TrimSpace(prompt))
+	if len(runes) > 60 {
+		return string(runes[:60]) + "..."
+	}
+	return string(runes)
 }
 
 func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
@@ -339,19 +385,41 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	if msg.Kind == "approval" || msg.Kind == "question" {
 		l.gate = nil
 	}
+	if msg.Kind == "permission" && msg.Preset != "" {
+		for i := range l.sessions {
+			if l.sessions[i].ID == l.activeID {
+				l.sessions[i].PermissionPreset = msg.Preset
+				break
+			}
+		}
+	}
 	l.lastErr = ""
 	return nil
 }
 
-func (l *Live) drainEvents() {
+func (l *Live) drainEvents() bool {
+	finished := false
 	for {
 		select {
 		case notice := <-l.events:
 			l.applyNotice(notice)
+			finished = finished || notice.Kind == "done"
 		default:
-			return
+			return finished
 		}
 	}
+}
+
+func (l *Live) dequeueCmd() tea.Cmd {
+	l.mu.Lock()
+	if l.busy || l.gate != nil || len(l.queue) == 0 {
+		l.mu.Unlock()
+		return nil
+	}
+	text := l.queue[0]
+	l.queue = l.queue[1:]
+	l.mu.Unlock()
+	return l.Send(text)
 }
 
 func (l *Live) applyNotice(notice eventNotice) {
@@ -362,15 +430,33 @@ func (l *Live) applyNotice(notice eventNotice) {
 	}
 	switch notice.Kind {
 	case "delta":
-		l.ensureAssistantDraftLocked()
 		msgs := l.messages[l.activeID]
+		for i := range msgs {
+			if msgs[i].Reasoning {
+				msgs[i].Streaming = false
+			}
+		}
+		l.messages[l.activeID] = msgs
+		l.ensureAssistantDraftLocked()
+		msgs = l.messages[l.activeID]
 		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == string(domain.RoleAssistant) && msgs[i].Streaming {
+			if msgs[i].Role == string(domain.RoleAssistant) && msgs[i].Streaming && !msgs[i].Reasoning {
 				msgs[i].Content += notice.Delta
 				l.messages[l.activeID] = msgs
 				return
 			}
 		}
+	case "reasoning":
+		msgs := l.messages[l.activeID]
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Reasoning && msgs[i].Streaming {
+				msgs[i].Content += notice.Delta
+				l.messages[l.activeID] = msgs
+				return
+			}
+			break
+		}
+		l.appendLocked(surface.Message{ID: l.nextID("thinking"), Role: string(domain.RoleAssistant), Content: notice.Delta, Streaming: true, Reasoning: true})
 	case "tool_requested":
 		l.finishStreamingLocked()
 		l.appendLocked(surface.Message{
@@ -379,7 +465,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 			Tool: &surface.ToolCard{
 				ToolName: notice.Message,
 				Status:   "pending",
-				Preview:  "",
+				Preview:  notice.Line,
 			},
 		})
 	case "tool_finished":
@@ -392,6 +478,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 					msgs[i].Tool.Result = notice.Line
 				} else {
 					msgs[i].Tool.Status = "done"
+					msgs[i].Tool.Result = notice.Line
 					if msgs[i].Tool.Result == "" {
 						msgs[i].Tool.Result = "done"
 					}
@@ -435,8 +522,6 @@ func (l *Live) applyNotice(notice eventNotice) {
 				})
 			}
 		}
-	case "line":
-		// reasoning / misc — ignore in chat projection for the thin face
 	case "done":
 		l.finishStreamingLocked()
 		l.busy = false
@@ -455,7 +540,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 func (l *Live) ensureAssistantDraftLocked() {
 	msgs := l.messages[l.activeID]
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == string(domain.RoleAssistant) && msgs[i].Streaming {
+		if msgs[i].Role == string(domain.RoleAssistant) && msgs[i].Streaming && !msgs[i].Reasoning {
 			return
 		}
 		// If last assistant is complete and we stream again, fall through.
@@ -576,8 +661,9 @@ func (l *Live) Send(text string) tea.Cmd {
 	}
 	l.mu.Lock()
 	if l.busy || l.gate != nil {
+		l.queue = append(l.queue, text)
 		l.mu.Unlock()
-		return nil
+		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
 	sessionID := l.activeID
 	l.appendLocked(surface.Message{
@@ -591,7 +677,7 @@ func (l *Live) Send(text string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		accepted, err := l.client.startTurn(ctx, sessionID, text)
+		accepted, err := l.client.startTurn(ctx, sessionID, text, l.face)
 		if err != nil {
 			return liveTurnStartedMsg{UserText: text, Err: err}
 		}
@@ -658,6 +744,40 @@ func (l *Live) AnswerQuestion(answer string) tea.Cmd {
 		err := l.client.respondQuestion(ctx, id, answer)
 		return liveRPCMsg{Kind: "question", Err: err}
 	}
+}
+
+// SetPermission persists the active session's cautious/smart/trusted bundle.
+func (l *Live) SetPermission(preset string) tea.Cmd {
+	preset = strings.TrimSpace(preset)
+	if !domain.PermissionPreset(preset).ValidSwitch() {
+		return nil
+	}
+	l.mu.Lock()
+	sessionID := l.activeID
+	busy := l.busy || l.gate != nil
+	l.mu.Unlock()
+	if sessionID == "" || busy {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		session, err := l.client.setSessionPermission(ctx, sessionID, preset)
+		if session.PermissionPreset != "" {
+			preset = session.PermissionPreset
+		}
+		return liveRPCMsg{Kind: "permission", Preset: preset, Err: err}
+	}
+}
+
+func (l *Live) ClearQueue() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.queue) == 0 {
+		return false
+	}
+	l.queue = nil
+	return true
 }
 
 // Cancel implements surface.Driver.

@@ -112,7 +112,7 @@ func TestREPLTurnStartAndSubscribeRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := client.startTurn(ctx, session.ID, "hello")
+	accepted, err := client.startTurn(ctx, session.ID, "hello", "code")
 	if err != nil {
 		t.Fatal(err)
 	}

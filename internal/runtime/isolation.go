@@ -23,7 +23,8 @@ type Workspace struct {
 // root. It intentionally does not execute git or shell commands; a future
 // filesystem/subagent tool must be wired to this boundary explicitly.
 type WorkspaceManager struct {
-	root string
+	root  string
+	local bool
 }
 
 // NewWorkspaceManager validates and normalizes the isolation root. The root
@@ -40,6 +41,19 @@ func NewWorkspaceManager(root string) (*WorkspaceManager, error) {
 	return &WorkspaceManager{root: filepath.Clean(abs)}, nil
 }
 
+// NewLocalWorkspaceManager mounts root itself as the workspace for every
+// run. It is the code-face world: commands and file tools operate on the
+// project the user launched Vivy from, while path validation, sandbox policy,
+// approvals, protected-file checks, and the Journal remain unchanged.
+func NewLocalWorkspaceManager(root string) (*WorkspaceManager, error) {
+	m, err := NewWorkspaceManager(root)
+	if err != nil {
+		return nil, err
+	}
+	m.local = true
+	return m, nil
+}
+
 // Ensure creates or verifies the private workspace for a run. IDs are
 // constrained before joining paths, and symlinks are rejected so a malicious
 // run ID cannot redirect writes outside the root.
@@ -49,6 +63,16 @@ func (m *WorkspaceManager) Ensure(ctx context.Context, runID domain.RunID) (Work
 	}
 	if err := ctx.Err(); err != nil {
 		return Workspace{}, err
+	}
+	if m.local {
+		info, err := os.Lstat(m.root)
+		if err != nil {
+			return Workspace{}, fmt.Errorf("runtime: inspect local workspace: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return Workspace{}, errors.New("runtime: local workspace root is not a directory")
+		}
+		return Workspace{ID: "local", Path: m.root}, nil
 	}
 	name := string(runID)
 	if !validWorkspaceName(name) {

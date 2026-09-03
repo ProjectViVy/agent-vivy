@@ -65,6 +65,9 @@ runtime:
   # run's model preamble (D6, transient — never persisted); `vivy init`
   # generates a starter AGENTS.md for a project directory.
   workspace_root: data/workspaces
+  # sandbox = one private directory per run; local mounts workspace_root
+  # directly and is intended for the interactive code face.
+  world: sandbox
   # Trusted local Skill packages. Skill text is still treated as untrusted data.
   # Default: <user data root>/skills.
   skills_root: data/skills

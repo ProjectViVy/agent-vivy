@@ -1,0 +1,62 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"agent-vivy/internal/tui/view"
+	"agent-vivy/sdk/plugin"
+)
+
+// NewFace is the built-in interactive code face used by `vivy tui`.
+func NewFace(opts plugin.FaceOptions) plugin.Face { return &codeFace{opts: opts} }
+
+type codeFace struct{ opts plugin.FaceOptions }
+
+func (*codeFace) Kind() string { return "tui" }
+
+func (f *codeFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, error) {
+	if !looksTerminal(f.opts.Out) {
+		return plugin.FaceResult{Status: "failed"}, errors.New("tui: an interactive terminal is required")
+	}
+	client := AttachFaceEnv(env)
+	if _, err := client.Call(ctx, "initialize", nil); err != nil {
+		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: initialize: %w", err)
+	}
+	live := NewLive(client, LiveOptions{
+		Host:           "local project",
+		Title:          "VIVY CODE",
+		Face:           "code",
+		InitialPrompt:  f.opts.Prompt,
+		ContinueNewest: f.opts.ContinueNewest,
+	})
+	defer live.Close()
+	if err := view.RunWithOutput(live, f.opts.Out); err != nil {
+		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: %w", err)
+	}
+	shutdownLiveRun(client, live)
+	return plugin.FaceResult{Status: "completed"}, nil
+}
+
+func shutdownLiveRun(client *Client, live *Live) {
+	meta := live.Meta()
+	if !meta.Busy || meta.RunID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = client.cancelRun(ctx, meta.RunID)
+}
+
+func looksTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return true
+	}
+	stat, err := f.Stat()
+	return err != nil || stat.Mode()&os.ModeCharDevice != 0
+}

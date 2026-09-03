@@ -3,9 +3,13 @@
 package view
 
 import (
+	"io"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tui/demo"
@@ -24,7 +28,7 @@ type Model struct {
 // New returns a model bound to the given driver.
 func New(driver surface.Driver) Model {
 	if driver == nil {
-		driver = demo.NewStore()
+		driver = noDriver{}
 	}
 	return Model{
 		driver:  driver,
@@ -86,6 +90,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			// no-op on the gate body so the operator still y/n (or types an answer).
 			return m, nil
 		}
+		if meta.Queued > 0 {
+			m.driver.ClearQueue()
+			return m, nil
+		}
 		if meta.Busy {
 			return m, m.driver.Cancel()
 		}
@@ -95,6 +103,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if gate == nil && !meta.Busy {
 			m.input = ""
 			return m, m.driver.NewSession("")
+		}
+		return m, nil
+	case tea.KeyCtrlY:
+		if gate == nil && !meta.Busy {
+			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset))
 		}
 		return m, nil
 	case tea.KeyTab:
@@ -124,9 +137,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.input = ""
 				return m, m.driver.AnswerQuestion(answer)
 			}
-			return m, nil
-		}
-		if meta.Busy {
 			return m, nil
 		}
 		text := m.input
@@ -176,6 +186,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func nextPermission(current string) string {
+	switch current {
+	case string(domain.PermissionPresetCautious):
+		return string(domain.PermissionPresetSmart)
+	case string(domain.PermissionPresetSmart):
+		return string(domain.PermissionPresetTrusted)
+	default:
+		return string(domain.PermissionPresetCautious)
+	}
+}
+
 // RunDemo starts the fullscreen Bubble Tea program on offline demo data.
 func RunDemo() error {
 	return Run(demo.NewStore())
@@ -183,7 +204,27 @@ func RunDemo() error {
 
 // Run starts the fullscreen Bubble Tea program on the given driver.
 func Run(driver surface.Driver) error {
-	p := tea.NewProgram(New(driver), tea.WithAltScreen())
+	return RunWithOutput(driver, os.Stdout)
+}
+
+// RunWithOutput starts the canonical shell on the launcher's output stream.
+func RunWithOutput(driver surface.Driver, out io.Writer) error {
+	configureColor(out)
+	p := tea.NewProgram(New(driver), tea.WithAltScreen(), tea.WithOutput(out))
 	_, err := p.Run()
 	return err
+}
+
+func configureColor(out io.Writer) {
+	if os.Getenv("NO_COLOR") != "" {
+		return
+	}
+	f, ok := out.(*os.File)
+	if !ok {
+		return
+	}
+	stat, err := f.Stat()
+	if err == nil && stat.Mode()&os.ModeCharDevice != 0 {
+		lipgloss.SetColorProfile(termenv.TrueColor)
+	}
 }

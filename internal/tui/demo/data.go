@@ -148,6 +148,19 @@ func (s *Store) DecideApproval(decision string) tea.Cmd {
 // AnswerQuestion implements surface.Driver (demo has no question gate).
 func (s *Store) AnswerQuestion(string) tea.Cmd { return nil }
 
+// SetPermission implements surface.Driver for the explicit demo fixture.
+func (s *Store) SetPermission(preset string) tea.Cmd {
+	for i := range s.sessions {
+		if s.sessions[i].ID == s.activeID {
+			s.sessions[i].PermissionPreset = preset
+			break
+		}
+	}
+	return nil
+}
+
+func (s *Store) ClearQueue() bool { return false }
+
 // Cancel implements surface.Driver (demo has nothing in flight).
 func (s *Store) Cancel() tea.Cmd { return nil }
 

@@ -10,9 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goRuntime "runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"mvdan.cc/sh/v3/expand"
+	"mvdan.cc/sh/v3/interp"
+	"mvdan.cc/sh/v3/syntax"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
@@ -136,6 +141,24 @@ func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, re
 func (b *EinoCommandBackend) executeBash(ctx context.Context, path string, args []string, cwd string, env []string, timeout time.Duration, background bool) (tools.CommandResult, error) {
 	display := strings.Join(append([]string{"bash"}, args...), " ")
 	spec := tools.JobSpec{Display: display, Path: path, Args: args, Dir: cwd, Env: env}
+	if goRuntime.GOOS == "windows" || path == "" {
+		if len(args) != 2 || args[0] != "-c" {
+			return tools.CommandResult{}, errors.New("command: embedded bash requires -c script")
+		}
+		script := args[1]
+		spec.Path, spec.Args = "", nil
+		spec.Run = func(runCtx context.Context, stdout, stderr io.Writer) error {
+			file, err := syntax.NewParser().Parse(strings.NewReader(script), "")
+			if err != nil {
+				return fmt.Errorf("command: parse shell: %w", err)
+			}
+			runner, err := interp.New(interp.Dir(cwd), interp.Env(expand.ListEnviron(env...)), interp.StdIO(nil, stdout, stderr), interp.ExecHandlers(portableShellCommands))
+			if err != nil {
+				return fmt.Errorf("command: build shell: %w", err)
+			}
+			return runner.Run(runCtx, file)
+		}
+	}
 	if background {
 		id, err := b.jobs.Launch(ctx, spec)
 		if err != nil {
@@ -150,6 +173,26 @@ func (b *EinoCommandBackend) executeBash(ctx context.Context, path string, args 
 	}
 	result.Command, result.Cwd, result.Untrusted = display, cwd, true
 	return result, nil
+}
+
+func portableShellCommands(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
+	return func(ctx context.Context, args []string) error {
+		if len(args) == 2 && args[0] == "sleep" {
+			d, err := time.ParseDuration(args[1] + "s")
+			if err != nil || d < 0 {
+				return interp.NewExitStatus(2)
+			}
+			timer := time.NewTimer(d)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				return nil
+			}
+		}
+		return next(ctx, args)
+	}
 }
 
 // JobRead and JobKill expose the registry to the job_output/job_kill tools.

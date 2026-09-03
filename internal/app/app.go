@@ -191,7 +191,13 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	var workspaceManager *runtime.WorkspaceManager
 	var sandboxManager *runtime.SandboxManager
 	if cfg.Runtime.WorkspaceRoot != "" {
-		manager, err := runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+		var manager *runtime.WorkspaceManager
+		var err error
+		if cfg.Runtime.World == "local" {
+			manager, err = runtime.NewLocalWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+		} else {
+			manager, err = runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+		}
 		if err != nil {
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: build workspace isolation: %w", err)

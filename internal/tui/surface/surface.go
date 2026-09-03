@@ -31,6 +31,7 @@ type Message struct {
 	Tool    *ToolCard
 	// Streaming marks an in-progress assistant bubble (live tail cursor).
 	Streaming bool
+	Reasoning bool
 }
 
 // Gate is the modal approval / question overlay.
@@ -46,6 +47,7 @@ type Meta struct {
 	Mode   string // demo | live
 	Host   string
 	Busy   bool
+	Queued int
 	RunID  string
 	Error  string
 	Footer string // short status fragment after help keys
@@ -68,6 +70,8 @@ type Driver interface {
 	Send(text string) tea.Cmd
 	DecideApproval(decision string) tea.Cmd
 	AnswerQuestion(answer string) tea.Cmd
+	SetPermission(preset string) tea.Cmd
+	ClearQueue() bool
 	Cancel() tea.Cmd
 }
 
