@@ -26,7 +26,6 @@ function parseHosts(value: string): string[] {
 export function NetworkToolsCard() {
   const { t } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
-  const phase = useVivyStore((state) => state.settingsPhase);
   const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
@@ -34,31 +33,35 @@ export function NetworkToolsCard() {
   const view = settings?.network_search;
   const roster = view?.providers ?? [];
   const [preferred, setPreferred] = useState<string>('');
+	const [preferredEdited, setPreferredEdited] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
 
   const httpView = settings?.http;
   const [hostsText, setHostsText] = useState('');
   const [timeoutText, setTimeoutText] = useState('');
   const [httpSavedFlash, setHttpSavedFlash] = useState(false);
+	const [httpEdited, setHttpEdited] = useState(false);
+	const [activeSave, setActiveSave] = useState<'provider' | 'http' | null>(null);
 
   // 进入分区时刷新，随后跟随 store 的最新 settings（含本次保存回显）。
   useEffect(() => {
     void load();
   }, [load]);
   useEffect(() => {
-    if (view) setPreferred(view.provider);
-  }, [view]);
+	if (view && !preferredEdited) setPreferred(view.provider);
+	}, [view, preferredEdited]);
   useEffect(() => {
-    if (httpView) {
+	if (httpView && !httpEdited) {
       setHostsText((httpView.allowed_hosts ?? []).join('\n'));
       setTimeoutText(String(httpView.timeout_seconds));
     }
-  }, [httpView]);
+	}, [httpView, httpEdited]);
 
-  const locked = settings?.read_only || phase === 'processing';
+	const locked = settings?.read_only || Boolean(settings?.frozen);
 
   const applyPreferred = async (provider: string) => {
-    if (locked) return;
+	if (locked || activeSave !== null) return;
+	setActiveSave('provider');
     try {
       // settings/update 只改 active 选择与 network_search 偏好；密钥覆盖层由
       // 后端按注册表解析（settings/update 不发送、不回传密钥）。
@@ -66,11 +69,12 @@ export function NetworkToolsCard() {
         ...settingsUpdateFrom(settings),
         network_search: { provider },
       });
+	  setPreferredEdited(false);
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
-    } catch {
+	} catch {
       // settingsError 已由 store 记录并渲染。
-    }
+	} finally { setActiveSave(null); }
   };
 
   const nextHosts = parseHosts(hostsText);
@@ -81,18 +85,20 @@ export function NetworkToolsCard() {
       || (timeoutValid ? nextTimeout : -1) !== httpView.timeout_seconds);
 
   const applyHttp = async () => {
-    if (locked || !httpDirty || !timeoutValid) return;
+	if (locked || activeSave !== null || !httpDirty || !timeoutValid) return;
+	setActiveSave('http');
     try {
       // settings/update 只改 http 覆盖层；显式空列表是拒绝全部的只读面。
       await save({
         ...settingsUpdateFrom(settings),
         http: { allowed_hosts: nextHosts, timeout_seconds: timeoutValid ? nextTimeout : 0 },
       });
+	  setHttpEdited(false);
       setHttpSavedFlash(true);
       window.setTimeout(() => setHttpSavedFlash(false), 2000);
-    } catch {
+	} catch {
       // settingsError 已由 store 记录并渲染。
-    }
+	} finally { setActiveSave(null); }
   };
 
   return (
@@ -110,7 +116,7 @@ export function NetworkToolsCard() {
         <div className="space-y-2">
           <Label htmlFor="network-tools-provider">{t('networkTools.preferredProvider')}</Label>
           <div className="flex flex-wrap items-center gap-3">
-            <Select value={preferred} disabled={locked} onValueChange={(value) => setPreferred(value)}>
+			<Select value={preferred} disabled={locked} onValueChange={(value) => { setPreferred(value); setPreferredEdited(true); }}>
               <SelectTrigger id="network-tools-provider" className="w-64"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="">{t('networkTools.auto')}</SelectItem>
@@ -119,8 +125,8 @@ export function NetworkToolsCard() {
                 ))}
               </SelectContent>
             </Select>
-            <Button type="button" disabled={locked || preferred === (view?.provider ?? '')} onClick={() => void applyPreferred(preferred)}>
-              {phase === 'processing' ? t('networkTools.saving') : t('networkTools.save')}
+			<Button type="button" disabled={locked || activeSave !== null || preferred === (view?.provider ?? '')} onClick={() => void applyPreferred(preferred)}>
+			  {activeSave === 'provider' ? t('networkTools.saving') : t('networkTools.save')}
             </Button>
             {savedFlash ? (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -168,7 +174,7 @@ export function NetworkToolsCard() {
               rows={3}
               value={hostsText}
               disabled={locked}
-              onChange={(event) => setHostsText(event.target.value)}
+			  onChange={(event) => { setHostsText(event.target.value); setHttpEdited(true); }}
               placeholder={t('networkTools.httpHostsPlaceholder')}
             />
             <p className="text-xs text-muted-foreground">{t('networkTools.httpHostsHint')}</p>
@@ -182,7 +188,7 @@ export function NetworkToolsCard() {
               max={120}
               value={timeoutText}
               disabled={locked}
-              onChange={(event) => setTimeoutText(event.target.value)}
+			  onChange={(event) => { setTimeoutText(event.target.value); setHttpEdited(true); }}
             />
             <p className="text-xs text-muted-foreground">
               {t('networkTools.httpTimeoutHint', { config: httpView?.config_timeout_seconds ?? 10 })}
@@ -191,10 +197,10 @@ export function NetworkToolsCard() {
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"
-              disabled={locked || !httpDirty || !timeoutValid}
+			  disabled={locked || activeSave !== null || !httpDirty || !timeoutValid}
               onClick={() => void applyHttp()}
             >
-              {phase === 'processing' ? t('networkTools.saving') : t('networkTools.save')}
+			  {activeSave === 'http' ? t('networkTools.saving') : t('networkTools.save')}
             </Button>
             {httpSavedFlash ? (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">

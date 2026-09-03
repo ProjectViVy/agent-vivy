@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,25 +44,32 @@ export function CompactionSettingsCard() {
 
   const [history, setHistory] = useState<SessionCompactionRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+	const [historyError, setHistoryError] = useState<string | null>(null);
+	const historyRequest = useRef(0);
 
   const refreshHistory = useCallback(async (sessionId: string) => {
+	const request = ++historyRequest.current;
     setHistoryLoading(true);
+	setHistoryError(null);
     try {
       const res = await listSessionCompactions(sessionId, 50);
-      setHistory(res.compactions ?? []);
-    } catch {
-      setHistory([]);
+	  if (request === historyRequest.current) setHistory(res.compactions ?? []);
+	} catch (error) {
+	  if (request === historyRequest.current) setHistoryError(error instanceof Error ? error.message : String(error));
     } finally {
-      setHistoryLoading(false);
+	  if (request === historyRequest.current) setHistoryLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!activeSessionId) {
+	  historyRequest.current += 1;
       setHistory([]);
+	  setHistoryLoading(false);
+	  setHistoryError(null);
       return;
     }
-    void refreshHistory(activeSessionId);
+	void refreshHistory(activeSessionId);
   }, [activeSessionId, refreshHistory]);
 
   useEffect(() => {
@@ -107,7 +114,7 @@ export function CompactionSettingsCard() {
           before: result.before_tokens.toLocaleString(),
           after: result.after_tokens.toLocaleString(),
         }));
-        void refreshHistory(activeSessionId);
+		await refreshHistory(activeSessionId);
       }
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : String(error));
@@ -182,9 +189,10 @@ export function CompactionSettingsCard() {
             <p className="text-sm font-medium">{t('settings.compaction.historyTitle')}</p>
             {historyLoading ? <span className="text-xs text-muted-foreground" aria-live="polite">{t('settings.compaction.historyLoading')}</span> : null}
           </div>
+		  {historyError ? <div className="mt-2 flex items-center justify-between gap-2 text-xs text-destructive" role="alert"><span>{historyError}</span><Button type="button" size="sm" variant="outline" onClick={() => activeSessionId && void refreshHistory(activeSessionId)}>{t('common.retry')}</Button></div> : null}
           {!activeSessionId ? (
             <p className="mt-2 text-sm text-muted-foreground">{t('settings.compaction.historyOpenSessionHint')}</p>
-          ) : history.length === 0 ? (
+		  ) : historyLoading && history.length === 0 ? null : history.length === 0 && !historyError ? (
             <p className="mt-2 text-sm text-muted-foreground" data-testid="compaction-history-empty">{t('settings.compaction.historyEmpty')}</p>
           ) : (
             <ul className="mt-2 space-y-2" data-testid="compaction-history">
