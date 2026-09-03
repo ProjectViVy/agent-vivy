@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"agent-vivy/sdk/tui/stream"
 	"example.com/vivy/faces/tui/surface"
 )
 
@@ -36,15 +36,14 @@ type Live struct {
 	continueNewest bool
 
 	seq int
-	// lastEventSeq is the latest contiguous durable event applied for the
-	// active run. recovering prevents duplicate replay subscriptions.
-	lastEventSeq     int
-	recovering       bool
+	// cursor is the shared durable stream reducer state. The local fields
+	// below are transport subscription bookkeeping only.
+	cursor           stream.Cursor
 	recoveryInFlight bool
+	replayPending    bool
 	nextRecoveryAt   time.Time
 
-	eventMu   sync.Mutex
-	events    []eventNotice
+	inbox     stream.Inbox
 	eventWake chan struct{}
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -100,9 +99,7 @@ func (l *Live) Close() {
 	if l.cancel != nil {
 		l.cancel()
 	}
-	l.eventMu.Lock()
-	l.events = nil
-	l.eventMu.Unlock()
+	l.inbox.Close()
 }
 
 // Sessions implements surface.Driver.
@@ -387,9 +384,9 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	}
 	l.busy = true
 	l.runID = msg.RunID
-	l.lastEventSeq = 0
-	l.recovering = false
+	l.cursor.Reset()
 	l.recoveryInFlight = false
+	l.replayPending = false
 	l.nextRecoveryAt = time.Time{}
 	l.lastErr = ""
 	l.ensureAssistantDraftLocked()
@@ -414,13 +411,15 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	if msg.Err == nil {
 		if msg.Recovery {
 			l.recoveryInFlight = false
+			l.replayPending = true
+			l.nextRecoveryAt = time.Now().Add(2 * time.Second)
 		}
 		l.mu.Unlock()
 		return nil
 	}
 	// Ignore a stale subscription failure once a newer stream has already
 	// advanced beyond the cursor requested by that call.
-	if l.lastEventSeq > msg.AfterSeq {
+	if l.cursor.LastSeq > msg.AfterSeq {
 		if msg.Recovery {
 			l.recoveryInFlight = false
 		}
@@ -429,6 +428,7 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	}
 	if msg.Recovery {
 		l.recoveryInFlight = false
+		l.replayPending = false
 		l.nextRecoveryAt = time.Now().Add(time.Second)
 		l.lastErr = "stream replay: " + shortErr(msg.Err)
 		l.mu.Unlock()
@@ -437,8 +437,9 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	l.lastErr = shortErr(msg.Err)
 	l.busy = false
 	l.runID = ""
-	l.recovering = false
+	l.cursor.Reset()
 	l.recoveryInFlight = false
+	l.replayPending = false
 	l.finishStreamingLocked()
 	l.mu.Unlock()
 	return func() tea.Msg {
@@ -487,26 +488,13 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 }
 
 func (l *Live) drainEvents() (finished bool, gap bool) {
-	l.eventMu.Lock()
-	pending := l.events
-	l.events = nil
-	l.eventMu.Unlock()
-	sort.SliceStable(pending, func(i, j int) bool {
-		if pending[i].Seq <= 0 {
-			return false
-		}
-		if pending[j].Seq <= 0 {
-			return true
-		}
-		return pending[i].Seq < pending[j].Seq
-	})
+	pending := l.inbox.Take()
+	stream.Order(pending)
 	for i, notice := range pending {
 		accept, missing := l.acceptSequence(notice)
 		if missing {
 			gap = true
-			l.eventMu.Lock()
-			l.events = append(append([]eventNotice(nil), pending[i:]...), l.events...)
-			l.eventMu.Unlock()
+			l.inbox.Prepend(pending[i:])
 			break
 		}
 		if !accept {
@@ -528,35 +516,25 @@ func (l *Live) drainEvents() (finished bool, gap bool) {
 }
 
 func (l *Live) acceptSequence(notice eventNotice) (accept bool, gap bool) {
-	if notice.Seq <= 0 {
-		return true, false
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if notice.RunID != "" && l.runID != "" && notice.RunID != l.runID {
-		return false, false
+	accept, gap = l.cursor.Accept(l.runID, stream.Notice(notice))
+	if accept && notice.Seq > 0 {
+		l.replayPending = false
+		l.nextRecoveryAt = time.Time{}
 	}
-	if notice.Seq <= l.lastEventSeq {
-		return false, false
-	}
-	if notice.Seq != l.lastEventSeq+1 {
-		if !l.recovering {
-			l.recovering = true
-		}
-		return false, true
-	}
-	l.lastEventSeq = notice.Seq
-	l.recovering = false
-	return true, false
+	return accept, gap
 }
 
 func (l *Live) recoverSubscriptionCmd() tea.Cmd {
 	l.mu.Lock()
-	if l.recoveryInFlight || time.Now().Before(l.nextRecoveryAt) {
+	now := time.Now()
+	if l.recoveryInFlight || now.Before(l.nextRecoveryAt) {
 		l.mu.Unlock()
 		return nil
 	}
-	runID, afterSeq := l.runID, l.lastEventSeq
+	l.replayPending = false
+	runID, afterSeq := l.runID, l.cursor.LastSeq
 	if runID != "" {
 		l.recoveryInFlight = true
 	}
@@ -576,9 +554,9 @@ func (l *Live) enqueueNotice(notice eventNotice) {
 		return
 	default:
 	}
-	l.eventMu.Lock()
-	l.events = append(l.events, notice)
-	l.eventMu.Unlock()
+	if !l.inbox.Push(stream.Notice(notice)) {
+		return
+	}
 	select {
 	case l.eventWake <- struct{}{}:
 	default:
@@ -603,148 +581,30 @@ func (l *Live) applyNotice(notice eventNotice) {
 	if notice.RunID != "" && l.runID != "" && notice.RunID != l.runID {
 		return
 	}
-	switch notice.Kind {
-	case "delta":
-		// Empty deltas from older journals are not a reasoning/answer
-		// boundary and must not split a continuous thinking block.
-		if notice.Delta == "" {
-			return
-		}
-		msgs := l.messages[l.activeID]
-		for i := range msgs {
-			if msgs[i].Reasoning {
-				msgs[i].Streaming = false
-			}
-		}
-		l.messages[l.activeID] = msgs
-		l.ensureAssistantDraftLocked()
-		msgs = l.messages[l.activeID]
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == roleAssistant && msgs[i].Streaming && !msgs[i].Reasoning {
-				msgs[i].Content += notice.Delta
-				l.messages[l.activeID] = msgs
-				return
-			}
-		}
-	case "reasoning":
-		msgs := l.messages[l.activeID]
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Reasoning && msgs[i].Streaming {
-				msgs[i].Content += notice.Delta
-				l.messages[l.activeID] = msgs
-				return
-			}
-			break
-		}
-		l.appendLocked(surface.Message{ID: l.nextID("thinking"), Role: roleAssistant, Content: notice.Delta, Streaming: true, Reasoning: true})
-	case "tool_requested":
-		l.finishStreamingLocked()
-		l.appendLocked(surface.Message{
-			ID:   l.nextID("tool"),
-			Role: "tool",
-			Tool: &surface.ToolCard{
-				ToolName: notice.Message,
-				Status:   "pending",
-				Preview:  notice.Line,
-			},
-		})
-	case "tool_finished":
-		l.finishStreamingLocked()
-		msgs := l.messages[l.activeID]
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Tool != nil && msgs[i].Tool.ToolName == notice.Message {
-				if notice.Failed {
-					msgs[i].Tool.Status = "failed"
-					msgs[i].Tool.Result = notice.Line
-				} else {
-					msgs[i].Tool.Status = "done"
-					msgs[i].Tool.Result = notice.Line
-					if msgs[i].Tool.Result == "" {
-						msgs[i].Tool.Result = "done"
-					}
-				}
-				l.messages[l.activeID] = msgs
-				return
-			}
-		}
-	case "gate":
-		l.finishStreamingLocked()
-		if notice.Gate == nil {
-			return
-		}
-		l.gate = &surface.Gate{
-			Kind:  notice.Gate.Kind,
-			ID:    notice.Gate.ID,
-			Title: notice.Gate.Title,
-			Body:  notice.Gate.Body,
-		}
-		if notice.Gate.Kind == "approval" {
-			// Ensure a pending tool card exists for the overlay pair.
-			found := false
-			msgs := l.messages[l.activeID]
-			for i := range msgs {
-				if msgs[i].Tool != nil && msgs[i].Tool.ApprovalID == notice.Gate.ID {
-					msgs[i].Tool.Status = "pending"
-					found = true
-					break
-				}
-			}
-			if !found {
-				l.appendLocked(surface.Message{
-					ID:   l.nextID("tool"),
-					Role: "tool",
-					Tool: &surface.ToolCard{
-						ToolName:   notice.Gate.Title,
-						Status:     "pending",
-						Preview:    notice.Gate.Body,
-						ApprovalID: notice.Gate.ID,
-					},
-				})
-			}
-		}
-	case "done":
-		l.finishStreamingLocked()
+	projection := stream.Projection{Messages: l.messages[l.activeID], Gate: l.gate}
+	done := projection.Apply(stream.Notice(notice), l.nextID)
+	l.messages[l.activeID] = projection.Messages
+	l.gate = projection.Gate
+	if done {
 		l.busy = false
 		l.runID = ""
-		l.recovering = false
+		l.cursor.Reset()
 		l.recoveryInFlight = false
+		l.replayPending = false
 		l.nextRecoveryAt = time.Time{}
-		l.gate = nil
-		if notice.Failed && notice.Message != "" {
-			l.appendLocked(surface.Message{
-				ID:      l.nextID("end"),
-				Role:    roleAssistant,
-				Content: "[" + notice.Message + "]",
-			})
-		}
 	}
 }
 
 func (l *Live) ensureAssistantDraftLocked() {
-	msgs := l.messages[l.activeID]
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == roleAssistant && msgs[i].Streaming && !msgs[i].Reasoning {
-			return
-		}
-		// If last assistant is complete and we stream again, fall through.
-		break
-	}
-	l.appendLocked(surface.Message{
-		ID:        l.nextID("asst"),
-		Role:      roleAssistant,
-		Content:   "",
-		Streaming: true,
-	})
+	projection := stream.Projection{Messages: l.messages[l.activeID]}
+	projection.EnsureAssistantDraft(l.nextID)
+	l.messages[l.activeID] = projection.Messages
 }
 
 func (l *Live) finishStreamingLocked() {
-	msgs := l.messages[l.activeID]
-	for i := range msgs {
-		if msgs[i].Streaming {
-			msgs[i].Streaming = false
-		}
-	}
-	l.messages[l.activeID] = msgs
+	projection := stream.Projection{Messages: l.messages[l.activeID]}
+	projection.FinishStreaming()
+	l.messages[l.activeID] = projection.Messages
 }
 
 func (l *Live) appendLocked(msg surface.Message) {

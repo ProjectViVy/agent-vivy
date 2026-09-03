@@ -259,6 +259,10 @@ func TestApprovalFailureKeepsGateRetryable(t *testing.T) {
 	script["approval/respond"] = func(json.RawMessage) (any, error) { return nil, fmt.Errorf("temporary") }
 	env := &fakeEnv{script: script}
 	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.busy = true
+	live.runID = "run_1"
+	live.mu.Unlock()
 	env.deliver(t, "run_1", "tool.approval_required", map[string]string{"approval_id": "appr_1", "tool_name": "write"})
 	_, _ = live.drainEvents()
 	cmd := live.DecideApproval(decisionApproved)
@@ -277,6 +281,10 @@ func TestQuestionFailureKeepsGateRetryable(t *testing.T) {
 	script["question/respond"] = func(json.RawMessage) (any, error) { return nil, fmt.Errorf("temporary") }
 	env := &fakeEnv{script: script}
 	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.busy = true
+	live.runID = "run_1"
+	live.mu.Unlock()
 	env.deliver(t, "run_1", "user.question_required", map[string]string{"question_id": "q_1", "prompt": "pick"})
 	_, _ = live.drainEvents()
 	cmd := live.AnswerQuestion("blue")
@@ -349,6 +357,10 @@ func TestLiveApprovalRespondsAndFiltersOtherRun(t *testing.T) {
 func TestLiveQuestionAnswerResponds(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.busy = true
+	live.runID = "run_1"
+	live.mu.Unlock()
 
 	env.deliver(t, "run_1", "user.question_required", map[string]string{
 		"question_id": "q_1", "prompt": "pick one?",

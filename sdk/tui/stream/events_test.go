@@ -1,0 +1,37 @@
+package stream
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestDecodeRetainsRunAndSequence(t *testing.T) {
+	event, ok := Decode(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload":{"delta":"x"}}}`))
+	if !ok || event.RunID != "run_1" || event.Seq != 7 || event.Type != "model.delta" {
+		t.Fatalf("event = %+v ok=%v", event, ok)
+	}
+	if got := PayloadString(event.Payload, "delta"); got != "x" {
+		t.Fatalf("delta = %q", got)
+	}
+}
+
+func TestInterpretKeepsUnknownSequence(t *testing.T) {
+	notice := Interpret(Event{RunID: "run_1", Seq: 3, Type: "context.compacted"})
+	if notice.RunID != "run_1" || notice.Seq != 3 || notice.Kind != "" {
+		t.Fatalf("unknown notice = %+v", notice)
+	}
+	if got := Interpret(Event{Type: "model.reasoning_delta", Payload: json.RawMessage(`{"delta":"思考"}`)}); got.Kind != "reasoning" || got.Delta != "思考" {
+		t.Fatalf("reasoning = %+v", got)
+	}
+}
+
+func TestInterpretToolResultShowsDiffDiagnostics(t *testing.T) {
+	notice := Interpret(Event{
+		Type:    "tool.finished",
+		Payload: json.RawMessage(`{"tool_name":"patch","result":"{\"path\":\"a.go\",\"diff\":\"@@ -1 +1 @@\\n-old\\n+new\",\"diagnostics\":\"ok\"}"}`),
+	})
+	if notice.Kind != "tool_finished" || !strings.Contains(notice.Line, "a.go") || !strings.Contains(notice.Line, "+new") || !strings.Contains(notice.Line, "Diagnostics") {
+		t.Fatalf("notice = %+v", notice)
+	}
+}

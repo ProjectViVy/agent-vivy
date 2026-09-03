@@ -1,0 +1,45 @@
+package stream
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestInboxIsLosslessAndPrependsGap(t *testing.T) {
+	var inbox Inbox
+	for i := 0; i < 257; i++ {
+		inbox.Push(Notice{Delta: "界"})
+	}
+	pending := inbox.Take()
+	if len(pending) != 257 || inbox.Len() != 0 {
+		t.Fatalf("take len=%d queue=%d", len(pending), inbox.Len())
+	}
+	inbox.Prepend(pending[200:])
+	if inbox.Len() != 57 {
+		t.Fatalf("prepend len=%d", inbox.Len())
+	}
+	if got := inbox.Take(); len(got) != 57 || strings.Repeat("界", len(got)) != strings.Repeat("界", 57) {
+		t.Fatalf("retained notices = %d", len(got))
+	}
+}
+
+func TestOrderPlacesLegacyEventsAfterDurableEvents(t *testing.T) {
+	notices := []Notice{{Seq: 0, Delta: "legacy"}, {Seq: 3}, {Seq: 1}, {Seq: 2}}
+	Order(notices)
+	if notices[0].Seq != 1 || notices[1].Seq != 2 || notices[2].Seq != 3 || notices[3].Seq != 0 {
+		t.Fatalf("ordered notices = %+v", notices)
+	}
+}
+
+func TestInboxCloseRejectsRacingLatePush(t *testing.T) {
+	var inbox Inbox
+	inbox.Push(Notice{Seq: 1})
+	inbox.Close()
+	if inbox.Push(Notice{Seq: 2}) || inbox.Len() != 0 || len(inbox.Take()) != 0 {
+		t.Fatalf("closed inbox accepted data: len=%d", inbox.Len())
+	}
+	inbox.Prepend([]Notice{{Seq: 3}})
+	if inbox.Len() != 0 {
+		t.Fatalf("closed inbox accepted prepend: len=%d", inbox.Len())
+	}
+}
