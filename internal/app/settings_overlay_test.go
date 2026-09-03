@@ -59,6 +59,31 @@ func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 	}
 }
 
+func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
+	sharedRoot := t.TempDir()
+	privateRoot := t.TempDir()
+	cfg := config.Config{
+		Storage: config.Storage{DataDir: privateRoot, Backend: "sqlite"},
+		Providers: config.Providers{
+			Active:    settings.ProviderOpenAI,
+			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "old-model"},
+		},
+	}
+	path := settings.Path(sharedRoot)
+	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderAnthropic, DefaultModel: "claude-sonnet-4-5"}); err != nil {
+		t.Fatalf("save shared settings: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	got := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
+	if got.Providers.Active != settings.ProviderAnthropic || got.Providers.Anthropic.DefaultModel != "claude-sonnet-4-5" {
+		t.Fatalf("shared settings not applied: %+v", got.Providers)
+	}
+	if got.DataDirectory() != privateRoot {
+		t.Fatalf("runtime data root = %q, want private %q", got.DataDirectory(), privateRoot)
+	}
+}
+
 func TestApplySettingsOverlayAppliesProviderSelection(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{

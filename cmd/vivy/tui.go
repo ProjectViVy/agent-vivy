@@ -9,12 +9,10 @@ import (
 	"strings"
 	"syscall"
 
-	"agent-vivy/internal/app"
+	"agent-vivy/internal/codeface"
 	"agent-vivy/internal/config"
-	"agent-vivy/internal/logging"
 	"agent-vivy/internal/tui"
 	"agent-vivy/internal/tui/view"
-	"agent-vivy/sdk/plugin"
 )
 
 func runTUI(args []string) int {
@@ -88,25 +86,7 @@ func runTUI(args []string) int {
 			fmt.Fprintln(os.Stderr, "vivy tui: resolve current project:", err)
 			return 1
 		}
-		cfg.Runtime.World = "local"
-		cfg.Runtime.WorkspaceRoot = cwd
-		cfg.Runtime.Sandbox.WorkspaceRoot = cwd
-		if err := cfg.Validate(); err != nil {
-			fmt.Fprintln(os.Stderr, "vivy tui:", err)
-			return 1
-		}
-		vivyLog, _, closeLog, err := logging.Setup(logging.Options{
-			Level: cfg.Logging.Level, Format: cfg.Logging.Format,
-			Dir: cfg.LogDirectory(), RetentionDays: cfg.Logging.RetentionDays,
-			Stdout: false,
-		})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "vivy tui:", err)
-			return 1
-		}
-		defer closeLog.Close()
-		slog.SetDefault(vivyLog)
-		result, err := app.RunFace(ctx, cfg, tui.NewFace, plugin.FaceOptions{Out: os.Stdout, Err: os.Stderr})
+		result, err := codeface.Run(ctx, cfg, cwd, os.Stdout, os.Stderr)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "vivy tui:", err)
 			return 1

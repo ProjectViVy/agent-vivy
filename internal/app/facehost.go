@@ -21,13 +21,21 @@ import (
 // pipe. The organ owns the invocation; returning its FaceResult is the
 // launcher's only signal for exit codes.
 func RunFace(ctx context.Context, cfg config.Config, ctor plugin.FaceConstructor, opts plugin.FaceOptions) (plugin.FaceResult, error) {
+	return RunFaceWithAppOptions(ctx, cfg, ctor, opts)
+}
+
+// RunFaceWithAppOptions is RunFace with explicit composition overrides.
+// Face launchers use it to select a shared settings document independently
+// from their private Journal path; ears and the HTTP gateway remain disabled.
+func RunFaceWithAppOptions(ctx context.Context, cfg config.Config, ctor plugin.FaceConstructor, opts plugin.FaceOptions, appOpts ...AppOption) (plugin.FaceResult, error) {
 	if ctor == nil {
 		return plugin.FaceResult{}, errors.New("app: no face organ compiled into this generation")
 	}
 	if opts.Out == nil || opts.Err == nil {
 		return plugin.FaceResult{}, errors.New("app: face requires output and error writers")
 	}
-	a, err := New(ctx, cfg, WithoutEars(), WithoutGateway())
+	appOpts = append(appOpts, WithoutEars(), WithoutGateway())
+	a, err := New(ctx, cfg, appOpts...)
 	if err != nil {
 		return plugin.FaceResult{}, err
 	}

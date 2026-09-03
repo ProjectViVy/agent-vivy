@@ -5,6 +5,7 @@ set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
 go := if os() == "windows" { "C:/Program Files/Go/bin/go.exe" } else { "go" }
 gofmt := if os() == "windows" { "C:/Program Files/Go/bin/gofmt.exe" } else { "gofmt" }
+vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 
 # Persist GOPROXY mirror (proxy.golang.org is unreachable) and download deps
 setup:
@@ -34,7 +35,7 @@ ui-ci:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
 headless-compile:
-    & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./ui
+    & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
 
 build-split:
     New-Item -ItemType Directory -Force -Path dist | Out-Null
@@ -53,9 +54,13 @@ ui-e2e:
 run:
     & "{{go}}" run ./cmd/vivy
 
-# Start the real VIVY CODE terminal face in the current project.
-tui:
-    & "{{go}}" run ./cmd/vivy tui
+# Build the independent VIVY CODE terminal product.
+vivy-code:
+    & "{{go}}" build -tags vivy_headless -o "{{vivy_code}}" ./cmd/vivy-code
+
+# Start an independent VIVY CODE instance in the current project.
+tui: vivy-code
+    & "./{{vivy_code}}"
 
 # One-click split loop: backend :8787 + Vite :3015. Ctrl+C stops both.
 dev:
