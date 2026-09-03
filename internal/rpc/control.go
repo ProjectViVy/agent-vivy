@@ -923,7 +923,11 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		return nil, internalError(err)
 	}
 	if h.deps.Truncations != nil {
-		if markers, err := h.deps.Truncations.ListViewTruncations(ctx, domain.SessionID(params.SessionID)); err == nil && len(markers) > 0 {
+		markers, err := h.deps.Truncations.ListViewTruncations(ctx, domain.SessionID(params.SessionID))
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if len(markers) > 0 {
 			messages = storage.ApplySessionTruncations(messages, markers)
 		}
 	}

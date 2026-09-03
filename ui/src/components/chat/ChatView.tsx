@@ -32,6 +32,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const forkSession = useVivyStore((state) => state.forkSession);
   const [draftPreset, setDraftPreset] = useState<{ text: string; seq: number } | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+	const [historyAction, setHistoryAction] = useState(false);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
   const mobile = useIsMobile();
@@ -50,30 +51,36 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     if (text === null || text.trim() === '') return;
     void submit(text);
   };
-  const actionsDisabled = running || runBusy;
+	const actionsDisabled = running || runBusy || historyAction;
   // 编辑 / 回退 / 分叉（设计 §5）：Journal 追加式，编辑 = 回退到该输入再重发；
   // 回退后把仍在上下文里的最近一条用户输入预填进输入框；分叉成功后跳到新会话。
   const handleEdit = async (messageId: string, newText: string) => {
     setActionError(null);
+	setHistoryAction(true);
     try {
       await rewindSession(sessionId, messageId);
       await submit(newText);
-    } catch (error) { setActionError(error); }
+	} catch (error) { setActionError(error); throw error; }
+	finally { setHistoryAction(false); }
   };
   const handleRewind = async (messageId: string) => {
     setActionError(null);
+	setHistoryAction(true);
     try {
       const remaining = await rewindSession(sessionId, messageId);
       const lastUser = [...remaining].reverse().find((message) => message.role === 'user');
       if (lastUser) setDraftPreset({ text: lastUser.content, seq: Date.now() });
-    } catch (error) { setActionError(error); }
+	} catch (error) { setActionError(error); throw error; }
+	finally { setHistoryAction(false); }
   };
   const handleFork = async (messageId: string) => {
     setActionError(null);
+	setHistoryAction(true);
     try {
       const forkedId = await forkSession(sessionId, messageId);
       await selectSession(forkedId);
-    } catch (error) { setActionError(error); }
+	} catch (error) { setActionError(error); throw error; }
+	finally { setHistoryAction(false); }
   };
   const streamMessage = streamingText || streamingReasoning ? { id: `stream-${run?.id}`, run_id: run?.id, role: 'assistant' as const, content: streamingText, created_at: Date.now() } : null;
 
@@ -84,7 +91,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
           {phase === 'empty' && !streamMessage && !runError ? <div className="py-24"><p className="text-center text-lg text-muted-foreground">{t('chat.startNew')}</p></div> : null}
-          {messages.map((message) => <MessageBubble key={message.id} message={message} canRegenerate={regeneratePrompt(messages, message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(message.id)} onEditConfirm={(text) => void handleEdit(message.id, text)} onRewind={() => void handleRewind(message.id)} onFork={() => void handleFork(message.id)} />)}
+          {messages.map((message) => <MessageBubble key={message.id} message={message} canRegenerate={regeneratePrompt(messages, message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(message.id)} onEditConfirm={(text) => handleEdit(message.id, text)} onRewind={() => handleRewind(message.id)} onFork={() => handleFork(message.id)} />)}
           {streamMessage ? <MessageBubble message={streamMessage} reasoning={streamingReasoning} streaming /> : null}
           {runError ? <RecoverableError className="my-3" compact error={runError} /> : null}
           {actionError ? <RecoverableError className="my-3" compact error={actionError} onRetry={() => setActionError(null)} /> : null}

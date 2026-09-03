@@ -103,6 +103,8 @@ export function MessageBubble({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [confirming, setConfirming] = useState<'rewind' | 'fork' | null>(null);
+	const [pending, setPending] = useState<'edit' | 'rewind' | 'fork' | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
   const copyTimer = useRef<number | null>(null);
   useEffect(() => () => { if (copyTimer.current !== null) window.clearTimeout(copyTimer.current); }, []);
 
@@ -133,14 +135,15 @@ export function MessageBubble({
           <div className="min-w-[16rem] space-y-2">
             <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-20 bg-background text-foreground" aria-label={t('chat.edit')} autoFocus />
             <div className="flex justify-end gap-1">
-              <button type="button" className={ACTION_BUTTON} disabled={!draft.trim() || !onEditConfirm} aria-label={t('chat.editSave')} title={t('chat.editSave')}
-                onClick={() => { const text = draft; setEditing(false); void onEditConfirm?.(text); }}>
+              <button type="button" className={ACTION_BUTTON} disabled={!draft.trim() || !onEditConfirm || pending !== null} aria-label={t('chat.editSave')} title={t('chat.editSave')}
+                onClick={async () => { if (!onEditConfirm) return; setPending('edit'); setActionError(null); try { await onEditConfirm(draft); setEditing(false); } catch (error) { setActionError(error instanceof Error ? error.message : String(error)); } finally { setPending(null); } }}>
                 <Check className="h-3 w-3" />
               </button>
-              <button type="button" className={ACTION_BUTTON} aria-label={t('chat.editCancel')} title={t('chat.editCancel')} onClick={() => setEditing(false)}>
+              <button type="button" className={ACTION_BUTTON} disabled={pending !== null} aria-label={t('chat.editCancel')} title={t('chat.editCancel')} onClick={() => setEditing(false)}>
                 <X className="h-3 w-3" />
               </button>
             </div>
+			{actionError ? <p className="text-xs text-destructive" role="alert">{actionError}</p> : null}
           </div>
         ) : (
           <div className="prose prose-sm max-w-none break-words dark:prose-invert"><ReactMarkdown>{message.content || (streaming ? '…' : '')}</ReactMarkdown></div>
@@ -181,20 +184,26 @@ export function MessageBubble({
         </button>
       </div>
     )}
-    <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open) setConfirming(null); }}>
+	{actionError ? <p className="mt-1 text-xs text-destructive" role="alert">{actionError}</p> : null}
+    <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open && pending === null) setConfirming(null); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{confirming === 'fork' ? t('chat.forkConfirmTitle') : t('chat.rewindConfirmTitle')}</AlertDialogTitle>
           <AlertDialogDescription>{confirming === 'fork' ? t('chat.forkConfirmBody') : t('chat.rewindConfirmBody')}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>{t('chat.editCancel')}</AlertDialogCancel>
-          <AlertDialogAction onClick={(event) => {
+          <AlertDialogCancel disabled={pending !== null}>{t('chat.editCancel')}</AlertDialogCancel>
+          <AlertDialogAction disabled={pending !== null} onClick={async (event) => {
             event.preventDefault();
             const action = confirming;
-            setConfirming(null);
-            if (action === 'rewind') void onRewind?.();
-            if (action === 'fork') void onFork?.();
+			if (!action) return;
+			setPending(action); setActionError(null);
+			try {
+				if (action === 'rewind') await onRewind?.();
+				if (action === 'fork') await onFork?.();
+				setConfirming(null);
+			} catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
+			finally { setPending(null); }
           }}>{confirming === 'fork' ? t('chat.fork') : t('chat.rewind')}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
