@@ -41,6 +41,166 @@ func TestREPLHelpAndQuit(t *testing.T) {
 	}
 }
 
+func TestREPLCommandsUseSharedParserAndNeverForwardUnknownSlash(t *testing.T) {
+	var createdTitle string
+	var renamedTitle string
+	var deletedID string
+	var turnCalls int
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/create":
+			var params struct {
+				Title string `json:"title"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			createdTitle = params.Title
+			return map[string]string{"id": "sess_new", "title": params.Title, "permission_preset": "smart"}, nil
+		case "session/rename":
+			var params struct {
+				Title string `json:"title"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			renamedTitle = params.Title
+			return map[string]string{"id": "sess_1", "title": params.Title, "permission_preset": "smart"}, nil
+		case "session/list":
+			return map[string]any{"sessions": []map[string]string{
+				{"id": "sess_1", "title": "one", "permission_preset": "smart"},
+				{"id": "sess_2", "title": "two", "permission_preset": "smart"},
+			}}, nil
+		case "session/delete":
+			var params struct {
+				SessionID string `json:"session_id"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			deletedID = params.SessionID
+			return map[string]bool{"deleted": true}, nil
+		case "session/set_permission":
+			var params struct {
+				Preset string `json:"preset"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			return map[string]string{"id": "sess_1", "title": "one", "permission_preset": params.Preset}, nil
+		case "turn/start":
+			turnCalls++
+			return map[string]string{"run_id": "run_1", "status": "accepted"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1", Title: "one", PermissionPreset: "smart"},
+		events:  make(chan eventNotice, 1),
+	}
+	if err := r.handleLine(context.Background(), `/does-not-exist "🙂"`); err != nil {
+		t.Fatal(err)
+	}
+	if turnCalls != 0 || !strings.Contains(out.String(), "unknown command /does-not-exist") {
+		t.Fatalf("unknown command was forwarded or hidden: turns=%d output=%q", turnCalls, out.String())
+	}
+	if err := r.handleLine(context.Background(), `/new "你好 世界"`); err != nil {
+		t.Fatal(err)
+	}
+	if createdTitle != "你好 世界" {
+		t.Fatalf("quoted title = %q", createdTitle)
+	}
+	if err := r.handleLine(context.Background(), `/rename '改名 🙂'`); err != nil {
+		t.Fatal(err)
+	}
+	if renamedTitle != "改名 🙂" {
+		t.Fatalf("quoted rename = %q", renamedTitle)
+	}
+	if err := r.handleLine(context.Background(), `/permission trusted`); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handleLine(context.Background(), `/queue clear`); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handleLine(context.Background(), `/delete sess_2`); err != nil {
+		t.Fatal(err)
+	}
+	if deletedID != "" {
+		t.Fatal("delete mutated before confirmation")
+	}
+	if err := r.handleLine(context.Background(), "n"); err != nil {
+		t.Fatal(err)
+	}
+	if deletedID != "" {
+		t.Fatal("delete denial still mutated session")
+	}
+	if err := r.handleLine(context.Background(), `/delete sess_2`); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.handleLine(context.Background(), "yes"); err != nil {
+		t.Fatal(err)
+	}
+	if deletedID != "sess_2" {
+		t.Fatalf("confirmed delete id=%q", deletedID)
+	}
+}
+
+func TestREPLGateTakesPriorityOverSlashParser(t *testing.T) {
+	var turnCalls int
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method == "turn/start" {
+			turnCalls++
+		}
+		return map[string]any{}, nil
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1"},
+		pending: &gatePrompt{Kind: "approval", ID: "approval_1"},
+		events:  make(chan eventNotice, 1),
+	}
+	if err := r.handleLine(context.Background(), "/help"); err != nil {
+		t.Fatal(err)
+	}
+	if turnCalls != 0 || !strings.Contains(out.String(), "type y or n") {
+		t.Fatalf("gate did not consume slash line: turns=%d output=%q", turnCalls, out.String())
+	}
+}
+
+func TestREPLCancelDrainsTerminalEventAndClearsBusy(t *testing.T) {
+	var cancelled string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method != "run/cancel" {
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+		var params struct {
+			RunID string `json:"run_id"`
+		}
+		_ = json.Unmarshal(request.Params, &params)
+		cancelled = params.RunID
+		return map[string]string{"status": "cancelling"}, nil
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	r := &repl{
+		client: client,
+		out:    &bytes.Buffer{},
+		busy:   true,
+		runID:  "run_1",
+		events: make(chan eventNotice, 1),
+	}
+	r.events <- eventNotice{Done: true}
+	if err := r.handleLine(context.Background(), "/cancel"); err != nil {
+		t.Fatal(err)
+	}
+	if cancelled != "run_1" || r.busy || r.runID != "" {
+		t.Fatalf("cancel did not close run: cancelled=%q busy=%v run=%q", cancelled, r.busy, r.runID)
+	}
+}
+
 func TestClientNotifyDecodesStreamDelta(t *testing.T) {
 	// Live streaming is exercised through OnNotify (WebSocket run/event).
 	// Keep this path deterministic without a JSONL peer race on AfterResponse.

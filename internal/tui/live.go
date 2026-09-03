@@ -949,8 +949,7 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 
 // Send implements surface.Driver.
 func (l *Live) Send(text string) tea.Cmd {
-	text = strings.TrimSpace(text)
-	if text == "" {
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 	l.mu.Lock()
@@ -1050,6 +1049,102 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 	}
 }
 
+// ExecuteCommand implements surface.CommandExecutor. The shared fullscreen
+// view owns parsing and presentation; this adapter only translates validated
+// command names into the live driver's existing authoritative operations.
+func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return commandResultCmd(name, "", errors.New("command name is required"))
+	}
+	if name != "cancel" && name != "queue" {
+		l.mu.Lock()
+		blocked := l.busy || l.gate != nil
+		l.mu.Unlock()
+		if blocked {
+			return commandResultCmd(name, "", errors.New("a run or gate is active; finish it before changing session state"))
+		}
+	}
+	switch name {
+	case "new":
+		return l.NewSession(strings.TrimSpace(strings.Join(args, " ")))
+	case "session":
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return commandResultCmd(name, "", errors.New("usage: /session <id>"))
+		}
+		if cmd := l.SelectSession(args[0]); cmd != nil {
+			return cmd
+		}
+		return commandResultCmd(name, "", errors.New("session selection is unavailable"))
+	case "rename":
+		if len(args) == 0 {
+			return commandResultCmd(name, "", errors.New("usage: /rename <title>"))
+		}
+		l.mu.Lock()
+		activeID := l.activeID
+		l.mu.Unlock()
+		if activeID == "" {
+			return commandResultCmd(name, "", errors.New("no active session"))
+		}
+		if cmd := l.RenameSession(activeID, strings.TrimSpace(strings.Join(args, " "))); cmd != nil {
+			return cmd
+		}
+		return commandResultCmd(name, "", errors.New("session rename is unavailable"))
+	case "cancel":
+		if !l.Meta().Busy {
+			return commandResultCmd(name, "nothing to cancel", nil)
+		}
+		if cmd := l.Cancel(); cmd != nil {
+			return cmd
+		}
+		return commandResultCmd(name, "", errors.New("cancel is unavailable"))
+	case "queue":
+		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
+			return commandResultCmd(name, "", errors.New("usage: /queue clear"))
+		}
+		if l.ClearQueue() {
+			return commandResultCmd(name, "queued turns cleared", nil)
+		}
+		return commandResultCmd(name, "queue is already empty", nil)
+	case "permission":
+		preset := ""
+		if len(args) == 1 {
+			preset = strings.ToLower(strings.TrimSpace(args[0]))
+		} else if len(args) == 0 {
+			l.mu.Lock()
+			current := l.activeSessionLocked().PermissionPreset
+			l.mu.Unlock()
+			preset = nextCommandPermission(current)
+		} else {
+			return commandResultCmd(name, "", errors.New("usage: /permission [cautious|smart|trusted]"))
+		}
+		if preset != "cautious" && preset != "smart" && preset != "trusted" {
+			return commandResultCmd(name, "", errors.New("permission must be cautious, smart, or trusted"))
+		}
+		if cmd := l.SetPermission(preset); cmd != nil {
+			return cmd
+		}
+		return commandResultCmd(name, "", errors.New("permission change is unavailable"))
+	default:
+		return commandResultCmd(name, "", fmt.Errorf("/%s is handled by the shared view or is unavailable", name))
+	}
+}
+
+func nextCommandPermission(current string) string {
+	switch current {
+	case "cautious":
+		return "smart"
+	case "smart":
+		return "trusted"
+	default:
+		return "cautious"
+	}
+}
+
+func commandResultCmd(name, output string, err error) tea.Cmd {
+	return func() tea.Msg { return surface.CommandResultMsg{Name: name, Output: output, Err: err} }
+}
+
 func (l *Live) ClearQueue() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1101,3 +1196,4 @@ func shortErr(err error) string {
 }
 
 var _ surface.Driver = (*Live)(nil)
+var _ surface.CommandExecutor = (*Live)(nil)

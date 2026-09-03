@@ -31,6 +31,9 @@ func (m Model) renderFrame() string {
 	if m.sessionsOpen {
 		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
 	}
+	if m.commandOverlay != "" {
+		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
+	}
 	return frame
 }
 
@@ -370,6 +373,25 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 	if m.sessionError != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
 	}
+	inner := strings.Join(lines, "\n")
+	w := max(1, min(l.width-8, 72))
+	return p.Dialog.Width(w).Render(inner)
+}
+
+func (m Model) renderCommandDialog(l layout, p Palette) string {
+	title := m.commandOverlayTitle
+	if title == "" {
+		title = "Command"
+	}
+	body := m.commandOverlay
+	if body == "" {
+		body = "done"
+	}
+	lines := []string{p.DialogTitle.Render(title), ""}
+	for _, line := range strings.Split(body, "\n") {
+		lines = append(lines, p.DialogBody.Render(truncate(line, max(8, l.width-14))))
+	}
+	lines = append(lines, "", p.DialogFooter.Render("enter / esc close"))
 	inner := strings.Join(lines, "\n")
 	w := max(1, min(l.width-8, 72))
 	return p.Dialog.Width(w).Render(inner)

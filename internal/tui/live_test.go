@@ -58,7 +58,7 @@ func TestLiveBootListsOrCreatesSession(t *testing.T) {
 }
 
 func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
-	var gotFace string
+	var gotFace, gotText string
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		switch request.Method {
 		case "session/list":
@@ -72,9 +72,11 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 		case "turn/start":
 			var params struct {
 				Face string `json:"face"`
+				Text string `json:"text"`
 			}
 			_ = json.Unmarshal(request.Params, &params)
 			gotFace = params.Face
+			gotText = params.Text
 			return map[string]string{"run_id": "run_1", "status": "accepted"}, nil
 		case "run/subscribe":
 			return map[string]string{"subscription_id": "sub_1"}, nil
@@ -95,7 +97,7 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	}
 	live.Handle(boot)
 
-	cmd := live.Send("hello")
+	cmd := live.Send("  hello  ")
 	started := mustMsg[liveTurnStartedMsg](t, cmd)
 	if started.Err != nil || started.RunID != "run_1" {
 		t.Fatalf("started = %+v", started)
@@ -104,11 +106,14 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	if gotFace != "code" {
 		t.Fatalf("turn face = %q, want code", gotFace)
 	}
+	if gotText != "  hello  " {
+		t.Fatalf("turn text lost whitespace: %q", gotText)
+	}
 	if !live.Meta().Busy {
 		t.Fatal("expected busy")
 	}
 	msgs := live.ActiveMessages()
-	if len(msgs) < 1 || msgs[0].Content != "hello" {
+	if len(msgs) < 1 || msgs[0].Content != "  hello  " {
 		t.Fatalf("messages after send = %+v", msgs)
 	}
 
