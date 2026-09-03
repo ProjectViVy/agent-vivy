@@ -1165,7 +1165,10 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 	}
 	// Rewind cutoff first (JOURNAL-REWIND-AND-FORK): the truncation winnows
 	// the raw rows, then compaction folds what remains.
-	stored = s.effectiveSessionMessages(ctx, sessionID, stored)
+	stored, err = s.effectiveSessionMessages(ctx, sessionID, stored)
+	if err != nil {
+		return nil, selection, ContextStats{}, err
+	}
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
 	msgs, stats, err := buildRunContext(ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
