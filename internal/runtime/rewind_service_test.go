@@ -260,6 +260,23 @@ func TestSuccessiveRewindsAccumulate(t *testing.T) {
 	}
 }
 
+func TestEditSessionCommitsReplacementAndRunTogether(t *testing.T) {
+	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	appendRewindFixture(t, svc, "sess-edit")
+	runID, err := svc.EditSession(ctx, "sess-edit", "msg-2", "replacement", RunOptions{})
+	if err != nil {
+		t.Fatalf("EditSession: %v", err)
+	}
+	view := mustEffectiveMessages(t, svc, ctx, "sess-edit")
+	if len(view) != 2 || view[0].ID != "msg-1" || view[1].Content != "replacement" || view[1].RunID != runID {
+		t.Fatalf("edited view = %+v", view)
+	}
+	if _, err := svc.deps.Runs.GetRun(ctx, runID); err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+}
+
 func mustListMessages(t *testing.T, svc *Service, sessionID domain.SessionID) []domain.Message {
 	t.Helper()
 	messages, err := svc.deps.Messages.ListMessages(context.Background(), sessionID)

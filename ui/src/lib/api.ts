@@ -3,7 +3,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 export const RPC_METHODS = [
   'initialize', 'capabilities',
   'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/set_permission',
-  'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork',
+	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
   'background/recover', 'background/list', 'background/attach',
@@ -241,6 +241,8 @@ export const rewindSession = (sessionId: string, messageId: string) =>
 /** session/fork：以截点（含）为止的历史复制出新会话，原会话不动。 */
 export const forkSession = (sessionId: string, messageId: string, title?: string) =>
   request<{ session_id: string; fork_point_message_id: string; copied_count: number }>('session/fork', { session_id: sessionId, message_id: messageId, title });
+export const editSession = (sessionId: string, messageId: string, text: string, mode: RunMode = 'normal', face?: Face, thinking?: ThinkingMode) =>
+	request<{ run_id: string; status: RunStatus }>('session/edit', { session_id: sessionId, message_id: messageId, text, mode, face, thinking });
 export const listSessionCompactions = (sessionId: string, limit = 50) =>
   request<{ compactions: SessionCompactionRecord[] }>('session/compactions', { session_id: sessionId, limit });
 export const listTodos = (sessionId: string) => request<{ todos: Todo[] }>('session/todos', { session_id: sessionId });

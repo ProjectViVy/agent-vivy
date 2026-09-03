@@ -370,6 +370,7 @@ type TruncationStore interface {
 type HistoryMutationStore interface {
 	CommitSessionRewind(ctx context.Context, marker SessionTruncation, event domain.RunEvent) (domain.RunEvent, error)
 	CommitSessionFork(ctx context.Context, child domain.Session, messages []domain.Message, markers []SessionTruncation, events []domain.RunEvent) ([]domain.RunEvent, error)
+	CommitSessionEdit(ctx context.Context, marker SessionTruncation, message domain.Message, run domain.Run, event domain.RunEvent) (domain.RunEvent, error)
 }
 
 // ApplySessionTruncation filters a ListMessages slice by one marker: the
