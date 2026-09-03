@@ -31,7 +31,7 @@ func (m Model) renderFrame() string {
 	if m.sessionsOpen {
 		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
 	}
-	if m.commandOverlay != "" {
+	if m.commandConfirmName != "" || m.commandOverlay != "" {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
 	}
 	return frame
@@ -379,6 +379,26 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 }
 
 func (m Model) renderCommandDialog(l layout, p Palette) string {
+	if m.commandConfirmName != "" {
+		name := "/" + m.commandConfirmName
+		body := "apply this session change?"
+		if m.commandConfirmName == "fork" && len(m.commandConfirmArgs) > 0 {
+			body = fmt.Sprintf("fork at message %s?", m.commandConfirmArgs[0])
+		} else if m.commandConfirmName == "rewind" && len(m.commandConfirmArgs) > 0 {
+			body = fmt.Sprintf("rewind at message %s?", m.commandConfirmArgs[0])
+		} else if m.commandConfirmName == "compact" {
+			body = "compact the active session context?"
+		}
+		inner := strings.Join([]string{
+			p.DialogTitle.Render("Confirm " + name),
+			"",
+			p.DialogBody.Render(truncate(body, max(8, l.width-14))),
+			"",
+			p.DialogFooter.Render("y confirm · n/esc cancel"),
+		}, "\n")
+		w := max(1, min(l.width-8, 72))
+		return p.Dialog.Width(w).Render(inner)
+	}
 	title := m.commandOverlayTitle
 	if title == "" {
 		title = "Command"

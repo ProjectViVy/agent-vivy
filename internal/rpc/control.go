@@ -991,6 +991,10 @@ func (h *controlHandler) compactContext(ctx context.Context, request Request) (a
 		return nil, &Error{Code: CodeConflict, Message: err.Error()}
 	}
 	if errors.Is(err, runtime.ErrCompactionNotNeeded) || errors.Is(err, runtime.ErrCompactionNothingToDo) {
+		// These outcomes intentionally use a nil RPC error so callers can show
+		// a normal command result, but they did not mutate the session. Preserve
+		// that fact on the wire instead of exposing a zero-value "success".
+		result.Skipped = true
 		return result, nil
 	}
 	if err != nil {

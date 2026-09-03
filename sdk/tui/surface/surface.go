@@ -122,9 +122,11 @@ type CommandExecutor interface {
 // state. It is intentionally not printed directly: the view renders it in a
 // transient overlay and keeps the packed and built-in faces identical.
 type CommandResultMsg struct {
-	Name   string
-	Output string
-	Err    error
+	Name      string
+	Output    string
+	Err       error
+	Mutation  bool
+	SessionID string
 }
 
 // SidebarProvider supplies authoritative active-session details to the view.

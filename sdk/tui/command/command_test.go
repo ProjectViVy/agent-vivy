@@ -38,6 +38,37 @@ func TestParseDoubleSlashEscapesOneSlash(t *testing.T) {
 	}
 }
 
+func TestParseDoubleBangAndAtEscapeOneMarker(t *testing.T) {
+	for _, tc := range []struct {
+		input, want string
+	}{
+		{"!!echo", "!echo"},
+		{"  !!你好 🙂", "  !你好 🙂"},
+		{"@@file.txt", "@file.txt"},
+		{"@@你好", "@你好"},
+	} {
+		got, err := Parse(tc.input)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", tc.input, err)
+		}
+		if got.Kind != Plain || got.Text != tc.want || got.IsUnavailable() {
+			t.Fatalf("Parse(%q) = %+v, want plain %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestParseSingleBangAndAtAreUnavailableLocally(t *testing.T) {
+	for _, input := range []string{"!echo hi", "@README.md", "!", "@"} {
+		got, err := Parse(input)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", input, err)
+		}
+		if !got.IsUnavailable() || got.Text != input || strings.TrimSpace(got.UnavailableReason) == "" {
+			t.Fatalf("Parse(%q) = %+v, want unavailable with preserved input", input, got)
+		}
+	}
+}
+
 func TestParseCommandsQuotesEscapesAndUnicode(t *testing.T) {
 	got, err := Parse(`/new "你好 世界" 'from \'Vivy\'' emoji\ 🙂`)
 	if err != nil {
@@ -81,8 +112,42 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 	if !errors.As(err, &unknown) || unknown.Name != "does-not-exist" {
 		t.Fatalf("unknown error = %T %v, want UnknownCommandError", err, err)
 	}
-	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/queue clear") {
+	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
 		t.Fatalf("help missing builtins:\n%s", r.Help())
+	}
+}
+
+func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
+	r := DefaultRegistry()
+	for _, input := range []string{"/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/files run-1 path.txt", "/tools"} {
+		parsed, err := r.Parse(input)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", input, err)
+		}
+		if err := r.Validate(parsed.Invocation); err != nil {
+			t.Fatalf("Validate(%q): %v", input, err)
+		}
+	}
+	for _, input := range []string{"/compact now", "/fork", "/rewind", "/stats 2h", "/tools extra", "/files a b c"} {
+		parsed, err := r.Parse(input)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", input, err)
+		}
+		if err := r.Validate(parsed.Invocation); err == nil {
+			t.Fatalf("Validate(%q) accepted invalid arguments", input)
+		}
+	}
+}
+
+func TestFormatResultLabelsScopesAndSkippedCompaction(t *testing.T) {
+	if got := FormatResult("compact", []byte(`{"before_tokens":0,"after_tokens":0,"folded_messages":0,"skipped":false}`)); !strings.Contains(got, "not-needed") || strings.Contains(got, "executed") {
+		t.Fatalf("zero compaction result = %q", got)
+	}
+	if got := FormatResult("stats", []byte(`{"period":"1d","total":{"cost_known":false}}`)); !strings.Contains(got, "token usage aggregate") || !strings.Contains(got, "no current-session cost") {
+		t.Fatalf("stats scope label = %q", got)
+	}
+	if got := FormatResult("mcp", []byte(`{"servers":[]}`)); !strings.Contains(got, "configured MCP") || strings.Contains(got, "connected") {
+		t.Fatalf("mcp scope label = %q", got)
 	}
 }
 

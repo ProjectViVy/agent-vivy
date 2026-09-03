@@ -1801,6 +1801,35 @@ func TestContextCompactionRPC(t *testing.T) {
 	if !compactResult.(runtime.CompactionResult).Skipped {
 		t.Fatalf("expected skipped compaction for empty session, got %+v", compactResult)
 	}
+
+	// A disabled compaction policy also returns a nil RPC error by contract;
+	// the wire result must still say skipped so a client cannot render a
+	// zero-value success as an executed compaction.
+	disabledEngine, err := runtime.NewEngine(ctx, runtime.WrapModel(testsupport.NewEchoModel()), ts, runtime.EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 1 << 20,
+		Compaction: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabledService := runtime.NewService(disabledEngine, "test", "test-model", runtime.ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend, Sink: bus, Compactions: backend,
+	})
+	disabledHandler, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: disabledService,
+		SettingsPath: settingsPath, ConfigCompaction: runtime.CompactionPolicy{Enabled: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabledResult, rpcErr := callControl(t, disabledHandler, "context/compact", map[string]any{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatalf("compact disabled policy: %v", rpcErr)
+	}
+	if result, ok := disabledResult.(runtime.CompactionResult); !ok || !result.Skipped {
+		t.Fatalf("disabled compaction = %+v, want skipped", disabledResult)
+	}
 }
 
 // TestChannelInspectRPC covers channel/inspect: the method is disabled
