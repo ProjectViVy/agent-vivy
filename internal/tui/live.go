@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,10 +37,18 @@ type Live struct {
 	queue   []string
 
 	seq int
+	// lastEventSeq is the latest contiguous durable event applied for the
+	// active run. recovering prevents duplicate replay subscriptions.
+	lastEventSeq     int
+	recovering       bool
+	recoveryInFlight bool
+	nextRecoveryAt   time.Time
 
-	events chan eventNotice
-	ctx    context.Context
-	cancel context.CancelFunc
+	eventMu   sync.Mutex
+	events    []eventNotice
+	eventWake chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // LiveOptions configure one live fullscreen session.
@@ -68,7 +77,7 @@ func NewLive(client *Client, opts LiveOptions) *Live {
 		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
 		continueNewest: opts.ContinueNewest,
 		messages:       map[string][]surface.Message{},
-		events:         make(chan eventNotice, 128),
+		eventWake:      make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
 	}
@@ -81,19 +90,10 @@ func NewLive(client *Client, opts LiveOptions) *Live {
 			return
 		}
 		notice := interpret(event)
-		if notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
+		if notice.Seq == 0 && notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
 			return
 		}
-		select {
-		case l.events <- notice:
-		case <-l.ctx.Done():
-		default:
-			// Drop if UI is stalled; next poll still drains what it can.
-			select {
-			case l.events <- notice:
-			default:
-			}
-		}
+		l.enqueueNotice(notice)
 	})
 	return l
 }
@@ -103,6 +103,9 @@ func (l *Live) Close() {
 	if l.cancel != nil {
 		l.cancel()
 	}
+	l.eventMu.Lock()
+	l.events = nil
+	l.eventMu.Unlock()
 }
 
 // Sessions implements surface.Driver.
@@ -190,10 +193,18 @@ type liveLoadedMsg struct {
 	Err      error
 }
 
-// liveTurnStartedMsg is returned after turn/start + subscribe.
+// liveTurnStartedMsg is returned after turn/start. Subscription starts after
+// Handle installs run ownership, so replay cannot race the new run.
 type liveTurnStartedMsg struct {
 	UserText string
 	RunID    string
+	Err      error
+}
+
+type liveSubscribedMsg struct {
+	RunID    string
+	AfterSeq int
+	Recovery bool
 	Err      error
 }
 
@@ -261,7 +272,10 @@ func (l *Live) bootCmd() tea.Cmd {
 func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case liveTickMsg:
-		finished := l.drainEvents()
+		finished, gap := l.drainEvents()
+		if gap {
+			return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
+		}
 		if finished {
 			return tea.Batch(l.dequeueCmd(), l.tickCmd())
 		}
@@ -272,6 +286,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyLoaded(msg)
 	case liveTurnStartedMsg:
 		return l.applyTurnStarted(msg)
+	case liveSubscribedMsg:
+		return l.applySubscribed(msg)
 	case liveRPCMsg:
 		return l.applyRPC(msg)
 	case surface.ErrMsg:
@@ -355,7 +371,6 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 
 func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
 		l.busy = false
@@ -366,13 +381,72 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 			Role:    string(domain.RoleAssistant),
 			Content: "turn failed: " + shortErr(msg.Err),
 		})
+		l.mu.Unlock()
 		return nil
 	}
 	l.busy = true
 	l.runID = msg.RunID
+	l.lastEventSeq = 0
+	l.recovering = false
+	l.recoveryInFlight = false
+	l.nextRecoveryAt = time.Time{}
 	l.lastErr = ""
 	l.ensureAssistantDraftLocked()
-	return nil
+	l.mu.Unlock()
+	return l.subscribeCmd(msg.RunID, 0, false)
+}
+
+func (l *Live) subscribeCmd(runID string, afterSeq int, recovery bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		return liveSubscribedMsg{RunID: runID, AfterSeq: afterSeq, Recovery: recovery, Err: l.client.subscribe(ctx, runID, afterSeq)}
+	}
+}
+
+func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
+	l.mu.Lock()
+	if l.runID != msg.RunID {
+		l.mu.Unlock()
+		return nil
+	}
+	if msg.Err == nil {
+		if msg.Recovery {
+			l.recoveryInFlight = false
+		}
+		l.mu.Unlock()
+		return nil
+	}
+	// A newer subscription (or the original live stream) may already have
+	// advanced the durable cursor while this RPC result was in flight.
+	// Do not let that stale failure cancel a healthy run.
+	if l.lastEventSeq > msg.AfterSeq {
+		if msg.Recovery {
+			l.recoveryInFlight = false
+		}
+		l.mu.Unlock()
+		return nil
+	}
+	if msg.Recovery {
+		l.recoveryInFlight = false
+		l.nextRecoveryAt = time.Now().Add(time.Second)
+		l.lastErr = "stream replay: " + shortErr(msg.Err)
+		l.mu.Unlock()
+		return nil
+	}
+	l.lastErr = shortErr(msg.Err)
+	l.busy = false
+	l.runID = ""
+	l.recovering = false
+	l.recoveryInFlight = false
+	l.finishStreamingLocked()
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 10*time.Second)
+		defer cancel()
+		_ = l.client.cancelRun(ctx, msg.RunID)
+		return surface.RefreshMsg{}
+	}
 }
 
 func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
@@ -397,16 +471,102 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	return nil
 }
 
-func (l *Live) drainEvents() bool {
-	finished := false
-	for {
-		select {
-		case notice := <-l.events:
-			l.applyNotice(notice)
-			finished = finished || notice.Kind == "done"
-		default:
-			return finished
+func (l *Live) drainEvents() (finished bool, gap bool) {
+	l.eventMu.Lock()
+	pending := l.events
+	l.events = nil
+	l.eventMu.Unlock()
+	sort.SliceStable(pending, func(i, j int) bool {
+		if pending[i].Seq <= 0 {
+			return false
 		}
+		if pending[j].Seq <= 0 {
+			return true
+		}
+		return pending[i].Seq < pending[j].Seq
+	})
+	for i, notice := range pending {
+		accept, missing := l.acceptSequence(notice)
+		if missing {
+			gap = true
+			l.eventMu.Lock()
+			l.events = append(append([]eventNotice(nil), pending[i:]...), l.events...)
+			l.eventMu.Unlock()
+			break
+		}
+		if !accept {
+			continue
+		}
+		if notice.Kind != "" {
+			l.applyNotice(notice)
+		}
+		finished = finished || notice.Kind == "done"
+		if notice.Kind == "done" {
+			break
+		}
+	}
+	select {
+	case <-l.eventWake:
+	default:
+	}
+	return finished, gap
+}
+
+func (l *Live) acceptSequence(notice eventNotice) (accept bool, gap bool) {
+	if notice.Seq <= 0 {
+		return true, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if notice.RunID != "" && l.runID != "" && notice.RunID != l.runID {
+		return false, false
+	}
+	if notice.Seq <= l.lastEventSeq {
+		return false, false
+	}
+	if notice.Seq != l.lastEventSeq+1 {
+		if !l.recovering {
+			l.recovering = true
+		}
+		return false, true
+	}
+	l.lastEventSeq = notice.Seq
+	l.recovering = false
+	return true, false
+}
+
+func (l *Live) recoverSubscriptionCmd() tea.Cmd {
+	l.mu.Lock()
+	if l.recoveryInFlight || time.Now().Before(l.nextRecoveryAt) {
+		l.mu.Unlock()
+		return nil
+	}
+	runID, afterSeq := l.runID, l.lastEventSeq
+	if runID != "" {
+		l.recoveryInFlight = true
+	}
+	l.mu.Unlock()
+	if runID == "" {
+		return nil
+	}
+	return l.subscribeCmd(runID, afterSeq, true)
+}
+
+// enqueueNotice keeps the event stream ordered and lossless between UI
+// ticks. eventWake only coalesces redraw notifications; notices are never
+// discarded when the renderer is temporarily behind.
+func (l *Live) enqueueNotice(notice eventNotice) {
+	select {
+	case <-l.ctx.Done():
+		return
+	default:
+	}
+	l.eventMu.Lock()
+	l.events = append(l.events, notice)
+	l.eventMu.Unlock()
+	select {
+	case l.eventWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -430,6 +590,11 @@ func (l *Live) applyNotice(notice eventNotice) {
 	}
 	switch notice.Kind {
 	case "delta":
+		// Old journals and remote peers may still contain empty model.delta
+		// events. They are not a reasoning/answer boundary.
+		if notice.Delta == "" {
+			return
+		}
 		msgs := l.messages[l.activeID]
 		for i := range msgs {
 			if msgs[i].Reasoning {
@@ -526,6 +691,9 @@ func (l *Live) applyNotice(notice eventNotice) {
 		l.finishStreamingLocked()
 		l.busy = false
 		l.runID = ""
+		l.recovering = false
+		l.recoveryInFlight = false
+		l.nextRecoveryAt = time.Time{}
 		l.gate = nil
 		if notice.Failed && notice.Message != "" {
 			l.appendLocked(surface.Message{
@@ -680,9 +848,6 @@ func (l *Live) Send(text string) tea.Cmd {
 		accepted, err := l.client.startTurn(ctx, sessionID, text, l.face)
 		if err != nil {
 			return liveTurnStartedMsg{UserText: text, Err: err}
-		}
-		if err := l.client.subscribe(ctx, accepted.RunID); err != nil {
-			return liveTurnStartedMsg{UserText: text, RunID: accepted.RunID, Err: err}
 		}
 		return liveTurnStartedMsg{UserText: text, RunID: accepted.RunID}
 	}

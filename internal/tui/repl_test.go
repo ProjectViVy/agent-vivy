@@ -119,7 +119,7 @@ func TestREPLTurnStartAndSubscribeRPC(t *testing.T) {
 	if accepted.RunID != "run_1" {
 		t.Fatalf("run = %+v", accepted)
 	}
-	if err := client.subscribe(ctx, accepted.RunID); err != nil {
+	if err := client.subscribe(ctx, accepted.RunID, 0); err != nil {
 		t.Fatal(err)
 	}
 }

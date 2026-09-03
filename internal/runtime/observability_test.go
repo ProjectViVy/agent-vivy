@@ -70,3 +70,30 @@ func TestMapperEmitsStallForSlowProviderStream(t *testing.T) {
 		t.Fatalf("events = %+v, want model.delta and provider.stall", events)
 	}
 }
+
+func TestMapperReasoningOnlyChunksDoNotEmitEmptyDeltas(t *testing.T) {
+	reader, writer := schema.Pipe[*schema.Message](2)
+	m := newEventMapper("run-reasoning", 4096)
+	go func() {
+		writer.Send(&schema.Message{Role: schema.Assistant, ReasoningContent: "这"}, nil)
+		writer.Send(&schema.Message{Role: schema.Assistant, ReasoningContent: "是一句话"}, nil)
+		writer.Close()
+	}()
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
+		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	})
+	if err != nil {
+		t.Fatalf("map reasoning stream: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %+v, want exactly two reasoning deltas", events)
+	}
+	for _, event := range events {
+		if event.Type != domain.EventModelReasoningDelta {
+			t.Fatalf("event type = %s, want only reasoning deltas", event.Type)
+		}
+	}
+	if flushed := m.onTurnEnd(); len(flushed) != 0 {
+		t.Fatalf("reasoning-only stream flushed assistant content: %+v", flushed)
+	}
+}

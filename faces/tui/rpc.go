@@ -137,8 +137,8 @@ func (c *client) setSessionPermission(ctx context.Context, sessionID, preset str
 	return session, nil
 }
 
-func (c *client) subscribe(ctx context.Context, runID string) error {
-	_, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": 0})
+func (c *client) subscribe(ctx context.Context, runID string, afterSeq int) error {
+	_, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": afterSeq})
 	return err
 }
 

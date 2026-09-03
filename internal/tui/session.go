@@ -88,8 +88,8 @@ func (c *Client) startTurn(ctx context.Context, sessionID, text, face string) (r
 	return accepted, nil
 }
 
-func (c *Client) subscribe(ctx context.Context, runID string) error {
-	_, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": 0})
+func (c *Client) subscribe(ctx context.Context, runID string, afterSeq int) error {
+	_, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": afterSeq})
 	return err
 }
 

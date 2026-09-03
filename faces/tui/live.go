@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,12 @@ type Live struct {
 	continueNewest bool
 
 	seq int
+	// lastEventSeq is the latest contiguous durable event applied for the
+	// active run. recovering prevents duplicate replay subscriptions.
+	lastEventSeq     int
+	recovering       bool
+	recoveryInFlight bool
+	nextRecoveryAt   time.Time
 
 	eventMu   sync.Mutex
 	events    []eventNotice
@@ -80,16 +87,10 @@ func NewLive(client *client, opts LiveOptions) *Live {
 			return
 		}
 		notice := interpret(event)
-		if notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
+		if notice.Seq == 0 && notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
 			return
 		}
-		l.eventMu.Lock()
-		l.events = append(l.events, notice)
-		l.eventMu.Unlock()
-		select {
-		case l.eventWake <- struct{}{}:
-		default:
-		}
+		l.enqueueNotice(notice)
 	})
 	return l
 }
@@ -99,6 +100,9 @@ func (l *Live) Close() {
 	if l.cancel != nil {
 		l.cancel()
 	}
+	l.eventMu.Lock()
+	l.events = nil
+	l.eventMu.Unlock()
 }
 
 // Sessions implements surface.Driver.
@@ -195,8 +199,10 @@ type liveTurnStartedMsg struct {
 }
 
 type liveSubscribedMsg struct {
-	RunID string
-	Err   error
+	RunID    string
+	AfterSeq int
+	Recovery bool
+	Err      error
 }
 
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
@@ -275,7 +281,10 @@ func trimTitle(prompt string) string {
 func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case liveTickMsg:
-		finished := l.drainEvents()
+		finished, gap := l.drainEvents()
+		if gap {
+			return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
+		}
 		if finished {
 			return tea.Batch(l.dequeueCmd(), l.tickCmd())
 		}
@@ -378,31 +387,59 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	}
 	l.busy = true
 	l.runID = msg.RunID
+	l.lastEventSeq = 0
+	l.recovering = false
+	l.recoveryInFlight = false
+	l.nextRecoveryAt = time.Time{}
 	l.lastErr = ""
 	l.ensureAssistantDraftLocked()
 	l.mu.Unlock()
-	return l.subscribeCmd(msg.RunID)
+	return l.subscribeCmd(msg.RunID, 0, false)
 }
 
-func (l *Live) subscribeCmd(runID string) tea.Cmd {
+func (l *Live) subscribeCmd(runID string, afterSeq int, recovery bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		return liveSubscribedMsg{RunID: runID, Err: l.client.subscribe(ctx, runID)}
+		return liveSubscribedMsg{RunID: runID, AfterSeq: afterSeq, Recovery: recovery, Err: l.client.subscribe(ctx, runID, afterSeq)}
 	}
 }
 
 func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
-	if msg.Err == nil {
+	l.mu.Lock()
+	if l.runID != msg.RunID {
+		l.mu.Unlock()
 		return nil
 	}
-	l.mu.Lock()
-	if l.runID == msg.RunID {
-		l.lastErr = shortErr(msg.Err)
-		l.busy = false
-		l.runID = ""
-		l.finishStreamingLocked()
+	if msg.Err == nil {
+		if msg.Recovery {
+			l.recoveryInFlight = false
+		}
+		l.mu.Unlock()
+		return nil
 	}
+	// Ignore a stale subscription failure once a newer stream has already
+	// advanced beyond the cursor requested by that call.
+	if l.lastEventSeq > msg.AfterSeq {
+		if msg.Recovery {
+			l.recoveryInFlight = false
+		}
+		l.mu.Unlock()
+		return nil
+	}
+	if msg.Recovery {
+		l.recoveryInFlight = false
+		l.nextRecoveryAt = time.Now().Add(time.Second)
+		l.lastErr = "stream replay: " + shortErr(msg.Err)
+		l.mu.Unlock()
+		return nil
+	}
+	l.lastErr = shortErr(msg.Err)
+	l.busy = false
+	l.runID = ""
+	l.recovering = false
+	l.recoveryInFlight = false
+	l.finishStreamingLocked()
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 10*time.Second)
@@ -449,21 +486,103 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	return nil
 }
 
-func (l *Live) drainEvents() bool {
-	finished := false
+func (l *Live) drainEvents() (finished bool, gap bool) {
 	l.eventMu.Lock()
 	pending := l.events
 	l.events = nil
 	l.eventMu.Unlock()
-	for _, notice := range pending {
-		l.applyNotice(notice)
+	sort.SliceStable(pending, func(i, j int) bool {
+		if pending[i].Seq <= 0 {
+			return false
+		}
+		if pending[j].Seq <= 0 {
+			return true
+		}
+		return pending[i].Seq < pending[j].Seq
+	})
+	for i, notice := range pending {
+		accept, missing := l.acceptSequence(notice)
+		if missing {
+			gap = true
+			l.eventMu.Lock()
+			l.events = append(append([]eventNotice(nil), pending[i:]...), l.events...)
+			l.eventMu.Unlock()
+			break
+		}
+		if !accept {
+			continue
+		}
+		if notice.Kind != "" {
+			l.applyNotice(notice)
+		}
 		finished = finished || notice.Kind == "done"
+		if notice.Kind == "done" {
+			break
+		}
 	}
 	select {
 	case <-l.eventWake:
 	default:
 	}
-	return finished
+	return finished, gap
+}
+
+func (l *Live) acceptSequence(notice eventNotice) (accept bool, gap bool) {
+	if notice.Seq <= 0 {
+		return true, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if notice.RunID != "" && l.runID != "" && notice.RunID != l.runID {
+		return false, false
+	}
+	if notice.Seq <= l.lastEventSeq {
+		return false, false
+	}
+	if notice.Seq != l.lastEventSeq+1 {
+		if !l.recovering {
+			l.recovering = true
+		}
+		return false, true
+	}
+	l.lastEventSeq = notice.Seq
+	l.recovering = false
+	return true, false
+}
+
+func (l *Live) recoverSubscriptionCmd() tea.Cmd {
+	l.mu.Lock()
+	if l.recoveryInFlight || time.Now().Before(l.nextRecoveryAt) {
+		l.mu.Unlock()
+		return nil
+	}
+	runID, afterSeq := l.runID, l.lastEventSeq
+	if runID != "" {
+		l.recoveryInFlight = true
+	}
+	l.mu.Unlock()
+	if runID == "" {
+		return nil
+	}
+	return l.subscribeCmd(runID, afterSeq, true)
+}
+
+// enqueueNotice keeps the event stream ordered and lossless between UI
+// ticks. eventWake only coalesces redraw notifications; notices are never
+// discarded when the renderer is temporarily behind.
+func (l *Live) enqueueNotice(notice eventNotice) {
+	select {
+	case <-l.ctx.Done():
+		return
+	default:
+	}
+	l.eventMu.Lock()
+	l.events = append(l.events, notice)
+	l.eventMu.Unlock()
+	select {
+	case l.eventWake <- struct{}{}:
+	default:
+	}
 }
 
 func (l *Live) dequeueCmd() tea.Cmd {
@@ -486,6 +605,11 @@ func (l *Live) applyNotice(notice eventNotice) {
 	}
 	switch notice.Kind {
 	case "delta":
+		// Empty deltas from older journals are not a reasoning/answer
+		// boundary and must not split a continuous thinking block.
+		if notice.Delta == "" {
+			return
+		}
 		msgs := l.messages[l.activeID]
 		for i := range msgs {
 			if msgs[i].Reasoning {
@@ -582,6 +706,9 @@ func (l *Live) applyNotice(notice eventNotice) {
 		l.finishStreamingLocked()
 		l.busy = false
 		l.runID = ""
+		l.recovering = false
+		l.recoveryInFlight = false
+		l.nextRecoveryAt = time.Time{}
 		l.gate = nil
 		if notice.Failed && notice.Message != "" {
 			l.appendLocked(surface.Message{

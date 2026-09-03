@@ -26,6 +26,7 @@ type fakeEnv struct {
 	params  map[string]json.RawMessage
 	handler func(method string, params json.RawMessage)
 	script  map[string]func(params json.RawMessage) (any, error)
+	seq     map[string]int
 }
 
 func (e *fakeEnv) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
@@ -56,19 +57,24 @@ func (e *fakeEnv) OnEvent(h func(string, json.RawMessage)) {
 
 func (e *fakeEnv) deliver(t *testing.T, runID, typ string, payload any) {
 	t.Helper()
+	e.mu.Lock()
+	if e.seq == nil {
+		e.seq = map[string]int{}
+	}
+	e.seq[runID]++
+	seq := e.seq[runID]
+	h := e.handler
+	e.mu.Unlock()
 	rawPayload, _ := json.Marshal(payload)
 	params, _ := json.Marshal(map[string]any{
 		"subscription_id": "sub",
 		"event": map[string]any{
 			"run_id":  runID,
-			"seq":     1,
+			"seq":     seq,
 			"type":    typ,
 			"payload": json.RawMessage(rawPayload),
 		},
 	})
-	e.mu.Lock()
-	h := e.handler
-	e.mu.Unlock()
 	if h != nil {
 		h("run/event", params)
 	}
@@ -186,7 +192,7 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 		t.Fatalf("started = %+v", started)
 	}
 	live.Handle(started)
-	subscribed := mustMsg[liveSubscribedMsg](t, live.subscribeCmd(started.RunID))
+	subscribed := mustMsg[liveSubscribedMsg](t, live.subscribeCmd(started.RunID, 0, false))
 	live.Handle(subscribed)
 	if !live.Meta().Busy {
 		t.Fatal("expected busy")
@@ -206,7 +212,7 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 
 	env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "hi"})
 	env.deliver(t, "run_1", "run.completed", map[string]any{})
-	live.drainEvents()
+	_, _ = live.drainEvents()
 
 	if live.Meta().Busy {
 		t.Fatal("busy should clear")
@@ -233,7 +239,7 @@ func TestLiveEventQueueDoesNotDropBurst(t *testing.T) {
 		env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "x"})
 	}
 	env.deliver(t, "run_1", "run.completed", map[string]any{})
-	live.drainEvents()
+	_, _ = live.drainEvents()
 	var got string
 	for _, msg := range live.ActiveMessages() {
 		if msg.Role == roleAssistant {
@@ -254,7 +260,7 @@ func TestApprovalFailureKeepsGateRetryable(t *testing.T) {
 	env := &fakeEnv{script: script}
 	live := bootLive(t, env, LiveOptions{})
 	env.deliver(t, "run_1", "tool.approval_required", map[string]string{"approval_id": "appr_1", "tool_name": "write"})
-	live.drainEvents()
+	_, _ = live.drainEvents()
 	cmd := live.DecideApproval(decisionApproved)
 	if live.DecideApproval(decisionApproved) != nil {
 		t.Fatal("duplicate submit was accepted")
@@ -272,7 +278,7 @@ func TestQuestionFailureKeepsGateRetryable(t *testing.T) {
 	env := &fakeEnv{script: script}
 	live := bootLive(t, env, LiveOptions{})
 	env.deliver(t, "run_1", "user.question_required", map[string]string{"question_id": "q_1", "prompt": "pick"})
-	live.drainEvents()
+	_, _ = live.drainEvents()
 	cmd := live.AnswerQuestion("blue")
 	if live.AnswerQuestion("blue") != nil {
 		t.Fatal("duplicate submit was accepted")
@@ -296,7 +302,7 @@ func TestLiveApprovalRespondsAndFiltersOtherRun(t *testing.T) {
 	env.deliver(t, "run_1", "tool.approval_required", map[string]string{
 		"approval_id": "appr_1", "tool_name": "write_file", "preview": "README.md",
 	})
-	live.drainEvents()
+	_, _ = live.drainEvents()
 
 	gate := live.PendingGate()
 	if gate == nil || gate.ID != "appr_1" {
@@ -347,7 +353,7 @@ func TestLiveQuestionAnswerResponds(t *testing.T) {
 	env.deliver(t, "run_1", "user.question_required", map[string]string{
 		"question_id": "q_1", "prompt": "pick one?",
 	})
-	live.drainEvents()
+	_, _ = live.drainEvents()
 	gate := live.PendingGate()
 	if gate == nil || gate.Kind != "question" {
 		t.Fatalf("gate = %+v", gate)

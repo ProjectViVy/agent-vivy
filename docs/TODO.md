@@ -38,6 +38,8 @@ Do not pick work from those tables. Closed-track filing:
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| TUI-STREAM-N1 | 收敛 plain REPL 与 fullscreen TUI 的 durable stream 语义 | OPEN | 2026-09-04 fullscreen built-in/packed TUI 已实现 seq gap 回放与去重；`internal/tui/repl.go` 仍是独立的阻塞 channel 消费路径，尚未携带 cursor/replay。应随 shared TUI driver 合并，避免第三套流语义。相关路径 `internal/tui/repl.go`、`internal/tui/live.go`、`faces/tui/live.go`。 |
+| TUI-STREAM-N2 | TUI 重订阅资源与 inbox 内存上界 | OPEN | 2026-09-04 gap recovery 已单次在途、失败退避且终态/Close 清理，但 control plane 返回的 `subscription_id` 尚未由 TUI 保存并在换订阅时调用既有 `run/unsubscribe`；lossless inbox 也仅以 active TUI 生命周期为边界、没有显式内存上限。shared driver 波次应以 journal replay 为后盾完成旧订阅释放与有界重排缓冲，不得恢复静默丢事件。 |
 | TUI-PARITY-2 | VIVY CODE 次级 Crush 呈现控制：split diff 切换、图片附件入口、模型/思考档位与 token/cost 状态展示，并收敛 built-in 与 packed TUI 的重复渲染代码 | OPEN | 2026-09-03 主可用回路已恢复：真实 code face、本地项目、会话/流式/工具/审批提问、权限、排队与两段取消、彩色 unified diff 均已接真；本行只登记仍缺的受支持次级控件，后续不得以 demo 假控件替代。相关路径 `internal/tui/`、`faces/tui/` |
 | VC-0A | VIVY CODE 进程形态修订：第一方独立 `vivy-code.exe`，共享 Vivy 配置但每实例隔离 Journal/会话/运行记录，可与多个 TUI、网页版并发 | DONE 2026-09-04 | 用户新决策明确覆盖 VC-0/D1 的“非独立二进制、共享 Journal”旧结论；仍复用同一 kernel/app/runtime/provider/tool/FaceHost，不形成第二套内核，不带 channel，不修改 Studio。实现与验收见 `docs/logs/2026-09-04-vivy-code-independent-binary/` |
 | VC-0A-N1 | VIVY CODE 私有实例目录的保留、清理与命名恢复策略 | OPEN | 当前每次启动创建唯一 `code-instances/<instance>/`，避免共享会话与租约冲突并保留本次运行证据，但长期会累积；待明确产品是否需要自动过期清理或显式恢复某个私有实例。不得退回多个进程共享 Journal。 |
