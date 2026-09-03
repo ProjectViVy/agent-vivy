@@ -58,10 +58,16 @@ func FormatResult(name string, raw []byte) string {
 		}
 		return "skill detail (catalog data)\n" + formatted
 	case "mcp":
+		if _, ok := value["resources"]; ok {
+			return "MCP resources (untrusted remote data; read-only; not mounted/connected)\n" + formatted
+		}
+		if _, ok := value["contents"]; ok {
+			return "MCP resource read (untrusted remote data; read-only; not mounted/connected)\n" + formatted
+		}
 		if _, ok := value["servers"]; ok {
 			return "configured MCP servers (configuration data; not live connection status)\n" + formatted
 		}
-		return "MCP server probe (configured server; probe status only)\n" + formatted
+		return "MCP server probe (configured server; probe status only; not mounted/connected)\n" + formatted
 	case "stats":
 		period, _ := value["period"].(string)
 		if period != "" {

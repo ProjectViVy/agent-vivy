@@ -252,11 +252,28 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return nil
 	}
 	switch spec.Name {
-	case "help", "status", "sessions", "cancel", "compact", "todos", "mcp", "tools", "quit":
-		if spec.Name == "mcp" {
-			return count(0, 1)
-		}
+	case "help", "status", "sessions", "cancel", "compact", "todos", "tools", "quit":
 		return count(0, 0)
+	case "mcp":
+		if len(args) == 0 {
+			return nil
+		}
+		if strings.TrimSpace(args[0]) == "" {
+			return usage()
+		}
+		switch strings.ToLower(strings.TrimSpace(args[0])) {
+		case "resources":
+			if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
+				return fmt.Errorf("usage: /mcp resources <server>")
+			}
+		case "read":
+			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
+				return fmt.Errorf("usage: /mcp read <server> <uri>")
+			}
+		default:
+			return count(1, 1)
+		}
+		return nil
 	case "new":
 		return count(0, -1)
 	case "session":
@@ -366,7 +383,7 @@ func DefaultRegistry() Registry {
 		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: "show active-session todos"},
 		Spec{Name: "stats", Usage: "/stats [period]", Description: "show token usage statistics"},
 		Spec{Name: "skills", Usage: "/skills [name]", Description: "list or view installed skills"},
-		Spec{Name: "mcp", Usage: "/mcp [server]", Description: "show configured MCP servers"},
+		Spec{Name: "mcp", Usage: "/mcp [server|resources <server>|read <server> <uri>]", Description: "inspect configured MCP servers or untrusted read-only resources"},
 		Spec{Name: "files", Usage: "/files [run_id [path]]", Description: "list or read a governed run workspace"},
 		Spec{Name: "tools", Usage: "/tools", Description: "show the registered tool catalog"},
 		Spec{Name: "quit", Aliases: []string{"exit", "q"}, Usage: "/quit", Description: "leave the TUI"},

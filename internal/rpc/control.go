@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/channelhost"
@@ -163,6 +164,7 @@ type ControlDeps struct {
 type MCPCatalog interface {
 	ListTools(context.Context, domain.RunID, string) (tools.MCPListResponse, error)
 	ReplaceServers([]runtime.MCPServerConfig)
+	ConfiguredServers() []runtime.MCPServerConfig
 }
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
@@ -498,6 +500,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.get", "settings.update",
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
+			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
+			"mcp.resources.list", "mcp.resources.read",
 			"channel.inspect", "channel.get", "channel.update",
 			"session.context", "context.compact", "session.rewind", "session.fork", "session.edit",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
@@ -645,6 +649,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteMCP(ctx, request)
 	case "settings/mcp/probe":
 		return h.probeMCP(ctx, request)
+	case "settings/mcp/resources", "settings/mcp/resources/list", "mcp/resources", "mcp/resources/list":
+		return h.listMCPResources(ctx, request)
+	case "settings/mcp/read", "settings/mcp/resources/read", "mcp/read", "mcp/resources/read":
+		return h.readMCPResource(ctx, request)
 	case "tools/list":
 		return h.listTools()
 	case "tools/set-active":
@@ -3580,15 +3588,23 @@ func (h *controlHandler) mcpView(s settings.Settings) mcpListResult {
 }
 
 func (h *controlHandler) listMCP(ctx context.Context) (any, *Error) {
-	if h.deps.SettingsPath == "" {
-		return h.mcpView(settings.Settings{}), nil
-	}
-	s, rpcErr := h.loadSettingsOrError()
-	if rpcErr != nil {
-		return nil, rpcErr
+	if h.deps.SettingsPath != "" {
+		saved, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		if saved.MCPServers != nil {
+			return h.mcpView(saved), nil
+		}
 	}
 	_ = ctx
-	return h.mcpView(s), nil
+	servers := make([]settings.MCPServer, 0)
+	if h.deps.MCP != nil {
+		for _, server := range h.deps.MCP.ConfiguredServers() {
+			servers = append(servers, settings.MCPServer{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+		}
+	}
+	return h.mcpView(settings.Settings{MCPServers: &servers}), nil
 }
 
 func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *Error) {
@@ -3664,25 +3680,9 @@ func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *E
 	if name == "" {
 		return nil, &Error{Code: InvalidParams, Message: "name is required"}
 	}
-	s := settings.Settings{}
-	if h.deps.SettingsPath != "" {
-		loaded, rpcErr := h.loadSettingsOrError()
-		if rpcErr != nil {
-			return nil, rpcErr
-		}
-		s = loaded
-	}
-	var found settings.MCPServer
-	ok := false
-	for _, server := range s.MCPServersOrEmpty() {
-		if strings.EqualFold(server.Name, name) {
-			found = server
-			ok = true
-			break
-		}
-	}
-	if !ok {
-		return nil, &Error{Code: CodeNotFound, Message: "mcp server not found"}
+	found, rpcErr := h.configuredMCPServer(name)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	result := toMCPServerResult(found)
 	if !result.Enabled {
@@ -3698,6 +3698,134 @@ func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *E
 	result.Status = "ok"
 	result.ToolCount = len(listed.Tools)
 	return result, nil
+}
+
+// listMCPResources exposes only the configured-server resources/list probe.
+// The control plane does not mount, cache, or forward these remote values to
+// a model; callers receive the backend's bounded untrusted projection.
+func (h *controlHandler) listMCPResources(ctx context.Context, request Request) (any, *Error) {
+	resourceOps, ok := h.deps.MCP.(tools.MCPResourceOperations)
+	if !ok {
+		return nil, &Error{Code: MethodNotFound, Message: "mcp catalog is not configured"}
+	}
+	var params struct {
+		Name   string `json:"name"`
+		Server string `json:"server"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(params.Name)
+	if name == "" {
+		name = strings.TrimSpace(params.Server)
+	}
+	if name == "" {
+		return nil, &Error{Code: InvalidParams, Message: "name is required"}
+	}
+	server, rpcErr := h.configuredMCPServer(name)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if !settings.MCPServerEnabled(server) {
+		return nil, &Error{Code: CodeConflict, Message: "mcp server is disabled"}
+	}
+	result, err := resourceOps.ListResources(ctx, "", server.Name)
+	if err != nil {
+		return nil, mcpBackendError(err)
+	}
+	result.Untrusted = true
+	return result, nil
+}
+
+// readMCPResource exposes only the configured-server resources/read probe.
+// URI is opaque remote data: it is never resolved against the local
+// filesystem and the response remains explicitly untrusted.
+func (h *controlHandler) readMCPResource(ctx context.Context, request Request) (any, *Error) {
+	resourceOps, ok := h.deps.MCP.(tools.MCPResourceOperations)
+	if !ok {
+		return nil, &Error{Code: MethodNotFound, Message: "mcp catalog is not configured"}
+	}
+	var params tools.MCPReadResourceRequest
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.Server = strings.TrimSpace(params.Server)
+	if params.Server == "" {
+		return nil, &Error{Code: InvalidParams, Message: "server is required"}
+	}
+	if strings.TrimSpace(params.URI) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "uri is required"}
+	}
+	server, rpcErr := h.configuredMCPServer(params.Server)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if !settings.MCPServerEnabled(server) {
+		return nil, &Error{Code: CodeConflict, Message: "mcp server is disabled"}
+	}
+	params.Server = server.Name
+	result, err := resourceOps.ReadResource(ctx, "", params)
+	if err != nil {
+		return nil, mcpBackendError(err)
+	}
+	result.Untrusted = true
+	return result, nil
+}
+
+func (h *controlHandler) configuredMCPServer(name string) (settings.MCPServer, *Error) {
+	if h.deps.SettingsPath != "" {
+		saved, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return settings.MCPServer{}, rpcErr
+		}
+		// A non-nil overlay is authoritative, including an explicitly empty
+		// list. Nil means the process still uses its config-file catalog.
+		if saved.MCPServers != nil {
+			for _, server := range saved.MCPServersOrEmpty() {
+				if strings.EqualFold(server.Name, name) {
+					return server, nil
+				}
+			}
+			return settings.MCPServer{}, &Error{Code: CodeNotFound, Message: "mcp server not found"}
+		}
+	}
+	for _, server := range h.deps.MCP.ConfiguredServers() {
+		if strings.EqualFold(server.Name, name) {
+			return settings.MCPServer{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv}, nil
+		}
+	}
+	return settings.MCPServer{}, &Error{Code: CodeNotFound, Message: "mcp server not found"}
+}
+
+// mcpBackendError keeps the concrete backend cause in the RPC message. MCP
+// responses are remote and untrusted, but dropping the cause makes a bounded
+// read/list failure impossible to diagnose from the TUI.
+func mcpBackendError(err error) *Error {
+	if err == nil {
+		return internalError(nil)
+	}
+	code := InternalError
+	var remote *tools.MCPRemoteError
+	if errors.As(err, &remote) {
+		switch remote.Code {
+		case -32002:
+			code = CodeNotFound
+		case InvalidParams:
+			code = InvalidParams
+		}
+	}
+	message := tools.RedactSensitive(err.Error())
+	message = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, message)
+	runes := []rune(message)
+	if len(runes) > 2048 {
+		message = string(runes[:2048])
+	}
+	return &Error{Code: code, Message: message}
 }
 
 type generationResult struct {

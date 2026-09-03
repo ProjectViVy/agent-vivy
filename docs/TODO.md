@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-08-31
+> Updated: 2026-09-04
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -43,6 +43,7 @@ Do not pick work from those tables. Closed-track filing:
 | TUI-PARITY-2 | VIVY CODE 次级 Crush 呈现控制：split diff 切换、图片附件入口、模型档位与 token/cost 状态展示 | OPEN | 2026-09-04 思考档位已闭环：shared `/thinking [auto\|on\|off]` + Ctrl+T、`session/context.thinking_supported` 真值门、`turn/start.thinking`、排队快照、切换到不支持会话自动降级，见 `docs/logs/2026-09-04-vivy-code-thinking-mode/`。仍缺 split diff、图片附件、模型选择与更完整 token/cost 呈现；无权威 RPC/能力位的控件继续隐藏，不得以 demo 假控件替代。相关路径 `sdk/tui/`、`internal/tui/`、`faces/tui/`。 |
 | TUI-SIDEBAR-N1 | 补齐 Crush 右栏所需的会话更新时间与运行上下文真值 | OPEN | 2026-09-04 sidebar/session slice 已移除伪造内容并接入真实 `session/context`（token、消息、thinking 支持、compaction）；当前 control plane/session DTO 没有独立 `updated_at`、cwd、有效 model/provider、session cost、聚合 modified files、LSP 健康或 session-mounted MCP/skills 投影，因此这些区块保持隐藏。应先扩展有权威来源的 RPC/contract，再接入 shared `sdk/tui/view`，不得把 CreatedAt 或进程 cwd 重命名冒充 UpdatedAt/工作区。 |
 | TUI-CMD-N1 | 暴露高级 TUI 命令 `/compact`、`/fork`、`/rewind`、`/todos`、`/stats`、`/skills`、`/mcp` | DONE 2026-09-04 | 共享 fullscreen/REPL 命令面已接真实 RPC，并扩展 `/files`、`/tools`；参数校验、变更确认、重复调用屏障与变更后会话收敛已落地。统计明确为聚合值，skills/MCP 明确为 catalog/configured/probe，压缩无需执行时明确 `skipped`。见 `docs/logs/2026-09-04-vivy-code-advanced-commands/`。 |
+| TUI-MCP-RESOURCES | 为 `/mcp` 提供真实 MCP resources/list 与 resources/read 的只读查看面 | DONE 2026-09-04 | shared command/view、内置与 packed TUI、legacy REPL 均路由 `settings/mcp/resources` 与 `settings/mcp/read`；backend 支持 JSON/SSE、响应/内容上界与 `untrusted` 标记。资源只经控制面返回，不挂载、不写 tenant data、不自动送模型。见 `docs/logs/2026-09-04-vivy-code-mcp-resources/`。 |
 | TUI-CMD-N2 | 为 `!` shell 与 `@` workspace reference 提供受治理的本地命令协议 | OPEN | 2026-09-04 当前 control plane 没有可供 TUI 调用的 shell/reference RPC；单前缀已本地 fail-closed，绝不送给模型或直接执行主机命令，`!!`/`@@` 仅转义为普通消息。后续需先定义权限、workspace/run 作用域与审计契约，再接 fullscreen/REPL，不能绕过既有工具治理。相关路径 `sdk/tui/command`、`internal/rpc/control.go`、`internal/tui/`、`faces/tui/`。 |
 | VC-0A | VIVY CODE 进程形态修订：第一方独立 `vivy-code.exe`，共享 Vivy 配置但每实例隔离 Journal/会话/运行记录，可与多个 TUI、网页版并发 | DONE 2026-09-04 | 用户新决策明确覆盖 VC-0/D1 的“非独立二进制、共享 Journal”旧结论；仍复用同一 kernel/app/runtime/provider/tool/FaceHost，不形成第二套内核，不带 channel，不修改 Studio。实现与验收见 `docs/logs/2026-09-04-vivy-code-independent-binary/` |
 | VC-0A-N1 | VIVY CODE 私有实例目录的保留、清理与命名恢复策略 | OPEN | 当前每次启动创建唯一 `code-instances/<instance>/`，避免共享会话与租约冲突并保留本次运行证据，但长期会累积；待明确产品是否需要自动过期清理或显式恢复某个私有实例。不得退回多个进程共享 Journal。 |

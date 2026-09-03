@@ -755,6 +755,7 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	for _, method := range []string{
 		"settings.providers", "settings.providers.upsert", "settings.providers.delete",
 		"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
+		"settings.mcp.resources", "settings.mcp.read", "mcp.resources.list", "mcp.resources.read",
 		"channel.inspect", "channel.get", "channel.update",
 	} {
 		if !containsFold(string(raw), method) {
@@ -764,17 +765,35 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 }
 
 type mcpCatalogStub struct {
-	listed   tools.MCPListResponse
-	listErr  error
-	replaced []runtime.MCPServerConfig
+	listed       tools.MCPListResponse
+	listErr      error
+	resources    tools.MCPListResourcesResponse
+	resourcesErr error
+	read         tools.MCPReadResourceResponse
+	readErr      error
+	readRequest  tools.MCPReadResourceRequest
+	replaced     []runtime.MCPServerConfig
 }
 
 func (s *mcpCatalogStub) ListTools(context.Context, domain.RunID, string) (tools.MCPListResponse, error) {
 	return s.listed, s.listErr
 }
 
+func (s *mcpCatalogStub) ListResources(context.Context, domain.RunID, string) (tools.MCPListResourcesResponse, error) {
+	return s.resources, s.resourcesErr
+}
+
+func (s *mcpCatalogStub) ReadResource(_ context.Context, _ domain.RunID, request tools.MCPReadResourceRequest) (tools.MCPReadResourceResponse, error) {
+	s.readRequest = request
+	return s.read, s.readErr
+}
+
 func (s *mcpCatalogStub) ReplaceServers(configs []runtime.MCPServerConfig) {
 	s.replaced = append([]runtime.MCPServerConfig(nil), configs...)
+}
+
+func (s *mcpCatalogStub) ConfiguredServers() []runtime.MCPServerConfig {
+	return append([]runtime.MCPServerConfig(nil), s.replaced...)
 }
 
 // TestToolsCatalogListAndSetActive covers the Settings tool surface RPCs:
@@ -943,6 +962,28 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("expected read-only conflict, got %v", rpcErr)
 	}
+	configCatalog := &mcpCatalogStub{
+		replaced:  []runtime.MCPServerConfig{{Name: "config-docs", Endpoint: "https://config.example.com/mcp"}},
+		resources: tools.MCPListResourcesResponse{Resources: []tools.MCPResource{{Server: "config-docs", URI: "docs://config"}}, Untrusted: true},
+	}
+	roConfig, err := NewControlHandler(ControlDeps{
+		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
+		Approvals: backend, Questions: backend, Bus: bus, Service: service,
+		Studio: studio.NewService(backend), MCP: configCatalog,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, roConfig, "settings/mcp/resources", map[string]any{"name": "config-docs"}); rpcErr != nil {
+		t.Fatalf("config-only MCP resource lookup: %v", rpcErr)
+	}
+	configList, rpcErr := callControl(t, roConfig, "settings/mcp", nil)
+	if rpcErr != nil || len(configList.(mcpListResult).Servers) != 1 || configList.(mcpListResult).Servers[0].Name != "config-docs" {
+		t.Fatalf("config-only MCP catalog = %#v err=%v", configList, rpcErr)
+	}
+	if _, rpcErr := callControl(t, roConfig, "settings/mcp/probe", map[string]any{"name": "config-docs"}); rpcErr != nil {
+		t.Fatalf("config-only MCP probe: %v", rpcErr)
+	}
 
 	probed, rpcErr := callControl(t, handler, "settings/mcp/probe", map[string]any{"name": "docs"})
 	if rpcErr != nil {
@@ -952,6 +993,57 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	if probe.Status != "ok" || probe.ToolCount != 1 {
 		t.Fatalf("probe = %+v", probe)
 	}
+
+	catalog.resources = tools.MCPListResourcesResponse{
+		Server: "docs",
+		Resources: []tools.MCPResource{{
+			Server: "docs", URI: "docs://guide", Name: "guide", Title: "Guide",
+			Description: "remote guide", MIME: "text/markdown",
+		}},
+		Untrusted: true,
+	}
+	catalog.read = tools.MCPReadResourceResponse{
+		Server: "docs", URI: "docs://guide",
+		Contents:  []tools.MCPResourceContent{{URI: "docs://guide", MIME: "text/markdown", Text: stringPointer("# Hello")}},
+		Untrusted: true,
+	}
+	resources, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "docs"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	resourcesResult, ok := resources.(tools.MCPListResourcesResponse)
+	if !ok || !resourcesResult.Untrusted || resourcesResult.Server != "docs" || len(resourcesResult.Resources) != 1 || resourcesResult.Resources[0].URI != "docs://guide" {
+		t.Fatalf("resources result = %#v", resources)
+	}
+	read, rpcErr := callControl(t, handler, "settings/mcp/read", map[string]any{"server": "docs", "uri": " docs://guide "})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	readResult, ok := read.(tools.MCPReadResourceResponse)
+	if !ok || !readResult.Untrusted || readResult.Server != "docs" || readResult.URI != "docs://guide" || len(readResult.Contents) != 1 || readResult.Contents[0].Text == nil || *readResult.Contents[0].Text != "# Hello" {
+		t.Fatalf("read result = %#v", read)
+	}
+	if catalog.readRequest.Server != "docs" || catalog.readRequest.URI != " docs://guide " {
+		t.Fatalf("read request = %+v", catalog.readRequest)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown resource server error = %v", rpcErr)
+	}
+	catalog.resourcesErr = errMCPResource
+	if _, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "docs"}); rpcErr == nil || rpcErr.Code != InternalError || !strings.Contains(rpcErr.Message, errMCPResource.Error()) {
+		t.Fatalf("resource cause error = %v", rpcErr)
+	}
+	catalog.resourcesErr = nil
+	catalog.resourcesErr = errString("remote\x1b[31m\u009bfailure token sk-abcdefghijklmnop")
+	if _, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "docs"}); rpcErr == nil || strings.ContainsAny(rpcErr.Message, "\x1b\u009b") || strings.Contains(rpcErr.Message, "sk-abcdefghijklmnop") {
+		t.Fatalf("unsafe resource error = %v", rpcErr)
+	}
+	catalog.resourcesErr = nil
+	catalog.resourcesErr = &tools.MCPRemoteError{Code: -32002, Message: "resource not found"}
+	if _, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "docs"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("remote resource not-found mapping = %v", rpcErr)
+	}
+	catalog.resourcesErr = nil
 
 	catalog.listErr = errMCPProbe
 	failed, rpcErr := callControl(t, handler, "settings/mcp/probe", map[string]any{"name": "docs"})
@@ -981,6 +1073,9 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 }
 
 var errMCPProbe = errString("remote down")
+var errMCPResource = errString("resource remote down")
+
+func stringPointer(value string) *string { return &value }
 
 type errString string
 

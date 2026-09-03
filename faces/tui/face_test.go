@@ -271,6 +271,12 @@ func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
 	env.script["settings/mcp/probe"] = func(json.RawMessage) (any, error) {
 		return map[string]any{"name": "docs", "status": "ok", "tool_count": 1}, nil
 	}
+	env.script["settings/mcp/resources"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"server": "docs", "resources": []any{map[string]any{"uri": "docs://guide", "name": "guide"}}, "untrusted": true}, nil
+	}
+	env.script["settings/mcp/read"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"server": "docs", "uri": "docs://guide", "contents": []any{map[string]any{"uri": "docs://guide", "text": "hello"}}, "untrusted": true}, nil
+	}
 	env.script["tools/list"] = func(json.RawMessage) (any, error) {
 		return map[string]any{"active": []string{"read_file"}}, nil
 	}
@@ -298,6 +304,8 @@ func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
 		{"skills", []string{"writer"}, "skills/get", "guide"},
 		{"mcp", nil, "settings/mcp", "docs"},
 		{"mcp", []string{"docs"}, "settings/mcp/probe", "tool_count"},
+		{"mcp", []string{"resources", "docs"}, "settings/mcp/resources", "docs://guide"},
+		{"mcp", []string{"read", "docs", "docs://guide"}, "settings/mcp/read", "hello"},
 		{"tools", nil, "tools/list", "read_file"},
 		{"files", []string{"run_1"}, "workspace/list", "README.md"},
 		{"files", []string{"run_1", "README.md"}, "workspace/read", "hello"},

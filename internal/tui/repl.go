@@ -556,6 +556,12 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		if len(args) == 1 {
 			return r.printCommandRPC(ctx, "mcp", "settings/mcp/probe", map[string]string{"name": args[0]})
 		}
+		if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "resources") {
+			return r.printCommandRPC(ctx, "mcp", "settings/mcp/resources", map[string]string{"name": args[1]})
+		}
+		if len(args) == 3 && strings.EqualFold(strings.TrimSpace(args[0]), "read") {
+			return r.printCommandRPC(ctx, "mcp", "settings/mcp/read", map[string]string{"server": args[1], "uri": args[2]})
+		}
 		return r.printCommandRPC(ctx, "mcp", "settings/mcp", nil)
 	case "files":
 		fileRunID := ""

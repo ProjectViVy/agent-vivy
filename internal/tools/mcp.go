@@ -47,6 +47,89 @@ type MCPCallResponse struct {
 	Untrusted bool         `json:"untrusted"`
 }
 
+// MCPResource is one entry returned by the remote resources/list method.
+// The server name is added by Vivy so a result remains attributable even
+// when several configured servers expose the same URI. Remote metadata is
+// untrusted and is never interpreted as a local path or mounted state.
+type MCPResource struct {
+	Server      string          `json:"server"`
+	URI         string          `json:"uri"`
+	Name        string          `json:"name,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	MIME        string          `json:"mime_type,omitempty"`
+	Size        int64           `json:"size,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
+}
+
+// MCPResourceContent is one untrusted item returned by resources/read. MCP
+// permits either text or base64-encoded blob content; both fields are kept
+// distinct so callers do not accidentally decode or execute remote data.
+type MCPResourceContent struct {
+	URI         string          `json:"uri"`
+	MIME        string          `json:"mime_type,omitempty"`
+	Text        *string         `json:"text,omitempty"`
+	Blob        *string         `json:"blob,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
+}
+
+// MCPRemoteError preserves a JSON-RPC error code from an MCP server so the
+// control plane can map stable protocol failures without parsing text.
+type MCPRemoteError struct {
+	Code    int
+	Message string
+}
+
+func (e *MCPRemoteError) Error() string {
+	return fmt.Sprintf("remote error %d: %s", e.Code, e.Message)
+}
+
+// MCPListResourcesResponse is the bounded, read-only TUI/control-plane view
+// of resources/list. It intentionally carries no mounted/connected claim.
+type MCPListResourcesResponse struct {
+	Server    string        `json:"server,omitempty"`
+	Resources []MCPResource `json:"resources"`
+	Untrusted bool          `json:"untrusted"`
+}
+
+// MCPResourcesResponse is retained as a descriptive alias for callers that
+// use the shorter response name.
+type MCPResourcesResponse = MCPListResourcesResponse
+
+// MCPResourceListResponse is an alternate name matching the resource-first
+// naming used by some integrations.
+type MCPResourceListResponse = MCPListResourcesResponse
+
+type MCPReadResourceRequest struct {
+	Server string `json:"server"`
+	URI    string `json:"uri"`
+}
+
+type MCPResourceReadRequest = MCPReadResourceRequest
+
+// MCPReadResourceResponse is the bounded, read-only TUI/control-plane view
+// of resources/read. URI is echoed for the requested resource while Contents
+// preserves each remote content item's actual URI and representation.
+type MCPReadResourceResponse struct {
+	Server    string               `json:"server"`
+	URI       string               `json:"uri"`
+	Contents  []MCPResourceContent `json:"contents"`
+	Untrusted bool                 `json:"untrusted"`
+}
+
+// MCPResourceReadResponse is an alternate descriptive alias.
+type MCPResourceReadResponse = MCPReadResourceResponse
+
+// MCPResourceOperations is the read-only resource surface used by the
+// control plane. It is deliberately separate from MCPOperations so MCP
+// resources are not registered as model-visible tools or given side effects.
+type MCPResourceOperations interface {
+	ListResources(context.Context, domain.RunID, string) (MCPListResourcesResponse, error)
+	ReadResource(context.Context, domain.RunID, MCPReadResourceRequest) (MCPReadResourceResponse, error)
+}
+
 type MCPOperations interface {
 	ListTools(context.Context, domain.RunID, string) (MCPListResponse, error)
 	CallTool(context.Context, domain.RunID, MCPCallRequest) (MCPCallResponse, error)

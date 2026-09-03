@@ -102,6 +102,28 @@ func TestCommandExecutorReceivesParsedUnicodeArguments(t *testing.T) {
 	}
 }
 
+func TestMCPResourceCommandsUseSharedExecutorAndNeverSendModelText(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		args  string
+	}{
+		{input: "/mcp resources docs", args: "resources|docs"},
+		{input: "/mcp read docs docs://guide", args: "read|docs|docs://guide"},
+	} {
+		d := &commandDriver{testDriver: &testDriver{}}
+		m := New(d)
+		m.input = tc.input
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		_ = updated.(Model)
+		if cmd == nil || d.commandName != "mcp" || strings.Join(d.commandArgs, "|") != tc.args {
+			t.Fatalf("input %q routed name=%q args=%q cmd=%v", tc.input, d.commandName, strings.Join(d.commandArgs, "|"), cmd != nil)
+		}
+		if d.sent != "" {
+			t.Fatalf("input %q was sent as model text: %q", tc.input, d.sent)
+		}
+	}
+}
+
 func TestCommandHelpStatusAndSessionsStayInSharedTeaState(t *testing.T) {
 	d := &testDriver{
 		sessions: []surface.Session{{ID: "sess_1", Title: "Current", PermissionPreset: "smart"}},

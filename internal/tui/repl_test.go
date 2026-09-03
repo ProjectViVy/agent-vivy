@@ -169,6 +169,10 @@ func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
 			return map[string]any{"skills": []any{map[string]any{"name": "writer"}}}, nil
 		case "settings/mcp":
 			return map[string]any{"servers": []any{map[string]any{"name": "docs"}}}, nil
+		case "settings/mcp/resources":
+			return map[string]any{"server": "docs", "resources": []any{map[string]any{"uri": "docs://guide", "name": "guide"}}, "untrusted": true}, nil
+		case "settings/mcp/read":
+			return map[string]any{"server": "docs", "uri": "docs://guide", "contents": []any{map[string]any{"uri": "docs://guide", "text": "hello"}}, "untrusted": true}, nil
 		case "tools/list":
 			return map[string]any{"active": []string{"read_file"}}, nil
 		case "workspace/list":
@@ -204,6 +208,8 @@ func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
 		{"/stats 1w", "stats/tokens", "total_tokens"},
 		{"/skills", "skills/list", "writer"},
 		{"/mcp", "settings/mcp", "docs"},
+		{"/mcp resources docs", "settings/mcp/resources", "docs://guide"},
+		{"/mcp read docs docs://guide", "settings/mcp/read", "hello"},
 		{"/tools", "tools/list", "read_file"},
 		{"/files run_1", "workspace/list", "README.md"},
 	} {

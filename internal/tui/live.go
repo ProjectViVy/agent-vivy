@@ -1281,6 +1281,12 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 		if len(args) == 1 {
 			return l.commandRPCCmd(name, "settings/mcp/probe", map[string]string{"name": args[0]})
 		}
+		if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "resources") {
+			return l.commandRPCCmd(name, "settings/mcp/resources", map[string]string{"name": args[1]})
+		}
+		if len(args) == 3 && strings.EqualFold(strings.TrimSpace(args[0]), "read") {
+			return l.commandRPCCmd(name, "settings/mcp/read", map[string]string{"server": args[1], "uri": args[2]})
+		}
 		return l.commandRPCCmd(name, "settings/mcp", nil)
 	case "files":
 		runID := ""
