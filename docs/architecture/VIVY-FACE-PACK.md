@@ -47,7 +47,10 @@
 判定「像在做 face」的标准：
 
 1. 出厂工作目录只有 `faces/<name>/`。用户自写的才进 `plugins/<name>/`（`seam: face`）。日常不打开 `internal/`。
-2. 世界只通过 `sdk/plugin` 的 face 契约进来。Host / Journal / `Service.Run` / 审批裁定是内核，脸看不见。
+2. 世界只通过公开 SDK 进来：face 生命周期与 Host 能力仅经
+   `sdk/plugin`；第一方终端 face 可复用纯展示/流状态包 `sdk/tui`。
+   `sdk/tui` 不开放 Host、Journal、`Service.Run`、策略或密钥能力，脸仍
+   看不见这些内核对象。
 3. 身份是清单里的名字和 seam，不是某个 `.go` 被 `cmd/vivy` 引用。
 4. 换脸，作者改的是**配方**，不是 embed 开关或 `engine.go`。`pack` 生成 `RegisterFace()`。
 5. 跑起来之前，它只是源。跑起来之后，它已经是某一代 EXE 的一张嘴。默认提交的网关世代仍是 `face: web`。

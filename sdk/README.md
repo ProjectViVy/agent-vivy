@@ -16,6 +16,7 @@ vivy-sdk inspect-artifact dist/hello-fs
 | Path | Who may import it |
 |---|---|
 | `sdk/plugin` | User plugins only (`agent-vivy/sdk/plugin`) |
+| `sdk/tui` | Shared presentation and durable-stream state for terminal face modules; no kernel authority |
 | `sdk/internal` | This binary only |
 | `sdk/main.go` | The `vivy-sdk` entry |
 

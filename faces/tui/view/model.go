@@ -87,6 +87,9 @@ func (m Model) View() string {
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	gate := m.driver.PendingGate()
 	meta := m.driver.Meta()
+	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit

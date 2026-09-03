@@ -66,6 +66,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case surface.ErrMsg:
 		// Driver already stores error in Meta; force redraw only.
+	case surface.GateResolvedMsg:
+		if msg.Kind == "question" {
+			m.input = ""
+		}
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -81,6 +85,9 @@ func (m Model) View() string {
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	gate := m.driver.PendingGate()
 	meta := m.driver.Meta()
+	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
@@ -132,9 +139,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyEnter:
 		if gate != nil {
+			if gate.Submitting {
+				return m, nil
+			}
 			if gate.Kind == "question" {
 				answer := m.input
-				m.input = ""
 				return m, m.driver.AnswerQuestion(answer)
 			}
 			return m, nil
@@ -161,6 +170,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyRunes:
 		text := string(msg.Runes)
 		if gate != nil && gate.Kind == "approval" {
+			if gate.Submitting {
+				return m, nil
+			}
 			switch strings.ToLower(strings.TrimSpace(text)) {
 			case "y":
 				return m, m.driver.DecideApproval(domain.ApprovalApproved)

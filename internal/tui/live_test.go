@@ -188,8 +188,8 @@ func TestLiveDetectsSequenceGapAndSuppressesReplayDuplicates(t *testing.T) {
 	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 1}) // unrendered durable event
 	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 3, Kind: "reasoning", Delta: "丢"})
 	finished, gap := live.drainEvents()
-	if finished || !gap || live.lastEventSeq != 1 || !live.recovering {
-		t.Fatalf("finished=%v gap=%v seq=%d recovering=%v", finished, gap, live.lastEventSeq, live.recovering)
+	if finished || !gap || live.cursor.LastSeq != 1 || !live.cursor.Recovering {
+		t.Fatalf("finished=%v gap=%v seq=%d recovering=%v", finished, gap, live.cursor.LastSeq, live.cursor.Recovering)
 	}
 	if msgs := live.ActiveMessages(); len(msgs) != 0 {
 		t.Fatalf("gap event rendered before replay: %+v", msgs)
@@ -204,14 +204,14 @@ func TestLiveDetectsSequenceGapAndSuppressesReplayDuplicates(t *testing.T) {
 		t.Fatal("transient replay failure cancelled the active run")
 	}
 	_, gap = live.drainEvents()
-	if !gap || len(live.events) != 1 {
-		t.Fatalf("failed replay lost retained gap: gap=%v pending=%d", gap, len(live.events))
+	if !gap || live.inbox.Len() != 1 {
+		t.Fatalf("failed replay lost retained gap: gap=%v pending=%d", gap, live.inbox.Len())
 	}
 	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 2, Kind: "reasoning", Delta: "补"})
 	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 3, Kind: "reasoning", Delta: "丢"})
 	_, gap = live.drainEvents()
-	if gap || live.lastEventSeq != 3 {
-		t.Fatalf("replay gap=%v seq=%d", gap, live.lastEventSeq)
+	if gap || live.cursor.LastSeq != 3 {
+		t.Fatalf("replay gap=%v seq=%d", gap, live.cursor.LastSeq)
 	}
 	if msgs := live.ActiveMessages(); len(msgs) != 1 || msgs[0].Content != "补丢" {
 		t.Fatalf("retained replay messages = %+v", msgs)
@@ -259,6 +259,9 @@ func TestLiveRecoveryRPCReplaysRetainedGapOnce(t *testing.T) {
 		t.Fatalf("recovery subscription = %+v after_seq=%d", subscribed, gotAfter)
 	}
 	live.Handle(subscribed)
+	if !live.replayPending || live.recoverSubscriptionCmd() != nil {
+		t.Fatal("successful replay subscription was duplicated before replay arrived")
+	}
 	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 2, Kind: "reasoning", Delta: "乙"})
 	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 3, Kind: "reasoning", Delta: "丙"})
 	_, gap = live.drainEvents()
@@ -268,6 +271,30 @@ func TestLiveRecoveryRPCReplaysRetainedGapOnce(t *testing.T) {
 	msgs := live.ActiveMessages()
 	if len(msgs) != 1 || msgs[0].Content != "甲乙丙" {
 		t.Fatalf("replayed reasoning = %+v", msgs)
+	}
+	if live.replayPending {
+		t.Fatal("contiguous replay did not release the replay wait fence")
+	}
+}
+
+func TestLiveRejectsLateReplayAfterTerminal(t *testing.T) {
+	live := &Live{
+		messages:  map[string][]surface.Message{"sess_1": nil},
+		activeID:  "sess_1",
+		runID:     "run_1",
+		busy:      true,
+		ctx:       context.Background(),
+		eventWake: make(chan struct{}, 1),
+	}
+	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 1, Kind: "done", Done: true})
+	finished, gap := live.drainEvents()
+	if !finished || gap || live.Meta().Busy {
+		t.Fatalf("terminal finished=%v gap=%v meta=%+v", finished, gap, live.Meta())
+	}
+	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 1, Kind: "delta", Delta: "late"})
+	_, _ = live.drainEvents()
+	if msgs := live.ActiveMessages(); len(msgs) != 0 {
+		t.Fatalf("late replay polluted transcript: %+v", msgs)
 	}
 }
 
@@ -299,6 +326,46 @@ func TestLivePermissionSwitchPersists(t *testing.T) {
 	live.Handle(msg)
 	if gotPreset != "trusted" || live.Active().PermissionPreset != "trusted" {
 		t.Fatalf("permission = %q / %+v", gotPreset, live.Active())
+	}
+}
+
+func TestLiveGateFailuresRemainRetryable(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method == "approval/respond" || request.Method == "question/respond" {
+			return nil, &controlrpc.Error{Code: controlrpc.InternalError, Message: "temporary"}
+		}
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.activeID = "sess_1"
+	live.messages["sess_1"] = []surface.Message{{
+		ID: "tool_1", Role: surface.RoleTool,
+		Tool: &surface.ToolCard{ToolName: "write", Status: "pending", ApprovalID: "approval_1"},
+	}}
+	live.gate = &surface.Gate{Kind: "approval", ID: "approval_1"}
+	cmd := live.DecideApproval(domain.ApprovalApproved)
+	if cmd == nil || live.DecideApproval(domain.ApprovalApproved) != nil {
+		t.Fatal("approval submit was missing or duplicate submit was accepted")
+	}
+	live.Handle(mustMsg[liveRPCMsg](t, cmd))
+	if gate := live.PendingGate(); gate == nil || gate.Submitting {
+		t.Fatalf("approval gate not retryable: %+v", gate)
+	}
+	if tool := live.ActiveMessages()[0].Tool; tool.Status != "pending" {
+		t.Fatalf("failed approval mutated tool: %+v", tool)
+	}
+
+	live.gate = &surface.Gate{Kind: "question", ID: "question_1"}
+	cmd = live.AnswerQuestion("answer")
+	if cmd == nil || live.AnswerQuestion("again") != nil {
+		t.Fatal("question submit was missing or duplicate submit was accepted")
+	}
+	live.Handle(mustMsg[liveRPCMsg](t, cmd))
+	if gate := live.PendingGate(); gate == nil || gate.Submitting {
+		t.Fatalf("question gate not retryable: %+v", gate)
 	}
 }
 
