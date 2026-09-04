@@ -40,6 +40,10 @@ func (d *contextCommandDriver) ExecuteShell(script string) tea.Cmd {
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
 
+func (d *contextCommandDriver) SupportsCapability(name string) bool {
+	return name == "shell.start"
+}
+
 func TestEnterKeepsPlainTextAndDoubleSlashLiteral(t *testing.T) {
 	d := &testDriver{}
 	m := New(d)

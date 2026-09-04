@@ -165,6 +165,16 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 	}
 }
 
+func TestHelpHidesUnavailableShellCapability(t *testing.T) {
+	r := DefaultRegistry()
+	if strings.Contains(r.HelpFor(false), "!<script>") {
+		t.Fatal("help advertised shell without an initialized capability")
+	}
+	if !strings.Contains(r.HelpFor(true), "!<script>") {
+		t.Fatal("help hid shell despite shell.start capability")
+	}
+}
+
 func TestFormatResultLabelsScopesAndSkippedCompaction(t *testing.T) {
 	if got := FormatResult("compact", []byte(`{"before_tokens":0,"after_tokens":0,"folded_messages":0,"skipped":false}`)); !strings.Contains(got, "not-needed") || strings.Contains(got, "executed") {
 		t.Fatalf("zero compaction result = %q", got)

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ import (
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 )
+
+var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
 
 const (
 	CodeNotFound = -32004
@@ -243,6 +246,14 @@ type turnParams struct {
 	ContextPaths    []string         `json:"context_paths,omitempty"`
 }
 
+// shellParams is intentionally smaller than turnParams. A direct shell
+// request carries only the session and the raw script; policy, workspace,
+// approval, and lifecycle metadata are all runtime-owned.
+type shellParams struct {
+	SessionID string `json:"session_id"`
+	Script    string `json:"script"`
+}
+
 type editSessionParams struct {
 	SessionID     string `json:"session_id"`
 	MessageID     string `json:"message_id"`
@@ -372,6 +383,9 @@ type messageResult struct {
 	Attachments  []messageAttachmentResult  `json:"attachments,omitempty"`
 	FileContexts []messageFileContextResult `json:"file_contexts,omitempty"`
 	Provenance   *messageProvenanceResult   `json:"provenance,omitempty"`
+	ToolName     string                     `json:"tool_name,omitempty"`
+	ToolCallID   string                     `json:"tool_call_id,omitempty"`
+	ToolPreview  string                     `json:"tool_preview,omitempty"`
 	CreatedAt    int64                      `json:"created_at"`
 }
 
@@ -400,7 +414,18 @@ func messageProvenance(message domain.Message) *messageProvenanceResult {
 func toMessageResult(message domain.Message, includeAttachmentData bool) messageResult {
 	result := messageResult{
 		ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content,
-		Provenance: messageProvenance(message), CreatedAt: message.CreatedAt,
+		Provenance: messageProvenance(message), ToolName: message.ToolName,
+		ToolCallID: message.ToolCallID, CreatedAt: message.CreatedAt,
+	}
+	if message.ToolName == tools.BashName && len(message.ToolArgs) > 0 {
+		var audit struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(message.ToolArgs, &audit) == nil {
+			if redactedShellPreviewPattern.MatchString(audit.Command) {
+				result.ToolPreview = audit.Command
+			}
+		}
 	}
 	for _, attachment := range message.Attachments {
 		item := messageAttachmentResult{Name: attachment.Name, MimeType: attachment.MimeType, Size: int64(len(attachment.Data))}
@@ -557,6 +582,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			capabilities = append(capabilities, "attachments.resolve")
 			capabilities = append(capabilities, "project-context.resolve", "project-context.list")
 		}
+		if h.deps.Service != nil && h.deps.Service.ShellAvailable() {
+			capabilities = append(capabilities, "shell", "shell.start")
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -611,6 +639,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.stopCron(request)
 	case "turn/start":
 		return h.startTurn(ctx, request)
+	case "shell/start":
+		return h.startShell(ctx, request)
 	case "turn/interrupt", "run/cancel":
 		return h.cancelRun(request)
 	case "run/get":
@@ -934,6 +964,10 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	if err != nil {
 		return nil, internalError(err)
 	}
+	messages, err = h.applySessionTruncations(ctx, session.ID, messages)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
 		out = append(out, toMessageResult(message, includeAttachmentData(params)))
@@ -991,14 +1025,9 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 	if err != nil {
 		return nil, internalError(err)
 	}
-	if h.deps.Truncations != nil {
-		markers, err := h.deps.Truncations.ListViewTruncations(ctx, domain.SessionID(params.SessionID))
-		if err != nil {
-			return nil, internalError(err)
-		}
-		if len(markers) > 0 {
-			messages = storage.ApplySessionTruncations(messages, markers)
-		}
+	messages, err = h.applySessionTruncations(ctx, domain.SessionID(params.SessionID), messages)
+	if err != nil {
+		return nil, internalError(err)
 	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
@@ -1009,6 +1038,20 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 
 func includeAttachmentData(params sessionParams) bool {
 	return params.IncludeAttachmentData == nil || *params.IncludeAttachmentData
+}
+
+func (h *controlHandler) applySessionTruncations(ctx context.Context, sessionID domain.SessionID, messages []domain.Message) ([]domain.Message, error) {
+	if h.deps.Truncations == nil {
+		return messages, nil
+	}
+	markers, err := h.deps.Truncations.ListViewTruncations(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if len(markers) == 0 {
+		return messages, nil
+	}
+	return storage.ApplySessionTruncations(messages, markers), nil
 }
 
 // sessionContext reports the real context pressure of a session (feed
@@ -1843,6 +1886,24 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
 }
 
+func (h *controlHandler) startShell(ctx context.Context, request Request) (any, *Error) {
+	params, rpcErr := parseShellParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	runID, err := h.deps.Service.RunShell(ctx, domain.SessionID(params.SessionID), params.Script)
+	if err != nil {
+		if errors.Is(err, runtime.ErrShellUnavailable) {
+			return nil, &Error{Code: MethodNotFound, Message: "governed shell is unavailable"}
+		}
+		if errors.Is(err, runtime.ErrPolicyDenied) || errors.Is(err, runtime.ErrSandboxDenied) {
+			return nil, &Error{Code: InvalidParams, Message: "shell invocation is not permitted"}
+		}
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+}
+
 func (h *controlHandler) editSession(ctx context.Context, request Request) (any, *Error) {
 	var params editSessionParams
 	if rpcErr := decodeParams(request, &params); rpcErr != nil {
@@ -1985,6 +2046,9 @@ func (h *controlHandler) listApprovals(ctx context.Context) (any, *Error) {
 	}
 	out := make([]approvalResult, 0, len(approvals))
 	for _, approval := range approvals {
+		if h.deps.Service != nil && !h.deps.Service.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
+			continue
+		}
 		out = append(out, approvalResult{ID: approval.ID, RunID: approval.RunID, ToolCallID: approval.ToolCallID, Decision: approval.Decision, ExpiresAt: approval.ExpiresAt})
 	}
 	return map[string]any{"approvals": out}, nil
@@ -2048,6 +2112,9 @@ func (h *controlHandler) listReviews(ctx context.Context, request Request) (any,
 	}
 	out := make([]reviewResult, 0, len(items))
 	for _, item := range items {
+		if item.Kind == domain.ReviewKindApproval && item.Status == domain.ReviewPending && h.deps.Service != nil && !h.deps.Service.ApprovalRequiredDurable(ctx, item.RunID, item.ID) {
+			continue
+		}
 		out = append(out, toReviewResult(item))
 	}
 	return map[string]any{"reviews": out}, nil
@@ -2072,6 +2139,9 @@ func (h *controlHandler) getReview(ctx context.Context, request Request) (any, *
 	}
 	if err != nil {
 		return nil, internalError(err)
+	}
+	if item.Kind == domain.ReviewKindApproval && item.Status == domain.ReviewPending && h.deps.Service != nil && !h.deps.Service.ApprovalRequiredDurable(ctx, item.RunID, item.ID) {
+		return nil, &Error{Code: CodeNotFound, Message: "review not found"}
 	}
 	return toReviewResult(item), nil
 }
@@ -2281,6 +2351,29 @@ func parseTurnParams(request Request) (turnParams, *Error) {
 	}
 	if params.SessionID == "" {
 		return params, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	return params, nil
+}
+
+func parseShellParams(request Request) (shellParams, *Error) {
+	var params shellParams
+	if err := decodeParams(request, &params); err != nil {
+		return params, err
+	}
+	if len(request.Params) == 0 || string(request.Params) == "null" {
+		return params, &Error{Code: InvalidParams, Message: "session_id and script are required"}
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(request.Params, &fields); err != nil || fields == nil {
+		return params, &Error{Code: InvalidParams, Message: "params must be a JSON object"}
+	}
+	for name := range fields {
+		if name != "session_id" && name != "script" {
+			return params, &Error{Code: InvalidParams, Message: "shell/start accepts only session_id and script"}
+		}
+	}
+	if params.SessionID == "" || params.Script == "" {
+		return params, &Error{Code: InvalidParams, Message: "session_id and script are required"}
 	}
 	return params, nil
 }

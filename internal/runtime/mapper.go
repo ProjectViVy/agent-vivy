@@ -452,6 +452,12 @@ func clampText(s string, budget int) string {
 }
 
 func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
+	if finished, ok := payload.(payloadToolFinished); ok && finished.Result != "" && m.maxPayload > 0 {
+		// Bound the encoded JSON field, not only raw text: quote-heavy output
+		// can otherwise expand beyond the durable event payload ceiling.
+		finished.Result = clampEscapedText(finished.Result, m.maxPayload-1024)
+		payload = finished
+	}
 	b, err := json.Marshal(payload)
 	if err != nil {
 		// Payload structs are plain data; marshaling cannot fail in
@@ -467,4 +473,27 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		PayloadVersion: 1,
 		Payload:        b,
 	}
+}
+
+func clampEscapedText(value string, budget int) string {
+	if budget <= 2 {
+		return ""
+	}
+	encoded, _ := json.Marshal(value)
+	if len(encoded) <= budget {
+		return value
+	}
+	runes := []rune(value)
+	low, high := 0, len(runes)
+	for low < high {
+		mid := low + (high-low+1)/2
+		candidate, _ := json.Marshal(string(runes[:mid]))
+		if len(candidate) <= budget {
+			low = mid
+		} else {
+			high = mid - 1
+		}
+	}
+	slog.Warn("tool result clamped to encoded event budget", "original_runes", len(runes), "kept_runes", low)
+	return string(runes[:low])
 }

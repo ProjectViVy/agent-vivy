@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	goRuntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -77,8 +78,12 @@ func TestBashBackendDenyTableDefenseInDepth(t *testing.T) {
 func TestBashBackendRejectsMalformedInvocation(t *testing.T) {
 	backend, _ := newBashBackendForTest(t, domain.SandboxModeWorkspaceWrite)
 	backend.shellPath = ""
-	if _, err := backend.Execute(withRunID(context.Background(), "run_bash_missing"), "run_bash_missing", tools.CommandRequest{Command: "bash", Args: []string{"-c", "echo hi"}}); err == nil || !strings.Contains(err.Error(), "bash is not available") {
-		t.Fatalf("missing shell error = %v, want bash unavailable", err)
+	if _, err := backend.Execute(withRunID(context.Background(), "run_bash_missing"), "run_bash_missing", tools.CommandRequest{Command: "bash", Args: []string{"-c", "echo hi"}}); goRuntime.GOOS == "windows" {
+		if err != nil {
+			t.Fatalf("embedded Windows shell error = %v", err)
+		}
+	} else if err == nil || !strings.Contains(err.Error(), "bash is not available") {
+		t.Fatalf("missing native shell error = %v, want bash unavailable", err)
 	}
 	backend.shellPath = "placeholder"
 	if _, err := backend.Execute(withRunID(context.Background(), "run_bash_shape"), "run_bash_shape", tools.CommandRequest{Command: "bash", Args: []string{"echo", "hi"}}); err == nil || !strings.Contains(err.Error(), "single -c script") {

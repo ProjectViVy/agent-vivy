@@ -201,6 +201,12 @@ type ShellExecutor interface {
 	ExecuteShell(script string) tea.Cmd
 }
 
+// CapabilityReporter exposes only capabilities returned by initialize.
+// Optional effect surfaces use it to hide and reject unavailable actions.
+type CapabilityReporter interface {
+	SupportsCapability(name string) bool
+}
+
 // SessionController supplies the independent Sessions dialog actions. The
 // fullscreen view checks this interface rather than baking RPC knowledge into
 // the shared renderer.

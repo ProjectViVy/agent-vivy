@@ -71,6 +71,11 @@ var (
 	ErrQuestionAlreadyAnswered = errors.New("runtime: question already answered")
 	ErrQuestionExpired         = errors.New("runtime: question expired")
 	ErrRecoveryBusy            = errors.New("runtime: background runs are active")
+	// ErrShellUnavailable is returned when the configured active tool surface
+	// does not contain the governed bash tool. The RPC layer maps this to a
+	// fail-closed method-not-found response; callers must never fall back to a
+	// local process invocation.
+	ErrShellUnavailable = errors.New("runtime: governed shell is unavailable")
 )
 
 // ServiceDeps groups the storage and fan-out dependencies of Service.
@@ -102,6 +107,11 @@ type ServiceDeps struct {
 	// (context/compact + feed folding). Nil keeps automatic in-run
 	// compression working; only durable summary folding is disabled.
 	Compactions storage.CompactionStore
+	// ShellState is an opaque protected blob store for the exact input of a
+	// pending direct shell run. Raw scripts never enter Journal or Approval
+	// metadata; when this store is wired, restart recovery can reload the
+	// pending input without replaying an already-started process.
+	ShellState storage.BlobStore
 	// Truncations persists the session rewind/edit/fork cutoff markers
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
@@ -142,6 +152,14 @@ type Service struct {
 	// flight, the checkpoint is durable, and the run row stays active
 	// until a decision resumes it or Cancel closes it (C6).
 	pending map[domain.RunID]pendingRun
+	// shellPending tracks direct governed-shell runs suspended on a durable
+	// approval. It is intentionally separate from Eino pending state: shell
+	// approval recovery never relies on a model checkpoint or Resume().
+	shellPending map[domain.RunID]shellPendingRun
+	// shellStates retains exact shell arguments behind opaque state keys while
+	// a process is alive. The optional ShellState blob store makes the same
+	// state recoverable after restart.
+	shellStates map[string]shellState
 	// ledgers survive approval/question suspension and are shared by every
 	// resume of the same run.
 	ledgers map[domain.RunID]*BudgetLedger
@@ -232,6 +250,8 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		defaultProfile: deps.PolicyDefaultProfile,
 		active:         make(map[domain.RunID]context.CancelFunc),
 		pending:        make(map[domain.RunID]pendingRun),
+		shellPending:   make(map[domain.RunID]shellPendingRun),
+		shellStates:    make(map[string]shellState),
 		ledgers:        make(map[domain.RunID]*BudgetLedger),
 		snapshots:      make(map[domain.RunID]domain.PolicySnapshot),
 		lastCompaction: make(map[domain.SessionID]*LastCompaction),
@@ -430,12 +450,50 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 // Cancel ends an in-flight run of this process. It reports false when the
 // run is not active here (unknown, already terminal, or another process).
 // Runs suspended on an approval close directly: no engine work is in
-// flight for them (minimal E1 coverage).
+// flight for them. Direct shell approvals use their own pending map and
+// never enter the Eino checkpoint resume path.
 func (s *Service) Cancel(runID domain.RunID) bool {
 	s.mu.Lock()
 	cancel, active := s.active[runID]
 	p, isPending := s.pending[runID]
+	sp, isShellPending := s.shellPending[runID]
 	s.mu.Unlock()
+
+	if isShellPending {
+		if err := s.waitShellApprovalReady(context.Background(), runID); err != nil {
+			slog.Warn("cancel shell approval readiness failed", "run", string(runID), "err", err)
+			return true
+		}
+		settled := true
+		if s.deps.Approvals != nil {
+			if approval, err := s.approvalForRun(context.Background(), runID); err == nil {
+				if err := s.cancelApproval(context.Background(), approval, "run cancelled"); err != nil {
+					slog.Warn("cancel shell approval failed", "approval", approval.ID, "err", err)
+					settled = false
+				}
+			} else if errors.Is(err, storage.ErrNotFound) {
+				// A concurrent durable decision won. Cancel only the active run
+				// context; its resume path owns the terminal event.
+				if cancel != nil {
+					cancel()
+				}
+				return true
+			} else {
+				slog.Warn("load shell approval for cancel failed", "run", string(runID), "err", err)
+				settled = false
+			}
+		}
+		if !settled {
+			return true
+		}
+		s.removeShellPending(runID, sp.mapper)
+		if cancel != nil {
+			cancel()
+		}
+		s.deleteShellState(sp.stateRef)
+		s.emitTerminal(context.Background(), sp.mapper, sp.mapper.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
+		return true
+	}
 
 	if isPending {
 		settled := true
@@ -483,8 +541,11 @@ func (s *Service) CancelAll() {
 	for _, c := range s.active {
 		cancels = append(cancels, c)
 	}
-	pendingIDs := make([]domain.RunID, 0, len(s.pending))
+	pendingIDs := make([]domain.RunID, 0, len(s.pending)+len(s.shellPending))
 	for id := range s.pending {
+		pendingIDs = append(pendingIDs, id)
+	}
+	for id := range s.shellPending {
 		pendingIDs = append(pendingIDs, id)
 	}
 	s.mu.Unlock()
@@ -627,6 +688,7 @@ func (s *Service) recover(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("runtime: list active runs: %w", err)
 	}
+	s.cleanupOrphanedShellState(ctx)
 	if len(runs) == 0 {
 		return nil
 	}
@@ -679,9 +741,19 @@ func (s *Service) recover(ctx context.Context) error {
 		case hasApproval && hasQuestion:
 			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
 		case hasApproval && approval.ExpiresAt <= now:
+			if isShellApproval(approval) {
+				s.deleteShellState(shellStateRef(approval.ProposalData))
+			}
 			if err := s.expireApproval(ctx, approval, "human review timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire approval failed", "approval", approval.ID, "err", err)
 				s.failUnrecoverable(ctx, run.ID, "approval expiry could not be persisted")
+			}
+		case hasApproval && isShellApproval(approval):
+			if err := s.rebuildShellPending(ctx, run, approval); err != nil {
+				slog.Warn("restart recovery: shell approval could not be rebuilt", "run", string(run.ID), "err", shellPublicError(err))
+				s.deleteShellState(shellStateRef(approval.ProposalData))
+				_ = s.cancelApproval(ctx, approval, "protected shell state could not be recovered")
+				s.failUnrecoverable(ctx, run.ID, "protected shell state could not be recovered")
 			}
 		case hasApproval && !s.checkpointReadable(ctx, run.ID):
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
@@ -697,6 +769,7 @@ func (s *Service) recover(ctx context.Context) error {
 		case hasQuestion:
 			s.rebuildPendingQuestion(ctx, run, question)
 		default:
+			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
 		}
 	}
@@ -1613,6 +1686,16 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	if time.Now().UnixMilli() >= approval.ExpiresAt {
 		return ErrApprovalExpired
 	}
+	if isShellApproval(approval) {
+		if err := s.waitShellApprovalReady(ctx, approval.RunID); err != nil {
+			return err
+		}
+		if time.Now().UnixMilli() >= approval.ExpiresAt {
+			return ErrApprovalExpired
+		}
+	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
+		return errors.New("runtime: approval is not durable yet")
+	}
 	decided, err := s.decideApproval(ctx, approvalID, decision, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
@@ -1621,7 +1704,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 		// Lost the first-writer-wins race to a concurrent decision.
 		return ErrApprovalAlreadyDecided
 	}
-	s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
+	decisionPersisted := s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
 		ApprovalID: approval.ID, Decision: decision, Actor: "local_user", Reason: reason, DecidedAt: time.Now().UnixMilli(),
 	})
 	if approval.Kind == domain.ApprovalKindChild {
@@ -1636,8 +1719,34 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 
 	s.mu.Lock()
 	p, ok := s.pending[approval.RunID]
-	delete(s.pending, approval.RunID)
+	if ok {
+		delete(s.pending, approval.RunID)
+	}
+	sp, shellOK := s.shellPending[approval.RunID]
+	if shellOK {
+		delete(s.shellPending, approval.RunID)
+	}
 	s.mu.Unlock()
+	if shellOK {
+		if !decisionPersisted {
+			s.deleteShellState(sp.stateRef)
+			s.emitTerminal(context.WithoutCancel(ctx), sp.mapper, sp.mapper.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeInternalError, Message: "The shell approval decision could not be recorded; the command did not run.",
+			}))
+			return errors.New("runtime: persist shell approval decision failed")
+		}
+		// The durable decision is the no-replay boundary. Exact args remain in
+		// this pending value for the imminent resume, so delete persisted state
+		// before a process can start.
+		s.deleteShellState(sp.stateRef)
+		sp.stateRef = ""
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.resumeShell(sp, approval, decision)
+		}()
+		return nil
+	}
 	if !ok {
 		// The approval outlived its run in this process (the run was
 		// cancelled, or the decision raced the close): the decision
@@ -1725,7 +1834,7 @@ func (s *Service) approvalForRun(ctx context.Context, runID domain.RunID) (domai
 	return domain.Approval{}, storage.ErrNotFound
 }
 
-func (s *Service) journalReviewEvent(ctx context.Context, runID domain.RunID, eventType domain.EventType, payload any) {
+func (s *Service) journalReviewEvent(ctx context.Context, runID domain.RunID, eventType domain.EventType, payload any) bool {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	ev := m.build(eventType, payload)
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
@@ -1733,13 +1842,24 @@ func (s *Service) journalReviewEvent(ctx context.Context, runID domain.RunID, ev
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
 	if err != nil {
 		slog.Warn("review event persistence failed", "run", string(runID), "type", string(eventType), "err", err)
-		return
+		return false
 	}
 	ev.Seq = seq
 	s.publish(persistCtx, ev)
+	return true
 }
 
 func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, reason string) error {
+	if isShellApproval(approval) {
+		s.mu.Lock()
+		_, inProcess := s.shellPending[approval.RunID]
+		s.mu.Unlock()
+		if inProcess {
+			if err := s.waitShellApprovalReady(ctx, approval.RunID); err != nil {
+				return err
+			}
+		}
+	}
 	lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore)
 	if !ok {
 		return nil
@@ -1756,9 +1876,19 @@ func (s *Service) expireApproval(ctx context.Context, approval domain.Approval, 
 	if pending {
 		delete(s.pending, approval.RunID)
 	}
+	sp, shellPending := s.shellPending[approval.RunID]
+	if shellPending {
+		delete(s.shellPending, approval.RunID)
+	}
 	s.mu.Unlock()
 	if pending {
 		s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunFailed, payloadRunFailed{
+			CauseCategory: causeHumanTimeout,
+			Message:       "The run stopped because human review timed out.",
+		}))
+	} else if shellPending {
+		s.deleteShellState(sp.stateRef)
+		s.emitTerminal(ctx, sp.mapper, sp.mapper.build(domain.EventRunFailed, payloadRunFailed{
 			CauseCategory: causeHumanTimeout,
 			Message:       "The run stopped because human review timed out.",
 		}))
@@ -2218,12 +2348,18 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		// backend failed; either way the stored truth wins and the row
 		// must not be flipped here.
 		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
+		var shellStateRefToDelete string
 		s.mu.Lock()
 		if c, ok := s.active[terminal.RunID]; ok {
 			delete(s.active, terminal.RunID)
 			c()
 		}
+		if pending, ok := s.shellPending[terminal.RunID]; ok {
+			delete(s.shellPending, terminal.RunID)
+			shellStateRefToDelete = pending.stateRef
+		}
 		s.mu.Unlock()
+		s.deleteShellState(shellStateRefToDelete)
 		return
 	}
 	terminal.Seq = seq
@@ -2238,13 +2374,19 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	s.publish(persistCtx, terminal)
 
 	s.mu.Lock()
+	var shellStateRefToDelete string
 	if c, ok := s.active[terminal.RunID]; ok {
 		delete(s.active, terminal.RunID)
 		c() // idempotent: releases the detached run context
 	}
+	if pending, ok := s.shellPending[terminal.RunID]; ok {
+		delete(s.shellPending, terminal.RunID)
+		shellStateRefToDelete = pending.stateRef
+	}
 	delete(s.ledgers, terminal.RunID)
 	delete(s.snapshots, terminal.RunID)
 	s.mu.Unlock()
+	s.deleteShellState(shellStateRefToDelete)
 }
 
 func (s *Service) publish(ctx context.Context, ev domain.RunEvent) {
@@ -2256,6 +2398,16 @@ func (s *Service) publish(ctx context.Context, ev domain.RunEvent) {
 
 func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) GovernanceEventSink {
 	return func(ctx context.Context, event GovernanceEvent) error {
+		event.Reason = tools.RedactSensitive(event.Reason)
+		if isDirectShell(ctx) && event.Reason != "" {
+			// Hook programs are untrusted and may echo their input in a reason.
+			// Direct-shell audit data records the decision, never hook text that
+			// could contain the raw script.
+			event.Reason = "governed shell " + string(event.Type)
+		}
+		if len(event.Reason) > 512 {
+			event.Reason = event.Reason[:512] + "..."
+		}
 		if event.Profile == "" {
 			event.Profile = policyProfile(ctx)
 		}
