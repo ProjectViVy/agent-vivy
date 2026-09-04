@@ -1267,6 +1267,8 @@ func mustMsg[T any](t *testing.T, cmd tea.Cmd) T {
 func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 	got := mapSidebarView(sidebarView{
 		Session:            sessionView{ID: "sess", UpdatedAt: 42},
+		Context:            &contextView{FeedTokens: 42, ModelLimitTokens: 128000, TokenCountsEstimated: true, ModelLimitKnown: false},
+		Usage:              &sidebarUsageView{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, ReasoningTokens: 3, CachedTokens: 2, RequestCount: 2, CostUSD: 0.125, CostKnown: true},
 		ModifiedFilesKnown: true,
 		ModifiedFiles:      []sidebarFileView{{Path: "main.go", Diff: sidebarDiffView{Additions: 3, Deletions: 1}}},
 		MCPKnown:           true, MCP: []sidebarMCPView{{Name: "docs", State: "initialized"}},
@@ -1275,6 +1277,12 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 	})
 	if got.Session.UpdatedAt != 42 || !got.ModifiedFilesKnown || len(got.ModifiedFiles) != 1 {
 		t.Fatalf("sidebar mapping = %+v", got)
+	}
+	if !got.HasContext || !got.Context.TokenCountsEstimated || got.Context.ModelLimitKnown || got.Context.FeedTokens != 42 {
+		t.Fatalf("context mapping = %+v", got.Context)
+	}
+	if !got.HasUsage || got.Usage.PromptTokens != 10 || got.Usage.CompletionTokens != 5 || got.Usage.TotalTokens != 15 || got.Usage.ReasoningTokens != 3 || got.Usage.CachedTokens != 2 || got.Usage.RequestCount != 2 || got.Usage.CostUSD != 0.125 || !got.Usage.CostKnown {
+		t.Fatalf("usage mapping = %+v", got.Usage)
 	}
 	if got.ModifiedFiles[0].Diff.Additions != 3 || got.ModifiedFiles[0].Diff.Deletions != 1 {
 		t.Fatalf("diff mapping = %+v", got.ModifiedFiles[0].Diff)

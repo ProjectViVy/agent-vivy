@@ -168,6 +168,8 @@ type sidebarFileView struct {
 type contextView struct {
 	FeedTokens           int  `json:"feed_tokens"`
 	ModelLimitTokens     int  `json:"model_limit_tokens"`
+	TokenCountsEstimated bool `json:"token_counts_estimated"`
+	ModelLimitKnown      bool `json:"model_limit_known"`
 	TriggerTokens        int  `json:"trigger_tokens"`
 	TotalMessages        int  `json:"total_messages"`
 	FeedMessages         int  `json:"feed_messages"`
@@ -182,6 +184,7 @@ type contextView struct {
 func mapContextView(view contextView) surface.Context {
 	return surface.Context{
 		FeedTokens: view.FeedTokens, ModelLimitTokens: view.ModelLimitTokens,
+		TokenCountsEstimated: view.TokenCountsEstimated, ModelLimitKnown: view.ModelLimitKnown,
 		TriggerTokens: view.TriggerTokens, TotalMessages: view.TotalMessages,
 		FeedMessages: view.FeedMessages, ThinkingSupported: view.ThinkingSupported,
 		ImageSupportKnown: view.ImageSupportKnown, ImageSupported: view.ImageSupported,

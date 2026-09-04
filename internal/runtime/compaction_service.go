@@ -45,10 +45,14 @@ type ContextStatusResult struct {
 	// per-run preamble and the next user message).
 	FeedBytes  int `json:"feed_bytes"`
 	FeedTokens int `json:"feed_tokens"`
+	// TokenCountsEstimated is true when token counts use the runtime's byte
+	// estimate instead of provider tokenizer output.
+	TokenCountsEstimated bool `json:"token_counts_estimated"`
 	// LimitBytes is runtime.max_context_bytes; ModelLimitTokens is the
 	// provider model context window (128000 when unknown).
-	LimitBytes       int `json:"limit_bytes"`
-	ModelLimitTokens int `json:"model_limit_tokens"`
+	LimitBytes       int  `json:"limit_bytes"`
+	ModelLimitTokens int  `json:"model_limit_tokens"`
+	ModelLimitKnown  bool `json:"model_limit_known"`
 	// ThinkingSupported mirrors D9 model metadata: whether the active
 	// route's model accepts an explicit extended-thinking request. The
 	// chat input gates its thinking selector on this flag.
@@ -94,6 +98,7 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	feed := feedableMessages(folded)
 	out.FeedMessages = len(feed)
 	out.FeedBytes, out.FeedTokens = historyBytesTokens(feed)
+	out.TokenCountsEstimated = true
 	out.HasCompactionSummary = foldedOK
 
 	info := s.GetModelInfo(ctx)
@@ -102,6 +107,7 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 	out.ImageSupported = info.SupportsImages
 	if info.ContextWindow > 0 {
 		out.ModelLimitTokens = info.ContextWindow
+		out.ModelLimitKnown = true
 	} else {
 		out.ModelLimitTokens = fallbackContextWindowTokens
 	}

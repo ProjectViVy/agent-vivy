@@ -471,7 +471,8 @@ func TestSidebarDoesNotRenderSessionCollection(t *testing.T) {
 			HasContext: true,
 			Context: surface.Context{
 				FeedTokens: 1200, ModelLimitTokens: 8000, TriggerTokens: 6400,
-				TotalMessages: 5, FeedMessages: 3, HasCompactionSummary: true,
+				ModelLimitKnown: true,
+				TotalMessages:   5, FeedMessages: 3, HasCompactionSummary: true,
 			},
 		},
 	}
@@ -519,8 +520,11 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 			Session: surface.Session{ID: "active", Title: "Current", UpdatedAt: 1725552000000},
 			CWD:     "C:/code/project", Model: "reasoning-model", Provider: "provider-a",
 			ReasoningKnown: true, ReasoningSupported: true,
-			HasContext: true, Context: surface.Context{FeedTokens: 1200, ModelLimitTokens: 8000},
-			HasUsage: true, Usage: surface.SidebarUsage{TotalTokens: 1500, CostKnown: false},
+			HasContext: true, Context: surface.Context{FeedTokens: 1200, ModelLimitTokens: 8000, ModelLimitKnown: true, TokenCountsEstimated: true},
+			HasUsage: true, Usage: surface.SidebarUsage{
+				PromptTokens: 900, CompletionTokens: 600, TotalTokens: 1500,
+				ReasoningTokens: 120, CachedTokens: 300, RequestCount: 3, CostKnown: false,
+			},
 			ModifiedFilesKnown: true,
 			MCPKnown:           true, MCP: []surface.MCPServer{{Name: "docs", State: "initialized"}, {Name: "local", State: "configured"}},
 			SkillsKnown: true, Skills: []surface.SidebarSkill{{Name: "review"}},
@@ -537,7 +541,11 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 	view := m.View()
-	for _, want := range []string{"C:/code/project", "reasoning-model", "provider-a", "reasoning · supported", "cost · unknown", "pkg/file-00.go"} {
+	for _, want := range []string{
+		"C:/code/project", "reasoning-model", "provider-a", "reasoning · supported",
+		"~15% · ~1.2k / 8.0k tokens", "total · 1.5k tokens", "input · 900", "output · 600",
+		"Session Usage", "reasoning · 120", "cached · 300", "requests · 3", "est. cost · unknown", "pkg/file-00.go",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("sidebar omitted %q:\n%s", want, view)
 		}
@@ -573,6 +581,77 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	m = updated.(Model)
 	if m.sidebarFocused || m.sidebarScroll != 0 {
 		t.Fatalf("compact resize retained hidden sidebar state: focused=%v scroll=%d", m.sidebarFocused, m.sidebarScroll)
+	}
+}
+
+func TestSidebarContextWarnsAboveEightyPercent(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		feedTokens int
+		warn       bool
+	}{
+		{name: "exactly eighty", feedTokens: 8000},
+		{name: "just above eighty", feedTokens: 8001, warn: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			driver := &testDriver{
+				sessions: []surface.Session{{ID: "active", Title: "Current"}},
+				active:   "active",
+				sidebar: surface.Sidebar{
+					Session:    surface.Session{ID: "active", Title: "Current"},
+					HasContext: true,
+					Context:    surface.Context{FeedTokens: tc.feedTokens, ModelLimitTokens: 10000, ModelLimitKnown: true, TokenCountsEstimated: true},
+				},
+			}
+			m := New(driver)
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+			view := updated.(Model).View()
+			warned := strings.Contains(view, "! ~80%")
+			if warned != tc.warn {
+				t.Fatalf("warning=%v, want %v:\n%s", warned, tc.warn, view)
+			}
+		})
+	}
+}
+
+func TestSidebarContextHidesFallbackLimitWhenModelLimitIsUnknown(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		sidebar: surface.Sidebar{
+			Session:    surface.Session{ID: "active", Title: "Current"},
+			HasContext: true,
+			Context:    surface.Context{FeedTokens: 1200, ModelLimitTokens: 128000, TokenCountsEstimated: true},
+		},
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	view := updated.(Model).View()
+	if !strings.Contains(view, "~1.2k tokens · limit unknown") || strings.Contains(view, "128.0k") || strings.Contains(view, "%") {
+		t.Fatalf("fallback model limit was presented as authoritative:\n%s", view)
+	}
+}
+
+func TestSidebarUsageShowsKnownZeroCostAndAuthoritativeZeroBreakdown(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		sidebar: surface.Sidebar{
+			Session:  surface.Session{ID: "active", Title: "Current"},
+			HasUsage: true,
+			Usage:    surface.SidebarUsage{RequestCount: 1, CostKnown: true},
+		},
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	view := updated.(Model).View()
+	for _, want := range []string{"total · 0 tokens", "input · 0", "output · 0", "requests · 1", "est. cost · $0.0000"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("sidebar omitted authoritative zero %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "reasoning · 0") || strings.Contains(view, "cached · 0") {
+		t.Fatalf("optional zero-only usage dimensions added noise:\n%s", view)
 	}
 }
 
