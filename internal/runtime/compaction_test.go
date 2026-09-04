@@ -557,9 +557,12 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sink: sink, Compactions: backend,
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: sink, Compactions: backend,
 	})
 	sessionID := domain.SessionID("sess-compact-1")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "compact", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 40; i++ {
 		if err := backend.AppendMessage(ctx, domain.Message{
 			ID: fmt.Sprintf("msg-%d", i), SessionID: sessionID, Role: domain.RoleUser,
@@ -637,6 +640,12 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("next run feed must include the durable compaction summary")
+	}
+	if err := svc.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("delete compacted session: %v", err)
+	}
+	if remaining := replayAll(t, backend, comp.RunID); len(remaining) != 0 {
+		t.Fatalf("synthetic compaction journal survived session deletion: %+v", remaining)
 	}
 }
 

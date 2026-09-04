@@ -44,7 +44,10 @@ func newCronTestService(t *testing.T) (*Service, *sqlite.Backend) {
 // waitCronState polls the job row until want(status, nextRunAtMs) holds.
 func waitCronState(t *testing.T, store storage.CronStore, id string, want func(domain.CronJob) bool) domain.CronJob {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	// The full product gate runs runtime alongside the app/RPC packages and
+	// can heavily contend on Windows CI. Keep polling bounded, but allow the
+	// asynchronous agent turn to settle under that representative load.
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		job, err := store.GetCronJob(context.Background(), id)
 		if err == nil && want(job) {
@@ -167,8 +170,10 @@ func TestCronAtJobDisablesAfterRun(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 80}
-		j.State.NextRunAtMs = now + 80
+		// Leave enough startup margin that a loaded Windows scheduler cannot
+		// classify this fresh job as an offline, already-missed one-shot.
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 500}
+		j.State.NextRunAtMs = now + 500
 	})
 
 	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
@@ -187,8 +192,10 @@ func TestCronAtJobDeletesAfterSuccessfulRun(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 80}
-		j.State.NextRunAtMs = now + 80
+		// See TestCronAtJobDisablesAfterRun: the recovery contract intentionally
+		// disables truly past one-shots, so this wiring test needs startup margin.
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 500}
+		j.State.NextRunAtMs = now + 500
 		j.DeleteAfterRun = true
 	})
 

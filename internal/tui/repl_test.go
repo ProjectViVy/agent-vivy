@@ -47,14 +47,14 @@ func TestREPLHelpAndQuit(t *testing.T) {
 func TestREPLCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T) {
 	var out bytes.Buffer
 	r := &repl{out: &out}
-	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "completed only"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "completed only", CompletedAuthoritative: true})
 	if out.String() != "completed only" {
 		t.Fatalf("completed-only output = %q", out.String())
 	}
 	out.Reset()
 	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "streamed "})
 	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "answer"})
-	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "streamed answer"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "streamed answer", CompletedAuthoritative: true})
 	if out.String() != "streamed answer" {
 		t.Fatalf("streamed output = %q", out.String())
 	}
@@ -65,15 +65,25 @@ func TestREPLModelRoundFenceAndCompletionMismatch(t *testing.T) {
 	r := &repl{out: &out}
 	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "old"})
 	r.renderModelNotice(eventNotice{Kind: "model_request"})
-	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "new"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "new", CompletedAuthoritative: true})
 	if out.String() != "oldnew" {
 		t.Fatalf("round-fenced output = %q", out.String())
 	}
 	out.Reset()
 	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "partial"})
-	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "corrected"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "corrected", CompletedAuthoritative: true})
 	if out.String() != "partial\ncorrected" {
 		t.Fatalf("mismatched completion was hidden: %q", out.String())
+	}
+}
+
+func TestREPLV2CompletionClosesDeltaBoundaryWithoutDuplicatingMetadata(t *testing.T) {
+	var out bytes.Buffer
+	r := &repl{out: &out}
+	r.renderModelNotice(eventNotice{Kind: "delta", PayloadVersion: 2, Delta: "streamed answer"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", PayloadVersion: 2, HasCompleted: true})
+	if out.String() != "streamed answer" {
+		t.Fatalf("v2 completion output = %q", out.String())
 	}
 }
 

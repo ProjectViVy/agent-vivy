@@ -1112,6 +1112,13 @@ func (r *repl) drainRun(ctx context.Context) error {
 			if !accept {
 				continue
 			}
+			if notice.Kind == "model_completed" && !notice.CompletedAuthoritative {
+				if notice.Completion == nil {
+					notice.Kind, notice.Done, notice.Failed, notice.Message = "done", true, true, "model.completed v2: missing validated metadata"
+				} else if err := stream.VerifyModelCompletedV2Metadata(*notice.Completion, r.modelText.String()); err != nil {
+					notice.Kind, notice.Done, notice.Failed, notice.Message = "done", true, true, err.Error()
+				}
+			}
 			r.renderModelNotice(notice)
 			if notice.Line != "" {
 				fmt.Fprintf(r.out, "\n%s", notice.Line)
@@ -1166,6 +1173,10 @@ func (r *repl) renderModelNotice(notice eventNotice) {
 		}
 	case "model_completed":
 		if !notice.HasCompleted {
+			return
+		}
+		if !notice.CompletedAuthoritative {
+			r.modelText.Reset()
 			return
 		}
 		streamed := r.modelText.String()

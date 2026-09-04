@@ -196,7 +196,7 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	_, afterTokens := historyBytesTokens(foldedFeed)
 	result := CompactionResult{BeforeTokens: tokens, AfterTokens: afterTokens, Folded: foldIdx}
 
-	if _, err := s.RecordExternalRunEvent(ctx, runID, domain.EventContextCompacted, payloadContextCompacted{
+	if _, err := s.recordSyntheticSessionEvent(ctx, sessionID, runID, domain.EventContextCompacted, payloadContextCompacted{
 		Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens,
 		DroppedMessages: foldIdx, RetentionSuffix: keep,
 	}); err != nil {

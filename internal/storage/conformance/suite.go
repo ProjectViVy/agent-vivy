@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-17.
+// Run executes CN-01..CN-23.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -68,9 +68,11 @@ func Run(t *testing.T, h Harness) {
 		{"CN-19", "runs listed by session", cnRunsBySession},
 		{"CN-20", "compactions listed by session", cnCompactionsBySession},
 		{"CN-21", "session truncation markers", cnSessionTruncationMarkers},
+		{"CN-22", "message projection idempotence and conflicts", cnMessageProjectionIdempotence},
+		{"CN-23", "concurrent duplicate message projection", cnConcurrentMessageProjection},
 	}
-	if len(cases) != 21 {
-		t.Fatalf("conformance suite must carry exactly 21 cases, got %d", len(cases))
+	if len(cases) != 23 {
+		t.Fatalf("conformance suite must carry exactly 23 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -811,5 +813,172 @@ func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 	lastFold := storage.ApplySessionTruncation(messages, storage.SessionTruncation{Reason: storage.TruncationEdit, CutoffMessageID: "msg-4", TailMessageID: "msg-4"})
 	if len(lastFold) != 3 || lastFold[2].ID != "msg-3" {
 		t.Fatalf("cutoff==tail fold = %+v, want msg-1..msg-3", lastFold)
+	}
+}
+
+func cnMessageProjectionIdempotence(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	for _, session := range []domain.Session{
+		{ID: "sess-proj-a", Title: "projection", CreatedAt: 1},
+		{ID: "sess-proj-b", Title: "projection alternate", CreatedAt: 2},
+	} {
+		if err := b.CreateSession(ctx, session); err != nil {
+			t.Fatalf("CreateSession %s: %v", session.ID, err)
+		}
+	}
+
+	base := domain.Message{
+		ID:         "msg-proj",
+		SessionID:  "sess-proj-a",
+		RunID:      "run-proj",
+		Role:       domain.RoleAssistant,
+		CreatedAt:  101,
+		Content:    "projected answer",
+		ToolCallID: "call-1",
+		ToolName:   "read_file",
+		// A nil tool-args slice is normalized to the same stored empty blob
+		// as an explicitly empty slice.
+		ToolArgs:         nil,
+		Source:           "channel",
+		Channel:          "telegram",
+		ChatID:           "chat-1",
+		ChannelMessageID: "tg-1",
+	}
+	inserted, err := b.AppendMessageIfAbsent(ctx, base)
+	if err != nil || !inserted {
+		t.Fatalf("first projection = inserted %v, err %v; want true, nil", inserted, err)
+	}
+
+	duplicate := base
+	duplicate.ToolArgs = []byte{}
+	inserted, err = b.AppendMessageIfAbsent(ctx, duplicate)
+	if err != nil || inserted {
+		t.Fatalf("normalized duplicate = inserted %v, err %v; want false, nil", inserted, err)
+	}
+	assertSingleProjectedMessage(t, b, ctx, base)
+
+	variants := []struct {
+		name   string
+		mutate func(*domain.Message)
+	}{
+		{"session_id", func(m *domain.Message) { m.SessionID = "sess-proj-b" }},
+		{"run_id", func(m *domain.Message) { m.RunID = "run-proj-other" }},
+		{"role", func(m *domain.Message) { m.Role = domain.RoleTool }},
+		{"created_at", func(m *domain.Message) { m.CreatedAt = 102 }},
+		{"content", func(m *domain.Message) { m.Content = "different answer" }},
+		{"tool_call_id", func(m *domain.Message) { m.ToolCallID = "call-2" }},
+		{"tool_name", func(m *domain.Message) { m.ToolName = "write_file" }},
+		{"tool_args", func(m *domain.Message) { m.ToolArgs = []byte(`{"path":"other"}`) }},
+		{"source", func(m *domain.Message) { m.Source = "ui" }},
+		{"channel", func(m *domain.Message) { m.Channel = "discord" }},
+		{"chat_id", func(m *domain.Message) { m.ChatID = "chat-2" }},
+		{"channel_message_id", func(m *domain.Message) { m.ChannelMessageID = "tg-2" }},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			candidate := base
+			variant.mutate(&candidate)
+			inserted, err := b.AppendMessageIfAbsent(ctx, candidate)
+			if inserted || !errors.Is(err, storage.ErrProjectionConflict) {
+				t.Fatalf("conflicting projection = inserted %v, err %v; want false, ErrProjectionConflict", inserted, err)
+			}
+			assertSingleProjectedMessage(t, b, ctx, base)
+		})
+	}
+
+	for _, rejected := range []struct {
+		name   string
+		attach func(*domain.Message)
+	}{
+		{"attachment", func(m *domain.Message) {
+			m.ID = "msg-proj-attachment"
+			m.Attachments = []domain.Attachment{{Name: "x.png", MimeType: "image/png", Data: []byte{1}}}
+		}},
+		{"file_context", func(m *domain.Message) {
+			m.ID = "msg-proj-file-context"
+			m.FileContexts = []domain.FileContext{{Path: "x.go", Name: "x.go", Size: 1, Content: []byte("x")}}
+		}},
+	} {
+		t.Run(rejected.name, func(t *testing.T) {
+			candidate := base
+			rejected.attach(&candidate)
+			inserted, err := b.AppendMessageIfAbsent(ctx, candidate)
+			if inserted || err == nil {
+				t.Fatalf("projected row with %s = inserted %v, err %v; want false and an error", rejected.name, inserted, err)
+			}
+			assertSingleProjectedMessage(t, b, ctx, base)
+		})
+	}
+}
+
+func cnConcurrentMessageProjection(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-proj-concurrent", Title: "projection", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	message := domain.Message{
+		ID:        "msg-proj-concurrent",
+		SessionID: "sess-proj-concurrent",
+		RunID:     "run-proj-concurrent",
+		Role:      domain.RoleAssistant,
+		CreatedAt: 201,
+		Content:   "one durable projection",
+		ToolArgs:  []byte(`{"normalized":"empty"}`),
+	}
+
+	const callers = 32
+	start := make(chan struct{})
+	var ready, wg sync.WaitGroup
+	ready.Add(callers)
+	wg.Add(callers)
+	results := make(chan struct {
+		inserted bool
+		err      error
+	}, callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			defer wg.Done()
+			ready.Done()
+			<-start
+			inserted, err := b.AppendMessageIfAbsent(ctx, message)
+			results <- struct {
+				inserted bool
+				err      error
+			}{inserted: inserted, err: err}
+		}()
+	}
+	ready.Wait()
+	close(start)
+	wg.Wait()
+	close(results)
+
+	wins := 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent projection: %v", result.err)
+		}
+		if result.inserted {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent projection winners = %d, want exactly 1", wins)
+	}
+	assertSingleProjectedMessage(t, b, ctx, message)
+}
+
+func assertSingleProjectedMessage(t *testing.T, b storage.Engine, ctx context.Context, want domain.Message) {
+	t.Helper()
+	got, err := b.ListMessages(ctx, want.SessionID)
+	if err != nil {
+		t.Fatalf("ListMessages(%s): %v", want.SessionID, err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListMessages(%s) = %d rows, want exactly 1: %+v", want.SessionID, len(got), got)
+	}
+	if !storage.SameProjectedMessage(got[0], want) {
+		t.Fatalf("stored projection = %+v, want fields matching %+v", got[0], want)
 	}
 }

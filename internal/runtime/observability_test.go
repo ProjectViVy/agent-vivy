@@ -29,9 +29,17 @@ func TestMapperEmitsReasoningAndUsageEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("map message: %v", err)
 	}
-	if len(events) != 3 || events[0].Type != domain.EventModelReasoningDelta ||
-		events[1].Type != domain.EventModelUsage || events[2].Type != domain.EventModelCompleted {
-		t.Fatalf("events = %+v, want reasoning/usage/completed", events)
+	if len(events) != 4 || events[0].Type != domain.EventModelReasoningDelta ||
+		events[1].Type != domain.EventModelUsage || events[2].Type != domain.EventModelDelta ||
+		events[3].Type != domain.EventModelCompleted {
+		t.Fatalf("events = %+v, want reasoning/usage/delta/completed", events)
+	}
+	if got := payloadDeltaOf(t, events[2].Payload); got != "final answer" {
+		t.Fatalf("assistant delta = %q, want final answer", got)
+	}
+	completed := payloadCompletedOf(t, events[3].Payload)
+	if completed.ContentSHA256 != sha256Hex([]byte("final answer")) || completed.ByteLen != len([]byte("final answer")) {
+		t.Fatalf("assistant completion = %+v", completed)
 	}
 }
 
@@ -83,6 +91,94 @@ func TestMapperSplitsOversizedDeltasWithoutLosingText(t *testing.T) {
 	}
 	if got.String() != want {
 		t.Fatalf("reassembled delta differs: got %q want %q", got.String(), want)
+	}
+}
+
+// A provider may deliver a complete assistant message through the non-stream
+// mapper path. It still has to use bounded v1 deltas plus the v2 completion
+// digest, never put the whole response in model.completed.
+func TestMapperBoundsLargeNonStreamingAssistantPayload(t *testing.T) {
+	const budget = 256
+	content := strings.Repeat("large non-stream answer ", 5000)
+	m := newEventMapper("run-large-non-stream", budget)
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
+		Message: &schema.Message{Role: schema.Assistant, Content: content},
+	})
+	if err != nil {
+		t.Fatalf("map non-stream message: %v", err)
+	}
+	if len(events) < 2 || events[len(events)-1].Type != domain.EventModelCompleted {
+		t.Fatalf("events = %d/%+v, want bounded deltas followed by completion", len(events), events)
+	}
+	var got strings.Builder
+	for i, event := range events[:len(events)-1] {
+		if event.Type != domain.EventModelDelta {
+			t.Fatalf("event %d type = %s, want model.delta", i, event.Type)
+		}
+		if event.PayloadVersion != 1 || len(event.Payload) > budget {
+			t.Fatalf("delta event %d version/bytes = %d/%d, want v1 <= %d", i, event.PayloadVersion, len(event.Payload), budget)
+		}
+		got.WriteString(payloadDeltaOf(t, event.Payload))
+	}
+	if got.String() != content {
+		t.Fatalf("reassembled non-stream content length = %d, want %d", len(got.String()), len(content))
+	}
+	completedEvent := events[len(events)-1]
+	if completedEvent.PayloadVersion != 2 || len(completedEvent.Payload) > budget {
+		t.Fatalf("completion version/bytes = %d/%d, want v2 <= %d", completedEvent.PayloadVersion, len(completedEvent.Payload), budget)
+	}
+	completed := payloadCompletedOf(t, completedEvent.Payload)
+	if completed.ContentSHA256 != sha256Hex([]byte(content)) || completed.ByteLen != len([]byte(content)) {
+		t.Fatalf("large non-stream completion = %+v", completed)
+	}
+}
+
+func TestMapperV2CompletionFitsMinimumConfiguredPayloadBudget(t *testing.T) {
+	event := newEventMapper("run-min-completion", 128).completedEvent(strings.Repeat("界", 1000))
+	if event.PayloadVersion != 2 || len(event.Payload) > 128 {
+		t.Fatalf("completion version/bytes = %d/%d, want v2 <= 128", event.PayloadVersion, len(event.Payload))
+	}
+}
+
+// Text attached to a non-streaming assistant tool-call message is a model
+// preamble. It must be emitted once as a delta before tool.requested, while
+// the following model round starts with a fresh accumulator.
+func TestMapperNonStreamingToolCallFlushesPreamble(t *testing.T) {
+	m := newEventMapper("run-non-stream-tool-preamble", 4096)
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
+		Message: &schema.Message{
+			Role: schema.Assistant, Content: "before tool",
+			ToolCalls: []schema.ToolCall{{ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("map non-stream tool call: %v", err)
+	}
+	if len(events) != 2 || events[0].Type != domain.EventModelDelta || events[1].Type != domain.EventToolRequested {
+		t.Fatalf("tool preamble events = %+v, want delta/tool.requested", events)
+	}
+	if got := payloadDeltaOf(t, events[0].Payload); got != "before tool" {
+		t.Fatalf("tool preamble delta = %q", got)
+	}
+	if m.hasPending || m.pendingText.Len() != 0 {
+		t.Fatalf("tool preamble remained pending: %q", m.pendingText.String())
+	}
+
+	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
+		Message: &schema.Message{Role: schema.Assistant, Content: "after tool"},
+	})
+	if err != nil {
+		t.Fatalf("map post-tool message: %v", err)
+	}
+	if len(next) != 2 || next[0].Type != domain.EventModelDelta || next[1].Type != domain.EventModelCompleted {
+		t.Fatalf("post-tool events = %+v, want delta/completed", next)
+	}
+	if got := payloadDeltaOf(t, next[0].Payload); got != "after tool" {
+		t.Fatalf("post-tool delta = %q", got)
+	}
+	completed := payloadCompletedOf(t, next[1].Payload)
+	if completed.ContentSHA256 != sha256Hex([]byte("after tool")) || completed.ByteLen != len([]byte("after tool")) {
+		t.Fatalf("post-tool completion = %+v", completed)
 	}
 }
 
@@ -175,8 +271,15 @@ func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) 
 		t.Fatalf("streaming preamble was not flushed: event=%s pending=%q", events[0].Payload, m.pendingText.String())
 	}
 	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{Role: schema.Assistant, Content: "after tool"}})
-	if err != nil || len(next) != 1 || !strings.Contains(string(next[0].Payload), `"content":"after tool"`) || strings.Contains(string(next[0].Payload), "before tool") {
+	if err != nil || len(next) != 2 || next[0].Type != domain.EventModelDelta || next[1].Type != domain.EventModelCompleted || strings.Contains(string(next[1].Payload), "before tool") {
 		t.Fatalf("next round was contaminated: events=%+v err=%v", next, err)
+	}
+	if got := payloadDeltaOf(t, next[0].Payload); got != "after tool" {
+		t.Fatalf("next-round delta = %q, want after tool", got)
+	}
+	completed := payloadCompletedOf(t, next[1].Payload)
+	if completed.ContentSHA256 != sha256Hex([]byte("after tool")) || completed.ByteLen != len([]byte("after tool")) {
+		t.Fatalf("next-round completion = %+v", completed)
 	}
 }
 

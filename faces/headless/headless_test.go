@@ -67,20 +67,28 @@ func (e *fakeEnv) OnEvent(handler func(method string, params json.RawMessage)) {
 // plane would wrap it: run/cancel answered with a durable run.cancelled
 // terminal, approvals re-raised as tool.approval_required, and so on.
 func (e *fakeEnv) deliver(typ string, payload string) {
+	e.deliverVersion(typ, payload, 0)
+}
+
+func (e *fakeEnv) deliverVersion(typ string, payload string, payloadVersion int) {
 	e.mu.Lock()
 	handler := e.handler
 	e.mu.Unlock()
 	if handler == nil {
 		return
 	}
+	event := map[string]any{
+		"run_id":  "run_1",
+		"seq":     1,
+		"type":    typ,
+		"payload": json.RawMessage(payload),
+	}
+	if payloadVersion > 0 {
+		event["payload_version"] = payloadVersion
+	}
 	raw, err := json.Marshal(map[string]any{
 		"subscription_id": "sub_1",
-		"event": map[string]any{
-			"run_id":  "run_1",
-			"seq":     1,
-			"type":    typ,
-			"payload": json.RawMessage(payload),
-		},
+		"event":           event,
 	})
 	if err != nil {
 		return
@@ -130,9 +138,9 @@ func TestCompletedRunStreamsAndReturnsStatus(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	env.deliver("model.delta", `{"delta":"hel"}`)
-	env.deliver("model.delta", `{"delta":"lo"}`)
-	env.deliver("model.completed", `{"content":"hello"}`)
+	env.deliverVersion("model.delta", `{"delta":"hel"}`, 2)
+	env.deliverVersion("model.delta", `{"delta":"lo"}`, 2)
+	env.deliverVersion("model.completed", `{"content_sha256":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","byte_len":5}`, 2)
 	env.deliver("run.completed", `{}`)
 
 	select {
@@ -163,7 +171,7 @@ func TestUnstreamedCompletedPrintsContent(t *testing.T) {
 	done := make(chan plugin.FaceResult, 1)
 	go func() { done <- runFace(t, f, env) }()
 	waitHandler(t, env)
-	env.deliver("model.completed", `{"content":"plain"}`)
+	env.deliverVersion("model.completed", `{"content":"plain"}`, 1)
 	env.deliver("run.completed", `{}`)
 	<-done
 	if got := out.String(); got != "plain\n" {

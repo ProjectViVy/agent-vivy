@@ -453,6 +453,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	workerManager := newWorkerManager(svc, backend, backend, policy, hooks, ts, cfg.Runtime.MaxToolResultBytes, cfg.Tools.Approval.Expiration, chatModel, worker.WorkerLog{Dir: cfg.LogDirectory(), Level: effLog.Level, Format: effLog.Format})
 	agentOps.arm(workerManager)
 	svc.SetChildApprovalRouter(workerManager)
+	svc.SetChildRunCanceller(workerManager)
 
 	liveProfile := domain.PolicyProfile(cfg.Governance.Profile)
 	if !liveProfile.Valid() {

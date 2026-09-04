@@ -217,7 +217,7 @@ func TestLiveWireProjectsAuthoritativeCompletionAndToolCallIdentity(t *testing.T
 	live.busy = true
 	live.mu.Unlock()
 
-	pushRunEvent(live, "run_1", 1, "model.completed", map[string]string{"content": "completed only"})
+	pushRunEvent(live, "run_1", 1, "model.completed", map[string]string{"content": "completed only"}, 1)
 	pushRunEvent(live, "run_1", 2, "tool.requested", map[string]any{"tool_call_id": "call_1", "tool_name": "read_file", "args": map[string]string{"path": "a"}})
 	pushRunEvent(live, "run_1", 3, "tool.requested", map[string]any{"tool_call_id": "call_2", "tool_name": "read_file", "args": map[string]string{"path": "b"}})
 	pushRunEvent(live, "run_1", 4, "tool.finished", map[string]string{"tool_call_id": "call_1", "tool_name": "read_file", "result": "a done"})
@@ -227,6 +227,35 @@ func TestLiveWireProjectsAuthoritativeCompletionAndToolCallIdentity(t *testing.T
 	msgs := live.ActiveMessages()
 	if len(msgs) != 3 || msgs[0].Content != "completed only" || msgs[1].Tool == nil || msgs[1].Tool.Status != "done" || msgs[2].Tool == nil || msgs[2].Tool.Status != "pending" {
 		t.Fatalf("wire projection = %+v", msgs)
+	}
+}
+
+func TestLiveWireV2CompletionClosesDeltaBoundary(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(context.Context, *controlrpc.Peer, controlrpc.Request) (any, *controlrpc.Error) {
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: "unused"}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.runID = "run_1"
+	live.busy = true
+	live.mu.Unlock()
+
+	pushRunEvent(live, "run_1", 1, "model.delta", map[string]string{"delta": "streamed answer"}, 2)
+	pushRunEvent(live, "run_1", 2, "model.completed", map[string]any{
+		"content_sha256": "51e0aa7a9db99e9121849629cee56ca1eaf331227b7e70f2f6a661efa6ee1599", "byte_len": len([]byte("streamed answer")),
+	}, 2)
+	for live.inbox.Len() > 0 {
+		_, _ = live.drainEvents()
+	}
+
+	msgs := live.ActiveMessages()
+	if len(msgs) != 1 || msgs[0].Content != "streamed answer" || msgs[0].Streaming {
+		t.Fatalf("v2 live projection = %+v", msgs)
 	}
 }
 
@@ -1199,16 +1228,20 @@ func TestLiveBlocksSendWhileSessionLoadIsPending(t *testing.T) {
 	}
 }
 
-func pushRunEvent(live *Live, runID string, seq int, typ string, payload any) {
+func pushRunEvent(live *Live, runID string, seq int, typ string, payload any, payloadVersion ...int) {
 	rawPayload, _ := json.Marshal(payload)
+	event := map[string]any{
+		"run_id":  runID,
+		"seq":     seq,
+		"type":    typ,
+		"payload": json.RawMessage(rawPayload),
+	}
+	if len(payloadVersion) > 0 {
+		event["payload_version"] = payloadVersion[0]
+	}
 	params, _ := json.Marshal(map[string]any{
 		"subscription_id": "sub",
-		"event": map[string]any{
-			"run_id":  runID,
-			"seq":     seq,
-			"type":    typ,
-			"payload": json.RawMessage(rawPayload),
-		},
+		"event":           event,
 	})
 	_, _ = live.client.Handle(context.Background(), nil, controlrpc.Request{
 		Method: "run/event",

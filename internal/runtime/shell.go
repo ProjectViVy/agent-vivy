@@ -117,6 +117,11 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	if sessionID == "" {
 		return "", errors.New("runtime: shell session id is required")
 	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.sessionDeleted(sessionID) {
+		return "", storage.ErrNotFound
+	}
 	if s.deps.Sessions == nil {
 		return "", errors.New("runtime: session store not wired")
 	}
@@ -234,6 +239,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	pending.runCtx = runCtx
 	s.mu.Lock()
 	s.active[runID] = cancel
+	s.runSessions[runID] = sessionID
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
 	s.mu.Unlock()
@@ -873,6 +879,7 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 	close(p.approvalReady)
 	s.mu.Lock()
 	s.active[run.ID] = cancel
+	s.runSessions[run.ID] = run.SessionID
 	s.shellPending[run.ID] = p
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot

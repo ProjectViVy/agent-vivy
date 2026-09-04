@@ -46,7 +46,7 @@ func TestProjectionHandlesToolGateAndFailure(t *testing.T) {
 func TestProjectionCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T) {
 	nextID := idFactory()
 	p := Projection{}
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "completed only"}, nextID)
+	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "completed only", CompletedAuthoritative: true}, nextID)
 	if len(p.Messages) != 1 || p.Messages[0].Content != "completed only" || p.Messages[0].Streaming {
 		t.Fatalf("completed-only projection = %+v", p.Messages)
 	}
@@ -54,7 +54,7 @@ func TestProjectionCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T
 	p = Projection{}
 	p.Apply(Notice{Kind: "delta", Delta: "streamed "}, nextID)
 	p.Apply(Notice{Kind: "delta", Delta: "answer"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "streamed answer"}, nextID)
+	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "streamed answer", CompletedAuthoritative: true}, nextID)
 	if len(p.Messages) != 1 || p.Messages[0].Content != "streamed answer" || p.Messages[0].Streaming {
 		t.Fatalf("streamed completion projection = %+v", p.Messages)
 	}
@@ -64,24 +64,37 @@ func TestProjectionTreatsCompletionAsAuthoritativeAndFencesRounds(t *testing.T) 
 	nextID := idFactory()
 	p := Projection{}
 	p.Apply(Notice{Kind: "delta", Delta: "stale"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true}, nextID)
+	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, CompletedAuthoritative: true}, nextID)
 	if len(p.Messages) != 1 || p.Messages[0].Content != "" || p.Messages[0].Streaming {
 		t.Fatalf("empty completion did not replace partial: %+v", p.Messages)
 	}
 
 	p.Apply(Notice{Kind: "delta", Delta: "round one"}, nextID)
 	p.Apply(Notice{Kind: "model_request"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "round two"}, nextID)
+	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "round two", CompletedAuthoritative: true}, nextID)
 	if len(p.Messages) != 3 || p.Messages[1].Content != "round one" || p.Messages[1].Streaming || p.Messages[2].Content != "round two" {
 		t.Fatalf("model request did not fence rounds: %+v", p.Messages)
 	}
 
 	p.Apply(Notice{Kind: "delta", Delta: "old answer"}, nextID)
 	p.Apply(Notice{Kind: "reasoning", Delta: "new thought"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "new answer"}, nextID)
+	p.Apply(Notice{Kind: "model_completed", HasCompleted: true, Completed: "new answer", CompletedAuthoritative: true}, nextID)
 	last := p.Messages[len(p.Messages)-1]
 	if last.Content != "new answer" || last.Reasoning || last.Streaming {
 		t.Fatalf("reasoning boundary did not create a fresh answer: %+v", p.Messages)
+	}
+}
+
+func TestProjectionV2CompletionClosesDeltaBoundaryWithoutRewriting(t *testing.T) {
+	nextID := idFactory()
+	p := Projection{}
+	p.Apply(Notice{Kind: "delta", PayloadVersion: 2, Delta: "streamed answer"}, nextID)
+	p.Apply(Notice{Kind: "model_completed", PayloadVersion: 2, HasCompleted: true, Completion: &ModelCompletionMetadata{
+		ContentSHA256: "51e0aa7a9db99e9121849629cee56ca1eaf331227b7e70f2f6a661efa6ee1599", ByteLen: len([]byte("streamed answer")),
+	}}, nextID)
+
+	if len(p.Messages) != 1 || p.Messages[0].Content != "streamed answer" || p.Messages[0].Streaming {
+		t.Fatalf("v2 delta boundary projection = %+v", p.Messages)
 	}
 }
 

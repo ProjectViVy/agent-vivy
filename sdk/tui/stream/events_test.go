@@ -7,8 +7,8 @@ import (
 )
 
 func TestDecodeRetainsRunAndSequence(t *testing.T) {
-	event, ok := Decode(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload":{"delta":"x"}}}`))
-	if !ok || event.SubscriptionID != "sub" || event.RunID != "run_1" || event.Seq != 7 || event.Type != "model.delta" {
+	event, ok := Decode(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload_version":2,"payload":{"delta":"x"}}}`))
+	if !ok || event.SubscriptionID != "sub" || event.RunID != "run_1" || event.Seq != 7 || event.Type != "model.delta" || event.PayloadVersion != 2 {
 		t.Fatalf("event = %+v ok=%v", event, ok)
 	}
 	if got := PayloadString(event.Payload, "delta"); got != "x" {
@@ -44,7 +44,7 @@ func TestInterpretKeepsUnknownSequence(t *testing.T) {
 
 func TestInterpretCompletedAndToolIdentity(t *testing.T) {
 	completed := Interpret(Event{Type: "model.completed", Payload: json.RawMessage(`{"content":"final"}`)})
-	if completed.Kind != "model_completed" || !completed.HasCompleted || completed.Completed != "final" {
+	if completed.Kind != "model_completed" || !completed.HasCompleted || completed.Completed != "final" || !completed.CompletedAuthoritative {
 		t.Fatalf("completed = %+v", completed)
 	}
 	request := Interpret(Event{Type: "model.request"})
@@ -55,6 +55,34 @@ func TestInterpretCompletedAndToolIdentity(t *testing.T) {
 	finished := Interpret(Event{Type: "tool.finished", Payload: json.RawMessage(`{"tool_call_id":"call_1","tool_name":"read_file","result":"ok"}`)})
 	if requested.ToolCallID != "call_1" || finished.ToolCallID != "call_1" {
 		t.Fatalf("tool identity requested=%+v finished=%+v", requested, finished)
+	}
+}
+
+func TestInterpretRejectsUnknownCompletionPayloadVersion(t *testing.T) {
+	notice := Interpret(Event{
+		Type:           "model.completed",
+		PayloadVersion: 9,
+		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":5}`),
+	})
+	if notice.Kind != "done" || !notice.Done || !notice.Failed || notice.CompletedAuthoritative {
+		t.Fatalf("unknown completion version was accepted: %+v", notice)
+	}
+	if !strings.Contains(notice.Message, "unsupported model.completed payload version 9") {
+		t.Fatalf("unknown completion version message = %q", notice.Message)
+	}
+}
+
+func TestInterpretV2CompletionIsDeltaBoundary(t *testing.T) {
+	notice := Interpret(Event{
+		Type:           "model.completed",
+		PayloadVersion: 2,
+		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":5}`),
+	})
+	if notice.Kind != "model_completed" || !notice.HasCompleted || notice.Completed != "" || notice.CompletedAuthoritative {
+		t.Fatalf("v2 completion notice = %+v", notice)
+	}
+	if notice.PayloadVersion != 2 {
+		t.Fatalf("v2 completion payload version = %d", notice.PayloadVersion)
 	}
 }
 

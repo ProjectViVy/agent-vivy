@@ -52,6 +52,14 @@ type ChildApprovalRouter interface {
 	ResolveChildApproval(context.Context, domain.Approval, string) error
 }
 
+// ChildRunCanceller stops app-owned supervised worker processes. The runtime
+// calls it while deleting a session so sealing Journal writes also stops any
+// in-flight model/tool side effects.
+type ChildRunCanceller interface {
+	CancelChildRun(domain.RunID) bool
+	CancelSessionChildren(domain.SessionID)
+}
+
 // ChannelDeliverer delivers outbound content to an external channel (CH-0).
 // Defined as an interface here so runtime stays free of internal/channelhost imports.
 type ChannelDeliverer interface {
@@ -103,6 +111,7 @@ type ServiceDeps struct {
 	Hooks                []RunHook
 	Sink                 EventSink
 	ChildApprovals       ChildApprovalRouter
+	ChildRuns            ChildRunCanceller
 	// Compactions persists session-level durable compaction summaries
 	// (context/compact + feed folding). Nil keeps automatic in-run
 	// compression working; only durable summary folding is disabled.
@@ -148,6 +157,12 @@ type Service struct {
 
 	mu     sync.Mutex
 	active map[domain.RunID]context.CancelFunc
+	// runSessions keeps the session identity for live/suspended runs so a
+	// concurrent session deletion can seal every producer before removing the
+	// durable rows. deletedSessions is a process-local tombstone: once delete
+	// starts, no later event or projection may resurrect that session.
+	runSessions     map[domain.RunID]domain.SessionID
+	deletedSessions map[domain.SessionID]struct{}
 	// pending tracks runs suspended on an approval: no engine work is in
 	// flight, the checkpoint is durable, and the run row stays active
 	// until a decision resumes it or Cancel closes it (C6).
@@ -176,11 +191,12 @@ type Service struct {
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
-	wg          sync.WaitGroup
-	recoveryMu  sync.Mutex
-	sweepMu     sync.Mutex
-	sweepCancel context.CancelFunc
-	sweepWG     sync.WaitGroup
+	wg           sync.WaitGroup
+	recoveryMu   sync.Mutex
+	sweepMu      sync.Mutex
+	projectionMu sync.Mutex
+	sweepCancel  context.CancelFunc
+	sweepWG      sync.WaitGroup
 
 	// cron holds the CRON scheduler state; nil until first use and only
 	// meaningful when deps.Crons is wired (lazy init guarded by cronInit).
@@ -243,18 +259,20 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		deps.PolicyDefaultProfile = domain.PolicyProfileDefault
 	}
 	return &Service{
-		engine:         eng,
-		deps:           deps,
-		provider:       provider,
-		modelID:        modelID,
-		defaultProfile: deps.PolicyDefaultProfile,
-		active:         make(map[domain.RunID]context.CancelFunc),
-		pending:        make(map[domain.RunID]pendingRun),
-		shellPending:   make(map[domain.RunID]shellPendingRun),
-		shellStates:    make(map[string]shellState),
-		ledgers:        make(map[domain.RunID]*BudgetLedger),
-		snapshots:      make(map[domain.RunID]domain.PolicySnapshot),
-		lastCompaction: make(map[domain.SessionID]*LastCompaction),
+		engine:          eng,
+		deps:            deps,
+		provider:        provider,
+		modelID:         modelID,
+		defaultProfile:  deps.PolicyDefaultProfile,
+		active:          make(map[domain.RunID]context.CancelFunc),
+		runSessions:     make(map[domain.RunID]domain.SessionID),
+		deletedSessions: make(map[domain.SessionID]struct{}),
+		pending:         make(map[domain.RunID]pendingRun),
+		shellPending:    make(map[domain.RunID]shellPendingRun),
+		shellStates:     make(map[string]shellState),
+		ledgers:         make(map[domain.RunID]*BudgetLedger),
+		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
+		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
 }
 
@@ -265,6 +283,13 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 func (s *Service) SetChildApprovalRouter(router ChildApprovalRouter) {
 	s.mu.Lock()
 	s.deps.ChildApprovals = router
+	s.mu.Unlock()
+}
+
+// SetChildRunCanceller wires the app-owned live worker registry.
+func (s *Service) SetChildRunCanceller(canceller ChildRunCanceller) {
+	s.mu.Lock()
+	s.deps.ChildRuns = canceller
 	s.mu.Unlock()
 }
 
@@ -282,6 +307,71 @@ func (s *Service) SetModel(providerName, modelID string) {
 	s.provider = providerName
 	s.modelID = modelID
 	s.mu.Unlock()
+}
+
+// MaxEventPayloadBytes returns the encoded Journal payload ceiling shared by
+// native runs and supervised external child producers.
+func (s *Service) MaxEventPayloadBytes() int {
+	return s.engine.cfg.MaxEventPayloadBytes
+}
+
+// DeleteSession first seals the session against new producers, then serializes
+// deletion with run startup and Journal-to-message projection. The tombstone
+// prevents a cancelled drive from appending a late event after storage delete.
+func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error {
+	s.mu.Lock()
+	s.deletedSessions[id] = struct{}{}
+	liveRunIDs := make([]domain.RunID, 0)
+	for runID, sessionID := range s.runSessions {
+		if sessionID == id {
+			liveRunIDs = append(liveRunIDs, runID)
+		}
+	}
+	childRuns := s.deps.ChildRuns
+	s.mu.Unlock()
+	if childRuns != nil {
+		childRuns.CancelSessionChildren(id)
+	}
+	for _, runID := range liveRunIDs {
+		s.Cancel(runID)
+	}
+
+	s.projectionMu.Lock()
+	runs, err := s.deps.Runs.ListRunsBySession(ctx, id)
+	s.projectionMu.Unlock()
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.Kind == domain.RunKindChild && childRuns != nil {
+			childRuns.CancelChildRun(run.ID)
+		}
+		s.Cancel(run.ID)
+	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if err := s.deps.Sessions.DeleteSession(ctx, id); err != nil {
+		// Runs were already cancelled under the tombstone. Keep the session
+		// sealed so a partial backend failure cannot revive producers after
+		// their in-memory authority has been removed; deletion may be retried.
+		return err
+	}
+	return nil
+}
+
+func (s *Service) sessionDeleted(id domain.SessionID) bool {
+	s.mu.Lock()
+	_, deleted := s.deletedSessions[id]
+	s.mu.Unlock()
+	return deleted
+}
+
+func (s *Service) runSessionDeleted(runID domain.RunID) bool {
+	s.mu.Lock()
+	sessionID, ok := s.runSessions[runID]
+	_, deleted := s.deletedSessions[sessionID]
+	s.mu.Unlock()
+	return ok && deleted
 }
 
 // GetModelInfo returns capacity metadata for the currently configured
@@ -327,6 +417,14 @@ type runPersistence func(domain.Message, domain.Run, domain.RunEvent) (domain.Ru
 func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID, userText string, options RunOptions, persist runPersistence) (domain.RunID, error) {
 	if s.engine == nil || s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Messages == nil || s.deps.Sink == nil {
 		return "", errors.New("runtime: service not wired")
+	}
+	// Session deletion shares this lock with startup. If deletion marks the
+	// tombstone while an earlier startup owns the lock, it will subsequently
+	// remove that run; if deletion wins, startup fails without writing.
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.sessionDeleted(sessionID) {
+		return "", storage.ErrNotFound
 	}
 	// A deferred settings-save engine rebuild applies here, while no run
 	// is registered.
@@ -435,6 +533,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	runCtx = domain.WithThinkingMode(runCtx, thinking)
 	s.mu.Lock()
 	s.active[runID] = cancel
+	s.runSessions[runID] = sessionID
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
 	s.mu.Unlock()
@@ -874,6 +973,43 @@ func (s *Service) RegisterWorkerAuthority(runID domain.RunID, snapshot domain.Po
 	return nil
 }
 
+// CreateWorkerRun serializes child creation with session deletion. Worker
+// managers must use this seam instead of writing the RunStore directly so a
+// child cannot appear after DeleteSession has enumerated and removed the
+// session's run tree.
+func (s *Service) CreateWorkerRun(ctx context.Context, run domain.Run) error {
+	if s.deps.Runs == nil {
+		return errors.New("runtime: run store not wired")
+	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.sessionDeleted(run.SessionID) {
+		return storage.ErrNotFound
+	}
+	return s.deps.Runs.CreateRun(ctx, run)
+}
+
+// RegisterWorkerProcess atomically installs an app-owned live child handle
+// under the session deletion fence. If deletion wins, registration is
+// rejected; if registration wins, DeleteSession cannot enumerate the run
+// and invoke ChildRunCanceller until the callback has completed.
+func (s *Service) RegisterWorkerProcess(ctx context.Context, runID domain.RunID, register func()) error {
+	if register == nil || s.deps.Runs == nil {
+		return errors.New("runtime: worker process registration is not wired")
+	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	run, err := s.deps.Runs.GetRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if s.sessionDeleted(run.SessionID) {
+		return storage.ErrNotFound
+	}
+	register()
+	return nil
+}
+
 // UnregisterWorkerAuthority removes process-only child authority after its
 // terminal event is durable. The durable run and journal remain queryable.
 func (s *Service) UnregisterWorkerAuthority(runID domain.RunID) {
@@ -887,27 +1023,81 @@ func (s *Service) UnregisterWorkerAuthority(runID domain.RunID) {
 // It is intentionally generic: the parent manager chooses the child event
 // payload, while Journal remains the single durability and terminal guard.
 func (s *Service) RecordExternalRunEvent(ctx context.Context, runID domain.RunID, typ domain.EventType, payload any) (domain.RunEvent, error) {
+	return s.RecordExternalRunEventVersion(ctx, runID, typ, 1, payload)
+}
+
+// RecordExternalRunEventVersion persists a versioned supervised-worker event
+// and enforces the same encoded payload ceiling as native mapper events.
+func (s *Service) RecordExternalRunEventVersion(ctx context.Context, runID domain.RunID, typ domain.EventType, payloadVersion int, payload any) (domain.RunEvent, error) {
 	if s.deps.Journal == nil || s.deps.Runs == nil || s.deps.Sink == nil {
 		return domain.RunEvent{}, errors.New("runtime: service is not wired")
 	}
 	if !typ.Valid() {
 		return domain.RunEvent{}, fmt.Errorf("runtime: invalid external event type %q", typ)
 	}
+	if payloadVersion < 1 {
+		return domain.RunEvent{}, fmt.Errorf("runtime: invalid external payload version %d", payloadVersion)
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("runtime: marshal external event: %w", err)
 	}
+	if limit := s.engine.cfg.MaxEventPayloadBytes; limit > 0 && len(data) > limit {
+		return domain.RunEvent{}, fmt.Errorf("runtime: external event payload is %d bytes; limit is %d", len(data), limit)
+	}
+	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: payloadVersion, Payload: data}
+	return s.appendRunEvent(ctx, event, true)
+}
+
+// appendRunEvent is the common deletion-safe path for runtime-owned events
+// that are already encoded. Review, question, and worker writers all share
+// the same session tombstone used by native model events.
+func (s *Service) appendRunEvent(ctx context.Context, event domain.RunEvent, updateTerminalStatus bool) (domain.RunEvent, error) {
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	run, err := s.deps.Runs.GetRun(ctx, event.RunID)
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	if s.sessionDeleted(run.SessionID) {
+		return domain.RunEvent{}, storage.ErrNotFound
+	}
+	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: event.RunID, Events: []domain.RunEvent{event}})
+	if err != nil {
+		return domain.RunEvent{}, err
+	}
+	event.Seq = seq
+	if status, ok := event.Type.RunStatus(); updateTerminalStatus && ok {
+		if err := s.deps.Runs.SetRunStatus(ctx, event.RunID, status); err != nil {
+			return domain.RunEvent{}, err
+		}
+	}
+	s.publish(ctx, event)
+	return event, nil
+}
+
+// recordSyntheticSessionEvent journals a runtime-owned synthetic run (for
+// example manual compaction) that intentionally has no RunStore row, while
+// still participating in the session deletion fence.
+func (s *Service) recordSyntheticSessionEvent(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, typ domain.EventType, payload any) (domain.RunEvent, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return domain.RunEvent{}, fmt.Errorf("runtime: marshal synthetic event: %w", err)
+	}
+	if limit := s.engine.cfg.MaxEventPayloadBytes; limit > 0 && len(data) > limit {
+		return domain.RunEvent{}, fmt.Errorf("runtime: synthetic event payload is %d bytes; limit is %d", len(data), limit)
+	}
 	event := domain.RunEvent{RunID: runID, Type: typ, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: data}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.sessionDeleted(sessionID) {
+		return domain.RunEvent{}, storage.ErrNotFound
+	}
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{event}})
 	if err != nil {
 		return domain.RunEvent{}, err
 	}
 	event.Seq = seq
-	if status, ok := typ.RunStatus(); ok {
-		if err := s.deps.Runs.SetRunStatus(ctx, runID, status); err != nil {
-			return domain.RunEvent{}, err
-		}
-	}
 	s.publish(ctx, event)
 	return event, nil
 }
@@ -944,6 +1134,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 	})
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
+	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
@@ -976,6 +1167,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
 	}
+	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
 	s.mu.Unlock()
@@ -1289,6 +1481,9 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 	// static Instruction cannot (date, active tool set, and the bounded notebook
 	// digest of MA-3).
 	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), selection.Specs, face)
+	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
+		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
+	}
 	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
@@ -1566,13 +1761,11 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Preview:          approval.Preview,
 		RiskFindings:     append([]string(nil), approval.RiskFindings...),
 	})
-	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
+	_, err := s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
 		fail(err)
 		return
 	}
-	ev.Seq = seq
-	s.publish(persistCtx, ev)
 
 	if ctx.Err() != nil {
 		// Cancelled while suspending: close as cancelled. The approval
@@ -1658,13 +1851,11 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		SandboxMode:    string(sandboxMode(ctx)),
 		ApprovalPolicy: string(approvalPolicy(ctx)),
 	})
-	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
+	_, err := s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
 		fail(err)
 		return
 	}
-	ev.Seq = seq
-	s.publish(persistCtx, ev)
 	if ctx.Err() != nil {
 		_ = s.cancelQuestion(context.Background(), question.ID, "run cancelled while suspending")
 		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
@@ -1870,13 +2061,11 @@ func (s *Service) journalReviewEvent(ctx context.Context, runID domain.RunID, ev
 	ev := m.build(eventType, payload)
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
-	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: runID, Events: []domain.RunEvent{ev}})
+	_, err := s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
 		slog.Warn("review event persistence failed", "run", string(runID), "type", string(eventType), "err", err)
 		return false
 	}
-	ev.Seq = seq
-	s.publish(persistCtx, ev)
 	return true
 }
 
@@ -2005,12 +2194,10 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	})
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
-	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: question.RunID, Events: []domain.RunEvent{ev}})
+	ev, err = s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
 		return fmt.Errorf("runtime: persist question answer: %w", err)
 	}
-	ev.Seq = seq
-	s.publish(persistCtx, ev)
 	s.mu.Lock()
 	p, ok := s.pending[question.RunID]
 	if ok {
@@ -2267,100 +2454,32 @@ func isProviderTransportError(err error) bool {
 // run.failed (AS-5); any other failure is run.failed so the run still
 // closes exactly once.
 func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) bool {
+	s.projectionMu.Lock()
+	if s.sessionDeleted(sessionID) {
+		s.cleanupRunState(re.RunID)
+		s.projectionMu.Unlock()
+		return false
+	}
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: re.RunID, Events: []domain.RunEvent{re}})
 	if err != nil {
+		s.projectionMu.Unlock()
 		slog.Error("journal append failed", "run", string(re.RunID), "type", string(re.Type), "err", err)
 		m := newEventMapper(re.RunID, 0)
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return false
 	}
 	re.Seq = seq
+	if re.Type == domain.EventModelCompleted || re.Type == domain.EventToolRequested || re.Type == domain.EventToolFinished {
+		projectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+		err := s.projectRunMessagesLocked(projectCtx, sessionID, re.RunID)
+		cancel()
+		if err != nil {
+			slog.Error("project Journal messages", "run", string(re.RunID), "type", string(re.Type), "err", err)
+		}
+	}
 	s.publish(ctx, re)
-
-	if re.Type == domain.EventModelCompleted {
-		s.appendAssistantMessage(ctx, sessionID, re)
-	}
-	if re.Type == domain.EventToolRequested {
-		s.appendToolCallMessage(ctx, sessionID, re)
-	}
-	if re.Type == domain.EventToolFinished {
-		s.appendToolResultMessage(ctx, sessionID, re)
-	}
+	s.projectionMu.Unlock()
 	return true
-}
-
-// appendAssistantMessage mirrors the assistant turn into the message log
-// once its model.completed event is durable. A failure only logs: the
-// journal already holds the truth and the run must not fail for a
-// bookkeeping write.
-func (s *Service) appendAssistantMessage(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) {
-	var p payloadModelCompleted
-	if err := json.Unmarshal(re.Payload, &p); err != nil {
-		slog.Error("decode model.completed payload", "run", string(re.RunID), "err", err)
-		return
-	}
-	msg := domain.Message{
-		ID:        newMessageID(),
-		SessionID: sessionID,
-		RunID:     re.RunID,
-		Role:      domain.RoleAssistant,
-		CreatedAt: time.Now().UnixMilli(),
-		Content:   p.Content,
-	}
-	if err := s.deps.Messages.AppendMessage(ctx, msg); err != nil {
-		slog.Error("append assistant message", "run", string(re.RunID), "err", err)
-	}
-}
-
-func (s *Service) appendToolCallMessage(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) {
-	var p payloadToolRequested
-	if err := json.Unmarshal(re.Payload, &p); err != nil {
-		slog.Error("decode tool.requested payload", "run", string(re.RunID), "err", err)
-		return
-	}
-	args, err := json.Marshal(p.Args)
-	if err != nil {
-		slog.Error("encode tool.requested args", "run", string(re.RunID), "err", err)
-		return
-	}
-	msg := domain.Message{
-		ID:         newMessageID(),
-		SessionID:  sessionID,
-		RunID:      re.RunID,
-		Role:       domain.RoleAssistant,
-		CreatedAt:  time.Now().UnixMilli(),
-		ToolCallID: p.ToolCallID,
-		ToolName:   p.ToolName,
-		ToolArgs:   args,
-	}
-	if err := s.deps.Messages.AppendMessage(ctx, msg); err != nil {
-		slog.Error("append tool-call message", "run", string(re.RunID), "err", err)
-	}
-}
-
-func (s *Service) appendToolResultMessage(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) {
-	var p payloadToolFinished
-	if err := json.Unmarshal(re.Payload, &p); err != nil {
-		slog.Error("decode tool.finished payload", "run", string(re.RunID), "err", err)
-		return
-	}
-	content := p.Result
-	if p.Error != "" {
-		content = p.Error
-	}
-	msg := domain.Message{
-		ID:         newMessageID(),
-		SessionID:  sessionID,
-		RunID:      re.RunID,
-		Role:       domain.RoleTool,
-		CreatedAt:  time.Now().UnixMilli(),
-		Content:    content,
-		ToolCallID: p.ToolCallID,
-		ToolName:   p.ToolName,
-	}
-	if err := s.deps.Messages.AppendMessage(ctx, msg); err != nil {
-		slog.Error("append tool-result message", "run", string(re.RunID), "err", err)
-	}
 }
 
 // emitTerminal persists the terminal event best-effort, flips the run row
@@ -2372,6 +2491,12 @@ func (s *Service) appendToolResultMessage(ctx context.Context, sessionID domain.
 // replay where the event is delivered exactly once (AS-7).
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
 	terminal.RunID = m.runID
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.runSessionDeleted(terminal.RunID) {
+		s.cleanupRunState(terminal.RunID)
+		return
+	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: []domain.RunEvent{terminal}})
@@ -2386,6 +2511,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			delete(s.active, terminal.RunID)
 			c()
 		}
+		delete(s.runSessions, terminal.RunID)
 		if pending, ok := s.shellPending[terminal.RunID]; ok {
 			delete(s.shellPending, terminal.RunID)
 			shellStateRefToDelete = pending.stateRef
@@ -2417,6 +2543,25 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	}
 	delete(s.ledgers, terminal.RunID)
 	delete(s.snapshots, terminal.RunID)
+	delete(s.runSessions, terminal.RunID)
+	s.mu.Unlock()
+	s.deleteShellState(shellStateRefToDelete)
+}
+
+func (s *Service) cleanupRunState(runID domain.RunID) {
+	var shellStateRefToDelete string
+	s.mu.Lock()
+	if c, ok := s.active[runID]; ok {
+		delete(s.active, runID)
+		c()
+	}
+	delete(s.pending, runID)
+	if pending, ok := s.shellPending[runID]; ok {
+		delete(s.shellPending, runID)
+		shellStateRefToDelete = pending.stateRef
+	}
+	delete(s.ledgers, runID)
+	delete(s.snapshots, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 }

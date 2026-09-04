@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"agent-vivy/internal/domain"
 )
@@ -19,9 +20,9 @@ import (
 // user text). Within a turn, every model call is a Step; tool rows attach to
 // the step whose model call produced them. Token usage comes from
 // model.usage, timing from event timestamps; request payloads carry hashes
-// and byte lengths only (D-010), so no transcript content is re-assembled
-// here beyond what the durable stores already hold (user text, model
-// completed content, tool results).
+// and byte lengths only (D-010). V2 assistant text is reassembled from the
+// durable bounded model.delta sequence and verified at model.completed;
+// legacy v1 journals keep their authoritative completion content.
 const (
 	trajectoryTextBound   = 8 << 10
 	defaultTrajectoryRuns = 20
@@ -187,6 +188,7 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 		failure  string
 		toolArgs = map[string]string{}
 		toolT0   = map[string]int64{}
+		deltas   strings.Builder
 	)
 	appendRecord := func(record TrajectoryRecord) {
 		if record.Turn == nil {
@@ -230,6 +232,12 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 			open = &TrajectoryRequest{Turn: &turn, Group: fmt.Sprintf("Step %d", step),
 				Status: "complete", StartedAt: event.CreatedAt, Provider: provider, Model: modelID,
 				Messages: len(payload.Messages), PreambleBytes: payload.PreambleBytes}
+			deltas.Reset()
+		case domain.EventModelDelta:
+			var payload payloadModelDelta
+			if json.Unmarshal(event.Payload, &payload) == nil {
+				deltas.WriteString(payload.Delta)
+			}
 		case domain.EventModelUsage:
 			var payload payloadModelUsage
 			if json.Unmarshal(event.Payload, &payload) == nil {
@@ -241,10 +249,12 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				open.Retry++
 			}
 		case domain.EventModelCompleted:
-			var payload payloadModelCompleted
-			content := ""
-			if json.Unmarshal(event.Payload, &payload) == nil {
-				content = payload.Content
+			content, projectionErr := completedProjectionContent(event, deltas.String())
+			deltas.Reset()
+			if projectionErr != nil {
+				appendRecord(trajectoryFoldErrorRecord(turn, projectionErr))
+				closeOpen(event.CreatedAt, "error", projectionErr.Error())
+				continue
 			}
 			if open != nil {
 				group := open.Group
@@ -255,6 +265,13 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				closeOpen(event.CreatedAt, "complete", "")
 			}
 		case domain.EventToolRequested:
+			if deltas.Len() > 0 && open != nil {
+				startedAt := open.StartedAt
+				appendRecord(TrajectoryRecord{Group: open.Group, Kind: "message", Text: boundTrajectoryText(deltas.String()),
+					TimeSeconds: trajectorySeconds(startedAt, event.CreatedAt), StartedAt: &startedAt,
+					Provider: provider, Model: modelID})
+			}
+			deltas.Reset()
 			var payload payloadToolRequested
 			if json.Unmarshal(event.Payload, &payload) == nil {
 				toolArgs[payload.ToolCallID] = boundTrajectoryJSON(payload.Args)

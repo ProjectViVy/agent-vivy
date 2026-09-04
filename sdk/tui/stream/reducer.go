@@ -5,8 +5,9 @@ import "agent-vivy/sdk/tui/surface"
 // Projection is the protocol-independent chat projection. The face owns
 // session/run lifecycle state; this reducer owns only messages and gates.
 type Projection struct {
-	Messages []surface.Message
-	Gate     *surface.Gate
+	Messages      []surface.Message
+	Gate          *surface.Gate
+	ProtocolError string
 }
 
 // Apply reduces one normalized notice. It returns true for terminal notices.
@@ -53,6 +54,19 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 		})
 	case "model_completed":
 		if !notice.HasCompleted {
+			return false
+		}
+		if notice.ProtocolError != "" {
+			return p.failProtocol(notice.ProtocolError, nextID)
+		}
+		if !notice.CompletedAuthoritative {
+			if notice.Completion == nil {
+				return p.failProtocol("model.completed v2: missing validated metadata", nextID)
+			}
+			if err := VerifyModelCompletedV2Metadata(*notice.Completion, p.streamingAnswerContent()); err != nil {
+				return p.failProtocol(err.Error(), nextID)
+			}
+			p.FinishStreaming()
 			return false
 		}
 		found := false
@@ -127,6 +141,9 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 	case "done":
 		p.FinishStreaming()
 		p.Gate = nil
+		if notice.ProtocolError != "" {
+			p.ProtocolError = notice.ProtocolError
+		}
 		if notice.Failed && notice.Message != "" {
 			p.Messages = append(p.Messages, surface.Message{
 				ID: nextID("end"), Role: surface.RoleAssistant,
@@ -136,6 +153,30 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 		return true
 	}
 	return false
+}
+
+func (p *Projection) streamingAnswerContent() string {
+	for i := len(p.Messages) - 1; i >= 0; i-- {
+		message := p.Messages[i]
+		if message.Role == surface.RoleAssistant && message.Streaming && !message.Reasoning {
+			return message.Content
+		}
+	}
+	return ""
+}
+
+func (p *Projection) failProtocol(message string, nextID func(prefix string) string) bool {
+	if message == "" {
+		message = "invalid stream protocol"
+	}
+	p.ProtocolError = message
+	p.FinishStreaming()
+	p.Gate = nil
+	p.Messages = append(p.Messages, surface.Message{
+		ID: nextID("end"), Role: surface.RoleAssistant,
+		Content: "[" + message + "]",
+	})
+	return true
 }
 
 // EnsureAssistantDraft starts the answer bubble after reasoning or a prior

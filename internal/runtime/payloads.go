@@ -3,8 +3,8 @@ package runtime
 import "encoding/json"
 
 // Event payload structs. Field names and shapes mirror
-// schemas/events/payloads/*.json (A3) field for field; PayloadVersion is
-// always 1 in V0.
+// schemas/events/payloads/*.json (A3) field for field. Most payloads remain
+// v1; model.completed v2 commits its preceding bounded delta sequence.
 
 type payloadRunStarted struct {
 	Provider       string `json:"provider"`
@@ -57,6 +57,13 @@ type payloadProviderStall struct {
 
 type payloadModelCompleted struct {
 	Content string `json:"content"`
+}
+
+// payloadModelCompletedV2 commits the preceding bounded model.delta sequence.
+// Keeping it distinct prevents legacy v1 encoders from leaking v2 fields.
+type payloadModelCompletedV2 struct {
+	ContentSHA256 string `json:"content_sha256"`
+	ByteLen       int    `json:"byte_len"`
 }
 
 type payloadModelRequest struct {
