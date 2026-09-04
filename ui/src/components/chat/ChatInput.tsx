@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Brain, Check, CheckCircle, ChevronDown, Clock, GitBranch, Lightbulb, LightbulbOff,
+  Check, CheckCircle, ChevronDown, Clock, Lightbulb, LightbulbOff,
   Paperclip, Plus, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, X, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -30,7 +30,7 @@ interface ChatInputProps {
   draftPreset?: { text: string; seq: number } | null;
 }
 
-type ExecMode = 'agent' | 'plan' | 'ask';
+type ExecMode = 'agent' | 'plan';
 type PermissionMode = 'cautious' | 'smart' | 'trusted';
 
 const ESTIMATED_CONTEXT_LIMIT_TOKENS = 128000;
@@ -52,11 +52,10 @@ const fileToAttachment = (file: File): Promise<AttachmentInput> => new Promise((
   reader.readAsDataURL(file);
 });
 
-// 执行模式选项（对照 Agent-DIVA ChatView.modeOptions）
+// 执行模式选项（对照 Agent-DIVA ChatView.modeOptions，仅保留已真实接通的 agent 与 plan）
 const MODES: { value: ExecMode; icon: LucideIcon; label: string; desc: string }[] = [
   { value: 'agent', icon: Zap, label: 'chatInput.agentMode', desc: 'chatInput.agentModeDesc' },
   { value: 'plan', icon: Settings2, label: 'chatInput.planMode', desc: 'chatInput.planModeDesc' },
-  { value: 'ask', icon: Brain, label: 'chatInput.askMode', desc: 'chatInput.askModeDesc' },
 ];
 
 // 思考模式选项（对照 Agent-DIVA ThinkingToggle）
@@ -229,10 +228,7 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
           {MODES.map((mode) => (
             <DropdownMenuItem
               key={mode.value}
-              onSelect={() => {
-                if (mode.value === 'ask') { showNotice(t('chatInput.askUnavailable')); return; }
-                setExecMode(mode.value);
-              }}
+              onSelect={() => setExecMode(mode.value)}
               className={cn('gap-2.5 py-2', execMode === mode.value && 'bg-accent text-accent-foreground')}
             >
               <mode.icon className="size-4 shrink-0" />
@@ -280,9 +276,6 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
-
-      {/* AutoDream 触发 */}
-      <button type="button" onClick={() => showNotice(t('chatInput.autodreamUnavailable'))} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.autodreamTrigger')} aria-label={t('chatInput.autodreamTrigger')}><GitBranch className="h-4 w-4" /></button>
 
       {/* 权限模式选择 */}
       <DropdownMenu>

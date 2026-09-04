@@ -37,7 +37,11 @@ func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 	if first.Config.Storage.Backend != "sqlite" || first.Config.DataDirectory() != first.InstanceRoot {
 		t.Fatalf("private storage = %+v", first.Config.Storage)
 	}
-	projectAbs, _ := filepath.Abs(project)
+	projectAbs, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectAbs, _ = filepath.Abs(projectAbs)
 	if first.Config.Runtime.World != "local" || first.Config.Runtime.WorkspaceRoot != projectAbs {
 		t.Fatalf("local world = %+v", first.Config.Runtime)
 	}
