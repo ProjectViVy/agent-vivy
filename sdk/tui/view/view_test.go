@@ -692,7 +692,13 @@ func TestSidebarShortcutDoesNotStealEditorInput(t *testing.T) {
 
 func TestSidebarMouseWheelIsRegionBoundedAndOverlaySafe(t *testing.T) {
 	driver := &testDriver{
-		sidebar: surface.Sidebar{ModifiedFilesKnown: true, ModifiedFiles: make([]surface.ModifiedFile, 50)},
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		messages: map[string][]surface.Message{"active": {}},
+		sidebar:  surface.Sidebar{ModifiedFilesKnown: true, ModifiedFiles: make([]surface.ModifiedFile, 50)},
+	}
+	for i := 0; i < 40; i++ {
+		driver.messages["active"] = append(driver.messages["active"], surface.Message{Role: surface.RoleAssistant, Content: fmt.Sprintf("history-%02d", i)})
 	}
 	for i := range driver.sidebar.ModifiedFiles {
 		driver.sidebar.ModifiedFiles[i].Path = fmt.Sprintf("pkg/file-%02d.go", i)
@@ -703,6 +709,14 @@ func TestSidebarMouseWheelIsRegionBoundedAndOverlaySafe(t *testing.T) {
 	l := computeLayout(m.width, m.height)
 	sidebarX := l.marginX + l.mainW() + 1
 
+	// Hover routing works without first clicking the sidebar and does not
+	// steal keyboard focus from the editor.
+	updated, _ = m.Update(tea.MouseMsg{X: sidebarX, Y: l.marginY + 1, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.sidebarScroll != sidebarWheelStep || m.sidebarFocused {
+		t.Fatalf("hovered sidebar wheel = offset %d focused %v, want %d/false", m.sidebarScroll, m.sidebarFocused, sidebarWheelStep)
+	}
+
 	updated, _ = m.Update(tea.MouseMsg{X: sidebarX, Y: l.marginY + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	m = updated.(Model)
 	if !m.sidebarFocused {
@@ -710,20 +724,22 @@ func TestSidebarMouseWheelIsRegionBoundedAndOverlaySafe(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.MouseMsg{X: sidebarX, Y: l.marginY + 1, Button: tea.MouseButtonWheelDown})
 	m = updated.(Model)
-	if m.sidebarScroll != sidebarWheelStep || !m.sidebarFocused {
-		t.Fatalf("sidebar wheel = offset %d focused %v, want %d/true", m.sidebarScroll, m.sidebarFocused, sidebarWheelStep)
+	if m.sidebarScroll != 2*sidebarWheelStep || !m.sidebarFocused {
+		t.Fatalf("sidebar wheel = offset %d focused %v, want %d/true", m.sidebarScroll, m.sidebarFocused, 2*sidebarWheelStep)
 	}
 
 	before := m.sidebarScroll
-	updated, _ = m.Update(tea.MouseMsg{X: l.marginX, Y: l.marginY + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
-	m = updated.(Model)
-	if m.sidebarFocused {
-		t.Fatal("main-area click did not release sidebar focus")
-	}
-	updated, _ = m.Update(tea.MouseMsg{X: l.marginX, Y: l.marginY + 1, Button: tea.MouseButtonWheelDown})
+	chatBefore := m.chatScroll
+	updated, _ = m.Update(tea.MouseMsg{X: l.marginX, Y: l.marginY + l.headerH + 1, Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
 	m = updated.(Model)
 	if m.sidebarScroll != before {
-		t.Fatalf("main-area wheel moved sidebar from %d to %d", before, m.sidebarScroll)
+		t.Fatalf("chat-region wheel moved focused sidebar from %d to %d", before, m.sidebarScroll)
+	}
+	if !m.sidebarFocused {
+		t.Fatal("pointer-region wheel unexpectedly cleared explicit sidebar focus")
+	}
+	if m.chatCanScroll() && m.chatScroll == chatBefore {
+		t.Fatal("chat-region wheel did not route to chat while sidebar retained keyboard focus")
 	}
 
 	m.sessionsOpen = true
