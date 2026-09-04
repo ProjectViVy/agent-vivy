@@ -195,6 +195,24 @@ type ContextSender interface {
 // ContextSender.
 type FileContextSender = ContextSender
 
+// ProjectFileCompleter asks the control plane for safe metadata-only project
+// file candidates. Query is a user-entered project-relative path prefix; the
+// view never scans the local filesystem. Request is echoed in ProjectFilesMsg
+// so stale asynchronous responses can be rejected.
+type ProjectFileCompleter interface {
+	CompleteProjectFiles(request uint64, query string) tea.Cmd
+}
+
+// ProjectFilesMsg is the asynchronous result of one project file completion
+// request. File bodies are deliberately absent.
+type ProjectFilesMsg struct {
+	Request   uint64
+	Query     string
+	Files     []FileContext
+	Truncated bool
+	Err       error
+}
+
 // ShellExecutor is the governed direct-shell seam for the !script input.
 // Implementations must call the server-owned shell/start route; no terminal
 // face may execute a process locally.

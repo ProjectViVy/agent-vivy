@@ -318,23 +318,24 @@ func (c *client) resolveProjectContext(ctx context.Context, paths []string) ([]s
 	return contexts, nil
 }
 
-func (c *client) listProjectContext(ctx context.Context) ([]surface.FileContext, error) {
-	raw, err := c.Call(ctx, "project-context/list", nil)
+func (c *client) listProjectContext(ctx context.Context, query string) ([]surface.FileContext, bool, error) {
+	raw, err := c.Call(ctx, "project-context/list", map[string]any{"query": query, "limit": 200})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var envelope struct {
 		Contexts     []surface.FileContext `json:"contexts"`
 		FileContexts []surface.FileContext `json:"file_contexts"`
 		Files        []surface.FileContext `json:"files"`
 		Items        []surface.FileContext `json:"items"`
+		Truncated    bool                  `json:"truncated"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		var direct []surface.FileContext
 		if directErr := json.Unmarshal(raw, &direct); directErr != nil {
-			return nil, fmt.Errorf("tui: project-context/list: %w", err)
+			return nil, false, fmt.Errorf("tui: project-context/list: %w", err)
 		}
-		return direct, nil
+		return direct, false, nil
 	}
 	contexts := envelope.Contexts
 	if len(contexts) == 0 {
@@ -346,7 +347,7 @@ func (c *client) listProjectContext(ctx context.Context) ([]surface.FileContext,
 	if len(contexts) == 0 {
 		contexts = envelope.Items
 	}
-	return contexts, nil
+	return contexts, envelope.Truncated, nil
 }
 
 func (c *client) resolveAttachments(ctx context.Context, paths []string) ([]surface.Attachment, error) {

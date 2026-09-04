@@ -1504,6 +1504,64 @@ func TestLiveFileContextResolvesBeforeTurnAndStoresMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestLiveProjectFileCompletionUsesMetadataQueryRPC(t *testing.T) {
+	var got struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method != "project-context/list" {
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+		if err := json.Unmarshal(request.Params, &got); err != nil {
+			return nil, &controlrpc.Error{Code: controlrpc.InvalidParams, Message: err.Error()}
+		}
+		return map[string]any{"contexts": []map[string]any{{"path": "docs/main guide.md", "name": "main guide.md", "size": 12}}, "truncated": true}, nil
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["project-context.list"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	msg := mustMsg[surface.ProjectFilesMsg](t, live.CompleteProjectFiles(7, "docs/mai"))
+	if msg.Err != nil || msg.Request != 7 || msg.Query != "docs/mai" || len(msg.Files) != 1 || !msg.Truncated {
+		t.Fatalf("completion result = %+v", msg)
+	}
+	if got.Query != "docs/mai" || got.Limit != 200 {
+		t.Fatalf("completion params = %+v", got)
+	}
+}
+
+func TestLiveProjectFileCompletionCancelsPreviousRPC(t *testing.T) {
+	started := make(chan struct{})
+	client := &Client{caps: map[string]struct{}{"project-context.list": {}}, call: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+		query := params.(map[string]any)["query"].(string)
+		if query == "first" {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return json.RawMessage(`{"contexts":[],"truncated":false}`), nil
+	}}
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	firstResult := make(chan surface.ProjectFilesMsg, 1)
+	go func() {
+		firstResult <- live.CompleteProjectFiles(1, "first")().(surface.ProjectFilesMsg)
+	}()
+	<-started
+	second := live.CompleteProjectFiles(2, "second")().(surface.ProjectFilesMsg)
+	if second.Err != nil || second.Request != 2 {
+		t.Fatalf("second completion = %+v", second)
+	}
+	first := <-firstResult
+	if !errors.Is(first.Err, context.Canceled) {
+		t.Fatalf("first completion was not cancelled: %+v", first)
+	}
+}
+
 func TestLiveShellUsesOnlyShellStartAndPreservesScript(t *testing.T) {
 	var methods []string
 	var got map[string]any
@@ -1560,5 +1618,14 @@ func TestLiveFailedFileTurnRestoresRetryDraft(t *testing.T) {
 	msg, ok := cmd().(surface.RestoreInputMsg)
 	if !ok || msg.Text != "inspect @README.md @internal/app.go" {
 		t.Fatalf("restore message = %#v", msg)
+	}
+}
+
+func TestLiveFailedFileTurnRestoresQuotedPath(t *testing.T) {
+	live := &Live{activeID: "sess_1", messages: map[string][]surface.Message{"sess_1": {{Role: string(domain.RoleUser), Content: "inspect"}}}}
+	cmd := live.applyTurnStarted(liveTurnStartedMsg{SessionID: "sess_1", UserText: "inspect", ContextPaths: []string{"docs/design notes.md"}, Err: errors.New("resolve failed")})
+	msg := cmd().(surface.RestoreInputMsg)
+	if msg.Text != `inspect @"docs/design notes.md"` {
+		t.Fatalf("quoted restore message = %#v", msg)
 	}
 }
