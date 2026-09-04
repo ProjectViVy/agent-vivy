@@ -3,12 +3,15 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
@@ -20,6 +23,10 @@ import (
 // bridge, write_note gate, approval store, and the scripted model that
 // requests the effectful call on turn one.
 func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqlite.Backend, *testSink) {
+	return newApprovalServiceWithModel(t, expiration, NewApprovalFlowModel())
+}
+
+func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatModel model.ToolCallingChatModel) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -37,7 +44,7 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	eng, err := NewEngine(ctx, NewApprovalFlowModel(), ts, EngineConfig{
+	eng, err := NewEngine(ctx, chatModel, ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
 	})
 	if err != nil {
@@ -50,6 +57,50 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 		ApprovalExpiration: expiration, Sink: sink,
 	})
 	return svc, backend, sink
+}
+
+type gatedApprovalResumeModel struct {
+	mu      sync.Mutex
+	calls   int
+	blocked chan struct{}
+	release chan struct{}
+}
+
+func (m *gatedApprovalResumeModel) Generate(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
+	return nil, errors.New("gated approval model requires streaming")
+}
+
+func (m *gatedApprovalResumeModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	m.mu.Lock()
+	call := m.calls
+	m.calls++
+	m.mu.Unlock()
+	reader, writer := schema.Pipe[*schema.Message](1)
+	switch call {
+	case 0:
+		go func() {
+			defer writer.Close()
+			writer.Send(schema.AssistantMessage("", []schema.ToolCall{{
+				ID: ApprovalFlowCallID, Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
+			}}), nil)
+		}()
+	case 1:
+		go func() {
+			defer writer.Close()
+			writer.Send(schema.AssistantMessage("恢", nil), nil)
+			close(m.blocked)
+			<-m.release
+			writer.Send(schema.AssistantMessage("复完成", nil), nil)
+		}()
+	default:
+		writer.Close()
+		return nil, fmt.Errorf("unexpected model stream call %d", call)
+	}
+	return reader, nil
+}
+
+func (m *gatedApprovalResumeModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return m, nil
 }
 
 // waitForPendingApproval polls until the run's approval row exists.
@@ -202,6 +253,58 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != domain.RoleAssistant || last.Content != "Done: the note has been handled." {
 		t.Fatalf("assistant message = %+v", last)
+	}
+}
+
+func TestServiceApprovalResumePersistsChunkBeforeProviderEOF(t *testing.T) {
+	model := &gatedApprovalResumeModel{blocked: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(model.release)
+		}
+	}()
+	svc, backend, _ := newApprovalServiceWithModel(t, 5*time.Minute, model)
+	runID, err := svc.Run(context.Background(), "sess-resume-stream", "note that I need milk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	if err := svc.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-model.blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("resumed provider did not expose its first chunk")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	seen := false
+	for time.Now().Before(deadline) && !seen {
+		for _, event := range replayAll(t, backend, runID) {
+			if event.Type == domain.EventModelDelta && payloadDeltaOf(t, event.Payload) == "恢" {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !seen {
+		t.Fatal("resumed first chunk was not durable while provider remained open")
+	}
+	close(model.release)
+	released = true
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	var got strings.Builder
+	for _, event := range replayAll(t, backend, runID) {
+		if event.Type == domain.EventModelDelta {
+			got.WriteString(payloadDeltaOf(t, event.Payload))
+		}
+	}
+	if got.String() != "恢复完成" {
+		t.Fatalf("resumed deltas = %q, want exactly-once provider text", got.String())
 	}
 }
 
@@ -426,7 +529,7 @@ func TestMapperInterruptDetails(t *testing.T) {
 // recent open tool.requested record.
 func TestMapperInterruptDetailsFallback(t *testing.T) {
 	m := newEventMapper("run-test", 0)
-	m.openCalls = append(m.openCalls, openToolCall{id: "call-9", name: "write_note", args: map[string]any{"content": "x"}})
+	m.registerOpenCall(openToolCall{id: "call-9", name: "write_note", args: map[string]any{"content": "x"}})
 
 	if _, err := m.onEvent(&adk.AgentEvent{Action: &adk.AgentAction{Interrupted: &adk.InterruptInfo{
 		InterruptContexts: []*adk.InterruptCtx{{ID: "intr-9", IsRootCause: true}},

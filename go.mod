@@ -8,11 +8,13 @@ require (
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/cloudwego/eino v0.9.13
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.25
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
+	github.com/rivo/uniseg v0.4.7
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
 	mvdan.cc/sh/v3 v3.12.0
@@ -96,7 +98,6 @@ require (
 	github.com/bytedance/sonic v1.15.2 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
-	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
@@ -128,7 +129,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/slongfield/pyfmt v0.0.0-20220222012616-ea85ff4c361f // indirect

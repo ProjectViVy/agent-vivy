@@ -938,7 +938,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		// recoverable, but only the interrupted tool is allowed on resume.
 		selectedTools = []string{toolName}
 	}
-	m.openCalls = append(m.openCalls, openToolCall{
+	m.registerOpenCall(openToolCall{
 		id:   approval.ToolCallID,
 		name: toolName,
 	})
@@ -970,7 +970,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		resumeTarget = question.ResumeTarget
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
-	m.openCalls = append(m.openCalls, openToolCall{id: question.ToolCallID, name: toolName})
+	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
 		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
@@ -1248,8 +1248,33 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
+	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
+}
+
+// withLiveModelStreamObserver installs the pre-Eino stream seam used by both
+// initial and resumed agent runs. Keeping the construction in one place
+// prevents approval/question resumes from reverting to EOF-batched output.
+func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) context.Context {
+	return withModelStreamObserver(ctx, modelStreamObserver{
+		Begin: m.beginObservedStream,
+		Chunk: func(chunk *schema.Message) error {
+			if err := m.waitForToolsSettled(ctx); err != nil {
+				return err
+			}
+			events := m.observeStreamChunk(chunk)
+			if err := reserveMappedBudget(ledger, events); err != nil {
+				return err
+			}
+			for _, event := range events {
+				if !s.persistAndPublish(ctx, sessionID, event) {
+					return context.Canceled
+				}
+			}
+			return nil
+		},
+	})
 }
 
 // runMessages rebuilds the session transcript for the engine (ADR-010):
@@ -1369,7 +1394,22 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		if !ok {
 			break
 		}
-		events, err := m.onEvent(ev)
+		persistStopped := false
+		err := m.onEventEach(ev, func(events []domain.RunEvent) error {
+			if err := reserveMappedBudget(ledger, events); err != nil {
+				return err
+			}
+			for _, re := range events {
+				if !s.persistAndPublish(ctx, sessionID, re) {
+					persistStopped = true
+					return context.Canceled
+				}
+			}
+			return nil
+		})
+		if persistStopped {
+			return
+		}
 		if errors.Is(err, errRunInterrupted) {
 			s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 			return
@@ -1377,15 +1417,6 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		if err != nil {
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 			return
-		}
-		if err := reserveMappedBudget(ledger, events); err != nil {
-			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
-			return
-		}
-		for _, re := range events {
-			if !s.persistAndPublish(ctx, sessionID, re) {
-				return
-			}
 		}
 	}
 
@@ -2070,7 +2101,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
 		// call so reconstructed tool.started/finished keep the call id.
-		m.openCalls = append(m.openCalls, openToolCall{id: toolCallID, name: toolName})
+		m.registerOpenCall(openToolCall{id: toolCallID, name: toolName})
 	}
 	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID)
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
@@ -2099,6 +2130,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		})
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
+	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
 	})

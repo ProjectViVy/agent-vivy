@@ -3,8 +3,12 @@ package view
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 
 	"agent-vivy/sdk/tui/surface"
 )
@@ -161,11 +165,13 @@ func (m Model) renderChat(width, height int, p Palette) string {
 	if len(messages) == 0 {
 		lines = append(lines, p.Dim.Render(""), p.LogoWord.Render(" 寻找真心之旅"), p.Dim.Render(" empty session · type to draft"))
 	}
-	for _, message := range messages {
+	for index, message := range messages {
 		lines = append(lines, renderMessage(message, width, p)...)
-		lines = append(lines, "")
+		if index < len(messages)-1 {
+			lines = append(lines, "")
+		}
 	}
-	content := strings.Join(trimTrailingEmpty(lines), "\n")
+	content := strings.Join(lines, "\n")
 	content = tailBlock(content, height)
 	return p.Chat.Width(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
 }
@@ -603,32 +609,77 @@ func wrapText(text string, width int) []string {
 	if text == "" {
 		return []string{""}
 	}
+	// Model text is data, never terminal control. Strip ANSI and discard
+	// controls that could move the cursor or rewrite earlier output. Tabs are
+	// expanded deterministically before cell-width wrapping.
+	text = ansi.Strip(text)
+	text = strings.ReplaceAll(text, "\t", "    ")
+	text = strings.Map(func(r rune) rune {
+		if r == '\n' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, text)
 	var lines []string
-	for _, para := range strings.Split(text, "\n") {
-		words := strings.Fields(para)
-		if len(words) == 0 {
-			lines = append(lines, "")
-			continue
-		}
-		cur := ""
-		for _, word := range words {
-			if cur == "" {
-				cur = word
-				continue
-			}
-			if lipgloss.Width(cur+" "+word) <= width {
-				cur += " " + word
-				continue
-			}
-			lines = append(lines, cur)
-			cur = word
-		}
-		if cur != "" {
-			lines = append(lines, cur)
-		}
+	for _, paragraph := range strings.Split(text, "\n") {
+		lines = append(lines, wrapParagraphExact(paragraph, width)...)
 	}
-	if len(lines) == 0 {
+	return lines
+}
+
+type textCluster struct {
+	text  string
+	width int
+	space bool
+}
+
+// wrapParagraphExact prefers word boundaries while preserving every
+// printable grapheme. Whitespace that crosses a boundary remains visible at
+// the beginning or end of the adjacent line instead of being synthesized or
+// discarded.
+func wrapParagraphExact(text string, width int) []string {
+	if text == "" {
 		return []string{""}
+	}
+	var clusters []textCluster
+	iterator := uniseg.NewGraphemes(text)
+	for iterator.Next() {
+		cluster := iterator.Str()
+		r, _ := utf8.DecodeRuneInString(cluster)
+		clusters = append(clusters, textCluster{text: cluster, width: iterator.Width(), space: unicode.IsSpace(r)})
+	}
+
+	var lines []string
+	var current strings.Builder
+	currentWidth := 0
+	flush := func() {
+		lines = append(lines, current.String())
+		current.Reset()
+		currentWidth = 0
+	}
+	for start := 0; start < len(clusters); {
+		end := start + 1
+		for end < len(clusters) && clusters[end].space == clusters[start].space {
+			end++
+		}
+		tokenWidth := 0
+		for _, cluster := range clusters[start:end] {
+			tokenWidth += cluster.width
+		}
+		if !clusters[start].space && currentWidth > 0 && currentWidth+tokenWidth > width {
+			flush()
+		}
+		for _, cluster := range clusters[start:end] {
+			if currentWidth > 0 && currentWidth+cluster.width > width {
+				flush()
+			}
+			current.WriteString(cluster.text)
+			currentWidth += cluster.width
+		}
+		start = end
+	}
+	if current.Len() > 0 {
+		flush()
 	}
 	return lines
 }

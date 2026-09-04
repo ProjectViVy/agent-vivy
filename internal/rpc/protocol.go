@@ -220,15 +220,20 @@ func (p *Peer) handleRequest(ctx context.Context, request Request) {
 		return
 	}
 	if rpcErr != nil {
-		_ = p.sendError(request.ID, rpcErr.Code, rpcErr.Message, rpcErr.Data)
+		p.discardAfterResponse(request.ID)
+		_ = p.sendErrorContext(ctx, request.ID, rpcErr.Code, rpcErr.Message, rpcErr.Data)
 		return
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
-		_ = p.sendError(request.ID, InternalError, "result is not JSON serializable", nil)
+		p.discardAfterResponse(request.ID)
+		_ = p.sendErrorContext(ctx, request.ID, InternalError, "result is not JSON serializable", nil)
 		return
 	}
-	_ = p.enqueue(responseFrame{JSONRPC: "2.0", ID: request.ID, Result: encoded})
+	if err := p.enqueueContext(ctx, responseFrame{JSONRPC: "2.0", ID: request.ID, Result: encoded}); err != nil {
+		p.discardAfterResponse(request.ID)
+		return
+	}
 	p.runAfterResponse(request.ID)
 }
 
@@ -253,8 +258,18 @@ func (p *Peer) runAfterResponse(id json.RawMessage) {
 	}
 }
 
+func (p *Peer) discardAfterResponse(id json.RawMessage) {
+	p.mu.Lock()
+	delete(p.after, string(id))
+	p.mu.Unlock()
+}
+
 func (p *Peer) sendError(id json.RawMessage, code int, message string, data json.RawMessage) error {
 	return p.enqueue(responseFrame{JSONRPC: "2.0", ID: id, Error: &Error{Code: code, Message: message, Data: data}})
+}
+
+func (p *Peer) sendErrorContext(ctx context.Context, id json.RawMessage, code int, message string, data json.RawMessage) error {
+	return p.enqueueContext(ctx, responseFrame{JSONRPC: "2.0", ID: id, Error: &Error{Code: code, Message: message, Data: data}})
 }
 
 func (p *Peer) enqueue(value responseFrame) error {
@@ -272,6 +287,27 @@ func (p *Peer) enqueue(value responseFrame) error {
 		return nil
 	default:
 		return ErrOverloaded
+	}
+}
+
+func (p *Peer) enqueueContext(ctx context.Context, value responseFrame) error {
+	if value.Result == nil && value.Error == nil {
+		value.Result = json.RawMessage("null")
+	}
+	frame, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.done:
+		return ErrPeerClosed
+	case p.out <- frame:
+		return nil
 	}
 }
 
@@ -331,6 +367,18 @@ func (p *Peer) Call(ctx context.Context, method string, params any) (json.RawMes
 }
 
 func (p *Peer) Notify(method string, params any) error {
+	return p.notify(context.Background(), method, params, false)
+}
+
+// NotifyContext enqueues a notification with cancellation-aware backpressure.
+// Durable run streams use this path so a temporarily full writer queue cannot
+// silently tear down a subscription and strand the client before terminal.
+// Ordinary notifications retain Notify's fail-fast ErrOverloaded contract.
+func (p *Peer) NotifyContext(ctx context.Context, method string, params any) error {
+	return p.notify(ctx, method, params, true)
+}
+
+func (p *Peer) notify(ctx context.Context, method string, params any, wait bool) error {
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return err
@@ -339,7 +387,20 @@ func (p *Peer) Notify(method string, params any) error {
 	if err != nil {
 		return err
 	}
-	return p.enqueueRaw(frame)
+	if !wait {
+		return p.enqueueRaw(frame)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.done:
+		return ErrPeerClosed
+	case p.out <- frame:
+		return nil
+	}
 }
 
 func (p *Peer) enqueueRaw(frame []byte) error {

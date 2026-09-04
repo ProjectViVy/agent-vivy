@@ -188,7 +188,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
 		Instruction: composeStaticInstruction(),
-		Model:       m,
+		Model:       observeModelStreams(m),
 		Handlers:    handlers,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},

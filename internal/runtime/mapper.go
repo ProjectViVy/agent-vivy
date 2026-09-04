@@ -1,12 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -64,6 +66,12 @@ type eventMapper struct {
 	// interrupt holds the details of the latest interrupt action; set
 	// together with the errRunInterrupted sentinel.
 	interrupt *interruptDetails
+
+	observedMu      sync.Mutex
+	observedStreams int
+	toolMu          sync.Mutex
+	toolsSettled    chan struct{}
+	toolsWaiting    bool
 }
 
 type openToolCall struct {
@@ -76,47 +84,84 @@ type openToolCall struct {
 }
 
 func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
-	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold}
+	settled := make(chan struct{})
+	close(settled)
+	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold, toolsSettled: settled}
 }
 
 // onEvent maps one engine event. A non-nil error means the run cannot
 // continue; the service emits the terminal event.
 func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
+	var out []domain.RunEvent
+	err := m.onEventEach(ev, func(events []domain.RunEvent) error {
+		out = append(out, events...)
+		return nil
+	})
+	return out, err
+}
+
+// onEventEach emits mapped batches as soon as they are available. In
+// particular, provider stream chunks must reach the Journal before the stream
+// reaches EOF; collecting the whole stream here turns token streaming into a
+// burst and can starve bounded transports.
+func (m *eventMapper) onEventEach(ev *adk.AgentEvent, emit func([]domain.RunEvent) error) error {
 	if ev.Err != nil {
+		m.takeObservedStream()
 		var retry *adk.WillRetryError
 		if errors.As(ev.Err, &retry) {
-			return []domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})}, nil
+			return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})})
 		}
 		var ce *adk.CancelError
 		if errors.As(ev.Err, &ce) {
-			return nil, errRunCancelled
+			return errRunCancelled
 		}
-		return nil, fmt.Errorf("engine event error: %w", ev.Err)
+		return fmt.Errorf("engine event error: %w", ev.Err)
 	}
 	// Interrupt actions suspend the run on an approval (C6); the details
 	// travel on the mapper, the sentinel on the error return.
 	if ev.Action != nil && ev.Action.Interrupted != nil {
 		m.interrupt = m.extractInterrupt(ev.Action.Interrupted)
-		return nil, errRunInterrupted
+		return errRunInterrupted
 	}
 	// Middleware-internal customized actions (e.g. the Eino summarization
 	// middleware's generate_summary events) carry no assistant output; only
 	// the ones carrying provider usage are mapped.
 	if ev.Action != nil && ev.Action.CustomizedAction != nil {
-		return m.onCustomizedAction(ev.Action.CustomizedAction)
+		events, err := m.onCustomizedAction(ev.Action.CustomizedAction)
+		if err != nil {
+			return err
+		}
+		return emit(events)
 	}
 	if ev.Output == nil || ev.Output.MessageOutput == nil {
-		return nil, nil
+		return nil
 	}
 	mv := ev.Output.MessageOutput
 	if mv.IsStreaming && mv.MessageStream != nil {
-		return m.onStreamEvent(mv)
+		return m.onStreamEventEach(mv, emit)
 	}
-	return m.onMessageEvent(mv)
+	events, err := m.onMessageEvent(mv)
+	if err != nil {
+		return err
+	}
+	err = emit(events)
+	if mv.Message != nil && mv.Message.Role == schema.Tool {
+		m.signalToolsSettled()
+	}
+	return err
 }
 
 func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]) ([]domain.RunEvent, error) {
 	var out []domain.RunEvent
+	err := m.onStreamEventEach(mv, func(events []domain.RunEvent) error {
+		out = append(out, events...)
+		return nil
+	})
+	return out, err
+}
+
+func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Message], emit func([]domain.RunEvent) error) error {
+	observedLive := m.takeObservedStream()
 	var content strings.Builder
 	var callsMsg *schema.Message
 	started := time.Now()
@@ -130,14 +175,13 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 		if err != nil {
 			var retry *adk.WillRetryError
 			if errors.As(err, &retry) {
-				out = append(out, m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt}))
-				return out, nil
+				return emit([]domain.RunEvent{m.build(domain.EventProviderRetry, payloadProviderRetry{Attempt: retry.RetryAttempt})})
 			}
 			var ce *adk.CancelError
 			if errors.As(err, &ce) {
-				return out, errRunCancelled
+				return errRunCancelled
 			}
-			return out, fmt.Errorf("model stream recv: %w", err)
+			return fmt.Errorf("model stream recv: %w", err)
 		}
 		if chunk == nil {
 			continue
@@ -157,36 +201,79 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 		if mv.Role == schema.Tool {
 			continue // assembled below as a tool result
 		}
-		if reasoning := reasoningText(chunk); reasoning != "" {
-			out = append(out, m.reasoningEvent(reasoning))
-		}
-		// Reasoning-only provider chunks commonly carry an empty Content.
-		// A real content delta is the boundary between reasoning and answer.
-		if chunk.Content != "" {
-			out = append(out, m.deltaEvent(chunk.Content))
-			m.pendingText.WriteString(chunk.Content)
-			m.hasPending = true
+		if !observedLive {
+			var chunkEvents []domain.RunEvent
+			if reasoning := reasoningText(chunk); reasoning != "" {
+				chunkEvents = append(chunkEvents, m.reasoningEvents(reasoning)...)
+			}
+			// Reasoning-only provider chunks commonly carry an empty Content.
+			// A real content delta is the boundary between reasoning and answer.
+			if chunk.Content != "" {
+				chunkEvents = append(chunkEvents, m.deltaEvents(chunk.Content)...)
+				m.pendingText.WriteString(chunk.Content)
+				m.hasPending = true
+			}
+			if len(chunkEvents) > 0 {
+				if err := emit(chunkEvents); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if mv.Role == schema.Tool {
 		events, err := m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")
 		if err != nil {
-			return out, err
+			return err
 		}
-		return append(out, events...), nil
+		err = emit(events)
+		m.signalToolsSettled()
+		return err
 	}
+	var tail []domain.RunEvent
 	if elapsed := time.Since(started); m.stallThreshold >= 0 && elapsed >= m.stallThreshold {
-		out = append(out, m.build(domain.EventProviderStall, payloadProviderStall{ElapsedMs: elapsed.Milliseconds()}))
+		tail = append(tail, m.build(domain.EventProviderStall, payloadProviderStall{ElapsedMs: elapsed.Milliseconds()}))
 	}
 	if usage != nil {
-		out = append(out, m.usageEvent(usage))
+		tail = append(tail, m.usageEvent(usage))
 	}
 	if callsMsg != nil {
 		// Streaming engines deliver tool calls as chunks; map them like a
 		// whole-message tool call turn.
-		out = append(out, m.toolCallEvents(callsMsg)...)
+		tail = append(tail, m.toolCallEvents(callsMsg)...)
 	}
-	return out, nil
+	return emit(tail)
+}
+
+func (m *eventMapper) beginObservedStream() {
+	m.observedMu.Lock()
+	m.observedStreams++
+	m.observedMu.Unlock()
+}
+
+func (m *eventMapper) takeObservedStream() bool {
+	m.observedMu.Lock()
+	defer m.observedMu.Unlock()
+	if m.observedStreams == 0 {
+		return false
+	}
+	m.observedStreams--
+	return true
+}
+
+func (m *eventMapper) observeStreamChunk(chunk *schema.Message) []domain.RunEvent {
+	if chunk == nil {
+		return nil
+	}
+	var events []domain.RunEvent
+	if reasoning := reasoningText(chunk); reasoning != "" {
+		events = append(events, m.reasoningEvents(reasoning)...)
+	}
+	if chunk.Content != "" {
+		events = append(events, m.deltaEvents(chunk.Content)...)
+		m.pendingText.WriteString(chunk.Content)
+		m.hasPending = true
+	}
+	return events
 }
 
 // onCustomizedAction maps middleware-internal customized actions. Only the
@@ -234,7 +321,7 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 func (m *eventMapper) messageMetaEvents(msg *schema.Message) []domain.RunEvent {
 	var out []domain.RunEvent
 	if reasoning := reasoningText(msg); reasoning != "" {
-		out = append(out, m.reasoningEvent(reasoning))
+		out = append(out, m.reasoningEvents(reasoning)...)
 	}
 	if msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
 		out = append(out, m.usageEvent(msg.ResponseMeta.Usage))
@@ -256,11 +343,13 @@ func reasoningText(msg *schema.Message) string {
 	return out.String()
 }
 
-func (m *eventMapper) reasoningEvent(text string) domain.RunEvent {
-	if m.maxPayload > 0 {
-		text = clampText(text, m.maxPayload)
+func (m *eventMapper) reasoningEvents(text string) []domain.RunEvent {
+	parts := splitTextForPayload(text, m.maxPayload)
+	out := make([]domain.RunEvent, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, m.build(domain.EventModelReasoningDelta, payloadModelReasoningDelta{Delta: part}))
 	}
-	return m.build(domain.EventModelReasoningDelta, payloadModelReasoningDelta{Delta: text})
+	return out
 }
 
 func (m *eventMapper) usageEvent(usage *schema.TokenUsage) domain.RunEvent {
@@ -305,7 +394,7 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 			ToolName:   tc.Function.Name,
 			Args:       args,
 		}))
-		m.openCalls = append(m.openCalls, openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)})
+		m.registerOpenCall(openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)})
 	}
 	return out
 }
@@ -357,8 +446,12 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 // the start boundary is reconstructed at result time.
 func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) ([]domain.RunEvent, error) {
 	argsJSON := m.argsJSONFor(callID, toolName)
+	resolvedID, resolvedName := m.popOpenCall(callID, toolName)
 	if callID == "" {
-		callID, toolName = m.popOpenCall(toolName)
+		callID = resolvedID
+	}
+	if toolName == "" {
+		toolName = resolvedName
 	}
 	// The loop detector sees every completed call; exceeding the repeat
 	// limit fails the run from here (the service emits the terminal).
@@ -414,9 +507,21 @@ func toolMessageParts(msg *schema.Message) []json.RawMessage {
 	return out
 }
 
-func (m *eventMapper) popOpenCall(toolName string) (string, string) {
+func (m *eventMapper) registerOpenCall(call openToolCall) {
+	m.toolMu.Lock()
+	defer m.toolMu.Unlock()
+	if len(m.openCalls) == 0 {
+		m.toolsSettled = make(chan struct{})
+		m.toolsWaiting = true
+	}
+	m.openCalls = append(m.openCalls, call)
+}
+
+func (m *eventMapper) popOpenCall(callID, toolName string) (string, string) {
+	m.toolMu.Lock()
+	defer m.toolMu.Unlock()
 	for i, oc := range m.openCalls {
-		if toolName == "" || oc.name == toolName {
+		if (callID != "" && oc.id == callID) || (callID == "" && (toolName == "" || oc.name == toolName)) {
 			m.openCalls = append(m.openCalls[:i], m.openCalls[i+1:]...)
 			return oc.id, oc.name
 		}
@@ -424,13 +529,62 @@ func (m *eventMapper) popOpenCall(toolName string) (string, string) {
 	return "", toolName
 }
 
-// deltaEvent builds a model.delta event, clamping the delta so the
-// marshaled payload stays within maxPayload (NFR: bounded).
-func (m *eventMapper) deltaEvent(delta string) domain.RunEvent {
-	if m.maxPayload > 0 {
-		delta = clampText(delta, m.maxPayload)
+func (m *eventMapper) signalToolsSettled() {
+	m.toolMu.Lock()
+	defer m.toolMu.Unlock()
+	if len(m.openCalls) == 0 && m.toolsWaiting {
+		close(m.toolsSettled)
+		m.toolsWaiting = false
 	}
-	return m.build(domain.EventModelDelta, payloadModelDelta{Delta: delta})
+}
+
+func (m *eventMapper) waitForToolsSettled(ctx context.Context) error {
+	m.toolMu.Lock()
+	settled := m.toolsSettled
+	m.toolMu.Unlock()
+	select {
+	case <-settled:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// deltaEvents builds one or more bounded model.delta events without dropping
+// any part of the provider chunk.
+func (m *eventMapper) deltaEvents(delta string) []domain.RunEvent {
+	parts := splitTextForPayload(delta, m.maxPayload)
+	out := make([]domain.RunEvent, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, m.build(domain.EventModelDelta, payloadModelDelta{Delta: part}))
+	}
+	return out
+}
+
+// splitTextForPayload preserves every rune while keeping each delta under the
+// configured event payload budget. Streaming text is never a safe place to
+// truncate: model.completed and the live transcript must describe the same
+// answer byte-for-byte.
+func splitTextForPayload(text string, budget int) []string {
+	if text == "" {
+		return nil
+	}
+	if budget <= 0 {
+		return []string{text}
+	}
+	const envelope = 16
+	allowed := (budget - envelope) / 6
+	if allowed < 1 {
+		allowed = 1
+	}
+	runes := []rune(text)
+	out := make([]string, 0, (len(runes)+allowed-1)/allowed)
+	for len(runes) > 0 {
+		n := min(allowed, len(runes))
+		out = append(out, string(runes[:n]))
+		runes = runes[n:]
+	}
+	return out
 }
 
 // clampText shrinks s (worst-case JSON escaping assumed) until
