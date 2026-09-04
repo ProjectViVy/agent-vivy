@@ -50,6 +50,9 @@ type eventMapper struct {
 	runID          domain.RunID
 	maxPayload     int
 	stallThreshold time.Duration
+	runProvider    string
+	runModel       string
+	summaryModel   string
 
 	// pendingText accumulates the in-flight assistant turn so v2
 	// model.completed can commit the exact bounded delta sequence even when
@@ -89,6 +92,12 @@ func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
 	settled := make(chan struct{})
 	close(settled)
 	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold, toolsSettled: settled}
+}
+
+func (m *eventMapper) setUsageRoutes(provider, model, summaryModel string) {
+	m.runProvider = strings.TrimSpace(provider)
+	m.runModel = strings.TrimSpace(model)
+	m.summaryModel = strings.TrimSpace(summaryModel)
 }
 
 // onEvent maps one engine event. A non-nil error means the run cannot
@@ -295,7 +304,11 @@ func (m *eventMapper) onCustomizedAction(action any) ([]domain.RunEvent, error) 
 	if resp == nil || resp.ResponseMeta == nil || resp.ResponseMeta.Usage == nil {
 		return nil, nil
 	}
-	return []domain.RunEvent{m.usageEvent(resp.ResponseMeta.Usage)}, nil
+	provider, model := m.runProvider, m.runModel
+	if ca.GenerateSummary.Phase == summarization.GenerateSummaryPhasePrimary && m.summaryModel != "" {
+		model = m.summaryModel
+	}
+	return []domain.RunEvent{m.usageEventForRoute(resp.ResponseMeta.Usage, "summary", provider, model)}, nil
 }
 
 func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message]) ([]domain.RunEvent, error) {
@@ -385,10 +398,15 @@ func (m *eventMapper) reasoningEvents(text string) []domain.RunEvent {
 }
 
 func (m *eventMapper) usageEvent(usage *schema.TokenUsage) domain.RunEvent {
+	return m.usageEventForRoute(usage, "main", m.runProvider, m.runModel)
+}
+
+func (m *eventMapper) usageEventForRoute(usage *schema.TokenUsage, source, provider, model string) domain.RunEvent {
 	return m.build(domain.EventModelUsage, payloadModelUsage{
 		PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
 		TotalTokens: usage.TotalTokens, ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens,
 		CachedTokens: usage.PromptTokenDetails.CachedTokens,
+		Provider:     provider, Model: model, Source: source,
 	})
 }
 

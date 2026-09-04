@@ -484,6 +484,7 @@ export interface TokenSessionUsage {
 
 export interface TokenUsageSnapshot {
   period: TokenUsagePeriod;
+  scope: 'chat_runs';
   total: TokenUsageTotal;
   models: TokenModelShare[];
   providers: TokenProviderGroup[];

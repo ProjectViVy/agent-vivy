@@ -545,6 +545,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	runProvider, runModel := s.CurrentModel()
+	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
@@ -1169,6 +1170,8 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		return
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
+	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	toolName, selectedTools, mode, face, profile, snapshot, sandboxMode, approvalPolicy := s.approvalDetails(ctx, run.ID)
 	if len(selectedTools) == 0 && toolName != "" {
 		// Events written before request-scoped selection existed remain
@@ -1208,6 +1211,8 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		resumeTarget = question.ResumeTarget
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
+	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
@@ -1220,6 +1225,37 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	s.mu.Unlock()
 	slog.Info("restart recovery: run waits on user question",
 		"run", string(run.ID), "question", question.ID, "resume_target", resumeTarget)
+}
+
+func (s *Service) usageRoutesForRun(ctx context.Context, runID domain.RunID) (string, string) {
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return "", ""
+	}
+	defer func() { _ = it.Close() }()
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventRunStarted {
+			continue
+		}
+		var started payloadRunStarted
+		if json.Unmarshal(event.Payload, &started) == nil {
+			return started.Provider, started.Model
+		}
+		return "", ""
+	}
+	return "", ""
+}
+
+// newResumeEventMapper rebuilds the usage routes that belong to the durable
+// run. Resume paths intentionally create a fresh mapper (stream/tool state
+// must not leak across an interrupt), so the attribution carried by the old
+// mapper has to be restored from run.started as well.
+func (s *Service) newResumeEventMapper(ctx context.Context, runID domain.RunID) *eventMapper {
+	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	providerName, modelID := s.usageRoutesForRun(ctx, runID)
+	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
+	return m
 }
 
 // recoverBudgetLedger rebuilds the shared run-tree accounting from durable
@@ -2332,7 +2368,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
 		slog.Warn("pending engine reload failed before resume", "run", string(runID), "err", err)
 	}
-	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	m := s.newResumeEventMapper(context.Background(), runID)
 	if toolCallID != "" {
 		// The resume replays the decided tool result first; seed the open
 		// call so reconstructed tool.started/finished keep the call id.

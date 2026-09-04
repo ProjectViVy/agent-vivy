@@ -12,11 +12,14 @@ import (
 
 // payloadModelUsage mirrors runtime.payloadModelUsage for JSON decoding.
 type payloadModelUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	ReasoningTokens  int `json:"reasoning_tokens"`
-	CachedTokens     int `json:"cached_tokens"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	ReasoningTokens  int    `json:"reasoning_tokens"`
+	CachedTokens     int    `json:"cached_tokens"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Source           string `json:"source"`
 }
 
 // payloadRunStarted mirrors runtime.payloadRunStarted for JSON decoding.
@@ -36,7 +39,7 @@ func (b *Backend) ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]s
 		  JOIN runs r ON r.id = e.run_id
 		  LEFT JOIN sessions s ON s.id = r.session_id
 		  LEFT JOIN LATERAL (
-		    SELECT payload FROM run_events WHERE run_id = e.run_id AND type = 'run.started' LIMIT 1
+		    SELECT payload FROM run_events WHERE run_id = e.run_id AND type = 'run.started' ORDER BY seq ASC LIMIT 1
 		  ) rs ON true
 		 WHERE e.type = 'model.usage' AND e.created_at >= $1
 		 ORDER BY e.created_at ASC`
@@ -53,7 +56,7 @@ func (b *Backend) ListSessionModelUsage(ctx context.Context, sessionID domain.Se
 		  JOIN runs r ON r.id = e.run_id
 		  LEFT JOIN sessions s ON s.id = r.session_id
 		  LEFT JOIN LATERAL (
-		    SELECT payload FROM run_events WHERE run_id = e.run_id AND type = 'run.started' LIMIT 1
+		    SELECT payload FROM run_events WHERE run_id = e.run_id AND type = 'run.started' ORDER BY seq ASC LIMIT 1
 		  ) rs ON true
 		 WHERE e.type = 'model.usage' AND r.session_id = $1
 		 ORDER BY e.created_at ASC`
@@ -96,6 +99,7 @@ func (b *Backend) listModelUsage(ctx context.Context, query string, aggregateRou
 			ReasoningTokens:  usage.ReasoningTokens,
 			CachedTokens:     usage.CachedTokens,
 			RequestCount:     1,
+			Source:           usage.Source,
 		}
 		if len(startedRaw) > 0 {
 			var started payloadRunStarted
@@ -104,6 +108,7 @@ func (b *Backend) listModelUsage(ctx context.Context, query string, aggregateRou
 				row.Provider = started.Provider
 			}
 		}
+		applyUsageAttribution(&row, usage.Provider, usage.Model, usage.Source)
 		if !aggregateRoutes {
 			out = append(out, row)
 			continue
@@ -130,6 +135,18 @@ func (b *Backend) listModelUsage(ctx context.Context, query string, aggregateRou
 		out = append(out, aggregates[key])
 	}
 	return out, nil
+}
+
+func applyUsageAttribution(row *storage.UsageRow, provider, model, source string) {
+	if source == "summary" {
+		row.Provider, row.Model = "", ""
+	}
+	if provider != "" || model != "" {
+		row.Provider, row.Model = "", ""
+		if provider != "" && model != "" {
+			row.Provider, row.Model = provider, model
+		}
+	}
 }
 
 func aggregateUsageRow(rows map[string]storage.UsageRow, key string, row storage.UsageRow) {

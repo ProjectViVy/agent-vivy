@@ -15,6 +15,7 @@ import (
 // are snake_case to match the existing UI contract.
 type TokenUsageSnapshot struct {
 	Period    string               `json:"period"`
+	Scope     string               `json:"scope"`
 	Total     tokenUsageTotal      `json:"total"`
 	Models    []tokenModelShare    `json:"models"`
 	Providers []tokenProviderGroup `json:"providers"`
@@ -30,10 +31,9 @@ type tokenUsageTotal struct {
 	TotalCached    int     `json:"total_cached"`
 	RequestCount   int     `json:"request_count"`
 	TotalCostUSD   float64 `json:"total_cost_usd"`
-	// CostKnown reports whether at least one usage row resolved to
-	// reference pricing. False means every row was unpriced (unknown
-	// model) and total_cost_usd is a zero placeholder — never read it as
-	// "free".
+	// CostKnown reports whether every counted request resolved to complete
+	// reference pricing. False means total_cost_usd is a zero placeholder —
+	// never read it as "free" or as a partial total.
 	CostKnown bool `json:"cost_known"`
 }
 
@@ -119,7 +119,15 @@ func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float6
 	if info.InputPerMTokens == 0 || info.OutputPerMTokens == 0 {
 		return 0, false
 	}
-	cost := float64(r.PromptTokens)/1e6*info.InputPerMTokens +
+	if r.CachedTokens < 0 || r.CachedTokens > r.PromptTokens {
+		return 0, false
+	}
+	uncachedPrompt := r.PromptTokens - r.CachedTokens
+	if r.CachedTokens > 0 && info.CachedInputPerMTokens == 0 {
+		return 0, false
+	}
+	cost := float64(uncachedPrompt)/1e6*info.InputPerMTokens +
+		float64(r.CachedTokens)/1e6*info.CachedInputPerMTokens +
 		float64(r.CompletionTokens)/1e6*info.OutputPerMTokens
 	return math.Round(cost*1e4) / 1e4, true
 }
@@ -127,7 +135,7 @@ func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float6
 // buildTokenSnapshot aggregates raw usage rows into the snapshot shape.
 // Pure function — no I/O, fully testable.
 func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period string, tzOffsetMinutes int, sessionLimit int, meta ModelMeta) TokenUsageSnapshot {
-	snap := TokenUsageSnapshot{Period: period}
+	snap := TokenUsageSnapshot{Period: period, Scope: "chat_runs"}
 	if len(rows) == 0 {
 		snap.Models = []tokenModelShare{}
 		snap.Providers = []tokenProviderGroup{}
@@ -137,25 +145,33 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 	}
 
 	// Totals (cost from priced rows only; unpriced rows never read as free)
+	pricedRequests := 0
 	for _, r := range rows {
 		snap.Total.TotalInput += r.PromptTokens
 		snap.Total.TotalOutput += r.CompletionTokens
 		snap.Total.TotalTokens += r.TotalTokens
 		snap.Total.TotalReasoning += r.ReasoningTokens
 		snap.Total.TotalCached += r.CachedTokens
-		snap.Total.RequestCount++
+		requests := usageRequestCount(r)
+		snap.Total.RequestCount += requests
 		if cost, ok := rowCostUSD(ctx, meta, r); ok {
 			snap.Total.TotalCostUSD += cost
-			snap.Total.CostKnown = true
+			pricedRequests += requests
 		}
 	}
-	snap.Total.TotalCostUSD = math.Round(snap.Total.TotalCostUSD*1e4) / 1e4
+	snap.Total.CostKnown = snap.Total.RequestCount > 0 && pricedRequests == snap.Total.RequestCount
+	if snap.Total.CostKnown {
+		snap.Total.TotalCostUSD = math.Round(snap.Total.TotalCostUSD*1e4) / 1e4
+	} else {
+		snap.Total.TotalCostUSD = 0
+	}
 
 	// Model distribution
 	type modelAgg struct {
-		tokens    int
-		cost      float64
-		costKnown bool
+		tokens         int
+		cost           float64
+		requests       int
+		pricedRequests int
 	}
 	modelAggs := make(map[string]*modelAgg)
 	for _, r := range rows {
@@ -169,9 +185,10 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 			modelAggs[key] = agg
 		}
 		agg.tokens += r.TotalTokens
+		agg.requests += usageRequestCount(r)
 		if cost, ok := rowCostUSD(ctx, meta, r); ok {
 			agg.cost += cost
-			agg.costKnown = true
+			agg.pricedRequests += usageRequestCount(r)
 		}
 	}
 	totalTokens := snap.Total.TotalTokens
@@ -180,9 +197,14 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 		if totalTokens > 0 {
 			pct = math.Round(float64(agg.tokens)*1000/float64(totalTokens)) / 10
 		}
+		costKnown := agg.requests > 0 && agg.pricedRequests == agg.requests
+		cost := 0.0
+		if costKnown {
+			cost = math.Round(agg.cost*1e4) / 1e4
+		}
 		snap.Models = append(snap.Models, tokenModelShare{
 			Model: model, Percentage: pct, TotalTokens: agg.tokens,
-			CostUSD: math.Round(agg.cost*1e4) / 1e4, CostKnown: agg.costKnown,
+			CostUSD: cost, CostKnown: costKnown,
 		})
 	}
 	sort.Slice(snap.Models, func(i, j int) bool {
@@ -205,7 +227,7 @@ func buildTokenSnapshot(ctx context.Context, rows []storage.UsageRow, period str
 			provData[key] = g
 		}
 		g.TotalTokens += r.TotalTokens
-		g.RequestCount++
+		g.RequestCount += usageRequestCount(r)
 	}
 	for _, g := range provData {
 		snap.Providers = append(snap.Providers, *g)
@@ -335,7 +357,7 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 		totalOutput  int
 		totalTokens  int
 		cost         float64
-		costKnown    bool
+		pricedCount  int
 		modelTokens  map[string]int
 		lastActivity int64
 	}
@@ -350,13 +372,14 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 			g = &sessAccum{title: r.SessionTitle, modelTokens: make(map[string]int)}
 			grouped[key] = g
 		}
-		g.requestCount++
+		requests := usageRequestCount(r)
+		g.requestCount += requests
 		g.totalInput += r.PromptTokens
 		g.totalOutput += r.CompletionTokens
 		g.totalTokens += r.TotalTokens
 		if cost, ok := rowCostUSD(ctx, meta, r); ok {
 			g.cost += cost
-			g.costKnown = true
+			g.pricedCount += requests
 		}
 		model := r.Model
 		if model == "" {
@@ -378,6 +401,11 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 				primaryModel = m
 			}
 		}
+		costKnown := g.requestCount > 0 && g.pricedCount == g.requestCount
+		cost := 0.0
+		if costKnown {
+			cost = math.Round(g.cost*1e4) / 1e4
+		}
 		sessions = append(sessions, tokenSessionUsage{
 			ID:           id,
 			Title:        g.title,
@@ -386,8 +414,8 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 			TotalInput:   g.totalInput,
 			TotalOutput:  g.totalOutput,
 			TotalTokens:  g.totalTokens,
-			CostUSD:      math.Round(g.cost*1e4) / 1e4,
-			CostKnown:    g.costKnown,
+			CostUSD:      cost,
+			CostKnown:    costKnown,
 		})
 	}
 	sort.Slice(sessions, func(i, j int) bool {
@@ -397,6 +425,13 @@ func buildSessionList(ctx context.Context, rows []storage.UsageRow, limit int, m
 		sessions = sessions[:limit]
 	}
 	return sessions
+}
+
+func usageRequestCount(row storage.UsageRow) int {
+	if row.RequestCount > 0 {
+		return row.RequestCount
+	}
+	return 1
 }
 
 // statsTokensHandler implements the stats/tokens RPC method.

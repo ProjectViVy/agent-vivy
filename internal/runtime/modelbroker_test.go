@@ -58,6 +58,28 @@ func TestWorkerModelBrokerSharesBudget(t *testing.T) {
 	}
 }
 
+func TestWorkerModelBrokerPreservesUsageDimensions(t *testing.T) {
+	message := schema.AssistantMessage("done", nil)
+	message.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{
+		PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15,
+		PromptTokenDetails:      schema.PromptTokenDetails{CachedTokens: 4},
+		CompletionTokensDetails: schema.CompletionTokensDetails{ReasoningTokens: 2},
+	}}
+	broker, err := NewWorkerModelBroker(NewScriptedModel(message), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := broker.Complete(context.Background(), WorkerModelRequest{
+		RunID: "child-1", ParentRunID: "run-1", Messages: []WorkerModelMessage{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Usage == nil || response.Usage.PromptTokens != 10 || response.Usage.CompletionTokens != 5 || response.Usage.TotalTokens != 15 || response.Usage.ReasoningTokens != 2 || response.Usage.CachedTokens != 4 {
+		t.Fatalf("usage = %+v", response.Usage)
+	}
+}
+
 func jsonUnmarshal(value any, target any) error {
 	// Keep this test package independent of the worker wire JSON details while
 	// still checking that the adapter preserves structured arguments.

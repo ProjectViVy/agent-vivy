@@ -53,6 +53,7 @@ type ModelUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
+	CachedTokens     int `json:"cached_tokens,omitempty"`
 }
 
 type ModelBroker interface {

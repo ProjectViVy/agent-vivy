@@ -75,9 +75,9 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 		}
 	}
 	// gpt-4o is priced (2.5 USD/M in, 10 USD/M out): 1.0M prompt + 0.1M
-	// completion = 3.5 USD; 700K prompt tokens served from cache.
+	// completion = 3.5 USD.
 	seedRun("run-priced", "sess-priced", "gpt-4o",
-		`{"prompt_tokens":1000000,"completion_tokens":100000,"total_tokens":1100000,"cached_tokens":700000}`)
+		`{"prompt_tokens":1000000,"completion_tokens":100000,"total_tokens":1100000}`)
 	// custom-model has no reference pricing: tokens count, cost stays unknown.
 	seedRun("run-unpriced", "sess-unpriced", "custom-model",
 		`{"prompt_tokens":50,"completion_tokens":10,"total_tokens":60}`)
@@ -115,14 +115,14 @@ func TestTokenStatsRPCSmoke(t *testing.T) {
 	if total.TotalInput != 1000050 || total.TotalOutput != 100010 || total.TotalTokens != 1100060 {
 		t.Fatalf("total token fields = %+v, want unpriced rows still counted", total)
 	}
-	if total.TotalCached != 700000 {
-		t.Fatalf("total_cached = %d, want 700000", total.TotalCached)
+	if total.TotalCached != 0 {
+		t.Fatalf("total_cached = %d, want 0", total.TotalCached)
 	}
 	if total.RequestCount != 2 {
 		t.Fatalf("request_count = %d, want 2", total.RequestCount)
 	}
-	if !total.CostKnown || total.TotalCostUSD != 3.5 {
-		t.Fatalf("total cost = (%v, known=%v), want (3.5, true)", total.TotalCostUSD, total.CostKnown)
+	if total.CostKnown || total.TotalCostUSD != 0 {
+		t.Fatalf("mixed total cost = (%v, known=%v), want zero placeholder with known=false", total.TotalCostUSD, total.CostKnown)
 	}
 	byModel := map[string]struct {
 		tokens int

@@ -202,7 +202,7 @@ func TestFormatResultLabelsScopesAndSkippedCompaction(t *testing.T) {
 	if got := FormatResult("compact", []byte(`{"before_tokens":0,"after_tokens":0,"folded_messages":0,"skipped":false}`)); !strings.Contains(got, "not-needed") || strings.Contains(got, "executed") {
 		t.Fatalf("zero compaction result = %q", got)
 	}
-	if got := FormatResult("stats", []byte(`{"period":"1d","total":{"cost_known":false}}`)); !strings.Contains(got, "token usage aggregate") || !strings.Contains(got, "no current-session cost") {
+	if got := FormatResult("stats", []byte(`{"period":"1d","scope":"chat_runs","total":{"cost_known":false}}`)); !strings.Contains(got, "chat-run token usage") || !strings.Contains(got, "title/manual-compaction calls excluded") {
 		t.Fatalf("stats scope label = %q", got)
 	}
 	if got := FormatResult("mcp", []byte(`{"servers":[]}`)); !strings.Contains(got, "configured MCP") || strings.Contains(got, "connected") {

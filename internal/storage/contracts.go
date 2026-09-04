@@ -199,6 +199,7 @@ type UsageRow struct {
 	RequestCount int
 	Model        string
 	Provider     string
+	Source       string
 }
 
 // TokenUsageStore exposes a cross-run usage projection derived from

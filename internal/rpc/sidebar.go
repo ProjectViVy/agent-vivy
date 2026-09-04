@@ -255,6 +255,9 @@ func buildSidebarUsage(ctx context.Context, rows []storage.UsageRow, sessionID d
 	// A session total is known only when every request is priced. Reporting a
 	// partial sum as the whole session cost would make unknown models look free.
 	out.CostKnown = out.RequestCount > 0 && pricedRequests == out.RequestCount
+	if !out.CostKnown {
+		out.CostUSD = 0
+	}
 	// rowCostUSD already rounds each row to the tokenstats precision. The
 	// aggregate follows the same four-decimal contract as stats/tokens.
 	out.CostUSD = roundSidebarCost(out.CostUSD)

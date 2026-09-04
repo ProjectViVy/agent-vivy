@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
@@ -115,6 +116,7 @@ func TestSummarizationFinalizePreservesExactProjectFileMessage(t *testing.T) {
 // model.usage event so the hidden summary call is observable and accounted.
 func TestMapperMapsSummarizationUsageEvent(t *testing.T) {
 	m := newEventMapper("run-1", 0)
+	m.setUsageRoutes("openai", "main-model", "summary-model")
 	action := &summarization.CustomizedAction{
 		Type: summarization.ActionTypeGenerateSummary,
 		GenerateSummary: &summarization.GenerateSummaryAction{
@@ -137,12 +139,92 @@ func TestMapperMapsSummarizationUsageEvent(t *testing.T) {
 	if err := json.Unmarshal(events[0].Payload, &p); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if p.TotalTokens != 15 || p.PromptTokens != 10 {
+	if p.TotalTokens != 15 || p.PromptTokens != 10 || p.Source != "summary" || p.Provider != "openai" || p.Model != "summary-model" {
 		t.Fatalf("usage = %+v, want 10/5/15", p)
+	}
+	action.GenerateSummary.Phase = summarization.GenerateSummaryPhaseFailover
+	events, err = m.onCustomizedAction(action)
+	if err != nil || len(events) != 1 || json.Unmarshal(events[0].Payload, &p) != nil {
+		t.Fatalf("failover usage event = %+v, err=%v", events, err)
+	}
+	if p.Provider != "openai" || p.Model != "main-model" || p.Source != "summary" {
+		t.Fatalf("failover usage attribution = %+v", p)
 	}
 	// Unrelated customized actions are silent.
 	if events, err := m.onCustomizedAction("whatever"); err != nil || len(events) != 0 {
 		t.Fatalf("unknown customized action must be silent: %v %v", events, err)
+	}
+}
+
+// TestResumeEventMapperRestoresSummaryUsageRoutesFromJournal pins the shared
+// approval/question resume path. Both live and restart recovery eventually
+// create this fresh mapper, so it must recover the main route from the first
+// durable run.started event and retain the configured summary-model route.
+func TestResumeEventMapperRestoresSummaryUsageRoutesFromJournal(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "resume-usage.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	const (
+		sessionID = domain.SessionID("sess-resume-usage")
+		runID     = domain.RunID("run-resume-usage")
+	)
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "resume usage", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	seed := newEventMapper(runID, 0)
+	started := seed.build(domain.EventRunStarted, payloadRunStarted{Provider: "openai", Model: "main-model"})
+	if _, err := backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{started}}); err != nil {
+		t.Fatalf("append run.started: %v", err)
+	}
+
+	svc := &Service{
+		engine: &Engine{cfg: EngineConfig{MaxEventPayloadBytes: 64 << 10, SummaryModelID: "summary-model"}},
+		deps:   ServiceDeps{Journal: backend},
+	}
+	m := svc.newResumeEventMapper(ctx, runID)
+	action := &summarization.CustomizedAction{
+		Type: summarization.ActionTypeGenerateSummary,
+		GenerateSummary: &summarization.GenerateSummaryAction{
+			Attempt: 1,
+			Phase:   summarization.GenerateSummaryPhasePrimary,
+			ModelResponse: &schema.Message{Role: schema.Assistant, ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
+				PromptTokens: 8, CompletionTokens: 2, TotalTokens: 10,
+			}}},
+		},
+	}
+	primary, err := m.onCustomizedAction(action)
+	if err != nil {
+		t.Fatalf("map resumed primary summary: %v", err)
+	}
+	action.GenerateSummary.Phase = summarization.GenerateSummaryPhaseFailover
+	failover, err := m.onCustomizedAction(action)
+	if err != nil {
+		t.Fatalf("map resumed failover summary: %v", err)
+	}
+	events := append(primary, failover...)
+	if _, err := backend.Append(ctx, storage.Commit{RunID: runID, Events: events}); err != nil {
+		t.Fatalf("append resumed summary usage: %v", err)
+	}
+
+	rows, err := backend.ListModelUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("list resumed summary usage: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("usage rows = %d, want 2", len(rows))
+	}
+	if rows[0].Provider != "openai" || rows[0].Model != "summary-model" || rows[0].Source != "summary" {
+		t.Fatalf("primary resumed summary route = %+v", rows[0])
+	}
+	if rows[1].Provider != "openai" || rows[1].Model != "main-model" || rows[1].Source != "summary" {
+		t.Fatalf("failover resumed summary route = %+v", rows[1])
 	}
 }
 
