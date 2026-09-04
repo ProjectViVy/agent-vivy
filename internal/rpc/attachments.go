@@ -98,6 +98,8 @@ var (
 	errAttachmentPathNUL       = errors.New("path contains NUL")
 	errAttachmentPathAbsolute  = errors.New("path must be project-relative")
 	errAttachmentPathTraversal = errors.New("path traversal is not allowed")
+	errAttachmentPathSensitive = errors.New("path is sensitive")
+	errAttachmentPathChanged   = errors.New("file changed while reading")
 	errAttachmentPathMissing   = errors.New("file cannot be opened")
 	errAttachmentPathDirectory = errors.New("path is not a regular file")
 	errAttachmentPathTooLarge  = errors.New("image exceeds the size limit")
@@ -109,6 +111,17 @@ var (
 // validates, reads and sniffs them under the injected code project root.
 // Neither the shared TUI nor a packed face receives a filesystem grant.
 func resolveProjectAttachments(root string, paths []string) ([]projectAttachment, error) {
+	return resolveProjectAttachmentsWithHooks(root, paths, attachmentResolveHooks{})
+}
+
+// attachmentResolveHooks provides deterministic race injection to package
+// tests. Product callers always use the zero value.
+type attachmentResolveHooks struct {
+	beforeOpen      func(index int, clean string)
+	beforePostCheck func(index int, clean string)
+}
+
+func resolveProjectAttachmentsWithHooks(root string, paths []string, hooks attachmentResolveHooks) ([]projectAttachment, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, &attachmentPathError{index: -1, public: "image attachments unavailable", cause: errAttachmentProjectRoot}
 	}
@@ -147,32 +160,46 @@ func resolveProjectAttachments(root string, paths []string) ([]projectAttachment
 		if err != nil {
 			return nil, &attachmentPathError{index: index, public: publicAttachmentPathError(err), cause: err}
 		}
-		// Preflight the current target only to produce a precise client error.
-		// The subsequent os.Root.Open is still the authoritative race-safe
-		// containment operation.
-		candidateReal, err := filepath.EvalSymlinks(filepath.Join(rootAbs, clean))
-		if err != nil {
-			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("resolve attachment: %w", err)}
+		if sensitiveProjectContextPath(clean) {
+			return nil, &attachmentPathError{index: index, public: "path is sensitive", cause: errAttachmentPathSensitive}
 		}
-		candidateReal, err = filepath.Abs(candidateReal)
-		if err != nil {
-			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("resolve attachment path: %w", err)}
+		// Inspect every component through the already-open root. This rejects
+		// symlinks and Windows name-surrogate reparse points without asking the
+		// host to resolve an attacker-controlled UNC/junction target.
+		lexicalReal, err := filepath.Abs(filepath.Join(rootReal, clean))
+		if err != nil || !pathWithin(rootReal, lexicalReal) {
+			return nil, &attachmentPathError{index: index, public: "path escapes the project", cause: errAttachmentPathChanged}
 		}
-		if !pathWithin(rootReal, candidateReal) {
-			return nil, &attachmentPathError{index: index, public: "path escapes the project", cause: errors.New("resolved attachment is outside project root")}
+		preInfo, err := attachmentPathInfo(rootHandle, clean)
+		if err != nil {
+			return nil, &attachmentPathError{index: index, public: "symlink paths are not allowed", cause: err}
+		}
+		if !preInfo.Mode().IsRegular() {
+			return nil, &attachmentPathError{index: index, public: "path is not a regular file", cause: errAttachmentPathDirectory}
 		}
 		// os.Root resolves every component relative to an open directory handle
 		// and refuses symlink/junction escapes, including rename races between
 		// validation and open. This is the security boundary; lexical checks
 		// above exist to provide stable, non-disclosing client errors.
-		file, err := rootHandle.Open(clean)
+		if hooks.beforeOpen != nil {
+			hooks.beforeOpen(index, clean)
+		}
+		file, canonicalRelative, err := openAttachmentFile(rootHandle, rootReal, clean)
 		if err != nil {
 			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("open attachment within project root: %w", err)}
+		}
+		if canonicalRelative != "" && sensitiveProjectContextPath(canonicalRelative) {
+			_ = file.Close()
+			return nil, &attachmentPathError{index: index, public: "path is sensitive", cause: errAttachmentPathSensitive}
 		}
 		info, err := file.Stat()
 		if err != nil {
 			_ = file.Close()
 			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("stat attachment: %w", err)}
+		}
+		if !os.SameFile(preInfo, info) {
+			_ = file.Close()
+			return nil, &attachmentPathError{index: index, public: "file changed while opening", cause: errAttachmentPathChanged}
 		}
 		if !info.Mode().IsRegular() {
 			_ = file.Close()
@@ -187,12 +214,25 @@ func resolveProjectAttachments(root string, paths []string) ([]projectAttachment
 			return nil, &attachmentPathError{index: index, public: "image exceeds the 5 MiB limit", cause: errAttachmentPathTooLarge}
 		}
 		data, readErr := io.ReadAll(io.LimitReader(file, maxAttachmentBytes+1))
+		endInfo, statErr := file.Stat()
 		closeErr := file.Close()
 		if readErr != nil {
 			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("read attachment: %w", readErr)}
 		}
 		if closeErr != nil {
 			return nil, &attachmentPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("close attachment: %w", closeErr)}
+		}
+		if hooks.beforePostCheck != nil {
+			hooks.beforePostCheck(index, clean)
+		}
+		if statErr != nil || !os.SameFile(info, endInfo) || info.Size() != endInfo.Size() || !info.ModTime().Equal(endInfo.ModTime()) {
+			if statErr == nil {
+				statErr = errAttachmentPathChanged
+			}
+			return nil, &attachmentPathError{index: index, public: "file changed while reading", cause: statErr}
+		}
+		if err := validateAttachmentPathIdentity(rootHandle, clean, info); err != nil {
+			return nil, &attachmentPathError{index: index, public: "file changed while reading", cause: err}
 		}
 		if len(data) > maxAttachmentBytes {
 			return nil, &attachmentPathError{index: index, public: "image exceeds the 5 MiB limit", cause: errAttachmentPathTooLarge}
@@ -211,6 +251,47 @@ func resolveProjectAttachments(root string, paths []string) ([]projectAttachment
 		})
 	}
 	return out, nil
+}
+
+func validateAttachmentPathIdentity(rootHandle *os.Root, clean string, opened os.FileInfo) error {
+	if sensitiveProjectContextPath(clean) {
+		return errAttachmentPathSensitive
+	}
+	postInfo, err := attachmentPathInfo(rootHandle, clean)
+	if err != nil {
+		return err
+	}
+	if !postInfo.Mode().IsRegular() || !os.SameFile(opened, postInfo) {
+		return errAttachmentPathChanged
+	}
+	return nil
+}
+
+func attachmentPathInfo(rootHandle *os.Root, clean string) (os.FileInfo, error) {
+	parts := strings.Split(filepath.Clean(clean), string(filepath.Separator))
+	current := ""
+	var info os.FileInfo
+	for index, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		var err error
+		info, err = rootHandle.Lstat(current)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, errAttachmentPathChanged
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return nil, errAttachmentPathChanged
+		}
+	}
+	if info == nil {
+		return nil, errAttachmentPathChanged
+	}
+	return info, nil
 }
 
 // safeAttachmentName keeps filenames inert when projected into terminal
@@ -243,7 +324,7 @@ func cleanProjectRelativePath(raw string) (string, error) {
 	// filepath.IsAbs/VolumeName are platform-aware, but packed faces may be
 	// used against a server with different path syntax in tests or over a
 	// remote seam. Reject both slash families and drive/UNC forms explicitly.
-	if filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" ||
+	if filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" || strings.Contains(raw, ":") ||
 		strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "\\") ||
 		(len(raw) >= 2 && raw[1] == ':') {
 		return "", errAttachmentPathAbsolute
@@ -273,6 +354,8 @@ func publicAttachmentPathError(err error) string {
 		return "path must be project-relative"
 	case errors.Is(err, errAttachmentPathTraversal):
 		return "path traversal is not allowed"
+	case errors.Is(err, errAttachmentPathSensitive):
+		return "path is sensitive"
 	default:
 		return "invalid project-relative path"
 	}

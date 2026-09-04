@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -26,6 +27,8 @@ func TestResolveProjectAttachmentsRejectsUnsafeNames(t *testing.T) {
 		{name: "unix absolute", path: `/tmp/inside.png`, cause: errAttachmentPathAbsolute, want: "project-relative"},
 		{name: "windows absolute", path: `C:\tmp\inside.png`, cause: errAttachmentPathAbsolute, want: "project-relative"},
 		{name: "windows drive relative", path: `C:inside.png`, cause: errAttachmentPathAbsolute, want: "project-relative"},
+		{name: "windows alternate data stream", path: `inside.png:secret`, cause: errAttachmentPathAbsolute, want: "project-relative"},
+		{name: "nested alternate data stream", path: `nested\inside.png:$DATA`, cause: errAttachmentPathAbsolute, want: "project-relative"},
 		{name: "unc", path: `\\server\share\inside.png`, cause: errAttachmentPathAbsolute, want: "project-relative"},
 		{name: "nul", path: "inside\x00.png", cause: errAttachmentPathNUL, want: "invalid character"},
 	}
@@ -45,6 +48,92 @@ func TestResolveProjectAttachmentsRejectsUnsafeNames(t *testing.T) {
 				t.Fatalf("error leaked filesystem input: %q", err)
 			}
 		})
+	}
+}
+
+func TestResolveProjectAttachmentsRejectsNativeWindowsADS(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows ADS semantics")
+	}
+	root := t.TempDir()
+	base := filepath.Join(root, "photo.png")
+	writeTestAttachment(t, base, []byte("not an image"))
+	ads := base + ":preview"
+	if err := os.WriteFile(ads, testPNGBytes(), 0o600); err != nil {
+		t.Skipf("ADS creation unavailable: %v", err)
+	}
+	resolved, err := resolveProjectAttachments(root, []string{"photo.png:preview"})
+	if err == nil || !errors.Is(err, errAttachmentPathAbsolute) || len(resolved) != 0 {
+		t.Fatalf("native ADS resolved: attachments=%d err=%v", len(resolved), err)
+	}
+}
+
+func TestResolveProjectAttachmentsRejectsSensitivePaths(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{".env", "credentials.json", "secret.png", filepath.Join(".ssh", "avatar.png")} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeTestAttachment(t, full, testPNGBytes())
+		_, err := resolveProjectAttachments(root, []string{path})
+		if err == nil || !errors.Is(err, errAttachmentPathSensitive) || !strings.Contains(err.Error(), "sensitive") {
+			t.Fatalf("resolve sensitive %q = %v", path, err)
+		}
+		if strings.Contains(err.Error(), path) || strings.Contains(err.Error(), root) {
+			t.Fatalf("sensitive error leaked path: %q", err)
+		}
+	}
+}
+
+func TestValidateAttachmentPathIdentityRejectsReplacement(t *testing.T) {
+	root := t.TempDir()
+	name := "photo.png"
+	path := filepath.Join(root, name)
+	writeTestAttachment(t, path, testPNGBytes())
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, filepath.Join(root, "original.png")); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAttachment(t, path, testJPEGBytes())
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootHandle.Close()
+	if err := validateAttachmentPathIdentity(rootHandle, name, opened); !errors.Is(err, errAttachmentPathChanged) {
+		t.Fatalf("replacement identity check = %v, want changed", err)
+	}
+}
+
+func TestResolveProjectAttachmentsRejectsPostReadReplacement(t *testing.T) {
+	root := t.TempDir()
+	writeTestAttachment(t, filepath.Join(root, "photo.png"), testPNGBytes())
+	var hookErr error
+	resolved, err := resolveProjectAttachmentsWithHooks(root, []string{"photo.png"}, attachmentResolveHooks{
+		beforePostCheck: func(_ int, clean string) {
+			original := filepath.Join(root, clean)
+			hookErr = os.Rename(original, filepath.Join(root, "original.png"))
+			if hookErr == nil {
+				hookErr = os.WriteFile(original, testJPEGBytes(), 0o600)
+			}
+		},
+	})
+	if hookErr != nil {
+		t.Fatal(hookErr)
+	}
+	if err == nil || !errors.Is(err, errAttachmentPathChanged) || len(resolved) != 0 {
+		t.Fatalf("post-read replacement = attachments:%d err:%v, want no data/changed", len(resolved), err)
 	}
 }
 
@@ -141,17 +230,39 @@ func TestResolveProjectAttachmentsContainsSymlinkTargets(t *testing.T) {
 
 	insideLink := filepath.Join(root, "inside-link.png")
 	outsideLink := filepath.Join(root, "outside-link.png")
+	relativeLink := filepath.Join(root, "relative-link.png")
 	if err := os.Symlink(filepath.Join(root, "inside.png"), insideLink); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
 	if err := os.Symlink(filepath.Join(outside, "outside.png"), outsideLink); err != nil {
 		t.Skipf("second symlink creation unavailable: %v", err)
 	}
-	if _, err := resolveProjectAttachments(root, []string{"inside-link.png"}); err == nil || !strings.Contains(err.Error(), "file cannot be opened") {
+	if err := os.Symlink("inside.png", relativeLink); err != nil {
+		t.Skipf("relative symlink creation unavailable: %v", err)
+	}
+	if _, err := resolveProjectAttachments(root, []string{"inside-link.png"}); err == nil || !strings.Contains(err.Error(), "symlink paths are not allowed") {
 		t.Fatalf("in-root absolute symlink error = %v", err)
 	}
-	if _, err := resolveProjectAttachments(root, []string{"outside-link.png"}); err == nil || !strings.Contains(err.Error(), "escapes the project") {
+	if _, err := resolveProjectAttachments(root, []string{"outside-link.png"}); err == nil || !strings.Contains(err.Error(), "symlink paths are not allowed") {
 		t.Fatalf("outside symlink error = %v", err)
+	}
+	if _, err := resolveProjectAttachments(root, []string{"relative-link.png"}); err == nil || !strings.Contains(err.Error(), "symlink paths are not allowed") {
+		t.Fatalf("relative in-root symlink error = %v", err)
+	}
+}
+
+func TestResolveProjectAttachmentsRejectsSensitiveSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	writeTestAttachment(t, filepath.Join(root, ".env"), testPNGBytes())
+	if err := os.Symlink(filepath.Join(root, ".env"), filepath.Join(root, "avatar.png")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	_, err := resolveProjectAttachments(root, []string{"avatar.png"})
+	if err == nil || !errors.Is(err, errAttachmentPathChanged) || !strings.Contains(err.Error(), "symlink paths are not allowed") {
+		t.Fatalf("sensitive symlink target = %v", err)
+	}
+	if strings.Contains(err.Error(), root) || strings.Contains(err.Error(), ".env") {
+		t.Fatalf("sensitive target leaked through public error: %q", err)
 	}
 }
 
