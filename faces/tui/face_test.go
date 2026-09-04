@@ -199,6 +199,25 @@ func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	}
 }
 
+func TestApplyBootConsumesInitialPromptOnce(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	live := NewLive(newClient(env), LiveOptions{InitialPrompt: "describe this workspace"})
+	defer live.Close()
+	boot := liveBootMsg{
+		Sessions: []surface.Session{{ID: "sess_1", Title: "one"}},
+		ActiveID: "sess_1",
+	}
+	if cmd := live.applyBoot(boot); cmd == nil {
+		t.Fatal("first successful boot did not schedule the initial prompt")
+	}
+	if live.initialPrompt != "" {
+		t.Fatalf("initial prompt was not consumed: %q", live.initialPrompt)
+	}
+	if cmd := live.applyBoot(boot); cmd != nil {
+		t.Fatal("replayed boot scheduled the initial prompt twice")
+	}
+}
+
 func TestLiveNewSessionLoadsThinkingCapability(t *testing.T) {
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){
 		"session/create": func(json.RawMessage) (any, error) {

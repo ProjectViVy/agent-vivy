@@ -487,6 +487,7 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	}
 	if l.initialPrompt != "" {
 		autoSend = l.initialPrompt
+		l.initialPrompt = ""
 	}
 	l.mu.Unlock()
 	// Send locks l.mu itself; call it outside the critical section.

@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"github.com/rivo/uniseg"
 
 	"agent-vivy/sdk/tui/command"
 	"agent-vivy/sdk/tui/surface"
@@ -76,6 +77,9 @@ type Model struct {
 
 	sidebarFocused bool
 	sidebarScroll  int
+	chatScroll     int
+	chatFollow     bool
+	chatSessionID  string
 }
 
 // New returns a model bound to the given driver.
@@ -84,10 +88,12 @@ func New(driver surface.Driver) Model {
 		driver = noDriver{}
 	}
 	return Model{
-		driver:  driver,
-		width:   120,
-		height:  36,
-		palette: DefaultPalette(),
+		driver:        driver,
+		width:         120,
+		height:        36,
+		palette:       DefaultPalette(),
+		chatFollow:    true,
+		chatSessionID: driver.Active().ID,
 	}
 }
 
@@ -99,12 +105,14 @@ func (m Model) Init() tea.Cmd {
 	return m.driver.Init()
 }
 
-// Update implements tea.Model. The driver sees every message first so its
-// authoritative state is committed before the shared view consumes result
-// messages such as SessionsMsg.
+// Update implements tea.Model. The driver sees transport messages first so
+// its authoritative state is committed before the shared view consumes result
+// messages such as SessionsMsg. Mouse input belongs exclusively to this view;
+// never leak it through a driver underneath a dialog or gate.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	if m.driver != nil {
+	_, mouseInput := msg.(tea.MouseMsg)
+	if m.driver != nil && !mouseInput {
 		if cmd := m.driver.Handle(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -169,6 +177,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebarFocused = false
 	}
 	m.clampSidebarScroll()
+	if activeID := m.driver.Active().ID; activeID != m.chatSessionID {
+		m.chatSessionID = activeID
+		m.chatScroll = 0
+		m.chatFollow = true
+	}
+	m.clampChatScroll()
 	return m, tea.Batch(cmds...)
 }
 
@@ -189,27 +203,32 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 	}
 	// Match Crush focus routing: a click chooses the scroll owner, then wheel
 	// events stay with that owner even if the pointer drifts outside its box.
-	if !m.sidebarFocused || !m.sidebarCanScroll() {
-		return
-	}
+	delta := 0
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		m.sidebarScroll -= sidebarWheelStep
+		delta = -sidebarWheelStep
 	case tea.MouseButtonWheelDown:
-		m.sidebarScroll += sidebarWheelStep
+		delta = sidebarWheelStep
 	default:
 		// Bubble Tea keeps Type for compatibility with older terminal input
 		// decoders; accept it without treating ordinary clicks as scrolling.
 		switch msg.Type {
 		case tea.MouseWheelUp:
-			m.sidebarScroll -= sidebarWheelStep
+			delta = -sidebarWheelStep
 		case tea.MouseWheelDown:
-			m.sidebarScroll += sidebarWheelStep
+			delta = sidebarWheelStep
 		default:
 			return
 		}
 	}
-	m.clampSidebarScroll()
+	if m.sidebarFocused && m.sidebarCanScroll() {
+		m.sidebarScroll += delta
+		m.clampSidebarScroll()
+		return
+	}
+	if m.chatCanScroll() {
+		m.scrollChat(delta)
+	}
 }
 
 func (m Model) mouseInSidebar(l layout, x, y int) bool {
@@ -298,6 +317,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.sidebarFocused = true
 		m.clampSidebarScroll()
 		return m, nil
+	}
+	if gate == nil && !m.sidebarFocused {
+		switch msg.Type {
+		case tea.KeyPgUp:
+			m.scrollChat(-m.chatViewportHeight())
+			return m, nil
+		case tea.KeyPgDown:
+			m.scrollChat(m.chatViewportHeight())
+			return m, nil
+		case tea.KeyHome:
+			m.chatScroll = 0
+			m.chatFollow = m.chatMaxScroll() == 0
+			return m, nil
+		case tea.KeyEnd:
+			m.chatFollow = true
+			m.clampChatScroll()
+			return m, nil
+		}
 	}
 	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
 		return m, nil
@@ -478,6 +515,47 @@ func (m *Model) clampSidebarScroll() {
 	}
 	if m.sidebarScroll > maxScroll {
 		m.sidebarScroll = maxScroll
+	}
+}
+
+func (m Model) chatViewportHeight() int {
+	return computeLayout(m.width, m.height).mainH()
+}
+
+func (m Model) chatMaxScroll() int {
+	l := computeLayout(m.width, m.height)
+	width := l.innerW()
+	if l.showSidebar {
+		width = l.mainW()
+	}
+	return max(0, len(m.chatLines(width, m.palette))-l.mainH())
+}
+
+func (m Model) chatCanScroll() bool {
+	return m.chatMaxScroll() > 0
+}
+
+func (m *Model) scrollChat(delta int) {
+	if delta == 0 {
+		return
+	}
+	m.chatScroll += delta
+	m.chatFollow = false
+	m.clampChatScroll()
+}
+
+func (m *Model) clampChatScroll() {
+	maxScroll := m.chatMaxScroll()
+	if m.chatFollow {
+		m.chatScroll = maxScroll
+		return
+	}
+	if m.chatScroll < 0 {
+		m.chatScroll = 0
+	}
+	if m.chatScroll >= maxScroll {
+		m.chatScroll = maxScroll
+		m.chatFollow = true
 	}
 }
 
@@ -754,6 +832,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		}
 		if cmd := executor.ExecuteShell(parsed.Shell.Script); cmd != nil {
 			m.input = ""
+			m.chatFollow = true
 			return m, cmd
 		}
 		return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
@@ -771,6 +850,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		}
 		if cmd := sender.SendWithContext(parsed.Text, parsed.FilePaths()); cmd != nil {
 			m.input = ""
+			m.chatFollow = true
 			return m, cmd
 		}
 		return m.showCommandError(fmt.Errorf("@file references are unavailable")), nil
@@ -779,6 +859,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		cmd := m.driver.Send(parsed.Text)
 		if cmd != nil {
 			m.input = ""
+			m.chatFollow = true
 		}
 		return m, cmd
 	}
@@ -1473,11 +1554,14 @@ func nextPermission(current string) string {
 }
 
 func removeLastRune(s string) string {
-	runes := []rune(s)
-	if len(runes) == 0 {
-		return ""
+	graphemes := uniseg.NewGraphemes(s)
+	for graphemes.Next() {
+		start, end := graphemes.Positions()
+		if end == len(s) {
+			return s[:start]
+		}
 	}
-	return string(runes[:len(runes)-1])
+	return s
 }
 
 func shortError(err error) string {

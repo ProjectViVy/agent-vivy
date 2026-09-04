@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"agent-vivy/sdk/tui/surface"
 )
@@ -45,6 +47,73 @@ func TestRenderMessagePreservesTrailingNewline(t *testing.T) {
 	}
 }
 
+func TestTruncateAndBackspacePreserveGraphemeAndANSIIntegrity(t *testing.T) {
+	styled := "\x1b[31m" + "e\u0301👨‍👩‍👧‍👦界" + "\x1b[0m"
+	got := truncate(styled, 4)
+	if lipgloss.Width(got) > 4 || !strings.Contains(got, "e\u0301") || strings.Contains(got, "界") {
+		t.Fatalf("ANSI/grapheme truncate = %q width=%d", got, lipgloss.Width(got))
+	}
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{input: "ae\u0301", want: "a"},
+		{input: "a👨‍👩‍👧‍👦", want: "a"},
+		{input: "a🇨🇳", want: "a"},
+		{input: "a👍🏽", want: "a"},
+	} {
+		if got := removeLastRune(test.input); got != test.want {
+			t.Fatalf("removeLastRune(%q) = %q, want %q", test.input, got, test.want)
+		}
+	}
+}
+
+func TestRenderToolSanitizesAndFitsEveryViewport(t *testing.T) {
+	tool := &surface.ToolCard{
+		ToolName: "\x1b]2;PWN\aedit\rfile",
+		Status:   "done",
+		Result:   "@@ -1 +1 @@\n-old\tvalue\n+new 👨‍👩‍👧‍👦 value\x1b]2;BODY-PWN\a\u202evisual\u2066",
+	}
+	for _, width := range []int{1, 3, 4, 7, 8, 9, 20, 56, 80} {
+		for _, line := range renderTool(tool, width, DefaultPalette()) {
+			if got := lipgloss.Width(line); got > max(1, width) {
+				t.Fatalf("width %d rendered line width %d: %q", width, got, line)
+			}
+			plain := ansi.Strip(line)
+			if strings.Contains(plain, "PWN") || strings.ContainsAny(plain, "\r\a") {
+				t.Fatalf("width %d retained terminal control payload: %q", width, plain)
+			}
+			if strings.ContainsAny(plain, "\u202e\u2066") {
+				t.Fatalf("width %d retained bidi controls: %q", width, plain)
+			}
+		}
+	}
+}
+
+func TestRenderMessageFitsNarrowViewportAndDropsBidiControls(t *testing.T) {
+	message := surface.Message{Role: surface.RoleAssistant, Content: "你e\u0301👨‍👩‍👧‍👦\u202eabc\u2066", Streaming: true}
+	for width := 1; width <= 12; width++ {
+		lines := renderMessage(message, width, DefaultPalette())
+		if len(lines) == 0 {
+			t.Fatalf("width %d rendered no message lines", width)
+		}
+		visible := false
+		for _, line := range lines {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d rendered line width %d: %q", width, got, line)
+			}
+			plain := ansi.Strip(line)
+			visible = visible || plain != ""
+			if strings.ContainsAny(plain, "\u202e\u2066") {
+				t.Fatalf("width %d retained bidi controls: %q", width, plain)
+			}
+		}
+		if !visible {
+			t.Fatalf("width %d silently erased the message", width)
+		}
+	}
+}
+
 type testDriver struct {
 	sessions    []surface.Session
 	active      string
@@ -58,6 +127,7 @@ type testDriver struct {
 	sendBlocked bool
 	sent        string
 	thinking    string
+	messages    map[string][]surface.Message
 }
 
 func (d *testDriver) Sessions() []surface.Session {
@@ -71,8 +141,10 @@ func (d *testDriver) Active() surface.Session {
 	}
 	return surface.Session{}
 }
-func (d *testDriver) ActiveMessages() []surface.Message { return nil }
-func (d *testDriver) PendingGate() *surface.Gate        { return d.gate }
+func (d *testDriver) ActiveMessages() []surface.Message {
+	return append([]surface.Message(nil), d.messages[d.active]...)
+}
+func (d *testDriver) PendingGate() *surface.Gate { return d.gate }
 func (d *testDriver) Meta() surface.Meta {
 	meta := d.meta
 	meta.Mode = "test"
@@ -387,6 +459,92 @@ func TestSidebarRendersKnownEmptyModifiedFiles(t *testing.T) {
 	view := updated.(Model).View()
 	if !strings.Contains(view, "Modified Files") || !strings.Contains(view, "None") {
 		t.Fatalf("known empty modified-files section missing:\n%s", view)
+	}
+}
+
+func TestChatViewportPreservesHistoryAndFollowState(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}},
+		active:   "one",
+		messages: map[string][]surface.Message{},
+	}
+	for i := 0; i < 40; i++ {
+		driver.messages["one"] = append(driver.messages["one"], surface.Message{Role: surface.RoleAssistant, Content: fmt.Sprintf("history-%02d", i)})
+	}
+	driver.messages["two"] = []surface.Message{{Role: surface.RoleAssistant, Content: "second-session-latest"}}
+
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 18})
+	m = updated.(Model)
+	if !m.chatFollow || m.chatScroll != m.chatMaxScroll() || !strings.Contains(m.View(), "history-39") {
+		t.Fatalf("initial viewport did not follow latest: offset=%d max=%d follow=%v\n%s", m.chatScroll, m.chatMaxScroll(), m.chatFollow, m.View())
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = updated.(Model)
+	pausedOffset := m.chatScroll
+	if m.chatFollow || pausedOffset >= m.chatMaxScroll() || !strings.Contains(m.View(), "history-30") || !strings.Contains(m.View(), "end latest") {
+		t.Fatalf("page-up did not expose older history: offset=%d max=%d follow=%v\n%s", pausedOffset, m.chatMaxScroll(), m.chatFollow, m.View())
+	}
+	driver.messages["one"] = append(driver.messages["one"], surface.Message{Role: surface.RoleAssistant, Content: "new-while-paused"})
+	updated, _ = m.Update(surface.RefreshMsg{})
+	m = updated.(Model)
+	if m.chatScroll != pausedOffset || m.chatFollow || strings.Contains(m.View(), "new-while-paused") {
+		t.Fatalf("new content stole paused viewport: offset=%d want=%d follow=%v\n%s", m.chatScroll, pausedOffset, m.chatFollow, m.View())
+	}
+	m.input = "resume at latest"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || !m.chatFollow || m.chatScroll != m.chatMaxScroll() || m.input != "" {
+		t.Fatalf("sending did not resume follow: offset=%d max=%d follow=%v input=%q", m.chatScroll, m.chatMaxScroll(), m.chatFollow, m.input)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = updated.(Model)
+	if !m.chatFollow || m.chatScroll != m.chatMaxScroll() || !strings.Contains(m.View(), "new-while-paused") {
+		t.Fatalf("end did not resume latest follow: offset=%d max=%d follow=%v\n%s", m.chatScroll, m.chatMaxScroll(), m.chatFollow, m.View())
+	}
+
+	driver.active = "two"
+	updated, _ = m.Update(surface.RefreshMsg{})
+	m = updated.(Model)
+	if m.chatSessionID != "two" || !m.chatFollow || m.chatScroll != 0 || !strings.Contains(m.View(), "second-session-latest") {
+		t.Fatalf("session switch retained old viewport: session=%q offset=%d follow=%v\n%s", m.chatSessionID, m.chatScroll, m.chatFollow, m.View())
+	}
+}
+
+func TestChatMouseWheelIsFocusedAndOverlaySafe(t *testing.T) {
+	driver := &testDriver{sessions: []surface.Session{{ID: "one", Title: "One"}}, active: "one", messages: map[string][]surface.Message{}}
+	for i := 0; i < 40; i++ {
+		driver.messages["one"] = append(driver.messages["one"], surface.Message{Role: surface.RoleAssistant, Content: fmt.Sprintf("mouse-history-%02d", i)})
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 18})
+	m = updated.(Model)
+	l := computeLayout(m.width, m.height)
+	bottom := m.chatScroll
+
+	updated, _ = m.Update(tea.MouseMsg{X: l.marginX + 1, Y: l.marginY + l.headerH + 2, Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.chatScroll != bottom-sidebarWheelStep || m.chatFollow {
+		t.Fatalf("chat wheel = offset %d follow %v, want %d/false", m.chatScroll, m.chatFollow, bottom-sidebarWheelStep)
+	}
+
+	paused := m.chatScroll
+	m.sessionsOpen = true
+	updated, _ = m.Update(tea.MouseMsg{X: l.marginX + 1, Y: l.marginY + l.headerH + 2, Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.chatScroll != paused {
+		t.Fatalf("dialog wheel leaked into chat: %d -> %d", paused, m.chatScroll)
+	}
+
+	m.sessionsOpen = false
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 100})
+	m = updated.(Model)
+	if m.chatScroll != 0 || !m.chatFollow {
+		t.Fatalf("non-scrollable resize kept stale chat state: offset=%d follow=%v", m.chatScroll, m.chatFollow)
 	}
 }
 
