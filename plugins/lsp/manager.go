@@ -2,6 +2,8 @@ package lsp
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,16 +17,48 @@ type serverKey struct {
 	root string
 }
 
+// statuses returns only live, initialized servers for one exact workspace.
+// Inspection is side-effect free: it never starts or probes a process.
+func (m *manager) statuses(root string) []plugin.LanguageServerStatus {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	statuses := make([]plugin.LanguageServerStatus, 0)
+	for key := range m.starting {
+		if key.root == root {
+			statuses = append(statuses, plugin.LanguageServerStatus{Language: key.lang, State: "starting"})
+		}
+	}
+	for key, server := range m.servers {
+		if key.root != root || server.exited() {
+			continue
+		}
+		statuses = append(statuses, plugin.LanguageServerStatus{Language: key.lang, State: "initialized"})
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Language < statuses[j].Language })
+	return statuses
+}
+
 // manager owns every live language-server connection. It outlives single
 // tool calls (the plugin value is created once per generation) and reaps
 // servers idle longer than idleMax.
 type manager struct {
-	mu      sync.Mutex
-	servers map[serverKey]*server
+	mu       sync.Mutex
+	servers  map[serverKey]*server
+	starting map[serverKey]*serverStart
+}
+
+type serverStart struct {
+	done   chan struct{}
+	server *server
+	err    error
 }
 
 func newManager() *manager {
-	return &manager{servers: map[serverKey]*server{}}
+	return &manager{servers: map[serverKey]*server{}, starting: map[serverKey]*serverStart{}}
 }
 
 // get returns a healthy connection for the key, spawning and initializing
@@ -32,21 +66,39 @@ func newManager() *manager {
 func (m *manager) get(ctx context.Context, env plugin.Env, lang language, root string) (*server, error) {
 	key := serverKey{lang: lang.Name, root: root}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if s, ok := m.servers[key]; ok {
 		if !s.exited() {
 			s.touch()
+			m.mu.Unlock()
 			return s, nil
 		}
 		_ = s.Close()
 		delete(m.servers, key)
 	}
-	s, err := startServer(ctx, env, lang, root)
-	if err != nil {
-		return nil, err
+	if pending := m.starting[key]; pending != nil {
+		m.mu.Unlock()
+		select {
+		case <-pending.done:
+			return pending.server, pending.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
-	m.servers[key] = s
-	return s, nil
+	pending := &serverStart{done: make(chan struct{})}
+	m.starting[key] = pending
+	m.mu.Unlock()
+
+	s, err := startServer(ctx, env, lang, root)
+	m.mu.Lock()
+	pending.server = s
+	pending.err = err
+	if err == nil {
+		m.servers[key] = s
+	}
+	delete(m.starting, key)
+	close(pending.done)
+	m.mu.Unlock()
+	return s, err
 }
 
 const (

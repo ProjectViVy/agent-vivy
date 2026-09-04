@@ -42,6 +42,9 @@ func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 		}
 		deps.Skills = skills
 		deps.MCP = mcp
+		deps.LanguageServers = func(context.Context, domain.SessionID) (LanguageServerSnapshot, error) {
+			return LanguageServerSnapshot{Known: true, Servers: []LanguageServerStatus{{Language: "\x1b]2;hidden-title\a typescript", State: "initialized"}, {Language: "go", State: "starting"}, {Language: "bad", State: "guessed"}, {Language: "C:/secret/gopls.exe", State: "initialized"}}}, nil
+		}
 	})
 	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "truth"})
 	if rpcErr != nil {
@@ -79,6 +82,9 @@ func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 	}
 	if !snapshot.SkillsKnown || len(snapshot.Skills) != 1 || snapshot.Skills[0].Name != "enabled-skill" {
 		t.Fatalf("enabled skill truth = %+v", snapshot.Skills)
+	}
+	if !snapshot.LSPKnown || len(snapshot.LSP) != 2 || snapshot.LSP[0].Language != "go" || snapshot.LSP[0].State != "starting" || snapshot.LSP[1].Language != "typescript" {
+		t.Fatalf("lsp truth = %+v", snapshot.LSP)
 	}
 }
 

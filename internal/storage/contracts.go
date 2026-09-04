@@ -241,6 +241,13 @@ type RunStore interface {
 	ListRunsBySession(ctx context.Context, sessionID domain.SessionID) ([]domain.Run, error)
 }
 
+// LatestPrimaryRunStore is the bounded session-to-workspace lookup used by
+// optional active-workspace status surfaces. Keeping it optional preserves
+// small embedders that implement only RunStore.
+type LatestPrimaryRunStore interface {
+	LatestPrimaryRunBySession(ctx context.Context, sessionID domain.SessionID) (domain.Run, error)
+}
+
 // ApprovalStore persists server-side approval decisions for effectful
 // tool calls (D-009, FR-6). Rows are created pending and settle exactly
 // once: DecideApproval is first-writer-wins.

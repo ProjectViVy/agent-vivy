@@ -12,6 +12,7 @@ type SidebarDiff = shared.SidebarDiff
 type ModifiedFile = shared.ModifiedFile
 type MCPServer = shared.MCPServer
 type SidebarSkill = shared.SidebarSkill
+type LanguageServer = shared.LanguageServer
 type Sidebar = shared.Sidebar
 type ToolCard = shared.ToolCard
 type Attachment = shared.Attachment

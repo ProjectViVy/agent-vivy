@@ -46,6 +46,13 @@ func (p *Plugin) Tools() []plugin.Tool {
 	}
 }
 
+// LanguageServerStatuses implements plugin.LanguageServerStatusProvider.
+// It reports cached process truth for the exact run workspace without
+// starting a server merely because a UI requested status.
+func (p *Plugin) LanguageServerStatuses(_ context.Context, workspace string) []plugin.LanguageServerStatus {
+	return p.mgr.statuses(workspace)
+}
+
 type diagnosticsTool struct {
 	mgr *manager
 }

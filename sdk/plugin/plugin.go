@@ -134,6 +134,23 @@ type DiagnosticObserver interface {
 	ObserveWrite(ctx context.Context, env Env, paths []string) []string
 }
 
+// LanguageServerStatus is secret-free process truth for one initialized
+// language server. State is "starting" or "initialized"; providers must not
+// report configured commands as live processes.
+type LanguageServerStatus struct {
+	Language string
+	State    string
+}
+
+// LanguageServerStatusProvider is an optional tool-world capability used by
+// session-scoped status surfaces. The caller supplies an already-authorized
+// workspace root; implementations must return only servers owned by that
+// exact root and must not start, probe, or revive a process while inspecting.
+type LanguageServerStatusProvider interface {
+	Plugin
+	LanguageServerStatuses(ctx context.Context, workspace string) []LanguageServerStatus
+}
+
 // SpawnSpec names one child process. Command is either a bare executable
 // name (resolved through PATH) or a workspace-relative path; absolute
 // paths and workspace escapes fail closed. The child runs with its working

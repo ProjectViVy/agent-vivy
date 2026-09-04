@@ -37,6 +37,28 @@ func TestWorkspaceManagerAllocatesPerRunInsideRoot(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManagerExistingNeverCreates(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sandboxes")
+	manager, err := NewWorkspaceManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace, exists, err := manager.Existing(context.Background(), "run_missing"); err != nil || exists || workspace.Path != "" {
+		t.Fatalf("missing existing workspace = %+v/%v/%v", workspace, exists, err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("status lookup created workspace root: %v", err)
+	}
+	want, err := manager.Ensure(context.Background(), "run_present")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, exists, err := manager.Existing(context.Background(), "run_present")
+	if err != nil || !exists || got != want {
+		t.Fatalf("existing workspace = %+v/%v/%v, want %+v", got, exists, err, want)
+	}
+}
+
 func TestWorkspaceManagerRejectsTraversalAndSymlink(t *testing.T) {
 	root := t.TempDir()
 	m, err := NewWorkspaceManager(root)
