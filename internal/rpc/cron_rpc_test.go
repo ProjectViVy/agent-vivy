@@ -233,3 +233,53 @@ func decodeCronJob(t *testing.T, result any) cronJobResult {
 	}
 	return wrapper.Job
 }
+
+func TestControlCronDeliverValidation(t *testing.T) {
+	env := newControlTestEnv(t)
+
+	// 1. Deliver true without channel
+	_, rpcErr := callControl(t, env.handler, "cron/create", map[string]any{
+		"name": "channel brief",
+		"schedule": map[string]any{
+			"kind": "cron", "expr": "0 9 * * *",
+		},
+		"payload": map[string]any{
+			"kind": "agent_turn", "message": "ping", "deliver": true,
+		},
+	})
+	if rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("create deliver without channel rpcErr = %+v, want %d", rpcErr, InvalidParams)
+	}
+
+	// 2. Deliver true without to
+	_, rpcErr = callControl(t, env.handler, "cron/create", map[string]any{
+		"name": "channel brief",
+		"schedule": map[string]any{
+			"kind": "cron", "expr": "0 9 * * *",
+		},
+		"payload": map[string]any{
+			"kind": "agent_turn", "message": "ping", "deliver": true, "channel": "telegram",
+		},
+	})
+	if rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("create deliver without to rpcErr = %+v, want %d", rpcErr, InvalidParams)
+	}
+
+	// 3. Deliver true valid
+	created, rpcErr := callControl(t, env.handler, "cron/create", map[string]any{
+		"name": "channel brief",
+		"schedule": map[string]any{
+			"kind": "cron", "expr": "0 9 * * *",
+		},
+		"payload": map[string]any{
+			"kind": "agent_turn", "message": "ping", "deliver": true, "channel": "telegram", "to": "chat_123",
+		},
+	})
+	if rpcErr != nil {
+		t.Fatalf("create valid deliver rpcErr = %+v", rpcErr)
+	}
+	job := decodeCronJob(t, created)
+	if !job.Payload.Deliver || job.Payload.Channel != "telegram" || job.Payload.To != "chat_123" {
+		t.Fatalf("unexpected payload: %+v", job.Payload)
+	}
+}

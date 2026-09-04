@@ -20,9 +20,10 @@ import { CalendarClock, ExternalLink, LoaderCircle, Pencil, Play, Plus, Trash2 }
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@/lib/utils';
 import {
-  createCronJob, deleteCronJob, listCronJobs, triggerCronJob, updateCronJob,
+  createCronJob, deleteCronJob, inspectChannels, listCronJobs, triggerCronJob, updateCronJob,
   type CronJobDto, type CronJobInput, type ScheduleKind,
 } from '@/lib/api';
+import { CHANNEL_PLATFORMS } from '@/components/settings/channel-platforms';
 import { useVivyStore } from '@/lib/store';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { useTranslation, dateTimeLocale, t } from '@/i18n';
@@ -34,6 +35,7 @@ const DEFAULT_TZ = 'Asia/Shanghai';
 const emptyForm = {
   name: '', enabled: true, scheduleKind: 'cron' as ScheduleKind,
   cronExpr: '0 9 * * *', everyHours: 24, atValue: '', message: '',
+  deliver: false, channel: '', to: '',
 };
 function cronStatusLabel(status: string): string {
   // 后端终态是 ok|error（diva 语义）；ok 展示为“已完成”。
@@ -116,12 +118,21 @@ export function CronTaskManagementView() {
   const [showDelete, setShowDelete] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJobDto | null>(null);
   const [formData, setFormData] = useState(emptyForm);
+  const [compiledChannels, setCompiledChannels] = useState<string[]>([]);
   const refreshingRef = useRef(false);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedId) || null,
     [jobs, selectedId],
   );
+
+  useEffect(() => {
+    void inspectChannels().then((statuses) => {
+      setCompiledChannels(statuses.map((s) => s.name));
+    }).catch(() => {
+      // 离线或错误时保持空列表
+    });
+  }, []);
 
   const refreshJobs = useCallback(async () => {
     // 静默轮询：不打断初次加载，也不覆盖显式加载的错误呈现。
@@ -172,6 +183,9 @@ export function CronTaskManagementView() {
       everyHours: Math.max(0.25, (job.schedule.everyMs || 24 * HOUR_MS) / HOUR_MS),
       atValue: job.schedule.atMs ? toDatetimeLocal(job.schedule.atMs) : '',
       message: job.payload.message,
+      deliver: Boolean(job.payload.deliver),
+      channel: job.payload.channel || '',
+      to: job.payload.to || '',
     });
     setFormError(''); setShowForm(true);
   };
@@ -192,12 +206,22 @@ export function CronTaskManagementView() {
       if (atTime <= Date.now()) { setFormError(t('cron.errors.atTimeFuture')); return; }
     }
     if (!message) { setFormError(t('cron.errors.messageRequired')); return; }
+    if (formData.deliver) {
+      if (!formData.channel) { setFormError(t('cron.errors.channelRequired')); return; }
+      if (!formData.to.trim()) { setFormError(t('cron.errors.toRequired')); return; }
+    }
     const schedule = formData.scheduleKind === 'cron'
       ? { kind: 'cron' as const, expr: cronExpr, tz: DEFAULT_TZ }
       : formData.scheduleKind === 'at'
         ? { kind: 'at' as const, atMs: atTime }
         : { kind: 'every' as const, everyMs: Math.round(formData.everyHours * HOUR_MS) };
-    const payload = { kind: 'agent_turn', message, deliver: false };
+    const payload = {
+      kind: 'agent_turn',
+      message,
+      deliver: formData.deliver,
+      channel: formData.deliver ? formData.channel : undefined,
+      to: formData.deliver ? formData.to.trim() : undefined,
+    };
     const input: CronJobInput = { name, enabled: formData.enabled, schedule, payload, delete_after_run: false };
 
     setBusyId('save'); setFormError('');
@@ -357,6 +381,17 @@ export function CronTaskManagementView() {
                 <CardContent className="space-y-5 p-5">
                   <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-3 text-sm">
                     <dt className="text-muted-foreground">{t('cron.schedule')}</dt><dd className="break-words text-right">{formatSchedule(selectedJob)}</dd>
+                    <dt className="text-muted-foreground">{t('cron.delivery')}</dt>
+                    <dd className="break-words text-right">
+                      {selectedJob.payload.deliver && selectedJob.payload.channel ? (
+                        t('cron.deliveredTo', {
+                          channel: CHANNEL_PLATFORMS[selectedJob.payload.channel]?.displayName ?? selectedJob.payload.channel,
+                          to: selectedJob.payload.to || '—',
+                        })
+                      ) : (
+                        t('cron.notDelivered')
+                      )}
+                    </dd>
                     <dt className="text-muted-foreground">{t('cron.nextRun')}</dt><dd className="text-right">{formatTime(selectedJob.state.nextRunAtMs)}</dd>
                     <dt className="text-muted-foreground">{t('cron.lastRun')}</dt><dd className="text-right">{formatTime(selectedJob.state.lastRunAtMs)}</dd>
                     <dt className="text-muted-foreground">{t('cron.lastStatus')}</dt><dd className="text-right">{selectedJob.state.lastStatus ? cronStatusLabel(selectedJob.state.lastStatus) : '—'}</dd>
@@ -409,6 +444,58 @@ export function CronTaskManagementView() {
               ) : (
                 <div className="space-y-2"><Label htmlFor="cron-hours">{t('cron.intervalHours')}</Label><Input id="cron-hours" type="number" min="0.25" step="0.25" value={formData.everyHours} onChange={(event) => setFormData((current) => ({ ...current, everyHours: Number(event.target.value) }))} /></div>
               )}
+            </div>
+            <div className="space-y-3 rounded-lg border px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="cron-deliver">{t('cron.deliverLabel')}</Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t('cron.deliverHint')}</p>
+                </div>
+                <Switch
+                  id="cron-deliver"
+                  checked={formData.deliver}
+                  onCheckedChange={(deliver) => setFormData((current) => ({
+                    ...current,
+                    deliver,
+                    channel: deliver && !current.channel && compiledChannels.length > 0 ? compiledChannels[0] : current.channel,
+                  }))}
+                />
+              </div>
+              {formData.deliver ? (
+                <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cron-channel">{t('cron.channelLabel')}</Label>
+                    {compiledChannels.length > 0 ? (
+                      <Select
+                        value={formData.channel}
+                        onValueChange={(channel) => setFormData((current) => ({ ...current, channel }))}
+                      >
+                        <SelectTrigger id="cron-channel">
+                          <SelectValue placeholder={t('cron.channelPlaceholder')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {compiledChannels.map((name) => (
+                            <SelectItem key={name} value={name}>
+                              {CHANNEL_PLATFORMS[name]?.displayName ?? name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{t('cron.noChannelsAvailable')}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cron-to">{t('cron.toLabel')}</Label>
+                    <Input
+                      id="cron-to"
+                      value={formData.to}
+                      onChange={(event) => setFormData((current) => ({ ...current, to: event.target.value }))}
+                      placeholder={t('cron.toPlaceholder')}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="space-y-2"><Label htmlFor="cron-message">{t('cron.messageLabel')}</Label><Textarea id="cron-message" value={formData.message} onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))} placeholder={t('cron.messagePlaceholder')} rows={4} /></div>
             {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}

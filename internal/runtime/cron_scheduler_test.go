@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,5 +287,114 @@ func TestCronSettleKeepsFailedAtJobDisabled(t *testing.T) {
 	}
 	if settled.State.LastStatus != "error" {
 		t.Fatalf("failed one-shot must record the error status: %+v", settled.State)
+	}
+}
+
+type fakeDeliverer struct {
+	mu         sync.Mutex
+	deliveries []struct{ channel, to, content string }
+}
+
+func (f *fakeDeliverer) Deliver(_ context.Context, channel, to, content string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deliveries = append(f.deliveries, struct{ channel, to, content string }{channel, to, content})
+	return nil
+}
+
+func (f *fakeDeliverer) snapshot() []struct{ channel, to, content string } {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]struct{ channel, to, content string }(nil), f.deliveries...)
+}
+
+func TestCronSettleDeliversOutboundWhenEnabled(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	deliv := &fakeDeliverer{}
+	svc.deps.Channels = deliv
+
+	st := svc.ensureCronState(CronSchedulerOptions{})
+	now := time.Now().UnixMilli()
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Payload.Deliver = true
+		j.Payload.Channel = "telegram"
+		j.Payload.To = "chat_test_1"
+	})
+	session := domain.Session{ID: "sess_cron_deliv", Title: "Cron deliv test", CreatedAt: now}
+	if err := backend.CreateSession(ctx, session); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	job.SessionID = session.ID
+	if err := backend.UpdateCronJob(ctx, job); err != nil {
+		t.Fatalf("update job: %v", err)
+	}
+
+	msg := domain.Message{
+		ID:        "msg_deliv_1",
+		SessionID: session.ID,
+		RunID:     "run_deliv_1",
+		Role:      domain.RoleAssistant,
+		Content:   "Cron job summary result",
+		CreatedAt: now,
+	}
+	if err := backend.AppendMessage(ctx, msg); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	entry := &cronActiveRun{snapshot: CronRunSnapshot{JobID: job.ID, RunID: "run_deliv_1", StartedAtMs: now}}
+	svc.settleCronRun(ctx, st, entry, job, domain.RunCompleted)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(deliv.snapshot()) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	deliveries := deliv.snapshot()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].channel != "telegram" || deliveries[0].to != "chat_test_1" {
+		t.Errorf("unexpected delivery target: %+v", deliveries[0])
+	}
+	if deliveries[0].content != "Cron job summary result" {
+		t.Errorf("expected assistant text in delivery, got %q", deliveries[0].content)
+	}
+}
+
+func TestCronRecoveryPastDueRecurringJobFiresOnceOnWakeAndSkipsStorm(t *testing.T) {
+	svc, backend := newCronTestService(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleEvery, EveryMs: 200}
+		j.State.NextRunAtMs = now - 5000
+	})
+
+	if err := svc.recoverCron(ctx); err != nil {
+		t.Fatalf("recoverCron: %v", err)
+	}
+	recovered, err := backend.GetCronJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get recovered job: %v", err)
+	}
+	if recovered.State.NextRunAtMs != now-5000 {
+		t.Fatalf("recoverCron should keep past-due NextRunAtMs, got %d", recovered.State.NextRunAtMs)
+	}
+
+	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
+	defer svc.StopCronScheduler()
+
+	settled := waitCronState(t, backend, job.ID, func(j domain.CronJob) bool {
+		return j.State.LastStatus == "ok" && j.State.NextRunAtMs > time.Now().UnixMilli()
+	})
+	if settled.State.LastRunAtMs == 0 {
+		t.Fatalf("last_run_at_ms not recorded: %+v", settled)
+	}
+	if settled.State.NextRunAtMs <= now {
+		t.Fatalf("settled next_run_at_ms must jump to future, got %d <= %d", settled.State.NextRunAtMs, now)
 	}
 }
