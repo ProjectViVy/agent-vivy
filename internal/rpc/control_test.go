@@ -1615,6 +1615,166 @@ func TestControlHandlerListsSessionTodos(t *testing.T) {
 	}
 }
 
+func TestControlHandlerUpdatesTodo(t *testing.T) {
+	env := newControlTestEnv(t)
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "Todos"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	session := created.(sessionResult)
+
+	now := time.Now().UnixMilli()
+	if err := env.backend.CreateTodo(context.Background(), domain.Todo{
+		ID: "1", SessionID: session.ID, Subject: "fix bug", Description: "fix issue 5",
+		Status: domain.TodoPending, Blocks: []string{}, BlockedBy: []string{},
+		Position: 0, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Update pending -> completed
+	updated, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "1",
+		"status":     "completed",
+	})
+	if rpcErr != nil {
+		t.Fatalf("unexpected error updating todo: %v", rpcErr)
+	}
+	updatedJSON, err := json.Marshal(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Todo todoResult `json:"todo"`
+	}
+	if err := json.Unmarshal(updatedJSON, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Todo.ID != "1" || out.Todo.Status != domain.TodoCompleted {
+		t.Fatalf("updated todo = %+v, want status completed", out.Todo)
+	}
+
+	// Verify in store
+	stored, err := env.backend.GetTodo(context.Background(), session.ID, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != domain.TodoCompleted {
+		t.Fatalf("stored status = %s, want completed", stored.Status)
+	}
+
+	// 2. Update completed -> pending
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "1",
+		"status":     "pending",
+	}); rpcErr != nil {
+		t.Fatalf("unchecking todo error = %v", rpcErr)
+	}
+
+	// 3. Update pending -> cancelled
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"todo_id":    "1", // test todo_id alias
+		"status":     "cancelled",
+	}); rpcErr != nil {
+		t.Fatalf("cancelling todo error = %v", rpcErr)
+	}
+	stored, _ = env.backend.GetTodo(context.Background(), session.ID, "1")
+	if stored.Status != domain.TodoCancelled {
+		t.Fatalf("stored status = %s, want cancelled", stored.Status)
+	}
+
+	// 4. Busy guard: active run rejects mutation with CodeConflict
+	runID := domain.RunID("run-active-todo")
+	if err := env.backend.CreateRun(context.Background(), domain.Run{
+		ID:        runID,
+		SessionID: session.ID,
+		Status:    domain.RunActive,
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "1",
+		"status":     "completed",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("expected CodeConflict during active run, got %v", rpcErr)
+	}
+
+	// Settle the run to allow mutations again
+	if err := env.backend.SetRunStatus(context.Background(), runID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Validation failures
+	// Missing params
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"id":     "1",
+		"status": "completed",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected InvalidParams for missing session_id, got %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"status":     "completed",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected InvalidParams for missing id, got %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "1",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected InvalidParams for missing status, got %v", rpcErr)
+	}
+	// Unsupported status
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "1",
+		"status":     "invalid_status",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("expected InvalidParams for unsupported status, got %v", rpcErr)
+	}
+	// Missing session
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": "nonexistent-sess",
+		"id":         "1",
+		"status":     "completed",
+	}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("expected CodeNotFound for missing session, got %v", rpcErr)
+	}
+	// Missing todo
+	if _, rpcErr := callControl(t, env.handler, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "nonexistent-todo",
+		"status":     "completed",
+	}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("expected CodeNotFound for missing todo, got %v", rpcErr)
+	}
+
+	// 6. Unwired store -> MethodNotFound
+	unwiredBus := events.NewBus(8)
+	unwired, err := NewControlHandler(ControlDeps{
+		Sessions: env.backend, Messages: env.backend, Runs: env.backend, Journal: env.backend,
+		Approvals: env.backend, Questions: env.backend, Bus: unwiredBus,
+		Service: runtime.NewService(nil, "test", "test-model", runtime.ServiceDeps{
+			Journal: env.backend, Runs: env.backend, Messages: env.backend, Approvals: env.backend, Questions: env.backend, Sink: unwiredBus,
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, unwired, "session/todo/update", map[string]string{
+		"session_id": string(session.ID),
+		"id":         "1",
+		"status":     "completed",
+	}); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("expected MethodNotFound for unwired todo store, got %v", rpcErr)
+	}
+}
+
 func TestControlHandlerListsSessionCompactions(t *testing.T) {
 	env := newControlTestEnv(t, func(d *ControlDeps) {
 		d.Compactions = d.Sessions.(storage.CompactionStore)
