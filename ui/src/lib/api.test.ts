@@ -18,6 +18,7 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('settings/update');
     expect(api.RPC_METHODS).toContain('settings/providers/refresh');
     expect(api.RPC_METHODS).toContain('session/todos');
+    expect(api.RPC_METHODS).toContain('session/todo/update');
     expect(api.RPC_METHODS).toContain('session/set_permission');
     expect(api.RPC_METHODS).toContain('skills/list');
     expect(api.RPC_METHODS).toContain('skills/get');
@@ -35,6 +36,7 @@ describe('typed Vivy API', () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });
     const detail = await api.getSession('s1'); expect(call).toHaveBeenLastCalledWith('session/get', { session_id: 's1' }); expect(detail.session.id).toBe('s1');
     await api.listTodos('s1'); expect(call).toHaveBeenLastCalledWith('session/todos', { session_id: 's1' });
+    await api.updateTodo('s1', 't1', 'completed'); expect(call).toHaveBeenLastCalledWith('session/todo/update', { session_id: 's1', id: 't1', status: 'completed' });
     await api.waitChild('c1'); expect(call).toHaveBeenLastCalledWith('child/wait', { run_id: 'c1' });
     await api.getGeneration('g1'); expect(call).toHaveBeenLastCalledWith('generations/get', { id: 'g1' });
     await api.startEval({ candidate_id: 'g1', suite: 'smoke' }); expect(call).toHaveBeenLastCalledWith('evals/start', { candidate_id: 'g1', suite: 'smoke' });

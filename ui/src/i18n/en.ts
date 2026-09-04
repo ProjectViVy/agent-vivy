@@ -85,6 +85,11 @@ export const en: Dictionary = {
       completed: 'Completed',
       cancelled: 'Cancelled',
     },
+    markCompleted: 'Mark as completed',
+    markCancelled: 'Mark as cancelled',
+    markPending: 'Restore to pending',
+    runningLocked: 'Todo status cannot be changed while session is running',
+    toggleComplete: 'Toggle completion',
   },
   chat: {
     startNew: 'Start a new conversation',

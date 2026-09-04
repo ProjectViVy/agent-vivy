@@ -531,7 +531,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	switch request.Method {
 	case "initialize", "capabilities":
 		capabilities := []string{
-			"session", "session.todos", "session.set_permission", "turn", "run", "approval", "question", "review", "run.subscribe",
+			"session", "session.todos", "session.todo.update", "session.set_permission", "turn", "run", "approval", "question", "review", "run.subscribe",
 			"background.recover", "background.list", "background.attach",
 			"child.start", "child.get", "child.list", "child.wait", "child.cancel",
 			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
@@ -593,6 +593,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.editSession(ctx, request)
 	case "session/todos":
 		return h.listTodos(ctx, request)
+	case "session/todo/update":
+		return h.updateTodo(ctx, request)
 	case "session/compactions":
 		return h.listSessionCompactions(ctx, request)
 	case "trajectory/session":
@@ -1350,30 +1352,112 @@ func (h *controlHandler) listTodos(ctx context.Context, request Request) (any, *
 	}
 	out := make([]todoResult, 0, len(todos))
 	for _, todo := range todos {
-		blocks := todo.Blocks
-		if blocks == nil {
-			blocks = []string{}
-		}
-		blockedBy := todo.BlockedBy
-		if blockedBy == nil {
-			blockedBy = []string{}
-		}
-		out = append(out, todoResult{
-			ID:          todo.ID,
-			SessionID:   todo.SessionID,
-			Subject:     todo.Subject,
-			Description: todo.Description,
-			Status:      todo.Status,
-			Blocks:      blocks,
-			BlockedBy:   blockedBy,
-			ActiveForm:  todo.ActiveForm,
-			Owner:       todo.Owner,
-			Position:    todo.Position,
-			CreatedAt:   todo.CreatedAt,
-			UpdatedAt:   todo.UpdatedAt,
-		})
+		out = append(out, toTodoResult(todo))
 	}
 	return map[string]any{"todos": out}, nil
+}
+
+type updateTodoParams struct {
+	SessionID string `json:"session_id"`
+	ID        string `json:"id"`
+	TodoID    string `json:"todo_id"`
+	Status    string `json:"status"`
+}
+
+// updateTodo serves session/todo/update: updates a session todo's status.
+// Only permitted in non-running state (running === false) by human intervention.
+func (h *controlHandler) updateTodo(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Todos == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "todo store is not configured"}
+	}
+	var params updateTodoParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	sessionID := domain.SessionID(strings.TrimSpace(params.SessionID))
+	todoID := strings.TrimSpace(params.ID)
+	if todoID == "" {
+		todoID = strings.TrimSpace(params.TodoID)
+	}
+	status := domain.TodoStatus(strings.TrimSpace(params.Status))
+
+	if sessionID == "" || todoID == "" || status == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id, id, and status are required"}
+	}
+	if status != domain.TodoPending && status != domain.TodoInProgress && status != domain.TodoCompleted && status != domain.TodoCancelled {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("unsupported todo status %q", status)}
+	}
+
+	if _, err := h.deps.Sessions.GetSession(ctx, sessionID); errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+	} else if err != nil {
+		return nil, internalError(err)
+	}
+
+	if h.deps.Runs != nil {
+		active, err := h.deps.Runs.ListActiveRuns(ctx)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		for _, run := range active {
+			if run.SessionID == sessionID {
+				return nil, &Error{Code: CodeConflict, Message: "session has an active run"}
+			}
+		}
+	}
+
+	todo, err := h.deps.Todos.GetTodo(ctx, sessionID, todoID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, &Error{Code: CodeNotFound, Message: "todo not found"}
+	} else if err != nil {
+		return nil, internalError(err)
+	}
+
+	if status == domain.TodoInProgress && todo.Status != domain.TodoInProgress {
+		items, err := h.deps.Todos.ListTodos(ctx, sessionID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		for _, item := range items {
+			if item.ID != todoID && item.Status == domain.TodoInProgress {
+				return nil, &Error{Code: InvalidParams, Message: "only one task may be in_progress"}
+			}
+		}
+	}
+
+	todo.Status = status
+	todo.UpdatedAt = time.Now().UnixMilli()
+
+	if err := h.deps.Todos.UpdateTodo(ctx, todo); err != nil {
+		return nil, internalError(err)
+	}
+
+	return map[string]any{"todo": toTodoResult(todo)}, nil
+}
+
+func toTodoResult(todo domain.Todo) todoResult {
+	blocks := todo.Blocks
+	if blocks == nil {
+		blocks = []string{}
+	}
+	blockedBy := todo.BlockedBy
+	if blockedBy == nil {
+		blockedBy = []string{}
+	}
+	return todoResult{
+		ID:          todo.ID,
+		SessionID:   todo.SessionID,
+		Subject:     todo.Subject,
+		Description: todo.Description,
+		Status:      todo.Status,
+		Blocks:      blocks,
+		BlockedBy:   blockedBy,
+		ActiveForm:  todo.ActiveForm,
+		Owner:       todo.Owner,
+		Position:    todo.Position,
+		CreatedAt:   todo.CreatedAt,
+		UpdatedAt:   todo.UpdatedAt,
+	}
 }
 
 // ---- Session compactions (CMP-3) ----
