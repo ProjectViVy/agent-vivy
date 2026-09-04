@@ -76,6 +76,38 @@ func TestRunSubscriptionStopsWhenPeerClosesWhileIdle(t *testing.T) {
 	waitForSubscriptionCount(0)
 }
 
+func TestRunSubscriptionTerminalReplayCleansUpImmediately(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	runID := domain.RunID("run_terminal_replay")
+	ctx := context.Background()
+	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: "sess_terminal_replay", Status: domain.RunActive, CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{
+		Type: domain.EventRunCompleted, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: []byte(`{}`),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 2})
+	defer peer.Close()
+	params, err := json.Marshal(map[string]any{"run_id": string(runID), "after_seq": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"terminal"`), Method: "run/subscribe", Params: params}
+	if _, rpcErr := handler.subscribe(ctx, peer, request); rpcErr != nil {
+		t.Fatalf("subscribe: %v", rpcErr)
+	}
+	peer.runAfterResponse(request.ID)
+	waitForControlSubscriptionCount(t, handler, 0)
+	if got := handler.deps.Bus.Subscribers(runID); got != 0 {
+		t.Fatalf("bus subscribers = %d, want 0", got)
+	}
+}
+
 func TestRunSubscriptionResponseCloseCleansPendingEntry(t *testing.T) {
 	env := newControlTestEnv(t)
 	handler := env.handler.(*controlHandler)

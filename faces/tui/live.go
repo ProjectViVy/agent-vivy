@@ -50,10 +50,16 @@ type Live struct {
 	seq int
 	// cursor is the shared durable stream reducer state. The local fields
 	// below are transport subscription bookkeeping only.
-	cursor           stream.Cursor
-	recoveryInFlight bool
-	replayPending    bool
-	nextRecoveryAt   time.Time
+	cursor               stream.Cursor
+	subscriptionID       string
+	subscriptionRequest  uint64
+	closed               bool
+	recoveryInFlight     bool
+	recoveryNeeded       bool
+	replayPending        bool
+	nextRecoveryAt       time.Time
+	streamFailures       map[string]string
+	retiredSubscriptions map[string]struct{}
 
 	inbox     stream.Inbox
 	eventWake chan struct{}
@@ -101,24 +107,39 @@ func NewLive(client *client, opts LiveOptions) *Live {
 		cancel:         cancel,
 	}
 	client.OnNotify(func(method string, params json.RawMessage) {
-		if method != "run/event" {
-			return
+		switch method {
+		case "run/event":
+			event, ok := decodeStreamEvent(params)
+			if !ok {
+				return
+			}
+			notice := interpret(event)
+			if notice.Seq == 0 && notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
+				return
+			}
+			l.enqueueNotice(notice)
+		case "run/stream_error":
+			if failure, ok := stream.DecodeStreamError(params); ok {
+				l.recordStreamError(failure)
+			}
 		}
-		event, ok := decodeStreamEvent(params)
-		if !ok {
-			return
-		}
-		notice := interpret(event)
-		if notice.Seq == 0 && notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
-			return
-		}
-		l.enqueueNotice(notice)
 	})
 	return l
 }
 
 // Close stops the live event pump context.
 func (l *Live) Close() {
+	l.mu.Lock()
+	l.closed = true
+	l.subscriptionRequest++
+	subscriptionID := l.subscriptionID
+	l.subscriptionID = ""
+	l.mu.Unlock()
+	if subscriptionID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		l.unsubscribeWithRetry(ctx, subscriptionID)
+		cancel()
+	}
 	if l.cancel != nil {
 		l.cancel()
 	}
@@ -267,10 +288,12 @@ type liveAttachmentResolvedMsg struct {
 }
 
 type liveSubscribedMsg struct {
-	RunID    string
-	AfterSeq int
-	Recovery bool
-	Err      error
+	RunID          string
+	AfterSeq       int
+	Recovery       bool
+	Request        uint64
+	SubscriptionID string
+	Err            error
 }
 
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
@@ -364,12 +387,12 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	case liveTickMsg:
 		finished, gap := l.drainEvents()
 		if gap {
-			return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
+			l.markRecoveryNeeded()
 		}
 		if finished {
 			return tea.Batch(l.dequeueCmd(), l.tickCmd())
 		}
-		return l.tickCmd()
+		return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
 	case liveBootMsg:
 		return l.applyBoot(msg)
 	case liveLoadedMsg:
@@ -437,13 +460,14 @@ func restoreFileInputCmd(text string, paths []string) tea.Cmd {
 
 func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if msg.Request > 0 && msg.Request != l.loadRequest {
+		l.mu.Unlock()
 		return nil
 	}
 	l.loadPending = false
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
+		l.mu.Unlock()
 		return nil
 	}
 	if len(msg.Sessions) > 0 {
@@ -476,8 +500,16 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	l.gate = nil
 	l.busy = false
 	l.runID = ""
+	subscriptionID := l.subscriptionID
+	l.retireSubscriptionLocked(subscriptionID)
+	l.subscriptionID = ""
+	l.cursor.Reset()
+	l.recoveryInFlight = false
+	l.recoveryNeeded = false
+	l.replayPending = false
 	l.lastErr = ""
-	return nil
+	l.mu.Unlock()
+	return l.unsubscribeCmd(subscriptionID)
 }
 
 func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
@@ -532,9 +564,12 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	l.busy = true
 	l.runID = msg.RunID
 	l.cursor.Reset()
+	l.subscriptionID = ""
 	l.recoveryInFlight = false
+	l.recoveryNeeded = false
 	l.replayPending = false
 	l.nextRecoveryAt = time.Time{}
+	l.streamFailures = nil
 	l.lastErr = ""
 	l.ensureAssistantDraftLocked()
 	l.mu.Unlock()
@@ -542,26 +577,49 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 }
 
 func (l *Live) subscribeCmd(runID string, afterSeq int, recovery bool) tea.Cmd {
+	l.mu.Lock()
+	l.subscriptionRequest++
+	request := l.subscriptionRequest
+	closed := l.closed
+	l.mu.Unlock()
 	return func() tea.Msg {
+		if closed {
+			return liveSubscribedMsg{RunID: runID, AfterSeq: afterSeq, Recovery: recovery, Request: request, Err: context.Canceled}
+		}
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		return liveSubscribedMsg{RunID: runID, AfterSeq: afterSeq, Recovery: recovery, Err: l.client.subscribe(ctx, runID, afterSeq)}
+		subscriptionID, err := l.client.subscribe(ctx, runID, afterSeq)
+		return liveSubscribedMsg{RunID: runID, AfterSeq: afterSeq, Recovery: recovery, Request: request, SubscriptionID: subscriptionID, Err: err}
 	}
 }
 
 func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	l.mu.Lock()
-	if l.runID != msg.RunID {
+	if l.closed || l.runID != msg.RunID || msg.Request < l.subscriptionRequest {
+		l.retireSubscriptionLocked(msg.SubscriptionID)
 		l.mu.Unlock()
-		return nil
+		return l.unsubscribeCmd(msg.SubscriptionID)
 	}
 	if msg.Err == nil {
-		if msg.Recovery {
+		previous := l.subscriptionID
+		l.retireSubscriptionLocked(previous)
+		l.subscriptionID = msg.SubscriptionID
+		streamFailed := false
+		if message, failed := l.streamFailures[msg.SubscriptionID]; failed {
+			l.markStreamFailureLocked(msg.SubscriptionID, message)
+			streamFailed = true
+		}
+		l.streamFailures = nil
+		if msg.Recovery && !streamFailed {
 			l.recoveryInFlight = false
+			l.recoveryNeeded = false
 			l.replayPending = true
 			l.nextRecoveryAt = time.Now().Add(2 * time.Second)
 		}
 		l.mu.Unlock()
+		if previous != "" && previous != msg.SubscriptionID {
+			return l.unsubscribeCmd(previous)
+		}
 		return nil
 	}
 	// Ignore a stale subscription failure once a newer stream has already
@@ -575,6 +633,7 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	}
 	if msg.Recovery {
 		l.recoveryInFlight = false
+		l.recoveryNeeded = true
 		l.replayPending = false
 		l.nextRecoveryAt = time.Now().Add(time.Second)
 		l.lastErr = "stream replay: " + shortErr(msg.Err)
@@ -586,14 +645,40 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	l.runID = ""
 	l.cursor.Reset()
 	l.recoveryInFlight = false
+	l.recoveryNeeded = false
 	l.replayPending = false
 	l.finishStreamingLocked()
 	l.mu.Unlock()
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(l.ctx, 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = l.client.cancelRun(ctx, msg.RunID)
 		return surface.RefreshMsg{}
+	}
+}
+
+func (l *Live) unsubscribeCmd(subscriptionID string) tea.Cmd {
+	if subscriptionID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		l.unsubscribeWithRetry(ctx, subscriptionID)
+		return nil
+	}
+}
+
+func (l *Live) unsubscribeWithRetry(ctx context.Context, subscriptionID string) {
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := l.client.unsubscribe(ctx, subscriptionID); err == nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 
@@ -673,7 +758,7 @@ func (l *Live) applyCommandResult(msg surface.CommandResultMsg) tea.Cmd {
 }
 
 func (l *Live) drainEvents() (finished bool, gap bool) {
-	pending := l.inbox.Take()
+	pending, overflow := l.inbox.TakeBatch(stream.DefaultDrainItems, stream.DefaultDrainBytes)
 	stream.Order(pending)
 	for i, notice := range pending {
 		accept, missing := l.acceptSequence(notice)
@@ -697,14 +782,23 @@ func (l *Live) drainEvents() (finished bool, gap bool) {
 	case <-l.eventWake:
 	default:
 	}
-	return finished, gap
+	if gap || overflow {
+		l.markRecoveryNeeded()
+	}
+	return finished, gap || overflow
 }
 
 func (l *Live) acceptSequence(notice eventNotice) (accept bool, gap bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if notice.SubscriptionID != "" {
+		if _, retired := l.retiredSubscriptions[notice.SubscriptionID]; retired {
+			return false, false
+		}
+	}
 	accept, gap = l.cursor.Accept(l.runID, stream.Notice(notice))
 	if accept && notice.Seq > 0 {
+		l.recoveryNeeded = false
 		l.replayPending = false
 		l.nextRecoveryAt = time.Time{}
 	}
@@ -714,7 +808,7 @@ func (l *Live) acceptSequence(notice eventNotice) (accept bool, gap bool) {
 func (l *Live) recoverSubscriptionCmd() tea.Cmd {
 	l.mu.Lock()
 	now := time.Now()
-	if l.recoveryInFlight || now.Before(l.nextRecoveryAt) {
+	if !l.recoveryNeeded || l.recoveryInFlight || l.replayPending || now.Before(l.nextRecoveryAt) {
 		l.mu.Unlock()
 		return nil
 	}
@@ -730,6 +824,60 @@ func (l *Live) recoverSubscriptionCmd() tea.Cmd {
 	return l.subscribeCmd(runID, afterSeq, true)
 }
 
+func (l *Live) markRecoveryNeeded() {
+	l.mu.Lock()
+	l.markRecoveryNeededLocked()
+	l.mu.Unlock()
+}
+
+func (l *Live) markRecoveryNeededLocked() {
+	if l.runID != "" {
+		l.recoveryNeeded = true
+		l.replayPending = false
+		l.nextRecoveryAt = time.Time{}
+	}
+}
+
+func (l *Live) recordStreamError(failure stream.StreamError) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed || l.runID == "" {
+		return
+	}
+	if _, retired := l.retiredSubscriptions[failure.SubscriptionID]; retired {
+		return
+	}
+	if failure.SubscriptionID == l.subscriptionID {
+		l.markStreamFailureLocked(failure.SubscriptionID, failure.Message)
+		return
+	}
+	if l.streamFailures == nil {
+		l.streamFailures = make(map[string]string)
+	}
+	if len(l.streamFailures) >= 4 {
+		for id := range l.streamFailures {
+			delete(l.streamFailures, id)
+			break
+		}
+	}
+	l.streamFailures[failure.SubscriptionID] = failure.Message
+}
+
+func (l *Live) markStreamFailureLocked(subscriptionID, message string) {
+	l.retireSubscriptionLocked(subscriptionID)
+	if l.subscriptionID == subscriptionID {
+		l.subscriptionID = ""
+	}
+	l.recoveryInFlight = false
+	l.recoveryNeeded = true
+	l.replayPending = false
+	l.nextRecoveryAt = time.Now().Add(250 * time.Millisecond)
+	if strings.TrimSpace(message) == "" {
+		message = "event replay failed"
+	}
+	l.lastErr = "stream replay: " + message
+}
+
 // enqueueNotice keeps the event stream ordered and lossless between UI
 // ticks. eventWake only coalesces redraw notifications; notices are never
 // discarded when the renderer is temporarily behind.
@@ -739,8 +887,15 @@ func (l *Live) enqueueNotice(notice eventNotice) {
 		return
 	default:
 	}
-	if !l.inbox.Push(stream.Notice(notice)) {
-		return
+	if l.inbox.Push(stream.Notice(notice)) == stream.PushReplayRequired {
+		l.mu.Lock()
+		if l.runID != "" {
+			l.markRecoveryNeededLocked()
+			if notice.Seq <= 0 {
+				l.lastErr = "stream backlog overflow: an unsequenced event could not be replayed"
+			}
+		}
+		l.mu.Unlock()
 	}
 	select {
 	case l.eventWake <- struct{}{}:
@@ -782,10 +937,31 @@ func (l *Live) applyNotice(notice eventNotice) {
 	if done {
 		l.busy = false
 		l.runID = ""
+		l.retireSubscriptionLocked(l.subscriptionID)
+		l.subscriptionID = ""
 		l.cursor.Reset()
 		l.recoveryInFlight = false
+		l.recoveryNeeded = false
 		l.replayPending = false
 		l.nextRecoveryAt = time.Time{}
+	}
+}
+
+func (l *Live) retireSubscriptionLocked(subscriptionID string) {
+	if subscriptionID == "" {
+		return
+	}
+	if l.retiredSubscriptions == nil {
+		l.retiredSubscriptions = make(map[string]struct{})
+	}
+	l.retiredSubscriptions[subscriptionID] = struct{}{}
+	if len(l.retiredSubscriptions) > 8 {
+		for id := range l.retiredSubscriptions {
+			if id != subscriptionID {
+				delete(l.retiredSubscriptions, id)
+				break
+			}
+		}
 	}
 }
 

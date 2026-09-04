@@ -2287,6 +2287,9 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 		if !send(domain.RunEvent{RunID: entry.RunID, Seq: entry.Seq, Type: entry.Type, CreatedAt: entry.CreatedAt, PayloadVersion: entry.PayloadVersion, Payload: entry.Payload}) {
 			return
 		}
+		if entry.Type.Terminal() {
+			return
+		}
 	}
 	for {
 		select {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,10 +40,10 @@ func (f *codeFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResu
 		ContinueNewest: f.opts.ContinueNewest,
 	})
 	defer live.Close()
+	defer shutdownLiveRun(client, live)
 	if err := view.RunWithOutput(live, f.opts.Out); err != nil {
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: %w", err)
 	}
-	shutdownLiveRun(client, live)
 	return plugin.FaceResult{Status: "completed"}, nil
 }
 
@@ -54,6 +55,26 @@ func shutdownLiveRun(client *Client, live *Live) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = client.cancelRun(ctx, meta.RunID)
+	for i := 0; i < 50; i++ {
+		raw, err := client.Call(ctx, "run/get", map[string]string{"run_id": meta.RunID})
+		if err != nil {
+			return
+		}
+		var payload struct {
+			Status string `json:"status"`
+		}
+		if json.Unmarshal(raw, &payload) == nil {
+			switch payload.Status {
+			case "completed", "cancelled", "failed":
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func looksTerminal(w io.Writer) bool {

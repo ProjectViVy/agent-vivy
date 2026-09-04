@@ -332,8 +332,9 @@ func TestRunFaceServesGatewaylessControlPlane(t *testing.T) {
 	t.Setenv("VIVY_PROVIDER", "anthropic")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	var captured plugin.FaceEnv
 	ctor := func(opts plugin.FaceOptions) plugin.Face {
-		return &stubFace{opts: opts, kind: "stub"}
+		return &capturingFace{stubFace: stubFace{opts: opts, kind: "stub"}, captured: &captured}
 	}
 	result, err := RunFace(ctx, newAnthropicTestConfig(t), ctor, plugin.FaceOptions{
 		Prompt: "hello", Out: io.Discard, Err: io.Discard,
@@ -344,6 +345,19 @@ func TestRunFaceServesGatewaylessControlPlane(t *testing.T) {
 	if result.Status != "completed" {
 		t.Fatalf("status = %q, want completed", result.Status)
 	}
+	if _, err := captured.Call(context.Background(), "initialize", nil); err == nil {
+		t.Fatal("face control peer remained usable after RunFace returned")
+	}
+}
+
+type capturingFace struct {
+	stubFace
+	captured *plugin.FaceEnv
+}
+
+func (f *capturingFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, error) {
+	*f.captured = env
+	return f.stubFace.Run(ctx, env)
 }
 
 // TestGatewaylessRunWithoutFaceCancelsDurably pins the no-UI approval fail

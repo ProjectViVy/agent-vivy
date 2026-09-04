@@ -7,9 +7,11 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/tui/surface"
+	"agent-vivy/sdk/tui/stream"
 )
 
 func TestREPLHelpAndQuit(t *testing.T) {
@@ -132,6 +134,283 @@ func TestREPLAcceptedTurnClearsImageDraftWhenSubscribeFails(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "turn accepted as run_accepted") || !strings.Contains(out.String(), "subscribe") {
 		t.Fatalf("subscribe failure output = %q", out.String())
+	}
+	if r.busy || r.runID != "" {
+		t.Fatalf("subscribe failure stranded run state: busy=%v run=%q", r.busy, r.runID)
+	}
+}
+
+func TestREPLInitialSubscribeHangCancelsAcceptedRun(t *testing.T) {
+	var cancelCalls int
+	handler := controlrpc.HandlerFunc(func(ctx context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "turn/start":
+			return map[string]string{"run_id": "run_hung", "status": "accepted"}, nil
+		case "run/subscribe":
+			<-ctx.Done()
+			return nil, &controlrpc.Error{Code: controlrpc.InternalError, Message: ctx.Err().Error()}
+		case "run/cancel":
+			cancelCalls++
+			return map[string]string{"status": "cancelling"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{client: client, out: &out, session: sessionView{ID: "sess_1"}}
+	started := time.Now()
+	if err := r.sendTurn(context.Background(), "describe"); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("initial subscribe timeout took %s", elapsed)
+	}
+	if cancelCalls != 1 || r.busy || r.runID != "" {
+		t.Fatalf("cancel=%d busy=%v run=%q output=%q", cancelCalls, r.busy, r.runID, out.String())
+	}
+}
+
+func TestREPLDurableCursorReplaysGapAndFiltersOtherRuns(t *testing.T) {
+	gotAfter := -1
+	var unsubscribed []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "run/subscribe":
+			var params struct {
+				AfterSeq int `json:"after_seq"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotAfter = params.AfterSeq
+			return map[string]string{"subscription_id": "sub_new"}, nil
+		case "run/unsubscribe":
+			var params struct {
+				SubscriptionID string `json:"subscription_id"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			unsubscribed = append(unsubscribed, params.SubscriptionID)
+			return map[string]bool{"unsubscribed": true}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client: client, out: &out, events: make(chan eventNotice, 10),
+		busy: true, runID: "run_1", subscriptionID: "sub_old",
+	}
+	r.events <- eventNotice{RunID: "run_other", Seq: 1, Delta: "X"}
+	r.events <- eventNotice{RunID: "run_1", Seq: 1, Delta: "这"}
+	r.events <- eventNotice{RunID: "run_1", Seq: 3, Delta: "话"}
+	r.events <- eventNotice{RunID: "run_1", Seq: 2, Delta: "是一句"}
+	r.events <- eventNotice{RunID: "run_1", Seq: 3, Delta: "话"}
+	r.events <- eventNotice{RunID: "run_1", Seq: 3, Delta: "重复"}
+	r.events <- eventNotice{RunID: "run_1", Seq: 4}
+	r.events <- eventNotice{RunID: "run_1", Seq: 5, Kind: "done", Done: true}
+	if err := r.drainRun(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotAfter != 1 || len(unsubscribed) != 2 || unsubscribed[0] != "sub_old" || unsubscribed[1] != "sub_new" {
+		t.Fatalf("recovery after_seq=%d unsubscribed=%q", gotAfter, unsubscribed)
+	}
+	if got := out.String(); !strings.Contains(got, "这是一句话") || strings.Contains(got, "X") || strings.Contains(got, "重复") {
+		t.Fatalf("durable output = %q", got)
+	}
+	if r.busy || r.runID != "" || r.subscriptionID != "" || r.cursor.LastSeq != 0 {
+		t.Fatalf("terminal state busy=%v run=%q sub=%q cursor=%+v", r.busy, r.runID, r.subscriptionID, r.cursor)
+	}
+}
+
+func TestREPLStreamErrorReplacesSubscriptionAndFinishes(t *testing.T) {
+	gotAfter := -1
+	var unsubscribed []string
+	recovered := make(chan struct{})
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "run/subscribe":
+			var params struct {
+				AfterSeq int `json:"after_seq"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotAfter = params.AfterSeq
+			close(recovered)
+			return map[string]string{"subscription_id": "sub_new"}, nil
+		case "run/unsubscribe":
+			var params struct {
+				SubscriptionID string `json:"subscription_id"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			unsubscribed = append(unsubscribed, params.SubscriptionID)
+			return map[string]bool{"unsubscribed": true}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client: client, out: &out,
+		events: make(chan eventNotice, 2), streamErrors: make(chan stream.StreamError, 1),
+		busy: true, runID: "run_1", subscriptionID: "sub_old",
+	}
+	r.cursor.LastSeq = 4
+	r.streamErrors <- stream.StreamError{SubscriptionID: "sub_old", Message: "replay failed"}
+	drained := make(chan error, 1)
+	go func() { drained <- r.drainRun(context.Background()) }()
+	select {
+	case <-recovered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream error did not trigger recovery")
+	}
+	r.events <- eventNotice{SubscriptionID: "sub_new", RunID: "run_1", Seq: 5, Kind: "done", Done: true}
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("recovered stream did not finish")
+	}
+	if gotAfter != 4 || len(unsubscribed) != 2 || unsubscribed[0] != "sub_old" || unsubscribed[1] != "sub_new" {
+		t.Fatalf("recovery after_seq=%d unsubscribed=%q", gotAfter, unsubscribed)
+	}
+	if !strings.Contains(out.String(), "stream replay: replay failed") || r.busy || r.runID != "" {
+		t.Fatalf("stream error output=%q state busy=%v run=%q", out.String(), r.busy, r.runID)
+	}
+}
+
+func TestREPLChannelOverflowReplaysWithoutBlockingNotifier(t *testing.T) {
+	recovered := make(chan struct{})
+	gotAfter := -1
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "run/subscribe":
+			var params struct {
+				AfterSeq int `json:"after_seq"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotAfter = params.AfterSeq
+			close(recovered)
+			return map[string]string{"subscription_id": "sub_new"}, nil
+		case "run/unsubscribe":
+			return map[string]bool{"unsubscribed": true}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client: client, out: &out,
+		events: make(chan eventNotice, 1), streamErrors: make(chan stream.StreamError, 1), streamLost: make(chan struct{}, 1),
+		busy: true, runID: "run_1", subscriptionID: "sub_old",
+	}
+	r.cursor.LastSeq = 4
+	r.enqueueEvent(context.Background(), eventNotice{SubscriptionID: "sub_old", RunID: "run_1", Seq: 5})
+	r.enqueueEvent(context.Background(), eventNotice{SubscriptionID: "sub_old", RunID: "run_1", Seq: 6})
+	drained := make(chan error, 1)
+	go func() { drained <- r.drainRun(context.Background()) }()
+	select {
+	case <-recovered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("overflow did not trigger recovery")
+	}
+	r.enqueueEvent(context.Background(), eventNotice{SubscriptionID: "sub_new", RunID: "run_1", Seq: gotAfter + 1, Kind: "done", Done: true})
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("overflow recovery did not finish")
+	}
+	if (gotAfter != 4 && gotAfter != 5) || !strings.Contains(out.String(), "backlog exceeded") {
+		t.Fatalf("overflow replay after=%d output=%q", gotAfter, out.String())
+	}
+}
+
+func TestREPLPersistentRecoveryFailureReturnsPromptAndCancelsRun(t *testing.T) {
+	var subscribeCalls, cancelCalls int
+	var unsubscribed []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "run/subscribe":
+			subscribeCalls++
+			return nil, &controlrpc.Error{Code: controlrpc.InternalError, Message: "offline"}
+		case "run/unsubscribe":
+			var params struct {
+				SubscriptionID string `json:"subscription_id"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			unsubscribed = append(unsubscribed, params.SubscriptionID)
+			return map[string]bool{"unsubscribed": true}, nil
+		case "run/cancel":
+			cancelCalls++
+			return map[string]string{"status": "cancelling"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client: client, out: &out,
+		events: make(chan eventNotice, 1), streamErrors: make(chan stream.StreamError, 1), streamLost: make(chan struct{}, 1),
+		busy: true, runID: "run_1", subscriptionID: "sub_old",
+	}
+	r.streamLost <- struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := r.drainRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if subscribeCalls != 3 || cancelCalls != 1 || len(unsubscribed) != 1 || unsubscribed[0] != "sub_old" || r.busy || r.runID != "" {
+		t.Fatalf("subscribe=%d cancel=%d unsubscribed=%q busy=%v run=%q", subscribeCalls, cancelCalls, unsubscribed, r.busy, r.runID)
+	}
+	if !strings.Contains(out.String(), "stream recovery stopped") {
+		t.Fatalf("failure was not visible: %q", out.String())
+	}
+}
+
+func TestREPLHungSubscribeAttemptsAreTimeBounded(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(ctx context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "run/subscribe":
+			<-ctx.Done()
+			return nil, &controlrpc.Error{Code: controlrpc.InternalError, Message: ctx.Err().Error()}
+		case "run/unsubscribe":
+			return map[string]bool{"unsubscribed": true}, nil
+		case "run/cancel":
+			return map[string]string{"status": "cancelling"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	r := &repl{
+		client: client, out: io.Discard,
+		events: make(chan eventNotice, 1), streamErrors: make(chan stream.StreamError, 1), streamLost: make(chan struct{}, 1),
+		busy: true, runID: "run_1", subscriptionID: "sub_old",
+	}
+	r.streamLost <- struct{}{}
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	if err := r.drainRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("hung recovery took %s", elapsed)
+	}
+	if r.busy || r.runID != "" {
+		t.Fatalf("hung recovery stranded state busy=%v run=%q", r.busy, r.runID)
 	}
 }
 
@@ -369,7 +648,7 @@ func TestREPLEscapedLocalPrefixesBecomeModelText(t *testing.T) {
 			thinking = append(thinking, params.Thinking)
 			return map[string]any{"run_id": "run_1", "status": "accepted"}, nil
 		case "run/subscribe":
-			return map[string]any{"status": "subscribed"}, nil
+			return map[string]any{"subscription_id": "sub_escaped"}, nil
 		default:
 			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
 		}
@@ -534,7 +813,7 @@ func TestREPLTurnStartAndSubscribeRPC(t *testing.T) {
 	if accepted.RunID != "run_1" {
 		t.Fatalf("run = %+v", accepted)
 	}
-	if err := client.subscribe(ctx, accepted.RunID, 0); err != nil {
+	if _, err := client.subscribe(ctx, accepted.RunID, 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -617,6 +896,8 @@ func TestREPLShellUsesOnlyShellStartAndSharedRunStream(t *testing.T) {
 			return map[string]string{"run_id": "run_shell", "status": "accepted"}, nil
 		case "run/subscribe":
 			return map[string]string{"subscription_id": "sub_shell"}, nil
+		case "run/unsubscribe":
+			return map[string]bool{"unsubscribed": true}, nil
 		default:
 			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
 		}
@@ -634,7 +915,7 @@ func TestREPLShellUsesOnlyShellStartAndSharedRunStream(t *testing.T) {
 	if err := r.handleLine(context.Background(), "!  echo safe  "); err != nil {
 		t.Fatal(err)
 	}
-	if len(methods) != 2 || methods[0] != "shell/start" || methods[1] != "run/subscribe" {
+	if len(methods) != 3 || methods[0] != "shell/start" || methods[1] != "run/subscribe" || methods[2] != "run/unsubscribe" {
 		t.Fatalf("shell methods = %v", methods)
 	}
 	if len(got) != 2 || got["session_id"] != "sess_1" || got["script"] != "  echo safe  " {

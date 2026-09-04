@@ -378,8 +378,28 @@ func (c *client) setSessionPermission(ctx context.Context, sessionID, preset str
 	return session, nil
 }
 
-func (c *client) subscribe(ctx context.Context, runID string, afterSeq int) error {
-	_, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": afterSeq})
+func (c *client) subscribe(ctx context.Context, runID string, afterSeq int) (string, error) {
+	raw, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": afterSeq})
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		SubscriptionID string `json:"subscription_id"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", fmt.Errorf("tui: run/subscribe: %w", err)
+	}
+	if strings.TrimSpace(result.SubscriptionID) == "" {
+		return "", fmt.Errorf("tui: run/subscribe returned no subscription_id")
+	}
+	return result.SubscriptionID, nil
+}
+
+func (c *client) unsubscribe(ctx context.Context, subscriptionID string) error {
+	if strings.TrimSpace(subscriptionID) == "" {
+		return nil
+	}
+	_, err := c.Call(ctx, "run/unsubscribe", map[string]string{"subscription_id": subscriptionID})
 	return err
 }
 
