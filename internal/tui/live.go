@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,11 +37,14 @@ type Live struct {
 	sessionRequest uint64
 	loadPending    bool
 
-	busy            bool
-	runID           string
-	gate            *surface.Gate
-	lastErr         string
-	queue           []queuedTurn
+	busy    bool
+	runID   string
+	gate    *surface.Gate
+	lastErr string
+	queue   []queuedTurn
+	// drafts is keyed by session id so switching/new sessions cannot carry
+	// unsent image chips into another conversation.
+	drafts          map[string][]surface.Attachment
 	thinkingMode    string
 	commandInFlight bool
 
@@ -59,8 +63,10 @@ type Live struct {
 }
 
 type queuedTurn struct {
-	Text     string
-	Thinking string
+	SessionID   string
+	Text        string
+	Thinking    string
+	Attachments []surface.Attachment
 }
 
 // LiveOptions configure one live fullscreen session.
@@ -89,6 +95,7 @@ func NewLive(client *Client, opts LiveOptions) *Live {
 		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
 		continueNewest: opts.ContinueNewest,
 		messages:       map[string][]surface.Message{},
+		drafts:         map[string][]surface.Attachment{},
 		thinkingMode:   "auto",
 		eventWake:      make(chan struct{}, 1),
 		ctx:            ctx,
@@ -172,6 +179,14 @@ func (l *Live) ActiveMessages() []surface.Message {
 	return append([]surface.Message(nil), l.messages[l.activeID]...)
 }
 
+// PendingAttachments implements surface.AttachmentProvider. Only metadata
+// returned by attachments/resolve is exposed to the renderer.
+func (l *Live) PendingAttachments() []surface.Attachment {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return cloneAttachments(l.drafts[l.activeID])
+}
+
 // PendingGate implements surface.Driver.
 func (l *Live) PendingGate() *surface.Gate {
 	l.mu.Lock()
@@ -237,9 +252,17 @@ type liveLoadedMsg struct {
 // liveTurnStartedMsg is returned after turn/start. Subscription starts after
 // Handle installs run ownership, so replay cannot race the new run.
 type liveTurnStartedMsg struct {
-	UserText string
-	RunID    string
-	Err      error
+	SessionID   string
+	UserText    string
+	RunID       string
+	Attachments []surface.Attachment
+	Err         error
+}
+
+type liveAttachmentResolvedMsg struct {
+	SessionID   string
+	Attachments []surface.Attachment
+	Err         error
 }
 
 type liveSubscribedMsg struct {
@@ -315,13 +338,7 @@ func (l *Live) bootCmd() tea.Cmd {
 				}
 			}
 			if contextStatus, contextErr := l.client.sessionContext(ctx, activeID); contextErr == nil {
-				snapshot.Context = surface.Context{
-					FeedTokens: contextStatus.FeedTokens, ModelLimitTokens: contextStatus.ModelLimitTokens,
-					TriggerTokens: contextStatus.TriggerTokens, TotalMessages: contextStatus.TotalMessages,
-					FeedMessages: contextStatus.FeedMessages, ThinkingSupported: contextStatus.ThinkingSupported,
-					CompactionEnabled: contextStatus.CompactionEnabled, WouldCompact: contextStatus.WouldCompact,
-					HasCompactionSummary: contextStatus.HasCompactionSummary,
-				}
+				snapshot.Context = mapContextView(contextStatus)
 				snapshot.HasContext = true
 			}
 		}
@@ -347,6 +364,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyLoaded(msg)
 	case liveTurnStartedMsg:
 		return l.applyTurnStarted(msg)
+	case liveAttachmentResolvedMsg:
+		return l.applyAttachmentResolved(msg)
 	case liveSubscribedMsg:
 		return l.applySubscribed(msg)
 	case liveRPCMsg:
@@ -451,10 +470,26 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 
 func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	l.mu.Lock()
+	if msg.SessionID != "" && l.activeID != "" && msg.SessionID != l.activeID {
+		// The session may have changed while turn/start was in flight. Keep a
+		// failed draft attached to its origin, but never mutate the new
+		// session's busy state or transcript.
+		if msg.Err != nil {
+			if l.drafts == nil {
+				l.drafts = make(map[string][]surface.Attachment)
+			}
+			l.drafts[msg.SessionID] = append(l.drafts[msg.SessionID], cloneAttachments(msg.Attachments)...)
+		}
+		l.mu.Unlock()
+		return nil
+	}
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
 		l.busy = false
 		l.runID = ""
+		if msg.SessionID != "" {
+			l.drafts[msg.SessionID] = append(l.drafts[msg.SessionID], cloneAttachments(msg.Attachments)...)
+		}
 		// Keep the optimistic user bubble; append an error assistant line.
 		l.appendLocked(surface.Message{
 			ID:      l.nextID("err"),
@@ -691,9 +726,16 @@ func (l *Live) dequeueCmd() tea.Cmd {
 		return nil
 	}
 	turn := l.queue[0]
+	if turn.SessionID != "" && turn.SessionID != l.activeID {
+		// Keep the complete queued turn (text and image snapshot) in place
+		// until its originating session is active again. Dropping only the
+		// image draft here would silently lose the user's queued text.
+		l.mu.Unlock()
+		return nil
+	}
 	l.queue = l.queue[1:]
 	l.mu.Unlock()
-	return l.send(turn.Text, turn.Thinking)
+	return l.sendWithAttachments(turn.Text, turn.Thinking, turn.Attachments, false)
 }
 
 func (l *Live) applyNotice(notice eventNotice) {
@@ -790,13 +832,7 @@ func (l *Live) NewSession(title string) tea.Cmd {
 			ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
 		}}
 		if contextStatus, contextErr := l.client.sessionContext(ctx, created.ID); contextErr == nil {
-			snapshot.Context = surface.Context{
-				FeedTokens: contextStatus.FeedTokens, ModelLimitTokens: contextStatus.ModelLimitTokens,
-				TriggerTokens: contextStatus.TriggerTokens, TotalMessages: contextStatus.TotalMessages,
-				FeedMessages: contextStatus.FeedMessages, ThinkingSupported: contextStatus.ThinkingSupported,
-				CompactionEnabled: contextStatus.CompactionEnabled, WouldCompact: contextStatus.WouldCompact,
-				HasCompactionSummary: contextStatus.HasCompactionSummary,
-			}
+			snapshot.Context = mapContextView(contextStatus)
 			snapshot.HasContext = true
 		}
 		return liveLoadedMsg{
@@ -1000,13 +1036,7 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 		}
 		snapshot := surface.Sidebar{Session: session}
 		if contextStatus, contextErr := l.client.sessionContext(ctx, id); contextErr == nil {
-			snapshot.Context = surface.Context{
-				FeedTokens: contextStatus.FeedTokens, ModelLimitTokens: contextStatus.ModelLimitTokens,
-				TriggerTokens: contextStatus.TriggerTokens, TotalMessages: contextStatus.TotalMessages,
-				FeedMessages: contextStatus.FeedMessages, ThinkingSupported: contextStatus.ThinkingSupported,
-				CompactionEnabled: contextStatus.CompactionEnabled, WouldCompact: contextStatus.WouldCompact,
-				HasCompactionSummary: contextStatus.HasCompactionSummary,
-			}
+			snapshot.Context = mapContextView(contextStatus)
 			snapshot.HasContext = true
 		}
 		return liveLoadedMsg{
@@ -1022,12 +1052,23 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 func (l *Live) Send(text string) tea.Cmd {
 	l.mu.Lock()
 	thinking := l.thinkingMode
+	attachments := cloneAttachments(l.drafts[l.activeID])
 	l.mu.Unlock()
-	return l.send(text, thinking)
+	return l.sendWithAttachments(text, thinking, attachments, true)
 }
 
 func (l *Live) send(text, thinking string) tea.Cmd {
+	l.mu.Lock()
+	attachments := cloneAttachments(l.drafts[l.activeID])
+	l.mu.Unlock()
+	return l.sendWithAttachments(text, thinking, attachments, true)
+}
+
+func (l *Live) sendWithAttachments(text, thinking string, attachments []surface.Attachment, consumeDraft bool) tea.Cmd {
 	if strings.TrimSpace(text) == "" {
+		if len(attachments) > 0 {
+			return commandResultCmd("image", "", errors.New("text is required; image-only turns are not supported"))
+		}
 		return nil
 	}
 	l.mu.Lock()
@@ -1035,16 +1076,23 @@ func (l *Live) send(text, thinking string) tea.Cmd {
 		l.mu.Unlock()
 		return nil
 	}
+	sessionID := l.activeID
 	if l.busy || l.gate != nil {
-		l.queue = append(l.queue, queuedTurn{Text: text, Thinking: thinking})
+		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Attachments: cloneAttachments(attachments)})
+		if consumeDraft {
+			delete(l.drafts, sessionID)
+		}
 		l.mu.Unlock()
 		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
-	sessionID := l.activeID
+	if consumeDraft {
+		delete(l.drafts, sessionID)
+	}
 	l.appendLocked(surface.Message{
-		ID:      l.nextID("user"),
-		Role:    string(domain.RoleUser),
-		Content: text,
+		ID:          l.nextID("user"),
+		Role:        string(domain.RoleUser),
+		Content:     text,
+		Attachments: cloneAttachments(attachments),
 	})
 	l.busy = true
 	l.mu.Unlock()
@@ -1052,11 +1100,11 @@ func (l *Live) send(text, thinking string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		accepted, err := l.client.startTurn(ctx, sessionID, text, l.face, thinking)
+		accepted, err := l.client.startTurnWithAttachments(ctx, sessionID, text, l.face, thinking, attachments)
 		if err != nil {
-			return liveTurnStartedMsg{UserText: text, Err: err}
+			return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), Err: err}
 		}
-		return liveTurnStartedMsg{UserText: text, RunID: accepted.RunID}
+		return liveTurnStartedMsg{SessionID: sessionID, UserText: text, RunID: accepted.RunID, Attachments: cloneAttachments(attachments)}
 	}
 }
 
@@ -1238,6 +1286,8 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 			return cmd
 		}
 		return commandResultCmd(name, "", errors.New("permission change is unavailable"))
+	case "image":
+		return l.executeImageCommand(args)
 	case "compact":
 		sessionID, ok := l.commandSessionID()
 		if !ok {
@@ -1309,6 +1359,85 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	default:
 		return commandResultCmd(name, "", fmt.Errorf("/%s is handled by the shared view or is unavailable", name))
 	}
+}
+
+func (l *Live) executeImageCommand(args []string) tea.Cmd {
+	if len(args) == 1 && strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
+		l.mu.Lock()
+		count := len(l.drafts[l.activeID])
+		delete(l.drafts, l.activeID)
+		l.mu.Unlock()
+		if count == 0 {
+			return commandResultCmd("image", "no pending image attachments", nil)
+		}
+		return commandResultCmd("image", fmt.Sprintf("cleared %d pending image attachment(s)", count), nil)
+	}
+	if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "remove") {
+		index, err := strconv.Atoi(strings.TrimSpace(args[1]))
+		if err != nil || index < 1 {
+			return commandResultCmd("image", "", errors.New("image remove index must be a positive number"))
+		}
+		l.mu.Lock()
+		pending := l.drafts[l.activeID]
+		if index > len(pending) {
+			l.mu.Unlock()
+			return commandResultCmd("image", "", fmt.Errorf("image attachment %d is not pending", index))
+		}
+		pending = append(pending[:index-1], pending[index:]...)
+		if len(pending) == 0 {
+			delete(l.drafts, l.activeID)
+		} else {
+			l.drafts[l.activeID] = pending
+		}
+		l.mu.Unlock()
+		return commandResultCmd("image", fmt.Sprintf("removed pending image attachment %d", index), nil)
+	}
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return commandResultCmd("image", "", errors.New("usage: /image <relative-path> | /image remove <index> | /image clear"))
+	}
+	l.mu.Lock()
+	sessionID := l.activeID
+	contextKnown := l.sidebar.HasContext && l.sidebar.Context.ImageSupportKnown
+	imageSupported := contextKnown && l.sidebar.Context.ImageSupported
+	l.mu.Unlock()
+	if sessionID == "" {
+		return commandResultCmd("image", "", errors.New("no active session"))
+	}
+	if !contextKnown {
+		return commandResultCmd("image", "", errors.New("image attachments are unavailable until model image support is known"))
+	}
+	if !imageSupported {
+		return commandResultCmd("image", "", errors.New("the active model does not support image attachments"))
+	}
+	path := args[0]
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		attachments, err := l.client.resolveAttachments(ctx, []string{path})
+		return liveAttachmentResolvedMsg{SessionID: sessionID, Attachments: attachments, Err: err}
+	}
+}
+
+func (l *Live) applyAttachmentResolved(msg liveAttachmentResolvedMsg) tea.Cmd {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if msg.Err != nil {
+		l.lastErr = shortErr(msg.Err)
+		return nil
+	}
+	if msg.SessionID == "" || msg.SessionID != l.activeID {
+		return nil
+	}
+	if l.drafts == nil {
+		l.drafts = make(map[string][]surface.Attachment)
+	}
+	if len(l.drafts[msg.SessionID])+len(msg.Attachments) > 4 {
+		l.lastErr = "at most 4 image attachments are allowed per message"
+		return nil
+	}
+	l.drafts[msg.SessionID] = append(l.drafts[msg.SessionID], cloneAttachments(msg.Attachments)...)
+	l.lastErr = ""
+	return nil
 }
 
 func commandMutates(name string) bool {
@@ -1392,11 +1521,21 @@ func mapHistory(msgs []messageView) []surface.Message {
 	out := make([]surface.Message, 0, len(msgs))
 	for _, m := range msgs {
 		out = append(out, surface.Message{
-			ID:      m.ID,
-			Role:    m.Role,
-			Content: m.Content,
+			ID:          m.ID,
+			Role:        m.Role,
+			Content:     m.Content,
+			Attachments: cloneAttachments(m.Attachments),
 		})
 	}
+	return out
+}
+
+func cloneAttachments(in []surface.Attachment) []surface.Attachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]surface.Attachment, len(in))
+	copy(out, in)
 	return out
 }
 

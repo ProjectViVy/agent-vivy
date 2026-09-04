@@ -33,6 +33,8 @@ type Context struct {
 	TotalMessages        int  `json:"total_messages"`
 	FeedMessages         int  `json:"feed_messages"`
 	ThinkingSupported    bool `json:"thinking_supported"`
+	ImageSupportKnown    bool `json:"image_support_known"`
+	ImageSupported       bool `json:"image_supported"`
 	CompactionEnabled    bool `json:"compaction_enabled"`
 	WouldCompact         bool `json:"would_compact"`
 	HasCompactionSummary bool `json:"has_compaction_summary"`
@@ -56,6 +58,17 @@ type ToolCard struct {
 	ApprovalID string
 }
 
+// Attachment is safe, terminal-facing metadata for one pending or persisted
+// image. Raw image bytes deliberately never cross the TUI surface: the
+// control plane resolves project-relative paths and the server owns the
+// durable binary attachment.
+type Attachment struct {
+	Path     string `json:"path,omitempty"`
+	Name     string `json:"name,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+}
+
 // Message is one chat bubble or tool card.
 type Message struct {
 	ID      string
@@ -65,6 +78,9 @@ type Message struct {
 	// Streaming marks an in-progress assistant bubble (live tail cursor).
 	Streaming bool
 	Reasoning bool
+	// Attachments retains image metadata for history and compact rendering;
+	// data is never included in a surface message.
+	Attachments []Attachment
 }
 
 // Gate is the modal approval / question overlay.
@@ -142,6 +158,14 @@ type SidebarProvider interface {
 type ThinkingController interface {
 	ThinkingMode() string
 	SetThinkingMode(mode string) error
+}
+
+// AttachmentProvider supplies the pending draft images owned by the active
+// session. It is optional so offline/demo drivers can keep the base surface
+// small; the shared renderer only shows chips when the driver has an
+// authoritative provider.
+type AttachmentProvider interface {
+	PendingAttachments() []Attachment
 }
 
 // SessionController supplies the independent Sessions dialog actions. The

@@ -204,6 +204,84 @@ func TestLiveNewSessionLoadsThinkingCapability(t *testing.T) {
 	}
 }
 
+func TestPackedFaceImageCommandRoutesAndSendsRelativePath(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["attachments/resolve"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"attachments": []map[string]any{{"path": "assets/photo.png", "name": "photo.png", "mime_type": "image/png", "size": 8}}}, nil
+	}
+	env.script["turn/start"] = baseScript()["turn/start"]
+	env.script["run/subscribe"] = baseScript()["run/subscribe"]
+	live := NewLive(newClient(env), LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.sidebar = surface.Sidebar{HasContext: true, Context: surface.Context{ImageSupportKnown: true, ImageSupported: true}}
+	live.mu.Unlock()
+	resolved := mustMsg[liveAttachmentResolvedMsg](t, live.ExecuteCommand("image", []string{"assets/photo.png"}))
+	if resolved.Err != nil {
+		t.Fatal(resolved.Err)
+	}
+	live.Handle(resolved)
+	if pending := live.PendingAttachments(); len(pending) != 1 || pending[0].Name != "photo.png" {
+		t.Fatalf("pending image = %+v", pending)
+	}
+	started := mustMsg[liveTurnStartedMsg](t, live.Send("describe"))
+	if started.Err != nil {
+		t.Fatal(started.Err)
+	}
+	var params struct {
+		AttachmentPaths []string `json:"attachment_paths"`
+	}
+	env.mu.Lock()
+	raw := append([]byte(nil), env.params["turn/start"]...)
+	env.mu.Unlock()
+	if err := json.Unmarshal(raw, &params); err != nil {
+		t.Fatal(err)
+	}
+	if len(params.AttachmentPaths) != 1 || params.AttachmentPaths[0] != "assets/photo.png" {
+		t.Fatalf("packed turn/start paths = %v", params.AttachmentPaths)
+	}
+}
+
+func TestPackedFaceQueuedImageSendPreservesLaterDraft(t *testing.T) {
+	var gotPaths []string
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			AttachmentPaths []string `json:"attachment_paths"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		gotPaths = append([]string(nil), params.AttachmentPaths...)
+		return map[string]string{"run_id": "run_queued_image", "status": "accepted"}, nil
+	}
+	live := NewLive(newClient(env), LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.busy = true
+	live.drafts = map[string][]surface.Attachment{"sess_1": {{Path: "a.png", Name: "a.png", MimeType: "image/png"}}}
+	live.mu.Unlock()
+
+	_ = live.Send("queued with A")
+	live.mu.Lock()
+	live.drafts["sess_1"] = []surface.Attachment{{Path: "b.png", Name: "b.png", MimeType: "image/png"}}
+	live.busy = false
+	live.mu.Unlock()
+
+	started := mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
+	if started.Err != nil {
+		t.Fatal(started.Err)
+	}
+	if len(gotPaths) != 1 || gotPaths[0] != "a.png" {
+		t.Fatalf("queued attachment paths = %v, want A snapshot", gotPaths)
+	}
+	if pending := live.PendingAttachments(); len(pending) != 1 || pending[0].Name != "b.png" {
+		t.Fatalf("dequeue cleared later draft: %+v", pending)
+	}
+}
+
 func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
 	var got []string
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}

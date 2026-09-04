@@ -74,7 +74,10 @@ type Options struct {
 
 func (o Options) normalized() Options {
 	if o.MaxFrameBytes <= 0 {
-		o.MaxFrameBytes = 1 << 20
+		// Four 5 MiB inline images expand to roughly 26.7 MiB as base64,
+		// plus the JSON envelope. Keep the transport contract large enough
+		// for the handler's documented attachment limit while remaining bounded.
+		o.MaxFrameBytes = 32 << 20
 	}
 	if o.OutgoingBuffer <= 0 {
 		o.OutgoingBuffer = 64

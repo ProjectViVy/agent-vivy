@@ -102,6 +102,20 @@ func TestCommandExecutorReceivesParsedUnicodeArguments(t *testing.T) {
 	}
 }
 
+func TestImageCommandStaysLocalAndCarriesRelativePath(t *testing.T) {
+	d := &commandDriver{testDriver: &testDriver{}}
+	m := New(d)
+	m.input = `/image assets/photo.png`
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_ = updated.(Model)
+	if cmd == nil || d.commandName != "image" || strings.Join(d.commandArgs, "|") != "assets/photo.png" {
+		t.Fatalf("image command route = %q %q cmd=%v", d.commandName, strings.Join(d.commandArgs, "|"), cmd != nil)
+	}
+	if d.sent != "" {
+		t.Fatalf("image command leaked to model text: %q", d.sent)
+	}
+}
+
 func TestMCPResourceCommandsUseSharedExecutorAndNeverSendModelText(t *testing.T) {
 	for _, tc := range []struct {
 		input string

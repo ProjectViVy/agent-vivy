@@ -186,6 +186,12 @@ func renderMessage(message surface.Message, width int, p Palette) []string {
 		style = p.User
 	}
 	text := message.Content
+	if chips := renderAttachmentChips(message.Attachments); chips != "" {
+		if text != "" {
+			text += "\n"
+		}
+		text += chips
+	}
 	if message.Streaming {
 		text += "▌"
 	}
@@ -267,7 +273,34 @@ func (m Model) renderEditor(width int, p Palette) string {
 		cursor = ""
 	}
 	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
-	return p.Editor.Width(width).Render(rule + "\n" + truncate(prompt+display+cursor, width))
+	lines := []string{rule}
+	if provider, ok := m.driver.(surface.AttachmentProvider); ok {
+		if chips := renderAttachmentChips(provider.PendingAttachments()); chips != "" {
+			lines = append(lines, p.Dim.Render(truncate(chips, width)))
+		}
+	}
+	lines = append(lines, truncate(prompt+display+cursor, width))
+	return p.Editor.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+// renderAttachmentChips is metadata-only presentation. In particular, it
+// never renders a data URL or any binary payload into the terminal.
+func renderAttachmentChips(attachments []surface.Attachment) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			name = strings.TrimSpace(attachment.Path)
+		}
+		if name == "" {
+			name = "image"
+		}
+		parts = append(parts, "[image: "+name+"]")
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m Model) renderHelp(l layout, p Palette) string {

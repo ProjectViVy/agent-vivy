@@ -2,12 +2,20 @@ package rpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
 	"testing"
 	"time"
 )
+
+func TestDefaultFrameLimitCarriesMaximumInlineAttachmentEnvelope(t *testing.T) {
+	wantMinimum := base64.StdEncoding.EncodedLen(maxAttachmentCount*maxAttachmentBytes) + (64 << 10)
+	if got := (Options{}).normalized().MaxFrameBytes; got < wantMinimum {
+		t.Fatalf("default frame limit = %d, need at least %d for attachment contract", got, wantMinimum)
+	}
+}
 
 func startPeerPair(t *testing.T, serverHandler Handler, clientHandler Handler) (*Peer, *Peer, context.CancelFunc) {
 	t.Helper()

@@ -174,6 +174,21 @@ func TestSidebarDoesNotRenderSessionCollection(t *testing.T) {
 	}
 }
 
+func TestImageHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
+	lines := renderMessage(surface.Message{
+		Role:        surface.RoleUser,
+		Content:     "look",
+		Attachments: []surface.Attachment{{Name: "photo.png", MimeType: "image/png", Size: 42}},
+	}, 80, DefaultPalette())
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "look") || !strings.Contains(joined, "[image: photo.png]") {
+		t.Fatalf("attachment chip missing: %s", joined)
+	}
+	if strings.Contains(joined, "data:") || strings.Contains(joined, "base64") {
+		t.Fatalf("history rendered raw attachment payload: %s", joined)
+	}
+}
+
 func TestSessionsDialogRefreshesFiltersAndSelects(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current"}, {ID: "other", Title: "Other task"}},

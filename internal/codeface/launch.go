@@ -44,6 +44,18 @@ func Prepare(cfg config.Config, projectDir string) (Prepared, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return Prepared{}, fmt.Errorf("vivy-code: project is not a directory")
 	}
+	// Keep the code face's local-world root canonical even when the caller
+	// reached it through a symlink/junction in a parent component. The root
+	// itself remains rejected as a symlink, preserving the explicit project
+	// boundary while making downstream containment comparisons physical.
+	projectRoot, err = filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("vivy-code: canonicalize project: %w", err)
+	}
+	projectRoot, err = filepath.Abs(projectRoot)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("vivy-code: resolve canonical project: %w", err)
+	}
 
 	sharedRoot := cfg.DataDirectory()
 	sharedSettingsPath := settings.Path(sharedRoot)
@@ -93,5 +105,6 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 		tui.NewFace,
 		plugin.FaceOptions{Out: out, Err: errOut},
 		app.WithSettingsPath(prepared.SharedSettingsPath),
+		app.WithCodeProjectRoot(prepared.Config.Runtime.WorkspaceRoot),
 	)
 }

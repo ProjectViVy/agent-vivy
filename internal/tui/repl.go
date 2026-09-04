@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tui/surface"
 	"agent-vivy/sdk/tui/command"
 )
 
@@ -105,6 +107,9 @@ type repl struct {
 	// mutations. The captured session id is an epoch guard: if the operator
 	// changes sessions before confirming, the RPC is refused.
 	pendingMutation *pendingMutationCommand
+	// attachments are metadata-only project image drafts for this session.
+	// The bytes remain server-owned until turn/start resolves the paths.
+	attachments []surface.Attachment
 
 	events chan eventNotice
 }
@@ -157,7 +162,11 @@ func (r *repl) promptLocked() string {
 	if r.busy {
 		return "… "
 	}
-	return "you> "
+	prompt := "you> "
+	if chips := formatREPLAttachments(r.attachments); chips != "" {
+		prompt += chips + " "
+	}
+	return prompt
 }
 
 func (r *repl) handleLine(ctx context.Context, line string) error {
@@ -300,6 +309,7 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		}
 		r.mu.Lock()
 		r.session = session
+		r.attachments = nil
 		r.mu.Unlock()
 		fmt.Fprintf(r.out, "session %s\n", session.ID)
 		return nil
@@ -338,6 +348,7 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		}
 		r.mu.Lock()
 		r.session = sessionView{ID: id}
+		r.attachments = nil
 		r.mu.Unlock()
 		fmt.Fprint(r.out, formatHistory(messages))
 		fmt.Fprintf(r.out, "session %s\n", id)
@@ -478,6 +489,8 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		r.mu.Unlock()
 		fmt.Fprintf(r.out, "next turn thinking: %s\n", mode)
 		return nil
+	case "image":
+		return r.handleImageCommand(ctx, args)
 	case "compact":
 		if busy {
 			fmt.Fprintln(r.out, "(wait for the current run, or /cancel)")
@@ -598,6 +611,99 @@ func (r *repl) printCommandRPC(ctx context.Context, name, method string, params 
 	return nil
 }
 
+func (r *repl) handleImageCommand(ctx context.Context, args []string) error {
+	if len(args) == 1 && strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
+		r.mu.Lock()
+		count := len(r.attachments)
+		r.attachments = nil
+		r.mu.Unlock()
+		if count == 0 {
+			fmt.Fprintln(r.out, "no pending image attachments")
+		} else {
+			fmt.Fprintf(r.out, "cleared %d pending image attachment(s)\n", count)
+		}
+		return nil
+	}
+	if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "remove") {
+		index, err := strconv.Atoi(strings.TrimSpace(args[1]))
+		if err != nil || index < 1 {
+			fmt.Fprintln(r.out, "image remove index must be a positive number")
+			return nil
+		}
+		r.mu.Lock()
+		if index > len(r.attachments) {
+			r.mu.Unlock()
+			fmt.Fprintf(r.out, "image attachment %d is not pending\n", index)
+			return nil
+		}
+		r.attachments = append(r.attachments[:index-1], r.attachments[index:]...)
+		r.mu.Unlock()
+		fmt.Fprintf(r.out, "removed pending image attachment %d\n", index)
+		return nil
+	}
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		fmt.Fprintln(r.out, "usage: /image <relative-path> | /image remove <index> | /image clear")
+		return nil
+	}
+	r.mu.Lock()
+	sessionID := r.session.ID
+	currentCount := len(r.attachments)
+	r.mu.Unlock()
+	if sessionID == "" {
+		fmt.Fprintln(r.out, "image: no active session")
+		return nil
+	}
+	if currentCount >= 4 {
+		fmt.Fprintln(r.out, "image: at most 4 image attachments are allowed per message")
+		return nil
+	}
+	status, err := r.client.sessionContext(ctx, sessionID)
+	if err != nil {
+		fmt.Fprintf(r.out, "image: capability check failed: %v\n", err)
+		return nil
+	}
+	if !status.ImageSupportKnown {
+		fmt.Fprintln(r.out, "image: unavailable until model image support is known")
+		return nil
+	}
+	if !status.ImageSupported {
+		fmt.Fprintln(r.out, "image: the active model does not support image attachments")
+		return nil
+	}
+	attachments, err := r.client.resolveAttachments(ctx, []string{args[0]})
+	if err != nil {
+		fmt.Fprintf(r.out, "image: %v\n", err)
+		return nil
+	}
+	if len(attachments) != 1 {
+		fmt.Fprintln(r.out, "image: resolver returned no attachment")
+		return nil
+	}
+	r.mu.Lock()
+	r.attachments = append(r.attachments, attachments[0])
+	r.mu.Unlock()
+	fmt.Fprintf(r.out, "attached %s\n", formatREPLAttachments(attachments))
+	return nil
+}
+
+func formatREPLAttachments(attachments []surface.Attachment) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			name = strings.TrimSpace(attachment.Path)
+		}
+		if name == "" {
+			name = "image"
+		}
+		parts = append(parts, "[image: "+name+"]")
+	}
+	return strings.Join(parts, " ")
+}
+
 func (r *repl) handleDeleteConfirmation(ctx context.Context, id, line string) error {
 	decision, ok := parseApproval(line)
 	if !ok {
@@ -633,6 +739,7 @@ func (r *repl) handleDeleteConfirmation(ctx context.Context, id, line string) er
 	}
 	r.mu.Lock()
 	r.session = session
+	r.attachments = nil
 	r.mu.Unlock()
 	fmt.Fprintf(r.out, "session %s\n", session.ID)
 	return nil
@@ -714,6 +821,7 @@ func (r *repl) handleMutationConfirmation(ctx context.Context, pending *pendingM
 		}
 		r.mu.Lock()
 		r.session = session
+		r.attachments = nil
 		r.mu.Unlock()
 		fmt.Fprint(r.out, formatHistory(messages))
 		fmt.Fprintf(r.out, "session %s\n", session.ID)
@@ -796,6 +904,7 @@ func (r *repl) sendTurn(ctx context.Context, text string) error {
 	r.mu.Lock()
 	thinking := normalizeREPLThinking(r.thinkingMode)
 	sessionID := r.session.ID
+	attachments := append([]surface.Attachment(nil), r.attachments...)
 	r.mu.Unlock()
 	if thinking == "on" {
 		contextStatus, err := r.client.sessionContext(ctx, sessionID)
@@ -813,13 +922,19 @@ func (r *repl) sendTurn(ctx context.Context, text string) error {
 			fmt.Fprintln(r.out, "thinking: active model no longer supports on; using auto")
 		}
 	}
-	accepted, err := r.client.startTurn(ctx, sessionID, text, "code", thinking)
+	accepted, err := r.client.startTurnWithAttachments(ctx, sessionID, text, "code", thinking, attachments)
 	if err != nil {
 		fmt.Fprintf(r.out, "turn: %v\n", err)
 		return nil
 	}
+	// turn/start is the ownership boundary: the server has accepted and
+	// persisted this turn. Never retain the same image draft merely because
+	// the follow-up subscription failed, or a retry would duplicate it.
+	r.mu.Lock()
+	r.attachments = nil
+	r.mu.Unlock()
 	if err := r.client.subscribe(ctx, accepted.RunID, 0); err != nil {
-		fmt.Fprintf(r.out, "subscribe: %v\n", err)
+		fmt.Fprintf(r.out, "turn accepted as %s; subscribe: %v\n", accepted.RunID, err)
 		return nil
 	}
 	r.mu.Lock()

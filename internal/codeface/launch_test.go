@@ -2,6 +2,7 @@ package codeface
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -39,6 +40,32 @@ func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 	projectAbs, _ := filepath.Abs(project)
 	if first.Config.Runtime.World != "local" || first.Config.Runtime.WorkspaceRoot != projectAbs {
 		t.Fatalf("local world = %+v", first.Config.Runtime)
+	}
+}
+
+func TestPrepareCanonicalizesProjectReachedThroughLinkedParent(t *testing.T) {
+	realParent := t.TempDir()
+	realProject := filepath.Join(realParent, "project")
+	if err := os.Mkdir(realProject, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkBase := t.TempDir()
+	linkedParent := filepath.Join(linkBase, "linked-parent")
+	if err := os.Symlink(realParent, linkedParent); err != nil {
+		t.Skipf("directory symlink creation unavailable: %v", err)
+	}
+
+	prepared, err := Prepare(config.Default(), filepath.Join(linkedParent, "project"))
+	if err != nil {
+		t.Fatalf("prepare linked parent: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(realProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ = filepath.Abs(want)
+	if prepared.Config.Runtime.WorkspaceRoot != want {
+		t.Fatalf("project root = %q, want canonical %q", prepared.Config.Runtime.WorkspaceRoot, want)
 	}
 }
 

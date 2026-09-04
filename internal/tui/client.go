@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/internal/tui/surface"
 	"agent-vivy/sdk/plugin"
 )
 
@@ -78,6 +79,26 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 		return nil, fmt.Errorf("tui: client is not connected")
 	}
 	return c.peer.Call(ctx, method, params)
+}
+
+// resolveAttachments asks the control plane to validate and describe
+// project-relative image paths. The response is metadata only; raw bytes stay
+// server-side until turn/start resolves the same paths into domain.Attachments.
+func (c *Client) resolveAttachments(ctx context.Context, paths []string) ([]surface.Attachment, error) {
+	raw, err := c.Call(ctx, "attachments/resolve", map[string]any{"attachment_paths": append([]string(nil), paths...)})
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Attachments []surface.Attachment `json:"attachments"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("tui: attachments/resolve: %w", err)
+	}
+	if len(envelope.Attachments) != len(paths) {
+		return nil, fmt.Errorf("tui: attachments/resolve returned %d attachments, want %d", len(envelope.Attachments), len(paths))
+	}
+	return envelope.Attachments, nil
 }
 
 // Close tears down the peer transport.
