@@ -46,9 +46,11 @@ type Live struct {
 	queue   []queuedTurn
 	// drafts is keyed by session id so switching/new sessions cannot carry
 	// unsent image chips into another conversation.
-	drafts          map[string][]surface.Attachment
-	thinkingMode    string
-	commandInFlight bool
+	drafts           map[string][]surface.Attachment
+	thinkingMode     string
+	commandInFlight  bool
+	completionReq    uint64
+	completionCancel context.CancelFunc
 
 	seq int
 	// cursor is the shared durable stream reducer state. The local fields
@@ -140,7 +142,12 @@ func (l *Live) Close() {
 	l.subscriptionRequest++
 	subscriptionID := l.subscriptionID
 	l.subscriptionID = ""
+	completionCancel := l.completionCancel
+	l.completionCancel = nil
 	l.mu.Unlock()
+	if completionCancel != nil {
+		completionCancel()
+	}
 	if subscriptionID != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		l.unsubscribeWithRetry(ctx, subscriptionID)
@@ -469,7 +476,7 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 func restoreFileInputCmd(text string, paths []string) tea.Cmd {
 	retry := strings.TrimSpace(text)
 	for _, path := range paths {
-		retry += " @" + path
+		retry += " " + command.FormatFileReference(path)
 	}
 	return func() tea.Msg { return surface.RestoreInputMsg{Text: retry} }
 }
@@ -1401,6 +1408,37 @@ func (l *Live) SendWithContext(text string, paths []string) tea.Cmd {
 	return l.sendWithAttachmentsAndContext(text, thinking, attachments, paths, true)
 }
 
+// CompleteProjectFiles implements surface.ProjectFileCompleter using only the
+// control-plane project-context catalog. Query filtering happens server-side
+// before the result cap, and the shared view applies the same filter again to
+// treat every returned path as untrusted metadata.
+func (l *Live) CompleteProjectFiles(request uint64, query string) tea.Cmd {
+	return func() tea.Msg {
+		if !l.SupportsCapability("project-context.list") {
+			return surface.ProjectFilesMsg{Request: request, Query: query, Err: errors.New("project file completion is unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		l.mu.Lock()
+		previous := l.completionCancel
+		l.completionReq = request
+		l.completionCancel = cancel
+		l.mu.Unlock()
+		if previous != nil {
+			previous()
+		}
+		defer func() {
+			cancel()
+			l.mu.Lock()
+			if l.completionReq == request {
+				l.completionCancel = nil
+			}
+			l.mu.Unlock()
+		}()
+		files, truncated, err := l.client.listProjectContext(ctx, query)
+		return surface.ProjectFilesMsg{Request: request, Query: query, Files: files, Truncated: truncated, Err: err}
+	}
+}
+
 func (l *Live) send(text, thinking string) tea.Cmd {
 	l.mu.Lock()
 	attachments := cloneAttachments(l.drafts[l.activeID])
@@ -2009,4 +2047,5 @@ func shortErr(err error) string {
 var _ surface.Driver = (*Live)(nil)
 var _ surface.CommandExecutor = (*Live)(nil)
 var _ surface.ContextSender = (*Live)(nil)
+var _ surface.ProjectFileCompleter = (*Live)(nil)
 var _ surface.ShellExecutor = (*Live)(nil)

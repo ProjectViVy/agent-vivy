@@ -162,6 +162,8 @@ func Parse(input string) (Result, error) {
 // text. A marker is recognized only at the beginning of the trimmed input or
 // immediately after Unicode whitespace; this prevents email addresses and
 // ordinary prose from becoming filesystem requests. @@ escapes one marker.
+// Quoted references (for example @"docs/design notes.md") and backslash
+// escapes make every server-listed project path representable in the editor.
 // The returned Text keeps all non-reference text except for removed markers.
 // The control plane remains authoritative and resolves ContextPaths again at
 // turn/start time.
@@ -183,21 +185,87 @@ func parseFileReferences(input string) (Result, error) {
 			i += 2
 			continue
 		}
-		start := i + 1
-		end := start
-		for end < len(runes) && !unicode.IsSpace(runes[end]) {
-			end++
+		path, end, err := parseFileReferenceToken(runes, i+1)
+		if err != nil {
+			return Result{}, err
 		}
-		if end == start {
+		if path == "" {
 			return Result{}, &SyntaxError{Offset: i, Message: "file path is required after @"}
 		}
-		paths = append(paths, string(runes[start:end]))
+		if end < len(runes) && !unicode.IsSpace(runes[end]) {
+			return Result{}, &SyntaxError{Offset: end, Message: "file reference must end before text"}
+		}
+		paths = append(paths, path)
 		i = end
 	}
 	if len(paths) == 0 {
 		return Result{Kind: Plain, Text: input}, nil
 	}
 	return Result{Kind: File, Text: string(out), ContextPaths: paths}, nil
+}
+
+// FormatFileReference returns one parser-safe @ reference. Simple paths stay
+// compact; paths containing whitespace, quotes, or backslashes use the same
+// double-quoted escape grammar accepted by Parse.
+func FormatFileReference(path string) string {
+	needsQuote := strings.HasPrefix(path, "@") || strings.HasPrefix(path, "'")
+	for _, r := range path {
+		if unicode.IsSpace(r) || r == '\\' || r == '"' {
+			needsQuote = true
+			break
+		}
+	}
+	if !needsQuote {
+		return "@" + path
+	}
+	escaped := strings.ReplaceAll(path, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	return "@\"" + escaped + "\""
+}
+
+func parseFileReferenceToken(input []rune, start int) (string, int, error) {
+	if start >= len(input) || unicode.IsSpace(input[start]) {
+		return "", start, nil
+	}
+	var path []rune
+	quote := rune(0)
+	i := start
+	if input[i] == '\'' || input[i] == '"' {
+		quote = input[i]
+		i++
+	}
+	for i < len(input) {
+		r := input[i]
+		if quote != 0 {
+			if r == quote {
+				return string(path), i + 1, nil
+			}
+		} else if unicode.IsSpace(r) {
+			return string(path), i, nil
+		}
+		if r == '\\' {
+			if i+1 >= len(input) {
+				return "", i, &SyntaxError{Offset: i, Message: "trailing escape in file path"}
+			}
+			next := input[i+1]
+			if unicode.IsSpace(next) || next == '\\' || next == '\'' || next == '"' {
+				path = append(path, next)
+				i += 2
+				continue
+			}
+			// The control plane canonicalizes Windows separators to '/'. Make
+			// hand-entered Windows paths behave the same as listed candidates.
+			path = append(path, '/')
+			i++
+			continue
+		}
+		path = append(path, r)
+		i++
+	}
+	if quote != 0 {
+		return "", i, &SyntaxError{Offset: i, Message: "unterminated file path quote"}
+	}
+	return string(path), i, nil
 }
 
 // ParseLine is an explicit alias for callers whose input is line-oriented.
@@ -458,7 +526,7 @@ func (r Registry) HelpFor(shellSupported bool) string {
 	if shellSupported {
 		b.WriteString("  !<script>              run a governed foreground shell command in the workspace\n")
 	}
-	b.WriteString("  @path                   add project file context\n")
+	b.WriteString("  @path / @\"path with spaces\" add project file context\n")
 	b.WriteString("  !! / @@                 send a literal marker\n")
 	return b.String()
 }

@@ -23,6 +23,8 @@ const (
 	maxProjectContextCount = 8
 	maxProjectContextTotal = 4 << 20
 	maxProjectContextList  = 200
+	maxProjectContextWalk  = 4000
+	projectContextProbe    = 8 << 10
 )
 
 type projectContext struct {
@@ -44,6 +46,7 @@ type projectContextPathsParams struct {
 
 type projectContextListParams struct {
 	Prefix string `json:"prefix,omitempty"`
+	Query  string `json:"query,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 }
 
@@ -115,7 +118,7 @@ func (h *controlHandler) listProjectContext(request Request) (any, *Error) {
 	if limit <= 0 || limit > maxProjectContextList {
 		limit = maxProjectContextList
 	}
-	contexts, truncated, err := listProjectContexts(h.deps.ProjectRoot, params.Prefix, limit)
+	contexts, truncated, err := listProjectContexts(h.deps.ProjectRoot, params.Prefix, params.Query, limit)
 	if err != nil {
 		message := "project context listing failed"
 		if errors.Is(err, errProjectContextListPrefix) {
@@ -411,12 +414,12 @@ func safeProjectContextName(name string) string {
 	return name
 }
 
-func listProjectContexts(root, prefix string, limit int) ([]projectContext, bool, error) {
+func listProjectContexts(root, prefix, query string, limit int) ([]projectContext, bool, error) {
 	_, rootReal, rootHandle, err := openProjectContextRoot(root)
 	if err != nil {
 		return nil, false, err
 	}
-	_ = rootHandle.Close()
+	defer rootHandle.Close()
 	cleanPrefix := ""
 	if strings.TrimSpace(prefix) != "" {
 		cleanPrefix, err = cleanProjectContextPath(prefix)
@@ -428,8 +431,12 @@ func listProjectContexts(root, prefix string, limit int) ([]projectContext, bool
 			return nil, false, errProjectContextListPrefix
 		}
 	}
+	cleanQuery, err := cleanProjectContextListQuery(query)
+	if err != nil {
+		return nil, false, errProjectContextListPrefix
+	}
 	items := make([]projectContext, 0, min(limit, 32))
-	total := 0
+	visited := 0
 	truncated := false
 	walkErr := filepath.WalkDir(rootReal, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -448,6 +455,13 @@ func listProjectContexts(root, prefix string, limit int) ([]projectContext, bool
 				return nil
 			}
 		}
+		if path != rootReal {
+			visited++
+			if visited > maxProjectContextWalk {
+				truncated = true
+				return fs.SkipAll
+			}
+		}
 		if entry.Type()&fs.ModeSymlink != 0 {
 			if entry.IsDir() {
 				return fs.SkipDir
@@ -464,27 +478,40 @@ func listProjectContexts(root, prefix string, limit int) ([]projectContext, bool
 			}
 			return nil
 		}
-		if len(items) >= limit {
-			truncated = true
-			return fs.SkipAll
-		}
 		rel, relErr := filepath.Rel(rootReal, path)
 		if relErr != nil {
 			return relErr
 		}
-		resolved, resolveErr := resolveProjectContexts(root, []string{rel})
-		if resolveErr != nil {
-			// Listing is metadata discovery: unreadable, sensitive, binary,
-			// oversized, and escaping entries are omitted rather than making a
-			// whole directory unusable. Explicit resolve remains fail-closed.
+		canonical := filepath.ToSlash(rel)
+		cleanCanonical, cleanErr := cleanProjectContextPath(canonical)
+		if cleanErr != nil || filepath.ToSlash(cleanCanonical) != canonical || unsafeProjectContextTerminalPath(canonical) {
 			return nil
 		}
-		if total+len(resolved[0].Content) > maxProjectContextTotal {
+		if cleanQuery != "" && !strings.Contains(strings.ToLower(canonical), cleanQuery) {
+			return nil
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil || !info.Mode().IsRegular() || info.Size() > maxProjectContextBytes || sensitiveProjectContextPath(rel) {
+			return nil
+		}
+		file, openErr := rootHandle.Open(rel)
+		if openErr != nil {
+			return nil
+		}
+		probe := make([]byte, projectContextProbe)
+		n, readErr := file.Read(probe)
+		_ = file.Close()
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if !validProjectContextTextPrefix(probe[:n], info.Size() > int64(n)) {
+			return nil
+		}
+		if len(items) >= limit {
 			truncated = true
 			return fs.SkipAll
 		}
-		total += len(resolved[0].Content)
-		items = append(items, resolved[0])
+		items = append(items, projectContext{Path: canonical, Name: safeProjectContextName(filepath.Base(rel)), Size: info.Size()})
 		return nil
 	})
 	if walkErr != nil {
@@ -492,6 +519,55 @@ func listProjectContexts(root, prefix string, limit int) ([]projectContext, bool
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
 	return items, truncated, nil
+}
+
+func cleanProjectContextListQuery(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	if strings.IndexByte(raw, 0) >= 0 || filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" || strings.Contains(raw, ":") || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) {
+		return "", errProjectContextListPrefix
+	}
+	normalized := strings.ReplaceAll(raw, `\`, "/")
+	for _, part := range strings.Split(normalized, "/") {
+		if part == ".." {
+			return "", errProjectContextListPrefix
+		}
+	}
+	for _, r := range normalized {
+		if unicode.IsControl(r) || isProjectContextBidiControl(r) {
+			return "", errProjectContextListPrefix
+		}
+	}
+	if sensitiveProjectContextPath(normalized) {
+		return "", errProjectContextListPrefix
+	}
+	return strings.ToLower(strings.TrimPrefix(normalized, "./")), nil
+}
+
+func unsafeProjectContextTerminalPath(path string) bool {
+	for _, r := range path {
+		if unicode.IsControl(r) || isProjectContextBidiControl(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func isProjectContextBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+}
+
+func validProjectContextTextPrefix(data []byte, truncated bool) bool {
+	if !truncated {
+		return validProjectContextText(data)
+	}
+	for trim := 0; trim <= utf8.UTFMax && trim <= len(data); trim++ {
+		if validProjectContextText(data[:len(data)-trim]) {
+			return true
+		}
+	}
+	return false
 }
 
 func min(a, b int) int {

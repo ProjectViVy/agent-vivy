@@ -70,6 +70,9 @@ func TestParseShellAndFileInputs(t *testing.T) {
 		{"@README.md", "", []string{"README.md"}},
 		{"summarize @README.md please", "summarize  please", []string{"README.md"}},
 		{"@a.md @b.go inspect", "  inspect", []string{"a.md", "b.go"}},
+		{`summarize @"docs/design notes.md" now`, "summarize  now", []string{"docs/design notes.md"}},
+		{`inspect @'docs/Vivy\'s notes.md'`, "inspect ", []string{"docs/Vivy's notes.md"}},
+		{`inspect @docs/design\ notes.md`, "inspect ", []string{"docs/design notes.md"}},
 		{"email a@b.test", "email a@b.test", nil},
 		{"@@literal", "@literal", nil},
 	} {
@@ -92,6 +95,26 @@ func TestParseShellAndFileInputs(t *testing.T) {
 	}
 	if _, err := Parse("@"); err == nil {
 		t.Fatal("empty file path accepted")
+	}
+	if _, err := Parse(`inspect @"unterminated`); err == nil {
+		t.Fatal("unterminated file path quote accepted")
+	}
+	if _, err := Parse(`inspect @"one.md"suffix`); err == nil {
+		t.Fatal("quoted file path with adjacent suffix accepted")
+	}
+	for _, path := range []string{"README.md", "docs/design notes.md", `docs/a\"b.md`, `dir/a\\b.md`, "@mention.md", "'quote.md"} {
+		got, err := Parse("inspect " + FormatFileReference(path))
+		if err != nil || !reflect.DeepEqual(got.ContextPaths, []string{path}) {
+			t.Fatalf("FormatFileReference(%q) round trip = %+v, %v", path, got, err)
+		}
+	}
+	unicodeSpace := "docs/design\u2003notes.md"
+	if formatted := FormatFileReference(unicodeSpace); !strings.HasPrefix(formatted, `@"`) {
+		t.Fatalf("Unicode-space path was not quoted: %q", formatted)
+	}
+	windows, err := Parse(`inspect @src\main.go`)
+	if err != nil || !reflect.DeepEqual(windows.ContextPaths, []string{"src/main.go"}) {
+		t.Fatalf("Windows separator parse = %+v, %v", windows, err)
 	}
 }
 

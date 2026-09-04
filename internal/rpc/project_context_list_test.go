@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,7 @@ func TestListProjectContextsReturnsSafeTextMetadataOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	items, truncated, err := listProjectContexts(root, "", 20)
+	items, truncated, err := listProjectContexts(root, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,17 +42,21 @@ func TestListProjectContextsReturnsSafeTextMetadataOnly(t *testing.T) {
 		t.Fatalf("listed paths = %+v", items)
 	}
 	for _, item := range items {
-		if len(item.Content) == 0 || item.Size != int64(len(item.Content)) {
-			t.Fatalf("listed item body/size = %+v", item)
+		if len(item.Content) != 0 || item.Size <= 0 {
+			t.Fatalf("listed item leaked body or size = %+v", item)
 		}
 	}
-	one, truncated, err := listProjectContexts(root, "", 1)
+	one, truncated, err := listProjectContexts(root, "", "", 1)
 	if err != nil || len(one) != 1 || !truncated {
 		t.Fatalf("limited list = %+v, truncated=%v, err=%v", one, truncated, err)
 	}
-	nested, truncated, err := listProjectContexts(root, "src", 20)
+	nested, truncated, err := listProjectContexts(root, "src", "", 20)
 	if err != nil || truncated || len(nested) != 1 || nested[0].Path != "src/main.go" {
 		t.Fatalf("prefix list = %+v, truncated=%v, err=%v", nested, truncated, err)
+	}
+	matched, truncated, err := listProjectContexts(root, "", "main", 20)
+	if err != nil || truncated || len(matched) != 1 || matched[0].Path != "src/main.go" {
+		t.Fatalf("query list = %+v, truncated=%v, err=%v", matched, truncated, err)
 	}
 }
 
@@ -72,5 +78,27 @@ func TestProjectContextListErrorsDoNotLeakProjectRoot(t *testing.T) {
 	_, rpcErr = env.handler.Handle(context.Background(), nil, request)
 	if rpcErr == nil || rpcErr.Message != "invalid project context prefix" || strings.Contains(rpcErr.Message, root) {
 		t.Fatalf("prefix error = %+v", rpcErr)
+	}
+}
+
+func TestProjectContextListQueryFiltersBeforeLimitAndRejectsUnsafeQuery(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 220; i++ {
+		name := filepath.Join(root, fmt.Sprintf("file-%03d.txt", i))
+		if err := os.WriteFile(name, []byte("text"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "zz-target.txt"), []byte("target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	items, truncated, err := listProjectContexts(root, "", "target", 1)
+	if err != nil || truncated || len(items) != 1 || items[0].Path != "zz-target.txt" {
+		t.Fatalf("late query match = %+v, truncated=%v, err=%v", items, truncated, err)
+	}
+	for _, query := range []string{"../secret", `C:\\secret`, "bad\x1bpath", "bad\u202epath", "node_modules/token"} {
+		if _, _, err := listProjectContexts(root, "", query, 20); !errors.Is(err, errProjectContextListPrefix) {
+			t.Fatalf("unsafe query %q err=%v", query, err)
+		}
 	}
 }

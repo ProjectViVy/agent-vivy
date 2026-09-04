@@ -387,6 +387,33 @@ func TestPackedFaceFileContextResolvesThenRevalidatesAtTurnStart(t *testing.T) {
 	}
 }
 
+func TestPackedFaceProjectFileCompletionUsesMetadataQueryRPC(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["project-context/list"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		if params.Query != "docs/mai" || params.Limit != 200 {
+			return nil, fmt.Errorf("params = %+v", params)
+		}
+		return map[string]any{"contexts": []map[string]any{{"path": "docs/main.go", "name": "main.go", "size": 9}}, "truncated": false}, nil
+	}
+	client := newClient(env)
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["project-context.list"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	msg := mustMsg[surface.ProjectFilesMsg](t, live.CompleteProjectFiles(11, "docs/mai"))
+	if msg.Err != nil || msg.Request != 11 || len(msg.Files) != 1 || msg.Files[0].Path != "docs/main.go" {
+		t.Fatalf("packed completion = %+v", msg)
+	}
+}
+
 func TestPackedFaceShellUsesOnlyGovernedShellStart(t *testing.T) {
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
 	env.script["shell/start"] = func(raw json.RawMessage) (any, error) {
@@ -430,6 +457,15 @@ func TestPackedFaceFailedFileTurnRestoresRetryDraft(t *testing.T) {
 	msg, ok := cmd().(surface.RestoreInputMsg)
 	if !ok || msg.Text != "inspect @README.md" {
 		t.Fatalf("restore message = %#v", msg)
+	}
+}
+
+func TestPackedFaceFailedFileTurnRestoresQuotedPath(t *testing.T) {
+	live := &Live{activeID: "sess_1", messages: map[string][]surface.Message{"sess_1": {{Role: roleUser, Content: "inspect"}}}}
+	cmd := live.applyTurnStarted(liveTurnStartedMsg{SessionID: "sess_1", UserText: "inspect", ContextPaths: []string{"docs/design notes.md"}, Err: errors.New("resolve failed")})
+	msg := cmd().(surface.RestoreInputMsg)
+	if msg.Text != `inspect @"docs/design notes.md"` {
+		t.Fatalf("quoted restore message = %#v", msg)
 	}
 }
 

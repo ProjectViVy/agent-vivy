@@ -35,6 +35,9 @@ func (m Model) renderFrame() string {
 	if m.commandPaletteOpen {
 		return placeOverlay(frame, m.renderCommandPalette(l, p), l.width, l.height)
 	}
+	if m.fileCompletionOpen {
+		return placeOverlay(frame, m.renderFileCompletion(l, p), l.width, l.height)
+	}
 	if m.sessionsOpen {
 		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
 	}
@@ -42,6 +45,102 @@ func (m Model) renderFrame() string {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
 	}
 	return frame
+}
+
+func (m Model) renderFileCompletion(l layout, p Palette) string {
+	rows := m.filteredProjectFiles()
+	w := max(1, min(l.width-8, 72))
+	compact := l.height < 16
+	query := sanitizeFileCompletionText(m.fileCompletionQuery)
+	status := "@" + query
+	if m.fileCompletionLoading {
+		status += "  loading…"
+	} else if m.fileCompletionTruncated {
+		status += "  partial results"
+	}
+	lines := []string{p.DialogTitle.Render("Project files"), p.DialogFooter.Render(truncate(status, max(1, w-p.Dialog.GetHorizontalFrameSize())))}
+	if !compact {
+		lines = append(lines, "")
+	}
+	if m.fileCompletionError != "" {
+		lines = append(lines, p.ToolFail.Render(truncate(m.fileCompletionError, max(1, w-p.Dialog.GetHorizontalFrameSize()))))
+	} else if !m.fileCompletionLoading && len(rows) == 0 {
+		lines = append(lines, p.DialogFooter.Render("no matching project files"))
+	} else {
+		windowRows := max(1, l.height-10)
+		if compact {
+			windowRows = max(1, l.height-6)
+		}
+		cursor := min(max(0, m.fileCompletionCursor), max(0, len(rows)-1))
+		start := max(0, cursor-windowRows/2)
+		if start+windowRows > len(rows) {
+			start = max(0, len(rows)-windowRows)
+		}
+		end := min(len(rows), start+windowRows)
+		lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
+		for i := start; i < end; i++ {
+			marker := "  "
+			style := p.Idle
+			if i == cursor {
+				marker = "▸ "
+				style = p.Active
+			}
+			lines = append(lines, style.Render(truncate(marker+safeProjectFilePath(rows[i].Path), lineWidth)))
+		}
+	}
+	if !compact {
+		lines = append(lines, "")
+	}
+	footer := "↑/↓ move · enter/tab choose · esc close"
+	if compact {
+		footer = "↑/↓ · enter/tab · esc"
+	}
+	lines = append(lines, p.DialogFooter.Render(footer))
+	return p.Dialog.Width(w).Render(strings.Join(lines, "\n"))
+}
+
+const maxFileCompletionRunes = 512
+
+func sanitizeFileCompletionText(text string) string {
+	text = ansi.Strip(text)
+	clean := make([]rune, 0, min(len([]rune(text)), maxFileCompletionRunes))
+	for _, r := range text {
+		if unicode.IsControl(r) || isBidiControl(r) {
+			continue
+		}
+		clean = append(clean, r)
+		if len(clean) == maxFileCompletionRunes {
+			break
+		}
+	}
+	return string(clean)
+}
+
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+}
+
+func safeProjectFilePath(path string) string {
+	clean := sanitizeFileCompletionText(path)
+	if clean == "" || clean != path {
+		return ""
+	}
+	if strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, `\`) || strings.Contains(clean, `\`) || strings.Contains(clean, ":") || strings.HasSuffix(clean, "/") || strings.Contains(clean, "//") {
+		return ""
+	}
+	for _, part := range strings.Split(clean, "/") {
+		if part == "" || part == "." || part == ".." {
+			return ""
+		}
+	}
+	return clean
+}
+
+func shortCompletionError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return truncate(sanitizeFileCompletionText(err.Error()), 120)
 }
 
 func (m Model) renderCommandPalette(l layout, p Palette) string {
@@ -388,10 +487,11 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if gate != nil {
 		prompt = p.PromptWarn.Render(" ! ") + prompt
 	}
-	display := m.input
+	display := ansi.Strip(m.input)
 	if i := strings.LastIndex(display, "\n"); i >= 0 {
 		display = display[i+1:]
 	}
+	display = sanitizeFileCompletionText(display)
 	cursor := p.Dim.Render("█")
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
@@ -415,9 +515,9 @@ func renderAttachmentChips(attachments []surface.Attachment) string {
 	}
 	parts := make([]string, 0, len(attachments))
 	for _, attachment := range attachments {
-		name := strings.TrimSpace(attachment.Name)
+		name := strings.TrimSpace(sanitizeFileCompletionText(attachment.Name))
 		if name == "" {
-			name = strings.TrimSpace(attachment.Path)
+			name = strings.TrimSpace(sanitizeFileCompletionText(attachment.Path))
 		}
 		if name == "" {
 			name = "image"
@@ -436,9 +536,9 @@ func renderFileContextChips(contexts []surface.FileContext) string {
 	}
 	parts := make([]string, 0, len(contexts))
 	for _, context := range contexts {
-		name := strings.TrimSpace(context.Name)
+		name := strings.TrimSpace(sanitizeFileCompletionText(context.Name))
 		if name == "" {
-			name = strings.TrimSpace(context.Path)
+			name = strings.TrimSpace(sanitizeFileCompletionText(context.Path))
 		}
 		if name == "" {
 			name = "file"

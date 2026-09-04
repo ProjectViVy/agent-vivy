@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,6 +24,12 @@ const (
 )
 
 var commandRegistry = command.DefaultRegistry()
+
+type fileCompletionStartMsg struct {
+	Request   uint64
+	Query     string
+	SessionID string
+}
 
 // Model is the single Bubble Tea model used by both first-party terminal
 // faces. The Sessions dialog state is transient UI state; session data itself
@@ -54,6 +62,17 @@ type Model struct {
 	commandPaletteOpen   bool
 	commandPaletteFilter string
 	commandPaletteCursor int
+
+	fileCompletionOpen       bool
+	fileCompletionLoading    bool
+	fileCompletionQuery      string
+	fileCompletionTokenStart int
+	fileCompletionFiles      []surface.FileContext
+	fileCompletionCursor     int
+	fileCompletionTruncated  bool
+	fileCompletionError      string
+	fileCompletionRequest    uint64
+	fileCompletionSessionID  string
 }
 
 // New returns a model bound to the given driver.
@@ -93,6 +112,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// gate resolves.
 		m.closeCommandPalette()
 	}
+	if m.fileCompletionOpen && m.driver.PendingGate() != nil {
+		m.closeFileCompletion()
+	}
+	if m.fileCompletionOpen && m.fileCompletionSessionID != m.driver.Active().ID {
+		m.closeFileCompletion()
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = max(1, msg.Width)
@@ -111,7 +136,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case surface.CommandResultMsg:
 		m.closeCommandPalette()
+		m.closeFileCompletion()
 		m.applyCommandResult(msg)
+	case surface.ProjectFilesMsg:
+		m.applyProjectFilesMsg(msg)
+	case fileCompletionStartMsg:
+		if m.fileCompletionOpen && msg.Request == m.fileCompletionRequest && msg.Query == m.fileCompletionQuery && msg.SessionID == m.fileCompletionSessionID {
+			if completer, ok := m.driver.(surface.ProjectFileCompleter); ok {
+				if cmd := completer.CompleteProjectFiles(msg.Request, msg.Query); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
 	case surface.ErrMsg:
 		// The driver stores transport errors in Meta. Keep the dialog snapshot
 		// and local input intact so a retry does not discard user work.
@@ -164,6 +200,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.commandPaletteOpen {
 		m.closeCommandPalette()
 	}
+	if gate != nil && m.fileCompletionOpen {
+		m.closeFileCompletion()
+	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
 	}
@@ -182,6 +221,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if gate == nil && m.commandPaletteOpen {
 		return m.handleCommandPaletteKey(msg)
+	}
+	if gate == nil && m.fileCompletionOpen {
+		return m.handleFileCompletionKey(msg)
 	}
 	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
 		return m, nil
@@ -208,6 +250,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.driver.Cancel()
 		}
 		m.input = ""
+		m.closeFileCompletion()
 		return m, nil
 	case tea.KeyCtrlN:
 		if gate == nil && !meta.Busy {
@@ -245,6 +288,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.input = removeLastRune(m.input)
+		return m.refreshFileCompletion()
+	case tea.KeySpace:
+		if gate != nil && gate.Kind == "approval" {
+			return m, nil
+		}
+		m.input += " "
+		m.closeFileCompletion()
 		return m, nil
 	case tea.KeyCtrlJ:
 		if gate != nil && gate.Kind == "approval" {
@@ -274,7 +324,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.input += text
-		return m, nil
+		return m.refreshFileCompletion()
 	}
 	if gate != nil && gate.Kind == "approval" {
 		switch strings.ToLower(msg.String()) {
@@ -287,7 +337,165 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) refreshFileCompletion() (Model, tea.Cmd) {
+	query, start, ok := activeFileCompletionToken(m.input)
+	if !ok {
+		m.closeFileCompletion()
+		return m, nil
+	}
+	capabilities, capable := m.driver.(surface.CapabilityReporter)
+	completer, completable := m.driver.(surface.ProjectFileCompleter)
+	if !capable || !capabilities.SupportsCapability("project-context.list") || !completable {
+		m.closeFileCompletion()
+		return m, nil
+	}
+	m.fileCompletionOpen = true
+	m.fileCompletionLoading = true
+	m.fileCompletionQuery = query
+	m.fileCompletionTokenStart = start
+	m.fileCompletionFiles = nil
+	m.fileCompletionCursor = 0
+	m.fileCompletionTruncated = false
+	m.fileCompletionError = ""
+	m.fileCompletionRequest++
+	m.fileCompletionSessionID = m.driver.Active().ID
+	request := m.fileCompletionRequest
+	sessionID := m.fileCompletionSessionID
+	_ = completer // capability/interface presence is checked before scheduling.
+	return m, tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
+		return fileCompletionStartMsg{Request: request, Query: query, SessionID: sessionID}
+	})
+}
+
+func activeFileCompletionToken(input string) (string, int, bool) {
+	runes := []rune(input)
+	if len(runes) == 0 {
+		return "", 0, false
+	}
+	start := len(runes) - 1
+	for start >= 0 && !unicode.IsSpace(runes[start]) {
+		start--
+	}
+	start++
+	if start >= len(runes) || runes[start] != '@' || (start+1 < len(runes) && runes[start+1] == '@') {
+		return "", 0, false
+	}
+	query := sanitizeFileCompletionText(string(runes[start+1:]))
+	if query != string(runes[start+1:]) || strings.ContainsAny(query, "\"'") {
+		return "", 0, false
+	}
+	return query, start, true
+}
+
+func (m *Model) closeFileCompletion() {
+	m.fileCompletionOpen = false
+	m.fileCompletionLoading = false
+	m.fileCompletionQuery = ""
+	m.fileCompletionFiles = nil
+	m.fileCompletionCursor = 0
+	m.fileCompletionTruncated = false
+	m.fileCompletionError = ""
+	m.fileCompletionSessionID = ""
+	m.fileCompletionRequest++
+}
+
+func (m *Model) applyProjectFilesMsg(msg surface.ProjectFilesMsg) {
+	if !m.fileCompletionOpen || msg.Request != m.fileCompletionRequest || msg.Query != m.fileCompletionQuery {
+		return
+	}
+	m.fileCompletionLoading = false
+	m.fileCompletionFiles = append([]surface.FileContext(nil), msg.Files...)
+	m.fileCompletionTruncated = msg.Truncated
+	m.fileCompletionCursor = 0
+	if msg.Err != nil {
+		m.fileCompletionError = shortCompletionError(msg.Err)
+		m.fileCompletionFiles = nil
+	} else {
+		m.fileCompletionError = ""
+	}
+}
+
+func (m Model) handleFileCompletionKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.closeFileCompletion()
+		return m, nil
+	case tea.KeyUp, tea.KeyCtrlP:
+		m.moveFileCompletionCursor(-1)
+		return m, nil
+	case tea.KeyDown, tea.KeyCtrlN:
+		m.moveFileCompletionCursor(1)
+		return m, nil
+	case tea.KeyEnter, tea.KeyTab:
+		rows := m.filteredProjectFiles()
+		if len(rows) == 0 {
+			return m, nil
+		}
+		cursor := min(max(0, m.fileCompletionCursor), len(rows)-1)
+		path := safeProjectFilePath(rows[cursor].Path)
+		if path == "" || rows[cursor].Size < 0 {
+			return m, nil
+		}
+		runes := []rune(m.input)
+		start := min(max(0, m.fileCompletionTokenStart), len(runes))
+		m.input = string(runes[:start]) + command.FormatFileReference(path) + " "
+		m.closeFileCompletion()
+		return m, nil
+	case tea.KeyBackspace:
+		m.input = removeLastRune(m.input)
+		return m.refreshFileCompletion()
+	case tea.KeySpace:
+		m.input += " "
+		m.closeFileCompletion()
+		return m, nil
+	case tea.KeyRunes:
+		m.input += string(msg.Runes)
+		return m.refreshFileCompletion()
+	}
+	return m, nil
+}
+
+func (m *Model) moveFileCompletionCursor(delta int) {
+	rows := m.filteredProjectFiles()
+	if len(rows) == 0 {
+		m.fileCompletionCursor = 0
+		return
+	}
+	m.fileCompletionCursor = (m.fileCompletionCursor + delta) % len(rows)
+	if m.fileCompletionCursor < 0 {
+		m.fileCompletionCursor += len(rows)
+	}
+}
+
+func (m Model) filteredProjectFiles() []surface.FileContext {
+	needle := strings.ToLower(strings.ReplaceAll(sanitizeFileCompletionText(m.fileCompletionQuery), "\\", "/"))
+	rows := make([]surface.FileContext, 0, min(len(m.fileCompletionFiles), 200))
+	seen := make(map[string]struct{}, min(len(m.fileCompletionFiles), 200))
+	for _, file := range m.fileCompletionFiles {
+		path := safeProjectFilePath(file.Path)
+		if path == "" || file.Size < 0 {
+			continue
+		}
+		if _, duplicate := seen[path]; duplicate {
+			continue
+		}
+		if needle == "" || fuzzyContains(strings.ToLower(strings.ReplaceAll(path, "\\", "/")), needle) {
+			file.Path = path
+			file.Name = sanitizeFileCompletionText(file.Name)
+			rows = append(rows, file)
+			seen[path] = struct{}{}
+			if len(rows) == 200 {
+				break
+			}
+		}
+	}
+	return rows
+}
+
 func (m *Model) openCommandPalette() {
+	m.closeFileCompletion()
 	m.commandPaletteOpen = true
 	m.commandPaletteFilter = ""
 	m.commandPaletteCursor = 0
@@ -816,6 +1024,7 @@ func (m Model) statusText() string {
 }
 
 func (m Model) openSessions() (Model, tea.Cmd) {
+	m.closeFileCompletion()
 	m.sessionsOpen = true
 	m.sessionRows = append([]surface.Session(nil), m.driver.Sessions()...)
 	m.sessionFilter = ""
