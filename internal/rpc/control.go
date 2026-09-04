@@ -86,6 +86,13 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
+	// ProviderBundles is the redacted pre-baked model catalog loaded by the
+	// composition root. It stays separate from editable registry entries.
+	ProviderBundles []provider.Bundle
+	// RuntimeBaseURL is the non-secret endpoint selected by the startup
+	// resolver. It supplies active identity for frozen environment overrides;
+	// writable selections use the persisted document after each commit.
+	RuntimeBaseURL string
 	// ConfigNetworkSearchProvider is the production config network_search
 	// preference (non-secret), surfaced by settings/get.
 	ConfigNetworkSearchProvider string
@@ -250,6 +257,7 @@ type controlHandler struct {
 
 	mu            sync.Mutex
 	subscriptions map[string]context.CancelFunc
+	modelChangeMu sync.Mutex
 }
 
 type sessionParams struct {
@@ -593,7 +601,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 			"generations.reject", "species.inspect",
 			"settings.get", "settings.update",
-			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh",
+			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh", "settings.model.select",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
@@ -753,6 +761,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.deleteProvider(ctx, request)
 	case "settings/providers/refresh":
 		return h.refreshProviderModels(ctx, request)
+	case "settings/model/select":
+		return h.selectModel(ctx, request)
 	case "settings/mcp":
 		return h.listMCP(ctx)
 	case "settings/mcp/upsert":
@@ -3004,64 +3014,94 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	// The merge keeps the registry entries and any other section the UI did
-	// not send; only the active selection fields are replaced.
-	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
-		cur.Provider = params.Provider
-		cur.DefaultModel = params.DefaultModel
-		cur.BaseURL = params.BaseURL
-		// Empty api_key on select leaves the registry / overlay keys alone.
-		// A non-empty value still writes the legacy overlay for older clients.
-		if params.ApiKey != "" {
-			cur.ApiKey = params.ApiKey
-		}
-		cur.NetworkSearch = settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider}
-		cur.ExecuteMaxTimeoutSeconds = params.ExecuteMaxTimeoutSeconds
-		if params.Sandbox != nil {
-			cur.Sandbox.DefaultPreset = domain.PermissionPreset(params.Sandbox.DefaultPreset)
-			cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
-			if params.Sandbox.AllowedDomains != nil {
-				cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
-			}
-		}
-		if params.Compaction != nil {
-			if cur.Compaction == nil {
-				cur.Compaction = &settings.CompactionSettings{}
-			}
-			if params.Compaction.Enabled != nil {
-				cur.Compaction.Enabled = params.Compaction.Enabled
-			}
-			if params.Compaction.MaxTokens != 0 {
-				cur.Compaction.MaxTokens = params.Compaction.MaxTokens
-			}
-			if params.Compaction.TriggerPercent != 0 {
-				cur.Compaction.TriggerPercent = params.Compaction.TriggerPercent
-			}
-			if params.Compaction.KeepRecent != 0 {
-				cur.Compaction.KeepRecent = params.Compaction.KeepRecent
-			}
-			if cur.Compaction.Enabled == nil && cur.Compaction.MaxTokens == 0 &&
-				cur.Compaction.TriggerPercent == 0 && cur.Compaction.KeepRecent == 0 {
-				// Everything cleared again: config default stands.
-				cur.Compaction = nil
-			}
-		}
-		if params.HTTP != nil {
-			if cur.HTTP == nil {
-				cur.HTTP = &settings.HTTPSettings{}
-			}
-			if params.HTTP.AllowedHosts != nil {
-				hosts := append([]string(nil), params.HTTP.AllowedHosts...)
-				cur.HTTP.AllowedHosts = &hosts
-			}
-			if params.HTTP.TimeoutSeconds != 0 {
-				cur.HTTP.TimeoutSeconds = params.HTTP.TimeoutSeconds
-			}
-		}
-		return cur, nil
-	})
+	h.modelChangeMu.Lock()
+	defer h.modelChangeMu.Unlock()
+	current, rpcErr := h.loadSettingsOrError()
 	if rpcErr != nil {
 		return nil, rpcErr
+	}
+	// The merge keeps the registry entries and any other section the UI did
+	// not send; only the active selection fields are replaced.
+	var saved settings.Settings
+	persist := func() error {
+		saved, rpcErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+			cur.Provider = params.Provider
+			cur.DefaultModel = params.DefaultModel
+			cur.BaseURL = params.BaseURL
+			// Empty api_key on select leaves the registry / overlay keys alone.
+			// A non-empty value still writes the legacy overlay for older clients.
+			if params.ApiKey != "" {
+				cur.ApiKey = params.ApiKey
+			}
+			cur.NetworkSearch = settings.NetworkSearchSettings{Provider: params.NetworkSearch.Provider}
+			cur.ExecuteMaxTimeoutSeconds = params.ExecuteMaxTimeoutSeconds
+			if params.Sandbox != nil {
+				cur.Sandbox.DefaultPreset = domain.PermissionPreset(params.Sandbox.DefaultPreset)
+				cur.Sandbox.Network.DenyPrivateIPs = params.Sandbox.DenyPrivateIPs
+				if params.Sandbox.AllowedDomains != nil {
+					cur.Sandbox.Network.AllowedDomains = append([]string(nil), params.Sandbox.AllowedDomains...)
+				}
+			}
+			if params.Compaction != nil {
+				if cur.Compaction == nil {
+					cur.Compaction = &settings.CompactionSettings{}
+				}
+				if params.Compaction.Enabled != nil {
+					cur.Compaction.Enabled = params.Compaction.Enabled
+				}
+				if params.Compaction.MaxTokens != 0 {
+					cur.Compaction.MaxTokens = params.Compaction.MaxTokens
+				}
+				if params.Compaction.TriggerPercent != 0 {
+					cur.Compaction.TriggerPercent = params.Compaction.TriggerPercent
+				}
+				if params.Compaction.KeepRecent != 0 {
+					cur.Compaction.KeepRecent = params.Compaction.KeepRecent
+				}
+				if cur.Compaction.Enabled == nil && cur.Compaction.MaxTokens == 0 &&
+					cur.Compaction.TriggerPercent == 0 && cur.Compaction.KeepRecent == 0 {
+					// Everything cleared again: config default stands.
+					cur.Compaction = nil
+				}
+			}
+			if params.HTTP != nil {
+				if cur.HTTP == nil {
+					cur.HTTP = &settings.HTTPSettings{}
+				}
+				if params.HTTP.AllowedHosts != nil {
+					hosts := append([]string(nil), params.HTTP.AllowedHosts...)
+					cur.HTTP.AllowedHosts = &hosts
+				}
+				if params.HTTP.TimeoutSeconds != 0 {
+					cur.HTTP.TimeoutSeconds = params.HTTP.TimeoutSeconds
+				}
+			}
+			return cur, nil
+		})
+		if rpcErr != nil {
+			return rpcErr
+		}
+		return nil
+	}
+	selectionChanged := current.Provider != params.Provider || current.DefaultModel != params.DefaultModel || current.BaseURL != params.BaseURL
+	var changeErr error
+	if selectionChanged && h.deps.Service != nil {
+		// settings/update predates the narrow terminal picker route and remains
+		// available to the browser UI. Route its selection changes through the
+		// same run-start fence so another client cannot hot-swap the resolving
+		// provider midway through an active or suspended run.
+		changeErr = h.deps.Service.ChangeModelWhenIdle(params.Provider, params.DefaultModel, persist)
+	} else {
+		changeErr = persist()
+	}
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if errors.Is(changeErr, runtime.ErrModelChangeBusy) {
+		return nil, &Error{Code: CodeConflict, Message: "finish or cancel active and suspended runs before changing models"}
+	}
+	if changeErr != nil {
+		return nil, internalError(changeErr)
 	}
 	// Write-through env apply: the resolved active key (registry entry
 	// wins, legacy overlay falls back) and base_url reach the running
@@ -3223,6 +3263,7 @@ func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
 // selection, and the config defaults the UI falls back to.
 type providersResult struct {
 	Entries        []providerEntryResult `json:"entries"`
+	Bundles        []providerEntryResult `json:"bundles"`
 	ActiveProvider string                `json:"active_provider"`
 	ActiveModel    string                `json:"active_model"`
 	ActiveBaseURL  string                `json:"active_base_url"`
@@ -3237,11 +3278,30 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	for _, e := range s.Providers {
 		entries = append(entries, toProviderEntryResult(e))
 	}
+	bundles := make([]providerEntryResult, 0, len(h.deps.ProviderBundles))
+	for _, bundle := range h.deps.ProviderBundles {
+		models := append([]string(nil), bundle.Models...)
+		if models == nil {
+			models = []string{}
+		}
+		bundles = append(bundles, providerEntryResult{
+			ID: "bundle:" + bundle.Name, DisplayName: bundle.DisplayName,
+			Bundle: bundle.Name, DefaultModel: bundle.DefaultModel, Models: models,
+		})
+	}
+	activeProvider, activeModel, activeBaseURL := s.Provider, s.DefaultModel, s.BaseURL
+	if h.deps.Service != nil {
+		activeProvider, activeModel = h.deps.Service.CurrentModel()
+	}
+	if h.deps.Frozen || activeProvider != s.Provider || activeModel != s.DefaultModel {
+		activeBaseURL = h.deps.RuntimeBaseURL
+	}
 	return providersResult{
 		Entries:        entries,
-		ActiveProvider: s.Provider,
-		ActiveModel:    s.DefaultModel,
-		ActiveBaseURL:  s.BaseURL,
+		Bundles:        bundles,
+		ActiveProvider: activeProvider,
+		ActiveModel:    activeModel,
+		ActiveBaseURL:  activeBaseURL,
 		ReadOnly:       h.deps.SettingsPath == "" || h.deps.Frozen,
 		Frozen:         h.deps.Frozen,
 		ConfigProvider: h.deps.ConfigProvider,
@@ -3295,6 +3355,107 @@ func (h *controlHandler) listProviders(ctx context.Context) (any, *Error) {
 		return nil, rpcErr
 	}
 	return h.providersView(s), nil
+}
+
+// selectModel atomically changes only the active provider/model endpoint.
+// Unlike settings/update it cannot accidentally replace unrelated overlay
+// sections, which makes it the narrow write seam for terminal model pickers.
+// The target must come from the redacted settings/providers catalog: either
+// the configured default or a persisted registry entry and one of its models.
+func (h *controlHandler) selectModel(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	if h.deps.Frozen {
+		return nil, &Error{Code: CodeConflict, Message: "this process is locked to an environment-variable provider session and cannot change models"}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: CodeConflict, Message: "live model selection is unavailable in this deployment"}
+	}
+	var params struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseURL  string `json:"base_url"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	params.Provider = strings.TrimSpace(params.Provider)
+	params.Model = strings.TrimSpace(params.Model)
+	params.BaseURL = strings.TrimSpace(params.BaseURL)
+	if params.Provider == "" || params.Model == "" {
+		return nil, &Error{Code: InvalidParams, Message: "provider and model are required"}
+	}
+	h.modelChangeMu.Lock()
+	defer h.modelChangeMu.Unlock()
+
+	var saved settings.Settings
+	var updateErr *Error
+	changeErr := h.deps.Service.ChangeModelWhenIdle(params.Provider, params.Model, func() error {
+		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+			allowed := params.Provider == h.deps.ConfigProvider &&
+				params.Model == h.deps.ConfigModel && params.BaseURL == ""
+			// Preserve a current legacy selection as an idempotent no-op even if
+			// its old registry row has since disappeared. It is not offered as a
+			// new target to other clients.
+			if !allowed && cur.Provider == params.Provider && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
+				allowed = true
+			}
+			for _, entry := range cur.Providers {
+				if entry.Bundle != params.Provider || entry.BaseURL != params.BaseURL {
+					continue
+				}
+				if entry.DefaultModel == params.Model {
+					allowed = true
+				}
+				for _, modelID := range entry.Models {
+					if modelID == params.Model {
+						allowed = true
+						break
+					}
+				}
+			}
+			if params.BaseURL == "" {
+				for _, bundle := range h.deps.ProviderBundles {
+					if bundle.Name != params.Provider {
+						continue
+					}
+					for _, modelID := range bundle.Models {
+						if modelID == params.Model {
+							allowed = true
+							break
+						}
+					}
+				}
+			}
+			if !allowed {
+				return settings.Settings{}, &settingsFnError{&Error{Code: InvalidParams, Message: "model is not present in the provider catalog"}}
+			}
+			cur.Provider = params.Provider
+			cur.DefaultModel = params.Model
+			cur.BaseURL = params.BaseURL
+			return cur, nil
+		})
+		if updateErr != nil {
+			return updateErr
+		}
+		return nil
+	})
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	if errors.Is(changeErr, runtime.ErrModelChangeBusy) {
+		return nil, &Error{Code: CodeConflict, Message: "finish or cancel active and suspended runs before changing models"}
+	}
+	if changeErr != nil {
+		return nil, internalError(changeErr)
+	}
+	if h.deps.ApplySettingsEnv != nil {
+		h.deps.ApplySettingsEnv(saved)
+	}
+	h.notifySettingsChanged()
+	_ = ctx
+	return h.providersView(saved), nil
 }
 
 // upsertProvider creates or updates one registry entry by id. The api_key is

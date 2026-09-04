@@ -1848,6 +1848,118 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 	}
 }
 
+func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
+		deps.ProviderBundles = []provider.Bundle{{
+			Name: "openai", DisplayName: "OpenAI", DefaultModel: "gpt-4o-mini",
+			Models: []string{"gpt-4o-mini", "gpt-5"},
+		}}
+	})
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "custom-1", "display_name": "My Gateway", "bundle": "openai",
+		"base_url": "https://gateway.example.com/v1", "default_model": "deepseek-chat",
+		"models": []string{"deepseek-chat", "deepseek-reasoner"}, "api_key": "sk-entry",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	toolsEnabled := []string{"read_file"}
+	if _, err := settings.Update(settingsPath, func(cur settings.Settings) (settings.Settings, error) {
+		cur.NetworkSearch.Provider = "wikipedia"
+		cur.ToolsEnabled = &toolsEnabled
+		return cur, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, rpcErr := callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "deepseek-reasoner", "base_url": "https://gateway.example.com/v1",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+	if view.ActiveProvider != "openai" || view.ActiveModel != "deepseek-reasoner" || view.ActiveBaseURL != "https://gateway.example.com/v1" {
+		t.Fatalf("selection response = %+v", view)
+	}
+	if len(view.Bundles) != 1 || len(view.Bundles[0].Models) != 2 {
+		t.Fatalf("pre-baked bundle catalog missing: %+v", view.Bundles)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.NetworkSearch.Provider != "wikipedia" || loaded.ToolsEnabled == nil || len(*loaded.ToolsEnabled) != 1 || (*loaded.ToolsEnabled)[0] != "read_file" {
+		t.Fatalf("model select replaced unrelated settings: %+v", loaded)
+	}
+	if len(loaded.Providers) != 1 || loaded.Providers[0].ApiKey != "sk-entry" {
+		t.Fatalf("model select changed the provider registry: %+v", loaded.Providers)
+	}
+	if probe.n != 2 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 2 (upsert + select)", probe.n)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "invented", "base_url": "https://gateway.example.com/v1",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("unknown model must fail closed, got %v", rpcErr)
+	}
+	if probe.n != 2 {
+		t.Fatalf("rejected selection notified listeners: %d", probe.n)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "deepseek-reasoner", "base_url": "",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("custom gateway model escaped as a direct bundle model: %v", rpcErr)
+	}
+
+	result, rpcErr = callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "gpt-5", "base_url": "",
+	})
+	if rpcErr != nil {
+		t.Fatalf("pre-baked bundle model selection: %v", rpcErr)
+	}
+	if result.(providersResult).ActiveModel != "gpt-5" {
+		t.Fatalf("bundle model response = %+v", result)
+	}
+
+	result, rpcErr = callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "gpt-4o-mini", "base_url": "",
+	})
+	if rpcErr != nil {
+		t.Fatalf("config default selection: %v", rpcErr)
+	}
+	view = result.(providersResult)
+	if view.ActiveModel != "gpt-4o-mini" || view.ActiveBaseURL != "" {
+		t.Fatalf("config default response = %+v", view)
+	}
+
+	roEnv := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, roEnv.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "gpt-4o-mini",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("read-only model selection = %v", rpcErr)
+	}
+	frozenEnv, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) { deps.Frozen = true })
+	if _, rpcErr := callControl(t, frozenEnv.handler, "settings/model/select", map[string]any{
+		"provider": "openai", "model": "gpt-4o-mini",
+	}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("frozen model selection = %v", rpcErr)
+	}
+
+	initResult, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	initJSON, err := json.Marshal(initResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(initJSON), "settings.model.select") {
+		t.Fatalf("capabilities missing settings.model.select: %s", initJSON)
+	}
+}
+
 func TestControlHandlerListsSessionTodos(t *testing.T) {
 	env := newControlTestEnv(t)
 	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "Todos"})

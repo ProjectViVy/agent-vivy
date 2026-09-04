@@ -33,6 +33,9 @@ func (m Model) renderFrame() string {
 	if gate := m.driver.PendingGate(); gate != nil {
 		return placeOverlay(frame, m.renderGateDialog(gate, l, p), l.width, l.height)
 	}
+	if m.modelPickerOpen {
+		return placeOverlay(frame, m.renderModelDialog(l, p), l.width, l.height)
+	}
 	if m.commandPaletteOpen {
 		return placeOverlay(frame, m.renderCommandPalette(l, p), l.width, l.height)
 	}
@@ -46,6 +49,67 @@ func (m Model) renderFrame() string {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
 	}
 	return frame
+}
+
+func (m Model) renderModelDialog(l layout, p Palette) string {
+	rows := m.filteredModels()
+	w := max(1, min(l.width-8, 72))
+	innerWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
+	status := "filter: " + sanitizeCommandPaletteFilter(m.modelPickerFilter)
+	if strings.TrimSpace(m.modelPickerFilter) == "" {
+		status = "filter: all"
+	}
+	if m.modelPickerLoading {
+		status += "  · loading…"
+	} else if m.modelPickerSelecting {
+		status += "  · applying…"
+	}
+	lines := []string{p.DialogTitle.Render("Switch global model"), p.DialogFooter.Render(truncate(status, innerWidth)), ""}
+	if m.modelPickerError != "" {
+		lines = append(lines, p.ToolFail.Render(truncate(m.modelPickerError, innerWidth)))
+	} else if !m.modelPickerLoading && len(rows) == 0 {
+		lines = append(lines, p.DialogFooter.Render("no matching configured models"))
+	} else {
+		windowRows := max(1, l.height-11)
+		cursor := min(max(0, m.modelPickerCursor), max(0, len(rows)-1))
+		start := max(0, cursor-windowRows/2)
+		if start+windowRows > len(rows) {
+			start = max(0, len(rows)-windowRows)
+		}
+		end := min(len(rows), start+windowRows)
+		for i := start; i < end; i++ {
+			option := rows[i]
+			marker := "  "
+			if option.Current {
+				marker = "● "
+			}
+			provider := safeModelLabel(option.DisplayName)
+			if provider == "" {
+				provider = safeModelLabel(option.Provider)
+			}
+			line := marker + provider + " · " + safeModelLabel(option.Model)
+			style := p.Idle
+			if i == cursor {
+				line = "▸ " + strings.TrimPrefix(line, "  ")
+				style = p.Active
+			}
+			lines = append(lines, style.Render(truncate(line, innerWidth)))
+		}
+	}
+	catalog := surface.ModelCatalog{}
+	if controller, ok := m.driver.(surface.ModelController); ok {
+		catalog = controller.ModelCatalog()
+	}
+	footer := "global · next idle turn · ↑↓ select · esc close"
+	if catalog.ReadOnly || catalog.Frozen {
+		footer = "read-only · ↑↓ browse · type filter · esc close"
+	}
+	lines = append(lines, "", p.DialogFooter.Render(truncate(footer, innerWidth)))
+	return p.Dialog.Width(w).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func safeModelLabel(text string) string {
+	return strings.TrimSpace(sanitizeFileCompletionText(text))
 }
 
 func (m Model) renderFileCompletion(l layout, p Palette) string {
@@ -716,6 +780,9 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		p.HelpKey.Render("^y") + p.HelpDesc.Render(" permission"),
 		p.HelpKey.Render("esc") + p.HelpDesc.Render(" cancel"),
 		p.HelpKey.Render("^c") + p.HelpDesc.Render(" quit"),
+	}
+	if m.modelSelectionAvailable() {
+		parts = append(parts[:2], append([]string{p.HelpKey.Render("^l") + p.HelpDesc.Render(" global model")}, parts[2:]...)...)
 	}
 	if provider, ok := m.driver.(surface.SidebarProvider); ok {
 		if controller, controlled := m.driver.(surface.ThinkingController); controlled && provider.Sidebar().HasContext && provider.Sidebar().Context.ThinkingSupported {

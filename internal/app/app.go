@@ -139,6 +139,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	if liveSettingsPath == "" {
 		liveSettingsPath = settings.Path(cfg.DataDirectory())
 	}
+	configProvider, configModel := providerConfigBaseline(cfg)
 	// Operator-managed preferences (network search, execute ceiling, the
 	// per-channel knobs) overlay the validated config. Provider keys are
 	// NOT applied to the process environment; ModelResolver reads
@@ -510,8 +511,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Eval:                           evalRunner,
 		Children:                       workerManager,
 		SettingsPath:                   liveSettingsPath,
-		ConfigProvider:                 providerName,
-		ConfigModel:                    modelID,
+		ConfigProvider:                 configProvider,
+		ConfigModel:                    configModel,
+		ProviderBundles:                []provider.Bundle{openaiBundle, anthropicBundle},
+		RuntimeBaseURL:                 cur.BaseURL,
 		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
 		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
 		DefaultPermissionPreset:        defaultPermissionPreset(cfg),
@@ -1002,6 +1005,11 @@ func defaultModelFor(cfg config.Config, providerName string) string {
 	default:
 		return cfg.Providers.OpenAI.DefaultModel
 	}
+}
+
+func providerConfigBaseline(cfg config.Config) (string, string) {
+	providerName := cfg.Providers.Active
+	return providerName, defaultModelFor(cfg, providerName)
 }
 
 // Run blocks until ctx is cancelled or the server fails. On cancellation

@@ -395,6 +395,8 @@ func (r Registry) Validate(invocation *Invocation) error {
 	switch spec.Name {
 	case "help", "status", "sessions", "cancel", "compact", "todos", "tools", "quit":
 		return count(0, 0)
+	case "model":
+		return count(0, -1)
 	case "mcp":
 		if len(args) == 0 {
 			return nil
@@ -539,6 +541,7 @@ func DefaultRegistry() Registry {
 		Spec{Name: "help", Aliases: []string{"?", "commands"}, Usage: "/help", Description: "show commands"},
 		Spec{Name: "status", Usage: "/status", Description: "show active run status"},
 		Spec{Name: "sessions", Usage: "/sessions", Description: "open the sessions picker"},
+		Spec{Name: "model", Usage: "/model [filter]", Description: "switch the active model"},
 		Spec{Name: "new", Usage: "/new [title]", Description: "create a session"},
 		Spec{Name: "session", Usage: "/session <id>", Description: "switch to a session"},
 		Spec{Name: "rename", Usage: "/rename <title>", Description: "rename the active session"},

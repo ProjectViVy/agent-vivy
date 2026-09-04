@@ -29,6 +29,78 @@ func TestMapHistoryMergesDurableShellToolPair(t *testing.T) {
 	}
 }
 
+func TestLiveModelCatalogAndSelectionUseAuthoritativeRPC(t *testing.T) {
+	selectCalls := 0
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		view := map[string]any{
+			"entries":         []map[string]any{{"display_name": "Custom", "bundle": "compatible", "base_url": "https://private.invalid/v1", "default_model": "model-a", "models": []string{"model-a", "model-b", "model-b"}}},
+			"bundles":         []map[string]any{{"display_name": "OpenAI", "bundle": "openai", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}}},
+			"active_provider": "compatible", "active_model": "model-a", "active_base_url": "https://private.invalid/v1",
+			"config_provider": "openai", "config_model": "gpt-default",
+		}
+		switch request.Method {
+		case "settings/providers":
+			return view, nil
+		case "settings/model/select":
+			selectCalls++
+			var params map[string]string
+			_ = json.Unmarshal(request.Params, &params)
+			if params["provider"] != "compatible" || params["model"] != "model-b" || params["base_url"] != "https://private.invalid/v1" {
+				t.Fatalf("select params = %#v", params)
+			}
+			view["active_model"] = "model-b"
+			return view, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	client.mu.Lock()
+	client.caps = map[string]struct{}{"settings.model.select": {}}
+	client.mu.Unlock()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+
+	listed := mustMsg[surface.ModelsMsg](t, live.RefreshModels(7))
+	if listed.Err != nil {
+		t.Fatal(listed.Err)
+	}
+	live.Handle(listed)
+	catalog := live.ModelCatalog()
+	if len(catalog.Options) != 4 || !catalog.Options[0].Current {
+		t.Fatalf("catalog = %+v", catalog)
+	}
+	var target surface.ModelOption
+	for _, option := range catalog.Options {
+		if option.Model == "model-b" {
+			target = option
+		}
+	}
+	selected := mustMsg[surface.ModelSelectedMsg](t, live.SelectModel(8, target))
+	if selected.Err != nil {
+		t.Fatal(selected.Err)
+	}
+	live.mu.Lock()
+	live.activeID = "session-model"
+	live.sessions = []surface.Session{{ID: "session-model"}}
+	live.mu.Unlock()
+	if refresh := live.Handle(selected); refresh == nil {
+		t.Fatal("successful model selection did not schedule sidebar refresh")
+	}
+	if selectCalls != 1 || live.ModelCatalog().Options[0].Model != "model-b" || !live.ModelCatalog().Options[0].Current {
+		t.Fatalf("selection calls=%d catalog=%+v", selectCalls, live.ModelCatalog())
+	}
+
+	live.mu.Lock()
+	live.busy = true
+	live.mu.Unlock()
+	blocked := mustMsg[surface.ModelSelectedMsg](t, live.SelectModel(9, target))
+	if blocked.Err == nil || selectCalls != 1 {
+		t.Fatalf("busy selection escaped local guard: err=%v calls=%d", blocked.Err, selectCalls)
+	}
+}
+
 func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		switch request.Method {
