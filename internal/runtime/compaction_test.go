@@ -579,6 +579,9 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	if before.TotalMessages != 40 || !before.CompactionEnabled || before.ModelLimitTokens <= 0 {
 		t.Fatalf("unexpected before status: %+v", before)
 	}
+	if !before.TokenCountsEstimated || before.ModelLimitKnown {
+		t.Fatalf("context truth flags = estimated:%v limit-known:%v, want true/false for fallback metadata", before.TokenCountsEstimated, before.ModelLimitKnown)
+	}
 	if !before.WouldCompact {
 		t.Fatalf("40 long messages should read as over budget: %+v", before)
 	}

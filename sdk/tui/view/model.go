@@ -1545,10 +1545,15 @@ func (m Model) statusText() string {
 		snapshot := provider.Sidebar()
 		if snapshot.HasContext {
 			ctx := snapshot.Context
-			if ctx.ModelLimitTokens > 0 {
-				lines = append(lines, fmt.Sprintf("context: %d/%d tokens", ctx.FeedTokens, ctx.ModelLimitTokens))
+			estimated := ""
+			if ctx.TokenCountsEstimated {
+				estimated = "~"
+			}
+			if ctx.ModelLimitKnown && ctx.ModelLimitTokens > 0 {
+				percentage := int(float64(ctx.FeedTokens) / float64(ctx.ModelLimitTokens) * 100)
+				lines = append(lines, fmt.Sprintf("context: %s%d/%d tokens (%s%d%%)", estimated, ctx.FeedTokens, ctx.ModelLimitTokens, estimated, percentage))
 			} else if ctx.FeedTokens > 0 {
-				lines = append(lines, fmt.Sprintf("context: %d tokens", ctx.FeedTokens))
+				lines = append(lines, fmt.Sprintf("context: %s%d tokens (model limit unknown)", estimated, ctx.FeedTokens))
 			}
 		}
 	}

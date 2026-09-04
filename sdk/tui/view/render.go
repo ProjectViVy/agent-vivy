@@ -405,10 +405,26 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		lines = append(lines, "", p.Dim.Render(" Context"))
 		ctx := snapshot.Context
 		switch {
-		case ctx.ModelLimitTokens > 0:
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s / %s tokens", compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens)), width-1)))
+		case ctx.ModelLimitKnown && ctx.ModelLimitTokens > 0:
+			ratio := float64(ctx.FeedTokens) / float64(ctx.ModelLimitTokens)
+			percentage := int(ratio * 100)
+			estimated := ""
+			if ctx.TokenCountsEstimated {
+				estimated = "~"
+			}
+			line := fmt.Sprintf(" %s%d%% · %s%s / %s tokens", estimated, percentage, estimated, compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens))
+			style := p.Dim
+			if ratio > 0.8 {
+				line = " !" + line
+				style = p.PromptWarn
+			}
+			lines = append(lines, style.Render(truncate(line, width-1)))
 		case ctx.FeedTokens > 0:
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s tokens", compactNumber(ctx.FeedTokens)), width-1)))
+			estimated := ""
+			if ctx.TokenCountsEstimated {
+				estimated = "~"
+			}
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s%s tokens · limit unknown", estimated, compactNumber(ctx.FeedTokens)), width-1)))
 		}
 		if ctx.TotalMessages > 0 {
 			if ctx.FeedMessages > 0 && ctx.FeedMessages != ctx.TotalMessages {
@@ -418,7 +434,11 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			}
 		}
 		if ctx.TriggerTokens > 0 {
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" compact at %s", compactNumber(ctx.TriggerTokens)), width-1)))
+			estimated := ""
+			if ctx.TokenCountsEstimated {
+				estimated = "~"
+			}
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" compact at %s%s", estimated, compactNumber(ctx.TriggerTokens)), width-1)))
 		}
 		if ctx.CompactionEnabled {
 			compaction := " compaction on"
@@ -432,16 +452,25 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		}
 	}
 	if snapshot.HasUsage {
-		lines = append(lines, "", p.Dim.Render(" Usage"))
+		lines = append(lines, "", p.Dim.Render(" Session Usage"))
 		usage := snapshot.Usage
-		if usage.TotalTokens > 0 {
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s tokens", compactNumber(usage.TotalTokens)), width-1)))
+		lines = append(lines,
+			p.Dim.Render(truncate(fmt.Sprintf(" total · %s tokens", compactNumber(usage.TotalTokens)), width-1)),
+			p.Dim.Render(truncate(fmt.Sprintf(" input · %s", compactNumber(usage.PromptTokens)), width-1)),
+			p.Dim.Render(truncate(fmt.Sprintf(" output · %s", compactNumber(usage.CompletionTokens)), width-1)),
+		)
+		if usage.ReasoningTokens > 0 {
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" reasoning · %s", compactNumber(usage.ReasoningTokens)), width-1)))
 		}
+		if usage.CachedTokens > 0 {
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" cached · %s", compactNumber(usage.CachedTokens)), width-1)))
+		}
+		lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" requests · %d", usage.RequestCount), width-1)))
 		cost := "unknown"
 		if usage.CostKnown {
 			cost = fmt.Sprintf("$%.4f", usage.CostUSD)
 		}
-		lines = append(lines, p.Dim.Render(truncate(" cost · "+cost, width-1)))
+		lines = append(lines, p.Dim.Render(truncate(" est. cost · "+cost, width-1)))
 	}
 	if snapshot.ModifiedFilesKnown {
 		lines = append(lines, "", p.Dim.Render(" Modified Files"))
