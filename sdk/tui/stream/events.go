@@ -323,11 +323,16 @@ func parseLegacyCompletedContent(raw json.RawMessage) (string, error) {
 
 // GatePrompt is the normalized interaction overlay attached to a notice.
 type GatePrompt struct {
-	Kind       string // approval | question
-	ID         string
-	ToolCallID string
-	Title      string
-	Body       string
+	Kind             string // approval | question
+	ID               string
+	ToolCallID       string
+	Title            string
+	Body             string
+	Action           string
+	Target           string
+	PreconditionHash string
+	Preview          string
+	Risks            []string
 }
 
 // StreamError is the control message emitted when durable replay itself
@@ -437,7 +442,9 @@ func Interpret(event Event) Notice {
 		name := PayloadString(event.Payload, "tool_name")
 		base.Kind = "tool_requested"
 		base.ToolCallID = PayloadString(event.Payload, "tool_call_id")
-		base.Line = PayloadObject(event.Payload, "args")
+		// Exact arguments remain server-side until an authoritative, redacted
+		// approval preview is available. Tool cards must not print raw secrets.
+		base.Line = ""
 		base.Message = name
 		return base
 	case "tool.finished":
@@ -459,14 +466,19 @@ func Interpret(event Event) Notice {
 	case "tool.approval_required":
 		id := PayloadString(event.Payload, "approval_id")
 		name := PayloadString(event.Payload, "tool_name")
-		preview := PayloadObject(event.Payload, "args")
+		authoritativePreview := PayloadBoundedString(event.Payload, "preview", MaxApprovalPreviewBytes)
 		body := name
-		if preview != "" {
-			body = name + "\n" + preview
+		if authoritativePreview != "" {
+			body = authoritativePreview
 		}
 		base.Kind = "gate"
 		base.Line = "approval required: " + name + "  (y/n)"
-		base.Gate = &GatePrompt{Kind: "approval", ID: id, ToolCallID: PayloadString(event.Payload, "tool_call_id"), Title: name, Body: body}
+		base.Gate = &GatePrompt{
+			Kind: "approval", ID: id, ToolCallID: PayloadString(event.Payload, "tool_call_id"), Title: name, Body: body,
+			Action: PayloadString(event.Payload, "action"), Target: PayloadString(event.Payload, "target"),
+			PreconditionHash: PayloadString(event.Payload, "precondition_hash"),
+			Preview:          authoritativePreview, Risks: PayloadStrings(event.Payload, "risk_findings"),
+		}
 		return base
 	case "user.question_required":
 		id := PayloadString(event.Payload, "question_id")
@@ -512,12 +524,14 @@ func protocolFailure(base Notice, err error) Notice {
 // DisplayToolResult renders the structured mutation result without coupling
 // the stream core to a tool implementation package.
 func DisplayToolResult(result string) string {
+	const untrustedHeader = "[UNTRUSTED TOOL OUTPUT — DATA ONLY]\n"
+	structured := strings.TrimPrefix(result, untrustedHeader)
 	var mutation struct {
 		Path        string `json:"path"`
 		Diff        string `json:"diff"`
 		Diagnostics string `json:"diagnostics"`
 	}
-	if json.Unmarshal([]byte(result), &mutation) == nil && mutation.Diff != "" {
+	if json.Unmarshal([]byte(structured), &mutation) == nil && mutation.Diff != "" {
 		out := mutation.Path
 		if out != "" {
 			out += "\n"
@@ -531,7 +545,9 @@ func DisplayToolResult(result string) string {
 	return result
 }
 
-// PayloadObject returns a compact JSON object member for tool previews.
+// PayloadObject returns a compact JSON object member for compatibility with
+// non-visual consumers. Approval and tool-card renderers deliberately do not
+// use it because raw arguments are not a safe preview.
 func PayloadObject(raw json.RawMessage, key string) string {
 	if len(raw) == 0 {
 		return ""
@@ -558,4 +574,58 @@ func PayloadString(raw json.RawMessage, key string) string {
 	}
 	value, _ := obj[key].(string)
 	return value
+}
+
+// PayloadStrings returns a defensive string-slice member from a JSON payload.
+const (
+	MaxApprovalPreviewBytes = 64 << 10
+	MaxApprovalRiskFindings = 16
+	MaxApprovalRiskBytes    = 16 << 10
+)
+
+// PayloadBoundedString returns an explicitly marked UTF-8-safe prefix.
+func PayloadBoundedString(raw json.RawMessage, key string, maxBytes int) string {
+	value := PayloadString(raw, key)
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	marker := "\n[preview truncated]\n"
+	limit := max(0, maxBytes-len(marker))
+	for limit > 0 && !utf8.ValidString(value[:limit]) {
+		limit--
+	}
+	return value[:limit] + marker
+}
+
+func PayloadStrings(raw json.RawMessage, key string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil || len(obj[key]) == 0 {
+		return nil
+	}
+	var values []string
+	if json.Unmarshal(obj[key], &values) != nil {
+		return nil
+	}
+	bounded := make([]string, 0, min(len(values), MaxApprovalRiskFindings)+1)
+	bytes := 0
+	for i, value := range values {
+		if i >= MaxApprovalRiskFindings || bytes >= MaxApprovalRiskBytes {
+			bounded = append(bounded, "additional risk findings truncated")
+			break
+		}
+		remaining := MaxApprovalRiskBytes - bytes
+		if len(value) > remaining {
+			cut := remaining
+			for cut > 0 && !utf8.ValidString(value[:cut]) {
+				cut--
+			}
+			value = value[:cut] + "… [truncated]"
+		}
+		bounded = append(bounded, value)
+		bytes += len(value)
+	}
+	return bounded
 }

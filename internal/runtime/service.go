@@ -1766,6 +1766,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(proposalErr)
 		return
 	}
+	proposal = boundToolProposalReview(proposal, m.maxPayload)
 	approval := domain.Approval{
 		ID:               newPrefixedID("apr_"),
 		RunID:            runID,

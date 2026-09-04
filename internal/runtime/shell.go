@@ -522,6 +522,7 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 	proposal.Preview = audit
 	proposal.Data = shellStateRefData(stateRef)
 	proposal.RiskFindings = boundShellFindings(proposal.RiskFindings)
+	proposal = boundToolProposalReview(proposal, p.mapper.maxPayload)
 	expiresAt := time.Now().Add(s.shellApprovalExpiration()).UnixMilli()
 	approvedHash := shellApprovalHash(args, p.snapshot.Hash, s.engine.cfg.ToolHooks)
 	approval := domain.Approval{

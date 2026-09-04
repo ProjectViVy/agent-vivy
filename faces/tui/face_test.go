@@ -828,14 +828,20 @@ func TestLiveApprovalRespondsAndFiltersOtherRun(t *testing.T) {
 	live.mu.Unlock()
 
 	env.deliver(t, "run_other", "model.delta", map[string]string{"delta": "nope"})
-	env.deliver(t, "run_1", "tool.approval_required", map[string]string{
-		"approval_id": "appr_1", "tool_name": "write_file", "preview": "README.md",
+	env.deliver(t, "run_1", "tool.approval_required", map[string]any{
+		"approval_id": "appr_1", "tool_name": "write_file", "action": "write_file", "target": "README.md",
+		"precondition_hash": strings.Repeat("a", 64),
+		"preview":           "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new", "risk_findings": []string{"overwrite"},
 	})
 	_, _ = live.drainEvents()
 
 	gate := live.PendingGate()
-	if gate == nil || gate.ID != "appr_1" {
+	if gate == nil || gate.ID != "appr_1" || gate.Action != "write_file" || gate.Target != "README.md" || len(gate.PreconditionHash) != 64 || !strings.Contains(gate.Preview, "+new") || len(gate.Risks) != 1 {
 		t.Fatalf("gate = %+v", gate)
+	}
+	gate.Risks[0] = "caller mutation"
+	if live.PendingGate().Risks[0] != "overwrite" {
+		t.Fatal("PendingGate exposed its internal risk slice")
 	}
 	for _, m := range live.ActiveMessages() {
 		if m.Content == "nope" {
@@ -872,6 +878,26 @@ func TestLiveApprovalRespondsAndFiltersOtherRun(t *testing.T) {
 	}
 	if !env.saw("run/cancel") {
 		t.Fatal("run/cancel not issued")
+	}
+}
+
+func TestApprovalResponseIsFencedToExactGateSessionAndRun(t *testing.T) {
+	live := &Live{activeID: "session-1", runID: "run-1", gate: &surface.Gate{Kind: "approval", ID: "gate-b", Submitting: true}, messages: map[string][]surface.Message{}}
+	if cmd := live.applyRPC(liveRPCMsg{Kind: "approval", GateID: "gate-a", SessionID: "session-1", RunID: "run-1", Outcome: "approved"}); cmd != nil {
+		t.Fatal("stale approval response emitted a resolution")
+	}
+	if live.gate == nil || live.gate.ID != "gate-b" || !live.gate.Submitting {
+		t.Fatalf("stale approval response mutated current gate: %+v", live.gate)
+	}
+	if cmd := live.applyRPC(liveRPCMsg{Kind: "approval", GateID: "gate-b", SessionID: "other", RunID: "run-1", Err: errors.New("stale")}); cmd != nil || live.lastErr != "" {
+		t.Fatalf("other-session response leaked into current state: cmd=%v err=%q", cmd != nil, live.lastErr)
+	}
+	if cmd := live.applyRPC(liveRPCMsg{Kind: "approval", GateID: "gate-b", SessionID: "session-1", RunID: "run-1", Err: errors.New("retry")}); cmd != nil || live.gate.Submitting || live.lastErr == "" {
+		t.Fatalf("matching failure was not retryable: gate=%+v err=%q", live.gate, live.lastErr)
+	}
+	live.gate.Submitting = true
+	if cmd := live.applyRPC(liveRPCMsg{Kind: "approval", GateID: "gate-b", SessionID: "session-1", RunID: "run-1", Outcome: "approved"}); cmd == nil || live.gate != nil {
+		t.Fatalf("matching success did not resolve gate: cmd=%v gate=%+v", cmd != nil, live.gate)
 	}
 }
 

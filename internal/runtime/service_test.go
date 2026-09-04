@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -718,6 +719,87 @@ func TestEventMapperClampsJSONEscapedToolResult(t *testing.T) {
 	event := m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: "call", ToolName: tools.BashName, Result: result})
 	if len(event.Payload) > budget {
 		t.Fatalf("encoded payload = %d bytes, want <= %d", len(event.Payload), budget)
+	}
+}
+
+func TestEventMapperBoundsCompleteToolFinishedPayload(t *testing.T) {
+	const budget = 4096
+	parts := []json.RawMessage{
+		json.RawMessage(`{"type":"text","text":"` + strings.Repeat("a", 5000) + `"}`),
+		json.RawMessage(`{"type":"text","text":"` + strings.Repeat("b", 5000) + `"}`),
+	}
+	event := newEventMapper("run-parts", budget).build(domain.EventToolFinished, payloadToolFinished{
+		ToolCallID: "call", ToolName: "read_file", Result: "ok", Parts: parts,
+	})
+	if len(event.Payload) > budget {
+		t.Fatalf("tool.finished payload = %d bytes, want <= %d", len(event.Payload), budget)
+	}
+	var payload payloadToolFinished
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Parts) != 0 || !strings.Contains(payload.Result, "parts omitted") {
+		t.Fatalf("oversized parts were not explicitly omitted: %+v", payload)
+	}
+}
+
+func TestEventMapperBoundsApprovalReviewPayloadBeforeJournal(t *testing.T) {
+	const budget = 8192
+	m := newEventMapper("run-approval-bound", budget)
+	event := m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
+		ApprovalID: "approval-1", ToolCallID: "call-1", ToolName: "write_file", Action: "write_file",
+		Args:    map[string]any{"content": strings.Repeat(`"\\`, 10000)},
+		Preview: strings.Repeat("界", 100000), RiskFindings: []string{strings.Repeat("risk", 10000)},
+	})
+	if len(event.Payload) > budget {
+		t.Fatalf("approval payload = %d bytes, want <= %d", len(event.Payload), budget)
+	}
+	var payload payloadToolApprovalRequired
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ApprovalID != "approval-1" || payload.ToolCallID != "call-1" {
+		t.Fatalf("approval identity was lost: %+v", payload)
+	}
+	if !strings.Contains(payload.Preview, "omitted") && !strings.Contains(payload.Preview, "truncated") {
+		t.Fatalf("oversized preview was not marked: %q", payload.Preview)
+	}
+}
+
+func TestBoundedApprovalReviewMatchesStoredAndJournalProjection(t *testing.T) {
+	const budget = 64 << 10
+	proposal := boundToolProposalReview(domain.ToolProposal{
+		Action: "write_file", Target: "src/sk-live-abcdefghijkl/main.go", PreconditionHash: strings.Repeat("a", 64),
+		Preview: "token sk-live-abcdefghijkl\n" + strings.Repeat("界", 50000), RiskFindings: []string{"api_key='private value' " + strings.Repeat("risk", 10000)},
+	}, budget)
+	if strings.Contains(proposal.Target+proposal.Preview+strings.Join(proposal.RiskFindings, ""), "sk-live") || strings.Contains(strings.Join(proposal.RiskFindings, ""), "private value") {
+		t.Fatalf("stored approval review retained secret canary: %+v", proposal)
+	}
+	event := newEventMapper("run-review-parity", budget).build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
+		ApprovalID: "approval-1", ToolCallID: "call-1", ToolName: "write_file", Args: map[string]any{"content": strings.Repeat("x", 100000)},
+		Action: proposal.Action, Target: proposal.Target, PreconditionHash: proposal.PreconditionHash,
+		Preview: proposal.Preview, RiskFindings: proposal.RiskFindings,
+	})
+	var journal payloadToolApprovalRequired
+	if err := json.Unmarshal(event.Payload, &journal); err != nil {
+		t.Fatal(err)
+	}
+	if journal.Preview != proposal.Preview || !reflect.DeepEqual(journal.RiskFindings, proposal.RiskFindings) {
+		t.Fatalf("stored review and Journal diverged: stored preview=%d risks=%#v journal preview=%d risks=%#v", len(proposal.Preview), proposal.RiskFindings, len(journal.Preview), journal.RiskFindings)
+	}
+}
+
+func TestEventMapperHonorsMinimumConfiguredPayloadBudget(t *testing.T) {
+	const budget = 1024
+	m := newEventMapper("run-min-budget", budget)
+	events := []domain.RunEvent{
+		m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: strings.Repeat("c", 500), ToolName: strings.Repeat("t", 5000), Result: strings.Repeat("r", 5000), Parts: []json.RawMessage{json.RawMessage(`{"text":"` + strings.Repeat("p", 5000) + `"}`)}}),
+		m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{ApprovalID: strings.Repeat("a", 5000), ToolCallID: strings.Repeat("c", 5000), ToolName: strings.Repeat("w", 5000), Face: strings.Repeat("f", 5000), Args: map[string]any{"secret": strings.Repeat("x", 5000)}, Preview: strings.Repeat("p", 5000), RiskFindings: []string{strings.Repeat("r", 5000)}}),
+	}
+	for _, event := range events {
+		if len(event.Payload) > budget {
+			t.Fatalf("%s payload = %d bytes, want <= %d: %s", event.Type, len(event.Payload), budget, event.Payload)
+		}
 	}
 }
 

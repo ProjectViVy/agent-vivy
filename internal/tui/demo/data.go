@@ -105,10 +105,11 @@ func (s *Store) PendingGate() *surface.Gate {
 			body = message.Tool.ToolName + "\n" + message.Tool.Preview
 		}
 		return &surface.Gate{
-			Kind:  "approval",
-			ID:    message.Tool.ApprovalID,
-			Title: message.Tool.ToolName,
-			Body:  body,
+			Kind:    "approval",
+			ID:      message.Tool.ApprovalID,
+			Title:   message.Tool.ToolName,
+			Body:    body,
+			Preview: message.Tool.Preview,
 		}
 	}
 	return nil

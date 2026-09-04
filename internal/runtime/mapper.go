@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
 )
 
 // errRunCancelled is the mapper's sentinel for engine-level cancellation;
@@ -653,11 +654,11 @@ func clampText(s string, budget int) string {
 }
 
 func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
-	if finished, ok := payload.(payloadToolFinished); ok && finished.Result != "" && m.maxPayload > 0 {
-		// Bound the encoded JSON field, not only raw text: quote-heavy output
-		// can otherwise expand beyond the durable event payload ceiling.
-		finished.Result = clampEscapedText(finished.Result, m.maxPayload-1024)
-		payload = finished
+	if finished, ok := payload.(payloadToolFinished); ok && m.maxPayload > 0 {
+		payload = boundToolFinishedEventPayload(finished, m.maxPayload)
+	}
+	if approval, ok := payload.(payloadToolApprovalRequired); ok && m.maxPayload > 0 {
+		payload = boundApprovalEventPayload(approval, m.maxPayload)
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -674,6 +675,136 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		PayloadVersion: 1,
 		Payload:        b,
 	}
+}
+
+func boundToolFinishedEventPayload(payload payloadToolFinished, budget int) payloadToolFinished {
+	fieldBudget := max(0, budget-128)
+	payload.ToolCallID = clampEscapedText(payload.ToolCallID, min(256, fieldBudget/8))
+	payload.ToolName = clampEscapedText(payload.ToolName, min(1024, fieldBudget/8))
+	payload.Error = clampEscapedText(payload.Error, min(1024, fieldBudget/8))
+	resultBudget := fieldBudget * 5 / 8
+	payload.Result = clampEscapedText(payload.Result, resultBudget)
+	omitted := 0
+	for len(payload.Parts) > 0 {
+		encoded, _ := json.Marshal(payload)
+		if len(encoded) <= budget {
+			break
+		}
+		payload.Parts = payload.Parts[:len(payload.Parts)-1]
+		omitted++
+	}
+	if omitted > 0 {
+		marker := fmt.Sprintf("\n[tool result parts omitted: %d exceeded event size limit]", omitted)
+		markerJSON, _ := json.Marshal(marker)
+		contentBudget := max(2, resultBudget-max(0, len(markerJSON)-2))
+		payload.Result = clampEscapedText(payload.Result, contentBudget) + marker
+	}
+	encoded, _ := json.Marshal(payload)
+	if len(encoded) > budget {
+		return payloadToolFinished{
+			ToolCallID: clampEscapedText(payload.ToolCallID, max(2, budget/8)),
+			ToolName:   clampEscapedText(payload.ToolName, max(2, budget/8)),
+			Result:     "[tool result omitted: event size limit]",
+		}
+	}
+	return payload
+}
+
+func boundApprovalEventPayload(payload payloadToolApprovalRequired, budget int) payloadToolApprovalRequired {
+	payload.Action, payload.Target, payload.PreconditionHash, payload.Preview, payload.RiskFindings = boundApprovalReviewFields(
+		payload.Action, payload.Target, payload.PreconditionHash, payload.Preview, payload.RiskFindings, budget,
+	)
+	encoded, _ := json.Marshal(payload)
+	if len(encoded) <= budget {
+		return payload
+	}
+	// Exact arguments remain in the suspended approval record; the durable
+	// event needs only a safe review summary and identity for resumption.
+	payload.Args = map[string]any{"summary": "[approval arguments omitted: event size limit]"}
+	encoded, _ = json.Marshal(payload)
+	if len(encoded) <= budget {
+		return payload
+	}
+	payload.Preview = "[preview omitted: event size limit]"
+	payload.RiskFindings = []string{"review metadata truncated to durable event size limit"}
+	encoded, _ = json.Marshal(payload)
+	if len(encoded) > budget {
+		minimal := payloadToolApprovalRequired{
+			ApprovalID: clampEscapedText(payload.ApprovalID, max(2, budget/8)),
+			ToolCallID: clampEscapedText(payload.ToolCallID, max(2, budget/8)),
+			ToolName:   clampEscapedText(payload.ToolName, max(2, budget/8)),
+			Args:       map[string]any{}, ExpiresAt: payload.ExpiresAt,
+			Face: clampEscapedText(payload.Face, max(2, budget/16)),
+		}
+		encoded, _ = json.Marshal(minimal)
+		if len(encoded) > budget {
+			minimal.ToolCallID = ""
+			minimal.ToolName = ""
+			minimal.Face = ""
+			minimal.ExpiresAt = 0
+		}
+		return minimal
+	}
+	return payload
+}
+
+func boundToolProposalReview(proposal domain.ToolProposal, budget int) domain.ToolProposal {
+	proposal.Action, proposal.Target, proposal.PreconditionHash, proposal.Preview, proposal.RiskFindings = boundApprovalReviewFields(
+		proposal.Action, proposal.Target, proposal.PreconditionHash, proposal.Preview, proposal.RiskFindings, budget,
+	)
+	return proposal
+}
+
+func boundApprovalReviewFields(action, target, hash, preview string, risks []string, budget int) (string, string, string, string, []string) {
+	const (
+		maxPreview = 64 << 10
+		maxRisks   = 16
+		maxRisk    = 1024
+	)
+	if budget <= 0 {
+		boundedRisks := append([]string(nil), risks...)
+		for i := range boundedRisks {
+			boundedRisks[i] = tools.RedactSensitive(boundedRisks[i])
+		}
+		return action, tools.RedactSensitive(target), hash, tools.RedactSensitive(preview), boundedRisks
+	}
+	target = tools.RedactSensitive(target)
+	preview = tools.RedactSensitive(preview)
+	risks = append([]string(nil), risks...)
+	for i := range risks {
+		risks[i] = tools.RedactSensitive(risks[i])
+	}
+	action = clampEscapedText(action, 1024)
+	target = clampEscapedText(target, 4096)
+	hash = clampEscapedText(hash, 256)
+	reviewBudget := max(0, budget-8192)
+	riskBudget := min(16<<10, reviewBudget/4)
+	boundedRisks := make([]string, 0, min(len(risks), maxRisks)+1)
+	used := 0
+	for i, finding := range risks {
+		if i >= maxRisks || used >= riskBudget {
+			boundedRisks = append(boundedRisks, "additional risk findings truncated")
+			break
+		}
+		findingBudget := min(maxRisk, riskBudget-used)
+		bounded := clampEscapedTextWithMarker(finding, findingBudget, "… [truncated]")
+		boundedRisks = append(boundedRisks, bounded)
+		encoded, _ := json.Marshal(bounded)
+		used += len(encoded)
+	}
+	previewBudget := min(maxPreview, max(0, reviewBudget-used))
+	preview = clampEscapedTextWithMarker(preview, previewBudget, "\n[preview truncated]\n")
+	return action, target, hash, preview, boundedRisks
+}
+
+func clampEscapedTextWithMarker(value string, budget int, marker string) string {
+	encoded, _ := json.Marshal(value)
+	if len(encoded) <= budget {
+		return value
+	}
+	encodedMarker, _ := json.Marshal(marker)
+	contentBudget := max(2, budget-max(0, len(encodedMarker)-2))
+	return clampEscapedText(value, contentBudget) + marker
 }
 
 func clampEscapedText(value string, budget int) string {

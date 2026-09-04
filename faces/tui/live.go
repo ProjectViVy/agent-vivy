@@ -230,6 +230,7 @@ func (l *Live) PendingGate() *surface.Gate {
 		return nil
 	}
 	cp := *l.gate
+	cp.Risks = append([]string(nil), l.gate.Risks...)
 	return &cp
 }
 
@@ -338,6 +339,8 @@ type liveSubscribedMsg struct {
 type liveRPCMsg struct {
 	Kind      string
 	SessionID string
+	RunID     string
+	GateID    string
 	Request   uint64
 	Preset    string
 	Session   surface.Session
@@ -861,6 +864,10 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if msg.Kind == "permission" && (msg.Request != l.permissionRequest || msg.SessionID != l.activeID) {
+		return nil
+	}
+	if (msg.Kind == "approval" || msg.Kind == "question") &&
+		(l.gate == nil || l.gate.Kind != msg.Kind || l.gate.ID != msg.GateID || msg.SessionID != l.activeID || msg.RunID != l.runID) {
 		return nil
 	}
 	if msg.Err != nil {
@@ -1800,6 +1807,8 @@ func (l *Live) DecideApproval(decision string) tea.Cmd {
 		return nil
 	}
 	id := gate.ID
+	sessionID := l.activeID
+	runID := l.runID
 	gate.Submitting = true
 	l.mu.Unlock()
 
@@ -1807,7 +1816,7 @@ func (l *Live) DecideApproval(decision string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
 		err := l.client.respondApproval(ctx, id, decision)
-		return liveRPCMsg{Kind: "approval", Outcome: decision, Err: err}
+		return liveRPCMsg{Kind: "approval", Outcome: decision, GateID: id, SessionID: sessionID, RunID: runID, Err: err}
 	}
 }
 
@@ -1824,13 +1833,15 @@ func (l *Live) AnswerQuestion(answer string) tea.Cmd {
 		return nil
 	}
 	id := gate.ID
+	sessionID := l.activeID
+	runID := l.runID
 	gate.Submitting = true
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
 		err := l.client.respondQuestion(ctx, id, answer)
-		return liveRPCMsg{Kind: "question", Outcome: answer, Err: err}
+		return liveRPCMsg{Kind: "question", Outcome: answer, GateID: id, SessionID: sessionID, RunID: runID, Err: err}
 	}
 }
 
