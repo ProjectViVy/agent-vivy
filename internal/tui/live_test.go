@@ -567,8 +567,180 @@ func TestLivePermissionSwitchPersists(t *testing.T) {
 	live.Handle(mustMsg[liveBootMsg](t, live.bootCmd()))
 	msg := mustMsg[liveRPCMsg](t, live.SetPermission("trusted"))
 	live.Handle(msg)
-	if gotPreset != "trusted" || live.Active().PermissionPreset != "trusted" {
-		t.Fatalf("permission = %q / %+v", gotPreset, live.Active())
+	if gotPreset != "trusted" || live.Active().PermissionPreset != "trusted" || live.Sidebar().Session.PermissionPreset != "trusted" {
+		t.Fatalf("permission = %q active=%+v sidebar=%+v", gotPreset, live.Active(), live.Sidebar())
+	}
+}
+
+func TestLivePermissionResponseIsSessionAndRequestFenced(t *testing.T) {
+	live := &Live{
+		activeID: "sess_b",
+		sessions: []surface.Session{
+			{ID: "sess_a", PermissionPreset: "smart"},
+			{ID: "sess_b", PermissionPreset: "cautious"},
+		},
+		sidebar:           surface.Sidebar{Session: surface.Session{ID: "sess_b", PermissionPreset: "cautious"}},
+		permissionRequest: 3,
+	}
+	live.Handle(liveRPCMsg{Kind: "permission", SessionID: "sess_a", Request: 2, Preset: "trusted"})
+	if got := live.Active().PermissionPreset; got != "cautious" {
+		t.Fatalf("cross-session response changed active preset to %q", got)
+	}
+	live.Handle(liveRPCMsg{Kind: "permission", SessionID: "sess_b", Request: 2, Preset: "smart"})
+	if got := live.Active().PermissionPreset; got != "cautious" {
+		t.Fatalf("stale response changed active preset to %q", got)
+	}
+	live.Handle(liveRPCMsg{Kind: "permission", SessionID: "sess_b", Request: 3, Preset: "trusted"})
+	if got := live.Sidebar().Session.PermissionPreset; got != "trusted" {
+		t.Fatalf("current response did not update sidebar preset: %q", got)
+	}
+	live.mu.Lock()
+	live.busy = true
+	live.mu.Unlock()
+	if cmd := live.SetPermission("smart"); cmd != nil || live.permissionRequest != 3 {
+		t.Fatalf("rejected busy switch changed epoch: cmd=%v request=%d", cmd != nil, live.permissionRequest)
+	}
+}
+
+func TestLiveTerminalRefreshesSidebarContextAndRejectsStaleResult(t *testing.T) {
+	var calls int
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method != "session/context" {
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+		calls++
+		return map[string]any{"feed_tokens": 42, "total_messages": 3}, nil
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.runID = "run_1"
+	live.busy = true
+	live.mu.Unlock()
+	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 1, Kind: "done", Done: true})
+	cmd := live.Handle(liveTickMsg{})
+	msg := runCmdUntil(t, cmd, 5, func(msg tea.Msg) bool { _, ok := msg.(liveContextMsg); return ok }).(liveContextMsg)
+	live.Handle(msg)
+	if calls != 1 || !live.Sidebar().HasContext || live.Sidebar().Context.FeedTokens != 42 {
+		t.Fatalf("context calls=%d sidebar=%+v", calls, live.Sidebar())
+	}
+
+	staleCmd := live.refreshContextCmd()
+	live.mu.Lock()
+	live.activeID = "sess_2"
+	live.contextRequest++
+	live.mu.Unlock()
+	live.Handle(mustMsg[liveContextMsg](t, staleCmd))
+	if live.Sidebar().Context.FeedTokens != 42 {
+		t.Fatalf("stale context overwrote sidebar: %+v", live.Sidebar())
+	}
+}
+
+func TestLiveFailedTerminalDoesNotDequeueAndContextFailureHidesStaleSnapshot(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method == "session/context" {
+			return nil, &controlrpc.Error{Code: controlrpc.InternalError, Message: "context unavailable"}
+		}
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.sidebar = surface.Sidebar{Session: surface.Session{ID: "sess_1"}, HasContext: true, Context: surface.Context{FeedTokens: 99}}
+	live.runID = "run_1"
+	live.busy = true
+	live.queue = []queuedTurn{{SessionID: "sess_1", Text: "must stay queued"}}
+	live.mu.Unlock()
+	live.enqueueNotice(eventNotice{RunID: "run_1", Seq: 1, Kind: "done", Done: true, Failed: true, Message: "failed"})
+	cmd := live.Handle(liveTickMsg{})
+	msg := runCmdUntil(t, cmd, 5, func(msg tea.Msg) bool { _, ok := msg.(liveContextMsg); return ok }).(liveContextMsg)
+	live.Handle(msg)
+	if got := live.Meta().Queued; got != 1 {
+		t.Fatalf("failed terminal dequeued follow-up: queued=%d", got)
+	}
+	if live.Sidebar().HasContext || live.Meta().Error == "" {
+		t.Fatalf("failed refresh left stale context looking current: sidebar=%+v meta=%+v", live.Sidebar(), live.Meta())
+	}
+}
+
+func TestLiveInitialSubscriptionFailureCancelsThenRefreshesContext(t *testing.T) {
+	var cancelled string
+	var statusCalls int
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "run/cancel":
+			var params struct {
+				RunID string `json:"run_id"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			cancelled = params.RunID
+			return map[string]string{"status": "cancelling"}, nil
+		case "run/get":
+			statusCalls++
+			if statusCalls == 1 {
+				return map[string]string{"run_id": "run_1", "status": "accepted"}, nil
+			}
+			return map[string]string{"run_id": "run_1", "status": "cancelled"}, nil
+		case "session/context":
+			return map[string]any{"feed_tokens": 17, "total_messages": 2}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.runID = "run_1"
+	live.busy = true
+	live.mu.Unlock()
+	cmd := live.applySubscribed(liveSubscribedMsg{RunID: "run_1", Err: errors.New("subscribe failed")})
+	msg := mustMsg[liveContextMsg](t, cmd)
+	live.Handle(msg)
+	if cancelled != "run_1" || statusCalls != 2 || !live.Sidebar().HasContext || live.Sidebar().Context.FeedTokens != 17 {
+		t.Fatalf("cancelled=%q status_calls=%d sidebar=%+v", cancelled, statusCalls, live.Sidebar())
+	}
+}
+
+func TestLiveMetaCountsOnlyActiveSessionQueue(t *testing.T) {
+	live := &Live{activeID: "sess_a", queue: []queuedTurn{
+		{SessionID: "sess_a", Text: "a"},
+		{SessionID: "sess_b", Text: "b"},
+	}}
+	if got := live.Meta().Queued; got != 1 {
+		t.Fatalf("active-session queue count = %d", got)
+	}
+}
+
+func TestBootWithPromptKeepsExistingSessionsInPicker(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/list":
+			return map[string]any{"sessions": []map[string]string{{"id": "sess_old", "title": "old", "permission_preset": "smart"}}}, nil
+		case "session/create":
+			return map[string]string{"id": "sess_fresh", "title": "hi", "permission_preset": "smart"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{InitialPrompt: "hi"})
+	defer live.Close()
+	boot := mustMsg[liveBootMsg](t, live.bootCmd())
+	if len(boot.Sessions) != 2 || boot.Sessions[0].ID != "sess_fresh" || boot.Sessions[1].ID != "sess_old" {
+		t.Fatalf("boot sessions = %+v", boot.Sessions)
 	}
 }
 
