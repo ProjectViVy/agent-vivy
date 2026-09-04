@@ -114,6 +114,198 @@ func TestRenderMessageFitsNarrowViewportAndDropsBidiControls(t *testing.T) {
 	}
 }
 
+const approvalDiffFixture = "--- a/a.go\n+++ b/a.go\n@@ -1,2 +1,2 @@\n-old value\n+new value\n same"
+
+func TestApprovalDiffUsesAuthoritativePreviewAndResponsiveModes(t *testing.T) {
+	driver := &testDriver{gate: &surface.Gate{
+		Kind: "approval", ID: "gate-1", Title: "write", Body: "args must-not-render-as-diff",
+		Action: "write", Target: "a.go", Preview: approvalDiffFixture,
+	}}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 36})
+	m = next.(Model)
+	wide := ansi.Strip(m.renderGateDialog(driver.gate, computeLayout(180, 36), DefaultPalette()))
+	if !strings.Contains(wide, "split") || !strings.Contains(wide, "old value") || !strings.Contains(wide, "new value") || strings.Contains(wide, "args must-not-render-as-diff") {
+		t.Fatalf("wide approval diff = %q", wide)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = next.(Model)
+	if !m.gateUnified {
+		t.Fatal("t did not switch approval diff to unified")
+	}
+	unified := ansi.Strip(m.renderGateDialog(driver.gate, computeLayout(180, 36), DefaultPalette()))
+	if !strings.Contains(unified, "unified") || !strings.Contains(unified, "-old value") || !strings.Contains(unified, "+new value") {
+		t.Fatalf("unified approval diff = %q", unified)
+	}
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = next.(Model)
+	if m.gateUsesSplit(driver.gate, computeLayout(80, 30)) {
+		t.Fatal("explicit unified selection was lost across resize")
+	}
+
+	narrowModel := New(driver)
+	next, _ = narrowModel.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
+	narrowModel = next.(Model)
+	narrow := narrowModel.View()
+	if strings.Contains(ansi.Strip(narrow), "split ·") {
+		t.Fatalf("narrow viewport offered split mode: %q", ansi.Strip(narrow))
+	}
+	for _, line := range strings.Split(narrow, "\n") {
+		if lipgloss.Width(line) > 70 {
+			t.Fatalf("narrow line overflow width=%d: %q", lipgloss.Width(line), line)
+		}
+	}
+	next, _ = narrowModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	narrowModel = next.(Model)
+	if !strings.Contains(ansi.Strip(narrowModel.renderGateDialog(driver.gate, computeLayout(70, 18), DefaultPalette())), "split ·") {
+		t.Fatal("t was a no-op below the default split threshold")
+	}
+}
+
+func TestApprovalDiffScrollsResetsAndKeepsDecisionRouting(t *testing.T) {
+	var diff strings.Builder
+	diff.WriteString("--- a/a.go\n+++ b/a.go\n@@ -1,40 +1,40 @@\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&diff, "-old %02d\n+new %02d\n", i, i)
+	}
+	driver := &testDriver{gate: &surface.Gate{Kind: "approval", ID: "gate-1", Title: "write", Action: "patch", Preview: diff.String()}}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = next.(Model)
+	if m.gateScroll == 0 {
+		t.Fatal("page down did not scroll approval diff")
+	}
+	beforeWheel := m.gateScroll
+	next, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+	m = next.(Model)
+	if m.gateScroll <= beforeWheel {
+		t.Fatal("mouse wheel did not stay with foreground approval diff")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = next.(Model)
+	if !m.gateFullscreen {
+		t.Fatal("f did not toggle fullscreen")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = next.(Model)
+	if driver.decision != approvalApproved {
+		t.Fatalf("approval decision = %q", driver.decision)
+	}
+	driver.gate = &surface.Gate{Kind: "approval", ID: "gate-2", Title: "write", Action: "patch", Preview: approvalDiffFixture}
+	next, _ = m.Update(surface.ErrMsg{})
+	m = next.(Model)
+	if m.gateScroll != 0 || m.gateUnified || m.gateViewExplicit || m.gateFullscreen || m.gateID != "gate-2" {
+		t.Fatalf("new gate retained old view state: %+v", m)
+	}
+}
+
+func TestApprovalDiffSanitizesTerminalControlsAndFallsBackWithoutDiff(t *testing.T) {
+	gate := &surface.Gate{
+		Kind: "approval", ID: "safe", Title: "write\x1b]2;TITLE-PWN\a", Action: "write\r", Target: "C:\\secret\\a.go\u202e",
+		Preview: "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\x1b]2;BODY-PWN\a\n+new\u2066", Risks: []string{"risk\x1b]2;RISK-PWN\a"},
+	}
+	m := New(&testDriver{gate: gate})
+	plain := ansi.Strip(m.renderGateDialog(gate, computeLayout(120, 30), DefaultPalette()))
+	if strings.Contains(plain, "PWN") || strings.ContainsAny(plain, "\r\a\u202e\u2066") {
+		t.Fatalf("approval retained terminal control payload: %q", plain)
+	}
+	if strings.Contains(plain, "secret") || !strings.Contains(plain, "[redacted target]") {
+		t.Fatalf("approval exposed an absolute target: %q", plain)
+	}
+	gate.Preview = "not a unified diff"
+	gate.Body = "plain approval body"
+	plain = ansi.Strip(m.renderGateDialog(gate, computeLayout(120, 30), DefaultPalette()))
+	if !strings.Contains(plain, "not a unified diff") || strings.Contains(plain, "plain approval body") || strings.Contains(plain, "t view") {
+		t.Fatalf("non-diff approval did not prefer the authoritative preview: %q", plain)
+	}
+}
+
+func TestNonMutationCannotSpoofApprovalDiffControls(t *testing.T) {
+	gate := &surface.Gate{Kind: "approval", ID: "remote", Title: "mcp", Action: "mcp_call", Body: "remote request", Preview: approvalDiffFixture}
+	m := New(&testDriver{gate: gate})
+	plain := ansi.Strip(m.renderGateDialog(gate, computeLayout(160, 36), DefaultPalette()))
+	if strings.Contains(plain, "t view") || strings.Contains(plain, "split ·") || !strings.Contains(plain, "--- a/a.go") || strings.Contains(plain, "remote request") {
+		t.Fatalf("non-mutation preview spoofed a file diff: %q", plain)
+	}
+}
+
+func TestApprovalDiffCrushDecisionKeysAndBoundedHorizontalScroll(t *testing.T) {
+	gate := &surface.Gate{Kind: "approval", ID: "keys", Title: "patch", Action: "patch", Preview: approvalDiffFixture + strings.Repeat("x", 300)}
+	driver := &testDriver{gate: gate}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+	m = next.(Model)
+	for i := 0; i < 200; i++ {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+		m = next.(Model)
+	}
+	if m.gateHorizontal <= 0 || m.gateHorizontal > m.gateMaxHorizontal() {
+		t.Fatalf("horizontal offset was not bounded: %d max=%d", m.gateHorizontal, m.gateMaxHorizontal())
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	if driver.decision != approvalDenied {
+		t.Fatalf("Esc decision = %q", driver.decision)
+	}
+	driver.decision = ""
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if driver.decision != approvalApproved {
+		t.Fatalf("Enter decision = %q", driver.decision)
+	}
+}
+
+func TestSplitDiffDistinguishesHeadersFromContentAndShortAxisForcesFullscreen(t *testing.T) {
+	preview := "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n---literal old\n+++literal new"
+	rows := parseSplitDiffRows(strings.Split(preview, "\n"))
+	if len(rows) != 2 || rows[0].kind != '@' || rows[1].left != "---literal old" || rows[1].right != "+++literal new" || rows[1].oldNo != 1 || rows[1].newNo != 1 {
+		t.Fatalf("split rows confused file headers with content: %+v", rows)
+	}
+	if adds, dels := visibleDiffStats(strings.Split(preview, "\n")); adds != 1 || dels != 1 {
+		t.Fatalf("visible stats = +%d -%d", adds, dels)
+	}
+	gate := &surface.Gate{Kind: "approval", ID: "short", Action: "patch", Preview: preview}
+	m := New(&testDriver{gate: gate})
+	for _, size := range []struct{ w, h int }{{160, 20}, {77, 40}} {
+		l := computeLayout(size.w, size.h)
+		if got := m.gateDialogWidth(gate, l); got != size.w-2 {
+			t.Fatalf("%dx%d dialog width = %d, want forced fullscreen %d", size.w, size.h, got, size.w-2)
+		}
+		if size.w == 160 && !m.gateUsesSplit(gate, l) {
+			t.Fatal("forced fullscreen width did not drive the default split mode")
+		}
+	}
+	gate.Target = "src/main.go"
+	gate.PreconditionHash = strings.Repeat("a", 64)
+	gate.Risks = []string{"one", "two", "three", "four", "five"}
+	dialog := m.renderGateDialog(gate, computeLayout(160, 21), DefaultPalette())
+	if lines := len(strings.Split(dialog, "\n")); lines > 21 {
+		t.Fatalf("short dialog used %d terminal rows", lines)
+	}
+	if !strings.Contains(ansi.Strip(dialog), "approve") {
+		t.Fatalf("short dialog cropped decision help: %q", ansi.Strip(dialog))
+	}
+}
+
+func TestToolDiffDistinguishesHeadersFromContent(t *testing.T) {
+	preview := "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n---literal old\n+++literal new"
+	rendered := renderDiffBody(preview, DefaultPalette())
+	if !strings.Contains(ansi.Strip(rendered), "+1 -1") {
+		t.Fatalf("tool diff rendered wrong stat header: %q", ansi.Strip(rendered))
+	}
+	if adds, dels := visibleDiffStats(strings.Split(preview, "\n")); adds != 1 || dels != 1 {
+		t.Fatalf("tool diff stats confused content with headers: +%d -%d", adds, dels)
+	}
+}
+
+func TestApprovalTargetKeepsNestedWorkspaceRelativePath(t *testing.T) {
+	if got := sanitizeApprovalTarget("src/nested/main.go"); got != "src/nested/main.go" {
+		t.Fatalf("workspace-relative target = %q", got)
+	}
+}
+
 type testDriver struct {
 	sessions    []surface.Session
 	active      string
@@ -127,6 +319,7 @@ type testDriver struct {
 	sendBlocked bool
 	sent        string
 	thinking    string
+	decision    string
 	messages    map[string][]surface.Message
 }
 
@@ -182,7 +375,10 @@ func (d *testDriver) Send(text string) tea.Cmd {
 	d.sent = text
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
-func (d *testDriver) DecideApproval(string) tea.Cmd { return nil }
+func (d *testDriver) DecideApproval(decision string) tea.Cmd {
+	d.decision = decision
+	return nil
+}
 func (d *testDriver) AnswerQuestion(string) tea.Cmd { return nil }
 func (d *testDriver) SetPermission(string) tea.Cmd  { return nil }
 func (d *testDriver) ClearQueue() bool              { return false }

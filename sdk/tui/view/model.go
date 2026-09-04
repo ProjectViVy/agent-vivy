@@ -88,6 +88,13 @@ type Model struct {
 	chatScroll     int
 	chatFollow     bool
 	chatSessionID  string
+
+	gateID           string
+	gateScroll       int
+	gateHorizontal   int
+	gateUnified      bool
+	gateViewExplicit bool
+	gateFullscreen   bool
 }
 
 // New returns a model bound to the given driver.
@@ -137,6 +144,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.modelPickerOpen && m.driver.PendingGate() != nil {
 		m.closeModelPicker()
 	}
+	m.syncGateView()
 	if m.fileCompletionOpen && m.fileCompletionSessionID != m.driver.Active().ID {
 		m.closeFileCompletion()
 	}
@@ -198,13 +206,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chatFollow = true
 	}
 	m.clampChatScroll()
+	m.clampGateScroll()
 	return m, tea.Batch(cmds...)
 }
 
 const sidebarWheelStep = 3
 
 func (m *Model) handleMouse(msg tea.MouseMsg) {
-	if m.driver.PendingGate() != nil || m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" {
+	if gate := m.driver.PendingGate(); gate != nil {
+		if gate.Kind == "approval" && msg.Action == tea.MouseActionPress {
+			delta := 0
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				delta = -sidebarWheelStep
+			case tea.MouseButtonWheelDown:
+				delta = sidebarWheelStep
+			default:
+				switch msg.Type {
+				case tea.MouseWheelUp:
+					delta = -sidebarWheelStep
+				case tea.MouseWheelDown:
+					delta = sidebarWheelStep
+				}
+			}
+			m.gateScroll += delta
+			m.clampGateScroll()
+		}
+		return
+	}
+	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" {
 		return
 	}
 	if msg.Action != tea.MouseActionPress {
@@ -357,8 +387,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
+	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC {
 		return m, nil
+	}
+	if gate != nil && gate.Kind == "approval" && !gate.Submitting {
+		if next, handled := m.handleApprovalViewKey(msg); handled {
+			return next, nil
+		}
 	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
@@ -377,6 +412,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyEsc:
 		if gate != nil {
+			if gate.Kind == "approval" && !gate.Submitting {
+				return m, m.driver.DecideApproval(approvalDenied)
+			}
 			return m, nil
 		}
 		if meta.Queued > 0 {
@@ -396,6 +434,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyCtrlY:
+		if gate != nil && gate.Kind == "approval" && !gate.Submitting {
+			return m, m.driver.DecideApproval(approvalApproved)
+		}
 		if gate == nil && !meta.Busy {
 			return m, m.driver.SetPermission(nextPermission(m.driver.Active().PermissionPreset))
 		}
@@ -417,7 +458,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if gate.Kind == "question" {
 				return m, m.driver.AnswerQuestion(m.input)
 			}
-			return m, nil
+			return m, m.driver.DecideApproval(approvalApproved)
 		}
 		return m.submitInput()
 	case tea.KeyBackspace:
@@ -472,6 +513,81 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) syncGateView() {
+	gate := m.driver.PendingGate()
+	if gate == nil {
+		m.gateID = ""
+		m.gateScroll = 0
+		m.gateHorizontal = 0
+		m.gateUnified = false
+		m.gateViewExplicit = false
+		m.gateFullscreen = false
+		return
+	}
+	if gate.ID != m.gateID {
+		m.gateID = gate.ID
+		m.gateScroll = 0
+		m.gateHorizontal = 0
+		m.gateUnified = false
+		m.gateViewExplicit = false
+		m.gateFullscreen = false
+	}
+}
+
+func (m Model) handleApprovalViewKey(msg tea.KeyMsg) (Model, bool) {
+	gate := m.driver.PendingGate()
+	if gate == nil || !isApprovalDiff(gate) {
+		return m, false
+	}
+	page := max(1, m.gateViewportHeight(gate, computeLayout(m.width, m.height))-1)
+	switch msg.Type {
+	case tea.KeyUp:
+		m.gateScroll--
+	case tea.KeyDown:
+		m.gateScroll++
+	case tea.KeyPgUp:
+		m.gateScroll -= page
+	case tea.KeyPgDown:
+		m.gateScroll += page
+	case tea.KeyHome:
+		m.gateScroll = 0
+	case tea.KeyEnd:
+		m.gateScroll = m.gateMaxScroll()
+	default:
+		raw := msg.String()
+		switch raw {
+		case "H":
+			m.gateHorizontal = max(0, m.gateHorizontal-4)
+		case "L":
+			m.gateHorizontal += 4
+		case "K":
+			m.gateScroll--
+		case "J":
+			m.gateScroll++
+		default:
+			switch strings.ToLower(raw) {
+			case "t":
+				m.gateUnified = m.gateUsesSplit(gate, computeLayout(m.width, m.height))
+				m.gateViewExplicit = true
+			case "f":
+				m.gateFullscreen = !m.gateFullscreen
+			case "shift+up", "shift+k":
+				m.gateScroll--
+			case "shift+down", "shift+j":
+				m.gateScroll++
+			case "shift+left", "shift+h":
+				m.gateHorizontal = max(0, m.gateHorizontal-4)
+			case "shift+right", "shift+l":
+				m.gateHorizontal += 4
+			default:
+				return m, false
+			}
+		}
+	}
+	m.clampGateScroll()
+	return m, true
 }
 
 func (m Model) handleSidebarKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {

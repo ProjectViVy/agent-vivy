@@ -101,3 +101,14 @@ func TestInboxCountsAuthoritativeCompletedContent(t *testing.T) {
 		t.Fatal("completed content bypassed byte bound")
 	}
 }
+
+func TestInboxCountsCompleteApprovalGate(t *testing.T) {
+	inbox := NewBoundedInbox(10, 64)
+	notice := Notice{Kind: "gate", Gate: &GatePrompt{
+		Kind: "approval", ID: "a", Action: strings.Repeat("a", 20), Target: strings.Repeat("t", 20),
+		PreconditionHash: strings.Repeat("f", 64), Preview: strings.Repeat("p", 20), Risks: []string{strings.Repeat("r", 20)},
+	}}
+	if inbox.Push(notice) != PushReplayRequired {
+		t.Fatal("approval metadata bypassed inbox byte bound")
+	}
+}

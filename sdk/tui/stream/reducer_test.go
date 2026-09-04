@@ -43,6 +43,26 @@ func TestProjectionHandlesToolGateAndFailure(t *testing.T) {
 	}
 }
 
+func TestProjectionCarriesApprovalPreviewIntoGateAndToolCard(t *testing.T) {
+	p := Projection{Messages: []surface.Message{{ID: "requested", Role: surface.RoleTool, Tool: &surface.ToolCard{ToolName: "write", ToolCallID: "call-1", Status: "pending", Preview: `{"secret":"must-not-survive"}`}}}}
+	nextID := idFactory()
+	risks := []string{"overwrite"}
+	p.Apply(Notice{Kind: "gate", Gate: &GatePrompt{
+		Kind: "approval", ID: "a1", ToolCallID: "call-1", Title: "write", Body: "arguments", Action: "write", Target: "a.go",
+		PreconditionHash: strings.Repeat("a", 64), Preview: "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new", Risks: risks,
+	}}, nextID)
+	if p.Gate == nil || p.Gate.Action != "write" || p.Gate.Target != "a.go" || len(p.Gate.PreconditionHash) != 64 || len(p.Gate.Risks) != 1 {
+		t.Fatalf("gate = %+v", p.Gate)
+	}
+	if len(p.Messages) != 1 || p.Messages[0].Tool == nil || !strings.Contains(p.Messages[0].Tool.Preview, "+new") || strings.Contains(p.Messages[0].Tool.Preview, "must-not-survive") {
+		t.Fatalf("tool card = %+v", p.Messages)
+	}
+	risks[0] = "mutated"
+	if p.Gate.Risks[0] != "overwrite" {
+		t.Fatalf("projection retained caller-owned risk slice: %#v", p.Gate.Risks)
+	}
+}
+
 func TestProjectionCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T) {
 	nextID := idFactory()
 	p := Projection{}

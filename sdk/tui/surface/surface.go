@@ -166,11 +166,16 @@ type Message struct {
 
 // Gate is the modal approval / question overlay.
 type Gate struct {
-	Kind       string // approval | question
-	ID         string
-	Title      string
-	Body       string
-	Submitting bool
+	Kind             string // approval | question
+	ID               string
+	Title            string
+	Body             string
+	Action           string
+	Target           string
+	PreconditionHash string
+	Preview          string
+	Risks            []string
+	Submitting       bool
 }
 
 // Meta is footer / chrome status for the active driver.

@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tui/surface"
@@ -1129,7 +1132,11 @@ func (r *repl) drainRun(ctx context.Context) error {
 				r.mu.Unlock()
 				fmt.Fprintln(r.out)
 				if notice.Gate.Kind == "approval" {
-					fmt.Fprintf(r.out, "%s\n", notice.Gate.Body)
+					preview := notice.Gate.Preview
+					if preview == "" {
+						preview = notice.Gate.Body
+					}
+					fmt.Fprintf(r.out, "%s\n", safeApprovalText(preview))
 				}
 				return nil
 			}
@@ -1157,6 +1164,21 @@ func (r *repl) drainRun(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func safeApprovalText(text string) string {
+	text = ansi.Strip(text)
+	var clean strings.Builder
+	for _, r := range text {
+		if r == '\n' || r == '\t' || (!unicode.IsControl(r) && !isBidiControl(r)) {
+			clean.WriteRune(r)
+		}
+	}
+	return clean.String()
+}
+
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }
 
 func (r *repl) renderModelNotice(notice eventNotice) {

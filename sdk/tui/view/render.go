@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -679,17 +680,17 @@ func renderDiffBody(body string, p Palette) string {
 		return body
 	}
 	lines := strings.Split(body, "\n")
-	adds, dels := 0, 0
+	adds, dels := visibleDiffStats(lines)
+	inHunk := false
 	for i, line := range lines {
 		switch {
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			adds++
-			lines[i] = p.DiffAdd.Render(line)
-		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
-			dels++
-			lines[i] = p.DiffDel.Render(line)
 		case strings.HasPrefix(line, "@@"):
+			inHunk = true
 			lines[i] = p.DiffHunk.Render(line)
+		case inHunk && strings.HasPrefix(line, "+"):
+			lines[i] = p.DiffAdd.Render(line)
+		case inHunk && strings.HasPrefix(line, "-"):
+			lines[i] = p.DiffDel.Render(line)
 		}
 	}
 	if adds+dels > 0 {
@@ -831,18 +832,390 @@ func (m Model) renderGateDialog(gate *surface.Gate, l layout, p Palette) string 
 	if kind == "" || kind == "approval" {
 		kind = "permission"
 	}
-	title := p.DialogTitle.Render(kind + "  ·  " + gate.Title)
-	body := p.DialogBody.Render(gate.Body)
-	help := p.DialogFooter.Render("y approve    n deny")
+	w := m.gateDialogWidth(gate, l)
+	innerWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
+	titleText := kind + "  ·  " + sanitizeInline(gate.Title)
+	title := p.DialogTitle.Render(truncate(titleText, innerWidth))
+	lines := []string{title}
+	if meta := renderGateMetadata(gate, innerWidth, p); len(meta) > 0 {
+		lines = append(lines, meta...)
+	}
+	lines = append(lines, "")
+	bodyLines := m.gateBodyLines(gate, l, p, innerWidth)
+	viewport := m.gateViewportHeight(gate, l)
+	start := min(max(0, m.gateScroll), max(0, len(bodyLines)-viewport))
+	end := min(len(bodyLines), start+viewport)
+	if len(bodyLines) == 0 {
+		bodyLines = []string{p.DialogBody.Render("No preview supplied.")}
+		start, end = 0, 1
+	}
+	lines = append(lines, bodyLines[start:end]...)
+	if len(bodyLines) > viewport {
+		lines = append(lines, p.DialogFooter.Render(fmt.Sprintf("lines %d–%d of %d", start+1, end, len(bodyLines))))
+	}
+	lines = append(lines, "")
+	helpText := "enter/y approve · esc/n deny"
+	if isApprovalDiff(gate) {
+		mode := "unified"
+		if m.gateUsesSplit(gate, l) {
+			mode = "split"
+		}
+		helpText = mode + " · t view · f fullscreen · ↑↓/pg scroll · enter/y approve · esc/n deny"
+	}
+	help := p.DialogFooter.Render(truncate(helpText, innerWidth))
 	if gate.Kind == "question" {
 		help = p.DialogFooter.Render("type answer · enter submit")
 	}
 	if gate.Submitting {
 		help = p.DialogFooter.Render("submitting…")
 	}
-	inner := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", help)
-	w := max(1, min(l.width-6, 64))
+	lines = append(lines, help)
+	inner := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return p.Dialog.Width(w).Render(inner)
+}
+
+func renderGateMetadata(gate *surface.Gate, width int, p Palette) []string {
+	var lines []string
+	if action := sanitizeInline(gate.Action); action != "" {
+		lines = append(lines, p.DialogFooter.Render(truncate("action: "+action, width)))
+	}
+	if target := sanitizeApprovalTarget(gate.Target); target != "" {
+		lines = append(lines, p.DialogFooter.Render(truncate("target: "+target, width)))
+	}
+	if hash := shortPreconditionHash(gate.PreconditionHash); hash != "" {
+		lines = append(lines, p.DialogFooter.Render("base: "+hash))
+	}
+	for i, risk := range gate.Risks {
+		if i == 3 {
+			lines = append(lines, p.ToolFail.Render(fmt.Sprintf("warning: %d more findings", len(gate.Risks)-i)))
+			break
+		}
+		if risk = sanitizeInline(risk); risk != "" {
+			lines = append(lines, p.ToolFail.Render(truncate("warning: "+risk, width)))
+		}
+	}
+	return lines
+}
+
+func shortPreconditionHash(hash string) string {
+	hash = strings.TrimSpace(hash)
+	if len(hash) != 64 {
+		return ""
+	}
+	for _, r := range hash {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return ""
+		}
+	}
+	return strings.ToLower(hash[:12]) + "…"
+}
+
+func sanitizeInline(text string) string {
+	return strings.TrimSpace(strings.ReplaceAll(sanitizeMultilineText(text), "\n", " "))
+}
+
+func sanitizeApprovalTarget(text string) string {
+	target := sanitizeInline(text)
+	if strings.Contains(target, "\\") || strings.Contains(target, ":") || strings.HasPrefix(target, "/") {
+		return "[redacted target]"
+	}
+	return target
+}
+
+const maxGatePreviewRunes = 64 * 1024
+
+func sanitizeMultilineText(text string) string {
+	text = strings.ReplaceAll(strings.ReplaceAll(ansi.Strip(text), "\r\n", "\n"), "\r", "\n")
+	clean := make([]rune, 0, min(len([]rune(text)), maxGatePreviewRunes))
+	for _, r := range text {
+		if r == '\n' {
+			clean = append(clean, r)
+		} else if r == '\t' {
+			clean = append(clean, ' ', ' ', ' ', ' ')
+		} else if !unicode.IsControl(r) && !isBidiControl(r) {
+			clean = append(clean, r)
+		}
+		if len(clean) >= maxGatePreviewRunes {
+			break
+		}
+	}
+	return string(clean)
+}
+
+func isUnifiedDiff(preview string) bool {
+	preview = sanitizeMultilineText(preview)
+	return strings.Contains(preview, "\n--- ") && strings.Contains(preview, "\n+++ ") && strings.Contains(preview, "\n@@") ||
+		strings.HasPrefix(preview, "--- ") && strings.Contains(preview, "\n+++ ") && strings.Contains(preview, "\n@@")
+}
+
+func isApprovalDiff(gate *surface.Gate) bool {
+	if gate == nil || !isUnifiedDiff(gate.Preview) {
+		return false
+	}
+	action := strings.ToLower(strings.TrimSpace(gate.Action))
+	return action == "write_file" || action == "write" || action == "patch" || action == "multiedit" || action == "replace_symbol" || strings.HasPrefix(action, "skill_")
+}
+
+func (m Model) gateUsesSplit(gate *surface.Gate, l layout) bool {
+	if m.gateViewExplicit {
+		return !m.gateUnified
+	}
+	return m.gateDialogWidth(gate, l) >= 140
+}
+
+func (m Model) gateBodyLines(gate *surface.Gate, l layout, p Palette, width int) []string {
+	if !isApprovalDiff(gate) {
+		body := sanitizeMultilineText(gate.Preview)
+		if strings.TrimSpace(body) == "" {
+			body = sanitizeMultilineText(gate.Body)
+		}
+		return wrapText(body, width)
+	}
+	if m.gateUsesSplit(gate, l) {
+		return renderSplitDiffLines(gate.Preview, width, m.gateHorizontal, p)
+	}
+	return renderUnifiedDiffLines(gate.Preview, width, m.gateHorizontal, p)
+}
+
+func renderUnifiedDiffLines(preview string, width, horizontal int, p Palette) []string {
+	raw := strings.Split(sanitizeMultilineText(preview), "\n")
+	adds, dels := visibleDiffStats(raw)
+	lines := []string{p.Dim.Render("preview ") + p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}
+	inHunk := false
+	for _, original := range raw {
+		line := horizontalSlice(original, horizontal, width)
+		switch {
+		case strings.HasPrefix(original, "@@"):
+			inHunk = true
+			line = p.DiffHunk.Render(line)
+		case inHunk && strings.HasPrefix(original, "+"):
+			line = p.DiffAdd.Render(line)
+		case inHunk && strings.HasPrefix(original, "-"):
+			line = p.DiffDel.Render(line)
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+type splitDiffRow struct {
+	kind         byte
+	left, right  string
+	oldNo, newNo int
+}
+
+func renderSplitDiffLines(preview string, width, horizontal int, p Palette) []string {
+	raw := strings.Split(sanitizeMultilineText(preview), "\n")
+	adds, dels := visibleDiffStats(raw)
+	rows := parseSplitDiffRows(raw)
+	lines := []string{p.Dim.Render("preview ") + p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}
+	col := max(1, (width-3)/2)
+	for _, row := range rows {
+		if row.kind == '@' {
+			lines = append(lines, p.DiffHunk.Render(ansi.Truncate(row.left, width, "…")))
+			continue
+		}
+		left := padCells(splitNumber(row.oldNo)+horizontalSlice(row.left, horizontal, col-5), col)
+		right := padCells(splitNumber(row.newNo)+horizontalSlice(row.right, horizontal, col-5), col)
+		if row.kind == '-' && row.left != "" {
+			left = p.DiffDel.Render(left)
+		}
+		if (row.kind == '+' || row.kind == '-') && row.right != "" {
+			right = p.DiffAdd.Render(right)
+		}
+		lines = append(lines, left+p.Dim.Render(" │ ")+right)
+	}
+	return lines
+}
+
+func parseSplitDiffRows(lines []string) []splitDiffRow {
+	rows := make([]splitDiffRow, 0, len(lines))
+	oldNo, newNo := 0, 0
+	inHunk := false
+	for i := 0; i < len(lines); {
+		line := lines[i]
+		if strings.HasPrefix(line, "@@") {
+			inHunk = true
+			oldNo, newNo = parseHunkStart(line)
+			rows = append(rows, splitDiffRow{kind: '@', left: line})
+			i++
+			continue
+		}
+		if !inHunk {
+			// File headers are already represented by the typed target metadata;
+			// do not duplicate ---/+++ into both split columns.
+			i++
+			continue
+		}
+		if strings.HasPrefix(line, "-") {
+			var dels, adds []splitDiffRow
+			for i < len(lines) && strings.HasPrefix(lines[i], "-") {
+				dels = append(dels, splitDiffRow{left: lines[i], oldNo: oldNo})
+				oldNo++
+				i++
+			}
+			for i < len(lines) && strings.HasPrefix(lines[i], "+") {
+				adds = append(adds, splitDiffRow{right: lines[i], newNo: newNo})
+				newNo++
+				i++
+			}
+			for n := 0; n < max(len(dels), len(adds)); n++ {
+				var left, right string
+				var leftNo, rightNo int
+				if n < len(dels) {
+					left, leftNo = dels[n].left, dels[n].oldNo
+				}
+				if n < len(adds) {
+					right, rightNo = adds[n].right, adds[n].newNo
+				}
+				rows = append(rows, splitDiffRow{kind: '-', left: left, right: right, oldNo: leftNo, newNo: rightNo})
+			}
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "+"):
+			rows = append(rows, splitDiffRow{kind: '+', right: line, newNo: newNo})
+			newNo++
+		case strings.HasPrefix(line, " "):
+			rows = append(rows, splitDiffRow{kind: ' ', left: line, right: line, oldNo: oldNo, newNo: newNo})
+			oldNo++
+			newNo++
+		default:
+			rows = append(rows, splitDiffRow{kind: ' ', left: line, right: line})
+		}
+		i++
+	}
+	return rows
+}
+
+func parseHunkStart(line string) (oldNo, newNo int) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return 0, 0
+	}
+	parse := func(field string) int {
+		field = strings.TrimLeft(field, "+-")
+		if comma := strings.IndexByte(field, ','); comma >= 0 {
+			field = field[:comma]
+		}
+		n, _ := strconv.Atoi(field)
+		return n
+	}
+	return parse(fields[1]), parse(fields[2])
+}
+
+func splitNumber(line int) string {
+	if line <= 0 {
+		return "     "
+	}
+	return fmt.Sprintf("%4d ", line)
+}
+
+func visibleDiffStats(lines []string) (adds, dels int) {
+	inHunk := false
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			inHunk = true
+			continue
+		}
+		if inHunk && strings.HasPrefix(line, "+") {
+			adds++
+		}
+		if inHunk && strings.HasPrefix(line, "-") {
+			dels++
+		}
+	}
+	return adds, dels
+}
+
+func horizontalSlice(text string, offset, width int) string {
+	if offset > 0 {
+		text = ansi.TruncateLeft(text, offset, "")
+	}
+	return ansi.Truncate(text, max(1, width), "…")
+}
+
+func padCells(text string, width int) string {
+	return text + strings.Repeat(" ", max(0, width-lipgloss.Width(text)))
+}
+
+func (m Model) gateViewportHeight(gate *surface.Gate, l layout) int {
+	// Reserve dialog border/padding, title, metadata, blank separators, the
+	// scroll position line, and help before assigning the remaining rows.
+	available := l.height - gateMetadataLineCount(gate) - 10
+	if m.gateFullscreen || l.width <= 77 || l.height <= 20 {
+		return max(1, available)
+	}
+	return max(1, min(available, 24))
+}
+
+func gateMetadataLineCount(gate *surface.Gate) int {
+	if gate == nil {
+		return 0
+	}
+	count := 0
+	if sanitizeInline(gate.Action) != "" {
+		count++
+	}
+	if sanitizeApprovalTarget(gate.Target) != "" {
+		count++
+	}
+	if shortPreconditionHash(gate.PreconditionHash) != "" {
+		count++
+	}
+	count += min(len(gate.Risks), 4)
+	return count
+}
+
+func (m Model) gateDialogWidth(gate *surface.Gate, l layout) int {
+	w := max(1, min(l.width-6, 64))
+	if isApprovalDiff(gate) {
+		w = approvalDialogWidth(gate, l)
+	}
+	if m.gateFullscreen || l.width <= 77 || l.height <= 20 {
+		w = max(1, l.width-2)
+	}
+	return w
+}
+
+func approvalDialogWidth(gate *surface.Gate, l layout) int {
+	if !isApprovalDiff(gate) {
+		return max(1, min(l.width-6, 64))
+	}
+	return min(min(180, max(40, l.width*4/5)), max(1, l.width-4))
+}
+
+func (m Model) gateMaxScroll() int {
+	gate := m.driver.PendingGate()
+	if gate == nil {
+		return 0
+	}
+	l := computeLayout(m.width, m.height)
+	w := m.gateDialogWidth(gate, l)
+	inner := max(1, w-m.palette.Dialog.GetHorizontalFrameSize())
+	return max(0, len(m.gateBodyLines(gate, l, m.palette, inner))-m.gateViewportHeight(gate, l))
+}
+
+func (m *Model) clampGateScroll() {
+	m.gateScroll = min(max(0, m.gateScroll), m.gateMaxScroll())
+	m.gateHorizontal = min(max(0, m.gateHorizontal), m.gateMaxHorizontal())
+}
+
+func (m Model) gateMaxHorizontal() int {
+	gate := m.driver.PendingGate()
+	if !isApprovalDiff(gate) {
+		return 0
+	}
+	l := computeLayout(m.width, m.height)
+	width := max(1, m.gateDialogWidth(gate, l)-m.palette.Dialog.GetHorizontalFrameSize())
+	if m.gateUsesSplit(gate, l) {
+		width = max(1, (width-3)/2-5)
+	}
+	longest := 0
+	for _, line := range strings.Split(sanitizeMultilineText(gate.Preview), "\n") {
+		longest = max(longest, lipgloss.Width(line))
+	}
+	return max(0, longest-width)
 }
 
 func (m Model) renderSessionsDialog(l layout, p Palette) string {

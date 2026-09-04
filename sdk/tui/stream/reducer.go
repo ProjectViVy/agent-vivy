@@ -117,6 +117,9 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 		p.Gate = &surface.Gate{
 			Kind: notice.Gate.Kind, ID: notice.Gate.ID,
 			Title: notice.Gate.Title, Body: notice.Gate.Body,
+			Action: notice.Gate.Action, Target: notice.Gate.Target,
+			PreconditionHash: notice.Gate.PreconditionHash,
+			Preview:          notice.Gate.Preview, Risks: append([]string(nil), notice.Gate.Risks...),
 		}
 		if notice.Gate.Kind == "approval" {
 			found := false
@@ -124,6 +127,7 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 				if p.Messages[i].Tool != nil && (p.Messages[i].Tool.ApprovalID == notice.Gate.ID || (notice.Gate.ToolCallID != "" && p.Messages[i].Tool.ToolCallID == notice.Gate.ToolCallID)) {
 					p.Messages[i].Tool.Status = "pending"
 					p.Messages[i].Tool.ApprovalID = notice.Gate.ID
+					p.Messages[i].Tool.Preview = approvalToolPreview(notice.Gate)
 					found = true
 					break
 				}
@@ -133,7 +137,7 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 					ID: nextID("tool"), Role: surface.RoleTool,
 					Tool: &surface.ToolCard{
 						ToolName: notice.Gate.Title, ToolCallID: notice.Gate.ToolCallID, Status: "pending",
-						Preview: notice.Gate.Body, ApprovalID: notice.Gate.ID,
+						Preview: approvalToolPreview(notice.Gate), ApprovalID: notice.Gate.ID,
 					},
 				})
 			}
@@ -153,6 +157,16 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 		return true
 	}
 	return false
+}
+
+func approvalToolPreview(gate *GatePrompt) string {
+	if gate == nil {
+		return ""
+	}
+	if gate.Preview != "" {
+		return gate.Preview
+	}
+	return gate.Body
 }
 
 func (p *Projection) streamingAnswerContent() string {
