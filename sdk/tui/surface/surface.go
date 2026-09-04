@@ -18,9 +18,11 @@ type Session struct {
 	Title            string
 	PermissionPreset string
 	// CreatedAt is the durable session creation time in unix milliseconds.
-	// session/list currently exposes creation rather than an independent
-	// update timestamp; consumers must not relabel it as UpdatedAt.
 	CreatedAt int64
+	// UpdatedAt is the durable last-activity timestamp in unix milliseconds.
+	// A zero value means the server did not expose activity truth (for example,
+	// an older/offline driver), and must not be replaced with process time.
+	UpdatedAt int64
 }
 
 // Context is the server-owned context pressure snapshot for one session.
@@ -40,13 +42,51 @@ type Context struct {
 	HasCompactionSummary bool `json:"has_compaction_summary"`
 }
 
+// SidebarUsage is the authoritative session-wide token/cost aggregate. Cost
+// is meaningful only when CostKnown is true; false is distinct from a free
+// session.
+type SidebarUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	ReasoningTokens  int
+	CachedTokens     int
+	RequestCount     int
+	CostUSD          float64
+	CostKnown        bool
+}
+
+// SidebarDiff is a bounded line-diff summary for one file version transition.
+type SidebarDiff struct {
+	Additions int
+	Deletions int
+}
+
+// ModifiedFile is one project-relative file changed in the active session.
+// Diff is the net line change between the oldest and newest retained snapshot;
+// ordering is newest UpdatedAt first and is bounded by the control plane.
+type ModifiedFile struct {
+	Path      string
+	Diff      SidebarDiff
+	UpdatedAt int64
+}
+
 // Sidebar is the optional server-backed snapshot used by the Crush-style
 // right rail. Missing fields remain missing; the view never infers them from
 // process state or aggregate statistics.
 type Sidebar struct {
-	Session    Session
-	Context    Context
-	HasContext bool
+	Session            Session
+	CWD                string
+	Model              string
+	Provider           string
+	ReasoningKnown     bool
+	ReasoningSupported bool
+	Context            Context
+	HasContext         bool
+	Usage              SidebarUsage
+	HasUsage           bool
+	ModifiedFiles      []ModifiedFile
+	ModifiedFilesKnown bool
 }
 
 // ToolCard is an inline tool result / pending approval inside the chat.

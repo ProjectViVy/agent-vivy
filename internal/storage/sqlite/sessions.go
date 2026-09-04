@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -13,18 +14,24 @@ import (
 // CreateSession inserts one session row.
 func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 	mode, policy := s.EffectiveSandbox()
+	if s.UpdatedAt <= 0 {
+		s.UpdatedAt = s.CreatedAt
+	}
+	if s.UpdatedAt <= 0 {
+		s.UpdatedAt = time.Now().UnixMilli()
+	}
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at, sandbox_mode, approval_policy) VALUES (?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt, string(mode), string(policy)); err != nil {
+		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy) VALUES (?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy)); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
 }
 
-// ListSessions returns all sessions, newest first.
+// ListSessions returns all sessions by durable activity, newest first.
 func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, title, created_at, sandbox_mode, approval_policy FROM sessions ORDER BY created_at DESC, id`)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy FROM sessions ORDER BY updated_at DESC, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list sessions: %w", err)
 	}
@@ -34,7 +41,7 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	for rows.Next() {
 		var s domain.Session
 		var id string
-		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.SandboxMode, &s.ApprovalPolicy); err != nil {
+		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy); err != nil {
 			return nil, fmt.Errorf("storage: scan session: %w", err)
 		}
 		s.ID = domain.SessionID(id)
@@ -47,8 +54,8 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error) {
 	var s domain.Session
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, title, created_at, sandbox_mode, approval_policy FROM sessions WHERE id = ?`, id).
-		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.SandboxMode, &s.ApprovalPolicy)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy FROM sessions WHERE id = ?`, id).
+		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Session{}, storage.ErrNotFound
 	}
@@ -60,8 +67,9 @@ func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.S
 
 // RenameSession updates the title; absent ids yield storage.ErrNotFound.
 func (b *Backend) RenameSession(ctx context.Context, id domain.SessionID, title string) error {
+	at := time.Now().UnixMilli()
 	res, err := b.db.ExecContext(ctx,
-		`UPDATE sessions SET title = ? WHERE id = ?`, title, id)
+		`UPDATE sessions SET title = ?, updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`, title, at, at, id)
 	if err != nil {
 		return fmt.Errorf("storage: rename session %s: %w", id, err)
 	}
@@ -76,13 +84,28 @@ func (b *Backend) UpdateSandboxPolicy(ctx context.Context, id domain.SessionID, 
 	if !policy.Valid() {
 		return fmt.Errorf("storage: invalid approval policy %q", policy)
 	}
+	at := time.Now().UnixMilli()
 	res, err := b.db.ExecContext(ctx,
-		`UPDATE sessions SET sandbox_mode = ?, approval_policy = ? WHERE id = ?`,
-		string(mode), string(policy), id)
+		`UPDATE sessions SET sandbox_mode = ?, approval_policy = ?, updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`,
+		string(mode), string(policy), at, at, id)
 	if err != nil {
 		return fmt.Errorf("storage: update sandbox policy %s: %w", id, err)
 	}
 	return requireAffected(res, "update sandbox policy")
+}
+
+// TouchSession advances durable activity without allowing an out-of-order
+// asynchronous writer to move the timestamp backwards.
+func (b *Backend) TouchSession(ctx context.Context, id domain.SessionID, at int64) error {
+	if at <= 0 {
+		at = time.Now().UnixMilli()
+	}
+	res, err := b.db.ExecContext(ctx,
+		`UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`, at, at, id)
+	if err != nil {
+		return fmt.Errorf("storage: touch session %s: %w", id, err)
+	}
+	return requireAffected(res, "touch session")
 }
 
 // DeleteSession removes the session and, in one transaction, its

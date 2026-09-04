@@ -139,7 +139,7 @@ func TestForkSessionCopiesHistoryAndAnchors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession child: %v", err)
 	}
-	if child.Title != "origin (fork)" || child.SandboxMode != string(domain.SandboxModeReadOnly) || child.ApprovalPolicy != string(domain.ApprovalPolicyNever) {
+	if child.Title != "origin (fork)" || child.SandboxMode != string(domain.SandboxModeReadOnly) || child.ApprovalPolicy != string(domain.ApprovalPolicyNever) || child.UpdatedAt <= 0 {
 		t.Fatalf("child session = %+v, want inherited knobs and default fork title", child)
 	}
 	childMsgs := mustListMessages(t, svc, domain.SessionID(result.SessionID))

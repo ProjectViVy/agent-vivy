@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-23.
+// Run executes CN-01..CN-25.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -70,9 +70,11 @@ func Run(t *testing.T, h Harness) {
 		{"CN-21", "session truncation markers", cnSessionTruncationMarkers},
 		{"CN-22", "message projection idempotence and conflicts", cnMessageProjectionIdempotence},
 		{"CN-23", "concurrent duplicate message projection", cnConcurrentMessageProjection},
+		{"CN-24", "durable session activity timestamp", cnSessionActivity},
+		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 	}
-	if len(cases) != 23 {
-		t.Fatalf("conformance suite must carry exactly 23 cases, got %d", len(cases))
+	if len(cases) != 25 {
+		t.Fatalf("conformance suite must carry exactly 25 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -967,6 +969,104 @@ func cnConcurrentMessageProjection(t *testing.T, h Harness) {
 		t.Fatalf("concurrent projection winners = %d, want exactly 1", wins)
 	}
 	assertSingleProjectedMessage(t, b, ctx, message)
+}
+
+func cnSessionActivity(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-activity")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "activity", CreatedAt: 100, UpdatedAt: 100}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	got, err := b.GetSession(ctx, sessionID)
+	if err != nil || got.UpdatedAt != 100 {
+		t.Fatalf("created UpdatedAt = %d, %v; want 100", got.UpdatedAt, err)
+	}
+	activity, ok := b.(storage.SessionActivityStore)
+	if !ok {
+		t.Fatal("backend does not implement SessionActivityStore")
+	}
+	if err := activity.TouchSession(ctx, sessionID, 50); err != nil {
+		t.Fatalf("TouchSession older: %v", err)
+	}
+	got, _ = b.GetSession(ctx, sessionID)
+	if got.UpdatedAt != 100 {
+		t.Fatalf("older touch moved UpdatedAt to %d, want 100", got.UpdatedAt)
+	}
+	if err := activity.TouchSession(ctx, sessionID, 200); err != nil {
+		t.Fatalf("TouchSession newer: %v", err)
+	}
+	got, _ = b.GetSession(ctx, sessionID)
+	if got.UpdatedAt != 200 {
+		t.Fatalf("newer touch UpdatedAt = %d, want 200", got.UpdatedAt)
+	}
+	if err := activity.TouchSession(ctx, "sess-missing", 400); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("TouchSession missing = %v, want ErrNotFound", err)
+	}
+	projectedID := domain.SessionID("sess-projected-activity")
+	if err := b.CreateSession(ctx, domain.Session{ID: projectedID, Title: "projected", CreatedAt: 100, UpdatedAt: 100}); err != nil {
+		t.Fatalf("CreateSession projected: %v", err)
+	}
+	created, err := b.AppendMessageIfAbsent(ctx, domain.Message{ID: "msg-projected-activity", SessionID: projectedID, Role: domain.RoleAssistant, CreatedAt: 250, Content: "durable"})
+	if err != nil || !created {
+		t.Fatalf("AppendMessageIfAbsent = %v, %v; want created", created, err)
+	}
+	projected, err := b.GetSession(ctx, projectedID)
+	if err != nil || projected.UpdatedAt != 250 {
+		t.Fatalf("projected activity = %+v, %v; want UpdatedAt 250", projected, err)
+	}
+	if err := b.AppendMessage(ctx, domain.Message{ID: "msg-activity", SessionID: sessionID, Role: domain.RoleUser, CreatedAt: 300, Content: "hello"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	got, _ = b.GetSession(ctx, sessionID)
+	if got.UpdatedAt != 300 {
+		t.Fatalf("message activity UpdatedAt = %d, want 300", got.UpdatedAt)
+	}
+	if err := b.RenameSession(ctx, sessionID, "renamed"); err != nil {
+		t.Fatalf("RenameSession: %v", err)
+	}
+	got, _ = b.GetSession(ctx, sessionID)
+	if got.UpdatedAt < 300 || got.Title != "renamed" {
+		t.Fatalf("rename session = %+v, want title renamed and non-decreasing activity", got)
+	}
+	if err := b.UpdateSandboxPolicy(ctx, sessionID, domain.SandboxModeReadOnly, domain.ApprovalPolicyNever); err != nil {
+		t.Fatalf("UpdateSandboxPolicy: %v", err)
+	}
+	got, _ = b.GetSession(ctx, sessionID)
+	if got.UpdatedAt < 300 {
+		t.Fatalf("permission activity moved UpdatedAt backwards to %d", got.UpdatedAt)
+	}
+}
+
+func cnModifiedFiles(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	store, ok := b.(storage.ModifiedFileStore)
+	if !ok {
+		t.Fatal("backend does not implement ModifiedFileStore")
+	}
+	if err := b.RecordFileMutation(ctx, "sess-sidebar-files", "run-sidebar", "a.go", []byte("old\nline\n"), []byte("old\nnew\nline\n")); err != nil {
+		t.Fatalf("RecordFileMutation first: %v", err)
+	}
+	if err := b.RecordFileMutation(ctx, "sess-sidebar-files", "run-sidebar", "a.go", []byte("old\nnew\nline\n"), []byte("new\nline\n")); err != nil {
+		t.Fatalf("RecordFileMutation second: %v", err)
+	}
+	files, err := store.ListModifiedFiles(ctx, "sess-sidebar-files", 1)
+	if err != nil {
+		t.Fatalf("ListModifiedFiles: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "a.go" || files[0].UpdatedAt <= 0 {
+		t.Fatalf("modified files = %+v, want one timestamped a.go", files)
+	}
+	if files[0].Diff.Additions != 1 || files[0].Diff.Deletions != 1 {
+		t.Fatalf("net diff = %+v, want +1/-1", files[0].Diff)
+	}
+	if empty, err := store.ListModifiedFiles(ctx, "sess-sidebar-files", 0); err != nil || len(empty) != 0 {
+		t.Fatalf("zero limit = %+v, %v; want empty", empty, err)
+	}
+	if unknown, err := store.ListModifiedFiles(ctx, "sess-sidebar-unknown", 10); err != nil || len(unknown) != 0 {
+		t.Fatalf("unknown session = %+v, %v; want empty", unknown, err)
+	}
 }
 
 func assertSingleProjectedMessage(t *testing.T, b storage.Engine, ctx context.Context, want domain.Message) {

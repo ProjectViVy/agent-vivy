@@ -309,6 +309,18 @@ func (s *Service) SetModel(providerName, modelID string) {
 	s.mu.Unlock()
 }
 
+// CurrentModel returns the effective provider/model labels used for the next
+// run. It is intentionally a small read seam for control-plane projections;
+// callers that need pricing or capabilities should use GetModelInfo too.
+func (s *Service) CurrentModel() (providerName, modelID string) {
+	if s == nil {
+		return "", ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.provider, s.modelID
+}
+
 // MaxEventPayloadBytes returns the encoded Journal payload ceiling shared by
 // native runs and supervised external child producers.
 func (s *Service) MaxEventPayloadBytes() int {
@@ -379,19 +391,23 @@ func (s *Service) runSessionDeleted(runID domain.RunID) bool {
 // returns a ModelInfo with zero ContextWindow; callers should use
 // conservative defaults in that case.
 func (s *Service) GetModelInfo(ctx context.Context) domain.ModelInfo {
-	if s.catalog == nil || s.provider == "" || s.modelID == "" {
+	providerName, modelID := s.CurrentModel()
+	s.mu.Lock()
+	catalog := s.catalog
+	s.mu.Unlock()
+	if catalog == nil || providerName == "" || modelID == "" {
 		return domain.ModelInfo{
-			ID:            s.modelID,
-			Provider:      s.provider,
+			ID:            modelID,
+			Provider:      providerName,
 			ContextWindow: 0, // unknown; caller uses default
 		}
 	}
-	info, err := s.catalog.ResolveModelInfo(ctx, s.provider, s.modelID)
+	info, err := catalog.ResolveModelInfo(ctx, providerName, modelID)
 	if err != nil {
 		// Log but don't fail; fall back to zero window
 		return domain.ModelInfo{
-			ID:            s.modelID,
-			Provider:      s.provider,
+			ID:            modelID,
+			Provider:      providerName,
 			ContextWindow: 0,
 		}
 	}

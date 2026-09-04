@@ -7,6 +7,9 @@ import shared "agent-vivy/sdk/tui/surface"
 
 type Session = shared.Session
 type Context = shared.Context
+type SidebarUsage = shared.SidebarUsage
+type SidebarDiff = shared.SidebarDiff
+type ModifiedFile = shared.ModifiedFile
 type Sidebar = shared.Sidebar
 type ToolCard = shared.ToolCard
 type Attachment = shared.Attachment

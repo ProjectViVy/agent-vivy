@@ -36,6 +36,7 @@ type Live struct {
 	loadRequest       uint64
 	sessionRequest    uint64
 	contextRequest    uint64
+	sidebarRequest    uint64
 	permissionRequest uint64
 	loadPending       bool
 
@@ -270,28 +271,37 @@ type liveTickMsg struct{}
 
 // liveBootMsg is the result of the initial session list / create.
 type liveBootMsg struct {
-	Sessions []surface.Session
-	ActiveID string
-	Messages []surface.Message
-	Sidebar  surface.Sidebar
-	Err      error
+	Sessions   []surface.Session
+	ActiveID   string
+	Messages   []surface.Message
+	Sidebar    surface.Sidebar
+	SidebarErr error
+	Err        error
 }
 
 // liveLoadedMsg is history after a session switch / new session.
 type liveLoadedMsg struct {
-	Request  uint64
-	Session  surface.Session
-	Messages []surface.Message
-	Sidebar  surface.Sidebar
-	Replace  bool // true = set sessions list from Session only append path
-	Sessions []surface.Session
-	Err      error
+	Request    uint64
+	Session    surface.Session
+	Messages   []surface.Message
+	Sidebar    surface.Sidebar
+	SidebarErr error
+	Replace    bool // true = set sessions list from Session only append path
+	Sessions   []surface.Session
+	Err        error
 }
 
 type liveContextMsg struct {
 	Request   uint64
 	SessionID string
 	Context   surface.Context
+	Err       error
+}
+
+type liveSidebarMsg struct {
+	Request   uint64
+	SessionID string
+	Sidebar   surface.Sidebar
 	Err       error
 }
 
@@ -329,6 +339,7 @@ type liveRPCMsg struct {
 	SessionID string
 	Request   uint64
 	Preset    string
+	Session   surface.Session
 	Outcome   string
 	Err       error
 }
@@ -354,9 +365,7 @@ func (l *Live) bootCmd() tea.Cmd {
 		}
 		out := make([]surface.Session, 0, len(sessions))
 		for _, s := range sessions {
-			out = append(out, surface.Session{
-				ID: s.ID, Title: s.Title, PermissionPreset: s.PermissionPreset, CreatedAt: s.CreatedAt,
-			})
+			out = append(out, mapSessionView(s))
 		}
 		activeID := ""
 		var messages []surface.Message
@@ -370,9 +379,7 @@ func (l *Live) bootCmd() tea.Cmd {
 			if err != nil {
 				return liveBootMsg{Err: err}
 			}
-			out = append([]surface.Session{{
-				ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
-			}}, out...)
+			out = append([]surface.Session{mapSessionView(created)}, out...)
 			activeID = created.ID
 		} else {
 			activeID = out[0].ID
@@ -383,6 +390,7 @@ func (l *Live) bootCmd() tea.Cmd {
 			messages = mapHistory(msgs)
 		}
 		snapshot := surface.Sidebar{}
+		var sidebarErr error
 		if activeID != "" {
 			for _, session := range out {
 				if session.ID == activeID {
@@ -390,12 +398,15 @@ func (l *Live) bootCmd() tea.Cmd {
 					break
 				}
 			}
-			if contextStatus, contextErr := l.client.sessionContext(ctx, activeID); contextErr == nil {
-				snapshot.Context = mapContextView(contextStatus)
-				snapshot.HasContext = true
+			snapshot, sidebarErr = l.fetchSidebar(ctx, activeID, snapshot.Session)
+			for i := range out {
+				if out[i].ID == activeID {
+					out[i] = snapshot.Session
+					break
+				}
 			}
 		}
-		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot}
+		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot, SidebarErr: sidebarErr}
 	}
 }
 
@@ -409,9 +420,9 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		}
 		if finished {
 			if l.takeTerminalSucceeded() {
-				return tea.Batch(l.dequeueCmd(), l.refreshContextCmd(), l.tickCmd())
+				return tea.Batch(l.dequeueCmd(), l.refreshContextCmd(), l.refreshSidebarCmd(), l.tickCmd())
 			}
-			return tea.Batch(l.refreshContextCmd(), l.tickCmd())
+			return tea.Batch(l.refreshContextCmd(), l.refreshSidebarCmd(), l.tickCmd())
 		}
 		return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
 	case liveBootMsg:
@@ -420,6 +431,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyLoaded(msg)
 	case liveContextMsg:
 		l.applyContext(msg)
+	case liveSidebarMsg:
+		l.applySidebar(msg)
 	case liveTurnStartedMsg:
 		return l.applyTurnStarted(msg)
 	case liveAttachmentResolvedMsg:
@@ -462,6 +475,9 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 		l.sidebar.Session = l.activeSessionLocked()
 	}
 	l.lastErr = ""
+	if msg.SidebarErr != nil {
+		l.lastErr = "session sidebar: " + shortErr(msg.SidebarErr)
+	}
 	if l.initialPrompt != "" {
 		autoSend = l.initialPrompt
 		l.initialPrompt = ""
@@ -539,6 +555,9 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	l.recoveryNeeded = false
 	l.replayPending = false
 	l.lastErr = ""
+	if msg.SidebarErr != nil {
+		l.lastErr = "session sidebar: " + shortErr(msg.SidebarErr)
+	}
 	l.mu.Unlock()
 	return l.unsubscribeCmd(subscriptionID)
 }
@@ -676,8 +695,8 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	sessionID := l.activeID
 	request := uint64(0)
 	if sessionID != "" {
-		l.contextRequest++
-		request = l.contextRequest
+		l.sidebarRequest++
+		request = l.sidebarRequest
 	}
 	l.busy = false
 	l.runID = ""
@@ -697,10 +716,10 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 		refreshCtx, refreshCancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer refreshCancel()
 		if err := l.waitRunTerminal(refreshCtx, msg.RunID); err != nil {
-			return liveContextMsg{Request: request, SessionID: sessionID, Err: err}
+			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: err}
 		}
-		status, err := l.client.sessionContext(refreshCtx, sessionID)
-		return liveContextMsg{Request: request, SessionID: sessionID, Context: mapContextView(status), Err: err}
+		snapshot, err := l.fetchSidebar(refreshCtx, sessionID, l.Active())
+		return liveSidebarMsg{Request: request, SessionID: sessionID, Sidebar: snapshot, Err: err}
 	}
 }
 
@@ -783,7 +802,11 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	if msg.Kind == "permission" && msg.Preset != "" {
 		for i := range l.sessions {
 			if l.sessions[i].ID == l.activeID {
-				l.sessions[i].PermissionPreset = msg.Preset
+				if msg.Session.ID == l.activeID {
+					l.sessions[i] = msg.Session
+				} else {
+					l.sessions[i].PermissionPreset = msg.Preset
+				}
 				break
 			}
 		}
@@ -1110,6 +1133,8 @@ func (l *Live) NewSession(title string) tea.Cmd {
 		return nil
 	}
 	l.loadRequest++
+	l.contextRequest++
+	l.sidebarRequest++
 	request := l.loadRequest
 	l.loadPending = true
 	l.mu.Unlock()
@@ -1124,18 +1149,13 @@ func (l *Live) NewSession(title string) tea.Cmd {
 		if err != nil {
 			return liveLoadedMsg{Request: request, Err: err}
 		}
-		snapshot := surface.Sidebar{Session: surface.Session{
-			ID: created.ID, Title: created.Title, PermissionPreset: created.PermissionPreset, CreatedAt: created.CreatedAt,
-		}}
-		if contextStatus, contextErr := l.client.sessionContext(ctx, created.ID); contextErr == nil {
-			snapshot.Context = mapContextView(contextStatus)
-			snapshot.HasContext = true
-		}
+		snapshot, sidebarErr := l.fetchSidebar(ctx, created.ID, mapSessionView(created))
 		return liveLoadedMsg{
-			Request:  request,
-			Session:  snapshot.Session,
-			Messages: nil,
-			Sidebar:  snapshot,
+			Request:    request,
+			Session:    snapshot.Session,
+			Messages:   nil,
+			Sidebar:    snapshot,
+			SidebarErr: sidebarErr,
 		}
 	}
 }
@@ -1156,10 +1176,7 @@ func (l *Live) RefreshSessions() tea.Cmd {
 		}
 		out := make([]surface.Session, 0, len(sessions))
 		for _, session := range sessions {
-			out = append(out, surface.Session{
-				ID: session.ID, Title: session.Title, PermissionPreset: session.PermissionPreset,
-				CreatedAt: session.CreatedAt,
-			})
+			out = append(out, mapSessionView(session))
 		}
 		return surface.SessionsMsg{Action: "list", Request: request, Sessions: out}
 	}
@@ -1189,6 +1206,7 @@ func (l *Live) RenameSession(id, title string) tea.Cmd {
 	}
 	l.mu.Lock()
 	l.sessionRequest++
+	l.sidebarRequest++
 	request := l.sessionRequest
 	l.mu.Unlock()
 	return func() tea.Msg {
@@ -1198,9 +1216,7 @@ func (l *Live) RenameSession(id, title string) tea.Cmd {
 		if err != nil {
 			return surface.SessionsMsg{Action: "rename", Request: request, ID: id, Err: err}
 		}
-		return surface.SessionsMsg{Action: "rename", Request: request, ID: id, Session: surface.Session{
-			ID: session.ID, Title: session.Title, PermissionPreset: session.PermissionPreset, CreatedAt: session.CreatedAt,
-		}}
+		return surface.SessionsMsg{Action: "rename", Request: request, ID: id, Session: mapSessionView(session)}
 	}
 }
 
@@ -1304,6 +1320,7 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 	l.mu.Lock()
 	l.loadRequest++
 	l.contextRequest++
+	l.sidebarRequest++
 	l.permissionRequest++
 	request := l.loadRequest
 	l.loadPending = true
@@ -1327,21 +1344,19 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 		l.mu.Unlock()
 		if session.Title == "" {
 			if fetched, fetchErr := l.client.getSession(ctx, id); fetchErr == nil {
-				session = surface.Session{
-					ID: fetched.ID, Title: fetched.Title, PermissionPreset: fetched.PermissionPreset, CreatedAt: fetched.CreatedAt,
-				}
+				session = mapSessionView(fetched)
 			}
 		}
-		snapshot := surface.Sidebar{Session: session}
-		if contextStatus, contextErr := l.client.sessionContext(ctx, id); contextErr == nil {
-			snapshot.Context = mapContextView(contextStatus)
-			snapshot.HasContext = true
+		snapshot, sidebarErr := l.fetchSidebar(ctx, id, session)
+		if snapshot.Session.ID != "" {
+			session = snapshot.Session
 		}
 		return liveLoadedMsg{
-			Request:  request,
-			Session:  session,
-			Messages: mapHistory(msgs),
-			Sidebar:  snapshot,
+			Request:    request,
+			Session:    session,
+			Messages:   mapHistory(msgs),
+			Sidebar:    snapshot,
+			SidebarErr: sidebarErr,
 		}
 	}
 }
@@ -1361,6 +1376,61 @@ func (l *Live) refreshContextCmd() tea.Cmd {
 		defer cancel()
 		status, err := l.client.sessionContext(ctx, sessionID)
 		return liveContextMsg{Request: request, SessionID: sessionID, Context: mapContextView(status), Err: err}
+	}
+}
+
+func (l *Live) fetchSidebar(ctx context.Context, sessionID string, fallback surface.Session) (surface.Sidebar, error) {
+	if l.client == nil || !l.client.SupportsCapability("session.sidebar") {
+		snapshot := surface.Sidebar{Session: fallback}
+		if l.client != nil {
+			if status, err := l.client.sessionContext(ctx, sessionID); err == nil {
+				snapshot.Context = mapContextView(status)
+				snapshot.HasContext = true
+			}
+		}
+		return snapshot, nil
+	}
+	if view, err := l.client.sessionSidebar(ctx, sessionID); err == nil {
+		snapshot := mapSidebarView(view)
+		if snapshot.Session.ID == "" {
+			snapshot.Session = fallback
+		}
+		return snapshot, nil
+	} else {
+		snapshot := surface.Sidebar{Session: fallback}
+		if fetched, getErr := l.client.getSession(ctx, sessionID); getErr == nil {
+			snapshot.Session = mapSessionView(fetched)
+		}
+		if status, contextErr := l.client.sessionContext(ctx, sessionID); contextErr == nil {
+			snapshot.Context = mapContextView(status)
+			snapshot.HasContext = true
+		}
+		return snapshot, err
+	}
+}
+
+func (l *Live) refreshSidebarCmd() tea.Cmd {
+	l.mu.Lock()
+	sessionID := l.activeID
+	fallback := l.activeSessionLocked()
+	if sessionID == "" || l.closed {
+		l.mu.Unlock()
+		return nil
+	}
+	l.sidebarRequest++
+	request := l.sidebarRequest
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		snapshot, err := l.fetchSidebar(ctx, sessionID, fallback)
+		if err != nil {
+			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: err}
+		}
+		if snapshot.Session.ID == "" {
+			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: fmt.Errorf("session/sidebar returned no session")}
+		}
+		return liveSidebarMsg{Request: request, SessionID: sessionID, Sidebar: snapshot}
 	}
 }
 
@@ -1384,6 +1454,33 @@ func (l *Live) applyContext(msg liveContextMsg) {
 	}
 	if l.sidebar.Session.ID == "" {
 		l.sidebar.Session = l.activeSessionLocked()
+	}
+}
+
+func (l *Live) applySidebar(msg liveSidebarMsg) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if msg.Request != l.sidebarRequest || msg.SessionID != l.activeID {
+		return
+	}
+	if msg.Err != nil {
+		if l.lastErr == "" || strings.HasPrefix(l.lastErr, "session sidebar:") {
+			l.lastErr = "session sidebar: " + shortErr(msg.Err)
+		}
+		return
+	}
+	l.sidebar = msg.Sidebar
+	if l.sidebar.Session.ID == "" {
+		l.sidebar.Session = l.activeSessionLocked()
+	}
+	for i := range l.sessions {
+		if l.sessions[i].ID == msg.SessionID && l.sidebar.Session.ID == msg.SessionID {
+			l.sessions[i] = l.sidebar.Session
+			break
+		}
+	}
+	if strings.HasPrefix(l.lastErr, "session sidebar:") {
+		l.lastErr = ""
 	}
 }
 
@@ -1640,6 +1737,7 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 		return nil
 	}
 	l.permissionRequest++
+	l.sidebarRequest++
 	request := l.permissionRequest
 	l.mu.Unlock()
 	return func() tea.Msg {
@@ -1649,7 +1747,7 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 		if session.PermissionPreset != "" {
 			preset = session.PermissionPreset
 		}
-		return liveRPCMsg{Kind: "permission", SessionID: sessionID, Request: request, Preset: preset, Err: err}
+		return liveRPCMsg{Kind: "permission", SessionID: sessionID, Request: request, Preset: preset, Session: mapSessionView(session), Err: err}
 	}
 }
 

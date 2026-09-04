@@ -116,7 +116,7 @@ func rowCostUSD(ctx context.Context, meta ModelMeta, r storage.UsageRow) (float6
 		return 0, false
 	}
 	info := meta(ctx, r.Provider, r.Model)
-	if info.InputPerMTokens == 0 && info.OutputPerMTokens == 0 {
+	if info.InputPerMTokens == 0 || info.OutputPerMTokens == 0 {
 		return 0, false
 	}
 	cost := float64(r.PromptTokens)/1e6*info.InputPerMTokens +

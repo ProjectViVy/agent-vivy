@@ -164,6 +164,7 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 		ID:             newID,
 		Title:          title,
 		CreatedAt:      now,
+		UpdatedAt:      now,
 		SandboxMode:    source.SandboxMode,
 		ApprovalPolicy: source.ApprovalPolicy,
 	}

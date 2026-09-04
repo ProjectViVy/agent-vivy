@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -37,17 +38,39 @@ func (b *Backend) ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]s
 		  JOIN runs r ON r.id = e.run_id
 		  LEFT JOIN sessions s ON s.id = r.session_id
 		  LEFT JOIN (
-		  	SELECT run_id, payload FROM run_events WHERE type = 'run.started'
+		    SELECT run_id, payload FROM run_events WHERE type = 'run.started'
 		  ) rs ON rs.run_id = e.run_id
 		 WHERE e.type = 'model.usage' AND e.created_at >= ?
 		 ORDER BY e.created_at ASC`
-	rows, err := b.db.QueryContext(ctx, query, sinceUnixMilli)
+	return b.listModelUsage(ctx, query, false, sinceUnixMilli)
+}
+
+// ListSessionModelUsage restricts the journal projection at the database
+// boundary so active-session refreshes do not scan unrelated history.
+func (b *Backend) ListSessionModelUsage(ctx context.Context, sessionID domain.SessionID) ([]storage.UsageRow, error) {
+	const query = `SELECT e.run_id, e.created_at, e.payload,
+			r.session_id, COALESCE(s.title, ''),
+			rs.payload
+		 FROM run_events e
+		  JOIN runs r ON r.id = e.run_id
+		  LEFT JOIN sessions s ON s.id = r.session_id
+		  LEFT JOIN (
+		    SELECT run_id, payload FROM run_events WHERE type = 'run.started'
+		  ) rs ON rs.run_id = e.run_id
+		 WHERE e.type = 'model.usage' AND r.session_id = ?
+		 ORDER BY e.created_at ASC`
+	return b.listModelUsage(ctx, query, true, sessionID)
+}
+
+func (b *Backend) listModelUsage(ctx context.Context, query string, aggregateRoutes bool, args ...any) ([]storage.UsageRow, error) {
+	rows, err := b.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list model usage: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var out []storage.UsageRow
+	aggregates := make(map[string]storage.UsageRow)
 	for rows.Next() {
 		var (
 			runID        string
@@ -75,6 +98,7 @@ func (b *Backend) ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]s
 			TotalTokens:      usage.TotalTokens,
 			ReasoningTokens:  usage.ReasoningTokens,
 			CachedTokens:     usage.CachedTokens,
+			RequestCount:     1,
 		}
 		if len(startedRaw) > 0 {
 			var started payloadRunStarted
@@ -83,12 +107,52 @@ func (b *Backend) ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]s
 				row.Provider = started.Provider
 			}
 		}
-		out = append(out, row)
+		if !aggregateRoutes {
+			out = append(out, row)
+			continue
+		}
+		key := row.Provider + "\x00" + row.Model
+		if _, exists := aggregates[key]; !exists && len(aggregates) >= storage.SessionUsageRouteMax {
+			key = ""
+			row.Provider, row.Model = "", ""
+		}
+		aggregateUsageRow(aggregates, key, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("storage: iterate model usage: %w", err)
 	}
+	if !aggregateRoutes {
+		return out, nil
+	}
+	keys := make([]string, 0, len(aggregates))
+	for key := range aggregates {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		out = append(out, aggregates[key])
+	}
 	return out, nil
 }
 
+func aggregateUsageRow(rows map[string]storage.UsageRow, key string, row storage.UsageRow) {
+	current := rows[key]
+	if current.SessionID == "" {
+		current = row
+		current.PromptTokens, current.CompletionTokens, current.TotalTokens = 0, 0, 0
+		current.ReasoningTokens, current.CachedTokens, current.RequestCount = 0, 0, 0
+	}
+	current.PromptTokens += row.PromptTokens
+	current.CompletionTokens += row.CompletionTokens
+	current.TotalTokens += row.TotalTokens
+	current.ReasoningTokens += row.ReasoningTokens
+	current.CachedTokens += row.CachedTokens
+	current.RequestCount += row.RequestCount
+	if row.CreatedAt > current.CreatedAt {
+		current.CreatedAt = row.CreatedAt
+	}
+	rows[key] = current
+}
+
 var _ storage.TokenUsageStore = (*Backend)(nil)
+var _ storage.SessionTokenUsageStore = (*Backend)(nil)

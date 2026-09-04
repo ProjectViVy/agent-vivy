@@ -51,6 +51,7 @@ var migrations = []struct {
 	{19, migration019},
 	{20, migration020},
 	{21, migration021},
+	{22, migration022},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -643,4 +644,12 @@ const migration021 = `
 		content BLOB NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS message_file_contexts_message_idx ON message_file_contexts(message_id);
+`
+
+// migration022 adds the durable session activity timestamp used by the
+// narrow sidebar projection. Existing rows inherit creation time so legacy
+// databases never expose a fabricated zero timestamp.
+const migration022 = `
+	ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
+	UPDATE sessions SET updated_at = created_at WHERE updated_at = 0;
 `

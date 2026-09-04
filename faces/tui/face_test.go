@@ -1031,7 +1031,13 @@ func TestPackedLiveFencesPermissionFailureQueueAndSubscriptionRefresh(t *testing
 	live.runID = "run_subscribe"
 	live.busy = true
 	live.mu.Unlock()
-	refresh := mustMsg[liveContextMsg](t, live.applySubscribed(liveSubscribedMsg{RunID: "run_subscribe", Err: errors.New("subscribe failed")}))
+	env.script["session/sidebar"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"session": map[string]any{"id": "sess_1"}, "context": map[string]any{"feed_tokens": 73, "total_messages": 2}}, nil
+	}
+	if err := live.client.setCapabilities(json.RawMessage(`{"capabilities":["session.sidebar"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	refresh := mustMsg[liveSidebarMsg](t, live.applySubscribed(liveSubscribedMsg{RunID: "run_subscribe", Err: errors.New("subscribe failed")}))
 	live.Handle(refresh)
 	if statusCalls != 2 || !live.Sidebar().HasContext || live.Sidebar().Context.FeedTokens == 0 {
 		t.Fatalf("status_calls=%d subscription refresh=%+v", statusCalls, live.Sidebar())
@@ -1154,4 +1160,49 @@ func mustMsg[T any](t *testing.T, cmd tea.Cmd) T {
 		t.Fatalf("got %T %+v", msg, msg)
 	}
 	return v
+}
+
+func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
+	got := mapSidebarView(sidebarView{
+		Session:            sessionView{ID: "sess", UpdatedAt: 42},
+		ModifiedFilesKnown: true,
+		ModifiedFiles:      []sidebarFileView{{Path: "main.go", Diff: sidebarDiffView{Additions: 3, Deletions: 1}}},
+	})
+	if got.Session.UpdatedAt != 42 || !got.ModifiedFilesKnown || len(got.ModifiedFiles) != 1 {
+		t.Fatalf("sidebar mapping = %+v", got)
+	}
+	if got.ModifiedFiles[0].Diff.Additions != 3 || got.ModifiedFiles[0].Diff.Deletions != 1 {
+		t.Fatalf("diff mapping = %+v", got.ModifiedFiles[0].Diff)
+	}
+}
+
+func TestLiveSidebarErrorPreservesLastTruth(t *testing.T) {
+	want := surface.Sidebar{Session: surface.Session{ID: "sess", Title: "fresh"}, Model: "model", ModifiedFilesKnown: true}
+	live := &Live{activeID: "sess", sidebarRequest: 3, sidebar: want, sessions: []surface.Session{want.Session}}
+	live.applySidebar(liveSidebarMsg{Request: 3, SessionID: "sess", Err: errors.New("temporary failure")})
+	if live.sidebar.Model != "model" || !live.sidebar.ModifiedFilesKnown || live.sidebar.Session.Title != "fresh" {
+		t.Fatalf("sidebar error erased last truth: %+v", live.sidebar)
+	}
+	if !strings.HasPrefix(live.lastErr, "session sidebar:") {
+		t.Fatalf("sidebar error was hidden: %q", live.lastErr)
+	}
+}
+
+func TestLiveSessionMutationsFenceOlderSidebarResponse(t *testing.T) {
+	live := &Live{activeID: "sess", sidebarRequest: 4, sessions: []surface.Session{{ID: "sess", Title: "old"}}}
+	if cmd := live.RenameSession("sess", "new"); cmd == nil {
+		t.Fatal("rename command missing")
+	}
+	live.applySidebar(liveSidebarMsg{Request: 4, SessionID: "sess", Sidebar: surface.Sidebar{Session: surface.Session{ID: "sess", Title: "stale"}}})
+	if live.sidebar.Session.Title == "stale" {
+		t.Fatal("pre-rename sidebar response overwrote mutation")
+	}
+	request := live.sidebarRequest
+	if cmd := live.SetPermission("cautious"); cmd == nil {
+		t.Fatal("permission command missing")
+	}
+	live.applySidebar(liveSidebarMsg{Request: request, SessionID: "sess", Sidebar: surface.Sidebar{Session: surface.Session{ID: "sess", PermissionPreset: "trusted"}}})
+	if live.sidebar.Session.PermissionPreset == "trusted" {
+		t.Fatal("pre-permission sidebar response overwrote mutation")
+	}
 }

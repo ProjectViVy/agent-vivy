@@ -221,6 +221,114 @@ func TestSidebarDoesNotRenderSessionCollection(t *testing.T) {
 	}
 }
 
+func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		sidebar: surface.Sidebar{
+			Session: surface.Session{ID: "active", Title: "Current", UpdatedAt: 1725552000000},
+			CWD:     "C:/code/project", Model: "reasoning-model", Provider: "provider-a",
+			ReasoningKnown: true, ReasoningSupported: true,
+			HasContext: true, Context: surface.Context{FeedTokens: 1200, ModelLimitTokens: 8000},
+			HasUsage: true, Usage: surface.SidebarUsage{TotalTokens: 1500, CostKnown: false},
+			ModifiedFilesKnown: true,
+		},
+	}
+	for i := 0; i < 20; i++ {
+		driver.sidebar.ModifiedFiles = append(driver.sidebar.ModifiedFiles, surface.ModifiedFile{
+			Path: fmt.Sprintf("pkg/file-%02d.go", i), UpdatedAt: int64(i + 1),
+			Diff: surface.SidebarDiff{Additions: 1, Deletions: 1},
+		})
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+	view := m.View()
+	for _, want := range []string{"C:/code/project", "reasoning-model", "provider-a", "reasoning · supported", "cost · unknown", "pkg/file-00.go"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("sidebar omitted %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "0.0000") {
+		t.Fatalf("unknown cost rendered as a free value:\n%s", view)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	m = updated.(Model)
+	if !m.sidebarFocused {
+		t.Fatal("ctrl+right did not focus a scrollable sidebar")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = updated.(Model)
+	if m.sidebarScroll == 0 || !strings.Contains(m.View(), "pkg/file-19.go") {
+		t.Fatalf("end did not scroll to the newest modified file: offset=%d\n%s", m.sidebarScroll, m.View())
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = updated.(Model)
+	if m.sidebarFocused {
+		t.Fatal("left arrow did not exit sidebar focus")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	if m.sidebarFocused || m.sidebarScroll != 0 {
+		t.Fatalf("compact resize retained hidden sidebar state: focused=%v scroll=%d", m.sidebarFocused, m.sidebarScroll)
+	}
+}
+
+func TestSidebarShortcutDoesNotStealEditorInput(t *testing.T) {
+	driver := &testDriver{
+		sidebar: surface.Sidebar{
+			ModifiedFilesKnown: true,
+			ModifiedFiles:      make([]surface.ModifiedFile, 20),
+		},
+	}
+	for i := range driver.sidebar.ModifiedFiles {
+		driver.sidebar.ModifiedFiles[i].Path = fmt.Sprintf("pkg/file-%02d.go", i)
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 18})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = updated.(Model)
+	if m.sidebarFocused || m.input != "l" {
+		t.Fatalf("typing l was stolen by sidebar: focused=%v input=%q", m.sidebarFocused, m.input)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(Model)
+	if m.sidebarFocused {
+		t.Fatal("plain right arrow was stolen by sidebar")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = updated.(Model)
+	if m.sidebarFocused || m.input != "lx" {
+		t.Fatalf("editor input did not resume from sidebar focus: focused=%v input=%q", m.sidebarFocused, m.input)
+	}
+}
+
+func TestSidebarRendersKnownEmptyModifiedFiles(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		sidebar: surface.Sidebar{
+			Session:            surface.Session{ID: "active", Title: "Current"},
+			ModifiedFilesKnown: true,
+		},
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	view := updated.(Model).View()
+	if !strings.Contains(view, "Modified Files") || !strings.Contains(view, "None") {
+		t.Fatalf("known empty modified-files section missing:\n%s", view)
+	}
+}
+
 func TestImageHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
 	lines := renderMessage(surface.Message{
 		Role:        surface.RoleUser,

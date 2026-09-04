@@ -491,6 +491,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			BundleDir:           bundleDir,
 		},
 	})
+	fileVersions, _ := backend.(storage.ModifiedFileStore)
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
@@ -536,6 +537,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		// replays the same document on the next launch.
 		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
 		TokenUsage:       backend,
+		FileVersions:     fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
 		// compaction use (D9: no separate data source). Resolve failures
 		// mean unpriced/unknown, which the cost math reports as such.
