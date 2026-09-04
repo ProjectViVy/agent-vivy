@@ -16,10 +16,11 @@ func digestModelRequest(msgs []*schema.Message, selectedTools []string) payloadM
 		if msg == nil {
 			continue
 		}
+		content := modelRequestText(msg)
 		row := payloadModelRequestMessage{
 			Role:          string(msg.Role),
-			ContentSHA256: sha256Hex([]byte(msg.Content)),
-			ByteLen:       len(msg.Content),
+			ContentSHA256: sha256Hex(content),
+			ByteLen:       len(content),
 		}
 		if msg.Role == schema.Tool {
 			row.ToolCallID = msg.ToolCallID
@@ -38,6 +39,26 @@ func digestModelRequest(msgs []*schema.Message, selectedTools []string) payloadM
 	}
 	if out.PreambleSHA256 == "" {
 		out.PreambleSHA256 = sha256Hex(nil)
+	}
+	return out
+}
+
+func modelRequestText(msg *schema.Message) []byte {
+	if msg == nil {
+		return nil
+	}
+	size := len(msg.Content)
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText {
+			size += len(part.Text)
+		}
+	}
+	out := make([]byte, 0, size)
+	out = append(out, msg.Content...)
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText {
+			out = append(out, part.Text...)
+		}
 	}
 	return out
 }

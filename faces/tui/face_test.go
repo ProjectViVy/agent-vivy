@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -323,6 +324,93 @@ func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
 	live.applyLoaded(liveLoadedMsg{Session: surface.Session{ID: "sess_2"}, Sidebar: surface.Sidebar{HasContext: true}})
 	if live.ThinkingMode() != "auto" {
 		t.Fatalf("unsupported session retained thinking on: %q", live.ThinkingMode())
+	}
+}
+
+func TestPackedFaceFileContextResolvesThenRevalidatesAtTurnStart(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["project-context/resolve"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Paths []string `json:"paths"`
+		}
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		if len(params.Paths) != 1 || params.Paths[0] != "README.md" {
+			return nil, fmt.Errorf("paths = %v", params.Paths)
+		}
+		return map[string]any{"contexts": []map[string]any{{"path": "README.md", "name": "README.md", "size": 7}}}, nil
+	}
+	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Text         string   `json:"text"`
+			ContextPaths []string `json:"context_paths"`
+		}
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		if params.Text != "inspect" || len(params.ContextPaths) != 1 || params.ContextPaths[0] != "README.md" {
+			return nil, fmt.Errorf("turn params = %+v", params)
+		}
+		return map[string]string{"run_id": "run_file", "status": "accepted"}, nil
+	}
+	env.script["run/subscribe"] = baseScript()["run/subscribe"]
+	live := NewLive(newClient(env), LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.mu.Unlock()
+	started := mustMsg[liveTurnStartedMsg](t, live.SendWithContext("inspect", []string{"README.md"}))
+	if started.Err != nil || started.RunID != "run_file" {
+		t.Fatalf("file start = %+v", started)
+	}
+	live.Handle(started)
+	messages := live.ActiveMessages()
+	if len(messages) < 1 || len(messages[0].FileContexts) != 1 || messages[0].FileContexts[0].Size != 7 {
+		t.Fatalf("file metadata = %+v", messages)
+	}
+}
+
+func TestPackedFaceShellUsesOnlyGovernedShellStart(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["shell/start"] = func(raw json.RawMessage) (any, error) {
+		var params map[string]any
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		if len(params) != 2 || params["session_id"] != "sess_1" || params["script"] != " echo safe " {
+			return nil, fmt.Errorf("shell params = %#v", params)
+		}
+		return map[string]string{"run_id": "run_shell", "status": "accepted"}, nil
+	}
+	live := NewLive(newClient(env), LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.mu.Unlock()
+	started := mustMsg[liveTurnStartedMsg](t, live.ExecuteShell(" echo safe "))
+	if started.Err != nil || started.RunID != "run_shell" || !started.Shell {
+		t.Fatalf("shell start = %+v", started)
+	}
+	live.Handle(started)
+	if !env.saw("shell/start") || env.saw("turn/start") {
+		t.Fatalf("shell route calls = %#v", env.calls)
+	}
+}
+
+func TestPackedFaceFailedFileTurnRestoresRetryDraft(t *testing.T) {
+	live := &Live{activeID: "sess_1", messages: map[string][]surface.Message{"sess_1": {{Role: roleUser, Content: "inspect"}}}}
+	cmd := live.applyTurnStarted(liveTurnStartedMsg{
+		SessionID: "sess_1", UserText: "inspect", ContextPaths: []string{"README.md"}, Err: errors.New("resolve failed"),
+	})
+	if cmd == nil {
+		t.Fatal("failed file turn did not return a restore command")
+	}
+	msg, ok := cmd().(surface.RestoreInputMsg)
+	if !ok || msg.Text != "inspect @README.md" {
+		t.Fatalf("restore message = %#v", msg)
 	}
 }
 

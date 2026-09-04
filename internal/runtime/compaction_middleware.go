@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -77,6 +78,11 @@ func countMessageTokens(msgs []*schema.Message, tools []*schema.ToolInfo) (int, 
 			}
 		default:
 			total += len(msg.Content) + 16
+			for _, part := range msg.UserInputMultiContent {
+				if part.Type == schema.ChatMessagePartTypeText {
+					total += len(part.Text)
+				}
+			}
 		}
 	}
 	for _, tl := range tools {
@@ -230,6 +236,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 			MaxRetries: intPtr(0),
 		},
 		Failover: failover,
+		Finalize: preserveProjectFileContextsFinalize,
 		Callback: func(ctx context.Context, before, after adk.TypedChatModelAgentState[*schema.Message]) error {
 			beforeTokens, _ := countMessageTokens(before.Messages, before.ToolInfos)
 			afterTokens, _ := countMessageTokens(after.Messages, after.ToolInfos)
@@ -245,6 +252,36 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		return nil, fmt.Errorf("runtime: summarization middleware: %w", err)
 	}
 	return []adk.ChatModelAgentMiddleware{newContextMonitor(), reducer, summ}, nil
+}
+
+// preserveProjectFileContextsFinalize applies Eino's canonical summary
+// formatting, then appends every exact project-file message from the
+// original state. Summaries are intentionally lossy; captured source text is
+// not. Keeping those bounded messages makes the snapshot available to later
+// model calls in the same agent run.
+func preserveProjectFileContextsFinalize(ctx context.Context, original []*schema.Message, summary *schema.Message) ([]*schema.Message, error) {
+	finalized, err := summarization.DefaultFinalize(ctx, original, summary)
+	if err != nil {
+		return nil, err
+	}
+	for _, msg := range original {
+		if schemaMessageHasProjectFileContext(msg) {
+			finalized = append(finalized, msg)
+		}
+	}
+	return finalized, nil
+}
+
+func schemaMessageHasProjectFileContext(msg *schema.Message) bool {
+	if msg == nil || msg.Role != schema.User {
+		return false
+	}
+	for _, part := range msg.UserInputMultiContent {
+		if part.Type == schema.ChatMessagePartTypeText && strings.HasPrefix(part.Text, "\n\n[project file: ") {
+			return true
+		}
+	}
+	return false
 }
 
 // emitCompactionEvent publishes a durable context.compacted event through

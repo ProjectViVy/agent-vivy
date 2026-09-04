@@ -154,11 +154,6 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 		return CompactionResult{BeforeTokens: tokens, AfterTokens: tokens, Skipped: true}, nil
 	}
 
-	summary, err := s.generateSessionSummary(ctx, feed)
-	if err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: generate session summary: %w", err)
-	}
-
 	keep := s.engine.cfg.Compaction.KeepRecent
 	if keep <= 0 {
 		keep = 12
@@ -166,6 +161,19 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	foldIdx := len(feed) - keep
 	if foldIdx < 0 {
 		foldIdx = 0
+	}
+	// A project-file snapshot is durable user input. Never fold the message
+	// that owns it into a lossy prose summary; retain that message and every
+	// newer row verbatim. This may make a session temporarily uncompacted,
+	// which is safer than silently discarding the captured source text.
+	foldIdx = fileContextSafeFoldIndex(feed, foldIdx)
+	foldIdx = timestampSafeFoldIndex(feed, foldIdx)
+	if foldIdx == 0 {
+		return CompactionResult{BeforeTokens: tokens, AfterTokens: tokens, Skipped: true}, nil
+	}
+	summary, err := s.generateSessionSummary(ctx, feed[:foldIdx])
+	if err != nil {
+		return CompactionResult{}, fmt.Errorf("runtime: generate session summary: %w", err)
 	}
 	tailFrom := feed[len(feed)-1].CreatedAt
 	if foldIdx > 0 {
@@ -201,6 +209,38 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	s.lastCompaction[sessionID] = &LastCompaction{Mode: "session", BeforeTokens: tokens, AfterTokens: afterTokens, At: rec.CreatedAt}
 	s.mu.Unlock()
 	return result, nil
+}
+
+func fileContextSafeFoldIndex(feed []domain.Message, desired int) int {
+	if desired < 0 {
+		return 0
+	}
+	if desired > len(feed) {
+		desired = len(feed)
+	}
+	for i := 0; i < desired; i++ {
+		if len(feed[i].FileContexts) > 0 {
+			return i
+		}
+	}
+	return desired
+}
+
+// SessionCompaction stores a millisecond cutoff rather than a row id. Back up
+// to the first row at the boundary timestamp so `CreatedAt <= TailFrom` can
+// never consume a kept row (especially a FileContext snapshot).
+func timestampSafeFoldIndex(feed []domain.Message, desired int) int {
+	if desired <= 0 {
+		return 0
+	}
+	if desired >= len(feed) {
+		return len(feed)
+	}
+	boundary := feed[desired].CreatedAt
+	for desired > 0 && feed[desired-1].CreatedAt >= boundary {
+		desired--
+	}
+	return desired
 }
 
 // foldedFor mirrors the feed folding used at run time for the given
@@ -276,7 +316,7 @@ const sessionSummarySystemPrompt = "你是会话压缩助手。把给定的对�
 func historyBytesTokens(msgs []domain.Message) (int, int) {
 	bytes := 0
 	for _, msg := range msgs {
-		bytes += messageCost(msg.Content, string(msg.Role)) + len(msg.ToolArgs) + len(msg.ToolCallID)
+		bytes += messageCostForMessage(msg) + len(msg.ToolArgs) + len(msg.ToolCallID)
 	}
 	return bytes, bytes / 4
 }

@@ -46,6 +46,11 @@ func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionT
 			return event, err
 		}
 	}
+	for i, file := range m.FileContexts {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_file_contexts (message_id,position,path,name,size,content) VALUES ($1,$2,$3,$4,$5,$6)`, m.ID, i, file.Path, file.Name, file.Size, file.Content); err != nil {
+			return event, err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, run.ID, run.SessionID, domain.RunActive, run.CreatedAt, domain.RunKindPrimary, "", run.ID, 0); err != nil {
 		return event, err
 	}
@@ -75,6 +80,11 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 		for i, a := range m.Attachments {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO message_attachments (message_id,position,name,mime_type,data) VALUES ($1,$2,$3,$4,$5)`, m.ID, i, a.Name, a.MimeType, a.Data); err != nil {
 				return nil, fmt.Errorf("storage: copy fork attachment: %w", err)
+			}
+		}
+		for i, file := range m.FileContexts {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO message_file_contexts (message_id,position,path,name,size,content) VALUES ($1,$2,$3,$4,$5,$6)`, m.ID, i, file.Path, file.Name, file.Size, file.Content); err != nil {
+				return nil, fmt.Errorf("storage: copy fork file context: %w", err)
 			}
 		}
 	}

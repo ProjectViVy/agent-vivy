@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	schemaVersion    = 18
+	schemaVersion    = 19
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
@@ -180,29 +180,36 @@ func (b *Backend) migrate(ctx context.Context) error {
 			return fmt.Errorf("storage: record postgres schema version 15: %w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, schemaV16Upgrade); err != nil {
-		return fmt.Errorf("storage: apply postgres schema 16: %w", err)
+	apply := func(version int64, ddl string) error {
+		var applied int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, version).Scan(&applied); err != nil {
+			return fmt.Errorf("storage: check postgres schema version %d: %w", version, err)
+		}
+		if applied > 0 {
+			return nil
+		}
+		if _, err := tx.ExecContext(ctx, ddl); err != nil {
+			return fmt.Errorf("storage: apply postgres schema %d: %w", version, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
+			version, time.Now().UnixMilli()); err != nil {
+			return fmt.Errorf("storage: record postgres schema version %d: %w", version, err)
+		}
+		return nil
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
-		16, time.Now().UnixMilli()); err != nil {
-		return fmt.Errorf("storage: record postgres schema version 16: %w", err)
+	if err := apply(16, schemaV16Upgrade); err != nil {
+		return err
 	}
-	if _, err := tx.ExecContext(ctx, schemaV17Upgrade); err != nil {
-		return fmt.Errorf("storage: apply postgres schema 17: %w", err)
+	if err := apply(17, schemaV17Upgrade); err != nil {
+		return err
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
-		17, time.Now().UnixMilli()); err != nil {
-		return fmt.Errorf("storage: record postgres schema version 17: %w", err)
+	if err := apply(18, schemaV18Upgrade); err != nil {
+		return err
 	}
-	if _, err := tx.ExecContext(ctx, schemaV18Upgrade); err != nil {
-		return fmt.Errorf("storage: apply postgres schema 18: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
-		18, time.Now().UnixMilli()); err != nil {
-		return fmt.Errorf("storage: record postgres schema version 18: %w", err)
+	if err := apply(19, schemaV19Upgrade); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("storage: commit postgres schema: %w", err)

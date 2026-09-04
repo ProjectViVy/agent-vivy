@@ -23,6 +23,9 @@ connected to the resident gateway. type /help. Ctrl+C or /quit to leave.
 const helpNotes = `
 plain lines are sent as the next user turn.
 
+!<script> requires server shell support (unavailable in this build); @path adds project file context.
+Use !! and @@ when a literal leading marker is intended.
+
 when a tool needs approval, the next line is y or n
 (approved / denied). a pending question takes the next line as the answer.
 `
@@ -210,6 +213,13 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 		fmt.Fprintf(r.out, "vivy: %s\n", parsed.UnavailableReason)
 		return nil
 	}
+	if parsed.IsShell() {
+		if busy {
+			fmt.Fprintln(r.out, "(run in flight; /cancel or wait)")
+			return nil
+		}
+		return r.sendShell(ctx, parsed.Shell.Script)
+	}
 	if parsed.IsCommand() {
 		if err := command.DefaultRegistry().Validate(parsed.Invocation); err != nil {
 			fmt.Fprintf(r.out, "vivy: %v\n", err)
@@ -219,13 +229,16 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 	}
 	line = parsed.Text
 	if strings.TrimSpace(line) == "" {
+		if parsed.IsFile() {
+			fmt.Fprintln(r.out, "vivy: @file references require a prompt")
+		}
 		return nil
 	}
 	if busy {
 		fmt.Fprintln(r.out, "(run in flight; /cancel or wait)")
 		return nil
 	}
-	return r.sendTurn(ctx, line)
+	return r.sendTurnWithContext(ctx, line, parsed.FilePaths())
 }
 
 func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation, busy bool, runID string) error {
@@ -901,6 +914,10 @@ func parseApproval(line string) (string, bool) {
 }
 
 func (r *repl) sendTurn(ctx context.Context, text string) error {
+	return r.sendTurnWithContext(ctx, text, nil)
+}
+
+func (r *repl) sendTurnWithContext(ctx context.Context, text string, contextPaths []string) error {
 	r.mu.Lock()
 	thinking := normalizeREPLThinking(r.thinkingMode)
 	sessionID := r.session.ID
@@ -922,7 +939,13 @@ func (r *repl) sendTurn(ctx context.Context, text string) error {
 			fmt.Fprintln(r.out, "thinking: active model no longer supports on; using auto")
 		}
 	}
-	accepted, err := r.client.startTurnWithAttachments(ctx, sessionID, text, "code", thinking, attachments)
+	if len(contextPaths) > 0 {
+		if _, err := r.client.resolveProjectContext(ctx, contextPaths); err != nil {
+			fmt.Fprintf(r.out, "context: %v\n", err)
+			return nil
+		}
+	}
+	accepted, err := r.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, "code", thinking, attachments, contextPaths)
 	if err != nil {
 		fmt.Fprintf(r.out, "turn: %v\n", err)
 		return nil
@@ -935,6 +958,38 @@ func (r *repl) sendTurn(ctx context.Context, text string) error {
 	r.mu.Unlock()
 	if err := r.client.subscribe(ctx, accepted.RunID, 0); err != nil {
 		fmt.Fprintf(r.out, "turn accepted as %s; subscribe: %v\n", accepted.RunID, err)
+		return nil
+	}
+	r.mu.Lock()
+	r.busy = true
+	r.runID = accepted.RunID
+	r.mu.Unlock()
+	fmt.Fprint(r.out, "vivy: ")
+	return r.drainRun(ctx)
+}
+
+// sendShell starts a governed server-side shell run. The legacy line face has
+// no local execution fallback and uses the same run/subscribe/cancel event
+// stream as ordinary turns.
+func (r *repl) sendShell(ctx context.Context, script string) error {
+	if strings.TrimSpace(script) == "" {
+		fmt.Fprintln(r.out, "shell: script is required")
+		return nil
+	}
+	r.mu.Lock()
+	sessionID := r.session.ID
+	r.mu.Unlock()
+	if sessionID == "" {
+		fmt.Fprintln(r.out, "shell: no active session")
+		return nil
+	}
+	accepted, err := r.client.startShell(ctx, sessionID, script)
+	if err != nil {
+		fmt.Fprintf(r.out, "shell: %v\n", err)
+		return nil
+	}
+	if err := r.client.subscribe(ctx, accepted.RunID, 0); err != nil {
+		fmt.Fprintf(r.out, "shell accepted as %s; subscribe: %v\n", accepted.RunID, err)
 		return nil
 	}
 	r.mu.Lock()

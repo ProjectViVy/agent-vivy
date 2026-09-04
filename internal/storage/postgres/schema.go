@@ -38,6 +38,17 @@ CREATE TABLE message_attachments (
 );
 CREATE INDEX message_attachments_message_idx ON message_attachments(message_id);
 
+CREATE TABLE message_file_contexts (
+	id BIGSERIAL PRIMARY KEY,
+	message_id TEXT NOT NULL,
+	position INTEGER NOT NULL,
+	path TEXT NOT NULL,
+	name TEXT NOT NULL DEFAULT '',
+	size BIGINT NOT NULL,
+	content BYTEA NOT NULL
+);
+CREATE INDEX message_file_contexts_message_idx ON message_file_contexts(message_id);
+
 CREATE TABLE runs (
 	id TEXT PRIMARY KEY,
 	session_id TEXT NOT NULL,
@@ -370,4 +381,20 @@ CREATE TABLE IF NOT EXISTS file_reads (
 	read_at BIGINT NOT NULL,
 	PRIMARY KEY(session_id, path)
 );
+`
+
+// schemaV19Upgrade adds durable project-file snapshots to databases that were
+// already at the file-version schema. The table is independent from message
+// rows so RPC history can project metadata without ever returning the body.
+const schemaV19Upgrade = `
+CREATE TABLE IF NOT EXISTS message_file_contexts (
+	id BIGSERIAL PRIMARY KEY,
+	message_id TEXT NOT NULL,
+	position INTEGER NOT NULL,
+	path TEXT NOT NULL,
+	name TEXT NOT NULL DEFAULT '',
+	size BIGINT NOT NULL,
+	content BYTEA NOT NULL
+);
+CREATE INDEX IF NOT EXISTS message_file_contexts_message_idx ON message_file_contexts(message_id);
 `

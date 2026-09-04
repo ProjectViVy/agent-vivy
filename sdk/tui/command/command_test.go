@@ -57,15 +57,41 @@ func TestParseDoubleBangAndAtEscapeOneMarker(t *testing.T) {
 	}
 }
 
-func TestParseSingleBangAndAtAreUnavailableLocally(t *testing.T) {
-	for _, input := range []string{"!echo hi", "@README.md", "!", "@"} {
-		got, err := Parse(input)
+func TestParseShellAndFileInputs(t *testing.T) {
+	shell, err := Parse("  !echo hi && printf ok")
+	if err != nil || !shell.IsShell() || shell.Shell.Script != "echo hi && printf ok" || shell.Shell.Raw != "  !echo hi && printf ok" {
+		t.Fatalf("shell parse = %+v, %v", shell, err)
+	}
+	for _, tc := range []struct {
+		input string
+		text  string
+		paths []string
+	}{
+		{"@README.md", "", []string{"README.md"}},
+		{"summarize @README.md please", "summarize  please", []string{"README.md"}},
+		{"@a.md @b.go inspect", "  inspect", []string{"a.md", "b.go"}},
+		{"email a@b.test", "email a@b.test", nil},
+		{"@@literal", "@literal", nil},
+	} {
+		got, err := Parse(tc.input)
 		if err != nil {
-			t.Fatalf("Parse(%q): %v", input, err)
+			t.Fatalf("Parse(%q): %v", tc.input, err)
 		}
-		if !got.IsUnavailable() || got.Text != input || strings.TrimSpace(got.UnavailableReason) == "" {
-			t.Fatalf("Parse(%q) = %+v, want unavailable with preserved input", input, got)
+		if len(tc.paths) == 0 {
+			if got.Kind != Plain || got.Text != tc.text || len(got.ContextPaths) != 0 {
+				t.Fatalf("Parse(%q) = %+v, want plain %q", tc.input, got, tc.text)
+			}
+			continue
 		}
+		if !got.IsFile() || got.Text != tc.text || !reflect.DeepEqual(got.ContextPaths, tc.paths) {
+			t.Fatalf("Parse(%q) = %+v, want file text=%q paths=%q", tc.input, got, tc.text, tc.paths)
+		}
+	}
+	if _, err := Parse("!"); err == nil {
+		t.Fatal("empty shell script accepted")
+	}
+	if _, err := Parse("@"); err == nil {
+		t.Fatal("empty file path accepted")
 	}
 }
 

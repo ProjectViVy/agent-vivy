@@ -105,6 +105,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case surface.ErrMsg:
 		// The driver stores transport errors in Meta. Keep the dialog snapshot
 		// and local input intact so a retry does not discard user work.
+	case surface.RestoreInputMsg:
+		if strings.TrimSpace(msg.Text) != "" {
+			if strings.TrimSpace(m.input) == "" {
+				m.input = msg.Text
+			} else {
+				m.input = msg.Text + " " + m.input
+			}
+		}
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -263,6 +271,37 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 	}
 	if parsed.IsUnavailable() {
 		return m.showCommandError(fmt.Errorf("%s", parsed.UnavailableReason)), nil
+	}
+	if parsed.IsShell() {
+		executor, ok := m.driver.(surface.ShellExecutor)
+		if !ok {
+			// A shell-capable input is never sent as model text. Small/demo
+			// drivers that do not expose the governed control-plane seam fail
+			// closed in the shared view.
+			return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
+		}
+		if cmd := executor.ExecuteShell(parsed.Shell.Script); cmd != nil {
+			m.input = ""
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
+	}
+	if parsed.IsFile() {
+		if strings.TrimSpace(parsed.Text) == "" {
+			return m.showCommandError(fmt.Errorf("@file references require a prompt")), nil
+		}
+		sender, ok := m.driver.(surface.ContextSender)
+		if !ok {
+			// The path list is an untrusted hint. It must reach a live driver
+			// (and then the server resolver) before the turn is accepted; the
+			// shared view has no filesystem authority of its own.
+			return m.showCommandError(fmt.Errorf("@file references are unavailable")), nil
+		}
+		if cmd := sender.SendWithContext(parsed.Text, parsed.FilePaths()); cmd != nil {
+			m.input = ""
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("@file references are unavailable")), nil
 	}
 	if !parsed.IsCommand() {
 		cmd := m.driver.Send(parsed.Text)

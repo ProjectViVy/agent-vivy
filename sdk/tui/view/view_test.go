@@ -189,6 +189,21 @@ func TestImageHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
 	}
 }
 
+func TestFileContextHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
+	lines := renderMessage(surface.Message{
+		Role:         surface.RoleUser,
+		Content:      "inspect",
+		FileContexts: []surface.FileContext{{Path: "README.md", Name: "README.md", Size: 42}},
+	}, 80, DefaultPalette())
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "inspect") || !strings.Contains(joined, "[file: README.md]") {
+		t.Fatalf("file context chip missing: %s", joined)
+	}
+	if strings.Contains(joined, "content:") || strings.Contains(joined, "base64") {
+		t.Fatalf("file context body leaked into history: %s", joined)
+	}
+}
+
 func TestSessionsDialogRefreshesFiltersAndSelects(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current"}, {ID: "other", Title: "Other task"}},

@@ -238,7 +238,7 @@ func TestREPLCommandsUseSharedParserAndNeverForwardUnknownSlash(t *testing.T) {
 	}
 }
 
-func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
+func TestREPLAdvancedCommandsUseRPCAndShellFilePrefixesUseGovernedSeams(t *testing.T) {
 	var methods []string
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		methods = append(methods, request.Method)
@@ -290,8 +290,8 @@ func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(methods) != 0 {
-		t.Fatalf("unavailable prefixes unexpectedly called RPCs: %v", methods)
+	if len(methods) != 1 || methods[0] != "shell/start" {
+		t.Fatalf("shell input did not use the governed shell seam: %v", methods)
 	}
 	for _, tc := range []struct {
 		line   string
@@ -347,8 +347,8 @@ func TestREPLAdvancedCommandsUseRPCAndPrefixesStayLocal(t *testing.T) {
 	if methods[len(methods)-1] != "session/messages" || !strings.Contains(out.String(), "you: kept") {
 		t.Fatalf("confirmed rewind did not refresh history: methods=%v output=%s", methods, out.String())
 	}
-	if !strings.Contains(out.String(), "shell commands are unavailable") || !strings.Contains(out.String(), "workspace references are unavailable") {
-		t.Fatalf("local unavailable diagnostics missing:\n%s", out.String())
+	if !strings.Contains(out.String(), "shell:") || !strings.Contains(out.String(), "@file references require a prompt") {
+		t.Fatalf("shell/file diagnostics missing:\n%s", out.String())
 	}
 }
 
@@ -536,6 +536,109 @@ func TestREPLTurnStartAndSubscribeRPC(t *testing.T) {
 	}
 	if err := client.subscribe(ctx, accepted.RunID, 0); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestREPLFileContextResolvesBeforeTurnStart(t *testing.T) {
+	var methods []string
+	var gotPaths []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		methods = append(methods, request.Method)
+		switch request.Method {
+		case "project-context/resolve":
+			var params struct {
+				Paths []string `json:"paths"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotPaths = append(gotPaths, params.Paths...)
+			return map[string]any{"contexts": []map[string]any{{"path": "README.md", "name": "README.md", "size": 10}}}, nil
+		case "turn/start":
+			var params struct {
+				Text         string   `json:"text"`
+				ContextPaths []string `json:"context_paths"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotPaths = append(gotPaths, params.ContextPaths...)
+			if params.Text != "inspect" {
+				return nil, &controlrpc.Error{Code: controlrpc.InvalidParams, Message: params.Text}
+			}
+			return map[string]string{"run_id": "run_file", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]string{"subscription_id": "sub_file"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1"},
+		events:  make(chan eventNotice, 1),
+	}
+	r.events <- eventNotice{Done: true}
+	if err := r.handleLine(context.Background(), "inspect @README.md"); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) != 2 || methods[0] != "project-context/resolve" || methods[1] != "turn/start" {
+		t.Fatalf("file methods = %v", methods)
+	}
+	if strings.Join(gotPaths, "|") != "README.md|README.md" {
+		t.Fatalf("file paths = %v", gotPaths)
+	}
+}
+
+func TestREPLHistoryRendersFileContextMetadataWithoutBody(t *testing.T) {
+	got := formatHistory([]messageView{{
+		Role:         "user",
+		Content:      "inspect",
+		FileContexts: []surface.FileContext{{Path: "README.md", Name: "README.md", Size: 12}},
+	}})
+	if !strings.Contains(got, "inspect") || !strings.Contains(got, "[file: README.md]") {
+		t.Fatalf("file history metadata missing: %q", got)
+	}
+	if strings.Contains(got, "content:") || strings.Contains(got, "base64") {
+		t.Fatalf("file body leaked into history: %q", got)
+	}
+}
+
+func TestREPLShellUsesOnlyShellStartAndSharedRunStream(t *testing.T) {
+	var methods []string
+	var got map[string]any
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		methods = append(methods, request.Method)
+		switch request.Method {
+		case "shell/start":
+			if err := json.Unmarshal(request.Params, &got); err != nil {
+				return nil, &controlrpc.Error{Code: controlrpc.InvalidParams, Message: err.Error()}
+			}
+			return map[string]string{"run_id": "run_shell", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]string{"subscription_id": "sub_shell"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1"},
+		events:  make(chan eventNotice, 1),
+	}
+	r.events <- eventNotice{Done: true}
+	if err := r.handleLine(context.Background(), "!  echo safe  "); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) != 2 || methods[0] != "shell/start" || methods[1] != "run/subscribe" {
+		t.Fatalf("shell methods = %v", methods)
+	}
+	if len(got) != 2 || got["session_id"] != "sess_1" || got["script"] != "  echo safe  " {
+		t.Fatalf("shell params = %#v", got)
 	}
 }
 

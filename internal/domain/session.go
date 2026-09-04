@@ -67,6 +67,18 @@ type Attachment struct {
 	Data     []byte
 }
 
+// FileContext is one server-resolved project file attached to a user turn.
+// Content is a bounded text snapshot captured before RunWithOptions persists
+// the turn. RPC projections deliberately omit Content and expose only the
+// metadata fields, while runtime context construction uses the durable
+// snapshot so a later file edit cannot rewrite historical model input.
+type FileContext struct {
+	Path    string
+	Name    string
+	Size    int64
+	Content []byte
+}
+
 // Message is one turn in a session. Content is append-only; there is no
 // silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
 // model-visible tool turn (ADR-010); they are empty on ordinary text rows.
@@ -80,7 +92,8 @@ type Message struct {
 	Role             Role
 	CreatedAt        int64 // unix milli
 	Content          string
-	Attachments      []Attachment // user rows only; images delivered as multimodal input
+	Attachments      []Attachment  // user rows only; images delivered as multimodal input
+	FileContexts     []FileContext // user rows only; bounded project text snapshots
 	ToolCallID       string
 	ToolName         string
 	ToolArgs         []byte

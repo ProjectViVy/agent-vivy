@@ -22,6 +22,14 @@ const (
 	// wired in this face. It must never be sent to the model. Text preserves
 	// the original input so the editor can keep the draft for correction.
 	Unavailable
+	// Shell is a bang-prefixed shell script. The script is sent to the
+	// server-owned shell/start seam; a face must never execute it locally.
+	Shell
+	// File is a prompt containing one or more project-relative @file
+	// references. Text is the prompt with the reference markers removed and
+	// ContextPaths contains the original path tokens. The server resolves
+	// those paths again at turn/start time.
+	File
 )
 
 // Invocation is one syntactically valid slash command.
@@ -34,12 +42,25 @@ type Invocation struct {
 	Raw string
 }
 
+// ShellInvocation is the parsed form of a !script line. Script deliberately
+// preserves every byte after the leading marker (including intentional
+// whitespace); the server is responsible for parsing, policy and execution.
+type ShellInvocation struct {
+	Script string
+	Raw    string
+}
+
 // Result is the classification of one editor line. A plain result has a nil
 // Invocation; a command result has the parsed invocation and an empty Text.
 type Result struct {
-	Kind              Kind
-	Text              string
-	Invocation        *Invocation
+	Kind       Kind
+	Text       string
+	Invocation *Invocation
+	Shell      *ShellInvocation
+	// ContextPaths are project-relative paths extracted from @file markers.
+	// They are hints only: the control plane validates and re-resolves them
+	// immediately before starting a run.
+	ContextPaths      []string
 	UnavailableReason string
 }
 
@@ -50,6 +71,15 @@ func (r Result) IsCommand() bool { return r.Kind == Command && r.Invocation != n
 // control-plane implementation. Callers must render the reason locally and
 // must not forward Text to the model or execute it on the host.
 func (r Result) IsUnavailable() bool { return r.Kind == Unavailable }
+
+// IsShell reports a parsed !script input.
+func (r Result) IsShell() bool { return r.Kind == Shell && r.Shell != nil }
+
+// IsFile reports a prompt containing one or more @file references.
+func (r Result) IsFile() bool { return r.Kind == File && len(r.ContextPaths) > 0 }
+
+// FilePaths returns a defensive copy of project-context paths.
+func (r Result) FilePaths() []string { return append([]string(nil), r.ContextPaths...) }
 
 // SyntaxError identifies a malformed command line. Offset is a rune offset,
 // which keeps diagnostics useful for Unicode input.
@@ -87,10 +117,9 @@ func Parse(input string) (Result, error) {
 	trimmed := strings.TrimLeftFunc(input, unicode.IsSpace)
 	prefix := input[:len(input)-len(trimmed)]
 	if !strings.HasPrefix(trimmed, "/") {
-		// Double prefixes escape one marker. A single !/@ is intentionally a
-		// local unavailable result until a governed shell/workspace RPC exists;
-		// silently treating it as model text would make the command surface
-		// ambiguous and unsafe.
+		// Double prefixes escape one marker. Shell and project-context effects
+		// are represented as data here; execution and filesystem access remain
+		// owned by the control plane.
 		if strings.HasPrefix(trimmed, "!!") {
 			return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
 		}
@@ -98,12 +127,13 @@ func Parse(input string) (Result, error) {
 			return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
 		}
 		if strings.HasPrefix(trimmed, "!") {
-			return Result{Kind: Unavailable, Text: input, UnavailableReason: "shell commands are unavailable in this face; use a governed tool or /help"}, nil
+			script := trimmed[1:]
+			if strings.TrimSpace(script) == "" {
+				return Result{}, &SyntaxError{Offset: 1, Message: "shell script is required"}
+			}
+			return Result{Kind: Shell, Text: input, Shell: &ShellInvocation{Script: script, Raw: input}}, nil
 		}
-		if strings.HasPrefix(trimmed, "@") {
-			return Result{Kind: Unavailable, Text: input, UnavailableReason: "workspace references are unavailable in this face; use a governed tool or /help"}, nil
-		}
-		return Result{Kind: Plain, Text: input}, nil
+		return parseFileReferences(input)
 	}
 	if strings.HasPrefix(trimmed, "//") {
 		return Result{Kind: Plain, Text: prefix + trimmed[1:]}, nil
@@ -126,6 +156,48 @@ func Parse(input string) (Result, error) {
 			Raw:  input,
 		},
 	}, nil
+}
+
+// parseFileReferences extracts project-relative @path tokens from ordinary
+// text. A marker is recognized only at the beginning of the trimmed input or
+// immediately after Unicode whitespace; this prevents email addresses and
+// ordinary prose from becoming filesystem requests. @@ escapes one marker.
+// The returned Text keeps all non-reference text except for removed markers.
+// The control plane remains authoritative and resolves ContextPaths again at
+// turn/start time.
+func parseFileReferences(input string) (Result, error) {
+	runes := []rune(input)
+	if len(runes) == 0 {
+		return Result{Kind: Plain, Text: input}, nil
+	}
+	var out []rune
+	paths := make([]string, 0, 1)
+	for i := 0; i < len(runes); {
+		if runes[i] != '@' || (i > 0 && !unicode.IsSpace(runes[i-1])) {
+			out = append(out, runes[i])
+			i++
+			continue
+		}
+		if i+1 < len(runes) && runes[i+1] == '@' {
+			out = append(out, '@')
+			i += 2
+			continue
+		}
+		start := i + 1
+		end := start
+		for end < len(runes) && !unicode.IsSpace(runes[end]) {
+			end++
+		}
+		if end == start {
+			return Result{}, &SyntaxError{Offset: i, Message: "file path is required after @"}
+		}
+		paths = append(paths, string(runes[start:end]))
+		i = end
+	}
+	if len(paths) == 0 {
+		return Result{Kind: Plain, Text: input}, nil
+	}
+	return Result{Kind: File, Text: string(out), ContextPaths: paths}, nil
 }
 
 // ParseLine is an explicit alias for callers whose input is line-oriented.
@@ -376,6 +448,10 @@ func (r Registry) Help() string {
 		}
 		fmt.Fprintf(&b, "  %-22s %s%s\n", usage, spec.Description, aliases)
 	}
+	b.WriteString("\ninput prefixes\n")
+	b.WriteString("  !<script>              requires server shell support (unavailable in this build)\n")
+	b.WriteString("  @path                   add project file context\n")
+	b.WriteString("  !! / @@                 send a literal marker\n")
 	return b.String()
 }
 

@@ -44,6 +44,20 @@ func TestMeasureWithHistoryAndCurrent(t *testing.T) {
 	}
 }
 
+func TestMeasureIncludesFileContextSnapshots(t *testing.T) {
+	body := []byte("package main")
+	messages := []*domain.Message{
+		{Role: domain.RoleUser, Content: "inspect", FileContexts: []domain.FileContext{{Path: "main.go", Name: "main.go", Size: int64(len(body)), Content: body}}},
+		{Role: domain.RoleUser, Content: "current"},
+	}
+	withFile := Measure(messages, "", 128000)
+	messages[0].FileContexts = nil
+	withoutFile := Measure(messages, "", 128000)
+	if withFile.HistoryMessages <= withoutFile.HistoryMessages+len(body) {
+		t.Fatalf("file snapshot missing from meter: with=%d without=%d", withFile.HistoryMessages, withoutFile.HistoryMessages)
+	}
+}
+
 func TestMeasureToolResults(t *testing.T) {
 	messages := []*domain.Message{
 		{Role: domain.RoleUser, Content: "read file"},

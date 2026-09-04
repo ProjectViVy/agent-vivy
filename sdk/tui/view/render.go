@@ -192,6 +192,12 @@ func renderMessage(message surface.Message, width int, p Palette) []string {
 		}
 		text += chips
 	}
+	if chips := renderFileContextChips(message.FileContexts); chips != "" {
+		if text != "" {
+			text += "\n"
+		}
+		text += chips
+	}
 	if message.Streaming {
 		text += "▌"
 	}
@@ -299,6 +305,27 @@ func renderAttachmentChips(attachments []surface.Attachment) string {
 			name = "image"
 		}
 		parts = append(parts, "[image: "+name+"]")
+	}
+	return strings.Join(parts, " ")
+}
+
+// renderFileContextChips renders only bounded metadata returned by the
+// control plane. Context contents are never printed as part of a history
+// bubble or an editor draft.
+func renderFileContextChips(contexts []surface.FileContext) string {
+	if len(contexts) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(contexts))
+	for _, context := range contexts {
+		name := strings.TrimSpace(context.Name)
+		if name == "" {
+			name = strings.TrimSpace(context.Path)
+		}
+		if name == "" {
+			name = "file"
+		}
+		parts = append(parts, "[file: "+name+"]")
 	}
 	return strings.Join(parts, " ")
 }
