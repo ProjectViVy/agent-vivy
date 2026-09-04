@@ -97,7 +97,7 @@ func TestInboxBoundsUTF8BytesAndDrainWork(t *testing.T) {
 
 func TestInboxCountsAuthoritativeCompletedContent(t *testing.T) {
 	inbox := NewBoundedInbox(10, 20)
-	if inbox.Push(Notice{Kind: "model_completed", HasCompleted: true, Completed: "四字"}) != PushReplayRequired {
+	if inbox.Push(Notice{Kind: "model_completed", HasCompleted: true, Completed: "四字", CompletedAuthoritative: true}) != PushReplayRequired {
 		t.Fatal("completed content bypassed byte bound")
 	}
 }

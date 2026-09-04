@@ -1,24 +1,32 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/model.completed.json",
-  "title": "model.completed payload (v1)",
-  "type": "object",
-  "properties": {
-    "content": {
-      "type": "string",
-      "description": "Full reassembled assistant text for this model turn."
+  "title": "model.completed payload",
+  "description": "Payload version is carried by the RunEvent envelope. V1 stores authoritative content; v2 commits the bounded model.delta sequence by digest.",
+  "oneOf": [
+    {
+      "title": "v1 legacy authoritative content",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["content"],
+      "additionalProperties": false
     },
-    "input_tokens": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Optional provider-reported usage."
-    },
-    "output_tokens": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Optional provider-reported usage."
+    {
+      "title": "v2 delta commit metadata",
+      "type": "object",
+      "properties": {
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byte_len": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["content_sha256", "byte_len"],
+      "additionalProperties": false
     }
-  },
-  "required": ["content"],
-  "additionalProperties": false
+  ]
 }

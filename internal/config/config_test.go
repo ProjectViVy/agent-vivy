@@ -25,10 +25,10 @@ func TestRuntimeWorldDefaultsAndValidation(t *testing.T) {
 	}
 }
 
-func TestRuntimeRejectsEventPayloadBudgetTooSmallForOneDelta(t *testing.T) {
+func TestRuntimeRejectsEventPayloadBudgetTooSmallForCompletionMetadata(t *testing.T) {
 	cfg := Default()
-	cfg.Runtime.MaxEventPayloadBytes = 63
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "at least 64") {
+	cfg.Runtime.MaxEventPayloadBytes = 127
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "at least 128") {
 		t.Fatalf("small event payload budget error = %v", err)
 	}
 }

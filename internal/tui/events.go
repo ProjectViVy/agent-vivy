@@ -14,6 +14,7 @@ type streamEvent struct {
 	RunID          string
 	Seq            int
 	Type           domain.EventType
+	PayloadVersion int
 	Payload        json.RawMessage
 }
 
@@ -30,6 +31,7 @@ func decodeStreamEvent(params json.RawMessage) (streamEvent, bool) {
 		RunID:          event.RunID,
 		Seq:            event.Seq,
 		Type:           domain.EventType(event.Type),
+		PayloadVersion: event.PayloadVersion,
 		Payload:        event.Payload,
 	}, true
 }
@@ -40,6 +42,7 @@ func interpret(event streamEvent) eventNotice {
 		RunID:          event.RunID,
 		Seq:            event.Seq,
 		Type:           string(event.Type),
+		PayloadVersion: event.PayloadVersion,
 		Payload:        event.Payload,
 	})
 }

@@ -89,11 +89,16 @@ func TestHeadlessSinkRendersStream(t *testing.T) {
 	sink := newHeadlessSink(&out, &errw)
 	sink.Publish(domain.RunEvent{Type: domain.EventModelDelta, Payload: []byte(`{"delta":"Hel"}`)})
 	sink.Publish(domain.RunEvent{Type: domain.EventModelDelta, Payload: []byte(`{"delta":"lo"}`)})
-	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, Payload: []byte(`{"content":"Hello"}`)})
-	// A provider that did not stream prints its completed content once.
-	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, Payload: []byte(`{"content":"Second turn"}`)})
+	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 2, Payload: []byte(`{"content_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","byte_len":5}`)})
+	// A legacy v1 provider that did not stream prints its authoritative
+	// completed content once.
+	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 1, Payload: []byte(`{"content":"Second turn"}`)})
+	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 2, Payload: []byte(`{"content":"illegal","content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":7}`)})
 	if got := out.String(); got != "Hello\nSecond turn\n" {
 		t.Fatalf("stdout = %q, want streamed text with message breaks", got)
+	}
+	if !strings.Contains(errw.String(), "model.completed v2") {
+		t.Fatalf("stderr = %q, want invalid v2 diagnostic", errw.String())
 	}
 	sink.Publish(domain.RunEvent{Type: domain.EventToolStarted, Payload: []byte(`{"tool_name":"bash"}`)})
 	sink.Publish(domain.RunEvent{Type: domain.EventToolFinished, Payload: []byte(`{"tool_name":"bash","error":"exit status 1"}`)})
@@ -145,6 +150,26 @@ func TestHeadlessTurnCompletesWithScriptedModel(t *testing.T) {
 	}
 	if started.Face != string(domain.FaceHeadless) {
 		t.Fatalf("run.started face = %q, want headless", started.Face)
+	}
+	var completed []domain.RunEvent
+	for _, event := range events {
+		if event.Type == domain.EventModelCompleted {
+			completed = append(completed, event)
+		}
+	}
+	if len(completed) != 1 || completed[0].PayloadVersion != 2 {
+		t.Fatalf("model.completed events = %+v, want one v2 boundary", completed)
+	}
+	var metadata struct {
+		Content       string `json:"content"`
+		ContentSHA256 string `json:"content_sha256"`
+		ByteLen       int    `json:"byte_len"`
+	}
+	if err := json.Unmarshal(completed[0].Payload, &metadata); err != nil {
+		t.Fatalf("decode model.completed: %v", err)
+	}
+	if metadata.Content != "" || metadata.ByteLen != len([]byte("All done.")) || metadata.ContentSHA256 == "" {
+		t.Fatalf("model.completed metadata = %+v, want metadata-only v2 content", metadata)
 	}
 	msgs, err := backend.ListMessages(ctx, "sess_hl_ok")
 	if err != nil {

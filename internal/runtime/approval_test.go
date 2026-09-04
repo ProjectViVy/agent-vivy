@@ -219,19 +219,26 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 	for _, ev := range events[ai+1:] {
 		types = append(types, string(ev.Type))
 	}
-	want := []domain.EventType{
+	prefix := []domain.EventType{
 		domain.EventToolApprovalDecided,
 		domain.EventPolicyEvaluated,
 		domain.EventToolStarted, domain.EventToolFinished,
-		domain.EventModelDelta, domain.EventModelCompleted, domain.EventRunCompleted,
 	}
-	if len(types) != len(want) {
+	if len(types) < len(prefix)+3 {
 		t.Fatalf("post-approval events = %v", types)
 	}
-	for i, w := range want {
+	for i, w := range prefix {
 		if domain.EventType(types[i]) != w {
 			t.Fatalf("post-approval event %d = %s, want %s (%v)", i, types[i], w, types)
 		}
+	}
+	for i := len(prefix); i < len(types)-2; i++ {
+		if domain.EventType(types[i]) != domain.EventModelDelta {
+			t.Fatalf("post-approval body event %d = %s, want model.delta (%v)", i, types[i], types)
+		}
+	}
+	if domain.EventType(types[len(types)-2]) != domain.EventModelCompleted || domain.EventType(types[len(types)-1]) != domain.EventRunCompleted {
+		t.Fatalf("post-approval terminal boundary = %v", types)
 	}
 	var fin payloadToolFinished
 	mustUnmarshal(t, events[ai+4].Payload, &fin)

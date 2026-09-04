@@ -49,12 +49,41 @@ func TestInterpretApprovalGate(t *testing.T) {
 }
 
 func TestDecodeStreamEventEnvelope(t *testing.T) {
-	event, ok := decodeStreamEvent(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload":{"delta":"x"}}}`))
-	if !ok || event.Type != domain.EventModelDelta || event.RunID != "run_1" || event.Seq != 7 {
+	event, ok := decodeStreamEvent(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload_version":2,"payload":{"delta":"x"}}}`))
+	if !ok || event.Type != domain.EventModelDelta || event.RunID != "run_1" || event.Seq != 7 || event.PayloadVersion != 2 {
 		t.Fatalf("event = %+v ok=%v", event, ok)
 	}
 	if payloadString(event.Payload, "delta") != "x" {
 		t.Fatalf("payload = %s", event.Payload)
+	}
+}
+
+func TestInterpretCompletionVersions(t *testing.T) {
+	v1 := interpret(streamEvent{
+		Type:           domain.EventModelCompleted,
+		PayloadVersion: 1,
+		Payload:        json.RawMessage(`{"content":"legacy answer"}`),
+	})
+	if v1.Kind != "model_completed" || !v1.HasCompleted || v1.Completed != "legacy answer" || !v1.CompletedAuthoritative {
+		t.Fatalf("v1 completion = %+v", v1)
+	}
+
+	v2 := interpret(streamEvent{
+		Type:           domain.EventModelCompleted,
+		PayloadVersion: 2,
+		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":12}`),
+	})
+	if v2.Kind != "model_completed" || !v2.HasCompleted || v2.Completed != "" || v2.CompletedAuthoritative || v2.PayloadVersion != 2 {
+		t.Fatalf("v2 completion = %+v", v2)
+	}
+
+	unknown := interpret(streamEvent{
+		Type:           domain.EventModelCompleted,
+		PayloadVersion: 3,
+		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":12}`),
+	})
+	if unknown.Kind != "done" || !unknown.Done || !unknown.Failed || !strings.Contains(unknown.Message, "unsupported model.completed payload version 3") {
+		t.Fatalf("unknown completion = %+v", unknown)
 	}
 }
 

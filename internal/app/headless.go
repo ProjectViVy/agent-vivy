@@ -16,6 +16,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
+	"agent-vivy/sdk/tui/stream"
 )
 
 // The headless face (VIVY-FACE-PACK section 5, VC-2 D11): `vivy run
@@ -164,11 +165,13 @@ func runHeadlessTurn(ctx context.Context, svc *runtime.Service, sessionID domain
 // writers must not block long; direct writes to os.Stdout/os.Stderr are
 // acceptable at this scale. Exactly one terminal reaches the channel.
 type headlessSink struct {
-	out      io.Writer
-	errw     io.Writer
-	streamed bool
-	terminal chan headlessTerminal
-	blocked  chan struct{}
+	out         io.Writer
+	errw        io.Writer
+	streamed    bool
+	completion  stream.ModelCompletionTracker
+	protocolErr string
+	terminal    chan headlessTerminal
+	blocked     chan struct{}
 }
 
 type headlessTerminal struct {
@@ -190,27 +193,44 @@ func newHeadlessSink(out, errw io.Writer) *headlessSink {
 // journal-side detail a script consumer has no use for.
 func (s *headlessSink) Publish(ev domain.RunEvent) {
 	switch ev.Type {
+	case domain.EventModelRequest:
+		s.completion.BeginRound()
 	case domain.EventModelDelta:
-		var p struct {
-			Delta string `json:"delta"`
+		if s.protocolErr != "" {
+			break
 		}
-		if json.Unmarshal(ev.Payload, &p) == nil && p.Delta != "" {
-			_, _ = fmt.Fprint(s.out, p.Delta)
+		delta, err := stream.ParseModelDelta(ev.Payload)
+		if err != nil {
+			s.failProtocol(err)
+			break
+		}
+		if err := s.completion.AddDelta(delta); err != nil {
+			s.failProtocol(err)
+			break
+		}
+		if delta != "" {
+			_, _ = fmt.Fprint(s.out, delta)
 			s.streamed = true
 		}
 	case domain.EventModelCompleted:
-		var p struct {
-			Content string `json:"content"`
-		}
-		if json.Unmarshal(ev.Payload, &p) == nil {
-			switch {
-			case s.streamed:
-				_, _ = fmt.Fprintln(s.out)
-			case strings.TrimSpace(p.Content) != "":
-				_, _ = fmt.Fprintln(s.out, p.Content)
-			}
+		if s.protocolErr != "" {
 			s.streamed = false
+			break
 		}
+		content, err := s.completion.Complete(ev.PayloadVersion, ev.Payload)
+		if err != nil {
+			s.failProtocol(err)
+			s.streamed = false
+			break
+		}
+		if s.streamed {
+			_, _ = fmt.Fprintln(s.out)
+		} else if ev.PayloadVersion == 0 || ev.PayloadVersion == 1 {
+			if strings.TrimSpace(content) != "" {
+				_, _ = fmt.Fprintln(s.out, content)
+			}
+		}
+		s.streamed = false
 	case domain.EventToolStarted:
 		var p struct {
 			ToolName string `json:"tool_name"`
@@ -254,8 +274,24 @@ func (s *headlessSink) Publish(ev domain.RunEvent) {
 		_, _ = fmt.Fprintln(s.errw, "vivy: run cancelled")
 		s.emit(headlessTerminal{status: domain.RunCancelled})
 	case domain.EventRunCompleted:
-		s.emit(headlessTerminal{status: domain.RunCompleted})
+		if s.protocolErr != "" {
+			s.emit(headlessTerminal{status: domain.RunFailed, failCause: "protocol_error", failMessage: s.protocolErr})
+		} else {
+			s.emit(headlessTerminal{status: domain.RunCompleted})
+		}
 	}
+}
+
+func (s *headlessSink) failProtocol(err error) {
+	if s.protocolErr != "" {
+		return
+	}
+	message := "invalid stream protocol"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	s.protocolErr = message
+	_, _ = fmt.Fprintln(s.errw, "vivy: "+message)
 }
 
 func (s *headlessSink) emit(t headlessTerminal) {

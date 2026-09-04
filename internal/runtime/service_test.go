@@ -161,19 +161,27 @@ func TestServiceRunHappyPath(t *testing.T) {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
 	}
 
-	// Seq monotonic 1..K with no gaps.
+	// Seq monotonic 1..K with no gaps. model.completed is the one v2 payload:
+	// its text is the preceding delta stream, while all other events remain
+	// on the v1 envelope.
 	for i, ev := range events {
 		if ev.Seq != domain.EventSeq(i+1) {
 			t.Fatalf("event %d has seq %d, want %d", i, ev.Seq, i+1)
 		}
-		if ev.PayloadVersion != 1 {
-			t.Fatalf("event %d payload version = %d, want 1", i, ev.PayloadVersion)
+		wantVersion := 1
+		if ev.Type == domain.EventModelCompleted {
+			wantVersion = 2
+		}
+		if ev.PayloadVersion != wantVersion {
+			t.Fatalf("event %d (%s) payload version = %d, want %d", i, ev.Type, ev.PayloadVersion, wantVersion)
 		}
 	}
 
-	// Middle shape: delta* then model.completed before the terminal.
+	// Middle shape: delta* then metadata-only model.completed before the
+	// terminal. Reassembly is byte-for-byte and independently checked against
+	// the completion digest/length.
 	var deltas strings.Builder
-	var completedContent string
+	var completed payloadModelCompletedV2
 	for _, ev := range events[1 : len(events)-1] {
 		switch ev.Type {
 		case domain.EventModelRequest:
@@ -181,7 +189,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 		case domain.EventModelDelta:
 			deltas.WriteString(payloadDeltaOf(t, ev.Payload))
 		case domain.EventModelCompleted:
-			completedContent = payloadContentOf(t, ev.Payload)
+			completed = payloadCompletedOf(t, ev.Payload)
 		default:
 			t.Fatalf("unexpected mid-run event %s", ev.Type)
 		}
@@ -190,8 +198,8 @@ func TestServiceRunHappyPath(t *testing.T) {
 	if deltas.String() != want {
 		t.Fatalf("reassembled deltas = %q, want %q", deltas.String(), want)
 	}
-	if completedContent != want {
-		t.Fatalf("model.completed content = %q, want %q", completedContent, want)
+	if completed.ContentSHA256 != sha256Hex([]byte(want)) || completed.ByteLen != len([]byte(want)) {
+		t.Fatalf("model.completed metadata = %+v, want sha/bytes for %q", completed, want)
 	}
 
 	// The conversation log mirrors the user turn and the assistant reply.
@@ -290,6 +298,99 @@ func TestServiceRunCancelled(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if again := replayAll(t, backend, runID); len(again) != len(events) {
 		t.Fatalf("journal grew from %d to %d events after the terminal", len(events), len(again))
+	}
+}
+
+func TestDeleteSessionSealsActiveRunAgainstResurrection(t *testing.T) {
+	svc, backend, _ := newTestService(t, blockingModel{})
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-delete-active")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "delete me", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	runID, err := svc.Run(ctx, sessionID, "never finishes")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if err := svc.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	drainCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if !svc.WaitIdle(drainCtx) {
+		t.Fatal("deleted session run did not drain")
+	}
+	if _, err := backend.GetRun(ctx, runID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("deleted run lookup error = %v, want not found", err)
+	}
+	msgs, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("deleted session was resurrected with messages: %+v", msgs)
+	}
+	if _, err := svc.Run(ctx, sessionID, "must stay deleted"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("run after deletion error = %v, want not found", err)
+	}
+}
+
+func TestDeleteSessionRejectsLateExternalWorkerEvent(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-delete-worker")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "worker", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	child := domain.Run{
+		ID: "child-delete-late", SessionID: sessionID, Status: domain.RunActive,
+		CreatedAt: time.Now().UnixMilli(), Kind: domain.RunKindChild,
+	}
+	if err := svc.CreateWorkerRun(ctx, child); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RecordExternalRunEvent(ctx, child.ID, domain.EventChildCompleted, map[string]any{"status": "late"}); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("late child event error = %v, want not found", err)
+	}
+	if err := svc.CreateWorkerRun(ctx, domain.Run{ID: "child-after-delete", SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: time.Now().UnixMilli(), Kind: domain.RunKindChild}); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("child creation after delete error = %v, want not found", err)
+	}
+}
+
+func TestDeleteSessionRacesWorkerCreationWithoutOrphans(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-delete-worker-race")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "worker race", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_ = svc.CreateWorkerRun(ctx, domain.Run{
+				ID: domain.RunID(fmt.Sprintf("child-delete-race-%02d", i)), SessionID: sessionID,
+				Status: domain.RunAccepted, CreatedAt: time.Now().UnixMilli(), Kind: domain.RunKindChild,
+			})
+		}(i)
+	}
+	close(start)
+	if err := svc.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	runs, err := backend.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("worker/delete race left orphan runs: %+v", runs)
 	}
 }
 
@@ -506,8 +607,12 @@ func TestMapperTurnEndFlushesModelCompleted(t *testing.T) {
 	if len(events) != 1 || events[0].Type != domain.EventModelCompleted {
 		t.Fatalf("expected flushed model.completed, got %+v", events)
 	}
-	if !strings.Contains(string(events[0].Payload), `"content":"partial"`) {
-		t.Fatalf("model.completed payload wrong: %s", events[0].Payload)
+	if events[0].PayloadVersion != 2 {
+		t.Fatalf("flushed model.completed payload version = %d, want 2", events[0].PayloadVersion)
+	}
+	completed := payloadCompletedOf(t, events[0].Payload)
+	if completed.ContentSHA256 != sha256Hex([]byte("partial")) || completed.ByteLen != len([]byte("partial")) {
+		t.Fatalf("model.completed payload wrong: %+v", completed)
 	}
 	if again := m.onTurnEnd(); len(again) != 0 {
 		t.Fatalf("second flush must be empty, got %+v", again)
@@ -525,19 +630,26 @@ func TestMapperFlushesAssistantTextBeforeToolAndFencesNextRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Type != domain.EventModelDelta || events[1].Type != domain.EventToolRequested {
+	if len(events) != 1 || events[0].Type != domain.EventToolRequested {
 		t.Fatalf("tool boundary events = %+v", events)
 	}
-	if !strings.Contains(string(events[0].Payload), `"delta":"before tool"`) || m.hasPending || m.pendingText.Len() != 0 {
-		t.Fatalf("tool preamble was not flushed: event=%s pending=%q", events[0].Payload, m.pendingText.String())
+	if m.hasPending || m.pendingText.Len() != 0 {
+		t.Fatalf("already-durable tool preamble was not fenced: pending=%q", m.pendingText.String())
 	}
 
 	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{Role: schema.Assistant, Content: "final"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next) != 1 || next[0].Type != domain.EventModelCompleted || !strings.Contains(string(next[0].Payload), `"content":"final"`) || strings.Contains(string(next[0].Payload), "before tool") {
+	if len(next) != 2 || next[0].Type != domain.EventModelDelta || next[1].Type != domain.EventModelCompleted || strings.Contains(string(next[1].Payload), "before tool") {
 		t.Fatalf("next round was contaminated: %+v", next)
+	}
+	if payloadDeltaOf(t, next[0].Payload) != "final" {
+		t.Fatalf("next round delta = %q, want final", payloadDeltaOf(t, next[0].Payload))
+	}
+	completed := payloadCompletedOf(t, next[1].Payload)
+	if completed.ContentSHA256 != sha256Hex([]byte("final")) || completed.ByteLen != len([]byte("final")) {
+		t.Fatalf("next round completion = %+v", completed)
 	}
 }
 
@@ -867,11 +979,11 @@ func payloadDeltaOf(t *testing.T, b []byte) string {
 	return p.Delta
 }
 
-func payloadContentOf(t *testing.T, b []byte) string {
+func payloadCompletedOf(t *testing.T, b []byte) payloadModelCompletedV2 {
 	t.Helper()
-	var p payloadModelCompleted
+	var p payloadModelCompletedV2
 	mustUnmarshal(t, b, &p)
-	return p.Content
+	return p
 }
 
 func payloadReasonOf(t *testing.T, b []byte) string {

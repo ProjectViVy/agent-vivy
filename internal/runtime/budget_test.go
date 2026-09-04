@@ -88,18 +88,18 @@ func TestBudgetLedgerReplayPreservesCircuitState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new ledger: %v", err)
 	}
-	for _, typ := range []domain.EventType{
-		domain.EventRunStarted, domain.EventModelDelta, domain.EventToolRequested,
-	} {
-		if err := ledger.ReplayEvent(domain.RunEvent{Type: typ}); err != nil {
-			if typ == domain.EventToolRequested {
-				if !errors.Is(err, ErrBudgetExceeded) {
-					t.Fatalf("replay error = %v, want budget exceeded", err)
-				}
-				return
-			}
-			t.Fatalf("replay %s: %v", typ, err)
+	if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventRunStarted}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 600; i++ {
+		if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventModelDelta}); err != nil {
+			t.Fatalf("delta %d consumed replay event budget: %v", i, err)
 		}
 	}
-	t.Fatal("replay should exhaust the event budget")
+	if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventToolRequested}); err != nil {
+		t.Fatalf("second semantic event: %v", err)
+	}
+	if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventModelUsage}); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("third semantic event error = %v, want budget exceeded", err)
+	}
 }

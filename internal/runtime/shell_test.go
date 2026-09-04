@@ -115,6 +115,16 @@ func assertNoModelEvents(t *testing.T, events []domain.RunEvent) {
 	}
 }
 
+func TestRunShellRejectsDeletedSessionTombstone(t *testing.T) {
+	f := newShellFixture(t, domain.ApprovalPolicyAsk)
+	if err := f.service.DeleteSession(context.Background(), f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.RunShell(context.Background(), f.sessionID, "echo must-not-run"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("RunShell after delete error = %v, want not found", err)
+	}
+}
+
 func eventIndex(events []domain.RunEvent, typ domain.EventType) int {
 	for index, event := range events {
 		if event.Type == typ {
@@ -409,6 +419,39 @@ func TestRunShellApprovalRecoversProtectedStateAfterRestart(t *testing.T) {
 		t.Fatalf("recovered shell did not execute: %v", err)
 	}
 	assertShellStateDeleted(t, f.backend.Blobs(), approval)
+	restarted.CancelAll()
+	restarted.WaitIdle(context.Background())
+}
+
+func TestDeleteSessionSealsRecoveredShellPendingRun(t *testing.T) {
+	f := newShellFixture(t, domain.ApprovalPolicyAsk)
+	runID, err := f.service.RunShell(context.Background(), f.sessionID, "echo must-not-recover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := waitForShellApproval(t, f.backend, runID)
+	deadline := time.Now().Add(5 * time.Second)
+	for eventIndex(replayAll(t, f.backend, runID), domain.EventToolApprovalRequired) < 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	simulateShellProcessDeath(f.service, runID)
+	restarted := NewService(f.service.engine, "", "", ServiceDeps{
+		Journal: f.backend, Runs: f.backend, Messages: f.backend, Approvals: f.backend, Questions: f.backend,
+		Sessions: f.backend, Workspaces: f.workspace, ShellState: f.backend.Blobs(), ApprovalExpiration: 5 * time.Minute,
+		Sink: newTestSink(),
+	})
+	if err := restarted.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.DeleteSession(context.Background(), f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.backend.GetRun(context.Background(), runID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("recovered shell run after delete = %v, want not found", err)
+	}
+	if err := restarted.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err == nil {
+		t.Fatal("deleted recovered shell approval remained actionable")
+	}
 	restarted.CancelAll()
 	restarted.WaitIdle(context.Background())
 }

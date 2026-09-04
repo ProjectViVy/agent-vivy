@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,9 +50,9 @@ type eventMapper struct {
 	maxPayload     int
 	stallThreshold time.Duration
 
-	// pendingText accumulates the in-flight assistant turn so that
-	// model.completed can carry the reassembled text even when the engine
-	// never emits a final whole-message event.
+	// pendingText accumulates the in-flight assistant turn so v2
+	// model.completed can commit the exact bounded delta sequence even when
+	// the engine never emits a final whole-message event.
 	pendingText strings.Builder
 	hasPending  bool
 
@@ -301,8 +302,18 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 	if msg == nil {
 		return nil, nil
 	}
-	observedLive := m.takeObservedStream()
 	out := m.messageMetaEvents(msg)
+	// Tool-result events are not model streams. Consuming an observer marker
+	// here can steal the marker from a concurrently starting post-tool model
+	// stream (notably approval resume), causing its deltas to be emitted twice.
+	if msg.Role == schema.Tool {
+		events, err := m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")
+		if err != nil {
+			return nil, err
+		}
+		return append(out, events...), nil
+	}
+	_ = m.takeObservedStream()
 	switch {
 	case len(msg.ToolCalls) > 0:
 		// Some providers attach assistant preamble text to the same message as
@@ -312,7 +323,7 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 		if m.hasPending {
 			content = m.pendingText.String()
 		}
-		if content != "" && !observedLive {
+		if content != "" && !m.hasPending {
 			// Non-stream providers can attach text to a tool-call message. Emit
 			// it through the same durable presentation channel as streamed
 			// preamble text; tool.requested is the phase boundary. Do not create
@@ -322,20 +333,19 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 		}
 		m.resetPending()
 		return append(out, m.toolCallEvents(msg)...), nil
-	case msg.Role == schema.Tool:
-		events, err := m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")
-		if err != nil {
-			return nil, err
-		}
-		return append(out, events...), nil
 	default:
 		// Final assistant message of the model turn.
 		content := msg.Content
 		if m.hasPending {
 			content = m.pendingText.String()
 		}
+		if content != "" && !m.hasPending {
+			// Non-stream providers still use the same bounded durable body
+			// channel as streaming providers. Completion is metadata-only.
+			out = append(out, m.deltaEvents(content)...)
+		}
 		m.resetPending()
-		return append(out, m.build(domain.EventModelCompleted, payloadModelCompleted{Content: content})), nil
+		return append(out, m.completedEvent(content)), nil
 	}
 }
 
@@ -389,7 +399,17 @@ func (m *eventMapper) onTurnEnd() []domain.RunEvent {
 	}
 	content := m.pendingText.String()
 	m.resetPending()
-	return []domain.RunEvent{m.build(domain.EventModelCompleted, payloadModelCompleted{Content: content})}
+	return []domain.RunEvent{m.completedEvent(content)}
+}
+
+func (m *eventMapper) completedEvent(content string) domain.RunEvent {
+	sum := sha256.Sum256([]byte(content))
+	re := m.build(domain.EventModelCompleted, payloadModelCompletedV2{
+		ContentSHA256: fmt.Sprintf("%x", sum[:]),
+		ByteLen:       len([]byte(content)),
+	})
+	re.PayloadVersion = 2
+	return re
 }
 
 func (m *eventMapper) resetPending() {
@@ -606,6 +626,12 @@ func splitTextForPayload(text string, budget int) []string {
 		runes = runes[n:]
 	}
 	return out
+}
+
+// SplitModelTextForPayload exposes the kernel's lossless event-body chunking
+// to supervised child producers, which share the same Journal contract.
+func SplitModelTextForPayload(text string, budget int) []string {
+	return splitTextForPayload(text, budget)
 }
 
 // clampText shrinks s (worst-case JSON escaping assumed) until

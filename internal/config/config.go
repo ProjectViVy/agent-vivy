@@ -625,8 +625,8 @@ func (c *Config) Validate() error {
 	if c.Runtime.StreamBuffer <= 0 {
 		return errors.New("runtime.stream_buffer must be positive")
 	}
-	if c.Runtime.MaxEventPayloadBytes < 64 {
-		return errors.New("runtime.max_event_payload_bytes must be at least 64")
+	if c.Runtime.MaxEventPayloadBytes < 128 {
+		return errors.New("runtime.max_event_payload_bytes must be at least 128")
 	}
 	if c.Runtime.MaxToolTurns < 0 {
 		return errors.New("runtime.max_tool_turns must not be negative")

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -129,7 +130,7 @@ func (m *workerManager) StartChild(ctx context.Context, request controlrpc.Child
 		rootID = parent.ID
 	}
 	child := domain.Run{ID: childID, SessionID: parent.SessionID, Status: domain.RunAccepted, CreatedAt: time.Now().UnixMilli(), Kind: domain.RunKindChild, ParentID: parent.ID, RootID: rootID, Depth: parent.Depth + 1}
-	if err := m.runs.CreateRun(ctx, child); err != nil {
+	if err := m.service.CreateWorkerRun(ctx, child); err != nil {
 		m.releaseParent(parentID)
 		return controlrpc.ChildResult{}, fmt.Errorf("create child run: %w", err)
 	}
@@ -174,9 +175,21 @@ func (m *workerManager) StartChild(ctx context.Context, request controlrpc.Child
 	childCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	handle := &childHandle{run: child, workspace: workspaceID, profile: snapshot.Profile, snapshot: snapshot, ledger: ledger, cancel: cancel, done: make(chan struct{})}
 	handle.result = childResult(child, workspaceID, "active", "", "")
-	m.mu.Lock()
-	m.children[child.ID] = handle
-	m.mu.Unlock()
+	if err := m.service.RegisterWorkerProcess(ctx, child.ID, func() {
+		m.mu.Lock()
+		m.children[child.ID] = handle
+		m.mu.Unlock()
+	}); err != nil {
+		cancel()
+		m.service.UnregisterWorkerAuthority(child.ID)
+		m.failCreatedChild(ctx, child, "child process registration was fenced by session deletion")
+		m.releaseParent(parentID)
+		return controlrpc.ChildResult{}, err
+	}
+	if childCtx.Err() != nil {
+		m.finishChild(handle, "cancelled", "", "child cancelled before process start", "session_deleted")
+		return controlrpc.ChildResult{}, storage.ErrNotFound
+	}
 
 	modelBroker, err := runtime.NewWorkerModelBroker(m.model, ledger)
 	if err != nil {
@@ -333,6 +346,34 @@ func (m *workerManager) CancelChild(ctx context.Context, id string) (controlrpc.
 	return m.GetChild(ctx, id)
 }
 
+// CancelChildRun implements runtime.ChildRunCanceller for session deletion.
+// It only cancels the live process; the service tombstone owns durable event
+// suppression and storage removal.
+func (m *workerManager) CancelChildRun(id domain.RunID) bool {
+	m.mu.Lock()
+	handle := m.children[id]
+	m.mu.Unlock()
+	if handle == nil {
+		return false
+	}
+	handle.cancel()
+	return true
+}
+
+func (m *workerManager) CancelSessionChildren(sessionID domain.SessionID) {
+	m.mu.Lock()
+	handles := make([]*childHandle, 0)
+	for _, handle := range m.children {
+		if handle.run.SessionID == sessionID {
+			handles = append(handles, handle)
+		}
+	}
+	m.mu.Unlock()
+	for _, handle := range handles {
+		handle.cancel()
+	}
+}
+
 func (m *workerManager) Wait(ctx context.Context, request worker.ApprovalWaitRequest) (worker.ApprovalWaitResult, error) {
 	if request.ApprovalID == "" || request.RunID == "" {
 		return worker.ApprovalWaitResult{}, errors.New("approval wait request is incomplete")
@@ -382,12 +423,19 @@ func (m *workerManager) ResolveChildApproval(ctx context.Context, approval domai
 }
 
 func (m *workerManager) recordChildEvent(ctx context.Context, runID domain.RunID, ledger *runtime.BudgetLedger, typ domain.EventType, payload any) error {
-	if ledger != nil {
+	return m.recordChildEventVersion(ctx, runID, ledger, typ, 1, payload)
+}
+
+func (m *workerManager) recordChildEventVersion(ctx context.Context, runID domain.RunID, ledger *runtime.BudgetLedger, typ domain.EventType, version int, payload any) error {
+	// Streaming chunks are transport framing, not semantic run-tree events.
+	// Match the native mapper budget rule so a long answer cannot consume the
+	// entire event allowance before its model.completed boundary arrives.
+	if ledger != nil && typ != domain.EventModelDelta && typ != domain.EventModelReasoningDelta {
 		if err := ledger.ReserveEvent(); err != nil {
 			return err
 		}
 	}
-	_, err := m.service.RecordExternalRunEvent(ctx, runID, typ, payload)
+	_, err := m.service.RecordExternalRunEventVersion(ctx, runID, typ, version, payload)
 	return err
 }
 
@@ -568,7 +616,17 @@ func (b *legacyModelBroker) Complete(ctx context.Context, request worker.ModelRe
 		return worker.ModelResponse{}, err
 	}
 	if b.manager != nil {
-		if eventErr := b.manager.recordChildEvent(ctx, b.childID, b.ledger, domain.EventModelCompleted, map[string]any{"content": result.Message.Content}); eventErr != nil {
+		content := result.Message.Content
+		budget := b.manager.service.MaxEventPayloadBytes()
+		for _, delta := range runtime.SplitModelTextForPayload(content, budget) {
+			if eventErr := b.manager.recordChildEvent(ctx, b.childID, b.ledger, domain.EventModelDelta, map[string]any{"delta": delta}); eventErr != nil {
+				return worker.ModelResponse{}, eventErr
+			}
+		}
+		sum := sha256.Sum256([]byte(content))
+		if eventErr := b.manager.recordChildEventVersion(ctx, b.childID, b.ledger, domain.EventModelCompleted, 2, map[string]any{
+			"content_sha256": fmt.Sprintf("%x", sum[:]), "byte_len": len([]byte(content)),
+		}); eventErr != nil {
 			return worker.ModelResponse{}, eventErr
 		}
 		if result.Usage != nil {

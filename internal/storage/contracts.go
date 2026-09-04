@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"time"
@@ -22,6 +23,9 @@ var (
 	// ErrNotFound is returned when the requested session, message or run
 	// does not exist.
 	ErrNotFound = errors.New("storage: not found")
+	// ErrProjectionConflict means a deterministic message id already names
+	// different data. Replays must never silently accept that corruption.
+	ErrProjectionConflict = errors.New("storage: message projection conflict")
 	// ErrLeaseHeld is returned when a second process tries to become the
 	// organism on a server database that already has a live instance lease.
 	ErrLeaseHeld = errors.New("storage: organism lease held")
@@ -114,8 +118,22 @@ type SessionStore interface {
 // MessageStore persists the append-only conversation turns (FR-2).
 type MessageStore interface {
 	AppendMessage(ctx context.Context, m domain.Message) error
+	// AppendMessageIfAbsent inserts a deterministic Journal projection once.
+	// It returns false when the same message id and exact normalized fields
+	// already exist, and ErrProjectionConflict when that id names other data.
+	// Projected rows do not carry attachments or file-context bodies.
+	AppendMessageIfAbsent(ctx context.Context, m domain.Message) (bool, error)
 	// ListMessages returns the session's messages in creation order.
 	ListMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error)
+}
+
+// SameProjectedMessage compares every persisted scalar field of a derived
+// message. Attachments and file contexts are forbidden by the append-once API.
+func SameProjectedMessage(a, b domain.Message) bool {
+	return a.ID == b.ID && a.SessionID == b.SessionID && a.RunID == b.RunID &&
+		a.Role == b.Role && a.CreatedAt == b.CreatedAt && a.Content == b.Content &&
+		a.ToolCallID == b.ToolCallID && a.ToolName == b.ToolName && bytes.Equal(a.ToolArgs, b.ToolArgs) &&
+		a.Source == b.Source && a.Channel == b.Channel && a.ChatID == b.ChatID && a.ChannelMessageID == b.ChannelMessageID
 }
 
 // NoteStore persists the user's notebook (MA-3). Notes are append-only;

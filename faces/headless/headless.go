@@ -10,8 +10,11 @@ package headless
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,9 +31,14 @@ func New(opts plugin.FaceOptions) plugin.Face {
 }
 
 type face struct {
-	opts     plugin.FaceOptions
-	streamed atomic.Bool
-	cancel   sync.Once
+	opts           plugin.FaceOptions
+	streamed       atomic.Bool
+	protocolFailed atomic.Bool
+	stateMu        sync.Mutex
+	completionHash hash.Hash
+	completionLen  int
+	protocolErr    string
+	cancel         sync.Once
 }
 
 func (f *face) Kind() string { return FaceKind }
@@ -43,6 +51,12 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 	if prompt == "" {
 		return plugin.FaceResult{}, fmt.Errorf("headless: prompt is empty")
 	}
+	f.stateMu.Lock()
+	f.resetCompletionLocked()
+	f.protocolErr = ""
+	f.streamed.Store(false)
+	f.protocolFailed.Store(false)
+	f.stateMu.Unlock()
 	if _, err := env.Call(ctx, "initialize", nil); err != nil {
 		return plugin.FaceResult{}, fmt.Errorf("headless: initialize: %w", err)
 	}
@@ -133,10 +147,11 @@ func (f *face) resolveSession(ctx context.Context, env plugin.FaceEnv) (string, 
 // event in {"subscription_id": ..., "event": {...}}.
 type wireEvent struct {
 	Event struct {
-		RunID   string          `json:"run_id"`
-		Seq     int64           `json:"seq"`
-		Type    string          `json:"type"`
-		Payload json.RawMessage `json:"payload"`
+		RunID          string          `json:"run_id"`
+		Seq            int64           `json:"seq"`
+		Type           string          `json:"type"`
+		PayloadVersion int             `json:"payload_version"`
+		Payload        json.RawMessage `json:"payload"`
 	} `json:"event"`
 }
 
@@ -150,25 +165,42 @@ func (f *face) onEvent(params json.RawMessage, runID string, env plugin.FaceEnv,
 	}
 	payload := wire.Event.Payload
 	switch wire.Event.Type {
+	case "model.request":
+		f.stateMu.Lock()
+		if f.protocolErr == "" {
+			f.resetCompletionLocked()
+		}
+		f.stateMu.Unlock()
 	case "model.delta":
-		var p struct {
-			Delta string `json:"delta"`
-		}
-		if json.Unmarshal(payload, &p) == nil && p.Delta != "" {
-			_, _ = fmt.Fprint(f.opts.Out, p.Delta)
-			f.streamed.Store(true)
-		}
-	case "model.completed":
-		var p struct {
-			Content string `json:"content"`
-		}
-		if json.Unmarshal(payload, &p) == nil {
-			if f.streamed.Swap(false) {
-				_, _ = fmt.Fprintln(f.opts.Out)
-			} else if strings.TrimSpace(p.Content) != "" {
-				_, _ = fmt.Fprintln(f.opts.Out, p.Content)
+		f.stateMu.Lock()
+		if f.protocolErr == "" {
+			delta, err := parseDelta(payload)
+			if err != nil {
+				f.failProtocolLocked(err)
+			} else if delta != "" {
+				_, _ = f.completionHash.Write([]byte(delta))
+				f.completionLen += len([]byte(delta))
+				_, _ = fmt.Fprint(f.opts.Out, delta)
+				f.streamed.Store(true)
 			}
 		}
+		f.stateMu.Unlock()
+	case "model.completed":
+		f.stateMu.Lock()
+		streamed := f.streamed.Swap(false)
+		if f.protocolErr == "" {
+			content, err := f.completeModelLocked(wire.Event.PayloadVersion, payload)
+			if err != nil {
+				f.failProtocolLocked(err)
+			} else if streamed {
+				_, _ = fmt.Fprintln(f.opts.Out)
+			} else if wire.Event.PayloadVersion == 0 || wire.Event.PayloadVersion == 1 {
+				if strings.TrimSpace(content) != "" {
+					_, _ = fmt.Fprintln(f.opts.Out, content)
+				}
+			}
+		}
+		f.stateMu.Unlock()
 	case "tool.started":
 		var p struct {
 			ToolName string `json:"tool_name"`
@@ -214,8 +246,92 @@ func (f *face) onEvent(params json.RawMessage, runID string, env plugin.FaceEnv,
 		_, _ = fmt.Fprintln(f.opts.Err, "vivy: run cancelled")
 		emitTerminal(terminal, "cancelled")
 	case "run.completed":
-		emitTerminal(terminal, "completed")
+		if f.protocolFailed.Load() {
+			emitTerminal(terminal, "failed")
+		} else {
+			emitTerminal(terminal, "completed")
+		}
 	}
+}
+
+func (f *face) resetCompletionLocked() {
+	f.completionHash = sha256.New()
+	f.completionLen = 0
+}
+
+func parseDelta(payload json.RawMessage) (string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil || len(fields) != 1 {
+		return "", fmt.Errorf("model.delta: invalid payload")
+	}
+	raw, ok := fields["delta"]
+	if !ok {
+		return "", fmt.Errorf("model.delta: missing delta")
+	}
+	var delta string
+	if err := json.Unmarshal(raw, &delta); err != nil {
+		return "", fmt.Errorf("model.delta: delta must be a string")
+	}
+	return delta, nil
+}
+
+func (f *face) completeModelLocked(version int, payload json.RawMessage) (string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
+		return "", fmt.Errorf("invalid model.completed payload")
+	}
+	if version == 0 {
+		if _, ok := fields["content"]; ok {
+			version = 1
+		}
+	}
+	if version == 1 {
+		raw, ok := fields["content"]
+		if !ok {
+			return "", fmt.Errorf("model.completed v1: missing content")
+		}
+		var content string
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return "", fmt.Errorf("model.completed v1: content must be a string")
+		}
+		f.resetCompletionLocked()
+		return content, nil
+	}
+	if version != 2 {
+		return "", fmt.Errorf("unsupported model.completed payload version %d", version)
+	}
+	if len(fields) != 2 {
+		return "", fmt.Errorf("model.completed v2: invalid fields")
+	}
+	var digest string
+	if raw, ok := fields["content_sha256"]; !ok || json.Unmarshal(raw, &digest) != nil || len(digest) != 64 || strings.ToLower(digest) != digest {
+		return "", fmt.Errorf("model.completed v2: invalid content_sha256")
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return "", fmt.Errorf("model.completed v2: invalid content_sha256")
+	}
+	var byteLen int
+	if raw, ok := fields["byte_len"]; !ok || json.Unmarshal(raw, &byteLen) != nil || byteLen < 0 {
+		return "", fmt.Errorf("model.completed v2: invalid byte_len")
+	}
+	if byteLen != f.completionLen || digest != hex.EncodeToString(f.completionHash.Sum(nil)) {
+		return "", fmt.Errorf("model.completed v2: content integrity mismatch")
+	}
+	f.resetCompletionLocked()
+	return "", nil
+}
+
+func (f *face) failProtocolLocked(err error) {
+	if f.protocolErr != "" {
+		return
+	}
+	message := "invalid stream protocol"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	f.protocolErr = message
+	f.protocolFailed.Store(true)
+	_, _ = fmt.Fprintln(f.opts.Err, "vivy: "+message)
 }
 
 // cancelLoudly renders the blocking notice and cancels the run once —

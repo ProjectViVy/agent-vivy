@@ -13,11 +13,21 @@ import (
 )
 
 func trajEvent(eventType domain.EventType, at int64, payload any) domain.RunEvent {
+	return trajEventVersion(eventType, at, payload, 1)
+}
+
+func trajEventVersion(eventType domain.EventType, at int64, payload any, version int) domain.RunEvent {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		panic(err)
 	}
-	return domain.RunEvent{Type: eventType, CreatedAt: at, Payload: data, PayloadVersion: 1}
+	return domain.RunEvent{Type: eventType, CreatedAt: at, Payload: data, PayloadVersion: version}
+}
+
+func trajCompletedV2(at int64, content string) domain.RunEvent {
+	return trajEventVersion(domain.EventModelCompleted, at, payloadModelCompletedV2{
+		ContentSHA256: sha256Hex([]byte(content)), ByteLen: len([]byte(content)),
+	}, 2)
 }
 
 func trajCommit(t *testing.T, ctx context.Context, journal storage.Journal, runID domain.RunID, events ...domain.RunEvent) {
@@ -56,13 +66,15 @@ func TestSessionTrajectoryProjection(t *testing.T) {
 			{Role: "user", ContentSHA256: "def", ByteLen: 30},
 		}}),
 		trajEvent(domain.EventModelUsage, 1400, payloadModelUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120, ReasoningTokens: 5, CachedTokens: 30}),
-		trajEvent(domain.EventModelCompleted, 1500, payloadModelCompleted{Content: "step one text"}),
+		trajEvent(domain.EventModelDelta, 1450, payloadModelDelta{Delta: "step one text"}),
+		trajCompletedV2(1500, "step one text"),
 		trajEvent(domain.EventToolRequested, 1550, payloadToolRequested{ToolCallID: "call-1", ToolName: "read_file", Args: map[string]any{"path": "README.md"}}),
 		trajEvent(domain.EventToolStarted, 1600, payloadToolStarted{ToolCallID: "call-1", ToolName: "read_file"}),
 		trajEvent(domain.EventToolFinished, 1900, payloadToolFinished{ToolCallID: "call-1", ToolName: "read_file", Result: "21 lines"}),
 		trajEvent(domain.EventModelRequest, 2000, payloadModelRequest{PreambleBytes: 128}),
 		trajEvent(domain.EventModelUsage, 2100, payloadModelUsage{PromptTokens: 200, CompletionTokens: 10, TotalTokens: 210}),
-		trajEvent(domain.EventModelCompleted, 2200, payloadModelCompleted{Content: "final"}),
+		trajEvent(domain.EventModelDelta, 2150, payloadModelDelta{Delta: "final"}),
+		trajCompletedV2(2200, "final"),
 		trajEvent(domain.EventContextCompacted, 2300, payloadContextCompacted{Mode: "reduction", BeforeTokens: 900, AfterTokens: 300}),
 	)
 	trajCommit(t, ctx, backend, run2,

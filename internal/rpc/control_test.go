@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -30,6 +31,52 @@ import (
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/plugin"
 )
+
+func TestSessionHistoryRepairsDurableAssistantProjection(t *testing.T) {
+	env := newControlTestEnv(t)
+	ctx := context.Background()
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "repair"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(raw, &session); err != nil {
+		t.Fatal(err)
+	}
+	runID := domain.RunID("run-rpc-projection-repair")
+	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: session.ID, Status: domain.RunCompleted, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	content := "durable rpc answer"
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+	if _, err := env.backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{
+		{Type: domain.EventModelRequest, CreatedAt: 10, PayloadVersion: 1, Payload: []byte(`{"messages":0,"preamble_bytes":0}`)},
+		{Type: domain.EventModelDelta, CreatedAt: 20, PayloadVersion: 1, Payload: []byte(`{"delta":"durable rpc answer"}`)},
+		{Type: domain.EventModelCompleted, CreatedAt: 30, PayloadVersion: 2, Payload: []byte(fmt.Sprintf(`{"content_sha256":%q,"byte_len":%d}`, digest, len([]byte(content))))},
+		{Type: domain.EventRunCompleted, CreatedAt: 40, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := env.backend.ListMessages(ctx, session.ID)
+	if err != nil || len(before) != 0 {
+		t.Fatalf("precondition messages = %+v, err=%v", before, err)
+	}
+	for _, method := range []string{"session/messages", "session/get"} {
+		result, rpcErr := callControl(t, env.handler, method, map[string]string{"session_id": string(session.ID)})
+		if rpcErr != nil {
+			t.Fatalf("%s: %v", method, rpcErr)
+		}
+		encoded, _ := json.Marshal(result)
+		if !strings.Contains(string(encoded), content) {
+			t.Fatalf("%s did not repair assistant projection: %s", method, encoded)
+		}
+	}
+	after, err := env.backend.ListMessages(ctx, session.ID)
+	if err != nil || len(after) != 1 || after[0].Content != content {
+		t.Fatalf("repaired messages = %+v, err=%v", after, err)
+	}
+}
 
 type controlTestEnv struct {
 	backend *sqlite.Backend

@@ -199,7 +199,7 @@ func (l *BudgetLedger) Snapshot() BudgetSnapshot {
 // recovery. Terminal events are mandatory closure records and do not consume
 // the non-terminal event quota.
 func (l *BudgetLedger) ReplayEvent(ev domain.RunEvent) error {
-	if !ev.Type.Terminal() {
+	if !ev.Type.Terminal() && ev.Type != domain.EventModelDelta && ev.Type != domain.EventModelReasoningDelta {
 		if err := l.ReserveEvent(); err != nil {
 			return err
 		}

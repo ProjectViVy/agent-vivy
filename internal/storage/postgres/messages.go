@@ -2,9 +2,12 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // AppendMessage inserts one append-only conversation turn (FR-2: there
@@ -45,6 +48,53 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 		return fmt.Errorf("storage: commit append message %s: %w", m.ID, err)
 	}
 	return nil
+}
+
+func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (bool, error) {
+	if len(m.Attachments) > 0 || len(m.FileContexts) > 0 {
+		return false, fmt.Errorf("storage: projected message %s cannot carry attachments", m.ID)
+	}
+	result, err := b.db.SQL.ExecContext(ctx,
+		`INSERT INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 ON CONFLICT (id) DO NOTHING`,
+		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
+		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID)
+	if err != nil {
+		return false, fmt.Errorf("storage: append projected message %s: %w", m.ID, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("storage: projected message %s rows affected: %w", m.ID, err)
+	}
+	if n == 1 {
+		return true, nil
+	}
+	existing, err := b.projectedMessageByID(ctx, m.ID)
+	if err != nil {
+		return false, err
+	}
+	if !storage.SameProjectedMessage(existing, m) {
+		return false, storage.ErrProjectionConflict
+	}
+	return false, nil
+}
+
+func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.Message, error) {
+	var m domain.Message
+	var sid, rid, role string
+	var args []byte
+	err := b.db.SQL.QueryRowContext(ctx,
+		`SELECT id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id FROM messages WHERE id = $1`, id).
+		Scan(&m.ID, &sid, &rid, &role, &m.CreatedAt, &m.Content, &m.ToolCallID, &m.ToolName, &args, &m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return m, storage.ErrNotFound
+		}
+		return m, fmt.Errorf("storage: read projected message %s: %w", id, err)
+	}
+	m.SessionID, m.RunID, m.Role, m.ToolArgs = domain.SessionID(sid), domain.RunID(rid), domain.Role(role), args
+	return m, nil
 }
 
 // ListMessages returns the session's messages in creation order. An

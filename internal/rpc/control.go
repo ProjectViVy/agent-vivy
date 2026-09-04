@@ -960,6 +960,11 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	if err != nil {
 		return nil, internalError(err)
 	}
+	if h.deps.Service != nil {
+		if err := h.deps.Service.ReconcileSessionMessages(ctx, session.ID); err != nil {
+			return nil, internalError(err)
+		}
+	}
 	messages, err := h.deps.Messages.ListMessages(ctx, session.ID)
 	if err != nil {
 		return nil, internalError(err)
@@ -983,7 +988,13 @@ func (h *controlHandler) deleteSession(ctx context.Context, request Request) (an
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	if err := h.deps.Sessions.DeleteSession(ctx, domain.SessionID(params.SessionID)); err != nil {
+	var err error
+	if h.deps.Service != nil {
+		err = h.deps.Service.DeleteSession(ctx, domain.SessionID(params.SessionID))
+	} else {
+		err = h.deps.Sessions.DeleteSession(ctx, domain.SessionID(params.SessionID))
+	}
+	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, &Error{Code: CodeNotFound, Message: "session not found"}
 		}
@@ -1021,11 +1032,17 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	messages, err := h.deps.Messages.ListMessages(ctx, domain.SessionID(params.SessionID))
+	sessionID := domain.SessionID(params.SessionID)
+	if h.deps.Service != nil {
+		if err := h.deps.Service.ReconcileSessionMessages(ctx, sessionID); err != nil {
+			return nil, internalError(err)
+		}
+	}
+	messages, err := h.deps.Messages.ListMessages(ctx, sessionID)
 	if err != nil {
 		return nil, internalError(err)
 	}
-	messages, err = h.applySessionTruncations(ctx, domain.SessionID(params.SessionID), messages)
+	messages, err = h.applySessionTruncations(ctx, sessionID, messages)
 	if err != nil {
 		return nil, internalError(err)
 	}
