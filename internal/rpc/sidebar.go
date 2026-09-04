@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 
 	"agent-vivy/internal/domain"
@@ -27,6 +28,19 @@ type sidebarResult struct {
 	Usage              *sidebarUsageResult          `json:"usage,omitempty"`
 	ModifiedFilesKnown bool                         `json:"modified_files_known"`
 	ModifiedFiles      []sidebarModifiedFileResult  `json:"modified_files"`
+	MCPKnown           bool                         `json:"mcp_known"`
+	MCP                []sidebarMCPResult           `json:"mcp"`
+	SkillsKnown        bool                         `json:"skills_known"`
+	Skills             []sidebarSkillResult         `json:"skills"`
+}
+
+type sidebarMCPResult struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type sidebarSkillResult struct {
+	Name string `json:"name"`
 }
 
 type sidebarUsageResult struct {
@@ -139,6 +153,36 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 				UpdatedAt: file.UpdatedAt,
 			})
 		}
+	}
+	if h.deps.MCP != nil {
+		result.MCPKnown = true
+		if source, ok := h.deps.MCP.(MCPStatusProvider); ok {
+			for _, server := range source.ServerStatuses() {
+				state := "configured"
+				if server.Initialized {
+					state = "initialized"
+				}
+				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, State: state})
+			}
+		} else {
+			for _, server := range h.deps.MCP.ConfiguredServers() {
+				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, State: "configured"})
+			}
+			sort.Slice(result.MCP, func(i, j int) bool { return result.MCP[i].Name < result.MCP[j].Name })
+		}
+	}
+	if h.deps.Skills != nil {
+		skills, skillsErr := h.deps.Skills.ListSkills(ctx, "")
+		if skillsErr != nil {
+			return nil, internalError(skillsErr)
+		}
+		result.SkillsKnown = true
+		for _, skill := range skills {
+			if skill.Enabled {
+				result.Skills = append(result.Skills, sidebarSkillResult{Name: skill.Name})
+			}
+		}
+		sort.Slice(result.Skills, func(i, j int) bool { return result.Skills[i].Name < result.Skills[j].Name })
 	}
 	return result, nil
 }

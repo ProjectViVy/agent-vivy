@@ -232,6 +232,8 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 			HasContext: true, Context: surface.Context{FeedTokens: 1200, ModelLimitTokens: 8000},
 			HasUsage: true, Usage: surface.SidebarUsage{TotalTokens: 1500, CostKnown: false},
 			ModifiedFilesKnown: true,
+			MCPKnown:           true, MCP: []surface.MCPServer{{Name: "docs", State: "initialized"}, {Name: "local", State: "configured"}},
+			SkillsKnown: true, Skills: []surface.SidebarSkill{{Name: "review"}},
 		},
 	}
 	for i := 0; i < 20; i++ {
@@ -259,8 +261,14 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	m = updated.(Model)
-	if m.sidebarScroll == 0 || !strings.Contains(m.View(), "pkg/file-19.go") {
+	scrolled := m.View()
+	if m.sidebarScroll == 0 || !strings.Contains(scrolled, "pkg/file-19.go") {
 		t.Fatalf("end did not scroll to the newest modified file: offset=%d\n%s", m.sidebarScroll, m.View())
+	}
+	for _, want := range []string{"VIVY CODE", "docs · initialized", "local · configured", "Skills · enabled", "review"} {
+		if !strings.Contains(scrolled, want) {
+			t.Fatalf("scrolled sidebar omitted %q:\n%s", want, scrolled)
+		}
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	m = updated.(Model)
@@ -288,7 +296,7 @@ func TestSidebarShortcutDoesNotStealEditorInput(t *testing.T) {
 		driver.sidebar.ModifiedFiles[i].Path = fmt.Sprintf("pkg/file-%02d.go", i)
 	}
 	m := New(driver)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 18})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
@@ -309,6 +317,59 @@ func TestSidebarShortcutDoesNotStealEditorInput(t *testing.T) {
 	m = updated.(Model)
 	if m.sidebarFocused || m.input != "lx" {
 		t.Fatalf("editor input did not resume from sidebar focus: focused=%v input=%q", m.sidebarFocused, m.input)
+	}
+}
+
+func TestSidebarMouseWheelIsRegionBoundedAndOverlaySafe(t *testing.T) {
+	driver := &testDriver{
+		sidebar: surface.Sidebar{ModifiedFilesKnown: true, ModifiedFiles: make([]surface.ModifiedFile, 50)},
+	}
+	for i := range driver.sidebar.ModifiedFiles {
+		driver.sidebar.ModifiedFiles[i].Path = fmt.Sprintf("pkg/file-%02d.go", i)
+	}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+	l := computeLayout(m.width, m.height)
+	sidebarX := l.marginX + l.mainW() + 1
+
+	updated, _ = m.Update(tea.MouseMsg{X: sidebarX, Y: l.marginY + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if !m.sidebarFocused {
+		t.Fatal("sidebar click did not focus scroll owner")
+	}
+	updated, _ = m.Update(tea.MouseMsg{X: sidebarX, Y: l.marginY + 1, Button: tea.MouseButtonWheelDown})
+	m = updated.(Model)
+	if m.sidebarScroll != sidebarWheelStep || !m.sidebarFocused {
+		t.Fatalf("sidebar wheel = offset %d focused %v, want %d/true", m.sidebarScroll, m.sidebarFocused, sidebarWheelStep)
+	}
+
+	before := m.sidebarScroll
+	updated, _ = m.Update(tea.MouseMsg{X: l.marginX, Y: l.marginY + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.sidebarFocused {
+		t.Fatal("main-area click did not release sidebar focus")
+	}
+	updated, _ = m.Update(tea.MouseMsg{X: l.marginX, Y: l.marginY + 1, Button: tea.MouseButtonWheelDown})
+	m = updated.(Model)
+	if m.sidebarScroll != before {
+		t.Fatalf("main-area wheel moved sidebar from %d to %d", before, m.sidebarScroll)
+	}
+
+	m.sessionsOpen = true
+	updated, _ = m.Update(tea.MouseMsg{X: sidebarX, Y: l.marginY + 1, Button: tea.MouseButtonWheelDown})
+	m = updated.(Model)
+	if m.sidebarScroll != before {
+		t.Fatalf("dialog wheel leaked into sidebar: %d -> %d", before, m.sidebarScroll)
+	}
+
+	m.sessionsOpen = false
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.MouseMsg{X: 99, Y: 2, Button: tea.MouseButtonWheelDown})
+	m = updated.(Model)
+	if m.sidebarScroll != 0 || m.sidebarFocused {
+		t.Fatalf("compact mouse retained hidden sidebar state: offset=%d focused=%v", m.sidebarScroll, m.sidebarFocused)
 	}
 }
 

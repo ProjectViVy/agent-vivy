@@ -47,6 +47,9 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 	defer server.Close()
 
 	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: server.URL}}, server.Client())
+	if statuses := backend.ServerStatuses(); len(statuses) != 1 || statuses[0].Name != "local" || statuses[0].Initialized {
+		t.Fatalf("initial statuses = %+v", statuses)
+	}
 	listed, err := backend.ListTools(context.Background(), "", "local")
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -56,6 +59,9 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 	}
 	if initializes.Load() != 2 || listCalls.Load() != 2 {
 		t.Fatalf("reconnect counts initialize=%d list=%d", initializes.Load(), listCalls.Load())
+	}
+	if statuses := backend.ServerStatuses(); len(statuses) != 1 || !statuses[0].Initialized {
+		t.Fatalf("connected statuses = %+v", statuses)
 	}
 
 	called, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "local", Tool: "echo", Arguments: map[string]any{"text": "hi"}})

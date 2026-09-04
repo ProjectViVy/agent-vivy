@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,6 +45,14 @@ type mcpSession struct {
 	initialized     bool
 	sessionID       string
 	protocolVersion string
+}
+
+// MCPServerStatus is a secret-free snapshot of one configured server's
+// process state. Initialized means the backend completed the MCP handshake;
+// configured servers are not reported as connected before that happens.
+type MCPServerStatus struct {
+	Name        string
+	Initialized bool
 }
 
 var _ tools.MCPOperations = (*EinoMCPBackend)(nil)
@@ -90,6 +99,23 @@ func (b *EinoMCPBackend) ConfiguredServers() []MCPServerConfig {
 	for _, config := range b.servers {
 		out = append(out, config)
 	}
+	return out
+}
+
+// ServerStatuses reports the backend's current in-process MCP truth without
+// probing the network or exposing endpoints and authentication metadata.
+func (b *EinoMCPBackend) ServerStatuses() []MCPServerStatus {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]MCPServerStatus, 0, len(b.servers))
+	for name := range b.servers {
+		status := MCPServerStatus{Name: name}
+		if session := b.sessions[name]; session != nil {
+			status.Initialized = session.initialized
+		}
+		out = append(out, status)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 func (b *EinoMCPBackend) ListTools(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResponse, error) {

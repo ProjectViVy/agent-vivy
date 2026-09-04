@@ -84,16 +84,29 @@ type sessionView struct {
 }
 
 type sidebarView struct {
-	Session            sessionView       `json:"session"`
-	CWD                string            `json:"cwd"`
-	Model              string            `json:"model"`
-	Provider           string            `json:"provider"`
-	ReasoningKnown     bool              `json:"reasoning_known"`
-	ReasoningSupported bool              `json:"reasoning_supported"`
-	Context            *contextView      `json:"context"`
-	Usage              *sidebarUsageView `json:"usage"`
-	ModifiedFilesKnown bool              `json:"modified_files_known"`
-	ModifiedFiles      []sidebarFileView `json:"modified_files"`
+	Session            sessionView        `json:"session"`
+	CWD                string             `json:"cwd"`
+	Model              string             `json:"model"`
+	Provider           string             `json:"provider"`
+	ReasoningKnown     bool               `json:"reasoning_known"`
+	ReasoningSupported bool               `json:"reasoning_supported"`
+	Context            *contextView       `json:"context"`
+	Usage              *sidebarUsageView  `json:"usage"`
+	ModifiedFilesKnown bool               `json:"modified_files_known"`
+	ModifiedFiles      []sidebarFileView  `json:"modified_files"`
+	MCPKnown           bool               `json:"mcp_known"`
+	MCP                []sidebarMCPView   `json:"mcp"`
+	SkillsKnown        bool               `json:"skills_known"`
+	Skills             []sidebarSkillView `json:"skills"`
+}
+
+type sidebarMCPView struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type sidebarSkillView struct {
+	Name string `json:"name"`
 }
 
 type sidebarUsageView struct {
@@ -182,6 +195,18 @@ func mapSidebarView(view sidebarView) surface.Sidebar {
 			})
 		}
 		snapshot.ModifiedFilesKnown = true
+	}
+	if view.MCPKnown {
+		snapshot.MCPKnown = true
+		for _, server := range view.MCP {
+			snapshot.MCP = append(snapshot.MCP, surface.MCPServer{Name: server.Name, State: server.State})
+		}
+	}
+	if view.SkillsKnown {
+		snapshot.SkillsKnown = true
+		for _, skill := range view.Skills {
+			snapshot.Skills = append(snapshot.Skills, surface.SidebarSkill{Name: skill.Name})
+		}
 	}
 	return snapshot
 }

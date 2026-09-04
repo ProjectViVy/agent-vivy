@@ -59,7 +59,7 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 	defer live.Close()
 
 	configureColor(f.opts.Out)
-	program := tea.NewProgram(view.New(live), tea.WithAltScreen(), tea.WithOutput(f.opts.Out))
+	program := tea.NewProgram(view.New(live), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(f.opts.Out))
 	_, programErr := program.Run()
 	shutdownRun(ctx, client, live)
 	if programErr != nil {

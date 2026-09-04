@@ -179,6 +179,12 @@ type MCPCatalog interface {
 	ConfiguredServers() []runtime.MCPServerConfig
 }
 
+// MCPStatusProvider is the optional secret-free process-state extension used
+// by session/sidebar. Catalog-only implementations remain supported.
+type MCPStatusProvider interface {
+	ServerStatuses() []runtime.MCPServerStatus
+}
+
 // ChildRequest starts one durable, asynchronous child run under a parent.
 // The parent controller derives policy hash, workspace, and budget from the
 // durable parent; callers cannot supply a wider authority.

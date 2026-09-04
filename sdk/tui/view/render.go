@@ -268,7 +268,8 @@ func (m Model) renderCompactHeader(l layout, p Palette) string {
 // is a separate Ctrl+S surface so the chat remains the primary workspace.
 func (m Model) renderSidebar(width, height int, p Palette) string {
 	lines := m.sidebarLines(width, p)
-	viewport := max(1, height)
+	logoLines := sidebarLogoLines(p)
+	viewport := max(1, height-len(logoLines))
 	maxScroll := max(0, len(lines)-viewport)
 	offset := min(max(0, m.sidebarScroll), maxScroll)
 	end := min(len(lines), offset+viewport)
@@ -277,8 +278,12 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 	} else {
 		lines = nil
 	}
-	box := strings.Join(lines, "\n")
+	box := strings.Join(append(logoLines, lines...), "\n")
 	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
+}
+
+func sidebarLogoLines(p Palette) []string {
+	return []string{p.SidebarLogo.Render(" VIVY CODE"), p.Dim.Render(" ─────────────")}
 }
 
 func (m Model) sidebarLines(width int, p Palette) []string {
@@ -292,7 +297,7 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		snapshot = provided
 	}
 
-	lines := []string{p.SidebarLogo.Render(" VIVY CODE"), p.Dim.Render(" ─────────────")}
+	lines := make([]string, 0, 24)
 	title := strings.TrimSpace(snapshot.Session.Title)
 	if title == "" {
 		title = "untitled session"
@@ -388,6 +393,38 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 				line += " · " + updated
 			}
 			lines = append(lines, p.Dim.Render(truncate(line, width-1)))
+		}
+	}
+	if snapshot.MCPKnown {
+		lines = append(lines, "", p.Dim.Render(" MCP"))
+		if len(snapshot.MCP) == 0 {
+			lines = append(lines, p.Dim.Render(" None configured"))
+		}
+		for _, server := range snapshot.MCP {
+			name := strings.TrimSpace(sanitizeFileCompletionText(server.Name))
+			if name == "" {
+				continue
+			}
+			state := "configured"
+			style := p.Dim
+			if server.State == "initialized" {
+				state = "initialized"
+				style = p.Active
+			}
+			line := " " + name + " · " + state
+			lines = append(lines, style.Render(truncate(line, width-1)))
+		}
+	}
+	if snapshot.SkillsKnown {
+		lines = append(lines, "", p.Dim.Render(" Skills · enabled"))
+		if len(snapshot.Skills) == 0 {
+			lines = append(lines, p.Dim.Render(" None"))
+		}
+		for _, skill := range snapshot.Skills {
+			name := strings.TrimSpace(sanitizeFileCompletionText(skill.Name))
+			if name != "" {
+				lines = append(lines, p.Dim.Render(truncate(" "+name, width-1)))
+			}
 		}
 	}
 	meta := m.driver.Meta()
