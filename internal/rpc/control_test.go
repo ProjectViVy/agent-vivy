@@ -2382,6 +2382,9 @@ func TestAttachmentResolverCapabilityRequiresExplicitProjectRoot(t *testing.T) {
 	if containsCapability(result, "attachments.resolve") {
 		t.Fatalf("attachment resolver advertised without project root: %v", result)
 	}
+	if containsCapability(result, "project-context.resolve") || containsCapability(result, "project-context.list") {
+		t.Fatalf("project context resolver advertised without project root: %v", result)
+	}
 
 	withRoot := newControlTestEnv(t, func(deps *ControlDeps) { deps.ProjectRoot = t.TempDir() })
 	result, rpcErr = callControl(t, withRoot.handler, "initialize", nil)
@@ -2390,6 +2393,9 @@ func TestAttachmentResolverCapabilityRequiresExplicitProjectRoot(t *testing.T) {
 	}
 	if !containsCapability(result, "attachments.resolve") {
 		t.Fatalf("attachment resolver missing with explicit project root: %v", result)
+	}
+	if !containsCapability(result, "project-context.resolve") || !containsCapability(result, "project-context.list") {
+		t.Fatalf("project context resolver missing with explicit project root: %v", result)
 	}
 }
 

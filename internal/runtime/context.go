@@ -62,7 +62,7 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 	history := transcript[:len(transcript)-1]
 
 	stats := ContextStats{OriginalHistoryMessages: len(history)}
-	baseBytes := messageCost(preamble, "system") + messageCost(current.Content, string(domain.RoleUser))
+	baseBytes := messageCost(preamble, "system") + messageCostForMessage(current)
 	if policy.MaxBytes > 0 && baseBytes > policy.MaxBytes {
 		return nil, stats, fmt.Errorf("%w: preamble and current request require %d bytes; budget is %d", ErrContextBudgetExceeded, baseBytes, policy.MaxBytes)
 	}
@@ -74,7 +74,7 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 	selected := make([]domain.Message, 0, maxHistory)
 	usedBytes := baseBytes
 	for i := len(history) - 1; i >= 0 && len(selected) < maxHistory; i-- {
-		cost := messageCost(history[i].Content, string(history[i].Role)) + len(history[i].ToolArgs) + len(history[i].ToolCallID)
+		cost := messageCostForMessage(history[i]) + len(history[i].ToolArgs) + len(history[i].ToolCallID)
 		if policy.MaxBytes > 0 && usedBytes+cost > policy.MaxBytes {
 			break
 		}
@@ -177,21 +177,33 @@ func messageCost(content, role string) int {
 	return len(content) + len(role) + contextMessageOverhead
 }
 
+func messageCostForMessage(msg domain.Message) int {
+	cost := messageCost(msg.Content, string(msg.Role))
+	for _, file := range msg.FileContexts {
+		cost += len(file.Path) + len(file.Name) + len(file.Content) + contextMessageOverhead
+	}
+	return cost
+}
+
 // userFeedMessage projects a stored user row into the schema message the
-// engine consumes. Rows with image attachments (VC-1g-2) become multimodal
-// user messages following eino's canonical UserInputMultiContent shape
-// (text part first, then one image part per attachment, base64 inline);
-// text-only rows stay plain UserMessage. Attachment bytes deliberately do
-// not count toward the text byte budget: images are billed by models as
-// vision tokens, not text bytes, so the raw bytes would falsely trip
-// ErrContextBudgetExceeded for ordinary image sizes.
+// engine consumes. Rows with image attachments (VC-1g-2) or project file
+// snapshots become multimodal user messages following eino's canonical
+// UserInputMultiContent shape. File snapshots are text parts with a bounded,
+// explicit path label; the path is metadata and the captured body is the
+// durable content that was resolved for that turn. Attachment bytes
+// deliberately do not count toward the text byte budget: images are billed
+// by models as vision tokens, not text bytes.
 func userFeedMessage(msg domain.Message) *schema.Message {
-	if len(msg.Attachments) == 0 {
+	if len(msg.Attachments) == 0 && len(msg.FileContexts) == 0 {
 		return schema.UserMessage(msg.Content)
 	}
-	parts := make([]schema.MessageInputPart, 0, len(msg.Attachments)+1)
+	parts := make([]schema.MessageInputPart, 0, len(msg.Attachments)+len(msg.FileContexts)+1)
 	if msg.Content != "" {
 		parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: msg.Content})
+	}
+	for _, file := range msg.FileContexts {
+		label := "\n\n[project file: " + file.Path + "]\n"
+		parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: label + string(file.Content)})
 	}
 	for _, attachment := range msg.Attachments {
 		data := base64.StdEncoding.EncodeToString(attachment.Data)

@@ -203,3 +203,25 @@ func TestBuildRunContextProjectsImageAttachments(t *testing.T) {
 		t.Fatalf("stats.Bytes = %d, image bytes leaked into the text budget", stats.Bytes)
 	}
 }
+
+func TestBuildRunContextProjectsFileContextSnapshotsAsText(t *testing.T) {
+	body := []byte("package main\n")
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "inspect", FileContexts: []domain.FileContext{{Path: "main.go", Name: "main.go", Size: int64(len(body)), Content: body}}},
+		{Role: domain.RoleAssistant, Content: "found it"},
+	}
+	msgs, stats, err := buildRunContext(ContextPolicy{}, "preamble", stored, "found it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 4 || len(msgs[1].UserInputMultiContent) != 2 {
+		t.Fatalf("file context projection = %+v", msgs)
+	}
+	part := msgs[1].UserInputMultiContent[1]
+	if part.Type != schema.ChatMessagePartTypeText || !strings.Contains(part.Text, "[project file: main.go]") || !strings.Contains(part.Text, string(body)) {
+		t.Fatalf("file text part = %+v", part)
+	}
+	if stats.Bytes < len(body) {
+		t.Fatalf("file snapshot omitted from context budget: %+v", stats)
+	}
+}

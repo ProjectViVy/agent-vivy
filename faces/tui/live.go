@@ -62,10 +62,12 @@ type Live struct {
 }
 
 type queuedTurn struct {
-	SessionID   string
-	Text        string
-	Thinking    string
-	Attachments []surface.Attachment
+	SessionID    string
+	Text         string
+	Thinking     string
+	Attachments  []surface.Attachment
+	ContextPaths []string
+	ShellScript  string
 }
 
 // LiveOptions configure one live fullscreen session.
@@ -248,11 +250,14 @@ type liveLoadedMsg struct {
 // liveTurnStartedMsg is returned after turn/start. Subscription happens only
 // after Handle installs run ownership, so replayed events cannot win the race.
 type liveTurnStartedMsg struct {
-	SessionID   string
-	UserText    string
-	RunID       string
-	Attachments []surface.Attachment
-	Err         error
+	SessionID    string
+	UserText     string
+	RunID        string
+	Attachments  []surface.Attachment
+	ContextPaths []string
+	FileContexts []surface.FileContext
+	Shell        bool
+	Err          error
 }
 
 type liveAttachmentResolvedMsg struct {
@@ -422,6 +427,14 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	return nil
 }
 
+func restoreFileInputCmd(text string, paths []string) tea.Cmd {
+	retry := strings.TrimSpace(text)
+	for _, path := range paths {
+		retry += " @" + path
+	}
+	return func() tea.Msg { return surface.RestoreInputMsg{Text: retry} }
+}
+
 func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -499,7 +512,22 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 			Content: "turn failed: " + shortErr(msg.Err),
 		})
 		l.mu.Unlock()
+		if len(msg.ContextPaths) > 0 {
+			return restoreFileInputCmd(msg.UserText, msg.ContextPaths)
+		}
 		return nil
+	}
+	if len(msg.FileContexts) > 0 {
+		// Only resolver metadata is copied into the optimistic history bubble;
+		// file bodies never enter the packed face.
+		messages := l.messages[l.activeID]
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == roleUser && messages[i].Content == msg.UserText {
+				messages[i].FileContexts = cloneFileContexts(msg.FileContexts)
+				break
+			}
+		}
+		l.messages[l.activeID] = messages
 	}
 	l.busy = true
 	l.runID = msg.RunID
@@ -735,7 +763,10 @@ func (l *Live) dequeueCmd() tea.Cmd {
 	}
 	l.queue = l.queue[1:]
 	l.mu.Unlock()
-	return l.sendWithAttachments(turn.Text, turn.Thinking, turn.Attachments, false)
+	if turn.ShellScript != "" {
+		return l.sendShell(turn.ShellScript)
+	}
+	return l.sendWithAttachmentsAndContext(turn.Text, turn.Thinking, turn.Attachments, turn.ContextPaths, false)
 }
 
 func (l *Live) applyNotice(notice eventNotice) {
@@ -1054,6 +1085,17 @@ func (l *Live) Send(text string) tea.Cmd {
 	return l.sendWithAttachments(text, thinking, attachments, true)
 }
 
+// SendWithContext implements surface.ContextSender. The packed face has no
+// filesystem grant; it forwards untrusted project-relative hints to the
+// control plane for metadata resolution and turn-time revalidation.
+func (l *Live) SendWithContext(text string, paths []string) tea.Cmd {
+	l.mu.Lock()
+	thinking := l.thinkingMode
+	attachments := cloneAttachments(l.drafts[l.activeID])
+	l.mu.Unlock()
+	return l.sendWithAttachmentsAndContext(text, thinking, attachments, paths, true)
+}
+
 func (l *Live) send(text, thinking string) tea.Cmd {
 	l.mu.Lock()
 	attachments := cloneAttachments(l.drafts[l.activeID])
@@ -1062,12 +1104,20 @@ func (l *Live) send(text, thinking string) tea.Cmd {
 }
 
 func (l *Live) sendWithAttachments(text, thinking string, attachments []surface.Attachment, consumeDraft bool) tea.Cmd {
+	return l.sendWithAttachmentsAndContext(text, thinking, attachments, nil, consumeDraft)
+}
+
+func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments []surface.Attachment, contextPaths []string, consumeDraft bool) tea.Cmd {
 	if strings.TrimSpace(text) == "" {
 		if len(attachments) > 0 {
 			return commandResultCmd("image", "", errors.New("text is required; image-only turns are not supported"))
 		}
+		if len(contextPaths) > 0 {
+			return commandResultCmd("file", "", errors.New("@file references require a prompt"))
+		}
 		return nil
 	}
+	contextPaths = cloneStrings(contextPaths)
 	l.mu.Lock()
 	if l.loadPending {
 		l.mu.Unlock()
@@ -1075,7 +1125,7 @@ func (l *Live) sendWithAttachments(text, thinking string, attachments []surface.
 	}
 	sessionID := l.activeID
 	if l.busy || l.gate != nil {
-		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Attachments: cloneAttachments(attachments)})
+		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
 		if consumeDraft {
 			delete(l.drafts, sessionID)
 		}
@@ -1097,11 +1147,58 @@ func (l *Live) sendWithAttachments(text, thinking string, attachments []surface.
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
 		defer cancel()
-		accepted, err := l.client.startTurnWithAttachments(ctx, sessionID, text, thinking, attachments)
-		if err != nil {
-			return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), Err: err}
+		var fileContexts []surface.FileContext
+		var err error
+		if len(contextPaths) > 0 {
+			fileContexts, err = l.client.resolveProjectContext(ctx, contextPaths)
+			if err != nil {
+				return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, Err: err}
+			}
 		}
-		return liveTurnStartedMsg{SessionID: sessionID, UserText: text, RunID: accepted.RunID, Attachments: cloneAttachments(attachments)}
+		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, attachments, contextPaths)
+		if err != nil {
+			return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts), Err: err}
+		}
+		return liveTurnStartedMsg{SessionID: sessionID, UserText: text, RunID: accepted.RunID, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts)}
+	}
+}
+
+// ExecuteShell implements surface.ShellExecutor and only requests the
+// server-owned shell/start route. A packed face never starts a local process.
+func (l *Live) ExecuteShell(script string) tea.Cmd {
+	return l.sendShell(script)
+}
+
+func (l *Live) sendShell(script string) tea.Cmd {
+	if strings.TrimSpace(script) == "" {
+		return commandResultCmd("shell", "", errors.New("shell script is required"))
+	}
+	l.mu.Lock()
+	if l.loadPending {
+		l.mu.Unlock()
+		return commandResultCmd("shell", "", errors.New("session is still loading"))
+	}
+	sessionID := l.activeID
+	if sessionID == "" {
+		l.mu.Unlock()
+		return commandResultCmd("shell", "", errors.New("no active session"))
+	}
+	if l.busy || l.gate != nil {
+		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, ShellScript: script})
+		l.mu.Unlock()
+		return func() tea.Msg { return surface.RefreshMsg{} }
+	}
+	l.appendLocked(surface.Message{ID: l.nextID("user"), Role: roleUser, Content: "!" + script})
+	l.busy = true
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
+		defer cancel()
+		accepted, err := l.client.startShell(ctx, sessionID, script)
+		if err != nil {
+			return liveTurnStartedMsg{SessionID: sessionID, UserText: "!" + script, Shell: true, Err: err}
+		}
+		return liveTurnStartedMsg{SessionID: sessionID, UserText: "!" + script, Shell: true, RunID: accepted.RunID}
 	}
 }
 
@@ -1516,10 +1613,11 @@ func mapHistory(msgs []messageView) []surface.Message {
 	out := make([]surface.Message, 0, len(msgs))
 	for _, m := range msgs {
 		out = append(out, surface.Message{
-			ID:          m.ID,
-			Role:        m.Role,
-			Content:     m.Content,
-			Attachments: cloneAttachments(m.Attachments),
+			ID:           m.ID,
+			Role:         m.Role,
+			Content:      m.Content,
+			Attachments:  cloneAttachments(m.Attachments),
+			FileContexts: cloneFileContexts(mergedFileContexts(m)),
 		})
 	}
 	return out
@@ -1530,6 +1628,31 @@ func cloneAttachments(in []surface.Attachment) []surface.Attachment {
 		return nil
 	}
 	out := make([]surface.Attachment, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneFileContexts(in []surface.FileContext) []surface.FileContext {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]surface.FileContext, len(in))
+	copy(out, in)
+	return out
+}
+
+func mergedFileContexts(m messageView) []surface.FileContext {
+	if len(m.FileContexts) > 0 {
+		return m.FileContexts
+	}
+	return m.ContextFiles
+}
+
+func cloneStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
 	copy(out, in)
 	return out
 }
@@ -1547,3 +1670,5 @@ func shortErr(err error) string {
 
 var _ surface.Driver = (*Live)(nil)
 var _ surface.CommandExecutor = (*Live)(nil)
+var _ surface.ContextSender = (*Live)(nil)
+var _ surface.ShellExecutor = (*Live)(nil)

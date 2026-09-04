@@ -101,6 +101,9 @@ func Measure(messages []*domain.Message, systemPrompt string, modelLimitTokens i
 func messageCost(msg *domain.Message) int {
 	const overhead = 16 // approximate role/envelope cost
 	cost := len(msg.Content) + overhead
+	for _, file := range msg.FileContexts {
+		cost += len(file.Path) + len(file.Name) + len(file.Content) + overhead
+	}
 	if msg.ToolCallID != "" {
 		cost += len(msg.ToolCallID) + len(msg.ToolName)
 	}

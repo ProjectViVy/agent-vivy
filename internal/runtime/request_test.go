@@ -29,3 +29,16 @@ func TestDigestModelRequestFingerprintsPreambleAndTools(t *testing.T) {
 		t.Fatalf("tool row = %+v", got.Messages[3])
 	}
 }
+
+func TestDigestModelRequestIncludesTextMultiContent(t *testing.T) {
+	msg := &schema.Message{Role: schema.User, UserInputMultiContent: []schema.MessageInputPart{
+		{Type: schema.ChatMessagePartTypeText, Text: "inspect"},
+		{Type: schema.ChatMessagePartTypeText, Text: "\n\n[project file: main.go]\npackage main"},
+		{Type: schema.ChatMessagePartTypeImageURL, Image: &schema.MessageInputImage{}},
+	}}
+	want := []byte("inspect\n\n[project file: main.go]\npackage main")
+	got := digestModelRequest([]*schema.Message{msg}, nil)
+	if len(got.Messages) != 1 || got.Messages[0].ByteLen != len(want) || got.Messages[0].ContentSHA256 != sha256Hex(want) {
+		t.Fatalf("multicontent digest = %+v", got.Messages)
+	}
+}

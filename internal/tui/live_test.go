@@ -1062,3 +1062,116 @@ func TestLiveQueuedImageSendPreservesLaterDraft(t *testing.T) {
 		t.Fatalf("dequeue cleared later draft: %+v", pending)
 	}
 }
+
+func TestLiveFileContextResolvesBeforeTurnAndStoresMetadataOnly(t *testing.T) {
+	var methods []string
+	var gotPaths []string
+	var gotText string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		methods = append(methods, request.Method)
+		switch request.Method {
+		case "project-context/resolve":
+			var params struct {
+				Paths []string `json:"paths"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotPaths = append([]string(nil), params.Paths...)
+			return map[string]any{"contexts": []map[string]any{{"path": "README.md", "name": "README.md", "size": 42}}}, nil
+		case "turn/start":
+			var params struct {
+				Text         string   `json:"text"`
+				ContextPaths []string `json:"context_paths"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotText = params.Text
+			gotPaths = append(gotPaths, params.ContextPaths...)
+			return map[string]string{"run_id": "run_file", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]string{"subscription_id": "sub_file"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.mu.Unlock()
+	started := mustMsg[liveTurnStartedMsg](t, live.SendWithContext("inspect files", []string{"README.md"}))
+	if started.Err != nil || started.RunID != "run_file" {
+		t.Fatalf("file turn = %+v", started)
+	}
+	if len(methods) != 2 || methods[0] != "project-context/resolve" || methods[1] != "turn/start" {
+		t.Fatalf("file call order = %v", methods)
+	}
+	if gotText != "inspect files" || strings.Join(gotPaths, "|") != "README.md|README.md" {
+		t.Fatalf("file request text=%q paths=%v", gotText, gotPaths)
+	}
+	live.Handle(started)
+	messages := live.ActiveMessages()
+	if len(messages) < 1 || len(messages[0].FileContexts) != 1 || messages[0].FileContexts[0].Size != 42 {
+		t.Fatalf("file metadata not retained: %+v", messages)
+	}
+	if messages[0].FileContexts[0].Name != "README.md" || messages[0].Content != "inspect files" {
+		t.Fatalf("file metadata/content = %+v", messages[0])
+	}
+}
+
+func TestLiveShellUsesOnlyShellStartAndPreservesScript(t *testing.T) {
+	var methods []string
+	var got map[string]any
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		methods = append(methods, request.Method)
+		switch request.Method {
+		case "shell/start":
+			if err := json.Unmarshal(request.Params, &got); err != nil {
+				return nil, &controlrpc.Error{Code: controlrpc.InvalidParams, Message: err.Error()}
+			}
+			return map[string]string{"run_id": "run_shell", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]string{"subscription_id": "sub_shell"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.mu.Unlock()
+	script := "  printf 'safe' && printf done  "
+	started := mustMsg[liveTurnStartedMsg](t, live.ExecuteShell(script))
+	if started.Err != nil || started.RunID != "run_shell" || !started.Shell {
+		t.Fatalf("shell turn = %+v", started)
+	}
+	if len(methods) != 1 || methods[0] != "shell/start" {
+		t.Fatalf("shell bypassed route: %v", methods)
+	}
+	if len(got) != 2 || got["session_id"] != "sess_1" || got["script"] != script {
+		t.Fatalf("shell params = %#v", got)
+	}
+	live.Handle(started)
+	if messages := live.ActiveMessages(); len(messages) < 1 || messages[0].Content != "!"+script {
+		t.Fatalf("shell optimistic message = %+v", messages)
+	}
+}
+
+func TestLiveFailedFileTurnRestoresRetryDraft(t *testing.T) {
+	live := &Live{activeID: "sess_1", messages: map[string][]surface.Message{"sess_1": {{Role: string(domain.RoleUser), Content: "inspect"}}}}
+	cmd := live.applyTurnStarted(liveTurnStartedMsg{
+		SessionID: "sess_1", UserText: "inspect", ContextPaths: []string{"README.md", "internal/app.go"}, Err: errors.New("resolve failed"),
+	})
+	if cmd == nil {
+		t.Fatal("failed file turn did not return a restore command")
+	}
+	msg, ok := cmd().(surface.RestoreInputMsg)
+	if !ok || msg.Text != "inspect @README.md @internal/app.go" {
+		t.Fatalf("restore message = %#v", msg)
+	}
+}

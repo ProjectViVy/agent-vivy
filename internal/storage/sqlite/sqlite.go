@@ -50,6 +50,7 @@ var migrations = []struct {
 	{18, migration018},
 	{19, migration019},
 	{20, migration020},
+	{21, migration021},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -625,4 +626,21 @@ const migration020 = `
 		created_at INTEGER NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS session_truncations_session_idx ON session_truncations(session_id, id DESC);
+`
+
+// migration021 adds independent durable project-file snapshots next to each
+// message. The body is the bounded text captured at turn acceptance; RPC
+// history projections expose only path/name/size metadata. No foreign key is
+// used so the existing explicit session-delete order remains safe.
+const migration021 = `
+	CREATE TABLE IF NOT EXISTS message_file_contexts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		message_id TEXT NOT NULL,
+		position INTEGER NOT NULL,
+		path TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		size INTEGER NOT NULL,
+		content BLOB NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS message_file_contexts_message_idx ON message_file_contexts(message_id);
 `

@@ -16,9 +16,27 @@ type commandDriver struct {
 	commandArgs []string
 }
 
+type contextCommandDriver struct {
+	*testDriver
+	contextText  string
+	contextPaths []string
+	shellScript  string
+}
+
 func (d *commandDriver) ExecuteCommand(name string, args []string) tea.Cmd {
 	d.commandName = name
 	d.commandArgs = append([]string(nil), args...)
+	return func() tea.Msg { return surface.RefreshMsg{} }
+}
+
+func (d *contextCommandDriver) SendWithContext(text string, paths []string) tea.Cmd {
+	d.contextText = text
+	d.contextPaths = append([]string(nil), paths...)
+	return func() tea.Msg { return surface.RefreshMsg{} }
+}
+
+func (d *contextCommandDriver) ExecuteShell(script string) tea.Cmd {
+	d.shellScript = script
 	return func() tea.Msg { return surface.RefreshMsg{} }
 }
 
@@ -55,19 +73,63 @@ func TestEnterUnknownSlashCommandNeverSendsToDriver(t *testing.T) {
 	}
 }
 
-func TestEnterSingleBangAndAtNeverSendToModel(t *testing.T) {
-	for _, input := range []string{"!echo hi", "@README.md"} {
+func TestEnterSingleBangAndAtFailClosedWithoutGovernedDriverSeam(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "!echo hi", want: "! shell commands are unavailable"},
+		{input: "@README.md", want: "@file references require a prompt"},
+	} {
 		d := &testDriver{}
 		m := New(d)
-		m.input = input
+		m.input = tc.input
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = updated.(Model)
 		if cmd != nil || d.sent != "" {
-			t.Fatalf("input %q escaped local guard: sent=%q cmd=%v", input, d.sent, cmd != nil)
+			t.Fatalf("input %q escaped local guard: sent=%q cmd=%v", tc.input, d.sent, cmd != nil)
 		}
-		if !strings.Contains(m.View(), "unavailable") {
-			t.Fatalf("input %q missing unavailable diagnostic:\n%s", input, m.View())
+		if !strings.Contains(m.View(), tc.want) {
+			t.Fatalf("input %q missing diagnostic %q:\n%s", tc.input, tc.want, m.View())
 		}
+	}
+}
+
+func TestEnterFileReferenceUsesContextSenderAndStripsMarkers(t *testing.T) {
+	d := &contextCommandDriver{testDriver: &testDriver{}}
+	m := New(d)
+	m.input = "summarize @README.md and @internal/app.go"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || d.contextText != "summarize  and " || strings.Join(d.contextPaths, "|") != "README.md|internal/app.go" {
+		t.Fatalf("file context route text=%q paths=%q cmd=%v", d.contextText, strings.Join(d.contextPaths, "|"), cmd != nil)
+	}
+	if d.sent != "" || m.input != "" {
+		t.Fatalf("file context leaked to plain send or retained input: sent=%q input=%q", d.sent, m.input)
+	}
+}
+
+func TestFailedFileSubmissionRestoresRetryInput(t *testing.T) {
+	m := New(&testDriver{})
+	m.input = "new draft"
+	updated, _ := m.Update(surface.RestoreInputMsg{Text: "inspect @README.md"})
+	m = updated.(Model)
+	if m.input != "inspect @README.md new draft" {
+		t.Fatalf("restored input = %q", m.input)
+	}
+}
+
+func TestEnterShellUsesGovernedShellExecutorAndPreservesScript(t *testing.T) {
+	d := &contextCommandDriver{testDriver: &testDriver{}}
+	m := New(d)
+	m.input = "  !  printf 'hi there'  "
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || d.shellScript != "  printf 'hi there'  " {
+		t.Fatalf("shell route script=%q cmd=%v", d.shellScript, cmd != nil)
+	}
+	if d.sent != "" || m.input != "" {
+		t.Fatalf("shell leaked to plain send or retained input: sent=%q input=%q", d.sent, m.input)
 	}
 }
 

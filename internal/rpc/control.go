@@ -240,6 +240,7 @@ type turnParams struct {
 	Thinking        string           `json:"thinking,omitempty"`
 	Attachments     []turnAttachment `json:"attachments,omitempty"`
 	AttachmentPaths []string         `json:"attachment_paths,omitempty"`
+	ContextPaths    []string         `json:"context_paths,omitempty"`
 }
 
 type editSessionParams struct {
@@ -364,13 +365,14 @@ type sessionResult struct {
 }
 
 type messageResult struct {
-	ID          string                    `json:"id"`
-	RunID       domain.RunID              `json:"run_id,omitempty"`
-	Role        domain.Role               `json:"role"`
-	Content     string                    `json:"content"`
-	Attachments []messageAttachmentResult `json:"attachments,omitempty"`
-	Provenance  *messageProvenanceResult  `json:"provenance,omitempty"`
-	CreatedAt   int64                     `json:"created_at"`
+	ID           string                     `json:"id"`
+	RunID        domain.RunID               `json:"run_id,omitempty"`
+	Role         domain.Role                `json:"role"`
+	Content      string                     `json:"content"`
+	Attachments  []messageAttachmentResult  `json:"attachments,omitempty"`
+	FileContexts []messageFileContextResult `json:"file_contexts,omitempty"`
+	Provenance   *messageProvenanceResult   `json:"provenance,omitempty"`
+	CreatedAt    int64                      `json:"created_at"`
 }
 
 // messageProvenanceResult projects the world entry of one turn (CH-C1).
@@ -407,6 +409,11 @@ func toMessageResult(message domain.Message, includeAttachmentData bool) message
 		}
 		result.Attachments = append(result.Attachments, item)
 	}
+	for _, file := range message.FileContexts {
+		result.FileContexts = append(result.FileContexts, messageFileContextResult{
+			Path: file.Path, Name: file.Name, Size: file.Size,
+		})
+	}
 	return result
 }
 
@@ -417,6 +424,15 @@ type messageAttachmentResult struct {
 	MimeType string `json:"mime_type"`
 	DataURL  string `json:"data_url,omitempty"`
 	Size     int64  `json:"size,omitempty"`
+}
+
+// messageFileContextResult is deliberately metadata-only. The captured text
+// body stays in the server message store and is never returned by a session
+// history RPC.
+type messageFileContextResult struct {
+	Path string `json:"path"`
+	Name string `json:"name,omitempty"`
+	Size int64  `json:"size"`
 }
 
 type runResult struct {
@@ -539,6 +555,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		}
 		if strings.TrimSpace(h.deps.ProjectRoot) != "" {
 			capabilities = append(capabilities, "attachments.resolve")
+			capabilities = append(capabilities, "project-context.resolve", "project-context.list")
 		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
@@ -562,6 +579,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.sessionContext(ctx, request)
 	case "attachments/resolve", "attachment/resolve":
 		return h.resolveAttachments(request)
+	case "project-context/resolve":
+		return h.resolveProjectContext(request)
+	case "project-context/list":
+		return h.listProjectContext(request)
 	case "context/compact":
 		return h.compactContext(ctx, request)
 	case "session/rewind":
@@ -1785,6 +1806,14 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		}
 		attachments = append(attachments, projectAttachmentDomainValues(resolved)...)
 	}
+	var fileContexts []domain.FileContext
+	if len(params.ContextPaths) > 0 {
+		resolved, err := resolveProjectContexts(h.deps.ProjectRoot, params.ContextPaths)
+		if err != nil {
+			return nil, &Error{Code: InvalidParams, Message: err.Error()}
+		}
+		fileContexts = projectContextDomainValues(resolved)
+	}
 	// SupportsImages gate (D9, VC-1g-2 carry-over): reject image
 	// attachments when the active route's metadata is known and says the
 	// model cannot take images. Unknown models keep the status-quo allow —
@@ -1796,7 +1825,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
-		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments,
+		Thinking: domain.ThinkingMode(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 	})
 	if err != nil {
 		return nil, runtimeError(err)

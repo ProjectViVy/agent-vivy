@@ -69,6 +69,16 @@ type Attachment struct {
 	Size     int64  `json:"size,omitempty"`
 }
 
+// FileContext is metadata for one project-relative @file reference. The
+// context body is intentionally absent from the terminal surface: the
+// control plane resolves and bounds it again at turn/start time, while
+// history only needs a safe path/name/size snapshot.
+type FileContext struct {
+	Path string `json:"path,omitempty"`
+	Name string `json:"name,omitempty"`
+	Size int64  `json:"size,omitempty"`
+}
+
 // Message is one chat bubble or tool card.
 type Message struct {
 	ID      string
@@ -81,6 +91,9 @@ type Message struct {
 	// Attachments retains image metadata for history and compact rendering;
 	// data is never included in a surface message.
 	Attachments []Attachment
+	// FileContexts retains @file metadata for history and compact rendering;
+	// file contents never cross the TUI surface.
+	FileContexts []FileContext
 }
 
 // Gate is the modal approval / question overlay.
@@ -168,6 +181,26 @@ type AttachmentProvider interface {
 	PendingAttachments() []Attachment
 }
 
+// ContextSender is implemented by live drivers that can send project
+// context paths. Paths are parsed by the shared command layer but remain
+// untrusted hints; the driver sends them to the control plane, which resolves
+// them again immediately before RunWithOptions.
+type ContextSender interface {
+	SendWithContext(text string, paths []string) tea.Cmd
+}
+
+// FileContextSender is the descriptive alias used by callers that prefer the
+// file-oriented name. It intentionally has the same method set as
+// ContextSender.
+type FileContextSender = ContextSender
+
+// ShellExecutor is the governed direct-shell seam for the !script input.
+// Implementations must call the server-owned shell/start route; no terminal
+// face may execute a process locally.
+type ShellExecutor interface {
+	ExecuteShell(script string) tea.Cmd
+}
+
 // SessionController supplies the independent Sessions dialog actions. The
 // fullscreen view checks this interface rather than baking RPC knowledge into
 // the shared renderer.
@@ -197,6 +230,10 @@ type ErrMsg struct {
 
 // RefreshMsg asks the view to re-render after driver state changed.
 type RefreshMsg struct{}
+
+// RestoreInputMsg returns a failed asynchronous submission to the editor.
+// Text is reconstructed from already-parsed input and contains no file body.
+type RestoreInputMsg struct{ Text string }
 
 // GateResolvedMsg lets the view clear local input only after the remote
 // approval/question response was durably accepted.

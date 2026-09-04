@@ -43,10 +43,14 @@ func mapContextView(view contextView) surface.Context {
 }
 
 type messageView struct {
-	ID          string               `json:"id"`
-	Role        string               `json:"role"`
-	Content     string               `json:"content"`
-	Attachments []surface.Attachment `json:"attachments,omitempty"`
+	ID           string                `json:"id"`
+	Role         string                `json:"role"`
+	Content      string                `json:"content"`
+	Attachments  []surface.Attachment  `json:"attachments,omitempty"`
+	FileContexts []surface.FileContext `json:"file_contexts,omitempty"`
+	// ContextFiles is accepted as a compatibility spelling for older server
+	// snapshots; both fields are metadata-only and never carry body content.
+	ContextFiles []surface.FileContext `json:"context_files,omitempty"`
 }
 
 type runAccepted struct {
@@ -144,10 +148,18 @@ func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 }
 
 func (c *Client) startTurn(ctx context.Context, sessionID, text, face, thinking string) (runAccepted, error) {
-	return c.startTurnWithAttachments(ctx, sessionID, text, face, thinking, nil)
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, face, thinking, nil, nil)
 }
 
 func (c *Client) startTurnWithAttachments(ctx context.Context, sessionID, text, face, thinking string, attachments []surface.Attachment) (runAccepted, error) {
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, face, thinking, attachments, nil)
+}
+
+func (c *Client) startTurnWithContext(ctx context.Context, sessionID, text, face, thinking string, paths []string) (runAccepted, error) {
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, face, thinking, nil, paths)
+}
+
+func (c *Client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, face, thinking string, attachments []surface.Attachment, contextPaths []string) (runAccepted, error) {
 	params := map[string]any{"session_id": sessionID, "text": text}
 	if strings.TrimSpace(face) != "" {
 		params["face"] = face
@@ -167,6 +179,9 @@ func (c *Client) startTurnWithAttachments(ctx context.Context, sessionID, text, 
 			params["attachment_paths"] = paths
 		}
 	}
+	if len(contextPaths) > 0 {
+		params["context_paths"] = append([]string(nil), contextPaths...)
+	}
 	raw, err := c.Call(ctx, "turn/start", params)
 	if err != nil {
 		return runAccepted{}, err
@@ -179,6 +194,95 @@ func (c *Client) startTurnWithAttachments(ctx context.Context, sessionID, text, 
 		return runAccepted{}, fmt.Errorf("tui: turn/start returned no run_id")
 	}
 	return accepted, nil
+}
+
+func (c *Client) startShell(ctx context.Context, sessionID, script string) (runAccepted, error) {
+	// shell/start intentionally accepts only the session and script. Face,
+	// policy and filesystem authority are derived by the server-owned runtime.
+	raw, err := c.Call(ctx, "shell/start", map[string]string{
+		"session_id": sessionID,
+		"script":     script,
+	})
+	if err != nil {
+		return runAccepted{}, err
+	}
+	var accepted runAccepted
+	if err := json.Unmarshal(raw, &accepted); err != nil {
+		return runAccepted{}, fmt.Errorf("tui: shell/start: %w", err)
+	}
+	if accepted.RunID == "" {
+		return runAccepted{}, fmt.Errorf("tui: shell/start returned no run_id")
+	}
+	return accepted, nil
+}
+
+func (c *Client) resolveProjectContext(ctx context.Context, paths []string) ([]surface.FileContext, error) {
+	clean := append([]string(nil), paths...)
+	raw, err := c.Call(ctx, "project-context/resolve", map[string]any{"paths": clean})
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Contexts     []surface.FileContext `json:"contexts"`
+		FileContexts []surface.FileContext `json:"file_contexts"`
+		Files        []surface.FileContext `json:"files"`
+		Items        []surface.FileContext `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		var direct []surface.FileContext
+		if directErr := json.Unmarshal(raw, &direct); directErr != nil {
+			return nil, fmt.Errorf("tui: project-context/resolve: %w", err)
+		}
+		if len(direct) != len(clean) {
+			return nil, fmt.Errorf("tui: project-context/resolve returned %d contexts, want %d", len(direct), len(clean))
+		}
+		return direct, nil
+	}
+	contexts := envelope.Contexts
+	if len(contexts) == 0 {
+		contexts = envelope.FileContexts
+	}
+	if len(contexts) == 0 {
+		contexts = envelope.Files
+	}
+	if len(contexts) == 0 {
+		contexts = envelope.Items
+	}
+	if len(contexts) != len(clean) {
+		return nil, fmt.Errorf("tui: project-context/resolve returned %d contexts, want %d", len(contexts), len(clean))
+	}
+	return contexts, nil
+}
+
+func (c *Client) listProjectContext(ctx context.Context) ([]surface.FileContext, error) {
+	raw, err := c.Call(ctx, "project-context/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Contexts     []surface.FileContext `json:"contexts"`
+		FileContexts []surface.FileContext `json:"file_contexts"`
+		Files        []surface.FileContext `json:"files"`
+		Items        []surface.FileContext `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		var direct []surface.FileContext
+		if directErr := json.Unmarshal(raw, &direct); directErr != nil {
+			return nil, fmt.Errorf("tui: project-context/list: %w", err)
+		}
+		return direct, nil
+	}
+	contexts := envelope.Contexts
+	if len(contexts) == 0 {
+		contexts = envelope.FileContexts
+	}
+	if len(contexts) == 0 {
+		contexts = envelope.Files
+	}
+	if len(contexts) == 0 {
+		contexts = envelope.Items
+	}
+	return contexts, nil
 }
 
 func (c *Client) subscribe(ctx context.Context, runID string, afterSeq int) error {
@@ -239,9 +343,40 @@ func formatHistory(messages []messageView) string {
 			}
 			content += chips
 		}
+		if chips := formatFileContextMetadata(mergedFileContexts(message)); chips != "" {
+			if content != "" {
+				content += " "
+			}
+			content += chips
+		}
 		fmt.Fprintf(&b, "%s: %s\n", role, content)
 	}
 	return b.String()
+}
+
+func formatFileContextMetadata(contexts []surface.FileContext) string {
+	if len(contexts) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(contexts))
+	for _, context := range contexts {
+		name := strings.TrimSpace(context.Name)
+		if name == "" {
+			name = strings.TrimSpace(context.Path)
+		}
+		if name == "" {
+			name = "file"
+		}
+		parts = append(parts, "[file: "+name+"]")
+	}
+	return strings.Join(parts, " ")
+}
+
+func mergedFileContexts(message messageView) []surface.FileContext {
+	if len(message.FileContexts) > 0 {
+		return message.FileContexts
+	}
+	return message.ContextFiles
 }
 
 func formatAttachmentMetadata(attachments []surface.Attachment) string {

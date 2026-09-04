@@ -49,14 +49,64 @@ func TestCountMessageTokens(t *testing.T) {
 	msgs := []*schema.Message{
 		schema.UserMessage(strings.Repeat("a", 400)),
 		schema.AssistantMessage(strings.Repeat("b", 400), nil),
+		{Role: schema.User, UserInputMultiContent: []schema.MessageInputPart{{Type: schema.ChatMessagePartTypeText, Text: strings.Repeat("c", 400)}}},
 	}
 	got, err := countMessageTokens(msgs, nil)
 	if err != nil {
 		t.Fatalf("countMessageTokens: %v", err)
 	}
-	// 800 content bytes + 32 envelope => ~208 tokens at 4 bytes/token.
-	if got < 180 || got > 240 {
-		t.Fatalf("countMessageTokens = %d, want ~208", got)
+	// 1200 text bytes + 48 envelope => ~312 tokens at 4 bytes/token.
+	if got < 280 || got > 340 {
+		t.Fatalf("countMessageTokens = %d, want ~312", got)
+	}
+}
+
+func TestHistoryBytesTokensIncludesFileContexts(t *testing.T) {
+	plain := domain.Message{Role: domain.RoleUser, Content: "inspect"}
+	withFile := plain
+	withFile.FileContexts = []domain.FileContext{{Path: "main.go", Name: "main.go", Size: 400, Content: []byte(strings.Repeat("x", 400))}}
+	plainBytes, _ := historyBytesTokens([]domain.Message{plain})
+	fileBytes, fileTokens := historyBytesTokens([]domain.Message{withFile})
+	if fileBytes <= plainBytes+400 || fileTokens <= plainBytes/4 {
+		t.Fatalf("file context not accounted: plain=%d file=%d/%d", plainBytes, fileBytes, fileTokens)
+	}
+}
+
+func TestCompactionFoldRetainsFileContextSnapshots(t *testing.T) {
+	feed := []domain.Message{
+		{Content: "old"},
+		{Content: "file", FileContexts: []domain.FileContext{{Path: "main.go", Content: []byte("package main"), Size: 12}}},
+		{Content: "newer"},
+		{Content: "newest"},
+	}
+	if got := fileContextSafeFoldIndex(feed, 3); got != 1 {
+		t.Fatalf("safe fold index = %d, want 1", got)
+	}
+	if got := fileContextSafeFoldIndex(feed[1:], 2); got != 0 {
+		t.Fatalf("leading snapshot fold index = %d, want 0", got)
+	}
+	feed[0].CreatedAt = 10
+	feed[1].CreatedAt = 20
+	feed[2].CreatedAt = 20
+	feed[3].CreatedAt = 30
+	if got := timestampSafeFoldIndex(feed, 2); got != 1 {
+		t.Fatalf("same-millisecond safe fold index = %d, want 1", got)
+	}
+}
+
+func TestSummarizationFinalizePreservesExactProjectFileMessage(t *testing.T) {
+	fileMsg := &schema.Message{Role: schema.User, UserInputMultiContent: []schema.MessageInputPart{
+		{Type: schema.ChatMessagePartTypeText, Text: "inspect"},
+		{Type: schema.ChatMessagePartTypeText, Text: "\n\n[project file: main.go]\npackage main"},
+	}}
+	got, err := preserveProjectFileContextsFinalize(context.Background(), []*schema.Message{
+		schema.SystemMessage("system"), schema.UserMessage("old"), fileMsg,
+	}, schema.AssistantMessage("summary", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 3 || got[len(got)-1] != fileMsg || !schemaMessageHasProjectFileContext(got[len(got)-1]) {
+		t.Fatalf("finalized messages did not retain exact file snapshot: %+v", got)
 	}
 }
 

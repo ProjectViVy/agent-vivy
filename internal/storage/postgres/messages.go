@@ -33,6 +33,14 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 			return fmt.Errorf("storage: append message %s attachment %d: %w", m.ID, position, err)
 		}
 	}
+	for position, file := range m.FileContexts {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO message_file_contexts (message_id, position, path, name, size, content)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			m.ID, position, file.Path, file.Name, file.Size, file.Content); err != nil {
+			return fmt.Errorf("storage: append message %s file context %d: %w", m.ID, position, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("storage: commit append message %s: %w", m.ID, err)
 	}
@@ -77,6 +85,9 @@ func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) 
 	if err := b.listAttachments(ctx, sessionID, out, byID); err != nil {
 		return nil, err
 	}
+	if err := b.listFileContexts(ctx, sessionID, out, byID); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -102,6 +113,38 @@ func (b *Backend) listAttachments(ctx context.Context, sessionID domain.SessionI
 			continue
 		}
 		out[index].Attachments = append(out[index].Attachments, domain.Attachment{Name: name, MimeType: mimeType, Data: data})
+	}
+	return rows.Err()
+}
+
+// listFileContexts loads the durable project-file snapshots for the session.
+// Content is used only by runtime context construction; RPC projections strip
+// it before returning history to a face.
+func (b *Backend) listFileContexts(ctx context.Context, sessionID domain.SessionID, out []domain.Message, byID map[string]int) error {
+	rows, err := b.db.SQL.QueryContext(ctx,
+		`SELECT c.message_id, c.path, c.name, c.size, c.content
+		 FROM message_file_contexts c JOIN messages m ON m.id = c.message_id
+		 WHERE m.session_id = $1 ORDER BY c.message_id, c.position`, sessionID)
+	if err != nil {
+		return fmt.Errorf("storage: list message file contexts %s: %w", sessionID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var messageID, path, name string
+		var size int64
+		var content []byte
+		if err := rows.Scan(&messageID, &path, &name, &size, &content); err != nil {
+			return fmt.Errorf("storage: scan message file context: %w", err)
+		}
+		index, ok := byID[messageID]
+		if !ok {
+			continue
+		}
+		body := make([]byte, len(content))
+		copy(body, content)
+		out[index].FileContexts = append(out[index].FileContexts, domain.FileContext{
+			Path: path, Name: name, Size: size, Content: body,
+		})
 	}
 	return rows.Err()
 }

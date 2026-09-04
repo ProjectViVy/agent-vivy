@@ -199,6 +199,11 @@ type RunOptions struct {
 	// Thinking is the per-run extended-thinking preference. Empty means
 	// auto: normalizeThinkingMode maps it before the run starts.
 	Thinking domain.ThinkingMode
+	// FileContexts are server-resolved, bounded text snapshots attached to the
+	// current user turn. The RPC layer resolves project paths before calling
+	// RunWithOptions; the runtime validates and persists the snapshot without
+	// reading the host filesystem.
+	FileContexts []domain.FileContext
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -314,6 +319,10 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return "", err
 	}
+	fileContexts, err := normalizeFileContexts(options.FileContexts)
+	if err != nil {
+		return "", err
+	}
 	// Provenance is validated before anything is persisted so an invalid
 	// world entry cannot leave a half-labeled user message behind.
 	provenance := domain.Provenance{Source: "ui"}
@@ -351,6 +360,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		CreatedAt:        now,
 		Content:          userText,
 		Attachments:      options.Attachments,
+		FileContexts:     fileContexts,
 		Source:           provenance.Source,
 		Channel:          provenance.Channel,
 		ChatID:           provenance.ChatID,
