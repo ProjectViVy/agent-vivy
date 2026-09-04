@@ -70,6 +70,10 @@ type EngineConfig struct {
 	// compaction summaries (CMP-2). Nil keeps the main chat model. When
 	// set, a summary failure falls back to the main model once.
 	SummaryModel model.BaseModel[*schema.Message]
+	// SummaryModelID is the provider-native id paired with SummaryModel. It
+	// lets usage events distinguish the primary summary route from the main
+	// model used by failover without inspecting provider implementation types.
+	SummaryModelID string
 	// AgentsMDBackend supplies workspace AGENTS.md content for the run
 	// preamble (D6). Nil disables injection. Eino's agentsmd middleware
 	// loads it per run and injects it transiently before the first user

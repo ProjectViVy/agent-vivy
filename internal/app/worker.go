@@ -630,11 +630,16 @@ func (b *legacyModelBroker) Complete(ctx context.Context, request worker.ModelRe
 			return worker.ModelResponse{}, eventErr
 		}
 		if result.Usage != nil {
-			if eventErr := b.manager.recordChildEvent(ctx, b.childID, b.ledger, domain.EventModelUsage, map[string]int{
+			providerName, modelID := b.manager.service.CurrentModel()
+			if eventErr := b.manager.recordChildEvent(ctx, b.childID, b.ledger, domain.EventModelUsage, map[string]any{
 				"prompt_tokens":     result.Usage.PromptTokens,
 				"completion_tokens": result.Usage.CompletionTokens,
 				"total_tokens":      result.Usage.TotalTokens,
 				"reasoning_tokens":  result.Usage.ReasoningTokens,
+				"cached_tokens":     result.Usage.CachedTokens,
+				"provider":          providerName,
+				"model":             modelID,
+				"source":            "child",
 			}); eventErr != nil {
 				return worker.ModelResponse{}, eventErr
 			}
@@ -646,7 +651,7 @@ func (b *legacyModelBroker) Complete(ctx context.Context, request worker.ModelRe
 		out.Message.ToolCalls = append(out.Message.ToolCalls, worker.ModelToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 	}
 	if result.Usage != nil {
-		out.Usage = &worker.ModelUsage{PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens, ReasoningTokens: result.Usage.ReasoningTokens}
+		out.Usage = &worker.ModelUsage{PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens, ReasoningTokens: result.Usage.ReasoningTokens, CachedTokens: result.Usage.CachedTokens}
 	}
 	return out, nil
 }

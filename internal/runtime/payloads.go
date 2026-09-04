@@ -34,6 +34,12 @@ type payloadModelUsage struct {
 	// cache (OpenAI prompt_tokens_details.cached_tokens); omitted when the
 	// provider does not report it.
 	CachedTokens int `json:"cached_tokens,omitempty"`
+	// Provider/Model override the run.started route for calls made by a
+	// distinct model boundary (for example a supervised child). Source names
+	// the call class; all fields are additive for legacy v1 Journal rows.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Source   string `json:"source,omitempty"`
 }
 
 // payloadContextCompacted records one context compression event. It carries

@@ -103,10 +103,9 @@ func TestBuildSidebarUsageKeepsUnknownAndPartialCostDistinct(t *testing.T) {
 	if usage.RequestCount != 2 || usage.TotalTokens != 1700 || usage.CostKnown {
 		t.Fatalf("usage = %+v", usage)
 	}
-	// The priced row costs 0.002 + 0.002 = 0.004 USD, but the mixed session
-	// remains unknown rather than presenting that partial sum as the total.
-	if usage.CostUSD != 0.004 {
-		t.Fatalf("cost = %v, want 0.004", usage.CostUSD)
+	// A mixed session must not expose its partial sum as a usable total.
+	if usage.CostUSD != 0 {
+		t.Fatalf("cost = %v, want zero placeholder", usage.CostUSD)
 	}
 	unknown := buildSidebarUsage(context.Background(), rows[1:2], "sess", func(context.Context, string, string) domain.ModelInfo {
 		return domain.ModelInfo{}

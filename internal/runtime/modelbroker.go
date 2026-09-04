@@ -55,6 +55,7 @@ type WorkerModelUsage struct {
 	CompletionTokens int
 	TotalTokens      int
 	ReasoningTokens  int
+	CachedTokens     int
 }
 
 // WorkerModelBroker is the parent-owned model boundary used by supervised
@@ -119,6 +120,7 @@ func (b *WorkerModelBroker) Complete(ctx context.Context, request WorkerModelReq
 				PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
 				TotalTokens:     usage.TotalTokens,
 				ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens,
+				CachedTokens:    usage.PromptTokenDetails.CachedTokens,
 			}
 		}
 	}

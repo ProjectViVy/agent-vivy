@@ -113,6 +113,8 @@ export function TokenStatsPanel() {
         </div>
       )}
 
+      {snapshot && <p className="text-xs text-muted-foreground">{t('token.scopeChatRuns')}</p>}
+
       {isEmpty ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           {t('token.emptyState')}

@@ -12,7 +12,10 @@
       "type": "integer",
       "minimum": 0,
       "description": "Prompt-token prefix served from the provider cache (prompt_tokens_details.cached_tokens). Omitted when the provider does not report it."
-    }
+    },
+    "provider": { "type": "string", "maxLength": 128 },
+    "model": { "type": "string", "maxLength": 256 },
+    "source": { "type": "string", "enum": ["main", "child", "summary"] }
   },
   "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
   "additionalProperties": false

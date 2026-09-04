@@ -143,7 +143,7 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 	ctx := context.Background()
 	meta := func(_ context.Context, provider, model string) domain.ModelInfo {
 		if model == "gpt-4o" {
-			return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 2.5, OutputPerMTokens: 10.0}
+			return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 2.5, CachedInputPerMTokens: 1.25, OutputPerMTokens: 10.0}
 		}
 		return domain.ModelInfo{}
 	}
@@ -155,13 +155,10 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 	}
 	snap := buildTokenSnapshot(ctx, rows, "1m", 0, 50, meta)
 
-	if !snap.Total.CostKnown {
-		t.Fatal("total cost must be known when any row is priced")
+	if snap.Total.CostKnown || snap.Total.TotalCostUSD != 0 {
+		t.Fatalf("mixed priced/unpriced total must be unknown with a zero placeholder: %+v", snap.Total)
 	}
-	// priced row: 1M*2.5/1M + 0.1M*10/1M = 2.5 + 1.0 = 3.5
-	if snap.Total.TotalCostUSD != 3.5 {
-		t.Fatalf("total cost = %v, want 3.5", snap.Total.TotalCostUSD)
-	}
+	// priced row: 0.6M*2.5 + 0.4M*1.25 + 0.1M*10 = 3.0
 	if snap.Total.TotalCached != 400_000 {
 		t.Fatalf("total cached = %d, want 400000", snap.Total.TotalCached)
 	}
@@ -172,8 +169,8 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 	for _, m := range snap.Models {
 		byModel[m.Model] = m
 	}
-	if m := byModel["gpt-4o"]; !m.CostKnown || m.CostUSD != 3.5 {
-		t.Fatalf("gpt-4o share = %+v, want cost 3.5 known", m)
+	if m := byModel["gpt-4o"]; !m.CostKnown || m.CostUSD != 3.0 {
+		t.Fatalf("gpt-4o share = %+v, want cost 3.0 known", m)
 	}
 	if m := byModel["custom-model"]; m.CostKnown || m.CostUSD != 0 {
 		t.Fatalf("custom-model share = %+v, want unpriced (not free)", m)
@@ -185,7 +182,7 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 	for _, s := range snap.Sessions {
 		bySession[s.ID] = s
 	}
-	if s := bySession["s1"]; !s.CostKnown || s.CostUSD != 3.5 {
+	if s := bySession["s1"]; !s.CostKnown || s.CostUSD != 3.0 {
 		t.Fatalf("priced session = %+v", s)
 	}
 	if s := bySession["s2"]; s.CostKnown || s.CostUSD != 0 {
@@ -204,5 +201,18 @@ func TestBuildTokenSnapshotCost(t *testing.T) {
 	nilMeta := buildTokenSnapshot(ctx, rows, "1d", 0, 50, nil)
 	if nilMeta.Total.CostKnown || nilMeta.Total.TotalCostUSD != 0 {
 		t.Fatalf("nil-resolver total = %+v", nilMeta.Total)
+	}
+
+	missingCacheRate := buildTokenSnapshot(ctx, rows[:1], "1d", 0, 50, func(_ context.Context, provider, model string) domain.ModelInfo {
+		return domain.ModelInfo{ID: model, Provider: provider, InputPerMTokens: 2.5, OutputPerMTokens: 10}
+	})
+	if missingCacheRate.Total.CostKnown || missingCacheRate.Total.TotalCostUSD != 0 {
+		t.Fatalf("cached usage without a cache rate was priced: %+v", missingCacheRate.Total)
+	}
+
+	invalidCached := rows[0]
+	invalidCached.CachedTokens = invalidCached.PromptTokens + 1
+	if _, known := rowCostUSD(ctx, meta, invalidCached); known {
+		t.Fatal("cached tokens greater than prompt tokens were priced")
 	}
 }

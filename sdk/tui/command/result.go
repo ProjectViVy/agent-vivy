@@ -71,9 +71,9 @@ func FormatResult(name string, raw []byte) string {
 	case "stats":
 		period, _ := value["period"].(string)
 		if period != "" {
-			return fmt.Sprintf("token usage aggregate (%s; no current-session cost)\n%s", period, formatted)
+			return fmt.Sprintf("chat-run token usage (%s; title/manual-compaction calls excluded)\n%s", period, formatted)
 		}
-		return "token usage aggregate (no current-session cost)\n" + formatted
+		return "chat-run token usage (title/manual-compaction calls excluded)\n" + formatted
 	case "tools":
 		return "tool catalog (registered/configured surface)\n" + formatted
 	case "files":

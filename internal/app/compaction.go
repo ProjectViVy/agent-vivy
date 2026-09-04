@@ -75,6 +75,7 @@ func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend
 		ToolHooks:            hooks,
 		AutoApproveTools:     cfg.Runtime.Sandbox.Approval.AutoApproveTools,
 		Compaction:           cmp,
+		SummaryModelID:       cfg.Runtime.Compaction.SummaryModel,
 	}
 	if summaryModel != nil {
 		engineCfg.SummaryModel = summaryModel

@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-25.
+// Run executes CN-01..CN-26.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -72,9 +72,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-23", "concurrent duplicate message projection", cnConcurrentMessageProjection},
 		{"CN-24", "durable session activity timestamp", cnSessionActivity},
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
+		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 	}
-	if len(cases) != 25 {
-		t.Fatalf("conformance suite must carry exactly 25 cases, got %d", len(cases))
+	if len(cases) != 26 {
+		t.Fatalf("conformance suite must carry exactly 26 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -1083,6 +1084,62 @@ func cnModifiedFiles(t *testing.T, h Harness) {
 	}
 	if unknown, err := store.ListModifiedFiles(ctx, "sess-sidebar-unknown", 10); err != nil || len(unknown) != 0 {
 		t.Fatalf("unknown session = %+v, %v; want empty", unknown, err)
+	}
+}
+
+func cnAttributedModelUsage(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	usageStore, ok := b.(storage.TokenUsageStore)
+	if !ok {
+		t.Fatal("backend does not implement TokenUsageStore")
+	}
+	sessionUsageStore, ok := b.(storage.SessionTokenUsageStore)
+	if !ok {
+		t.Fatal("backend does not implement SessionTokenUsageStore")
+	}
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-usage", Title: "usage", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-usage", SessionID: "sess-usage", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	events := []domain.RunEvent{
+		{Type: domain.EventRunStarted, CreatedAt: 1, PayloadVersion: 1, Payload: []byte(`{"provider":"first","model":"main"}`)},
+		{Type: domain.EventRunStarted, CreatedAt: 2, PayloadVersion: 1, Payload: []byte(`{"provider":"duplicate","model":"wrong"}`)},
+		{Type: domain.EventModelUsage, CreatedAt: 3, PayloadVersion: 1, Payload: []byte(`{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"cached_tokens":2,"source":"main"}`)},
+		{Type: domain.EventModelUsage, CreatedAt: 4, PayloadVersion: 1, Payload: []byte(`{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28,"cached_tokens":3,"provider":"child-provider","model":"child-model","source":"child"}`)},
+		{Type: domain.EventModelUsage, CreatedAt: 5, PayloadVersion: 1, Payload: []byte(`{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"source":"summary"}`)},
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: "run-usage", Events: events}); err != nil {
+		t.Fatalf("append usage fixture: %v", err)
+	}
+	rows, err := usageStore.ListModelUsage(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("usage rows = %+v, want exactly three", rows)
+	}
+	if rows[0].Provider != "first" || rows[0].Model != "main" || rows[0].Source != "main" || rows[0].CachedTokens != 2 {
+		t.Fatalf("legacy/main attribution = %+v", rows[0])
+	}
+	if rows[1].Provider != "child-provider" || rows[1].Model != "child-model" || rows[1].Source != "child" || rows[1].CachedTokens != 3 {
+		t.Fatalf("explicit child attribution = %+v", rows[1])
+	}
+	if rows[2].Provider != "" || rows[2].Model != "" || rows[2].Source != "summary" {
+		t.Fatalf("ambiguous summary attribution did not fail closed: %+v", rows[2])
+	}
+	aggregated, err := sessionUsageStore.ListSessionModelUsage(ctx, "sess-usage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	for _, row := range aggregated {
+		requests += row.RequestCount
+	}
+	if len(aggregated) != 3 || requests != 3 {
+		t.Fatalf("session usage aggregates = %+v, want three routes/requests", aggregated)
 	}
 }
 

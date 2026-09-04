@@ -72,6 +72,37 @@ func TestLegacyWorkerModelBrokerEmitsBoundedV2AssistantEvents(t *testing.T) {
 	}
 }
 
+func TestLegacyWorkerModelBrokerPersistsAttributedCachedUsage(t *testing.T) {
+	manager, backend, _, child := newChildBrokerTest(t)
+	message := schema.AssistantMessage("done", nil)
+	message.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{
+		PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15,
+		PromptTokenDetails:      schema.PromptTokenDetails{CachedTokens: 4},
+		CompletionTokensDetails: schema.CompletionTokensDetails{ReasoningTokens: 2},
+	}}
+	inner, err := runtime.NewWorkerModelBroker(runtime.NewScriptedModel(message), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := &legacyModelBroker{inner: inner, manager: manager, childID: child.ID, ledger: manager.serviceLedger(child.ID)}
+	response, err := broker.Complete(context.Background(), worker.ModelRequest{
+		RunID: string(child.ID), ParentRunID: string(child.ParentID), Messages: []worker.ChatMessage{{Role: "user", Content: "answer"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Usage == nil || response.Usage.CachedTokens != 4 {
+		t.Fatalf("worker response usage = %+v", response.Usage)
+	}
+	rows, err := backend.ListModelUsage(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Provider != "test" || rows[0].Model != "test-model" || rows[0].Source != "child" || rows[0].CachedTokens != 4 || rows[0].ReasoningTokens != 2 {
+		t.Fatalf("projected child usage = %+v", rows)
+	}
+}
+
 func TestChildModelDeltasDoNotExhaustSemanticEventBudget(t *testing.T) {
 	manager, backend, _, child := newChildBrokerTest(t)
 	ledger, err := runtime.NewBudgetLedger(runtime.BudgetPolicy{
