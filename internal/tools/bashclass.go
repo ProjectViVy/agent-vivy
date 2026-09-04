@@ -29,7 +29,7 @@ const (
 // safeShellCommands are invocations that only read files, streams, or system
 // state. The list is deliberately narrow; anything not listed is mutating.
 var safeShellCommands = map[string]struct{}{
-	"basename": {}, "bc": {}, "cal": {}, "cat": {}, "cmp": {}, "cols": {},
+	"basename": {}, "cal": {}, "cat": {}, "cmp": {}, "cols": {},
 	"comm": {}, "cut": {}, "date": {}, "df": {}, "diff": {}, "dirname": {},
 	"du": {}, "echo": {}, "env": {}, "egrep": {}, "expand": {}, "false": {},
 	"fgrep": {}, "file": {}, "find": {}, "fold": {}, "free": {}, "grep": {},
@@ -39,7 +39,7 @@ var safeShellCommands = map[string]struct{}{
 	"printf": {}, "ps": {}, "pwd": {}, "readlink": {}, "realpath": {},
 	"rg": {}, "sha1sum": {}, "sha256sum": {}, "sha512sum": {}, "sleep": {},
 	"sort": {}, "stat": {}, "strings": {}, "tac": {}, "tail": {}, "test": {},
-	"time": {}, "tr": {}, "tree": {}, "true": {}, "tty": {},
+	"tr": {}, "tree": {}, "true": {}, "tty": {},
 	"uname": {}, "unexpand": {}, "uniq": {}, "uptime": {}, "wc": {},
 	"whereis": {}, "which": {}, "who": {}, "whoami": {}, "xxd": {},
 	"[": {}, ":": {},
@@ -84,6 +84,54 @@ var denyTable = []denyRule{
 				return true
 			}
 			return strings.HasPrefix(name, "mkfs.")
+		},
+	},
+	{
+		name:   "network access",
+		reason: "deny-table: network access is not allowed from the governed shell",
+		match: func(name string, args []string, script string) bool {
+			switch name {
+			case "curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "ftp", "telnet", "socat":
+				return true
+			case "git":
+				if len(args) > 1 {
+					switch args[1] {
+					case "clone", "fetch", "pull", "push", "remote", "submodule":
+						return true
+					}
+				}
+			}
+			return strings.Contains(strings.ToLower(script), "/dev/tcp/") || strings.Contains(strings.ToLower(script), "/dev/udp/")
+		},
+	},
+	{
+		name:   "host escape",
+		reason: "deny-table: host shell or interpreter escape",
+		match: func(name string, _ []string, _ string) bool {
+			switch name {
+			case "sudo", "su", "runas", "powershell", "pwsh", "cmd", "cmd.exe", "sh", "bash", "zsh", "fish", "ksh", "dash", "eval", "source", ".", "exec", "nohup", "setsid":
+				return true
+			default:
+				return false
+			}
+		},
+	},
+	{
+		name:   "absolute path",
+		reason: "deny-table: absolute or host path is outside the run workspace",
+		match: func(name string, args []string, script string) bool {
+			if isForbiddenHostPath(name) {
+				return true
+			}
+			for _, arg := range args {
+				if isForbiddenHostPath(arg) {
+					return true
+				}
+			}
+			upper := strings.ToUpper(script)
+			return strings.Contains(upper, "$HOME") || strings.Contains(upper, "${HOME}") ||
+				strings.Contains(upper, "$USERPROFILE") || strings.Contains(upper, "${USERPROFILE}") ||
+				containsParentTraversal(script)
 		},
 	},
 	{
@@ -172,21 +220,89 @@ func isSystemRootPath(arg string) bool {
 	return false
 }
 
+// isForbiddenHostPath keeps shell arguments inside the backend-owned run
+// workspace. The command backend cannot intercept every path a shell may
+// open, so absolute paths, home expansions, drive paths, and UNC paths are
+// denied before a script reaches it. The three harmless null/std streams are
+// retained for ordinary read-only pipelines.
+func isForbiddenHostPath(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "-" {
+		return false
+	}
+	if value == "/dev/null" || value == "/dev/stdin" || value == "/dev/stdout" || value == "/dev/stderr" {
+		return false
+	}
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") || strings.HasPrefix(value, "~") {
+		return true
+	}
+	if len(value) >= 3 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':' && (value[2] == '/' || value[2] == '\\') {
+		return true
+	}
+	for _, prefix := range []string{"$HOME", "${HOME}", "$USERPROFILE", "${USERPROFILE}"} {
+		if strings.HasPrefix(strings.ToUpper(value), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsParentTraversal(value string) bool {
+	value = strings.ReplaceAll(value, "\\", "/")
+	for _, field := range strings.Fields(value) {
+		for _, part := range strings.Split(strings.Trim(field, " \t\r\n\"'"), "/") {
+			if strings.Trim(part, " \t\r\n\"'") == ".." {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // shellCommandName extracts the invocation name when the first word is a
 // literal with no expansions; otherwise the command is unclassifiable.
 func shellCommandName(word *syntax.Word) (string, bool) {
-	if word == nil || len(word.Parts) != 1 {
-		return "", false
-	}
-	lit, ok := word.Parts[0].(*syntax.Lit)
+	value, ok := staticShellWord(word)
 	if !ok {
 		return "", false
 	}
-	name := normalizeShellCommand(lit.Value)
+	name := normalizeShellCommand(value)
 	if name == "" {
 		return "", false
 	}
 	return name, true
+}
+
+func staticShellWord(word *syntax.Word) (string, bool) {
+	if word == nil {
+		return "", false
+	}
+	var b strings.Builder
+	var appendParts func([]syntax.WordPart) bool
+	appendParts = func(parts []syntax.WordPart) bool {
+		for _, part := range parts {
+			switch value := part.(type) {
+			case *syntax.Lit:
+				b.WriteString(value.Value)
+			case *syntax.SglQuoted:
+				if value.Dollar {
+					return false
+				}
+				b.WriteString(value.Value)
+			case *syntax.DblQuoted:
+				if value.Dollar || !appendParts(value.Parts) {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		return true
+	}
+	if !appendParts(word.Parts) {
+		return "", false
+	}
+	return b.String(), true
 }
 
 func normalizeShellCommand(value string) string {
@@ -200,8 +316,8 @@ func normalizeShellCommand(value string) string {
 func argsList(words []*syntax.Word) []string {
 	args := make([]string, 0, len(words))
 	for _, word := range words {
-		if name, ok := shellCommandName(word); ok {
-			args = append(args, name)
+		if value, ok := staticShellWord(word); ok {
+			args = append(args, value)
 			continue
 		}
 		args = append(args, "")
@@ -223,11 +339,21 @@ func ClassifyShellScript(script string) (InvocationClass, []string, error) {
 	syntax.Walk(file, func(node syntax.Node) bool {
 		switch item := node.(type) {
 		case *syntax.Stmt:
+			if item.Background || item.Coprocess {
+				class = InvocationDenied
+				findings = append(findings, "deny-table: detached or background shell execution")
+				return false
+			}
 			for _, redir := range item.Redirs {
+				target := redirectTarget(redir)
+				if target == "" || isForbiddenHostPath(target) || containsParentTraversal(target) {
+					class = InvocationDenied
+					findings = append(findings, "deny-table: redirection outside the run workspace")
+					return false
+				}
 				if !redirectWrites(redir) {
 					continue
 				}
-				target := redirectTarget(redir)
 				if deny, reason := rawDeviceTarget(target); deny {
 					class = InvocationDenied
 					findings = append(findings, reason)
@@ -246,6 +372,16 @@ func ClassifyShellScript(script string) (InvocationClass, []string, error) {
 				// Assignments without a command have no external effect in a
 				// one-shot script.
 				return true
+			}
+			if len(item.Assigns) > 0 && class == InvocationSafe {
+				class = InvocationMutating
+				findings = append(findings, "mutating: command environment override")
+			}
+			for _, word := range item.Args {
+				if shellWordHasExpansion(word) && class == InvocationSafe {
+					class = InvocationMutating
+					findings = append(findings, "mutating: dynamic shell expansion")
+				}
 			}
 			name, ok := shellCommandName(item.Args[0])
 			if !ok {
@@ -288,6 +424,23 @@ func ClassifyShellScript(script string) (InvocationClass, []string, error) {
 	return class, findings, nil
 }
 
+func shellWordHasExpansion(word *syntax.Word) bool {
+	dynamic := false
+	if word == nil {
+		return false
+	}
+	syntax.Walk(word, func(node syntax.Node) bool {
+		switch node.(type) {
+		case *syntax.ParamExp, *syntax.CmdSubst, *syntax.ArithmExp, *syntax.ProcSubst:
+			dynamic = true
+			return false
+		default:
+			return !dynamic
+		}
+	})
+	return dynamic
+}
+
 func matchDenyTable(name string, args []string, script string) (bool, string) {
 	for _, rule := range denyTable {
 		if rule.match(name, args, script) {
@@ -309,8 +462,28 @@ func isSafeInvocation(name string, args []string) bool {
 		if len(args) < 2 {
 			return false
 		}
+		// `go env -w/-u` mutates the user's Go environment. It must not
+		// receive the read-only tier merely because the base subcommand is
+		// normally observational.
+		if args[1] == "env" {
+			for _, arg := range args[2:] {
+				if arg == "-w" || arg == "--w" || arg == "-u" || arg == "--u" || strings.HasPrefix(arg, "-w=") || strings.HasPrefix(arg, "-u=") {
+					return false
+				}
+			}
+		}
 		_, ok := safeGoSubcommands[args[1]]
 		return ok
+	case "find":
+		// GNU/BSD find's action predicates can mutate files even though
+		// traversal itself is read-only. Keep those calls approval-gated.
+		for _, arg := range args[1:] {
+			switch arg {
+			case "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint", "-fprint0", "-fprintf":
+				return false
+			}
+		}
+		return true
 	case "env":
 		// Bare env prints the environment; env CMD runs CMD.
 		return len(args) == 1

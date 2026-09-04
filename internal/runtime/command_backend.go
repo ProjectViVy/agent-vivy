@@ -76,6 +76,10 @@ func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, a
 	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath, jobs: tools.NewJobRegistry()}
 }
 
+func (b *EinoCommandBackend) ShellAvailable() bool {
+	return b != nil && b.manager != nil && b.sandbox != nil && b.jobs != nil && (goRuntime.GOOS == "windows" || b.shellPath != "")
+}
+
 func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
 	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
@@ -141,7 +145,11 @@ func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, re
 func (b *EinoCommandBackend) executeBash(ctx context.Context, path string, args []string, cwd string, env []string, timeout time.Duration, background bool) (tools.CommandResult, error) {
 	display := strings.Join(append([]string{"bash"}, args...), " ")
 	spec := tools.JobSpec{Display: display, Path: path, Args: args, Dir: cwd, Env: env}
-	if goRuntime.GOOS == "windows" || path == "" {
+	direct := isDirectShell(ctx)
+	if direct && background {
+		return tools.CommandResult{}, errors.New("command: direct shell cannot run in background")
+	}
+	if direct || goRuntime.GOOS == "windows" || path == "" {
 		if len(args) != 2 || args[0] != "-c" {
 			return tools.CommandResult{}, errors.New("command: embedded bash requires -c script")
 		}
@@ -165,6 +173,11 @@ func (b *EinoCommandBackend) executeBash(ctx context.Context, path string, args 
 			return tools.CommandResult{}, err
 		}
 		return tools.CommandResult{Command: display, Cwd: cwd, DurationMS: 0, Untrusted: true, JobID: id, Background: true, JobStatus: string(tools.JobRunning)}, nil
+	}
+	if direct {
+		result, err := b.jobs.RunForeground(ctx, spec, timeout)
+		result.Command, result.Cwd, result.Untrusted = display, cwd, true
+		return result, err
 	}
 	_, result, err := b.jobs.RunUntil(ctx, spec, timeout)
 	if err != nil {
@@ -273,7 +286,7 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 // risk), but read-only sandboxes still deny execution and the deny table is
 // re-checked here as defense in depth.
 func (b *EinoCommandBackend) validateBashRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest, mode domain.SandboxMode) (string, []string, string, []string, time.Duration, error) {
-	if b.shellPath == "" {
+	if b.shellPath == "" && goRuntime.GOOS != "windows" {
 		return "", nil, "", nil, 0, errors.New("command: bash is not available on this host")
 	}
 	if mode == domain.SandboxModeReadOnly {

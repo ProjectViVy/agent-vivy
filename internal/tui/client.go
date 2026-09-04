@@ -24,6 +24,33 @@ type Client struct {
 
 	mu     sync.Mutex
 	notify func(method string, params json.RawMessage)
+	caps   map[string]struct{}
+}
+
+func (c *Client) setCapabilities(raw json.RawMessage) error {
+	var envelope struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.caps = make(map[string]struct{}, len(envelope.Capabilities))
+	for _, capability := range envelope.Capabilities {
+		c.caps[capability] = struct{}{}
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *Client) SupportsCapability(name string) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.caps[name]
+	return ok
 }
 
 // Attach wraps an already-serving client peer. Tests use a JSONL pair;
@@ -137,9 +164,14 @@ func Dial(ctx context.Context, addr, token string) (*Client, error) {
 	peer := controlrpc.NewPeer(controlrpc.NewWebSocketTransport(conn), client, controlrpc.Options{})
 	client.peer = peer
 	go func() { _ = peer.Serve(ctx) }()
-	if _, err := client.Call(ctx, "initialize", nil); err != nil {
+	initialized, err := client.Call(ctx, "initialize", nil)
+	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("tui: initialize: %w", err)
+	}
+	if err := client.setCapabilities(initialized); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("tui: initialize capabilities: %w", err)
 	}
 	return client, nil
 }

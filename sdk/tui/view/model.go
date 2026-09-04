@@ -273,6 +273,10 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		return m.showCommandError(fmt.Errorf("%s", parsed.UnavailableReason)), nil
 	}
 	if parsed.IsShell() {
+		capabilities, capable := m.driver.(surface.CapabilityReporter)
+		if !capable || !capabilities.SupportsCapability("shell.start") {
+			return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
+		}
 		executor, ok := m.driver.(surface.ShellExecutor)
 		if !ok {
 			// A shell-capable input is never sent as model text. Small/demo
@@ -336,7 +340,11 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			return m.showCommandError(fmt.Errorf("usage: /help")), nil
 		}
 		m.commandOverlayTitle = "Commands"
-		m.commandOverlay = commandRegistry.Help()
+		shellSupported := false
+		if capabilities, ok := m.driver.(surface.CapabilityReporter); ok {
+			shellSupported = capabilities.SupportsCapability("shell.start")
+		}
+		m.commandOverlay = commandRegistry.HelpFor(shellSupported)
 		return m, nil
 	case "status":
 		if len(args) != 0 {

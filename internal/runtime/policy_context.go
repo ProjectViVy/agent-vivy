@@ -13,6 +13,12 @@ type policySnapshotContextKey struct{}
 type sandboxModeContextKey struct{}
 type approvalPolicyContextKey struct{}
 
+// directShellContextKey marks the runtime-owned direct shell lifecycle. It
+// is deliberately process-local context metadata: the marker tells the
+// command backend that this request must remain foreground-only. Journal and
+// message projections stay safe because their payloads are already redacted.
+type directShellContextKey struct{}
+
 func withRunID(ctx context.Context, runID domain.RunID) context.Context {
 	return context.WithValue(ctx, runIDContextKey{}, runID)
 }
@@ -81,4 +87,13 @@ func approvalPolicy(ctx context.Context) domain.ApprovalPolicy {
 
 func withSessionSandbox(ctx context.Context, mode domain.SandboxMode, policy domain.ApprovalPolicy) context.Context {
 	return withApprovalPolicy(withSandboxMode(ctx, mode), policy)
+}
+
+func withDirectShell(ctx context.Context) context.Context {
+	return context.WithValue(ctx, directShellContextKey{}, true)
+}
+
+func isDirectShell(ctx context.Context) bool {
+	marked, _ := ctx.Value(directShellContextKey{}).(bool)
+	return marked
 }

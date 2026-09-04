@@ -1174,7 +1174,14 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments 
 // server-owned shell/start operation; no local process or command backend is
 // reachable from this face.
 func (l *Live) ExecuteShell(script string) tea.Cmd {
+	if !l.SupportsCapability("shell.start") {
+		return func() tea.Msg { return surface.ErrMsg{Err: errors.New("governed shell is unavailable")} }
+	}
 	return l.sendShell(script)
+}
+
+func (l *Live) SupportsCapability(name string) bool {
+	return l != nil && l.client != nil && l.client.SupportsCapability(name)
 }
 
 func (l *Live) sendShell(script string) tea.Cmd {
@@ -1625,7 +1632,30 @@ func (l *Live) Cancel() tea.Cmd {
 
 func mapHistory(msgs []messageView) []surface.Message {
 	out := make([]surface.Message, 0, len(msgs))
+	toolIndexes := make(map[string]int)
 	for _, m := range msgs {
+		if m.ToolName != "" {
+			if index, ok := toolIndexes[m.ToolCallID]; ok && m.ToolCallID != "" {
+				tool := out[index].Tool
+				if m.ToolPreview != "" {
+					tool.Preview = m.ToolPreview
+				}
+				if m.Role == surface.RoleTool {
+					tool.Status, tool.Result = "done", m.Content
+				}
+				continue
+			}
+			status := "pending"
+			tool := &surface.ToolCard{ToolName: m.ToolName, Status: status, Preview: m.ToolPreview}
+			if m.Role == surface.RoleTool {
+				tool.Status, tool.Result = "done", m.Content
+			}
+			out = append(out, surface.Message{ID: m.ToolCallID, Role: surface.RoleTool, Tool: tool})
+			if m.ToolCallID != "" {
+				toolIndexes[m.ToolCallID] = len(out) - 1
+			}
+			continue
+		}
 		out = append(out, surface.Message{
 			ID:           m.ID,
 			Role:         m.Role,

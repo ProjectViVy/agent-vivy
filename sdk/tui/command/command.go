@@ -431,6 +431,12 @@ func (r Registry) Validate(invocation *Invocation) error {
 
 // Help returns the stable built-in help text for a registry.
 func (r Registry) Help() string {
+	return r.HelpFor(true)
+}
+
+// HelpFor renders input prefixes supported by the initialized control plane.
+// Slash commands remain stable; optional effect surfaces fail closed.
+func (r Registry) HelpFor(shellSupported bool) string {
 	var b strings.Builder
 	b.WriteString("commands\n")
 	for _, spec := range r.ordered {
@@ -449,7 +455,9 @@ func (r Registry) Help() string {
 		fmt.Fprintf(&b, "  %-22s %s%s\n", usage, spec.Description, aliases)
 	}
 	b.WriteString("\ninput prefixes\n")
-	b.WriteString("  !<script>              requires server shell support (unavailable in this build)\n")
+	if shellSupported {
+		b.WriteString("  !<script>              run a governed foreground shell command in the workspace\n")
+	}
 	b.WriteString("  @path                   add project file context\n")
 	b.WriteString("  !! / @@                 send a literal marker\n")
 	return b.String()

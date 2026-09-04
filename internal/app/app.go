@@ -418,6 +418,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Approvals:          backend,
 		Questions:          backend,
 		ApprovalExpiration: cfg.Tools.Approval.Expiration,
+		ShellState:         backend.Blobs(),
 		Budget: runtime.BudgetPolicy{
 			MaxEvents: cfg.Runtime.MaxRunEvents, MaxModelCalls: cfg.Runtime.MaxModelCalls,
 			MaxToolCalls: cfg.Runtime.MaxRunToolCalls, MaxRetries: cfg.Runtime.MaxRunRetries,
