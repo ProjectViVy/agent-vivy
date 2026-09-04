@@ -265,7 +265,8 @@ func (s *Service) recoverCron(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	nowMs := s.cron.now().UnixMilli()
+	st := s.ensureCronState(CronSchedulerOptions{})
+	nowMs := st.now().UnixMilli()
 	for _, job := range jobs {
 		changed := false
 		if !job.Enabled {
@@ -279,6 +280,10 @@ func (s *Service) recoverCron(ctx context.Context) error {
 				job.Enabled = false
 				job.State.NextRunAtMs = 0
 				changed = true
+			} else if job.Schedule.Kind != domain.CronScheduleAt && job.State.NextRunAtMs > 0 && job.State.NextRunAtMs <= nowMs {
+				// Due while offline: preserve NextRunAtMs so loop's initial
+				// fireDueCronJobs fires once on wake. settleCronRun will advance
+				// to the next future period, skipping missed storms (UI-CRON-P2).
 			} else if next != job.State.NextRunAtMs {
 				job.State.NextRunAtMs = next
 				changed = true
@@ -484,6 +489,9 @@ func (s *Service) settleCronRun(ctx context.Context, st *cronState, entry *cronA
 		if err != nil {
 			slog.Warn("cron settle write failed", "job", job.ID, "err", err)
 		}
+		if fresh.Payload.Deliver {
+			s.deliverCronOutbound(fresh, entry.snapshot.RunID, status, lastErr)
+		}
 	}
 
 	st.mu.Lock()
@@ -516,6 +524,69 @@ func (s *Service) recordCronFailure(ctx context.Context, job domain.CronJob, ent
 	if err := s.deps.Crons.UpdateCronJob(ctx, fresh); err != nil {
 		slog.Warn("cron failure write failed", "job", job.ID, "err", err)
 	}
+	if fresh.Payload.Deliver {
+		s.deliverCronOutbound(fresh, entry.snapshot.RunID, domain.RunFailed, cause.Error())
+	}
+}
+
+// deliverCronOutbound delivers the finished run's summary or failure to the configured
+// external channel (CH-0) on a detached, bounded goroutine.
+func (s *Service) deliverCronOutbound(job domain.CronJob, runID domain.RunID, status domain.RunStatus, lastErr string) {
+	if !job.Payload.Deliver {
+		return
+	}
+	if job.Payload.Channel == "" || job.Payload.To == "" {
+		slog.Warn("cron: payload deliver requested but channel or to is empty",
+			"job", job.ID, "channel", job.Payload.Channel, "to", job.Payload.To)
+		return
+	}
+	if s.deps.Channels == nil {
+		slog.Warn("cron: payload deliver requested but channels deliverer is not wired",
+			"job", job.ID, "channel", job.Payload.Channel)
+		return
+	}
+
+	var summary string
+	if status == domain.RunCompleted {
+		ctx := context.WithoutCancel(context.Background())
+		msgs, err := s.deps.Messages.ListMessages(ctx, job.SessionID)
+		if err == nil {
+			for i := len(msgs) - 1; i >= 0; i-- {
+				m := msgs[i]
+				if m.RunID == runID && m.Role == domain.RoleAssistant && m.ToolCallID == "" {
+					summary = m.Content
+					break
+				}
+			}
+		}
+		if summary == "" {
+			summary = fmt.Sprintf("[Cron: %s] Run completed", job.Name)
+		}
+	} else if status == domain.RunFailed {
+		if lastErr != "" {
+			summary = fmt.Sprintf("[Cron: %s] Run failed: %s", job.Name, lastErr)
+		} else {
+			summary = fmt.Sprintf("[Cron: %s] Run failed", job.Name)
+		}
+	} else if status == domain.RunCancelled {
+		summary = fmt.Sprintf("[Cron: %s] Run cancelled", job.Name)
+	}
+
+	channelName := job.Payload.Channel
+	to := job.Payload.To
+	jobName := job.Name
+	channels := s.deps.Channels
+	go func() {
+		delivCtx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), 30*time.Second)
+		defer cancel()
+		if err := channels.Deliver(delivCtx, channelName, to, summary); err != nil {
+			slog.Error("cron: deliver outbound failed",
+				"job", jobName, "run", string(runID), "channel", channelName, "to", to, "err", err)
+		} else {
+			slog.Info("cron: deliver outbound completed",
+				"job", jobName, "run", string(runID), "channel", channelName, "to", to)
+		}
+	}()
 }
 
 // cronTerminalError extracts the human-readable failure text from the

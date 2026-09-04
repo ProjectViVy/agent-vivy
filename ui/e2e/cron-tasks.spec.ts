@@ -63,3 +63,28 @@ test('cron form exposes one-shot at scheduling with future-time validation', asy
 
   await expect(page.getByText('触发时间必须晚于当前时间。')).toBeVisible();
 });
+
+// UI-CRON-P2：外发通道（deliver）暴露进表单——离线可测：
+// 开关切换可见、开启后通道下拉框与目标输入框出现、开启但未填接收目标被校验拦下。
+test('cron form exposes delivery switch and validates required channel recipient', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  await page.goto('/cron-tasks');
+
+  await page.getByRole('button', { name: '新建任务' }).first().click();
+  const dialog = page.getByRole('dialog');
+
+  const deliverSwitch = dialog.locator('#cron-deliver');
+  await expect(deliverSwitch).toBeVisible();
+  await expect(dialog.locator('#cron-to')).toHaveCount(0);
+
+  // Toggle delivery switch on
+  await deliverSwitch.click();
+  await expect(dialog.locator('#cron-to')).toBeVisible();
+
+  // Fill name, content, leave recipient empty
+  await page.getByLabel('任务名称').fill('e2e 外发任务');
+  await page.getByLabel('任务内容').fill('e2e deliver ping');
+  await dialog.getByRole('button', { name: '创建任务' }).click();
+
+  await expect(page.getByText('开启外发后必须填写接收目标。')).toBeVisible();
+});

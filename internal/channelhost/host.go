@@ -244,3 +244,59 @@ func (h *Host) Inspect() []ChannelStatus {
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
 	return statuses
 }
+
+// Deliver sends an outbound message to the named channel and target chat ID.
+// It resolves the channel adapter, verifies that it is currently started,
+// splits the content if the adapter declares a runes ceiling (plugin.RunesLimiter),
+// and delivers parts sequentially via ch.Send.
+func (h *Host) Deliver(ctx context.Context, channelName, chatID, content string) error {
+	if channelName == "" {
+		return errors.New("channelhost: channel name is required")
+	}
+	if chatID == "" {
+		return errors.New("channelhost: chat ID is required")
+	}
+	ch := h.channelByName(channelName)
+	if ch == nil {
+		return fmt.Errorf("channelhost: channel %q not registered", channelName)
+	}
+
+	h.mu.Lock()
+	started := false
+	for _, running := range h.started {
+		if running.Name() == channelName {
+			started = true
+			break
+		}
+	}
+	note := h.notes[channelName]
+	h.mu.Unlock()
+
+	if !started {
+		if note != "" {
+			return fmt.Errorf("channelhost: channel %q is not running (%s)", channelName, note)
+		}
+		return fmt.Errorf("channelhost: channel %q is not running", channelName)
+	}
+
+	maxRunes := 0
+	if rl, ok := ch.(plugin.RunesLimiter); ok {
+		maxRunes = rl.MaxMessageRunes()
+	}
+
+	chunks := splitRunes(content, maxRunes)
+	for _, chunk := range chunks {
+		if _, err := ch.Send(ctx, plugin.OutboundMessage{
+			ChatID: chatID,
+			Parts:  []plugin.Part{{Kind: plugin.PartText, Text: chunk}},
+		}); err != nil {
+			h.logger.Error("channelhost: delivery to channel failed",
+				"channel", channelName, "chat_id", chatID, "err", err)
+			return fmt.Errorf("channelhost: send to %s (%s): %w", channelName, chatID, err)
+		}
+	}
+
+	h.logger.Info("channelhost: delivery to channel completed",
+		"channel", channelName, "chat_id", chatID, "chunks", len(chunks))
+	return nil
+}

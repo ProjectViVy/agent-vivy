@@ -1581,12 +1581,22 @@ func buildCronJob(id, name string, enabled bool, schedule cronScheduleParams, pa
 	if err := runtime.ValidateCronSchedule(sched); err != nil {
 		return domain.CronJob{}, &Error{Code: InvalidParams, Message: err.Error()}
 	}
+	channel := strings.TrimSpace(payload.Channel)
+	to := strings.TrimSpace(payload.To)
+	if payload.Deliver {
+		if channel == "" {
+			return domain.CronJob{}, &Error{Code: InvalidParams, Message: "payload.channel is required when deliver is true"}
+		}
+		if to == "" {
+			return domain.CronJob{}, &Error{Code: InvalidParams, Message: "payload.to is required when deliver is true"}
+		}
+	}
 	job := domain.CronJob{
 		ID: id, Name: strings.TrimSpace(name), Enabled: enabled,
 		Schedule: sched,
 		Payload: domain.CronPayload{
 			Kind: kind, Message: payload.Message, Deliver: payload.Deliver,
-			Channel: payload.Channel, To: payload.To,
+			Channel: channel, To: to,
 		},
 		DeleteAfterRun: deleteAfterRun,
 		CreatedAt:      nowMs,

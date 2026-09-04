@@ -52,6 +52,12 @@ type ChildApprovalRouter interface {
 	ResolveChildApproval(context.Context, domain.Approval, string) error
 }
 
+// ChannelDeliverer delivers outbound content to an external channel (CH-0).
+// Defined as an interface here so runtime stays free of internal/channelhost imports.
+type ChannelDeliverer interface {
+	Deliver(ctx context.Context, channel string, to string, content string) error
+}
+
 // DecideApproval error sentinels; the API layer maps them to HTTP
 // semantics (404 / 409; D-009 stays server-enforced).
 var (
@@ -107,6 +113,9 @@ type ServiceDeps struct {
 	// exchange (VC-2 small→large chain). Nil keeps sessions untitled until
 	// a user renames them.
 	Titles TitleGenerator
+	// Channels delivers outbound results to external channels (e.g. cron
+	// payload delivery). Nil leaves external channel delivery disabled.
+	Channels ChannelDeliverer
 	// RebuildEngine rebuilds the Engine with a new config. App wires it to
 	// the composition root so settings saves can hot-swap compaction
 	// middleware; nil disables ScheduleEngineReload.
