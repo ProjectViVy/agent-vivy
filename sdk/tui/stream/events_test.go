@@ -8,11 +8,27 @@ import (
 
 func TestDecodeRetainsRunAndSequence(t *testing.T) {
 	event, ok := Decode(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":7,"type":"model.delta","payload":{"delta":"x"}}}`))
-	if !ok || event.RunID != "run_1" || event.Seq != 7 || event.Type != "model.delta" {
+	if !ok || event.SubscriptionID != "sub" || event.RunID != "run_1" || event.Seq != 7 || event.Type != "model.delta" {
 		t.Fatalf("event = %+v ok=%v", event, ok)
 	}
 	if got := PayloadString(event.Payload, "delta"); got != "x" {
 		t.Fatalf("delta = %q", got)
+	}
+}
+
+func TestDecodeStreamErrorRequiresSubscription(t *testing.T) {
+	failure, ok := DecodeStreamError(json.RawMessage(`{"subscription_id":"sub_1","message":"replay failed"}`))
+	if !ok || failure.SubscriptionID != "sub_1" || failure.Message != "replay failed" {
+		t.Fatalf("failure=%+v ok=%v", failure, ok)
+	}
+	if _, ok := DecodeStreamError(json.RawMessage(`{"message":"missing id"}`)); ok {
+		t.Fatal("stream error without subscription id was accepted")
+	}
+}
+
+func TestDecodeRejectsUnsequencedWireEvent(t *testing.T) {
+	if event, ok := Decode(json.RawMessage(`{"subscription_id":"sub","event":{"run_id":"run_1","seq":0,"type":"model.delta","payload":{"delta":"lost"}}}`)); ok {
+		t.Fatalf("unsequenced event accepted: %+v", event)
 	}
 }
 

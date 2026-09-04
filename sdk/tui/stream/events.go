@@ -12,25 +12,27 @@ import (
 // Event is the normalized run/event envelope. Type deliberately remains a
 // string: the core does not import the kernel domain package or a plugin face.
 type Event struct {
-	RunID   string
-	Seq     int
-	Type    string
-	Payload json.RawMessage
+	SubscriptionID string
+	RunID          string
+	Seq            int
+	Type           string
+	Payload        json.RawMessage
 }
 
 // Notice is the normalized, render-oriented event consumed by Projection.
 // Unknown events retain RunID and Seq so the sequence cursor can advance even
 // when a face does not render that event yet.
 type Notice struct {
-	RunID   string
-	Seq     int
-	Kind    string
-	Line    string
-	Delta   string
-	Gate    *GatePrompt
-	Done    bool
-	Failed  bool
-	Message string
+	SubscriptionID string
+	RunID          string
+	Seq            int
+	Kind           string
+	Line           string
+	Delta          string
+	Gate           *GatePrompt
+	Done           bool
+	Failed         bool
+	Message        string
 }
 
 // GatePrompt is the normalized interaction overlay attached to a notice.
@@ -41,10 +43,31 @@ type GatePrompt struct {
 	Body  string
 }
 
+// StreamError is the control message emitted when durable replay itself
+// fails. It is keyed by subscription so stale failures cannot poison a newer
+// recovery stream.
+type StreamError struct {
+	SubscriptionID string
+	Message        string
+}
+
+// DecodeStreamError validates a run/stream_error notification.
+func DecodeStreamError(params json.RawMessage) (StreamError, bool) {
+	var envelope struct {
+		SubscriptionID string `json:"subscription_id"`
+		Message        string `json:"message"`
+	}
+	if err := json.Unmarshal(params, &envelope); err != nil || envelope.SubscriptionID == "" {
+		return StreamError{}, false
+	}
+	return StreamError{SubscriptionID: envelope.SubscriptionID, Message: envelope.Message}, true
+}
+
 // Decode validates and decodes the control-plane run/event envelope.
 func Decode(params json.RawMessage) (Event, bool) {
 	var envelope struct {
-		Event struct {
+		SubscriptionID string `json:"subscription_id"`
+		Event          struct {
 			RunID   string          `json:"run_id"`
 			Seq     int             `json:"seq"`
 			Type    string          `json:"type"`
@@ -54,20 +77,24 @@ func Decode(params json.RawMessage) (Event, bool) {
 	if err := json.Unmarshal(params, &envelope); err != nil {
 		return Event{}, false
 	}
-	if envelope.Event.Type == "" {
+	// Durable RunEvent sequence numbers are strictly positive by schema.
+	// Rejecting legacy/unsequenced wire events keeps overflow replay sound:
+	// every accepted notification can be reconstructed from the Journal.
+	if envelope.Event.Type == "" || envelope.Event.Seq <= 0 {
 		return Event{}, false
 	}
 	return Event{
-		RunID:   envelope.Event.RunID,
-		Seq:     envelope.Event.Seq,
-		Type:    envelope.Event.Type,
-		Payload: envelope.Event.Payload,
+		SubscriptionID: envelope.SubscriptionID,
+		RunID:          envelope.Event.RunID,
+		Seq:            envelope.Event.Seq,
+		Type:           envelope.Event.Type,
+		Payload:        envelope.Event.Payload,
 	}, true
 }
 
 // Interpret converts a normalized event to a render-oriented notice.
 func Interpret(event Event) Notice {
-	base := Notice{RunID: event.RunID, Seq: event.Seq}
+	base := Notice{SubscriptionID: event.SubscriptionID, RunID: event.RunID, Seq: event.Seq}
 	switch event.Type {
 	case "model.delta":
 		base.Kind = "delta"

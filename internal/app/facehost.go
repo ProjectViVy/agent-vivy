@@ -46,6 +46,7 @@ func RunFaceWithAppOptions(ctx context.Context, cfg config.Config, ctor plugin.F
 	if err != nil {
 		return plugin.FaceResult{}, err
 	}
+	defer peer.Close()
 	env.peer = peer
 	return ctor(opts).Run(ctx, env)
 }

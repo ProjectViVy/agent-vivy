@@ -124,6 +124,9 @@ func baseScript() map[string]func(json.RawMessage) (any, error) {
 		"run/subscribe": func(json.RawMessage) (any, error) {
 			return map[string]string{"subscription_id": "sub_1"}, nil
 		},
+		"run/unsubscribe": func(json.RawMessage) (any, error) {
+			return map[string]bool{"unsubscribed": true}, nil
+		},
 		"run/cancel": func(json.RawMessage) (any, error) {
 			return map[string]string{"status": "cancelling"}, nil
 		},
@@ -591,7 +594,9 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 
 	env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "hi"})
 	env.deliver(t, "run_1", "run.completed", map[string]any{})
-	_, _ = live.drainEvents()
+	for live.inbox.Len() > 0 {
+		_, _ = live.drainEvents()
+	}
 
 	if live.Meta().Busy {
 		t.Fatal("busy should clear")
@@ -614,19 +619,23 @@ func TestLiveEventQueueDoesNotDropBurst(t *testing.T) {
 	live.busy = true
 	live.runID = "run_1"
 	live.mu.Unlock()
-	for i := 0; i < 512; i++ {
+	// Leave one inbox slot for the terminal event; a burst within the
+	// configured bound must remain lossless.
+	for i := 0; i < 511; i++ {
 		env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "x"})
 	}
 	env.deliver(t, "run_1", "run.completed", map[string]any{})
-	_, _ = live.drainEvents()
+	for live.inbox.Len() > 0 {
+		_, _ = live.drainEvents()
+	}
 	var got string
 	for _, msg := range live.ActiveMessages() {
 		if msg.Role == roleAssistant {
 			got += msg.Content
 		}
 	}
-	if len(got) != 512 {
-		t.Fatalf("delta length = %d, want 512", len(got))
+	if len(got) != 511 {
+		t.Fatalf("delta length = %d, want 511", len(got))
 	}
 	if live.Meta().Busy {
 		t.Fatal("terminal event was not applied")

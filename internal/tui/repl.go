@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tui/surface"
 	"agent-vivy/sdk/tui/command"
+	"agent-vivy/sdk/tui/stream"
 )
 
 const banner = `vivy tui  —  control-plane client, not a second kernel
@@ -66,27 +68,33 @@ func RunREPL(ctx context.Context, client *Client, opts Options) error {
 		session:      session,
 		thinkingMode: "auto",
 		events:       make(chan eventNotice, 64),
+		streamErrors: make(chan stream.StreamError, 4),
+		streamLost:   make(chan struct{}, 1),
 	}
 	client.OnNotify(func(method string, params json.RawMessage) {
-		if method != "run/event" {
-			return
-		}
-		event, ok := decodeStreamEvent(params)
-		if !ok {
-			return
-		}
-		notice := interpret(event)
-		if notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
-			return
-		}
-		select {
-		case repl.events <- notice:
-		case <-ctx.Done():
+		switch method {
+		case "run/event":
+			event, ok := decodeStreamEvent(params)
+			if !ok {
+				return
+			}
+			notice := interpret(event)
+			if notice.Seq == 0 && notice.Kind == "" && notice.Delta == "" && notice.Gate == nil && !notice.Done {
+				return
+			}
+			repl.enqueueEvent(ctx, notice)
+		case "run/stream_error":
+			failure, ok := stream.DecodeStreamError(params)
+			if !ok {
+				return
+			}
+			repl.enqueueStreamError(ctx, failure)
 		}
 	})
 
 	fmt.Fprint(out, banner)
 	fmt.Fprintf(out, "session %s  (%s)\n", session.ID, session.PermissionPreset)
+	defer repl.closeSubscription()
 	return repl.loop(ctx)
 }
 
@@ -98,10 +106,12 @@ type repl struct {
 	// thinkingMode is a draft preference and is snapshotted by sendTurn.
 	thinkingMode string
 
-	mu      sync.Mutex
-	busy    bool
-	runID   string
-	pending *gatePrompt
+	mu             sync.Mutex
+	busy           bool
+	runID          string
+	cursor         stream.Cursor
+	subscriptionID string
+	pending        *gatePrompt
 	// pendingDelete is a local confirmation barrier. A delete command never
 	// mutates a session until the following line is an explicit y/yes.
 	pendingDelete string
@@ -113,7 +123,9 @@ type repl struct {
 	// The bytes remain server-owned until turn/start resolves the paths.
 	attachments []surface.Attachment
 
-	events chan eventNotice
+	events       chan eventNotice
+	streamErrors chan stream.StreamError
+	streamLost   chan struct{}
 }
 
 type pendingMutationCommand struct {
@@ -958,13 +970,20 @@ func (r *repl) sendTurnWithContext(ctx context.Context, text string, contextPath
 	r.mu.Lock()
 	r.attachments = nil
 	r.mu.Unlock()
-	if err := r.client.subscribe(ctx, accepted.RunID, 0); err != nil {
-		fmt.Fprintf(r.out, "turn accepted as %s; subscribe: %v\n", accepted.RunID, err)
-		return nil
-	}
 	r.mu.Lock()
 	r.busy = true
 	r.runID = accepted.RunID
+	r.cursor.Reset()
+	r.subscriptionID = ""
+	r.mu.Unlock()
+	subscriptionID, err := r.subscribeInitial(ctx, accepted.RunID)
+	if err != nil {
+		fmt.Fprintf(r.out, "turn accepted as %s; subscribe: %v\n", accepted.RunID, err)
+		r.abandonAcceptedRun(ctx, accepted.RunID)
+		return nil
+	}
+	r.mu.Lock()
+	r.subscriptionID = subscriptionID
 	r.mu.Unlock()
 	fmt.Fprint(r.out, "vivy: ")
 	return r.drainRun(ctx)
@@ -990,13 +1009,20 @@ func (r *repl) sendShell(ctx context.Context, script string) error {
 		fmt.Fprintf(r.out, "shell: %v\n", err)
 		return nil
 	}
-	if err := r.client.subscribe(ctx, accepted.RunID, 0); err != nil {
-		fmt.Fprintf(r.out, "shell accepted as %s; subscribe: %v\n", accepted.RunID, err)
-		return nil
-	}
 	r.mu.Lock()
 	r.busy = true
 	r.runID = accepted.RunID
+	r.cursor.Reset()
+	r.subscriptionID = ""
+	r.mu.Unlock()
+	subscriptionID, err := r.subscribeInitial(ctx, accepted.RunID)
+	if err != nil {
+		fmt.Fprintf(r.out, "shell accepted as %s; subscribe: %v\n", accepted.RunID, err)
+		r.abandonAcceptedRun(ctx, accepted.RunID)
+		return nil
+	}
+	r.mu.Lock()
+	r.subscriptionID = subscriptionID
 	r.mu.Unlock()
 	fmt.Fprint(r.out, "vivy: ")
 	return r.drainRun(ctx)
@@ -1008,6 +1034,12 @@ func normalizeREPLThinking(mode string) string {
 		return mode
 	}
 	return "auto"
+}
+
+func (r *repl) subscribeInitial(ctx context.Context, runID string) (string, error) {
+	subscribeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	return r.client.subscribe(subscribeCtx, runID, 0)
 }
 
 func nextREPLThinking(current string) string {
@@ -1026,7 +1058,57 @@ func (r *repl) drainRun(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-r.streamLost:
+			r.discardEventBacklog()
+			r.mu.Lock()
+			runID, afterSeq := r.runID, r.cursor.LastSeq
+			r.mu.Unlock()
+			fmt.Fprint(r.out, "\nstream backlog exceeded; replaying durable events")
+			if err := r.recoverSubscription(ctx, runID, afterSeq); err != nil {
+				return r.stopRunAfterRecoveryFailure(ctx, runID, err)
+			}
+		case failure := <-r.streamErrors:
+			r.mu.Lock()
+			if failure.SubscriptionID != r.subscriptionID || r.runID == "" {
+				r.mu.Unlock()
+				continue
+			}
+			r.subscriptionID = ""
+			runID, afterSeq := r.runID, r.cursor.LastSeq
+			r.mu.Unlock()
+			unsubscribeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			r.unsubscribeWithRetry(unsubscribeCtx, failure.SubscriptionID)
+			cancel()
+			if strings.TrimSpace(failure.Message) == "" {
+				failure.Message = "event replay failed"
+			}
+			fmt.Fprintf(r.out, "\nstream replay: %s", failure.Message)
+			if err := r.recoverSubscription(ctx, runID, afterSeq); err != nil {
+				return r.stopRunAfterRecoveryFailure(ctx, runID, err)
+			}
 		case notice := <-r.events:
+			r.mu.Lock()
+			activeRunID := r.runID
+			if notice.RunID != "" && notice.RunID != activeRunID {
+				r.mu.Unlock()
+				continue
+			}
+			if notice.SubscriptionID != "" && r.subscriptionID != "" && notice.SubscriptionID != r.subscriptionID {
+				r.mu.Unlock()
+				continue
+			}
+			accept, gap := r.cursor.Accept(activeRunID, stream.Notice(notice))
+			afterSeq := r.cursor.LastSeq
+			r.mu.Unlock()
+			if gap {
+				if err := r.recoverSubscription(ctx, activeRunID, afterSeq); err != nil {
+					return r.stopRunAfterRecoveryFailure(ctx, activeRunID, err)
+				}
+				continue
+			}
+			if !accept {
+				continue
+			}
 			if notice.Delta != "" {
 				fmt.Fprint(r.out, notice.Delta)
 			}
@@ -1050,12 +1132,160 @@ func (r *repl) drainRun(ctx context.Context) error {
 					fmt.Fprintln(r.out)
 				}
 				r.mu.Lock()
+				subscriptionID := r.subscriptionID
 				r.busy = false
 				r.runID = ""
+				r.subscriptionID = ""
+				r.cursor.Reset()
 				r.pending = nil
 				r.mu.Unlock()
+				if subscriptionID != "" {
+					unsubscribeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					r.unsubscribeWithRetry(unsubscribeCtx, subscriptionID)
+					cancel()
+				}
 				return nil
 			}
+		}
+	}
+}
+
+func (r *repl) recoverSubscription(ctx context.Context, runID string, afterSeq int) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, time.Second)
+		subscriptionID, err := r.client.subscribe(attemptCtx, runID, afterSeq)
+		cancel()
+		if err == nil {
+			r.mu.Lock()
+			if r.runID != runID {
+				r.mu.Unlock()
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				r.unsubscribeWithRetry(cleanupCtx, subscriptionID)
+				cleanupCancel()
+				return nil
+			}
+			previous := r.subscriptionID
+			r.subscriptionID = subscriptionID
+			r.mu.Unlock()
+			if previous != "" && previous != subscriptionID {
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				r.unsubscribeWithRetry(cleanupCtx, previous)
+				cleanupCancel()
+			}
+			return nil
+		}
+		lastErr = err
+		fmt.Fprintf(r.out, "\nstream replay: %v", err)
+		if attempt == 2 {
+			break
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return fmt.Errorf("subscription unavailable after 3 attempts: %w", lastErr)
+}
+
+func (r *repl) enqueueEvent(ctx context.Context, notice eventNotice) {
+	select {
+	case r.events <- notice:
+		return
+	case <-ctx.Done():
+		return
+	default:
+	}
+	select {
+	case r.streamLost <- struct{}{}:
+	default:
+	}
+}
+
+func (r *repl) enqueueStreamError(ctx context.Context, failure stream.StreamError) {
+	select {
+	case r.streamErrors <- failure:
+		return
+	case <-ctx.Done():
+		return
+	default:
+	}
+	select {
+	case r.streamLost <- struct{}{}:
+	default:
+	}
+}
+
+func (r *repl) discardEventBacklog() {
+	for {
+		select {
+		case <-r.events:
+		default:
+			return
+		}
+	}
+}
+
+func (r *repl) stopRunAfterRecoveryFailure(ctx context.Context, runID string, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	fmt.Fprintf(r.out, "\nstream recovery stopped: %v\n", err)
+	r.mu.Lock()
+	subscriptionID := r.subscriptionID
+	r.subscriptionID = ""
+	r.mu.Unlock()
+	if subscriptionID != "" {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		r.unsubscribeWithRetry(cleanupCtx, subscriptionID)
+		cancel()
+	}
+	r.abandonAcceptedRun(ctx, runID)
+	return nil
+}
+
+func (r *repl) abandonAcceptedRun(ctx context.Context, runID string) {
+	r.mu.Lock()
+	if r.runID == runID {
+		r.busy = false
+		r.runID = ""
+		r.subscriptionID = ""
+		r.cursor.Reset()
+	}
+	r.mu.Unlock()
+	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	_ = r.client.cancelRun(cancelCtx, runID)
+	cancel()
+}
+
+func (r *repl) closeSubscription() {
+	r.mu.Lock()
+	subscriptionID := r.subscriptionID
+	r.subscriptionID = ""
+	r.mu.Unlock()
+	if subscriptionID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	r.unsubscribeWithRetry(ctx, subscriptionID)
+	cancel()
+}
+
+func (r *repl) unsubscribeWithRetry(ctx context.Context, subscriptionID string) {
+	if subscriptionID == "" {
+		return
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := r.client.unsubscribe(ctx, subscriptionID); err == nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
 }

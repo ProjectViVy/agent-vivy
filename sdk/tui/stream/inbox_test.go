@@ -35,11 +35,62 @@ func TestInboxCloseRejectsRacingLatePush(t *testing.T) {
 	var inbox Inbox
 	inbox.Push(Notice{Seq: 1})
 	inbox.Close()
-	if inbox.Push(Notice{Seq: 2}) || inbox.Len() != 0 || len(inbox.Take()) != 0 {
+	if inbox.Push(Notice{Seq: 2}) != PushClosed || inbox.Len() != 0 || len(inbox.Take()) != 0 {
 		t.Fatalf("closed inbox accepted data: len=%d", inbox.Len())
 	}
 	inbox.Prepend([]Notice{{Seq: 3}})
 	if inbox.Len() != 0 {
 		t.Fatalf("closed inbox accepted prepend: len=%d", inbox.Len())
+	}
+}
+
+func TestInboxBoundsMemoryAndReportsReplayRequired(t *testing.T) {
+	inbox := NewInbox(3)
+	for seq := 1; seq <= 3; seq++ {
+		if inbox.Push(Notice{Seq: seq}) != PushAccepted {
+			t.Fatalf("seq %d rejected before capacity", seq)
+		}
+	}
+	if inbox.Push(Notice{Seq: 4}) != PushReplayRequired {
+		t.Fatal("overflowing notice was retained")
+	}
+	pending, overflow := inbox.TakeWithOverflow()
+	if !overflow || len(pending) != 0 {
+		t.Fatalf("pending=%+v overflow=%v", pending, overflow)
+	}
+	if pending, overflow = inbox.TakeWithOverflow(); overflow || len(pending) != 0 {
+		t.Fatalf("overflow fence did not reset: pending=%+v overflow=%v", pending, overflow)
+	}
+}
+
+func TestInboxPrependKeepsEarliestBoundedReplayPrefix(t *testing.T) {
+	inbox := NewInbox(3)
+	inbox.Push(Notice{Seq: 5})
+	inbox.Prepend([]Notice{{Seq: 2}, {Seq: 3}, {Seq: 4}})
+	pending, overflow := inbox.TakeWithOverflow()
+	if !overflow || len(pending) != 0 {
+		t.Fatalf("pending=%+v overflow=%v", pending, overflow)
+	}
+}
+
+func TestInboxBoundsUTF8BytesAndDrainWork(t *testing.T) {
+	inbox := NewBoundedInbox(10, 8)
+	if inbox.Push(Notice{Delta: "四字"}) != PushAccepted { // six UTF-8 bytes
+		t.Fatal("first notice rejected")
+	}
+	if inbox.Push(Notice{Delta: "界"}) != PushReplayRequired {
+		t.Fatal("byte overflow did not request replay")
+	}
+	if pending, replay := inbox.TakeWithOverflow(); !replay || len(pending) != 0 {
+		t.Fatalf("pending=%+v replay=%v", pending, replay)
+	}
+
+	inbox = NewBoundedInbox(10, 1024)
+	for seq := 1; seq <= 5; seq++ {
+		inbox.Push(Notice{Seq: seq, Delta: "x"})
+	}
+	batch, replay := inbox.TakeBatch(2, 1024)
+	if replay || len(batch) != 2 || batch[1].Seq != 2 || inbox.Len() != 3 {
+		t.Fatalf("batch=%+v replay=%v remaining=%d", batch, replay, inbox.Len())
 	}
 }
