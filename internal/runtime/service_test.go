@@ -49,6 +49,53 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	return svc, backend, sink
 }
 
+func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
+	svc := NewService(nil, "openai", "old-model", ServiceDeps{})
+	persisted := false
+	if err := svc.ChangeModelWhenIdle("anthropic", "new-model", func() error {
+		persisted = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted {
+		t.Fatal("model persistence callback was not called")
+	}
+	if providerName, modelID := svc.CurrentModel(); providerName != "anthropic" || modelID != "new-model" {
+		t.Fatalf("current model = %q/%q", providerName, modelID)
+	}
+
+	sentinel := errors.New("save failed")
+	if err := svc.ChangeModelWhenIdle("openai", "broken", func() error { return sentinel }); !errors.Is(err, sentinel) {
+		t.Fatalf("persist failure = %v", err)
+	}
+	if providerName, modelID := svc.CurrentModel(); providerName != "anthropic" || modelID != "new-model" {
+		t.Fatalf("failed persistence changed model = %q/%q", providerName, modelID)
+	}
+
+	svc.mu.Lock()
+	svc.active["run-active"] = func() {}
+	svc.mu.Unlock()
+	called := false
+	if err := svc.ChangeModelWhenIdle("openai", "later", func() error { called = true; return nil }); !errors.Is(err, ErrModelChangeBusy) {
+		t.Fatalf("active run model change = %v", err)
+	}
+	if called {
+		t.Fatal("busy model change called persistence")
+	}
+	svc.mu.Lock()
+	delete(svc.active, "run-active")
+	svc.snapshots["child-active"] = domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Hash: "hash"}
+	svc.mu.Unlock()
+	if err := svc.ChangeModelWhenIdle("openai", "later", func() error { return nil }); !errors.Is(err, ErrModelChangeBusy) {
+		t.Fatalf("child worker model change = %v", err)
+	}
+	svc.cleanupRunState("child-active")
+	if err := svc.ChangeModelWhenIdle("openai", "after-cleanup", func() error { return nil }); err != nil {
+		t.Fatalf("cleanup left model selection permanently busy: %v", err)
+	}
+}
+
 // testSink collects published events. The bus never delivers terminal
 // events (it closes its subscribers instead), so the snapshot must stay
 // terminal-free; the journal remains the place to assert the close.

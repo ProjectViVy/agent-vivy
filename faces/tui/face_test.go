@@ -33,6 +33,61 @@ func TestMapHistoryMergesDurableShellToolPair(t *testing.T) {
 	}
 }
 
+func TestPackedFaceModelCatalogMatchesSharedContract(t *testing.T) {
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){
+		"settings/providers": func(json.RawMessage) (any, error) {
+			return map[string]any{
+				"entries":         []map[string]any{{"display_name": "Custom", "bundle": "compatible", "base_url": "https://private.invalid/v1", "default_model": "model-a", "models": []string{"model-a", "model-b"}}},
+				"bundles":         []map[string]any{{"display_name": "OpenAI", "bundle": "openai", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}}},
+				"active_provider": "compatible", "active_model": "model-a", "active_base_url": "https://private.invalid/v1",
+				"config_provider": "openai", "config_model": "gpt-default",
+			}, nil
+		},
+		"settings/model/select": func(raw json.RawMessage) (any, error) {
+			var params map[string]string
+			_ = json.Unmarshal(raw, &params)
+			if params["model"] != "model-b" || params["base_url"] != "https://private.invalid/v1" {
+				t.Fatalf("select params = %#v", params)
+			}
+			return map[string]any{
+				"entries":         []map[string]any{{"display_name": "Custom", "bundle": "compatible", "base_url": "https://private.invalid/v1", "default_model": "model-a", "models": []string{"model-a", "model-b"}}},
+				"bundles":         []map[string]any{{"display_name": "OpenAI", "bundle": "openai", "default_model": "gpt-default", "models": []string{"gpt-default", "gpt-extra"}}},
+				"active_provider": "compatible", "active_model": "model-b", "active_base_url": "https://private.invalid/v1",
+			}, nil
+		},
+	}}
+	client := newClient(env)
+	client.mu.Lock()
+	client.caps = map[string]struct{}{"settings.model.select": {}}
+	client.mu.Unlock()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+
+	listed := mustMsg[surface.ModelsMsg](t, live.RefreshModels(3))
+	live.Handle(listed)
+	catalog := live.ModelCatalog()
+	if listed.Err != nil || len(catalog.Options) != 4 || !catalog.Options[0].Current {
+		t.Fatalf("catalog = %+v err=%v", catalog, listed.Err)
+	}
+	var target surface.ModelOption
+	for _, option := range catalog.Options {
+		if option.Model == "model-b" {
+			target = option
+		}
+	}
+	selected := mustMsg[surface.ModelSelectedMsg](t, live.SelectModel(4, target))
+	live.mu.Lock()
+	live.activeID = "session-model"
+	live.sessions = []surface.Session{{ID: "session-model"}}
+	live.mu.Unlock()
+	if refresh := live.Handle(selected); refresh == nil {
+		t.Fatal("successful model selection did not schedule sidebar refresh")
+	}
+	if selected.Err != nil || live.ModelCatalog().Options[0].Model != "model-b" || !live.ModelCatalog().Options[0].Current {
+		t.Fatalf("selected = %+v catalog=%+v", selected, live.ModelCatalog())
+	}
+}
+
 // fakeEnv is a scripted plugin.FaceEnv: Call consults script, OnEvent
 // captures the notification handler, and deliver pushes a run/event
 // envelope as the control plane would.

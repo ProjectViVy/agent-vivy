@@ -64,6 +64,14 @@ type Model struct {
 	commandPaletteFilter string
 	commandPaletteCursor int
 
+	modelPickerOpen      bool
+	modelPickerLoading   bool
+	modelPickerSelecting bool
+	modelPickerFilter    string
+	modelPickerCursor    int
+	modelPickerError     string
+	modelPickerRequest   uint64
+
 	fileCompletionOpen       bool
 	fileCompletionLoading    bool
 	fileCompletionQuery      string
@@ -126,6 +134,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.fileCompletionOpen && m.driver.PendingGate() != nil {
 		m.closeFileCompletion()
 	}
+	if m.modelPickerOpen && m.driver.PendingGate() != nil {
+		m.closeModelPicker()
+	}
 	if m.fileCompletionOpen && m.fileCompletionSessionID != m.driver.Active().ID {
 		m.closeFileCompletion()
 	}
@@ -153,6 +164,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyCommandResult(msg)
 	case surface.ProjectFilesMsg:
 		m.applyProjectFilesMsg(msg)
+	case surface.ModelsMsg:
+		m.applyModelsMsg(msg)
+	case surface.ModelSelectedMsg:
+		m.applyModelSelectedMsg(msg)
 	case fileCompletionStartMsg:
 		if m.fileCompletionOpen && msg.Request == m.fileCompletionRequest && msg.Query == m.fileCompletionQuery && msg.SessionID == m.fileCompletionSessionID {
 			if completer, ok := m.driver.(surface.ProjectFileCompleter); ok {
@@ -189,7 +204,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 const sidebarWheelStep = 3
 
 func (m *Model) handleMouse(msg tea.MouseMsg) {
-	if m.driver.PendingGate() != nil || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" {
+	if m.driver.PendingGate() != nil || m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" {
 		return
 	}
 	if msg.Action != tea.MouseActionPress {
@@ -281,8 +296,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.fileCompletionOpen {
 		m.closeFileCompletion()
 	}
+	if gate != nil && m.modelPickerOpen {
+		m.closeModelPicker()
+	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
+	}
+	if gate == nil && m.modelPickerOpen {
+		return m.handleModelPickerKey(msg)
 	}
 	if gate == nil && m.commandConfirmName != "" {
 		return m.handleCommandConfirmation(msg)
@@ -347,6 +368,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyCtrlP:
 		if gate == nil {
 			m.openCommandPalette()
+		}
+		return m, nil
+	case tea.KeyCtrlL:
+		if gate == nil {
+			return m.openModelPicker("")
 		}
 		return m, nil
 	case tea.KeyEsc:
@@ -718,9 +744,175 @@ func (m Model) filteredProjectFiles() []surface.FileContext {
 
 func (m *Model) openCommandPalette() {
 	m.closeFileCompletion()
+	m.closeModelPicker()
 	m.commandPaletteOpen = true
 	m.commandPaletteFilter = ""
 	m.commandPaletteCursor = 0
+}
+
+func (m Model) modelSelectionAvailable() bool {
+	controller, ok := m.driver.(surface.ModelController)
+	return ok && controller.SupportsModelSelection()
+}
+
+func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
+	if !m.modelSelectionAvailable() {
+		return m.showCommandError(fmt.Errorf("model selection is unavailable")), nil
+	}
+	meta := m.driver.Meta()
+	if m.driver.PendingGate() != nil {
+		return m.showCommandError(fmt.Errorf("a pending gate must be answered first")), nil
+	}
+	if meta.Busy || meta.Queued > 0 {
+		return m.showCommandError(fmt.Errorf("finish or cancel active and queued work before changing models")), nil
+	}
+	controller := m.driver.(surface.ModelController)
+	m.closeCommandPalette()
+	m.closeFileCompletion()
+	m.sessionsOpen = false
+	m.commandOverlayTitle = ""
+	m.commandOverlay = ""
+	m.modelPickerOpen = true
+	m.modelPickerLoading = true
+	m.modelPickerSelecting = false
+	m.modelPickerFilter = sanitizeCommandPaletteFilter(filter)
+	m.modelPickerCursor = 0
+	m.modelPickerError = ""
+	m.modelPickerRequest++
+	request := m.modelPickerRequest
+	if cmd := controller.RefreshModels(request); cmd != nil {
+		return m, cmd
+	}
+	m.modelPickerLoading = false
+	m.modelPickerError = "model catalog is unavailable"
+	return m, nil
+}
+
+func (m *Model) closeModelPicker() {
+	m.modelPickerOpen = false
+	m.modelPickerLoading = false
+	m.modelPickerSelecting = false
+	m.modelPickerFilter = ""
+	m.modelPickerCursor = 0
+	m.modelPickerError = ""
+	m.modelPickerRequest++
+}
+
+func (m *Model) applyModelsMsg(msg surface.ModelsMsg) {
+	if !m.modelPickerOpen || msg.Request != m.modelPickerRequest {
+		return
+	}
+	m.modelPickerLoading = false
+	m.modelPickerCursor = 0
+	if msg.Err != nil {
+		m.modelPickerError = msg.Err.Error()
+		return
+	}
+	m.modelPickerError = ""
+	rows := m.filteredModels()
+	for i, row := range rows {
+		if row.Current {
+			m.modelPickerCursor = i
+			break
+		}
+	}
+}
+
+func (m *Model) applyModelSelectedMsg(msg surface.ModelSelectedMsg) {
+	if !m.modelPickerOpen || msg.Request != m.modelPickerRequest {
+		return
+	}
+	m.modelPickerSelecting = false
+	if msg.Err != nil {
+		m.modelPickerError = msg.Err.Error()
+		return
+	}
+	m.closeModelPicker()
+}
+
+func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+	if m.modelPickerSelecting {
+		// Selection is a global, server-confirmed transition. Keep the modal
+		// until its result arrives so Esc cannot expose the editor and race a
+		// new turn against an in-flight model change.
+		return m, nil
+	}
+	if msg.Type == tea.KeyEsc {
+		m.closeModelPicker()
+		return m, nil
+	}
+	switch msg.Type {
+	case tea.KeyUp, tea.KeyCtrlP:
+		m.moveModelPickerCursor(-1)
+	case tea.KeyDown, tea.KeyCtrlN:
+		m.moveModelPickerCursor(1)
+	case tea.KeyBackspace:
+		m.modelPickerFilter = removeLastRune(m.modelPickerFilter)
+		m.modelPickerCursor = 0
+	case tea.KeySpace:
+		m.modelPickerFilter = sanitizeCommandPaletteFilter(m.modelPickerFilter + " ")
+		m.modelPickerCursor = 0
+	case tea.KeyEnter, tea.KeyCtrlY:
+		rows := m.filteredModels()
+		if m.modelPickerLoading || len(rows) == 0 {
+			return m, nil
+		}
+		catalog := m.driver.(surface.ModelController).ModelCatalog()
+		if catalog.ReadOnly || catalog.Frozen {
+			m.modelPickerError = "model selection is read-only in this deployment"
+			return m, nil
+		}
+		cursor := min(max(0, m.modelPickerCursor), len(rows)-1)
+		if rows[cursor].Current {
+			m.closeModelPicker()
+			return m, nil
+		}
+		m.modelPickerRequest++
+		request := m.modelPickerRequest
+		m.modelPickerSelecting = true
+		m.modelPickerError = ""
+		if cmd := m.driver.(surface.ModelController).SelectModel(request, rows[cursor]); cmd != nil {
+			return m, cmd
+		}
+		m.modelPickerSelecting = false
+		m.modelPickerError = "model selection is unavailable"
+	case tea.KeyRunes:
+		m.modelPickerFilter = sanitizeCommandPaletteFilter(m.modelPickerFilter + string(msg.Runes))
+		m.modelPickerCursor = 0
+	}
+	return m, nil
+}
+
+func (m *Model) moveModelPickerCursor(delta int) {
+	rows := m.filteredModels()
+	if len(rows) == 0 {
+		m.modelPickerCursor = 0
+		return
+	}
+	m.modelPickerCursor = (m.modelPickerCursor + delta) % len(rows)
+	if m.modelPickerCursor < 0 {
+		m.modelPickerCursor += len(rows)
+	}
+}
+
+func (m Model) filteredModels() []surface.ModelOption {
+	controller, ok := m.driver.(surface.ModelController)
+	if !ok {
+		return nil
+	}
+	needle := strings.ToLower(strings.TrimSpace(m.modelPickerFilter))
+	options := controller.ModelCatalog().Options
+	rows := make([]surface.ModelOption, 0, len(options))
+	for _, option := range options {
+		haystack := strings.ToLower(safeModelLabel(option.DisplayName) + " " + safeModelLabel(option.Provider) + " " + safeModelLabel(option.Model))
+		if needle == "" || fuzzyContains(haystack, needle) {
+			rows = append(rows, option)
+		}
+	}
+	return rows
 }
 
 func (m *Model) closeCommandPalette() {
@@ -907,6 +1099,8 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			return m.showCommandError(fmt.Errorf("usage: /sessions")), nil
 		}
 		return m.openSessions()
+	case "model":
+		return m.openModelPicker(strings.Join(args, " "))
 	case "new":
 		if len(args) > 1 && strings.TrimSpace(strings.Join(args, " ")) == "" {
 			return m.showCommandError(fmt.Errorf("usage: /new [title]")), nil
@@ -1250,6 +1444,7 @@ func (m Model) statusText() string {
 
 func (m Model) openSessions() (Model, tea.Cmd) {
 	m.closeFileCompletion()
+	m.closeModelPicker()
 	m.sessionsOpen = true
 	m.sessionRows = append([]surface.Session(nil), m.driver.Sessions()...)
 	m.sessionFilter = ""

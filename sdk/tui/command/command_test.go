@@ -161,7 +161,7 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 	if !errors.As(err, &unknown) || unknown.Name != "does-not-exist" {
 		t.Fatalf("unknown error = %T %v, want UnknownCommandError", err, err)
 	}
-	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/thinking [auto|on|off]") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
+	if !strings.Contains(r.Help(), "/permission") || !strings.Contains(r.Help(), "/thinking [auto|on|off]") || !strings.Contains(r.Help(), "/model [filter]") || !strings.Contains(r.Help(), "/queue clear") || !strings.Contains(r.Help(), "/stats [period]") {
 		t.Fatalf("help missing builtins:\n%s", r.Help())
 	}
 }

@@ -84,6 +84,31 @@ func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
 	}
 }
 
+func TestProviderConfigBaselineSurvivesSettingsOverlay(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
+		Providers: config.Providers{
+			Active:    settings.ProviderOpenAI,
+			OpenAI:    config.Provider{DefaultModel: "gpt-config"},
+			Anthropic: config.Provider{DefaultModel: "claude-config"},
+		},
+	}
+	path := settings.Path(dir)
+	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderAnthropic, DefaultModel: "claude-overlay"}); err != nil {
+		t.Fatal(err)
+	}
+	providerName, modelID := providerConfigBaseline(cfg)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	applied := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
+	if providerName != settings.ProviderOpenAI || modelID != "gpt-config" {
+		t.Fatalf("captured baseline = %q/%q", providerName, modelID)
+	}
+	if applied.Providers.Active != settings.ProviderAnthropic || applied.Providers.Anthropic.DefaultModel != "claude-overlay" {
+		t.Fatalf("overlay was not independently applied: %+v", applied.Providers)
+	}
+}
+
 func TestApplySettingsOverlayAppliesProviderSelection(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{

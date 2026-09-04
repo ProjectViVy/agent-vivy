@@ -241,6 +241,49 @@ type ThinkingController interface {
 	SetThinkingMode(mode string) error
 }
 
+// ModelOption is one server-authorized model selection. BaseURL is carried
+// back to the control plane as opaque selection identity and is deliberately
+// never rendered by the terminal face.
+type ModelOption struct {
+	Provider    string
+	Model       string
+	BaseURL     string
+	DisplayName string
+	Current     bool
+}
+
+// ModelCatalog is the complete redacted candidate set returned by
+// settings/providers. ReadOnly and Frozen keep the catalog browsable while
+// making selection fail closed.
+type ModelCatalog struct {
+	Options  []ModelOption
+	ReadOnly bool
+	Frozen   bool
+}
+
+// ModelController owns the global active-model picker. Requests are echoed
+// in result messages so a closed/reopened dialog cannot consume stale RPC
+// results.
+type ModelController interface {
+	SupportsModelSelection() bool
+	ModelCatalog() ModelCatalog
+	RefreshModels(request uint64) tea.Cmd
+	SelectModel(request uint64, option ModelOption) tea.Cmd
+}
+
+type ModelsMsg struct {
+	Request uint64
+	Catalog ModelCatalog
+	Err     error
+}
+
+type ModelSelectedMsg struct {
+	Request uint64
+	Option  ModelOption
+	Catalog ModelCatalog
+	Err     error
+}
+
 // AttachmentProvider supplies the pending draft images owned by the active
 // session. It is optional so offline/demo drivers can keep the base surface
 // small; the shared renderer only shows chips when the driver has an

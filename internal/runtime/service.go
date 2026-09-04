@@ -204,6 +204,10 @@ type Service struct {
 	cronInit sync.Mutex
 }
 
+// ErrModelChangeBusy means a model selection cannot be changed while any
+// main, suspended, shell, or child run may still issue another model call.
+var ErrModelChangeBusy = errors.New("runtime: model cannot change while runs are active or suspended")
+
 type pendingRun struct {
 	sessionID     domain.SessionID
 	mapper        *eventMapper
@@ -307,6 +311,32 @@ func (s *Service) SetModel(providerName, modelID string) {
 	s.provider = providerName
 	s.modelID = modelID
 	s.mu.Unlock()
+}
+
+// ChangeModelWhenIdle serializes a persisted model selection with every run
+// and child-process startup. persist runs while the startup fence is held;
+// only after it succeeds are the run.started labels changed. This prevents a
+// settings write from switching the provider between model steps of one run.
+func (s *Service) ChangeModelWhenIdle(providerName, modelID string, persist func() error) error {
+	if s == nil || persist == nil {
+		return errors.New("runtime: model change is not wired")
+	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	s.mu.Lock()
+	busy := len(s.active) != 0 || len(s.pending) != 0 || len(s.shellPending) != 0 || len(s.snapshots) != 0
+	s.mu.Unlock()
+	if busy {
+		return ErrModelChangeBusy
+	}
+	if err := persist(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.provider = providerName
+	s.modelID = modelID
+	s.mu.Unlock()
+	return nil
 }
 
 // CurrentModel returns the effective provider/model labels used for the next
@@ -514,8 +544,9 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	}
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	runProvider, runModel := s.CurrentModel()
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
-		Provider: s.provider, Model: s.modelID, Mode: string(mode), Face: string(face),
+		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
 		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
 		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
@@ -2521,19 +2552,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		// backend failed; either way the stored truth wins and the row
 		// must not be flipped here.
 		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
-		var shellStateRefToDelete string
-		s.mu.Lock()
-		if c, ok := s.active[terminal.RunID]; ok {
-			delete(s.active, terminal.RunID)
-			c()
-		}
-		delete(s.runSessions, terminal.RunID)
-		if pending, ok := s.shellPending[terminal.RunID]; ok {
-			delete(s.shellPending, terminal.RunID)
-			shellStateRefToDelete = pending.stateRef
-		}
-		s.mu.Unlock()
-		s.deleteShellState(shellStateRefToDelete)
+		s.cleanupRunState(terminal.RunID)
 		return
 	}
 	terminal.Seq = seq
@@ -2578,6 +2597,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	}
 	delete(s.ledgers, runID)
 	delete(s.snapshots, runID)
+	delete(s.runSessions, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 }

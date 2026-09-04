@@ -41,7 +41,9 @@ type Live struct {
 	contextRequest    uint64
 	sidebarRequest    uint64
 	permissionRequest uint64
+	modelRequest      uint64
 	loadPending       bool
+	models            surface.ModelCatalog
 
 	busy    bool
 	runID   string
@@ -452,6 +454,10 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		return l.applyCommandResult(msg)
 	case surface.SessionsMsg:
 		return l.applySessionsMsg(msg)
+	case surface.ModelsMsg:
+		l.applyModelsMsg(msg)
+	case surface.ModelSelectedMsg:
+		return l.applyModelSelectedMsg(msg)
 	case surface.ErrMsg:
 		l.mu.Lock()
 		if msg.Err != nil {
@@ -460,6 +466,75 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		l.mu.Unlock()
 	}
 	return nil
+}
+
+func cloneModelCatalog(catalog surface.ModelCatalog) surface.ModelCatalog {
+	catalog.Options = append([]surface.ModelOption(nil), catalog.Options...)
+	return catalog
+}
+
+func (l *Live) SupportsModelSelection() bool {
+	return l != nil && l.SupportsCapability("settings.model.select")
+}
+
+func (l *Live) ModelCatalog() surface.ModelCatalog {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return cloneModelCatalog(l.models)
+}
+
+func (l *Live) RefreshModels(request uint64) tea.Cmd {
+	l.mu.Lock()
+	l.modelRequest = request
+	l.mu.Unlock()
+	return func() tea.Msg {
+		if !l.SupportsModelSelection() {
+			return surface.ModelsMsg{Request: request, Err: fmt.Errorf("model selection is unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		catalog, err := l.client.modelCatalog(ctx)
+		return surface.ModelsMsg{Request: request, Catalog: catalog, Err: err}
+	}
+}
+
+func (l *Live) SelectModel(request uint64, option surface.ModelOption) tea.Cmd {
+	l.mu.Lock()
+	l.modelRequest = request
+	blocked := l.busy || l.gate != nil || l.loadPending || l.commandInFlight || len(l.queue) > 0
+	l.mu.Unlock()
+	return func() tea.Msg {
+		if blocked {
+			return surface.ModelSelectedMsg{Request: request, Option: option, Err: fmt.Errorf("finish or cancel active and queued work before changing models")}
+		}
+		if !l.SupportsModelSelection() {
+			return surface.ModelSelectedMsg{Request: request, Option: option, Err: fmt.Errorf("model selection is unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		catalog, err := l.client.selectModel(ctx, option)
+		return surface.ModelSelectedMsg{Request: request, Option: option, Catalog: catalog, Err: err}
+	}
+}
+
+func (l *Live) applyModelsMsg(msg surface.ModelsMsg) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if msg.Request != l.modelRequest || msg.Err != nil {
+		return
+	}
+	l.models = cloneModelCatalog(msg.Catalog)
+}
+
+func (l *Live) applyModelSelectedMsg(msg surface.ModelSelectedMsg) tea.Cmd {
+	l.mu.Lock()
+	if msg.Request != l.modelRequest || msg.Err != nil {
+		l.mu.Unlock()
+		return nil
+	}
+	l.models = cloneModelCatalog(msg.Catalog)
+	l.mu.Unlock()
+	return l.refreshSidebarCmd()
 }
 
 func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {

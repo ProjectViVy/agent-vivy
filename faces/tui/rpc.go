@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -81,6 +82,97 @@ type sessionView struct {
 	PermissionPreset string `json:"permission_preset"`
 	CreatedAt        int64  `json:"created_at"`
 	UpdatedAt        int64  `json:"updated_at"`
+}
+
+type providerEntryView struct {
+	DisplayName  string   `json:"display_name"`
+	Bundle       string   `json:"bundle"`
+	BaseURL      string   `json:"base_url"`
+	DefaultModel string   `json:"default_model"`
+	Models       []string `json:"models"`
+}
+
+type providersView struct {
+	Entries        []providerEntryView `json:"entries"`
+	Bundles        []providerEntryView `json:"bundles"`
+	ActiveProvider string              `json:"active_provider"`
+	ActiveModel    string              `json:"active_model"`
+	ActiveBaseURL  string              `json:"active_base_url"`
+	ReadOnly       bool                `json:"read_only"`
+	Frozen         bool                `json:"frozen"`
+	ConfigProvider string              `json:"config_provider"`
+	ConfigModel    string              `json:"config_model"`
+}
+
+func mapProvidersView(view providersView) surface.ModelCatalog {
+	currentProvider, currentModel, currentBaseURL := view.ActiveProvider, view.ActiveModel, view.ActiveBaseURL
+	if currentProvider == "" || currentModel == "" {
+		currentProvider, currentModel, currentBaseURL = view.ConfigProvider, view.ConfigModel, ""
+	}
+	options := make([]surface.ModelOption, 0)
+	seen := make(map[string]struct{})
+	add := func(provider, model, baseURL, display string) {
+		provider, model, baseURL = strings.TrimSpace(provider), strings.TrimSpace(model), strings.TrimSpace(baseURL)
+		if provider == "" || model == "" {
+			return
+		}
+		key := provider + "\x00" + model + "\x00" + baseURL
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		options = append(options, surface.ModelOption{Provider: provider, Model: model, BaseURL: baseURL, DisplayName: strings.TrimSpace(display), Current: provider == currentProvider && model == currentModel && baseURL == currentBaseURL})
+	}
+	add(view.ConfigProvider, view.ConfigModel, "", view.ConfigProvider)
+	for _, bundle := range view.Bundles {
+		add(bundle.Bundle, bundle.DefaultModel, "", bundle.DisplayName)
+		for _, model := range bundle.Models {
+			add(bundle.Bundle, model, "", bundle.DisplayName)
+		}
+	}
+	for _, entry := range view.Entries {
+		add(entry.Bundle, entry.DefaultModel, entry.BaseURL, entry.DisplayName)
+		for _, model := range entry.Models {
+			add(entry.Bundle, model, entry.BaseURL, entry.DisplayName)
+		}
+	}
+	// A legacy active selection may no longer have a registry row. Keep it
+	// visible as current, but add it last so matching configured entries retain
+	// their operator-facing display name.
+	add(currentProvider, currentModel, currentBaseURL, currentProvider)
+	sort.SliceStable(options, func(i, j int) bool {
+		if options[i].Current != options[j].Current {
+			return options[i].Current
+		}
+		left := strings.ToLower(options[i].DisplayName + "\x00" + options[i].Provider + "\x00" + options[i].Model)
+		right := strings.ToLower(options[j].DisplayName + "\x00" + options[j].Provider + "\x00" + options[j].Model)
+		return left < right
+	})
+	return surface.ModelCatalog{Options: options, ReadOnly: view.ReadOnly, Frozen: view.Frozen}
+}
+
+func (c *client) modelCatalog(ctx context.Context) (surface.ModelCatalog, error) {
+	raw, err := c.Call(ctx, "settings/providers", nil)
+	if err != nil {
+		return surface.ModelCatalog{}, err
+	}
+	var view providersView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return surface.ModelCatalog{}, fmt.Errorf("tui: settings/providers: %w", err)
+	}
+	return mapProvidersView(view), nil
+}
+
+func (c *client) selectModel(ctx context.Context, option surface.ModelOption) (surface.ModelCatalog, error) {
+	raw, err := c.Call(ctx, "settings/model/select", map[string]string{"provider": option.Provider, "model": option.Model, "base_url": option.BaseURL})
+	if err != nil {
+		return surface.ModelCatalog{}, err
+	}
+	var view providersView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return surface.ModelCatalog{}, fmt.Errorf("tui: settings/model/select: %w", err)
+	}
+	return mapProvidersView(view), nil
 }
 
 type sidebarView struct {
