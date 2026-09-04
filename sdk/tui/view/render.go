@@ -462,6 +462,23 @@ func compactNumber(n int) string {
 }
 
 func (m Model) renderChat(width, height int, p Palette) string {
+	lines := m.chatLines(width, p)
+	maxScroll := max(0, len(lines)-height)
+	offset := min(max(0, m.chatScroll), maxScroll)
+	if m.chatFollow {
+		offset = maxScroll
+	}
+	end := min(len(lines), offset+height)
+	if offset < end {
+		lines = lines[offset:end]
+	} else {
+		lines = nil
+	}
+	content := strings.Join(lines, "\n")
+	return p.Chat.Width(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
+}
+
+func (m Model) chatLines(width int, p Palette) []string {
 	messages := m.driver.ActiveMessages()
 	var lines []string
 	if len(messages) == 0 {
@@ -473,9 +490,7 @@ func (m Model) renderChat(width, height int, p Palette) string {
 			lines = append(lines, "")
 		}
 	}
-	content := strings.Join(lines, "\n")
-	content = tailBlock(content, height)
-	return p.Chat.Width(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
+	return lines
 }
 
 func renderMessage(message surface.Message, width int, p Palette) []string {
@@ -509,10 +524,15 @@ func renderMessage(message surface.Message, width int, p Palette) []string {
 	if message.Streaming {
 		text += "▌"
 	}
-	wrapped := wrapText(text, max(8, width-3))
+	contentWidth := width - lipgloss.Width(bar)
+	if contentWidth < 1 {
+		bar = ""
+		contentWidth = max(1, width)
+	}
+	wrapped := wrapText(text, contentWidth)
 	out := make([]string, 0, len(wrapped))
 	for _, line := range wrapped {
-		out = append(out, bar+style.Render(line))
+		out = append(out, ansi.Truncate(bar+style.Render(line), max(1, width), "…"))
 	}
 	return out
 }
@@ -529,18 +549,34 @@ func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 	case "denied", "failed":
 		icon = p.ToolFail.Render("✖")
 	}
-	title := fmt.Sprintf("%s %s  %s", icon, tool.ToolName, tool.Status)
+	name := strings.TrimSpace(sanitizeFileCompletionText(tool.ToolName))
+	if name == "" {
+		name = "tool"
+	}
+	status := strings.TrimSpace(sanitizeFileCompletionText(tool.Status))
+	title := fmt.Sprintf("%s %s  %s", icon, name, status)
 	body := tool.Preview
 	if tool.Status != "pending" && tool.Result != "" {
 		body = tool.Result
 	}
-	body = renderDiffBody(body, p)
-	inner := title
-	if body != "" {
-		inner += "\n" + body
+
+	const indent = 2
+	available := max(1, width-indent)
+	frame := style.GetHorizontalFrameSize()
+	if available <= frame {
+		plain := title
+		if body != "" {
+			plain += "\n" + body
+		}
+		return wrapText(plain, max(1, width))
 	}
-	boxW := max(1, min(width-4, 56))
-	box := style.Width(boxW).Render(inner)
+	contentWidth := max(1, min(52, available-frame))
+	innerLines := wrapText(title, contentWidth)
+	if body != "" {
+		bodyLines := wrapText(body, contentWidth)
+		innerLines = append(innerLines, strings.Split(renderDiffBody(strings.Join(bodyLines, "\n"), p), "\n")...)
+	}
+	box := style.Width(contentWidth).MaxWidth(available).Render(strings.Join(innerLines, "\n"))
 	indented := make([]string, 0)
 	for _, line := range strings.Split(box, "\n") {
 		indented = append(indented, "  "+line)
@@ -668,6 +704,13 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		}, parts...)
 	} else if m.sidebarCanScroll() {
 		parts = append(parts, p.HelpKey.Render("ctrl+→")+p.HelpDesc.Render(" sidebar"))
+	}
+	if !m.sidebarFocused && m.chatCanScroll() {
+		chatHelp := p.HelpKey.Render("pgup/pgdn") + p.HelpDesc.Render(" chat")
+		if !m.chatFollow {
+			chatHelp += p.HelpDesc.Render(" · ") + p.HelpKey.Render("end") + p.HelpDesc.Render(" latest")
+		}
+		parts = append([]string{chatHelp}, parts...)
 	}
 	footer := meta.Footer
 	if footer == "" {
@@ -900,14 +943,6 @@ func padLines(lines []string, width, height int) []string {
 	return out
 }
 
-func tailBlock(content string, height int) string {
-	lines := strings.Split(content, "\n")
-	if len(lines) <= height {
-		return content
-	}
-	return strings.Join(lines[len(lines)-height:], "\n")
-}
-
 func trimTrailingEmpty(lines []string) []string {
 	for len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -916,8 +951,8 @@ func trimTrailingEmpty(lines []string) []string {
 }
 
 func wrapText(text string, width int) []string {
-	if width < 8 {
-		width = 8
+	if width < 1 {
+		width = 1
 	}
 	if text == "" {
 		return []string{""}
@@ -928,7 +963,7 @@ func wrapText(text string, width int) []string {
 	text = ansi.Strip(text)
 	text = strings.ReplaceAll(text, "\t", "    ")
 	text = strings.Map(func(r rune) rune {
-		if r == '\n' || !unicode.IsControl(r) {
+		if r == '\n' || (!unicode.IsControl(r) && !isBidiControl(r)) {
 			return r
 		}
 		return -1
@@ -983,6 +1018,13 @@ func wrapParagraphExact(text string, width int) []string {
 			flush()
 		}
 		for _, cluster := range clusters[start:end] {
+			if cluster.width > width {
+				if currentWidth > 0 {
+					flush()
+				}
+				lines = append(lines, ansi.Truncate(cluster.text, width, "…"))
+				continue
+			}
 			if currentWidth > 0 && currentWidth+cluster.width > width {
 				flush()
 			}
@@ -1001,17 +1043,7 @@ func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if lipgloss.Width(s) <= width {
-		return s
-	}
-	if width == 1 {
-		return "…"
-	}
-	runes := []rune(s)
-	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
-		runes = runes[:len(runes)-1]
-	}
-	return string(runes) + "…"
+	return ansi.Truncate(s, width, "…")
 }
 
 func padRight(s string, width int) string {
