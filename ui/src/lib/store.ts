@@ -178,7 +178,7 @@ function handleRunEvent(event: RunEvent): void {
         const item = next.queuedMessages[0];
         if (item && next.activeSessionId && !next.runBusy) {
           useVivyStore.setState({ queuedMessages: next.queuedMessages.slice(1) });
-          void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking);
+          void next.startRun(next.activeSessionId, item.text, item.mode, item.face, item.attachments, item.thinking).catch(() => undefined);
         }
       });
     } else {
@@ -244,16 +244,46 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         const capabilities = await api.initialize();
         await api.recoverBackgroundRuns().catch(() => undefined);
         const [sessions, background, settings, providers] = await Promise.all([api.listSessions(), api.listBackgroundRuns(), api.getSettings().catch(() => null), api.listProviders().catch(() => null)]);
-        let sessionItems = sessions.sessions;
+        // 合并会话列表：去重合并用户在 initialize 等待期内可能已创建/更新的会话
+        const inFlightSessions = get().sessions;
+        const serverSessionIds = new Set(sessions.sessions.map((item) => item.id));
+        const freshlyCreated = inFlightSessions.filter((item) => !serverSessionIds.has(item.id));
+        const inFlightMap = new Map(inFlightSessions.map((item) => [item.id, item]));
+        let sessionItems = [
+          ...freshlyCreated,
+          ...sessions.sessions.map((serverItem) => inFlightMap.get(serverItem.id) ?? serverItem),
+        ];
+
         let initialSessionError: string | null = null;
         if (!sessionItems.length) {
           try { sessionItems = [await api.createSession('')]; }
           catch (error) { initialSessionError = errorMessage(error); }
         }
+
+        // 尊重实时意图：若用户在加载等待期已显式创建/选中会话，坚决不回写覆盖
+        const currentActive = get().activeSessionId;
+        const hasValidActive = Boolean(currentActive && sessionItems.some((item) => item.id === currentActive));
         const saved = localStorage.getItem(ACTIVE_SESSION_KEY);
-        const activeId = sessionItems.some((item) => item.id === saved) ? saved : sessionItems[0]?.id ?? null;
-        set({ initialized: true, connection: 'connected', capabilities: capabilities.capabilities, sessions: sessionItems, sessionsPhase: initialSessionError ? 'error' : sessionItems.length ? 'ready' : 'empty', sessionsError: initialSessionError, backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty', settings, settingsPhase: settings ? 'ready' : 'error', providers: providers?.entries ?? [], providersPhase: providers ? 'ready' : 'error' });
-        if (activeId) await get().selectSession(activeId);
+        const targetActiveId = hasValidActive
+          ? currentActive
+          : (sessionItems.some((item) => item.id === saved) ? saved : sessionItems[0]?.id ?? null);
+
+        set({
+          initialized: true,
+          connection: 'connected',
+          capabilities: capabilities.capabilities,
+          sessions: sessionItems,
+          sessionsPhase: initialSessionError ? 'error' : sessionItems.length ? 'ready' : 'empty',
+          sessionsError: initialSessionError,
+          backgroundRuns: background.runs,
+          backgroundPhase: background.runs.length ? 'ready' : 'empty',
+          settings,
+          settingsPhase: settings ? 'ready' : 'error',
+          providers: providers?.entries ?? [],
+          providersPhase: providers ? 'ready' : 'error',
+        });
+
+        if (!hasValidActive && targetActiveId) await get().selectSession(targetActiveId);
         void get().loadReviews();
       } catch (error) {
         set({ initialized: true, initializationError: errorMessage(error), connection: 'error' });
@@ -367,7 +397,11 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     } catch (error) { if (get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   startRun: async (sessionId, text, mode = 'normal', face?: api.Face, attachments?: api.AttachmentInput[], thinking?: api.ThinkingMode) => {
-    if (get().activeSessionId !== sessionId) return;
+    if (get().activeSessionId !== sessionId) {
+      const message = t('errors.sessionMismatch');
+      set({ runError: message });
+      throw new Error(message);
+    }
     // 运行中改为入队（对照 Crush），不再静默丢弃。
     if (runActive(get().currentRun) || get().runBusy) { get().enqueueMessage(text, mode, face, attachments, thinking); return; }
     set({ runBusy: true, runError: null });
@@ -381,7 +415,12 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     } catch (error) { set({ runError: errorMessage(error) }); throw error; } finally { set({ runBusy: false }); }
   },
 	editSession: async (sessionId, messageId, text, mode = 'normal', face?: api.Face, thinking?: api.ThinkingMode) => {
-		if (get().activeSessionId !== sessionId || runActive(get().currentRun) || get().runBusy) return;
+		if (get().activeSessionId !== sessionId) {
+			const message = t('errors.sessionMismatch');
+			set({ runError: message });
+			throw new Error(message);
+		}
+		if (runActive(get().currentRun) || get().runBusy) return;
 		set({ runBusy: true, runError: null });
 		try {
 			const result = await api.editSession(sessionId, messageId, text, mode, face, thinking);

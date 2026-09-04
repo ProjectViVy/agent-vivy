@@ -234,4 +234,61 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().selectSession('s2');
     expect(useVivyStore.getState().queuedMessages).toEqual([]);
   });
+
+  it('does not overwrite session created while initialize is in-flight', async () => {
+    const sessionsDeferred = deferred<{ sessions: Array<{ id: string; title: string; created_at: number }> }>();
+    api.listSessions.mockReturnValue(sessionsDeferred.promise);
+    api.createSession.mockResolvedValue({ id: 's-user-created', title: 'User Session', created_at: 10 });
+    api.listMessages.mockResolvedValue({ messages: [] });
+
+    // Start initialize (which suspends on listSessions)
+    const initPromise = useVivyStore.getState().initialize();
+
+    // User explicitly creates a session during the wait window
+    await useVivyStore.getState().createSession('User Session');
+    expect(useVivyStore.getState().activeSessionId).toBe('s-user-created');
+
+    // Server responds later with its snapshot
+    sessionsDeferred.resolve({ sessions: [{ id: 's-server-1', title: 'Server Session', created_at: 1 }] });
+    await initPromise;
+
+    // User session remains active and list contains both
+    expect(useVivyStore.getState().activeSessionId).toBe('s-user-created');
+    expect(useVivyStore.getState().sessions.map((s) => s.id)).toEqual(['s-user-created', 's-server-1']);
+  });
+
+  it('does not create redundant default session if user created one during initialize', async () => {
+    const sessionsDeferred = deferred<{ sessions: Array<{ id: string; title: string; created_at: number }> }>();
+    api.listSessions.mockReturnValue(sessionsDeferred.promise);
+    api.createSession.mockResolvedValue({ id: 's-user-created', title: 'User Session', created_at: 10 });
+    api.listMessages.mockResolvedValue({ messages: [] });
+
+    const initPromise = useVivyStore.getState().initialize();
+    await useVivyStore.getState().createSession('User Session');
+    sessionsDeferred.resolve({ sessions: [] });
+    await initPromise;
+
+    expect(api.createSession).toHaveBeenCalledTimes(1);
+    expect(useVivyStore.getState().activeSessionId).toBe('s-user-created');
+    expect(useVivyStore.getState().sessions.map((s) => s.id)).toEqual(['s-user-created']);
+  });
+
+  it('throws and records runError when startRun is called with mismatched session', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+
+    await expect(useVivyStore.getState().startRun('s2', 'hello')).rejects.toThrow();
+    expect(api.startTurn).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().runError).toBeTruthy();
+  });
+
+  it('throws and records runError when editSession is called with mismatched session', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('s1');
+
+    await expect(useVivyStore.getState().editSession('s2', 'm1', 'new content')).rejects.toThrow();
+    expect(api.startTurn).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().runError).toBeTruthy();
+  });
 });
+
