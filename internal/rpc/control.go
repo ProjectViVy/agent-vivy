@@ -127,6 +127,11 @@ type ControlDeps struct {
 	// the file preview panel (workspace/list, workspace/read). Nil disables
 	// the workspace/* method family.
 	WorkspaceFiles WorkspaceFiles
+	// ProjectRoot is the authoritative code project root for project-relative
+	// image attachment resolution. The code face injects this from
+	// cfg.Runtime.WorkspaceRoot; it is deliberately distinct from a tenant or
+	// per-run sandbox workspace and is never inferred from process cwd.
+	ProjectRoot string
 	// Frozen is true when this process is locked to an ENV session. Provider
 	// writes are rejected and the UI is read-only for model fields.
 	Frozen bool
@@ -215,7 +220,8 @@ type controlHandler struct {
 }
 
 type sessionParams struct {
-	SessionID string `json:"session_id"`
+	SessionID             string `json:"session_id"`
+	IncludeAttachmentData *bool  `json:"include_attachment_data,omitempty"`
 }
 
 // sessionCompactionsParams extends sessionParams with a result cap for
@@ -226,13 +232,14 @@ type sessionCompactionsParams struct {
 }
 
 type turnParams struct {
-	SessionID     string           `json:"session_id"`
-	Text          string           `json:"text"`
-	Mode          string           `json:"mode,omitempty"`
-	Face          string           `json:"face,omitempty"`
-	PolicyProfile string           `json:"policy_profile,omitempty"`
-	Thinking      string           `json:"thinking,omitempty"`
-	Attachments   []turnAttachment `json:"attachments,omitempty"`
+	SessionID       string           `json:"session_id"`
+	Text            string           `json:"text"`
+	Mode            string           `json:"mode,omitempty"`
+	Face            string           `json:"face,omitempty"`
+	PolicyProfile   string           `json:"policy_profile,omitempty"`
+	Thinking        string           `json:"thinking,omitempty"`
+	Attachments     []turnAttachment `json:"attachments,omitempty"`
+	AttachmentPaths []string         `json:"attachment_paths,omitempty"`
 }
 
 type editSessionParams struct {
@@ -388,12 +395,28 @@ func messageProvenance(message domain.Message) *messageProvenanceResult {
 	}
 }
 
+func toMessageResult(message domain.Message, includeAttachmentData bool) messageResult {
+	result := messageResult{
+		ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content,
+		Provenance: messageProvenance(message), CreatedAt: message.CreatedAt,
+	}
+	for _, attachment := range message.Attachments {
+		item := messageAttachmentResult{Name: attachment.Name, MimeType: attachment.MimeType, Size: int64(len(attachment.Data))}
+		if includeAttachmentData {
+			item.DataURL = "data:" + attachment.MimeType + ";base64," + base64.StdEncoding.EncodeToString(attachment.Data)
+		}
+		result.Attachments = append(result.Attachments, item)
+	}
+	return result
+}
+
 // messageAttachmentResult returns one image inline as a data URL so the
 // web UI can render it directly.
 type messageAttachmentResult struct {
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mime_type"`
-	DataURL  string `json:"data_url"`
+	DataURL  string `json:"data_url,omitempty"`
+	Size     int64  `json:"size,omitempty"`
 }
 
 type runResult struct {
@@ -514,6 +537,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.SkillRevisions != nil {
 			capabilities = append(capabilities, "skills.revisions")
 		}
+		if strings.TrimSpace(h.deps.ProjectRoot) != "" {
+			capabilities = append(capabilities, "attachments.resolve")
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -534,6 +560,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listMessages(ctx, request)
 	case "session/context":
 		return h.sessionContext(ctx, request)
+	case "attachments/resolve", "attachment/resolve":
+		return h.resolveAttachments(request)
 	case "context/compact":
 		return h.compactContext(ctx, request)
 	case "session/rewind":
@@ -887,7 +915,7 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
-		out = append(out, messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, Provenance: messageProvenance(message), CreatedAt: message.CreatedAt})
+		out = append(out, toMessageResult(message, includeAttachmentData(params)))
 	}
 	return map[string]any{
 		"session":  toSessionResult(session),
@@ -953,17 +981,13 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 	}
 	out := make([]messageResult, 0, len(messages))
 	for _, message := range messages {
-		result := messageResult{ID: message.ID, RunID: message.RunID, Role: message.Role, Content: message.Content, Provenance: messageProvenance(message), CreatedAt: message.CreatedAt}
-		for _, attachment := range message.Attachments {
-			result.Attachments = append(result.Attachments, messageAttachmentResult{
-				Name:     attachment.Name,
-				MimeType: attachment.MimeType,
-				DataURL:  "data:" + attachment.MimeType + ";base64," + base64.StdEncoding.EncodeToString(attachment.Data),
-			})
-		}
-		out = append(out, result)
+		out = append(out, toMessageResult(message, includeAttachmentData(params)))
 	}
 	return map[string]any{"messages": out}, nil
+}
+
+func includeAttachmentData(params sessionParams) bool {
+	return params.IncludeAttachmentData == nil || *params.IncludeAttachmentData
 }
 
 // sessionContext reports the real context pressure of a session (feed
@@ -1751,6 +1775,16 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	if len(params.AttachmentPaths) > 0 {
+		if len(attachments)+len(params.AttachmentPaths) > maxAttachmentCount {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+		}
+		resolved, err := resolveProjectAttachments(h.deps.ProjectRoot, params.AttachmentPaths)
+		if err != nil {
+			return nil, &Error{Code: InvalidParams, Message: err.Error()}
+		}
+		attachments = append(attachments, projectAttachmentDomainValues(resolved)...)
+	}
 	// SupportsImages gate (D9, VC-1g-2 carry-over): reject image
 	// attachments when the active route's metadata is known and says the
 	// model cannot take images. Unknown models keep the status-quo allow —
@@ -2251,7 +2285,14 @@ func attachmentsFromParams(items []turnAttachment) ([]domain.Attachment, *Error)
 		if len(data) > maxAttachmentBytes {
 			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: image exceeds the %d MiB limit", index+1, maxAttachmentBytes>>20)}
 		}
-		out = append(out, domain.Attachment{Name: item.Name, MimeType: mime, Data: data})
+		detected := sniffAttachmentMIME(data)
+		if detected == "" {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: file content is not a supported image", index+1)}
+		}
+		if detected != mime {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: MIME type does not match image content", index+1)}
+		}
+		out = append(out, domain.Attachment{Name: safeAttachmentName(item.Name), MimeType: mime, Data: data})
 	}
 	return out, nil
 }

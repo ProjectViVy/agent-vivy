@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -96,12 +97,27 @@ func runRun(args []string) int {
 	// §6); the committed body has none and keeps the built-in kernel
 	// headless loop. Exit codes mirror the terminal either way.
 	if ctor := face.Register(); ctor != nil {
-		result, err := app.RunFace(ctx, cfg, ctor, plugin.FaceOptions{
+		faceOpts := plugin.FaceOptions{
 			Prompt:         prompt,
 			ContinueNewest: continueNewest,
 			Out:            os.Stdout,
 			Err:            os.Stderr,
-		})
+		}
+		var appOpts []app.AppOption
+		if ctor(faceOpts).Kind() == "tui" {
+			cwd, cwdErr := os.Getwd()
+			if cwdErr != nil {
+				fmt.Fprintf(os.Stderr, "vivy run: resolve current project: %v\n", cwdErr)
+				return 1
+			}
+			projectRoot, rootErr := canonicalPackedTUIProjectRoot(cwd)
+			if rootErr != nil {
+				fmt.Fprintf(os.Stderr, "vivy run: %v\n", rootErr)
+				return 1
+			}
+			appOpts = append(appOpts, app.WithCodeProjectRoot(projectRoot))
+		}
+		result, err := app.RunFaceWithAppOptions(ctx, cfg, ctor, faceOpts, appOpts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "vivy run: %v\n", err)
 			return 1
@@ -134,4 +150,26 @@ func runRun(args []string) int {
 	default:
 		return 1
 	}
+}
+
+// canonicalPackedTUIProjectRoot gives an explicitly packed TUI generation
+// the same server-owned local-project seam as vivy-code. Other Vivy faces do
+// not receive this option, so tenant/runtime workspace roots remain private.
+func canonicalPackedTUIProjectRoot(projectDir string) (string, error) {
+	root, err := filepath.Abs(projectDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve TUI project: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return "", fmt.Errorf("inspect TUI project: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", fmt.Errorf("TUI project is not a directory")
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize TUI project: %w", err)
+	}
+	return filepath.Abs(root)
 }

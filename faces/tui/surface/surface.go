@@ -9,6 +9,7 @@ type Session = shared.Session
 type Context = shared.Context
 type Sidebar = shared.Sidebar
 type ToolCard = shared.ToolCard
+type Attachment = shared.Attachment
 type Message = shared.Message
 type Gate = shared.Gate
 type Meta = shared.Meta
@@ -20,6 +21,7 @@ type RefreshMsg = shared.RefreshMsg
 type GateResolvedMsg = shared.GateResolvedMsg
 type SidebarProvider = shared.SidebarProvider
 type ThinkingController = shared.ThinkingController
+type AttachmentProvider = shared.AttachmentProvider
 type SessionController = shared.SessionController
 type SessionsMsg = shared.SessionsMsg
 

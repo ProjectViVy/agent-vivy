@@ -878,3 +878,187 @@ func runCmdUntil(t *testing.T, cmd tea.Cmd, max int, want func(tea.Msg) bool) te
 	t.Fatal("wanted message not found")
 	return nil
 }
+
+func TestLiveImageCommandGatesUnknownAndUnsupportedCapabilities(t *testing.T) {
+	var resolves int
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method == "attachments/resolve" {
+			resolves++
+			return map[string]any{"attachments": []map[string]any{{"path": "photo.png", "name": "photo.png", "mime_type": "image/png", "size": 8}}}, nil
+		}
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.sidebar = surface.Sidebar{HasContext: true, Context: surface.Context{ImageSupportKnown: false}}
+	live.mu.Unlock()
+	unknown := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("image", []string{"photo.png"}))
+	if unknown.Err == nil || !strings.Contains(unknown.Err.Error(), "known") {
+		t.Fatalf("unknown image capability result = %+v", unknown)
+	}
+	live.mu.Lock()
+	live.sidebar.Context.ImageSupportKnown = true
+	live.sidebar.Context.ImageSupported = false
+	live.mu.Unlock()
+	unsupported := mustMsg[surface.CommandResultMsg](t, live.ExecuteCommand("image", []string{"photo.png"}))
+	if unsupported.Err == nil || !strings.Contains(unsupported.Err.Error(), "does not support") {
+		t.Fatalf("unsupported image capability result = %+v", unsupported)
+	}
+	if resolves != 0 {
+		t.Fatalf("resolver called despite capability gate: %d", resolves)
+	}
+}
+
+func TestLiveImageDraftResolvesRendersAndSendsPathOnly(t *testing.T) {
+	var gotPaths []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "attachments/resolve":
+			return map[string]any{"attachments": []map[string]any{{"path": "assets/photo.png", "name": "photo.png", "mime_type": "image/png", "size": 8}}}, nil
+		case "turn/start":
+			var params struct {
+				AttachmentPaths []string `json:"attachment_paths"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			gotPaths = append([]string(nil), params.AttachmentPaths...)
+			return map[string]string{"run_id": "run_image", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]string{"subscription_id": "sub_image"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.sidebar = surface.Sidebar{HasContext: true, Context: surface.Context{ImageSupportKnown: true, ImageSupported: true}}
+	live.mu.Unlock()
+	resolved := mustMsg[liveAttachmentResolvedMsg](t, live.ExecuteCommand("image", []string{"assets/photo.png"}))
+	if resolved.Err != nil {
+		t.Fatal(resolved.Err)
+	}
+	live.Handle(resolved)
+	if pending := live.PendingAttachments(); len(pending) != 1 || pending[0].Name != "photo.png" {
+		t.Fatalf("pending attachment = %+v", pending)
+	}
+	cmd := live.Send("describe")
+	started := mustMsg[liveTurnStartedMsg](t, cmd)
+	if started.Err != nil || started.RunID != "run_image" {
+		t.Fatalf("turn started = %+v", started)
+	}
+	if len(live.PendingAttachments()) != 0 {
+		t.Fatal("successful send retained pending image draft")
+	}
+	live.Handle(started)
+	if len(gotPaths) != 1 || gotPaths[0] != "assets/photo.png" {
+		t.Fatalf("turn/start paths = %v", gotPaths)
+	}
+	messages := live.ActiveMessages()
+	if len(messages) == 0 || len(messages[0].Attachments) != 1 || messages[0].Attachments[0].Name != "photo.png" {
+		t.Fatalf("optimistic history attachment = %+v", messages)
+	}
+}
+
+func TestLiveImageSendFailureRetainsDraftAndQueueIsSessionBound(t *testing.T) {
+	var turnStarts int
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method == "turn/start" {
+			turnStarts++
+			return nil, &controlrpc.Error{Code: controlrpc.InvalidParams, Message: "rejected"}
+		}
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.drafts = map[string][]surface.Attachment{"sess_1": {{Path: "photo.png", Name: "photo.png", MimeType: "image/png", Size: 8}}}
+	live.mu.Unlock()
+	started := mustMsg[liveTurnStartedMsg](t, live.Send("try"))
+	if started.Err == nil {
+		t.Fatal("rejected turn unexpectedly succeeded")
+	}
+	live.Handle(started)
+	if pending := live.PendingAttachments(); len(pending) != 1 || pending[0].Name != "photo.png" {
+		t.Fatalf("failed send did not retain draft: %+v", pending)
+	}
+
+	live.mu.Lock()
+	live.busy = true
+	live.drafts["sess_1"] = []surface.Attachment{{Path: "queued.png", Name: "queued.png", MimeType: "image/png"}}
+	live.mu.Unlock()
+	_ = live.Send("queued")
+	live.mu.Lock()
+	if len(live.queue) != 1 || live.queue[0].SessionID != "sess_1" || len(live.queue[0].Attachments) != 1 {
+		t.Fatalf("queued image snapshot = %+v", live.queue)
+	}
+	live.activeID = "sess_2"
+	live.messages["sess_2"] = nil
+	live.busy = false
+	live.mu.Unlock()
+	_ = live.dequeueCmd()
+	if turnStarts != 1 {
+		t.Fatalf("session-switched queue was sent: turn starts=%d", turnStarts)
+	}
+	live.mu.Lock()
+	deferred := append([]surface.Attachment(nil), live.drafts["sess_1"]...)
+	queued := append([]queuedTurn(nil), live.queue...)
+	live.mu.Unlock()
+	if len(deferred) != 0 || len(queued) != 1 || queued[0].Text != "queued" || len(queued[0].Attachments) != 1 || queued[0].Attachments[0].Name != "queued.png" {
+		t.Fatalf("session-bound queue snapshot lost: drafts=%+v queue=%+v", deferred, queued)
+	}
+}
+
+func TestLiveQueuedImageSendPreservesLaterDraft(t *testing.T) {
+	var gotPaths []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		if request.Method != "turn/start" {
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+		var params struct {
+			AttachmentPaths []string `json:"attachment_paths"`
+		}
+		_ = json.Unmarshal(request.Params, &params)
+		gotPaths = append([]string(nil), params.AttachmentPaths...)
+		return map[string]string{"run_id": "run_queued_image", "status": "accepted"}, nil
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.busy = true
+	live.drafts = map[string][]surface.Attachment{"sess_1": {{Path: "a.png", Name: "a.png", MimeType: "image/png"}}}
+	live.mu.Unlock()
+
+	_ = live.Send("queued with A")
+	live.mu.Lock()
+	live.drafts["sess_1"] = []surface.Attachment{{Path: "b.png", Name: "b.png", MimeType: "image/png"}}
+	live.busy = false
+	live.mu.Unlock()
+
+	started := mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
+	if started.Err != nil {
+		t.Fatal(started.Err)
+	}
+	if len(gotPaths) != 1 || gotPaths[0] != "a.png" {
+		t.Fatalf("queued attachment paths = %v, want A snapshot", gotPaths)
+	}
+	if pending := live.PendingAttachments(); len(pending) != 1 || pending[0].Name != "b.png" {
+		t.Fatalf("dequeue cleared later draft: %+v", pending)
+	}
+}

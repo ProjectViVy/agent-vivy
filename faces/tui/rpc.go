@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"agent-vivy/sdk/plugin"
+	"example.com/vivy/faces/tui/surface"
 )
 
 // client adapts plugin.FaceEnv to the method set the live driver consumes
@@ -60,15 +62,29 @@ type contextView struct {
 	TotalMessages        int  `json:"total_messages"`
 	FeedMessages         int  `json:"feed_messages"`
 	ThinkingSupported    bool `json:"thinking_supported"`
+	ImageSupportKnown    bool `json:"image_support_known"`
+	ImageSupported       bool `json:"image_supported"`
 	CompactionEnabled    bool `json:"compaction_enabled"`
 	WouldCompact         bool `json:"would_compact"`
 	HasCompactionSummary bool `json:"has_compaction_summary"`
 }
 
+func mapContextView(view contextView) surface.Context {
+	return surface.Context{
+		FeedTokens: view.FeedTokens, ModelLimitTokens: view.ModelLimitTokens,
+		TriggerTokens: view.TriggerTokens, TotalMessages: view.TotalMessages,
+		FeedMessages: view.FeedMessages, ThinkingSupported: view.ThinkingSupported,
+		ImageSupportKnown: view.ImageSupportKnown, ImageSupported: view.ImageSupported,
+		CompactionEnabled: view.CompactionEnabled, WouldCompact: view.WouldCompact,
+		HasCompactionSummary: view.HasCompactionSummary,
+	}
+}
+
 type messageView struct {
-	ID      string `json:"id"`
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	ID          string               `json:"id"`
+	Role        string               `json:"role"`
+	Content     string               `json:"content"`
+	Attachments []surface.Attachment `json:"attachments,omitempty"`
 }
 
 type runAccepted struct {
@@ -106,7 +122,7 @@ func (c *client) listSessions(ctx context.Context) ([]sessionView, error) {
 }
 
 func (c *client) getSession(ctx context.Context, sessionID string) (sessionView, error) {
-	raw, err := c.Call(ctx, "session/get", map[string]string{"session_id": sessionID})
+	raw, err := c.Call(ctx, "session/get", map[string]any{"session_id": sessionID, "include_attachment_data": false})
 	if err != nil {
 		return sessionView{}, err
 	}
@@ -152,7 +168,7 @@ func (c *client) deleteSession(ctx context.Context, sessionID string) error {
 }
 
 func (c *client) sessionMessages(ctx context.Context, sessionID string) ([]messageView, error) {
-	raw, err := c.Call(ctx, "session/messages", map[string]string{"session_id": sessionID})
+	raw, err := c.Call(ctx, "session/messages", map[string]any{"session_id": sessionID, "include_attachment_data": false})
 	if err != nil {
 		return nil, err
 	}
@@ -166,12 +182,28 @@ func (c *client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 }
 
 func (c *client) startTurn(ctx context.Context, sessionID, text, thinking string) (runAccepted, error) {
-	raw, err := c.Call(ctx, "turn/start", map[string]string{
+	return c.startTurnWithAttachments(ctx, sessionID, text, thinking, nil)
+}
+
+func (c *client) startTurnWithAttachments(ctx context.Context, sessionID, text, thinking string, attachments []surface.Attachment) (runAccepted, error) {
+	params := map[string]any{
 		"session_id": sessionID,
 		"text":       text,
 		"face":       "code",
 		"thinking":   thinking,
-	})
+	}
+	if len(attachments) > 0 {
+		paths := make([]string, 0, len(attachments))
+		for _, attachment := range attachments {
+			if path := strings.TrimSpace(attachment.Path); path != "" {
+				paths = append(paths, path)
+			}
+		}
+		if len(paths) > 0 {
+			params["attachment_paths"] = paths
+		}
+	}
+	raw, err := c.Call(ctx, "turn/start", params)
 	if err != nil {
 		return runAccepted{}, err
 	}
@@ -183,6 +215,23 @@ func (c *client) startTurn(ctx context.Context, sessionID, text, thinking string
 		return runAccepted{}, fmt.Errorf("tui: turn/start returned no run_id")
 	}
 	return accepted, nil
+}
+
+func (c *client) resolveAttachments(ctx context.Context, paths []string) ([]surface.Attachment, error) {
+	raw, err := c.Call(ctx, "attachments/resolve", map[string]any{"attachment_paths": append([]string(nil), paths...)})
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Attachments []surface.Attachment `json:"attachments"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("tui: attachments/resolve: %w", err)
+	}
+	if len(envelope.Attachments) != len(paths) {
+		return nil, fmt.Errorf("tui: attachments/resolve returned %d attachments, want %d", len(envelope.Attachments), len(paths))
+	}
+	return envelope.Attachments, nil
 }
 
 func (c *client) setSessionPermission(ctx context.Context, sessionID, preset string) (sessionView, error) {

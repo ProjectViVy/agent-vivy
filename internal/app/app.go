@@ -72,6 +72,10 @@ type appOptions struct {
 	gateway      bool
 	sink         runtime.EventSink
 	settingsPath string
+	// projectRoot is deliberately opt-in. Runtime.WorkspaceRoot is the
+	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
+	// the code project root from which a face may resolve attachments.
+	projectRoot string
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -100,6 +104,14 @@ func WithEventSink(sink runtime.EventSink) AppOption {
 // isolated in each process's own storage directory.
 func WithSettingsPath(path string) AppOption {
 	return func(o *appOptions) { o.settingsPath = path }
+}
+
+// WithCodeProjectRoot supplies the canonical project root owned by the
+// vivy-code composition. It is kept separate from Runtime.WorkspaceRoot so
+// ordinary Vivy/web compositions cannot accidentally expose a tenant
+// workspace through the attachment resolver.
+func WithCodeProjectRoot(path string) AppOption {
+	return func(o *appOptions) { o.projectRoot = path }
 }
 
 // fanoutSink publishes one event to both the gateway bus and the extra
@@ -538,7 +550,11 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			}
 			return runtime.NewWorkspaceFiles(workspaceManager, 0)
 		}(),
-		Frozen: resolver.Frozen(),
+		// Only vivy-code supplies this explicit seam. Runtime.WorkspaceRoot is
+		// a tenant/sandbox setting for ordinary Vivy compositions and must not
+		// implicitly become an attachment project root.
+		ProjectRoot: ao.projectRoot,
+		Frozen:      resolver.Frozen(),
 		OnSettingsChanged: func() {
 			resolver.Invalidate()
 			live := resolver.Current()

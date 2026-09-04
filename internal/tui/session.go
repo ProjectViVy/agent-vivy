@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tui/surface"
 )
 
 type sessionView struct {
@@ -23,15 +24,29 @@ type contextView struct {
 	TotalMessages        int  `json:"total_messages"`
 	FeedMessages         int  `json:"feed_messages"`
 	ThinkingSupported    bool `json:"thinking_supported"`
+	ImageSupportKnown    bool `json:"image_support_known"`
+	ImageSupported       bool `json:"image_supported"`
 	CompactionEnabled    bool `json:"compaction_enabled"`
 	WouldCompact         bool `json:"would_compact"`
 	HasCompactionSummary bool `json:"has_compaction_summary"`
 }
 
+func mapContextView(view contextView) surface.Context {
+	return surface.Context{
+		FeedTokens: view.FeedTokens, ModelLimitTokens: view.ModelLimitTokens,
+		TriggerTokens: view.TriggerTokens, TotalMessages: view.TotalMessages,
+		FeedMessages: view.FeedMessages, ThinkingSupported: view.ThinkingSupported,
+		ImageSupportKnown: view.ImageSupportKnown, ImageSupported: view.ImageSupported,
+		CompactionEnabled: view.CompactionEnabled, WouldCompact: view.WouldCompact,
+		HasCompactionSummary: view.HasCompactionSummary,
+	}
+}
+
 type messageView struct {
-	ID      string `json:"id"`
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	ID          string               `json:"id"`
+	Role        string               `json:"role"`
+	Content     string               `json:"content"`
+	Attachments []surface.Attachment `json:"attachments,omitempty"`
 }
 
 type runAccepted struct {
@@ -69,7 +84,7 @@ func (c *Client) listSessions(ctx context.Context) ([]sessionView, error) {
 }
 
 func (c *Client) getSession(ctx context.Context, sessionID string) (sessionView, error) {
-	raw, err := c.Call(ctx, "session/get", map[string]string{"session_id": sessionID})
+	raw, err := c.Call(ctx, "session/get", map[string]any{"session_id": sessionID, "include_attachment_data": false})
 	if err != nil {
 		return sessionView{}, err
 	}
@@ -115,7 +130,7 @@ func (c *Client) deleteSession(ctx context.Context, sessionID string) error {
 }
 
 func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messageView, error) {
-	raw, err := c.Call(ctx, "session/messages", map[string]string{"session_id": sessionID})
+	raw, err := c.Call(ctx, "session/messages", map[string]any{"session_id": sessionID, "include_attachment_data": false})
 	if err != nil {
 		return nil, err
 	}
@@ -129,12 +144,28 @@ func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 }
 
 func (c *Client) startTurn(ctx context.Context, sessionID, text, face, thinking string) (runAccepted, error) {
-	params := map[string]string{"session_id": sessionID, "text": text}
+	return c.startTurnWithAttachments(ctx, sessionID, text, face, thinking, nil)
+}
+
+func (c *Client) startTurnWithAttachments(ctx context.Context, sessionID, text, face, thinking string, attachments []surface.Attachment) (runAccepted, error) {
+	params := map[string]any{"session_id": sessionID, "text": text}
 	if strings.TrimSpace(face) != "" {
 		params["face"] = face
 	}
 	if strings.TrimSpace(thinking) != "" {
 		params["thinking"] = thinking
+	}
+	if len(attachments) > 0 {
+		paths := make([]string, 0, len(attachments))
+		for _, attachment := range attachments {
+			path := strings.TrimSpace(attachment.Path)
+			if path != "" {
+				paths = append(paths, path)
+			}
+		}
+		if len(paths) > 0 {
+			params["attachment_paths"] = paths
+		}
 	}
 	raw, err := c.Call(ctx, "turn/start", params)
 	if err != nil {
@@ -201,7 +232,32 @@ func formatHistory(messages []messageView) string {
 		if role == string(domain.RoleUser) {
 			role = "you"
 		}
-		fmt.Fprintf(&b, "%s: %s\n", role, strings.TrimSpace(message.Content))
+		content := strings.TrimSpace(message.Content)
+		if chips := formatAttachmentMetadata(message.Attachments); chips != "" {
+			if content != "" {
+				content += " "
+			}
+			content += chips
+		}
+		fmt.Fprintf(&b, "%s: %s\n", role, content)
 	}
 	return b.String()
+}
+
+func formatAttachmentMetadata(attachments []surface.Attachment) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			name = strings.TrimSpace(attachment.Path)
+		}
+		if name == "" {
+			name = "image"
+		}
+		parts = append(parts, "[image: "+name+"]")
+	}
+	return strings.Join(parts, " ")
 }

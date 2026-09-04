@@ -5,6 +5,7 @@ package command
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -314,6 +315,23 @@ func (r Registry) Validate(invocation *Invocation) error {
 			}
 		}
 		return nil
+	case "image":
+		if len(args) == 1 && strings.TrimSpace(args[0]) != "" &&
+			!strings.EqualFold(strings.TrimSpace(args[0]), "remove") &&
+			!strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
+			return nil
+		}
+		if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "remove") {
+			index, err := strconv.Atoi(strings.TrimSpace(args[1]))
+			if err == nil && index > 0 {
+				return nil
+			}
+			return fmt.Errorf("image remove index must be a positive number")
+		}
+		if len(args) == 1 && strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
+			return nil
+		}
+		return fmt.Errorf("usage: /image <relative-path> | /image remove <index> | /image clear")
 	case "fork":
 		return count(1, 2)
 	case "rewind":
@@ -377,6 +395,7 @@ func DefaultRegistry() Registry {
 		Spec{Name: "queue", Usage: "/queue clear", Description: "clear queued turns"},
 		Spec{Name: "permission", Usage: "/permission [preset]", Description: "set or cycle permission"},
 		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: "set or cycle extended thinking"},
+		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: "attach a project image (or remove/clear pending images)"},
 		Spec{Name: "compact", Usage: "/compact", Description: "compact the active session context"},
 		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: "fork the active session at a message"},
 		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: "rewind the active session view"},

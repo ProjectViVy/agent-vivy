@@ -377,6 +377,8 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			mode = strings.ToLower(strings.TrimSpace(args[0]))
 		}
 		return m.setThinking(mode)
+	case "image":
+		return m.executeImageCommand(args)
 	case "compact":
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -399,6 +401,16 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 	default:
 		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
 	}
+}
+
+func (m Model) executeImageCommand(args []string) (Model, tea.Cmd) {
+	if executor, ok := m.driver.(surface.CommandExecutor); ok {
+		if cmd := executor.ExecuteCommand("image", append([]string(nil), args...)); cmd != nil {
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("/image is unavailable")), nil
+	}
+	return m.showCommandError(fmt.Errorf("/image is unavailable")), nil
 }
 
 func (m Model) setThinking(mode string) (Model, tea.Cmd) {

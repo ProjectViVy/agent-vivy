@@ -53,6 +53,11 @@ type ContextStatusResult struct {
 	// route's model accepts an explicit extended-thinking request. The
 	// chat input gates its thinking selector on this flag.
 	ThinkingSupported bool `json:"thinking_supported"`
+	// ImageSupportKnown distinguishes resolved model metadata from unknown
+	// custom routes. ImageSupported is meaningful only when known is true;
+	// terminal faces fail closed for the local image entry point when unknown.
+	ImageSupportKnown bool `json:"image_support_known"`
+	ImageSupported    bool `json:"image_supported"`
 	// CompactionEnabled mirrors the effective compaction policy.
 	CompactionEnabled bool `json:"compaction_enabled"`
 	// TriggerTokens is the in-run threshold; WouldCompact tells whether the
@@ -93,6 +98,8 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 
 	info := s.GetModelInfo(ctx)
 	out.ThinkingSupported = info.SupportsThinking
+	out.ImageSupportKnown = info.ContextWindow > 0
+	out.ImageSupported = info.SupportsImages
 	if info.ContextWindow > 0 {
 		out.ModelLimitTokens = info.ContextWindow
 	} else {

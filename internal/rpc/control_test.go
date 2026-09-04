@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1887,6 +1888,9 @@ func TestContextCompactionRPC(t *testing.T) {
 	if sc.SessionID != sessionID || sc.ModelLimitTokens <= 0 || sc.TriggerTokens <= 0 {
 		t.Fatalf("session context = %+v", sc)
 	}
+	if sc.ImageSupportKnown || sc.ImageSupported {
+		t.Fatalf("unknown test model exposed image capability: %+v", sc)
+	}
 
 	// context/compact on an empty session reports nothing to do.
 	compactResult, rpcErr := callControl(t, handler, "context/compact", map[string]any{"session_id": sessionID})
@@ -2179,6 +2183,10 @@ func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
 			"session_id": sessionID, "text": "hi",
 			"attachments": []map[string]string{{"mime_type": "image/png", "data": ""}},
 		}},
+		{"MIME spoof", map[string]any{
+			"session_id": sessionID, "text": "hi",
+			"attachments": []map[string]string{{"name": "notes.png", "mime_type": "image/png", "data": base64.StdEncoding.EncodeToString([]byte("plain text"))}},
+		}},
 		{"oversize", map[string]any{
 			"session_id": sessionID, "text": "hi",
 			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, maxAttachmentBytes+1))}},
@@ -2251,6 +2259,200 @@ func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
 	if user.Attachments[0].DataURL != wantURL {
 		t.Fatalf("data_url = %q, want %q", user.Attachments[0].DataURL, wantURL)
 	}
+}
+
+func TestAttachmentPathsFlowAndMessageDTOConsistency(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeTestAttachment(t, filepath.Join(projectRoot, "look.png"), testPNGBytes())
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.ProjectRoot = projectRoot
+	})
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "paths"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var session sessionResult
+	createdJSON, _ := json.Marshal(created)
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := string(session.ID)
+
+	resolved, rpcErr := callControl(t, env.handler, "attachments/resolve", map[string]any{
+		"attachment_paths": []string{"look.png"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var resolvedEnvelope struct {
+		Attachments []attachmentPathResult `json:"attachments"`
+	}
+	resolvedJSON, _ := json.Marshal(resolved)
+	if err := json.Unmarshal(resolvedJSON, &resolvedEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(resolvedEnvelope.Attachments) != 1 || resolvedEnvelope.Attachments[0].Path != "look.png" || resolvedEnvelope.Attachments[0].MimeType != "image/png" {
+		t.Fatalf("resolve result = %+v", resolvedEnvelope)
+	}
+
+	started, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": sessionID, "text": "inspect", "attachment_paths": []string{"look.png"},
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	startedJSON, _ := json.Marshal(started)
+	if err := json.Unmarshal(startedJSON, &accepted); err != nil || accepted.RunID == "" {
+		t.Fatalf("turn/start = %s, err = %v", startedJSON, err)
+	}
+	waitForControlRunTerminal(t, env.backend, accepted.RunID)
+
+	messages, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	gotMessages := decodeMessageResults(t, messages)
+	fromMessages := findUserMessageWithContent(gotMessages, "inspect")
+	if fromMessages == nil || len(fromMessages.Attachments) != 1 || fromMessages.Attachments[0].Size != int64(len(testPNGBytes())) {
+		t.Fatalf("session/messages attachment = %+v", fromMessages)
+	}
+
+	gotSession, rpcErr := callControl(t, env.handler, "session/get", map[string]string{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	fromSession := decodeSessionResultMessages(t, gotSession)
+	fromGet := findUserMessageWithContent(fromSession, "inspect")
+	if fromGet == nil || len(fromGet.Attachments) != 1 || fromGet.Attachments[0].Size != fromMessages.Attachments[0].Size || fromGet.Attachments[0].MimeType != fromMessages.Attachments[0].MimeType {
+		t.Fatalf("session/get attachment = %+v, messages = %+v", fromGet, fromMessages)
+	}
+	metadataOnly, rpcErr := callControl(t, env.handler, "session/messages", map[string]any{
+		"session_id": sessionID, "include_attachment_data": false,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	metadataJSON, _ := json.Marshal(metadataOnly)
+	if strings.Contains(string(metadataJSON), "data_url") || strings.Contains(string(metadataJSON), base64.StdEncoding.EncodeToString(testPNGBytes())) {
+		t.Fatalf("metadata-only history transported image bytes: %s", metadataJSON)
+	}
+	metadataMessages := decodeMessageResults(t, metadataOnly)
+	metadataMessage := findUserMessageWithContent(metadataMessages, "inspect")
+	if metadataMessage == nil || len(metadataMessage.Attachments) != 1 || metadataMessage.Attachments[0].Size != int64(len(testPNGBytes())) {
+		t.Fatalf("metadata-only attachment = %+v", metadataMessage)
+	}
+
+	inline := make([]map[string]string, maxAttachmentCount)
+	for index := range inline {
+		inline[index] = map[string]string{
+			"name":      fmt.Sprintf("inline-%d.png", index),
+			"mime_type": "image/png",
+			"data":      base64.StdEncoding.EncodeToString(testPNGBytes()),
+		}
+	}
+	if _, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": sessionID, "text": "too many mixed", "attachments": inline, "attachment_paths": []string{"look.png"},
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("mixed attachment cap error = %+v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "turn/start", map[string]any{
+		"session_id": sessionID, "text": "missing path", "attachment_paths": []string{"missing.png"},
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing attachment error = %+v", rpcErr)
+	}
+	afterFailure, rpcErr := callControl(t, env.handler, "session/messages", map[string]string{"session_id": sessionID})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	failedMessages := decodeMessageResults(t, afterFailure)
+	if findUserMessageWithContent(failedMessages, "too many mixed") != nil || findUserMessageWithContent(failedMessages, "missing path") != nil {
+		t.Fatalf("rejected attachment turn persisted a partial message: %+v", failedMessages)
+	}
+}
+
+func TestAttachmentResolverCapabilityRequiresExplicitProjectRoot(t *testing.T) {
+	withoutRoot := newControlTestEnv(t)
+	result, rpcErr := callControl(t, withoutRoot.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if containsCapability(result, "attachments.resolve") {
+		t.Fatalf("attachment resolver advertised without project root: %v", result)
+	}
+
+	withRoot := newControlTestEnv(t, func(deps *ControlDeps) { deps.ProjectRoot = t.TempDir() })
+	result, rpcErr = callControl(t, withRoot.handler, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if !containsCapability(result, "attachments.resolve") {
+		t.Fatalf("attachment resolver missing with explicit project root: %v", result)
+	}
+}
+
+func containsCapability(result any, want string) bool {
+	raw, _ := json.Marshal(result)
+	var envelope struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return false
+	}
+	for _, capability := range envelope.Capabilities {
+		if capability == want {
+			return true
+		}
+	}
+	return false
+}
+
+func waitForControlRunTerminal(t *testing.T, backend *sqlite.Backend, runID string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		run, err := backend.GetRun(context.Background(), domain.RunID(runID))
+		if err == nil && run.Status.Terminal() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("run %s did not become terminal", runID)
+}
+
+func decodeMessageResults(t *testing.T, value any) []messageResult {
+	t.Helper()
+	raw, _ := json.Marshal(value)
+	var envelope struct {
+		Messages []messageResult `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	return envelope.Messages
+}
+
+func decodeSessionResultMessages(t *testing.T, value any) []messageResult {
+	t.Helper()
+	raw, _ := json.Marshal(value)
+	var envelope struct {
+		Messages []messageResult `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	return envelope.Messages
+}
+
+func findUserMessageWithContent(messages []messageResult, content string) *messageResult {
+	for index := range messages {
+		if messages[index].Role == domain.RoleUser && messages[index].Content == content {
+			return &messages[index]
+		}
+	}
+	return nil
 }
 
 // TestControlMessageProvenanceProjected (CH-C1-N3): channel turns project

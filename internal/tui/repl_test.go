@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	controlrpc "agent-vivy/internal/rpc"
+	"agent-vivy/internal/tui/surface"
 )
 
 func TestREPLHelpAndQuit(t *testing.T) {
@@ -38,6 +39,99 @@ func TestREPLHelpAndQuit(t *testing.T) {
 	}
 	if !strings.Contains(got, "/cancel") {
 		t.Fatalf("missing help:\n%s", got)
+	}
+}
+
+func TestREPLImageCommandResolvesLocallyAndSendsMetadataPath(t *testing.T) {
+	var turnPaths []string
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "session/context":
+			return map[string]any{"image_support_known": true, "image_supported": true}, nil
+		case "attachments/resolve":
+			return map[string]any{"attachments": []map[string]any{{"path": "assets/photo.png", "name": "photo.png", "mime_type": "image/png", "size": 8}}}, nil
+		case "turn/start":
+			var params struct {
+				AttachmentPaths []string `json:"attachment_paths"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			turnPaths = append([]string(nil), params.AttachmentPaths...)
+			return map[string]string{"run_id": "run_image", "status": "accepted"}, nil
+		case "run/subscribe":
+			return map[string]string{"subscription_id": "sub_image"}, nil
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1"},
+		events:  make(chan eventNotice, 1),
+	}
+	if err := r.handleLine(context.Background(), "/image assets/photo.png"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.attachments) != 1 || r.attachments[0].Path != "assets/photo.png" {
+		t.Fatalf("REPL image draft = %+v", r.attachments)
+	}
+	if !strings.Contains(out.String(), "attached") || !strings.Contains(out.String(), "photo.png") {
+		t.Fatalf("attach output = %q", out.String())
+	}
+	if err := r.handleLine(context.Background(), "/image remove 1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.attachments) != 0 {
+		t.Fatalf("remove did not clear draft: %+v", r.attachments)
+	}
+	if err := r.handleLine(context.Background(), "/image assets/photo.png"); err != nil {
+		t.Fatal(err)
+	}
+	r.events <- eventNotice{Done: true}
+	if err := r.sendTurn(context.Background(), "describe"); err != nil {
+		t.Fatal(err)
+	}
+	if len(turnPaths) != 1 || turnPaths[0] != "assets/photo.png" {
+		t.Fatalf("REPL turn paths = %v", turnPaths)
+	}
+	if len(r.attachments) != 0 {
+		t.Fatal("successful REPL send retained image draft")
+	}
+}
+
+func TestREPLAcceptedTurnClearsImageDraftWhenSubscribeFails(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
+		switch request.Method {
+		case "turn/start":
+			return map[string]string{"run_id": "run_accepted", "status": "accepted"}, nil
+		case "run/subscribe":
+			return nil, &controlrpc.Error{Code: controlrpc.InternalError, Message: "subscription unavailable"}
+		default:
+			return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: request.Method}
+		}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	var out bytes.Buffer
+	r := &repl{
+		client:  client,
+		out:     &out,
+		session: sessionView{ID: "sess_1"},
+		attachments: []surface.Attachment{{
+			Path: "photo.png", Name: "photo.png", MimeType: "image/png", Size: 8,
+		}},
+	}
+	if err := r.sendTurn(context.Background(), "describe"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.attachments) != 0 {
+		t.Fatalf("accepted turn retained retry draft after subscribe failure: %+v", r.attachments)
+	}
+	if !strings.Contains(out.String(), "turn accepted as run_accepted") || !strings.Contains(out.String(), "subscribe") {
+		t.Fatalf("subscribe failure output = %q", out.String())
 	}
 }
 
