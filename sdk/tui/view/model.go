@@ -246,8 +246,9 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 		m.sidebarFocused = inSidebar && m.sidebarCanScroll()
 		return
 	}
-	// Match Crush focus routing: a click chooses the scroll owner, then wheel
-	// events stay with that owner even if the pointer drifts outside its box.
+	// Match Crush pointer-region routing: wheel input belongs to the pane under
+	// the pointer. Click/keyboard focus remains independent so hovering the
+	// sidebar does not steal editor input or arrow-key ownership.
 	delta := 0
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
@@ -266,9 +267,11 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 			return
 		}
 	}
-	if m.sidebarFocused && m.sidebarCanScroll() {
-		m.sidebarScroll += delta
-		m.clampSidebarScroll()
+	if inSidebar {
+		if m.sidebarCanScroll() {
+			m.sidebarScroll += delta
+			m.clampSidebarScroll()
+		}
 		return
 	}
 	if m.chatCanScroll() {
