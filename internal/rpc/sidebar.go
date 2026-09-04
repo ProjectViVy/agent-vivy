@@ -5,10 +5,12 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"unicode"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // sidebarResult is deliberately a narrow active-session projection. The
@@ -32,6 +34,8 @@ type sidebarResult struct {
 	MCP                []sidebarMCPResult           `json:"mcp"`
 	SkillsKnown        bool                         `json:"skills_known"`
 	Skills             []sidebarSkillResult         `json:"skills"`
+	LSPKnown           bool                         `json:"lsp_known"`
+	LSP                []sidebarLSPResult           `json:"lsp"`
 }
 
 type sidebarMCPResult struct {
@@ -41,6 +45,11 @@ type sidebarMCPResult struct {
 
 type sidebarSkillResult struct {
 	Name string `json:"name"`
+}
+
+type sidebarLSPResult struct {
+	Language string `json:"language"`
+	State    string `json:"state"`
 }
 
 type sidebarUsageResult struct {
@@ -184,7 +193,41 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 		}
 		sort.Slice(result.Skills, func(i, j int) bool { return result.Skills[i].Name < result.Skills[j].Name })
 	}
+	if h.deps.LanguageServers != nil {
+		snapshot, lspErr := h.deps.LanguageServers(ctx, session.ID)
+		if lspErr != nil {
+			return nil, internalError(lspErr)
+		}
+		result.LSPKnown = snapshot.Known
+		for _, server := range snapshot.Servers {
+			language := sanitizeSidebarLabel(server.Language)
+			state := strings.TrimSpace(server.State)
+			if language == "" || (state != "starting" && state != "initialized") {
+				continue
+			}
+			result.LSP = append(result.LSP, sidebarLSPResult{Language: language, State: state})
+		}
+		sort.Slice(result.LSP, func(i, j int) bool { return result.LSP[i].Language < result.LSP[j].Language })
+	}
 	return result, nil
+}
+
+func sanitizeSidebarLabel(value string) string {
+	value = strings.TrimSpace(ansi.Strip(value))
+	runes := make([]rune, 0, min(len([]rune(value)), 64))
+	for _, r := range value {
+		if unicode.IsControl(r) || r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
+			return ""
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("-_.+#", r) {
+			return ""
+		}
+		runes = append(runes, r)
+		if len(runes) == 64 {
+			break
+		}
+	}
+	return strings.TrimSpace(string(runes))
 }
 
 func buildSidebarUsage(ctx context.Context, rows []storage.UsageRow, sessionID domain.SessionID, meta ModelMeta) sidebarUsageResult {

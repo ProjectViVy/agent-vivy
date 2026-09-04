@@ -110,6 +110,27 @@ func (b *Backend) ListRunsBySession(ctx context.Context, sessionID domain.Sessio
 	return b.listRunsWhere(ctx, `session_id = ?`, sessionID)
 }
 
+// LatestPrimaryRunBySession resolves one bounded workspace owner. Child runs
+// never replace the primary conversation workspace in session/sidebar.
+func (b *Backend) LatestPrimaryRunBySession(ctx context.Context, sessionID domain.SessionID) (domain.Run, error) {
+	var r domain.Run
+	var rid, sid, status, kind, parentID, rootID string
+	err := b.db.QueryRowContext(ctx,
+		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth
+		 FROM runs WHERE session_id = ? AND kind = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+		sessionID, string(domain.RunKindPrimary)).
+		Scan(&rid, &sid, &status, &r.CreatedAt, &kind, &parentID, &rootID, &r.Depth)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Run{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("storage: latest primary run for session %s: %w", sessionID, err)
+	}
+	r.ID, r.SessionID, r.Status = domain.RunID(rid), domain.SessionID(sid), domain.RunStatus(status)
+	r.Kind, r.ParentID, r.RootID = domain.RunKind(kind), domain.RunID(parentID), domain.RunID(rootID)
+	return r, nil
+}
+
 func (b *Backend) listRunsWhere(ctx context.Context, predicate string, args ...any) ([]domain.Run, error) {
 	rows, err := b.db.QueryContext(ctx,
 		`SELECT id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth

@@ -29,6 +29,9 @@ type Live struct {
 	messages          map[string][]surface.Message
 	activeID          string
 	sidebar           surface.Sidebar
+	lspRefreshPending bool
+	lspRefreshEnabled bool
+	nextLSPRefresh    time.Time
 	loadRequest       uint64
 	sessionRequest    uint64
 	contextRequest    uint64
@@ -422,6 +425,7 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case liveTickMsg:
 		finished, gap := l.drainEvents()
+		lspChanged := l.takeLSPRefreshPending()
 		if gap {
 			l.markRecoveryNeeded()
 		}
@@ -431,7 +435,10 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 			}
 			return tea.Batch(l.refreshContextCmd(), l.refreshSidebarCmd(), l.tickCmd())
 		}
-		return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
+		if lspChanged {
+			return tea.Batch(l.refreshSidebarCmd(), l.recoverSubscriptionCmd(), l.tickCmd())
+		}
+		return tea.Batch(l.refreshLSPSidebarIfDueCmd(), l.recoverSubscriptionCmd(), l.tickCmd())
 	case liveBootMsg:
 		return l.applyBoot(msg)
 	case liveLoadedMsg:
@@ -478,6 +485,7 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	l.activeID = msg.ActiveID
 	l.messages[msg.ActiveID] = msg.Messages
 	l.sidebar = msg.Sidebar
+	l.noteLSPStatusLocked(msg.Sidebar)
 	if l.sidebar.Session.ID == "" {
 		l.sidebar.Session = l.activeSessionLocked()
 	}
@@ -537,6 +545,7 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	if msg.Session.ID != "" {
 		l.messages[msg.Session.ID] = msg.Messages
 		l.sidebar = msg.Sidebar
+		l.noteLSPStatusLocked(msg.Sidebar)
 		if l.sidebar.Session.ID == "" {
 			l.sidebar.Session = msg.Session
 		}
@@ -877,6 +886,11 @@ func (l *Live) drainEvents() (finished bool, gap bool) {
 		if notice.Kind != "" {
 			l.applyNotice(notice)
 		}
+		if notice.Kind == "tool_finished" && strings.HasPrefix(notice.Message, "lsp_") {
+			l.mu.Lock()
+			l.lspRefreshPending = true
+			l.mu.Unlock()
+		}
 		finished = finished || notice.Kind == "done"
 		if notice.Kind == "done" {
 			break
@@ -890,6 +904,14 @@ func (l *Live) drainEvents() (finished bool, gap bool) {
 		l.markRecoveryNeeded()
 	}
 	return finished, gap || overflow
+}
+
+func (l *Live) takeLSPRefreshPending() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	pending := l.lspRefreshPending
+	l.lspRefreshPending = false
+	return pending
 }
 
 func (l *Live) acceptSequence(notice eventNotice) (accept bool, gap bool) {
@@ -1417,6 +1439,9 @@ func (l *Live) refreshSidebarCmd() tea.Cmd {
 	}
 	l.sidebarRequest++
 	request := l.sidebarRequest
+	if l.lspRefreshEnabled {
+		l.nextLSPRefresh = time.Now().Add(5 * time.Second)
+	}
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
@@ -1429,6 +1454,25 @@ func (l *Live) refreshSidebarCmd() tea.Cmd {
 			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: fmt.Errorf("session/sidebar returned no session")}
 		}
 		return liveSidebarMsg{Request: request, SessionID: sessionID, Sidebar: snapshot}
+	}
+}
+
+func (l *Live) refreshLSPSidebarIfDueCmd() tea.Cmd {
+	l.mu.Lock()
+	due := l.lspRefreshEnabled && !l.closed && l.activeID != "" && !time.Now().Before(l.nextLSPRefresh)
+	l.mu.Unlock()
+	if !due {
+		return nil
+	}
+	return l.refreshSidebarCmd()
+}
+
+func (l *Live) noteLSPStatusLocked(snapshot surface.Sidebar) {
+	if snapshot.LSPKnown {
+		l.lspRefreshEnabled = true
+	}
+	if l.lspRefreshEnabled {
+		l.nextLSPRefresh = time.Now().Add(5 * time.Second)
 	}
 }
 
@@ -1468,6 +1512,7 @@ func (l *Live) applySidebar(msg liveSidebarMsg) {
 		return
 	}
 	l.sidebar = msg.Sidebar
+	l.noteLSPStatusLocked(msg.Sidebar)
 	if l.sidebar.Session.ID == "" {
 		l.sidebar.Session = l.activeSessionLocked()
 	}

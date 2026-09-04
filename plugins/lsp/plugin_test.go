@@ -52,6 +52,40 @@ func TestLanguageFor(t *testing.T) {
 	}
 }
 
+func TestLanguageServerStatusesAreWorkspaceScopedAndSideEffectFree(t *testing.T) {
+	manager := newManager()
+	pluginValue := &Plugin{mgr: manager}
+	if statuses := pluginValue.LanguageServerStatuses(context.Background(), "workspace-a"); len(statuses) != 0 {
+		t.Fatalf("inspection started or invented servers: %+v", statuses)
+	}
+	manager.starting[serverKey{lang: "go", root: "workspace-a"}] = &serverStart{done: make(chan struct{})}
+	manager.starting[serverKey{lang: "python", root: "workspace-b"}] = &serverStart{done: make(chan struct{})}
+	statuses := pluginValue.LanguageServerStatuses(context.Background(), "workspace-a")
+	if len(statuses) != 1 || statuses[0].Language != "go" || statuses[0].State != "starting" {
+		t.Fatalf("workspace-a status = %+v", statuses)
+	}
+	if statuses := pluginValue.LanguageServerStatuses(context.Background(), "workspace-c"); len(statuses) != 0 {
+		t.Fatalf("foreign workspace leaked statuses: %+v", statuses)
+	}
+}
+
+func TestManagerReportsInitializedServerForExactWorkspace(t *testing.T) {
+	manager := newManager()
+	env := &fakeEnv{root: "workspace-a", files: map[string]string{}}
+	server, err := manager.get(context.Background(), env, languages[0], env.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	statuses := manager.statuses(env.root)
+	if len(statuses) != 1 || statuses[0].Language != "go" || statuses[0].State != "initialized" {
+		t.Fatalf("initialized statuses = %+v", statuses)
+	}
+	if statuses := manager.statuses("workspace-b"); len(statuses) != 0 {
+		t.Fatalf("workspace-b leaked statuses: %+v", statuses)
+	}
+}
+
 func TestWorkspaceRel(t *testing.T) {
 	accept := []string{"main.go", "src/x.ts", "./a.go", "a/b/c.py"}
 	reject := []string{"", "../x.go", "/abs.go", `C:\x.go`, "C:/x.go", "a/../../b.go"}

@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"agent-vivy/sdk/plugin"
+	"agent-vivy/sdk/tui/stream"
 	"example.com/vivy/faces/tui/surface"
 
 	"example.com/vivy/faces/tui/view"
@@ -1188,6 +1190,7 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 		ModifiedFiles:      []sidebarFileView{{Path: "main.go", Diff: sidebarDiffView{Additions: 3, Deletions: 1}}},
 		MCPKnown:           true, MCP: []sidebarMCPView{{Name: "docs", State: "initialized"}},
 		SkillsKnown: true, Skills: []sidebarSkillView{{Name: "review"}},
+		LSPKnown: true, LSP: []sidebarLSPView{{Language: "go", State: "initialized"}, {Language: "bad", State: "guessed"}},
 	})
 	if got.Session.UpdatedAt != 42 || !got.ModifiedFilesKnown || len(got.ModifiedFiles) != 1 {
 		t.Fatalf("sidebar mapping = %+v", got)
@@ -1198,6 +1201,9 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 	if !got.MCPKnown || len(got.MCP) != 1 || got.MCP[0].State != "initialized" || !got.SkillsKnown || len(got.Skills) != 1 {
 		t.Fatalf("integration mapping = %+v", got)
 	}
+	if !got.LSPKnown || len(got.LSP) != 1 || got.LSP[0].Language != "go" {
+		t.Fatalf("lsp mapping = %+v", got.LSP)
+	}
 }
 
 func TestSuccessfulMCPCommandRefreshesSidebar(t *testing.T) {
@@ -1207,6 +1213,41 @@ func TestSuccessfulMCPCommandRefreshesSidebar(t *testing.T) {
 	}
 	if cmd := live.applyCommandResult(surface.CommandResultMsg{Name: "mcp", Err: errors.New("probe failed")}); cmd != nil {
 		t.Fatal("failed MCP inspection scheduled a misleading sidebar refresh")
+	}
+}
+
+func TestLSPToolCompletionRequestsOneSidebarRefresh(t *testing.T) {
+	live := &Live{activeID: "sess", messages: map[string][]surface.Message{"sess": {}}}
+	live.inbox.Push(stream.Notice{Kind: "tool_finished", Message: "lsp_diagnostics"})
+	_, _ = live.drainEvents()
+	if !live.takeLSPRefreshPending() || live.takeLSPRefreshPending() {
+		t.Fatal("LSP tool completion did not coalesce exactly one sidebar refresh")
+	}
+	live.inbox.Push(stream.Notice{Kind: "tool_finished", Message: "read_file"})
+	_, _ = live.drainEvents()
+	if live.takeLSPRefreshPending() {
+		t.Fatal("non-LSP tool completion requested an LSP sidebar refresh")
+	}
+}
+
+func TestLSPKnownStatusKeepsBoundedTTLRefreshEnabled(t *testing.T) {
+	live := &Live{activeID: "sess", sessions: []surface.Session{{ID: "sess"}}}
+	if cmd := live.refreshLSPSidebarIfDueCmd(); cmd != nil {
+		t.Fatal("default generation scheduled an LSP TTL refresh")
+	}
+	live.mu.Lock()
+	live.noteLSPStatusLocked(surface.Sidebar{LSPKnown: true})
+	live.nextLSPRefresh = time.Now().Add(-time.Second)
+	live.mu.Unlock()
+	if cmd := live.refreshLSPSidebarIfDueCmd(); cmd == nil {
+		t.Fatal("known LSP owner did not schedule its bounded TTL refresh")
+	}
+	live.mu.Lock()
+	live.noteLSPStatusLocked(surface.Sidebar{})
+	live.nextLSPRefresh = time.Now().Add(-time.Second)
+	live.mu.Unlock()
+	if cmd := live.refreshLSPSidebarIfDueCmd(); cmd == nil {
+		t.Fatal("transient unknown snapshot permanently disabled LSP TTL refresh")
 	}
 }
 

@@ -126,6 +126,10 @@ type ControlDeps struct {
 	// MCP is the live Streamable HTTP catalog. Writes replace it immediately.
 	// Nil disables settings/mcp* methods.
 	MCP MCPCatalog
+	// LanguageServers returns secret-free live process state scoped to one
+	// already-authorized session. Nil means this generation has no status
+	// owner; an empty successful snapshot means known idle.
+	LanguageServers LanguageServerStatusSource
 	// WorkspaceFiles is the read-only UI accessor over run workspaces for
 	// the file preview panel (workspace/list, workspace/read). Nil disables
 	// the workspace/* method family.
@@ -184,6 +188,22 @@ type MCPCatalog interface {
 type MCPStatusProvider interface {
 	ServerStatuses() []runtime.MCPServerStatus
 }
+
+// LanguageServerStatus is the narrow control-plane projection of a live LSP
+// process. Language is a logical identifier, never a command or host path.
+type LanguageServerStatus struct {
+	Language string
+	State    string
+}
+
+type LanguageServerSnapshot struct {
+	Known   bool
+	Servers []LanguageServerStatus
+}
+
+// LanguageServerStatusSource resolves workspace-owned plugin state through a
+// session boundary assembled by the composition root.
+type LanguageServerStatusSource func(context.Context, domain.SessionID) (LanguageServerSnapshot, error)
 
 // ChildRequest starts one durable, asynchronous child run under a parent.
 // The parent controller derives policy hash, workspace, and budget from the

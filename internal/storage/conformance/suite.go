@@ -681,6 +681,23 @@ func cnRunsBySession(t *testing.T, h Harness) {
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("ListRunsBySession(unknown) = %+v, %v; want empty, nil", empty, err)
 	}
+	latestStore, ok := b.(storage.LatestPrimaryRunStore)
+	if !ok {
+		t.Fatal("first-party backend lacks LatestPrimaryRunStore")
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-child", SessionID: "sess-pin", Status: domain.RunActive, CreatedAt: 4, Kind: domain.RunKindChild, ParentID: "run-b", RootID: "run-b", Depth: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-c", SessionID: "sess-pin", Status: domain.RunCompleted, CreatedAt: 3, Kind: domain.RunKindPrimary}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := latestStore.LatestPrimaryRunBySession(ctx, "sess-pin")
+	if err != nil || latest.ID != "run-c" {
+		t.Fatalf("LatestPrimaryRunBySession = %+v/%v, want run-c (not newer child)", latest, err)
+	}
+	if _, err := latestStore.LatestPrimaryRunBySession(ctx, "sess-none"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("LatestPrimaryRunBySession unknown err = %v, want ErrNotFound", err)
+	}
 }
 
 func cnCompactionsBySession(t *testing.T, h Harness) {

@@ -85,6 +85,13 @@ type SidebarSkill struct {
 	Name string
 }
 
+// LanguageServer is one live process owned by a workspace that belongs to
+// the active session. State is "starting" or "initialized".
+type LanguageServer struct {
+	Language string
+	State    string
+}
+
 // Sidebar is the optional server-backed snapshot used by the Crush-style
 // right rail. Missing fields remain missing; the view never infers them from
 // process state or aggregate statistics.
@@ -105,6 +112,8 @@ type Sidebar struct {
 	MCPKnown           bool
 	Skills             []SidebarSkill
 	SkillsKnown        bool
+	LSP                []LanguageServer
+	LSPKnown           bool
 }
 
 // ToolCard is an inline tool result / pending approval inside the chat.

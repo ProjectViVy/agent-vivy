@@ -548,7 +548,8 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			}
 			return info
 		},
-		MCP: mcpBackend,
+		MCP:             mcpBackend,
+		LanguageServers: buildLanguageServerStatusSource(genPlugins, backend, workspaceManager),
 		WorkspaceFiles: func() controlrpc.WorkspaceFiles {
 			if workspaceManager == nil {
 				return nil

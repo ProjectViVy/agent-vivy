@@ -97,6 +97,50 @@ func (m *WorkspaceManager) Ensure(ctx context.Context, runID domain.RunID) (Work
 	return Workspace{ID: name, Path: path}, nil
 }
 
+// Existing resolves a run workspace only when it already exists. Unlike
+// Ensure it never creates filesystem state, which makes it safe for status
+// and inspection paths.
+func (m *WorkspaceManager) Existing(ctx context.Context, runID domain.RunID) (Workspace, bool, error) {
+	if m == nil || m.root == "" {
+		return Workspace{}, false, errors.New("runtime: workspace manager not wired")
+	}
+	if err := ctx.Err(); err != nil {
+		return Workspace{}, false, err
+	}
+	if m.local {
+		info, err := os.Lstat(m.root)
+		if errors.Is(err, os.ErrNotExist) {
+			return Workspace{}, false, nil
+		}
+		if err != nil {
+			return Workspace{}, false, fmt.Errorf("runtime: inspect local workspace: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return Workspace{}, false, errors.New("runtime: local workspace root is not a directory")
+		}
+		return Workspace{ID: "local", Path: m.root}, true, nil
+	}
+	name := string(runID)
+	if !validWorkspaceName(name) {
+		return Workspace{}, false, errors.New("runtime: invalid workspace run id")
+	}
+	workspacePath := filepath.Join(m.root, name)
+	if err := m.ensureUnderRoot(workspacePath); err != nil {
+		return Workspace{}, false, err
+	}
+	info, err := os.Lstat(workspacePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return Workspace{}, false, nil
+	}
+	if err != nil {
+		return Workspace{}, false, fmt.Errorf("runtime: inspect workspace: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return Workspace{}, false, errors.New("runtime: workspace path is not a private directory")
+	}
+	return Workspace{ID: name, Path: workspacePath}, true, nil
+}
+
 // ValidatePath reports whether a path stays inside the manager root. It is
 // used by future tool adapters before opening any user-controlled path.
 func (m *WorkspaceManager) ValidatePath(path string) error {

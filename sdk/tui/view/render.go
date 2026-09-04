@@ -395,6 +395,32 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			lines = append(lines, p.Dim.Render(truncate(line, width-1)))
 		}
 	}
+	if snapshot.LSPKnown {
+		lspLines := make([]string, 0, len(snapshot.LSP))
+		for _, server := range snapshot.LSP {
+			language := strings.TrimSpace(sanitizeFileCompletionText(server.Language))
+			if language == "" {
+				continue
+			}
+			state := server.State
+			style := p.Dim
+			switch state {
+			case "starting":
+			case "initialized":
+				state = "initialized"
+				style = p.Active
+			default:
+				continue
+			}
+			lspLines = append(lspLines, style.Render(truncate(" "+language+" · "+state, width-1)))
+		}
+		lines = append(lines, "", p.Dim.Render(" LSP · live"))
+		if len(lspLines) == 0 {
+			lines = append(lines, p.Dim.Render(" None initialized"))
+		} else {
+			lines = append(lines, lspLines...)
+		}
+	}
 	if snapshot.MCPKnown {
 		lines = append(lines, "", p.Dim.Render(" MCP"))
 		if len(snapshot.MCP) == 0 {

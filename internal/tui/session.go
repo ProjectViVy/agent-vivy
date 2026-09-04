@@ -33,6 +33,8 @@ type sidebarView struct {
 	MCP                []sidebarMCPView   `json:"mcp"`
 	SkillsKnown        bool               `json:"skills_known"`
 	Skills             []sidebarSkillView `json:"skills"`
+	LSPKnown           bool               `json:"lsp_known"`
+	LSP                []sidebarLSPView   `json:"lsp"`
 }
 
 type sidebarMCPView struct {
@@ -42,6 +44,11 @@ type sidebarMCPView struct {
 
 type sidebarSkillView struct {
 	Name string `json:"name"`
+}
+
+type sidebarLSPView struct {
+	Language string `json:"language"`
+	State    string `json:"state"`
 }
 
 type sidebarUsageView struct {
@@ -141,6 +148,15 @@ func mapSidebarView(view sidebarView) surface.Sidebar {
 		snapshot.SkillsKnown = true
 		for _, skill := range view.Skills {
 			snapshot.Skills = append(snapshot.Skills, surface.SidebarSkill{Name: skill.Name})
+		}
+	}
+	if view.LSPKnown {
+		snapshot.LSPKnown = true
+		for _, server := range view.LSP {
+			if server.State != "starting" && server.State != "initialized" {
+				continue
+			}
+			snapshot.LSP = append(snapshot.LSP, surface.LanguageServer{Language: server.Language, State: server.State})
 		}
 	}
 	return snapshot

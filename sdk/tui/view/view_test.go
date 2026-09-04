@@ -293,6 +293,28 @@ func TestSidebarDoesNotRenderSessionCollection(t *testing.T) {
 	}
 }
 
+func TestSidebarLSPSectionRequiresAuthoritativeOwner(t *testing.T) {
+	driver := &testDriver{sessions: []surface.Session{{ID: "active", Title: "Current"}}, active: "active", sidebar: surface.Sidebar{Session: surface.Session{ID: "active", Title: "Current"}}}
+	m := New(driver)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+	if strings.Contains(m.View(), "LSP · live") {
+		t.Fatalf("unknown LSP owner rendered a status section:\n%s", m.View())
+	}
+	driver.sidebar.LSPKnown = true
+	updated, _ = m.Update(surface.RefreshMsg{})
+	m = updated.(Model)
+	if !strings.Contains(m.View(), "LSP · live") || !strings.Contains(m.View(), "None initialized") {
+		t.Fatalf("known idle LSP owner was hidden:\n%s", m.View())
+	}
+	driver.sidebar.LSP = []surface.LanguageServer{{Language: "go", State: "guessed"}}
+	updated, _ = m.Update(surface.RefreshMsg{})
+	m = updated.(Model)
+	if strings.Contains(m.View(), "guessed") || strings.Contains(m.View(), "go · starting") || !strings.Contains(m.View(), "None initialized") {
+		t.Fatalf("unknown LSP state failed open:\n%s", m.View())
+	}
+}
+
 func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current"}},
@@ -306,6 +328,7 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 			ModifiedFilesKnown: true,
 			MCPKnown:           true, MCP: []surface.MCPServer{{Name: "docs", State: "initialized"}, {Name: "local", State: "configured"}},
 			SkillsKnown: true, Skills: []surface.SidebarSkill{{Name: "review"}},
+			LSPKnown: true, LSP: []surface.LanguageServer{{Language: "go", State: "initialized"}, {Language: "typescript", State: "starting"}},
 		},
 	}
 	for i := 0; i < 20; i++ {
@@ -337,7 +360,7 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	if m.sidebarScroll == 0 || !strings.Contains(scrolled, "pkg/file-19.go") {
 		t.Fatalf("end did not scroll to the newest modified file: offset=%d\n%s", m.sidebarScroll, m.View())
 	}
-	for _, want := range []string{"VIVY CODE", "docs · initialized", "local · configured", "Skills · enabled", "review"} {
+	for _, want := range []string{"VIVY CODE", "go · initialized", "typescript · starting", "docs · initialized", "local · configured", "Skills · enabled", "review"} {
 		if !strings.Contains(scrolled, want) {
 			t.Fatalf("scrolled sidebar omitted %q:\n%s", want, scrolled)
 		}
