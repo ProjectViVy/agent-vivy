@@ -31,6 +31,15 @@ func TestPermissionCycle(t *testing.T) {
 	}
 }
 
+func TestSharedCommandPaletteIsVisibleThroughBuiltInWrapper(t *testing.T) {
+	m := New(nil)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updated.(Model)
+	if got := m.View(); !strings.Contains(got, "Commands") || !strings.Contains(got, "/help") {
+		t.Fatalf("built-in wrapper palette missing:\n%s", got)
+	}
+}
+
 func TestViewContainsCrushSkeleton(t *testing.T) {
 	m := New(demo.NewStore())
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})

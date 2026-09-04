@@ -46,11 +46,14 @@ type Model struct {
 	sessionError       string
 	sessionRequest     uint64
 
-	commandOverlayTitle string
-	commandOverlay      string
-	commandConfirmName  string
-	commandConfirmArgs  []string
-	commandConfirmSID   string
+	commandOverlayTitle  string
+	commandOverlay       string
+	commandConfirmName   string
+	commandConfirmArgs   []string
+	commandConfirmSID    string
+	commandPaletteOpen   bool
+	commandPaletteFilter string
+	commandPaletteCursor int
 }
 
 // New returns a model bound to the given driver.
@@ -84,6 +87,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
+	if m.commandPaletteOpen && m.driver.PendingGate() != nil {
+		// Gates arrive asynchronously from the run stream. Close the palette
+		// on arrival, not only on the next key, so it cannot reappear after the
+		// gate resolves.
+		m.closeCommandPalette()
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = max(1, msg.Width)
@@ -101,6 +110,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input = ""
 		}
 	case surface.CommandResultMsg:
+		m.closeCommandPalette()
 		m.applyCommandResult(msg)
 	case surface.ErrMsg:
 		// The driver stores transport errors in Meta. Keep the dialog snapshot
@@ -151,6 +161,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.commandConfirmName != "" {
 		m.clearCommandConfirmation()
 	}
+	if gate != nil && m.commandPaletteOpen {
+		m.closeCommandPalette()
+	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
 	}
@@ -167,6 +180,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if gate == nil && m.commandPaletteOpen {
+		return m.handleCommandPaletteKey(msg)
+	}
 	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
 		return m, nil
 	}
@@ -175,6 +191,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.KeyCtrlS:
 		return m.openSessions()
+	case tea.KeyCtrlP:
+		if gate == nil {
+			m.openCommandPalette()
+		}
+		return m, nil
 	case tea.KeyEsc:
 		if gate != nil {
 			return m, nil
@@ -248,6 +269,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if text == "q" && m.input == "" && gate == nil && !meta.Busy {
 			return m, tea.Quit
 		}
+		if text == "/" && m.input == "" && gate == nil {
+			m.openCommandPalette()
+			return m, nil
+		}
 		m.input += text
 		return m, nil
 	}
@@ -260,6 +285,97 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) openCommandPalette() {
+	m.commandPaletteOpen = true
+	m.commandPaletteFilter = ""
+	m.commandPaletteCursor = 0
+}
+
+func (m *Model) closeCommandPalette() {
+	m.commandPaletteOpen = false
+	m.commandPaletteFilter = ""
+	m.commandPaletteCursor = 0
+}
+
+func (m Model) handleCommandPaletteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.closeCommandPalette()
+		return m, nil
+	case tea.KeyUp, tea.KeyCtrlP:
+		m.moveCommandPaletteCursor(-1)
+		return m, nil
+	case tea.KeyDown, tea.KeyCtrlN:
+		m.moveCommandPaletteCursor(1)
+		return m, nil
+	case tea.KeyBackspace:
+		m.commandPaletteFilter = removeLastRune(m.commandPaletteFilter)
+		m.commandPaletteCursor = 0
+		return m, nil
+	case tea.KeySpace:
+		m.commandPaletteFilter = sanitizeCommandPaletteFilter(m.commandPaletteFilter + " ")
+		m.commandPaletteCursor = 0
+		return m, nil
+	case tea.KeyEnter, tea.KeyCtrlY:
+		rows := m.filteredCommands()
+		if len(rows) == 0 {
+			return m, nil
+		}
+		cursor := min(max(0, m.commandPaletteCursor), len(rows)-1)
+		m.input = "/" + rows[cursor].Name
+		m.closeCommandPalette()
+		return m, nil
+	case tea.KeyRunes:
+		text := string(msg.Runes)
+		if text == "/" && m.commandPaletteFilter == "" && m.input == "" {
+			// Preserve the parser's //literal contract even though the first
+			// slash opens the palette instead of entering the editor.
+			m.input = "//"
+			m.closeCommandPalette()
+			return m, nil
+		}
+		m.commandPaletteFilter = sanitizeCommandPaletteFilter(m.commandPaletteFilter + text)
+		m.commandPaletteCursor = 0
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) moveCommandPaletteCursor(delta int) {
+	rows := m.filteredCommands()
+	if len(rows) == 0 {
+		m.commandPaletteCursor = 0
+		return
+	}
+	m.commandPaletteCursor = (m.commandPaletteCursor + delta) % len(rows)
+	if m.commandPaletteCursor < 0 {
+		m.commandPaletteCursor += len(rows)
+	}
+}
+
+func (m Model) filteredCommands() []command.Spec {
+	needle := strings.ToLower(strings.TrimSpace(sanitizeCommandPaletteFilter(m.commandPaletteFilter)))
+	rows := commandRegistry.Specs()
+	if needle == "" {
+		return rows
+	}
+	filtered := make([]command.Spec, 0, len(rows))
+	for _, spec := range rows {
+		search := strings.ToLower(strings.Join([]string{
+			spec.Name,
+			strings.Join(spec.Aliases, " "),
+			spec.Usage,
+			spec.Description,
+		}, " "))
+		if fuzzyContains(search, needle) {
+			filtered = append(filtered, spec)
+		}
+	}
+	return filtered
 }
 
 func (m Model) submitInput() (Model, tea.Cmd) {
