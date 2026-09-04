@@ -62,6 +62,17 @@ func TestScriptHookAllowPassthrough(t *testing.T) {
 	}
 }
 
+func TestLimitedHookBufferBoundsCapturedOutput(t *testing.T) {
+	var buffer limitedHookBuffer
+	payload := []byte(strings.Repeat("x", maxHookOutputBytes*2))
+	if n, err := buffer.Write(payload); err != nil || n != len(payload) {
+		t.Fatalf("Write = %d, %v; want %d, nil", n, err, len(payload))
+	}
+	if buffer.Len() != maxHookOutputBytes {
+		t.Fatalf("captured hook output = %d bytes, want %d", buffer.Len(), maxHookOutputBytes)
+	}
+}
+
 func TestScriptHookExit2DeniesWithStderr(t *testing.T) {
 	runner := &fakeRunner{exitCode: 2, stderr: "  no writes on fridays \n"}
 	hook := &ScriptHook{Command: "guard", run: runner.run}

@@ -24,8 +24,12 @@ func (f *codeFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResu
 		return plugin.FaceResult{Status: "failed"}, errors.New("tui: an interactive terminal is required")
 	}
 	client := AttachFaceEnv(env)
-	if _, err := client.Call(ctx, "initialize", nil); err != nil {
+	initialized, err := client.Call(ctx, "initialize", nil)
+	if err != nil {
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: initialize: %w", err)
+	}
+	if err := client.setCapabilities(initialized); err != nil {
+		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: initialize capabilities: %w", err)
 	}
 	live := NewLive(client, LiveOptions{
 		Host:           "local project",

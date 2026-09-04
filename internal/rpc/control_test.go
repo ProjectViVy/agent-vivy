@@ -251,6 +251,119 @@ func TestControlHandlerUnknownMethodAndInvalidParams(t *testing.T) {
 	}
 }
 
+func TestControlShellStartIsGovernedAndStrict(t *testing.T) {
+	var shellService *runtime.Service
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		backend := deps.Sessions.(*sqlite.Backend)
+		root := t.TempDir()
+		workspace, err := runtime.NewWorkspaceManager(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sandbox, err := runtime.NewSandboxManager(domain.SandboxModeWorkspaceWrite, root, []string{"go"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		commands := runtime.NewEinoCommandBackend(workspace, sandbox, []string{"go"}, 5*time.Second)
+		active, err := tools.NewRegistry(tools.NewBash(commands)).Resolve([]string{tools.BashName})
+		if err != nil {
+			t.Fatal(err)
+		}
+		engine, err := runtime.NewEngine(context.Background(), runtime.WrapModel(testsupport.NewEchoModel()), active, runtime.EngineConfig{
+			StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shellService = runtime.NewService(engine, "test", "test-model", runtime.ServiceDeps{
+			Journal: backend, Runs: backend, Messages: backend, Approvals: backend, Questions: backend,
+			Sessions: backend, Workspaces: workspace, ShellState: backend.Blobs(), Sink: deps.Bus,
+		})
+		deps.Service = shellService
+		deps.Live.Tools = []domain.ToolSpec{active[0].Spec()}
+	})
+	t.Cleanup(func() {
+		shellService.CancelAll()
+		shellService.WaitIdle(context.Background())
+	})
+
+	initialized, rpcErr := callControl(t, env.handler, "initialize", nil)
+	if rpcErr != nil || !containsCapability(initialized, "shell.start") {
+		t.Fatalf("initialize shell capability = %v, err = %v", initialized, rpcErr)
+	}
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "shell"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(raw, &session); err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := callControl(t, env.handler, "session/set_permission", map[string]string{
+		"session_id": string(session.ID), "preset": string(domain.PermissionPresetTrusted),
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	for _, params := range []any{
+		map[string]string{"session_id": string(session.ID)},
+		map[string]string{"session_id": string(session.ID), "script": "echo safe", "cwd": "."},
+	} {
+		if _, rpcErr := callControl(t, env.handler, "shell/start", params); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("strict shell params error = %v", rpcErr)
+		}
+	}
+	if _, rpcErr := callControl(t, env.handler, "shell/start", map[string]string{
+		"session_id": string(session.ID), "script": "curl https://example.com",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("network shell error = %v, want InvalidParams", rpcErr)
+	}
+	started, rpcErr := callControl(t, env.handler, "shell/start", map[string]string{
+		"session_id": string(session.ID), "script": "printf rpc_shell_ok",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	acceptedJSON, _ := json.Marshal(started)
+	var accepted struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(acceptedJSON, &accepted); err != nil || accepted.RunID == "" {
+		t.Fatalf("shell/start result = %s, err = %v", acceptedJSON, err)
+	}
+	waitForControlRunTerminal(t, env.backend, accepted.RunID)
+	events, rpcErr := callControl(t, env.handler, "run/log", map[string]any{"run_id": accepted.RunID, "after_seq": 0})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	eventsJSON, _ := json.Marshal(events)
+	if !strings.Contains(string(eventsJSON), "rpc_shell_ok") || strings.Contains(string(eventsJSON), string(domain.EventModelRequest)) {
+		t.Fatalf("governed shell log = %s", eventsJSON)
+	}
+	history, rpcErr := callControl(t, env.handler, "session/messages", map[string]any{
+		"session_id": string(session.ID), "include_attachment_data": false,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	historyJSON, _ := json.Marshal(history)
+	if !strings.Contains(string(historyJSON), `"tool_name":"bash"`) ||
+		!strings.Contains(string(historyJSON), "bash script [redacted") ||
+		strings.Contains(string(historyJSON), "printf rpc_shell_ok") {
+		t.Fatalf("sanitized shell history = %s", historyJSON)
+	}
+}
+
+func TestMessageProjectionNeverExposesOrdinaryBashArguments(t *testing.T) {
+	result := toMessageResult(domain.Message{
+		ToolName: tools.BashName, ToolCallID: "call_model_bash",
+		ToolArgs: json.RawMessage(`{"command":"echo raw-model-command"}`),
+	}, false)
+	if result.ToolName != tools.BashName || result.ToolPreview != "" {
+		t.Fatalf("ordinary bash projection leaked preview: %+v", result)
+	}
+}
+
 func TestControlHandlerChildLifecycleContract(t *testing.T) {
 	env := newControlTestEnv(t)
 	started, rpcErr := callControl(t, env.handler, "child/start", ChildRequest{ParentRunID: "run-parent", Text: "delegate"})
@@ -2843,6 +2956,14 @@ func TestSessionRewindRoute(t *testing.T) {
 	listedJSON, _ := json.Marshal(listed)
 	if !strings.Contains(string(listedJSON), `"one"`) || strings.Contains(string(listedJSON), `"two"`) || strings.Contains(string(listedJSON), `"three"`) {
 		t.Fatalf("session/messages after rewind = %s, want only msg-1", listedJSON)
+	}
+	gotSession, rpcErr := callControl(t, env.handler, "session/get", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	gotSessionJSON, _ := json.Marshal(gotSession)
+	if !strings.Contains(string(gotSessionJSON), `"one"`) || strings.Contains(string(gotSessionJSON), `"two"`) || strings.Contains(string(gotSessionJSON), `"three"`) {
+		t.Fatalf("session/get after rewind = %s, want same projection as session/messages", gotSessionJSON)
 	}
 	// A turn started after the rewind (the edit flow) must stay visible.
 	if err := env.backend.AppendMessage(ctx, domain.Message{ID: "msg-4", SessionID: session.ID, Role: domain.RoleUser, Content: "fresh"}); err != nil {

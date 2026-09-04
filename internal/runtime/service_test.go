@@ -525,6 +525,16 @@ func TestClampText(t *testing.T) {
 	}
 }
 
+func TestEventMapperClampsJSONEscapedToolResult(t *testing.T) {
+	const budget = 4096
+	m := newEventMapper("run-escaped", budget)
+	result := strings.Repeat(`\"\\`, 8192)
+	event := m.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: "call", ToolName: tools.BashName, Result: result})
+	if len(event.Payload) > budget {
+		t.Fatalf("encoded payload = %d bytes, want <= %d", len(event.Payload), budget)
+	}
+}
+
 // capturingModel records the message list of every Stream call and
 // answers a fixed reply, so tests can assert exactly what the engine fed
 // the model (MA-1).

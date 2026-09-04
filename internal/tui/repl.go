@@ -23,8 +23,7 @@ connected to the resident gateway. type /help. Ctrl+C or /quit to leave.
 const helpNotes = `
 plain lines are sent as the next user turn.
 
-!<script> requires server shell support (unavailable in this build); @path adds project file context.
-Use !! and @@ when a literal leading marker is intended.
+@path adds project file context. Use @@ when a literal leading marker is intended.
 
 when a tool needs approval, the next line is y or n
 (approved / denied). a pending question takes the next line as the answer.
@@ -255,7 +254,10 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 	args := invocation.Args
 	switch cmd {
 	case "help":
-		fmt.Fprint(r.out, command.DefaultRegistry().Help())
+		fmt.Fprint(r.out, command.DefaultRegistry().HelpFor(r.client.SupportsCapability("shell.start")))
+		if r.client.SupportsCapability("shell.start") {
+			fmt.Fprintln(r.out, "!<script> runs a governed foreground shell command; use !! for a literal marker.")
+		}
 		fmt.Fprint(r.out, helpNotes)
 		return nil
 	case "quit":

@@ -51,6 +51,9 @@ type messageView struct {
 	// ContextFiles is accepted as a compatibility spelling for older server
 	// snapshots; both fields are metadata-only and never carry body content.
 	ContextFiles []surface.FileContext `json:"context_files,omitempty"`
+	ToolName     string                `json:"tool_name,omitempty"`
+	ToolCallID   string                `json:"tool_call_id,omitempty"`
+	ToolPreview  string                `json:"tool_preview,omitempty"`
 }
 
 type runAccepted struct {
@@ -332,6 +335,14 @@ func formatHistory(messages []messageView) string {
 	}
 	var b strings.Builder
 	for _, message := range messages {
+		if message.ToolName != "" {
+			content := message.Content
+			if content == "" {
+				content = message.ToolPreview
+			}
+			fmt.Fprintf(&b, "tool %s: %s\n", message.ToolName, strings.TrimSpace(content))
+			continue
+		}
 		role := message.Role
 		if role == string(domain.RoleUser) {
 			role = "you"

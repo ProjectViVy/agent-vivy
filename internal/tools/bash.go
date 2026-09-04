@@ -21,6 +21,19 @@ type bashTool struct {
 // expands to `bash -c <script>`; the backend resolves the shell binary.
 func NewBash(ops CommandOperations) Tool { return &bashTool{ops: ops} }
 
+// Available reports whether the bash tool has an executable backend. Backends
+// may provide a stronger host-specific probe; small test backends only need to
+// be non-nil.
+func (t *bashTool) Available() bool {
+	if t == nil || t.ops == nil {
+		return false
+	}
+	if probe, ok := t.ops.(interface{ ShellAvailable() bool }); ok {
+		return probe.ShellAvailable()
+	}
+	return true
+}
+
 func (t *bashTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
 		Name: BashName,

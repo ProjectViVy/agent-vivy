@@ -242,6 +242,29 @@ func (r *JobRegistry) RunUntil(ctx context.Context, spec JobSpec, timeout time.D
 	}
 }
 
+// RunForeground runs spec within timeout and never registers or adopts the
+// process as a background job. It is used by caller-owned foreground surfaces
+// whose lifecycle must end with the request (for example direct !shell).
+func (r *JobRegistry) RunForeground(ctx context.Context, spec JobSpec, timeout time.Duration) (CommandResult, error) {
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	j, err := r.spawn(runCtx, spec)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	select {
+	case <-j.done:
+		return j.collectFinal(), nil
+	case <-runCtx.Done():
+		// spawn binds both native and in-process commands to runCtx. Wait for
+		// finalization so no process or output goroutine survives the request.
+		<-j.done
+		result := j.collectFinal()
+		result.TimedOut = errors.Is(runCtx.Err(), context.DeadlineExceeded)
+		return result, runCtx.Err()
+	}
+}
+
 // Read returns the job's incremental output snapshot.
 func (r *JobRegistry) Read(id string) (JobReadResult, bool) {
 	r.mu.Lock()

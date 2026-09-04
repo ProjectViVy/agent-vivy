@@ -7,12 +7,32 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
 // Blobs implements storage.BlobStore over the shared database handle.
 type Blobs struct {
 	db *DB
+}
+
+// ListPrefix lists current blob pointers with a literal id prefix.
+func (s *Blobs) ListPrefix(ctx context.Context, prefix string) ([]string, error) {
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(prefix)
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM checkpoints WHERE id LIKE ? ESCAPE '\' ORDER BY id`, escaped+"%")
+	if err != nil {
+		return nil, fmt.Errorf("storage: list blob prefix: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("storage: scan blob prefix: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // Put appends a new generation for id and atomically flips the pointer

@@ -43,8 +43,12 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 			errors.New("tui: this face needs an interactive terminal (stdout is not a tty); pipe prompts to the headless face instead")
 	}
 	client := newClient(env)
-	if _, err := client.Call(ctx, "initialize", nil); err != nil {
+	initialized, err := client.Call(ctx, "initialize", nil)
+	if err != nil {
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: initialize: %w", err)
+	}
+	if err := client.setCapabilities(initialized); err != nil {
+		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: initialize capabilities: %w", err)
 	}
 	live := NewLive(client, LiveOptions{
 		Host:           "local project",

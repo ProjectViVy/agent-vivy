@@ -84,6 +84,12 @@ type BlobStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// BlobPrefixLister is an optional maintenance extension used to garbage
+// collect deterministic protected-state keys after a prior delete failure.
+type BlobPrefixLister interface {
+	ListPrefix(ctx context.Context, prefix string) ([]string, error)
+}
+
 // LeaseStore serializes exclusive work (session run lock, recovery).
 type LeaseStore interface {
 	// Acquire grants the lease when free or expired; acquired=false means
