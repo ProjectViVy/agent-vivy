@@ -318,6 +318,23 @@ func (c *Client) cancelRun(ctx context.Context, runID string) error {
 	return err
 }
 
+func (c *Client) runStatus(ctx context.Context, runID string) (string, error) {
+	raw, err := c.Call(ctx, "run/get", map[string]string{"run_id": runID})
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", fmt.Errorf("tui: run/get: %w", err)
+	}
+	if strings.TrimSpace(result.Status) == "" {
+		return "", fmt.Errorf("tui: run/get returned no status")
+	}
+	return result.Status, nil
+}
+
 func (c *Client) respondApproval(ctx context.Context, approvalID, decision string) error {
 	_, err := c.Call(ctx, "approval/respond", map[string]string{
 		"approval_id": approvalID,

@@ -120,6 +120,15 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 			b.WriteByte('\n')
 		}
 	}
+	meta := m.driver.Meta()
+	if meta.Busy {
+		b.WriteString(p.Dim.Render(truncate(" run · "+fallback(meta.RunID, "active"), width-1)))
+		b.WriteByte('\n')
+	}
+	if meta.Queued > 0 {
+		b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" queue · %d", meta.Queued), width-1)))
+		b.WriteByte('\n')
+	}
 	if snapshot.HasContext {
 		b.WriteByte('\n')
 		b.WriteString(p.Dim.Render(" Context"))
@@ -133,7 +142,15 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 		}
 		if ctx.TotalMessages > 0 {
 			b.WriteByte('\n')
-			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %d messages", ctx.TotalMessages), width-1)))
+			if ctx.FeedMessages > 0 && ctx.FeedMessages != ctx.TotalMessages {
+				b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %d / %d feed messages", ctx.FeedMessages, ctx.TotalMessages), width-1)))
+			} else {
+				b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %d messages", ctx.TotalMessages), width-1)))
+			}
+		}
+		if ctx.TriggerTokens > 0 {
+			b.WriteByte('\n')
+			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" compact at %s", compactNumber(ctx.TriggerTokens)), width-1)))
 		}
 		if ctx.CompactionEnabled {
 			b.WriteByte('\n')
@@ -143,6 +160,10 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 			}
 			b.WriteString(p.Dim.Render(compaction))
 		}
+		if ctx.HasCompactionSummary {
+			b.WriteByte('\n')
+			b.WriteString(p.Dim.Render(" summary available"))
+		}
 	}
 	if errText := strings.TrimSpace(m.driver.Meta().Error); errText != "" {
 		b.WriteByte('\n')
@@ -150,6 +171,13 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 	}
 	box := strings.TrimRight(b.String(), "\n")
 	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
+}
+
+func fallback(value, otherwise string) string {
+	if strings.TrimSpace(value) == "" {
+		return otherwise
+	}
+	return value
 }
 
 func compactNumber(n int) string {

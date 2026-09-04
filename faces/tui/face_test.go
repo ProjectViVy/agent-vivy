@@ -867,6 +867,139 @@ func TestBootWithPromptCreatesFreshSessionAndSends(t *testing.T) {
 	if !env.saw("session/create") {
 		t.Fatal("expected a fresh session without --continue")
 	}
+	if sessions := live.Sessions(); len(sessions) != 2 || sessions[0].ID != "sess_fresh" || sessions[1].ID != "sess_old" {
+		t.Fatalf("fresh boot sessions = %+v", sessions)
+	}
+}
+
+func TestPackedLivePermissionAndTerminalContextStayFresh(t *testing.T) {
+	var contextCalls int
+	script := baseScript()
+	script["session/context"] = func(json.RawMessage) (any, error) {
+		contextCalls++
+		return map[string]any{"feed_tokens": contextCalls * 10, "total_messages": contextCalls}, nil
+	}
+	script["session/set_permission"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Preset string `json:"preset"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		return map[string]string{"id": "sess_1", "title": "one", "permission_preset": params.Preset}, nil
+	}
+	env := &fakeEnv{script: script}
+	live := bootLive(t, env, LiveOptions{})
+	live.Handle(mustMsg[liveRPCMsg](t, live.SetPermission("trusted")))
+	if live.Sidebar().Session.PermissionPreset != "trusted" {
+		t.Fatalf("sidebar permission = %+v", live.Sidebar())
+	}
+	live.mu.Lock()
+	live.runID = "run_1"
+	live.busy = true
+	live.mu.Unlock()
+	env.deliver(t, "run_1", "run.completed", map[string]any{})
+	cmd := live.Handle(liveTickMsg{})
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("terminal command = %T", cmd())
+	}
+	var refreshed *liveContextMsg
+	for _, sub := range batch {
+		if sub == nil {
+			continue
+		}
+		if msg, ok := sub().(liveContextMsg); ok {
+			refreshed = &msg
+			break
+		}
+	}
+	if refreshed == nil {
+		t.Fatal("terminal did not schedule context refresh")
+	}
+	live.Handle(*refreshed)
+	if contextCalls != 2 || live.Sidebar().Context.FeedTokens != 20 {
+		t.Fatalf("context calls=%d sidebar=%+v", contextCalls, live.Sidebar())
+	}
+}
+
+func TestPackedLiveFencesPermissionFailureQueueAndSubscriptionRefresh(t *testing.T) {
+	contextCalls := 0
+	statusCalls := 0
+	script := baseScript()
+	script["run/cancel"] = func(json.RawMessage) (any, error) {
+		return map[string]string{"status": "cancelling"}, nil
+	}
+	script["run/get"] = func(json.RawMessage) (any, error) {
+		statusCalls++
+		if statusCalls == 1 {
+			return map[string]string{"run_id": "run_subscribe", "status": "accepted"}, nil
+		}
+		return map[string]string{"run_id": "run_subscribe", "status": "cancelled"}, nil
+	}
+	script["session/context"] = func(json.RawMessage) (any, error) {
+		contextCalls++
+		return map[string]any{"feed_tokens": 70 + contextCalls, "total_messages": 2}, nil
+	}
+	env := &fakeEnv{script: script}
+	live := bootLive(t, env, LiveOptions{})
+
+	live.mu.Lock()
+	live.permissionRequest = 4
+	live.sessions = append(live.sessions, surface.Session{ID: "sess_2", PermissionPreset: "cautious"})
+	live.activeID = "sess_2"
+	live.sidebar.Session = surface.Session{ID: "sess_2", PermissionPreset: "cautious"}
+	live.mu.Unlock()
+	live.Handle(liveRPCMsg{Kind: "permission", SessionID: "sess_1", Request: 3, Preset: "trusted"})
+	if got := live.Sidebar().Session.PermissionPreset; got != "cautious" {
+		t.Fatalf("cross-session permission response changed preset to %q", got)
+	}
+	live.mu.Lock()
+	live.busy = true
+	live.mu.Unlock()
+	if cmd := live.SetPermission("trusted"); cmd != nil || live.permissionRequest != 4 {
+		t.Fatalf("rejected busy switch changed epoch: cmd=%v request=%d", cmd != nil, live.permissionRequest)
+	}
+	live.mu.Lock()
+	live.busy = false
+	live.mu.Unlock()
+
+	live.mu.Lock()
+	live.runID = "run_failed"
+	live.busy = true
+	live.queue = []queuedTurn{{SessionID: "sess_2", Text: "keep"}, {SessionID: "sess_1", Text: "other"}}
+	live.mu.Unlock()
+	live.enqueueNotice(eventNotice{RunID: "run_failed", Seq: 1, Kind: "done", Done: true, Failed: true, Message: "failed"})
+	cmd := live.Handle(liveTickMsg{})
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("failed terminal command = %T", cmd())
+	}
+	var terminalRefresh *liveContextMsg
+	for _, sub := range batch {
+		if sub == nil {
+			continue
+		}
+		if msg, ok := sub().(liveContextMsg); ok {
+			terminalRefresh = &msg
+			break
+		}
+	}
+	if terminalRefresh == nil {
+		t.Fatal("failed terminal did not refresh context")
+	}
+	live.Handle(*terminalRefresh)
+	if got := live.Meta().Queued; got != 1 {
+		t.Fatalf("failed terminal or foreign queue count = %d", got)
+	}
+
+	live.mu.Lock()
+	live.runID = "run_subscribe"
+	live.busy = true
+	live.mu.Unlock()
+	refresh := mustMsg[liveContextMsg](t, live.applySubscribed(liveSubscribedMsg{RunID: "run_subscribe", Err: errors.New("subscribe failed")}))
+	live.Handle(refresh)
+	if statusCalls != 2 || !live.Sidebar().HasContext || live.Sidebar().Context.FeedTokens == 0 {
+		t.Fatalf("status_calls=%d subscription refresh=%+v", statusCalls, live.Sidebar())
+	}
 }
 
 func TestBootWithContinueAttachesNewest(t *testing.T) {

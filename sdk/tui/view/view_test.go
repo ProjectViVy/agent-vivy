@@ -49,6 +49,7 @@ type testDriver struct {
 	sessions    []surface.Session
 	active      string
 	busy        bool
+	meta        surface.Meta
 	sidebar     surface.Sidebar
 	selected    string
 	rename      string
@@ -72,8 +73,13 @@ func (d *testDriver) Active() surface.Session {
 }
 func (d *testDriver) ActiveMessages() []surface.Message { return nil }
 func (d *testDriver) PendingGate() *surface.Gate        { return d.gate }
-func (d *testDriver) Meta() surface.Meta                { return surface.Meta{Mode: "test", Busy: d.busy} }
-func (d *testDriver) Init() tea.Cmd                     { return nil }
+func (d *testDriver) Meta() surface.Meta {
+	meta := d.meta
+	meta.Mode = "test"
+	meta.Busy = meta.Busy || d.busy
+	return meta
+}
+func (d *testDriver) Init() tea.Cmd { return nil }
 func (d *testDriver) Handle(msg tea.Msg) tea.Cmd {
 	if sessions, ok := msg.(surface.SessionsMsg); ok && sessions.Err == nil {
 		if sessions.Action == "rename" {
@@ -195,14 +201,20 @@ func TestSidebarDoesNotRenderSessionCollection(t *testing.T) {
 		sidebar: surface.Sidebar{
 			Session:    surface.Session{ID: "active", Title: "Current", PermissionPreset: "smart"},
 			HasContext: true,
-			Context:    surface.Context{FeedTokens: 1200, ModelLimitTokens: 8000, TotalMessages: 3},
+			Context: surface.Context{
+				FeedTokens: 1200, ModelLimitTokens: 8000, TriggerTokens: 6400,
+				TotalMessages: 5, FeedMessages: 3, HasCompactionSummary: true,
+			},
 		},
 	}
+	driver.meta = surface.Meta{Busy: true, RunID: "run_active", Queued: 2}
 	m := New(driver)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	view := updated.(Model).View()
-	if !strings.Contains(view, "Current") || !strings.Contains(view, "1.2k / 8.0k tokens") {
-		t.Fatalf("sidebar omitted active/context facts:\n%s", view)
+	for _, want := range []string{"Current", "1.2k / 8.0k tokens", "run · run_active", "queue · 2", "3 / 5 feed messages", "compact at 6.4k", "summary available"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("sidebar omitted %q:\n%s", want, view)
+		}
 	}
 	if strings.Contains(view, "Other") {
 		t.Fatalf("inactive session leaked into sidebar:\n%s", view)

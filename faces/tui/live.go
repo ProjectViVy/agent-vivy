@@ -25,13 +25,15 @@ type Live struct {
 
 	mu sync.Mutex
 
-	sessions       []surface.Session
-	messages       map[string][]surface.Message
-	activeID       string
-	sidebar        surface.Sidebar
-	loadRequest    uint64
-	sessionRequest uint64
-	loadPending    bool
+	sessions          []surface.Session
+	messages          map[string][]surface.Message
+	activeID          string
+	sidebar           surface.Sidebar
+	loadRequest       uint64
+	sessionRequest    uint64
+	contextRequest    uint64
+	permissionRequest uint64
+	loadPending       bool
 
 	busy    bool
 	runID   string
@@ -57,6 +59,7 @@ type Live struct {
 	recoveryInFlight     bool
 	recoveryNeeded       bool
 	replayPending        bool
+	terminalSucceeded    bool
 	nextRecoveryAt       time.Time
 	streamFailures       map[string]string
 	retiredSubscriptions map[string]struct{}
@@ -221,6 +224,12 @@ func (l *Live) PendingGate() *surface.Gate {
 func (l *Live) Meta() surface.Meta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	queued := 0
+	for _, turn := range l.queue {
+		if turn.SessionID == "" || turn.SessionID == l.activeID {
+			queued++
+		}
+	}
 	footer := l.title
 	if footer == "" {
 		footer = "VIVY CODE"
@@ -231,14 +240,14 @@ func (l *Live) Meta() surface.Meta {
 	if l.busy {
 		footer += " · run…"
 	}
-	if len(l.queue) > 0 {
-		footer += fmt.Sprintf(" · queued %d", len(l.queue))
+	if queued > 0 {
+		footer += fmt.Sprintf(" · queued %d", queued)
 	}
 	return surface.Meta{
 		Mode:   "live",
 		Host:   l.host,
 		Busy:   l.busy,
-		Queued: len(l.queue),
+		Queued: queued,
 		RunID:  l.runID,
 		Error:  l.lastErr,
 		Footer: footer,
@@ -266,6 +275,13 @@ type liveLoadedMsg struct {
 	Replace  bool // true = set sessions list from Session only append path
 	Sessions []surface.Session
 	Err      error
+}
+
+type liveContextMsg struct {
+	Request   uint64
+	SessionID string
+	Context   surface.Context
+	Err       error
 }
 
 // liveTurnStartedMsg is returned after turn/start. Subscription happens only
@@ -298,10 +314,12 @@ type liveSubscribedMsg struct {
 
 // liveRPCMsg is a generic RPC completion (approval, cancel, question).
 type liveRPCMsg struct {
-	Kind    string
-	Preset  string
-	Outcome string
-	Err     error
+	Kind      string
+	SessionID string
+	Request   uint64
+	Preset    string
+	Outcome   string
+	Err       error
 }
 
 // Init implements surface.Driver.
@@ -390,13 +408,18 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 			l.markRecoveryNeeded()
 		}
 		if finished {
-			return tea.Batch(l.dequeueCmd(), l.tickCmd())
+			if l.takeTerminalSucceeded() {
+				return tea.Batch(l.dequeueCmd(), l.refreshContextCmd(), l.tickCmd())
+			}
+			return tea.Batch(l.refreshContextCmd(), l.tickCmd())
 		}
 		return tea.Batch(l.recoverSubscriptionCmd(), l.tickCmd())
 	case liveBootMsg:
 		return l.applyBoot(msg)
 	case liveLoadedMsg:
 		return l.applyLoaded(msg)
+	case liveContextMsg:
+		l.applyContext(msg)
 	case liveTurnStartedMsg:
 		return l.applyTurnStarted(msg)
 	case liveAttachmentResolvedMsg:
@@ -641,6 +664,12 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 		return nil
 	}
 	l.lastErr = shortErr(msg.Err)
+	sessionID := l.activeID
+	request := uint64(0)
+	if sessionID != "" {
+		l.contextRequest++
+		request = l.contextRequest
+	}
 	l.busy = false
 	l.runID = ""
 	l.cursor.Reset()
@@ -651,9 +680,44 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
 		_ = l.client.cancelRun(ctx, msg.RunID)
-		return surface.RefreshMsg{}
+		cancel()
+		if sessionID == "" {
+			return surface.RefreshMsg{}
+		}
+		refreshCtx, refreshCancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer refreshCancel()
+		if err := l.waitRunTerminal(refreshCtx, msg.RunID); err != nil {
+			return liveContextMsg{Request: request, SessionID: sessionID, Err: err}
+		}
+		status, err := l.client.sessionContext(refreshCtx, sessionID)
+		return liveContextMsg{Request: request, SessionID: sessionID, Context: mapContextView(status), Err: err}
+	}
+}
+
+func (l *Live) waitRunTerminal(ctx context.Context, runID string) error {
+	for {
+		status, err := l.client.runStatus(ctx, runID)
+		if err == nil && terminalRunStatus(status) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			if err != nil {
+				return fmt.Errorf("wait for run terminal: %w", err)
+			}
+			return fmt.Errorf("wait for run terminal: %w", ctx.Err())
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func terminalRunStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "failed", "cancelled":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -685,6 +749,9 @@ func (l *Live) unsubscribeWithRetry(ctx context.Context, subscriptionID string) 
 func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if msg.Kind == "permission" && (msg.Request != l.permissionRequest || msg.SessionID != l.activeID) {
+		return nil
+	}
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
 		if l.gate != nil && l.gate.Kind == msg.Kind {
@@ -710,6 +777,9 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 				l.sessions[i].PermissionPreset = msg.Preset
 				break
 			}
+		}
+		if l.sidebar.Session.ID == "" || l.sidebar.Session.ID == l.activeID {
+			l.sidebar.Session = l.activeSessionLocked()
 		}
 	}
 	l.lastErr = ""
@@ -935,6 +1005,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 	l.messages[l.activeID] = projection.Messages
 	l.gate = projection.Gate
 	if done {
+		l.terminalSucceeded = !notice.Failed
 		l.busy = false
 		l.runID = ""
 		l.retireSubscriptionLocked(l.subscriptionID)
@@ -945,6 +1016,14 @@ func (l *Live) applyNotice(notice eventNotice) {
 		l.replayPending = false
 		l.nextRecoveryAt = time.Time{}
 	}
+}
+
+func (l *Live) takeTerminalSucceeded() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	succeeded := l.terminalSucceeded
+	l.terminalSucceeded = false
+	return succeeded
 }
 
 func (l *Live) retireSubscriptionLocked(subscriptionID string) {
@@ -1211,6 +1290,8 @@ func (l *Live) applySessionsMsg(msg surface.SessionsMsg) tea.Cmd {
 func (l *Live) loadSessionCmd(id string) tea.Cmd {
 	l.mu.Lock()
 	l.loadRequest++
+	l.contextRequest++
+	l.permissionRequest++
 	request := l.loadRequest
 	l.loadPending = true
 	l.mu.Unlock()
@@ -1249,6 +1330,47 @@ func (l *Live) loadSessionCmd(id string) tea.Cmd {
 			Messages: mapHistory(msgs),
 			Sidebar:  snapshot,
 		}
+	}
+}
+
+func (l *Live) refreshContextCmd() tea.Cmd {
+	l.mu.Lock()
+	sessionID := l.activeID
+	if sessionID == "" || l.closed {
+		l.mu.Unlock()
+		return nil
+	}
+	l.contextRequest++
+	request := l.contextRequest
+	l.mu.Unlock()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		status, err := l.client.sessionContext(ctx, sessionID)
+		return liveContextMsg{Request: request, SessionID: sessionID, Context: mapContextView(status), Err: err}
+	}
+}
+
+func (l *Live) applyContext(msg liveContextMsg) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if msg.Request != l.contextRequest || msg.SessionID != l.activeID {
+		return
+	}
+	if msg.Err != nil {
+		l.sidebar.HasContext = false
+		if l.lastErr == "" || strings.HasPrefix(l.lastErr, "session context:") {
+			l.lastErr = "session context: " + shortErr(msg.Err)
+		}
+		return
+	}
+	l.sidebar.Context = msg.Context
+	l.sidebar.HasContext = true
+	if strings.HasPrefix(l.lastErr, "session context:") {
+		l.lastErr = ""
+	}
+	if l.sidebar.Session.ID == "" {
+		l.sidebar.Session = l.activeSessionLocked()
 	}
 }
 
@@ -1462,10 +1584,13 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 	l.mu.Lock()
 	sessionID := l.activeID
 	busy := l.busy || l.gate != nil
-	l.mu.Unlock()
 	if sessionID == "" || busy {
+		l.mu.Unlock()
 		return nil
 	}
+	l.permissionRequest++
+	request := l.permissionRequest
+	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
@@ -1473,7 +1598,7 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 		if session.PermissionPreset != "" {
 			preset = session.PermissionPreset
 		}
-		return liveRPCMsg{Kind: "permission", Preset: preset, Err: err}
+		return liveRPCMsg{Kind: "permission", SessionID: sessionID, Request: request, Preset: preset, Err: err}
 	}
 }
 
