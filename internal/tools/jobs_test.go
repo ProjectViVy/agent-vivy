@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -125,6 +126,21 @@ func TestJobRegistryRunUntilAdoptsOnTimeout(t *testing.T) {
 	dead := waitForJobStatus(t, r, id, JobKilled)
 	if dead.ExitCode != -1 {
 		t.Fatalf("killed exit code = %d, want -1", dead.ExitCode)
+	}
+}
+
+func TestJobRegistryRunForegroundTimesOutWithoutAdoption(t *testing.T) {
+	r := NewJobRegistry()
+	ctx := context.Background()
+	res, err := r.RunForeground(ctx, testJobSpec("echo vivy_foreground_marker; sleep 30", 30*time.Second), 100*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("foreground error = %v, want deadline exceeded", err)
+	}
+	if !res.TimedOut || res.Background || res.JobID != "" {
+		t.Fatalf("foreground result = %+v, want timed out without job", res)
+	}
+	if len(r.jobs) != 0 {
+		t.Fatalf("foreground timeout registered %d jobs", len(r.jobs))
 	}
 }
 

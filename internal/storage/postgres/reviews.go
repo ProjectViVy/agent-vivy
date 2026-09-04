@@ -113,7 +113,7 @@ func (b *Backend) listApprovalReviews(ctx context.Context, filter storage.Review
 		return nil, fmt.Errorf("storage: close approval reviews: %w", err)
 	}
 	for i := range items {
-		items[i].Arguments = b.reviewArguments(ctx, items[i].RunID, items[i].ID, items[i].ToolCallID)
+		items[i].Arguments = b.reviewArguments(ctx, items[i].RunID, items[i].ID, items[i].ToolCallID, items[i].ToolName)
 	}
 	return items, nil
 }
@@ -244,7 +244,7 @@ func classifyReview(item *domain.ReviewItem) {
 // reviewArguments recovers the original approval event's args, then applies
 // key/value redaction before returning them to RPC/UI. If the event is absent
 // (old rows), an empty object is safer than returning ProposalData.
-func (b *Backend) reviewArguments(ctx context.Context, runID domain.RunID, reviewID, toolCallID string) json.RawMessage {
+func (b *Backend) reviewArguments(ctx context.Context, runID domain.RunID, reviewID, toolCallID, toolName string) json.RawMessage {
 	rows, err := b.db.QueryContext(ctx,
 		`SELECT payload FROM run_events WHERE run_id = ? AND type = ? ORDER BY seq DESC LIMIT 32`,
 		runID, domain.EventToolApprovalRequired)
@@ -267,6 +267,9 @@ func (b *Backend) reviewArguments(ctx context.Context, runID domain.RunID, revie
 		args, ok := payload["args"]
 		if !ok {
 			return json.RawMessage(`{}`)
+		}
+		if toolName == "bash" {
+			return json.RawMessage(`{"command":"[REDACTED]"}`)
 		}
 		redacted, err := json.Marshal(redactReviewValue(args, ""))
 		if err == nil {

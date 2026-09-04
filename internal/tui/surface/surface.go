@@ -27,6 +27,7 @@ type AttachmentProvider = shared.AttachmentProvider
 type ContextSender = shared.ContextSender
 type FileContextSender = shared.FileContextSender
 type ShellExecutor = shared.ShellExecutor
+type CapabilityReporter = shared.CapabilityReporter
 type SessionController = shared.SessionController
 type SessionsMsg = shared.SessionsMsg
 

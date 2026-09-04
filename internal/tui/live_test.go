@@ -16,6 +16,18 @@ import (
 	"agent-vivy/internal/tui/surface"
 )
 
+func TestMapHistoryMergesDurableShellToolPair(t *testing.T) {
+	messages := mapHistory([]messageView{
+		{ID: "result", Role: "tool", ToolName: "bash", ToolCallID: "call_shell", Content: "safe output"},
+		{ID: "other", Role: "assistant", Content: "interleaved"},
+		{ID: "request", Role: "assistant", ToolName: "bash", ToolCallID: "call_shell", ToolPreview: "bash script [redacted bytes=7 sha256=abc]"},
+	})
+	if len(messages) != 2 || messages[0].Tool == nil || messages[0].Tool.Status != "done" ||
+		messages[0].Tool.Preview == "" || messages[0].Tool.Result != "safe output" {
+		t.Fatalf("shell history = %+v", messages)
+	}
+}
+
 func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {
 		switch request.Method {
@@ -1139,6 +1151,9 @@ func TestLiveShellUsesOnlyShellStartAndPreservesScript(t *testing.T) {
 	})
 	client, stop := attachTestClient(t, handler)
 	defer stop()
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["shell.start"]}`)); err != nil {
+		t.Fatal(err)
+	}
 	live := NewLive(client, LiveOptions{})
 	defer live.Close()
 	live.mu.Lock()

@@ -18,6 +18,33 @@ type client struct {
 
 	mu     sync.Mutex
 	notify func(method string, params json.RawMessage)
+	caps   map[string]struct{}
+}
+
+func (c *client) setCapabilities(raw json.RawMessage) error {
+	var envelope struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.caps = make(map[string]struct{}, len(envelope.Capabilities))
+	for _, capability := range envelope.Capabilities {
+		c.caps[capability] = struct{}{}
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *client) SupportsCapability(name string) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.caps[name]
+	return ok
 }
 
 func newClient(env plugin.FaceEnv) *client {
@@ -87,6 +114,9 @@ type messageView struct {
 	Attachments  []surface.Attachment  `json:"attachments,omitempty"`
 	FileContexts []surface.FileContext `json:"file_contexts,omitempty"`
 	ContextFiles []surface.FileContext `json:"context_files,omitempty"`
+	ToolName     string                `json:"tool_name,omitempty"`
+	ToolCallID   string                `json:"tool_call_id,omitempty"`
+	ToolPreview  string                `json:"tool_preview,omitempty"`
 }
 
 type runAccepted struct {

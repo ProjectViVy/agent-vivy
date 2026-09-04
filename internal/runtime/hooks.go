@@ -43,6 +43,13 @@ type ToolHook interface {
 	PostToolUse(context.Context, ToolHookCall, string, error) error
 }
 
+// ToolHookIdentity optionally binds approvals to the complete governance
+// generation of a hook. Implementations should return a stable digest of all
+// behavior-affecting configuration, never raw secret-bearing configuration.
+type ToolHookIdentity interface {
+	GovernanceIdentity() string
+}
+
 // ToolMatcher narrows a hook to a subset of tools. Hooks implementing it
 // are skipped entirely (no events, no invocations) for tools they do not
 // match; unscoped hooks see every tool.

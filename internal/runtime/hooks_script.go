@@ -3,6 +3,8 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -53,6 +55,13 @@ func (h *ScriptHook) Name() string {
 		head = "script"
 	}
 	return "script:" + head
+}
+
+// GovernanceIdentity binds approvals to the full script-hook generation
+// without exposing its command in approval metadata or logs.
+func (h *ScriptHook) GovernanceIdentity() string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", h.Command, h.Matcher, h.Timeout)))
+	return "script:" + hex.EncodeToString(sum[:])
 }
 
 // MatchesTool applies the configured glob (empty and "*" match all).
@@ -193,7 +202,7 @@ func runHookProcess(ctx context.Context, command string, stdin []byte) (stdout, 
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
 	cmd.Stdin = bytes.NewReader(stdin)
-	var out, errBuf bytes.Buffer
+	var out, errBuf limitedHookBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
@@ -203,4 +212,25 @@ func runHookProcess(ctx context.Context, command string, stdin []byte) (stdout, 
 		return out.Bytes(), errBuf.Bytes(), -1, err
 	}
 	return out.Bytes(), errBuf.Bytes(), 0, nil
+}
+
+const maxHookOutputBytes = 64 << 10
+
+type limitedHookBuffer struct {
+	bytes.Buffer
+}
+
+func (b *limitedHookBuffer) Write(p []byte) (int, error) {
+	written := len(p)
+	remaining := maxHookOutputBytes - b.Len()
+	if remaining > 0 {
+		if remaining < len(p) {
+			_, _ = b.Buffer.Write(p[:remaining])
+		} else {
+			_, _ = b.Buffer.Write(p)
+		}
+	}
+	// Report the complete write so os/exec keeps draining the pipe while the
+	// retained audit material remains bounded.
+	return written, nil
 }

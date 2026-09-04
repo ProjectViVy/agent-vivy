@@ -202,6 +202,27 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 }
 
 func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, error) {
+	result, err := a.invoke(ctx, argumentsInJSON)
+	if err != nil {
+		return "", err
+	}
+	result = untrustedToolResultHeader + tools.RedactSensitive(result)
+	// A multimodal parts envelope must reach normalizeEnhancedResult
+	// intact: byte compaction would corrupt it into unparseable JSON, so
+	// the budget is applied per part there instead. Media parts are sized
+	// at their source (e.g. the read_file image cap).
+	if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
+		return result, nil
+	}
+	return compactToolResult(result, a.maxResultBytes), nil
+}
+
+// invoke is the shared runtime-owned execution seam for direct tools. It
+// performs the actual Tool call, post hooks, and mount accounting, but leaves
+// result framing to the caller. The governed shell uses this seam so it can
+// remove the raw command/cwd fields before the bounded untrusted result is
+// persisted, while model tools continue through run unchanged.
+func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (string, error) {
 	// The runtime run identity is copied into the tools package context at the
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
@@ -220,15 +241,7 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string) (string, 
 		return "", err
 	}
 	emitToolMounts(ctx, a.t.Spec().Name, mountsBefore)
-	result = untrustedToolResultHeader + tools.RedactSensitive(result)
-	// A multimodal parts envelope must reach normalizeEnhancedResult
-	// intact: byte compaction would corrupt it into unparseable JSON, so
-	// the budget is applied per part there instead. Media parts are sized
-	// at their source (e.g. the read_file image cap).
-	if isToolPartsEnvelope(strings.TrimPrefix(result, untrustedToolResultHeader)) {
-		return result, nil
-	}
-	return compactToolResult(result, a.maxResultBytes), nil
+	return result, nil
 }
 
 // emitToolMounts journals tools newly mounted during a successful
