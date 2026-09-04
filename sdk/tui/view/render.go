@@ -32,6 +32,9 @@ func (m Model) renderFrame() string {
 	if gate := m.driver.PendingGate(); gate != nil {
 		return placeOverlay(frame, m.renderGateDialog(gate, l, p), l.width, l.height)
 	}
+	if m.commandPaletteOpen {
+		return placeOverlay(frame, m.renderCommandPalette(l, p), l.width, l.height)
+	}
 	if m.sessionsOpen {
 		return placeOverlay(frame, m.renderSessionsDialog(l, p), l.width, l.height)
 	}
@@ -39,6 +42,87 @@ func (m Model) renderFrame() string {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
 	}
 	return frame
+}
+
+func (m Model) renderCommandPalette(l layout, p Palette) string {
+	rows := m.filteredCommands()
+	w := max(1, min(l.width-8, 72))
+	filterText := sanitizeCommandPaletteFilter(m.commandPaletteFilter)
+	filter := "filter: " + filterText
+	if filterText == "" {
+		filter = "type to filter commands…"
+	}
+	compact := l.height < 16
+	if compact {
+		if filterText == "" {
+			filter = "filter…"
+		} else {
+			filter = "filter: " + truncate(filterText, max(1, w-p.Dialog.GetHorizontalFrameSize()-8))
+		}
+	}
+	lines := []string{p.DialogTitle.Render("Commands"), p.DialogFooter.Render(filter)}
+	if !compact {
+		lines = append(lines, "")
+	}
+	if len(rows) == 0 {
+		lines = append(lines, p.DialogFooter.Render("no matching commands"))
+	} else {
+		windowRows := max(1, (l.height-9)/2)
+		if compact {
+			windowRows = max(1, l.height-7)
+		}
+		cursor := min(max(0, m.commandPaletteCursor), len(rows)-1)
+		start := max(0, cursor-windowRows/2)
+		if start+windowRows > len(rows) {
+			start = max(0, len(rows)-windowRows)
+		}
+		end := min(len(rows), start+windowRows)
+		lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
+		for i := start; i < end; i++ {
+			spec := rows[i]
+			marker := "  "
+			style := p.Idle
+			if i == cursor {
+				marker = "▸ "
+				style = p.Active
+			}
+			usage := strings.TrimSpace(spec.Usage)
+			if usage == "" {
+				usage = "/" + spec.Name
+			}
+			lines = append(lines, style.Render(truncate(marker+usage, lineWidth)))
+			if !compact {
+				lines = append(lines, p.Dim.Render(truncate("   "+spec.Description, lineWidth)))
+			}
+		}
+	}
+	if !compact {
+		lines = append(lines, "")
+	}
+	footer := "↑/↓ move · enter choose · esc close"
+	if compact {
+		footer = "↑/↓ · enter · esc"
+	}
+	lines = append(lines, p.DialogFooter.Render(footer))
+	inner := strings.Join(lines, "\n")
+	return p.Dialog.Width(w).Render(inner)
+}
+
+const maxCommandPaletteFilterRunes = 128
+
+func sanitizeCommandPaletteFilter(text string) string {
+	text = ansi.Strip(text)
+	clean := make([]rune, 0, min(len([]rune(text)), maxCommandPaletteFilterRunes))
+	for _, r := range text {
+		if unicode.IsControl(r) {
+			continue
+		}
+		clean = append(clean, r)
+		if len(clean) == maxCommandPaletteFilterRunes {
+			break
+		}
+	}
+	return string(clean)
 }
 
 func (m Model) renderWide(l layout, p Palette) string {
@@ -372,6 +456,7 @@ func (m Model) renderHelp(l layout, p Palette) string {
 	}
 	parts := []string{
 		p.HelpKey.Render("^s") + p.HelpDesc.Render(selector),
+		p.HelpKey.Render("^p") + p.HelpDesc.Render(" commands"),
 		p.HelpKey.Render("enter") + p.HelpDesc.Render(" send"),
 		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" approve"),
 		p.HelpKey.Render("^n") + p.HelpDesc.Render(" new"),
@@ -381,7 +466,7 @@ func (m Model) renderHelp(l layout, p Palette) string {
 	}
 	if provider, ok := m.driver.(surface.SidebarProvider); ok {
 		if controller, controlled := m.driver.(surface.ThinkingController); controlled && provider.Sidebar().HasContext && provider.Sidebar().Context.ThinkingSupported {
-			parts = append(parts[:5], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+controller.ThinkingMode())}, parts[5:]...)...)
+			parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+controller.ThinkingMode())}, parts[6:]...)...)
 		}
 	}
 	footer := meta.Footer
