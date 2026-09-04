@@ -94,3 +94,10 @@ func TestInboxBoundsUTF8BytesAndDrainWork(t *testing.T) {
 		t.Fatalf("batch=%+v replay=%v remaining=%d", batch, replay, inbox.Len())
 	}
 }
+
+func TestInboxCountsAuthoritativeCompletedContent(t *testing.T) {
+	inbox := NewBoundedInbox(10, 20)
+	if inbox.Push(Notice{Kind: "model_completed", HasCompleted: true, Completed: "四字"}) != PushReplayRequired {
+		t.Fatal("completed content bypassed byte bound")
+	}
+}

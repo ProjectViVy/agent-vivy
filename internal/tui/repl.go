@@ -111,6 +111,7 @@ type repl struct {
 	runID          string
 	cursor         stream.Cursor
 	subscriptionID string
+	modelText      strings.Builder
 	pending        *gatePrompt
 	// pendingDelete is a local confirmation barrier. A delete command never
 	// mutates a session until the following line is an explicit y/yes.
@@ -974,6 +975,7 @@ func (r *repl) sendTurnWithContext(ctx context.Context, text string, contextPath
 	r.busy = true
 	r.runID = accepted.RunID
 	r.cursor.Reset()
+	r.modelText.Reset()
 	r.subscriptionID = ""
 	r.mu.Unlock()
 	subscriptionID, err := r.subscribeInitial(ctx, accepted.RunID)
@@ -1013,6 +1015,7 @@ func (r *repl) sendShell(ctx context.Context, script string) error {
 	r.busy = true
 	r.runID = accepted.RunID
 	r.cursor.Reset()
+	r.modelText.Reset()
 	r.subscriptionID = ""
 	r.mu.Unlock()
 	subscriptionID, err := r.subscribeInitial(ctx, accepted.RunID)
@@ -1109,9 +1112,7 @@ func (r *repl) drainRun(ctx context.Context) error {
 			if !accept {
 				continue
 			}
-			if notice.Delta != "" {
-				fmt.Fprint(r.out, notice.Delta)
-			}
+			r.renderModelNotice(notice)
 			if notice.Line != "" {
 				fmt.Fprintf(r.out, "\n%s", notice.Line)
 			}
@@ -1137,6 +1138,7 @@ func (r *repl) drainRun(ctx context.Context) error {
 				r.runID = ""
 				r.subscriptionID = ""
 				r.cursor.Reset()
+				r.modelText.Reset()
 				r.pending = nil
 				r.mu.Unlock()
 				if subscriptionID != "" {
@@ -1146,6 +1148,42 @@ func (r *repl) drainRun(ctx context.Context) error {
 				}
 				return nil
 			}
+		}
+	}
+}
+
+func (r *repl) renderModelNotice(notice eventNotice) {
+	switch notice.Kind {
+	case "model_request", "reasoning", "gate", "done":
+		r.modelText.Reset()
+		if notice.Delta != "" {
+			fmt.Fprint(r.out, notice.Delta)
+		}
+	case "delta":
+		if notice.Delta != "" {
+			fmt.Fprint(r.out, notice.Delta)
+			r.modelText.WriteString(notice.Delta)
+		}
+	case "model_completed":
+		if !notice.HasCompleted {
+			return
+		}
+		streamed := r.modelText.String()
+		if streamed == "" {
+			fmt.Fprint(r.out, notice.Completed)
+		} else if strings.HasPrefix(notice.Completed, streamed) {
+			fmt.Fprint(r.out, strings.TrimPrefix(notice.Completed, streamed))
+		} else if notice.Completed != streamed {
+			// A linear REPL cannot retract bytes already written. Surface an
+			// authoritative mismatch on a fresh line instead of silently losing it.
+			fmt.Fprint(r.out, "\n", notice.Completed)
+		}
+		r.modelText.Reset()
+	case "tool_requested":
+		r.modelText.Reset()
+	default:
+		if notice.Delta != "" {
+			fmt.Fprint(r.out, notice.Delta)
 		}
 	}
 }
@@ -1254,6 +1292,7 @@ func (r *repl) abandonAcceptedRun(ctx context.Context, runID string) {
 		r.runID = ""
 		r.subscriptionID = ""
 		r.cursor.Reset()
+		r.modelText.Reset()
 	}
 	r.mu.Unlock()
 	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

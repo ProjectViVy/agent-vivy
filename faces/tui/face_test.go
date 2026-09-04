@@ -25,7 +25,7 @@ func TestMapHistoryMergesDurableShellToolPair(t *testing.T) {
 		{ID: "other", Role: "assistant", Content: "interleaved"},
 		{ID: "request", Role: "assistant", ToolName: "bash", ToolCallID: "call_shell", ToolPreview: "bash script [redacted bytes=7 sha256=abc]"},
 	})
-	if len(messages) != 2 || messages[0].Tool == nil || messages[0].Tool.Status != "done" ||
+	if len(messages) != 2 || messages[0].Tool == nil || messages[0].Tool.ToolCallID != "call_shell" || messages[0].Tool.Status != "done" ||
 		messages[0].Tool.Preview == "" || messages[0].Tool.Result != "safe output" {
 		t.Fatalf("shell history = %+v", messages)
 	}
@@ -609,6 +609,27 @@ func TestLiveTurnStreamsDeltaAndDone(t *testing.T) {
 	}
 	if asst != "hi" {
 		t.Fatalf("assistant = %q msgs=%+v", asst, live.ActiveMessages())
+	}
+}
+
+func TestPackedLiveWireProjectsAuthoritativeCompletionAndToolCallIdentity(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	live := bootLive(t, env, LiveOptions{})
+	live.mu.Lock()
+	live.runID = "run_1"
+	live.busy = true
+	live.mu.Unlock()
+
+	env.deliver(t, "run_1", "model.completed", map[string]string{"content": "completed only"})
+	env.deliver(t, "run_1", "tool.requested", map[string]any{"tool_call_id": "call_1", "tool_name": "read_file", "args": map[string]string{"path": "a"}})
+	env.deliver(t, "run_1", "tool.requested", map[string]any{"tool_call_id": "call_2", "tool_name": "read_file", "args": map[string]string{"path": "b"}})
+	env.deliver(t, "run_1", "tool.finished", map[string]string{"tool_call_id": "call_1", "tool_name": "read_file", "result": "a done"})
+	for live.inbox.Len() > 0 {
+		_, _ = live.drainEvents()
+	}
+	msgs := live.ActiveMessages()
+	if len(msgs) != 3 || msgs[0].Content != "completed only" || msgs[1].Tool == nil || msgs[1].Tool.Status != "done" || msgs[2].Tool == nil || msgs[2].Tool.Status != "pending" {
+		t.Fatalf("wire projection = %+v", msgs)
 	}
 }
 

@@ -23,7 +23,7 @@ func TestMapHistoryMergesDurableShellToolPair(t *testing.T) {
 		{ID: "other", Role: "assistant", Content: "interleaved"},
 		{ID: "request", Role: "assistant", ToolName: "bash", ToolCallID: "call_shell", ToolPreview: "bash script [redacted bytes=7 sha256=abc]"},
 	})
-	if len(messages) != 2 || messages[0].Tool == nil || messages[0].Tool.Status != "done" ||
+	if len(messages) != 2 || messages[0].Tool == nil || messages[0].Tool.ToolCallID != "call_shell" || messages[0].Tool.Status != "done" ||
 		messages[0].Tool.Preview == "" || messages[0].Tool.Result != "safe output" {
 		t.Fatalf("shell history = %+v", messages)
 	}
@@ -199,6 +199,34 @@ func TestLiveKeepsReasoningContinuousAcrossEmptyDelta(t *testing.T) {
 	msgs = live.ActiveMessages()
 	if len(msgs) != 2 || msgs[0].Streaming || !msgs[0].Reasoning || msgs[1].Reasoning || msgs[1].Content != "答案" {
 		t.Fatalf("reasoning/answer boundary = %+v", msgs)
+	}
+}
+
+func TestLiveWireProjectsAuthoritativeCompletionAndToolCallIdentity(t *testing.T) {
+	handler := controlrpc.HandlerFunc(func(context.Context, *controlrpc.Peer, controlrpc.Request) (any, *controlrpc.Error) {
+		return nil, &controlrpc.Error{Code: controlrpc.MethodNotFound, Message: "unused"}
+	})
+	client, stop := attachTestClient(t, handler)
+	defer stop()
+	live := NewLive(client, LiveOptions{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.messages = map[string][]surface.Message{"sess_1": nil}
+	live.runID = "run_1"
+	live.busy = true
+	live.mu.Unlock()
+
+	pushRunEvent(live, "run_1", 1, "model.completed", map[string]string{"content": "completed only"})
+	pushRunEvent(live, "run_1", 2, "tool.requested", map[string]any{"tool_call_id": "call_1", "tool_name": "read_file", "args": map[string]string{"path": "a"}})
+	pushRunEvent(live, "run_1", 3, "tool.requested", map[string]any{"tool_call_id": "call_2", "tool_name": "read_file", "args": map[string]string{"path": "b"}})
+	pushRunEvent(live, "run_1", 4, "tool.finished", map[string]string{"tool_call_id": "call_1", "tool_name": "read_file", "result": "a done"})
+	for live.inbox.Len() > 0 {
+		_, _ = live.drainEvents()
+	}
+	msgs := live.ActiveMessages()
+	if len(msgs) != 3 || msgs[0].Content != "completed only" || msgs[1].Tool == nil || msgs[1].Tool.Status != "done" || msgs[2].Tool == nil || msgs[2].Tool.Status != "pending" {
+		t.Fatalf("wire projection = %+v", msgs)
 	}
 }
 

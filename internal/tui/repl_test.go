@@ -44,6 +44,39 @@ func TestREPLHelpAndQuit(t *testing.T) {
 	}
 }
 
+func TestREPLCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T) {
+	var out bytes.Buffer
+	r := &repl{out: &out}
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "completed only"})
+	if out.String() != "completed only" {
+		t.Fatalf("completed-only output = %q", out.String())
+	}
+	out.Reset()
+	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "streamed "})
+	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "answer"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "streamed answer"})
+	if out.String() != "streamed answer" {
+		t.Fatalf("streamed output = %q", out.String())
+	}
+}
+
+func TestREPLModelRoundFenceAndCompletionMismatch(t *testing.T) {
+	var out bytes.Buffer
+	r := &repl{out: &out}
+	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "old"})
+	r.renderModelNotice(eventNotice{Kind: "model_request"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "new"})
+	if out.String() != "oldnew" {
+		t.Fatalf("round-fenced output = %q", out.String())
+	}
+	out.Reset()
+	r.renderModelNotice(eventNotice{Kind: "delta", Delta: "partial"})
+	r.renderModelNotice(eventNotice{Kind: "model_completed", HasCompleted: true, Completed: "corrected"})
+	if out.String() != "partial\ncorrected" {
+		t.Fatalf("mismatched completion was hidden: %q", out.String())
+	}
+}
+
 func TestREPLImageCommandResolvesLocallyAndSendsMetadataPath(t *testing.T) {
 	var turnPaths []string
 	handler := controlrpc.HandlerFunc(func(_ context.Context, _ *controlrpc.Peer, request controlrpc.Request) (any, *controlrpc.Error) {

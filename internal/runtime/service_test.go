@@ -514,6 +514,33 @@ func TestMapperTurnEndFlushesModelCompleted(t *testing.T) {
 	}
 }
 
+func TestMapperFlushesAssistantTextBeforeToolAndFencesNextRound(t *testing.T) {
+	m := newEventMapper("run-test", 0)
+	m.pendingText.WriteString("before tool")
+	m.hasPending = true
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{
+		Role:      schema.Assistant,
+		ToolCalls: []schema.ToolCall{{ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Type != domain.EventModelDelta || events[1].Type != domain.EventToolRequested {
+		t.Fatalf("tool boundary events = %+v", events)
+	}
+	if !strings.Contains(string(events[0].Payload), `"delta":"before tool"`) || m.hasPending || m.pendingText.Len() != 0 {
+		t.Fatalf("tool preamble was not flushed: event=%s pending=%q", events[0].Payload, m.pendingText.String())
+	}
+
+	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{Role: schema.Assistant, Content: "final"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next) != 1 || next[0].Type != domain.EventModelCompleted || !strings.Contains(string(next[0].Payload), `"content":"final"`) || strings.Contains(string(next[0].Payload), "before tool") {
+		t.Fatalf("next round was contaminated: %+v", next)
+	}
+}
+
 func TestClampText(t *testing.T) {
 	if got := clampText("hello", 1024); got != "hello" {
 		t.Fatalf("small text must pass through, got %q", got)
