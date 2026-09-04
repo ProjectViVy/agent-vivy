@@ -131,6 +131,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case tea.MouseMsg:
+		m.handleMouse(msg)
 	case surface.SessionsMsg:
 		m.applySessionsMsg(msg)
 	case surface.GateResolvedMsg:
@@ -168,6 +170,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.clampSidebarScroll()
 	return m, tea.Batch(cmds...)
+}
+
+const sidebarWheelStep = 3
+
+func (m *Model) handleMouse(msg tea.MouseMsg) {
+	if m.driver.PendingGate() != nil || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" {
+		return
+	}
+	if msg.Action != tea.MouseActionPress {
+		return
+	}
+	l := computeLayout(m.width, m.height)
+	inSidebar := m.mouseInSidebar(l, msg.X, msg.Y)
+	if msg.Button == tea.MouseButtonLeft {
+		m.sidebarFocused = inSidebar && m.sidebarCanScroll()
+		return
+	}
+	// Match Crush focus routing: a click chooses the scroll owner, then wheel
+	// events stay with that owner even if the pointer drifts outside its box.
+	if !m.sidebarFocused || !m.sidebarCanScroll() {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.sidebarScroll -= sidebarWheelStep
+	case tea.MouseButtonWheelDown:
+		m.sidebarScroll += sidebarWheelStep
+	default:
+		// Bubble Tea keeps Type for compatibility with older terminal input
+		// decoders; accept it without treating ordinary clicks as scrolling.
+		switch msg.Type {
+		case tea.MouseWheelUp:
+			m.sidebarScroll -= sidebarWheelStep
+		case tea.MouseWheelDown:
+			m.sidebarScroll += sidebarWheelStep
+		default:
+			return
+		}
+	}
+	m.clampSidebarScroll()
+}
+
+func (m Model) mouseInSidebar(l layout, x, y int) bool {
+	if !l.showSidebar {
+		return false
+	}
+	left := l.marginX + l.mainW() + 1
+	top := l.marginY
+	height := m.sidebarViewportHeight(l, m.palette)
+	return x >= left && x < left+l.sidebarW && y >= top && y < top+height
 }
 
 // View implements tea.Model.
@@ -411,7 +463,8 @@ func (m Model) sidebarMaxScroll() int {
 	}
 	p := m.palette
 	lines := m.sidebarLines(l.sidebarW, p)
-	return max(0, len(lines)-m.sidebarViewportHeight(l, p))
+	viewport := max(1, m.sidebarViewportHeight(l, p)-len(sidebarLogoLines(p)))
+	return max(0, len(lines)-viewport)
 }
 
 func (m Model) sidebarCanScroll() bool {
@@ -1444,7 +1497,7 @@ func Run(driver surface.Driver) error { return RunWithOutput(driver, os.Stdout) 
 // RunWithOutput starts the canonical shell on the launcher's output stream.
 func RunWithOutput(driver surface.Driver, out io.Writer) error {
 	configureColor(out)
-	p := tea.NewProgram(New(driver), tea.WithAltScreen(), tea.WithOutput(out))
+	p := tea.NewProgram(New(driver), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
 	_, err := p.Run()
 	return err
 }

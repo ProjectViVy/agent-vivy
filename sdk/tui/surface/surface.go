@@ -71,6 +71,20 @@ type ModifiedFile struct {
 	UpdatedAt int64
 }
 
+// MCPServer is one configured server and its current in-process handshake
+// state. State is "configured" or "initialized"; it is never inferred by the
+// terminal from a settings document.
+type MCPServer struct {
+	Name  string
+	State string
+}
+
+// SidebarSkill is one enabled skill from the backend that supplies the
+// runtime skill middleware. It describes availability, not per-turn use.
+type SidebarSkill struct {
+	Name string
+}
+
 // Sidebar is the optional server-backed snapshot used by the Crush-style
 // right rail. Missing fields remain missing; the view never infers them from
 // process state or aggregate statistics.
@@ -87,6 +101,10 @@ type Sidebar struct {
 	HasUsage           bool
 	ModifiedFiles      []ModifiedFile
 	ModifiedFilesKnown bool
+	MCP                []MCPServer
+	MCPKnown           bool
+	Skills             []SidebarSkill
+	SkillsKnown        bool
 }
 
 // ToolCard is an inline tool result / pending approval inside the chat.

@@ -1671,12 +1671,27 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 		Session:            sessionView{ID: "sess", UpdatedAt: 42},
 		ModifiedFilesKnown: true,
 		ModifiedFiles:      []sidebarFileView{{Path: "main.go", Diff: sidebarDiffView{Additions: 3, Deletions: 1}}},
+		MCPKnown:           true, MCP: []sidebarMCPView{{Name: "docs", State: "initialized"}},
+		SkillsKnown: true, Skills: []sidebarSkillView{{Name: "review"}},
 	})
 	if got.Session.UpdatedAt != 42 || !got.ModifiedFilesKnown || len(got.ModifiedFiles) != 1 {
 		t.Fatalf("sidebar mapping = %+v", got)
 	}
 	if got.ModifiedFiles[0].Diff.Additions != 3 || got.ModifiedFiles[0].Diff.Deletions != 1 {
 		t.Fatalf("diff mapping = %+v", got.ModifiedFiles[0].Diff)
+	}
+	if !got.MCPKnown || len(got.MCP) != 1 || got.MCP[0].State != "initialized" || !got.SkillsKnown || len(got.Skills) != 1 {
+		t.Fatalf("integration mapping = %+v", got)
+	}
+}
+
+func TestSuccessfulMCPCommandRefreshesSidebar(t *testing.T) {
+	live := &Live{ctx: context.Background(), activeID: "sess"}
+	if cmd := live.applyCommandResult(surface.CommandResultMsg{Name: "mcp"}); cmd == nil {
+		t.Fatal("successful MCP inspection did not schedule sidebar refresh")
+	}
+	if cmd := live.applyCommandResult(surface.CommandResultMsg{Name: "mcp", Err: errors.New("probe failed")}); cmd != nil {
+		t.Fatal("failed MCP inspection scheduled a misleading sidebar refresh")
 	}
 }
 

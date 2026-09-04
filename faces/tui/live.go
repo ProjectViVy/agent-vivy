@@ -821,6 +821,9 @@ func (l *Live) applyRPC(msg liveRPCMsg) tea.Cmd {
 
 func (l *Live) applyCommandResult(msg surface.CommandResultMsg) tea.Cmd {
 	if !msg.Mutation {
+		if msg.Err == nil && msg.Name == "mcp" {
+			return l.refreshSidebarCmd()
+		}
 		return nil
 	}
 	l.mu.Lock()

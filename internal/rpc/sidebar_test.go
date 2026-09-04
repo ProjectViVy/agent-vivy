@@ -2,20 +2,46 @@ package rpc
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 )
 
 func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 	projectRoot := filepath.Join(t.TempDir(), "code-project")
+	skillsRoot := filepath.Join(t.TempDir(), "skills")
+	for name, enabled := range map[string]bool{"enabled-skill": true, "disabled-skill": false} {
+		dir := filepath.Join(skillsRoot, name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		doc := "---\nname: " + name + "\ndescription: sidebar fixture\nenabled: "
+		if enabled {
+			doc += "true"
+		} else {
+			doc += "false"
+		}
+		doc += "\n---\n\nFixture.\n"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skills, err := runtime.NewEinoSkillBackend(skillsRoot, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcp := runtime.NewEinoMCPBackend([]runtime.MCPServerConfig{{Name: "docs", Endpoint: "http://127.0.0.1:1"}}, nil)
 	env := newControlTestEnv(t, func(deps *ControlDeps) {
 		deps.ProjectRoot = projectRoot
 		deps.ModelMeta = func(context.Context, string, string) domain.ModelInfo {
 			return domain.ModelInfo{ContextWindow: 8192, SupportsThinking: true}
 		}
+		deps.Skills = skills
+		deps.MCP = mcp
 	})
 	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "truth"})
 	if rpcErr != nil {
@@ -47,6 +73,12 @@ func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 	}
 	if len(snapshot.ModifiedFiles) != 1 || snapshot.ModifiedFiles[0].Path != "main.go" {
 		t.Fatalf("modified files = %+v", snapshot.ModifiedFiles)
+	}
+	if !snapshot.MCPKnown || len(snapshot.MCP) != 1 || snapshot.MCP[0].Name != "docs" || snapshot.MCP[0].State != "configured" {
+		t.Fatalf("mcp truth = %+v", snapshot.MCP)
+	}
+	if !snapshot.SkillsKnown || len(snapshot.Skills) != 1 || snapshot.Skills[0].Name != "enabled-skill" {
+		t.Fatalf("enabled skill truth = %+v", snapshot.Skills)
 	}
 }
 
