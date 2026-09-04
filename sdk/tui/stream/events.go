@@ -27,8 +27,11 @@ type Notice struct {
 	RunID          string
 	Seq            int
 	Kind           string
+	ToolCallID     string
 	Line           string
 	Delta          string
+	Completed      string
+	HasCompleted   bool
 	Gate           *GatePrompt
 	Done           bool
 	Failed         bool
@@ -37,10 +40,11 @@ type Notice struct {
 
 // GatePrompt is the normalized interaction overlay attached to a notice.
 type GatePrompt struct {
-	Kind  string // approval | question
-	ID    string
-	Title string
-	Body  string
+	Kind       string // approval | question
+	ID         string
+	ToolCallID string
+	Title      string
+	Body       string
 }
 
 // StreamError is the control message emitted when durable replay itself
@@ -96,6 +100,9 @@ func Decode(params json.RawMessage) (Event, bool) {
 func Interpret(event Event) Notice {
 	base := Notice{SubscriptionID: event.SubscriptionID, RunID: event.RunID, Seq: event.Seq}
 	switch event.Type {
+	case "model.request":
+		base.Kind = "model_request"
+		return base
 	case "model.delta":
 		base.Kind = "delta"
 		base.Delta = PayloadString(event.Payload, "delta")
@@ -108,9 +115,15 @@ func Interpret(event Event) Notice {
 		base.Kind = "reasoning"
 		base.Delta = text
 		return base
+	case "model.completed":
+		base.Kind = "model_completed"
+		base.Completed = PayloadString(event.Payload, "content")
+		base.HasCompleted = true
+		return base
 	case "tool.requested":
 		name := PayloadString(event.Payload, "tool_name")
 		base.Kind = "tool_requested"
+		base.ToolCallID = PayloadString(event.Payload, "tool_call_id")
 		base.Line = PayloadObject(event.Payload, "args")
 		base.Message = name
 		return base
@@ -118,6 +131,7 @@ func Interpret(event Event) Notice {
 		name := PayloadString(event.Payload, "tool_name")
 		errText := PayloadString(event.Payload, "error")
 		base.Kind = "tool_finished"
+		base.ToolCallID = PayloadString(event.Payload, "tool_call_id")
 		base.Message = name
 		base.Line = DisplayToolResult(PayloadString(event.Payload, "result"))
 		if errText != "" {
@@ -139,14 +153,14 @@ func Interpret(event Event) Notice {
 		}
 		base.Kind = "gate"
 		base.Line = "approval required: " + name + "  (y/n)"
-		base.Gate = &GatePrompt{Kind: "approval", ID: id, Title: name, Body: body}
+		base.Gate = &GatePrompt{Kind: "approval", ID: id, ToolCallID: PayloadString(event.Payload, "tool_call_id"), Title: name, Body: body}
 		return base
 	case "user.question_required":
 		id := PayloadString(event.Payload, "question_id")
 		prompt := PayloadString(event.Payload, "prompt")
 		base.Kind = "gate"
 		base.Line = "question: " + prompt
-		base.Gate = &GatePrompt{Kind: "question", ID: id, Title: "question", Body: prompt}
+		base.Gate = &GatePrompt{Kind: "question", ID: id, ToolCallID: PayloadString(event.Payload, "tool_call_id"), Title: "question", Body: prompt}
 		return base
 	case "run.completed":
 		base.Kind = "done"

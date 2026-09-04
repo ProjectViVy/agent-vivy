@@ -51,9 +51,9 @@ func (q *Inbox) limitsLocked() (int, int) {
 }
 
 func noticeBytes(notice Notice) int {
-	size := len(notice.SubscriptionID) + len(notice.RunID) + len(notice.Kind) + len(notice.Line) + len(notice.Delta) + len(notice.Message)
+	size := len(notice.SubscriptionID) + len(notice.RunID) + len(notice.Kind) + len(notice.ToolCallID) + len(notice.Line) + len(notice.Delta) + len(notice.Completed) + len(notice.Message)
 	if notice.Gate != nil {
-		size += len(notice.Gate.Kind) + len(notice.Gate.ID) + len(notice.Gate.Title) + len(notice.Gate.Body)
+		size += len(notice.Gate.Kind) + len(notice.Gate.ID) + len(notice.Gate.ToolCallID) + len(notice.Gate.Title) + len(notice.Gate.Body)
 	}
 	return size
 }

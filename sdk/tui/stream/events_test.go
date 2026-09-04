@@ -42,6 +42,22 @@ func TestInterpretKeepsUnknownSequence(t *testing.T) {
 	}
 }
 
+func TestInterpretCompletedAndToolIdentity(t *testing.T) {
+	completed := Interpret(Event{Type: "model.completed", Payload: json.RawMessage(`{"content":"final"}`)})
+	if completed.Kind != "model_completed" || !completed.HasCompleted || completed.Completed != "final" {
+		t.Fatalf("completed = %+v", completed)
+	}
+	request := Interpret(Event{Type: "model.request"})
+	if request.Kind != "model_request" {
+		t.Fatalf("request = %+v", request)
+	}
+	requested := Interpret(Event{Type: "tool.requested", Payload: json.RawMessage(`{"tool_call_id":"call_1","tool_name":"read_file","args":{"path":"a"}}`)})
+	finished := Interpret(Event{Type: "tool.finished", Payload: json.RawMessage(`{"tool_call_id":"call_1","tool_name":"read_file","result":"ok"}`)})
+	if requested.ToolCallID != "call_1" || finished.ToolCallID != "call_1" {
+		t.Fatalf("tool identity requested=%+v finished=%+v", requested, finished)
+	}
+}
+
 func TestInterpretToolResultShowsDiffDiagnostics(t *testing.T) {
 	notice := Interpret(Event{
 		Type:    "tool.finished",

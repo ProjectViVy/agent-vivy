@@ -238,7 +238,11 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 	}
 	if callsMsg != nil {
 		// Streaming engines deliver tool calls as chunks; map them like a
-		// whole-message tool call turn.
+		// whole-message tool call turn. The preamble was already emitted as
+		// durable deltas; only clear its accumulator so the post-tool model
+		// round cannot inherit it. A second model.completed here would falsely
+		// close the run's single model.request trajectory step.
+		m.resetPending()
 		tail = append(tail, m.toolCallEvents(callsMsg)...)
 	}
 	return emit(tail)
@@ -297,9 +301,26 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 	if msg == nil {
 		return nil, nil
 	}
+	observedLive := m.takeObservedStream()
 	out := m.messageMetaEvents(msg)
 	switch {
 	case len(msg.ToolCalls) > 0:
+		// Some providers attach assistant preamble text to the same message as
+		// tool calls. Close that model phase before emitting tool.requested and
+		// clear the pending accumulator so the next model round cannot inherit it.
+		content := msg.Content
+		if m.hasPending {
+			content = m.pendingText.String()
+		}
+		if content != "" && !observedLive {
+			// Non-stream providers can attach text to a tool-call message. Emit
+			// it through the same durable presentation channel as streamed
+			// preamble text; tool.requested is the phase boundary. Do not create
+			// an extra model.completed, which would close the only model.request
+			// trajectory record before the final answer.
+			out = append(out, m.deltaEvents(content)...)
+		}
+		m.resetPending()
 		return append(out, m.toolCallEvents(msg)...), nil
 	case msg.Role == schema.Tool:
 		events, err := m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")

@@ -52,6 +52,7 @@ type Sidebar struct {
 // ToolCard is an inline tool result / pending approval inside the chat.
 type ToolCard struct {
 	ToolName   string
+	ToolCallID string
 	Status     string // pending | done | denied | failed
 	Preview    string
 	Result     string

@@ -1808,7 +1808,7 @@ func mapHistory(msgs []messageView) []surface.Message {
 				continue
 			}
 			status := "pending"
-			tool := &surface.ToolCard{ToolName: m.ToolName, Status: status, Preview: m.ToolPreview}
+			tool := &surface.ToolCard{ToolName: m.ToolName, ToolCallID: m.ToolCallID, Status: status, Preview: m.ToolPreview}
 			if m.Role == surface.RoleTool {
 				tool.Status, tool.Result = "done", m.Content
 			}

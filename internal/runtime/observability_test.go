@@ -151,3 +151,51 @@ func TestMapperReasoningOnlyChunksDoNotEmitEmptyDeltas(t *testing.T) {
 		t.Fatalf("reasoning-only stream flushed assistant content: %+v", flushed)
 	}
 }
+
+func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) {
+	reader, writer := schema.Pipe[*schema.Message](2)
+	m := newEventMapper("run-stream-tool", 4096)
+	go func() {
+		writer.Send(&schema.Message{Role: schema.Assistant, Content: "before tool"}, nil)
+		writer.Send(&schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+			ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`},
+		}}}, nil)
+		writer.Close()
+	}()
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
+		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Type != domain.EventModelDelta || events[1].Type != domain.EventToolRequested {
+		t.Fatalf("streaming tool boundary events = %+v", events)
+	}
+	if !strings.Contains(string(events[0].Payload), `"delta":"before tool"`) || m.hasPending || m.pendingText.Len() != 0 {
+		t.Fatalf("streaming preamble was not flushed: event=%s pending=%q", events[0].Payload, m.pendingText.String())
+	}
+	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{Role: schema.Assistant, Content: "after tool"}})
+	if err != nil || len(next) != 1 || !strings.Contains(string(next[0].Payload), `"content":"after tool"`) || strings.Contains(string(next[0].Payload), "before tool") {
+		t.Fatalf("next round was contaminated: events=%+v err=%v", next, err)
+	}
+}
+
+func TestMapperMaterializedObservedToolCallDoesNotDuplicatePreamble(t *testing.T) {
+	m := newEventMapper("run-observed-tool", 4096)
+	m.beginObservedStream()
+	observed := m.observeStreamChunk(&schema.Message{Role: schema.Assistant, Content: "before tool"})
+	materialized, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{
+		Role:      schema.Assistant,
+		ToolCalls: []schema.ToolCall{{ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := append(observed, materialized...)
+	if len(events) != 2 || events[0].Type != domain.EventModelDelta || events[1].Type != domain.EventToolRequested {
+		t.Fatalf("observed materialization duplicated preamble: %+v", events)
+	}
+	if m.hasPending || m.pendingText.Len() != 0 {
+		t.Fatalf("materialized tool call retained pending text %q", m.pendingText.String())
+	}
+}

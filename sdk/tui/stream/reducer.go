@@ -12,6 +12,8 @@ type Projection struct {
 // Apply reduces one normalized notice. It returns true for terminal notices.
 func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (done bool) {
 	switch notice.Kind {
+	case "model_request":
+		p.FinishStreaming()
 	case "delta":
 		// Empty deltas are not an answer boundary. In particular, providers
 		// may interleave empty answer chunks while reasoning is streaming.
@@ -31,6 +33,13 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 			}
 		}
 	case "reasoning":
+		// Reasoning starts a new answer phase. Close any stale answer draft so
+		// a later completion cannot overwrite text from an earlier model round.
+		for i := range p.Messages {
+			if p.Messages[i].Streaming && !p.Messages[i].Reasoning {
+				p.Messages[i].Streaming = false
+			}
+		}
 		for i := len(p.Messages) - 1; i >= 0; i-- {
 			if p.Messages[i].Reasoning && p.Messages[i].Streaming {
 				p.Messages[i].Content += notice.Delta
@@ -42,16 +51,37 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 			ID: nextID("thinking"), Role: surface.RoleAssistant, Content: notice.Delta,
 			Streaming: true, Reasoning: true,
 		})
+	case "model_completed":
+		if !notice.HasCompleted {
+			return false
+		}
+		found := false
+		for i := len(p.Messages) - 1; i >= 0; i-- {
+			if p.Messages[i].Role == surface.RoleAssistant && p.Messages[i].Streaming && !p.Messages[i].Reasoning {
+				// completed.content is authoritative for this model round,
+				// including an explicitly empty completion.
+				p.Messages[i].Content = notice.Completed
+				found = true
+				break
+			}
+		}
+		if !found && notice.Completed != "" {
+			p.Messages = append(p.Messages, surface.Message{
+				ID: nextID("asst"), Role: surface.RoleAssistant,
+				Content: notice.Completed, Streaming: true,
+			})
+		}
+		p.FinishStreaming()
 	case "tool_requested":
 		p.FinishStreaming()
 		p.Messages = append(p.Messages, surface.Message{
 			ID: nextID("tool"), Role: surface.RoleTool,
-			Tool: &surface.ToolCard{ToolName: notice.Message, Status: "pending", Preview: notice.Line},
+			Tool: &surface.ToolCard{ToolName: notice.Message, ToolCallID: notice.ToolCallID, Status: "pending", Preview: notice.Line},
 		})
 	case "tool_finished":
 		p.FinishStreaming()
 		for i := len(p.Messages) - 1; i >= 0; i-- {
-			if p.Messages[i].Tool != nil && p.Messages[i].Tool.ToolName == notice.Message {
+			if p.Messages[i].Tool != nil && ((notice.ToolCallID != "" && p.Messages[i].Tool.ToolCallID == notice.ToolCallID) || (notice.ToolCallID == "" && p.Messages[i].Tool.ToolName == notice.Message)) {
 				if notice.Failed {
 					p.Messages[i].Tool.Status = "failed"
 					p.Messages[i].Tool.Result = notice.Line
@@ -77,8 +107,9 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 		if notice.Gate.Kind == "approval" {
 			found := false
 			for i := range p.Messages {
-				if p.Messages[i].Tool != nil && p.Messages[i].Tool.ApprovalID == notice.Gate.ID {
+				if p.Messages[i].Tool != nil && (p.Messages[i].Tool.ApprovalID == notice.Gate.ID || (notice.Gate.ToolCallID != "" && p.Messages[i].Tool.ToolCallID == notice.Gate.ToolCallID)) {
 					p.Messages[i].Tool.Status = "pending"
+					p.Messages[i].Tool.ApprovalID = notice.Gate.ID
 					found = true
 					break
 				}
@@ -87,7 +118,7 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 				p.Messages = append(p.Messages, surface.Message{
 					ID: nextID("tool"), Role: surface.RoleTool,
 					Tool: &surface.ToolCard{
-						ToolName: notice.Gate.Title, Status: "pending",
+						ToolName: notice.Gate.Title, ToolCallID: notice.Gate.ToolCallID, Status: "pending",
 						Preview: notice.Gate.Body, ApprovalID: notice.Gate.ID,
 					},
 				})
