@@ -107,12 +107,22 @@ type LeaseStore interface {
 // messages, runs and journal events in one transaction.
 type SessionStore interface {
 	CreateSession(ctx context.Context, s domain.Session) error
-	// ListSessions returns all sessions, newest first.
+	// ListSessions returns all sessions by durable activity, newest first.
 	ListSessions(ctx context.Context) ([]domain.Session, error)
 	GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error)
 	RenameSession(ctx context.Context, id domain.SessionID, title string) error
 	UpdateSandboxPolicy(ctx context.Context, id domain.SessionID, mode domain.SandboxMode, policy domain.ApprovalPolicy) error
 	DeleteSession(ctx context.Context, id domain.SessionID) error
+}
+
+// SessionActivityStore is the optional durable activity extension implemented
+// by the first-party backends. Keeping it separate preserves compatibility
+// with small embedders that only implement the original SessionStore surface;
+// message and control-plane paths use it when available.
+type SessionActivityStore interface {
+	// TouchSession advances UpdatedAt when at is newer than the stored value.
+	// A zero at lets the backend use its wall clock.
+	TouchSession(ctx context.Context, id domain.SessionID, at int64) error
 }
 
 // MessageStore persists the append-only conversation turns (FR-2).
@@ -184,8 +194,11 @@ type UsageRow struct {
 	TotalTokens      int
 	ReasoningTokens  int
 	CachedTokens     int
-	Model            string
-	Provider         string
+	// RequestCount is one for raw journal rows and may be greater for bounded
+	// session-route aggregates.
+	RequestCount int
+	Model        string
+	Provider     string
 }
 
 // TokenUsageStore exposes a cross-run usage projection derived from
@@ -198,6 +211,18 @@ type TokenUsageStore interface {
 	// empty Model/Provider; the row still counts toward totals.
 	ListModelUsage(ctx context.Context, sinceUnixMilli int64) ([]UsageRow, error)
 }
+
+// SessionTokenUsageStore is the bounded-by-session usage projection used by
+// active-session surfaces. First-party backends implement it so a sidebar
+// refresh never scans every historical session.
+type SessionTokenUsageStore interface {
+	// Implementations aggregate while scanning and return at most
+	// SessionUsageRouteMax priced route groups plus one conservative unknown
+	// overflow group, rather than materializing every event.
+	ListSessionModelUsage(ctx context.Context, sessionID domain.SessionID) ([]UsageRow, error)
+}
+
+const SessionUsageRouteMax = 256
 
 // RunStore tracks run lifecycle rows. Status transitions themselves are
 // validated by the domain state machine; the store only persists them.
@@ -462,6 +487,10 @@ func ApplySessionTruncations(messages []domain.Message, markers []SessionTruncat
 const (
 	FileVersionRetention = 20
 	FileVersionMaxBytes  = 1 << 20
+	// ModifiedFileMax is the maximum number of files returned by the narrow
+	// session/sidebar projection. The backend orders by latest version time
+	// before applying this bound.
+	ModifiedFileMax = 20
 )
 
 // FileVersionStore archives workspace file snapshots per session (RB-1
@@ -486,6 +515,58 @@ type FileVersionStore interface {
 	// LastFileAccess returns the marker timestamp; ok=false when the path
 	// was never tracked.
 	LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (int64, bool, error)
+}
+
+// FileVersionRow is the bounded, metadata-plus-content read shape used by
+// the sidebar projection. It is not exposed over RPC; content is consumed
+// only to calculate line diff counters and is never returned to a face.
+type FileVersionRow struct {
+	Path      string
+	Version   int64
+	Content   []byte
+	CreatedAt int64
+}
+
+// FileDiffStats counts changed lines between two retained snapshots.
+type FileDiffStats struct {
+	Additions int
+	Deletions int
+}
+
+// ModifiedFile is the session-level file-version summary consumed by the
+// Crush-style right rail. Diff compares the oldest and newest retained
+// snapshots, matching the user-visible net change for the session.
+type ModifiedFile struct {
+	Path      string
+	Diff      FileDiffStats
+	UpdatedAt int64
+}
+
+// ModifiedFileStore is the optional read extension behind session/sidebar.
+// Implementations must cap the result and order it newest-first.
+type ModifiedFileStore interface {
+	ListModifiedFiles(ctx context.Context, sessionID domain.SessionID, limit int) ([]ModifiedFile, error)
+}
+
+// BuildModifiedFileSummaries aggregates one path's retained version rows.
+// Callers provide rows in ascending version order. This helper keeps SQLite
+// and Postgres semantics identical without sharing database handles across
+// packages.
+func BuildModifiedFileSummaries(rows []FileVersionRow) ModifiedFile {
+	if len(rows) == 0 {
+		return ModifiedFile{}
+	}
+	diff := FileDiffStats{}
+	if len(rows) > 1 {
+		diff = LineDiffStats(rows[0].Content, rows[len(rows)-1].Content)
+	}
+	updated := rows[len(rows)-1].CreatedAt
+	for _, row := range rows {
+		if row.CreatedAt > updated {
+			updated = row.CreatedAt
+		}
+	}
+	return ModifiedFile{Path: rows[0].Path, Diff: diff, UpdatedAt: updated}
 }
 
 // Engine is one organism's durable store. App composition talks to this

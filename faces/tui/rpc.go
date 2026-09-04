@@ -80,6 +80,42 @@ type sessionView struct {
 	Title            string `json:"title"`
 	PermissionPreset string `json:"permission_preset"`
 	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
+}
+
+type sidebarView struct {
+	Session            sessionView       `json:"session"`
+	CWD                string            `json:"cwd"`
+	Model              string            `json:"model"`
+	Provider           string            `json:"provider"`
+	ReasoningKnown     bool              `json:"reasoning_known"`
+	ReasoningSupported bool              `json:"reasoning_supported"`
+	Context            *contextView      `json:"context"`
+	Usage              *sidebarUsageView `json:"usage"`
+	ModifiedFilesKnown bool              `json:"modified_files_known"`
+	ModifiedFiles      []sidebarFileView `json:"modified_files"`
+}
+
+type sidebarUsageView struct {
+	PromptTokens     int     `json:"prompt_tokens"`
+	CompletionTokens int     `json:"completion_tokens"`
+	TotalTokens      int     `json:"total_tokens"`
+	ReasoningTokens  int     `json:"reasoning_tokens"`
+	CachedTokens     int     `json:"cached_tokens"`
+	RequestCount     int     `json:"request_count"`
+	CostUSD          float64 `json:"cost_usd"`
+	CostKnown        bool    `json:"cost_known"`
+}
+
+type sidebarDiffView struct {
+	Additions int `json:"additions"`
+	Deletions int `json:"deletions"`
+}
+
+type sidebarFileView struct {
+	Path      string          `json:"path"`
+	Diff      sidebarDiffView `json:"diff"`
+	UpdatedAt int64           `json:"updated_at"`
 }
 
 type contextView struct {
@@ -105,6 +141,49 @@ func mapContextView(view contextView) surface.Context {
 		CompactionEnabled: view.CompactionEnabled, WouldCompact: view.WouldCompact,
 		HasCompactionSummary: view.HasCompactionSummary,
 	}
+}
+
+func mapSessionView(view sessionView) surface.Session {
+	return surface.Session{
+		ID: view.ID, Title: view.Title, PermissionPreset: view.PermissionPreset,
+		CreatedAt: view.CreatedAt, UpdatedAt: view.UpdatedAt,
+	}
+}
+
+func mapSidebarView(view sidebarView) surface.Sidebar {
+	snapshot := surface.Sidebar{
+		Session:            mapSessionView(view.Session),
+		CWD:                view.CWD,
+		Model:              view.Model,
+		Provider:           view.Provider,
+		ReasoningKnown:     view.ReasoningKnown,
+		ReasoningSupported: view.ReasoningSupported,
+	}
+	if view.Context != nil {
+		snapshot.Context = mapContextView(*view.Context)
+		snapshot.HasContext = true
+	}
+	if view.Usage != nil {
+		snapshot.Usage = surface.SidebarUsage{
+			PromptTokens: view.Usage.PromptTokens, CompletionTokens: view.Usage.CompletionTokens,
+			TotalTokens: view.Usage.TotalTokens, ReasoningTokens: view.Usage.ReasoningTokens,
+			CachedTokens: view.Usage.CachedTokens, RequestCount: view.Usage.RequestCount,
+			CostUSD: view.Usage.CostUSD, CostKnown: view.Usage.CostKnown,
+		}
+		snapshot.HasUsage = true
+	}
+	if view.ModifiedFilesKnown {
+		snapshot.ModifiedFiles = make([]surface.ModifiedFile, 0, len(view.ModifiedFiles))
+		for _, file := range view.ModifiedFiles {
+			snapshot.ModifiedFiles = append(snapshot.ModifiedFiles, surface.ModifiedFile{
+				Path:      file.Path,
+				Diff:      surface.SidebarDiff{Additions: file.Diff.Additions, Deletions: file.Diff.Deletions},
+				UpdatedAt: file.UpdatedAt,
+			})
+		}
+		snapshot.ModifiedFilesKnown = true
+	}
+	return snapshot
 }
 
 type messageView struct {
@@ -178,6 +257,21 @@ func (c *client) sessionContext(ctx context.Context, sessionID string) (contextV
 	var view contextView
 	if err := json.Unmarshal(raw, &view); err != nil {
 		return contextView{}, fmt.Errorf("tui: session/context: %w", err)
+	}
+	return view, nil
+}
+
+func (c *client) sessionSidebar(ctx context.Context, sessionID string) (sidebarView, error) {
+	raw, err := c.Call(ctx, "session/sidebar", map[string]string{"session_id": sessionID})
+	if err != nil {
+		return sidebarView{}, err
+	}
+	var view sidebarView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return sidebarView{}, fmt.Errorf("tui: session/sidebar: %w", err)
+	}
+	if view.Session.ID == "" {
+		return sidebarView{}, fmt.Errorf("tui: session/sidebar returned no session")
 	}
 	return view, nil
 }

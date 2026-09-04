@@ -8,6 +8,7 @@ CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
 	title TEXT NOT NULL,
 	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL DEFAULT 0,
 	sandbox_mode TEXT NOT NULL DEFAULT 'workspace_write',
 	approval_policy TEXT NOT NULL DEFAULT 'ask'
 );
@@ -397,4 +398,12 @@ CREATE TABLE IF NOT EXISTS message_file_contexts (
 	content BYTEA NOT NULL
 );
 CREATE INDEX IF NOT EXISTS message_file_contexts_message_idx ON message_file_contexts(message_id);
+`
+
+// schemaV20Upgrade adds the durable session activity timestamp to databases
+// that were bootstrapped before the sidebar truth projection. Existing rows
+// inherit created_at; later writes advance it monotonically.
+const schemaV20Upgrade = `
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0;
+UPDATE sessions SET updated_at = created_at WHERE updated_at = 0;
 `

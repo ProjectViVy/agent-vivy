@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -266,6 +267,21 @@ func (m Model) renderCompactHeader(l layout, p Palette) string {
 // right rail for the active session and live context details; the collection
 // is a separate Ctrl+S surface so the chat remains the primary workspace.
 func (m Model) renderSidebar(width, height int, p Palette) string {
+	lines := m.sidebarLines(width, p)
+	viewport := max(1, height)
+	maxScroll := max(0, len(lines)-viewport)
+	offset := min(max(0, m.sidebarScroll), maxScroll)
+	end := min(len(lines), offset+viewport)
+	if offset < end {
+		lines = lines[offset:end]
+	} else {
+		lines = nil
+	}
+	box := strings.Join(lines, "\n")
+	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
+}
+
+func (m Model) sidebarLines(width int, p Palette) []string {
 	active := m.driver.Active()
 	snapshot := surface.Sidebar{Session: active}
 	if provider, ok := m.driver.(surface.SidebarProvider); ok {
@@ -276,11 +292,7 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 		snapshot = provided
 	}
 
-	var b strings.Builder
-	b.WriteString(p.SidebarLogo.Render(" VIVY CODE"))
-	b.WriteByte('\n')
-	b.WriteString(p.Dim.Render(" ─────────────"))
-	b.WriteByte('\n')
+	lines := []string{p.SidebarLogo.Render(" VIVY CODE"), p.Dim.Render(" ─────────────")}
 	title := strings.TrimSpace(snapshot.Session.Title)
 	if title == "" {
 		title = "untitled session"
@@ -290,70 +302,112 @@ func (m Model) renderSidebar(width, height int, p Palette) string {
 		titleLines = titleLines[:2]
 	}
 	for _, line := range titleLines {
-		b.WriteString(p.Active.Render(" " + line))
-		b.WriteByte('\n')
+		lines = append(lines, p.Active.Render(" "+line))
+	}
+	if updated := sidebarTime(snapshot.Session.UpdatedAt); updated != "" {
+		lines = append(lines, p.Dim.Render(truncate(" updated · "+updated, width-1)))
+	}
+	if cwd := strings.TrimSpace(snapshot.CWD); cwd != "" {
+		lines = append(lines, p.Dim.Render(truncate(" cwd · "+cwd, width-1)))
+	}
+	if model := strings.TrimSpace(snapshot.Model); model != "" {
+		lines = append(lines, p.Dim.Render(truncate(" model · "+model, width-1)))
+	}
+	if provider := strings.TrimSpace(snapshot.Provider); provider != "" {
+		lines = append(lines, p.Dim.Render(truncate(" provider · "+provider, width-1)))
+	}
+	if snapshot.ReasoningKnown {
+		reasoning := "unsupported"
+		if snapshot.ReasoningSupported {
+			reasoning = "supported"
+		}
+		lines = append(lines, p.Dim.Render(truncate(" reasoning · "+reasoning, width-1)))
 	}
 	if preset := strings.TrimSpace(snapshot.Session.PermissionPreset); preset != "" {
-		b.WriteString(p.Dim.Render(truncate(" permission · "+preset, width-1)))
-		b.WriteByte('\n')
+		lines = append(lines, p.Dim.Render(truncate(" permission · "+preset, width-1)))
 	}
 	if snapshot.HasContext && snapshot.Context.ThinkingSupported {
 		if controller, ok := m.driver.(surface.ThinkingController); ok {
-			b.WriteString(p.Dim.Render(truncate(" draft thinking · "+controller.ThinkingMode(), width-1)))
-			b.WriteByte('\n')
+			lines = append(lines, p.Dim.Render(truncate(" draft thinking · "+controller.ThinkingMode(), width-1)))
 		}
 	}
-	meta := m.driver.Meta()
-	if meta.Busy {
-		b.WriteString(p.Dim.Render(truncate(" run · "+fallback(meta.RunID, "active"), width-1)))
-		b.WriteByte('\n')
-	}
-	if meta.Queued > 0 {
-		b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" queue · %d", meta.Queued), width-1)))
-		b.WriteByte('\n')
-	}
 	if snapshot.HasContext {
-		b.WriteByte('\n')
-		b.WriteString(p.Dim.Render(" Context"))
-		b.WriteByte('\n')
+		lines = append(lines, "", p.Dim.Render(" Context"))
 		ctx := snapshot.Context
 		switch {
 		case ctx.ModelLimitTokens > 0:
-			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %s / %s tokens", compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s / %s tokens", compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens)), width-1)))
 		case ctx.FeedTokens > 0:
-			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %s tokens", compactNumber(ctx.FeedTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s tokens", compactNumber(ctx.FeedTokens)), width-1)))
 		}
 		if ctx.TotalMessages > 0 {
-			b.WriteByte('\n')
 			if ctx.FeedMessages > 0 && ctx.FeedMessages != ctx.TotalMessages {
-				b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %d / %d feed messages", ctx.FeedMessages, ctx.TotalMessages), width-1)))
+				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %d / %d feed messages", ctx.FeedMessages, ctx.TotalMessages), width-1)))
 			} else {
-				b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" %d messages", ctx.TotalMessages), width-1)))
+				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %d messages", ctx.TotalMessages), width-1)))
 			}
 		}
 		if ctx.TriggerTokens > 0 {
-			b.WriteByte('\n')
-			b.WriteString(p.Dim.Render(truncate(fmt.Sprintf(" compact at %s", compactNumber(ctx.TriggerTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" compact at %s", compactNumber(ctx.TriggerTokens)), width-1)))
 		}
 		if ctx.CompactionEnabled {
-			b.WriteByte('\n')
 			compaction := " compaction on"
 			if ctx.WouldCompact {
 				compaction = " compaction needed"
 			}
-			b.WriteString(p.Dim.Render(compaction))
+			lines = append(lines, p.Dim.Render(compaction))
 		}
 		if ctx.HasCompactionSummary {
-			b.WriteByte('\n')
-			b.WriteString(p.Dim.Render(" summary available"))
+			lines = append(lines, p.Dim.Render(" summary available"))
 		}
 	}
-	if errText := strings.TrimSpace(m.driver.Meta().Error); errText != "" {
-		b.WriteByte('\n')
-		b.WriteString(p.PromptWarn.Render(truncate(" ! "+errText, width-1)))
+	if snapshot.HasUsage {
+		lines = append(lines, "", p.Dim.Render(" Usage"))
+		usage := snapshot.Usage
+		if usage.TotalTokens > 0 {
+			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s tokens", compactNumber(usage.TotalTokens)), width-1)))
+		}
+		cost := "unknown"
+		if usage.CostKnown {
+			cost = fmt.Sprintf("$%.4f", usage.CostUSD)
+		}
+		lines = append(lines, p.Dim.Render(truncate(" cost · "+cost, width-1)))
 	}
-	box := strings.TrimRight(b.String(), "\n")
-	return p.Sidebar.Width(width).Height(height).MaxHeight(height).Render(padBlock(box, width, height))
+	if snapshot.ModifiedFilesKnown {
+		lines = append(lines, "", p.Dim.Render(" Modified Files"))
+		if len(snapshot.ModifiedFiles) == 0 {
+			lines = append(lines, p.Dim.Render(" None"))
+		}
+		for _, file := range snapshot.ModifiedFiles {
+			path := strings.TrimSpace(safeProjectFilePath(file.Path))
+			if path == "" {
+				continue
+			}
+			line := fmt.Sprintf(" %s  +%d -%d", path, file.Diff.Additions, file.Diff.Deletions)
+			if updated := sidebarTime(file.UpdatedAt); updated != "" {
+				line += " · " + updated
+			}
+			lines = append(lines, p.Dim.Render(truncate(line, width-1)))
+		}
+	}
+	meta := m.driver.Meta()
+	if meta.Busy {
+		lines = append(lines, "", p.Dim.Render(truncate(" run · "+fallback(meta.RunID, "active"), width-1)))
+	}
+	if meta.Queued > 0 {
+		lines = append(lines, p.Dim.Render(truncate(" queue · "+fmt.Sprintf("%d", meta.Queued), width-1)))
+	}
+	if errText := strings.TrimSpace(meta.Error); errText != "" {
+		lines = append(lines, "", p.PromptWarn.Render(truncate(" ! "+errText, width-1)))
+	}
+	return lines
+}
+
+func sidebarTime(timestamp int64) string {
+	if timestamp <= 0 {
+		return ""
+	}
+	return time.UnixMilli(timestamp).Format("2006-01-02 15:04")
 }
 
 func fallback(value, otherwise string) string {
@@ -568,6 +622,15 @@ func (m Model) renderHelp(l layout, p Palette) string {
 		if controller, controlled := m.driver.(surface.ThinkingController); controlled && provider.Sidebar().HasContext && provider.Sidebar().Context.ThinkingSupported {
 			parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+controller.ThinkingMode())}, parts[6:]...)...)
 		}
+	}
+	if m.sidebarFocused {
+		parts = append([]string{
+			p.HelpKey.Render("↑↓") + p.HelpDesc.Render(" scroll"),
+			p.HelpKey.Render("home/end") + p.HelpDesc.Render(" jump"),
+			p.HelpKey.Render("h/←/tab") + p.HelpDesc.Render(" exit sidebar"),
+		}, parts...)
+	} else if m.sidebarCanScroll() {
+		parts = append(parts, p.HelpKey.Render("ctrl+→")+p.HelpDesc.Render(" sidebar"))
 	}
 	footer := meta.Footer
 	if footer == "" {

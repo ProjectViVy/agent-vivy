@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -44,6 +45,12 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 			return fmt.Errorf("storage: append message %s file context %d: %w", m.ID, position, err)
 		}
 	}
+	at := messageActivityAt(m.CreatedAt)
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`,
+		at, at, m.SessionID); err != nil {
+		return fmt.Errorf("storage: touch session after message %s: %w", m.ID, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("storage: commit append message %s: %w", m.ID, err)
 	}
@@ -54,7 +61,12 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 	if len(m.Attachments) > 0 || len(m.FileContexts) > 0 {
 		return false, fmt.Errorf("storage: projected message %s cannot carry attachments", m.ID)
 	}
-	result, err := b.db.ExecContext(ctx,
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("storage: begin projected message %s: %w", m.ID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO messages (id, session_id, run_id, role, created_at, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, m.Content,
@@ -67,7 +79,17 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		return false, fmt.Errorf("storage: projected message %s rows affected: %w", m.ID, err)
 	}
 	if n == 1 {
+		at := messageActivityAt(m.CreatedAt)
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`, at, at, m.SessionID); err != nil {
+			return false, fmt.Errorf("storage: touch session after projected message %s: %w", m.ID, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("storage: commit projected message %s: %w", m.ID, err)
+		}
 		return true, nil
+	}
+	if err := tx.Rollback(); err != nil {
+		return false, fmt.Errorf("storage: rollback duplicate projected message %s: %w", m.ID, err)
 	}
 	existing, err := b.projectedMessageByID(ctx, m.ID)
 	if err != nil {
@@ -77,6 +99,13 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		return false, storage.ErrProjectionConflict
 	}
 	return false, nil
+}
+
+func messageActivityAt(at int64) int64 {
+	if at <= 0 {
+		return time.Now().UnixMilli()
+	}
+	return at
 }
 
 func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.Message, error) {

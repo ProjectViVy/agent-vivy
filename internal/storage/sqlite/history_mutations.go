@@ -23,6 +23,10 @@ func (b *Backend) CommitSessionRewind(ctx context.Context, marker storage.Sessio
 	if err := sqliteInsertHistoryEvent(ctx, tx, &event); err != nil {
 		return event, err
 	}
+	at := messageActivityAt(event.CreatedAt)
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`, at, at, marker.SessionID); err != nil {
+		return event, fmt.Errorf("storage: touch rewound session: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return event, fmt.Errorf("storage: commit session rewind: %w", err)
 	}
@@ -51,6 +55,10 @@ func (b *Backend) CommitSessionEdit(ctx context.Context, marker storage.SessionT
 			return event, err
 		}
 	}
+	at := messageActivityAt(m.CreatedAt)
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END WHERE id = ?`, at, at, m.SessionID); err != nil {
+		return event, fmt.Errorf("storage: touch edited session: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id,session_id,status,created_at,kind,parent_run_id,root_run_id,depth) VALUES (?,?,?,?,?,?,?,?)`, run.ID, run.SessionID, domain.RunActive, run.CreatedAt, domain.RunKindPrimary, "", run.ID, 0); err != nil {
 		return event, err
 	}
@@ -70,7 +78,11 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	}
 	defer func() { _ = tx.Rollback() }()
 	mode, policy := child.EffectiveSandbox()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,sandbox_mode,approval_policy) VALUES (?,?,?,?,?)`, child.ID, child.Title, child.CreatedAt, mode, policy); err != nil {
+	updatedAt := child.UpdatedAt
+	if updatedAt <= 0 {
+		updatedAt = child.CreatedAt
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy) VALUES (?,?,?,?,?,?)`, child.ID, child.Title, child.CreatedAt, updatedAt, mode, policy); err != nil {
 		return nil, fmt.Errorf("storage: create fork session: %w", err)
 	}
 	for _, m := range messages {

@@ -73,6 +73,9 @@ type Model struct {
 	fileCompletionError      string
 	fileCompletionRequest    uint64
 	fileCompletionSessionID  string
+
+	sidebarFocused bool
+	sidebarScroll  int
 }
 
 // New returns a model bound to the given driver.
@@ -160,6 +163,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	if m.sidebarFocused && !m.sidebarCanScroll() {
+		m.sidebarFocused = false
+	}
+	m.clampSidebarScroll()
 	return m, tea.Batch(cmds...)
 }
 
@@ -224,6 +231,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if gate == nil && m.fileCompletionOpen {
 		return m.handleFileCompletionKey(msg)
+	}
+	if gate == nil && m.sidebarFocused {
+		var handled bool
+		m, cmd, handled := m.handleSidebarKey(msg)
+		if handled {
+			return m, cmd
+		}
+		// Non-navigation input returns focus to the editor and continues
+		// through the normal global/editor routing below.
+		m.sidebarFocused = false
+	}
+	if gate == nil && m.sidebarCanScroll() && msg.Type == tea.KeyCtrlRight {
+		m.sidebarFocused = true
+		m.clampSidebarScroll()
+		return m, nil
 	}
 	if gate != nil && gate.Submitting && msg.Type != tea.KeyCtrlC && msg.Type != tea.KeyEsc {
 		return m, nil
@@ -335,6 +357,75 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) handleSidebarKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit, true
+	case tea.KeyEsc, tea.KeyTab, tea.KeyShiftTab, tea.KeyLeft, tea.KeyCtrlLeft:
+		m.sidebarFocused = false
+		return m, nil, true
+	case tea.KeyUp:
+		m.sidebarScroll--
+		m.clampSidebarScroll()
+		return m, nil, true
+	case tea.KeyDown:
+		m.sidebarScroll++
+		m.clampSidebarScroll()
+		return m, nil, true
+	case tea.KeyHome:
+		m.sidebarScroll = 0
+		return m, nil, true
+	case tea.KeyEnd:
+		m.sidebarScroll = m.sidebarMaxScroll()
+		return m, nil, true
+	case tea.KeyRunes:
+		switch string(msg.Runes) {
+		case "h":
+			m.sidebarFocused = false
+			return m, nil, true
+		case "j":
+			m.sidebarScroll++
+			m.clampSidebarScroll()
+			return m, nil, true
+		case "k":
+			m.sidebarScroll--
+			m.clampSidebarScroll()
+			return m, nil, true
+		}
+	}
+	return m, nil, false
+}
+
+func (m Model) sidebarViewportHeight(l layout, p Palette) int {
+	chat := m.renderChat(l.mainW(), l.mainH(), p)
+	editor := m.renderEditor(l.mainW(), p)
+	return max(1, lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, chat, "", editor)))
+}
+
+func (m Model) sidebarMaxScroll() int {
+	l := computeLayout(m.width, m.height)
+	if !l.showSidebar {
+		return 0
+	}
+	p := m.palette
+	lines := m.sidebarLines(l.sidebarW, p)
+	return max(0, len(lines)-m.sidebarViewportHeight(l, p))
+}
+
+func (m Model) sidebarCanScroll() bool {
+	return m.sidebarMaxScroll() > 0
+}
+
+func (m *Model) clampSidebarScroll() {
+	maxScroll := m.sidebarMaxScroll()
+	if m.sidebarScroll < 0 {
+		m.sidebarScroll = 0
+	}
+	if m.sidebarScroll > maxScroll {
+		m.sidebarScroll = maxScroll
+	}
 }
 
 func (m Model) refreshFileCompletion() (Model, tea.Cmd) {

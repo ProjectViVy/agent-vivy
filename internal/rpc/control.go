@@ -130,6 +130,10 @@ type ControlDeps struct {
 	// the file preview panel (workspace/list, workspace/read). Nil disables
 	// the workspace/* method family.
 	WorkspaceFiles WorkspaceFiles
+	// FileVersions is the bounded session-level file-version projection used
+	// by session/sidebar. Nil falls back to a SessionStore that implements the
+	// optional storage.ModifiedFileStore extension.
+	FileVersions storage.ModifiedFileStore
 	// ProjectRoot is the authoritative code project root for project-relative
 	// image attachment resolution. The code face injects this from
 	// cfg.Runtime.WorkspaceRoot; it is deliberately distinct from a tenant or
@@ -370,6 +374,7 @@ type sessionResult struct {
 	ID               domain.SessionID        `json:"id"`
 	Title            string                  `json:"title"`
 	CreatedAt        int64                   `json:"created_at"`
+	UpdatedAt        int64                   `json:"updated_at"`
 	SandboxMode      domain.SandboxMode      `json:"sandbox_mode"`
 	ApprovalPolicy   domain.ApprovalPolicy   `json:"approval_policy"`
 	PermissionPreset domain.PermissionPreset `json:"permission_preset"`
@@ -567,7 +572,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
 			"channel.inspect", "channel.get", "channel.update",
-			"session.context", "context.compact", "session.rewind", "session.fork", "session.edit",
+			"session.context", "session.sidebar", "context.compact", "session.rewind", "session.fork", "session.edit",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
 			"skills.list", "skills.get",
@@ -605,6 +610,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.listMessages(ctx, request)
 	case "session/context":
 		return h.sessionContext(ctx, request)
+	case "session/sidebar":
+		return h.sessionSidebar(ctx, request)
 	case "attachments/resolve", "attachment/resolve":
 		return h.resolveAttachments(request)
 	case "project-context/resolve":
@@ -881,7 +888,8 @@ func (h *controlHandler) createSession(ctx context.Context, request Request) (an
 	// auto-titler can name it after the first exchange; clients render a
 	// localized placeholder.
 	params.Title = strings.TrimSpace(params.Title)
-	session := domain.Session{ID: domain.SessionID(newControlID("sess_")), Title: params.Title, CreatedAt: nowMillis()}
+	now := nowMillis()
+	session := domain.Session{ID: domain.SessionID(newControlID("sess_")), Title: params.Title, CreatedAt: now, UpdatedAt: now}
 	if mode, policy, ok := h.defaultPreset().Bundle(); ok {
 		session.SandboxMode = string(mode)
 		session.ApprovalPolicy = string(policy)
@@ -902,7 +910,7 @@ func (h *controlHandler) defaultPreset() domain.PermissionPreset {
 func toSessionResult(session domain.Session) sessionResult {
 	mode, policy := session.EffectiveSandbox()
 	return sessionResult{
-		ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt,
+		ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt, UpdatedAt: session.UpdatedAt,
 		SandboxMode: mode, ApprovalPolicy: policy, PermissionPreset: domain.PermissionPresetOf(mode, policy),
 	}
 }

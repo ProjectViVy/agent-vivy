@@ -21,9 +21,14 @@ func (r Role) Valid() bool {
 // Session is one conversation. Sandbox fields control the permission
 // boundary for all runs in this session (D-021).
 type Session struct {
-	ID             SessionID
-	Title          string
-	CreatedAt      int64  // unix milli
+	ID        SessionID
+	Title     string
+	CreatedAt int64 // unix milli
+	// UpdatedAt is the durable last-activity timestamp. It advances on
+	// creation, rename, permission changes, and every persisted message
+	// activity. Zero is reserved for legacy callers before storage fills it
+	// from CreatedAt.
+	UpdatedAt      int64  // unix milli
 	SandboxMode    string // read_only | workspace_write | danger_full_access
 	ApprovalPolicy string // ask | never | auto
 }

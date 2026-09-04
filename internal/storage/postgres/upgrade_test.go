@@ -289,7 +289,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.Close() })
 
-	// (a) migrate recorded versions 15 through 19 alongside the pre-existing 14.
+	// (a) migrate recorded versions 15 through 20 alongside the pre-existing 14.
 	var versions []int64
 	rows, err := admin.QueryContext(ctx,
 		`SELECT version FROM `+schema+`.schema_migrations ORDER BY version`)
@@ -306,7 +306,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate schema_migrations: %v", err)
 	}
-	wantVersions := []int64{14, 15, 16, 17, 18, 19}
+	wantVersions := []int64{14, 15, 16, 17, 18, 19, 20}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("schema_migrations = %v, want %v", versions, wantVersions)
 	}
