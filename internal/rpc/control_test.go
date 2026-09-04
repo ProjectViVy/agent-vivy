@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,6 +37,136 @@ type controlTestEnv struct {
 }
 
 type childControllerStub struct{}
+
+func TestRunSubscriptionStopsWhenPeerClosesWhileIdle(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 2})
+	params, err := json.Marshal(map[string]any{"run_id": "run_idle", "after_seq": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"idle"`), Method: "run/subscribe", Params: params}
+	if _, rpcErr := handler.subscribe(context.Background(), peer, request); rpcErr != nil {
+		t.Fatalf("subscribe: %v", rpcErr)
+	}
+	peer.runAfterResponse(request.ID)
+	waitForSubscriptionCount := func(want int) {
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			handler.mu.Lock()
+			got := len(handler.subscriptions)
+			handler.mu.Unlock()
+			if got == want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		handler.mu.Lock()
+		got := len(handler.subscriptions)
+		handler.mu.Unlock()
+		t.Fatalf("subscription count = %d, want %d", got, want)
+	}
+	waitForSubscriptionCount(1)
+	if err := peer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitForSubscriptionCount(0)
+}
+
+func TestRunSubscriptionResponseCloseCleansPendingEntry(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), handler, Options{OutgoingBuffer: 1})
+	if err := peer.Notify("occupy", nil); err != nil {
+		t.Fatal(err)
+	}
+	params, err := json.Marshal(map[string]any{"run_id": "run_pending_response", "after_seq": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"pending"`), Method: "run/subscribe", Params: params}
+	done := make(chan struct{})
+	go func() {
+		peer.handleRequest(context.Background(), request)
+		close(done)
+	}()
+	waitForControlSubscriptionCount(t, handler, 1)
+	if err := peer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("request did not unblock after peer close")
+	}
+	waitForControlSubscriptionCount(t, handler, 0)
+	peer.mu.Lock()
+	after := len(peer.after)
+	peer.mu.Unlock()
+	if after != 0 {
+		t.Fatalf("after-response callbacks = %d, want 0", after)
+	}
+}
+
+func TestRunSubscriptionContextCancelCleansPendingEntry(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), handler, Options{OutgoingBuffer: 1})
+	defer peer.Close()
+	if err := peer.Notify("occupy", nil); err != nil {
+		t.Fatal(err)
+	}
+	params, err := json.Marshal(map[string]any{"run_id": "run_cancelled_response", "after_seq": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"cancelled"`), Method: "run/subscribe", Params: params}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		peer.handleRequest(ctx, request)
+		close(done)
+	}()
+	waitForControlSubscriptionCount(t, handler, 1)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("request did not unblock after context cancellation")
+	}
+	waitForControlSubscriptionCount(t, handler, 0)
+	peer.mu.Lock()
+	after := len(peer.after)
+	peer.mu.Unlock()
+	if after != 0 {
+		t.Fatalf("after-response callbacks = %d, want 0", after)
+	}
+}
+
+func waitForControlSubscriptionCount(t *testing.T, handler *controlHandler, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		handler.mu.Lock()
+		got := len(handler.subscriptions)
+		handler.mu.Unlock()
+		if got == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	handler.mu.Lock()
+	got := len(handler.subscriptions)
+	handler.mu.Unlock()
+	t.Fatalf("subscription count = %d, want %d", got, want)
+}
 
 func (childControllerStub) StartChild(_ context.Context, request ChildRequest) (ChildResult, error) {
 	return ChildResult{ID: "child-stub", ParentRunID: request.ParentRunID, Status: "active", Depth: 1}, nil

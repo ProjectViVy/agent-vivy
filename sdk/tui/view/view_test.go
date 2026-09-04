@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -9,6 +10,40 @@ import (
 
 	"agent-vivy/sdk/tui/surface"
 )
+
+func TestWrapTextPreservesStreamingTextAndWrapsCJK(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		width int
+		want  []string
+	}{
+		{name: "continuous Chinese", text: "这是一句话", width: 20, want: []string{"这是一句话"}},
+		{name: "CJK cell wrap", text: "这是一句话", width: 8, want: []string{"这是一句", "话"}},
+		{name: "exact spaces", text: "a  b c ", width: 20, want: []string{"a  b c "}},
+		{name: "safe controls", text: "a\tb\r\x1b[31mc", width: 20, want: []string{"a    bc"}},
+		{name: "newlines", text: "甲\n\n乙", width: 8, want: []string{"甲", "", "乙"}},
+		{name: "emoji grapheme", text: "AAAAAAA👨‍👩‍👧‍👦B", width: 8, want: []string{"AAAAAAA", "👨‍👩‍👧‍👦B"}},
+		{name: "Latin words", text: "hello world", width: 8, want: []string{"hello ", "world"}},
+		{name: "boundary space", text: "12345678 x", width: 8, want: []string{"12345678", " x"}},
+		{name: "wide whitespace", text: "         ", width: 8, want: []string{"        ", " "}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := wrapText(test.text, test.width)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("wrapText(%q, %d) = %#v, want %#v", test.text, test.width, got, test.want)
+			}
+		})
+	}
+}
+
+func TestRenderMessagePreservesTrailingNewline(t *testing.T) {
+	lines := renderMessage(surface.Message{Role: surface.RoleAssistant, Content: "line\n"}, 40, DefaultPalette())
+	if len(lines) != 2 {
+		t.Fatalf("rendered lines = %#v, want trailing empty line", lines)
+	}
+}
 
 type testDriver struct {
 	sessions    []surface.Session

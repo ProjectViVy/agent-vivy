@@ -94,6 +94,97 @@ func TestPeerRejectsOverloadedOutgoingQueue(t *testing.T) {
 	}
 }
 
+func TestPeerNotifyContextWaitsForCapacityAndCancels(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 1})
+	if err := peer.Notify("one", nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := peer.NotifyContext(ctx, "two", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("NotifyContext error = %v", err)
+	}
+	if time.Since(started) < 20*time.Millisecond {
+		t.Fatal("NotifyContext did not apply backpressure")
+	}
+}
+
+func TestPeerResponseEnqueueWaitsForCapacity(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 1})
+	if err := peer.Notify("occupy", nil); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- peer.enqueueContext(context.Background(), responseFrame{JSONRPC: "2.0", ID: json.RawMessage(`"response"`), Result: json.RawMessage(`true`)})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("response enqueue bypassed backpressure: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	<-peer.out
+	if err := <-done; err != nil {
+		t.Fatalf("response enqueue after capacity: %v", err)
+	}
+}
+
+func TestPeerNotifyContextDeliversBurstThroughBoundedQueue(t *testing.T) {
+	const count = 256
+	received := make(chan int, count)
+	clientHandler := HandlerFunc(func(_ context.Context, _ *Peer, request Request) (any, *Error) {
+		if request.Method == "chunk" {
+			var value int
+			if err := json.Unmarshal(request.Params, &value); err != nil {
+				t.Errorf("decode chunk: %v", err)
+			} else {
+				received <- value
+			}
+		}
+		return nil, nil
+	})
+	serverHandler := HandlerFunc(func(ctx context.Context, peer *Peer, request Request) (any, *Error) {
+		if request.Method != "burst" {
+			return nil, &Error{Code: MethodNotFound, Message: "unknown"}
+		}
+		peer.AfterResponse(request.ID, func() {
+			for i := 0; i < count; i++ {
+				if err := peer.NotifyContext(ctx, "chunk", i); err != nil {
+					t.Errorf("notify %d: %v", i, err)
+					return
+				}
+			}
+		})
+		return map[string]bool{"started": true}, nil
+	})
+	_, client, _ := startPeerPair(t, serverHandler, clientHandler)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := client.Call(ctx, "burst", nil); err != nil {
+		t.Fatal(err)
+	}
+	seen := make([]bool, count)
+	for i := 0; i < count; i++ {
+		select {
+		case value := <-received:
+			if value < 0 || value >= count || seen[value] {
+				t.Fatalf("invalid or duplicate chunk %d", value)
+			}
+			seen[value] = true
+		case <-ctx.Done():
+			t.Fatalf("received %d/%d notifications: %v", i, count, ctx.Err())
+		}
+	}
+}
+
 func TestPeerRejectsInvalidJSON(t *testing.T) {
 	left, right := net.Pipe()
 	defer left.Close()

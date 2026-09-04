@@ -2219,18 +2219,26 @@ func (h *controlHandler) subscribe(ctx context.Context, peer *Peer, request Requ
 	if peer == nil {
 		return nil, &Error{Code: InternalError, Message: "subscription requires a connected peer"}
 	}
-	streamCtx, cancel := context.WithCancel(ctx)
 	subscriptionID := newControlID("sub_")
+	streamCtx, cancel := context.WithCancel(ctx)
 	h.mu.Lock()
 	h.subscriptions[subscriptionID] = cancel
 	h.mu.Unlock()
+	cleanup := func() {
+		h.mu.Lock()
+		delete(h.subscriptions, subscriptionID)
+		h.mu.Unlock()
+		cancel()
+	}
+	go func() {
+		select {
+		case <-peer.done:
+		case <-streamCtx.Done():
+		}
+		cleanup()
+	}()
 	stream := func() {
-		defer func() {
-			h.mu.Lock()
-			delete(h.subscriptions, subscriptionID)
-			h.mu.Unlock()
-			cancel()
-		}()
+		defer cleanup()
 		h.streamRun(streamCtx, peer, subscriptionID, domain.RunID(params.RunID), domain.EventSeq(params.AfterSeq))
 	}
 	peer.AfterResponse(request.ID, stream)
@@ -2261,7 +2269,7 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 		if event.Seq <= last {
 			return true
 		}
-		if err := peer.Notify("run/event", map[string]any{
+		if err := peer.NotifyContext(ctx, "run/event", map[string]any{
 			"subscription_id": subscriptionID,
 			"event":           toEventResult(event),
 		}); err != nil {
@@ -2272,7 +2280,7 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 	}
 	entries, err := h.replayEvents(ctx, runID, last)
 	if err != nil {
-		_ = peer.Notify("run/stream_error", map[string]any{"subscription_id": subscriptionID, "message": "event replay failed"})
+		_ = peer.NotifyContext(ctx, "run/stream_error", map[string]any{"subscription_id": subscriptionID, "message": "event replay failed"})
 		return
 	}
 	for _, entry := range entries {
@@ -2283,6 +2291,8 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-peer.done:
 			return
 		case event, ok := <-ch:
 			if ok {

@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -29,6 +32,57 @@ func TestMapperEmitsReasoningAndUsageEvents(t *testing.T) {
 	if len(events) != 3 || events[0].Type != domain.EventModelReasoningDelta ||
 		events[1].Type != domain.EventModelUsage || events[2].Type != domain.EventModelCompleted {
 		t.Fatalf("events = %+v, want reasoning/usage/completed", events)
+	}
+}
+
+func TestMapperPublishesStreamChunkBeforeEOF(t *testing.T) {
+	reader, writer := schema.Pipe[*schema.Message](1)
+	m := newEventMapper("run-live", 4096)
+	emitted := make(chan []domain.RunEvent, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- m.onStreamEventEach(&adk.TypedMessageVariant[*schema.Message]{
+			IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+		}, func(events []domain.RunEvent) error {
+			emitted <- append([]domain.RunEvent(nil), events...)
+			return nil
+		})
+	}()
+	writer.Send(&schema.Message{Role: schema.Assistant, ReasoningContent: "这"}, nil)
+	select {
+	case events := <-emitted:
+		if len(events) != 1 || events[0].Type != domain.EventModelReasoningDelta {
+			t.Fatalf("first live batch = %+v", events)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first stream chunk was retained until EOF")
+	}
+	writer.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("stream mapping: %v", err)
+	}
+}
+
+func TestMapperSplitsOversizedDeltasWithoutLosingText(t *testing.T) {
+	m := newEventMapper("run-split", 64)
+	want := strings.Repeat("中文🙂", 20)
+	events := m.deltaEvents(want)
+	if len(events) < 2 {
+		t.Fatalf("oversized delta produced %d event(s)", len(events))
+	}
+	var got strings.Builder
+	for _, event := range events {
+		if len(event.Payload) > m.maxPayload {
+			t.Fatalf("payload bytes = %d, max %d", len(event.Payload), m.maxPayload)
+		}
+		var payload payloadModelDelta
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		got.WriteString(payload.Delta)
+	}
+	if got.String() != want {
+		t.Fatalf("reassembled delta differs: got %q want %q", got.String(), want)
 	}
 }
 

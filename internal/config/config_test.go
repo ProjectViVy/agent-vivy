@@ -25,6 +25,14 @@ func TestRuntimeWorldDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsEventPayloadBudgetTooSmallForOneDelta(t *testing.T) {
+	cfg := Default()
+	cfg.Runtime.MaxEventPayloadBytes = 63
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "at least 64") {
+		t.Fatalf("small event payload budget error = %v", err)
+	}
+}
+
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")

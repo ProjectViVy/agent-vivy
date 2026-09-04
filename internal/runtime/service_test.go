@@ -568,6 +568,91 @@ type captureStream struct {
 	next   int
 }
 
+type gatedIncrementalModel struct {
+	secondRecv chan struct{}
+	release    chan struct{}
+}
+
+func (m *gatedIncrementalModel) Stream(context.Context, []*domain.Message) (domain.Stream[*domain.Message], error) {
+	return &gatedIncrementalStream{secondRecv: m.secondRecv, release: m.release}, nil
+}
+
+type gatedIncrementalStream struct {
+	next       int
+	secondRecv chan struct{}
+	release    chan struct{}
+}
+
+func (s *gatedIncrementalStream) Recv() (*domain.Message, error) {
+	if s.next < 9 {
+		content := "x"
+		if s.next == 0 {
+			content = "这"
+		}
+		s.next++
+		return &domain.Message{Role: domain.RoleAssistant, Content: content}, nil
+	}
+	switch s.next {
+	case 9:
+		s.next++
+		close(s.secondRecv)
+		<-s.release
+		return &domain.Message{Role: domain.RoleAssistant, Content: "是一句话"}, nil
+	default:
+		return nil, io.EOF
+	}
+}
+
+func TestServicePersistsFirstModelChunkBeforeProviderEOF(t *testing.T) {
+	model := &gatedIncrementalModel{secondRecv: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(model.release)
+		}
+	}()
+	svc, backend, _ := newTestService(t, model)
+	runID, err := svc.Run(context.Background(), "sess-incremental", "stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-model.secondRecv:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider never requested its second chunk")
+	}
+	seenFirst := false
+	var events []domain.RunEvent
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !seenFirst {
+		events = replayAll(t, backend, runID)
+		for _, event := range events {
+			if event.Type == domain.EventModelDelta && payloadDeltaOf(t, event.Payload) == "这" {
+				seenFirst = true
+			}
+		}
+		if !seenFirst {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !seenFirst {
+		t.Fatalf("first chunk was not durable while provider remained open: %+v", events)
+	}
+	close(model.release)
+	released = true
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	var got strings.Builder
+	for _, event := range replayAll(t, backend, runID) {
+		if event.Type == domain.EventModelDelta {
+			got.WriteString(payloadDeltaOf(t, event.Payload))
+		}
+	}
+	want := "这" + strings.Repeat("x", 8) + "是一句话"
+	if got.String() != want {
+		t.Fatalf("durable deltas = %q, want exactly-once provider text %q", got.String(), want)
+	}
+}
+
 func (s *captureStream) Recv() (*domain.Message, error) {
 	if s.next >= len(s.chunks) {
 		return nil, io.EOF
