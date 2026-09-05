@@ -94,20 +94,10 @@ type MCPListResourcesResponse struct {
 	Untrusted bool          `json:"untrusted"`
 }
 
-// MCPResourcesResponse is retained as a descriptive alias for callers that
-// use the shorter response name.
-type MCPResourcesResponse = MCPListResourcesResponse
-
-// MCPResourceListResponse is an alternate name matching the resource-first
-// naming used by some integrations.
-type MCPResourceListResponse = MCPListResourcesResponse
-
 type MCPReadResourceRequest struct {
 	Server string `json:"server"`
 	URI    string `json:"uri"`
 }
-
-type MCPResourceReadRequest = MCPReadResourceRequest
 
 // MCPReadResourceResponse is the bounded, read-only TUI/control-plane view
 // of resources/read. URI is echoed for the requested resource while Contents
@@ -155,9 +145,6 @@ type MCPGetPromptResponse struct {
 	Text        string `json:"text"`
 	Untrusted   bool   `json:"untrusted"`
 }
-
-// MCPResourceReadResponse is an alternate descriptive alias.
-type MCPResourceReadResponse = MCPReadResourceResponse
 
 // MCPResourceOperations is the read-only resource surface used by the
 // control plane. It is deliberately separate from MCPOperations so MCP

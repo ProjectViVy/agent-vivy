@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,5 +68,8 @@ func TestAppShutdownBounded(t *testing.T) {
 		}
 	case <-time.After(shutdownGrace + 3*time.Second):
 		t.Fatal("shutdown did not complete within the bounded window")
+	}
+	if _, err := a.mcpBackend.ListTools(ctx, "", "missing"); err == nil || !strings.Contains(err.Error(), "backend is closed") {
+		t.Fatalf("MCP backend remained usable after app shutdown: %v", err)
 	}
 }
