@@ -1,4 +1,4 @@
-package tui
+package live
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"agent-vivy/sdk/tui/stream"
-	"example.com/vivy/faces/tui/surface"
+	"agent-vivy/sdk/tui/surface"
 )
 
 func TestLiveKeepsReasoningContinuousAcrossEmptyDelta(t *testing.T) {
@@ -97,7 +97,7 @@ func TestLiveRecoveryReplacesAndUnsubscribesPreviousStream(t *testing.T) {
 		return map[string]bool{"unsubscribed": true}, nil
 	}
 	env := &fakeEnv{script: script}
-	live := NewLive(newClient(env), LiveOptions{})
+	live := newLive(context.Background(), newClient(env), Options{})
 	live.runID = "run_1"
 	live.busy = true
 	live.subscriptionID = "sub_old"
@@ -129,7 +129,7 @@ func TestLiveCloseUnsubscribesActiveStream(t *testing.T) {
 		unsubscribed = params.SubscriptionID
 		return map[string]bool{"unsubscribed": true}, nil
 	}
-	live := NewLive(newClient(&fakeEnv{script: script}), LiveOptions{})
+	live := newLive(context.Background(), newClient(&fakeEnv{script: script}), Options{})
 	live.subscriptionID = "sub_close"
 	live.Close()
 	if unsubscribed != "sub_close" {
@@ -176,7 +176,7 @@ func TestLiveLateSubscriptionAfterCloseIsCleanedUp(t *testing.T) {
 		unsubscribed = params.SubscriptionID
 		return map[string]bool{"unsubscribed": true}, nil
 	}
-	live := NewLive(newClient(&fakeEnv{script: script}), LiveOptions{})
+	live := newLive(context.Background(), newClient(&fakeEnv{script: script}), Options{})
 	live.runID = "run_1"
 	live.Close()
 	cmd := live.applySubscribed(liveSubscribedMsg{RunID: "run_1", SubscriptionID: "sub_late"})

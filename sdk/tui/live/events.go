@@ -1,19 +1,26 @@
-package tui
+package live
 
 import (
 	"encoding/json"
 
-	"agent-vivy/internal/domain"
 	"agent-vivy/sdk/tui/stream"
 )
 
-// streamEvent is the kernel transport adapter. The protocol-independent
-// event/notice/reducer implementation lives in sdk/tui/stream.
+const (
+	roleUser      = "user"
+	roleAssistant = "assistant"
+)
+
+const (
+	decisionApproved = "approved"
+	decisionDenied   = "denied"
+)
+
 type streamEvent struct {
 	SubscriptionID string
 	RunID          string
 	Seq            int
-	Type           domain.EventType
+	Type           string
 	PayloadVersion int
 	Payload        json.RawMessage
 }
@@ -30,7 +37,7 @@ func decodeStreamEvent(params json.RawMessage) (streamEvent, bool) {
 		SubscriptionID: event.SubscriptionID,
 		RunID:          event.RunID,
 		Seq:            event.Seq,
-		Type:           domain.EventType(event.Type),
+		Type:           event.Type,
 		PayloadVersion: event.PayloadVersion,
 		Payload:        event.Payload,
 	}, true

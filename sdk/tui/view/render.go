@@ -134,10 +134,7 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 			lines = append(lines, style.Render(truncate(line, innerWidth)))
 		}
 	}
-	catalog := surface.ModelCatalog{}
-	if controller, ok := m.driver.(surface.ModelController); ok {
-		catalog = controller.ModelCatalog()
-	}
+	catalog := m.driver.ModelCatalog()
 	footer := "global · next idle turn · ↑↓ select · esc close"
 	if catalog.ReadOnly || catalog.Frozen {
 		footer = "read-only · ↑↓ browse · type filter · esc close"
@@ -358,10 +355,8 @@ func (m Model) renderCompactHeader(l layout, p Palette) string {
 	if label == "" {
 		label = "untitled session"
 	}
-	if meta.Mode == "live" && meta.Host != "" {
+	if meta.Host != "" {
 		label = fmt.Sprintf("%s · %s", label, meta.Host)
-	} else if meta.Mode == "demo" {
-		label = fmt.Sprintf("demo · %s", label)
 	}
 	headerMeta := p.HeaderMeta.Render(label)
 	used := lipgloss.Width(logo) + lipgloss.Width(headerMeta) + 1
@@ -395,13 +390,9 @@ func sidebarLogoLines(p Palette) []string {
 
 func (m Model) sidebarLines(width int, p Palette) []string {
 	active := m.driver.Active()
-	snapshot := surface.Sidebar{Session: active}
-	if provider, ok := m.driver.(surface.SidebarProvider); ok {
-		provided := provider.Sidebar()
-		if provided.Session.ID == "" {
-			provided.Session = active
-		}
-		snapshot = provided
+	snapshot := m.driver.Sidebar()
+	if snapshot.Session.ID == "" {
+		snapshot.Session = active
 	}
 
 	lines := make([]string, 0, 24)
@@ -439,9 +430,7 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		lines = append(lines, p.Dim.Render(truncate(" permission · "+preset, width-1)))
 	}
 	if snapshot.HasContext && snapshot.Context.ThinkingSupported {
-		if controller, ok := m.driver.(surface.ThinkingController); ok {
-			lines = append(lines, p.Dim.Render(truncate(" draft thinking · "+controller.ThinkingMode(), width-1)))
-		}
+		lines = append(lines, p.Dim.Render(truncate(" draft thinking · "+m.driver.ThinkingMode(), width-1)))
 	}
 	if snapshot.HasContext {
 		lines = append(lines, "", p.Dim.Render(" Context"))
@@ -787,10 +776,8 @@ func (m Model) renderEditor(width int, p Palette) string {
 	}
 	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
 	lines := []string{rule}
-	if provider, ok := m.driver.(surface.AttachmentProvider); ok {
-		if chips := renderAttachmentChips(provider.PendingAttachments()); chips != "" {
-			lines = append(lines, p.Dim.Render(truncate(chips, width)))
-		}
+	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
+		lines = append(lines, p.Dim.Render(truncate(chips, width)))
 	}
 	lines = append(lines, truncate(prompt+display+cursor, width))
 	return p.Editor.Width(width).Render(strings.Join(lines, "\n"))
@@ -856,10 +843,8 @@ func (m Model) renderHelp(l layout, p Palette) string {
 	if m.modelSelectionAvailable() {
 		parts = append(parts[:2], append([]string{p.HelpKey.Render("^l") + p.HelpDesc.Render(" global model")}, parts[2:]...)...)
 	}
-	if provider, ok := m.driver.(surface.SidebarProvider); ok {
-		if controller, controlled := m.driver.(surface.ThinkingController); controlled && provider.Sidebar().HasContext && provider.Sidebar().Context.ThinkingSupported {
-			parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+controller.ThinkingMode())}, parts[6:]...)...)
-		}
+	if sidebar := m.driver.Sidebar(); sidebar.HasContext && sidebar.Context.ThinkingSupported {
+		parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+m.driver.ThinkingMode())}, parts[6:]...)...)
 	}
 	if m.sidebarFocused {
 		parts = append([]string{
@@ -879,16 +864,12 @@ func (m Model) renderHelp(l layout, p Palette) string {
 	}
 	footer := meta.Footer
 	if footer == "" {
-		if meta.Mode == "live" {
-			footer = "live"
-			if meta.Host != "" {
-				footer += " · " + meta.Host
-			}
-			if meta.Busy {
-				footer += " · run…"
-			}
-		} else {
-			footer = "demo · not connected"
+		footer = "live"
+		if meta.Host != "" {
+			footer += " · " + meta.Host
+		}
+		if meta.Busy {
+			footer += " · run…"
 		}
 	}
 	if meta.Error != "" {

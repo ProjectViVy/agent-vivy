@@ -16,8 +16,8 @@ import (
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/logging"
-	"agent-vivy/internal/tui"
 	"agent-vivy/sdk/plugin"
+	tuiface "agent-vivy/sdk/tui/face"
 )
 
 // Prepared is the split between shared configuration and private runtime
@@ -102,7 +102,7 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 	return app.RunFaceWithAppOptions(
 		ctx,
 		prepared.Config,
-		tui.NewFace,
+		tuiface.New,
 		plugin.FaceOptions{Out: out, Err: errOut},
 		app.WithSettingsPath(prepared.SharedSettingsPath),
 		app.WithCodeProjectRoot(prepared.Config.Runtime.WorkspaceRoot),

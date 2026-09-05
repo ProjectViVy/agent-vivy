@@ -20,8 +20,8 @@ type Session struct {
 	// CreatedAt is the durable session creation time in unix milliseconds.
 	CreatedAt int64
 	// UpdatedAt is the durable last-activity timestamp in unix milliseconds.
-	// A zero value means the server did not expose activity truth (for example,
-	// an older/offline driver), and must not be replaced with process time.
+	// A zero value means the server did not expose activity truth and must not
+	// be replaced with process time.
 	UpdatedAt int64
 }
 
@@ -94,7 +94,7 @@ type LanguageServer struct {
 	State    string
 }
 
-// Sidebar is the optional server-backed snapshot used by the Crush-style
+// Sidebar is the server-backed snapshot used by the Crush-style
 // right rail. Missing fields remain missing; the view never infers them from
 // process state or aggregate statistics.
 type Sidebar struct {
@@ -182,7 +182,6 @@ type Gate struct {
 
 // Meta is footer / chrome status for the active driver.
 type Meta struct {
-	Mode   string // demo | live
 	Host   string
 	Busy   bool
 	Queued int
@@ -211,13 +210,24 @@ type Driver interface {
 	SetPermission(preset string) tea.Cmd
 	ClearQueue() bool
 	Cancel() tea.Cmd
+
+	CommandExecutor
+	DynamicCommandProvider
+	DynamicCommandRefresher
+	DynamicCommandExecutor
+	SidebarProvider
+	ThinkingController
+	ModelController
+	AttachmentProvider
+	ContextSender
+	ProjectFileCompleter
+	ShellExecutor
+	CapabilityReporter
+	SessionController
 }
 
-// CommandExecutor is the optional command adapter implemented by live
-// drivers. The shared view validates/parses command syntax and policy before
-// calling this seam; the driver only translates an already-canonical command
-// into its authoritative async operation. Drivers that do not implement it
-// are handled by the view's safe compatibility path.
+// CommandExecutor translates an already-canonical command into its
+// authoritative async operation.
 type CommandExecutor interface {
 	ExecuteCommand(name string, args []string) tea.Cmd
 }
@@ -241,7 +251,6 @@ type DynamicCommandArgument struct {
 }
 
 // DynamicCommandProvider exposes the latest authoritative catalog snapshot.
-// Static commands remain available when this optional surface is absent.
 type DynamicCommandProvider interface {
 	DynamicCommands() []DynamicCommand
 }
@@ -284,7 +293,6 @@ type CommandResultMsg struct {
 }
 
 // SidebarProvider supplies authoritative active-session details to the view.
-// It is optional so small offline drivers can render only the data they own.
 type SidebarProvider interface {
 	Sidebar() Sidebar
 }
@@ -342,9 +350,7 @@ type ModelSelectedMsg struct {
 }
 
 // AttachmentProvider supplies the pending draft images owned by the active
-// session. It is optional so offline/demo drivers can keep the base surface
-// small; the shared renderer only shows chips when the driver has an
-// authoritative provider.
+// session.
 type AttachmentProvider interface {
 	PendingAttachments() []Attachment
 }
@@ -356,11 +362,6 @@ type AttachmentProvider interface {
 type ContextSender interface {
 	SendWithContext(text string, paths []string) tea.Cmd
 }
-
-// FileContextSender is the descriptive alias used by callers that prefer the
-// file-oriented name. It intentionally has the same method set as
-// ContextSender.
-type FileContextSender = ContextSender
 
 // ProjectFileCompleter asks the control plane for safe metadata-only project
 // file candidates. Query is a user-entered project-relative path prefix; the
@@ -388,14 +389,11 @@ type ShellExecutor interface {
 }
 
 // CapabilityReporter exposes only capabilities returned by initialize.
-// Optional effect surfaces use it to hide and reject unavailable actions.
 type CapabilityReporter interface {
 	SupportsCapability(name string) bool
 }
 
-// SessionController supplies the independent Sessions dialog actions. The
-// fullscreen view checks this interface rather than baking RPC knowledge into
-// the shared renderer.
+// SessionController supplies the independent Sessions dialog actions.
 type SessionController interface {
 	RefreshSessions() tea.Cmd
 	SelectSession(id string) tea.Cmd
@@ -408,7 +406,7 @@ type SessionController interface {
 // view then consumes the same message to retain focus and error context.
 type SessionsMsg struct {
 	Action   string // list | rename | delete
-	Request  uint64 // monotonic per driver; zero keeps compatibility with simple drivers
+	Request  uint64 // monotonic per driver; zero denotes an unsequenced result
 	ID       string
 	Session  Session
 	Sessions []Session

@@ -81,7 +81,7 @@ func TestCommandPalettePreservesDoubleSlashLiteral(t *testing.T) {
 }
 
 func TestCommandPaletteEmptyStateAndBackspaceResetCursor(t *testing.T) {
-	m := New(nil)
+	m := New(&testDriver{})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzzz-no-command")})
 	if !strings.Contains(m.View(), "no matching commands") {
@@ -95,7 +95,7 @@ func TestCommandPaletteEmptyStateAndBackspaceResetCursor(t *testing.T) {
 }
 
 func TestCommandPaletteSanitizesPasteCapsLengthAndAcceptsPhysicalSpace(t *testing.T) {
-	m := New(nil)
+	m := New(&testDriver{})
 	m.openCommandPalette()
 	paste := "red\x1b[31m\nline\r" + strings.Repeat("x", 200)
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(paste)})
@@ -160,7 +160,7 @@ func TestCommandPaletteClosesForAsynchronousGateAndCommandResult(t *testing.T) {
 }
 
 func TestCommandPaletteRendersWithinSmallTerminal(t *testing.T) {
-	m := New(nil)
+	m := New(&testDriver{})
 	m.width, m.height = 32, 10
 	m.openCommandPalette()
 	got := m.View()

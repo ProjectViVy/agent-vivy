@@ -12,21 +12,18 @@ import (
 	"agent-vivy/internal/codeface"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/tui"
-	"agent-vivy/internal/tui/view"
+	"agent-vivy/sdk/tui/live"
+	"agent-vivy/sdk/tui/view"
 )
 
 func runTUI(args []string) int {
 	addr := ""
 	title := "TUI"
-	mode := "" // local | demo | plain | live
+	remote := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--demo":
-			mode = "demo"
-		case "--plain":
-			mode = "plain"
 		case "--live":
-			mode = "live"
+			remote = true
 		case "--addr", "-H":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "vivy tui: --addr needs host:port")
@@ -34,10 +31,7 @@ func runTUI(args []string) int {
 			}
 			i++
 			addr = args[i]
-			if mode == "" {
-				// Bare --addr without --live keeps the line REPL (compat).
-				mode = "plain"
-			}
+			remote = true
 		case "--title":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "vivy tui: --title needs a value")
@@ -54,17 +48,6 @@ func runTUI(args []string) int {
 			return 2
 		}
 	}
-	if mode == "" {
-		mode = "local"
-	}
-	if mode == "demo" {
-		if err := view.RunDemo(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		return 0
-	}
-
 	if addr == "" {
 		addr = os.Getenv("VIVY_ADDR")
 	}
@@ -74,7 +57,7 @@ func runTUI(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if mode == "local" {
+	if !remote {
 		bootstrap := slog.New(slog.NewTextHandler(os.Stderr, nil))
 		cfg, err := loadConfig(bootstrap)
 		if err != nil {
@@ -105,20 +88,17 @@ func runTUI(args []string) int {
 	}
 	defer client.Close()
 
-	if mode == "live" {
-		live := tui.NewLive(client, tui.LiveOptions{Host: addr, Title: title, Face: "code"})
-		defer live.Close()
-		if err := view.Run(live); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		return 0
-	}
-
-	if err := tui.RunREPL(ctx, client, tui.Options{Title: title}); err != nil && ctx.Err() == nil {
+	controller, err := live.New(ctx, client, live.Options{Host: addr, Title: title})
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	defer controller.Close()
+	if err := view.Run(controller); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	controller.Shutdown()
 	return 0
 }
 
@@ -136,13 +116,10 @@ func defaultListenAddr() string {
 const tuiUsage = `vivy tui — terminal face
 
   vivy tui                        real VIVY CODE in the current project
-  vivy tui --demo                 fullscreen Crush-style skeleton (offline demo data)
   vivy tui --live [--addr host]   fullscreen shell on a resident gateway
-  vivy tui --plain [--addr host]  line REPL over a resident gateway
-  vivy tui --addr host:port       same as --plain
+  vivy tui --addr host:port       same as --live
 
 The default command composes the existing Vivy kernel in-process, uses the
 current directory as its governed workspace, and starts turns as face=code.
---demo is an explicit development fixture and never a product fallback.
---live fails loudly if the gateway is down (does not fall back to demo).
+The remote form fails loudly if the gateway is down.
 `

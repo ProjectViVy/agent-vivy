@@ -42,8 +42,7 @@ type Palette struct {
 }
 
 // DefaultPalette returns the stable dark palette shared by both first-party
-// faces. It is exported so compatibility wrappers can retain their old
-// package-local test seam without duplicating style construction.
+// faces.
 func DefaultPalette() Palette {
 	primary := lipgloss.Color("#A78BFA")
 	secondary := lipgloss.Color("#2DD4BF")
