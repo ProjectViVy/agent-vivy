@@ -10,6 +10,7 @@ type layout struct {
 	showSidebar   bool
 	headerH       int // 1 in compact, 0 in wide
 	editorH       int
+	chromeH       int
 	statusH       int
 	marginX       int
 	marginY       int
@@ -21,7 +22,8 @@ const (
 	defaultSidebarW   = 32
 	compactHeaderH    = 1
 	editorHeight      = 3
-	statusHeight      = 1
+	chromeHeight      = 1
+	statusHeight      = 0
 	appMarginX        = 1
 	appMarginY        = 1
 )
@@ -31,6 +33,7 @@ func computeLayout(width, height int) layout {
 		width:       max(1, width),
 		height:      max(1, height),
 		editorH:     editorHeight,
+		chromeH:     chromeHeight,
 		statusH:     statusHeight,
 		showSidebar: width >= sidebarBreakpoint && height >= minimumWideHeight,
 		sidebarW:    defaultSidebarW,
@@ -61,7 +64,7 @@ func (l layout) mainW() int {
 }
 
 func (l layout) mainH() int {
-	return max(1, l.innerH()-l.headerH-l.editorH-1)
+	return max(1, l.innerH()-l.headerH-l.editorH-l.chromeH-1)
 }
 
 func max(a, b int) int {

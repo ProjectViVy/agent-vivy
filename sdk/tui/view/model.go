@@ -485,7 +485,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case tea.KeyEsc, tea.KeyCtrlX:
 			m.shortcutsOpen = false
 			return m, nil
-		case tea.KeyShiftTab:
+		}
+		if m.isHelpKey(msg) {
 			m.shortcutsOpen = false
 			return m, m.openCommandPalette()
 		}
@@ -574,18 +575,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.closeModelPicker()
 		}
 		return m, nil
-	case tea.KeyShiftTab:
-		if gate == nil {
-			m.shortcutsOpen = false
-			return m, m.openCommandPalette()
-		}
-		return m, nil
 	case tea.KeyCtrlP:
 		if gate == nil {
 			m.shortcutsOpen = false
 			return m, m.openCommandPalette()
 		}
 		return m, nil
+	}
+	if gate == nil && m.input == "" && m.isHelpKey(msg) {
+		m.shortcutsOpen = false
+		return m, m.openCommandPalette()
+	}
+	switch msg.Type {
 	case tea.KeyCtrlL:
 		if gate == nil {
 			return m.openModelPicker("")
@@ -812,7 +813,15 @@ func (m Model) handleSidebarKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 func (m Model) sidebarViewportHeight(l layout, p Palette) int {
 	chat := m.renderChat(l.mainW(), l.mainH(), p)
 	editor := m.renderEditor(l.mainW(), p)
-	return max(1, lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, chat, "", editor)))
+	chrome := m.renderInputChrome(l.mainW(), p)
+	return max(1, lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, chat, "", editor, chrome)))
+}
+
+func (m Model) isHelpKey(msg tea.KeyMsg) bool {
+	if strings.EqualFold(msg.String(), "shift+h") {
+		return true
+	}
+	return msg.Type == tea.KeyRunes && string(msg.Runes) == "H"
 }
 
 func (m Model) sidebarMaxScroll() int {

@@ -167,7 +167,7 @@ func TestCommandPaletteRendersWithinSmallTerminal(t *testing.T) {
 	m.width, m.height = 32, 10
 	m.openCommandPalette()
 	got := m.View()
-	if !strings.Contains(got, "命令") || !strings.Contains(got, "enter") || !strings.Contains(got, "/help") || !strings.Contains(got, "╯") || len(strings.Split(got, "\n")) != 10 {
+	if !strings.Contains(got, "帮助") || !strings.Contains(got, "enter") || !strings.Contains(got, "/help") || !strings.Contains(got, "╯") || len(strings.Split(got, "\n")) != 10 {
 		t.Fatalf("small palette escaped frame (%d lines):\n%s", len(strings.Split(got, "\n")), got)
 	}
 }
@@ -196,16 +196,38 @@ func TestOverlayBlanksMainContentInsteadOfMixing(t *testing.T) {
 	}
 }
 
-func TestFooterUsesShiftTabModeAndCtrlXShortcuts(t *testing.T) {
-	m := New(&testDriver{})
+func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current", PermissionPreset: "smart"}},
+		active:   "active",
+		sidebar: surface.Sidebar{
+			Session:  surface.Session{ID: "active", Title: "Current", PermissionPreset: "smart"},
+			Model:    "reasoning-model",
+			Provider: "provider-a",
+		},
+		meta: surface.Meta{Host: "127.0.0.1:8787"},
+	}
+	m := New(driver)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = next.(Model)
 	plain := ansi.Strip(m.View())
-	if !strings.Contains(plain, "shift+tab") || !strings.Contains(plain, "模式") || !strings.Contains(plain, "ctrl+x") || !strings.Contains(plain, "快捷") {
-		t.Fatalf("compact footer missing mode/shortcut hints:\n%s", plain)
+	for _, want := range []string{"smart", "reasoning-model", "provider-a", "shift+h", "帮助", "ctrl+x", "快捷", "host · 127.0.0.1:8787"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("input chrome/sidebar omitted %q:\n%s", want, plain)
+		}
 	}
-	if strings.Contains(plain, "^p 命令") || strings.Contains(plain, "pgup/pgdn") {
-		t.Fatalf("old help dump still on the footer:\n%s", plain)
+	if strings.Contains(plain, "shift+tab") || strings.Contains(plain, "^p 命令") || strings.Contains(plain, "pgup/pgdn") {
+		t.Fatalf("old footer dump still on screen:\n%s", plain)
+	}
+	if strings.Contains(plain, "TUI") || strings.Contains(plain, " · live") || strings.Contains(plain, " model · ") || strings.Contains(plain, " provider · ") || strings.Contains(plain, " permission · ") {
+		t.Fatalf("redundant TUI/live/model chrome still visible:\n%s", plain)
+	}
+
+	chrome := ansi.Strip(m.renderInputChrome(computeLayout(120, 36).mainW(), DefaultPalette()))
+	helpAt := strings.Index(chrome, "shift+h")
+	permAt := strings.Index(chrome, "smart")
+	if helpAt < 0 || permAt < 0 || helpAt <= permAt {
+		t.Fatalf("keys are not on the right of permission/model/provider:\n%s", chrome)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
@@ -218,9 +240,20 @@ func TestFooterUsesShiftTabModeAndCtrlXShortcuts(t *testing.T) {
 		t.Fatal("esc did not close shortcuts")
 	}
 
-	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
-	if !m.commandPaletteOpen || m.shortcutsOpen {
-		t.Fatalf("shift+tab did not enter command mode: palette=%v shortcuts=%v", m.commandPaletteOpen, m.shortcutsOpen)
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	if !m.commandPaletteOpen || m.shortcutsOpen || !strings.Contains(ansi.Strip(m.View()), "帮助") {
+		t.Fatalf("shift+h did not open help: palette=%v shortcuts=%v\n%s", m.commandPaletteOpen, m.shortcutsOpen, m.View())
+	}
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	if m.commandPaletteOpen || m.input != "h" {
+		t.Fatalf("lowercase h was stolen as help: palette=%v input=%q", m.commandPaletteOpen, m.input)
+	}
+	m.input = "draft"
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	if m.commandPaletteOpen || m.input != "draftH" {
+		t.Fatalf("shift+h stole an in-progress draft: palette=%v input=%q", m.commandPaletteOpen, m.input)
 	}
 }
 
