@@ -40,6 +40,9 @@ func (m Model) renderFrame() string {
 	if m.commandPaletteOpen {
 		return placeOverlay(frame, m.renderCommandPalette(l, p), l.width, l.height)
 	}
+	if m.shortcutsOpen {
+		return placeOverlay(frame, m.renderShortcutsDialog(l, p), l.width, l.height)
+	}
 	if m.dynamicArgumentCommand != nil {
 		return placeOverlay(frame, m.renderDynamicArguments(l, p), l.width, l.height)
 	}
@@ -815,41 +818,22 @@ func renderFileContextChips(contexts []surface.FileContext) string {
 
 func (m Model) renderHelp(l layout, p Palette) string {
 	meta := m.driver.Meta()
-	selector := " 会话"
-	if l.showSidebar {
-		selector = " 会话"
-	}
 	parts := []string{
-		p.HelpKey.Render("^s") + p.HelpDesc.Render(selector),
-		p.HelpKey.Render("^p") + p.HelpDesc.Render(" 命令"),
-		p.HelpKey.Render("enter") + p.HelpDesc.Render(" 发送"),
-		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准"),
-		p.HelpKey.Render("^n") + p.HelpDesc.Render(" 新建"),
-		p.HelpKey.Render("^y") + p.HelpDesc.Render(" 权限"),
-		p.HelpKey.Render("esc") + p.HelpDesc.Render(" 取消"),
-		p.HelpKey.Render("^c") + p.HelpDesc.Render(" 退出"),
+		p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 模式"),
+		p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷"),
 	}
-	if m.modelSelectionAvailable() {
-		parts = append(parts[:2], append([]string{p.HelpKey.Render("^l") + p.HelpDesc.Render(" 全局模型")}, parts[2:]...)...)
+	if m.shortcutsOpen {
+		parts = []string{p.HelpKey.Render("esc") + p.HelpDesc.Render(" 关闭快捷")}
 	}
-	if sidebar := m.driver.Sidebar(); sidebar.HasContext && sidebar.Context.ThinkingSupported {
-		parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" 思考:"+m.driver.ThinkingMode())}, parts[6:]...)...)
+	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
+		if gate.Kind == "question" {
+			parts = []string{p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")}
+		} else {
+			parts = []string{p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准")}
+		}
 	}
 	if m.sidebarFocused {
-		parts = append([]string{
-			p.HelpKey.Render("↑↓") + p.HelpDesc.Render(" 滚动"),
-			p.HelpKey.Render("home/end") + p.HelpDesc.Render(" 跳转"),
-			p.HelpKey.Render("h/←/tab") + p.HelpDesc.Render(" 离开侧栏"),
-		}, parts...)
-	} else if m.sidebarCanScroll() {
-		parts = append(parts, p.HelpKey.Render("ctrl+→")+p.HelpDesc.Render(" 侧栏"))
-	}
-	if !m.sidebarFocused && m.chatCanScroll() {
-		chatHelp := p.HelpKey.Render("pgup/pgdn") + p.HelpDesc.Render(" 聊天")
-		if !m.chatFollow {
-			chatHelp += p.HelpDesc.Render(" · ") + p.HelpKey.Render("end") + p.HelpDesc.Render(" 最新")
-		}
-		parts = append([]string{chatHelp}, parts...)
+		parts = append([]string{p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")}, parts...)
 	}
 	footer := meta.Footer
 	if footer == "" {
@@ -866,6 +850,35 @@ func (m Model) renderHelp(l layout, p Palette) string {
 	}
 	parts = append(parts, p.HelpDesc.Render("· "+footer))
 	return p.Status.Width(l.width).Render(truncate(" "+strings.Join(parts, p.HelpDesc.Render("  ")), l.width))
+}
+
+func (m Model) renderShortcutsDialog(l layout, p Palette) string {
+	w := max(1, min(l.width-8, 56))
+	inner := max(1, w-p.Dialog.GetHorizontalFrameSize())
+	rows := []string{
+		p.DialogTitle.Render("快捷方式"),
+		"",
+		p.HelpKey.Render("shift+tab") + p.DialogBody.Render("  进入命令模式"),
+		p.HelpKey.Render("/") + p.DialogBody.Render("          命令面板"),
+		p.HelpKey.Render("ctrl+p") + p.DialogBody.Render("     命令面板"),
+		p.HelpKey.Render("ctrl+s") + p.DialogBody.Render("     会话"),
+		p.HelpKey.Render("ctrl+n") + p.DialogBody.Render("     新建会话"),
+		p.HelpKey.Render("ctrl+l") + p.DialogBody.Render("     全局模型"),
+		p.HelpKey.Render("ctrl+y") + p.DialogBody.Render("     权限档"),
+		p.HelpKey.Render("ctrl+t") + p.DialogBody.Render("     思考档"),
+		p.HelpKey.Render("enter") + p.DialogBody.Render("      发送"),
+		p.HelpKey.Render("y/n") + p.DialogBody.Render("        批准 / 拒绝"),
+		p.HelpKey.Render("esc") + p.DialogBody.Render("        取消 / 关闭"),
+		p.HelpKey.Render("pgup/pgdn") + p.DialogBody.Render("  滚动聊天"),
+		p.HelpKey.Render("ctrl+→") + p.DialogBody.Render("     侧栏"),
+		p.HelpKey.Render("ctrl+c") + p.DialogBody.Render("     退出"),
+		"",
+		p.DialogFooter.Render("esc / ctrl+x 关闭"),
+	}
+	for i, row := range rows {
+		rows[i] = truncate(row, inner)
+	}
+	return p.Dialog.Width(w).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) renderGateDialog(gate *surface.Gate, l layout, p Palette) string {
