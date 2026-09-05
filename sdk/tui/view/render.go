@@ -18,7 +18,7 @@ import (
 const headerDiag = "╱"
 
 func (m Model) renderFrame() string {
-	l := computeLayout(m.width, m.height)
+	l := m.layout()
 	p := m.palette
 
 	var app string
@@ -781,6 +781,7 @@ func renderDiffBody(body string, p Palette) string {
 }
 
 func (m Model) renderEditor(width int, p Palette) string {
+	inner := max(1, width-p.EditorBox.GetHorizontalFrameSize())
 	gate := m.driver.PendingGate()
 	prompt := p.Prompt.Render("::: ")
 	if gate != nil {
@@ -795,13 +796,60 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
 	}
-	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
-	lines := []string{rule}
+	lines := []string{m.renderComposerChips(inner, p)}
 	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
-		lines = append(lines, p.Dim.Render(truncate(chips, width)))
+		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
-	lines = append(lines, truncate(prompt+display+cursor, width))
-	return p.Editor.Width(width).Render(strings.Join(lines, "\n"))
+	lines = append(lines, truncate(prompt+display+cursor, inner))
+	// lipgloss Width is the padded content box; the rounded border is added
+	// outside it. Size the content so the final block is `width` cells.
+	boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
+	return p.EditorBox.Width(boxWidth).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderComposerChips(width int, p Palette) string {
+	snapshot := m.driver.Sidebar()
+	model := strings.TrimSpace(sanitizeFileCompletionText(snapshot.Model))
+	if model == "" {
+		for _, option := range m.driver.ModelCatalog().Options {
+			if option.Current {
+				model = safeModelLabel(option.Model)
+				break
+			}
+		}
+	}
+	if model == "" {
+		model = "model"
+	}
+	permission := strings.TrimSpace(sanitizeFileCompletionText(m.driver.Active().PermissionPreset))
+	if permission == "" {
+		permission = strings.TrimSpace(sanitizeFileCompletionText(snapshot.Session.PermissionPreset))
+	}
+	thinking := strings.TrimSpace(sanitizeFileCompletionText(m.driver.ThinkingMode()))
+	if thinking == "" {
+		thinking = "auto"
+	}
+
+	chips := []string{model}
+	if permission != "" {
+		chips = append(chips, permission)
+	}
+	chips = append(chips, thinking)
+	line := joinComposerChips(chips)
+	if lipgloss.Width(line) > width && len(chips) > 2 {
+		chips = chips[:len(chips)-1]
+		line = joinComposerChips(chips)
+	}
+	if lipgloss.Width(line) > width && len(chips) > 1 {
+		rest := "  ·  " + strings.Join(chips[1:], "  ·  ")
+		modelBudget := max(1, width-lipgloss.Width(rest))
+		line = truncate(chips[0], modelBudget) + rest
+	}
+	return p.Dim.Render(truncate(line, width))
+}
+
+func joinComposerChips(chips []string) string {
+	return strings.Join(chips, "  ·  ")
 }
 
 // renderAttachmentChips is metadata-only presentation. In particular, it

@@ -16,15 +16,23 @@ type layout struct {
 }
 
 const (
-	sidebarBreakpoint = 120
-	minimumWideHeight = 30
-	defaultSidebarW   = 32
-	compactHeaderH    = 1
-	editorHeight      = 3
-	statusHeight      = 1
-	appMarginX        = 1
-	appMarginY        = 1
+	sidebarBreakpoint   = 120
+	minimumWideHeight   = 30
+	defaultSidebarW     = 32
+	compactHeaderH      = 1
+	editorHeight        = 4 // rounded box: border + chips + prompt + border
+	editorAttachmentRow = 1
+	statusHeight        = 1
+	appMarginX          = 1
+	appMarginY          = 1
 )
+
+func editorReserve(hasAttachments bool) int {
+	if hasAttachments {
+		return editorHeight + editorAttachmentRow
+	}
+	return editorHeight
+}
 
 func computeLayout(width, height int) layout {
 	l := layout{

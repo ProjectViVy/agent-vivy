@@ -28,6 +28,7 @@ type Palette struct {
 	DiffDel      lipgloss.Style
 	DiffHunk     lipgloss.Style
 	Editor       lipgloss.Style
+	EditorBox    lipgloss.Style
 	Prompt       lipgloss.Style
 	PromptWarn   lipgloss.Style
 	Status       lipgloss.Style
@@ -77,6 +78,7 @@ func DefaultPalette() Palette {
 		DiffDel:      lipgloss.NewStyle().Foreground(danger),
 		DiffHunk:     lipgloss.NewStyle().Foreground(secondary),
 		Editor:       lipgloss.NewStyle().Foreground(fg),
+		EditorBox:    lipgloss.NewStyle().Foreground(fg).Border(lipgloss.RoundedBorder()).BorderForeground(subtle).Padding(0, 1),
 		Prompt:       lipgloss.NewStyle().Foreground(success),
 		PromptWarn:   lipgloss.NewStyle().Foreground(lipgloss.Color("#1C1917")).Background(warn).Bold(true),
 		Status:       lipgloss.NewStyle().Foreground(muted),
