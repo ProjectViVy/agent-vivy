@@ -64,15 +64,20 @@ func RunREPL(ctx context.Context, client *Client, opts Options) error {
 		return err
 	}
 
+	var dynamicCommands []surface.DynamicCommand
+	if client.SupportsCapability("commands.list") && client.SupportsCapability("commands.expand") {
+		dynamicCommands, _ = client.dynamicCommands(ctx)
+	}
 	repl := &repl{
-		client:       client,
-		in:           bufio.NewScanner(in),
-		out:          out,
-		session:      session,
-		thinkingMode: "auto",
-		events:       make(chan eventNotice, 64),
-		streamErrors: make(chan stream.StreamError, 4),
-		streamLost:   make(chan struct{}, 1),
+		client:          client,
+		in:              bufio.NewScanner(in),
+		out:             out,
+		session:         session,
+		thinkingMode:    "auto",
+		dynamicCommands: dynamicCommands,
+		events:          make(chan eventNotice, 64),
+		streamErrors:    make(chan stream.StreamError, 4),
+		streamLost:      make(chan struct{}, 1),
 	}
 	client.OnNotify(func(method string, params json.RawMessage) {
 		switch method {
@@ -126,6 +131,9 @@ type repl struct {
 	// attachments are metadata-only project image drafts for this session.
 	// The bytes remain server-owned until turn/start resolves the paths.
 	attachments []surface.Attachment
+	// dynamicCommands is the server-authorized startup catalog. Expansion is
+	// revalidated by commands/expand immediately before a turn is sent.
+	dynamicCommands []surface.DynamicCommand
 
 	events       chan eventNotice
 	streamErrors chan stream.StreamError
@@ -219,7 +227,8 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 	if pendingMutation != nil {
 		return r.handleMutationConfirmation(ctx, pendingMutation, line)
 	}
-	parsed, err := command.DefaultRegistry().Parse(line)
+	registry, _ := r.commandRegistry()
+	parsed, err := registry.Parse(line)
 	if err != nil {
 		fmt.Fprintf(r.out, "vivy: %v\n", err)
 		return nil
@@ -236,7 +245,7 @@ func (r *repl) handleLine(ctx context.Context, line string) error {
 		return r.sendShell(ctx, parsed.Shell.Script)
 	}
 	if parsed.IsCommand() {
-		if err := command.DefaultRegistry().Validate(parsed.Invocation); err != nil {
+		if err := registry.Validate(parsed.Invocation); err != nil {
 			fmt.Fprintf(r.out, "vivy: %v\n", err)
 			return nil
 		}
@@ -261,16 +270,37 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		fmt.Fprintln(r.out, "unknown command (/help)")
 		return nil
 	}
-	spec, ok := command.DefaultRegistry().Lookup(invocation.Name)
+	registry, dynamic := r.commandRegistry()
+	spec, ok := registry.Lookup(invocation.Name)
 	if !ok {
 		fmt.Fprintf(r.out, "unknown command /%s  (/help)\n", invocation.Name)
 		return nil
 	}
 	cmd := spec.Name
 	args := invocation.Args
+	if entry, ok := dynamic[cmd]; ok {
+		if busy {
+			fmt.Fprintln(r.out, "(run in flight; /cancel or wait)")
+			return nil
+		}
+		if !r.client.SupportsCapability("commands.expand") {
+			fmt.Fprintln(r.out, "vivy: dynamic commands are unavailable")
+			return nil
+		}
+		expanded, err := r.client.expandDynamicCommand(ctx, entry.ID, args)
+		if err != nil {
+			fmt.Fprintf(r.out, "vivy: dynamic command: %v\n", err)
+			return nil
+		}
+		if strings.TrimSpace(expanded.Text) == "" {
+			fmt.Fprintln(r.out, "vivy: dynamic command expanded to empty input")
+			return nil
+		}
+		return r.sendTurnWithContext(ctx, expanded.Text, nil)
+	}
 	switch cmd {
 	case "help":
-		fmt.Fprint(r.out, command.DefaultRegistry().HelpFor(r.client.SupportsCapability("shell.start")))
+		fmt.Fprint(r.out, registry.HelpFor(r.client.SupportsCapability("shell.start")))
 		if r.client.SupportsCapability("shell.start") {
 			fmt.Fprintln(r.out, "!<script> runs a governed foreground shell command; use !! for a literal marker.")
 		}
@@ -628,6 +658,69 @@ func (r *repl) handleCommand(ctx context.Context, invocation *command.Invocation
 		fmt.Fprintf(r.out, "unknown command /%s  (/help)\n", cmd)
 		return nil
 	}
+}
+
+func (r *repl) commandRegistry() (command.Registry, map[string]surface.DynamicCommand) {
+	specs := command.DefaultRegistry().Specs()
+	dynamic := make(map[string]surface.DynamicCommand)
+	for _, candidate := range r.dynamicCommands {
+		name := strings.ToLower(strings.TrimSpace(candidate.Name))
+		if !safeREPLDynamicCommandName(name) || strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Kind) == "" {
+			continue
+		}
+		if _, reserved := command.DefaultRegistry().Lookup(name); reserved {
+			continue
+		}
+		if _, duplicate := dynamic[name]; duplicate {
+			continue
+		}
+		usage := safeREPLDynamicUsage(name, candidate.Usage)
+		specs = append(specs, command.Spec{Name: name, Usage: usage, Description: safeREPLDynamicText(candidate.Description)})
+		candidate.Name = name
+		dynamic[name] = candidate
+	}
+	registry, err := command.NewRegistry(specs...)
+	if err != nil {
+		return command.DefaultRegistry(), map[string]surface.DynamicCommand{}
+	}
+	return registry, dynamic
+}
+
+func safeREPLDynamicUsage(name, usage string) string {
+	usage = safeREPLDynamicText(usage)
+	fields := strings.Fields(usage)
+	if len(fields) == 0 || fields[0] != "/"+name {
+		return "/" + name + " [request]"
+	}
+	return usage
+}
+
+func safeREPLDynamicText(value string) string {
+	value = ansi.Strip(value)
+	out := make([]rune, 0, min(len([]rune(value)), 128))
+	for _, char := range value {
+		if unicode.IsControl(char) || char == '\u061c' || char == '\u200e' || char == '\u200f' || (char >= '\u202a' && char <= '\u202e') || (char >= '\u2066' && char <= '\u2069') {
+			continue
+		}
+		out = append(out, char)
+		if len(out) == 128 {
+			break
+		}
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func safeREPLDynamicCommandName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, char := range name {
+		if char == '-' || char == '_' || char >= 'a' && char <= 'z' || char >= '0' && char <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (r *repl) printCommandRPC(ctx context.Context, name, method string, params any) error {

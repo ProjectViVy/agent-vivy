@@ -45,6 +45,7 @@ type mcpSession struct {
 	initialized     bool
 	sessionID       string
 	protocolVersion string
+	prompts         bool
 }
 
 // MCPServerStatus is a secret-free snapshot of one configured server's
@@ -57,6 +58,7 @@ type MCPServerStatus struct {
 
 var _ tools.MCPOperations = (*EinoMCPBackend)(nil)
 var _ tools.MCPResourceOperations = (*EinoMCPBackend)(nil)
+var _ tools.MCPPromptOperations = (*EinoMCPBackend)(nil)
 var _ interface {
 	PrepareMCPCall(context.Context, domain.RunID, tools.MCPCallRequest) (domain.ToolProposal, error)
 } = (*EinoMCPBackend)(nil)
@@ -201,6 +203,172 @@ func (b *EinoMCPBackend) ListResources(ctx context.Context, _ domain.RunID, serv
 		}
 	}
 	return tools.MCPListResourcesResponse{Resources: all, Untrusted: true}, nil
+}
+
+// ListPrompts returns the remote prompt catalog as bounded untrusted
+// metadata. An empty server aggregates configured servers in sorted order.
+func (b *EinoMCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server string) (tools.MCPListPromptsResponse, error) {
+	server = strings.TrimSpace(server)
+	if server != "" {
+		prompts, err := b.listPromptsServer(ctx, server)
+		return tools.MCPListPromptsResponse{Prompts: prompts, Untrusted: true}, err
+	}
+	all := make([]tools.MCPPrompt, 0)
+	used := 0
+	names := b.serverNames()
+	sort.Strings(names)
+	for _, name := range names {
+		prompts, err := b.listPromptsServer(ctx, name)
+		if err != nil {
+			return tools.MCPListPromptsResponse{}, err
+		}
+		for _, prompt := range prompts {
+			size := mcpPromptProjectedSize(prompt)
+			if size > maxMCPContentBytes-used {
+				return tools.MCPListPromptsResponse{Prompts: all, Untrusted: true}, nil
+			}
+			all = append(all, prompt)
+			used += size
+		}
+	}
+	return tools.MCPListPromptsResponse{Prompts: all, Untrusted: true}, nil
+}
+
+func (b *EinoMCPBackend) listPromptsServer(ctx context.Context, server string) ([]tools.MCPPrompt, error) {
+	config, err := b.server(server)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.ensureSession(ctx, config); err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	promptCapable := b.sessions[server] != nil && b.sessions[server].prompts
+	b.mu.Unlock()
+	if !promptCapable {
+		return []tools.MCPPrompt{}, nil
+	}
+	out := make([]tools.MCPPrompt, 0)
+	used := 0
+	cursor := ""
+	seenCursors := make(map[string]struct{})
+	for page := 0; page < maxMCPResourcePages; page++ {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		result, err := b.rpc(ctx, config, "prompts/list", params, true)
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Prompts []struct {
+				Name        string `json:"name"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Arguments   []struct {
+					Name        string `json:"name"`
+					Title       string `json:"title"`
+					Description string `json:"description"`
+					Required    bool   `json:"required"`
+				} `json:"arguments"`
+			} `json:"prompts"`
+			NextCursor string `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(result, &payload); err != nil {
+			return nil, fmt.Errorf("mcp %s: prompts/list result: %w", server, err)
+		}
+		for _, item := range payload.Prompts {
+			name := strings.TrimSpace(item.Name)
+			if name == "" || len(name) > 256 {
+				continue
+			}
+			prompt := tools.MCPPrompt{Server: server, Name: name, Title: boundedString(item.Title, 512), Description: boundedString(item.Description, 4096)}
+			valid := true
+			seenArguments := make(map[string]struct{})
+			for _, argument := range item.Arguments {
+				argumentName := strings.TrimSpace(argument.Name)
+				if argumentName == "" || len(argumentName) > 128 || len(prompt.Arguments) == 64 {
+					valid = false
+					break
+				}
+				if _, duplicate := seenArguments[argumentName]; duplicate {
+					valid = false
+					break
+				}
+				seenArguments[argumentName] = struct{}{}
+				prompt.Arguments = append(prompt.Arguments, tools.MCPPromptArgument{Name: argumentName, Title: boundedString(argument.Title, 256), Description: boundedString(argument.Description, 1024), Required: argument.Required})
+			}
+			if !valid {
+				continue
+			}
+			size := mcpPromptProjectedSize(prompt)
+			if size > maxMCPContentBytes-used {
+				return out, nil
+			}
+			out = append(out, prompt)
+			used += size
+		}
+		cursor = payload.NextCursor
+		if cursor == "" {
+			break
+		}
+		if _, duplicate := seenCursors[cursor]; duplicate {
+			return nil, fmt.Errorf("mcp %s: prompts/list repeated cursor", server)
+		}
+		seenCursors[cursor] = struct{}{}
+	}
+	return out, nil
+}
+
+// GetPrompt fetches one prompt and flattens text content into bounded,
+// untrusted model input. Non-text content is rejected rather than guessed.
+func (b *EinoMCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
+	config, err := b.server(request.Server)
+	if err != nil {
+		return tools.MCPGetPromptResponse{}, err
+	}
+	if strings.TrimSpace(request.Name) == "" {
+		return tools.MCPGetPromptResponse{}, errors.New("mcp: prompt name is required")
+	}
+	result, err := b.rpc(ctx, config, "prompts/get", map[string]any{"name": request.Name, "arguments": request.Arguments}, true)
+	if err != nil {
+		return tools.MCPGetPromptResponse{}, err
+	}
+	var payload struct {
+		Description string `json:"description"`
+		Messages    []struct {
+			Role    string `json:"role"`
+			Content struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompts/get result: %w", request.Server, err)
+	}
+	texts := make([]string, 0, len(payload.Messages))
+	used := 0
+	for _, message := range payload.Messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "user") || message.Content.Type != "text" || strings.TrimSpace(message.Content.Text) == "" {
+			continue
+		}
+		addition := len(message.Content.Text)
+		if len(texts) > 0 {
+			addition++
+		}
+		if addition > maxMCPContentBytes-used {
+			return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompt content exceeds size limit", request.Server)
+		}
+		texts = append(texts, message.Content.Text)
+		used += addition
+	}
+	text := strings.Join(texts, " ")
+	if strings.TrimSpace(text) == "" {
+		return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompt returned no user text", request.Server)
+	}
+	return tools.MCPGetPromptResponse{Server: request.Server, Name: request.Name, Description: boundedString(payload.Description, 4096), Text: text, Untrusted: true}, nil
 }
 
 func (b *EinoMCPBackend) listResourcesServer(ctx context.Context, server string, limit int) ([]tools.MCPResource, error) {
@@ -465,12 +633,16 @@ func (b *EinoMCPBackend) ensureSession(ctx context.Context, config MCPServerConf
 	}
 	var response struct {
 		ProtocolVersion string `json:"protocolVersion"`
+		Capabilities    struct {
+			Prompts json.RawMessage `json:"prompts"`
+		} `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil || response.ProtocolVersion == "" {
 		return fmt.Errorf("mcp %s: invalid initialize result", config.Name)
 	}
 	b.mu.Lock()
-	b.sessions[config.Name] = &mcpSession{initialized: true, sessionID: sessionID, protocolVersion: response.ProtocolVersion}
+	promptCapable := len(response.Capabilities.Prompts) > 0 && string(response.Capabilities.Prompts) != "null" && string(response.Capabilities.Prompts) != "false"
+	b.sessions[config.Name] = &mcpSession{initialized: true, sessionID: sessionID, protocolVersion: response.ProtocolVersion, prompts: promptCapable}
 	b.mu.Unlock()
 	_, _, _ = b.send(ctx, config, "notifications/initialized", map[string]any{}, false)
 	return nil
@@ -698,4 +870,12 @@ func boundedMCPResourceContent(content tools.MCPResourceContent, limit int) (too
 
 func mcpResourceProjectedSize(resource tools.MCPResource) int {
 	return len(resource.Server) + len(resource.URI) + len(resource.Name) + len(resource.Title) + len(resource.Description) + len(resource.MIME) + len(resource.Annotations) + len(resource.Meta)
+}
+
+func mcpPromptProjectedSize(prompt tools.MCPPrompt) int {
+	size := len(prompt.Server) + len(prompt.Name) + len(prompt.Title) + len(prompt.Description)
+	for _, argument := range prompt.Arguments {
+		size += len(argument.Name) + len(argument.Title) + len(argument.Description) + 1
+	}
+	return size
 }

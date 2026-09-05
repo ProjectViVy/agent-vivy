@@ -29,21 +29,23 @@ type Live struct {
 
 	mu sync.Mutex
 
-	sessions          []surface.Session
-	messages          map[string][]surface.Message
-	activeID          string
-	sidebar           surface.Sidebar
-	lspRefreshPending bool
-	lspRefreshEnabled bool
-	nextLSPRefresh    time.Time
-	loadRequest       uint64
-	sessionRequest    uint64
-	contextRequest    uint64
-	sidebarRequest    uint64
-	permissionRequest uint64
-	modelRequest      uint64
-	loadPending       bool
-	models            surface.ModelCatalog
+	sessions              []surface.Session
+	messages              map[string][]surface.Message
+	activeID              string
+	sidebar               surface.Sidebar
+	lspRefreshPending     bool
+	lspRefreshEnabled     bool
+	nextLSPRefresh        time.Time
+	loadRequest           uint64
+	sessionRequest        uint64
+	contextRequest        uint64
+	sidebarRequest        uint64
+	permissionRequest     uint64
+	modelRequest          uint64
+	loadPending           bool
+	models                surface.ModelCatalog
+	dynamicCommands       []surface.DynamicCommand
+	dynamicCommandRequest uint64
 
 	busy    bool
 	runID   string
@@ -282,6 +284,8 @@ type liveBootMsg struct {
 	Messages   []surface.Message
 	Sidebar    surface.Sidebar
 	SidebarErr error
+	Commands   []surface.DynamicCommand
+	CommandErr error
 	Err        error
 }
 
@@ -414,7 +418,12 @@ func (l *Live) bootCmd() tea.Cmd {
 				}
 			}
 		}
-		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot, SidebarErr: sidebarErr}
+		var commands []surface.DynamicCommand
+		var commandErr error
+		if l.client.SupportsCapability("commands.list") && l.client.SupportsCapability("commands.expand") {
+			commands, commandErr = l.client.dynamicCommands(ctx)
+		}
+		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot, SidebarErr: sidebarErr, Commands: commands, CommandErr: commandErr}
 	}
 }
 
@@ -461,6 +470,8 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		l.applyModelsMsg(msg)
 	case surface.ModelSelectedMsg:
 		return l.applyModelSelectedMsg(msg)
+	case surface.DynamicCommandsMsg:
+		l.applyDynamicCommandsMsg(msg)
 	case surface.ErrMsg:
 		l.mu.Lock()
 		if msg.Err != nil {
@@ -556,6 +567,7 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	l.activeID = msg.ActiveID
 	l.messages[msg.ActiveID] = msg.Messages
 	l.sidebar = msg.Sidebar
+	l.dynamicCommands = append([]surface.DynamicCommand(nil), msg.Commands...)
 	l.noteLSPStatusLocked(msg.Sidebar)
 	if l.sidebar.Session.ID == "" {
 		l.sidebar.Session = l.activeSessionLocked()
@@ -563,6 +575,9 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	l.lastErr = ""
 	if msg.SidebarErr != nil {
 		l.lastErr = "session sidebar: " + shortErr(msg.SidebarErr)
+	}
+	if msg.CommandErr != nil {
+		l.lastErr = "dynamic commands: " + shortErr(msg.CommandErr)
 	}
 	if l.initialPrompt != "" {
 		autoSend = l.initialPrompt
@@ -573,6 +588,56 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 		return l.Send(autoSend)
 	}
 	return nil
+}
+
+// DynamicCommands implements surface.DynamicCommandProvider.
+func (l *Live) DynamicCommands() []surface.DynamicCommand {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]surface.DynamicCommand(nil), l.dynamicCommands...)
+}
+
+func (l *Live) RefreshDynamicCommands(request uint64) tea.Cmd {
+	l.mu.Lock()
+	l.dynamicCommandRequest = request
+	l.mu.Unlock()
+	return func() tea.Msg {
+		if !l.SupportsCapability("commands.list") || !l.SupportsCapability("commands.expand") {
+			return surface.DynamicCommandsMsg{Request: request, Commands: []surface.DynamicCommand{}}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		commands, err := l.client.dynamicCommands(ctx)
+		return surface.DynamicCommandsMsg{Request: request, Commands: commands, Err: err}
+	}
+}
+
+func (l *Live) applyDynamicCommandsMsg(msg surface.DynamicCommandsMsg) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if msg.Request != l.dynamicCommandRequest {
+		return
+	}
+	if msg.Err != nil {
+		l.lastErr = "dynamic commands: " + shortErr(msg.Err)
+		return
+	}
+	l.dynamicCommands = append([]surface.DynamicCommand(nil), msg.Commands...)
+}
+
+// ExecuteDynamicCommand asks the server to revalidate and expand an opaque
+// catalog entry. The shared view sends the returned text through normal turn
+// handling, including queue and gate semantics.
+func (l *Live) ExecuteDynamicCommand(request uint64, sessionID, id string, args []string) tea.Cmd {
+	return func() tea.Msg {
+		if !l.SupportsCapability("commands.expand") {
+			return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Err: fmt.Errorf("dynamic commands are unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
+		defer cancel()
+		expanded, err := l.client.expandDynamicCommand(ctx, id, args)
+		return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Text: expanded.Text, Err: err}
+	}
 }
 
 func restoreFileInputCmd(text string, paths []string) tea.Cmd {

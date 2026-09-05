@@ -40,6 +40,9 @@ func (m Model) renderFrame() string {
 	if m.commandPaletteOpen {
 		return placeOverlay(frame, m.renderCommandPalette(l, p), l.width, l.height)
 	}
+	if m.dynamicArgumentCommand != nil {
+		return placeOverlay(frame, m.renderDynamicArguments(l, p), l.width, l.height)
+	}
 	if m.fileCompletionOpen {
 		return placeOverlay(frame, m.renderFileCompletion(l, p), l.width, l.height)
 	}
@@ -50,6 +53,40 @@ func (m Model) renderFrame() string {
 		return placeOverlay(frame, m.renderCommandDialog(l, p), l.width, l.height)
 	}
 	return frame
+}
+
+func (m Model) renderDynamicArguments(l layout, p Palette) string {
+	command := m.dynamicArgumentCommand
+	if command == nil {
+		return ""
+	}
+	w := max(1, min(l.width-8, 72))
+	lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
+	lines := []string{p.DialogTitle.Render("/" + command.Name + " arguments"), p.Dim.Render(truncate(command.Description, lineWidth)), ""}
+	for i, argument := range command.Arguments {
+		marker := "  "
+		style := p.Idle
+		if i == m.dynamicArgumentCursor {
+			marker, style = "▸ ", p.Active
+		}
+		required := "optional"
+		if argument.Required {
+			required = "required"
+		}
+		value := ""
+		if i < len(m.dynamicArgumentValues) {
+			value = m.dynamicArgumentValues[i]
+		}
+		lines = append(lines, style.Render(truncate(marker+argument.Name+" ("+required+"): "+value, lineWidth)))
+		if argument.Description != "" {
+			lines = append(lines, p.Dim.Render(truncate("   "+argument.Description, lineWidth)))
+		}
+	}
+	if m.dynamicArgumentError != "" {
+		lines = append(lines, "", p.PromptWarn.Render(truncate(m.dynamicArgumentError, lineWidth)))
+	}
+	lines = append(lines, "", p.DialogFooter.Render("tab/↑/↓ field · enter run · esc keep draft"))
+	return p.Dialog.Width(w).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderModelDialog(l layout, p Palette) string {
@@ -226,6 +263,11 @@ func (m Model) renderCommandPalette(l layout, p Palette) string {
 		}
 	}
 	lines := []string{p.DialogTitle.Render("Commands"), p.DialogFooter.Render(filter)}
+	if m.commandCatalogLoading {
+		lines = append(lines, p.DialogFooter.Render("refreshing dynamic commands…"))
+	} else if m.commandCatalogError != "" {
+		lines = append(lines, p.DialogFooter.Render("dynamic refresh failed: "+truncate(m.commandCatalogError, max(1, w-24))))
+	}
 	if !compact {
 		lines = append(lines, "")
 	}
@@ -279,7 +321,7 @@ func sanitizeCommandPaletteFilter(text string) string {
 	text = ansi.Strip(text)
 	clean := make([]rune, 0, min(len([]rune(text)), maxCommandPaletteFilterRunes))
 	for _, r := range text {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
 			continue
 		}
 		clean = append(clean, r)

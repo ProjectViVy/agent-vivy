@@ -222,6 +222,56 @@ type CommandExecutor interface {
 	ExecuteCommand(name string, args []string) tea.Cmd
 }
 
+// DynamicCommand is a server-authorized command that can change as installed
+// skills or remote catalogs change. ID is opaque execution identity; Name is
+// the slash spelling rendered by the client.
+type DynamicCommand struct {
+	ID          string
+	Kind        string
+	Name        string
+	Usage       string
+	Description string
+	Arguments   []DynamicCommandArgument
+}
+
+type DynamicCommandArgument struct {
+	Name        string
+	Description string
+	Required    bool
+}
+
+// DynamicCommandProvider exposes the latest authoritative catalog snapshot.
+// Static commands remain available when this optional surface is absent.
+type DynamicCommandProvider interface {
+	DynamicCommands() []DynamicCommand
+}
+
+type DynamicCommandRefresher interface {
+	RefreshDynamicCommands(request uint64) tea.Cmd
+}
+
+type DynamicCommandsMsg struct {
+	Request  uint64
+	Commands []DynamicCommand
+	Err      error
+}
+
+// DynamicCommandExecutor expands an opaque dynamic command through the
+// control plane. The resulting model input still travels through Driver.Send.
+type DynamicCommandExecutor interface {
+	ExecuteDynamicCommand(request uint64, sessionID, id string, args []string) tea.Cmd
+}
+
+// DynamicCommandExpandedMsg carries server-expanded model input back through
+// Bubble Tea before it is sent, keeping async commands free of model mutation.
+type DynamicCommandExpandedMsg struct {
+	Request   uint64
+	SessionID string
+	ID        string
+	Text      string
+	Err       error
+}
+
 // CommandResultMsg carries a local command result back into the shared Tea
 // state. It is intentionally not printed directly: the view renders it in a
 // transient overlay and keeps the packed and built-in faces identical.

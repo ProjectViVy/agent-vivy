@@ -271,6 +271,7 @@ type loadedSkill struct {
 	hash          string
 	enabled       bool
 	always        bool
+	userInvocable bool
 	declaredTools []string
 	warnings      []string
 }
@@ -325,12 +326,14 @@ func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSk
 	}
 	hash := sha256Hex(data)
 	return loadedSkill{front: local.eino(), content: content, dir: dir, name: name, hash: hash, enabled: enabled,
-		always: local.Always, declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data))}, nil
+		always: local.Always, userInvocable: local.UserInvocable,
+		declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data))}, nil
 }
 
 func (b *EinoSkillBackend) summary(item loadedSkill) tools.SkillSummary {
 	return tools.SkillSummary{Name: item.front.Name, Description: item.front.Description, Context: string(item.front.Context),
-		Agent: item.front.Agent, Model: item.front.Model, Tools: append([]string(nil), item.declaredTools...),
+		Agent: item.front.Agent, Model: item.front.Model, UserInvocable: item.userInvocable,
+		Tools:   append([]string(nil), item.declaredTools...),
 		Enabled: item.enabled, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
 }
 
@@ -576,8 +579,11 @@ type skillFrontMatter struct {
 	Tools []string `yaml:"tools,omitempty"`
 	// Always keeps the skill body injected into every model call within
 	// the always-injection budget (SKILL-MKT-2). Absent means false.
-	Always  bool  `yaml:"always,omitempty"`
-	Enabled *bool `yaml:"enabled,omitempty"`
+	Always bool `yaml:"always,omitempty"`
+	// UserInvocable exposes this skill as an explicit slash command. It does
+	// not imply always-injection or model-driven invocation.
+	UserInvocable bool  `yaml:"user-invocable,omitempty"`
+	Enabled       *bool `yaml:"enabled,omitempty"`
 }
 
 func (f skillFrontMatter) eino() einoskill.FrontMatter {
