@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-09-05
+> Updated: 2026-09-06
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -38,7 +38,7 @@ Do not pick work from those tables. Closed-track filing:
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| EINO-BOUNDARY-AUDIT | 复核 Vivy 自研与 Eino/EinoExt 原生能力的边界 | OPEN — AUDIT RECORDED 2026-09-05 | 只读审计确认主循环已原生使用 Eino ADK，大多数自研属于 Journal/Policy/HITL/worker 等 Vivy 权威语义；候选减量面约 1.3–1.6k 行生产代码，集中于手写 MCP transport、tool_search、Sequential Thinking、未实际注册的 plantask 兼容面及 stream observer callback PoC。实施尚未授权；必须逐项先做 capability check，保留 Vivy 治理壳，不得整片替换 runtime。记录：`docs/research/eino-boundary-audit-2026-09-05.md`。 |
+| EINO-BOUNDARY-AUDIT | 复核 Vivy 自研与 Eino/EinoExt 原生能力的边界 | PARTIAL 2026-09-06 | tool_search 子项已完成：固定直显核心、allowlist、Skill mount、Policy/HITL/审计与二次检查仍由 Vivy 拥有；动态 active 工具接入 pinned Eino v0.9.13 官方 middleware；旧搜索/可见面和 Registry 兼容壳已清理。MCP transport、Sequential Thinking、plantask 兼容面、stream observer 等其余候选仍须各自 capability check，不能将 umbrella 标为 DONE。历史审计与 superseded note：`docs/research/eino-boundary-audit-2026-09-05.md`。 |
 | TUI-STREAM-P0 | 修复 provider→Journal→RPC→TUI 的真实流式背压与文本保真 | DONE 2026-09-04 | runtime mapper 逐 chunk 立即持久化/发布，不再 EOF 后突发；durable `run/event` 使用 context-aware bounded backpressure，不再因 64 帧队列满而静默断订阅；超大 delta 拆分不截字；shared renderer 使用安全 ANSI 清洗与 grapheme/cell word-wrap，中文、emoji、既有空白均不被重建。见 `docs/logs/2026-09-04-vivy-code-live-stream-backpressure/`。 |
 | TUI-STREAM-N1 | 收敛 plain REPL 与 fullscreen TUI 的 durable stream 语义 | DONE 2026-09-04 | plain REPL 已携 shared cursor、run/subscription epoch、seq gap 检测、Journal replay、跨 run/旧订阅过滤、`run/stream_error` 恢复及终态清理；通知入口不阻塞，满载转 durable replay；连续恢复失败会取消当前 run 并归还提示符。见 `docs/logs/2026-09-04-vivy-code-stream-driver-lifecycle/`。 |
 | TUI-STREAM-N2 | TUI 重订阅资源与 inbox 内存上界 | DONE 2026-09-04 | built-in/packed fullscreen 保存真实 `subscription_id`，换订阅、Close、会话切换均清理并带 epoch fence；收件箱同时按条目与 UTF-8 字节设界，溢出清空不完整后缀并以 durable replay 恢复，UI 每 tick 有界消费。见 `docs/logs/2026-09-04-vivy-code-stream-driver-lifecycle/`。 |
@@ -761,7 +761,7 @@ persists notes, and cannot loop forever.
 | ET-01 | Complete the Vivy filesystem Backend over Eino: `read_file`, `search_files`, `write_file`, and `patch` | C6, B4 | Workspace containment, protected paths, bounded output, atomic writes, diffs, precondition hashes, mutation approval, and restart tests pass |
 | ET-02 | Complete Skills support over Eino Skill Backend: list/view plus `skill_manage` staged revisions | ET-01, C6, B4 | Trusted root, provenance, untrusted-content warnings, human diff review, atomic apply, rollback, and restart recovery pass |
 | ET-03 | Add Eino `plantask` as durable Vivy todo tools (`task_create`, `task_get`, `task_update`, `task_list`) | B4 | Session/journal-backed storage, bounded content, dependency validation, and todo invariant tests pass |
-| ET-04 | Add Eino ToolSearch for progressive dynamic tool discovery | C5, ET-03 | Allowlisted tools only; Vivy selection/policy/audit remain authoritative; repeated selection and cache behavior are tested |
+| ET-04 | Add Eino ToolSearch for progressive dynamic tool discovery | C5, ET-03 | DONE 2026-09-06 — pinned core `adk/middlewares/dynamictool/toolsearch` receives only allowlisted deferred active tools; fixed-visible core stays static, HiddenTools stay governed and mount-projected, no dynamic surface duplicates; real Runner, mount rehydration, reserved-name, empty/no-dynamic, config/settings migration tests pass. See `docs/logs/2026-09-06-eino-toolsearch/`. |
 | ET-05 | Add enhanced ToolResult mapping for text/image/audio/video/file outputs | C4, D3 | Structured outputs survive runtime events, redaction, size limits, JSON-RPC, UI rendering, and replay |
 | ET-06 | Build GraphTool conformance tests only | C6, B4, C3 | Nested workflow tool calls, interrupt propagation, checkpoint/resume, cancellation, and failure boundaries are tested; GraphTool is absent from the production catalog |
 | ET-07 | Define provider-neutral basic network search and add API-backed adapters for Bing, Google, DuckDuckGo, SearXNG, and Wikipedia | C5, D1 | Bounded normalized results, provider/source attribution, timeout/rate-limit handling, untrusted-result marking, and no browser automation |

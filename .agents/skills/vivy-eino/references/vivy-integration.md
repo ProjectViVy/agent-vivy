@@ -42,7 +42,9 @@ Consequence: new agent/model features belong in `internal/runtime` or
   - Runs via `adk.NewRunner(ctx, adk.RunnerConfig{...})`; `Query`/`RunHistory`/`Resume` return `*adk.AsyncIterator[*adk.AgentEvent]`.
   - `RunHistory(ctx, msgs []*schema.Message, ...)` — history enters as Eino messages.
 - `checkpoint.go` / `checkpointadapter.go`: Eino ADK checkpointing (`adk.WithCheckPointID`, `adk.CheckPoint` interfaces, resume params).
-- `tooladapter.go` / `enhanced_tooladapter.go` / `toolselection_middleware.go`: wrap tools for Eino (`einotool` `github.com/cloudwego/eino/components/tool`), tool-selection middleware for `adk`.
+- `tooladapter.go` / `enhanced_tooladapter.go` / `toolmount_middleware.go`: wrap Vivy business tools for Eino (`einotool` `github.com/cloudwego/eino/components/tool`) and project hidden Skill-mount tools back into each model-call surface. Deferred active tools are connected to Eino core's `github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch` middleware; the raw official `tool_search` meta-tool is not wrapped by Vivy.
+- `engine.go`: partitions the exact fixed-visible core (`ask_user`, `list_dir`, `read_file`, `search_files`, `skills_list`, `skill_view`, `write_file`, `patch`, `multiedit`, `execute`, `bash`) from the remaining active allowlist. Deferred active tools are passed once to `toolsearch.New(..., UseModelToolSearch: false)` and are not duplicated in the static `ToolsNode`; no deferred tools means no official middleware. Hidden tools remain governed Vivy adapters and are mounted through the final projection.
+- `internal/config` / `internal/app/settings`: normalize the retired legacy `tool_search` name once at config/settings input and write boundaries, preserving order and turning a legacy-only list into explicit empty chat-only tools. The registry remains a strict resolver and does not carry compatibility logic.
 - `skills_backend.go`: `github.com/cloudwego/eino/adk/middlewares/skill`.
 - `todo_backend.go`: `github.com/cloudwego/eino/adk/middlewares/filesystem` + `plantask`.
 - `filesystem_backend.go`: `github.com/cloudwego/eino/adk/filesystem`.

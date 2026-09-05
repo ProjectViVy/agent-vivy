@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -43,6 +44,33 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	applied2 := applySettingsOverlay(context.Background(), logger, cfg2, nil)
 	if applied2.Tools.NetworkSearch.Provider != "wikipedia" {
 		t.Fatalf("network_search provider = %q, want config default wikipedia", applied2.Tools.NetworkSearch.Provider)
+	}
+}
+
+func TestApplySettingsOverlayNormalizesLegacyToolSearch(t *testing.T) {
+	dir := t.TempDir()
+	path := settings.Path(dir)
+	if err := os.WriteFile(path, []byte("tools_enabled:\n  - tool_search\n  - list_dir\n  - tool_search\n  - read_file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
+		Tools:   config.Tools{Enabled: []string{"tool_search", "write_file"}},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	got := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
+	want := []string{"list_dir", "read_file"}
+	if !sameStrings(got.Tools.Enabled, want) {
+		t.Fatalf("effective tools.enabled = %#v, want %#v", got.Tools.Enabled, want)
+	}
+
+	legacyOnly := []byte("tools_enabled:\n  - tool_search\n")
+	if err := os.WriteFile(path, legacyOnly, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
+	if got.Tools.Enabled == nil || len(got.Tools.Enabled) != 0 {
+		t.Fatalf("legacy-only effective tools.enabled = %#v, want explicit empty", got.Tools.Enabled)
 	}
 }
 

@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
-	"unicode"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -142,24 +140,6 @@ func (s Selection) Names() []string {
 		out = append(out, spec.Name)
 	}
 	return out
-}
-
-// tokenSet splits a query into normalized tokens. It backs tool_search
-// catalog matching; request binding no longer routes on it (every request
-// binds the full enabled set).
-func tokenSet(value string) map[string]struct{} {
-	set := make(map[string]struct{})
-	for _, raw := range strings.FieldsFunc(value, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
-		token := normalizeToken(raw)
-		if token != "" {
-			set[token] = struct{}{}
-		}
-	}
-	return set
-}
-
-func normalizeToken(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func (e *ArgError) Error() string {
@@ -306,47 +286,7 @@ func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillO
 	if multi, ok := files.(MultiPatchOperations); ok {
 		registered = append(registered, NewMultiEdit(multi))
 	}
-	registered = append(registered, NewToolSearch(baseToolsForSearch(notes, files, skills, todos, search, httpOps, fetch, downloads, mcpOps, sequential, commands)))
 	return NewRegistry(registered...)
-}
-
-func baseToolsForSearch(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, fetch WebFetchOperations, downloads DownloadOperations, mcpOps MCPOperations, sequential SequentialThinkingOperations, commands CommandOperations) []Tool {
-	registered := []Tool{
-		NewEchoInfo(), NewWriteNote(notes), NewListNotes(notes), NewReadNote(notes), NewAskUser(),
-		NewListDir(files), NewReadFile(files), NewSearchFiles(files), NewWriteFile(files), NewPatch(files), NewSkillsList(skills), NewSkillView(skills), NewSkillManage(skills),
-		NewTaskCreate(todos), NewTaskGet(todos), NewTaskUpdate(todos), NewTaskList(todos),
-	}
-	if search != nil {
-		registered = append(registered, NewNetworkSearch(search))
-	}
-	if httpOps != nil {
-		registered = append(registered, NewHTTPRequest(httpOps))
-	}
-	if fetch != nil {
-		registered = append(registered, NewWebFetch(fetch))
-	}
-	if downloads != nil {
-		registered = append(registered, NewDownload(downloads))
-	}
-	if mcpOps != nil {
-		registered = append(registered, NewMCPListTools(mcpOps), NewMCPCall(mcpOps))
-	}
-	if sequential != nil {
-		registered = append(registered, NewSequentialThinking(sequential))
-	}
-	if commands != nil {
-		registered = append(registered, NewExecute(commands), NewCommandline(commands), NewBash(commands))
-		if jobs, ok := commands.(JobOperations); ok {
-			registered = append(registered, NewJobOutput(jobs), NewJobKill(jobs))
-		}
-	}
-	if searchOps, ok := files.(GrepOperations); ok {
-		registered = append(registered, NewGrep(searchOps), NewGlob(searchOps))
-	}
-	if multi, ok := files.(MultiPatchOperations); ok {
-		registered = append(registered, NewMultiEdit(multi))
-	}
-	return registered
 }
 
 // Except returns the registered tools whose names are absent from enabled,
@@ -378,9 +318,6 @@ func (r *Registry) Resolve(enabled []string) ([]Tool, error) {
 			return nil, fmt.Errorf("tools: unknown tool %q in tools.enabled", name)
 		}
 		out = append(out, t)
-	}
-	if search, ok := r.byName[ToolSearchName].(*toolSearchTool); ok {
-		search.restrict(enabled)
 	}
 	return out, nil
 }

@@ -106,6 +106,31 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
+func TestConfigNormalizesLegacyToolSearchAtLoad(t *testing.T) {
+	doc := strings.Replace(validDoc,
+		"    - echo_info\n    - write_note\n",
+		"    - tool_search\n    - list_dir\n    - tool_search\n    - read_file\n", 1)
+	cfg, err := Load(writeConfig(t, doc))
+	if err != nil {
+		t.Fatalf("Load legacy tool_search config: %v", err)
+	}
+	want := []string{"list_dir", "read_file"}
+	if strings.Join(cfg.Tools.Enabled, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("normalized tools.enabled = %#v, want %#v", cfg.Tools.Enabled, want)
+	}
+
+	legacyOnly := strings.Replace(validDoc,
+		"    - echo_info\n    - write_note\n",
+		"    - tool_search\n", 1)
+	cfg, err = Load(writeConfig(t, legacyOnly))
+	if err != nil {
+		t.Fatalf("legacy-only config should become chat-only: %v", err)
+	}
+	if cfg.Tools.Enabled == nil || len(cfg.Tools.Enabled) != 0 {
+		t.Fatalf("legacy-only tools.enabled = %#v, want explicit empty", cfg.Tools.Enabled)
+	}
+}
+
 func TestTUIDebugDefaultsOff(t *testing.T) {
 	if Default().TUI.Debug {
 		t.Fatal("default tui.debug = true, want false")
@@ -222,6 +247,14 @@ func TestDefaultEnabledIncludesListDir(t *testing.T) {
 	t.Fatal("list_dir must be enabled by default")
 }
 
+func TestDefaultEnabledOmitsLegacyToolSearch(t *testing.T) {
+	for _, name := range Default().Tools.Enabled {
+		if name == LegacyToolSearchName {
+			t.Fatalf("default tools.enabled must not contain retired %q", LegacyToolSearchName)
+		}
+	}
+}
+
 // The network_search provider preference parses, defaults to auto, and
 // rejects unknown provider names.
 func TestNetworkSearchProviderConfig(t *testing.T) {
@@ -275,8 +308,6 @@ func TestInvalidValuesRejected(t *testing.T) {
 			"active: anthropic", "active: deepseek", 1),
 		"bad expiration": strings.Replace(validDoc,
 			"expiration: 2m", "expiration: soon", 1),
-		"empty tools": strings.Replace(validDoc,
-			"  enabled:\n    - echo_info\n    - write_note", "  enabled: []", 1),
 		"removed mock config": strings.Replace(validDoc,
 			"runtime:\n", "runtime:\n  mock: true\n", 1),
 		"non-loopback origin": strings.Replace(validDoc,
@@ -676,7 +707,7 @@ func TestSkillsMarketplaceURLConfig(t *testing.T) {
 }
 
 // A tools section that omits the enabled key keeps the code default
-// surface; an explicit empty list is still rejected by validation.
+// surface; an explicit empty list selects the legal chat-only mode.
 func TestToolsSectionWithoutEnabledKeepsDefault(t *testing.T) {
 	omitted := strings.Replace(validDoc,
 		"  enabled:\n    - echo_info\n    - write_note\n", "", 1)
@@ -697,8 +728,12 @@ func TestToolsSectionWithoutEnabledKeepsDefault(t *testing.T) {
 	if err := os.WriteFile(path, []byte(empty), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path); err == nil {
-		t.Fatal("explicit empty tools.enabled must fail validation")
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatalf("explicit empty tools.enabled should select chat-only mode: %v", err)
+	}
+	if cfg.Tools.Enabled == nil || len(cfg.Tools.Enabled) != 0 {
+		t.Fatalf("explicit empty tools.enabled = %#v, want non-nil empty", cfg.Tools.Enabled)
 	}
 }
 
