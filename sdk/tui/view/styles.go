@@ -2,6 +2,22 @@ package view
 
 import "github.com/charmbracelet/lipgloss"
 
+const (
+	palettePrimary   = "#A78BFA"
+	paletteSecondary = "#2DD4BF"
+	paletteFg        = "#E4E4E7"
+	paletteMuted     = "#71717A"
+	paletteSubtle    = "#52525B"
+	paletteSuccess   = "#4ADE80"
+	paletteWarn      = "#FBBF24"
+	paletteDanger    = "#FB7185"
+	paletteUser      = "#93C5FD"
+	paletteOnPrimary = "#1C1917"
+	paletteCodeBg    = "#27272A"
+	paletteString    = "#FDBA74"
+	paletteLink      = "#A1A1AA"
+)
+
 // Palette is the single visual vocabulary used by the built-in and packed
 // TUI faces. It intentionally contains roles, not page-specific colours.
 type Palette struct {
@@ -44,15 +60,15 @@ type Palette struct {
 // DefaultPalette returns the stable dark palette shared by both first-party
 // faces.
 func DefaultPalette() Palette {
-	primary := lipgloss.Color("#A78BFA")
-	secondary := lipgloss.Color("#2DD4BF")
-	fg := lipgloss.Color("#E4E4E7")
-	muted := lipgloss.Color("#71717A")
-	subtle := lipgloss.Color("#52525B")
-	success := lipgloss.Color("#4ADE80")
-	warn := lipgloss.Color("#FBBF24")
-	danger := lipgloss.Color("#FB7185")
-	userC := lipgloss.Color("#93C5FD")
+	primary := lipgloss.Color(palettePrimary)
+	secondary := lipgloss.Color(paletteSecondary)
+	fg := lipgloss.Color(paletteFg)
+	muted := lipgloss.Color(paletteMuted)
+	subtle := lipgloss.Color(paletteSubtle)
+	success := lipgloss.Color(paletteSuccess)
+	warn := lipgloss.Color(paletteWarn)
+	danger := lipgloss.Color(paletteDanger)
+	userC := lipgloss.Color(paletteUser)
 	return Palette{
 		Logo:         lipgloss.NewStyle().Foreground(muted),
 		LogoWord:     lipgloss.NewStyle().Foreground(primary).Bold(true),
@@ -78,7 +94,7 @@ func DefaultPalette() Palette {
 		DiffHunk:     lipgloss.NewStyle().Foreground(secondary),
 		Editor:       lipgloss.NewStyle().Foreground(fg),
 		Prompt:       lipgloss.NewStyle().Foreground(success),
-		PromptWarn:   lipgloss.NewStyle().Foreground(lipgloss.Color("#1C1917")).Background(warn).Bold(true),
+		PromptWarn:   lipgloss.NewStyle().Foreground(lipgloss.Color(paletteOnPrimary)).Background(warn).Bold(true),
 		Status:       lipgloss.NewStyle().Foreground(muted),
 		HelpKey:      lipgloss.NewStyle().Foreground(primary),
 		HelpDesc:     lipgloss.NewStyle().Foreground(subtle),

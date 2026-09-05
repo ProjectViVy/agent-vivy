@@ -40,10 +40,10 @@ func TestWrapTextPreservesStreamingTextAndWrapsCJK(t *testing.T) {
 	}
 }
 
-func TestRenderMessagePreservesTrailingNewline(t *testing.T) {
+func TestRenderMessageTrimsTrailingMarkdownNewline(t *testing.T) {
 	lines := renderMessage(surface.Message{Role: surface.RoleAssistant, Content: "line\n"}, 40, DefaultPalette())
-	if len(lines) != 2 {
-		t.Fatalf("rendered lines = %#v, want trailing empty line", lines)
+	if len(lines) != 1 || !strings.Contains(ansi.Strip(lines[0]), "line") {
+		t.Fatalf("rendered lines = %#v, want a single trimmed markdown line", lines)
 	}
 }
 
