@@ -621,6 +621,64 @@ func TestLiveAdvancedCommandsUseAuthoritativeRPCAndOverlayResult(t *testing.T) {
 	}
 }
 
+func TestPackedLiveDynamicCommandsUseTypedCatalogAndExpansion(t *testing.T) {
+	listCalls := 0
+	env := &fakeEnv{script: baseScript()}
+	env.script["commands/list"] = func(json.RawMessage) (any, error) {
+		listCalls++
+		if listCalls > 2 {
+			return nil, fmt.Errorf("catalog unavailable")
+		}
+		usage := "/review [request]"
+		if listCalls > 1 {
+			usage = "/review focus=<value>"
+		}
+		return map[string]any{"commands": []any{map[string]any{"id": "skill:review", "kind": "skill", "name": "review", "usage": usage, "description": "Review changes", "arguments": []any{map[string]any{"name": "focus", "required": true}}}}}, nil
+	}
+	env.script["commands/expand"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"id": "skill:review", "text": "expanded review instructions"}, nil
+	}
+	client := newClient(env)
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["commands.list","commands.expand"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	live := NewLive(client, LiveOptions{})
+	boot := mustMsg[liveBootMsg](t, live.bootCmd())
+	if boot.Err != nil || boot.CommandErr != nil || len(boot.Commands) != 1 || boot.Commands[0].ID != "skill:review" {
+		t.Fatalf("dynamic boot = %+v", boot)
+	}
+	live.Handle(boot)
+	if got := live.DynamicCommands(); len(got) != 1 || got[0].Description != "Review changes" || len(got[0].Arguments) != 1 || !got[0].Arguments[0].Required {
+		t.Fatalf("live dynamic commands = %+v", got)
+	}
+	refreshed := mustMsg[surface.DynamicCommandsMsg](t, live.RefreshDynamicCommands(9))
+	live.Handle(refreshed)
+	if got := live.DynamicCommands(); refreshed.Request != 9 || len(got) != 1 || got[0].Usage != "/review focus=<value>" {
+		t.Fatalf("refreshed dynamic commands = %+v msg=%+v", got, refreshed)
+	}
+	failed := mustMsg[surface.DynamicCommandsMsg](t, live.RefreshDynamicCommands(10))
+	live.Handle(failed)
+	if failed.Err == nil || len(live.DynamicCommands()) != 1 {
+		t.Fatalf("failed refresh discarded stale catalog: msg=%+v commands=%+v", failed, live.DynamicCommands())
+	}
+	msg := mustMsg[surface.DynamicCommandExpandedMsg](t, live.ExecuteDynamicCommand(7, "session-1", "skill:review", []string{"this", "patch"}))
+	if msg.Err != nil || msg.Request != 7 || msg.SessionID != "session-1" || msg.ID != "skill:review" || msg.Text != "expanded review instructions" {
+		t.Fatalf("dynamic expansion = %+v", msg)
+	}
+	before := listCalls
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["commands.list"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	unsupportedBoot := mustMsg[liveBootMsg](t, live.bootCmd())
+	if len(unsupportedBoot.Commands) != 0 || listCalls != before {
+		t.Fatalf("partial capability called unsupported catalog: boot=%+v calls=%d", unsupportedBoot, listCalls-before)
+	}
+	unavailable := mustMsg[surface.DynamicCommandExpandedMsg](t, live.ExecuteDynamicCommand(8, "session-1", "skill:review", nil))
+	if unavailable.Err == nil {
+		t.Fatal("partial capability allowed dynamic expansion")
+	}
+}
+
 func TestLiveAdvancedCommandValidationAndScopedFilesFailClosed(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	live := bootLive(t, env, LiveOptions{})

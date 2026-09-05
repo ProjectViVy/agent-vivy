@@ -16,6 +16,31 @@ type commandDriver struct {
 	commandArgs []string
 }
 
+type dynamicCommandDriver struct {
+	*testDriver
+	commands []surface.DynamicCommand
+	id       string
+	args     []string
+	refresh  uint64
+}
+
+func (d *dynamicCommandDriver) RefreshDynamicCommands(request uint64) tea.Cmd {
+	d.refresh = request
+	return func() tea.Msg { return surface.DynamicCommandsMsg{Request: request, Commands: d.commands} }
+}
+
+func (d *dynamicCommandDriver) DynamicCommands() []surface.DynamicCommand {
+	return append([]surface.DynamicCommand(nil), d.commands...)
+}
+
+func (d *dynamicCommandDriver) ExecuteDynamicCommand(request uint64, sessionID, id string, args []string) tea.Cmd {
+	d.id = id
+	d.args = append([]string(nil), args...)
+	return func() tea.Msg {
+		return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Text: "expanded skill input"}
+	}
+}
+
 type contextCommandDriver struct {
 	*testDriver
 	contextText  string
@@ -165,6 +190,114 @@ func TestCommandExecutorReceivesParsedUnicodeArguments(t *testing.T) {
 	}
 	if m.input != "" {
 		t.Fatalf("command draft was not cleared: %q", m.input)
+	}
+}
+
+func TestDynamicSkillCommandFiltersDispatchesAndSendsExpandedInput(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}, commands: []surface.DynamicCommand{
+		{ID: "skill:review", Kind: "skill", Name: "review", Usage: "/review focus=<value>", Description: "Review \u202ethe current change"},
+		{ID: "skill:shadow", Kind: "skill", Name: "help", Description: "must not shadow static help"},
+		{ID: "skill:unsafe", Kind: "skill", Name: "bad/name", Description: "must be ignored"},
+	}}
+	m := New(d)
+	m.openCommandPalette()
+	if d.refresh == 0 || !m.commandCatalogLoading {
+		t.Fatal("opening the command palette did not start a catalog refresh")
+	}
+	m.commandPaletteFilter = "current change"
+	rows := m.filteredCommands()
+	if len(rows) != 1 || rows[0].Name != "review" {
+		t.Fatalf("dynamic palette rows = %+v", rows)
+	}
+
+	m.commandPaletteOpen = false
+	m.input = `/review "this patch"`
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || d.id != "skill:review" || strings.Join(d.args, "|") != "this patch" || d.sent != "" {
+		t.Fatalf("dynamic dispatch id=%q args=%q sent=%q cmd=%v", d.id, strings.Join(d.args, "|"), d.sent, cmd != nil)
+	}
+	updated, sendCmd := m.Update(surface.DynamicCommandExpandedMsg{Request: m.dynamicCommandRequest, SessionID: "session-1", ID: d.id, Text: "expanded skill input"})
+	m = updated.(Model)
+	if sendCmd == nil || d.sent != "expanded skill input" {
+		t.Fatalf("expanded command sent=%q cmd=%v", d.sent, sendCmd != nil)
+	}
+
+	m.commandOverlay = ""
+	m.input = "/help"
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.commandOverlayTitle != "Commands" || !strings.Contains(m.commandOverlay, "/review focus=<value>") || strings.Contains(m.commandOverlay, "\u202e") {
+		t.Fatalf("effective help omitted dynamic command or static help was shadowed:\n%s", m.commandOverlay)
+	}
+}
+
+func TestDynamicCommandExpansionFailureNeverSends(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}}
+	m := New(d)
+	m.dynamicCommandRequest = 1
+	m.dynamicCommandPending = true
+	m.dynamicCommandID = "skill:gone"
+	m.dynamicCommandSession = "session-1"
+	m.dynamicCommandDraft = "/gone"
+	updated, cmd := m.Update(surface.DynamicCommandExpandedMsg{Request: 1, SessionID: "session-1", ID: "skill:gone", Err: fmt.Errorf("dynamic command is unavailable")})
+	m = updated.(Model)
+	if cmd != nil || d.sent != "" || !strings.Contains(m.View(), "dynamic command is unavailable") {
+		t.Fatalf("failed dynamic expansion escaped guard: sent=%q cmd=%v\n%s", d.sent, cmd != nil, m.View())
+	}
+}
+
+func TestDynamicCommandSerializesAndRestoresDraftAcrossCancellation(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}, commands: []surface.DynamicCommand{{ID: "skill:review", Kind: "skill", Name: "review"}}}
+	m := New(d)
+	m.input = `/review "first"`
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || !m.dynamicCommandPending {
+		t.Fatal("dynamic expansion did not enter pending state")
+	}
+	m.input = "ordinary text"
+	updated, second := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if second != nil || !strings.Contains(m.View(), "wait for the current dynamic command") {
+		t.Fatal("second submission was not blocked while expansion was pending")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+	if m.dynamicCommandPending || m.input != `/review "first"` {
+		t.Fatalf("cancelled expansion pending=%v draft=%q", m.dynamicCommandPending, m.input)
+	}
+	updated, stale := m.Update(cmd())
+	m = updated.(Model)
+	if stale != nil || d.sent != "" || m.input != `/review "first"` {
+		t.Fatalf("stale expansion escaped fence: sent=%q draft=%q", d.sent, m.input)
+	}
+}
+
+func TestDynamicCommandPaletteCollectsRequiredArguments(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}, commands: []surface.DynamicCommand{{
+		ID: "mcp:prompt", Kind: "mcp_prompt", Name: "mcp-review", Usage: "/mcp-review focus=<value>", Description: "Review a change",
+		Arguments: []surface.DynamicCommandArgument{{Name: "focus", Description: "review focus", Required: true}},
+	}}}
+	m := New(d)
+	m.openCommandPalette()
+	m.commandPaletteFilter = "mcp-review"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || m.dynamicArgumentCommand == nil || !strings.Contains(m.View(), "focus (required)") {
+		t.Fatalf("argument form did not open:\n%s", m.View())
+	}
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || !strings.Contains(m.View(), "focus is required") {
+		t.Fatal("required argument was not enforced")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("security")})
+	m = updated.(Model)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || d.id != "mcp:prompt" || strings.Join(d.args, "|") != "focus=security" {
+		t.Fatalf("argument dispatch id=%q args=%q cmd=%v", d.id, d.args, cmd != nil)
 	}
 }
 

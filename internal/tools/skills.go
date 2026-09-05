@@ -21,6 +21,9 @@ type SkillSummary struct {
 	Context     string `json:"context,omitempty"`
 	Agent       string `json:"agent,omitempty"`
 	Model       string `json:"model,omitempty"`
+	// UserInvocable exposes the skill as an explicit terminal command. It is
+	// independent from model-driven discovery and defaults to false.
+	UserInvocable bool `json:"user_invocable,omitempty"`
 	// Tools lists the tool names the SKILL.md frontmatter declares. Viewing
 	// the skill mounts them for the remainder of the run (MountedTools).
 	Tools    []string `json:"tools,omitempty"`

@@ -44,6 +44,25 @@ func TestREPLHelpAndQuit(t *testing.T) {
 	}
 }
 
+func TestREPLDynamicCommandRegistryKeepsStaticNamesAuthoritative(t *testing.T) {
+	r := &repl{dynamicCommands: []surface.DynamicCommand{
+		{ID: "skill:review", Kind: "skill", Name: "review", Usage: "/review [request]", Description: "Review changes"},
+		{ID: "skill:shadow", Kind: "skill", Name: "help", Description: "must not shadow help"},
+		{ID: "skill:unsafe", Kind: "skill", Name: "bad/name"},
+	}}
+	registry, dynamic := r.commandRegistry()
+	parsed, err := registry.Parse(`/review "this patch"`)
+	if err != nil || parsed.Invocation == nil || parsed.Invocation.Name != "review" || strings.Join(parsed.Invocation.Args, "|") != "this patch" {
+		t.Fatalf("dynamic parse = %+v, err=%v", parsed, err)
+	}
+	if len(dynamic) != 1 || dynamic["review"].ID != "skill:review" {
+		t.Fatalf("dynamic registry = %+v", dynamic)
+	}
+	if spec, ok := registry.Lookup("help"); !ok || spec.Description == "must not shadow help" {
+		t.Fatalf("static help was shadowed: %+v", spec)
+	}
+}
+
 func TestREPLCompletedOnlyAndStreamedCompletionDoNotDuplicate(t *testing.T) {
 	var out bytes.Buffer
 	r := &repl{out: &out}

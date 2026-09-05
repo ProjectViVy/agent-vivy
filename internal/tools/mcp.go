@@ -119,6 +119,43 @@ type MCPReadResourceResponse struct {
 	Untrusted bool                 `json:"untrusted"`
 }
 
+// MCPPromptArgument is one server-declared prompt argument. Remote labels and
+// descriptions are presentation-only; Name is the protocol identity sent
+// back to prompts/get.
+type MCPPromptArgument struct {
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type MCPPrompt struct {
+	Server      string              `json:"server"`
+	Name        string              `json:"name"`
+	Title       string              `json:"title,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Arguments   []MCPPromptArgument `json:"arguments,omitempty"`
+}
+
+type MCPListPromptsResponse struct {
+	Prompts   []MCPPrompt `json:"prompts"`
+	Untrusted bool        `json:"untrusted"`
+}
+
+type MCPGetPromptRequest struct {
+	Server    string            `json:"server"`
+	Name      string            `json:"name"`
+	Arguments map[string]string `json:"arguments,omitempty"`
+}
+
+type MCPGetPromptResponse struct {
+	Server      string `json:"server"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Text        string `json:"text"`
+	Untrusted   bool   `json:"untrusted"`
+}
+
 // MCPResourceReadResponse is an alternate descriptive alias.
 type MCPResourceReadResponse = MCPReadResourceResponse
 
@@ -128,6 +165,13 @@ type MCPResourceReadResponse = MCPReadResourceResponse
 type MCPResourceOperations interface {
 	ListResources(context.Context, domain.RunID, string) (MCPListResourcesResponse, error)
 	ReadResource(context.Context, domain.RunID, MCPReadResourceRequest) (MCPReadResourceResponse, error)
+}
+
+// MCPPromptOperations is a control-plane-only prompt surface. Prompt content
+// is untrusted model input and is never executed as a local command.
+type MCPPromptOperations interface {
+	ListPrompts(context.Context, domain.RunID, string) (MCPListPromptsResponse, error)
+	GetPrompt(context.Context, domain.RunID, MCPGetPromptRequest) (MCPGetPromptResponse, error)
 }
 
 type MCPOperations interface {

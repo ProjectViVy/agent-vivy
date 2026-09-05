@@ -194,6 +194,62 @@ type sidebarView struct {
 	LSP                []sidebarLSPView   `json:"lsp"`
 }
 
+type dynamicCommandView struct {
+	ID          string                       `json:"id"`
+	Kind        string                       `json:"kind"`
+	Name        string                       `json:"name"`
+	Usage       string                       `json:"usage"`
+	Description string                       `json:"description"`
+	Arguments   []dynamicCommandArgumentView `json:"arguments,omitempty"`
+}
+
+type dynamicCommandArgumentView struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type dynamicCommandsView struct {
+	Commands []dynamicCommandView `json:"commands"`
+}
+
+type dynamicCommandExpansionView struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+func (c *client) dynamicCommands(ctx context.Context) ([]surface.DynamicCommand, error) {
+	raw, err := c.Call(ctx, "commands/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	var view dynamicCommandsView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return nil, fmt.Errorf("tui: commands/list: %w", err)
+	}
+	out := make([]surface.DynamicCommand, 0, len(view.Commands))
+	for _, item := range view.Commands {
+		arguments := make([]surface.DynamicCommandArgument, 0, len(item.Arguments))
+		for _, argument := range item.Arguments {
+			arguments = append(arguments, surface.DynamicCommandArgument{Name: argument.Name, Description: argument.Description, Required: argument.Required})
+		}
+		out = append(out, surface.DynamicCommand{ID: item.ID, Kind: item.Kind, Name: item.Name, Usage: item.Usage, Description: item.Description, Arguments: arguments})
+	}
+	return out, nil
+}
+
+func (c *client) expandDynamicCommand(ctx context.Context, id string, args []string) (dynamicCommandExpansionView, error) {
+	raw, err := c.Call(ctx, "commands/expand", map[string]any{"id": id, "args": append([]string(nil), args...)})
+	if err != nil {
+		return dynamicCommandExpansionView{}, err
+	}
+	var view dynamicCommandExpansionView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return dynamicCommandExpansionView{}, fmt.Errorf("tui: commands/expand: %w", err)
+	}
+	return view, nil
+}
+
 type sidebarMCPView struct {
 	Name  string `json:"name"`
 	State string `json:"state"`

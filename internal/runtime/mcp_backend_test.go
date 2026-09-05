@@ -244,6 +244,114 @@ func TestEinoMCPBackendListsAndReadsResourcesJSON(t *testing.T) {
 	}
 }
 
+func TestEinoMCPBackendListsAndGetsPrompts(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+			Params struct {
+				Name      string            `json:"name"`
+				Arguments map[string]string `json:"arguments"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		methods = append(methods, request.Method)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{"listChanged":true}}}}`))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "prompts/list":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"prompts":[{"name":"review","title":"Review","description":"Review a change","arguments":[{"name":"focus","description":"review focus","required":true}]}]}}`))
+		case "prompts/get":
+			if request.Params.Name != "review" || request.Params.Arguments["focus"] != "security" {
+				t.Errorf("get params = %#v", request.Params)
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,"result":{"description":"expanded review","messages":[{"role":"user","content":{"type":"text","text":"Review security"}},{"role":"assistant","content":{"type":"text","text":"Check boundaries"}}]}}`))
+		default:
+			t.Errorf("unexpected MCP method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	listed, err := backend.ListPrompts(context.Background(), "", "docs")
+	if err != nil {
+		t.Fatalf("list prompts: %v", err)
+	}
+	if !listed.Untrusted || len(listed.Prompts) != 1 {
+		t.Fatalf("listed = %#v", listed)
+	}
+	prompt := listed.Prompts[0]
+	if prompt.Server != "docs" || prompt.Name != "review" || prompt.Title != "Review" || len(prompt.Arguments) != 1 || !prompt.Arguments[0].Required {
+		t.Fatalf("prompt = %#v", prompt)
+	}
+	expanded, err := backend.GetPrompt(context.Background(), "", tools.MCPGetPromptRequest{Server: "docs", Name: "review", Arguments: map[string]string{"focus": "security"}})
+	if err != nil {
+		t.Fatalf("get prompt: %v", err)
+	}
+	if !expanded.Untrusted || expanded.Text != "Review security" {
+		t.Fatalf("expanded = %#v", expanded)
+	}
+	if strings.Join(methods, ",") != "initialize,notifications/initialized,prompts/list,prompts/get" {
+		t.Fatalf("methods = %v", methods)
+	}
+}
+
+func TestEinoMCPBackendIgnoresNonUserPromptContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{}}}}`))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "prompts/get":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"messages":[{"role":"user","content":{"type":"image","data":"secret"}}]}}`))
+		}
+	}))
+	defer server.Close()
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	_, err := backend.GetPrompt(context.Background(), "", tools.MCPGetPromptRequest{Server: "docs", Name: "image"})
+	if err == nil || !strings.Contains(err.Error(), "no user text") {
+		t.Fatalf("non-text error = %v", err)
+	}
+}
+
+func TestEinoMCPBackendSkipsServerWithoutPromptCapability(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		methods = append(methods, request.Method)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}}}}`))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Errorf("unsupported server received %q", request.Method)
+		}
+	}))
+	defer server.Close()
+	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "tools-only", Endpoint: server.URL}}, server.Client())
+	listed, err := backend.ListPrompts(context.Background(), "", "")
+	if err != nil || len(listed.Prompts) != 0 || strings.Join(methods, ",") != "initialize,notifications/initialized" {
+		t.Fatalf("unsupported prompt catalog = %+v methods=%v err=%v", listed, methods, err)
+	}
+}
+
 func TestEinoMCPBackendParsesSSEResources(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {

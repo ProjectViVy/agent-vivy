@@ -1089,14 +1089,28 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 }
 
 type mcpCatalogStub struct {
-	listed       tools.MCPListResponse
-	listErr      error
-	resources    tools.MCPListResourcesResponse
-	resourcesErr error
-	read         tools.MCPReadResourceResponse
-	readErr      error
-	readRequest  tools.MCPReadResourceRequest
-	replaced     []runtime.MCPServerConfig
+	listed        tools.MCPListResponse
+	listErr       error
+	resources     tools.MCPListResourcesResponse
+	resourcesErr  error
+	read          tools.MCPReadResourceResponse
+	readErr       error
+	readRequest   tools.MCPReadResourceRequest
+	prompts       tools.MCPListPromptsResponse
+	promptsErr    error
+	prompt        tools.MCPGetPromptResponse
+	promptErr     error
+	promptRequest tools.MCPGetPromptRequest
+	replaced      []runtime.MCPServerConfig
+}
+
+func (s *mcpCatalogStub) ListPrompts(context.Context, domain.RunID, string) (tools.MCPListPromptsResponse, error) {
+	return s.prompts, s.promptsErr
+}
+
+func (s *mcpCatalogStub) GetPrompt(_ context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
+	s.promptRequest = request
+	return s.prompt, s.promptErr
 }
 
 func (s *mcpCatalogStub) ListTools(context.Context, domain.RunID, string) (tools.MCPListResponse, error) {
@@ -2159,11 +2173,18 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "references"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	doc := "---\nname: demo-skill\ndescription: A test skill\n---\n\nUse this carefully.\n"
+	doc := "---\nname: demo-skill\ndescription: A test skill\nuser-invocable: true\n---\n\nUse this carefully.\n"
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "references", "guide.md"), []byte("reference content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reservedDir := filepath.Join(root, "help")
+	if err := os.MkdirAll(reservedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reservedDir, "SKILL.md"), []byte("---\nname: help\ndescription: must not shadow static help\nuser-invocable: true\n---\nreserved\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	backend, err := runtime.NewEinoSkillBackend(root, env.backend)
@@ -2192,8 +2213,44 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 	if err := json.Unmarshal(listedJSON, &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Skills) != 1 || catalog.Skills[0].Name != "demo-skill" || catalog.Skills[0].Hash == "" {
+	if len(catalog.Skills) != 2 || catalog.Skills[0].Name != "demo-skill" || !catalog.Skills[0].UserInvocable || catalog.Skills[0].Hash == "" {
 		t.Fatalf("skills = %+v", catalog.Skills)
+	}
+
+	dynamicRaw, rpcErr := callControl(t, wired, "commands/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	dynamicJSON, _ := json.Marshal(dynamicRaw)
+	var dynamic struct {
+		Commands []dynamicCommandResult `json:"commands"`
+	}
+	if err := json.Unmarshal(dynamicJSON, &dynamic); err != nil {
+		t.Fatal(err)
+	}
+	if len(dynamic.Commands) != 1 || dynamic.Commands[0].ID != "skill:demo-skill" || dynamic.Commands[0].Name != "demo-skill" || dynamic.Commands[0].Kind != "skill" {
+		t.Fatalf("dynamic commands = %+v", dynamic.Commands)
+	}
+	expandedRaw, rpcErr := callControl(t, wired, "commands/expand", map[string]any{"id": "skill:demo-skill", "args": []string{"review this patch"}})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	expandedJSON, _ := json.Marshal(expandedRaw)
+	var expanded dynamicCommandExpansionResult
+	if err := json.Unmarshal(expandedJSON, &expanded); err != nil {
+		t.Fatal(err)
+	}
+	if expanded.ID != "skill:demo-skill" || !strings.Contains(expanded.Text, "Use this carefully") || !strings.Contains(expanded.Text, "review this patch") || strings.Contains(expanded.Text, root) {
+		t.Fatalf("dynamic expansion = %+v", expanded)
+	}
+	if _, rpcErr := callControl(t, wired, "commands/expand", map[string]string{"id": "skill:missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("missing dynamic command error = %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, wired, "commands/expand", map[string]string{"id": "skill:help"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("reserved static command expansion error = %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, wired, "commands/expand", map[string]any{"id": "skill:demo-skill", "args": []string{strings.Repeat("x", maxDynamicCommandArgs+1)}}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("oversized dynamic arguments error = %v", rpcErr)
 	}
 
 	viewed, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "demo-skill"})
@@ -2231,14 +2288,79 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 	if _, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
 		t.Fatalf("missing skill error = %v", rpcErr)
 	}
+	if _, err := backend.SetSkillEnabled(context.Background(), "demo-skill", false, catalog.Skills[0].Hash); err != nil {
+		t.Fatalf("disable dynamic skill: %v", err)
+	}
+	if _, rpcErr := callControl(t, wired, "commands/expand", map[string]string{"id": "skill:demo-skill"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("disabled dynamic command error = %v", rpcErr)
+	}
 
+	initResult, rpcErr := callControl(t, wired, "initialize", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(initResult)
+	if !containsFold(string(raw), "skills.list") || !containsFold(string(raw), "skills.get") || !containsFold(string(raw), "commands.list") || !containsFold(string(raw), "commands.expand") {
+		t.Fatalf("skills capabilities not advertised: %s", raw)
+	}
+}
+
+func TestControlHandlerMCPPromptCommands(t *testing.T) {
+	stub := &mcpCatalogStub{
+		prompts: tools.MCPListPromptsResponse{Untrusted: true, Prompts: []tools.MCPPrompt{{
+			Server: "docs server", Name: "review/change", Title: "Review", Description: "Review a change",
+			Arguments: []tools.MCPPromptArgument{{Name: "focus", Required: true}, {Name: "tone"}},
+		}}},
+		prompt: tools.MCPGetPromptResponse{Server: "docs server", Name: "review/change", Text: "Review the requested change", Untrusted: true},
+	}
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) { deps.MCP = stub })
+
+	listedRaw, rpcErr := callControl(t, env.handler, "commands/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listedJSON, _ := json.Marshal(listedRaw)
+	var listed struct {
+		Commands []dynamicCommandResult `json:"commands"`
+	}
+	if err := json.Unmarshal(listedJSON, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Commands) != 1 || listed.Commands[0].Kind != "mcp_prompt" || !strings.Contains(listed.Commands[0].Usage, "focus=<value>") || len(listed.Commands[0].Arguments) != 2 {
+		t.Fatalf("prompt commands = %+v", listed.Commands)
+	}
+	id := listed.Commands[0].ID
+	expanded, rpcErr := callControl(t, env.handler, "commands/expand", map[string]any{"id": id, "args": []string{"focus=security", "tone=brief"}})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if got := expanded.(dynamicCommandExpansionResult); got.ID != id || got.Text != "Review the requested change" {
+		t.Fatalf("expanded = %+v", got)
+	}
+	if stub.promptRequest.Server != "docs server" || stub.promptRequest.Name != "review/change" || stub.promptRequest.Arguments["focus"] != "security" {
+		t.Fatalf("prompt request = %+v", stub.promptRequest)
+	}
+	for label, args := range map[string][]string{
+		"missing":   nil,
+		"unknown":   {"focus=security", "other=value"},
+		"duplicate": {"focus=one", "focus=two"},
+		"syntax":    {"focus"},
+	} {
+		if _, rpcErr := callControl(t, env.handler, "commands/expand", map[string]any{"id": id, "args": args}); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("%s args error = %v", label, rpcErr)
+		}
+	}
+	stub.prompts.Prompts = nil
+	if _, rpcErr := callControl(t, env.handler, "commands/expand", map[string]any{"id": id, "args": []string{"focus=security"}}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("stale prompt error = %v", rpcErr)
+	}
 	initResult, rpcErr := callControl(t, env.handler, "initialize", nil)
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
 	raw, _ := json.Marshal(initResult)
-	if !containsFold(string(raw), "skills.list") || !containsFold(string(raw), "skills.get") {
-		t.Fatalf("skills capabilities not advertised: %s", raw)
+	if !containsFold(string(raw), "commands.list") || !containsFold(string(raw), "commands.expand") {
+		t.Fatalf("MCP prompt command capabilities not advertised: %s", raw)
 	}
 }
 

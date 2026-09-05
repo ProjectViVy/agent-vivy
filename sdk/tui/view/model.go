@@ -55,14 +55,26 @@ type Model struct {
 	sessionError       string
 	sessionRequest     uint64
 
-	commandOverlayTitle  string
-	commandOverlay       string
-	commandConfirmName   string
-	commandConfirmArgs   []string
-	commandConfirmSID    string
-	commandPaletteOpen   bool
-	commandPaletteFilter string
-	commandPaletteCursor int
+	commandOverlayTitle    string
+	commandOverlay         string
+	commandConfirmName     string
+	commandConfirmArgs     []string
+	commandConfirmSID      string
+	commandPaletteOpen     bool
+	commandPaletteFilter   string
+	commandPaletteCursor   int
+	commandCatalogRequest  uint64
+	commandCatalogLoading  bool
+	commandCatalogError    string
+	dynamicCommandRequest  uint64
+	dynamicCommandPending  bool
+	dynamicCommandID       string
+	dynamicCommandSession  string
+	dynamicCommandDraft    string
+	dynamicArgumentCommand *surface.DynamicCommand
+	dynamicArgumentValues  []string
+	dynamicArgumentCursor  int
+	dynamicArgumentError   string
 
 	modelPickerOpen      bool
 	modelPickerLoading   bool
@@ -170,6 +182,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.closeCommandPalette()
 		m.closeFileCompletion()
 		m.applyCommandResult(msg)
+	case surface.DynamicCommandsMsg:
+		if msg.Request == m.commandCatalogRequest {
+			m.commandCatalogLoading = false
+			if msg.Err != nil {
+				m.commandCatalogError = sanitizeCommandPaletteFilter(msg.Err.Error())
+			} else {
+				m.commandCatalogError = ""
+				m.commandPaletteCursor = 0
+			}
+		}
+	case surface.DynamicCommandExpandedMsg:
+		if msg.Request != m.dynamicCommandRequest || !m.dynamicCommandPending || msg.ID != m.dynamicCommandID || msg.SessionID != m.dynamicCommandSession {
+			break
+		}
+		retryDraft := m.dynamicCommandDraft
+		m.dynamicCommandPending = false
+		m.dynamicCommandID = ""
+		m.dynamicCommandSession = ""
+		m.dynamicCommandDraft = ""
+		if msg.SessionID == "" || msg.SessionID != m.driver.Active().ID {
+			m.input = retryDraft
+			m = m.showCommandError(fmt.Errorf("dynamic command was discarded after the active session changed"))
+			break
+		}
+		m.closeCommandPalette()
+		if msg.Err != nil {
+			m.input = retryDraft
+			m = m.showCommandError(msg.Err)
+		} else if strings.TrimSpace(msg.Text) == "" {
+			m.input = retryDraft
+			m = m.showCommandError(fmt.Errorf("dynamic command expanded to empty input"))
+		} else if cmd := m.driver.Send(msg.Text); cmd != nil {
+			m.chatFollow = true
+			cmds = append(cmds, cmd)
+		} else {
+			m = m.showCommandError(fmt.Errorf("dynamic command could not start a turn"))
+		}
 	case surface.ProjectFilesMsg:
 		m.applyProjectFilesMsg(msg)
 	case surface.ModelsMsg:
@@ -326,11 +375,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.commandPaletteOpen {
 		m.closeCommandPalette()
 	}
+	if gate != nil && m.dynamicArgumentCommand != nil {
+		m.clearDynamicArguments()
+	}
 	if gate != nil && m.fileCompletionOpen {
 		m.closeFileCompletion()
 	}
 	if gate != nil && m.modelPickerOpen {
 		m.closeModelPicker()
+	}
+	if gate == nil && m.dynamicCommandPending && msg.Type == tea.KeyEsc {
+		m.dynamicCommandRequest++
+		m.dynamicCommandPending = false
+		m.input = m.dynamicCommandDraft
+		m.dynamicCommandID = ""
+		m.dynamicCommandSession = ""
+		m.dynamicCommandDraft = ""
+		m.commandOverlayTitle = ""
+		m.commandOverlay = ""
+		m.closeCommandPalette()
+		return m, nil
 	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
@@ -353,6 +417,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if gate == nil && m.commandPaletteOpen {
 		return m.handleCommandPaletteKey(msg)
+	}
+	if gate == nil && m.dynamicArgumentCommand != nil {
+		return m.handleDynamicArgumentKey(msg)
 	}
 	if gate == nil && m.fileCompletionOpen {
 		return m.handleFileCompletionKey(msg)
@@ -405,7 +472,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openSessions()
 	case tea.KeyCtrlP:
 		if gate == nil {
-			m.openCommandPalette()
+			return m, m.openCommandPalette()
 		}
 		return m, nil
 	case tea.KeyCtrlL:
@@ -501,8 +568,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if text == "/" && m.input == "" && gate == nil {
-			m.openCommandPalette()
-			return m, nil
+			return m, m.openCommandPalette()
 		}
 		m.input += text
 		return m.refreshFileCompletion()
@@ -861,12 +927,24 @@ func (m Model) filteredProjectFiles() []surface.FileContext {
 	return rows
 }
 
-func (m *Model) openCommandPalette() {
+func (m *Model) openCommandPalette() tea.Cmd {
 	m.closeFileCompletion()
 	m.closeModelPicker()
 	m.commandPaletteOpen = true
 	m.commandPaletteFilter = ""
 	m.commandPaletteCursor = 0
+	m.commandCatalogError = ""
+	if refresher, ok := m.driver.(surface.DynamicCommandRefresher); ok {
+		if capabilities, reported := m.driver.(surface.CapabilityReporter); reported && (!capabilities.SupportsCapability("commands.list") || !capabilities.SupportsCapability("commands.expand")) {
+			m.commandCatalogLoading = false
+			return nil
+		}
+		m.commandCatalogRequest++
+		m.commandCatalogLoading = true
+		return refresher.RefreshDynamicCommands(m.commandCatalogRequest)
+	}
+	m.commandCatalogLoading = false
+	return nil
 }
 
 func (m Model) modelSelectionAvailable() bool {
@@ -1067,7 +1145,19 @@ func (m Model) handleCommandPaletteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		cursor := min(max(0, m.commandPaletteCursor), len(rows)-1)
-		m.input = "/" + rows[cursor].Name
+		name := rows[cursor].Name
+		_, dynamic := m.effectiveCommandRegistry()
+		if entry, ok := dynamic[name]; ok && len(entry.Arguments) > 0 {
+			copyEntry := entry
+			copyEntry.Arguments = append([]surface.DynamicCommandArgument(nil), entry.Arguments...)
+			m.dynamicArgumentCommand = &copyEntry
+			m.dynamicArgumentValues = make([]string, len(copyEntry.Arguments))
+			m.dynamicArgumentCursor = 0
+			m.dynamicArgumentError = ""
+			m.closeCommandPalette()
+			return m, nil
+		}
+		m.input = "/" + name
 		m.closeCommandPalette()
 		return m, nil
 	case tea.KeyRunes:
@@ -1086,6 +1176,67 @@ func (m Model) handleCommandPaletteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) clearDynamicArguments() {
+	m.dynamicArgumentCommand = nil
+	m.dynamicArgumentValues = nil
+	m.dynamicArgumentCursor = 0
+	m.dynamicArgumentError = ""
+}
+
+func (m Model) handleDynamicArgumentKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.dynamicArgumentCommand == nil || len(m.dynamicArgumentCommand.Arguments) == 0 {
+		m.clearDynamicArguments()
+		return m, nil
+	}
+	if msg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+	if msg.Type == tea.KeyEsc {
+		m.input = "/" + m.dynamicArgumentCommand.Name
+		m.clearDynamicArguments()
+		return m, nil
+	}
+	move := func(delta int) {
+		m.dynamicArgumentCursor = (m.dynamicArgumentCursor + delta) % len(m.dynamicArgumentValues)
+		if m.dynamicArgumentCursor < 0 {
+			m.dynamicArgumentCursor += len(m.dynamicArgumentValues)
+		}
+		m.dynamicArgumentError = ""
+	}
+	switch msg.Type {
+	case tea.KeyUp, tea.KeyShiftTab:
+		move(-1)
+	case tea.KeyDown, tea.KeyTab:
+		move(1)
+	case tea.KeyBackspace:
+		m.dynamicArgumentValues[m.dynamicArgumentCursor] = removeLastRune(m.dynamicArgumentValues[m.dynamicArgumentCursor])
+		m.dynamicArgumentError = ""
+	case tea.KeySpace:
+		m.dynamicArgumentValues[m.dynamicArgumentCursor] += " "
+	case tea.KeyRunes:
+		m.dynamicArgumentValues[m.dynamicArgumentCursor] += sanitizeCommandPaletteFilter(string(msg.Runes))
+		m.dynamicArgumentError = ""
+	case tea.KeyEnter, tea.KeyCtrlY:
+		args := make([]string, 0, len(m.dynamicArgumentValues))
+		for i, argument := range m.dynamicArgumentCommand.Arguments {
+			value := strings.TrimSpace(m.dynamicArgumentValues[i])
+			if argument.Required && value == "" {
+				m.dynamicArgumentCursor = i
+				m.dynamicArgumentError = argument.Name + " is required"
+				return m, nil
+			}
+			if value != "" {
+				args = append(args, argument.Name+"="+value)
+			}
+		}
+		entry := *m.dynamicArgumentCommand
+		raw := "/" + entry.Name + " " + strings.Join(args, " ")
+		m.clearDynamicArguments()
+		return m.dispatchCommand(&command.Invocation{Name: entry.Name, Args: args, Raw: strings.TrimSpace(raw)})
+	}
+	return m, nil
+}
+
 func (m *Model) moveCommandPaletteCursor(delta int) {
 	rows := m.filteredCommands()
 	if len(rows) == 0 {
@@ -1100,7 +1251,8 @@ func (m *Model) moveCommandPaletteCursor(delta int) {
 
 func (m Model) filteredCommands() []command.Spec {
 	needle := strings.ToLower(strings.TrimSpace(sanitizeCommandPaletteFilter(m.commandPaletteFilter)))
-	rows := commandRegistry.Specs()
+	registry, _ := m.effectiveCommandRegistry()
+	rows := registry.Specs()
 	if needle == "" {
 		return rows
 	}
@@ -1119,8 +1271,65 @@ func (m Model) filteredCommands() []command.Spec {
 	return filtered
 }
 
+func (m Model) effectiveCommandRegistry() (command.Registry, map[string]surface.DynamicCommand) {
+	specs := commandRegistry.Specs()
+	dynamic := make(map[string]surface.DynamicCommand)
+	provider, ok := m.driver.(surface.DynamicCommandProvider)
+	if !ok {
+		return commandRegistry, dynamic
+	}
+	for _, candidate := range provider.DynamicCommands() {
+		name := strings.ToLower(strings.TrimSpace(candidate.Name))
+		if !safeDynamicCommandName(name) || strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Kind) == "" {
+			continue
+		}
+		if _, reserved := commandRegistry.Lookup(name); reserved {
+			continue
+		}
+		if _, duplicate := dynamic[name]; duplicate {
+			continue
+		}
+		usage := safeDynamicCommandUsage(name, candidate.Usage)
+		description := strings.TrimSpace(sanitizeCommandPaletteFilter(candidate.Description))
+		specs = append(specs, command.Spec{Name: name, Usage: usage, Description: description})
+		candidate.Name = name
+		dynamic[name] = candidate
+	}
+	registry, err := command.NewRegistry(specs...)
+	if err != nil {
+		return commandRegistry, map[string]surface.DynamicCommand{}
+	}
+	return registry, dynamic
+}
+
+func safeDynamicCommandUsage(name, usage string) string {
+	usage = strings.TrimSpace(sanitizeCommandPaletteFilter(usage))
+	fields := strings.Fields(usage)
+	if len(fields) == 0 || fields[0] != "/"+name {
+		return "/" + name + " [request]"
+	}
+	return usage
+}
+
+func safeDynamicCommandName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r == '-' || r == '_' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func (m Model) submitInput() (Model, tea.Cmd) {
-	parsed, err := commandRegistry.Parse(m.input)
+	if m.dynamicCommandPending {
+		return m.showCommandError(fmt.Errorf("wait for the current dynamic command to finish expanding")), nil
+	}
+	registry, _ := m.effectiveCommandRegistry()
+	parsed, err := registry.Parse(m.input)
 	if err != nil {
 		// Keep malformed/unknown command text in the editor so the operator can
 		// dismiss the local error and correct it without retyping.
@@ -1174,7 +1383,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	if err := commandRegistry.Validate(parsed.Invocation); err != nil {
+	if err := registry.Validate(parsed.Invocation); err != nil {
 		return m.showCommandError(err), nil
 	}
 	m.input = ""
@@ -1185,7 +1394,8 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 	if invocation == nil {
 		return m.showCommandError(fmt.Errorf("missing command")), nil
 	}
-	spec, ok := commandRegistry.Lookup(invocation.Name)
+	registry, dynamic := m.effectiveCommandRegistry()
+	spec, ok := registry.Lookup(invocation.Name)
 	if !ok {
 		// Registry.Parse already performs this check. Keep the guard here so a
 		// future registry change cannot turn an unknown slash line into model
@@ -1194,6 +1404,29 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 	}
 	name := spec.Name
 	args := invocation.Args
+	if entry, ok := dynamic[name]; ok {
+		if capabilities, reported := m.driver.(surface.CapabilityReporter); reported && !capabilities.SupportsCapability("commands.expand") {
+			return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
+		}
+		executor, available := m.driver.(surface.DynamicCommandExecutor)
+		if !available {
+			return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
+		}
+		m.dynamicCommandRequest++
+		request := m.dynamicCommandRequest
+		sessionID := m.driver.Active().ID
+		if sessionID == "" {
+			return m.showCommandError(fmt.Errorf("dynamic command /%s requires an active session", name)), nil
+		}
+		if cmd := executor.ExecuteDynamicCommand(request, sessionID, entry.ID, append([]string(nil), args...)); cmd != nil {
+			m.dynamicCommandPending = true
+			m.dynamicCommandID = entry.ID
+			m.dynamicCommandSession = sessionID
+			m.dynamicCommandDraft = invocation.Raw
+			return m, cmd
+		}
+		return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
+	}
 	switch name {
 	case "help":
 		if len(args) != 0 {
@@ -1204,7 +1437,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		if capabilities, ok := m.driver.(surface.CapabilityReporter); ok {
 			shellSupported = capabilities.SupportsCapability("shell.start")
 		}
-		m.commandOverlay = commandRegistry.HelpFor(shellSupported)
+		m.commandOverlay = registry.HelpFor(shellSupported)
 		return m, nil
 	case "status":
 		if len(args) != 0 {

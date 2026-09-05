@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -11,10 +12,13 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/channelhost"
@@ -27,6 +31,7 @@ import (
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/tui/command"
 )
 
 var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
@@ -355,14 +360,40 @@ type skillGetParams struct {
 }
 
 type skillSummaryResult struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Context     string   `json:"context,omitempty"`
-	Agent       string   `json:"agent,omitempty"`
-	Model       string   `json:"model,omitempty"`
-	Enabled     bool     `json:"enabled"`
-	Hash        string   `json:"hash"`
-	Warnings    []string `json:"warnings"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Context       string   `json:"context,omitempty"`
+	Agent         string   `json:"agent,omitempty"`
+	Model         string   `json:"model,omitempty"`
+	UserInvocable bool     `json:"user_invocable,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	Hash          string   `json:"hash"`
+	Warnings      []string `json:"warnings"`
+}
+
+type dynamicCommandResult struct {
+	ID          string                         `json:"id"`
+	Kind        string                         `json:"kind"`
+	Name        string                         `json:"name"`
+	Usage       string                         `json:"usage"`
+	Description string                         `json:"description"`
+	Arguments   []dynamicCommandArgumentResult `json:"arguments,omitempty"`
+}
+
+type dynamicCommandArgumentResult struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type dynamicCommandExpandParams struct {
+	ID   string   `json:"id"`
+	Args []string `json:"args,omitempty"`
+}
+
+type dynamicCommandExpansionResult struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
 }
 
 type skillViewResult struct {
@@ -611,6 +642,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"stats.tokens",
 			"skills.list", "skills.get",
 		}
+		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
+		if h.deps.Skills != nil || hasMCPPrompts {
+			capabilities = append(capabilities, "commands.list", "commands.expand")
+		}
 		if h.deps.Marketplace != nil {
 			capabilities = append(capabilities, "skills.marketplace")
 		}
@@ -793,6 +828,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.getSkill(ctx, request)
 	case "skills/set-enabled":
 		return h.setSkillEnabled(ctx, request)
+	case "commands/list":
+		return h.listDynamicCommands(ctx)
+	case "commands/expand":
+		return h.expandDynamicCommand(ctx, request)
 	case "skills/revisions/list":
 		return h.listSkillRevisions(ctx)
 	case "skills/marketplace/search":
@@ -1239,6 +1278,355 @@ func (h *controlHandler) listSkills(ctx context.Context) (any, *Error) {
 	return map[string]any{"skills": out}, nil
 }
 
+const (
+	dynamicSkillCommandPrefix = "skill:"
+	dynamicMCPCommandPrefix   = "mcp:"
+	maxDynamicCommands        = 512
+	maxDynamicCommandMetadata = 128 << 10
+	maxDynamicCommandArgCount = 128
+	maxDynamicCommandArgs     = 16 << 10
+	maxDynamicCommandText     = 512 << 10
+)
+
+func (h *controlHandler) listDynamicCommands(ctx context.Context) (any, *Error) {
+	out := make([]dynamicCommandResult, 0)
+	seen := make(map[string]struct{})
+	metadataBytes := 0
+	appendCommand := func(item dynamicCommandResult) {
+		name := strings.ToLower(strings.TrimSpace(item.Name))
+		if len(out) >= maxDynamicCommands || !safeDynamicCommandName(name) || strings.TrimSpace(item.ID) == "" {
+			return
+		}
+		if _, reserved := command.DefaultRegistry().Lookup(name); reserved {
+			return
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return
+		}
+		item.Name = name
+		item.Description = sanitizeDynamicDisplayText(item.Description, 256)
+		item.Usage = sanitizeDynamicDisplayText(item.Usage, 1024)
+		projected := len(item.ID) + len(item.Kind) + len(item.Name) + len(item.Usage) + len(item.Description)
+		for _, argument := range item.Arguments {
+			projected += len(argument.Name) + len(argument.Description) + 1
+		}
+		if projected > maxDynamicCommandMetadata-metadataBytes {
+			return
+		}
+		seen[name] = struct{}{}
+		metadataBytes += projected
+		out = append(out, item)
+	}
+	if h.deps.Skills != nil {
+		items, err := h.deps.Skills.ListSkills(ctx, "")
+		if err != nil {
+			return nil, internalError(err)
+		}
+		for _, item := range items {
+			name := strings.ToLower(strings.TrimSpace(item.Name))
+			if !item.Enabled || !item.UserInvocable {
+				continue
+			}
+			appendCommand(dynamicCommandResult{ID: dynamicSkillCommandPrefix + name, Kind: "skill", Name: name, Usage: "/" + name + " [request]", Description: item.Description})
+		}
+	}
+	if promptOps, ok := h.deps.MCP.(tools.MCPPromptOperations); ok {
+		listed, err := promptOps.ListPrompts(ctx, "", "")
+		if err != nil {
+			return nil, internalError(err)
+		}
+		for _, prompt := range listed.Prompts {
+			if strings.TrimSpace(prompt.Server) == "" || strings.TrimSpace(prompt.Name) == "" || len(prompt.Server) > 256 || len(prompt.Name) > 256 {
+				continue
+			}
+			id := encodeMCPPromptCommandID(prompt.Server, prompt.Name)
+			name := mcpPromptCommandName(prompt.Server, prompt.Name)
+			arguments := make([]dynamicCommandArgumentResult, 0, min(len(prompt.Arguments), 64))
+			usage := "/" + name
+			validPrompt := true
+			for _, argument := range prompt.Arguments {
+				argumentName := strings.TrimSpace(argument.Name)
+				if !safeMCPPromptArgumentName(argumentName) || len(arguments) == 64 {
+					validPrompt = false
+					break
+				}
+				arguments = append(arguments, dynamicCommandArgumentResult{Name: argumentName, Description: sanitizeDynamicDisplayText(argument.Description, 256), Required: argument.Required})
+				if argument.Required {
+					usage += " " + argumentName + "=<value>"
+				} else {
+					usage += " [" + argumentName + "=<value>]"
+				}
+			}
+			if !validPrompt {
+				continue
+			}
+			description := prompt.Description
+			if strings.TrimSpace(prompt.Title) != "" {
+				description = prompt.Title + " — " + description
+			}
+			appendCommand(dynamicCommandResult{ID: id, Kind: "mcp_prompt", Name: name, Usage: usage, Description: description, Arguments: arguments})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	return map[string]any{"commands": out}, nil
+}
+
+func (h *controlHandler) expandDynamicCommand(ctx context.Context, request Request) (any, *Error) {
+	var params dynamicCommandExpandParams
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(params.ID)
+	if id == "" {
+		return nil, &Error{Code: InvalidParams, Message: "a valid dynamic command id is required"}
+	}
+	if err := validateDynamicCommandArgs(params.Args); err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if strings.HasPrefix(strings.ToLower(id), dynamicSkillCommandPrefix) {
+		return h.expandSkillCommand(ctx, id, params.Args)
+	}
+	if strings.HasPrefix(id, dynamicMCPCommandPrefix) {
+		return h.expandMCPPromptCommand(ctx, id, params.Args)
+	}
+	return nil, &Error{Code: InvalidParams, Message: "a valid dynamic command id is required"}
+}
+
+func (h *controlHandler) expandSkillCommand(ctx context.Context, id string, args []string) (any, *Error) {
+	if h.deps.Skills == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "skill commands are not configured"}
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(id), dynamicSkillCommandPrefix))
+	if !safeDynamicCommandName(name) {
+		return nil, &Error{Code: InvalidParams, Message: "a valid skill command id is required"}
+	}
+	if _, reserved := command.DefaultRegistry().Lookup(name); reserved {
+		return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+	}
+	items, err := h.deps.Skills.ListSkills(ctx, "")
+	if err != nil {
+		return nil, internalError(err)
+	}
+	matches := 0
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Name), name) && item.Enabled && item.UserInvocable {
+			name = item.Name
+			matches++
+		}
+	}
+	if matches != 1 {
+		return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+	}
+	view, err := h.deps.Skills.ViewSkill(ctx, "", name, "")
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !view.Enabled || !view.UserInvocable || !strings.EqualFold(strings.TrimSpace(view.Name), strings.TrimSpace(name)) {
+		return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+	}
+	arguments := strings.TrimSpace(strings.Join(args, " "))
+	var text strings.Builder
+	text.WriteString("Apply the explicitly invoked installed skill named ")
+	text.WriteString(strconv.Quote(name))
+	text.WriteString(".\n\nSkill instructions:\n")
+	text.WriteString(sanitizeDynamicModelText(view.Content))
+	if arguments != "" {
+		text.WriteString("\n\nUser request:\n")
+		text.WriteString(arguments)
+	}
+	if text.Len() > maxDynamicCommandText {
+		return nil, &Error{Code: InvalidParams, Message: "expanded dynamic command is too large"}
+	}
+	return dynamicCommandExpansionResult{ID: id, Text: text.String()}, nil
+}
+
+func (h *controlHandler) expandMCPPromptCommand(ctx context.Context, id string, args []string) (any, *Error) {
+	promptOps, ok := h.deps.MCP.(tools.MCPPromptOperations)
+	if !ok {
+		return nil, &Error{Code: MethodNotFound, Message: "MCP prompt commands are not configured"}
+	}
+	server, name, ok := decodeMCPPromptCommandID(id)
+	if !ok {
+		return nil, &Error{Code: InvalidParams, Message: "a valid MCP prompt command id is required"}
+	}
+	listed, err := promptOps.ListPrompts(ctx, "", server)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	var selected *tools.MCPPrompt
+	for i := range listed.Prompts {
+		if listed.Prompts[i].Server == server && listed.Prompts[i].Name == name {
+			if selected != nil {
+				return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+			}
+			selected = &listed.Prompts[i]
+		}
+	}
+	if selected == nil {
+		return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+	}
+	declared := make(map[string]tools.MCPPromptArgument, len(selected.Arguments))
+	for _, argument := range selected.Arguments {
+		if !safeMCPPromptArgumentName(argument.Name) {
+			return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+		}
+		if _, duplicate := declared[argument.Name]; duplicate {
+			return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
+		}
+		declared[argument.Name] = argument
+	}
+	values := make(map[string]string, len(args))
+	for _, token := range args {
+		argumentName, value, found := strings.Cut(token, "=")
+		if !found || strings.TrimSpace(argumentName) == "" {
+			return nil, &Error{Code: InvalidParams, Message: "MCP prompt arguments must use NAME=value"}
+		}
+		if _, known := declared[argumentName]; !known {
+			return nil, &Error{Code: InvalidParams, Message: "unknown MCP prompt argument " + strconv.Quote(argumentName)}
+		}
+		if _, duplicate := values[argumentName]; duplicate {
+			return nil, &Error{Code: InvalidParams, Message: "duplicate MCP prompt argument " + strconv.Quote(argumentName)}
+		}
+		values[argumentName] = value
+	}
+	for argumentName, argument := range declared {
+		if _, supplied := values[argumentName]; argument.Required && !supplied {
+			return nil, &Error{Code: InvalidParams, Message: "missing required MCP prompt argument " + strconv.Quote(argumentName)}
+		}
+	}
+	expanded, err := promptOps.GetPrompt(ctx, "", tools.MCPGetPromptRequest{Server: server, Name: name, Arguments: values})
+	if err != nil {
+		return nil, internalError(err)
+	}
+	text := sanitizeDynamicModelText(expanded.Text)
+	if strings.TrimSpace(text) == "" || len(text) > maxDynamicCommandText {
+		return nil, &Error{Code: InvalidParams, Message: "expanded dynamic command is empty or too large"}
+	}
+	return dynamicCommandExpansionResult{ID: id, Text: text}, nil
+}
+
+func validateDynamicCommandArgs(args []string) error {
+	if len(args) > maxDynamicCommandArgCount {
+		return errors.New("dynamic command has too many arguments")
+	}
+	total := 0
+	for i, argument := range args {
+		for _, char := range argument {
+			if unicode.IsControl(char) || char == '\u061c' || char == '\u200e' || char == '\u200f' || (char >= '\u202a' && char <= '\u202e') || (char >= '\u2066' && char <= '\u2069') {
+				return errors.New("dynamic command arguments contain unsafe control characters")
+			}
+		}
+		total += len(argument)
+		if i > 0 {
+			total++
+		}
+	}
+	if total > maxDynamicCommandArgs {
+		return errors.New("dynamic command arguments are too large")
+	}
+	return nil
+}
+
+func safeDynamicCommandName(name string) bool {
+	if name == "" || len(name) > 96 {
+		return false
+	}
+	for _, char := range name {
+		if char == '-' || char == '_' || char >= 'a' && char <= 'z' || char >= '0' && char <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func safeMCPPromptArgumentName(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	for _, char := range name {
+		if char == '-' || char == '_' || char == '.' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func sanitizeDynamicDisplayText(value string, limit int) string {
+	return strings.TrimSpace(boundedUTF8(sanitizeDynamicModelText(value), limit))
+}
+
+func sanitizeDynamicModelText(value string) string {
+	var out strings.Builder
+	for _, char := range value {
+		if (unicode.IsControl(char) && char != '\n' && char != '\t') || char == '\u061c' || char == '\u200e' || char == '\u200f' || (char >= '\u202a' && char <= '\u202e') || (char >= '\u2066' && char <= '\u2069') {
+			continue
+		}
+		out.WriteRune(char)
+	}
+	return out.String()
+}
+
+func boundedUTF8(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	value = value[:limit]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
+}
+
+func encodeMCPPromptCommandID(server, name string) string {
+	return dynamicMCPCommandPrefix + base64.RawURLEncoding.EncodeToString([]byte(server)) + ":" + base64.RawURLEncoding.EncodeToString([]byte(name))
+}
+
+func decodeMCPPromptCommandID(id string) (string, string, bool) {
+	parts := strings.Split(strings.TrimPrefix(id, dynamicMCPCommandPrefix), ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	server, errServer := base64.RawURLEncoding.DecodeString(parts[0])
+	name, errName := base64.RawURLEncoding.DecodeString(parts[1])
+	if errServer != nil || errName != nil || len(server) > 256 || len(name) > 256 || strings.TrimSpace(string(server)) == "" || strings.TrimSpace(string(name)) == "" || sanitizeDynamicModelText(string(server)) != string(server) || sanitizeDynamicModelText(string(name)) != string(name) {
+		return "", "", false
+	}
+	return string(server), string(name), true
+}
+
+func mcpPromptCommandName(server, name string) string {
+	slug := func(value string) string {
+		var out strings.Builder
+		for _, char := range strings.ToLower(value) {
+			if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' {
+				out.WriteRune(char)
+			} else if out.Len() > 0 && !strings.HasSuffix(out.String(), "-") {
+				out.WriteByte('-')
+			}
+			if out.Len() >= 20 {
+				break
+			}
+		}
+		return strings.Trim(out.String(), "-")
+	}
+	digest := sha256.Sum256([]byte(server + "\x00" + name))
+	serverSlug, nameSlug := slug(server), slug(name)
+	if serverSlug == "" {
+		serverSlug = "server"
+	}
+	if nameSlug == "" {
+		nameSlug = "prompt"
+	}
+	return "mcp-" + serverSlug + "-" + nameSlug + "-" + hex.EncodeToString(digest[:4])
+}
+
 func (h *controlHandler) getSkill(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.Skills == nil {
 		return nil, &Error{Code: MethodNotFound, Message: "skills backend is not configured"}
@@ -1267,7 +1655,8 @@ func toSkillSummaryResult(item tools.SkillSummary) skillSummaryResult {
 	}
 	return skillSummaryResult{
 		Name: item.Name, Description: item.Description, Context: item.Context,
-		Agent: item.Agent, Model: item.Model, Enabled: item.Enabled, Hash: item.Hash, Warnings: warnings,
+		Agent: item.Agent, Model: item.Model, UserInvocable: item.UserInvocable,
+		Enabled: item.Enabled, Hash: item.Hash, Warnings: warnings,
 	}
 }
 

@@ -190,7 +190,7 @@ func TestEinoSkillBackendDeclaredTools(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	doc := "---\nname: tooled-skill\ndescription: Declares tools\ntools:\n  - list_dir\n  - read_file\n---\n\nBody.\n"
+	doc := "---\nname: tooled-skill\ndescription: Declares tools\nuser-invocable: true\ntools:\n  - list_dir\n  - read_file\n---\n\nBody.\n"
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(doc), 0o600); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestEinoSkillBackendDeclaredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(items) != 1 || !reflect.DeepEqual(items[0].Tools, []string{"list_dir", "read_file"}) {
+	if len(items) != 1 || !items[0].UserInvocable || !reflect.DeepEqual(items[0].Tools, []string{"list_dir", "read_file"}) {
 		t.Fatalf("summary tools = %+v", items)
 	}
 
@@ -214,8 +214,8 @@ func TestEinoSkillBackendDeclaredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if !strings.Contains(string(data), "tools:") || !strings.Contains(string(data), "list_dir") {
-		t.Fatalf("re-rendered document lost the tools declaration:\n%s", data)
+	if !strings.Contains(string(data), "tools:") || !strings.Contains(string(data), "list_dir") || !strings.Contains(string(data), "user-invocable: true") {
+		t.Fatalf("re-rendered document lost a command/tool declaration:\n%s", data)
 	}
 }
 
