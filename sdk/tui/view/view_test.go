@@ -340,7 +340,6 @@ func (d *testDriver) ActiveMessages() []surface.Message {
 func (d *testDriver) PendingGate() *surface.Gate { return d.gate }
 func (d *testDriver) Meta() surface.Meta {
 	meta := d.meta
-	meta.Mode = "test"
 	meta.Busy = meta.Busy || d.busy
 	return meta
 }
@@ -421,26 +420,49 @@ func (d *testDriver) DeleteSession(id string) tea.Cmd {
 	return func() tea.Msg { return surface.SessionsMsg{Action: "delete", ID: id} }
 }
 
-// bareDriver deliberately implements only the required surface.Driver. It
-// verifies that the shared view fails closed when a packed/custom driver has
-// not opted into session mutations yet.
-type bareDriver struct{ inner *testDriver }
-
-func (d *bareDriver) Sessions() []surface.Session       { return d.inner.Sessions() }
-func (d *bareDriver) Active() surface.Session           { return d.inner.Active() }
-func (d *bareDriver) ActiveMessages() []surface.Message { return nil }
-func (d *bareDriver) PendingGate() *surface.Gate        { return nil }
-func (d *bareDriver) Meta() surface.Meta                { return d.inner.Meta() }
-func (d *bareDriver) Init() tea.Cmd                     { return nil }
-func (d *bareDriver) Handle(tea.Msg) tea.Cmd            { return nil }
-func (d *bareDriver) MoveSession(int) tea.Cmd           { return nil }
-func (d *bareDriver) NewSession(string) tea.Cmd         { return nil }
-func (d *bareDriver) Send(string) tea.Cmd               { return nil }
-func (d *bareDriver) DecideApproval(string) tea.Cmd     { return nil }
-func (d *bareDriver) AnswerQuestion(string) tea.Cmd     { return nil }
-func (d *bareDriver) SetPermission(string) tea.Cmd      { return nil }
-func (d *bareDriver) ClearQueue() bool                  { return false }
-func (d *bareDriver) Cancel() tea.Cmd                   { return nil }
+func (d *testDriver) ExecuteCommand(name string, args []string) tea.Cmd {
+	switch name {
+	case "new":
+		return d.NewSession(strings.TrimSpace(strings.Join(args, " ")))
+	case "session":
+		if len(args) > 0 {
+			return d.SelectSession(args[0])
+		}
+	case "rename":
+		if active := d.Active(); active.ID != "" {
+			return d.RenameSession(active.ID, strings.TrimSpace(strings.Join(args, " ")))
+		}
+	case "cancel":
+		return d.Cancel()
+	case "queue":
+		d.ClearQueue()
+	case "permission":
+		preset := ""
+		if len(args) > 0 {
+			preset = args[0]
+		}
+		return d.SetPermission(preset)
+	}
+	return nil
+}
+func (*testDriver) DynamicCommands() []surface.DynamicCommand { return nil }
+func (*testDriver) RefreshDynamicCommands(uint64) tea.Cmd     { return nil }
+func (*testDriver) ExecuteDynamicCommand(uint64, string, string, []string) tea.Cmd {
+	return nil
+}
+func (*testDriver) SupportsModelSelection() bool       { return false }
+func (*testDriver) ModelCatalog() surface.ModelCatalog { return surface.ModelCatalog{} }
+func (*testDriver) RefreshModels(uint64) tea.Cmd       { return nil }
+func (*testDriver) SelectModel(uint64, surface.ModelOption) tea.Cmd {
+	return nil
+}
+func (*testDriver) PendingAttachments() []surface.Attachment { return nil }
+func (*testDriver) SendWithContext(string, []string) tea.Cmd { return nil }
+func (*testDriver) CompleteProjectFiles(uint64, string) tea.Cmd {
+	return nil
+}
+func (*testDriver) ExecuteShell(string) tea.Cmd    { return nil }
+func (*testDriver) SupportsCapability(string) bool { return false }
 
 func TestComputeLayoutUsesBothCrushBreakpoints(t *testing.T) {
 	for _, tc := range []struct {
@@ -1067,7 +1089,7 @@ func TestSessionsDialogDeleteConfirmAndBusyRefusal(t *testing.T) {
 	}
 }
 
-func TestSessionsDialogCancelAndMissingControllerAreSafe(t *testing.T) {
+func TestSessionsDialogCancelIsSafe(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current"}},
 		active:   "active",
@@ -1083,18 +1105,5 @@ func TestSessionsDialogCancelAndMissingControllerAreSafe(t *testing.T) {
 	m = updated.(Model)
 	if m.sessionRenaming || m.sessionRenameInput != "" {
 		t.Fatal("escape did not cancel rename")
-	}
-
-	bare := &bareDriver{inner: &testDriver{
-		sessions: []surface.Session{{ID: "active", Title: "Current"}},
-		active:   "active",
-	}}
-	m = New(bare)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
-	m = updated.(Model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(Model)
-	if !m.sessionsOpen || !strings.Contains(m.sessionError, "unavailable") {
-		t.Fatalf("missing controller was not handled safely: open=%v err=%q", m.sessionsOpen, m.sessionError)
 	}
 }

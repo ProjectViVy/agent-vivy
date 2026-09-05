@@ -1,4 +1,4 @@
-package tui
+package live
 
 import (
 	"context"
@@ -12,20 +12,16 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tui/surface"
 	"agent-vivy/sdk/tui/command"
 	"agent-vivy/sdk/tui/stream"
+	"agent-vivy/sdk/tui/surface"
 )
 
-// Live is a surface.Driver backed by a control-plane Client.
+// Live is a surface.Driver backed by a control-plane client.
 type Live struct {
-	client         *Client
-	host           string
-	title          string
-	face           string
-	initialPrompt  string
-	continueNewest bool
+	client *client
+	host   string
+	title  string
 
 	mu sync.Mutex
 
@@ -52,13 +48,16 @@ type Live struct {
 	gate    *surface.Gate
 	lastErr string
 	queue   []queuedTurn
-	// drafts is keyed by session id so switching/new sessions cannot carry
-	// unsent image chips into another conversation.
+	// drafts is keyed by session id so unsent image chips cannot cross a
+	// session switch. Values contain metadata only; bytes stay server-side.
 	drafts           map[string][]surface.Attachment
 	thinkingMode     string
 	commandInFlight  bool
 	completionReq    uint64
 	completionCancel context.CancelFunc
+
+	initialPrompt  string
+	continueNewest bool
 
 	seq int
 	// cursor is the shared durable stream reducer state. The local fields
@@ -90,29 +89,46 @@ type queuedTurn struct {
 	ShellScript  string
 }
 
-// LiveOptions configure one live fullscreen session.
-type LiveOptions struct {
-	Host           string
-	Title          string
-	Face           string
+// Options configure one live fullscreen session.
+type Options struct {
+	Host  string
+	Title string
+	// InitialPrompt mirrors `vivy run "prompt"`: when set, the first turn
+	// starts automatically after boot. ContinueNewest attaches that turn
+	// to the most recent session; otherwise a fresh session is created.
 	InitialPrompt  string
 	ContinueNewest bool
 }
 
-// NewLive wraps a connected client. Call Init from the Bubble Tea model.
-func NewLive(client *Client, opts LiveOptions) *Live {
+// New initializes the control-plane protocol and creates the one shared TUI
+// state machine. Call Init from the Bubble Tea model after this succeeds.
+func New(parent context.Context, transport Transport, opts Options) (*Live, error) {
+	if transport == nil {
+		return nil, errors.New("tui: client is not connected")
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	client := newClient(transport)
+	initialized, err := client.Call(parent, "initialize", nil)
+	if err != nil {
+		return nil, fmt.Errorf("tui: initialize: %w", err)
+	}
+	if err := client.setCapabilities(initialized); err != nil {
+		return nil, fmt.Errorf("tui: initialize capabilities: %w", err)
+	}
+	return newLive(parent, client, opts), nil
+}
+
+func newLive(parent context.Context, client *client, opts Options) *Live {
 	if opts.Title == "" {
-		opts.Title = "VIVY CODE"
+		opts.Title = "TUI"
 	}
-	if strings.TrimSpace(opts.Face) == "" {
-		opts.Face = string(domain.FaceCode)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	l := &Live{
 		client:         client,
 		host:           strings.TrimSpace(opts.Host),
 		title:          opts.Title,
-		face:           opts.Face,
 		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
 		continueNewest: opts.ContinueNewest,
 		messages:       map[string][]surface.Message{},
@@ -186,9 +202,8 @@ func (l *Live) Active() surface.Session {
 	return surface.Session{}
 }
 
-// Sidebar implements surface.SidebarProvider. The snapshot contains only
-// facts returned by the control plane for the active session; unavailable
-// sections stay absent instead of being inferred from process state.
+// Sidebar implements surface.SidebarProvider. Only active-session facts and
+// server-reported context pressure are exposed to the shared renderer.
 func (l *Live) Sidebar() surface.Sidebar {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -220,8 +235,8 @@ func (l *Live) ActiveMessages() []surface.Message {
 	return append([]surface.Message(nil), l.messages[l.activeID]...)
 }
 
-// PendingAttachments implements surface.AttachmentProvider. Only metadata
-// returned by attachments/resolve is exposed to the renderer.
+// PendingAttachments implements surface.AttachmentProvider. Only resolver
+// metadata is exposed to the shared packed-face renderer.
 func (l *Live) PendingAttachments() []surface.Attachment {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -264,7 +279,6 @@ func (l *Live) Meta() surface.Meta {
 		footer += fmt.Sprintf(" · queued %d", queued)
 	}
 	return surface.Meta{
-		Mode:   "live",
 		Host:   l.host,
 		Busy:   l.busy,
 		Queued: queued,
@@ -315,8 +329,8 @@ type liveSidebarMsg struct {
 	Err       error
 }
 
-// liveTurnStartedMsg is returned after turn/start. Subscription starts after
-// Handle installs run ownership, so replay cannot race the new run.
+// liveTurnStartedMsg is returned after turn/start. Subscription happens only
+// after Handle installs run ownership, so replayed events cannot win the race.
 type liveTurnStartedMsg struct {
 	SessionID    string
 	UserText     string
@@ -391,6 +405,7 @@ func (l *Live) bootCmd() tea.Cmd {
 			if err != nil {
 				return liveBootMsg{Err: err}
 			}
+			// Newest first, matching session/list ordering.
 			out = append([]surface.Session{mapSessionView(created)}, out...)
 			activeID = created.ID
 		} else {
@@ -425,6 +440,16 @@ func (l *Live) bootCmd() tea.Cmd {
 		}
 		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot, SidebarErr: sidebarErr, Commands: commands, CommandErr: commandErr}
 	}
+}
+
+// trimTitle mirrors the headless face's session title rule: the prompt,
+// trimmed to 60 runes with an ellipsis when cut.
+func trimTitle(prompt string) string {
+	runes := []rune(strings.TrimSpace(prompt))
+	if len(runes) > 60 {
+		return string(runes[:60]) + "..."
+	}
+	return string(runes)
 }
 
 // Handle implements surface.Driver.
@@ -584,6 +609,7 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 		l.initialPrompt = ""
 	}
 	l.mu.Unlock()
+	// Send locks l.mu itself; call it outside the critical section.
 	if autoSend != "" {
 		return l.Send(autoSend)
 	}
@@ -646,14 +672,6 @@ func restoreFileInputCmd(text string, paths []string) tea.Cmd {
 		retry += " " + command.FormatFileReference(path)
 	}
 	return func() tea.Msg { return surface.RestoreInputMsg{Text: retry} }
-}
-
-func trimTitle(prompt string) string {
-	runes := []rune(strings.TrimSpace(prompt))
-	if len(runes) > 60 {
-		return string(runes[:60]) + "..."
-	}
-	return string(runes)
 }
 
 func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
@@ -742,7 +760,7 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 		// Keep the optimistic user bubble; append an error assistant line.
 		l.appendLocked(surface.Message{
 			ID:      l.nextID("err"),
-			Role:    string(domain.RoleAssistant),
+			Role:    roleAssistant,
 			Content: "turn failed: " + shortErr(msg.Err),
 		})
 		l.mu.Unlock()
@@ -752,11 +770,11 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 		return nil
 	}
 	if len(msg.FileContexts) > 0 {
-		// The resolver's metadata is authoritative for the optimistic user
-		// bubble. The body itself never enters the TUI state.
+		// Only resolver metadata is copied into the optimistic history bubble;
+		// file bodies never enter the packed face.
 		messages := l.messages[l.activeID]
 		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == string(domain.RoleUser) && messages[i].Content == msg.UserText {
+			if messages[i].Role == roleUser && messages[i].Content == msg.UserText {
 				messages[i].FileContexts = cloneFileContexts(msg.FileContexts)
 				break
 			}
@@ -824,9 +842,8 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 		}
 		return nil
 	}
-	// A newer subscription (or the original live stream) may already have
-	// advanced the durable cursor while this RPC result was in flight.
-	// Do not let that stale failure cancel a healthy run.
+	// Ignore a stale subscription failure once a newer stream has already
+	// advanced beyond the cursor requested by that call.
 	if l.cursor.LastSeq > msg.AfterSeq {
 		if msg.Recovery {
 			l.recoveryInFlight = false
@@ -1186,8 +1203,7 @@ func (l *Live) dequeueCmd() tea.Cmd {
 	turn := l.queue[0]
 	if turn.SessionID != "" && turn.SessionID != l.activeID {
 		// Keep the complete queued turn (text and image snapshot) in place
-		// until its originating session is active again. Dropping only the
-		// image draft here would silently lose the user's queued text.
+		// until its originating session is active again; never retarget it.
 		l.mu.Unlock()
 		return nil
 	}
@@ -1332,8 +1348,7 @@ func (l *Live) NewSession(title string) tea.Cmd {
 	}
 }
 
-// RefreshSessions implements surface.SessionController. It backs the
-// independent Ctrl+S dialog with a fresh session/list snapshot.
+// RefreshSessions implements surface.SessionController.
 func (l *Live) RefreshSessions() tea.Cmd {
 	l.mu.Lock()
 	l.sessionRequest++
@@ -1392,9 +1407,7 @@ func (l *Live) RenameSession(id, title string) tea.Cmd {
 	}
 }
 
-// DeleteSession implements surface.SessionController. The active session is
-// protected while a run is in flight; the view also performs this check before
-// opening confirmation so the refusal is visible without a round trip.
+// DeleteSession implements surface.SessionController.
 func (l *Live) DeleteSession(id string) tea.Cmd {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1688,10 +1701,9 @@ func (l *Live) Send(text string) tea.Cmd {
 	return l.sendWithAttachments(text, thinking, attachments, true)
 }
 
-// SendWithContext implements surface.ContextSender. Paths are untrusted
-// parser hints; the command resolves metadata through the control plane and
-// sends the same paths again in turn/start so the server can revalidate at
-// the RunWithOptions boundary.
+// SendWithContext implements surface.ContextSender. The packed face has no
+// filesystem grant; it forwards untrusted project-relative hints to the
+// control plane for metadata resolution and turn-time revalidation.
 func (l *Live) SendWithContext(text string, paths []string) tea.Cmd {
 	l.mu.Lock()
 	thinking := l.thinkingMode
@@ -1700,10 +1712,9 @@ func (l *Live) SendWithContext(text string, paths []string) tea.Cmd {
 	return l.sendWithAttachmentsAndContext(text, thinking, attachments, paths, true)
 }
 
-// CompleteProjectFiles implements surface.ProjectFileCompleter using only the
-// control-plane project-context catalog. Query filtering happens server-side
-// before the result cap, and the shared view applies the same filter again to
-// treat every returned path as untrusted metadata.
+// CompleteProjectFiles implements surface.ProjectFileCompleter using the
+// control-plane project-context catalog; the packed face never scans the host
+// filesystem independently.
 func (l *Live) CompleteProjectFiles(request uint64, query string) tea.Cmd {
 	return func() tea.Msg {
 		if !l.SupportsCapability("project-context.list") {
@@ -1772,7 +1783,7 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments 
 	}
 	l.appendLocked(surface.Message{
 		ID:          l.nextID("user"),
-		Role:        string(domain.RoleUser),
+		Role:        roleUser,
 		Content:     text,
 		Attachments: cloneAttachments(attachments),
 	})
@@ -1790,7 +1801,7 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments 
 				return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, Err: err}
 			}
 		}
-		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, l.face, thinking, attachments, contextPaths)
+		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, attachments, contextPaths)
 		if err != nil {
 			return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts), Err: err}
 		}
@@ -1798,9 +1809,8 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments 
 	}
 }
 
-// ExecuteShell implements surface.ShellExecutor. It only requests the
-// server-owned shell/start operation; no local process or command backend is
-// reachable from this face.
+// ExecuteShell implements surface.ShellExecutor and only requests the
+// server-owned shell/start route. A packed face never starts a local process.
 func (l *Live) ExecuteShell(script string) tea.Cmd {
 	if !l.SupportsCapability("shell.start") {
 		return func() tea.Msg { return surface.ErrMsg{Err: errors.New("governed shell is unavailable")} }
@@ -1831,11 +1841,7 @@ func (l *Live) sendShell(script string) tea.Cmd {
 		l.mu.Unlock()
 		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
-	l.appendLocked(surface.Message{
-		ID:      l.nextID("user"),
-		Role:    string(domain.RoleUser),
-		Content: "!" + script,
-	})
+	l.appendLocked(surface.Message{ID: l.nextID("user"), Role: roleUser, Content: "!" + script})
 	l.busy = true
 	l.mu.Unlock()
 	return func() tea.Msg {
@@ -1922,10 +1928,9 @@ func (l *Live) AnswerQuestion(answer string) tea.Cmd {
 	}
 }
 
-// SetPermission persists the active session's cautious/smart/trusted bundle.
 func (l *Live) SetPermission(preset string) tea.Cmd {
 	preset = strings.TrimSpace(preset)
-	if !domain.PermissionPreset(preset).ValidSwitch() {
+	if preset != "cautious" && preset != "smart" && preset != "trusted" {
 		return nil
 	}
 	l.mu.Lock()
@@ -1950,9 +1955,9 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 	}
 }
 
-// ExecuteCommand implements surface.CommandExecutor. The shared fullscreen
-// view owns parsing and presentation; this adapter only translates validated
-// command names into the live driver's existing authoritative operations.
+// ExecuteCommand implements surface.CommandExecutor. Parsing and the local
+// command overlay live in the shared SDK view; this method only maps the
+// validated command to the face's existing control-plane operations.
 func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
@@ -2110,6 +2115,15 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	}
 }
 
+func commandMutates(name string) bool {
+	switch name {
+	case "new", "session", "rename", "delete", "permission", "compact", "fork", "rewind":
+		return true
+	default:
+		return false
+	}
+}
+
 func (l *Live) executeImageCommand(args []string) tea.Cmd {
 	if len(args) == 1 && strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
 		l.mu.Lock()
@@ -2146,23 +2160,22 @@ func (l *Live) executeImageCommand(args []string) tea.Cmd {
 	}
 	l.mu.Lock()
 	sessionID := l.activeID
-	contextKnown := l.sidebar.HasContext && l.sidebar.Context.ImageSupportKnown
-	imageSupported := contextKnown && l.sidebar.Context.ImageSupported
+	known := l.sidebar.HasContext && l.sidebar.Context.ImageSupportKnown
+	supported := known && l.sidebar.Context.ImageSupported
 	l.mu.Unlock()
 	if sessionID == "" {
 		return commandResultCmd("image", "", errors.New("no active session"))
 	}
-	if !contextKnown {
+	if !known {
 		return commandResultCmd("image", "", errors.New("image attachments are unavailable until model image support is known"))
 	}
-	if !imageSupported {
+	if !supported {
 		return commandResultCmd("image", "", errors.New("the active model does not support image attachments"))
 	}
-	path := args[0]
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
-		attachments, err := l.client.resolveAttachments(ctx, []string{path})
+		attachments, err := l.client.resolveAttachments(ctx, []string{args[0]})
 		return liveAttachmentResolvedMsg{SessionID: sessionID, Attachments: attachments, Err: err}
 	}
 }
@@ -2187,15 +2200,6 @@ func (l *Live) applyAttachmentResolved(msg liveAttachmentResolvedMsg) tea.Cmd {
 	l.drafts[msg.SessionID] = append(l.drafts[msg.SessionID], cloneAttachments(msg.Attachments)...)
 	l.lastErr = ""
 	return nil
-}
-
-func commandMutates(name string) bool {
-	switch name {
-	case "new", "session", "rename", "delete", "permission", "compact", "fork", "rewind":
-		return true
-	default:
-		return false
-	}
 }
 
 func (l *Live) commandSessionID() (string, bool) {
@@ -2266,6 +2270,34 @@ func (l *Live) Cancel() tea.Cmd {
 	}
 }
 
+// Shutdown closes a run that is still active when the terminal exits. It is
+// shared by every launcher so quitting cannot leave different durable state
+// depending on how the same TUI was packaged.
+func (l *Live) Shutdown() {
+	meta := l.Meta()
+	if !meta.Busy || meta.RunID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = l.client.cancelRun(ctx, meta.RunID)
+	for i := 0; i < 50; i++ {
+		status, err := l.client.runStatus(ctx, meta.RunID)
+		if err != nil {
+			return
+		}
+		switch status {
+		case "completed", "cancelled", "failed":
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 func mapHistory(msgs []messageView) []surface.Message {
 	out := make([]surface.Message, 0, len(msgs))
 	toolIndexes := make(map[string]int)
@@ -2319,6 +2351,13 @@ func cloneFileContexts(in []surface.FileContext) []surface.FileContext {
 	out := make([]surface.FileContext, len(in))
 	copy(out, in)
 	return out
+}
+
+func mergedFileContexts(m messageView) []surface.FileContext {
+	if len(m.FileContexts) > 0 {
+		return m.FileContexts
+	}
+	return m.ContextFiles
 }
 
 func cloneStrings(in []string) []string {

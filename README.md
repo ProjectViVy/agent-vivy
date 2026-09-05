@@ -74,10 +74,11 @@ you need the packaged headless backend and standalone static UI.
 ## Layout
 
 ```text
-cmd/vivy/          species entrypoint (daily gateway + worker + compatibility `tui` client)
+cmd/vivy/          species entrypoint (daily gateway + worker + fullscreen `tui` command)
 cmd/vivy-code/     independent VIVY CODE binary; shared config, private Journal per launch
 sdk/               vivy-sdk binary (verify/pack); invoked by Studio, not by vivy.exe
 sdk/plugin/        author import window
+sdk/tui/           canonical fullscreen TUI view, controller, protocol projection, and tests
 internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)
 internal/domain/   Vivy-owned Session/Message/Run/RunEvent/... contract types
@@ -87,7 +88,7 @@ internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
 internal/rpc/      UI-facing command/query/event JSON-RPC control plane
-internal/tui/      TTY face: `--demo` Crush-style offline shell; `--plain` RPC REPL
+internal/tui/      remote WebSocket transport for `vivy tui --live`
 schemas/           RunEvent JSON Schema, provider bundle schema
 fixtures/          provider / event / recovery fixtures
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)

@@ -1,4 +1,4 @@
-package tui
+package live
 
 import (
 	"context"
@@ -6,10 +6,70 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
-	"agent-vivy/internal/domain"
-	"agent-vivy/internal/tui/surface"
+	"agent-vivy/sdk/tui/surface"
 )
+
+// Transport is the complete authority available to the shared TUI client.
+// Implementations may be an in-process FaceEnv or a remote JSON-RPC peer.
+type Transport interface {
+	Call(context.Context, string, any) (json.RawMessage, error)
+	OnNotify(func(method string, params json.RawMessage))
+}
+
+// client owns the protocol projection shared by every first-party TUI entry.
+type client struct {
+	transport Transport
+
+	mu   sync.RWMutex
+	caps map[string]struct{}
+}
+
+func (c *client) setCapabilities(raw json.RawMessage) error {
+	var envelope struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.caps = make(map[string]struct{}, len(envelope.Capabilities))
+	for _, capability := range envelope.Capabilities {
+		c.caps[capability] = struct{}{}
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *client) SupportsCapability(name string) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.caps[name]
+	return ok
+}
+
+func newClient(transport Transport) *client {
+	return &client{transport: transport}
+}
+
+// OnNotify registers the callback for server notifications (run/event).
+func (c *client) OnNotify(fn func(method string, params json.RawMessage)) {
+	if c != nil && c.transport != nil {
+		c.transport.OnNotify(fn)
+	}
+}
+
+// Call issues one JSON-RPC method through the face environment.
+func (c *client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if c == nil || c.transport == nil {
+		return nil, fmt.Errorf("tui: client is not connected")
+	}
+	return c.transport.Call(ctx, method, params)
+}
 
 type sessionView struct {
 	ID               string `json:"id"`
@@ -17,62 +77,6 @@ type sessionView struct {
 	PermissionPreset string `json:"permission_preset"`
 	CreatedAt        int64  `json:"created_at"`
 	UpdatedAt        int64  `json:"updated_at"`
-}
-
-type dynamicCommandView struct {
-	ID          string                       `json:"id"`
-	Kind        string                       `json:"kind"`
-	Name        string                       `json:"name"`
-	Usage       string                       `json:"usage"`
-	Description string                       `json:"description"`
-	Arguments   []dynamicCommandArgumentView `json:"arguments,omitempty"`
-}
-
-type dynamicCommandArgumentView struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required,omitempty"`
-}
-
-type dynamicCommandsView struct {
-	Commands []dynamicCommandView `json:"commands"`
-}
-
-type dynamicCommandExpansionView struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-}
-
-func (c *Client) dynamicCommands(ctx context.Context) ([]surface.DynamicCommand, error) {
-	raw, err := c.Call(ctx, "commands/list", nil)
-	if err != nil {
-		return nil, err
-	}
-	var view dynamicCommandsView
-	if err := json.Unmarshal(raw, &view); err != nil {
-		return nil, fmt.Errorf("tui: commands/list: %w", err)
-	}
-	out := make([]surface.DynamicCommand, 0, len(view.Commands))
-	for _, item := range view.Commands {
-		arguments := make([]surface.DynamicCommandArgument, 0, len(item.Arguments))
-		for _, argument := range item.Arguments {
-			arguments = append(arguments, surface.DynamicCommandArgument{Name: argument.Name, Description: argument.Description, Required: argument.Required})
-		}
-		out = append(out, surface.DynamicCommand{ID: item.ID, Kind: item.Kind, Name: item.Name, Usage: item.Usage, Description: item.Description, Arguments: arguments})
-	}
-	return out, nil
-}
-
-func (c *Client) expandDynamicCommand(ctx context.Context, id string, args []string) (dynamicCommandExpansionView, error) {
-	raw, err := c.Call(ctx, "commands/expand", map[string]any{"id": id, "args": append([]string(nil), args...)})
-	if err != nil {
-		return dynamicCommandExpansionView{}, err
-	}
-	var view dynamicCommandExpansionView
-	if err := json.Unmarshal(raw, &view); err != nil {
-		return dynamicCommandExpansionView{}, fmt.Errorf("tui: commands/expand: %w", err)
-	}
-	return view, nil
 }
 
 type providerEntryView struct {
@@ -142,7 +146,7 @@ func mapProvidersView(view providersView) surface.ModelCatalog {
 	return surface.ModelCatalog{Options: options, ReadOnly: view.ReadOnly, Frozen: view.Frozen}
 }
 
-func (c *Client) modelCatalog(ctx context.Context) (surface.ModelCatalog, error) {
+func (c *client) modelCatalog(ctx context.Context) (surface.ModelCatalog, error) {
 	raw, err := c.Call(ctx, "settings/providers", nil)
 	if err != nil {
 		return surface.ModelCatalog{}, err
@@ -154,7 +158,7 @@ func (c *Client) modelCatalog(ctx context.Context) (surface.ModelCatalog, error)
 	return mapProvidersView(view), nil
 }
 
-func (c *Client) selectModel(ctx context.Context, option surface.ModelOption) (surface.ModelCatalog, error) {
+func (c *client) selectModel(ctx context.Context, option surface.ModelOption) (surface.ModelCatalog, error) {
 	raw, err := c.Call(ctx, "settings/model/select", map[string]string{"provider": option.Provider, "model": option.Model, "base_url": option.BaseURL})
 	if err != nil {
 		return surface.ModelCatalog{}, err
@@ -183,6 +187,62 @@ type sidebarView struct {
 	Skills             []sidebarSkillView `json:"skills"`
 	LSPKnown           bool               `json:"lsp_known"`
 	LSP                []sidebarLSPView   `json:"lsp"`
+}
+
+type dynamicCommandView struct {
+	ID          string                       `json:"id"`
+	Kind        string                       `json:"kind"`
+	Name        string                       `json:"name"`
+	Usage       string                       `json:"usage"`
+	Description string                       `json:"description"`
+	Arguments   []dynamicCommandArgumentView `json:"arguments,omitempty"`
+}
+
+type dynamicCommandArgumentView struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type dynamicCommandsView struct {
+	Commands []dynamicCommandView `json:"commands"`
+}
+
+type dynamicCommandExpansionView struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+func (c *client) dynamicCommands(ctx context.Context) ([]surface.DynamicCommand, error) {
+	raw, err := c.Call(ctx, "commands/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	var view dynamicCommandsView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return nil, fmt.Errorf("tui: commands/list: %w", err)
+	}
+	out := make([]surface.DynamicCommand, 0, len(view.Commands))
+	for _, item := range view.Commands {
+		arguments := make([]surface.DynamicCommandArgument, 0, len(item.Arguments))
+		for _, argument := range item.Arguments {
+			arguments = append(arguments, surface.DynamicCommandArgument{Name: argument.Name, Description: argument.Description, Required: argument.Required})
+		}
+		out = append(out, surface.DynamicCommand{ID: item.ID, Kind: item.Kind, Name: item.Name, Usage: item.Usage, Description: item.Description, Arguments: arguments})
+	}
+	return out, nil
+}
+
+func (c *client) expandDynamicCommand(ctx context.Context, id string, args []string) (dynamicCommandExpansionView, error) {
+	raw, err := c.Call(ctx, "commands/expand", map[string]any{"id": id, "args": append([]string(nil), args...)})
+	if err != nil {
+		return dynamicCommandExpansionView{}, err
+	}
+	var view dynamicCommandExpansionView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return dynamicCommandExpansionView{}, fmt.Errorf("tui: commands/expand: %w", err)
+	}
+	return view, nil
 }
 
 type sidebarMCPView struct {
@@ -319,8 +379,6 @@ type messageView struct {
 	Content      string                `json:"content"`
 	Attachments  []surface.Attachment  `json:"attachments,omitempty"`
 	FileContexts []surface.FileContext `json:"file_contexts,omitempty"`
-	// ContextFiles is accepted as a compatibility spelling for older server
-	// snapshots; both fields are metadata-only and never carry body content.
 	ContextFiles []surface.FileContext `json:"context_files,omitempty"`
 	ToolName     string                `json:"tool_name,omitempty"`
 	ToolCallID   string                `json:"tool_call_id,omitempty"`
@@ -332,7 +390,7 @@ type runAccepted struct {
 	Status string `json:"status"`
 }
 
-func (c *Client) createSession(ctx context.Context, title string) (sessionView, error) {
+func (c *client) createSession(ctx context.Context, title string) (sessionView, error) {
 	raw, err := c.Call(ctx, "session/create", map[string]string{"title": title})
 	if err != nil {
 		return sessionView{}, err
@@ -347,7 +405,7 @@ func (c *Client) createSession(ctx context.Context, title string) (sessionView, 
 	return session, nil
 }
 
-func (c *Client) listSessions(ctx context.Context) ([]sessionView, error) {
+func (c *client) listSessions(ctx context.Context) ([]sessionView, error) {
 	raw, err := c.Call(ctx, "session/list", nil)
 	if err != nil {
 		return nil, err
@@ -361,7 +419,7 @@ func (c *Client) listSessions(ctx context.Context) ([]sessionView, error) {
 	return envelope.Sessions, nil
 }
 
-func (c *Client) getSession(ctx context.Context, sessionID string) (sessionView, error) {
+func (c *client) getSession(ctx context.Context, sessionID string) (sessionView, error) {
 	raw, err := c.Call(ctx, "session/get", map[string]any{"session_id": sessionID, "include_attachment_data": false})
 	if err != nil {
 		return sessionView{}, err
@@ -378,7 +436,7 @@ func (c *Client) getSession(ctx context.Context, sessionID string) (sessionView,
 	return envelope.Session, nil
 }
 
-func (c *Client) sessionContext(ctx context.Context, sessionID string) (contextView, error) {
+func (c *client) sessionContext(ctx context.Context, sessionID string) (contextView, error) {
 	raw, err := c.Call(ctx, "session/context", map[string]string{"session_id": sessionID})
 	if err != nil {
 		return contextView{}, err
@@ -390,7 +448,7 @@ func (c *Client) sessionContext(ctx context.Context, sessionID string) (contextV
 	return view, nil
 }
 
-func (c *Client) sessionSidebar(ctx context.Context, sessionID string) (sidebarView, error) {
+func (c *client) sessionSidebar(ctx context.Context, sessionID string) (sidebarView, error) {
 	raw, err := c.Call(ctx, "session/sidebar", map[string]string{"session_id": sessionID})
 	if err != nil {
 		return sidebarView{}, err
@@ -405,7 +463,7 @@ func (c *Client) sessionSidebar(ctx context.Context, sessionID string) (sidebarV
 	return view, nil
 }
 
-func (c *Client) renameSession(ctx context.Context, sessionID, title string) (sessionView, error) {
+func (c *client) renameSession(ctx context.Context, sessionID, title string) (sessionView, error) {
 	raw, err := c.Call(ctx, "session/rename", map[string]string{"session_id": sessionID, "title": title})
 	if err != nil {
 		return sessionView{}, err
@@ -417,12 +475,12 @@ func (c *Client) renameSession(ctx context.Context, sessionID, title string) (se
 	return session, nil
 }
 
-func (c *Client) deleteSession(ctx context.Context, sessionID string) error {
+func (c *client) deleteSession(ctx context.Context, sessionID string) error {
 	_, err := c.Call(ctx, "session/delete", map[string]string{"session_id": sessionID})
 	return err
 }
 
-func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messageView, error) {
+func (c *client) sessionMessages(ctx context.Context, sessionID string) ([]messageView, error) {
 	raw, err := c.Call(ctx, "session/messages", map[string]any{"session_id": sessionID, "include_attachment_data": false})
 	if err != nil {
 		return nil, err
@@ -436,31 +494,29 @@ func (c *Client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 	return envelope.Messages, nil
 }
 
-func (c *Client) startTurn(ctx context.Context, sessionID, text, face, thinking string) (runAccepted, error) {
-	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, face, thinking, nil, nil)
+func (c *client) startTurn(ctx context.Context, sessionID, text, thinking string) (runAccepted, error) {
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, nil, nil)
 }
 
-func (c *Client) startTurnWithAttachments(ctx context.Context, sessionID, text, face, thinking string, attachments []surface.Attachment) (runAccepted, error) {
-	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, face, thinking, attachments, nil)
+func (c *client) startTurnWithAttachments(ctx context.Context, sessionID, text, thinking string, attachments []surface.Attachment) (runAccepted, error) {
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, attachments, nil)
 }
 
-func (c *Client) startTurnWithContext(ctx context.Context, sessionID, text, face, thinking string, paths []string) (runAccepted, error) {
-	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, face, thinking, nil, paths)
+func (c *client) startTurnWithContext(ctx context.Context, sessionID, text, thinking string, paths []string) (runAccepted, error) {
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, nil, paths)
 }
 
-func (c *Client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, face, thinking string, attachments []surface.Attachment, contextPaths []string) (runAccepted, error) {
-	params := map[string]any{"session_id": sessionID, "text": text}
-	if strings.TrimSpace(face) != "" {
-		params["face"] = face
-	}
-	if strings.TrimSpace(thinking) != "" {
-		params["thinking"] = thinking
+func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, thinking string, attachments []surface.Attachment, contextPaths []string) (runAccepted, error) {
+	params := map[string]any{
+		"session_id": sessionID,
+		"text":       text,
+		"face":       "code",
+		"thinking":   thinking,
 	}
 	if len(attachments) > 0 {
 		paths := make([]string, 0, len(attachments))
 		for _, attachment := range attachments {
-			path := strings.TrimSpace(attachment.Path)
-			if path != "" {
+			if path := strings.TrimSpace(attachment.Path); path != "" {
 				paths = append(paths, path)
 			}
 		}
@@ -485,9 +541,9 @@ func (c *Client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 	return accepted, nil
 }
 
-func (c *Client) startShell(ctx context.Context, sessionID, script string) (runAccepted, error) {
-	// shell/start intentionally accepts only the session and script. Face,
-	// policy and filesystem authority are derived by the server-owned runtime.
+func (c *client) startShell(ctx context.Context, sessionID, script string) (runAccepted, error) {
+	// shell/start intentionally accepts only session_id and script. Policy,
+	// approval and execution remain runtime-owned by the control plane.
 	raw, err := c.Call(ctx, "shell/start", map[string]string{
 		"session_id": sessionID,
 		"script":     script,
@@ -505,7 +561,7 @@ func (c *Client) startShell(ctx context.Context, sessionID, script string) (runA
 	return accepted, nil
 }
 
-func (c *Client) resolveProjectContext(ctx context.Context, paths []string) ([]surface.FileContext, error) {
+func (c *client) resolveProjectContext(ctx context.Context, paths []string) ([]surface.FileContext, error) {
 	clean := append([]string(nil), paths...)
 	raw, err := c.Call(ctx, "project-context/resolve", map[string]any{"paths": clean})
 	if err != nil {
@@ -543,7 +599,7 @@ func (c *Client) resolveProjectContext(ctx context.Context, paths []string) ([]s
 	return contexts, nil
 }
 
-func (c *Client) listProjectContext(ctx context.Context, query string) ([]surface.FileContext, bool, error) {
+func (c *client) listProjectContext(ctx context.Context, query string) ([]surface.FileContext, bool, error) {
 	raw, err := c.Call(ctx, "project-context/list", map[string]any{"query": query, "limit": 200})
 	if err != nil {
 		return nil, false, err
@@ -575,7 +631,36 @@ func (c *Client) listProjectContext(ctx context.Context, query string) ([]surfac
 	return contexts, envelope.Truncated, nil
 }
 
-func (c *Client) subscribe(ctx context.Context, runID string, afterSeq int) (string, error) {
+func (c *client) resolveAttachments(ctx context.Context, paths []string) ([]surface.Attachment, error) {
+	raw, err := c.Call(ctx, "attachments/resolve", map[string]any{"attachment_paths": append([]string(nil), paths...)})
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Attachments []surface.Attachment `json:"attachments"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("tui: attachments/resolve: %w", err)
+	}
+	if len(envelope.Attachments) != len(paths) {
+		return nil, fmt.Errorf("tui: attachments/resolve returned %d attachments, want %d", len(envelope.Attachments), len(paths))
+	}
+	return envelope.Attachments, nil
+}
+
+func (c *client) setSessionPermission(ctx context.Context, sessionID, preset string) (sessionView, error) {
+	raw, err := c.Call(ctx, "session/set_permission", map[string]string{"session_id": sessionID, "preset": preset})
+	if err != nil {
+		return sessionView{}, err
+	}
+	var session sessionView
+	if err := json.Unmarshal(raw, &session); err != nil {
+		return sessionView{}, fmt.Errorf("tui: session/set_permission: %w", err)
+	}
+	return session, nil
+}
+
+func (c *client) subscribe(ctx context.Context, runID string, afterSeq int) (string, error) {
 	raw, err := c.Call(ctx, "run/subscribe", map[string]any{"run_id": runID, "after_seq": afterSeq})
 	if err != nil {
 		return "", err
@@ -592,7 +677,7 @@ func (c *Client) subscribe(ctx context.Context, runID string, afterSeq int) (str
 	return result.SubscriptionID, nil
 }
 
-func (c *Client) unsubscribe(ctx context.Context, subscriptionID string) error {
+func (c *client) unsubscribe(ctx context.Context, subscriptionID string) error {
 	if strings.TrimSpace(subscriptionID) == "" {
 		return nil
 	}
@@ -600,12 +685,12 @@ func (c *Client) unsubscribe(ctx context.Context, subscriptionID string) error {
 	return err
 }
 
-func (c *Client) cancelRun(ctx context.Context, runID string) error {
+func (c *client) cancelRun(ctx context.Context, runID string) error {
 	_, err := c.Call(ctx, "run/cancel", map[string]string{"run_id": runID})
 	return err
 }
 
-func (c *Client) runStatus(ctx context.Context, runID string) (string, error) {
+func (c *client) runStatus(ctx context.Context, runID string) (string, error) {
 	raw, err := c.Call(ctx, "run/get", map[string]string{"run_id": runID})
 	if err != nil {
 		return "", err
@@ -622,7 +707,7 @@ func (c *Client) runStatus(ctx context.Context, runID string) (string, error) {
 	return result.Status, nil
 }
 
-func (c *Client) respondApproval(ctx context.Context, approvalID, decision string) error {
+func (c *client) respondApproval(ctx context.Context, approvalID, decision string) error {
 	_, err := c.Call(ctx, "approval/respond", map[string]string{
 		"approval_id": approvalID,
 		"decision":    decision,
@@ -630,104 +715,10 @@ func (c *Client) respondApproval(ctx context.Context, approvalID, decision strin
 	return err
 }
 
-func (c *Client) respondQuestion(ctx context.Context, questionID, answer string) error {
+func (c *client) respondQuestion(ctx context.Context, questionID, answer string) error {
 	_, err := c.Call(ctx, "question/respond", map[string]string{
 		"question_id": questionID,
 		"answer":      answer,
 	})
 	return err
-}
-
-func (c *Client) setSessionPermission(ctx context.Context, sessionID, preset string) (sessionView, error) {
-	raw, err := c.Call(ctx, "session/set_permission", map[string]string{
-		"session_id": sessionID,
-		"preset":     preset,
-	})
-	if err != nil {
-		return sessionView{}, err
-	}
-	var session sessionView
-	if err := json.Unmarshal(raw, &session); err != nil {
-		return sessionView{}, fmt.Errorf("tui: session/set_permission: %w", err)
-	}
-	return session, nil
-}
-
-func formatHistory(messages []messageView) string {
-	if len(messages) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, message := range messages {
-		if message.ToolName != "" {
-			content := message.Content
-			if content == "" {
-				content = message.ToolPreview
-			}
-			fmt.Fprintf(&b, "tool %s: %s\n", message.ToolName, strings.TrimSpace(content))
-			continue
-		}
-		role := message.Role
-		if role == string(domain.RoleUser) {
-			role = "you"
-		}
-		content := strings.TrimSpace(message.Content)
-		if chips := formatAttachmentMetadata(message.Attachments); chips != "" {
-			if content != "" {
-				content += " "
-			}
-			content += chips
-		}
-		if chips := formatFileContextMetadata(mergedFileContexts(message)); chips != "" {
-			if content != "" {
-				content += " "
-			}
-			content += chips
-		}
-		fmt.Fprintf(&b, "%s: %s\n", role, content)
-	}
-	return b.String()
-}
-
-func formatFileContextMetadata(contexts []surface.FileContext) string {
-	if len(contexts) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(contexts))
-	for _, context := range contexts {
-		name := strings.TrimSpace(context.Name)
-		if name == "" {
-			name = strings.TrimSpace(context.Path)
-		}
-		if name == "" {
-			name = "file"
-		}
-		parts = append(parts, "[file: "+name+"]")
-	}
-	return strings.Join(parts, " ")
-}
-
-func mergedFileContexts(message messageView) []surface.FileContext {
-	if len(message.FileContexts) > 0 {
-		return message.FileContexts
-	}
-	return message.ContextFiles
-}
-
-func formatAttachmentMetadata(attachments []surface.Attachment) string {
-	if len(attachments) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(attachments))
-	for _, attachment := range attachments {
-		name := strings.TrimSpace(attachment.Name)
-		if name == "" {
-			name = strings.TrimSpace(attachment.Path)
-		}
-		if name == "" {
-			name = "image"
-		}
-		parts = append(parts, "[image: "+name+"]")
-	}
-	return strings.Join(parts, " ")
 }

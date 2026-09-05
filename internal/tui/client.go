@@ -13,59 +13,14 @@ import (
 	"github.com/gorilla/websocket"
 
 	controlrpc "agent-vivy/internal/rpc"
-	"agent-vivy/internal/tui/surface"
-	"agent-vivy/sdk/plugin"
 )
 
-// Client is one in-process JSON-RPC peer attached to the control plane.
+// Client is the remote WebSocket transport for the shared TUI controller.
 type Client struct {
 	peer *controlrpc.Peer
-	call func(context.Context, string, any) (json.RawMessage, error)
 
 	mu     sync.Mutex
 	notify func(method string, params json.RawMessage)
-	caps   map[string]struct{}
-}
-
-func (c *Client) setCapabilities(raw json.RawMessage) error {
-	var envelope struct {
-		Capabilities []string `json:"capabilities"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.caps = make(map[string]struct{}, len(envelope.Capabilities))
-	for _, capability := range envelope.Capabilities {
-		c.caps[capability] = struct{}{}
-	}
-	c.mu.Unlock()
-	return nil
-}
-
-func (c *Client) SupportsCapability(name string) bool {
-	if c == nil {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, ok := c.caps[name]
-	return ok
-}
-
-// Attach wraps an already-serving client peer. Tests use a JSONL pair;
-// the product path uses Dial.
-func Attach(peer *controlrpc.Peer) *Client {
-	client := &Client{peer: peer}
-	return client
-}
-
-// AttachFaceEnv adapts the gateway-less FaceHost control plane to the same
-// client used by the resident-gateway TUI.
-func AttachFaceEnv(env plugin.FaceEnv) *Client {
-	c := &Client{call: env.Call}
-	env.OnEvent(c.dispatch)
-	return c
 }
 
 func (c *Client) dispatch(method string, params json.RawMessage) {
@@ -99,33 +54,10 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 	if c == nil {
 		return nil, fmt.Errorf("tui: client is not connected")
 	}
-	if c.call != nil {
-		return c.call(ctx, method, params)
-	}
 	if c.peer == nil {
 		return nil, fmt.Errorf("tui: client is not connected")
 	}
 	return c.peer.Call(ctx, method, params)
-}
-
-// resolveAttachments asks the control plane to validate and describe
-// project-relative image paths. The response is metadata only; raw bytes stay
-// server-side until turn/start resolves the same paths into domain.Attachments.
-func (c *Client) resolveAttachments(ctx context.Context, paths []string) ([]surface.Attachment, error) {
-	raw, err := c.Call(ctx, "attachments/resolve", map[string]any{"attachment_paths": append([]string(nil), paths...)})
-	if err != nil {
-		return nil, err
-	}
-	var envelope struct {
-		Attachments []surface.Attachment `json:"attachments"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("tui: attachments/resolve: %w", err)
-	}
-	if len(envelope.Attachments) != len(paths) {
-		return nil, fmt.Errorf("tui: attachments/resolve returned %d attachments, want %d", len(envelope.Attachments), len(paths))
-	}
-	return envelope.Attachments, nil
 }
 
 // Close tears down the peer transport.
@@ -164,15 +96,6 @@ func Dial(ctx context.Context, addr, token string) (*Client, error) {
 	peer := controlrpc.NewPeer(controlrpc.NewWebSocketTransport(conn), client, controlrpc.Options{})
 	client.peer = peer
 	go func() { _ = peer.Serve(ctx) }()
-	initialized, err := client.Call(ctx, "initialize", nil)
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("tui: initialize: %w", err)
-	}
-	if err := client.setCapabilities(initialized); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("tui: initialize capabilities: %w", err)
-	}
 	return client, nil
 }
 

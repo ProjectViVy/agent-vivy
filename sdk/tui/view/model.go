@@ -112,7 +112,7 @@ type Model struct {
 // New returns a model bound to the given driver.
 func New(driver surface.Driver) Model {
 	if driver == nil {
-		driver = noDriver{}
+		panic("tui view: nil driver")
 	}
 	return Model{
 		driver:        driver,
@@ -227,10 +227,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyModelSelectedMsg(msg)
 	case fileCompletionStartMsg:
 		if m.fileCompletionOpen && msg.Request == m.fileCompletionRequest && msg.Query == m.fileCompletionQuery && msg.SessionID == m.fileCompletionSessionID {
-			if completer, ok := m.driver.(surface.ProjectFileCompleter); ok {
-				if cmd := completer.CompleteProjectFiles(msg.Request, msg.Query); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
+			if cmd := m.driver.CompleteProjectFiles(msg.Request, msg.Query); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 	case surface.ErrMsg:
@@ -776,9 +774,7 @@ func (m Model) refreshFileCompletion() (Model, tea.Cmd) {
 		m.closeFileCompletion()
 		return m, nil
 	}
-	capabilities, capable := m.driver.(surface.CapabilityReporter)
-	completer, completable := m.driver.(surface.ProjectFileCompleter)
-	if !capable || !capabilities.SupportsCapability("project-context.list") || !completable {
+	if !m.driver.SupportsCapability("project-context.list") {
 		m.closeFileCompletion()
 		return m, nil
 	}
@@ -794,7 +790,6 @@ func (m Model) refreshFileCompletion() (Model, tea.Cmd) {
 	m.fileCompletionSessionID = m.driver.Active().ID
 	request := m.fileCompletionRequest
 	sessionID := m.fileCompletionSessionID
-	_ = completer // capability/interface presence is checked before scheduling.
 	return m, tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
 		return fileCompletionStartMsg{Request: request, Query: query, SessionID: sessionID}
 	})
@@ -934,22 +929,17 @@ func (m *Model) openCommandPalette() tea.Cmd {
 	m.commandPaletteFilter = ""
 	m.commandPaletteCursor = 0
 	m.commandCatalogError = ""
-	if refresher, ok := m.driver.(surface.DynamicCommandRefresher); ok {
-		if capabilities, reported := m.driver.(surface.CapabilityReporter); reported && (!capabilities.SupportsCapability("commands.list") || !capabilities.SupportsCapability("commands.expand")) {
-			m.commandCatalogLoading = false
-			return nil
-		}
-		m.commandCatalogRequest++
-		m.commandCatalogLoading = true
-		return refresher.RefreshDynamicCommands(m.commandCatalogRequest)
+	if !m.driver.SupportsCapability("commands.list") || !m.driver.SupportsCapability("commands.expand") {
+		m.commandCatalogLoading = false
+		return nil
 	}
-	m.commandCatalogLoading = false
-	return nil
+	m.commandCatalogRequest++
+	m.commandCatalogLoading = true
+	return m.driver.RefreshDynamicCommands(m.commandCatalogRequest)
 }
 
 func (m Model) modelSelectionAvailable() bool {
-	controller, ok := m.driver.(surface.ModelController)
-	return ok && controller.SupportsModelSelection()
+	return m.driver.SupportsModelSelection()
 }
 
 func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
@@ -963,7 +953,6 @@ func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 	if meta.Busy || meta.Queued > 0 {
 		return m.showCommandError(fmt.Errorf("finish or cancel active and queued work before changing models")), nil
 	}
-	controller := m.driver.(surface.ModelController)
 	m.closeCommandPalette()
 	m.closeFileCompletion()
 	m.sessionsOpen = false
@@ -977,7 +966,7 @@ func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 	m.modelPickerError = ""
 	m.modelPickerRequest++
 	request := m.modelPickerRequest
-	if cmd := controller.RefreshModels(request); cmd != nil {
+	if cmd := m.driver.RefreshModels(request); cmd != nil {
 		return m, cmd
 	}
 	m.modelPickerLoading = false
@@ -1057,7 +1046,7 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.modelPickerLoading || len(rows) == 0 {
 			return m, nil
 		}
-		catalog := m.driver.(surface.ModelController).ModelCatalog()
+		catalog := m.driver.ModelCatalog()
 		if catalog.ReadOnly || catalog.Frozen {
 			m.modelPickerError = "model selection is read-only in this deployment"
 			return m, nil
@@ -1071,7 +1060,7 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		request := m.modelPickerRequest
 		m.modelPickerSelecting = true
 		m.modelPickerError = ""
-		if cmd := m.driver.(surface.ModelController).SelectModel(request, rows[cursor]); cmd != nil {
+		if cmd := m.driver.SelectModel(request, rows[cursor]); cmd != nil {
 			return m, cmd
 		}
 		m.modelPickerSelecting = false
@@ -1096,12 +1085,8 @@ func (m *Model) moveModelPickerCursor(delta int) {
 }
 
 func (m Model) filteredModels() []surface.ModelOption {
-	controller, ok := m.driver.(surface.ModelController)
-	if !ok {
-		return nil
-	}
 	needle := strings.ToLower(strings.TrimSpace(m.modelPickerFilter))
-	options := controller.ModelCatalog().Options
+	options := m.driver.ModelCatalog().Options
 	rows := make([]surface.ModelOption, 0, len(options))
 	for _, option := range options {
 		haystack := strings.ToLower(safeModelLabel(option.DisplayName) + " " + safeModelLabel(option.Provider) + " " + safeModelLabel(option.Model))
@@ -1274,11 +1259,7 @@ func (m Model) filteredCommands() []command.Spec {
 func (m Model) effectiveCommandRegistry() (command.Registry, map[string]surface.DynamicCommand) {
 	specs := commandRegistry.Specs()
 	dynamic := make(map[string]surface.DynamicCommand)
-	provider, ok := m.driver.(surface.DynamicCommandProvider)
-	if !ok {
-		return commandRegistry, dynamic
-	}
-	for _, candidate := range provider.DynamicCommands() {
+	for _, candidate := range m.driver.DynamicCommands() {
 		name := strings.ToLower(strings.TrimSpace(candidate.Name))
 		if !safeDynamicCommandName(name) || strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Kind) == "" {
 			continue
@@ -1339,18 +1320,10 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		return m.showCommandError(fmt.Errorf("%s", parsed.UnavailableReason)), nil
 	}
 	if parsed.IsShell() {
-		capabilities, capable := m.driver.(surface.CapabilityReporter)
-		if !capable || !capabilities.SupportsCapability("shell.start") {
+		if !m.driver.SupportsCapability("shell.start") {
 			return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
 		}
-		executor, ok := m.driver.(surface.ShellExecutor)
-		if !ok {
-			// A shell-capable input is never sent as model text. Small/demo
-			// drivers that do not expose the governed control-plane seam fail
-			// closed in the shared view.
-			return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
-		}
-		if cmd := executor.ExecuteShell(parsed.Shell.Script); cmd != nil {
+		if cmd := m.driver.ExecuteShell(parsed.Shell.Script); cmd != nil {
 			m.input = ""
 			m.chatFollow = true
 			return m, cmd
@@ -1361,14 +1334,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		if strings.TrimSpace(parsed.Text) == "" {
 			return m.showCommandError(fmt.Errorf("@file references require a prompt")), nil
 		}
-		sender, ok := m.driver.(surface.ContextSender)
-		if !ok {
-			// The path list is an untrusted hint. It must reach a live driver
-			// (and then the server resolver) before the turn is accepted; the
-			// shared view has no filesystem authority of its own.
-			return m.showCommandError(fmt.Errorf("@file references are unavailable")), nil
-		}
-		if cmd := sender.SendWithContext(parsed.Text, parsed.FilePaths()); cmd != nil {
+		if cmd := m.driver.SendWithContext(parsed.Text, parsed.FilePaths()); cmd != nil {
 			m.input = ""
 			m.chatFollow = true
 			return m, cmd
@@ -1405,11 +1371,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 	name := spec.Name
 	args := invocation.Args
 	if entry, ok := dynamic[name]; ok {
-		if capabilities, reported := m.driver.(surface.CapabilityReporter); reported && !capabilities.SupportsCapability("commands.expand") {
-			return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
-		}
-		executor, available := m.driver.(surface.DynamicCommandExecutor)
-		if !available {
+		if !m.driver.SupportsCapability("commands.expand") {
 			return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
 		}
 		m.dynamicCommandRequest++
@@ -1418,7 +1380,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		if sessionID == "" {
 			return m.showCommandError(fmt.Errorf("dynamic command /%s requires an active session", name)), nil
 		}
-		if cmd := executor.ExecuteDynamicCommand(request, sessionID, entry.ID, append([]string(nil), args...)); cmd != nil {
+		if cmd := m.driver.ExecuteDynamicCommand(request, sessionID, entry.ID, append([]string(nil), args...)); cmd != nil {
 			m.dynamicCommandPending = true
 			m.dynamicCommandID = entry.ID
 			m.dynamicCommandSession = sessionID
@@ -1433,11 +1395,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			return m.showCommandError(fmt.Errorf("usage: /help")), nil
 		}
 		m.commandOverlayTitle = "Commands"
-		shellSupported := false
-		if capabilities, ok := m.driver.(surface.CapabilityReporter); ok {
-			shellSupported = capabilities.SupportsCapability("shell.start")
-		}
-		m.commandOverlay = registry.HelpFor(shellSupported)
+		m.commandOverlay = registry.HelpFor(m.driver.SupportsCapability("shell.start"))
 		return m, nil
 	case "status":
 		if len(args) != 0 {
@@ -1546,27 +1504,20 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 }
 
 func (m Model) executeImageCommand(args []string) (Model, tea.Cmd) {
-	if executor, ok := m.driver.(surface.CommandExecutor); ok {
-		if cmd := executor.ExecuteCommand("image", append([]string(nil), args...)); cmd != nil {
-			return m, cmd
-		}
-		return m.showCommandError(fmt.Errorf("/image is unavailable")), nil
+	if cmd := m.driver.ExecuteCommand("image", append([]string(nil), args...)); cmd != nil {
+		return m, cmd
 	}
 	return m.showCommandError(fmt.Errorf("/image is unavailable")), nil
 }
 
 func (m Model) setThinking(mode string) (Model, tea.Cmd) {
-	controller, ok := m.driver.(surface.ThinkingController)
-	if !ok {
-		return m.showCommandError(fmt.Errorf("thinking control is unavailable")), nil
-	}
 	if mode == "" {
-		mode = nextThinking(controller.ThinkingMode())
+		mode = nextThinking(m.driver.ThinkingMode())
 	}
 	if mode != "auto" && mode != "on" && mode != "off" {
 		return m.showCommandError(fmt.Errorf("thinking must be auto, on, or off")), nil
 	}
-	if err := controller.SetThinkingMode(mode); err != nil {
+	if err := m.driver.SetThinkingMode(mode); err != nil {
 		return m.showCommandError(err), nil
 	}
 	return m.showCommandResult("Thinking", "next turn thinking: "+mode), nil
@@ -1639,61 +1590,8 @@ func (m Model) commandBlocked(name string) (bool, string) {
 }
 
 func (m Model) executeDriverCommand(name string, args []string) (Model, tea.Cmd) {
-	if executor, ok := m.driver.(surface.CommandExecutor); ok {
-		if cmd := executor.ExecuteCommand(name, append([]string(nil), args...)); cmd != nil {
-			return m, cmd
-		}
-		return m.showCommandError(fmt.Errorf("/%s is unavailable", name)), nil
-	}
-
-	// Compatibility path for small/demo drivers. The same busy/gate checks
-	// above apply before any mutation reaches this fallback.
-	switch name {
-	case "new":
-		return m, m.driver.NewSession(strings.TrimSpace(strings.Join(args, " ")))
-	case "session":
-		controller, ok := m.driver.(surface.SessionController)
-		if !ok {
-			return m.showCommandError(fmt.Errorf("/session is unavailable")), nil
-		}
-		if cmd := controller.SelectSession(args[0]); cmd != nil {
-			return m, cmd
-		}
-		return m.showCommandError(fmt.Errorf("/session is unavailable")), nil
-	case "rename":
-		controller, ok := m.driver.(surface.SessionController)
-		active := m.driver.Active()
-		if !ok || active.ID == "" {
-			return m.showCommandError(fmt.Errorf("/rename is unavailable")), nil
-		}
-		if cmd := controller.RenameSession(active.ID, strings.TrimSpace(strings.Join(args, " "))); cmd != nil {
-			return m, cmd
-		}
-		return m.showCommandError(fmt.Errorf("/rename is unavailable")), nil
-	case "cancel":
-		if !m.driver.Meta().Busy {
-			return m.showCommandError(fmt.Errorf("nothing to cancel")), nil
-		}
-		if cmd := m.driver.Cancel(); cmd != nil {
-			return m, cmd
-		}
-		return m.showCommandError(fmt.Errorf("cancel is unavailable")), nil
-	case "queue":
-		if m.driver.ClearQueue() {
-			return m.showCommandResult("Queue", "queued turns cleared"), nil
-		}
-		return m.showCommandResult("Queue", "queue is already empty"), nil
-	case "permission":
-		preset := ""
-		if len(args) == 1 {
-			preset = strings.ToLower(strings.TrimSpace(args[0]))
-		} else {
-			preset = nextPermission(m.driver.Active().PermissionPreset)
-		}
-		if cmd := m.driver.SetPermission(preset); cmd != nil {
-			return m, cmd
-		}
-		return m.showCommandError(fmt.Errorf("permission change is unavailable")), nil
+	if cmd := m.driver.ExecuteCommand(name, append([]string(nil), args...)); cmd != nil {
+		return m, cmd
 	}
 	return m.showCommandError(fmt.Errorf("/%s is unavailable", name)), nil
 }
@@ -1774,23 +1672,19 @@ func (m Model) statusText() string {
 	if active.PermissionPreset != "" {
 		lines = append(lines, "permission: "+active.PermissionPreset)
 	}
-	if controller, ok := m.driver.(surface.ThinkingController); ok {
-		lines = append(lines, "thinking (next turn): "+controller.ThinkingMode())
-	}
-	if provider, ok := m.driver.(surface.SidebarProvider); ok {
-		snapshot := provider.Sidebar()
-		if snapshot.HasContext {
-			ctx := snapshot.Context
-			estimated := ""
-			if ctx.TokenCountsEstimated {
-				estimated = "~"
-			}
-			if ctx.ModelLimitKnown && ctx.ModelLimitTokens > 0 {
-				percentage := int(float64(ctx.FeedTokens) / float64(ctx.ModelLimitTokens) * 100)
-				lines = append(lines, fmt.Sprintf("context: %s%d/%d tokens (%s%d%%)", estimated, ctx.FeedTokens, ctx.ModelLimitTokens, estimated, percentage))
-			} else if ctx.FeedTokens > 0 {
-				lines = append(lines, fmt.Sprintf("context: %s%d tokens (model limit unknown)", estimated, ctx.FeedTokens))
-			}
+	lines = append(lines, "thinking (next turn): "+m.driver.ThinkingMode())
+	snapshot := m.driver.Sidebar()
+	if snapshot.HasContext {
+		ctx := snapshot.Context
+		estimated := ""
+		if ctx.TokenCountsEstimated {
+			estimated = "~"
+		}
+		if ctx.ModelLimitKnown && ctx.ModelLimitTokens > 0 {
+			percentage := int(float64(ctx.FeedTokens) / float64(ctx.ModelLimitTokens) * 100)
+			lines = append(lines, fmt.Sprintf("context: %s%d/%d tokens (%s%d%%)", estimated, ctx.FeedTokens, ctx.ModelLimitTokens, estimated, percentage))
+		} else if ctx.FeedTokens > 0 {
+			lines = append(lines, fmt.Sprintf("context: %s%d tokens (model limit unknown)", estimated, ctx.FeedTokens))
 		}
 	}
 	if strings.TrimSpace(meta.Error) != "" {
@@ -1814,12 +1708,9 @@ func (m Model) openSessions() (Model, tea.Cmd) {
 	m.sessionActionBusy = false
 	m.sessionError = ""
 	m.syncSessionCursorToActive()
-	controller, ok := m.driver.(surface.SessionController)
-	if ok {
-		if cmd := controller.RefreshSessions(); cmd != nil {
-			m.sessionLoading = true
-			return m, cmd
-		}
+	if cmd := m.driver.RefreshSessions(); cmd != nil {
+		m.sessionLoading = true
+		return m, cmd
 	}
 	return m, nil
 }
@@ -1936,12 +1827,7 @@ func (m Model) submitRename() (Model, tea.Cmd) {
 		m.sessionError = "title cannot be empty"
 		return m, nil
 	}
-	controller, ok := m.driver.(surface.SessionController)
-	if !ok {
-		m.sessionError = "session rename is unavailable"
-		return m, nil
-	}
-	cmd := controller.RenameSession(m.sessionRenameID, title)
+	cmd := m.driver.RenameSession(m.sessionRenameID, title)
 	if cmd == nil {
 		m.sessionError = "session rename is unavailable"
 		return m, nil
@@ -1952,12 +1838,7 @@ func (m Model) submitRename() (Model, tea.Cmd) {
 }
 
 func (m Model) submitDelete() (Model, tea.Cmd) {
-	controller, ok := m.driver.(surface.SessionController)
-	if !ok {
-		m.sessionError = "session delete is unavailable"
-		return m, nil
-	}
-	cmd := controller.DeleteSession(m.sessionDeleteID)
+	cmd := m.driver.DeleteSession(m.sessionDeleteID)
 	if cmd == nil {
 		m.sessionError = "session delete is unavailable"
 		return m, nil
@@ -1972,12 +1853,7 @@ func (m Model) chooseSession() (Model, tea.Cmd) {
 	if len(rows) == 0 {
 		return m, nil
 	}
-	controller, ok := m.driver.(surface.SessionController)
-	if !ok {
-		m.sessionError = "session selection is unavailable"
-		return m, nil
-	}
-	cmd := controller.SelectSession(rows[m.sessionCursor].ID)
+	cmd := m.driver.SelectSession(rows[m.sessionCursor].ID)
 	if cmd == nil {
 		m.sessionError = "session selection is unavailable"
 		return m, nil

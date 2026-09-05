@@ -48,7 +48,8 @@
 
 1. 出厂工作目录只有 `faces/<name>/`。用户自写的才进 `plugins/<name>/`（`seam: face`）。日常不打开 `internal/`。
 2. 世界只通过公开 SDK 进来：face 生命周期与 Host 能力仅经
-   `sdk/plugin`；第一方终端 face 可复用纯展示/流状态包 `sdk/tui`。
+   `sdk/plugin`；第一方终端 face 复用 `sdk/tui` 中唯一的展示、流状态与
+   受限控制面客户端状态机。
    `sdk/tui` 不开放 Host、Journal、`Service.Run`、策略或密钥能力，脸仍
    看不见这些内核对象。
 3. 身份是清单里的名字和 seam，不是某个 `.go` 被 `cmd/vivy` 引用。
@@ -184,13 +185,12 @@ TUI 第一刀是薄的：会话列表、流式对话、一等审批/提问、取
 
 成功标准（tui）：终端里过完一轮带审批的对话，同一 Journal 在网页世代的二进制里能回放。两具身体不要求同时运行。
 
-**探路（2026-08-29，不是 F3）。** 仓库里有 `vivy tui`（`internal/tui`）：
-
-- `--demo`：Crush 风格全屏骨架（`internal/tui/view` + `internal/tui/demo`），确定性离线演示数据，不 Dial。
-- `--live`：同一全屏壳接真实 `Client`（`internal/tui.Live`），列/切会话、流式 turn、工具卡、审批/提问 overlay、`esc` 取消；网关未起则失败退出，不回落 demo。
-- `--plain`：行式 REPL，连已经在听的网关 `/rpc`，发 `turn/start`，流式 `model.delta`，审批 y/n。
-
-都是控制面客户端 / 展示层，不是出厂 `faces/tui`，不省略 web，不改默认无参 `vivy`（仍是网页网关）。F3 仍要求 FaceHost + 配方点名 + 制品不含 `ui/dist`。
+**当前入口（2026-09-05）。** `sdk/tui` 是全屏壳、控制面投影和 Live
+状态机的唯一实现；独立 `vivy-code.exe`、`vivy tui` 与出厂
+`faces/tui` 都委托给它。`vivy tui --live [--addr host]` 通过
+`internal/tui` 的 WebSocket 传输连接驻留网关；网关未起则失败退出。
+旧的离线 `--demo` 和行式 `--plain` 已退役，不存在 demo 或本地执行
+fallback。`faces/tui` 仍经 FaceHost + 配方点名进入不含 `ui/dist` 的制品。
 
 ---
 

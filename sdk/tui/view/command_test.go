@@ -24,6 +24,10 @@ type dynamicCommandDriver struct {
 	refresh  uint64
 }
 
+func (*dynamicCommandDriver) SupportsCapability(name string) bool {
+	return name == "commands.list" || name == "commands.expand"
+}
+
 func (d *dynamicCommandDriver) RefreshDynamicCommands(request uint64) tea.Cmd {
 	d.refresh = request
 	return func() tea.Msg { return surface.DynamicCommandsMsg{Request: request, Commands: d.commands} }

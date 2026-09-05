@@ -505,7 +505,7 @@ func (r Registry) Help() string {
 }
 
 // HelpFor renders input prefixes supported by the initialized control plane.
-// Slash commands remain stable; optional effect surfaces fail closed.
+// Slash commands remain stable; unavailable server capabilities fail closed.
 func (r Registry) HelpFor(shellSupported bool) string {
 	var b strings.Builder
 	b.WriteString("commands\n")
