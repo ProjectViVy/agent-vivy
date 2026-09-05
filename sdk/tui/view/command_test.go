@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"agent-vivy/sdk/tui/surface"
 )
@@ -404,7 +405,7 @@ func TestThinkingCommandAndShortcutUseTruthfulModelCapability(t *testing.T) {
 	m.input = "/thinking on"
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if unknown.thinking == "on" || strings.Contains(m.renderHelp(computeLayout(120, 30), DefaultPalette()), "^t") {
+	if unknown.thinking == "on" || strings.Contains(ansi.Strip(m.View()), "^t") {
 		t.Fatalf("unknown capability exposed or accepted thinking: mode=%q", unknown.thinking)
 	}
 }

@@ -31,7 +31,7 @@ func (m Model) renderCommandPalette(l layout, p Palette) string {
 		filter = p.DialogFooter.Render(label) + p.Match.Render(truncate(query, max(1, lineWidth-lipgloss.Width(label))))
 	}
 
-	lines := []string{p.DialogTitle.Render("命令"), filter}
+	lines := []string{p.DialogTitle.Render("帮助"), filter}
 	if m.commandCatalogLoading {
 		lines = append(lines, p.DialogFooter.Render("正在刷新动态命令…"))
 	} else if m.commandCatalogError != "" {

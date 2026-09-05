@@ -27,8 +27,7 @@ func (m Model) renderFrame() string {
 	} else {
 		app = m.renderCompact(l, p)
 	}
-	help := m.renderHelp(l, p)
-	frame := lipgloss.JoinVertical(lipgloss.Left, strings.Repeat(" ", l.width), app, help)
+	frame := lipgloss.JoinVertical(lipgloss.Left, strings.Repeat(" ", l.width), app)
 	frame = fitHeight(frame, l.width, l.height)
 
 	if gate := m.driver.PendingGate(); gate != nil {
@@ -266,7 +265,8 @@ func sanitizeCommandPaletteFilter(text string) string {
 func (m Model) renderWide(l layout, p Palette) string {
 	chat := m.renderChat(l.mainW(), l.mainH(), p)
 	editor := m.renderEditor(l.mainW(), p)
-	mainCol := lipgloss.JoinVertical(lipgloss.Left, chat, "", editor)
+	chrome := m.renderInputChrome(l.mainW(), p)
+	mainCol := lipgloss.JoinVertical(lipgloss.Left, chat, "", editor, chrome)
 	side := m.renderSidebar(l.sidebarW, lipgloss.Height(mainCol), p)
 	gap := lipgloss.NewStyle().Width(1).Height(lipgloss.Height(mainCol)).Render(" ")
 	row := lipgloss.JoinHorizontal(lipgloss.Top, mainCol, gap, side)
@@ -277,7 +277,8 @@ func (m Model) renderCompact(l layout, p Palette) string {
 	header := m.renderCompactHeader(l, p)
 	chat := m.renderChat(l.innerW(), l.mainH(), p)
 	editor := m.renderEditor(l.innerW(), p)
-	col := lipgloss.JoinVertical(lipgloss.Left, header, "", chat, "", editor)
+	chrome := m.renderInputChrome(l.innerW(), p)
+	col := lipgloss.JoinVertical(lipgloss.Left, header, "", chat, "", editor, chrome)
 	return padHorizontal(col, l.marginX, l.width)
 }
 
@@ -347,11 +348,8 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 	if cwd := strings.TrimSpace(snapshot.CWD); cwd != "" {
 		lines = append(lines, p.Dim.Render(truncate(" cwd · "+cwd, width-1)))
 	}
-	if model := strings.TrimSpace(snapshot.Model); model != "" {
-		lines = append(lines, p.Dim.Render(truncate(" model · "+model, width-1)))
-	}
-	if provider := strings.TrimSpace(snapshot.Provider); provider != "" {
-		lines = append(lines, p.Dim.Render(truncate(" provider · "+provider, width-1)))
+	if host := strings.TrimSpace(m.driver.Meta().Host); host != "" {
+		lines = append(lines, p.Dim.Render(truncate(" host · "+host, width-1)))
 	}
 	if snapshot.ReasoningKnown {
 		reasoning := "unsupported"
@@ -359,9 +357,6 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			reasoning = "supported"
 		}
 		lines = append(lines, p.Dim.Render(truncate(" reasoning · "+reasoning, width-1)))
-	}
-	if preset := strings.TrimSpace(snapshot.Session.PermissionPreset); preset != "" {
-		lines = append(lines, p.Dim.Render(truncate(" permission · "+preset, width-1)))
 	}
 	if snapshot.HasContext && snapshot.Context.ThinkingSupported {
 		lines = append(lines, p.Dim.Render(truncate(" draft thinking · "+m.driver.ThinkingMode(), width-1)))
@@ -775,6 +770,49 @@ func (m Model) renderEditor(width int, p Palette) string {
 	return p.Editor.Width(width).Render(strings.Join(lines, "\n"))
 }
 
+func (m Model) renderInputChrome(width int, p Palette) string {
+	snapshot := m.driver.Sidebar()
+	if snapshot.Session.ID == "" {
+		snapshot.Session = m.driver.Active()
+	}
+	meta := m.driver.Meta()
+	var facts []string
+	if errText := strings.TrimSpace(meta.Error); errText != "" {
+		facts = append(facts, "err · "+errText)
+	} else {
+		if meta.Busy {
+			facts = append(facts, "run…")
+		}
+		if perm := strings.TrimSpace(snapshot.Session.PermissionPreset); perm != "" {
+			facts = append(facts, perm)
+		}
+		if model := strings.TrimSpace(snapshot.Model); model != "" {
+			facts = append(facts, model)
+		}
+		if provider := strings.TrimSpace(snapshot.Provider); provider != "" {
+			facts = append(facts, provider)
+		}
+	}
+	right := p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
+	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
+		if gate.Kind == "question" {
+			right = p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")
+		} else {
+			right = p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准")
+		}
+	}
+	if m.sidebarFocused {
+		right = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
+	}
+	leftW := max(1, width/2)
+	rightW := max(1, width-leftW)
+	left := p.Dim.Width(leftW).MaxWidth(leftW).MaxHeight(1).Render(truncate(strings.Join(facts, " · "), leftW))
+	if lipgloss.Width(right) > rightW {
+		right = truncate(right, rightW)
+	}
+	return left + lipgloss.NewStyle().Width(rightW).MaxWidth(rightW).MaxHeight(1).Align(lipgloss.Right).Render(right)
+}
+
 // renderAttachmentChips is metadata-only presentation. In particular, it
 // never renders a data URL or any binary payload into the terminal.
 func renderAttachmentChips(attachments []surface.Attachment) string {
@@ -816,49 +854,13 @@ func renderFileContextChips(contexts []surface.FileContext) string {
 	return strings.Join(parts, " ")
 }
 
-func (m Model) renderHelp(l layout, p Palette) string {
-	meta := m.driver.Meta()
-	parts := []string{
-		p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 模式"),
-		p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷"),
-	}
-	if m.shortcutsOpen {
-		parts = []string{p.HelpKey.Render("esc") + p.HelpDesc.Render(" 关闭快捷")}
-	}
-	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
-		if gate.Kind == "question" {
-			parts = []string{p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")}
-		} else {
-			parts = []string{p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准")}
-		}
-	}
-	if m.sidebarFocused {
-		parts = append([]string{p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")}, parts...)
-	}
-	footer := meta.Footer
-	if footer == "" {
-		footer = "live"
-		if meta.Host != "" {
-			footer += " · " + meta.Host
-		}
-		if meta.Busy {
-			footer += " · run…"
-		}
-	}
-	if meta.Error != "" {
-		footer = "err · " + meta.Error
-	}
-	parts = append(parts, p.HelpDesc.Render("· "+footer))
-	return p.Status.Width(l.width).Render(truncate(" "+strings.Join(parts, p.HelpDesc.Render("  ")), l.width))
-}
-
 func (m Model) renderShortcutsDialog(l layout, p Palette) string {
 	w := max(1, min(l.width-8, 56))
 	inner := max(1, w-p.Dialog.GetHorizontalFrameSize())
 	rows := []string{
 		p.DialogTitle.Render("快捷方式"),
 		"",
-		p.HelpKey.Render("shift+tab") + p.DialogBody.Render("  进入命令模式"),
+		p.HelpKey.Render("shift+h") + p.DialogBody.Render("    帮助"),
 		p.HelpKey.Render("/") + p.DialogBody.Render("          命令面板"),
 		p.HelpKey.Render("ctrl+p") + p.DialogBody.Render("     命令面板"),
 		p.HelpKey.Render("ctrl+s") + p.DialogBody.Render("     会话"),

@@ -586,6 +586,7 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current"}},
 		active:   "active",
+		meta:     surface.Meta{Host: "127.0.0.1:8787"},
 		sidebar: surface.Sidebar{
 			Session: surface.Session{ID: "active", Title: "Current", UpdatedAt: 1725552000000},
 			CWD:     "C:/code/project", Model: "reasoning-model", Provider: "provider-a",
@@ -612,7 +613,7 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	m = updated.(Model)
 	view := m.View()
 	for _, want := range []string{
-		"C:/code/project", "reasoning-model", "provider-a", "reasoning · supported",
+		"C:/code/project", "host · 127.0.0.1:8787", "reasoning-model", "provider-a", "reasoning · supported",
 		"~15% · ~1.2k / 8.0k tokens", "total · 1.5k tokens", "input · 900", "output · 600",
 		"Session Usage", "reasoning · 120", "cached · 300", "requests · 3", "est. cost · unknown", "pkg/file-00.go",
 	} {
