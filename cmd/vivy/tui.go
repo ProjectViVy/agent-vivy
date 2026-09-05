@@ -80,6 +80,11 @@ func runTUI(args []string) int {
 		return 0
 	}
 
+	debugToolOutput, err := remoteTUIDebug()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	client, err := tui.Dial(ctx, addr, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -94,12 +99,24 @@ func runTUI(args []string) int {
 		return 1
 	}
 	defer controller.Close()
-	if err := view.Run(controller); err != nil {
+	if err := view.Run(controller, view.Options{DebugToolOutput: debugToolOutput}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	controller.Shutdown()
 	return 0
+}
+
+func remoteTUIDebug() (bool, error) {
+	path := os.Getenv("VIVY_CONFIG")
+	if path == "" {
+		return config.Default().TUI.Debug, nil
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return false, err
+	}
+	return cfg.TUI.Debug, nil
 }
 
 func defaultListenAddr() string {

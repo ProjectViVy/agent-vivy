@@ -40,7 +40,7 @@ func (f *terminalFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.Face
 		return plugin.FaceResult{Status: "failed"}, err
 	}
 	defer controller.Close()
-	if err := view.RunWithOutput(controller, f.opts.Out); err != nil {
+	if err := view.RunWithOutput(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput}); err != nil {
 		controller.Shutdown()
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: %w", err)
 	}

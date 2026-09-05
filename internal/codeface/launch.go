@@ -103,7 +103,7 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 		ctx,
 		prepared.Config,
 		tuiface.New,
-		plugin.FaceOptions{Out: out, Err: errOut},
+		plugin.FaceOptions{DebugToolOutput: prepared.Config.TUI.Debug, Out: out, Err: errOut},
 		app.WithSettingsPath(prepared.SharedSettingsPath),
 		app.WithCodeProjectRoot(prepared.Config.Runtime.WorkspaceRoot),
 	)

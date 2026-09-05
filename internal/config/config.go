@@ -101,7 +101,15 @@ type Config struct {
 	Tools      Tools      `yaml:"tools"`
 	Governance Governance `yaml:"governance"`
 	Logging    Logging    `yaml:"logging"`
+	TUI        TUI        `yaml:"tui"`
 	Channels   Channels   `yaml:"channels"`
+}
+
+// TUI configures presentation-only behavior for terminal faces. It does not
+// change tool execution, Journal persistence, or model context.
+type TUI struct {
+	// Debug shows complete tool results. The default keeps tool cards bounded.
+	Debug bool `yaml:"debug"`
 }
 
 // Logging configures the kernel's slog output (see internal/logging and

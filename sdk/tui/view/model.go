@@ -36,11 +36,12 @@ type fileCompletionStartMsg struct {
 // faces. The Sessions dialog state is transient UI state; session data itself
 // remains owned by the surface.Driver.
 type Model struct {
-	driver  surface.Driver
-	width   int
-	height  int
-	input   string
-	palette Palette
+	driver          surface.Driver
+	width           int
+	height          int
+	input           string
+	palette         Palette
+	debugToolOutput bool
 
 	sessionsOpen       bool
 	sessionRows        []surface.Session
@@ -109,18 +110,28 @@ type Model struct {
 	gateFullscreen   bool
 }
 
+// Options controls presentation-only behavior of the shared terminal view.
+type Options struct {
+	DebugToolOutput bool
+}
+
 // New returns a model bound to the given driver.
-func New(driver surface.Driver) Model {
+func New(driver surface.Driver, options ...Options) Model {
 	if driver == nil {
 		panic("tui view: nil driver")
 	}
+	var opts Options
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	return Model{
-		driver:        driver,
-		width:         120,
-		height:        36,
-		palette:       DefaultPalette(),
-		chatFollow:    true,
-		chatSessionID: driver.Active().ID,
+		driver:          driver,
+		width:           120,
+		height:          36,
+		palette:         DefaultPalette(),
+		debugToolOutput: opts.DebugToolOutput,
+		chatFollow:      true,
+		chatSessionID:   driver.Active().ID,
 	}
 }
 
@@ -2004,12 +2015,14 @@ func shortError(err error) string {
 }
 
 // Run starts the shared fullscreen shell on stdout.
-func Run(driver surface.Driver) error { return RunWithOutput(driver, os.Stdout) }
+func Run(driver surface.Driver, options ...Options) error {
+	return RunWithOutput(driver, os.Stdout, options...)
+}
 
 // RunWithOutput starts the canonical shell on the launcher's output stream.
-func RunWithOutput(driver surface.Driver, out io.Writer) error {
+func RunWithOutput(driver surface.Driver, out io.Writer, options ...Options) error {
 	configureColor(out)
-	p := tea.NewProgram(New(driver), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
+	p := tea.NewProgram(New(driver, options...), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
 	_, err := p.Run()
 	return err
 }
