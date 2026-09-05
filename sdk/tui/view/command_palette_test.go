@@ -172,6 +172,30 @@ func TestCommandPaletteRendersWithinSmallTerminal(t *testing.T) {
 	}
 }
 
+func TestOverlayBlanksMainContentInsteadOfMixing(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		messages: map[string][]surface.Message{
+			"active": {{Role: surface.RoleAssistant, Content: "UNIQUE_CHAT_MARKER_XYZ"}},
+		},
+	}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = next.(Model)
+	if !strings.Contains(ansi.Strip(m.View()), "UNIQUE_CHAT_MARKER_XYZ") {
+		t.Fatal("setup missing chat marker")
+	}
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
+	plain := ansi.Strip(m.View())
+	if strings.Contains(plain, "UNIQUE_CHAT_MARKER_XYZ") {
+		t.Fatalf("overlay mixed with main chat:\n%s", plain)
+	}
+	if !strings.Contains(plain, "快捷方式") {
+		t.Fatalf("shortcuts overlay missing:\n%s", plain)
+	}
+}
+
 func TestFooterUsesShiftTabModeAndCtrlXShortcuts(t *testing.T) {
 	m := New(&testDriver{})
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
