@@ -1387,7 +1387,12 @@ func fitHeight(content string, width, height int) string {
 }
 
 func placeOverlay(base, overlay string, width, height int) string {
-	baseLines := padLines(strings.Split(base, "\n"), width, height)
+	_ = base
+	blank := strings.Repeat(" ", max(1, width))
+	baseLines := make([]string, height)
+	for i := range baseLines {
+		baseLines[i] = blank
+	}
 	overLines := strings.Split(overlay, "\n")
 	ow := 0
 	for _, line := range overLines {
@@ -1405,41 +1410,17 @@ func placeOverlay(base, overlay string, width, height int) string {
 }
 
 func overlayLine(base, over string, col, width int) string {
-	plain := stripForPad(base)
-	if lipgloss.Width(plain) < width {
-		plain += strings.Repeat(" ", width-lipgloss.Width(plain))
+	base = padRight(truncate(base, width), width)
+	overW := lipgloss.Width(over)
+	if overW <= 0 {
+		return base
 	}
-	runes := []rune(plain)
-	overPlain := stripForPad(over)
-	overRunes := []rune(overPlain)
-	for i := 0; i < len(overRunes) && col+i < len(runes); i++ {
-		runes[col+i] = overRunes[i]
+	if col <= 0 && overW >= width {
+		return padRight(truncate(over, width), width)
 	}
-	if col == 0 && lipgloss.Width(over) >= width {
-		return over
-	}
-	left := string(runes[:min(col, len(runes))])
-	rightStart := min(len(runes), col+lipgloss.Width(over))
-	return left + over + string(runes[rightStart:])
-}
-
-func stripForPad(s string) string {
-	var b strings.Builder
-	inESC := false
-	for _, r := range s {
-		if r == 0x1b {
-			inESC = true
-			continue
-		}
-		if inESC {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inESC = false
-			}
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
+	left := ansi.Cut(base, 0, max(0, col))
+	right := ansi.Cut(base, min(width, col+overW), width)
+	return padRight(truncate(left+over+right, width), width)
 }
 
 func padBlock(content string, width, height int) string {
