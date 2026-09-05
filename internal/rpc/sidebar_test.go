@@ -34,7 +34,7 @@ func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mcp := runtime.NewEinoMCPBackend([]runtime.MCPServerConfig{{Name: "docs", Endpoint: "http://127.0.0.1:1"}}, nil)
+	mcp := runtime.NewMCPBackend([]runtime.MCPServerConfig{{Name: "docs", Endpoint: "http://127.0.0.1:1"}}, nil)
 	env := newControlTestEnv(t, func(deps *ControlDeps) {
 		deps.ProjectRoot = projectRoot
 		deps.ModelMeta = func(context.Context, string, string) domain.ModelInfo {

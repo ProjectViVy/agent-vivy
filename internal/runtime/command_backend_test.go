@@ -12,7 +12,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func TestEinoCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
+func TestCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
 	t.Setenv("PATH", `C:\Program Files\Go\bin;`+os.Getenv("PATH"))
 	root := t.TempDir()
 	manager, err := NewWorkspaceManager(root)
@@ -29,7 +29,7 @@ func TestEinoCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := NewEinoCommandBackend(manager, sandbox, []string{"go"}, 30*time.Second)
+	backend := NewCommandBackend(manager, sandbox, []string{"go"}, 30*time.Second)
 	result, err := backend.Execute(context.Background(), "run-command", tools.CommandRequest{Command: "go", Args: []string{"version"}, Env: map[string]string{"NO_COLOR": "1"}})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -46,7 +46,7 @@ func TestEinoCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
 		t.Fatalf("proposal=%#v err=%v", proposal, err)
 	}
 }
-func TestEinoCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T) {
+func TestCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T) {
 	manager, err := NewWorkspaceManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestEinoCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := NewEinoCommandBackend(manager, sandbox, []string{"go"}, 30*time.Second)
+	backend := NewCommandBackend(manager, sandbox, []string{"go"}, 30*time.Second)
 	cases := []struct {
 		name    string
 		request tools.CommandRequest
@@ -79,7 +79,7 @@ func TestEinoCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T)
 	}
 }
 
-func TestEinoCommandBackendTimeoutCeiling(t *testing.T) {
+func TestCommandBackendTimeoutCeiling(t *testing.T) {
 	manager, err := NewWorkspaceManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestEinoCommandBackendTimeoutCeiling(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			backend := NewEinoCommandBackend(manager, sandbox, []string{"go"}, test.configured)
+			backend := NewCommandBackend(manager, sandbox, []string{"go"}, test.configured)
 			_, _, _, _, timeout, err := backend.validateRequest(context.Background(), "run-command", tools.CommandRequest{Command: "go", TimeoutMS: test.requestMS})
 			if err != nil {
 				t.Fatalf("validateRequest: %v", err)

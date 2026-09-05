@@ -16,7 +16,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func newDownloadTestBackend(t *testing.T, maxBytes int64) (*EinoDownloadBackend, string, domain.RunID) {
+func newDownloadTestBackend(t *testing.T, maxBytes int64) (*DownloadBackend, string, domain.RunID) {
 	t.Helper()
 	manager, err := NewWorkspaceManager(filepath.Join(t.TempDir(), "workspaces"))
 	if err != nil {
@@ -37,7 +37,7 @@ func newDownloadTestBackend(t *testing.T, maxBytes int64) (*EinoDownloadBackend,
 		t.Fatalf("new sandbox manager: %v", err)
 	}
 	files := NewEinoFilesystemBackend(manager, sandbox)
-	downloads := NewEinoDownloadBackend(files, sandbox)
+	downloads := NewDownloadBackend(files, sandbox)
 	downloads.allowLoopbackForTest()
 	downloads.maxBytes = maxBytes
 	return downloads, workspace.Path, runID
@@ -113,7 +113,7 @@ func TestDownloadRejectsOversizeAndBadURLs(t *testing.T) {
 	}
 
 	// Without the loopback test seam the public-only dialer refuses localhost.
-	plain := NewEinoDownloadBackend(backend.files, backend.sandbox)
+	plain := NewDownloadBackend(backend.files, backend.sandbox)
 	loopback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer loopback.Close()
 	if _, err := plain.Download(context.Background(), runID, tools.DownloadRequest{URL: loopback.URL, Path: "local.bin"}); err == nil || !strings.Contains(err.Error(), "private or local") {
@@ -195,7 +195,7 @@ func TestDownloadCreatesParentsUnderConfinedSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sandbox manager: %v", err)
 	}
-	backend := NewEinoDownloadBackend(NewEinoFilesystemBackend(manager, sandbox), sandbox)
+	backend := NewDownloadBackend(NewEinoFilesystemBackend(manager, sandbox), sandbox)
 	backend.allowLoopbackForTest()
 
 	result, err := backend.Download(context.Background(), runID, tools.DownloadRequest{URL: server.URL, Path: "deep/dir/file.txt"})

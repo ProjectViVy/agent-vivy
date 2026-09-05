@@ -36,7 +36,7 @@ const (
 	maxCommandArgsBytes   = 64 << 10
 )
 
-type EinoCommandBackend struct {
+type CommandBackend struct {
 	manager        *WorkspaceManager
 	sandbox        *SandboxManager
 	allowed        map[string]struct{}
@@ -46,17 +46,17 @@ type EinoCommandBackend struct {
 	jobs           *tools.JobRegistry
 }
 
-var _ tools.CommandOperations = (*EinoCommandBackend)(nil)
-var _ tools.JobOperations = (*EinoCommandBackend)(nil)
+var _ tools.CommandOperations = (*CommandBackend)(nil)
+var _ tools.JobOperations = (*CommandBackend)(nil)
 var _ interface {
 	PrepareCommand(context.Context, domain.RunID, tools.CommandRequest) (domain.ToolProposal, error)
-} = (*EinoCommandBackend)(nil)
+} = (*CommandBackend)(nil)
 
-// NewEinoCommandBackend wires the local process backend. maxTimeout bounds a
+// NewCommandBackend wires the local process backend. maxTimeout bounds a
 // single execute/commandline run (from runtime.execute_max_timeout_seconds);
 // non-positive falls back to the 30s default and values above
 // hardMaxCommandTimeout are clamped to it.
-func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string, maxTimeout time.Duration) *EinoCommandBackend {
+func NewCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, allowed []string, maxTimeout time.Duration) *CommandBackend {
 	if len(allowed) == 0 {
 		allowed = []string{"go", "git", "rg"}
 	}
@@ -73,14 +73,14 @@ func NewEinoCommandBackend(manager *WorkspaceManager, sandbox *SandboxManager, a
 		}
 	}
 	shellPath, _ := exec.LookPath("bash")
-	return &EinoCommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath, jobs: tools.NewJobRegistry()}
+	return &CommandBackend{manager: manager, sandbox: sandbox, allowed: commands, maxOutputBytes: maxCommandOutput, maxTimeout: maxTimeout, shellPath: shellPath, jobs: tools.NewJobRegistry()}
 }
 
-func (b *EinoCommandBackend) ShellAvailable() bool {
+func (b *CommandBackend) ShellAvailable() bool {
 	return b != nil && b.manager != nil && b.sandbox != nil && b.jobs != nil && (goRuntime.GOOS == "windows" || b.shellPath != "")
 }
 
-func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
+func (b *CommandBackend) Execute(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (tools.CommandResult, error) {
 	command, args, cwd, env, timeout, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
 		return tools.CommandResult{}, err
@@ -142,7 +142,7 @@ func (b *EinoCommandBackend) Execute(ctx context.Context, runID domain.RunID, re
 // the timeout budget and are adopted as background jobs on timeout; explicit
 // background runs return their job id immediately. Jobs are bound to the run
 // context, so a finishing or cancelled run reaps them.
-func (b *EinoCommandBackend) executeBash(ctx context.Context, path string, args []string, cwd string, env []string, timeout time.Duration, background bool) (tools.CommandResult, error) {
+func (b *CommandBackend) executeBash(ctx context.Context, path string, args []string, cwd string, env []string, timeout time.Duration, background bool) (tools.CommandResult, error) {
 	display := strings.Join(append([]string{"bash"}, args...), " ")
 	spec := tools.JobSpec{Display: display, Path: path, Args: args, Dir: cwd, Env: env}
 	direct := isDirectShell(ctx)
@@ -209,13 +209,13 @@ func portableShellCommands(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 }
 
 // JobRead and JobKill expose the registry to the job_output/job_kill tools.
-func (b *EinoCommandBackend) JobRead(jobID string) (tools.JobReadResult, bool) {
+func (b *CommandBackend) JobRead(jobID string) (tools.JobReadResult, bool) {
 	return b.jobs.Read(jobID)
 }
-func (b *EinoCommandBackend) JobKill(jobID string) (tools.JobKillResult, error) {
+func (b *CommandBackend) JobKill(jobID string) (tools.JobKillResult, error) {
 	return b.jobs.Kill(jobID)
 }
-func (b *EinoCommandBackend) PrepareCommand(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (domain.ToolProposal, error) {
+func (b *CommandBackend) PrepareCommand(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (domain.ToolProposal, error) {
 	command, args, cwd, _, timeout, err := b.validateRequest(ctx, runID, request)
 	if err != nil {
 		return domain.ToolProposal{}, err
@@ -228,7 +228,7 @@ func (b *EinoCommandBackend) PrepareCommand(ctx context.Context, runID domain.Ru
 	return domain.ToolProposal{Action: "commandline", Target: filepath.Join(cwd, command), Preview: fmt.Sprintf("%s (timeout %s)", preview, timeout), RiskFindings: []string{"local process execution", "command output is untrusted"}, Data: payload}, nil
 }
 
-func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (string, []string, string, []string, time.Duration, error) {
+func (b *CommandBackend) validateRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest) (string, []string, string, []string, time.Duration, error) {
 	command := strings.TrimSpace(request.Command)
 	if command == "" || strings.ContainsAny(command, " \t\r\n/\\;&|><$()") {
 		return "", nil, "", nil, 0, errors.New("command: command must be one allowlisted executable name without shell syntax")
@@ -285,7 +285,7 @@ func (b *EinoCommandBackend) validateRequest(ctx context.Context, runID domain.R
 // does not apply (the classifier deny table plus tiered approval own that
 // risk), but read-only sandboxes still deny execution and the deny table is
 // re-checked here as defense in depth.
-func (b *EinoCommandBackend) validateBashRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest, mode domain.SandboxMode) (string, []string, string, []string, time.Duration, error) {
+func (b *CommandBackend) validateBashRequest(ctx context.Context, runID domain.RunID, request tools.CommandRequest, mode domain.SandboxMode) (string, []string, string, []string, time.Duration, error) {
 	if b.shellPath == "" && goRuntime.GOOS != "windows" {
 		return "", nil, "", nil, 0, errors.New("command: bash is not available on this host")
 	}
@@ -307,7 +307,7 @@ func (b *EinoCommandBackend) validateBashRequest(ctx context.Context, runID doma
 	return "bash", append([]string(nil), request.Args...), cwdPath, env, timeout, nil
 }
 
-func (b *EinoCommandBackend) resolveCommandContext(ctx context.Context, runID domain.RunID, cwdRequest string, timeoutMS int, envOverrides map[string]string) (string, []string, time.Duration, error) {
+func (b *CommandBackend) resolveCommandContext(ctx context.Context, runID domain.RunID, cwdRequest string, timeoutMS int, envOverrides map[string]string) (string, []string, time.Duration, error) {
 	if err := ctx.Err(); err != nil {
 		return "", nil, 0, err
 	}

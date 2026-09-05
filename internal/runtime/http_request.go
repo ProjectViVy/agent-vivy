@@ -23,7 +23,7 @@ const (
 	maxHTTPTimeout           = 120 * time.Second
 )
 
-type EinoHTTPBackend struct {
+type HTTPBackend struct {
 	mu           sync.RWMutex
 	client       *http.Client
 	sandbox      *SandboxManager
@@ -31,9 +31,9 @@ type EinoHTTPBackend struct {
 	maxBodyBytes int
 }
 
-var _ tools.HTTPOperations = (*EinoHTTPBackend)(nil)
+var _ tools.HTTPOperations = (*HTTPBackend)(nil)
 
-func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int, timeoutSeconds int, sandbox *SandboxManager) *EinoHTTPBackend {
+func NewHTTPBackend(allowedHosts []string, maxBodyBytes int, timeoutSeconds int, sandbox *SandboxManager) *HTTPBackend {
 	if maxBodyBytes <= 0 || maxBodyBytes > 8<<20 {
 		maxBodyBytes = defaultHTTPResponseBytes
 	}
@@ -50,7 +50,7 @@ func NewEinoHTTPBackend(allowedHosts []string, maxBodyBytes int, timeoutSeconds 
 		MaxIdleConns:      8,
 		IdleConnTimeout:   30 * time.Second,
 	}
-	return &EinoHTTPBackend{
+	return &HTTPBackend{
 		client:       &http.Client{Transport: transport, Timeout: httpTimeout(timeoutSeconds)},
 		sandbox:      sandbox,
 		allowedHosts: hosts,
@@ -74,7 +74,7 @@ func httpTimeout(seconds int) time.Duration {
 // SetConfig live-applies the operator-managed allowlist and request timeout
 // (settings.yaml http overlay). Hosts are normalized the same way the
 // constructor normalizes them; nil keeps the current list.
-func (b *EinoHTTPBackend) SetConfig(allowedHosts []string, timeoutSeconds int) {
+func (b *HTTPBackend) SetConfig(allowedHosts []string, timeoutSeconds int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if allowedHosts != nil {
@@ -91,7 +91,7 @@ func (b *EinoHTTPBackend) SetConfig(allowedHosts []string, timeoutSeconds int) {
 	}
 }
 
-func (b *EinoHTTPBackend) Request(ctx context.Context, _ domain.RunID, input tools.HTTPRequest) (tools.HTTPResponse, error) {
+func (b *HTTPBackend) Request(ctx context.Context, _ domain.RunID, input tools.HTTPRequest) (tools.HTTPResponse, error) {
 	method := strings.ToUpper(strings.TrimSpace(input.Method))
 	if method == "" {
 		method = http.MethodGet
@@ -161,7 +161,7 @@ func (b *EinoHTTPBackend) Request(ctx context.Context, _ domain.RunID, input too
 	}, nil
 }
 
-func (b *EinoHTTPBackend) hostAllowed(host string) bool {
+func (b *HTTPBackend) hostAllowed(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
 	b.mu.RLock()
 	defer b.mu.RUnlock()
