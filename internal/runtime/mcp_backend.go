@@ -11,11 +11,16 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
+
+	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
+	einotool "github.com/cloudwego/eino/components/tool"
+	"github.com/mark3labs/mcp-go/client"
+	mcptransport "github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 const (
@@ -31,21 +36,40 @@ type MCPServerConfig struct {
 	AuthEnv  string
 }
 
+// EinoMCPBackend is the Vivy governance adapter around one official MCP
+// client per configured server. Eino's MCP component is intentionally used
+// only for tool discovery/schema conversion; the resulting Eino tools are
+// projected into Vivy's untrusted catalog and are never mounted into the
+// model. Calls continue through mcp_call and PrepareMCPCall.
 type EinoMCPBackend struct {
 	client           *http.Client
-	servers          map[string]MCPServerConfig
-	sessions         map[string]*mcpSession
-	mu               sync.Mutex
-	nextID           uint64
+	servers          map[string]*mcpServer
+	mu               sync.RWMutex
+	retired          sync.WaitGroup
+	closeDone        chan struct{}
+	closeErr         error
 	maxResponseBytes int
 	timeout          time.Duration
+	closed           bool
 }
 
-type mcpSession struct {
-	initialized     bool
-	sessionID       string
-	protocolVersion string
-	prompts         bool
+type mcpServer struct {
+	config MCPServerConfig
+	cli    *client.Client
+
+	initMu  sync.Mutex
+	mu      sync.Mutex
+	initErr error
+	caps    mcp.ServerCapabilities
+	ready   bool
+
+	refs    int
+	closing bool
+	closed  bool
+
+	closeOnce sync.Once
+	closeDone chan struct{}
+	closeErr  error
 }
 
 // MCPServerStatus is a secret-free snapshot of one configured server's
@@ -63,119 +87,278 @@ var _ interface {
 	PrepareMCPCall(context.Context, domain.RunID, tools.MCPCallRequest) (domain.ToolProposal, error)
 } = (*EinoMCPBackend)(nil)
 
-func NewEinoMCPBackend(configs []MCPServerConfig, client *http.Client) *EinoMCPBackend {
-	if client == nil {
-		client = &http.Client{Timeout: defaultMCPTimeout}
+// NewEinoMCPBackend builds a backend without opening any network connection.
+// Each server is started and initialized lazily on its first operation.
+func NewEinoMCPBackend(configs []MCPServerConfig, httpClient *http.Client) *EinoMCPBackend {
+	backend := &EinoMCPBackend{
+		maxResponseBytes: maxMCPResponseBytes,
+		timeout:          defaultMCPTimeout,
+		closeDone:        make(chan struct{}),
 	}
-	backend := &EinoMCPBackend{client: client, maxResponseBytes: maxMCPResponseBytes, timeout: defaultMCPTimeout}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: defaultMCPTimeout}
+	}
+	backend.client = boundedMCPHTTPClient(httpClient, func() int { return backend.maxResponseBytes })
 	backend.ReplaceServers(configs)
 	return backend
 }
 
-// ReplaceServers swaps the live catalog and drops cached sessions so the
-// next list/call re-initializes against the new endpoints.
+// ReplaceServers swaps the live catalog. Entries whose endpoint/auth config
+// is unchanged are retained; removed or replaced entries are closed after any
+// in-flight operation releases its reference.
 func (b *EinoMCPBackend) ReplaceServers(configs []MCPServerConfig) {
-	servers := make(map[string]MCPServerConfig, len(configs))
+	normalized := make(map[string]MCPServerConfig, len(configs))
 	for _, config := range configs {
-		name := strings.TrimSpace(config.Name)
-		if name == "" || strings.TrimSpace(config.Endpoint) == "" {
-			continue
-		}
-		config.Name = name
+		config.Name = strings.TrimSpace(config.Name)
 		config.Endpoint = strings.TrimSpace(config.Endpoint)
 		config.AuthEnv = strings.TrimSpace(config.AuthEnv)
-		servers[name] = config
+		if config.Name == "" || config.Endpoint == "" {
+			continue
+		}
+		normalized[config.Name] = config
 	}
+
 	b.mu.Lock()
-	b.servers = servers
-	b.sessions = make(map[string]*mcpSession)
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	old := b.servers
+	next := make(map[string]*mcpServer, len(normalized))
+	for name, config := range normalized {
+		if previous := old[name]; previous != nil && previous.config == config {
+			next[name] = previous
+			continue
+		}
+		entry, err := b.newServer(config)
+		if err != nil {
+			// Config validation normally catches malformed endpoints. Keep the
+			// runtime fail-closed if a direct caller bypasses that boundary.
+			continue
+		}
+		next[name] = entry
+	}
+	removed := make([]*mcpServer, 0)
+	for name, previous := range old {
+		if next[name] != previous {
+			removed = append(removed, previous)
+		}
+	}
+	// Add while holding the backend lock and before publishing the replacement.
+	// Close takes the same lock before waiting, so it cannot race a late Add.
+	b.retired.Add(len(removed))
+	b.servers = next
 	b.mu.Unlock()
+
+	b.startRetiredCleanup(removed)
 }
 
-// ConfiguredServers returns a snapshot of the live catalog (enabled
-// servers only; the backend never stores disabled entries).
+// ConfiguredServers returns a deterministic snapshot of the live catalog.
 func (b *EinoMCPBackend) ConfiguredServers() []MCPServerConfig {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
 	out := make([]MCPServerConfig, 0, len(b.servers))
-	for _, config := range b.servers {
-		out = append(out, config)
+	for _, entry := range b.servers {
+		out = append(out, entry.config)
 	}
+	b.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
 // ServerStatuses reports the backend's current in-process MCP truth without
 // probing the network or exposing endpoints and authentication metadata.
 func (b *EinoMCPBackend) ServerStatuses() []MCPServerStatus {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make([]MCPServerStatus, 0, len(b.servers))
-	for name := range b.servers {
-		status := MCPServerStatus{Name: name}
-		if session := b.sessions[name]; session != nil {
-			status.Initialized = session.initialized
-		}
-		out = append(out, status)
+	b.mu.RLock()
+	entries := make(map[string]*mcpServer, len(b.servers))
+	for name, entry := range b.servers {
+		entries[name] = entry
+	}
+	b.mu.RUnlock()
+
+	out := make([]MCPServerStatus, 0, len(entries))
+	for name, entry := range entries {
+		out = append(out, MCPServerStatus{Name: name, Initialized: entry.isReady()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
+
+// Close shuts down every live MCP client. It is idempotent and safe to call
+// while a request is in flight; the final client close is deferred until its
+// operation reference is released.
+func (b *EinoMCPBackend) Close() error {
+	b.mu.Lock()
+	if b.closed {
+		done := b.closeDone
+		b.mu.Unlock()
+		<-done
+		b.mu.RLock()
+		err := b.closeErr
+		b.mu.RUnlock()
+		return err
+	}
+	b.closed = true
+	old := b.servers
+	b.servers = make(map[string]*mcpServer)
+	b.mu.Unlock()
+
+	err := closeMCPServers(mapValues(old))
+	// ReplaceServers may already have retired clients whose asynchronous close
+	// is still in flight. Wait for those too before declaring shutdown complete.
+	b.retired.Wait()
+	b.mu.Lock()
+	b.closeErr = err
+	close(b.closeDone)
+	b.mu.Unlock()
+	return err
+}
+
+func mapValues(values map[string]*mcpServer) []*mcpServer {
+	entries := make([]*mcpServer, 0, len(values))
+	for _, entry := range values {
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// closeMCPServers closes transports concurrently. Streamable HTTP's legacy
+// Close can wait up to five seconds for its DELETE; serial shutdown would turn
+// N configured servers into an N*5s settings/shutdown stall.
+func closeMCPServers(entries []*mcpServer) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	errs := make(chan error, len(entries))
+	var wg sync.WaitGroup
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(entry *mcpServer) {
+			defer wg.Done()
+			if err := entry.markClosing(); err != nil {
+				errs <- err
+				return
+			}
+			if err := entry.waitClosed(); err != nil {
+				errs <- err
+			}
+		}(entry)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		return err
+	}
+	return nil
+}
+
+func (b *EinoMCPBackend) startRetiredCleanup(entries []*mcpServer) {
+	if len(entries) == 0 {
+		return
+	}
+	for _, entry := range entries {
+		if entry == nil {
+			b.retired.Done()
+			continue
+		}
+		go func(entry *mcpServer) {
+			defer b.retired.Done()
+			_ = closeMCPServers([]*mcpServer{entry})
+		}(entry)
+	}
+}
+
 func (b *EinoMCPBackend) ListTools(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResponse, error) {
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	server = strings.TrimSpace(server)
 	if server != "" {
-		result, err := b.listServer(ctx, server)
+		result, err := runMCP(ctx, b, server, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPTool, error) {
+			mcpTools, err := einomcp.GetTools(ctx, &einomcp.Config{Cli: boundedMCPClient{MCPClient: entry.cli}})
+			if err != nil {
+				return nil, err
+			}
+			return projectEinoTools(ctx, mcpTools, server)
+		})
 		if err != nil {
 			return tools.MCPListResponse{}, err
 		}
 		return tools.MCPListResponse{Tools: result, Untrusted: true}, nil
 	}
+
 	all := make([]tools.MCPTool, 0)
+	used := 0
 	for _, name := range b.serverNames() {
-		result, err := b.listServer(ctx, name)
+		result, err := runMCP(ctx, b, name, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPTool, error) {
+			mcpTools, err := einomcp.GetTools(ctx, &einomcp.Config{Cli: boundedMCPClient{MCPClient: entry.cli}})
+			if err != nil {
+				return nil, err
+			}
+			return projectEinoTools(ctx, mcpTools, name)
+		})
 		if err != nil {
 			return tools.MCPListResponse{}, err
 		}
-		all = append(all, result...)
+		for _, item := range result {
+			size := mcpToolProjectedSize(item)
+			if size > maxMCPContentBytes-used {
+				return tools.MCPListResponse{Tools: all, Untrusted: true}, nil
+			}
+			all = append(all, item)
+			used += size
+		}
 	}
 	return tools.MCPListResponse{Tools: all, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) listServer(ctx context.Context, server string) ([]tools.MCPTool, error) {
-	config, err := b.server(server)
-	if err != nil {
-		return nil, err
-	}
-	result, err := b.rpc(ctx, config, "tools/list", map[string]any{}, true)
-	if err != nil {
-		return nil, err
-	}
-	var payload struct {
-		Tools []struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			InputSchema json.RawMessage `json:"inputSchema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(result, &payload); err != nil {
-		return nil, fmt.Errorf("mcp %s: tools/list result: %w", server, err)
-	}
-	toolsOut := make([]tools.MCPTool, 0, len(payload.Tools))
-	for _, item := range payload.Tools {
-		if strings.TrimSpace(item.Name) == "" {
+func projectEinoTools(ctx context.Context, mcpTools []einotool.BaseTool, server string) ([]tools.MCPTool, error) {
+	out := make([]tools.MCPTool, 0, len(mcpTools))
+	used := 0
+	for _, remote := range mcpTools {
+		if remote == nil {
 			continue
 		}
-		if tools.IsBrowserUseName(item.Name) {
+		info, err := remote.Info(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("mcp %s: tool info: %w", server, err)
+		}
+		if info == nil || strings.TrimSpace(info.Name) == "" || tools.IsBrowserUseName(info.Name) {
 			continue
 		}
-		toolsOut = append(toolsOut, tools.MCPTool{Server: server, Name: item.Name, Description: item.Description, InputSchema: boundedRaw(item.InputSchema, maxMCPContentBytes)})
+		var inputSchema json.RawMessage
+		if info.ParamsOneOf != nil {
+			schema, err := info.ParamsOneOf.ToJSONSchema()
+			if err != nil {
+				return nil, fmt.Errorf("mcp %s/%s: tool schema: %w", server, info.Name, err)
+			}
+			inputSchema, err = json.Marshal(schema)
+			if err != nil {
+				return nil, fmt.Errorf("mcp %s/%s: marshal tool schema: %w", server, info.Name, err)
+			}
+			inputSchema = boundedRaw(inputSchema, maxMCPContentBytes)
+		}
+		projected := tools.MCPTool{Server: server, Name: info.Name, Description: info.Desc, InputSchema: inputSchema}
+		size := mcpToolProjectedSize(projected)
+		if size > maxMCPContentBytes-used {
+			break
+		}
+		out = append(out, projected)
+		used += size
 	}
-	return toolsOut, nil
+	return out, nil
 }
 
-// ListResources performs the read-only MCP resources/list operation. An
-// empty server lists each configured server in catalog order (the TUI uses a
-// specific server so a one-shot command cannot accidentally fan out).
+func mcpToolProjectedSize(tool tools.MCPTool) int {
+	return len(tool.Server) + len(tool.Name) + len(tool.Description) + len(tool.InputSchema)
+}
+
+// ListResources performs read-only resources/list. An empty server fans out
+// in deterministic catalog order and applies one shared content budget.
 func (b *EinoMCPBackend) ListResources(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResourcesResponse, error) {
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	server = strings.TrimSpace(server)
 	if server != "" {
 		resources, err := b.listResourcesServer(ctx, server, maxMCPContentBytes)
@@ -184,6 +367,7 @@ func (b *EinoMCPBackend) ListResources(ctx context.Context, _ domain.RunID, serv
 		}
 		return tools.MCPListResourcesResponse{Server: server, Resources: resources, Untrusted: true}, nil
 	}
+
 	all := make([]tools.MCPResource, 0)
 	used := 0
 	for _, name := range b.serverNames() {
@@ -198,26 +382,24 @@ func (b *EinoMCPBackend) ListResources(ctx context.Context, _ domain.RunID, serv
 		for _, resource := range resources {
 			used += mcpResourceProjectedSize(resource)
 		}
-		if used >= maxMCPContentBytes {
-			break
-		}
 	}
 	return tools.MCPListResourcesResponse{Resources: all, Untrusted: true}, nil
 }
 
-// ListPrompts returns the remote prompt catalog as bounded untrusted
-// metadata. An empty server aggregates configured servers in sorted order.
+// ListPrompts returns bounded, untrusted prompt metadata. Servers without the
+// prompts capability fail closed to an empty catalog.
 func (b *EinoMCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server string) (tools.MCPListPromptsResponse, error) {
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	server = strings.TrimSpace(server)
 	if server != "" {
 		prompts, err := b.listPromptsServer(ctx, server)
 		return tools.MCPListPromptsResponse{Prompts: prompts, Untrusted: true}, err
 	}
+
 	all := make([]tools.MCPPrompt, 0)
 	used := 0
-	names := b.serverNames()
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range b.serverNames() {
 		prompts, err := b.listPromptsServer(ctx, name)
 		if err != nil {
 			return tools.MCPListPromptsResponse{}, err
@@ -235,50 +417,528 @@ func (b *EinoMCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server
 }
 
 func (b *EinoMCPBackend) listPromptsServer(ctx context.Context, server string) ([]tools.MCPPrompt, error) {
-	config, err := b.server(server)
+	return runMCP(ctx, b, server, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPPrompt, error) {
+		if !entry.promptCapable() {
+			return []tools.MCPPrompt{}, nil
+		}
+		return listPromptsPages(ctx, entry.cli, server)
+	})
+}
+
+// GetPrompt fetches one prompt and flattens user text into bounded, untrusted
+// model input. Non-text content is rejected rather than guessed.
+func (b *EinoMCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
+	request.Server = strings.TrimSpace(request.Server)
+	if strings.TrimSpace(request.Name) == "" {
+		return tools.MCPGetPromptResponse{}, errors.New("mcp: prompt name is required")
+	}
+	result, err := runMCP(ctx, b, request.Server, true, func(ctx context.Context, entry *mcpServer) (tools.MCPGetPromptResponse, error) {
+		payload, err := entry.cli.GetPrompt(ctx, mcp.GetPromptRequest{Params: mcp.GetPromptParams{Name: request.Name, Arguments: request.Arguments}})
+		if err != nil {
+			return tools.MCPGetPromptResponse{}, err
+		}
+		return projectPrompt(request.Server, request.Name, payload)
+	})
+	if err != nil {
+		return tools.MCPGetPromptResponse{}, err
+	}
+	return result, nil
+}
+
+func (b *EinoMCPBackend) listResourcesServer(ctx context.Context, server string, limit int) ([]tools.MCPResource, error) {
+	return runMCP(ctx, b, server, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPResource, error) {
+		return listResourcePages(ctx, entry.cli, server, limit)
+	})
+}
+
+// ReadResource performs resources/read. The URI is returned verbatim and
+// content remains untrusted text/base64; it is never mounted or written.
+func (b *EinoMCPBackend) ReadResource(ctx context.Context, _ domain.RunID, request tools.MCPReadResourceRequest) (tools.MCPReadResourceResponse, error) {
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
+	request.Server = strings.TrimSpace(request.Server)
+	if strings.TrimSpace(request.URI) == "" {
+		return tools.MCPReadResourceResponse{}, errors.New("mcp: resource URI is required")
+	}
+	if len(request.URI) > maxMCPContentBytes {
+		return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp: resource URI exceeds size limit (%d bytes)", maxMCPContentBytes)
+	}
+	result, err := runMCP(ctx, b, request.Server, true, func(ctx context.Context, entry *mcpServer) (tools.MCPReadResourceResponse, error) {
+		payload, err := entry.cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: request.URI}})
+		if err != nil {
+			return tools.MCPReadResourceResponse{}, err
+		}
+		return projectReadResource(request.Server, request.URI, payload)
+	})
+	if err != nil {
+		return tools.MCPReadResourceResponse{}, err
+	}
+	return result, nil
+}
+
+// CallTool deliberately has no session-retry. A remote side effect may have
+// happened before a transport error was observed. IsError is preserved in
+// Vivy's response instead of being converted to a Go error.
+func (b *EinoMCPBackend) CallTool(ctx context.Context, _ domain.RunID, request tools.MCPCallRequest) (tools.MCPCallResponse, error) {
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
+	request.Server = strings.TrimSpace(request.Server)
+	request.Tool = strings.TrimSpace(request.Tool)
+	result, err := runMCP(ctx, b, request.Server, false, func(ctx context.Context, entry *mcpServer) (tools.MCPCallResponse, error) {
+		payload, err := entry.cli.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: request.Tool, Arguments: request.Arguments}})
+		if err != nil {
+			return tools.MCPCallResponse{}, err
+		}
+		return projectCallResult(request.Server, request.Tool, payload)
+	})
+	if err != nil {
+		return tools.MCPCallResponse{}, err
+	}
+	return result, nil
+}
+
+func (b *EinoMCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, request tools.MCPCallRequest) (domain.ToolProposal, error) {
+	request.Server = strings.TrimSpace(request.Server)
+	request.Tool = strings.TrimSpace(request.Tool)
+	if _, err := b.lookupServer(request.Server); err != nil {
+		return domain.ToolProposal{}, err
+	}
+	payload, _ := json.Marshal(request)
+	preview := string(payload)
+	if len(preview) > 4096 {
+		preview = preview[:4096] + "..."
+	}
+	return domain.ToolProposal{Action: tools.MCPCallName, Target: request.Server + "/" + request.Tool, Preview: preview, RiskFindings: []string{"remote MCP side effect is unknown"}, Data: payload}, nil
+}
+
+func (b *EinoMCPBackend) newServer(config MCPServerConfig) (*mcpServer, error) {
+	cli, err := client.NewStreamableHttpClient(config.Endpoint,
+		mcptransport.WithHTTPBasicClient(b.client),
+		mcptransport.WithHTTPHeaderFunc(func(context.Context) map[string]string {
+			if config.AuthEnv == "" {
+				return nil
+			}
+			if token := os.Getenv(config.AuthEnv); token != "" {
+				return map[string]string{"Authorization": "Bearer " + token}
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mcp %s: create streamable HTTP client: %w", config.Name, err)
+	}
+	return &mcpServer{
+		config:    config,
+		cli:       cli,
+		closeDone: make(chan struct{}),
+	}, nil
+}
+
+func (b *EinoMCPBackend) lookupServer(name string) (*mcpServer, error) {
+	name = strings.TrimSpace(name)
+	b.mu.RLock()
+	entry := b.servers[name]
+	closed := b.closed
+	b.mu.RUnlock()
+	if closed {
+		return nil, errors.New("mcp: backend is closed")
+	}
+	if entry == nil || strings.TrimSpace(entry.config.Endpoint) == "" {
+		return nil, fmt.Errorf("mcp: server %q is not configured", name)
+	}
+	return entry, nil
+}
+
+func (b *EinoMCPBackend) acquireServer(name string) (*mcpServer, error) {
+	name = strings.TrimSpace(name)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.closed {
+		return nil, errors.New("mcp: backend is closed")
+	}
+	entry := b.servers[name]
+	if entry == nil || strings.TrimSpace(entry.config.Endpoint) == "" {
+		return nil, fmt.Errorf("mcp: server %q is not configured", name)
+	}
+	if !entry.acquire() {
+		return nil, fmt.Errorf("mcp: server %q is being replaced", name)
+	}
+	return entry, nil
+}
+
+func (b *EinoMCPBackend) serverNames() []string {
+	b.mu.RLock()
+	names := make([]string, 0, len(b.servers))
+	for name := range b.servers {
+		names = append(names, name)
+	}
+	b.mu.RUnlock()
+	sort.Strings(names)
+	return names
+}
+
+func (b *EinoMCPBackend) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if b.timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, b.timeout)
+}
+
+// replaceSession creates a fresh official client after a server reports that
+// its stateful HTTP session was terminated. It never re-adds a server removed
+// by a concurrent settings update.
+func (b *EinoMCPBackend) replaceSession(name string, expected *mcpServer) {
+	b.mu.RLock()
+	current := b.servers[name]
+	closed := b.closed
+	b.mu.RUnlock()
+	if closed || current != expected {
+		return
+	}
+	entry, err := b.newServer(expected.config)
+	if err != nil {
+		return
+	}
+	b.mu.Lock()
+	if b.closed || b.servers[name] != expected {
+		b.mu.Unlock()
+		_ = entry.markClosing()
+		return
+	}
+	b.retired.Add(1)
+	b.servers[name] = entry
+	b.mu.Unlock()
+	b.startRetiredCleanup([]*mcpServer{expected})
+}
+
+func (s *mcpServer) acquire() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing || s.closed {
+		return false
+	}
+	s.refs++
+	return true
+}
+
+func (s *mcpServer) release() {
+	s.mu.Lock()
+	if s.refs > 0 {
+		s.refs--
+	}
+	closeNow := s.refs == 0 && s.closing && !s.closed
+	if closeNow {
+		s.closed = true
+	}
+	s.mu.Unlock()
+	if closeNow {
+		// The retired/current cleanup worker is already waiting on closeDone;
+		// complete the close here so no lifecycle goroutine escapes tracking.
+		_ = s.closeClient()
+	}
+}
+
+func (s *mcpServer) markClosing() error {
+	s.mu.Lock()
+	s.closing = true
+	closeNow := s.refs == 0 && !s.closed
+	if closeNow {
+		s.closed = true
+	}
+	s.mu.Unlock()
+	if closeNow {
+		return s.closeClient()
+	}
+	return nil
+}
+
+func (s *mcpServer) waitClosed() error {
+	<-s.closeDone
+	s.mu.Lock()
+	err := s.closeErr
+	s.mu.Unlock()
+	return err
+}
+
+func (s *mcpServer) closeClient() error {
+	s.closeOnce.Do(func() {
+		err := s.cli.Close()
+		s.mu.Lock()
+		s.closeErr = err
+		s.mu.Unlock()
+		close(s.closeDone)
+	})
+	return s.waitClosed()
+}
+
+func (s *mcpServer) isReady() bool {
+	s.mu.Lock()
+	ready := s.ready
+	s.mu.Unlock()
+	return ready
+}
+
+func (s *mcpServer) promptCapable() bool {
+	s.mu.Lock()
+	capable := s.ready && s.caps.Prompts != nil
+	s.mu.Unlock()
+	return capable
+}
+
+func (s *mcpServer) initialize(ctx context.Context) error {
+	// initMu gives concurrent first operations one handshake. A failed
+	// handshake is cached on this client only; runMCP replaces and closes this
+	// client, so a later operation gets a fresh initialization attempt instead
+	// of permanently poisoning the configured server.
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	s.mu.Lock()
+	if s.ready || s.initErr != nil {
+		err := s.initErr
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	if err := s.cli.Start(ctx); err != nil {
+		err = fmt.Errorf("mcp %s: start client: %w", s.config.Name, err)
+		s.mu.Lock()
+		s.initErr = err
+		s.mu.Unlock()
+		return err
+	}
+	result, err := s.cli.Initialize(ctx, mcp.InitializeRequest{Params: mcp.InitializeParams{
+		ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+		Capabilities:    mcp.ClientCapabilities{},
+		ClientInfo:      mcp.Implementation{Name: "vivy", Version: "0.1"},
+	}})
+	if err != nil {
+		err = fmt.Errorf("mcp %s: initialize: %w", s.config.Name, err)
+		s.mu.Lock()
+		s.initErr = err
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Lock()
+	s.caps = result.Capabilities
+	s.ready = true
+	s.mu.Unlock()
+	return nil
+}
+
+func isSessionTerminated(err error) bool {
+	return errors.Is(err, mcptransport.ErrSessionTerminated)
+}
+
+func runMCP[T any](ctx context.Context, b *EinoMCPBackend, name string, retry bool, op func(context.Context, *mcpServer) (T, error)) (T, error) {
+	var zero T
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		entry, err := b.acquireServer(name)
+		if err != nil {
+			return zero, err
+		}
+		initErr := entry.initialize(ctx)
+		err = initErr
+		var result T
+		if err == nil {
+			result, err = op(ctx, entry)
+		}
+		entry.release()
+		if err == nil {
+			return result, nil
+		}
+		if initErr != nil || isSessionTerminated(err) {
+			b.replaceSession(name, entry)
+		}
+		lastErr = mapMCPError(err)
+		if !retry || !isSessionTerminated(err) || attempt == 1 {
+			return zero, lastErr
+		}
+	}
+	return zero, lastErr
+}
+
+func mapMCPError(err error) error {
+	if err == nil || isSessionTerminated(err) {
+		return err
+	}
+	var existing *tools.MCPRemoteError
+	if errors.As(err, &existing) {
+		return err
+	}
+	code := 0
+	switch {
+	case errors.Is(err, mcp.ErrParseError):
+		code = mcp.PARSE_ERROR
+	case errors.Is(err, mcp.ErrInvalidRequest):
+		code = mcp.INVALID_REQUEST
+	case errors.Is(err, mcp.ErrMethodNotFound):
+		code = mcp.METHOD_NOT_FOUND
+	case errors.Is(err, mcp.ErrInvalidParams):
+		code = mcp.INVALID_PARAMS
+	case errors.Is(err, mcp.ErrInternalError):
+		code = mcp.INTERNAL_ERROR
+	case errors.Is(err, mcp.ErrRequestInterrupted):
+		code = mcp.REQUEST_INTERRUPTED
+	case errors.Is(err, mcp.ErrResourceNotFound):
+		code = mcp.RESOURCE_NOT_FOUND
+	default:
+		return err
+	}
+	return &tools.MCPRemoteError{Code: code, Message: err.Error()}
+}
+
+type boundedMCPClient struct{ client.MCPClient }
+
+func (c boundedMCPClient) ListTools(ctx context.Context, request mcp.ListToolsRequest) (*mcp.ListToolsResult, error) {
+	result, err := c.MCPClient.ListToolsByPage(ctx, request)
 	if err != nil {
 		return nil, err
 	}
-	if err := b.ensureSession(ctx, config); err != nil {
+	if result == nil {
+		return nil, errors.New("mcp: tools/list returned no result")
+	}
+	used := 0
+	var truncated bool
+	result.Tools, used, truncated, err = boundedMCPTools(result.Tools, used)
+	if err != nil {
 		return nil, err
 	}
-	b.mu.Lock()
-	promptCapable := b.sessions[server] != nil && b.sessions[server].prompts
-	b.mu.Unlock()
-	if !promptCapable {
-		return []tools.MCPPrompt{}, nil
+	if truncated {
+		result.NextCursor = ""
+		return result, nil
 	}
-	out := make([]tools.MCPPrompt, 0)
-	used := 0
-	cursor := ""
-	seenCursors := make(map[string]struct{})
-	for page := 0; page < maxMCPResourcePages; page++ {
-		params := map[string]any{}
-		if cursor != "" {
-			params["cursor"] = cursor
+	seen := map[mcp.Cursor]struct{}{}
+	for page := 1; result.NextCursor != ""; page++ {
+		if page >= maxMCPResourcePages {
+			return nil, fmt.Errorf("mcp: tools/list exceeded %d pages", maxMCPResourcePages)
 		}
-		result, err := b.rpc(ctx, config, "prompts/list", params, true)
+		if len(result.NextCursor) > maxMCPContentBytes {
+			return nil, fmt.Errorf("mcp: tools/list cursor exceeds size limit")
+		}
+		if _, ok := seen[result.NextCursor]; ok {
+			return nil, fmt.Errorf("mcp: tools/list repeated cursor")
+		}
+		seen[result.NextCursor] = struct{}{}
+		request.Params.Cursor = result.NextCursor
+		next, err := c.MCPClient.ListToolsByPage(ctx, request)
 		if err != nil {
 			return nil, err
 		}
-		var payload struct {
-			Prompts []struct {
-				Name        string `json:"name"`
-				Title       string `json:"title"`
-				Description string `json:"description"`
-				Arguments   []struct {
-					Name        string `json:"name"`
-					Title       string `json:"title"`
-					Description string `json:"description"`
-					Required    bool   `json:"required"`
-				} `json:"arguments"`
-			} `json:"prompts"`
-			NextCursor string `json:"nextCursor"`
+		if next == nil {
+			return nil, errors.New("mcp: tools/list returned no result")
 		}
-		if err := json.Unmarshal(result, &payload); err != nil {
-			return nil, fmt.Errorf("mcp %s: prompts/list result: %w", server, err)
+		var pageTools []mcp.Tool
+		pageTools, used, truncated, err = boundedMCPTools(next.Tools, used)
+		if err != nil {
+			return nil, err
 		}
-		for _, item := range payload.Prompts {
+		result.Tools = append(result.Tools, pageTools...)
+		if truncated {
+			result.NextCursor = ""
+			break
+		}
+		result.NextCursor = next.NextCursor
+	}
+	return result, nil
+}
+
+// boundedMCPTools caps the aggregate catalog handed to Eino's GetTools. The
+// transport body guard caps each response at 512 KiB, but 32 pages could
+// otherwise accumulate 16 MiB before schema conversion.
+func boundedMCPTools(items []mcp.Tool, used int) ([]mcp.Tool, int, bool, error) {
+	bounded := make([]mcp.Tool, 0, len(items))
+	for _, item := range items {
+		raw, err := json.Marshal(item)
+		if err != nil {
+			return nil, used, false, fmt.Errorf("mcp: tools/list item: %w", err)
+		}
+		if len(raw) > maxMCPContentBytes {
+			continue
+		}
+		if len(raw) > maxMCPContentBytes-used {
+			return bounded, used, true, nil
+		}
+		bounded = append(bounded, item)
+		used += len(raw)
+	}
+	return bounded, used, false, nil
+}
+
+func listResourcePages(ctx context.Context, cli client.MCPClient, server string, limit int) ([]tools.MCPResource, error) {
+	resources := make([]tools.MCPResource, 0)
+	used := 0
+	var cursor mcp.Cursor
+	seen := make(map[mcp.Cursor]struct{})
+	for page := 0; page < maxMCPResourcePages; page++ {
+		result, err := cli.ListResourcesByPage(ctx, mcp.ListResourcesRequest{PaginatedRequest: mcp.PaginatedRequest{Params: mcp.PaginatedParams{Cursor: cursor}}})
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, fmt.Errorf("mcp %s: resources/list returned no result", server)
+		}
+		for _, item := range result.Resources {
+			if strings.TrimSpace(item.URI) == "" {
+				continue
+			}
+			if len(server)+len(item.URI) > maxMCPContentBytes {
+				return nil, fmt.Errorf("mcp %s: resource URI exceeds size limit", server)
+			}
+			if len(server)+len(item.URI) > limit-used {
+				return resources, nil
+			}
+			annotations := optionalJSON(item.Annotations)
+			meta := optionalJSON(item.Meta)
+			size := int64(0)
+			if item.Size != nil {
+				size = *item.Size
+			}
+			resource, consumed := boundedMCPResource(tools.MCPResource{
+				Server: server, URI: item.URI, Name: item.Name, Title: item.Title,
+				Description: item.Description, MIME: item.MIMEType, Size: size,
+				Annotations: annotations, Meta: meta,
+			}, limit-used)
+			if consumed == 0 {
+				return resources, nil
+			}
+			resources = append(resources, resource)
+			used += consumed
+			if used >= limit {
+				return resources, nil
+			}
+		}
+		if result.NextCursor == "" {
+			return resources, nil
+		}
+		if len(result.NextCursor) > maxMCPContentBytes {
+			return nil, fmt.Errorf("mcp %s: resources/list cursor exceeds size limit", server)
+		}
+		if _, ok := seen[result.NextCursor]; ok {
+			return nil, fmt.Errorf("mcp %s: resources/list repeated cursor", server)
+		}
+		seen[result.NextCursor] = struct{}{}
+		cursor = result.NextCursor
+	}
+	return nil, fmt.Errorf("mcp %s: resources/list exceeded %d pages", server, maxMCPResourcePages)
+}
+
+func listPromptsPages(ctx context.Context, cli client.MCPClient, server string) ([]tools.MCPPrompt, error) {
+	out := make([]tools.MCPPrompt, 0)
+	used := 0
+	var cursor mcp.Cursor
+	seen := make(map[mcp.Cursor]struct{})
+	for page := 0; page < maxMCPResourcePages; page++ {
+		result, err := cli.ListPromptsByPage(ctx, mcp.ListPromptsRequest{PaginatedRequest: mcp.PaginatedRequest{Params: mcp.PaginatedParams{Cursor: cursor}}})
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, fmt.Errorf("mcp %s: prompts/list returned no result", server)
+		}
+		for _, item := range result.Prompts {
 			name := strings.TrimSpace(item.Name)
 			if name == "" || len(name) > 256 {
 				continue
@@ -309,488 +969,232 @@ func (b *EinoMCPBackend) listPromptsServer(ctx context.Context, server string) (
 			out = append(out, prompt)
 			used += size
 		}
-		cursor = payload.NextCursor
-		if cursor == "" {
-			break
+		if result.NextCursor == "" {
+			return out, nil
 		}
-		if _, duplicate := seenCursors[cursor]; duplicate {
+		if len(result.NextCursor) > maxMCPContentBytes {
+			return nil, fmt.Errorf("mcp %s: prompts/list cursor exceeds size limit", server)
+		}
+		if _, ok := seen[result.NextCursor]; ok {
 			return nil, fmt.Errorf("mcp %s: prompts/list repeated cursor", server)
 		}
-		seenCursors[cursor] = struct{}{}
+		seen[result.NextCursor] = struct{}{}
+		cursor = result.NextCursor
 	}
-	return out, nil
+	return nil, fmt.Errorf("mcp %s: prompts/list exceeded %d pages", server, maxMCPResourcePages)
 }
 
-// GetPrompt fetches one prompt and flattens text content into bounded,
-// untrusted model input. Non-text content is rejected rather than guessed.
-func (b *EinoMCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
-	config, err := b.server(request.Server)
-	if err != nil {
-		return tools.MCPGetPromptResponse{}, err
-	}
-	if strings.TrimSpace(request.Name) == "" {
-		return tools.MCPGetPromptResponse{}, errors.New("mcp: prompt name is required")
-	}
-	result, err := b.rpc(ctx, config, "prompts/get", map[string]any{"name": request.Name, "arguments": request.Arguments}, true)
-	if err != nil {
-		return tools.MCPGetPromptResponse{}, err
-	}
-	var payload struct {
-		Description string `json:"description"`
-		Messages    []struct {
-			Role    string `json:"role"`
-			Content struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"messages"`
-	}
-	if err := json.Unmarshal(result, &payload); err != nil {
-		return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompts/get result: %w", request.Server, err)
+func projectPrompt(server, name string, payload *mcp.GetPromptResult) (tools.MCPGetPromptResponse, error) {
+	if payload == nil {
+		return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompts/get returned no result", server)
 	}
 	texts := make([]string, 0, len(payload.Messages))
 	used := 0
 	for _, message := range payload.Messages {
-		if !strings.EqualFold(strings.TrimSpace(message.Role), "user") || message.Content.Type != "text" || strings.TrimSpace(message.Content.Text) == "" {
+		if message.Role != mcp.RoleUser {
 			continue
 		}
-		addition := len(message.Content.Text)
+		content, ok := mcp.AsTextContent(message.Content)
+		if !ok || strings.TrimSpace(content.Text) == "" {
+			continue
+		}
+		addition := len(content.Text)
 		if len(texts) > 0 {
 			addition++
 		}
 		if addition > maxMCPContentBytes-used {
-			return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompt content exceeds size limit", request.Server)
+			return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompt content exceeds size limit", server)
 		}
-		texts = append(texts, message.Content.Text)
+		texts = append(texts, content.Text)
 		used += addition
 	}
 	text := strings.Join(texts, " ")
 	if strings.TrimSpace(text) == "" {
-		return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompt returned no user text", request.Server)
+		return tools.MCPGetPromptResponse{}, fmt.Errorf("mcp %s: prompt returned no user text", server)
 	}
-	return tools.MCPGetPromptResponse{Server: request.Server, Name: request.Name, Description: boundedString(payload.Description, 4096), Text: text, Untrusted: true}, nil
+	return tools.MCPGetPromptResponse{Server: server, Name: name, Description: boundedString(payload.Description, 4096), Text: text, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) listResourcesServer(ctx context.Context, server string, limit int) ([]tools.MCPResource, error) {
-	config, err := b.server(server)
-	if err != nil {
-		return nil, err
-	}
-	resources := make([]tools.MCPResource, 0)
-	used := 0
-	cursor := ""
-	seenCursors := make(map[string]struct{})
-	for page := 0; page < maxMCPResourcePages; page++ {
-		params := map[string]any{}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		result, err := b.rpc(ctx, config, "resources/list", params, true)
-		if err != nil {
-			return nil, err
-		}
-		var payload struct {
-			Resources []struct {
-				URI         string          `json:"uri"`
-				Name        string          `json:"name"`
-				Title       string          `json:"title"`
-				Description string          `json:"description"`
-				MIMEType    string          `json:"mimeType"`
-				Size        int64           `json:"size"`
-				Annotations json.RawMessage `json:"annotations"`
-				Meta        json.RawMessage `json:"_meta"`
-			} `json:"resources"`
-			NextCursor string `json:"nextCursor"`
-		}
-		if err := json.Unmarshal(result, &payload); err != nil {
-			return nil, fmt.Errorf("mcp %s: resources/list result: %w", server, err)
-		}
-		for _, item := range payload.Resources {
-			if strings.TrimSpace(item.URI) == "" {
-				continue
-			}
-			identityBytes := len(server) + len(item.URI)
-			if identityBytes > maxMCPContentBytes {
-				return nil, fmt.Errorf("mcp %s: resource URI exceeds size limit", server)
-			}
-			if identityBytes > limit-used {
-				return resources, nil
-			}
-			resource, consumed := boundedMCPResource(tools.MCPResource{
-				Server: server, URI: item.URI, Name: item.Name, Title: item.Title,
-				Description: item.Description, MIME: item.MIMEType, Size: item.Size,
-				Annotations: item.Annotations, Meta: item.Meta,
-			}, limit-used)
-			if consumed == 0 {
-				return resources, nil
-			}
-			resources = append(resources, resource)
-			used += consumed
-			if used >= limit {
-				return resources, nil
-			}
-		}
-		next := payload.NextCursor
-		if next == "" {
-			return resources, nil
-		}
-		if len(next) > maxMCPContentBytes {
-			return nil, fmt.Errorf("mcp %s: resources/list cursor exceeds size limit", server)
-		}
-		if _, duplicate := seenCursors[next]; duplicate {
-			return nil, fmt.Errorf("mcp %s: resources/list repeated cursor", server)
-		}
-		seenCursors[next] = struct{}{}
-		cursor = next
-	}
-	return nil, fmt.Errorf("mcp %s: resources/list exceeded %d pages", server, maxMCPResourcePages)
-}
-
-// ReadResource performs the read-only MCP resources/read operation. The
-// remote URI is returned verbatim (subject to the shared size budget) and
-// resource content remains untrusted text/base64; it is not mounted, parsed,
-// or written into a tenant workspace.
-func (b *EinoMCPBackend) ReadResource(ctx context.Context, _ domain.RunID, request tools.MCPReadResourceRequest) (tools.MCPReadResourceResponse, error) {
-	request.Server = strings.TrimSpace(request.Server)
-	if strings.TrimSpace(request.URI) == "" {
-		return tools.MCPReadResourceResponse{}, errors.New("mcp: resource URI is required")
-	}
-	if len(request.URI) > maxMCPContentBytes {
-		return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp: resource URI exceeds size limit (%d bytes)", maxMCPContentBytes)
-	}
-	config, err := b.server(request.Server)
-	if err != nil {
-		return tools.MCPReadResourceResponse{}, err
-	}
-	result, err := b.rpc(ctx, config, "resources/read", map[string]any{"uri": request.URI}, true)
-	if err != nil {
-		return tools.MCPReadResourceResponse{}, err
-	}
-	var payload struct {
-		Contents []struct {
-			URI         string          `json:"uri"`
-			MIMEType    string          `json:"mimeType"`
-			Text        *string         `json:"text"`
-			Blob        *string         `json:"blob"`
-			Annotations json.RawMessage `json:"annotations"`
-			Meta        json.RawMessage `json:"_meta"`
-		} `json:"contents"`
-	}
-	if err := json.Unmarshal(result, &payload); err != nil {
-		return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resources/read result: %w", request.Server, request.URI, err)
+func projectReadResource(server, requestURI string, payload *mcp.ReadResourceResult) (tools.MCPReadResourceResponse, error) {
+	if payload == nil {
+		return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resources/read returned no result", server, requestURI)
 	}
 	contents := make([]tools.MCPResourceContent, 0, len(payload.Contents))
 	used := 0
 	for _, item := range payload.Contents {
-		if strings.TrimSpace(item.URI) == "" {
-			return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resource content URI is required", request.Server, request.URI)
+		content := tools.MCPResourceContent{}
+		switch value := item.(type) {
+		case mcp.TextResourceContents:
+			content.URI, content.MIME, content.Text = value.URI, value.MIMEType, &value.Text
+			content.Meta = optionalJSON(value.Meta)
+		case mcp.BlobResourceContents:
+			content.URI, content.MIME, content.Blob = value.URI, value.MIMEType, &value.Blob
+			content.Meta = optionalJSON(value.Meta)
+		default:
+			return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resource content has unsupported type", server, requestURI)
 		}
-		if (item.Text == nil) == (item.Blob == nil) {
-			return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resource content must contain exactly one of text or blob", request.Server, request.URI)
+		if strings.TrimSpace(content.URI) == "" {
+			return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resource content URI is required", server, requestURI)
 		}
-		if len(item.URI)+len(item.MIMEType) > maxMCPContentBytes {
-			return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resource content identity exceeds size limit", request.Server, request.URI)
+		if len(content.URI)+len(content.MIME) > maxMCPContentBytes {
+			return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp %s/%s: resource content identity exceeds size limit", server, requestURI)
 		}
-		if len(item.URI)+len(item.MIMEType) > maxMCPContentBytes-used {
+		if len(content.URI)+len(content.MIME) > maxMCPContentBytes-used {
 			break
 		}
-		content, consumed := boundedMCPResourceContent(tools.MCPResourceContent{
-			URI:         item.URI,
-			MIME:        item.MIMEType,
-			Text:        item.Text,
-			Blob:        item.Blob,
-			Annotations: item.Annotations,
-			Meta:        item.Meta,
-		}, maxMCPContentBytes-used)
+		bounded, consumed := boundedMCPResourceContent(content, maxMCPContentBytes-used)
 		if consumed == 0 {
 			break
 		}
-		contents = append(contents, content)
+		contents = append(contents, bounded)
 		used += consumed
 		if used >= maxMCPContentBytes {
 			break
 		}
 	}
-	return tools.MCPReadResourceResponse{Server: request.Server, URI: request.URI, Contents: contents, Untrusted: true}, nil
+	return tools.MCPReadResourceResponse{Server: server, URI: requestURI, Contents: contents, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) CallTool(ctx context.Context, _ domain.RunID, request tools.MCPCallRequest) (tools.MCPCallResponse, error) {
-	config, err := b.server(request.Server)
-	if err != nil {
-		return tools.MCPCallResponse{}, err
-	}
-	result, err := b.rpc(ctx, config, "tools/call", map[string]any{"name": request.Tool, "arguments": request.Arguments}, false)
-	if err != nil {
-		return tools.MCPCallResponse{}, err
-	}
-	var payload struct {
-		Content []struct {
-			Type     string `json:"type"`
-			Text     string `json:"text"`
-			Data     string `json:"data"`
-			MIMEType string `json:"mimeType"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(result, &payload); err != nil {
-		return tools.MCPCallResponse{}, fmt.Errorf("mcp %s/%s result: %w", request.Server, request.Tool, err)
+func projectCallResult(server, toolName string, payload *mcp.CallToolResult) (tools.MCPCallResponse, error) {
+	if payload == nil {
+		return tools.MCPCallResponse{}, fmt.Errorf("mcp %s/%s: tools/call returned no result", server, toolName)
 	}
 	content := make([]tools.MCPContent, 0, len(payload.Content))
 	used := 0
 	for _, item := range payload.Content {
-		text, data := boundedString(item.Text, maxMCPContentBytes-used), boundedString(item.Data, maxMCPContentBytes-used)
-		used += len(text) + len(data)
-		if text == "" && data == "" && item.Type != "resource" {
+		projected, ok := projectCallContent(item)
+		if !ok {
 			continue
 		}
-		content = append(content, tools.MCPContent{Type: item.Type, Text: text, Data: data, MIME: item.MIMEType})
+		projected.Type = boundedString(projected.Type, maxMCPContentBytes-used)
+		projected.MIME = boundedString(projected.MIME, maxMCPContentBytes-used-len(projected.Type))
+		remaining := maxMCPContentBytes - used - len(projected.Type) - len(projected.MIME)
+		if remaining <= 0 {
+			break
+		}
+		projected.Text = boundedString(projected.Text, remaining)
+		remaining -= len(projected.Text)
+		projected.Data = boundedString(projected.Data, remaining)
+		used += len(projected.Type) + len(projected.MIME) + len(projected.Text) + len(projected.Data)
+		if projected.Text == "" && projected.Data == "" && projected.Type != "resource" {
+			continue
+		}
+		content = append(content, projected)
 		if used >= maxMCPContentBytes {
 			break
 		}
 	}
-	return tools.MCPCallResponse{Server: request.Server, Tool: request.Tool, Content: content, IsError: payload.IsError, Untrusted: true}, nil
-}
-func (b *EinoMCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, request tools.MCPCallRequest) (domain.ToolProposal, error) {
-	if _, err := b.server(request.Server); err != nil {
-		return domain.ToolProposal{}, err
-	}
-	payload, _ := json.Marshal(request)
-	preview := string(payload)
-	if len(preview) > 4096 {
-		preview = preview[:4096] + "..."
-	}
-	return domain.ToolProposal{Action: tools.MCPCallName, Target: request.Server + "/" + request.Tool, Preview: preview, RiskFindings: []string{"remote MCP side effect is unknown"}, Data: payload}, nil
+	return tools.MCPCallResponse{Server: server, Tool: toolName, Content: content, IsError: payload.IsError, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) server(name string) (MCPServerConfig, error) {
-	name = strings.TrimSpace(name)
-	b.mu.Lock()
-	config, ok := b.servers[name]
-	b.mu.Unlock()
-	if !ok || strings.TrimSpace(config.Endpoint) == "" {
-		return MCPServerConfig{}, fmt.Errorf("mcp: server %q is not configured", name)
-	}
-	return config, nil
-}
-
-func (b *EinoMCPBackend) serverNames() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	names := make([]string, 0, len(b.servers))
-	for name := range b.servers {
-		names = append(names, name)
-	}
-	return names
-}
-
-func (b *EinoMCPBackend) rpc(ctx context.Context, config MCPServerConfig, method string, params any, retryable bool) ([]byte, error) {
-	var firstErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		if method != "initialize" {
-			if err := b.ensureSession(ctx, config); err != nil {
-				if retryable && attempt == 0 {
-					firstErr = err
-					b.invalidate(config.Name)
-					continue
-				}
-				if firstErr != nil {
-					return nil, fmt.Errorf("%v; retry failed: %w", firstErr, err)
-				}
-				return nil, err
-			}
+func projectCallContent(content mcp.Content) (tools.MCPContent, bool) {
+	switch value := content.(type) {
+	case mcp.TextContent:
+		return tools.MCPContent{Type: value.Type, Text: value.Text}, true
+	case mcp.ImageContent:
+		return tools.MCPContent{Type: value.Type, Data: value.Data, MIME: value.MIMEType}, true
+	case mcp.AudioContent:
+		return tools.MCPContent{Type: value.Type, Data: value.Data, MIME: value.MIMEType}, true
+	case mcp.ResourceLink:
+		return tools.MCPContent{Type: value.Type, Data: value.URI, MIME: value.MIMEType}, true
+	case mcp.EmbeddedResource:
+		switch nested := value.Resource.(type) {
+		case mcp.TextResourceContents:
+			return tools.MCPContent{Type: value.Type, Text: nested.Text, MIME: nested.MIMEType}, true
+		case mcp.BlobResourceContents:
+			return tools.MCPContent{Type: value.Type, Data: nested.Blob, MIME: nested.MIMEType}, true
 		}
-		result, sessionID, err := b.send(ctx, config, method, params, true)
-		if err == nil {
-			if sessionID != "" {
-				b.setSessionID(config.Name, sessionID)
-			}
-			return result, nil
-		}
-		b.invalidate(config.Name)
-		if !retryable || attempt == 1 {
-			if firstErr != nil {
-				return nil, fmt.Errorf("%v; retry failed: %w", firstErr, err)
-			}
-			return nil, err
-		}
-		firstErr = err
 	}
-	return nil, errors.New("mcp: request retry exhausted")
+	return tools.MCPContent{}, false
 }
 
-func (b *EinoMCPBackend) ensureSession(ctx context.Context, config MCPServerConfig) error {
-	b.mu.Lock()
-	session := b.sessions[config.Name]
-	if session != nil && session.initialized {
-		b.mu.Unlock()
+func optionalJSON(value any) json.RawMessage {
+	if value == nil {
 		return nil
 	}
-	b.mu.Unlock()
-	params := map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "vivy", "version": "0.1"}}
-	result, sessionID, err := b.send(ctx, config, "initialize", params, true)
-	if err != nil {
-		return err
+	raw, err := json.Marshal(value)
+	if err != nil || string(raw) == "null" {
+		return nil
 	}
-	var response struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		Capabilities    struct {
-			Prompts json.RawMessage `json:"prompts"`
-		} `json:"capabilities"`
-	}
-	if err := json.Unmarshal(result, &response); err != nil || response.ProtocolVersion == "" {
-		return fmt.Errorf("mcp %s: invalid initialize result", config.Name)
-	}
-	b.mu.Lock()
-	promptCapable := len(response.Capabilities.Prompts) > 0 && string(response.Capabilities.Prompts) != "null" && string(response.Capabilities.Prompts) != "false"
-	b.sessions[config.Name] = &mcpSession{initialized: true, sessionID: sessionID, protocolVersion: response.ProtocolVersion, prompts: promptCapable}
-	b.mu.Unlock()
-	_, _, _ = b.send(ctx, config, "notifications/initialized", map[string]any{}, false)
-	return nil
-}
-func (b *EinoMCPBackend) send(ctx context.Context, config MCPServerConfig, method string, params any, withResponse bool) ([]byte, string, error) {
-	var requestID uint64
-	message := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
-	if withResponse {
-		requestID = atomic.AddUint64(&b.nextID, 1)
-		message["id"] = requestID
-	}
-	body, err := json.Marshal(message)
-	if err != nil {
-		return nil, "", err
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, b.timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, config.Endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return nil, "", fmt.Errorf("mcp %s: build request: %w", config.Name, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	b.mu.Lock()
-	if session := b.sessions[config.Name]; session != nil && session.sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", session.sessionID)
-	}
-	if session := b.sessions[config.Name]; session != nil && session.protocolVersion != "" {
-		req.Header.Set("MCP-Protocol-Version", session.protocolVersion)
-	}
-	b.mu.Unlock()
-	if config.AuthEnv != "" {
-		if value := os.Getenv(config.AuthEnv); value != "" {
-			req.Header.Set("Authorization", "Bearer "+value)
-		}
-	}
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("mcp %s: %w", config.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("mcp %s: HTTP %d", config.Name, resp.StatusCode)
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, int64(b.maxResponseBytes)+1))
-	if err != nil {
-		return nil, "", err
-	}
-	if len(raw) > b.maxResponseBytes {
-		return nil, "", fmt.Errorf("mcp %s: response exceeds size limit", config.Name)
-	}
-	if !withResponse {
-		return nil, resp.Header.Get("Mcp-Session-Id"), nil
-	}
-	payload, err := decodeMCPResponse(raw, resp.Header.Get("Content-Type"), requestID)
-	if err != nil {
-		return nil, "", fmt.Errorf("mcp %s: %w", config.Name, err)
-	}
-	return payload, resp.Header.Get("Mcp-Session-Id"), nil
+	return raw
 }
 
-func decodeMCPResponse(raw []byte, contentType string, requestID uint64) ([]byte, error) {
-	bodies := [][]byte{raw}
-	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
-		extracted, err := extractSSEJSON(raw)
-		if err != nil {
-			return nil, err
-		}
-		bodies = extracted
+func boundedMCPHTTPClient(source *http.Client, limit func() int) *http.Client {
+	clone := *source
+	base := source.Transport
+	if base == nil {
+		base = http.DefaultTransport
 	}
-	for _, body := range bodies {
-		var envelope struct {
-			ID     json.RawMessage `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			return nil, fmt.Errorf("invalid JSON-RPC response: %w", err)
-		}
-		if strings.TrimSpace(string(envelope.ID)) != fmt.Sprintf("%d", requestID) {
-			continue
-		}
-		if envelope.Error != nil {
-			return nil, &tools.MCPRemoteError{Code: envelope.Error.Code, Message: envelope.Error.Message}
-		}
-		if len(envelope.Result) == 0 {
-			return nil, errors.New("response has no result")
-		}
-		return envelope.Result, nil
+	clone.Transport = boundedMCPTransport{base: base, limit: limit}
+	if clone.Timeout == 0 {
+		clone.Timeout = defaultMCPTimeout
 	}
-	return nil, fmt.Errorf("response has no matching id %d", requestID)
+	return &clone
 }
 
-func extractSSEJSON(raw []byte) ([][]byte, error) {
-	normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
-	var events [][]byte
-	for _, block := range strings.Split(normalized, "\n\n") {
-		var data []string
-		for _, line := range strings.Split(block, "\n") {
-			if strings.HasPrefix(line, "data:") {
-				value := strings.TrimPrefix(line, "data:")
-				value = strings.TrimPrefix(value, " ")
-				data = append(data, value)
-			}
-		}
-		if len(data) == 0 {
-			continue
-		}
-		joined := []byte(strings.Join(data, "\n"))
-		if !json.Valid(joined) {
-			return nil, errors.New("event-stream data is not JSON")
-		}
-		events = append(events, joined)
-	}
-	if len(events) == 0 {
-		return nil, errors.New("event-stream response has no data")
-	}
-	return events, nil
-}
-func (b *EinoMCPBackend) invalidate(name string) {
-	b.mu.Lock()
-	delete(b.sessions, name)
-	b.mu.Unlock()
+type boundedMCPTransport struct {
+	base  http.RoundTripper
+	limit func() int
 }
 
-func (b *EinoMCPBackend) setSessionID(name, id string) {
-	if id == "" {
-		return
+func (t boundedMCPTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := t.base.RoundTrip(request)
+	if err != nil || response == nil || response.Body == nil {
+		return response, err
 	}
-	b.mu.Lock()
-	if session := b.sessions[name]; session != nil {
-		session.sessionID = id
+	limit := maxMCPResponseBytes
+	if t.limit != nil && t.limit() > 0 {
+		limit = t.limit()
 	}
-	b.mu.Unlock()
+	if response.ContentLength > int64(limit) {
+		_ = response.Body.Close()
+		return nil, fmt.Errorf("mcp: response exceeds size limit (%d bytes)", limit)
+	}
+	response.Body = &boundedMCPBody{ReadCloser: response.Body, limit: int64(limit)}
+	return response, nil
+}
+
+type boundedMCPBody struct {
+	io.ReadCloser
+	limit   int64
+	read    int64
+	checked bool
+}
+
+func (b *boundedMCPBody) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if b.read < b.limit {
+		remaining := b.limit - b.read
+		if int64(len(p)) > remaining {
+			p = p[:remaining]
+		}
+		n, err := b.ReadCloser.Read(p)
+		b.read += int64(n)
+		return n, err
+	}
+	if b.checked {
+		return 0, io.EOF
+	}
+	var one [1]byte
+	n, err := b.ReadCloser.Read(one[:])
+	if n > 0 {
+		b.checked = true
+		return 0, fmt.Errorf("mcp: response exceeds size limit")
+	}
+	if err != nil {
+		b.checked = true
+	}
+	return 0, err
 }
 
 func boundedRaw(value json.RawMessage, limit int) json.RawMessage {
-	if limit <= 0 {
+	if limit <= 0 || len(value) == 0 {
 		return nil
 	}
 	if len(value) <= limit {
-		return value
-	}
-	if limit < len("null") {
-		return nil
+		return append(json.RawMessage(nil), value...)
 	}
 	return json.RawMessage("null")
 }
@@ -821,8 +1225,6 @@ func boundedMCPResource(resource tools.MCPResource, limit int) (tools.MCPResourc
 		used += len(part)
 		return part
 	}
-	// Identity fields come first so a long description cannot crowd out the
-	// server and URI needed to attribute the untrusted result.
 	out.Server = takeString(resource.Server)
 	out.URI = takeString(resource.URI)
 	out.Name = takeString(resource.Name)
@@ -841,9 +1243,6 @@ func boundedMCPResourceContent(content tools.MCPResourceContent, limit int) (too
 	out := tools.MCPResourceContent{}
 	used := 0
 	takeString := func(value string) string {
-		if limit-used <= 0 {
-			return ""
-		}
 		part := boundedString(value, limit-used)
 		used += len(part)
 		return part
