@@ -63,6 +63,9 @@ type Palette struct {
 	ContextOK     lipgloss.Style
 	ContextMid    lipgloss.Style
 	ContextHot    lipgloss.Style
+	ModeSmart     lipgloss.Style
+	ModePlan      lipgloss.Style
+	ModeRead      lipgloss.Style
 }
 
 // DefaultPalette returns the stable dark palette shared by both first-party
@@ -101,7 +104,7 @@ func DefaultPalette() Palette {
 		DiffDel:       lipgloss.NewStyle().Foreground(danger),
 		DiffHunk:      lipgloss.NewStyle().Foreground(secondary),
 		Editor:        lipgloss.NewStyle().Foreground(fg),
-		EditorBox:     lipgloss.NewStyle().Foreground(fg).Border(lipgloss.RoundedBorder()).BorderForeground(subtle).Padding(0, 1),
+		EditorBox:     lipgloss.NewStyle().Foreground(fg).Border(lipgloss.RoundedBorder()).BorderForeground(secondary).Padding(0, 1),
 		Prompt:        lipgloss.NewStyle().Foreground(success),
 		PromptWarn:    lipgloss.NewStyle().Foreground(lipgloss.Color(paletteOnPrimary)).Background(warn).Bold(true),
 		Status:        lipgloss.NewStyle().Foreground(muted),
@@ -120,5 +123,8 @@ func DefaultPalette() Palette {
 		ContextOK:     lipgloss.NewStyle().Foreground(success).Bold(true),
 		ContextMid:    lipgloss.NewStyle().Foreground(warn).Bold(true),
 		ContextHot:    lipgloss.NewStyle().Foreground(danger).Bold(true),
+		ModeSmart:     lipgloss.NewStyle().Foreground(secondary).Bold(true),
+		ModePlan:      lipgloss.NewStyle().Foreground(warn).Bold(true),
+		ModeRead:      lipgloss.NewStyle().Foreground(userC).Bold(true),
 	}
 }
