@@ -22,20 +22,20 @@ import (
 // tokens.
 const maxDownloadBytes = 100 << 20
 
-// EinoDownloadBackend streams a public URL into the run workspace. Path
+// DownloadBackend streams a public URL into the run workspace. Path
 // policy is delegated to the filesystem backend; the network gates are the
-// same public-only surface as EinoWebFetchBackend.
-type EinoDownloadBackend struct {
+// same public-only surface as WebFetchBackend.
+type DownloadBackend struct {
 	client   *http.Client
 	sandbox  *SandboxManager
 	files    *EinoFilesystemBackend
 	maxBytes int64
 }
 
-var _ tools.DownloadOperations = (*EinoDownloadBackend)(nil)
+var _ tools.DownloadOperations = (*DownloadBackend)(nil)
 
-func NewEinoDownloadBackend(files *EinoFilesystemBackend, sandbox *SandboxManager) *EinoDownloadBackend {
-	return &EinoDownloadBackend{
+func NewDownloadBackend(files *EinoFilesystemBackend, sandbox *SandboxManager) *DownloadBackend {
+	return &DownloadBackend{
 		client:   &http.Client{Transport: newPublicHTTPTransport(), Timeout: defaultDownloadTime},
 		sandbox:  sandbox,
 		files:    files,
@@ -45,7 +45,7 @@ func NewEinoDownloadBackend(files *EinoFilesystemBackend, sandbox *SandboxManage
 
 // allowLoopbackForTest lets httptest servers on 127.0.0.1 exercise the
 // pipeline in tests; the production constructor never enables it.
-func (b *EinoDownloadBackend) allowLoopbackForTest() {
+func (b *DownloadBackend) allowLoopbackForTest() {
 	b.client.Transport = &http.Transport{
 		Proxy:             http.ProxyFromEnvironment,
 		DialContext:       safeDialContext,
@@ -55,7 +55,7 @@ func (b *EinoDownloadBackend) allowLoopbackForTest() {
 
 // Download implements tools.DownloadOperations. The adapter assumes policy/
 // HITL already ran; the target and network are revalidated here.
-func (b *EinoDownloadBackend) Download(ctx context.Context, runID domain.RunID, input tools.DownloadRequest) (tools.DownloadResult, error) {
+func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, input tools.DownloadRequest) (tools.DownloadResult, error) {
 	root, path, err := b.resolveTarget(ctx, runID, input.Path)
 	if err != nil {
 		return tools.DownloadResult{}, err
@@ -140,7 +140,7 @@ func (b *EinoDownloadBackend) Download(ctx context.Context, runID domain.RunID, 
 
 // PrepareDownload builds the review record without touching the network or
 // the target; the same checks run again in Download after approval.
-func (b *EinoDownloadBackend) PrepareDownload(ctx context.Context, runID domain.RunID, req tools.DownloadRequest) (domain.ToolProposal, error) {
+func (b *DownloadBackend) PrepareDownload(ctx context.Context, runID domain.RunID, req tools.DownloadRequest) (domain.ToolProposal, error) {
 	root, path, err := b.resolveTarget(ctx, runID, req.Path)
 	if err != nil {
 		return domain.ToolProposal{}, err
@@ -161,7 +161,7 @@ func (b *EinoDownloadBackend) PrepareDownload(ctx context.Context, runID domain.
 	}, nil
 }
 
-func (b *EinoDownloadBackend) resolveTarget(ctx context.Context, runID domain.RunID, path string) (string, string, error) {
+func (b *DownloadBackend) resolveTarget(ctx context.Context, runID domain.RunID, path string) (string, string, error) {
 	if b.files == nil {
 		return "", "", errors.New("download: filesystem backend not wired")
 	}

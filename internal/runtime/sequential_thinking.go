@@ -16,7 +16,7 @@ const (
 	maxThoughtBytes   = 16 << 10
 )
 
-type EinoSequentialThinkingBackend struct {
+type SequentialThinkingBackend struct {
 	mu   sync.Mutex
 	runs map[domain.RunID]*thinkingRun
 }
@@ -28,12 +28,12 @@ type thinkingRun struct {
 	branches map[string]int
 }
 
-var _ tools.SequentialThinkingOperations = (*EinoSequentialThinkingBackend)(nil)
+var _ tools.SequentialThinkingOperations = (*SequentialThinkingBackend)(nil)
 
-func NewEinoSequentialThinkingBackend() *EinoSequentialThinkingBackend {
-	return &EinoSequentialThinkingBackend{runs: make(map[domain.RunID]*thinkingRun)}
+func NewSequentialThinkingBackend() *SequentialThinkingBackend {
+	return &SequentialThinkingBackend{runs: make(map[domain.RunID]*thinkingRun)}
 }
-func (b *EinoSequentialThinkingBackend) Think(_ context.Context, runID domain.RunID, request tools.SequentialThoughtRequest) (tools.SequentialThoughtResponse, error) {
+func (b *SequentialThinkingBackend) Think(_ context.Context, runID domain.RunID, request tools.SequentialThoughtRequest) (tools.SequentialThoughtResponse, error) {
 	thought := strings.TrimSpace(request.Thought)
 	if thought == "" {
 		return tools.SequentialThoughtResponse{}, errors.New("sequential thinking: thought must not be empty")
