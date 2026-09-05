@@ -31,6 +31,15 @@ func (m *observingChatModel) Generate(ctx context.Context, input []*schema.Messa
 	return m.inner.Generate(ctx, input, opts...)
 }
 
+// Stream tees provider chunks onto a bounded pipe before Eino sees the
+// reader. Inspected Eino v0.9.13 callbacks.OnEndWithStreamOutput /
+// schema.StreamReader.Copy / compose.genericOnEndWithStreamOutput: those
+// timings Copy the stream after inner Stream returns. A sync handler can
+// run before compose Recv, but it is still a sibling copy — it cannot put
+// persist on the producer Recv→Send path, apply Pipe(8) backpressure onto
+// provider Recv, fail-close the graph copy from a persist error, or run
+// the tool-settled barrier. Revisit if Eino adds a producer-path Recv hook
+// with those semantics.
 func (m *observingChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	upstream, err := m.inner.Stream(ctx, input, opts...)
 	if err != nil {
