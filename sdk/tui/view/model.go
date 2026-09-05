@@ -2198,10 +2198,12 @@ func RunWithOutput(driver surface.Driver, out io.Writer, options ...Options) err
 }
 
 func configureColor(out io.Writer) {
-	if os.Getenv("NO_COLOR") != "" {
-		lipgloss.SetColorProfile(termenv.Ascii)
-		return
-	}
 	_ = out
+	// Fullscreen TUI is always TrueColor. Parent processes (including this
+	// agent) may set NO_COLOR/TERM=dumb; those must not gray out the product.
+	_ = os.Setenv("COLORTERM", "truecolor")
+	if os.Getenv("TERM") == "" || os.Getenv("TERM") == "dumb" {
+		_ = os.Setenv("TERM", "xterm-256color")
+	}
 	lipgloss.SetColorProfile(termenv.TrueColor)
 }
