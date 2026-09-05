@@ -557,7 +557,7 @@ func (m Model) renderChat(width, height int, p Palette) string {
 		lines = nil
 	}
 	content := strings.Join(lines, "\n")
-	return p.Chat.Width(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
+	return p.Chat.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
 }
 
 func (m Model) chatLines(width int, p Palette) []string {
@@ -1358,16 +1358,13 @@ func (m Model) renderCommandDialog(l layout, p Palette) string {
 }
 
 func padHorizontal(content string, margin, totalWidth int) string {
-	if margin <= 0 {
-		return content
+	pad := ""
+	if margin > 0 {
+		pad = strings.Repeat(" ", margin)
 	}
-	pad := strings.Repeat(" ", margin)
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
-		lines[i] = pad + line
-		if w := lipgloss.Width(lines[i]); w < totalWidth {
-			lines[i] += strings.Repeat(" ", totalWidth-w)
-		}
+		lines[i] = padRight(truncate(pad+line, totalWidth), totalWidth)
 	}
 	return strings.Join(lines, "\n")
 }
