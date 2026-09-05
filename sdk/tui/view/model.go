@@ -365,7 +365,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 	if msg.Action != tea.MouseActionPress {
 		return
 	}
-	l := computeLayout(m.width, m.height)
+	l := m.layout()
 	inSidebar := m.mouseInSidebar(l, msg.X, msg.Y)
 	if msg.Button == tea.MouseButtonLeft {
 		m.sidebarFocused = inSidebar && m.sidebarCanScroll()
@@ -402,6 +402,16 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 	if m.chatCanScroll() {
 		m.scrollChat(delta)
 	}
+}
+
+func (m Model) layout() layout {
+	l := computeLayout(m.width, m.height)
+	hasAttachments := false
+	if m.driver != nil {
+		hasAttachments = len(m.driver.PendingAttachments()) > 0
+	}
+	l.editorH = editorReserve(hasAttachments)
+	return l
 }
 
 func (m Model) mouseInSidebar(l layout, x, y int) bool {
@@ -867,7 +877,7 @@ func workingModeLabel(runMode, preset string) string {
 }
 
 func (m Model) sidebarMaxScroll() int {
-	l := computeLayout(m.width, m.height)
+	l := m.layout()
 	if !l.showSidebar {
 		return 0
 	}
@@ -892,11 +902,11 @@ func (m *Model) clampSidebarScroll() {
 }
 
 func (m Model) chatViewportHeight() int {
-	return computeLayout(m.width, m.height).mainH()
+	return m.layout().mainH()
 }
 
 func (m Model) chatMaxScroll() int {
-	l := computeLayout(m.width, m.height)
+	l := m.layout()
 	width := l.innerW()
 	if l.showSidebar {
 		width = l.mainW()

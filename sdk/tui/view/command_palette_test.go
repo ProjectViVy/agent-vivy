@@ -226,12 +226,15 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 		t.Fatalf("redundant TUI/live/model chrome still visible:\n%s", plain)
 	}
 
+	editor := ansi.Strip(m.renderEditor(computeLayout(120, 36).mainW(), DefaultPalette()))
+	if !strings.Contains(editor, "╭") || !strings.Contains(editor, "deepseek-v4-flash(high)") || !strings.Contains(editor, "openai") || !strings.Contains(editor, "15%") {
+		t.Fatalf("rounded composer missing model chips:\n%s", editor)
+	}
 	chrome := ansi.Strip(m.renderInputChrome(computeLayout(120, 36).mainW(), DefaultPalette()))
 	helpAt := strings.Index(chrome, "shift+h")
 	modeAt := strings.Index(chrome, "shift+tab")
-	modelAt := strings.Index(chrome, "deepseek-v4-flash")
-	if helpAt < 0 || modeAt < 0 || modelAt < 0 || helpAt <= modelAt || modeAt <= modelAt {
-		t.Fatalf("keys are not on the right of model/provider:\n%s", chrome)
+	if helpAt < 0 || modeAt < 0 {
+		t.Fatalf("keys missing from chrome under the composer:\n%s", chrome)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})

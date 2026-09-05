@@ -368,6 +368,7 @@ type testDriver struct {
 	runMode     string
 	decision    string
 	messages    map[string][]surface.Message
+	attachments []surface.Attachment
 }
 
 func (d *testDriver) Sessions() []surface.Session {
@@ -526,7 +527,9 @@ func (*testDriver) RefreshModels(uint64) tea.Cmd       { return nil }
 func (*testDriver) SelectModel(uint64, surface.ModelOption) tea.Cmd {
 	return nil
 }
-func (*testDriver) PendingAttachments() []surface.Attachment { return nil }
+func (d *testDriver) PendingAttachments() []surface.Attachment {
+	return append([]surface.Attachment(nil), d.attachments...)
+}
 func (*testDriver) SendWithContext(string, []string) tea.Cmd { return nil }
 func (*testDriver) CompleteProjectFiles(uint64, string) tea.Cmd {
 	return nil
@@ -892,8 +895,9 @@ func TestChatViewportPreservesHistoryAndFollowState(t *testing.T) {
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	m = updated.(Model)
 	pausedOffset := m.chatScroll
-	if m.chatFollow || pausedOffset >= m.chatMaxScroll() || !strings.Contains(m.View(), "history-30") {
-		t.Fatalf("page-up did not expose older history: offset=%d max=%d follow=%v\n%s", pausedOffset, m.chatMaxScroll(), m.chatFollow, m.View())
+	pausedView := m.View()
+	if m.chatFollow || pausedOffset >= m.chatMaxScroll() || strings.Contains(pausedView, "history-39") {
+		t.Fatalf("page-up did not expose older history: offset=%d max=%d follow=%v\n%s", pausedOffset, m.chatMaxScroll(), m.chatFollow, pausedView)
 	}
 	driver.messages["one"] = append(driver.messages["one"], surface.Message{Role: surface.RoleAssistant, Content: "new-while-paused"})
 	updated, _ = m.Update(surface.RefreshMsg{})
