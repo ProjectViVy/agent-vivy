@@ -172,6 +172,34 @@ func TestCommandPaletteRendersWithinSmallTerminal(t *testing.T) {
 	}
 }
 
+func TestFooterUsesShiftTabModeAndCtrlXShortcuts(t *testing.T) {
+	m := New(&testDriver{})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = next.(Model)
+	plain := ansi.Strip(m.View())
+	if !strings.Contains(plain, "shift+tab") || !strings.Contains(plain, "模式") || !strings.Contains(plain, "ctrl+x") || !strings.Contains(plain, "快捷") {
+		t.Fatalf("compact footer missing mode/shortcut hints:\n%s", plain)
+	}
+	if strings.Contains(plain, "^p 命令") || strings.Contains(plain, "pgup/pgdn") {
+		t.Fatalf("old help dump still on the footer:\n%s", plain)
+	}
+
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
+	plain = ansi.Strip(m.View())
+	if !m.shortcutsOpen || !strings.Contains(plain, "快捷方式") || !strings.Contains(plain, "ctrl+s") {
+		t.Fatalf("ctrl+x did not open shortcuts:\n%s", plain)
+	}
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.shortcutsOpen {
+		t.Fatal("esc did not close shortcuts")
+	}
+
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if !m.commandPaletteOpen || m.shortcutsOpen {
+		t.Fatalf("shift+tab did not enter command mode: palette=%v shortcuts=%v", m.commandPaletteOpen, m.shortcutsOpen)
+	}
+}
+
 func TestCommandPaletteHighlightsMatchesAndHidesUnselectedUsage(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	d := &commandDriver{testDriver: &testDriver{}}

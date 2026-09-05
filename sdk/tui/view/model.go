@@ -102,6 +102,7 @@ type Model struct {
 	chatFollow     bool
 	chatSessionID  string
 	mdCache        *messageMarkdownCache
+	shortcutsOpen  bool
 
 	gateID           string
 	gateScroll       int
@@ -230,6 +231,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.modelPickerOpen && m.driver.PendingGate() != nil {
 		m.closeModelPicker()
 	}
+	if m.shortcutsOpen && m.driver.PendingGate() != nil {
+		m.shortcutsOpen = false
+	}
 	m.syncGateView()
 	if m.fileCompletionOpen && m.fileCompletionSessionID != m.driver.Active().ID {
 		m.closeFileCompletion()
@@ -355,7 +359,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 		}
 		return
 	}
-	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" {
+	if m.modelPickerOpen || m.commandPaletteOpen || m.fileCompletionOpen || m.sessionsOpen || m.commandConfirmName != "" || m.commandOverlay != "" || m.shortcutsOpen {
 		return
 	}
 	if msg.Action != tea.MouseActionPress {
@@ -456,6 +460,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if gate != nil && m.modelPickerOpen {
 		m.closeModelPicker()
 	}
+	if gate != nil && m.shortcutsOpen {
+		m.shortcutsOpen = false
+	}
 	if gate == nil && m.dynamicCommandPending && msg.Type == tea.KeyEsc {
 		m.dynamicCommandRequest++
 		m.dynamicCommandPending = false
@@ -470,6 +477,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if m.sessionsOpen {
 		return m.handleSessionsKey(msg)
+	}
+	if gate == nil && m.shortcutsOpen {
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			return m, tea.Quit
+		case tea.KeyEsc, tea.KeyCtrlX:
+			m.shortcutsOpen = false
+			return m, nil
+		case tea.KeyShiftTab:
+			m.shortcutsOpen = false
+			return m, m.openCommandPalette()
+		}
+		m.shortcutsOpen = false
 	}
 	if gate == nil && m.modelPickerOpen {
 		return m.handleModelPickerKey(msg)
@@ -541,9 +561,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyCtrlS:
+		m.shortcutsOpen = false
 		return m.openSessions()
+	case tea.KeyCtrlX:
+		if gate != nil {
+			return m, nil
+		}
+		m.shortcutsOpen = !m.shortcutsOpen
+		if m.shortcutsOpen {
+			m.closeCommandPalette()
+			m.closeFileCompletion()
+			m.closeModelPicker()
+		}
+		return m, nil
+	case tea.KeyShiftTab:
+		if gate == nil {
+			m.shortcutsOpen = false
+			return m, m.openCommandPalette()
+		}
+		return m, nil
 	case tea.KeyCtrlP:
 		if gate == nil {
+			m.shortcutsOpen = false
 			return m, m.openCommandPalette()
 		}
 		return m, nil
@@ -588,7 +627,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.setThinking("")
-	case tea.KeyTab, tea.KeyShiftTab, tea.KeyUp, tea.KeyDown:
+	case tea.KeyTab, tea.KeyUp, tea.KeyDown:
 		// Session navigation belongs to the explicit Ctrl+S dialog. Keeping
 		// arrows in the editor avoids the old hidden-session sidebar behavior.
 		return m, nil
@@ -999,6 +1038,7 @@ func (m Model) filteredProjectFiles() []surface.FileContext {
 func (m *Model) openCommandPalette() tea.Cmd {
 	m.closeFileCompletion()
 	m.closeModelPicker()
+	m.shortcutsOpen = false
 	m.commandPaletteOpen = true
 	m.commandPaletteFilter = ""
 	m.commandPaletteCursor = 0
@@ -1029,6 +1069,7 @@ func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 	}
 	m.closeCommandPalette()
 	m.closeFileCompletion()
+	m.shortcutsOpen = false
 	m.sessionsOpen = false
 	m.commandOverlayTitle = ""
 	m.commandOverlay = ""
@@ -1774,6 +1815,7 @@ func (m Model) statusText() string {
 func (m Model) openSessions() (Model, tea.Cmd) {
 	m.closeFileCompletion()
 	m.closeModelPicker()
+	m.shortcutsOpen = false
 	m.sessionsOpen = true
 	m.sessionRows = append([]surface.Session(nil), m.driver.Sessions()...)
 	m.sessionFilter = ""
