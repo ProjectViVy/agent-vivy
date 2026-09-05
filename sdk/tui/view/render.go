@@ -62,16 +62,16 @@ func (m Model) renderDynamicArguments(l layout, p Palette) string {
 	}
 	w := max(1, min(l.width-8, 72))
 	lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
-	lines := []string{p.DialogTitle.Render("/" + command.Name + " arguments"), p.Dim.Render(truncate(command.Description, lineWidth)), ""}
+	lines := []string{p.DialogTitle.Render("/" + command.Name + " 参数"), p.Dim.Render(truncate(command.Description, lineWidth)), ""}
 	for i, argument := range command.Arguments {
 		marker := "  "
 		style := p.Idle
 		if i == m.dynamicArgumentCursor {
 			marker, style = "▸ ", p.Active
 		}
-		required := "optional"
+		required := "可选"
 		if argument.Required {
-			required = "required"
+			required = "必填"
 		}
 		value := ""
 		if i < len(m.dynamicArgumentValues) {
@@ -85,7 +85,7 @@ func (m Model) renderDynamicArguments(l layout, p Palette) string {
 	if m.dynamicArgumentError != "" {
 		lines = append(lines, "", p.PromptWarn.Render(truncate(m.dynamicArgumentError, lineWidth)))
 	}
-	lines = append(lines, "", p.DialogFooter.Render("tab/↑/↓ field · enter run · esc keep draft"))
+	lines = append(lines, "", p.DialogFooter.Render("tab/↑/↓ 字段 · enter 运行 · esc 保留草稿"))
 	return p.Dialog.Width(w).Render(strings.Join(lines, "\n"))
 }
 
@@ -93,20 +93,20 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 	rows := m.filteredModels()
 	w := max(1, min(l.width-8, 72))
 	innerWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
-	status := "filter: " + sanitizeCommandPaletteFilter(m.modelPickerFilter)
+	status := "筛选：" + sanitizeCommandPaletteFilter(m.modelPickerFilter)
 	if strings.TrimSpace(m.modelPickerFilter) == "" {
-		status = "filter: all"
+		status = "筛选：全部"
 	}
 	if m.modelPickerLoading {
-		status += "  · loading…"
+		status += "  · 加载中…"
 	} else if m.modelPickerSelecting {
-		status += "  · applying…"
+		status += "  · 正在应用…"
 	}
-	lines := []string{p.DialogTitle.Render("Switch global model"), p.DialogFooter.Render(truncate(status, innerWidth)), ""}
+	lines := []string{p.DialogTitle.Render("切换全局模型"), p.DialogFooter.Render(truncate(status, innerWidth)), ""}
 	if m.modelPickerError != "" {
 		lines = append(lines, p.ToolFail.Render(truncate(m.modelPickerError, innerWidth)))
 	} else if !m.modelPickerLoading && len(rows) == 0 {
-		lines = append(lines, p.DialogFooter.Render("no matching configured models"))
+		lines = append(lines, p.DialogFooter.Render("没有匹配的已配置模型"))
 	} else {
 		windowRows := max(1, l.height-11)
 		cursor := min(max(0, m.modelPickerCursor), max(0, len(rows)-1))
@@ -135,9 +135,9 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 		}
 	}
 	catalog := m.driver.ModelCatalog()
-	footer := "global · next idle turn · ↑↓ select · esc close"
+	footer := "全局 · 下一空闲回合生效 · ↑↓ 选择 · esc 关闭"
 	if catalog.ReadOnly || catalog.Frozen {
-		footer = "read-only · ↑↓ browse · type filter · esc close"
+		footer = "只读 · ↑↓ 浏览 · 输入筛选 · esc 关闭"
 	}
 	lines = append(lines, "", p.DialogFooter.Render(truncate(footer, innerWidth)))
 	return p.Dialog.Width(w).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
@@ -158,14 +158,14 @@ func (m Model) renderFileCompletion(l layout, p Palette) string {
 	} else if m.fileCompletionTruncated {
 		status += "  partial results"
 	}
-	lines := []string{p.DialogTitle.Render("Project files"), p.DialogFooter.Render(truncate(status, max(1, w-p.Dialog.GetHorizontalFrameSize())))}
+	lines := []string{p.DialogTitle.Render("项目文件"), p.DialogFooter.Render(truncate(status, max(1, w-p.Dialog.GetHorizontalFrameSize())))}
 	if !compact {
 		lines = append(lines, "")
 	}
 	if m.fileCompletionError != "" {
 		lines = append(lines, p.ToolFail.Render(truncate(m.fileCompletionError, max(1, w-p.Dialog.GetHorizontalFrameSize()))))
 	} else if !m.fileCompletionLoading && len(rows) == 0 {
-		lines = append(lines, p.DialogFooter.Render("no matching project files"))
+		lines = append(lines, p.DialogFooter.Render("没有匹配的项目文件"))
 	} else {
 		windowRows := max(1, l.height-10)
 		if compact {
@@ -191,7 +191,7 @@ func (m Model) renderFileCompletion(l layout, p Palette) string {
 	if !compact {
 		lines = append(lines, "")
 	}
-	footer := "↑/↓ move · enter/tab choose · esc close"
+	footer := "↑/↓ 移动 · enter/tab 选择 · esc 关闭"
 	if compact {
 		footer = "↑/↓ · enter/tab · esc"
 	}
@@ -241,75 +241,6 @@ func shortCompletionError(err error) string {
 		return ""
 	}
 	return truncate(sanitizeFileCompletionText(err.Error()), 120)
-}
-
-func (m Model) renderCommandPalette(l layout, p Palette) string {
-	rows := m.filteredCommands()
-	w := max(1, min(l.width-8, 72))
-	filterText := sanitizeCommandPaletteFilter(m.commandPaletteFilter)
-	filter := "filter: " + filterText
-	if filterText == "" {
-		filter = "type to filter commands…"
-	}
-	compact := l.height < 16
-	if compact {
-		if filterText == "" {
-			filter = "filter…"
-		} else {
-			filter = "filter: " + truncate(filterText, max(1, w-p.Dialog.GetHorizontalFrameSize()-8))
-		}
-	}
-	lines := []string{p.DialogTitle.Render("Commands"), p.DialogFooter.Render(filter)}
-	if m.commandCatalogLoading {
-		lines = append(lines, p.DialogFooter.Render("refreshing dynamic commands…"))
-	} else if m.commandCatalogError != "" {
-		lines = append(lines, p.DialogFooter.Render("dynamic refresh failed: "+truncate(m.commandCatalogError, max(1, w-24))))
-	}
-	if !compact {
-		lines = append(lines, "")
-	}
-	if len(rows) == 0 {
-		lines = append(lines, p.DialogFooter.Render("no matching commands"))
-	} else {
-		windowRows := max(1, (l.height-9)/2)
-		if compact {
-			windowRows = max(1, l.height-7)
-		}
-		cursor := min(max(0, m.commandPaletteCursor), len(rows)-1)
-		start := max(0, cursor-windowRows/2)
-		if start+windowRows > len(rows) {
-			start = max(0, len(rows)-windowRows)
-		}
-		end := min(len(rows), start+windowRows)
-		lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
-		for i := start; i < end; i++ {
-			spec := rows[i]
-			marker := "  "
-			style := p.Idle
-			if i == cursor {
-				marker = "▸ "
-				style = p.Active
-			}
-			usage := strings.TrimSpace(spec.Usage)
-			if usage == "" {
-				usage = "/" + spec.Name
-			}
-			lines = append(lines, style.Render(truncate(marker+usage, lineWidth)))
-			if !compact {
-				lines = append(lines, p.Dim.Render(truncate("   "+spec.Description, lineWidth)))
-			}
-		}
-	}
-	if !compact {
-		lines = append(lines, "")
-	}
-	footer := "↑/↓ move · enter choose · esc close"
-	if compact {
-		footer = "↑/↓ · enter · esc"
-	}
-	lines = append(lines, p.DialogFooter.Render(footer))
-	inner := strings.Join(lines, "\n")
-	return p.Dialog.Width(w).Render(inner)
 }
 
 const maxCommandPaletteFilterRunes = 128
@@ -884,39 +815,39 @@ func renderFileContextChips(contexts []surface.FileContext) string {
 
 func (m Model) renderHelp(l layout, p Palette) string {
 	meta := m.driver.Meta()
-	selector := " sessions"
+	selector := " 会话"
 	if l.showSidebar {
-		selector = " Sessions"
+		selector = " 会话"
 	}
 	parts := []string{
 		p.HelpKey.Render("^s") + p.HelpDesc.Render(selector),
-		p.HelpKey.Render("^p") + p.HelpDesc.Render(" commands"),
-		p.HelpKey.Render("enter") + p.HelpDesc.Render(" send"),
-		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" approve"),
-		p.HelpKey.Render("^n") + p.HelpDesc.Render(" new"),
-		p.HelpKey.Render("^y") + p.HelpDesc.Render(" permission"),
-		p.HelpKey.Render("esc") + p.HelpDesc.Render(" cancel"),
-		p.HelpKey.Render("^c") + p.HelpDesc.Render(" quit"),
+		p.HelpKey.Render("^p") + p.HelpDesc.Render(" 命令"),
+		p.HelpKey.Render("enter") + p.HelpDesc.Render(" 发送"),
+		p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准"),
+		p.HelpKey.Render("^n") + p.HelpDesc.Render(" 新建"),
+		p.HelpKey.Render("^y") + p.HelpDesc.Render(" 权限"),
+		p.HelpKey.Render("esc") + p.HelpDesc.Render(" 取消"),
+		p.HelpKey.Render("^c") + p.HelpDesc.Render(" 退出"),
 	}
 	if m.modelSelectionAvailable() {
-		parts = append(parts[:2], append([]string{p.HelpKey.Render("^l") + p.HelpDesc.Render(" global model")}, parts[2:]...)...)
+		parts = append(parts[:2], append([]string{p.HelpKey.Render("^l") + p.HelpDesc.Render(" 全局模型")}, parts[2:]...)...)
 	}
 	if sidebar := m.driver.Sidebar(); sidebar.HasContext && sidebar.Context.ThinkingSupported {
-		parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" thinking:"+m.driver.ThinkingMode())}, parts[6:]...)...)
+		parts = append(parts[:6], append([]string{p.HelpKey.Render("^t") + p.HelpDesc.Render(" 思考:"+m.driver.ThinkingMode())}, parts[6:]...)...)
 	}
 	if m.sidebarFocused {
 		parts = append([]string{
-			p.HelpKey.Render("↑↓") + p.HelpDesc.Render(" scroll"),
-			p.HelpKey.Render("home/end") + p.HelpDesc.Render(" jump"),
-			p.HelpKey.Render("h/←/tab") + p.HelpDesc.Render(" exit sidebar"),
+			p.HelpKey.Render("↑↓") + p.HelpDesc.Render(" 滚动"),
+			p.HelpKey.Render("home/end") + p.HelpDesc.Render(" 跳转"),
+			p.HelpKey.Render("h/←/tab") + p.HelpDesc.Render(" 离开侧栏"),
 		}, parts...)
 	} else if m.sidebarCanScroll() {
-		parts = append(parts, p.HelpKey.Render("ctrl+→")+p.HelpDesc.Render(" sidebar"))
+		parts = append(parts, p.HelpKey.Render("ctrl+→")+p.HelpDesc.Render(" 侧栏"))
 	}
 	if !m.sidebarFocused && m.chatCanScroll() {
-		chatHelp := p.HelpKey.Render("pgup/pgdn") + p.HelpDesc.Render(" chat")
+		chatHelp := p.HelpKey.Render("pgup/pgdn") + p.HelpDesc.Render(" 聊天")
 		if !m.chatFollow {
-			chatHelp += p.HelpDesc.Render(" · ") + p.HelpKey.Render("end") + p.HelpDesc.Render(" latest")
+			chatHelp += p.HelpDesc.Render(" · ") + p.HelpKey.Render("end") + p.HelpDesc.Render(" 最新")
 		}
 		parts = append([]string{chatHelp}, parts...)
 	}
@@ -1330,16 +1261,16 @@ func (m Model) gateMaxHorizontal() int {
 
 func (m Model) renderSessionsDialog(l layout, p Palette) string {
 	rows := m.filteredSessions()
-	title := p.DialogTitle.Render("Sessions")
-	filter := "filter: " + m.sessionFilter
+	title := p.DialogTitle.Render("会话")
+	filter := "筛选：" + m.sessionFilter
 	if m.sessionFilter == "" {
-		filter = "filter title…"
+		filter = "按标题筛选…"
 	}
 	lines := []string{title, p.DialogFooter.Render(filter)}
 	if m.sessionLoading {
-		lines = append(lines, "", p.DialogFooter.Render("loading sessions…"))
+		lines = append(lines, "", p.DialogFooter.Render("正在加载会话…"))
 	} else if len(rows) == 0 {
-		lines = append(lines, "", p.DialogFooter.Render("no matching sessions"))
+		lines = append(lines, "", p.DialogFooter.Render("没有匹配的会话"))
 	} else {
 		lines = append(lines, "")
 		windowRows := max(1, (max(4, l.height-12))/2)
@@ -1358,7 +1289,7 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 			}
 			name := strings.TrimSpace(row.Title)
 			if name == "" {
-				name = "untitled session"
+				name = "未命名会话"
 			}
 			lines = append(lines, style.Render(truncate(marker+name, max(8, l.width-14))))
 			lines = append(lines, p.Dim.Render(truncate("   "+row.ID, max(8, l.width-14))))
@@ -1366,7 +1297,7 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 	}
 	lines = append(lines, "")
 	if m.sessionRenaming {
-		lines = append(lines, p.DialogFooter.Render("rename: "+m.sessionRenameInput+"█"), p.DialogFooter.Render("enter confirm · esc cancel"))
+		lines = append(lines, p.DialogFooter.Render("重命名："+m.sessionRenameInput+"█"), p.DialogFooter.Render("enter 确认 · esc 取消"))
 	} else if m.sessionDeleteID != "" {
 		name := m.sessionDeleteID
 		for _, row := range rows {
@@ -1375,9 +1306,9 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 				break
 			}
 		}
-		lines = append(lines, p.PromptWarn.Render(truncate("delete "+name+"?", max(8, l.width-14))), p.DialogFooter.Render("y delete · n/esc cancel"))
+		lines = append(lines, p.PromptWarn.Render(truncate("删除 "+name+"？", max(8, l.width-14))), p.DialogFooter.Render("y 删除 · n/esc 取消"))
 	} else {
-		lines = append(lines, p.DialogFooter.Render("↑/↓ move · enter/tab choose · ^r rename · ^x delete"))
+		lines = append(lines, p.DialogFooter.Render("↑/↓ 移动 · enter/tab 选择 · ^r 重命名 · ^x 删除"))
 	}
 	if m.sessionError != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
@@ -1390,27 +1321,27 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 func (m Model) renderCommandDialog(l layout, p Palette) string {
 	if m.commandConfirmName != "" {
 		name := "/" + m.commandConfirmName
-		body := "apply this session change?"
+		body := "应用这次会话变更？"
 		if m.commandConfirmName == "fork" && len(m.commandConfirmArgs) > 0 {
-			body = fmt.Sprintf("fork at message %s?", m.commandConfirmArgs[0])
+			body = fmt.Sprintf("在消息 %s 处分叉？", m.commandConfirmArgs[0])
 		} else if m.commandConfirmName == "rewind" && len(m.commandConfirmArgs) > 0 {
-			body = fmt.Sprintf("rewind at message %s?", m.commandConfirmArgs[0])
+			body = fmt.Sprintf("回退到消息 %s？", m.commandConfirmArgs[0])
 		} else if m.commandConfirmName == "compact" {
-			body = "compact the active session context?"
+			body = "压缩当前会话上下文？"
 		}
 		inner := strings.Join([]string{
-			p.DialogTitle.Render("Confirm " + name),
+			p.DialogTitle.Render("确认 " + name),
 			"",
 			p.DialogBody.Render(truncate(body, max(8, l.width-14))),
 			"",
-			p.DialogFooter.Render("y confirm · n/esc cancel"),
+			p.DialogFooter.Render("y 确认 · n/esc 取消"),
 		}, "\n")
 		w := max(1, min(l.width-8, 72))
 		return p.Dialog.Width(w).Render(inner)
 	}
 	title := m.commandOverlayTitle
 	if title == "" {
-		title = "Command"
+		title = "命令"
 	}
 	body := m.commandOverlay
 	if body == "" {

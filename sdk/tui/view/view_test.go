@@ -839,7 +839,7 @@ func TestChatViewportPreservesHistoryAndFollowState(t *testing.T) {
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	m = updated.(Model)
 	pausedOffset := m.chatScroll
-	if m.chatFollow || pausedOffset >= m.chatMaxScroll() || !strings.Contains(m.View(), "history-30") || !strings.Contains(m.View(), "end latest") {
+	if m.chatFollow || pausedOffset >= m.chatMaxScroll() || !strings.Contains(m.View(), "history-30") || !strings.Contains(m.View(), "end") || !strings.Contains(m.View(), "最新") {
 		t.Fatalf("page-up did not expose older history: offset=%d max=%d follow=%v\n%s", pausedOffset, m.chatMaxScroll(), m.chatFollow, m.View())
 	}
 	driver.messages["one"] = append(driver.messages["one"], surface.Message{Role: surface.RoleAssistant, Content: "new-while-paused"})

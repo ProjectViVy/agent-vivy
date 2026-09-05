@@ -55,6 +55,8 @@ type Palette struct {
 	DialogFooter lipgloss.Style
 	Dim          lipgloss.Style
 	Separator    lipgloss.Style
+	Selected     lipgloss.Style
+	Match        lipgloss.Style
 }
 
 // DefaultPalette returns the stable dark palette shared by both first-party
@@ -104,5 +106,7 @@ func DefaultPalette() Palette {
 		DialogFooter: lipgloss.NewStyle().Foreground(muted),
 		Dim:          lipgloss.NewStyle().Foreground(subtle),
 		Separator:    lipgloss.NewStyle().Foreground(subtle),
+		Selected:     lipgloss.NewStyle().Foreground(fg).Background(lipgloss.Color(paletteCodeBg)),
+		Match:        lipgloss.NewStyle().Foreground(secondary).Bold(true).Underline(true),
 	}
 }
