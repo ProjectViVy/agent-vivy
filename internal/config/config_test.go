@@ -64,6 +64,8 @@ runtime:
   stream_buffer: 16
   max_event_payload_bytes: 1024
   execute_max_timeout_seconds: 210
+tui:
+  debug: true
 tools:
   enabled:
     - echo_info
@@ -87,6 +89,9 @@ func TestLoadValid(t *testing.T) {
 	if cfg.Providers.Active != "anthropic" {
 		t.Errorf("active = %q", cfg.Providers.Active)
 	}
+	if !cfg.TUI.Debug {
+		t.Error("tui.debug = false, want true")
+	}
 	if cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
@@ -98,6 +103,12 @@ func TestLoadValid(t *testing.T) {
 	}
 	if cfg.Tools.Approval.Expiration != 2*time.Minute {
 		t.Errorf("expiration = %v, want 2m", cfg.Tools.Approval.Expiration)
+	}
+}
+
+func TestTUIDebugDefaultsOff(t *testing.T) {
+	if Default().TUI.Debug {
+		t.Fatal("default tui.debug = true, want false")
 	}
 }
 

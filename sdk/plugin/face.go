@@ -27,10 +27,11 @@ type Face interface {
 // Out is the primary output stream; Err is the diagnostics stream. The
 // face must not open os.Stdout/os.Stderr itself — the launcher owns them.
 type FaceOptions struct {
-	Prompt         string
-	ContinueNewest bool
-	Out            io.Writer
-	Err            io.Writer
+	Prompt          string
+	ContinueNewest  bool
+	DebugToolOutput bool
+	Out             io.Writer
+	Err             io.Writer
 }
 
 // FaceResult reports how the served invocation ended. Status mirrors the

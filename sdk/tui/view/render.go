@@ -636,7 +636,7 @@ func (m Model) chatLines(width int, p Palette) []string {
 		lines = append(lines, p.Dim.Render(""), p.LogoWord.Render(" 寻找真心之旅"), p.Dim.Render(" empty session · type to draft"))
 	}
 	for index, message := range messages {
-		lines = append(lines, renderMessage(message, width, p)...)
+		lines = append(lines, renderMessageWithOptions(message, width, p, m.debugToolOutput)...)
 		if index < len(messages)-1 {
 			lines = append(lines, "")
 		}
@@ -645,8 +645,12 @@ func (m Model) chatLines(width int, p Palette) []string {
 }
 
 func renderMessage(message surface.Message, width int, p Palette) []string {
+	return renderMessageWithOptions(message, width, p, false)
+}
+
+func renderMessageWithOptions(message surface.Message, width int, p Palette, debugToolOutput bool) []string {
 	if message.Tool != nil {
-		return renderTool(message.Tool, width, p)
+		return renderToolWithOptions(message.Tool, width, p, debugToolOutput)
 	}
 	bar := p.AsstBar.Render("┃ ")
 	style := p.Assistant
@@ -689,6 +693,12 @@ func renderMessage(message surface.Message, width int, p Palette) []string {
 }
 
 func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
+	return renderToolWithOptions(tool, width, p, false)
+}
+
+const compactToolResultLines = 8
+
+func renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugToolOutput bool) []string {
 	style := p.Tool
 	icon := "●"
 	switch tool.Status {
@@ -715,17 +725,18 @@ func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 	available := max(1, width-indent)
 	frame := style.GetHorizontalFrameSize()
 	if available <= frame {
-		plain := title
+		lines := wrapText(title, max(1, width))
 		if body != "" {
-			plain += "\n" + body
+			lines = append(lines, compactToolLines(wrapText(body, max(1, width)), debugToolOutput, max(1, width))...)
 		}
-		return wrapText(plain, max(1, width))
+		return lines
 	}
 	contentWidth := max(1, min(52, available-frame))
 	innerLines := wrapText(title, contentWidth)
 	if body != "" {
 		bodyLines := wrapText(body, contentWidth)
-		innerLines = append(innerLines, strings.Split(renderDiffBody(strings.Join(bodyLines, "\n"), p), "\n")...)
+		renderedBody := strings.Split(renderDiffBody(strings.Join(bodyLines, "\n"), p), "\n")
+		innerLines = append(innerLines, compactToolLines(renderedBody, debugToolOutput, contentWidth)...)
 	}
 	box := style.Width(contentWidth).MaxWidth(available).Render(strings.Join(innerLines, "\n"))
 	indented := make([]string, 0)
@@ -733,6 +744,16 @@ func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
 		indented = append(indented, "  "+line)
 	}
 	return indented
+}
+
+func compactToolLines(lines []string, debug bool, width int) []string {
+	if debug || len(lines) <= compactToolResultLines {
+		return lines
+	}
+	omitted := len(lines) - compactToolResultLines
+	compact := append([]string(nil), lines[:compactToolResultLines]...)
+	marker := fmt.Sprintf("… %d more lines · set tui.debug: true", omitted)
+	return append(compact, wrapText(marker, max(1, width))...)
 }
 
 func renderDiffBody(body string, p Palette) string {

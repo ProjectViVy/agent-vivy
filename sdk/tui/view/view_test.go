@@ -90,6 +90,26 @@ func TestRenderToolSanitizesAndFitsEveryViewport(t *testing.T) {
 	}
 }
 
+func TestRenderToolCompactsResultUnlessDebugEnabled(t *testing.T) {
+	tool := &surface.ToolCard{ToolName: "list_dir", Status: "done", Result: strings.Repeat("entry\n", 20)}
+
+	compact := strings.Join(renderToolWithOptions(tool, 80, DefaultPalette(), false), "\n")
+	if !strings.Contains(compact, "more lines · set tui.debug: true") {
+		t.Fatalf("compact tool result has no omission marker: %s", ansi.Strip(compact))
+	}
+	if strings.Count(ansi.Strip(compact), "entry") >= 20 {
+		t.Fatalf("compact tool result rendered every line: %s", ansi.Strip(compact))
+	}
+
+	debug := strings.Join(renderToolWithOptions(tool, 80, DefaultPalette(), true), "\n")
+	if strings.Contains(debug, "more lines") {
+		t.Fatalf("debug tool result was compacted: %s", ansi.Strip(debug))
+	}
+	if strings.Count(ansi.Strip(debug), "entry") != 20 {
+		t.Fatalf("debug tool result did not render every line: %s", ansi.Strip(debug))
+	}
+}
+
 func TestRenderMessageFitsNarrowViewportAndDropsBidiControls(t *testing.T) {
 	message := surface.Message{Role: surface.RoleAssistant, Content: "你e\u0301👨‍👩‍👧‍👦\u202eabc\u2066", Streaming: true}
 	for width := 1; width <= 12; width++ {

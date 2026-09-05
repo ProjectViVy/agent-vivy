@@ -98,10 +98,11 @@ func runRun(args []string) int {
 	// headless loop. Exit codes mirror the terminal either way.
 	if ctor := face.Register(); ctor != nil {
 		faceOpts := plugin.FaceOptions{
-			Prompt:         prompt,
-			ContinueNewest: continueNewest,
-			Out:            os.Stdout,
-			Err:            os.Stderr,
+			Prompt:          prompt,
+			ContinueNewest:  continueNewest,
+			DebugToolOutput: cfg.TUI.Debug,
+			Out:             os.Stdout,
+			Err:             os.Stderr,
 		}
 		var appOpts []app.AppOption
 		if ctor(faceOpts).Kind() == "tui" {
