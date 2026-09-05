@@ -365,6 +365,7 @@ type testDriver struct {
 	sendBlocked bool
 	sent        string
 	thinking    string
+	runMode     string
 	decision    string
 	messages    map[string][]surface.Message
 }
@@ -425,10 +426,20 @@ func (d *testDriver) DecideApproval(decision string) tea.Cmd {
 	return nil
 }
 func (d *testDriver) AnswerQuestion(string) tea.Cmd { return nil }
-func (d *testDriver) SetPermission(string) tea.Cmd  { return nil }
-func (d *testDriver) ClearQueue() bool              { return false }
-func (d *testDriver) Cancel() tea.Cmd               { return nil }
-func (d *testDriver) Sidebar() surface.Sidebar      { return d.sidebar }
+func (d *testDriver) SetPermission(preset string) tea.Cmd {
+	for i := range d.sessions {
+		if d.sessions[i].ID == d.active {
+			d.sessions[i].PermissionPreset = preset
+		}
+	}
+	if d.sidebar.Session.ID == d.active || d.sidebar.Session.ID == "" {
+		d.sidebar.Session.PermissionPreset = preset
+	}
+	return func() tea.Msg { return surface.RefreshMsg{} }
+}
+func (d *testDriver) ClearQueue() bool         { return false }
+func (d *testDriver) Cancel() tea.Cmd          { return nil }
+func (d *testDriver) Sidebar() surface.Sidebar { return d.sidebar }
 func (d *testDriver) ThinkingMode() string {
 	if d.thinking == "" {
 		return "auto"
@@ -440,6 +451,19 @@ func (d *testDriver) SetThinkingMode(mode string) error {
 		return fmt.Errorf("extended thinking is unavailable for the active model")
 	}
 	d.thinking = mode
+	return nil
+}
+func (d *testDriver) RunMode() string {
+	if d.runMode == "" {
+		return "normal"
+	}
+	return d.runMode
+}
+func (d *testDriver) SetRunMode(mode string) error {
+	if mode != "normal" && mode != "plan" {
+		return fmt.Errorf("run mode must be normal or plan")
+	}
+	d.runMode = mode
 	return nil
 }
 func (d *testDriver) RefreshSessions() tea.Cmd {

@@ -200,10 +200,13 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "active", Title: "Current", PermissionPreset: "smart"}},
 		active:   "active",
+		thinking: "on",
 		sidebar: surface.Sidebar{
-			Session:  surface.Session{ID: "active", Title: "Current", PermissionPreset: "smart"},
-			Model:    "reasoning-model",
-			Provider: "provider-a",
+			Session:    surface.Session{ID: "active", Title: "Current", PermissionPreset: "smart"},
+			Model:      "deepseek-v4-flash",
+			Provider:   "openai",
+			HasContext: true,
+			Context:    surface.Context{FeedTokens: 1200, ModelLimitTokens: 8000, ModelLimitKnown: true},
 		},
 		meta: surface.Meta{Host: "127.0.0.1:8787"},
 	}
@@ -211,12 +214,12 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = next.(Model)
 	plain := ansi.Strip(m.View())
-	for _, want := range []string{"smart", "reasoning-model", "provider-a", "shift+h", "帮助", "ctrl+x", "快捷", "host · 127.0.0.1:8787"} {
+	for _, want := range []string{"deepseek-v4-flash(high)", "openai", "15%", "shift+tab", "智能", "shift+h", "帮助", "ctrl+x", "快捷", "host · 127.0.0.1:8787"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("input chrome/sidebar omitted %q:\n%s", want, plain)
 		}
 	}
-	if strings.Contains(plain, "shift+tab") || strings.Contains(plain, "^p 命令") || strings.Contains(plain, "pgup/pgdn") {
+	if strings.Contains(plain, "^p 命令") || strings.Contains(plain, "pgup/pgdn") {
 		t.Fatalf("old footer dump still on screen:\n%s", plain)
 	}
 	if strings.Contains(plain, "TUI") || strings.Contains(plain, " · live") || strings.Contains(plain, " model · ") || strings.Contains(plain, " provider · ") || strings.Contains(plain, " permission · ") {
@@ -225,9 +228,10 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 
 	chrome := ansi.Strip(m.renderInputChrome(computeLayout(120, 36).mainW(), DefaultPalette()))
 	helpAt := strings.Index(chrome, "shift+h")
-	permAt := strings.Index(chrome, "smart")
-	if helpAt < 0 || permAt < 0 || helpAt <= permAt {
-		t.Fatalf("keys are not on the right of permission/model/provider:\n%s", chrome)
+	modeAt := strings.Index(chrome, "shift+tab")
+	modelAt := strings.Index(chrome, "deepseek-v4-flash")
+	if helpAt < 0 || modeAt < 0 || modelAt < 0 || helpAt <= modelAt || modeAt <= modelAt {
+		t.Fatalf("keys are not on the right of model/provider:\n%s", chrome)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
@@ -254,6 +258,83 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
 	if m.commandPaletteOpen || m.input != "draftH" {
 		t.Fatalf("shift+h stole an in-progress draft: palette=%v input=%q", m.commandPaletteOpen, m.input)
+	}
+}
+
+func TestShiftTabCyclesWorkingModes(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current", PermissionPreset: "smart"}},
+		active:   "active",
+		sidebar:  surface.Sidebar{Session: surface.Session{ID: "active", Title: "Current", PermissionPreset: "smart"}},
+	}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = next.(Model)
+	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "shift+tab") || !strings.Contains(got, "智能") {
+		t.Fatalf("default mode chrome:\n%s", got)
+	}
+
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if driver.runMode != "plan" || driver.sessions[0].PermissionPreset != "smart" {
+		t.Fatalf("smart → plan: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
+	}
+	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "计划") {
+		t.Fatalf("plan mode chrome:\n%s", got)
+	}
+
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if driver.runMode != "normal" || driver.sessions[0].PermissionPreset != "cautious" {
+		t.Fatalf("plan → readonly: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
+	}
+	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "只读") {
+		t.Fatalf("readonly mode chrome:\n%s", got)
+	}
+
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if driver.runMode != "normal" || driver.sessions[0].PermissionPreset != "smart" {
+		t.Fatalf("readonly → smart: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
+	}
+
+	m.input = "draft"
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if driver.sessions[0].PermissionPreset != "smart" || driver.runMode != "normal" {
+		t.Fatal("shift+tab stole an in-progress draft")
+	}
+
+	driver.busy = true
+	m.input = ""
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if driver.runMode != "normal" {
+		t.Fatal("shift+tab cycled while busy")
+	}
+}
+
+func TestInputChromeUsesColorWithoutTTY(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current", PermissionPreset: "smart"}},
+		active:   "active",
+		thinking: "on",
+		messages: map[string][]surface.Message{
+			"active": {{Role: surface.RoleUser, Content: "hello from the user"}},
+		},
+		sidebar: surface.Sidebar{
+			Session:    surface.Session{ID: "active", Title: "Current", PermissionPreset: "smart"},
+			Model:      "deepseek-v4-flash",
+			Provider:   "openai",
+			HasContext: true,
+			Context:    surface.Context{FeedTokens: 7200, ModelLimitTokens: 8000, ModelLimitKnown: true},
+		},
+	}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = next.(Model)
+	view := m.View()
+	if !strings.Contains(view, "\x1b[") {
+		t.Fatalf("expected ANSI color in chrome/chat:\n%s", view)
+	}
+	if !strings.Contains(ansi.Strip(view), "90%") || !strings.Contains(ansi.Strip(view), "(high)") {
+		t.Fatalf("missing hot context or high intensity:\n%s", ansi.Strip(view))
 	}
 }
 

@@ -349,7 +349,7 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		lines = append(lines, p.Dim.Render(truncate(" cwd · "+cwd, width-1)))
 	}
 	if host := strings.TrimSpace(m.driver.Meta().Host); host != "" {
-		lines = append(lines, p.Dim.Render(truncate(" host · "+host, width-1)))
+		lines = append(lines, p.Active.Render(truncate(" host · "+host, width-1)))
 	}
 	if snapshot.ReasoningKnown {
 		reasoning := "unsupported"
@@ -373,10 +373,9 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 				estimated = "~"
 			}
 			line := fmt.Sprintf(" %s%d%% · %s%s / %s tokens", estimated, percentage, estimated, compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens))
-			style := p.Dim
+			style := contextPercentStyle(ratio, p)
 			if ratio > 0.8 {
 				line = " !" + line
-				style = p.PromptWarn
 			}
 			lines = append(lines, style.Render(truncate(line, width-1)))
 		case ctx.FeedTokens > 0:
@@ -776,24 +775,27 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 		snapshot.Session = m.driver.Active()
 	}
 	meta := m.driver.Meta()
-	var facts []string
+	sep := p.Dim.Render(" · ")
+	var leftParts []string
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		facts = append(facts, "err · "+errText)
+		leftParts = append(leftParts, p.ToolFail.Render("err · "+errText))
 	} else {
 		if meta.Busy {
-			facts = append(facts, "run…")
-		}
-		if perm := strings.TrimSpace(snapshot.Session.PermissionPreset); perm != "" {
-			facts = append(facts, perm)
+			leftParts = append(leftParts, p.Dim.Render("run…"))
 		}
 		if model := strings.TrimSpace(snapshot.Model); model != "" {
-			facts = append(facts, model)
+			leftParts = append(leftParts, p.Dim.Render(model)+renderThinkingIntensity(m.driver.ThinkingMode(), p))
 		}
 		if provider := strings.TrimSpace(snapshot.Provider); provider != "" {
-			facts = append(facts, provider)
+			leftParts = append(leftParts, p.Dim.Render(provider))
+		}
+		if label, ratio, ok := contextPercentLabel(snapshot.Context, snapshot.HasContext); ok {
+			leftParts = append(leftParts, contextPercentStyle(ratio, p).Render(label))
 		}
 	}
-	right := p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
+	left := strings.Join(leftParts, sep)
+	mode := workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)
+	right := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" "+mode) + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
 	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
 		if gate.Kind == "question" {
 			right = p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")
@@ -806,11 +808,48 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 	}
 	leftW := max(1, width/2)
 	rightW := max(1, width-leftW)
-	left := p.Dim.Width(leftW).MaxWidth(leftW).MaxHeight(1).Render(truncate(strings.Join(facts, " · "), leftW))
+	if lipgloss.Width(left) > leftW {
+		left = truncate(left, leftW)
+	}
+	left = lipgloss.NewStyle().Width(leftW).MaxWidth(leftW).MaxHeight(1).Render(left)
 	if lipgloss.Width(right) > rightW {
 		right = truncate(right, rightW)
 	}
 	return left + lipgloss.NewStyle().Width(rightW).MaxWidth(rightW).MaxHeight(1).Align(lipgloss.Right).Render(right)
+}
+
+func renderThinkingIntensity(mode string, p Palette) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "on":
+		return p.IntensityHigh.Render("(high)")
+	case "auto":
+		return p.IntensityAuto.Render("(auto)")
+	default:
+		return ""
+	}
+}
+
+func contextPercentLabel(ctx surface.Context, hasContext bool) (string, float64, bool) {
+	if !hasContext || !ctx.ModelLimitKnown || ctx.ModelLimitTokens <= 0 {
+		return "", 0, false
+	}
+	ratio := float64(ctx.FeedTokens) / float64(ctx.ModelLimitTokens)
+	label := fmt.Sprintf("%d%%", int(ratio*100))
+	if ctx.TokenCountsEstimated {
+		label = "~" + label
+	}
+	return label, ratio, true
+}
+
+func contextPercentStyle(ratio float64, p Palette) lipgloss.Style {
+	switch {
+	case ratio > 0.8:
+		return p.ContextHot
+	case ratio >= 0.5:
+		return p.ContextMid
+	default:
+		return p.ContextOK
+	}
 }
 
 // renderAttachmentChips is metadata-only presentation. In particular, it
@@ -860,6 +899,7 @@ func (m Model) renderShortcutsDialog(l layout, p Palette) string {
 	rows := []string{
 		p.DialogTitle.Render("快捷方式"),
 		"",
+		p.HelpKey.Render("shift+tab") + p.DialogBody.Render("  切换模式"),
 		p.HelpKey.Render("shift+h") + p.DialogBody.Render("    帮助"),
 		p.HelpKey.Render("/") + p.DialogBody.Render("          命令面板"),
 		p.HelpKey.Render("ctrl+p") + p.DialogBody.Render("     命令面板"),

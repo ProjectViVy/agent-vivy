@@ -52,6 +52,7 @@ type Live struct {
 	// session switch. Values contain metadata only; bytes stay server-side.
 	drafts           map[string][]surface.Attachment
 	thinkingMode     string
+	runMode          string
 	commandInFlight  bool
 	completionReq    uint64
 	completionCancel context.CancelFunc
@@ -84,6 +85,7 @@ type queuedTurn struct {
 	SessionID    string
 	Text         string
 	Thinking     string
+	Mode         string
 	Attachments  []surface.Attachment
 	ContextPaths []string
 	ShellScript  string
@@ -134,6 +136,7 @@ func newLive(parent context.Context, client *client, opts Options) *Live {
 		messages:       map[string][]surface.Message{},
 		drafts:         map[string][]surface.Attachment{},
 		thinkingMode:   "auto",
+		runMode:        "normal",
 		eventWake:      make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -1212,7 +1215,7 @@ func (l *Live) dequeueCmd() tea.Cmd {
 	if turn.ShellScript != "" {
 		return l.sendShell(turn.ShellScript)
 	}
-	return l.sendWithAttachmentsAndContext(turn.Text, turn.Thinking, turn.Attachments, turn.ContextPaths, false)
+	return l.sendWithAttachmentsAndContext(turn.Text, turn.Thinking, turn.Mode, turn.Attachments, turn.ContextPaths, false)
 }
 
 func (l *Live) applyNotice(notice eventNotice) {
@@ -1696,9 +1699,10 @@ func (l *Live) applySidebar(msg liveSidebarMsg) {
 func (l *Live) Send(text string) tea.Cmd {
 	l.mu.Lock()
 	thinking := l.thinkingMode
+	mode := l.runMode
 	attachments := cloneAttachments(l.drafts[l.activeID])
 	l.mu.Unlock()
-	return l.sendWithAttachments(text, thinking, attachments, true)
+	return l.sendWithAttachments(text, thinking, mode, attachments, true)
 }
 
 // SendWithContext implements surface.ContextSender. The packed face has no
@@ -1707,9 +1711,10 @@ func (l *Live) Send(text string) tea.Cmd {
 func (l *Live) SendWithContext(text string, paths []string) tea.Cmd {
 	l.mu.Lock()
 	thinking := l.thinkingMode
+	mode := l.runMode
 	attachments := cloneAttachments(l.drafts[l.activeID])
 	l.mu.Unlock()
-	return l.sendWithAttachmentsAndContext(text, thinking, attachments, paths, true)
+	return l.sendWithAttachmentsAndContext(text, thinking, mode, attachments, paths, true)
 }
 
 // CompleteProjectFiles implements surface.ProjectFileCompleter using the
@@ -1745,15 +1750,16 @@ func (l *Live) CompleteProjectFiles(request uint64, query string) tea.Cmd {
 func (l *Live) send(text, thinking string) tea.Cmd {
 	l.mu.Lock()
 	attachments := cloneAttachments(l.drafts[l.activeID])
+	mode := l.runMode
 	l.mu.Unlock()
-	return l.sendWithAttachments(text, thinking, attachments, true)
+	return l.sendWithAttachments(text, thinking, mode, attachments, true)
 }
 
-func (l *Live) sendWithAttachments(text, thinking string, attachments []surface.Attachment, consumeDraft bool) tea.Cmd {
-	return l.sendWithAttachmentsAndContext(text, thinking, attachments, nil, consumeDraft)
+func (l *Live) sendWithAttachments(text, thinking, mode string, attachments []surface.Attachment, consumeDraft bool) tea.Cmd {
+	return l.sendWithAttachmentsAndContext(text, thinking, mode, attachments, nil, consumeDraft)
 }
 
-func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments []surface.Attachment, contextPaths []string, consumeDraft bool) tea.Cmd {
+func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attachments []surface.Attachment, contextPaths []string, consumeDraft bool) tea.Cmd {
 	if strings.TrimSpace(text) == "" {
 		if len(attachments) > 0 {
 			return commandResultCmd("image", "", errors.New("text is required; image-only turns are not supported"))
@@ -1771,7 +1777,7 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments 
 	}
 	sessionID := l.activeID
 	if l.busy || l.gate != nil {
-		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
+		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, Text: text, Thinking: thinking, Mode: mode, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths})
 		if consumeDraft {
 			delete(l.drafts, sessionID)
 		}
@@ -1801,7 +1807,7 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking string, attachments 
 				return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, Err: err}
 			}
 		}
-		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, attachments, contextPaths)
+		accepted, err := l.client.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, mode, attachments, contextPaths)
 		if err != nil {
 			return liveTurnStartedMsg{SessionID: sessionID, UserText: text, Attachments: cloneAttachments(attachments), ContextPaths: contextPaths, FileContexts: cloneFileContexts(fileContexts), Err: err}
 		}
@@ -1863,6 +1869,29 @@ func (l *Live) ThinkingMode() string {
 		return "auto"
 	}
 	return l.thinkingMode
+}
+
+// RunMode returns the draft execution mode used for the next turn.
+func (l *Live) RunMode() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.runMode == "" {
+		return "normal"
+	}
+	return l.runMode
+}
+
+// SetRunMode updates only future turns. Send snapshots the value so a later
+// toggle cannot retroactively change already queued work.
+func (l *Live) SetRunMode(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "normal" && mode != "plan" {
+		return errors.New("run mode must be normal or plan")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.runMode = mode
+	return nil
 }
 
 // SetThinkingMode updates only future turns. Send snapshots the value so a

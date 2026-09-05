@@ -628,6 +628,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.setThinking("")
+	case tea.KeyShiftTab:
+		if gate == nil && m.input == "" && !meta.Busy {
+			return m.cycleWorkingMode()
+		}
+		return m, nil
 	case tea.KeyTab, tea.KeyUp, tea.KeyDown:
 		// Session navigation belongs to the explicit Ctrl+S dialog. Keeping
 		// arrows in the editor avoids the old hidden-session sidebar behavior.
@@ -822,6 +827,43 @@ func (m Model) isHelpKey(msg tea.KeyMsg) bool {
 		return true
 	}
 	return msg.Type == tea.KeyRunes && string(msg.Runes) == "H"
+}
+
+func (m Model) cycleWorkingMode() (Model, tea.Cmd) {
+	run := m.driver.RunMode()
+	preset := m.driver.Active().PermissionPreset
+	if preset == "" {
+		preset = m.driver.Sidebar().Session.PermissionPreset
+	}
+	nextRun, nextPerm, changePerm := nextWorkingMode(run, preset)
+	if err := m.driver.SetRunMode(nextRun); err != nil {
+		return m.showCommandError(err), nil
+	}
+	if !changePerm {
+		return m, nil
+	}
+	return m, m.driver.SetPermission(nextPerm)
+}
+
+func nextWorkingMode(runMode, preset string) (nextRun, nextPerm string, changePerm bool) {
+	switch workingModeLabel(runMode, preset) {
+	case "计划":
+		return "normal", "cautious", true
+	case "只读":
+		return "normal", "smart", true
+	default:
+		return "plan", "", false
+	}
+}
+
+func workingModeLabel(runMode, preset string) string {
+	if strings.EqualFold(strings.TrimSpace(runMode), "plan") {
+		return "计划"
+	}
+	if strings.EqualFold(strings.TrimSpace(preset), "cautious") {
+		return "只读"
+	}
+	return "智能"
 }
 
 func (m Model) sidebarMaxScroll() int {
@@ -1234,7 +1276,7 @@ func (m Model) handleCommandPaletteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.closeCommandPalette()
 		return m, nil
-	case tea.KeyUp, tea.KeyCtrlP:
+	case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
 		m.moveCommandPaletteCursor(-1)
 		return m, nil
 	case tea.KeyDown, tea.KeyCtrlN:
@@ -2147,14 +2189,9 @@ func RunWithOutput(driver surface.Driver, out io.Writer, options ...Options) err
 
 func configureColor(out io.Writer) {
 	if os.Getenv("NO_COLOR") != "" {
+		lipgloss.SetColorProfile(termenv.Ascii)
 		return
 	}
-	f, ok := out.(*os.File)
-	if !ok {
-		return
-	}
-	stat, err := f.Stat()
-	if err == nil && stat.Mode()&os.ModeCharDevice != 0 {
-		lipgloss.SetColorProfile(termenv.TrueColor)
-	}
+	_ = out
+	lipgloss.SetColorProfile(termenv.TrueColor)
 }
