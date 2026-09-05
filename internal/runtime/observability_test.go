@@ -283,6 +283,56 @@ func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) 
 	}
 }
 
+func TestMapperConcatenatesStreamingToolCallIdentityAndArguments(t *testing.T) {
+	reader, writer := schema.Pipe[*schema.Message](3)
+	m := newEventMapper("run-stream-tool-fragments", 4096)
+	index := 0
+	go func() {
+		writer.Send(&schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+			Index: &index, ID: "call-1", Type: "function",
+			Function: schema.FunctionCall{Name: "list_dir", Arguments: `{"path":"`},
+		}}}, nil)
+		writer.Send(&schema.Message{ToolCalls: []schema.ToolCall{{
+			Index: &index, Function: schema.FunctionCall{Arguments: "."},
+		}}}, nil)
+		writer.Send(&schema.Message{ToolCalls: []schema.ToolCall{{
+			Index: &index, Function: schema.FunctionCall{Arguments: `"}`},
+		}}}, nil)
+		writer.Close()
+	}()
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
+		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != domain.EventToolRequested {
+		t.Fatalf("events = %+v, want one tool.requested", events)
+	}
+	var requested payloadToolRequested
+	if err := json.Unmarshal(events[0].Payload, &requested); err != nil {
+		t.Fatalf("decode tool.requested: %v", err)
+	}
+	if requested.ToolCallID != "call-1" || requested.ToolName != "list_dir" || requested.Args["path"] != "." {
+		t.Fatalf("tool.requested = %+v", requested)
+	}
+
+	result, err := m.toolResultEventsParts("", "", "done", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 2 || result[1].Type != domain.EventToolFinished {
+		t.Fatalf("result events = %+v", result)
+	}
+	var finished payloadToolFinished
+	if err := json.Unmarshal(result[1].Payload, &finished); err != nil {
+		t.Fatalf("decode tool.finished: %v", err)
+	}
+	if finished.ToolCallID != requested.ToolCallID || finished.ToolName != requested.ToolName {
+		t.Fatalf("tool identity requested=%+v finished=%+v", requested, finished)
+	}
+}
+
 func TestMapperMaterializedObservedToolCallDoesNotDuplicatePreamble(t *testing.T) {
 	m := newEventMapper("run-observed-tool", 4096)
 	m.beginObservedStream()
