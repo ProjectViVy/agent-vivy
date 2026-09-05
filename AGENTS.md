@@ -5,6 +5,44 @@ VIVY CODE terminal (`vivy-code.exe`), and the first-party Studio overlay.
 Canonical product rules: `docs/architecture/VIVY-STUDIO.md` and
 `docs/architecture/VIVY-FACE-PACK.md`.
 
+## Architecture decision order (mandatory)
+
+Vivy implementation decisions follow this order. A lower priority must not
+silently override a higher one:
+
+1. **Vivy architecture unity first.** Preserve the canonical product
+   contracts, the single `Service.Run` / Journal / policy path, existing
+   package seams, domain types, durability semantics, and Vivy vs Studio
+   scope separation. Do not create a second runtime, second source of truth,
+   or feature-specific path around those contracts.
+2. **Eino-native capability second.** Before designing or implementing an
+   LLM/runtime capability, inspect the repository-pinned Eino and EinoExt
+   versions for an existing component, ADK primitive, middleware, compose
+   abstraction, schema helper, callback, or transport. If it satisfies the
+   requirement without violating priority 1, use or adapt it instead of
+   rebuilding the same mechanism in Vivy.
+3. **Custom code is the exception.** Vivy-owned implementation is justified
+   only when the pinned Eino surface is missing the capability, cannot meet a
+   Vivy product invariant, or would force an architecture violation. Keep the
+   custom seam minimal and record: the Eino APIs inspected, the concrete gap
+   or conflict, why an adapter is insufficient, and the migration/removal
+   boundary if Eino later closes the gap.
+
+“Eino-native first” does not mean leaking Eino across the codebase. The
+existing import quarantine remains part of architecture unity: only
+`internal/runtime/` and `internal/provider/` may import
+`github.com/cloudwego/eino*`; other packages consume Vivy domain interfaces.
+Prefer a thin adapter at that boundary over either duplicating Eino internals
+or exposing Eino types through product, storage, policy, RPC, plugin, or UI
+layers.
+
+Every plan and review that touches agent loops, model/tool orchestration,
+prompting, streaming, context management, checkpoints, callbacks, RAG, MCP,
+or multi-agent behavior must include an **Eino capability check** before code
+is added. Naming a custom type `Eino*` is not evidence of Eino reuse; cite the
+actual upstream package/API used. Reviewers must reject unexplained parallel
+implementations even when tests pass.
+
 ## Scope Separation: Vivy vs Vivy Studio
 
 **Default scope is VIVY (the species/kernel).** When the user mentions "Vivy" without "Studio", develop the Vivy kernel/species itself — not the Studio overlay. Only when the user explicitly says "Studio", "Vivy Studio", or "工作室" should you work on the Studio overlay/shell.
@@ -222,6 +260,15 @@ routing requires a test that asserts the outbound `model` field.
 
 ## Rulebook (mandatory unless a rule states an exception)
 
+- **architecture-unity-first** — Preserve Vivy's canonical contracts, single
+  runtime/Journal/policy path, domain firewall, and existing seams before
+  optimizing a local feature. No parallel runtime or source of truth.
+  Maintainer: current design and delivery owner.
+- **eino-native-second** — After satisfying architecture unity, inspect and
+  prefer the repository-pinned Eino/EinoExt capability before writing custom
+  LLM runtime or orchestration machinery. A custom implementation must carry
+  the comparison and exception evidence required by “Architecture decision
+  order”. Maintainer: current design and delivery owner.
 - **iteration-log-required** — Deliverable work writes `docs/logs/<date>-<slug>/`
   with `summary.md`, `verification.md`, and `acceptance.md` before claiming
   done. Maintainer: current delivery owner.
