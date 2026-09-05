@@ -631,12 +631,18 @@ func (m Model) renderChat(width, height int, p Palette) string {
 
 func (m Model) chatLines(width int, p Palette) []string {
 	messages := m.driver.ActiveMessages()
+	m.mdCache.ensure(m.driver.Active().ID, width)
 	var lines []string
 	if len(messages) == 0 {
 		lines = append(lines, p.Dim.Render(""), p.LogoWord.Render(" 寻找真心之旅"), p.Dim.Render(" empty session · type to draft"))
 	}
 	for index, message := range messages {
-		lines = append(lines, renderMessageWithOptions(message, width, p, m.debugToolOutput)...)
+		rendered, ok := m.mdCache.get(message, width)
+		if !ok {
+			rendered = renderMessageWithOptions(message, width, p, m.debugToolOutput)
+			m.mdCache.put(message, width, rendered)
+		}
+		lines = append(lines, rendered...)
 		if index < len(messages)-1 {
 			lines = append(lines, "")
 		}
@@ -663,33 +669,64 @@ func renderMessageWithOptions(message surface.Message, width int, p Palette, deb
 		bar = p.UserBar.Render("┃ ")
 		style = p.User
 	}
-	text := message.Content
-	if chips := renderAttachmentChips(message.Attachments); chips != "" {
-		if text != "" {
-			text += "\n"
-		}
-		text += chips
-	}
-	if chips := renderFileContextChips(message.FileContexts); chips != "" {
-		if text != "" {
-			text += "\n"
-		}
-		text += chips
-	}
-	if message.Streaming {
-		text += "▌"
-	}
 	contentWidth := width - lipgloss.Width(bar)
 	if contentWidth < 1 {
 		bar = ""
 		contentWidth = max(1, width)
 	}
-	wrapped := wrapText(text, contentWidth)
-	out := make([]string, 0, len(wrapped))
-	for _, line := range wrapped {
-		out = append(out, ansi.Truncate(bar+style.Render(line), max(1, width), "…"))
+
+	bodyLines, painted := renderMessageBody(message.Content, contentWidth, message.Reasoning)
+	appendChipLines := func(chips string) {
+		if chips == "" {
+			return
+		}
+		for _, line := range wrapText(chips, contentWidth) {
+			if painted {
+				bodyLines = append(bodyLines, style.Render(line))
+			} else {
+				bodyLines = append(bodyLines, line)
+			}
+		}
+	}
+	appendChipLines(renderAttachmentChips(message.Attachments))
+	appendChipLines(renderFileContextChips(message.FileContexts))
+	if len(bodyLines) == 0 {
+		bodyLines = []string{""}
+	}
+	if message.Streaming {
+		bodyLines[len(bodyLines)-1] += "▌"
+	}
+	out := make([]string, 0, len(bodyLines))
+	for _, line := range bodyLines {
+		paintedLine := line
+		if !painted {
+			paintedLine = style.Render(line)
+		}
+		out = append(out, ansi.Truncate(bar+paintedLine, max(1, width), "…"))
 	}
 	return out
+}
+
+func renderMessageBody(content string, contentWidth int, quiet bool) ([]string, bool) {
+	source := sanitizeMarkdownSource(content)
+	if source == "" {
+		return nil, true
+	}
+	wrapWidth := markdownWrapWidth(contentWidth)
+	rendered, err := renderMarkdown(source, wrapWidth, quiet)
+	if err != nil {
+		return wrapText(source, contentWidth), false
+	}
+	if rendered == "" {
+		return wrapText(source, contentWidth), false
+	}
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) > contentWidth {
+			lines[i] = ansi.Truncate(line, contentWidth, "…")
+		}
+	}
+	return lines, true
 }
 
 func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
@@ -1499,14 +1536,7 @@ func wrapText(text string, width int) []string {
 	// Model text is data, never terminal control. Strip ANSI and discard
 	// controls that could move the cursor or rewrite earlier output. Tabs are
 	// expanded deterministically before cell-width wrapping.
-	text = ansi.Strip(text)
-	text = strings.ReplaceAll(text, "\t", "    ")
-	text = strings.Map(func(r rune) rune {
-		if r == '\n' || (!unicode.IsControl(r) && !isBidiControl(r)) {
-			return r
-		}
-		return -1
-	}, text)
+	text = sanitizeMarkdownSource(text)
 	var lines []string
 	for _, paragraph := range strings.Split(text, "\n") {
 		lines = append(lines, wrapParagraphExact(paragraph, width)...)

@@ -101,6 +101,7 @@ type Model struct {
 	chatScroll     int
 	chatFollow     bool
 	chatSessionID  string
+	mdCache        *messageMarkdownCache
 
 	gateID           string
 	gateScroll       int
@@ -132,7 +133,69 @@ func New(driver surface.Driver, options ...Options) Model {
 		debugToolOutput: opts.DebugToolOutput,
 		chatFollow:      true,
 		chatSessionID:   driver.Active().ID,
+		mdCache:         newMessageMarkdownCache(),
 	}
+}
+
+type messageMarkdownKey struct {
+	id        string
+	role      string
+	content   string
+	reasoning bool
+	width     int
+}
+
+type messageMarkdownCache struct {
+	sessionID string
+	width     int
+	lines     map[messageMarkdownKey][]string
+}
+
+func newMessageMarkdownCache() *messageMarkdownCache {
+	return &messageMarkdownCache{lines: map[messageMarkdownKey][]string{}}
+}
+
+func cacheableMarkdownMessage(message surface.Message) bool {
+	return !message.Streaming && message.Tool == nil && len(message.Attachments) == 0 && len(message.FileContexts) == 0
+}
+
+func (c *messageMarkdownCache) ensure(sessionID string, width int) {
+	if c == nil {
+		return
+	}
+	if c.lines == nil || c.sessionID != sessionID || c.width != width {
+		c.sessionID = sessionID
+		c.width = width
+		c.lines = map[messageMarkdownKey][]string{}
+	}
+}
+
+func (c *messageMarkdownCache) get(message surface.Message, width int) ([]string, bool) {
+	if c == nil || c.lines == nil || !cacheableMarkdownMessage(message) {
+		return nil, false
+	}
+	lines, ok := c.lines[messageMarkdownKey{
+		id: message.ID, role: message.Role, content: message.Content,
+		reasoning: message.Reasoning, width: width,
+	}]
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, len(lines))
+	copy(out, lines)
+	return out, true
+}
+
+func (c *messageMarkdownCache) put(message surface.Message, width int, lines []string) {
+	if c == nil || c.lines == nil || !cacheableMarkdownMessage(message) {
+		return
+	}
+	stored := make([]string, len(lines))
+	copy(stored, lines)
+	c.lines[messageMarkdownKey{
+		id: message.ID, role: message.Role, content: message.Content,
+		reasoning: message.Reasoning, width: width,
+	}] = stored
 }
 
 // Init implements tea.Model.
