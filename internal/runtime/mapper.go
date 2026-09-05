@@ -174,7 +174,7 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Message], emit func([]domain.RunEvent) error) error {
 	observedLive := m.takeObservedStream()
 	var content strings.Builder
-	var callsMsg *schema.Message
+	var callChunks []*schema.Message
 	started := time.Now()
 	var usage *schema.TokenUsage
 	var toolParts []json.RawMessage
@@ -204,7 +204,7 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 			}
 		}
 		if len(chunk.ToolCalls) > 0 {
-			callsMsg = chunk // tool calls ride the accumulated chunk
+			callChunks = append(callChunks, chunk)
 		}
 		if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
 			usage = chunk.ResponseMeta.Usage
@@ -247,7 +247,11 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 	if usage != nil {
 		tail = append(tail, m.usageEvent(usage))
 	}
-	if callsMsg != nil {
+	if len(callChunks) > 0 {
+		callsMsg, err := schema.ConcatMessages(callChunks)
+		if err != nil {
+			return fmt.Errorf("concat streamed tool calls: %w", err)
+		}
 		// Streaming engines deliver tool calls as chunks; map them like a
 		// whole-message tool call turn. The preamble was already emitted as
 		// durable deltas; only clear its accumulator so the post-tool model
