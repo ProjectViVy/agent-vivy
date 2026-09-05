@@ -362,6 +362,42 @@ func TestPackedFaceQueuedImageSendPreservesLaterDraft(t *testing.T) {
 	}
 }
 
+func TestLiveRunModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
+	var got []string
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}
+	env.script["turn/start"] = func(raw json.RawMessage) (any, error) {
+		var params struct {
+			Mode string `json:"mode"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		got = append(got, params.Mode)
+		return map[string]string{"run_id": fmt.Sprintf("run_%d", len(got)), "status": "accepted"}, nil
+	}
+	live := newLive(context.Background(), newClient(env), Options{})
+	defer live.Close()
+	live.mu.Lock()
+	live.activeID = "sess_1"
+	live.mu.Unlock()
+	_ = mustMsg[liveTurnStartedMsg](t, live.Send("first"))
+	if err := live.SetRunMode("plan"); err != nil {
+		t.Fatal(err)
+	}
+	_ = live.Send("queued")
+	if err := live.SetRunMode("normal"); err != nil {
+		t.Fatal(err)
+	}
+	live.mu.Lock()
+	live.busy = false
+	live.mu.Unlock()
+	_ = mustMsg[liveTurnStartedMsg](t, live.dequeueCmd())
+	if strings.Join(got, ",") != ",plan" {
+		t.Fatalf("turn modes = %v, want queued snapshot empty,plan", got)
+	}
+	if live.RunMode() != "normal" {
+		t.Fatalf("draft run mode = %q", live.RunMode())
+	}
+}
+
 func TestLiveThinkingModeIsSentAndQueuedTurnsSnapshotIt(t *testing.T) {
 	var got []string
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){}}

@@ -69,6 +69,7 @@ Do not pick work from those tables. Closed-track filing:
 | TUI-CMD-PALETTE | fullscreen 可过滤命令面板 | DONE 2026-09-04 | shared `sdk/tui/view` 以 `DefaultRegistry().Specs()` 为唯一真值；裸 `/`/Ctrl+P 打开，name/alias/usage/description 模糊过滤，键盘循环导航、选择回填 canonical command 后复用原 parser/validator/confirm/dispatch，`//` literal 与 gate/session/result 优先级保持。built-in/packed wrapper 同覆盖。见 `docs/logs/2026-09-04-vivy-code-command-palette/`。 |
 | TUI-CMD-PALETTE-ZH | 斜杠面板 Crush 式排版、匹配高亮与中文提示 | DONE 2026-09-05 | 短 `/name` + 中文标题一行；选中整行底色并展开说明/完整 usage；筛选子序列高亮；系统/技能/MCP 分段；底栏与命令相关对话框暂时硬编码中文。命令标识仍为英文。见 `docs/logs/2026-09-05-tui-command-palette-zh/`。 |
 | TUI-INPUT-CHROME | 输入框下对称 chrome：shift+h 帮助 | DONE 2026-09-05 | 空输入 `shift+h` 打开帮助（原命令/模式面板）；去掉底栏 `TUI`/`live`；网关进右栏 `host ·`；permission/model/provider 在输入框下左侧，快捷键提示在右侧。见 `docs/logs/2026-09-05-tui-input-chrome/`。 |
+| TUI-MODE-CHROME | Shift+Tab 模式循环与彩色 chrome | DONE 2026-09-06 | 智能/计划/只读；模型 `(high)`/`(auto)`；供应商旁上下文百分比着色；默认 TrueColor；用户槽与右栏 host 对比。见 `docs/logs/2026-09-06-tui-mode-chrome/`。 |
 | TUI-CMD-I18N | TUI 文案可切换中/英 | OPEN | 本轮按产品要求暂时统一中文硬编码，未做 locale 框架。侧栏区块标题（Modified Files 等）与服务端动态 description 仍可能是英文。后续若要回切或跟系统语言，应集中词表而不是继续散落字符串。 |
 | TUI-CMD-N3 | 动态 user-invocable skills 与 MCP prompts 进入命令面板 | DONE 2026-09-05 | `commands/list`/`commands/expand` typed contract 聚合 enabled+user-invocable skills 与 MCP `prompts/list/get`；fullscreen/REPL、built-in/packed 共用动态 slash 目录、真实 usage、每次开面板刷新及 request/session/id fence。静态冲突、陈旧技能/prompt、非法参数、非文本 MCP content 与未可信显示文本均 fail closed。见 `docs/logs/2026-09-05-vivy-code-dynamic-commands/`。 |
 | TUI-CMD-N4 | 动态命令异步状态后续收口 | OPEN | 2026-09-05 末轮只读审查发现但按本轮“四个 P1 后冻结范围”决策延后：晚到 boot 结果可覆盖更新后的动态目录；展开成功后若 `Driver.Send` 因 load transition 拒绝，原 slash draft 未恢复；pending expansion 尚未锁住编辑与次级 surface。后续须以统一 catalog/expansion epoch 修复并覆盖 boot-vs-refresh、send-nil、pending 编辑/overlay 测试。相关路径 `internal/tui/live.go`、`faces/tui/live.go`、`sdk/tui/view/model.go`。 |
@@ -559,6 +560,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-09-06 | TUI-MODE-CHROME Shift+Tab 模式与彩色 chrome | 智能/计划/只读循环走既有 RunMode+permission；thinking 映射为 (high)/(auto)；上下文百分比着色；默认 TrueColor。Filing: `docs/logs/2026-09-06-tui-mode-chrome/`. |
 | 2026-09-05 | TUI-INPUT-CHROME 输入框下对称 chrome | 空输入 `shift+h` 打开帮助（原命令/模式面板）；去掉底栏 `TUI`/`live`；网关进右栏；permission/model/provider 在输入框下左侧，快捷键在右侧。Filing: `docs/logs/2026-09-05-tui-input-chrome/`. |
 | 2026-09-05 | TUI-CMD-N3 动态 skills / MCP prompt 命令 | user-invocable skill frontmatter 与 MCP prompts 进入 typed 动态命令目录；服务端展开前重新校验，MCP 参数按 `NAME=value` 校验；fullscreen 每次开面板刷新，REPL 启动加载；built-in/packed 同步支持 usage、异步 fence 和失败草稿恢复。Filing: `docs/logs/2026-09-05-vivy-code-dynamic-commands/`. |
 | 2026-09-04 | TUI-FILE-COMPLETE fullscreen `@文件` 补全 | 服务端 query-first metadata catalog、8 KiB 探测/访问预算与安全路径过滤；共享 popup debounce、stale/session fence、键盘导航和 quoted path round-trip；built-in/packed RPC parity。Filing: `docs/logs/2026-09-04-vivy-code-file-completion/`. |

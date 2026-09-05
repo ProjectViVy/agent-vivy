@@ -495,23 +495,26 @@ func (c *client) sessionMessages(ctx context.Context, sessionID string) ([]messa
 }
 
 func (c *client) startTurn(ctx context.Context, sessionID, text, thinking string) (runAccepted, error) {
-	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, nil, nil)
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, "", nil, nil)
 }
 
 func (c *client) startTurnWithAttachments(ctx context.Context, sessionID, text, thinking string, attachments []surface.Attachment) (runAccepted, error) {
-	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, attachments, nil)
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, "", attachments, nil)
 }
 
 func (c *client) startTurnWithContext(ctx context.Context, sessionID, text, thinking string, paths []string) (runAccepted, error) {
-	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, nil, paths)
+	return c.startTurnWithAttachmentsAndContext(ctx, sessionID, text, thinking, "", nil, paths)
 }
 
-func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, thinking string, attachments []surface.Attachment, contextPaths []string) (runAccepted, error) {
+func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, sessionID, text, thinking, mode string, attachments []surface.Attachment, contextPaths []string) (runAccepted, error) {
 	params := map[string]any{
 		"session_id": sessionID,
 		"text":       text,
 		"face":       "code",
 		"thinking":   thinking,
+	}
+	if mode = strings.TrimSpace(mode); mode != "" && mode != "normal" {
+		params["mode"] = mode
 	}
 	if len(attachments) > 0 {
 		paths := make([]string, 0, len(attachments))

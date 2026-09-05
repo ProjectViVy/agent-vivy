@@ -217,6 +217,7 @@ type Driver interface {
 	DynamicCommandExecutor
 	SidebarProvider
 	ThinkingController
+	RunModeController
 	ModelController
 	AttachmentProvider
 	ContextSender
@@ -304,6 +305,13 @@ type SidebarProvider interface {
 type ThinkingController interface {
 	ThinkingMode() string
 	SetThinkingMode(mode string) error
+}
+
+// RunModeController owns the draft-time execution mode (normal vs plan).
+// Send snapshots the value the same way thinking is snapshotted.
+type RunModeController interface {
+	RunMode() string
+	SetRunMode(mode string) error
 }
 
 // ModelOption is one server-authorized model selection. BaseURL is carried
