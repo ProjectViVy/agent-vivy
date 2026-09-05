@@ -78,7 +78,8 @@ type AgentEvent struct { // = TypedAgentEvent[*schema.Message]
 - `adk.NewEventSenderToolWrapper(...)` — custom event sending.
 
 Global agent middleware: `adk.AgentMiddleware` (Before/After around the whole
-agent run) — used e.g. by `internal/runtime/toolselection_middleware.go`.
+agent run) — Vivy's tool visibility seam is the mount-only
+`internal/runtime/toolmount_middleware.go`.
 
 ## Checkpoint & resume
 
@@ -105,6 +106,29 @@ Sub-agents: `OnSubAgents` interface (`OnSetSubAgents`/`OnSetAsSubAgent`/`OnDisal
 - `github.com/cloudwego/eino/adk/middlewares/filesystem` + `plantask` — file and todo backends (`internal/runtime/todo_backend.go`).
 - `github.com/cloudwego/eino/adk/filesystem` — filesystem backend for state.
 - `github.com/cloudwego/eino/adk/middlewares/dynamictool`, `patchtoolcalls`, `reduction`, `summarization`, `agentsmd` — optional advanced middlewares.
+
+### Official dynamic tool search (v0.9.13)
+
+The pinned Eino core package
+`github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch` provides
+the progressive dynamic-tool surface. Construct it with
+`toolsearch.New(ctx, &toolsearch.Config{DynamicTools: dynamicTools,
+UseModelToolSearch: false})`. `DynamicTools` is a non-empty slice of
+`components/tool.BaseTool`; the constructor rejects an empty slice and
+duplicate names. With `UseModelToolSearch: false`, Eino adds the raw
+`tool_search` meta-tool, hides the deferred tools before the first model call,
+and rehydrates selected tools after a matching search result. Vivy installs
+this middleware only when the active allowlist contains deferred tools; the
+fixed-visible core remains in the static `ToolsNode` and hidden Skill-mount
+tools are projected by a final Vivy mount middleware.
+
+Vivy's business-tool adapters still enforce its allowlist, policy, approval,
+hooks, output limits, and second authorization check. The official raw
+`tool_search` meta-tool is deliberately not wrapped in a Vivy adapter. The
+middleware order in the top-level engine is skill, compaction,
+always-skills, AGENTS.md, official tool search, then the hidden mount
+projection; this keeps transient instruction injection ahead of search and
+lets a mount restore a tool missing from persisted Eino `ToolInfos` state.
 
 ## ReAct vs agentic models
 

@@ -183,6 +183,11 @@ func TestEngineAlwaysSkillsInjection(t *testing.T) {
 			if msg == nil || msg.Role != schema.User {
 				continue
 			}
+			// The official Eino tool-search middleware's transient reminder
+			// also uses the user role; it is not the real request turn.
+			if strings.HasPrefix(msg.Content, "<available-deferred-tools>") {
+				continue
+			}
 			if msg.Extra != nil {
 				if _, ok := msg.Extra[alwaysSkillsExtraKey]; ok {
 					count++

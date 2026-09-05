@@ -68,6 +68,12 @@ func countInjected(input []*schema.Message) (int, int, int) {
 		if msg == nil || msg.Role != schema.User {
 			continue
 		}
+		// Eino's official dynamic-tool middleware adds this user-role
+		// reminder as transient model context. It is not the real request
+		// message whose adjacency the AGENTS.md middleware guarantees.
+		if strings.HasPrefix(msg.Content, "<available-deferred-tools>") {
+			continue
+		}
 		if strings.Contains(msg.Content, agentsMDTestMarker) {
 			if firstInjected < 0 {
 				firstInjected = i

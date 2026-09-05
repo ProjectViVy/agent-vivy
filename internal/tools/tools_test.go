@@ -134,6 +134,18 @@ func TestRegistryResolve(t *testing.T) {
 	}
 }
 
+func TestBuiltinCatalogOmitsLegacyToolSearch(t *testing.T) {
+	registry := Builtin(nil)
+	for _, spec := range registry.Specs() {
+		if spec.Name == "tool_search" {
+			t.Fatal("builtin catalog must not register retired tool_search")
+		}
+	}
+	if _, err := registry.Resolve([]string{"tool_search"}); err == nil {
+		t.Fatal("registry must remain strict; legacy normalization belongs at config/settings input boundaries")
+	}
+}
+
 func TestRegistryDuplicatePanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {

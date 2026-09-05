@@ -7,9 +7,9 @@ import (
 
 // MountedTools is the run-scoped record of skill-declared tools activated
 // mid-run. Viewing a SKILL.md that declares tools mounts them for the
-// remainder of the run: the surface middleware advertises them to the model
-// on the next generation and the adapter lets their calls through. Mounts
-// never outlive the run — the next run re-views the skill if needed.
+// remainder of the run: the runtime mount projection advertises them to the
+// model on the next generation and the adapter lets their calls through.
+// Mounts never outlive the run — the next run re-views the skill if needed.
 type MountedTools struct {
 	mu    sync.Mutex
 	order []string

@@ -328,6 +328,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		if s, err := settings.Load(liveSettingsPath); err == nil && s.ToolsEnabled != nil {
 			enabled = append([]string(nil), *s.ToolsEnabled...)
 		}
+		enabled = config.NormalizeLegacyToolSearch(enabled)
 		resolved, err := builtinRegistry.Resolve(enabled)
 		if err != nil {
 			return nil, nil, err
@@ -745,6 +746,7 @@ func applySettingsOverlay(ctx context.Context, logger *slog.Logger, cfg config.C
 }
 
 func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config.Config, path string, compiledChannels []string) config.Config {
+	cfg.Tools.Enabled = config.NormalizeLegacyToolSearch(cfg.Tools.Enabled)
 	s, err := settings.Load(path)
 	if err != nil {
 		logger.Warn("settings overlay skipped", "path", path, "err", err)
@@ -776,7 +778,7 @@ func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config
 		cfg.Runtime.MCPServers = overlay
 	}
 	if s.ToolsEnabled != nil {
-		cfg.Tools.Enabled = append([]string(nil), *s.ToolsEnabled...)
+		cfg.Tools.Enabled = config.NormalizeLegacyToolSearch(*s.ToolsEnabled)
 	}
 	if s.Sandbox.DefaultPreset.ValidSwitch() {
 		mode, policy, ok := s.Sandbox.DefaultPreset.Bundle()
@@ -859,9 +861,9 @@ func compiledChannelNames(plugins []plugin.Plugin) []string {
 // surface order is a product contract.
 func mergedToolsEnabled(cfg config.Config, s settings.Settings) []string {
 	if s.ToolsEnabled != nil {
-		return append([]string(nil), *s.ToolsEnabled...)
+		return config.NormalizeLegacyToolSearch(*s.ToolsEnabled)
 	}
-	return append([]string(nil), cfg.Tools.Enabled...)
+	return config.NormalizeLegacyToolSearch(cfg.Tools.Enabled)
 }
 
 func sameStrings(a, b []string) bool {
