@@ -214,7 +214,7 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = next.(Model)
 	plain := ansi.Strip(m.View())
-	for _, want := range []string{"deepseek-v4-flash(high)", "openai", "15%", "shift+tab", "智能", "shift+h", "帮助", "ctrl+x", "快捷", "host · 127.0.0.1:8787"} {
+	for _, want := range []string{"deepseek-v4-flash(high)", "openai", "15%", "shift+tab", "切换模式", "智能", "shift+h", "帮助", "ctrl+x", "快捷", "host · 127.0.0.1:8787"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("input chrome/sidebar omitted %q:\n%s", want, plain)
 		}
@@ -230,11 +230,9 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	if !strings.Contains(editor, "╭") || !strings.Contains(editor, "deepseek-v4-flash(high)") || !strings.Contains(editor, "openai") || !strings.Contains(editor, "15%") {
 		t.Fatalf("rounded composer missing model chips:\n%s", editor)
 	}
-	chrome := ansi.Strip(m.renderInputChrome(computeLayout(120, 36).mainW(), DefaultPalette()))
-	helpAt := strings.Index(chrome, "shift+h")
-	modeAt := strings.Index(chrome, "shift+tab")
-	if helpAt < 0 || modeAt < 0 {
-		t.Fatalf("keys missing from chrome under the composer:\n%s", chrome)
+	chrome := strings.TrimLeft(ansi.Strip(m.renderInputChrome(computeLayout(120, 36).mainW(), DefaultPalette())), " ")
+	if !strings.HasPrefix(chrome, "shift+tab") || !strings.Contains(chrome, "切换模式") || strings.Index(chrome, "shift+tab") > strings.Index(chrome, "shift+h") {
+		t.Fatalf("hint row is not left-aligned switch-mode chrome:\n%s", chrome)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
@@ -273,24 +271,27 @@ func TestShiftTabCyclesWorkingModes(t *testing.T) {
 	m := New(driver)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = next.(Model)
-	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "shift+tab") || !strings.Contains(got, "智能") {
+	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "shift+tab") || !strings.Contains(got, "切换模式") {
 		t.Fatalf("default mode chrome:\n%s", got)
+	}
+	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "智能") {
+		t.Fatalf("default composer mode chip:\n%s", got)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 	if driver.runMode != "plan" || driver.sessions[0].PermissionPreset != "smart" {
 		t.Fatalf("smart → plan: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
 	}
-	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "计划") {
-		t.Fatalf("plan mode chrome:\n%s", got)
+	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "计划") {
+		t.Fatalf("plan composer chip:\n%s", got)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 	if driver.runMode != "normal" || driver.sessions[0].PermissionPreset != "cautious" {
 		t.Fatalf("plan → readonly: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
 	}
-	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "只读") {
-		t.Fatalf("readonly mode chrome:\n%s", got)
+	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "只读") {
+		t.Fatalf("readonly composer chip:\n%s", got)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})

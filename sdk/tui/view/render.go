@@ -769,7 +769,7 @@ func (m Model) renderEditor(width int, p Palette) string {
 	// lipgloss Width is the padded content box; the rounded border is added
 	// outside it. Size the content so the final block is `width` cells.
 	boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
-	return p.EditorBox.Width(boxWidth).Render(strings.Join(lines, "\n"))
+	return m.composerBoxStyle(p).Width(boxWidth).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderComposerChips(width int, p Palette) string {
@@ -790,9 +790,10 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 		model = "model"
 	}
 	sep := p.Dim.Render("  ·  ")
+	mode := workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)
 	parts := []string{
 		p.Dim.Render(model) + renderThinkingIntensity(m.driver.ThinkingMode(), p),
-		p.Active.Render(workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)),
+		workingModeStyle(mode, p).Render(mode),
 	}
 	if provider := strings.TrimSpace(sanitizeFileCompletionText(snapshot.Provider)); provider != "" {
 		parts = append(parts, p.Dim.Render(provider))
@@ -809,39 +810,44 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 }
 
 func (m Model) renderInputChrome(width int, p Palette) string {
+	hints := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 切换模式") + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
+	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
+		if gate.Kind == "question" {
+			hints = p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")
+		} else {
+			hints = p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准")
+		}
+	}
+	if m.sidebarFocused {
+		hints = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
+	}
+	meta := m.driver.Meta()
+	line := hints
+	if errText := strings.TrimSpace(meta.Error); errText != "" {
+		line = p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
+	} else if meta.Busy {
+		line = p.Dim.Render("run…") + p.HelpDesc.Render("  ") + hints
+	}
+	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(line, width))
+}
+
+func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
 	snapshot := m.driver.Sidebar()
 	if snapshot.Session.ID == "" {
 		snapshot.Session = m.driver.Active()
 	}
-	meta := m.driver.Meta()
-	left := ""
-	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		left = p.ToolFail.Render("err · " + errText)
-	} else if meta.Busy {
-		left = p.Dim.Render("run…")
+	return p.EditorBox.BorderForeground(workingModeStyle(workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset), p).GetForeground())
+}
+
+func workingModeStyle(label string, p Palette) lipgloss.Style {
+	switch label {
+	case "计划":
+		return p.ModePlan
+	case "只读":
+		return p.ModeRead
+	default:
+		return p.ModeSmart
 	}
-	mode := workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)
-	right := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" "+mode) + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
-	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
-		if gate.Kind == "question" {
-			right = p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")
-		} else {
-			right = p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准")
-		}
-	}
-	if m.sidebarFocused {
-		right = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
-	}
-	leftW := max(1, width/2)
-	rightW := max(1, width-leftW)
-	if lipgloss.Width(left) > leftW {
-		left = truncate(left, leftW)
-	}
-	left = lipgloss.NewStyle().Width(leftW).MaxWidth(leftW).MaxHeight(1).Render(left)
-	if lipgloss.Width(right) > rightW {
-		right = truncate(right, rightW)
-	}
-	return left + lipgloss.NewStyle().Width(rightW).MaxWidth(rightW).MaxHeight(1).Align(lipgloss.Right).Render(right)
 }
 
 func renderThinkingIntensity(mode string, p Palette) string {

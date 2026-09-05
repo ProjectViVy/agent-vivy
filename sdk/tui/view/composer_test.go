@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"agent-vivy/sdk/tui/surface"
 )
@@ -95,10 +96,31 @@ func TestComposerHelpRowStaysVisible(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "shift+tab") || !strings.Contains(view, "帮助") {
+	if !strings.Contains(view, "shift+tab") || !strings.Contains(view, "切换模式") || !strings.Contains(view, "帮助") {
 		t.Fatalf("help row clipped after taller composer:\n%s", view)
 	}
 	if !strings.Contains(view, "╭") || !strings.Contains(view, "gpt-4.1") {
 		t.Fatalf("composer missing from frame:\n%s", view)
+	}
+}
+
+func TestComposerBoxColorFollowsWorkingMode(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
+		active:   "s1",
+		sidebar:  surface.Sidebar{Session: surface.Session{ID: "s1", PermissionPreset: "smart"}, Model: "gpt-4.1"},
+	}
+	m := New(driver)
+	smart := m.renderEditor(48, DefaultPalette())
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	plan := m.renderEditor(48, DefaultPalette())
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	read := m.renderEditor(48, DefaultPalette())
+	if smart == plan || plan == read || smart == read {
+		t.Fatalf("composer border did not change with mode")
+	}
+	if !strings.Contains(ansi.Strip(smart), "智能") || !strings.Contains(ansi.Strip(plan), "计划") || !strings.Contains(ansi.Strip(read), "只读") {
+		t.Fatalf("mode chips missing smart=%q plan=%q read=%q", ansi.Strip(smart), ansi.Strip(plan), ansi.Strip(read))
 	}
 }
