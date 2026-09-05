@@ -18,7 +18,7 @@ import (
 const headerDiag = "╱"
 
 func (m Model) renderFrame() string {
-	l := computeLayout(m.width, m.height)
+	l := m.layout()
 	p := m.palette
 
 	var app string
@@ -746,6 +746,7 @@ func renderDiffBody(body string, p Palette) string {
 }
 
 func (m Model) renderEditor(width int, p Palette) string {
+	inner := max(1, width-p.EditorBox.GetHorizontalFrameSize())
 	gate := m.driver.PendingGate()
 	prompt := p.Prompt.Render("::: ")
 	if gate != nil {
@@ -760,13 +761,51 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
 	}
-	rule := p.Separator.Render(strings.Repeat("─", max(1, width)))
-	lines := []string{rule}
+	lines := []string{m.renderComposerChips(inner, p)}
 	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
-		lines = append(lines, p.Dim.Render(truncate(chips, width)))
+		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
-	lines = append(lines, truncate(prompt+display+cursor, width))
-	return p.Editor.Width(width).Render(strings.Join(lines, "\n"))
+	lines = append(lines, truncate(prompt+display+cursor, inner))
+	// lipgloss Width is the padded content box; the rounded border is added
+	// outside it. Size the content so the final block is `width` cells.
+	boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
+	return p.EditorBox.Width(boxWidth).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderComposerChips(width int, p Palette) string {
+	snapshot := m.driver.Sidebar()
+	if snapshot.Session.ID == "" {
+		snapshot.Session = m.driver.Active()
+	}
+	model := strings.TrimSpace(sanitizeFileCompletionText(snapshot.Model))
+	if model == "" {
+		for _, option := range m.driver.ModelCatalog().Options {
+			if option.Current {
+				model = safeModelLabel(option.Model)
+				break
+			}
+		}
+	}
+	if model == "" {
+		model = "model"
+	}
+	sep := p.Dim.Render("  ·  ")
+	parts := []string{
+		p.Dim.Render(model) + renderThinkingIntensity(m.driver.ThinkingMode(), p),
+		p.Active.Render(workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)),
+	}
+	if provider := strings.TrimSpace(sanitizeFileCompletionText(snapshot.Provider)); provider != "" {
+		parts = append(parts, p.Dim.Render(provider))
+	}
+	if label, ratio, ok := contextPercentLabel(snapshot.Context, snapshot.HasContext); ok {
+		parts = append(parts, contextPercentStyle(ratio, p).Render(label))
+	}
+	line := strings.Join(parts, sep)
+	if lipgloss.Width(line) > width && len(parts) > 2 {
+		parts = parts[:len(parts)-1]
+		line = strings.Join(parts, sep)
+	}
+	return truncate(line, width)
 }
 
 func (m Model) renderInputChrome(width int, p Palette) string {
@@ -775,25 +814,12 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 		snapshot.Session = m.driver.Active()
 	}
 	meta := m.driver.Meta()
-	sep := p.Dim.Render(" · ")
-	var leftParts []string
+	left := ""
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		leftParts = append(leftParts, p.ToolFail.Render("err · "+errText))
-	} else {
-		if meta.Busy {
-			leftParts = append(leftParts, p.Dim.Render("run…"))
-		}
-		if model := strings.TrimSpace(snapshot.Model); model != "" {
-			leftParts = append(leftParts, p.Dim.Render(model)+renderThinkingIntensity(m.driver.ThinkingMode(), p))
-		}
-		if provider := strings.TrimSpace(snapshot.Provider); provider != "" {
-			leftParts = append(leftParts, p.Dim.Render(provider))
-		}
-		if label, ratio, ok := contextPercentLabel(snapshot.Context, snapshot.HasContext); ok {
-			leftParts = append(leftParts, contextPercentStyle(ratio, p).Render(label))
-		}
+		left = p.ToolFail.Render("err · " + errText)
+	} else if meta.Busy {
+		left = p.Dim.Render("run…")
 	}
-	left := strings.Join(leftParts, sep)
 	mode := workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)
 	right := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" "+mode) + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
 	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
