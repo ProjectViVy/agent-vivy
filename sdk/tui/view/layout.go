@@ -16,7 +16,7 @@ type layout struct {
 }
 
 const (
-	sidebarBreakpoint = 120
+	sidebarBreakpoint = 100
 	minimumWideHeight = 30
 	defaultSidebarW   = 32
 	compactHeaderH    = 1

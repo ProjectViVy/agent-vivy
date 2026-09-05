@@ -13,6 +13,32 @@ import (
 	"agent-vivy/sdk/tui/surface"
 )
 
+func TestWideLayoutKeepsSidebarWhenMarkdownIsWide(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		messages: map[string][]surface.Message{
+			"active": {{
+				Role:    surface.RoleAssistant,
+				Content: "# Title\n\n" + strings.Repeat("汉字宽行内容与表格 ", 24) + "\n\n| a | b | c | d |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |\n\n```go\n" + strings.Repeat("fmt.Println(\"hello world from a long fenced block\")\n", 4) + "```\n",
+			}},
+		},
+	}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = next.(Model)
+	view := m.View()
+	plain := ansi.Strip(view)
+	if !strings.Contains(plain, "VIVY CODE") || !strings.Contains(plain, "Current") {
+		t.Fatalf("sidebar missing beside wide markdown:\n%s", view)
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 120 {
+			t.Fatalf("line %d width %d exceeds terminal:\n%q", i, got, line)
+		}
+	}
+}
+
 func TestWrapTextPreservesStreamingTextAndWrapsCJK(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -490,7 +516,9 @@ func TestComputeLayoutUsesBothCrushBreakpoints(t *testing.T) {
 		wide          bool
 	}{
 		{120, 36, true},
-		{119, 30, false},
+		{100, 30, true},
+		{99, 30, false},
+		{100, 29, false},
 		{120, 29, false},
 		{120, 30, true},
 	} {
@@ -619,7 +647,7 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
 	m = updated.(Model)
-	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 99, Height: 30})
 	m = updated.(Model)
 	if m.sidebarFocused || m.sidebarScroll != 0 {
 		t.Fatalf("compact resize retained hidden sidebar state: focused=%v scroll=%d", m.sidebarFocused, m.sidebarScroll)
@@ -792,9 +820,9 @@ func TestSidebarMouseWheelIsRegionBoundedAndOverlaySafe(t *testing.T) {
 	}
 
 	m.sessionsOpen = false
-	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 99, Height: 30})
 	m = updated.(Model)
-	updated, _ = m.Update(tea.MouseMsg{X: 99, Y: 2, Button: tea.MouseButtonWheelDown})
+	updated, _ = m.Update(tea.MouseMsg{X: 98, Y: 2, Button: tea.MouseButtonWheelDown})
 	m = updated.(Model)
 	if m.sidebarScroll != 0 || m.sidebarFocused {
 		t.Fatalf("compact mouse retained hidden sidebar state: offset=%d focused=%v", m.sidebarScroll, m.sidebarFocused)
