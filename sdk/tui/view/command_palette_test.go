@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"agent-vivy/sdk/tui/surface"
 )
@@ -62,7 +65,7 @@ func TestCommandPaletteNavigationWrapsAndSelectedCommandUsesNormalDispatch(t *te
 		t.Fatalf("selected draft = %q", m.input)
 	}
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.commandOverlayTitle != "Commands" || d.commandName != "" {
+	if m.commandOverlayTitle != "命令" || d.commandName != "" {
 		t.Fatalf("normal dispatch overlay=%q driver=%q", m.commandOverlayTitle, d.commandName)
 	}
 }
@@ -84,7 +87,7 @@ func TestCommandPaletteEmptyStateAndBackspaceResetCursor(t *testing.T) {
 	m := New(&testDriver{})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzzz-no-command")})
-	if !strings.Contains(m.View(), "no matching commands") {
+	if !strings.Contains(m.View(), "没有匹配的命令") {
 		t.Fatalf("missing empty state:\n%s", m.View())
 	}
 	m.commandPaletteCursor = 8
@@ -164,7 +167,26 @@ func TestCommandPaletteRendersWithinSmallTerminal(t *testing.T) {
 	m.width, m.height = 32, 10
 	m.openCommandPalette()
 	got := m.View()
-	if !strings.Contains(got, "Commands") || !strings.Contains(got, "enter") || !strings.Contains(got, "/help") || !strings.Contains(got, "╯") || len(strings.Split(got, "\n")) != 10 {
+	if !strings.Contains(got, "命令") || !strings.Contains(got, "enter") || !strings.Contains(got, "/help") || !strings.Contains(got, "╯") || len(strings.Split(got, "\n")) != 10 {
 		t.Fatalf("small palette escaped frame (%d lines):\n%s", len(strings.Split(got, "\n")), got)
+	}
+}
+
+func TestCommandPaletteHighlightsMatchesAndHidesUnselectedUsage(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	d := &commandDriver{testDriver: &testDriver{}}
+	m := New(d)
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("只读资源")})
+	view := m.View()
+	plain := ansi.Strip(view)
+	if !strings.Contains(plain, "/mcp") || !strings.Contains(plain, "查看 MCP") {
+		t.Fatalf("palette lost short command row:\n%s", plain)
+	}
+	if strings.Count(plain, "[server|resources") != 1 {
+		t.Fatalf("unselected rows leaked long usage:\n%s", plain)
+	}
+	if !strings.Contains(view, "\x1b[") {
+		t.Fatalf("palette missing match highlight:\n%s", view)
 	}
 }

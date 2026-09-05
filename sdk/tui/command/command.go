@@ -508,7 +508,7 @@ func (r Registry) Help() string {
 // Slash commands remain stable; unavailable server capabilities fail closed.
 func (r Registry) HelpFor(shellSupported bool) string {
 	var b strings.Builder
-	b.WriteString("commands\n")
+	b.WriteString("命令\n")
 	for _, spec := range r.ordered {
 		usage := spec.Usage
 		if usage == "" {
@@ -524,12 +524,12 @@ func (r Registry) HelpFor(shellSupported bool) string {
 		}
 		fmt.Fprintf(&b, "  %-22s %s%s\n", usage, spec.Description, aliases)
 	}
-	b.WriteString("\ninput prefixes\n")
+	b.WriteString("\n输入前缀\n")
 	if shellSupported {
-		b.WriteString("  !<script>              run a governed foreground shell command in the workspace\n")
+		b.WriteString("  !<script>              在工作区执行受治理的前台 shell 命令\n")
 	}
-	b.WriteString("  @path / @\"path with spaces\" add project file context\n")
-	b.WriteString("  !! / @@                 send a literal marker\n")
+	b.WriteString("  @path / @\"带空格的路径\"  附加项目文件上下文\n")
+	b.WriteString("  !! / @@                 发送字面量标记\n")
 	return b.String()
 }
 
@@ -538,29 +538,29 @@ func (r Registry) HelpFor(shellSupported bool) string {
 // unaware of RPC or Bubble Tea.
 func DefaultRegistry() Registry {
 	r, err := NewRegistry(
-		Spec{Name: "help", Aliases: []string{"?", "commands"}, Usage: "/help", Description: "show commands"},
-		Spec{Name: "status", Usage: "/status", Description: "show active run status"},
-		Spec{Name: "sessions", Usage: "/sessions", Description: "open the sessions picker"},
-		Spec{Name: "model", Usage: "/model [filter]", Description: "switch the active model"},
-		Spec{Name: "new", Usage: "/new [title]", Description: "create a session"},
-		Spec{Name: "session", Usage: "/session <id>", Description: "switch to a session"},
-		Spec{Name: "rename", Usage: "/rename <title>", Description: "rename the active session"},
-		Spec{Name: "delete", Usage: "/delete [id]", Description: "delete a session after confirmation"},
-		Spec{Name: "cancel", Usage: "/cancel", Description: "cancel the active run"},
-		Spec{Name: "queue", Usage: "/queue clear", Description: "clear queued turns"},
-		Spec{Name: "permission", Usage: "/permission [preset]", Description: "set or cycle permission"},
-		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: "set or cycle extended thinking"},
-		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: "attach a project image (or remove/clear pending images)"},
-		Spec{Name: "compact", Usage: "/compact", Description: "compact the active session context"},
-		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: "fork the active session at a message"},
-		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: "rewind the active session view"},
-		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: "show active-session todos"},
-		Spec{Name: "stats", Usage: "/stats [period]", Description: "show token usage statistics"},
-		Spec{Name: "skills", Usage: "/skills [name]", Description: "list or view installed skills"},
-		Spec{Name: "mcp", Usage: "/mcp [server|resources <server>|read <server> <uri>]", Description: "inspect configured MCP servers or untrusted read-only resources"},
-		Spec{Name: "files", Usage: "/files [run_id [path]]", Description: "list or read a governed run workspace"},
-		Spec{Name: "tools", Usage: "/tools", Description: "show the registered tool catalog"},
-		Spec{Name: "quit", Aliases: []string{"exit", "q"}, Usage: "/quit", Description: "leave the TUI"},
+		Spec{Name: "help", Aliases: []string{"?", "commands"}, Usage: "/help", Description: "查看命令"},
+		Spec{Name: "status", Usage: "/status", Description: "当前运行状态"},
+		Spec{Name: "sessions", Usage: "/sessions", Description: "打开会话列表"},
+		Spec{Name: "model", Usage: "/model [filter]", Description: "切换模型"},
+		Spec{Name: "new", Usage: "/new [title]", Description: "新建会话"},
+		Spec{Name: "session", Usage: "/session <id>", Description: "切换到指定会话"},
+		Spec{Name: "rename", Usage: "/rename <title>", Description: "重命名当前会话"},
+		Spec{Name: "delete", Usage: "/delete [id]", Description: "删除会话"},
+		Spec{Name: "cancel", Usage: "/cancel", Description: "取消当前运行"},
+		Spec{Name: "queue", Usage: "/queue clear", Description: "清空排队回合"},
+		Spec{Name: "permission", Usage: "/permission [preset]", Description: "设置权限档"},
+		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: "设置思考档"},
+		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: "附加项目图片"},
+		Spec{Name: "compact", Usage: "/compact", Description: "压缩当前上下文"},
+		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: "在消息处分叉会话"},
+		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: "回退会话视图"},
+		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: "查看待办"},
+		Spec{Name: "stats", Usage: "/stats [period]", Description: "查看用量统计"},
+		Spec{Name: "skills", Usage: "/skills [name]", Description: "查看已安装技能"},
+		Spec{Name: "mcp", Usage: "/mcp [server|resources <server>|read <server> <uri>]", Description: "查看 MCP 服务与只读资源"},
+		Spec{Name: "files", Usage: "/files [run_id [path]]", Description: "查看受治理工作区"},
+		Spec{Name: "tools", Usage: "/tools", Description: "查看工具目录"},
+		Spec{Name: "quit", Aliases: []string{"exit", "q"}, Usage: "/quit", Description: "离开终端"},
 	)
 	if err != nil {
 		// The literal catalog above is package-owned and validated by tests. A

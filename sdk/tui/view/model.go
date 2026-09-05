@@ -1281,7 +1281,7 @@ func (m Model) handleDynamicArgumentKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			value := strings.TrimSpace(m.dynamicArgumentValues[i])
 			if argument.Required && value == "" {
 				m.dynamicArgumentCursor = i
-				m.dynamicArgumentError = argument.Name + " is required"
+				m.dynamicArgumentError = argument.Name + " 为必填"
 				return m, nil
 			}
 			if value != "" {
@@ -1310,24 +1310,28 @@ func (m *Model) moveCommandPaletteCursor(delta int) {
 
 func (m Model) filteredCommands() []command.Spec {
 	needle := strings.ToLower(strings.TrimSpace(sanitizeCommandPaletteFilter(m.commandPaletteFilter)))
-	registry, _ := m.effectiveCommandRegistry()
-	rows := registry.Specs()
-	if needle == "" {
-		return rows
-	}
-	filtered := make([]command.Spec, 0, len(rows))
-	for _, spec := range rows {
+	registry, dynamic := m.effectiveCommandRegistry()
+	var system, skill, mcp []command.Spec
+	for _, spec := range registry.Specs() {
 		search := strings.ToLower(strings.Join([]string{
 			spec.Name,
 			strings.Join(spec.Aliases, " "),
 			spec.Usage,
 			spec.Description,
 		}, " "))
-		if fuzzyContains(search, needle) {
-			filtered = append(filtered, spec)
+		if needle != "" && !fuzzyContains(search, needle) {
+			continue
+		}
+		switch paletteGroup(spec, dynamic) {
+		case "mcp":
+			mcp = append(mcp, spec)
+		case "skill":
+			skill = append(skill, spec)
+		default:
+			system = append(system, spec)
 		}
 	}
-	return filtered
+	return append(append(system, skill...), mcp...)
 }
 
 func (m Model) effectiveCommandRegistry() (command.Registry, map[string]surface.DynamicCommand) {
@@ -1468,14 +1472,14 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		if len(args) != 0 {
 			return m.showCommandError(fmt.Errorf("usage: /help")), nil
 		}
-		m.commandOverlayTitle = "Commands"
+		m.commandOverlayTitle = "命令"
 		m.commandOverlay = registry.HelpFor(m.driver.SupportsCapability("shell.start"))
 		return m, nil
 	case "status":
 		if len(args) != 0 {
 			return m.showCommandError(fmt.Errorf("usage: /status")), nil
 		}
-		m.commandOverlayTitle = "Status"
+		m.commandOverlayTitle = "状态"
 		m.commandOverlay = m.statusText()
 		return m, nil
 	case "sessions":
