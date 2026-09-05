@@ -1528,9 +1528,12 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	s.consume(runCtx, m, sessionID, selection.Names(), mode, ledger, iter)
 }
 
-// withLiveModelStreamObserver installs the pre-Eino stream seam used by both
-// initial and resumed agent runs. Keeping the construction in one place
-// prevents approval/question resumes from reverting to EOF-batched output.
+// withLiveModelStreamObserver installs the producer-path stream seam used by
+// both initial runs and ResumeWithParams. Eino callbacks are a sibling Copy
+// after ChatModel.Stream returns and cannot put persist, bounded backpressure,
+// fail-closed errors, or the tool-settled barrier on the Recv→Send path.
+// Keeping the construction in one place prevents approval/question resumes
+// from reverting to EOF-batched output.
 func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger) context.Context {
 	return withModelStreamObserver(ctx, modelStreamObserver{
 		Begin: m.beginObservedStream,
