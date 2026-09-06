@@ -407,16 +407,18 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 func (m Model) layout() layout {
 	l := computeLayout(m.width, m.height)
 	hasAttachments := false
+	pasteGuard := false
 	inputLines := 1
 	if m.driver != nil {
 		hasAttachments = len(m.driver.PendingAttachments()) > 0
+		pasteGuard = pasteGuardChip(m.input) != ""
 		// A pending gate renders the composer as a single hint row (gate
 		// keys own the box), so the reserve must stay at one input line.
 		if m.driver.PendingGate() == nil {
 			inputLines = len(strings.Split(m.input, "\n"))
 		}
 	}
-	l.editorH = editorReserve(hasAttachments, inputLines)
+	l.editorH = editorReserve(hasAttachments, pasteGuard, inputLines)
 	return l
 }
 

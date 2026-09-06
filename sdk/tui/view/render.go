@@ -764,6 +764,9 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
 		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
+	if chip := pasteGuardChip(m.input); chip != "" {
+		lines = append(lines, p.PromptWarn.Render(truncate(chip, inner)))
+	}
 	if gate != nil {
 		// A pending gate turns the input row into a status hint and gate keys
 		// own the composer; keep the historical single-line rendering.
@@ -1642,6 +1645,18 @@ func truncate(s string, width int) string {
 		return ""
 	}
 	return ansi.Truncate(s, width, "…")
+}
+
+// pasteGuardChip flags a draft that looks like a giant paste: over the char
+// or the line threshold. It is derived from the current draft only, so
+// trimming back under the thresholds clears the chip without bookkeeping.
+func pasteGuardChip(input string) string {
+	runes := len([]rune(input))
+	lines := strings.Count(input, "\n") + 1
+	if runes <= pasteThresholdChars && lines <= pasteThresholdLines {
+		return ""
+	}
+	return fmt.Sprintf("⚠ 大段粘贴 · %d 行 / %d 字符 · enter 发送前请确认", lines, runes)
 }
 
 // editorInputLines splits a composer draft into the lines the editor shows.
