@@ -40,7 +40,7 @@
 
 ## 批次 A：编辑器细节（对应 Crush composer）
 
-### F2 多行输入完整可见 + 编辑器自适应高度
+### F2 多行输入完整可见 + 编辑器自适应高度（已完成）
 
 **现状**：`renderEditor`（`render.go:748`）用 `strings.LastIndex(display, "\n")` 只渲染**最后一行**，前面输入的行在界面上消失；编辑器高度是常量 `editorHeight = 4`（`layout.go:24`），与内容无关。
 

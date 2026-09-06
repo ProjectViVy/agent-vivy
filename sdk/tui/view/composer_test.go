@@ -124,3 +124,148 @@ func TestComposerBoxColorFollowsWorkingMode(t *testing.T) {
 		t.Fatalf("mode chips missing smart=%q plan=%q read=%q", ansi.Strip(smart), ansi.Strip(plan), ansi.Strip(read))
 	}
 }
+
+func TestEditorInputLinesSplitsTruncatesAndWindows(t *testing.T) {
+	if got := editorInputLines("hello", 20, 6); len(got) != 1 || got[0] != "hello" {
+		t.Fatalf("single line = %q", got)
+	}
+	if got := editorInputLines("", 20, 6); len(got) != 1 || got[0] != "" {
+		t.Fatalf("empty input = %q, want one empty line", got)
+	}
+	if got := editorInputLines("a\r\nbb\rccc", 20, 6); len(got) != 3 || got[0] != "a" || got[1] != "bb" || got[2] != "ccc" {
+		t.Fatalf("CRLF normalization = %q", got)
+	}
+	if got := editorInputLines("a\nbb\nccc", 20, 6); len(got) != 3 || got[0] != "a" || got[1] != "bb" || got[2] != "ccc" {
+		t.Fatalf("multi line = %q", got)
+	}
+	got := editorInputLines("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8", 20, 6)
+	if len(got) != 6 || got[0] != "…l3" || got[1] != "l4" || got[5] != "l8" {
+		t.Fatalf("window kept %q, want trailing six with upper-cut marker", got)
+	}
+	for _, tc := range []struct {
+		name  string
+		input string
+		width int
+	}{
+		{"ascii overflow", strings.Repeat("x", 50), 10},
+		{"cjk wide chars", strings.Repeat("你好世界", 5), 7},
+		{"ansi payload", "\x1b[31m" + strings.Repeat("r", 30) + "\x1b[0m", 5},
+	} {
+		for _, line := range editorInputLines(tc.input, tc.width, 6) {
+			if w := lipgloss.Width(line); w > tc.width {
+				t.Fatalf("%s: line width %d exceeds %d: %q", tc.name, w, tc.width, line)
+			}
+		}
+	}
+	if !strings.Contains(editorInputLines("\x1b[31mred-red-red\x1b[0m", 20, 6)[0], "red") {
+		t.Fatal("ansi payload lost its text")
+	}
+	if got := editorInputLines("a\nb", 10, 0); len(got) != 1 || got[0] != "…b" {
+		t.Fatalf("maxLines < 1 guard = %q, want the trailing line with upper-cut marker", got)
+	}
+}
+
+func TestEditorReserveGrowsWithInputLinesAndCaps(t *testing.T) {
+	for _, tc := range []struct {
+		attachments bool
+		inputLines  int
+		want        int
+	}{
+		{false, 1, 4},
+		{false, 0, 4},
+		{false, -3, 4},
+		{false, 3, 6},
+		{true, 1, 5},
+		{false, 6, 9},
+		{false, 99, 9},
+		{true, 99, 10},
+	} {
+		if got := editorReserve(tc.attachments, tc.inputLines); got != tc.want {
+			t.Fatalf("editorReserve(%v, %d) = %d, want %d", tc.attachments, tc.inputLines, got, tc.want)
+		}
+	}
+}
+
+func TestLayoutShrinksMainHeightForTallerDrafts(t *testing.T) {
+	driver := &testDriver{sessions: []surface.Session{{ID: "s1", Title: "Current"}}, active: "s1"}
+	m := New(driver)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(Model)
+	if l := m.layout(); l.editorH != 4 || l.mainH() != 15 {
+		t.Fatalf("single-line layout editorH=%d mainH=%d, want 4/15", l.editorH, l.mainH())
+	}
+	m.input = "a\nb\nc"
+	if l := m.layout(); l.editorH != 6 || l.mainH() != 13 {
+		t.Fatalf("three-line layout editorH=%d mainH=%d, want 6/13", l.editorH, l.mainH())
+	}
+	m.input = strings.Repeat("line\n", 60)
+	if l := m.layout(); l.editorH != 9 || l.mainH() != 10 {
+		t.Fatalf("capped layout editorH=%d mainH=%d, want 9/10", l.editorH, l.mainH())
+	}
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	m = next.(Model)
+	if l := m.layout(); l.mainH() != 1 {
+		t.Fatalf("mainH floor = %d, want 1", l.mainH())
+	}
+	// A pending gate owns the composer as a single hint row, so a leftover
+	// multi-line draft must not grow the reserve.
+	m = New(&testDriver{
+		sessions: []surface.Session{{ID: "s1", Title: "Current"}},
+		active:   "s1",
+		gate:     &surface.Gate{Kind: "question", ID: "q1", Title: "answer"},
+	})
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(Model)
+	m.input = "a\nb\nc"
+	if l := m.layout(); l.editorH != 4 {
+		t.Fatalf("gate layout editorH=%d, want 4", l.editorH)
+	}
+}
+
+func TestRenderEditorShowsWholeDraftAndTrailingCaret(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
+		active:   "s1",
+		sidebar:  surface.Sidebar{Model: "gpt-4.1"},
+	}
+	m := New(driver)
+	m.input = "first line\nsecond\nthird"
+	editor := m.renderEditor(48, DefaultPalette())
+	plain := ansi.Strip(editor)
+	for _, want := range []string{"first line", "second", "third"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("draft line %q missing:\n%s", want, plain)
+		}
+	}
+	if strings.Count(plain, "█") != 1 {
+		t.Fatalf("caret count = %d, want exactly one:\n%s", strings.Count(plain, "█"), plain)
+	}
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, "third") && !strings.Contains(line, "third█") {
+			t.Fatalf("caret is not at the tail of the last draft row: %q", line)
+		}
+	}
+	for i, line := range strings.Split(editor, "\n") {
+		if w := lipgloss.Width(line); w > 48 {
+			t.Fatalf("line %d overflowed 48: %q", i, line)
+		}
+	}
+	m.input = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8"
+	plain = ansi.Strip(m.renderEditor(48, DefaultPalette()))
+	if strings.Contains(plain, "l1") || strings.Contains(plain, "l2") {
+		t.Fatalf("window did not drop the oldest lines:\n%s", plain)
+	}
+	if !strings.Contains(plain, "…l3") {
+		t.Fatalf("upper-cut marker missing:\n%s", plain)
+	}
+	for _, want := range []string{"l4", "l5", "l6", "l7", "l8"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("window line %q missing:\n%s", want, plain)
+		}
+	}
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, "l8") && !strings.Contains(line, "l8█") {
+			t.Fatalf("caret lost on the windowed last row: %q", line)
+		}
+	}
+}
