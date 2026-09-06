@@ -61,6 +61,7 @@ type App struct {
 	control    controlrpc.Handler
 	httpServer *http.Server
 	rpcToken   string
+	mcpBackend *runtime.MCPBackend
 }
 
 // AppOption tweaks one composition of the process. The zero value is the
@@ -284,17 +285,23 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	searchService := runtime.NewNetworkSearchService(nil, nil)
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
-	httpBackend := runtime.NewHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, cfg.Runtime.HTTPTimeoutSeconds, sandboxManager)
+	httpBackend := runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, cfg.Runtime.HTTPTimeoutSeconds, sandboxManager)
 	httpOps = httpBackend
 	applyLiveHTTPSettings(httpBackend, liveSettingsPath, cfg)
-	fetchOps = runtime.NewWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
+	fetchOps = runtime.NewEinoWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
 	if fileBackend != nil {
-		downloadOps = runtime.NewDownloadBackend(fileBackend, sandboxManager)
+		downloadOps = runtime.NewEinoDownloadBackend(fileBackend, sandboxManager)
 	}
 	mcpBackend := runtime.NewMCPBackend(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil)
+	mcpOwned := true
+	defer func() {
+		if mcpOwned {
+			_ = mcpBackend.Close()
+		}
+	}()
 	mcpOps = mcpBackend
-	sequentialOps = runtime.NewSequentialThinkingBackend()
-	commandOps = runtime.NewCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
+	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
 	var lookup pluginhost.WorkspaceLookup
 	if workspaceManager != nil {
 		lookup = func(ctx context.Context) (string, error) {
@@ -632,16 +639,18 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	}
 
 	app := &App{
-		cfg:      cfg,
-		logger:   logger,
-		service:  svc,
-		channels: channelHost,
-		backend:  backend,
-		worker:   workerManager,
-		resolver: resolver,
-		control:  controlHandler,
-		rpcToken: rpcToken,
+		cfg:        cfg,
+		logger:     logger,
+		service:    svc,
+		channels:   channelHost,
+		backend:    backend,
+		worker:     workerManager,
+		resolver:   resolver,
+		control:    controlHandler,
+		rpcToken:   rpcToken,
+		mcpBackend: mcpBackend,
 	}
+	mcpOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane
@@ -947,7 +956,7 @@ func applyLiveSandboxSettings(manager *runtime.SandboxManager, path string, cfg 
 // applyLiveHTTPSettings merges the settings.yaml http overlay over the
 // config defaults and live-applies the result to the running HTTP backend
 // (allowlist + request timeout). The startup path replays the same document.
-func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config.Config) {
+func applyLiveHTTPSettings(backend *runtime.EinoHTTPBackend, path string, cfg config.Config) {
 	if backend == nil {
 		return
 	}
@@ -1076,10 +1085,28 @@ func (a *App) Run(ctx context.Context) error {
 	if !a.service.WaitIdle(shutdownCtx) {
 		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
 	}
+	var mcpCloseDone chan error
+	if a.mcpBackend != nil {
+		mcpCloseDone = make(chan error, 1)
+		go func() { mcpCloseDone <- a.mcpBackend.Close() }()
+	}
+	var httpCloseErr error
 	if a.httpServer != nil {
-		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown http server: %w", err)
+		httpCloseErr = a.httpServer.Shutdown(shutdownCtx)
+	}
+	var mcpCloseErr error
+	if mcpCloseDone != nil {
+		select {
+		case mcpCloseErr = <-mcpCloseDone:
+		case <-shutdownCtx.Done():
+			a.logger.Warn("MCP client shutdown timed out", "err", shutdownCtx.Err())
 		}
+	}
+	if httpCloseErr != nil {
+		return fmt.Errorf("shutdown http server: %w", httpCloseErr)
+	}
+	if mcpCloseErr != nil {
+		return fmt.Errorf("close MCP clients: %w", mcpCloseErr)
 	}
 	if err := a.backend.Close(); err != nil {
 		return fmt.Errorf("close storage: %w", err)

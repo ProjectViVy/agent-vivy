@@ -34,7 +34,7 @@
 | LSP 客户端 | `charmbracelet/x/powernap`（MIT） | VC-3 LSP manager（懒启动/自动发现/诊断）。fallback：自写最小 jsonrpc2 客户端（1-2k 行，既有拍板保留） |
 | diff 小工具 | `pmezard/go-difflib`（BSD） | 增删行统计等杂项（go-udiff 不够处） |
 | ripgrep 优先 | 外部 `rg` 二进制探测（Crush 同策略） | grep 工具 rg-first：有 rg 用 rg（原生 gitignore 感知），无则纯 Go 回退（backend `GrepRaw` 已有 regex 走查） |
-| MCP 客户端 | `eino-ext/components/tool/mcp` v0.0.9（包裹 mark3labs/mcp-go，Apache-2.0；已验证存在） | VC-4 MCP stdio 传输：评估以组件替代 Vivy 手写 Streamable HTTP 客户端的增量（现有 HTTP 客户端已带会话/Bearer/热更，取舍看 stdio+OAuth 成本）；D-007 检疫不受影响（组件属 eino 家族，仍在 runtime 边界内引） |
+| MCP 客户端 | `eino-ext/components/tool/mcp` v0.0.9（Apache-2.0）+ `mark3labs/mcp-go` v1.0.0（MIT） | MCP slice 已完成：Eino `GetTools` 负责 tools/schema，官方 `client.NewStreamableHttpClient` 以 `mcp.LATEST_PROTOCOL_VERSION` 首选 modern discover 并回退 legacy，mcp-go typed client 负责 list/call/resources/prompts/Close；Vivy 保留 mcp_list_tools/mcp_call、PrepareMCPCall、isError、untrusted/bounds 与 lifecycle。未做 stdio/OAuth/continuous listening；未来 Eino 覆盖 resources/prompts/lifecycle 且保留 isError 后才移除 typed plumbing。 |
 | Anthropic 原生 | `eino-ext/components/model/claude` v0.1.25（已验证存在） | VC-2，§8.5 既定拍板，6 项落地清单 |
 
 ### 1.3 UI 侧（浏览器组件，不自研渲染）
