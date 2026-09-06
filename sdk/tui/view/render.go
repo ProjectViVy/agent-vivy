@@ -323,6 +323,10 @@ func sidebarLogoLines(p Palette) []string {
 	return []string{p.SidebarLogo.Render(" VIVY CODE"), p.Dim.Render(" ─────────────")}
 }
 
+// minModifiedPathCells is the smallest path budget a modified-file row may be
+// trimmed to before its timestamp is dropped instead.
+const minModifiedPathCells = 10
+
 func (m Model) sidebarLines(width int, p Palette) []string {
 	active := m.driver.Active()
 	snapshot := m.driver.Sidebar()
@@ -441,11 +445,37 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			if path == "" {
 				continue
 			}
-			line := fmt.Sprintf(" %s  +%d -%d", path, file.Diff.Additions, file.Diff.Deletions)
-			if updated := sidebarTime(file.UpdatedAt); updated != "" {
-				line += " · " + updated
+			updated := sidebarTime(file.UpdatedAt)
+			counts := fmt.Sprintf("  +%d -%d", file.Diff.Additions, file.Diff.Deletions)
+			pathBudget := width - 2 - lipgloss.Width(counts)
+			if pathBudget < 1 {
+				// Degenerate tiny width: even the counts-only line overflows,
+				// so end-truncate the whole plain line as before.
+				line := " " + path + counts
+				if updated != "" {
+					line += " · " + updated
+				}
+				lines = append(lines, p.Dim.Render(truncate(line, width-1)))
+				continue
 			}
-			lines = append(lines, p.Dim.Render(truncate(line, width-1)))
+			if updated != "" {
+				switch timeWidth := lipgloss.Width(" · " + updated); {
+				case lipgloss.Width(path)+timeWidth <= pathBudget:
+					// Short path: the timestamp fits beside it untruncated.
+				case pathBudget-timeWidth >= minModifiedPathCells:
+					// Trim the path to make room, never below the floor.
+					pathBudget -= timeWidth
+				default:
+					updated = "" // the timestamp would starve the path
+				}
+			}
+			line := p.Dim.Render(" "+middleTruncate(path, pathBudget)) + "  " +
+				p.DiffAdd.Render(fmt.Sprintf("+%d", file.Diff.Additions)) + " " +
+				p.DiffDel.Render(fmt.Sprintf("-%d", file.Diff.Deletions))
+			if updated != "" {
+				line += p.Dim.Render(" · " + updated)
+			}
+			lines = append(lines, line)
 		}
 	}
 	if snapshot.LSPKnown {
@@ -1609,6 +1639,52 @@ func truncate(s string, width int) string {
 		return ""
 	}
 	return ansi.Truncate(s, width, "…")
+}
+
+// middleTruncate shortens s to at most width display cells by keeping a head
+// and a tail joined by an ellipsis. The tail receives the larger budget so a
+// filename at the end of a long path stays visible. s is plain text: sidebar
+// paths are sanitized before they reach this helper.
+func middleTruncate(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	const ellipsis = "…"
+	budget := width - lipgloss.Width(ellipsis)
+	if budget <= 0 {
+		// Too narrow for head + ellipsis + tail: keep whatever tail fits.
+		return tailOfWidth(s, width)
+	}
+	headBudget := budget / 3
+	head := ansi.Truncate(s, headBudget, "")
+	tail := tailOfWidth(s, budget-headBudget)
+	return head + ellipsis + tail
+}
+
+// tailOfWidth returns the last at most budget display cells of s, cut on
+// grapheme boundaries via ansi.TruncateLeft. TruncateLeft never splits a
+// cluster, so a boundary crossing a wide rune can overshoot by one cell; the
+// budget is retried one cell narrower until the tail fits.
+func tailOfWidth(s string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	total := lipgloss.Width(s)
+	if total <= budget {
+		return s
+	}
+	tail := ansi.TruncateLeft(s, total-budget, "")
+	for cells := budget; lipgloss.Width(tail) > budget; {
+		cells--
+		if cells <= 0 {
+			return ""
+		}
+		tail = ansi.TruncateLeft(s, total-cells, "")
+	}
+	return tail
 }
 
 func padRight(s string, width int) string {
