@@ -112,6 +112,7 @@ type Model struct {
 	chatSessionID  string
 	mdCache        *messageMarkdownCache
 	shortcutsOpen  bool
+	spinFrame      int
 
 	gateID           string
 	gateScroll       int
@@ -224,6 +225,7 @@ func (m Model) Init() tea.Cmd {
 // never leak it through a driver underneath a dialog or gate.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	m.spinFrame++ // chrome spinner advances on every message; the 40ms tick keeps repaints flowing while busy
 	_, mouseInput := msg.(tea.MouseMsg)
 	if m.driver != nil && !mouseInput {
 		if cmd := m.driver.Handle(msg); cmd != nil {

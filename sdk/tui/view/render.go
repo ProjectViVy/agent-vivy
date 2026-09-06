@@ -839,6 +839,11 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 	return truncate(line, width)
 }
 
+// spinnerFrames is the hand-rolled braille spinner for the busy chrome. The
+// view owns no timer: the driver's 40ms live tick already repaints on every
+// message and Update advances the frame index each time.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 func (m Model) renderInputChrome(width int, p Palette) string {
 	hints := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 切换模式") + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
 	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
@@ -852,13 +857,60 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 		hints = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
 	}
 	meta := m.driver.Meta()
-	line := hints
+	left := hints
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		line = p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
+		left = p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
 	} else if meta.Busy {
-		line = p.Dim.Render("run…") + p.HelpDesc.Render("  ") + hints
+		left = p.Dim.Render(m.busyStatus(meta)) + p.HelpDesc.Render("  ") + hints
+	}
+	line := left
+	if right := m.chromeRightStatus(meta); right != "" {
+		right = p.Dim.Render(right)
+		// Right-aligned split: pad the left segment up to the right edge. On
+		// overflow fall back to a single separating space and let truncate cut.
+		if pad := width - lipgloss.Width(right) - lipgloss.Width(left); pad >= 0 {
+			line += strings.Repeat(" ", pad) + right
+		} else {
+			line += " " + right
+		}
 	}
 	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(line, width))
+}
+
+// busyStatus renders the current spinner frame plus the elapsed run time
+// measured from Meta.BusySince; a zero timestamp keeps the bare `run` label.
+func (m Model) busyStatus(meta surface.Meta) string {
+	frame := spinnerFrames[m.spinFrame%len(spinnerFrames)]
+	if meta.BusySince.IsZero() {
+		return frame + " run"
+	}
+	elapsed := time.Since(meta.BusySince).Truncate(time.Second)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if elapsed >= time.Minute {
+		return fmt.Sprintf("%s run %dm%02ds", frame, int(elapsed.Minutes()), int(elapsed.Seconds())%60)
+	}
+	return fmt.Sprintf("%s run %ds", frame, int(elapsed.Seconds()))
+}
+
+// chromeRightStatus builds the dim right-aligned status segment: the scroll
+// position with the end-key hint while scrolled away from the bottom, then the
+// queued turn count.
+func (m Model) chromeRightStatus(meta surface.Meta) string {
+	var parts []string
+	if !m.chatFollow && m.chatCanScroll() {
+		maxScroll := m.chatMaxScroll()
+		pct := 0
+		if maxScroll > 0 {
+			pct = max(0, min(100, 100*m.chatScroll/maxScroll))
+		}
+		parts = append(parts, fmt.Sprintf("↓ %d%% · end 回底", pct))
+	}
+	if meta.Queued > 0 {
+		parts = append(parts, fmt.Sprintf("queued %d", meta.Queued))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
