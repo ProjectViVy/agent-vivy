@@ -277,6 +277,24 @@ func TestLiveBootCreatesUntitledSession(t *testing.T) {
 	}
 }
 
+func TestTurnStartCreatesNoEmptyAssistantDraft(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	live := bootLive(t, env, Options{Host: "vivy"})
+	defer live.Close()
+	started := mustMsg[liveTurnStartedMsg](t, live.Send("hello"))
+	if started.Err != nil {
+		t.Fatal(started.Err)
+	}
+	live.Handle(started)
+	// The stream reducer opens bubbles lazily on the first real content; a
+	// turn-start draft would paint an empty assistant line immediately.
+	for _, message := range live.ActiveMessages() {
+		if message.Role == surface.RoleAssistant && strings.TrimSpace(message.Content) == "" && message.Tool == nil {
+			t.Fatalf("empty assistant draft after turn start: %+v", message)
+		}
+	}
+}
+
 func TestNewSessionKeepsEmptyTitle(t *testing.T) {
 	var createdTitle = "unset"
 	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){

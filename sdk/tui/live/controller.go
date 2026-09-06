@@ -809,7 +809,9 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	l.nextRecoveryAt = time.Time{}
 	l.streamFailures = nil
 	l.lastErr = ""
-	l.ensureAssistantDraftLocked()
+	// No assistant draft here: the stream reducer opens the reasoning and
+	// answer bubbles lazily on the first real content, so a turn-start draft
+	// would only paint an empty bubble line before anything arrives.
 	l.mu.Unlock()
 	return l.subscribeCmd(msg.RunID, 0, false)
 }
@@ -1281,12 +1283,6 @@ func (l *Live) retireSubscriptionLocked(subscriptionID string) {
 			}
 		}
 	}
-}
-
-func (l *Live) ensureAssistantDraftLocked() {
-	projection := stream.Projection{Messages: l.messages[l.activeID]}
-	projection.EnsureAssistantDraft(l.nextID)
-	l.messages[l.activeID] = projection.Messages
 }
 
 func (l *Live) finishStreamingLocked() {
