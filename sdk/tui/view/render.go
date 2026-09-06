@@ -868,6 +868,12 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 }
 
 func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
+	if m.driver.Meta().Busy {
+		// Busy outranks the working-mode color: the border dims to signal
+		// that input queues behind the running turn, and the mode color
+		// returns when the run finishes. Typing stays enabled.
+		return p.EditorBox.BorderForeground(p.Dim.GetForeground())
+	}
 	snapshot := m.driver.Sidebar()
 	if snapshot.Session.ID == "" {
 		snapshot.Session = m.driver.Active()
