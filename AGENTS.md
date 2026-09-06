@@ -269,6 +269,23 @@ routing requires a test that asserts the outbound `model` field.
   LLM runtime or orchestration machinery. A custom implementation must carry
   the comparison and exception evidence required by “Architecture decision
   order”. Maintainer: current design and delivery owner.
+- **expert-mode-subagent-supervision** — When the user explicitly asks to
+  enable “专家模式” / Expert Mode, start subagents for the problem-analysis,
+  localization/diagnosis, and actual code-writing phases. The main agent is
+  the supervisor: it assigns and scopes the work, keeps lanes isolated,
+  reviews the findings and changes, and owns the final integration and
+  verification. Do not silently enable Expert Mode when the user has not
+  requested it.
+- **goal-human-intent** — When the user explicitly starts `/goal` or Goal
+  mode, treat the human's stated task as the sole objective. Think through
+  how to complete that task; do not invent side quests, expand the product
+  scope, or assign unrelated work to yourself.
+- **minimal-lightweight-scope** — Keep code minimal, the framework
+  lightweight, and the design clear and elegant. Do not add requirements or
+  unrelated features beyond the human's request. If a separate security,
+  safety, or other material finding would require a new plan or scope
+  expansion, pause and ask the human before proceeding, unless an immediate
+  safety stop is required.
 - **iteration-log-required** — Deliverable work writes `docs/logs/<date>-<slug>/`
   with `summary.md`, `verification.md`, and `acceptance.md` before claiming
   done. Maintainer: current delivery owner.
