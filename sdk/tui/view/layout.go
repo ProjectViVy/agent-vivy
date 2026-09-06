@@ -21,26 +21,40 @@ const (
 	minimumWideHeight   = 30
 	defaultSidebarW     = 32
 	compactHeaderH      = 1
-	editorHeight        = 4 // rounded box: border + chips + prompt + border
+	editorBorderRows    = 2 // rounded box top + bottom border
+	editorChipsRow      = 1 // model · mode · provider chips
 	editorAttachmentRow = 1
+	editorPasteGuardRow = 1
+	maxEditorLines      = 6 // visible composer input lines; taller drafts scroll inside the box
+	pasteThresholdChars = 2000
+	pasteThresholdLines = 40
 	chromeHeight        = 1
 	statusHeight        = 0
 	appMarginX          = 1
 	appMarginY          = 1
 )
 
-func editorReserve(hasAttachments bool) int {
+// editorReserve sizes the composer: rounded border rows, the chips row, the
+// attachment and paste-guard rows when present, and the visible input lines.
+// Drafts past maxEditorLines keep a fixed box and scroll inside it, so a huge
+// paste can never swallow the chat.
+func editorReserve(hasAttachments, pasteGuard bool, inputLines int) int {
+	lines := min(max(1, inputLines), maxEditorLines)
+	reserve := editorBorderRows + editorChipsRow + lines
 	if hasAttachments {
-		return editorHeight + editorAttachmentRow
+		reserve += editorAttachmentRow
 	}
-	return editorHeight
+	if pasteGuard {
+		reserve += editorPasteGuardRow
+	}
+	return reserve
 }
 
 func computeLayout(width, height int) layout {
 	l := layout{
 		width:       max(1, width),
 		height:      max(1, height),
-		editorH:     editorHeight,
+		editorH:     editorReserve(false, false, 1),
 		chromeH:     chromeHeight,
 		statusH:     statusHeight,
 		showSidebar: width >= sidebarBreakpoint && height >= minimumWideHeight,

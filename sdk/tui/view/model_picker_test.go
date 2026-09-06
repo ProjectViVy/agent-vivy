@@ -173,6 +173,11 @@ func TestModelPickerFailsClosedForBusyQueuedReadOnlyAndUnavailable(t *testing.T)
 			d := modelPickerFixture()
 			tc.configure(d)
 			m := New(d)
+			// Observe an already-busy driver once so the guarded key below is
+			// not the first busy observation (which schedules a view-owned
+			// spinner tick cmd).
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			m = updated.(Model)
 			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
 			m = updated.(Model)
 			if cmd != nil || m.modelPickerOpen || !strings.Contains(m.View(), tc.want) {
