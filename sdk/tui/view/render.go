@@ -752,11 +752,6 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if gate != nil {
 		prompt = p.PromptWarn.Render(" ! ") + prompt
 	}
-	display := ansi.Strip(m.input)
-	if i := strings.LastIndex(display, "\n"); i >= 0 {
-		display = display[i+1:]
-	}
-	display = sanitizeFileCompletionText(display)
 	cursor := p.Dim.Render("█")
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
@@ -765,7 +760,35 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
 		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
-	lines = append(lines, truncate(prompt+display+cursor, inner))
+	if gate != nil {
+		// A pending gate turns the input row into a status hint and gate keys
+		// own the composer; keep the historical single-line rendering.
+		display := ansi.Strip(m.input)
+		if i := strings.LastIndex(display, "\n"); i >= 0 {
+			display = display[i+1:]
+		}
+		lines = append(lines, truncate(prompt+sanitizeFileCompletionText(display)+cursor, inner))
+	} else {
+		// The draft always appends at the tail, so the visible window is the
+		// trailing lines and the caret rides at the end of the last one. The
+		// window must come from the same helper the layout reserve uses or
+		// the bottom chrome would jitter while typing.
+		win := editorInputLines(m.input, inner, maxEditorLines)
+		indent := strings.Repeat(" ", lipgloss.Width(prompt))
+		for i, row := range win {
+			row = sanitizeFileCompletionText(row)
+			prefix := prompt
+			if i > 0 {
+				prefix = indent
+			}
+			if i == len(win)-1 {
+				body := truncate(row, max(1, inner-lipgloss.Width(prefix)-lipgloss.Width(cursor)))
+				lines = append(lines, truncate(prefix+body+cursor, inner))
+			} else {
+				lines = append(lines, truncate(prefix+row, inner))
+			}
+		}
+	}
 	// lipgloss Width is the padded content box; the rounded border is added
 	// outside it. Size the content so the final block is `width` cells.
 	boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
@@ -1609,6 +1632,30 @@ func truncate(s string, width int) string {
 		return ""
 	}
 	return ansi.Truncate(s, width, "…")
+}
+
+// editorInputLines splits a composer draft into the lines the editor shows.
+// CRLF is normalized to "\n", every line is ANSI-safe truncated to width, and
+// drafts past maxLines keep only the trailing window (input always appends at
+// the tail) with a "…" marker on the first kept line. The line count it
+// returns is the same accounting Model.layout uses for the editor reserve.
+func editorInputLines(input string, width, maxLines int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if maxLines < 1 {
+		maxLines = 1
+	}
+	normalized := strings.ReplaceAll(strings.ReplaceAll(input, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+		lines[0] = "…" + lines[0]
+	}
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, width, "…")
+	}
+	return lines
 }
 
 func padRight(s string, width int) string {
