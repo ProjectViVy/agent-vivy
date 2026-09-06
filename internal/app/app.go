@@ -285,12 +285,12 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	searchService := runtime.NewNetworkSearchService(nil, nil)
 	searchService.SetPreferredProvider(cfg.Tools.NetworkSearch.Provider)
 	searchOps = searchService
-	httpBackend := runtime.NewEinoHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, cfg.Runtime.HTTPTimeoutSeconds, sandboxManager)
+	httpBackend := runtime.NewHTTPBackend(cfg.Runtime.HTTPAllowedHosts, cfg.Runtime.HTTPMaxResponseBytes, cfg.Runtime.HTTPTimeoutSeconds, sandboxManager)
 	httpOps = httpBackend
 	applyLiveHTTPSettings(httpBackend, liveSettingsPath, cfg)
-	fetchOps = runtime.NewEinoWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
+	fetchOps = runtime.NewWebFetchBackend(cfg.Runtime.HTTPMaxResponseBytes, sandboxManager)
 	if fileBackend != nil {
-		downloadOps = runtime.NewEinoDownloadBackend(fileBackend, sandboxManager)
+		downloadOps = runtime.NewDownloadBackend(fileBackend, sandboxManager)
 	}
 	mcpBackend := runtime.NewMCPBackend(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil)
 	mcpOwned := true
@@ -300,8 +300,8 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		}
 	}()
 	mcpOps = mcpBackend
-	sequentialOps = runtime.NewEinoSequentialThinkingBackend()
-	commandOps = runtime.NewEinoCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	sequentialOps = runtime.NewSequentialThinkingBackend()
+	commandOps = runtime.NewCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
 	var lookup pluginhost.WorkspaceLookup
 	if workspaceManager != nil {
 		lookup = func(ctx context.Context) (string, error) {
@@ -958,7 +958,7 @@ func applyLiveSandboxSettings(manager *runtime.SandboxManager, path string, cfg 
 // applyLiveHTTPSettings merges the settings.yaml http overlay over the
 // config defaults and live-applies the result to the running HTTP backend
 // (allowlist + request timeout). The startup path replays the same document.
-func applyLiveHTTPSettings(backend *runtime.EinoHTTPBackend, path string, cfg config.Config) {
+func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config.Config) {
 	if backend == nil {
 		return
 	}
