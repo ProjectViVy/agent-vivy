@@ -38,6 +38,7 @@ Do not pick work from those tables. Closed-track filing:
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| PROJ-INSTR-SCAN | 启动目录自动扫描 AGENTS.md 与项目 SKILL | DONE 2026-09-06 | Eino 只负责注入（agentsmd / skill middleware），不扫描 cwd。内核发现层 walk-up 到 git root 收集 AGENTS.md，并 overlay `.agents/skills` / `.vivy/skills`（只读）。`vivy.exe` / `vivy-code` / `vivy tui` / `vivy run` 同路径。不打开 web 的 host `@file`。Filing: `docs/logs/2026-09-06-project-instruction-scan/`。 |
 | EINO-BOUNDARY-AUDIT | 复核 Vivy 自研与 Eino/EinoExt 原生能力的边界 | OPEN — AUDIT RECORDED 2026-09-05 | 只读审计确认主循环已原生使用 Eino ADK，大多数自研属于 Journal/Policy/HITL/worker 等 Vivy 权威语义；候选减量面约 1.3–1.6k 行生产代码，集中于手写 MCP transport、tool_search、Sequential Thinking、未实际注册的 plantask 兼容面及 stream observer callback PoC。实施尚未授权；必须逐项先做 capability check，保留 Vivy 治理壳，不得整片替换 runtime。记录：`docs/research/eino-boundary-audit-2026-09-05.md`。 |
 | TUI-STREAM-P0 | 修复 provider→Journal→RPC→TUI 的真实流式背压与文本保真 | DONE 2026-09-04 | runtime mapper 逐 chunk 立即持久化/发布，不再 EOF 后突发；durable `run/event` 使用 context-aware bounded backpressure，不再因 64 帧队列满而静默断订阅；超大 delta 拆分不截字；shared renderer 使用安全 ANSI 清洗与 grapheme/cell word-wrap，中文、emoji、既有空白均不被重建。见 `docs/logs/2026-09-04-vivy-code-live-stream-backpressure/`。 |
 | TUI-STREAM-N1 | 收敛 plain REPL 与 fullscreen TUI 的 durable stream 语义 | DONE 2026-09-04 | plain REPL 已携 shared cursor、run/subscription epoch、seq gap 检测、Journal replay、跨 run/旧订阅过滤、`run/stream_error` 恢复及终态清理；通知入口不阻塞，满载转 durable replay；连续恢复失败会取消当前 run 并归还提示符。见 `docs/logs/2026-09-04-vivy-code-stream-driver-lifecycle/`。 |
@@ -561,6 +562,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-09-06 | 启动目录 AGENTS.md / SKILL 自动扫描 | Eino 原生注入保留；Vivy 增加 cwd/git-root 发现适配器。sandbox 世界也能注入宿主 AGENTS.md 且不挂载 host 为文件工具世界。项目技能只读 overlay，catalog 标 origin。Filing: `docs/logs/2026-09-06-project-instruction-scan/`. |
 | 2026-09-06 | TUI-MODE-CHROME Shift+Tab 模式与彩色 chrome | 智能/计划/只读循环走既有 RunMode+permission；thinking 映射为 (high)/(auto)；上下文百分比着色；默认 TrueColor。Filing: `docs/logs/2026-09-06-tui-mode-chrome/`. |
 | 2026-09-05 | TUI-INPUT-CHROME 输入框下对称 chrome | 空输入 `shift+h` 打开帮助（原命令/模式面板）；去掉底栏 `TUI`/`live`；网关进右栏；permission/model/provider 在输入框下左侧，快捷键在右侧。Filing: `docs/logs/2026-09-05-tui-input-chrome/`. |
 | 2026-09-05 | TUI-CMD-N3 动态 skills / MCP prompt 命令 | user-invocable skill frontmatter 与 MCP prompts 进入 typed 动态命令目录；服务端展开前重新校验，MCP 参数按 `NAME=value` 校验；fullscreen 每次开面板刷新，REPL 启动加载；built-in/packed 同步支持 usage、异步 fence 和失败草稿恢复。Filing: `docs/logs/2026-09-05-vivy-code-dynamic-commands/`. |

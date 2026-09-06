@@ -105,18 +105,14 @@ func runRun(args []string) int {
 			Err:             os.Stderr,
 		}
 		var appOpts []app.AppOption
+		instructionRoot, rootErr := resolveInstructionRoot()
+		if rootErr != nil {
+			fmt.Fprintf(os.Stderr, "vivy run: %v\n", rootErr)
+			return 1
+		}
+		appOpts = append(appOpts, app.WithInstructionRoot(instructionRoot))
 		if ctor(faceOpts).Kind() == "tui" {
-			cwd, cwdErr := os.Getwd()
-			if cwdErr != nil {
-				fmt.Fprintf(os.Stderr, "vivy run: resolve current project: %v\n", cwdErr)
-				return 1
-			}
-			projectRoot, rootErr := canonicalPackedTUIProjectRoot(cwd)
-			if rootErr != nil {
-				fmt.Fprintf(os.Stderr, "vivy run: %v\n", rootErr)
-				return 1
-			}
-			appOpts = append(appOpts, app.WithCodeProjectRoot(projectRoot))
+			appOpts = append(appOpts, app.WithCodeProjectRoot(instructionRoot))
 		}
 		result, err := app.RunFaceWithAppOptions(ctx, cfg, ctor, faceOpts, appOpts...)
 		if err != nil {
@@ -133,11 +129,17 @@ func runRun(args []string) int {
 		}
 	}
 
+	instructionRoot, rootErr := resolveInstructionRoot()
+	if rootErr != nil {
+		fmt.Fprintf(os.Stderr, "vivy run: %v\n", rootErr)
+		return 1
+	}
 	result, err := app.RunHeadless(ctx, cfg, app.HeadlessOptions{
-		Prompt:         prompt,
-		ContinueNewest: continueNewest,
-		Out:            os.Stdout,
-		Err:            os.Stderr,
+		Prompt:          prompt,
+		ContinueNewest:  continueNewest,
+		Out:             os.Stdout,
+		Err:             os.Stderr,
+		InstructionRoot: instructionRoot,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vivy run: %v\n", err)

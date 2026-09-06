@@ -42,6 +42,9 @@ type HeadlessOptions struct {
 	// Err receives tool notices, blocking reports, and failure lines;
 	// never assistant text.
 	Err io.Writer
+	// InstructionRoot is the launch directory scanned for AGENTS.md and
+	// project skills. Empty keeps workspace-only injection.
+	InstructionRoot string
 }
 
 // HeadlessResult reports how the turn ended. The caller maps it to
@@ -65,7 +68,11 @@ func RunHeadless(ctx context.Context, cfg config.Config, opts HeadlessOptions) (
 		return HeadlessResult{}, errors.New("app: headless requires output and error writers")
 	}
 	sink := newHeadlessSink(opts.Out, opts.Err)
-	a, err := New(ctx, cfg, WithoutEars(), WithoutGateway(), WithEventSink(sink))
+	appOpts := []AppOption{WithoutEars(), WithoutGateway(), WithEventSink(sink)}
+	if strings.TrimSpace(opts.InstructionRoot) != "" {
+		appOpts = append(appOpts, WithInstructionRoot(opts.InstructionRoot))
+	}
+	a, err := New(ctx, cfg, appOpts...)
 	if err != nil {
 		return HeadlessResult{}, err
 	}

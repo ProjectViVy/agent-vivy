@@ -44,7 +44,8 @@ type sidebarMCPResult struct {
 }
 
 type sidebarSkillResult struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Origin string `json:"origin,omitempty"`
 }
 
 type sidebarLSPResult struct {
@@ -188,7 +189,7 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 		result.SkillsKnown = true
 		for _, skill := range skills {
 			if skill.Enabled {
-				result.Skills = append(result.Skills, sidebarSkillResult{Name: skill.Name})
+				result.Skills = append(result.Skills, sidebarSkillResult{Name: skill.Name, Origin: skill.Origin})
 			}
 		}
 		sort.Slice(result.Skills, func(i, j int) bool { return result.Skills[i].Name < result.Skills[j].Name })

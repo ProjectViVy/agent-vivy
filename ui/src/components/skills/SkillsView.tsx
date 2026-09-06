@@ -136,9 +136,14 @@ export function SkillsView() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="min-w-0 font-medium">{skill.name}</span>
-                        <Badge variant={skill.enabled ? 'default' : 'secondary'}>
-                          {skill.enabled ? t('common.enabled') : t('common.disabled')}
-                        </Badge>
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                          {skill.origin === 'project' && (
+                            <Badge variant="outline">{t('skills.project')}</Badge>
+                          )}
+                          <Badge variant={skill.enabled ? 'default' : 'secondary'}>
+                            {skill.enabled ? t('common.enabled') : t('common.disabled')}
+                          </Badge>
+                        </div>
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
                       {skill.warnings.length > 0 && (
@@ -160,12 +165,15 @@ export function SkillsView() {
                       <p className="mt-1 text-sm text-muted-foreground">{selected.description}</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      {selected.origin === 'project' && (
+                        <Badge variant="outline">{t('skills.readOnly')}</Badge>
+                      )}
                       <Badge variant={selected.enabled ? 'default' : 'secondary'}>
                         {selected.enabled ? t('common.enabled') : t('common.disabled')}
                       </Badge>
                       <Switch
                         checked={selected.enabled}
-                        disabled={toggling}
+                        disabled={toggling || selected.origin === 'project'}
                         onCheckedChange={() => {
                           const summary = selectedSummary;
                           if (summary) void toggleSkill(summary);

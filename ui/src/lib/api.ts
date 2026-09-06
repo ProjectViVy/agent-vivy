@@ -507,6 +507,7 @@ export interface SkillSummary {
   context?: string;
   agent?: string;
   model?: string;
+  origin?: 'user' | 'project';
   enabled: boolean;
   hash: string;
   warnings: string[];
