@@ -13,7 +13,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func TestEinoHTTPBackendAllowsBoundedReadOnlyRequests(t *testing.T) {
+func TestHTTPBackendAllowsBoundedReadOnlyRequests(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "text/plain")
@@ -34,7 +34,7 @@ func TestEinoHTTPBackendAllowsBoundedReadOnlyRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sandbox: %v", err)
 	}
-	backend := NewEinoHTTPBackend([]string{u.Hostname()}, 64, 0, sandbox)
+	backend := NewHTTPBackend([]string{u.Hostname()}, 64, 0, sandbox)
 
 	response, err := backend.Request(context.Background(), "", tools.HTTPRequest{URL: server.URL})
 	if err != nil {
@@ -49,7 +49,7 @@ func TestEinoHTTPBackendAllowsBoundedReadOnlyRequests(t *testing.T) {
 		t.Fatalf("HEAD response=%#v err=%v", head, err)
 	}
 }
-func TestEinoHTTPBackendRejectsWritesCredentialsRedirectsAndBounds(t *testing.T) {
+func TestHTTPBackendRejectsWritesCredentialsRedirectsAndBounds(t *testing.T) {
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("other"))
 	}))
@@ -76,7 +76,7 @@ func TestEinoHTTPBackendRejectsWritesCredentialsRedirectsAndBounds(t *testing.T)
 	if err != nil {
 		t.Fatalf("new sandbox: %v", err)
 	}
-	backend := NewEinoHTTPBackend([]string{u.Hostname()}, 64, 0, sandbox)
+	backend := NewHTTPBackend([]string{u.Hostname()}, 64, 0, sandbox)
 
 	cases := []struct {
 		name  string
@@ -99,8 +99,8 @@ func TestEinoHTTPBackendRejectsWritesCredentialsRedirectsAndBounds(t *testing.T)
 	}
 }
 
-func TestEinoHTTPBackendSetConfigLiveApply(t *testing.T) {
-	backend := NewEinoHTTPBackend([]string{"example.com"}, 64, 10, nil)
+func TestHTTPBackendSetConfigLiveApply(t *testing.T) {
+	backend := NewHTTPBackend([]string{"example.com"}, 64, 10, nil)
 	if backend.client.Timeout != 10*time.Second {
 		t.Fatalf("timeout = %v, want 10s", backend.client.Timeout)
 	}

@@ -12,7 +12,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
+func TestMCPBackendListsCallsAndReconnects(t *testing.T) {
 	var initializes atomic.Int32
 	var listCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +46,7 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: server.URL}}, server.Client())
 	if statuses := backend.ServerStatuses(); len(statuses) != 1 || statuses[0].Name != "local" || statuses[0].Initialized {
 		t.Fatalf("initial statuses = %+v", statuses)
 	}
@@ -72,7 +72,7 @@ func TestEinoMCPBackendListsCallsAndReconnects(t *testing.T) {
 		t.Fatalf("called = %#v", called)
 	}
 }
-func TestEinoMCPBackendBoundsRemoteOutputAndRejectsUnknownServer(t *testing.T) {
+func TestMCPBackendBoundsRemoteOutputAndRejectsUnknownServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string          `json:"method"`
@@ -90,7 +90,7 @@ func TestEinoMCPBackendBoundsRemoteOutputAndRejectsUnknownServer(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: server.URL}}, server.Client())
 	called, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "local", Tool: "big"})
 	if err != nil {
 		t.Fatalf("call tool: %v", err)
@@ -103,7 +103,7 @@ func TestEinoMCPBackendBoundsRemoteOutputAndRejectsUnknownServer(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendReplaceServersSwapsCatalog(t *testing.T) {
+func TestMCPBackendReplaceServersSwapsCatalog(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeMCPJSON(w, r, `{"tools":[{"name":"old","description":"first"}]}`)
 	}))
@@ -113,7 +113,7 @@ func TestEinoMCPBackendReplaceServersSwapsCatalog(t *testing.T) {
 	}))
 	defer second.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: first.URL}}, first.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "local", Endpoint: first.URL}}, first.Client())
 	listed, err := backend.ListTools(context.Background(), "", "local")
 	if err != nil {
 		t.Fatalf("list first: %v", err)
@@ -135,7 +135,7 @@ func TestEinoMCPBackendReplaceServersSwapsCatalog(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendParsesSSEJSON(t *testing.T) {
+func TestMCPBackendParsesSSEJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string `json:"method"`
@@ -154,7 +154,7 @@ func TestEinoMCPBackendParsesSSEJSON(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "sse", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "sse", Endpoint: server.URL}}, server.Client())
 	listed, err := backend.ListTools(context.Background(), "", "sse")
 	if err != nil {
 		t.Fatalf("list sse: %v", err)
@@ -164,7 +164,7 @@ func TestEinoMCPBackendParsesSSEJSON(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendListsAndReadsResourcesJSON(t *testing.T) {
+func TestMCPBackendListsAndReadsResourcesJSON(t *testing.T) {
 	var methods []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -203,7 +203,7 @@ func TestEinoMCPBackendListsAndReadsResourcesJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
 	listed, err := backend.ListResources(context.Background(), "", "docs")
 	if err != nil {
 		t.Fatalf("list resources: %v", err)
@@ -244,7 +244,7 @@ func TestEinoMCPBackendListsAndReadsResourcesJSON(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendListsAndGetsPrompts(t *testing.T) {
+func TestMCPBackendListsAndGetsPrompts(t *testing.T) {
 	var methods []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -278,7 +278,7 @@ func TestEinoMCPBackendListsAndGetsPrompts(t *testing.T) {
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
 	listed, err := backend.ListPrompts(context.Background(), "", "docs")
 	if err != nil {
 		t.Fatalf("list prompts: %v", err)
@@ -302,7 +302,7 @@ func TestEinoMCPBackendListsAndGetsPrompts(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendIgnoresNonUserPromptContent(t *testing.T) {
+func TestMCPBackendIgnoresNonUserPromptContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string `json:"method"`
@@ -319,14 +319,14 @@ func TestEinoMCPBackendIgnoresNonUserPromptContent(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
 	_, err := backend.GetPrompt(context.Background(), "", tools.MCPGetPromptRequest{Server: "docs", Name: "image"})
 	if err == nil || !strings.Contains(err.Error(), "no user text") {
 		t.Fatalf("non-text error = %v", err)
 	}
 }
 
-func TestEinoMCPBackendSkipsServerWithoutPromptCapability(t *testing.T) {
+func TestMCPBackendSkipsServerWithoutPromptCapability(t *testing.T) {
 	var methods []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -345,14 +345,14 @@ func TestEinoMCPBackendSkipsServerWithoutPromptCapability(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "tools-only", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "tools-only", Endpoint: server.URL}}, server.Client())
 	listed, err := backend.ListPrompts(context.Background(), "", "")
 	if err != nil || len(listed.Prompts) != 0 || strings.Join(methods, ",") != "initialize,notifications/initialized" {
 		t.Fatalf("unsupported prompt catalog = %+v methods=%v err=%v", listed, methods, err)
 	}
 }
 
-func TestEinoMCPBackendParsesSSEResources(t *testing.T) {
+func TestMCPBackendParsesSSEResources(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string `json:"method"`
@@ -374,7 +374,7 @@ func TestEinoMCPBackendParsesSSEResources(t *testing.T) {
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "sse", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "sse", Endpoint: server.URL}}, server.Client())
 	listed, err := backend.ListResources(context.Background(), "", "sse")
 	if err != nil || len(listed.Resources) != 1 || listed.Resources[0].URI != "sse://one" {
 		t.Fatalf("sse resources = %#v err=%v", listed, err)
@@ -385,7 +385,7 @@ func TestEinoMCPBackendParsesSSEResources(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendBoundsResourceContentAndResponses(t *testing.T) {
+func TestMCPBackendBoundsResourceContentAndResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string `json:"method"`
@@ -405,7 +405,7 @@ func TestEinoMCPBackendBoundsResourceContentAndResponses(t *testing.T) {
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
 	read, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "docs", URI: "docs://big"})
 	if err != nil {
 		t.Fatalf("read bounded resource: %v", err)
@@ -430,7 +430,7 @@ func TestEinoMCPBackendBoundsResourceContentAndResponses(t *testing.T) {
 	}
 }
 
-func TestEinoMCPBackendRejectsMalformedResourceContentAndPreservesURI(t *testing.T) {
+func TestMCPBackendRejectsMalformedResourceContentAndPreservesURI(t *testing.T) {
 	var response string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -456,7 +456,7 @@ func TestEinoMCPBackendRejectsMalformedResourceContentAndPreservesURI(t *testing
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "docs", Endpoint: server.URL}}, server.Client())
 	for _, malformed := range []string{
 		`{"contents":[{"text":"missing uri"}]}`,
 		`{"contents":[{"uri":"docs://bad"}]}`,
@@ -488,7 +488,7 @@ func TestEinoMCPBackendRejectsMalformedResourceContentAndPreservesURI(t *testing
 	}
 }
 
-func TestEinoMCPBackendBoundsMultiServerResourceFanout(t *testing.T) {
+func TestMCPBackendBoundsMultiServerResourceFanout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string          `json:"method"`
@@ -507,7 +507,7 @@ func TestEinoMCPBackendBoundsMultiServerResourceFanout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	backend := NewEinoMCPBackend([]MCPServerConfig{{Name: "one", Endpoint: server.URL}, {Name: "two", Endpoint: server.URL}}, server.Client())
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "one", Endpoint: server.URL}, {Name: "two", Endpoint: server.URL}}, server.Client())
 	listed, err := backend.ListResources(context.Background(), "", "")
 	if err != nil {
 		t.Fatal(err)

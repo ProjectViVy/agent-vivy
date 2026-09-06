@@ -35,22 +35,22 @@ const (
 
 var markdownConverter = htmltomarkdown.NewConverter("", true, nil)
 
-// EinoWebFetchBackend fetches public web text for the conversation. Unlike
-// EinoHTTPBackend there is no host allowlist to fall back on, so the dialer
+// WebFetchBackend fetches public web text for the conversation. Unlike
+// HTTPBackend there is no host allowlist to fall back on, so the dialer
 // refuses private and local addresses unconditionally.
-type EinoWebFetchBackend struct {
+type WebFetchBackend struct {
 	client       *http.Client
 	sandbox      *SandboxManager
 	maxBodyBytes int
 }
 
-var _ tools.WebFetchOperations = (*EinoWebFetchBackend)(nil)
+var _ tools.WebFetchOperations = (*WebFetchBackend)(nil)
 
-func NewEinoWebFetchBackend(maxBodyBytes int, sandbox *SandboxManager) *EinoWebFetchBackend {
+func NewWebFetchBackend(maxBodyBytes int, sandbox *SandboxManager) *WebFetchBackend {
 	if maxBodyBytes <= 0 || maxBodyBytes > 8<<20 {
 		maxBodyBytes = defaultHTTPResponseBytes
 	}
-	return &EinoWebFetchBackend{
+	return &WebFetchBackend{
 		client:       &http.Client{Transport: newPublicHTTPTransport(), Timeout: defaultFetchTimeout},
 		sandbox:      sandbox,
 		maxBodyBytes: maxBodyBytes,
@@ -59,7 +59,7 @@ func NewEinoWebFetchBackend(maxBodyBytes int, sandbox *SandboxManager) *EinoWebF
 
 // allowLoopbackForTest lets httptest servers on 127.0.0.1 exercise the
 // pipeline in tests; the production constructor never enables it.
-func (b *EinoWebFetchBackend) allowLoopbackForTest() {
+func (b *WebFetchBackend) allowLoopbackForTest() {
 	b.client.Transport = &http.Transport{
 		Proxy:             http.ProxyFromEnvironment,
 		DialContext:       safeDialContext,
@@ -143,7 +143,7 @@ func clampFetchTimeout(seconds int, fallback, min, max time.Duration) time.Durat
 }
 
 // Fetch implements tools.WebFetchOperations.
-func (b *EinoWebFetchBackend) Fetch(ctx context.Context, _ domain.RunID, input tools.WebFetchRequest) (tools.WebFetchResult, error) {
+func (b *WebFetchBackend) Fetch(ctx context.Context, _ domain.RunID, input tools.WebFetchRequest) (tools.WebFetchResult, error) {
 	format := strings.ToLower(strings.TrimSpace(input.Format))
 	if format == "" {
 		format = "markdown"

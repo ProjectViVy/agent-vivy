@@ -18,8 +18,8 @@ worker 进程隔离和产品事件投影。
 
 需要重新评估或清理的候选面约为 **1.3–1.6k 行生产代码及其测试/装配**，
 主要集中在 MCP transport、动态工具检索、Sequential Thinking、未进入生产
-middleware 的 plantask 兼容面，以及流式观测与 Eino callbacks 的重叠可能。
-该数字是审查上界，不等于可直接删除行数。
+middleware 的 plantask 兼容面。流式观测包装器已于 2026-09-06 判定保留，
+不再计入该上界。该数字是审查上界，不等于可直接删除行数。
 
 ## 2. 当前代码规模与口径
 
@@ -112,7 +112,8 @@ in-process child，可把 `NewAgentTool` 作为可选后端，不替换现有 wo
 
 `internal/runtime/mcp_backend.go`（881 行）自行实现 HTTP JSON-RPC、initialize、
 session、SSE、retry、tools/resources/prompts、分页与 payload bounding，未接
-`eino-ext/components/tool/mcp`。`EinoMCPBackend` 这个名称因此会误导维护者。
+`eino-ext/components/tool/mcp`。类型已于 2026-09-06 更名为 `MCPBackend`，
+不再冒充 Eino 客户端；手写 transport 仍待评估。
 
 建议边界：评估以 EinoExt/mcp 或其底层客户端替换协议 transport；保留 Vivy 的
 配置热更、provenance、proposal/HITL、untrusted 标记、大小限制和 RPC/TUI 投影。
@@ -133,9 +134,9 @@ Policy 和实际调用二次校验。先做行为对照，不能只删除执行�
 
 ### 5.3 Sequential Thinking
 
-`EinoSequentialThinkingBackend` 没有 Eino import，是约 160 行的内存状态工具，
-重启即丢失。应与 EinoExt Sequential Thinking 做 capability check；满足约束则
-替换，不满足则保留最小 Vivy wrapper 并改掉误导命名、记录例外。
+`SequentialThinkingBackend`（2026-09-06 去掉误导性 `Eino` 前缀）没有 Eino
+import，是约 160 行的内存状态工具，重启即丢失。与 EinoExt Sequential Thinking
+的 capability check / 替换仍待做。
 
 影响：**小。**
 
@@ -152,23 +153,52 @@ Vivy `toolAdapter`，会旁路 Policy/HITL。候选动作应是删除无消费�
 
 影响：**小，主要是概念和死兼容代码清理。**
 
-### 5.5 stream observer 与 Eino callbacks
+### 5.5 stream observer 与 Eino callbacks — KEEP（2026-09-06）
 
-`model_stream_observer.go` 包装 ChatModel 并用 `schema.Pipe` tee 原始 chunk，解决
-Eino materialize 之前的实时 delta。Eino callbacks 提供
-`OnEndWithStreamOutput` 的流副本，理论上可能替代包装器。
+`model_stream_observer.go` 包装 ChatModel 并用 `schema.Pipe[*schema.Message](8)`
+在生产者 `Recv → persist → Send` 路径上 tee 原始 chunk。这是 Journal 实时
+delta、reasoning/text 顺序、预算、背压、fail-closed 和 interrupt/resume 的
+缝，不是可删的观测层。
 
-该路径直接影响 reasoning/text 连续性、usage、背压和 interrupt/resume，只能用
-PoC 证明 chunk 边界、顺序、关闭、无重复和恢复行为后再决定。
+核对 pinned Eino v0.9.13：`callbacks.OnEndWithStreamOutput`、
+`schema.StreamReader.Copy` / `copyStreamReaders`、
+`compose.genericOnEndWithStreamOutput`。Callback 在 inner `Stream()` 返回
+之后做 sibling `Copy`；handler 可同步运行，但仍不是生产者路径，不能：
 
-影响：**中等风险；暂不判定为可删除。**
+1. 把 persist 放进 `Recv → persist → Send`（独立 copy 上的 persist 不在
+   graph Recv 路径上）
+2. 用有界 `Pipe(8)` 把 persist 背压传到 provider `Recv`
+3. 把 persist 错误 fail-close 进 graph 流（独立 copy 失败不会让下游失败）
+4. 在生产者路径上执行 `waitForToolsSettled`
 
-### 5.6 `Eino*Backend` 命名债务
+本包装器的 `Begin` 仍必须在把 tee 交给 Eino 之前调用，以免 pump 与 eager
+forwarding 竞态；那是此 wrapper 的实现约束，不是 callback 做不到 Begin。
 
-名副其实或确有 Eino interface 消费：checkpoint、filesystem、skill；todo 仅部分。
-没有 Eino import 的实现包括 command、HTTP、MCP、Sequential Thinking、
-WebFetch、Download。后者并不自动等于实现错误，例如 SSRF、sandbox 和审批约束
-可能要求 Vivy 自有实现，但名称不能再作为“已接 Eino”的证据。
+因此 **保留包装器**。Vivy 当前未注册 `eino/callbacks` handler。若 Eino 日后
+提供带 fail-closed 的生产者 `Recv` 钩子，再复查。
+
+影响：**已关闭；不是可删除面。** 记录：
+`docs/logs/2026-09-06-eino-boundary-stream-observer-naming/`。
+
+### 5.6 `Eino*Backend` 命名债务 — DONE（2026-09-06）
+
+名副其实、确有 Eino interface 消费、**保留 `Eino` 前缀**：
+`EinoCheckpointAdapter`、`EinoFilesystemBackend`、`EinoSkillBackend`；
+`EinoTodoBackend` 实现 `plantask.Backend` 但生产未挂 middleware（见 §5.4）。
+
+2026-09-06 去掉无 Eino import、只实现 Vivy `tools.*Operations` 的前缀：
+
+| 原名 | 现名 |
+|---|---|
+| `EinoCommandBackend` | `CommandBackend` |
+| `EinoHTTPBackend` | `HTTPBackend` |
+| `EinoMCPBackend` | `MCPBackend` |
+| `EinoSequentialThinkingBackend` | `SequentialThinkingBackend` |
+| `EinoWebFetchBackend` | `WebFetchBackend` |
+| `EinoDownloadBackend` | `DownloadBackend` |
+
+这些仍是 Vivy 自有实现（SSRF、sandbox、审批等）。名称不再当作“已接 Eino”
+的证据。
 
 ## 6. 对既有调研的修正
 
@@ -180,14 +210,16 @@ Policy、worker 应由 Vivy 拥有，约六成候选能力可以通过 Eino/上�
 1. “有等价能力”不等于“当前已使用”：自研 `tool_search` 仍是生产实现。
 2. “实现 Eino Backend”不等于“middleware 已接线”：plantask 当前未注册为生产
    middleware。
-3. `EinoMCPBackend` 不是 Eino MCP 客户端；它是 Vivy 手写 MCP transport。
+3. `MCPBackend`（原 `EinoMCPBackend`）不是 Eino MCP 客户端；它是 Vivy 手写
+   MCP transport。
 
 ## 7. 影响范围判定
 
 - 约 **85%** 的 runtime/product 代码：必要自研，保留。
-- 约 **5–8%**：明确值得迁移、减量或清理，集中在 MCP、tool_search、
-  Sequential Thinking 和 plantask 兼容面。
-- 约 **2–3%**：先 PoC 再定，例如 stream observer/callbacks。
+- 约 **5–8%**：明确值得迁移、减量或清理，集中在 MCP transport、tool_search、
+  Sequential Thinking 替换和 plantask 兼容面。
+- stream observer/callbacks 原列 **2–3% PoC**：2026-09-06 判定保留包装器，
+  不再作为减量候选。
 - child worker 虽然代码较多，但属于产品架构选择，不计入立即删除范围。
 
 这些百分比是审计量级，不是精确删除承诺。

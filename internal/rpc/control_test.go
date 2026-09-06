@@ -474,7 +474,7 @@ func TestControlShellStartIsGovernedAndStrict(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		commands := runtime.NewEinoCommandBackend(workspace, sandbox, []string{"go"}, 5*time.Second)
+		commands := runtime.NewCommandBackend(workspace, sandbox, []string{"go"}, 5*time.Second)
 		active, err := tools.NewRegistry(tools.NewBash(commands)).Resolve([]string{tools.BashName})
 		if err != nil {
 			t.Fatal(err)

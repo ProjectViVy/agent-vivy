@@ -12,7 +12,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func newWebFetchTestBackend(t *testing.T, maxBodyBytes int) *EinoWebFetchBackend {
+func newWebFetchTestBackend(t *testing.T, maxBodyBytes int) *WebFetchBackend {
 	t.Helper()
 	sandbox, err := NewSandboxManager(
 		domain.SandboxModeDangerFullAccess,
@@ -23,7 +23,7 @@ func newWebFetchTestBackend(t *testing.T, maxBodyBytes int) *EinoWebFetchBackend
 	if err != nil {
 		t.Fatalf("new sandbox manager: %v", err)
 	}
-	backend := NewEinoWebFetchBackend(maxBodyBytes, sandbox)
+	backend := NewWebFetchBackend(maxBodyBytes, sandbox)
 	backend.allowLoopbackForTest()
 	return backend
 }
@@ -139,7 +139,7 @@ func TestWebFetchSecurityGuards(t *testing.T) {
 		if err != nil {
 			t.Fatalf("new sandbox manager: %v", err)
 		}
-		backend := NewEinoWebFetchBackend(1<<20, sandbox)
+		backend := NewWebFetchBackend(1<<20, sandbox)
 		if _, err := backend.Fetch(context.Background(), "run_web_fetch", tools.WebFetchRequest{URL: server.URL}); err == nil || !strings.Contains(err.Error(), "private or local") {
 			t.Fatalf("expected private-address refusal, got %v", err)
 		}
