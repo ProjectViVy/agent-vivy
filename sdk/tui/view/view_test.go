@@ -120,7 +120,7 @@ func TestRenderToolCompactsResultUnlessDebugEnabled(t *testing.T) {
 	tool := &surface.ToolCard{ToolName: "list_dir", Status: "done", Result: strings.Repeat("entry\n", 20)}
 
 	compact := strings.Join(renderToolWithOptions(tool, 80, DefaultPalette(), false), "\n")
-	if !strings.Contains(compact, "more lines · set tui.debug: true") {
+	if !strings.Contains(compact, "more lines · ctrl+o expand") {
 		t.Fatalf("compact tool result has no omission marker: %s", ansi.Strip(compact))
 	}
 	if strings.Count(ansi.Strip(compact), "entry") >= 20 {
