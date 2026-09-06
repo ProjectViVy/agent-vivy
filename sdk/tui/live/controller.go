@@ -25,13 +25,17 @@ type Live struct {
 
 	mu sync.Mutex
 
-	sessions              []surface.Session
-	messages              map[string][]surface.Message
-	activeID              string
-	sidebar               surface.Sidebar
-	lspRefreshPending     bool
-	lspRefreshEnabled     bool
-	nextLSPRefresh        time.Time
+	sessions          []surface.Session
+	messages          map[string][]surface.Message
+	activeID          string
+	sidebar           surface.Sidebar
+	lspRefreshPending bool
+	lspRefreshEnabled bool
+	nextLSPRefresh    time.Time
+	// nextTitleRefresh paces the sidebar re-checks that pick up the backend
+	// auto-title, which lands asynchronously after a run's terminal event.
+	nextTitleRefresh      time.Time
+	runsSeen              int
 	loadRequest           uint64
 	sessionRequest        uint64
 	contextRequest        uint64
@@ -141,6 +145,9 @@ func newLive(parent context.Context, client *client, opts Options) *Live {
 		eventWake:      make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
+		// The first backend auto-title may land seconds after a run ends;
+		// pace the sidebar re-checks so the first one is not immediate.
+		nextTitleRefresh: time.Now().Add(4 * time.Second),
 	}
 	client.OnNotify(func(method string, params json.RawMessage) {
 		switch method {
@@ -417,11 +424,11 @@ func (l *Live) bootCmd() tea.Cmd {
 		var messages []surface.Message
 		startFresh := len(out) == 0 || (l.initialPrompt != "" && !l.continueNewest)
 		if startFresh {
-			title := l.title
-			if l.initialPrompt != "" {
-				title = trimTitle(l.initialPrompt)
-			}
-			created, err := l.client.createSession(ctx, title)
+			// Sessions are born untitled so the kernel auto-titler can name
+			// the session after the first exchange (LLM summary, falling back
+			// to the head of the first user message); a placeholder title
+			// here would suppress that path.
+			created, err := l.client.createSession(ctx, "")
 			if err != nil {
 				return liveBootMsg{Err: err}
 			}
@@ -462,16 +469,6 @@ func (l *Live) bootCmd() tea.Cmd {
 	}
 }
 
-// trimTitle mirrors the headless face's session title rule: the prompt,
-// trimmed to 60 runes with an ellipsis when cut.
-func trimTitle(prompt string) string {
-	runes := []rune(strings.TrimSpace(prompt))
-	if len(runes) > 60 {
-		return string(runes[:60]) + "..."
-	}
-	return string(runes)
-}
-
 // Handle implements surface.Driver.
 func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -490,7 +487,7 @@ func (l *Live) Handle(msg tea.Msg) tea.Cmd {
 		if lspChanged {
 			return tea.Batch(l.refreshSidebarCmd(), l.recoverSubscriptionCmd(), l.tickCmd())
 		}
-		return tea.Batch(l.refreshLSPSidebarIfDueCmd(), l.recoverSubscriptionCmd(), l.tickCmd())
+		return tea.Batch(l.refreshLSPSidebarIfDueCmd(), l.titleRefreshCmdIfDue(), l.recoverSubscriptionCmd(), l.tickCmd())
 	case liveBootMsg:
 		return l.applyBoot(msg)
 	case liveLoadedMsg:
@@ -802,6 +799,7 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 		l.messages[l.activeID] = messages
 	}
 	l.setBusyLocked(true)
+	l.runsSeen++
 	l.runID = msg.RunID
 	l.cursor.Reset()
 	l.subscriptionID = ""
@@ -1347,9 +1345,8 @@ func (l *Live) NewSession(title string) tea.Cmd {
 	l.loadPending = true
 	l.mu.Unlock()
 	title = strings.TrimSpace(title)
-	if title == "" {
-		title = l.title
-	}
+	// An empty title stays empty: the session stays untitled for the kernel
+	// auto-titler instead of inheriting the shell brand.
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
@@ -1645,6 +1642,27 @@ func (l *Live) refreshSidebarCmd() tea.Cmd {
 func (l *Live) refreshLSPSidebarIfDueCmd() tea.Cmd {
 	l.mu.Lock()
 	due := l.lspRefreshEnabled && !l.closed && l.activeID != "" && !time.Now().Before(l.nextLSPRefresh)
+	l.mu.Unlock()
+	if !due {
+		return nil
+	}
+	return l.refreshSidebarCmd()
+}
+
+// titleRefreshCmdIfDue re-fetches the sidebar on a slow cadence while the
+// active session is still untitled, so the kernel's asynchronous auto-title
+// (an LLM call after the run's terminal event) reaches the rail and the
+// terminal title without a restart. The check only runs once a run has been
+// seen — an untouched session cannot gain a title — and stops as soon as a
+// title lands.
+func (l *Live) titleRefreshCmdIfDue() tea.Cmd {
+	l.mu.Lock()
+	due := l.runsSeen > 0 && !l.closed && l.activeID != "" &&
+		l.sidebar.Session.Title == "" && l.activeSessionLocked().Title == "" &&
+		!time.Now().Before(l.nextTitleRefresh)
+	if due {
+		l.nextTitleRefresh = time.Now().Add(4 * time.Second)
+	}
 	l.mu.Unlock()
 	if !due {
 		return nil
