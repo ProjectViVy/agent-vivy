@@ -118,7 +118,12 @@ func main() {
 		os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	a, err := app.New(ctx, cfg)
+	instructionRoot, err := resolveInstructionRoot()
+	if err != nil {
+		logger.Error("startup aborted", "err", err)
+		os.Exit(1)
+	}
+	a, err := app.New(ctx, cfg, app.WithInstructionRoot(instructionRoot))
 	if err != nil {
 		logger.Error("composition failed", "err", err)
 		os.Exit(1)

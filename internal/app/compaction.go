@@ -1,6 +1,10 @@
 package app
 
 import (
+	"fmt"
+	"log/slog"
+	"strings"
+
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/runtime"
@@ -94,6 +98,36 @@ func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend
 
 // sameCompactionPolicy reports whether two policies are equal; a nil and an
 // empty-disabled policy count as equal (both mean "no compression").
+func projectInstructionBackends(logger *slog.Logger, instructionRoot string, skillBackend *runtime.EinoSkillBackend, fileBackend *runtime.EinoFilesystemBackend) (runtime.AgentsMDBackend, []string, error) {
+	var workspace runtime.AgentsMDBackend
+	if fileBackend != nil {
+		workspace = fileBackend
+	}
+	if strings.TrimSpace(instructionRoot) == "" {
+		return workspace, nil, nil
+	}
+	discovered, err := runtime.DiscoverProjectInstructions(instructionRoot)
+	if err != nil {
+		return nil, nil, fmt.Errorf("app: discover project instructions: %w", err)
+	}
+	backend, err := runtime.NewProjectAgentsMDBackend(discovered.Root)
+	if err != nil {
+		return nil, nil, fmt.Errorf("app: project agentsmd backend: %w", err)
+	}
+	if skillBackend != nil {
+		if err := skillBackend.SetProjectSkillRoots(discovered.SkillRoots); err != nil {
+			return nil, nil, fmt.Errorf("app: project skill roots: %w", err)
+		}
+	}
+	if logger != nil {
+		logger.Info("project instructions discovered",
+			"root", discovered.Root,
+			"agents_md", discovered.AgentsMDFiles,
+			"skill_roots", len(discovered.SkillRoots))
+	}
+	return backend, discovered.AgentsMDFiles, nil
+}
+
 func sameCompactionPolicy(a, b *runtime.CompactionPolicy) bool {
 	if a == nil || b == nil {
 		return (a == nil) == (b == nil)

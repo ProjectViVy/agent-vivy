@@ -15,6 +15,11 @@ const (
 	SkillManageName = "skill_manage"
 )
 
+const (
+	SkillOriginUser    = "user"
+	SkillOriginProject = "project"
+)
+
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -26,7 +31,10 @@ type SkillSummary struct {
 	UserInvocable bool `json:"user_invocable,omitempty"`
 	// Tools lists the tool names the SKILL.md frontmatter declares. Viewing
 	// the skill mounts them for the remainder of the run (MountedTools).
-	Tools    []string `json:"tools,omitempty"`
+	Tools []string `json:"tools,omitempty"`
+	// Origin is "project" for launch-directory overlays and "user" for
+	// skills_root / marketplace packages.
+	Origin   string   `json:"origin,omitempty"`
 	Enabled  bool     `json:"enabled"`
 	Hash     string   `json:"hash"`
 	Warnings []string `json:"warnings,omitempty"`

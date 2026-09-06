@@ -74,12 +74,15 @@ type EngineConfig struct {
 	// lets usage events distinguish the primary summary route from the main
 	// model used by failover without inspecting provider implementation types.
 	SummaryModelID string
-	// AgentsMDBackend supplies workspace AGENTS.md content for the run
-	// preamble (D6). Nil disables injection. Eino's agentsmd middleware
-	// loads it per run and injects it transiently before the first user
-	// message, so the content never enters the persisted transcript and
-	// compaction needs no carve-out.
+	// AgentsMDBackend supplies AGENTS.md content for the run preamble (D6).
+	// Nil disables injection. Eino's agentsmd middleware loads it per run
+	// and injects it transiently before the first user message, so the
+	// content never enters the persisted transcript and compaction needs
+	// no carve-out.
 	AgentsMDBackend AgentsMDBackend
+	// AgentsMDFiles is the ordered list of AGENTS.md paths relative to
+	// AgentsMDBackend. Empty keeps the historical single-file default.
+	AgentsMDFiles []string
 	// HiddenTools are registered-but-not-active tools. They join the
 	// executable universe so a skill_view mount can use them mid-run, but
 	// the surface middleware never advertises them before they are mounted.
@@ -179,7 +182,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		// closest to the first user turn.
 		handlers = append(handlers, alwaysHandler)
 	}
-	if mdHandler, err := buildAgentsMDHandler(ctx, cfg.AgentsMDBackend); err != nil {
+	if mdHandler, err := buildAgentsMDHandler(ctx, cfg.AgentsMDBackend, cfg.AgentsMDFiles); err != nil {
 		return nil, err
 	} else if mdHandler != nil {
 		// Registered after the compaction handlers: the injected AGENTS.md
