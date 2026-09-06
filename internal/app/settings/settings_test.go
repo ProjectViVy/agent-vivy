@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -484,6 +485,78 @@ func TestSaveAndLoadToolsEnabledOverlay(t *testing.T) {
 	}
 	if loaded.ToolsEnabled == nil || len(*loaded.ToolsEnabled) != 0 {
 		t.Fatalf("chat-only tools_enabled = %+v, want explicit empty", loaded.ToolsEnabled)
+	}
+}
+
+func TestLegacyToolSearchIsNormalizedAtSettingsBoundaries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("tools_enabled:\n  - tool_search\n  - list_dir\n  - tool_search\n  - read_file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load legacy tools_enabled: %v", err)
+	}
+	if loaded.ToolsEnabled == nil || !reflect.DeepEqual(*loaded.ToolsEnabled, []string{"list_dir", "read_file"}) {
+		t.Fatalf("loaded legacy tools_enabled = %#v", loaded.ToolsEnabled)
+	}
+
+	legacy := []string{"tool_search", "list_dir", "tool_search", "read_file"}
+	saved, err := Save(path, Settings{ToolsEnabled: &legacy})
+	if err != nil {
+		t.Fatalf("save legacy tools_enabled: %v", err)
+	}
+	if saved.ToolsEnabled == nil || !reflect.DeepEqual(*saved.ToolsEnabled, []string{"list_dir", "read_file"}) {
+		t.Fatalf("saved normalized tools_enabled = %#v", saved.ToolsEnabled)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "tool_search") {
+		t.Fatalf("saved settings still contain retired tool_search: %s", raw)
+	}
+	loaded, err = Load(path)
+	if err != nil {
+		t.Fatalf("load normalized settings: %v", err)
+	}
+	if loaded.ToolsEnabled == nil || !reflect.DeepEqual(*loaded.ToolsEnabled, []string{"list_dir", "read_file"}) {
+		t.Fatalf("loaded normalized tools_enabled = %#v", loaded.ToolsEnabled)
+	}
+
+	legacyOnly := []string{"tool_search"}
+	saved, err = Save(path, Settings{ToolsEnabled: &legacyOnly})
+	if err != nil {
+		t.Fatalf("save legacy-only tools_enabled: %v", err)
+	}
+	if saved.ToolsEnabled == nil || len(*saved.ToolsEnabled) != 0 {
+		t.Fatalf("legacy-only saved tools_enabled = %#v, want explicit empty", saved.ToolsEnabled)
+	}
+	loaded, err = Load(path)
+	if err != nil {
+		t.Fatalf("load legacy-only settings: %v", err)
+	}
+	if loaded.ToolsEnabled == nil || len(*loaded.ToolsEnabled) != 0 {
+		t.Fatalf("legacy-only loaded tools_enabled = %#v, want explicit empty", loaded.ToolsEnabled)
+	}
+
+	updated, err := Update(path, func(current Settings) (Settings, error) {
+		tools := []string{"tool_search", "write_file"}
+		current.ToolsEnabled = &tools
+		return current, nil
+	})
+	if err != nil {
+		t.Fatalf("update legacy tools_enabled: %v", err)
+	}
+	if updated.ToolsEnabled == nil || !reflect.DeepEqual(*updated.ToolsEnabled, []string{"write_file"}) {
+		t.Fatalf("updated normalized tools_enabled = %#v", updated.ToolsEnabled)
+	}
+	raw, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "tool_search") {
+		t.Fatalf("updated settings still contain retired tool_search: %s", raw)
 	}
 }
 

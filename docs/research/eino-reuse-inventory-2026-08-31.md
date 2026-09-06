@@ -64,6 +64,17 @@
 | gitignore 纯 Go 回退走查 | C | rg 缺席时的 fallback；可评估 `sabhiram/go-gitignore`（MIT）减量 |
 | 沙箱/审批/预算/Journal/面具 | D | Vivy 专有差异化，本就不外包 |
 
+## 2026-09-06 superseded note
+
+The `middlewares/dynamictool/toolsearch` row above records the earlier
+pre-implementation state. It is superseded for the current tool-search
+track: Vivy now uses the pinned Eino v0.9.13 core middleware
+`github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch` for
+allowlisted deferred active tools, while keeping Vivy adapters, policy,
+HITL, audit, and Skill-mount projection around business tools. The retired
+custom search implementation and its registry entry are removed; historical
+research conclusions are otherwise unchanged.
+
 ## 3. 护栏：eino/上游超出 Crush 面的能力——处置表（不擅自添加）
 
 | eino/上游能力 | Crush 有无 | 处置 |

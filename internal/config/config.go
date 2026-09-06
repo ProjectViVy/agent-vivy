@@ -458,10 +458,35 @@ type toolsDoc struct {
 	} `yaml:"approval"`
 }
 
+// LegacyToolSearchName is the name used by Vivy builds that exposed a
+// hand-written tool_search implementation. The name remains reserved for
+// the official Eino meta-tool, but old config/settings inputs are normalized
+// before they reach the tool registry.
+const LegacyToolSearchName = "tool_search"
+
+// NormalizeLegacyToolSearch removes the retired Vivy tool_search entry while
+// preserving the order of every other configured name. A non-nil input keeps
+// a non-nil result, including when the legacy-only list becomes explicit
+// chat-only (an empty active surface).
+func NormalizeLegacyToolSearch(names []string) []string {
+	if names == nil {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if strings.TrimSpace(name) == LegacyToolSearchName {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
 // UnmarshalYAML reads the tools mapping and stashes the approval
 // expiration as an unparsed duration string. An omitted enabled key keeps
-// the code default shipped by Default() instead of clobbering it with nil;
-// an explicit empty list still decodes as nil so Validate can reject it.
+// the code default shipped by Default() instead of clobbering it with nil.
+// An explicit empty list is preserved as a non-nil empty slice so it can
+// select the legal chat-only mode.
 func (t *Tools) UnmarshalYAML(node *yaml.Node) error {
 	var doc toolsDoc
 	if err := node.Decode(&doc); err != nil {
@@ -477,7 +502,11 @@ func (t *Tools) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 	if hasEnabled {
-		t.Enabled = doc.Enabled
+		if doc.Enabled == nil {
+			t.Enabled = []string{}
+		} else {
+			t.Enabled = doc.Enabled
+		}
 	}
 	t.NetworkSearch.Provider = doc.NetworkSearch.Provider
 	t.Approval.expirationRaw = doc.Approval.Expiration
@@ -537,7 +566,7 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "tool_search", "agent"},
+			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent"},
 			NetworkSearch: NetworkSearchConfig{Provider: ""},
 			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
@@ -577,6 +606,7 @@ func Load(path string) (Config, error) {
 	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
+	cfg.Tools.Enabled = NormalizeLegacyToolSearch(cfg.Tools.Enabled)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
@@ -722,9 +752,8 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if len(c.Tools.Enabled) == 0 {
-		return errors.New("tools.enabled must list at least one tool")
-	}
+	// An empty enabled list is an intentional chat-only configuration. The
+	// runtime installs no static or dynamic tools for that request.
 	if provider := c.Tools.NetworkSearch.Provider; provider != "" {
 		switch provider {
 		case "bing", "google", "duckduckgo", "searxng", "wikipedia":

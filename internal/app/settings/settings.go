@@ -30,6 +30,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 )
 
@@ -315,6 +316,7 @@ func load(path string) (Settings, error) {
 	if err := dec.Decode(&s); err != nil {
 		return Settings{}, fmt.Errorf("settings: parse %s: %w", path, err)
 	}
+	normalizeLegacyToolSearch(&s)
 	// Older builds could persist a mock provider selection or registry rows.
 	// The mock runtime no longer exists, so treat those records as an absent
 	// overlay instead of making every later settings write fail validation.
@@ -362,6 +364,17 @@ func load(path string) (Settings, error) {
 		return Settings{}, fmt.Errorf("settings: %s: %w", path, err)
 	}
 	return s, nil
+}
+
+// normalizeLegacyToolSearch is the settings input/write boundary for the
+// retired Vivy tool_search entry. The shared config helper keeps config.yaml
+// and settings.yaml compatible while the registry remains a strict resolver.
+func normalizeLegacyToolSearch(s *Settings) {
+	if s == nil || s.ToolsEnabled == nil {
+		return
+	}
+	normalized := config.NormalizeLegacyToolSearch(*s.ToolsEnabled)
+	s.ToolsEnabled = &normalized
 }
 
 func migrateLegacyMock(s *Settings) {
@@ -711,6 +724,7 @@ func (s Settings) UpsertChannelOverlay(entry ChannelOverlay) Settings {
 // handler read-modify-write cycles belong in Update, which keeps another
 // writer's concurrent change between load and commit instead of dropping it.
 func Save(path string, s Settings) (Settings, error) {
+	normalizeLegacyToolSearch(&s)
 	if err := s.Validate(); err != nil {
 		return Settings{}, err
 	}
@@ -791,6 +805,7 @@ func Update(path string, fn func(Settings) (Settings, error)) (Settings, error) 
 	if err != nil {
 		return Settings{}, err
 	}
+	normalizeLegacyToolSearch(&next)
 	if err := next.Validate(); err != nil {
 		return Settings{}, &ValidationError{Err: err}
 	}
