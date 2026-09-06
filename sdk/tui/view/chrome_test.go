@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -305,5 +306,126 @@ func TestChromeRowKeepsLeftHintsAndRightMetaAligned(t *testing.T) {
 	}
 	if !strings.Contains(plain, "⏸ 2 queued") || !strings.Contains(plain, chromeTestTitle) {
 		t.Fatalf("chrome row lost the right meta segment:\n%s", plain)
+	}
+}
+
+// scrollHintModel builds a chat long enough to scroll several viewports.
+func scrollHintModel(t *testing.T) (Model, *testDriver) {
+	t.Helper()
+	rows := make([]surface.Message, 0, 60)
+	for i := 0; i < 60; i++ {
+		rows = append(rows, surface.Message{ID: fmt.Sprintf("m%d", i), Role: surface.RoleUser, Content: fmt.Sprintf("history line %d", i)})
+	}
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "s1", Title: "Current"}},
+		active:   "s1",
+		messages: map[string][]surface.Message{"s1": rows},
+	}
+	return New(driver), driver
+}
+
+func TestChromeScrollHintVariants(t *testing.T) {
+	p := DefaultPalette()
+	if got := chromeScrollHint(p, chatScrollInfo{follow: true, offset: 0, maxScroll: 50, viewport: 10}); got != "" {
+		t.Fatalf("follow-mode hint = %q, want empty", ansi.Strip(got))
+	}
+	if got := chromeScrollHint(p, chatScrollInfo{follow: false, offset: 0, maxScroll: 0, viewport: 10}); got != "" {
+		t.Fatalf("maxScroll=0 hint = %q, want empty", ansi.Strip(got))
+	}
+	if got := chromeScrollHint(p, chatScrollInfo{follow: false, offset: 9, maxScroll: 12, viewport: 10}); got != "" {
+		t.Fatalf("near-bottom hint = %q, want empty", ansi.Strip(got))
+	}
+	got := ansi.Strip(chromeScrollHint(p, chatScrollInfo{follow: false, offset: 2, maxScroll: 12, viewport: 10}))
+	if !strings.Contains(got, "↓ end") || !strings.Contains(got, "回到底部") {
+		t.Fatalf("near-bottom hint = %q, want the end jump", got)
+	}
+	got = ansi.Strip(chromeScrollHint(p, chatScrollInfo{follow: false, offset: 0, maxScroll: 79, viewport: 10}))
+	if !strings.Contains(got, "↑ 历史") || !strings.Contains(got, "下方还有 79 行") {
+		t.Fatalf("deep-park hint = %q, want remaining lines", got)
+	}
+}
+
+func TestGKeyJumpsToBottomAndDraftKeepsG(t *testing.T) {
+	m, driver := scrollHintModel(t)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 88, Height: 24})
+	m = next.(Model)
+	if !m.chatFollow {
+		t.Fatal("fresh model should follow the chat bottom")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = next.(Model)
+	if m.chatFollow {
+		t.Fatal("page-up did not clear chatFollow")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = next.(Model)
+	if !m.chatFollow || m.chatScroll != m.chatMaxScroll() {
+		t.Fatalf("G did not jump to the bottom: follow=%v scroll=%d max=%d", m.chatFollow, m.chatScroll, m.chatMaxScroll())
+	}
+	if m.input != "" {
+		t.Fatalf("G leaked into the draft: %q", m.input)
+	}
+	// With a draft, G is plain input.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = next.(Model)
+	m.input = "draft"
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = next.(Model)
+	if m.input != "draftG" || m.chatFollow {
+		t.Fatalf("G stole an in-progress draft: input=%q follow=%v", m.input, m.chatFollow)
+	}
+	// While busy, G is plain input too (warm up the busy observation first).
+	driver.busy = true
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 88, Height: 24})
+	m = next.(Model)
+	m.input = ""
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = next.(Model)
+	if m.input != "G" || m.chatFollow {
+		t.Fatalf("busy G jumped to the bottom: input=%q follow=%v", m.input, m.chatFollow)
+	}
+}
+
+func TestChromeRowShowsScrollHintWhileParked(t *testing.T) {
+	m, _ := scrollHintModel(t)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 88, Height: 24})
+	m = next.(Model)
+	if strings.Contains(ansi.Strip(m.View()), "回到底部") {
+		t.Fatal("following viewport shows the scroll hint")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = next.(Model)
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "↓ end") || !strings.Contains(view, "回到底部") {
+		t.Fatalf("parked viewport missing the jump-to-bottom hint:\n%s", view)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = next.(Model)
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "↑ 历史") || !strings.Contains(view, "下方还有") {
+		t.Fatalf("deep-parked viewport missing the remaining-lines hint:\n%s", view)
+	}
+	// Returning to the bottom with `end` hides the hint again.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = next.(Model)
+	view := ansi.Strip(m.View())
+	if strings.Contains(view, "回到底部") || strings.Contains(view, "↑ 历史") {
+		t.Fatalf("bottom viewport still shows the scroll hint:\n%s", view)
+	}
+}
+
+func TestChromeScrollHintHiddenNearBottom(t *testing.T) {
+	m, _ := scrollHintModel(t)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 88, Height: 24})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = next.(Model)
+	m.chatFollow = false
+	m.chatScroll = m.chatMaxScroll() - 2
+	next, _ = m.Update(surface.RefreshMsg{})
+	m = next.(Model)
+	if strings.Contains(ansi.Strip(m.View()), "回到底部") {
+		t.Fatal("scroll hint shown within two lines of the bottom")
+	}
+	if m.chatFollow {
+		t.Fatal("parking above the bottom re-enabled follow")
 	}
 }
