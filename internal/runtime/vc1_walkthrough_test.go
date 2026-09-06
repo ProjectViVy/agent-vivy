@@ -67,7 +67,7 @@ func TestVC1Walkthrough(t *testing.T) {
 	}
 	filesBackend := NewEinoFilesystemBackend(manager, sandbox)
 	filesBackend.SetFileVersionRecorder(NewFileVersionRecorder(backend, nil))
-	commandBackend := NewEinoCommandBackend(manager, sandbox, nil, 0)
+	commandBackend := NewCommandBackend(manager, sandbox, nil, 0)
 
 	ts, err := tools.NewRegistry(
 		tools.NewWriteFile(filesBackend),

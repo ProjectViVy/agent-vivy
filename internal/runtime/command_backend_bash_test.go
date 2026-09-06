@@ -19,7 +19,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func newBashBackendForTest(t *testing.T, mode domain.SandboxMode) (*EinoCommandBackend, string) {
+func newBashBackendForTest(t *testing.T, mode domain.SandboxMode) (*CommandBackend, string) {
 	t.Helper()
 	root := t.TempDir()
 	manager, err := NewWorkspaceManager(root)
@@ -30,7 +30,7 @@ func newBashBackendForTest(t *testing.T, mode domain.SandboxMode) (*EinoCommandB
 	if err != nil {
 		t.Fatalf("sandbox manager: %v", err)
 	}
-	backend := NewEinoCommandBackend(manager, sandbox, []string{"go"}, 0)
+	backend := NewCommandBackend(manager, sandbox, []string{"go"}, 0)
 	return backend, root
 }
 
@@ -91,7 +91,7 @@ func TestBashBackendRejectsMalformedInvocation(t *testing.T) {
 	}
 }
 
-func waitForBackendJob(t *testing.T, backend *EinoCommandBackend, id string) tools.JobReadResult {
+func waitForBackendJob(t *testing.T, backend *CommandBackend, id string) tools.JobReadResult {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

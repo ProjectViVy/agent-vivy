@@ -8,8 +8,8 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func TestEinoSequentialThinkingBackendScopesAndValidatesRuns(t *testing.T) {
-	backend := NewEinoSequentialThinkingBackend()
+func TestSequentialThinkingBackendScopesAndValidatesRuns(t *testing.T) {
+	backend := NewSequentialThinkingBackend()
 	first, err := backend.Think(context.Background(), "run-a", tools.SequentialThoughtRequest{Thought: "first", ThoughtNumber: 1, TotalThoughts: 2, NextThoughtNeeded: true})
 	if err != nil || !first.Accepted || first.ThoughtNumber != 1 {
 		t.Fatalf("first=%#v err=%v", first, err)
@@ -29,8 +29,8 @@ func TestEinoSequentialThinkingBackendScopesAndValidatesRuns(t *testing.T) {
 		t.Fatal("expected sequence gap error")
 	}
 }
-func TestEinoSequentialThinkingBackendBoundsThoughtSize(t *testing.T) {
-	backend := NewEinoSequentialThinkingBackend()
+func TestSequentialThinkingBackendBoundsThoughtSize(t *testing.T) {
+	backend := NewSequentialThinkingBackend()
 	_, err := backend.Think(context.Background(), "run", tools.SequentialThoughtRequest{Thought: strings.Repeat("x", maxThoughtBytes+1), ThoughtNumber: 1, TotalThoughts: 1})
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("size error=%v", err)

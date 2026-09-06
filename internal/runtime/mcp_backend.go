@@ -31,7 +31,7 @@ type MCPServerConfig struct {
 	AuthEnv  string
 }
 
-type EinoMCPBackend struct {
+type MCPBackend struct {
 	client           *http.Client
 	servers          map[string]MCPServerConfig
 	sessions         map[string]*mcpSession
@@ -56,25 +56,25 @@ type MCPServerStatus struct {
 	Initialized bool
 }
 
-var _ tools.MCPOperations = (*EinoMCPBackend)(nil)
-var _ tools.MCPResourceOperations = (*EinoMCPBackend)(nil)
-var _ tools.MCPPromptOperations = (*EinoMCPBackend)(nil)
+var _ tools.MCPOperations = (*MCPBackend)(nil)
+var _ tools.MCPResourceOperations = (*MCPBackend)(nil)
+var _ tools.MCPPromptOperations = (*MCPBackend)(nil)
 var _ interface {
 	PrepareMCPCall(context.Context, domain.RunID, tools.MCPCallRequest) (domain.ToolProposal, error)
-} = (*EinoMCPBackend)(nil)
+} = (*MCPBackend)(nil)
 
-func NewEinoMCPBackend(configs []MCPServerConfig, client *http.Client) *EinoMCPBackend {
+func NewMCPBackend(configs []MCPServerConfig, client *http.Client) *MCPBackend {
 	if client == nil {
 		client = &http.Client{Timeout: defaultMCPTimeout}
 	}
-	backend := &EinoMCPBackend{client: client, maxResponseBytes: maxMCPResponseBytes, timeout: defaultMCPTimeout}
+	backend := &MCPBackend{client: client, maxResponseBytes: maxMCPResponseBytes, timeout: defaultMCPTimeout}
 	backend.ReplaceServers(configs)
 	return backend
 }
 
 // ReplaceServers swaps the live catalog and drops cached sessions so the
 // next list/call re-initializes against the new endpoints.
-func (b *EinoMCPBackend) ReplaceServers(configs []MCPServerConfig) {
+func (b *MCPBackend) ReplaceServers(configs []MCPServerConfig) {
 	servers := make(map[string]MCPServerConfig, len(configs))
 	for _, config := range configs {
 		name := strings.TrimSpace(config.Name)
@@ -94,7 +94,7 @@ func (b *EinoMCPBackend) ReplaceServers(configs []MCPServerConfig) {
 
 // ConfiguredServers returns a snapshot of the live catalog (enabled
 // servers only; the backend never stores disabled entries).
-func (b *EinoMCPBackend) ConfiguredServers() []MCPServerConfig {
+func (b *MCPBackend) ConfiguredServers() []MCPServerConfig {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	out := make([]MCPServerConfig, 0, len(b.servers))
@@ -106,7 +106,7 @@ func (b *EinoMCPBackend) ConfiguredServers() []MCPServerConfig {
 
 // ServerStatuses reports the backend's current in-process MCP truth without
 // probing the network or exposing endpoints and authentication metadata.
-func (b *EinoMCPBackend) ServerStatuses() []MCPServerStatus {
+func (b *MCPBackend) ServerStatuses() []MCPServerStatus {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	out := make([]MCPServerStatus, 0, len(b.servers))
@@ -120,7 +120,7 @@ func (b *EinoMCPBackend) ServerStatuses() []MCPServerStatus {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
-func (b *EinoMCPBackend) ListTools(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResponse, error) {
+func (b *MCPBackend) ListTools(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResponse, error) {
 	server = strings.TrimSpace(server)
 	if server != "" {
 		result, err := b.listServer(ctx, server)
@@ -140,7 +140,7 @@ func (b *EinoMCPBackend) ListTools(ctx context.Context, _ domain.RunID, server s
 	return tools.MCPListResponse{Tools: all, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) listServer(ctx context.Context, server string) ([]tools.MCPTool, error) {
+func (b *MCPBackend) listServer(ctx context.Context, server string) ([]tools.MCPTool, error) {
 	config, err := b.server(server)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (b *EinoMCPBackend) listServer(ctx context.Context, server string) ([]tools
 // ListResources performs the read-only MCP resources/list operation. An
 // empty server lists each configured server in catalog order (the TUI uses a
 // specific server so a one-shot command cannot accidentally fan out).
-func (b *EinoMCPBackend) ListResources(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResourcesResponse, error) {
+func (b *MCPBackend) ListResources(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResourcesResponse, error) {
 	server = strings.TrimSpace(server)
 	if server != "" {
 		resources, err := b.listResourcesServer(ctx, server, maxMCPContentBytes)
@@ -207,7 +207,7 @@ func (b *EinoMCPBackend) ListResources(ctx context.Context, _ domain.RunID, serv
 
 // ListPrompts returns the remote prompt catalog as bounded untrusted
 // metadata. An empty server aggregates configured servers in sorted order.
-func (b *EinoMCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server string) (tools.MCPListPromptsResponse, error) {
+func (b *MCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server string) (tools.MCPListPromptsResponse, error) {
 	server = strings.TrimSpace(server)
 	if server != "" {
 		prompts, err := b.listPromptsServer(ctx, server)
@@ -234,7 +234,7 @@ func (b *EinoMCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server
 	return tools.MCPListPromptsResponse{Prompts: all, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) listPromptsServer(ctx context.Context, server string) ([]tools.MCPPrompt, error) {
+func (b *MCPBackend) listPromptsServer(ctx context.Context, server string) ([]tools.MCPPrompt, error) {
 	config, err := b.server(server)
 	if err != nil {
 		return nil, err
@@ -323,7 +323,7 @@ func (b *EinoMCPBackend) listPromptsServer(ctx context.Context, server string) (
 
 // GetPrompt fetches one prompt and flattens text content into bounded,
 // untrusted model input. Non-text content is rejected rather than guessed.
-func (b *EinoMCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
+func (b *MCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
 	config, err := b.server(request.Server)
 	if err != nil {
 		return tools.MCPGetPromptResponse{}, err
@@ -371,7 +371,7 @@ func (b *EinoMCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request 
 	return tools.MCPGetPromptResponse{Server: request.Server, Name: request.Name, Description: boundedString(payload.Description, 4096), Text: text, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) listResourcesServer(ctx context.Context, server string, limit int) ([]tools.MCPResource, error) {
+func (b *MCPBackend) listResourcesServer(ctx context.Context, server string, limit int) ([]tools.MCPResource, error) {
 	config, err := b.server(server)
 	if err != nil {
 		return nil, err
@@ -450,7 +450,7 @@ func (b *EinoMCPBackend) listResourcesServer(ctx context.Context, server string,
 // remote URI is returned verbatim (subject to the shared size budget) and
 // resource content remains untrusted text/base64; it is not mounted, parsed,
 // or written into a tenant workspace.
-func (b *EinoMCPBackend) ReadResource(ctx context.Context, _ domain.RunID, request tools.MCPReadResourceRequest) (tools.MCPReadResourceResponse, error) {
+func (b *MCPBackend) ReadResource(ctx context.Context, _ domain.RunID, request tools.MCPReadResourceRequest) (tools.MCPReadResourceResponse, error) {
 	request.Server = strings.TrimSpace(request.Server)
 	if strings.TrimSpace(request.URI) == "" {
 		return tools.MCPReadResourceResponse{}, errors.New("mcp: resource URI is required")
@@ -514,7 +514,7 @@ func (b *EinoMCPBackend) ReadResource(ctx context.Context, _ domain.RunID, reque
 	return tools.MCPReadResourceResponse{Server: request.Server, URI: request.URI, Contents: contents, Untrusted: true}, nil
 }
 
-func (b *EinoMCPBackend) CallTool(ctx context.Context, _ domain.RunID, request tools.MCPCallRequest) (tools.MCPCallResponse, error) {
+func (b *MCPBackend) CallTool(ctx context.Context, _ domain.RunID, request tools.MCPCallRequest) (tools.MCPCallResponse, error) {
 	config, err := b.server(request.Server)
 	if err != nil {
 		return tools.MCPCallResponse{}, err
@@ -550,7 +550,7 @@ func (b *EinoMCPBackend) CallTool(ctx context.Context, _ domain.RunID, request t
 	}
 	return tools.MCPCallResponse{Server: request.Server, Tool: request.Tool, Content: content, IsError: payload.IsError, Untrusted: true}, nil
 }
-func (b *EinoMCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, request tools.MCPCallRequest) (domain.ToolProposal, error) {
+func (b *MCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, request tools.MCPCallRequest) (domain.ToolProposal, error) {
 	if _, err := b.server(request.Server); err != nil {
 		return domain.ToolProposal{}, err
 	}
@@ -562,7 +562,7 @@ func (b *EinoMCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, reque
 	return domain.ToolProposal{Action: tools.MCPCallName, Target: request.Server + "/" + request.Tool, Preview: preview, RiskFindings: []string{"remote MCP side effect is unknown"}, Data: payload}, nil
 }
 
-func (b *EinoMCPBackend) server(name string) (MCPServerConfig, error) {
+func (b *MCPBackend) server(name string) (MCPServerConfig, error) {
 	name = strings.TrimSpace(name)
 	b.mu.Lock()
 	config, ok := b.servers[name]
@@ -573,7 +573,7 @@ func (b *EinoMCPBackend) server(name string) (MCPServerConfig, error) {
 	return config, nil
 }
 
-func (b *EinoMCPBackend) serverNames() []string {
+func (b *MCPBackend) serverNames() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	names := make([]string, 0, len(b.servers))
@@ -583,7 +583,7 @@ func (b *EinoMCPBackend) serverNames() []string {
 	return names
 }
 
-func (b *EinoMCPBackend) rpc(ctx context.Context, config MCPServerConfig, method string, params any, retryable bool) ([]byte, error) {
+func (b *MCPBackend) rpc(ctx context.Context, config MCPServerConfig, method string, params any, retryable bool) ([]byte, error) {
 	var firstErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		if method != "initialize" {
@@ -618,7 +618,7 @@ func (b *EinoMCPBackend) rpc(ctx context.Context, config MCPServerConfig, method
 	return nil, errors.New("mcp: request retry exhausted")
 }
 
-func (b *EinoMCPBackend) ensureSession(ctx context.Context, config MCPServerConfig) error {
+func (b *MCPBackend) ensureSession(ctx context.Context, config MCPServerConfig) error {
 	b.mu.Lock()
 	session := b.sessions[config.Name]
 	if session != nil && session.initialized {
@@ -647,7 +647,7 @@ func (b *EinoMCPBackend) ensureSession(ctx context.Context, config MCPServerConf
 	_, _, _ = b.send(ctx, config, "notifications/initialized", map[string]any{}, false)
 	return nil
 }
-func (b *EinoMCPBackend) send(ctx context.Context, config MCPServerConfig, method string, params any, withResponse bool) ([]byte, string, error) {
+func (b *MCPBackend) send(ctx context.Context, config MCPServerConfig, method string, params any, withResponse bool) ([]byte, string, error) {
 	var requestID uint64
 	message := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
 	if withResponse {
@@ -765,13 +765,13 @@ func extractSSEJSON(raw []byte) ([][]byte, error) {
 	}
 	return events, nil
 }
-func (b *EinoMCPBackend) invalidate(name string) {
+func (b *MCPBackend) invalidate(name string) {
 	b.mu.Lock()
 	delete(b.sessions, name)
 	b.mu.Unlock()
 }
 
-func (b *EinoMCPBackend) setSessionID(name, id string) {
+func (b *MCPBackend) setSessionID(name, id string) {
 	if id == "" {
 		return
 	}
