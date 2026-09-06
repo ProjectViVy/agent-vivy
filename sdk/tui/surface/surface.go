@@ -3,6 +3,8 @@
 package surface
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -188,6 +190,9 @@ type Meta struct {
 	RunID  string
 	Error  string
 	Footer string // short status fragment after help keys
+	// BusySince is when the current run started; zero while idle. The chrome
+	// uses it for the elapsed-run timer.
+	BusySince time.Time
 }
 
 // Driver is the fullscreen shell's data plane + async commands.

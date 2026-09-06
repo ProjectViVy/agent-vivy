@@ -43,11 +43,12 @@ type Live struct {
 	dynamicCommands       []surface.DynamicCommand
 	dynamicCommandRequest uint64
 
-	busy    bool
-	runID   string
-	gate    *surface.Gate
-	lastErr string
-	queue   []queuedTurn
+	busy      bool
+	busySince time.Time
+	runID     string
+	gate      *surface.Gate
+	lastErr   string
+	queue     []queuedTurn
 	// drafts is keyed by session id so unsent image chips cannot cross a
 	// session switch. Values contain metadata only; bytes stay server-side.
 	drafts           map[string][]surface.Attachment
@@ -282,12 +283,28 @@ func (l *Live) Meta() surface.Meta {
 		footer += fmt.Sprintf(" · queued %d", queued)
 	}
 	return surface.Meta{
-		Host:   l.host,
-		Busy:   l.busy,
-		Queued: queued,
-		RunID:  l.runID,
-		Error:  l.lastErr,
-		Footer: footer,
+		Host:      l.host,
+		Busy:      l.busy,
+		Queued:    queued,
+		RunID:     l.runID,
+		Error:     l.lastErr,
+		Footer:    footer,
+		BusySince: l.busySince,
+	}
+}
+
+// setBusyLocked toggles the run state and stamps the busy-start clock. The
+// caller must hold l.mu; every busy transition goes through here so the
+// chrome's elapsed timer stays truthful.
+func (l *Live) setBusyLocked(busy bool) {
+	if l.busy == busy {
+		return
+	}
+	l.busy = busy
+	if busy {
+		l.busySince = time.Now()
+	} else {
+		l.busySince = time.Time{}
 	}
 }
 
@@ -718,7 +735,7 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 		}
 	}
 	l.gate = nil
-	l.busy = false
+	l.setBusyLocked(false)
 	l.runID = ""
 	subscriptionID := l.subscriptionID
 	l.retireSubscriptionLocked(subscriptionID)
@@ -752,7 +769,7 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 	}
 	if msg.Err != nil {
 		l.lastErr = shortErr(msg.Err)
-		l.busy = false
+		l.setBusyLocked(false)
 		l.runID = ""
 		if msg.SessionID != "" {
 			if l.drafts == nil {
@@ -784,7 +801,7 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 		}
 		l.messages[l.activeID] = messages
 	}
-	l.busy = true
+	l.setBusyLocked(true)
 	l.runID = msg.RunID
 	l.cursor.Reset()
 	l.subscriptionID = ""
@@ -870,7 +887,7 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 		l.sidebarRequest++
 		request = l.sidebarRequest
 	}
-	l.busy = false
+	l.setBusyLocked(false)
 	l.runID = ""
 	l.cursor.Reset()
 	l.recoveryInFlight = false
@@ -1230,7 +1247,7 @@ func (l *Live) applyNotice(notice eventNotice) {
 	l.gate = projection.Gate
 	if done {
 		l.terminalSucceeded = !notice.Failed
-		l.busy = false
+		l.setBusyLocked(false)
 		l.runID = ""
 		l.retireSubscriptionLocked(l.subscriptionID)
 		l.subscriptionID = ""
@@ -1793,7 +1810,7 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 		Content:     text,
 		Attachments: cloneAttachments(attachments),
 	})
-	l.busy = true
+	l.setBusyLocked(true)
 	l.mu.Unlock()
 
 	return func() tea.Msg {
@@ -1848,7 +1865,7 @@ func (l *Live) sendShell(script string) tea.Cmd {
 		return func() tea.Msg { return surface.RefreshMsg{} }
 	}
 	l.appendLocked(surface.Message{ID: l.nextID("user"), Role: roleUser, Content: "!" + script})
-	l.busy = true
+	l.setBusyLocked(true)
 	l.mu.Unlock()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 30*time.Second)
