@@ -250,5 +250,15 @@ Policy、worker 应由 Vivy 拥有，约六成候选能力可以通过 Eino/上�
 2. 写明 Vivy 不变式以及原生件能否满足；
 3. 优先替换协议/编排机械层，保留 Vivy 治理壳；
 4. 保持 domain firewall，Eino import 不越过 runtime/provider；
-5. MCP slice 已按上述边界独立测试、独立交付；其余 tool_search、Sequential
-   Thinking 与 plantask 候选仍未关闭，不做整片 runtime 重写。
+5. 每项独立测试、独立交付，不做整片 runtime 重写。
+
+## 9. 2026-09-06 superseded note
+
+The implementation decision for the tool-search candidate is now closed on
+the dedicated `refactor/eino-toolsearch` worktree. The pinned Eino v0.9.13
+core `adk/middlewares/dynamictool/toolsearch` middleware replaces the custom
+search and visibility surface. Vivy retains the fixed allowlist, governed
+business-tool adapters, policy/HITL/audit checks, and the final hidden
+Skill-mount projection; config/settings normalize the retired legacy name at
+their input/write boundary. The MCP, observer, naming, and tool-search slices
+are independently evidenced; Sequential Thinking and plantask remain open.

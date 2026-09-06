@@ -940,6 +940,12 @@ func userAssistantPairs(msgs []domain.Message) [][2]string {
 	for _, m := range msgs {
 		switch m.Role {
 		case domain.RoleUser, domain.RoleAssistant:
+			// Eino's official dynamic-tool middleware inserts a transient
+			// user-role reminder listing deferred tools. It is model context,
+			// not session transcript, so omit it from history assertions.
+			if strings.HasPrefix(m.Content, "<available-deferred-tools>") {
+				continue
+			}
 			out = append(out, [2]string{string(m.Role), m.Content})
 		}
 	}
@@ -1022,8 +1028,9 @@ func TestServiceHistoryIsolatedAcrossSessions(t *testing.T) {
 	}
 }
 
-// Every run's feed must be led by the per-run preamble (MA-2): persona,
-// current date, and the resolved tool set, ahead of any history.
+// Every run's feed must be led by the per-run preamble (MA-2): persona and
+// current date, ahead of any history. The official Eino tool-search
+// middleware owns any deferred-tool discovery reminder separately.
 func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)
@@ -1055,10 +1062,8 @@ func TestServiceRunLeadsWithPreamble(t *testing.T) {
 	if strings.Contains(static.Content, "echo_info") {
 		t.Fatalf("static instruction must not contain request-scoped tool names: %q", static.Content)
 	}
-	for _, marker := range []string{"echo_info", "read-only; runs automatically"} {
-		if !strings.Contains(dynamic.Content, marker) {
-			t.Fatalf("dynamic preamble missing %q: %q", marker, dynamic.Content)
-		}
+	if strings.Contains(dynamic.Content, "echo_info") || strings.Contains(dynamic.Content, "read-only; runs automatically") {
+		t.Fatalf("dynamic preamble must not carry a full tool manifest: %q", dynamic.Content)
 	}
 	last := feed[len(feed)-1]
 	if last.Role != domain.RoleUser || last.Content != "echo hello" {

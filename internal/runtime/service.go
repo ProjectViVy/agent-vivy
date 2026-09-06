@@ -1511,7 +1511,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	ledger := s.ledgerForRun(m.runID)
 	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID)
 	// Per-run mount registry: skill_view records declared tools here so the
-	// surface middleware can advertise them and the adapter can admit them
+	// mount projection can advertise them and the adapter can admit them
 	// for the remainder of this run. TT-1 session pin: the fresh registry is
 	// seeded with the mounts prior runs of this session accumulated, so a
 	// skill mounted once stays callable without re-viewing.
@@ -1564,9 +1564,10 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
-	// static Instruction cannot (date, active tool set, and the bounded notebook
-	// digest of MA-3).
-	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), selection.Specs, face)
+	// static Instruction cannot (date, whether active tools exist, and the
+	// bounded notebook digest of MA-3). Tool discovery is owned by Eino's
+	// official middleware.
+	preamble := composeRunPreamble(time.Now(), s.notesDigest(ctx), len(selection.Specs) > 0, face)
 	if err := s.reconcileSessionMessageProjection(ctx, sessionID); err != nil {
 		return nil, selection, ContextStats{}, fmt.Errorf("runtime: reconcile durable session history: %w", err)
 	}

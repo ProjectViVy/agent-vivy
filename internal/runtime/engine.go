@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/cloudwego/eino/adk"
+	einotoolsearch "github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch"
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
@@ -16,6 +17,8 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 )
+
+const officialToolSearchName = "tool_search"
 
 // SummaryModel is the opaque engine seam for an alternative compaction
 // summarizer (CMP-2). The app layer builds it in internal/provider (D9
@@ -82,7 +85,7 @@ type EngineConfig struct {
 	AgentsMDBackend AgentsMDBackend
 	// HiddenTools are registered-but-not-active tools. They join the
 	// executable universe so a skill_view mount can use them mid-run, but
-	// the surface middleware never advertises them before they are mounted.
+	// the mount projection never advertises them before they are mounted.
 	HiddenTools []tools.Tool
 	// OffloadBackend receives cleared tool results from the reduction
 	// middleware (CMP-1). Content lands in the run workspace under
@@ -128,32 +131,73 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, err
 		}
 	}
-	wrapped := make([]einotool.BaseTool, 0, len(ts)+len(cfg.HiddenTools))
+	// The static node contains only the fixed-visible core plus hidden tools.
+	// Every other active tool is attached to Eino's official dynamic search
+	// middleware below; placing it in both lists would create duplicate names
+	// in the model/tool dispatch surface.
+	staticTools := make([]einotool.BaseTool, 0, len(ts)+len(cfg.HiddenTools))
+	dynamicTools := make([]einotool.BaseTool, 0, len(ts))
 	specs := make([]domain.ToolSpec, 0, len(ts))
 	byName := make(map[string]tools.Tool, len(ts)+len(cfg.HiddenTools))
+	hiddenInfos := make(map[string]*schema.ToolInfo, len(cfg.HiddenTools))
+	hiddenOrder := make([]string, 0, len(cfg.HiddenTools))
 	for _, t := range ts {
-		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
-		specs = append(specs, t.Spec())
-		byName[t.Spec().Name] = t
-	}
-	// Hidden tools execute only after a skill_view mounts them; they never
-	// reach the model's view before that (toolSurfaceMiddleware).
-	universeNames := make([]string, 0, len(specs)+len(cfg.HiddenTools))
-	for _, spec := range specs {
-		universeNames = append(universeNames, spec.Name)
+		if t == nil {
+			return nil, errors.New("runtime: nil active tool")
+		}
+		spec := t.Spec()
+		if spec.Name == officialToolSearchName {
+			return nil, fmt.Errorf("runtime: tool name %q is reserved by Eino dynamic tool search", spec.Name)
+		}
+		if _, exists := byName[spec.Name]; exists {
+			return nil, fmt.Errorf("runtime: duplicate tool name %q", spec.Name)
+		}
+		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
+		specs = append(specs, spec)
+		byName[spec.Name] = t
+		if isFixedVisibleTool(spec.Name) {
+			staticTools = append(staticTools, adapter)
+		} else {
+			dynamicTools = append(dynamicTools, adapter)
+		}
 	}
 	for _, t := range cfg.HiddenTools {
-		wrapped = append(wrapped, newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools)))
-		universeNames = append(universeNames, t.Spec().Name)
-		byName[t.Spec().Name] = t
+		if t == nil {
+			return nil, errors.New("runtime: nil hidden tool")
+		}
+		spec := t.Spec()
+		if spec.Name == officialToolSearchName {
+			return nil, fmt.Errorf("runtime: hidden tool name %q is reserved by Eino dynamic tool search", spec.Name)
+		}
+		if _, exists := byName[spec.Name]; exists {
+			return nil, fmt.Errorf("runtime: duplicate tool name %q", spec.Name)
+		}
+		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
+		info, err := adapter.Info(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: hidden tool %q info: %w", spec.Name, err)
+		}
+		staticTools = append(staticTools, adapter)
+		hiddenInfos[spec.Name] = info
+		hiddenOrder = append(hiddenOrder, spec.Name)
+		byName[spec.Name] = t
 	}
-	activeNames := make([]string, 0, len(specs))
-	activeNames = append(activeNames, universeNames[:len(specs)]...)
-	handlers := []adk.ChatModelAgentMiddleware{newToolSurfaceMiddleware(activeNames, universeNames)}
+	// With no deferred tools every active tool is fixed-visible, so the
+	// staticTools slice already contains the complete active surface.
+	handlers := make([]adk.ChatModelAgentMiddleware, 0, 1+len(cfg.HiddenTools))
+	var searchHandler adk.ChatModelAgentMiddleware
+	if len(dynamicTools) > 0 {
+		var err error
+		searchHandler, err = einotoolsearch.New(ctx, &einotoolsearch.Config{
+			DynamicTools:       dynamicTools,
+			UseModelToolSearch: false,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("runtime: dynamic tool search: %w", err)
+		}
+	}
 	if cfg.SkillBackend != nil {
-		// Registered after the surface middleware so its injected skill
-		// tool is a foreign name the view filter never hides. Inline load
-		// only; fork frontmatter is left to Eino's native error.
+		// Inline load only; fork frontmatter is left to Eino's native error.
 		skillHandler, err := einoskill.NewMiddleware(ctx, &einoskill.Config{Backend: cfg.SkillBackend})
 		if err != nil {
 			return nil, fmt.Errorf("runtime: skill middleware: %w", err)
@@ -188,6 +232,16 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		// ordering.
 		handlers = append(handlers, mdHandler)
 	}
+	// Official tool search is installed after Vivy's instruction and
+	// compaction handlers. It owns only deferred active tools. The mount
+	// projection runs last so a newly mounted hidden tool can be rehydrated
+	// after Eino's persisted ToolInfo rewrite.
+	if searchHandler != nil {
+		handlers = append(handlers, searchHandler)
+	}
+	if len(hiddenInfos) > 0 {
+		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
+	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:        "vivy",
 		Description: "Vivy, a precise personal assistant.",
@@ -195,7 +249,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		Model:       observeModelStreams(m),
 		Handlers:    handlers,
 		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: wrapped},
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: staticTools},
 		},
 	}
 	if cfg.MaxToolTurns > 0 {
@@ -234,11 +288,11 @@ func (e *Engine) PrepareProposal(ctx context.Context, name string, args json.Raw
 	return provider.PrepareProposal(tools.WithRunID(ctx, contextRunID(ctx)), args)
 }
 
-// SelectTools returns the full active surface: every tool the config
-// resolved, in registry order. Every request binds this complete set —
-// the former keyword selector that narrowed (and routinely emptied) the
-// surface per request is retired; tools.enabled stays the only admission
-// gate. The selection is enforced by the adapter through the run context.
+// SelectTools returns the complete active business-tool allowlist, including
+// both fixed-visible and deferred active tools, in registry/config order. It
+// describes executable Vivy tools, not the progressive model-visible surface:
+// the framework-owned tool_search meta-tool is intentionally absent. The
+// selection is enforced by the adapter through the run context.
 func (e *Engine) SelectTools() tools.Selection {
 	return tools.Selection{
 		Tools: append([]tools.Tool(nil), e.activeTools...),
