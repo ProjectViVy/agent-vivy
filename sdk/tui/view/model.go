@@ -51,6 +51,10 @@ type Model struct {
 	palette         Palette
 	debugToolOutput bool
 	windowTitle     string
+	// program is the running tea.Program handle, wired by RunWithOutput. The
+	// view uses it for terminal-level side effects such as the window title
+	// that must not ride the command channel. Nil in tests.
+	program *tea.Program
 
 	toolExpanded       bool
 	reasoningCollapsed bool
@@ -351,14 +355,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.clampChatScroll()
 	m.clampGateScroll()
-	// Track the terminal title and only issue the escape when the desired
-	// value actually changes. While this update already carries driver
-	// commands the sync stays deferred, so executing the returned command
-	// still yields the driver's own message instead of a batch wrapper.
+	// Keep the terminal title in sync with the active session title, issuing
+	// the escape only when the desired value actually changes. The sync goes
+	// through the program handle instead of a returned command: the driver's
+	// 40ms heartbeat keeps a command pending on every update, so a command
+	// based sync would starve, and batching would wrap the driver's own
+	// message that callers execute from the returned command.
 	if m.driver != nil {
-		if desired := windowTitleFor(m.driver.Sidebar().Session.Title); desired != m.windowTitle && len(cmds) == 0 {
+		if desired := windowTitleFor(m.driver.Sidebar().Session.Title); desired != m.windowTitle {
 			m.windowTitle = desired
-			cmds = append(cmds, tea.SetWindowTitle(desired))
+			if m.program != nil {
+				m.program.SetWindowTitle(desired)
+			}
 		}
 	}
 	return m, tea.Batch(cmds...)
@@ -2263,7 +2271,9 @@ func Run(driver surface.Driver, options ...Options) error {
 // RunWithOutput starts the canonical shell on the launcher's output stream.
 func RunWithOutput(driver surface.Driver, out io.Writer, options ...Options) error {
 	configureColor(out)
-	p := tea.NewProgram(New(driver, options...), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
+	m := New(driver, options...)
+	p := tea.NewProgram(&m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
+	m.program = p
 	_, err := p.Run()
 	return err
 }

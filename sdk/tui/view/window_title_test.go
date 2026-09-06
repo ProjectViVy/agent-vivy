@@ -56,25 +56,27 @@ func TestUpdateKeepsTerminalTitleInSyncWithSessionTitle(t *testing.T) {
 		t.Fatal("Init did not set the window title")
 	}
 
-	// A titled session updates the terminal title on the first update.
+	// A titled session updates the tracked title on the first update. The
+	// sync must not ride the command channel: without a wired program handle
+	// (tests) the field still moves and no command is emitted.
 	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
-	if cmd == nil || m.windowTitle != "VIVY CODE · First" {
-		t.Fatalf("titled session did not set the title: cmd=%v title=%q", cmd != nil, m.windowTitle)
+	if cmd != nil || m.windowTitle != "VIVY CODE · First" {
+		t.Fatalf("titled session did not sync: cmd=%v title=%q", cmd != nil, m.windowTitle)
 	}
 
-	// An unchanged title must not reissue the terminal escape.
+	// An unchanged title keeps the tracked value stable.
 	updated, cmd = m.Update(tea.WindowSizeMsg{Width: 81, Height: 24})
 	m = updated.(Model)
 	if cmd != nil || m.windowTitle != "VIVY CODE · First" {
-		t.Fatalf("unchanged title produced a command: cmd=%v title=%q", cmd != nil, m.windowTitle)
+		t.Fatalf("unchanged title drifted: cmd=%v title=%q", cmd != nil, m.windowTitle)
 	}
 
 	// A session title change syncs again.
 	driver.sidebar.Session.Title = "Second"
 	updated, cmd = m.Update(surface.RefreshMsg{})
 	m = updated.(Model)
-	if cmd == nil || m.windowTitle != "VIVY CODE · Second" {
+	if cmd != nil || m.windowTitle != "VIVY CODE · Second" {
 		t.Fatalf("changed title did not resync: cmd=%v title=%q", cmd != nil, m.windowTitle)
 	}
 
@@ -82,12 +84,12 @@ func TestUpdateKeepsTerminalTitleInSyncWithSessionTitle(t *testing.T) {
 	driver.sidebar.Session.Title = ""
 	updated, cmd = m.Update(surface.RefreshMsg{})
 	m = updated.(Model)
-	if cmd == nil || m.windowTitle != windowTitleBrand {
+	if cmd != nil || m.windowTitle != windowTitleBrand {
 		t.Fatalf("empty title did not fall back to the brand: cmd=%v title=%q", cmd != nil, m.windowTitle)
 	}
 }
 
-func TestUpdateDefersTitleSyncWhileDriverCommandsArePending(t *testing.T) {
+func TestUpdateTitleSyncNeverRidesTheCommandChannel(t *testing.T) {
 	driver := &testDriver{
 		sessions: []surface.Session{{ID: "s1", Title: "First"}},
 		active:   "s1",
@@ -99,9 +101,10 @@ func TestUpdateDefersTitleSyncWhileDriverCommandsArePending(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("ctrl+s did not open the sessions dialog")
 	}
-	// A pending driver command keeps its own message shape so callers that
-	// execute the returned command still observe the driver message; the
-	// title sync waits for a quiet update.
+	// Even when the update carries a driver command and the session title
+	// changed, executing the returned command still yields the driver's own
+	// message: the title sync goes through the program handle, never the
+	// command channel.
 	msg := cmd()
 	if _, batched := msg.(tea.BatchMsg); batched {
 		t.Fatalf("driver command was batched with the title sync: %T", msg)
@@ -109,14 +112,7 @@ func TestUpdateDefersTitleSyncWhileDriverCommandsArePending(t *testing.T) {
 	if _, delivered := msg.(surface.SessionsMsg); !delivered {
 		t.Fatalf("driver command message = %T, want surface.SessionsMsg", msg)
 	}
-	if m.windowTitle != windowTitleBrand {
-		t.Fatalf("deferred title applied early: %q", m.windowTitle)
-	}
-
-	// The following quiet update applies the deferred title.
-	updated, cmd = m.Update(msg)
-	m = updated.(Model)
-	if cmd == nil || m.windowTitle != "VIVY CODE · First" {
-		t.Fatalf("deferred title did not sync: cmd=%v title=%q", cmd != nil, m.windowTitle)
+	if m.windowTitle != "VIVY CODE · First" {
+		t.Fatalf("title was not tracked alongside the driver command: %q", m.windowTitle)
 	}
 }
