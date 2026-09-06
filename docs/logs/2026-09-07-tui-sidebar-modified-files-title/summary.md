@@ -27,6 +27,11 @@ assertions depend on.
 
 ### F7 — terminal window title
 
+> Audit fix (commit `bb5e294`): the original command-channel deferral starved
+> in production — the live driver's 40ms heartbeat keeps a command pending on
+> every update. The sync now goes through the wired `tea.Program` handle and
+> applies immediately; see `verification.md` for the full record.
+
 `sdk/tui/view/model.go`
 
 - `Init` applies the bare `VIVY CODE` brand immediately (batched with the

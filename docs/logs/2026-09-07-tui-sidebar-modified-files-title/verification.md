@@ -34,6 +34,29 @@ spinner/elapsed chrome hunks, `chrome_status_test.go`) out of both commits.
 Each commit was verified to build and pass the view package independently in
 a throwaway worktree before the next was cut.
 
+## Audit fix (same day)
+
+Human audit found F7 dead in the live product: the title stayed on the bare
+brand after `/rename`. Root cause: the deferral contract ("sync only on an
+update with no pending commands") starves in production because the live
+driver's 40ms heartbeat (`Handle(liveTickMsg)` → next `tickCmd`) keeps a
+command pending on every update; the unit fake driver has no heartbeat, so
+the tests could not catch it.
+
+Fix `bb5e294` — route the sync through the running `tea.Program` handle
+(`RunWithOutput` wires it) instead of the command channel:
+
+- sync applies immediately on the update that sees the change;
+- the returned command's message shape is unchanged (no batch wrapper) —
+  pinned by `TestUpdateTitleSyncNeverRidesTheCommandChannel`;
+- applied value stays tracked for idempotence; the old deferral test was
+  replaced (the contract it pinned no longer exists).
+
+Verification: `go build ./sdk/...`, `go test ./sdk/tui/view/ -count=1` (ok),
+`gofmt -l` clean, `go vet` clean. Live smoke in Windows Terminal: fresh
+instance shows tab title `VIVY CODE`; after `/rename` → `audit-7` the tab
+title becomes `VIVY CODE · audit-7` immediately.
+
 ## Smoke path and limitations
 
 - Rendering is verified by in-process assertions against the real styled
