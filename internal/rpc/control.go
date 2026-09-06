@@ -366,6 +366,7 @@ type skillSummaryResult struct {
 	Agent         string   `json:"agent,omitempty"`
 	Model         string   `json:"model,omitempty"`
 	UserInvocable bool     `json:"user_invocable,omitempty"`
+	Origin        string   `json:"origin,omitempty"`
 	Enabled       bool     `json:"enabled"`
 	Hash          string   `json:"hash"`
 	Warnings      []string `json:"warnings"`
@@ -1658,7 +1659,7 @@ func toSkillSummaryResult(item tools.SkillSummary) skillSummaryResult {
 	return skillSummaryResult{
 		Name: item.Name, Description: item.Description, Context: item.Context,
 		Agent: item.Agent, Model: item.Model, UserInvocable: item.UserInvocable,
-		Enabled: item.Enabled, Hash: item.Hash, Warnings: warnings,
+		Origin: item.Origin, Enabled: item.Enabled, Hash: item.Hash, Warnings: warnings,
 	}
 }
 
@@ -1705,6 +1706,9 @@ func skillToggleError(err error) *Error {
 	}
 	if strings.Contains(err.Error(), "not found") {
 		return &Error{Code: CodeNotFound, Message: err.Error()}
+	}
+	if strings.Contains(err.Error(), "read-only") {
+		return &Error{Code: InvalidParams, Message: err.Error()}
 	}
 	return internalError(err)
 }

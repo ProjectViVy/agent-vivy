@@ -35,9 +35,18 @@ var _ tools.SkillOperations = (*EinoSkillBackend)(nil)
 // EinoSkillBackend is a trusted-root, read-only Eino Skill backend plus the
 // Vivy-owned staged mutation surface. Skill content is always returned as
 // untrusted data; it is never executed by this package.
+var errSkillReadOnly = errors.New("skills: project skill is read-only")
+
+type skillRoot struct {
+	path     string
+	origin   string
+	writable bool
+}
+
 type EinoSkillBackend struct {
-	root      string
-	revisions storage.SkillRevisionStore
+	root         string
+	projectRoots []skillRoot
+	revisions    storage.SkillRevisionStore
 }
 
 func NewEinoSkillBackend(root string, revisions storage.SkillRevisionStore) (*EinoSkillBackend, error) {
@@ -50,6 +59,42 @@ func NewEinoSkillBackend(root string, revisions storage.SkillRevisionStore) (*Ei
 		return nil, fmt.Errorf("skills: resolve root: %w", err)
 	}
 	return &EinoSkillBackend{root: filepath.Clean(abs), revisions: revisions}, nil
+}
+
+// SetProjectSkillRoots installs closer-first read-only overlays (cwd then
+// git-root conventional dirs). Missing or symlink paths are skipped.
+func (b *EinoSkillBackend) SetProjectSkillRoots(roots []string) error {
+	out := make([]skillRoot, 0, len(roots))
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			return fmt.Errorf("skills: resolve project root: %w", err)
+		}
+		abs = filepath.Clean(abs)
+		key := strings.ToLower(abs)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		if !realDirectory(abs) {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, skillRoot{path: abs, origin: tools.SkillOriginProject, writable: false})
+	}
+	b.projectRoots = out
+	return nil
+}
+
+func (b *EinoSkillBackend) scanRoots() []skillRoot {
+	out := make([]skillRoot, 0, len(b.projectRoots)+1)
+	out = append(out, b.projectRoots...)
+	out = append(out, skillRoot{path: b.root, origin: tools.SkillOriginUser, writable: true})
+	return out
 }
 
 func (b *EinoSkillBackend) List(ctx context.Context) ([]einoskill.FrontMatter, error) {
@@ -138,6 +183,11 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 	req.SkillName = strings.TrimSpace(req.SkillName)
 	if err := validSkillName(req.SkillName); err != nil {
 		return domain.ToolProposal{}, err
+	}
+	if req.Action != "create" {
+		if root, _, locErr := b.skillDirOf(req.SkillName); locErr == nil && !root.writable {
+			return domain.ToolProposal{}, errSkillReadOnly
+		}
 	}
 	if req.Action == "rollback" {
 		return b.prepareRollbackProposal(ctx, runID, req)
@@ -274,6 +324,7 @@ type loadedSkill struct {
 	userInvocable bool
 	declaredTools []string
 	warnings      []string
+	origin        string
 }
 
 func (b *EinoSkillBackend) loadSkills(ctx context.Context) ([]loadedSkill, error) {
@@ -283,16 +334,42 @@ func (b *EinoSkillBackend) loadSkills(ctx context.Context) ([]loadedSkill, error
 	if err := os.MkdirAll(b.root, 0o700); err != nil {
 		return nil, fmt.Errorf("skills: create root: %w", err)
 	}
-	entries, err := os.ReadDir(b.root)
+	seen := make(map[string]struct{})
+	var out []loadedSkill
+	for _, root := range b.scanRoots() {
+		items, err := b.loadRoot(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			key := strings.ToLower(item.name)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (b *EinoSkillBackend) loadRoot(ctx context.Context, root skillRoot) ([]loadedSkill, error) {
+	entries, err := os.ReadDir(root.path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && !root.writable {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("skills: list root: %w", err)
 	}
 	out := make([]loadedSkill, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || skipSkillDirName(entry.Name()) {
 			continue
 		}
-		item, err := b.loadSkill(ctx, entry.Name())
+		item, err := b.loadSkillFromRoot(ctx, root, entry.Name())
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -301,11 +378,53 @@ func (b *EinoSkillBackend) loadSkills(ctx context.Context) ([]loadedSkill, error
 	return out, nil
 }
 
+func skipSkillDirName(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch name {
+	case "node_modules", "vendor":
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSkill, error) {
+	item, _, err := b.locateSkill(ctx, name)
+	return item, err
+}
+
+func (b *EinoSkillBackend) locateSkill(ctx context.Context, name string) (loadedSkill, skillRoot, error) {
+	if err := validSkillName(name); err != nil {
+		return loadedSkill{}, skillRoot{}, err
+	}
+	var last error
+	for _, root := range b.scanRoots() {
+		item, err := b.loadSkillFromRoot(ctx, root, name)
+		if err == nil {
+			return item, root, nil
+		}
+		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "is not a directory") {
+			last = err
+			continue
+		}
+		return loadedSkill{}, skillRoot{}, err
+	}
+	if last == nil {
+		last = fmt.Errorf("skills: skill %q not found", name)
+	}
+	return loadedSkill{}, skillRoot{}, last
+}
+
+func (b *EinoSkillBackend) loadSkillFromRoot(ctx context.Context, root skillRoot, name string) (loadedSkill, error) {
+	if err := ctx.Err(); err != nil {
+		return loadedSkill{}, err
+	}
 	if err := validSkillName(name); err != nil {
 		return loadedSkill{}, err
 	}
-	dir, err := b.skillDir(name)
+	dir, err := skillDirIn(root.path, name)
 	if err != nil {
 		return loadedSkill{}, err
 	}
@@ -327,13 +446,19 @@ func (b *EinoSkillBackend) loadSkill(ctx context.Context, name string) (loadedSk
 	hash := sha256Hex(data)
 	return loadedSkill{front: local.eino(), content: content, dir: dir, name: name, hash: hash, enabled: enabled,
 		always: local.Always, userInvocable: local.UserInvocable,
-		declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data))}, nil
+		declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data)),
+		origin: root.origin}, nil
 }
 
 func (b *EinoSkillBackend) summary(item loadedSkill) tools.SkillSummary {
+	origin := item.origin
+	if origin == "" {
+		origin = tools.SkillOriginUser
+	}
 	return tools.SkillSummary{Name: item.front.Name, Description: item.front.Description, Context: string(item.front.Context),
 		Agent: item.front.Agent, Model: item.front.Model, UserInvocable: item.userInvocable,
 		Tools:   append([]string(nil), item.declaredTools...),
+		Origin:  origin,
 		Enabled: item.enabled, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
 }
 
@@ -345,7 +470,7 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 	if err := validSkillName(name); err != nil {
 		return tools.SkillSummary{}, err
 	}
-	dir, err := b.skillDir(name)
+	dir, err := b.writableSkillDir(name)
 	if err != nil {
 		return tools.SkillSummary{}, err
 	}
@@ -380,8 +505,41 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 }
 
 func (b *EinoSkillBackend) skillDir(name string) (string, error) {
-	path := filepath.Join(b.root, name)
-	if err := validateUnderRoot(b.root, path); err != nil {
+	_, dir, err := b.skillDirOf(name)
+	return dir, err
+}
+
+func (b *EinoSkillBackend) skillDirOf(name string) (skillRoot, string, error) {
+	if err := validSkillName(name); err != nil {
+		return skillRoot{}, "", err
+	}
+	for _, root := range b.scanRoots() {
+		dir, err := skillDirIn(root.path, name)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "SKILL.md")); err != nil {
+			continue
+		}
+		return root, dir, nil
+	}
+	return skillRoot{}, "", fmt.Errorf("skills: skill %q not found", name)
+}
+
+func (b *EinoSkillBackend) writableSkillDir(name string) (string, error) {
+	root, dir, err := b.skillDirOf(name)
+	if err != nil {
+		return "", err
+	}
+	if !root.writable {
+		return "", errSkillReadOnly
+	}
+	return dir, nil
+}
+
+func skillDirIn(root, name string) (string, error) {
+	path := filepath.Join(root, name)
+	if err := validateUnderRoot(root, path); err != nil {
 		return "", err
 	}
 	info, err := os.Lstat(path)
@@ -431,6 +589,9 @@ func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.Ski
 			return nil, "", "", "", err
 		}
 		if action == "create" {
+			if _, _, err := b.skillDirOf(req.SkillName); err == nil {
+				return nil, "", "", "", errors.New("skills: skill already exists")
+			}
 			if _, err := os.Lstat(dir); err == nil {
 				return nil, "", "", "", errors.New("skills: skill already exists")
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -438,13 +599,17 @@ func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.Ski
 			}
 			return nil, filepath.Join(dir, "SKILL.md"), filepath.ToSlash(filepath.Join(req.SkillName, "SKILL.md")), "", nil
 		}
-		current, err := readTrustedFile(filepath.Join(dir, "SKILL.md"))
+		writable, err := b.writableSkillDir(req.SkillName)
 		if err != nil {
 			return nil, "", "", "", err
 		}
-		return current, dir, filepath.ToSlash(req.SkillName) + "/", sha256Hex(current), nil
+		current, err := readTrustedFile(filepath.Join(writable, "SKILL.md"))
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		return current, writable, filepath.ToSlash(req.SkillName) + "/", sha256Hex(current), nil
 	}
-	if _, err := b.skillDir(req.SkillName); err != nil {
+	if _, err := b.writableSkillDir(req.SkillName); err != nil {
 		return nil, "", "", "", err
 	}
 	rel := req.Path

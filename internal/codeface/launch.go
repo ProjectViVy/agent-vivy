@@ -106,5 +106,6 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 		plugin.FaceOptions{DebugToolOutput: prepared.Config.TUI.Debug, Out: out, Err: errOut},
 		app.WithSettingsPath(prepared.SharedSettingsPath),
 		app.WithCodeProjectRoot(prepared.Config.Runtime.WorkspaceRoot),
+		app.WithInstructionRoot(prepared.Config.Runtime.WorkspaceRoot),
 	)
 }
