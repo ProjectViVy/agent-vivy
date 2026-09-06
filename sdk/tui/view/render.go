@@ -559,15 +559,16 @@ func (m Model) renderChat(width, height int, p Palette) string {
 
 func (m Model) chatLines(width int, p Palette) []string {
 	messages := m.driver.ActiveMessages()
-	m.mdCache.ensure(m.driver.Active().ID, width)
+	debugToolOutput := m.debugToolOutput || m.toolExpanded
+	m.mdCache.ensure(m.driver.Active().ID, width, m.reasoningCollapsed)
 	var lines []string
 	if len(messages) == 0 {
-		lines = append(lines, p.Dim.Render(""), p.LogoWord.Render(" 寻找真心之旅"), p.Dim.Render(" empty session · type to draft"))
+		lines = m.renderEmptyHero(p, width)
 	}
 	for index, message := range messages {
 		rendered, ok := m.mdCache.get(message, width)
 		if !ok {
-			rendered = renderMessageWithOptions(message, width, p, m.debugToolOutput)
+			rendered = renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
 			m.mdCache.put(message, width, rendered)
 		}
 		lines = append(lines, rendered...)
@@ -578,11 +579,27 @@ func (m Model) chatLines(width int, p Palette) []string {
 	return lines
 }
 
-func renderMessage(message surface.Message, width int, p Palette) []string {
-	return renderMessageWithOptions(message, width, p, false)
+func (m Model) renderEmptyHero(p Palette, width int) []string {
+	lines := []string{
+		p.Dim.Render(""),
+		p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY CODE"),
+		p.Dim.Render(" 寻找真心之旅"),
+		"",
+	}
+	if cwd := strings.TrimSpace(m.driver.Sidebar().CWD); cwd != "" {
+		lines = append(lines, p.Dim.Render(truncate("cwd  "+cwd, width)))
+	}
+	return append(lines,
+		p.Dim.Render(truncate("/ 命令 · @文件 · !shell · ctrl+p 面板 · ctrl+s 会话 · ctrl+x 快捷方式", width)),
+		p.Dim.Render(truncate("ctrl+o 工具输出 · ctrl+r reasoning", width)),
+	)
 }
 
-func renderMessageWithOptions(message surface.Message, width int, p Palette, debugToolOutput bool) []string {
+func renderMessage(message surface.Message, width int, p Palette) []string {
+	return renderMessageWithOptions(message, width, p, false, false)
+}
+
+func renderMessageWithOptions(message surface.Message, width int, p Palette, debugToolOutput, reasoningCollapsed bool) []string {
 	if message.Tool != nil {
 		return renderToolWithOptions(message.Tool, width, p, debugToolOutput)
 	}
@@ -604,6 +621,14 @@ func renderMessageWithOptions(message surface.Message, width int, p Palette, deb
 	}
 
 	bodyLines, painted := renderMessageBody(message.Content, contentWidth, message.Reasoning)
+	if message.Reasoning && reasoningCollapsed {
+		if len(bodyLines) > 0 {
+			bodyLines = []string{fmt.Sprintf("reasoning · %d 行 · ctrl+r 展开", len(bodyLines))}
+		} else {
+			bodyLines = []string{"reasoning · ctrl+r 展开"}
+		}
+		painted = false
+	}
 	appendChipLines := func(chips string) {
 		if chips == "" {
 			return
@@ -717,7 +742,7 @@ func compactToolLines(lines []string, debug bool, width int) []string {
 	}
 	omitted := len(lines) - compactToolResultLines
 	compact := append([]string(nil), lines[:compactToolResultLines]...)
-	marker := fmt.Sprintf("… %d more lines · set tui.debug: true", omitted)
+	marker := fmt.Sprintf("… %d more lines · ctrl+o expand", omitted)
 	return append(compact, wrapText(marker, max(1, width))...)
 }
 
@@ -940,6 +965,8 @@ func (m Model) renderShortcutsDialog(l layout, p Palette) string {
 		p.HelpKey.Render("ctrl+l") + p.DialogBody.Render("     全局模型"),
 		p.HelpKey.Render("ctrl+y") + p.DialogBody.Render("     权限档"),
 		p.HelpKey.Render("ctrl+t") + p.DialogBody.Render("     思考档"),
+		p.HelpKey.Render("ctrl+o") + p.DialogBody.Render("     工具输出"),
+		p.HelpKey.Render("ctrl+r") + p.DialogBody.Render("     reasoning"),
 		p.HelpKey.Render("enter") + p.DialogBody.Render("      发送"),
 		p.HelpKey.Render("y/n") + p.DialogBody.Render("        批准 / 拒绝"),
 		p.HelpKey.Render("esc") + p.DialogBody.Render("        取消 / 关闭"),
