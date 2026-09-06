@@ -113,6 +113,7 @@ interface RuntimeState {
   setFilesPanelOpen: (open: boolean) => void;
   setSessionDrawerOpen: (open: boolean) => void;
   loadTodos: (sessionId?: string) => Promise<void>;
+  updateTodoStatus: (todoId: string, status: api.TodoStatus) => Promise<void>;
   setTodoPanelOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
@@ -381,6 +382,32 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     set((state) => ({ todosPhase: state.todos.length ? 'refreshing' : 'loading', todosError: null }));
     try { await loadTodosIntoStore(sessionId, epoch); }
     catch (error) { if (epoch === sessionEpoch && get().activeSessionId === sessionId) set((state) => ({ todosPhase: state.todos.length ? 'ready' : 'error', todosError: errorMessage(error) })); }
+  },
+  updateTodoStatus: async (todoId: string, status: api.TodoStatus) => {
+    const state = get();
+    const sessionId = state.activeSessionId;
+    if (!sessionId) return;
+    if (runActive(state.currentRun)) return;
+
+    const previousTodos = state.todos;
+    const target = previousTodos.find((item) => item.id === todoId);
+    if (!target || target.status === status) return;
+
+    const nextTodos = previousTodos.map((item) =>
+      item.id === todoId ? { ...item, status, updated_at: Date.now() } : item,
+    );
+    set({ todos: nextTodos, todosError: null });
+
+    try {
+      const result = await api.updateTodo(sessionId, todoId, status);
+      if (result?.todo) {
+        set((curr) => ({
+          todos: curr.todos.map((item) => (item.id === todoId ? result.todo : item)),
+        }));
+      }
+    } catch (error) {
+      set({ todos: previousTodos, todosError: errorMessage(error) });
+    }
   },
   setTodoPanelOpen: (open) => set({ todoPanelOpen: open }),
   openRun: async (runId, sessionId) => {
