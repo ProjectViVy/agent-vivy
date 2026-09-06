@@ -24,6 +24,14 @@ const (
 	approvalDenied   = "denied"
 )
 
+// windowTitleBrand is the bare VIVY CODE terminal title shown when the active
+// session has no usable title; windowTitleMaxRunes bounds the session-title
+// portion so terminals always receive a bounded title payload.
+const (
+	windowTitleBrand    = "VIVY CODE"
+	windowTitleMaxRunes = 64
+)
+
 var commandRegistry = command.DefaultRegistry()
 
 type fileCompletionStartMsg struct {
@@ -42,6 +50,7 @@ type Model struct {
 	input           string
 	palette         Palette
 	debugToolOutput bool
+	windowTitle     string
 
 	sessionsOpen       bool
 	sessionRows        []surface.Session
@@ -132,6 +141,7 @@ func New(driver surface.Driver, options ...Options) Model {
 		height:          36,
 		palette:         DefaultPalette(),
 		debugToolOutput: opts.DebugToolOutput,
+		windowTitle:     windowTitleBrand,
 		chatFollow:      true,
 		chatSessionID:   driver.Active().ID,
 		mdCache:         newMessageMarkdownCache(),
@@ -199,12 +209,13 @@ func (c *messageMarkdownCache) put(message surface.Message, width int, lines []s
 	}] = stored
 }
 
-// Init implements tea.Model.
+// Init implements tea.Model. The bare brand title is applied immediately; a
+// session title takes over through Update once the driver snapshot carries one.
 func (m Model) Init() tea.Cmd {
 	if m.driver == nil {
-		return nil
+		return tea.SetWindowTitle(windowTitleBrand)
 	}
-	return m.driver.Init()
+	return tea.Batch(m.driver.Init(), tea.SetWindowTitle(windowTitleBrand))
 }
 
 // Update implements tea.Model. The driver sees transport messages first so
@@ -332,7 +343,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.clampChatScroll()
 	m.clampGateScroll()
+	// Track the terminal title and only issue the escape when the desired
+	// value actually changes. While this update already carries driver
+	// commands the sync stays deferred, so executing the returned command
+	// still yields the driver's own message instead of a batch wrapper.
+	if m.driver != nil {
+		if desired := windowTitleFor(m.driver.Sidebar().Session.Title); desired != m.windowTitle && len(cmds) == 0 {
+			m.windowTitle = desired
+			cmds = append(cmds, tea.SetWindowTitle(desired))
+		}
+	}
 	return m, tea.Batch(cmds...)
+}
+
+// sanitizeWindowTitle collapses control characters to spaces and bounds the
+// result so the terminal always receives a safe, single-line title payload.
+func sanitizeWindowTitle(title string) string {
+	title = strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == '\t' {
+			return ' '
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, title)
+	title = strings.Join(strings.Fields(title), " ")
+	runes := []rune(title)
+	if len(runes) > windowTitleMaxRunes {
+		return string(runes[:windowTitleMaxRunes-1]) + "…"
+	}
+	return title
+}
+
+// windowTitleFor composes the terminal title for a session title. An empty or
+// control-only session title keeps the bare VIVY CODE brand.
+func windowTitleFor(sessionTitle string) string {
+	title := sanitizeWindowTitle(sessionTitle)
+	if title == "" {
+		return windowTitleBrand
+	}
+	return windowTitleBrand + " · " + title
 }
 
 const sidebarWheelStep = 3
