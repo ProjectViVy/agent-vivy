@@ -52,6 +52,9 @@ type Model struct {
 	debugToolOutput bool
 	windowTitle     string
 
+	toolExpanded       bool
+	reasoningCollapsed bool
+
 	sessionsOpen       bool
 	sessionRows        []surface.Session
 	sessionFilter      string
@@ -155,11 +158,13 @@ type messageMarkdownKey struct {
 	content   string
 	reasoning bool
 	width     int
+	collapsed bool
 }
 
 type messageMarkdownCache struct {
 	sessionID string
 	width     int
+	collapsed bool
 	lines     map[messageMarkdownKey][]string
 }
 
@@ -171,13 +176,14 @@ func cacheableMarkdownMessage(message surface.Message) bool {
 	return !message.Streaming && message.Tool == nil && len(message.Attachments) == 0 && len(message.FileContexts) == 0
 }
 
-func (c *messageMarkdownCache) ensure(sessionID string, width int) {
+func (c *messageMarkdownCache) ensure(sessionID string, width int, collapsed bool) {
 	if c == nil {
 		return
 	}
-	if c.lines == nil || c.sessionID != sessionID || c.width != width {
+	if c.lines == nil || c.sessionID != sessionID || c.width != width || c.collapsed != collapsed {
 		c.sessionID = sessionID
 		c.width = width
+		c.collapsed = collapsed
 		c.lines = map[messageMarkdownKey][]string{}
 	}
 }
@@ -188,7 +194,7 @@ func (c *messageMarkdownCache) get(message surface.Message, width int) ([]string
 	}
 	lines, ok := c.lines[messageMarkdownKey{
 		id: message.ID, role: message.Role, content: message.Content,
-		reasoning: message.Reasoning, width: width,
+		reasoning: message.Reasoning, width: width, collapsed: c.collapsed,
 	}]
 	if !ok {
 		return nil, false
@@ -206,7 +212,7 @@ func (c *messageMarkdownCache) put(message surface.Message, width int, lines []s
 	copy(stored, lines)
 	c.lines[messageMarkdownKey{
 		id: message.ID, role: message.Role, content: message.Content,
-		reasoning: message.Reasoning, width: width,
+		reasoning: message.Reasoning, width: width, collapsed: c.collapsed,
 	}] = stored
 }
 
@@ -691,6 +697,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.setThinking("")
+	case tea.KeyCtrlO:
+		if gate != nil {
+			return m, nil
+		}
+		m.toolExpanded = !m.toolExpanded
+		return m, nil
+	case tea.KeyCtrlR:
+		if gate != nil {
+			return m, nil
+		}
+		m.reasoningCollapsed = !m.reasoningCollapsed
+		return m, nil
 	case tea.KeyShiftTab:
 		if gate == nil && m.input == "" && !meta.Busy {
 			return m.cycleWorkingMode()
