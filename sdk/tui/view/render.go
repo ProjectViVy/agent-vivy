@@ -846,6 +846,15 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 }
 
 func (m Model) renderInputChrome(width int, p Palette) string {
+	left := m.chromeLeft(p)
+	right := m.chromeMeta(left, width, p)
+	row := joinChromeRow(left, right, width)
+	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(row, width))
+}
+
+// chromeLeft builds the left chrome segment with the existing priority:
+// transport error first, then the busy spinner, then the hint keys.
+func (m Model) chromeLeft(p Palette) string {
 	hints := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 切换模式") + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
 	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
 		if gate.Kind == "question" {
@@ -858,10 +867,10 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 		hints = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
 	}
 	meta := m.driver.Meta()
-	line := hints
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		line = p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
-	} else if meta.Busy {
+		return p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
+	}
+	if meta.Busy {
 		label := spinnerLabel(spinnerFrames, m.spinnerIndex, m.busyStartedAt, time.Now())
 		if label == "" {
 			// Busy was never observed through a busy transition (only possible
@@ -869,9 +878,80 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 			// marker instead of dropping the busy signal.
 			label = "run…"
 		}
-		line = p.Dim.Render(label) + p.HelpDesc.Render("  ") + hints
+		return p.Dim.Render(label) + p.HelpDesc.Render("  ") + hints
 	}
-	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(line, width))
+	return hints
+}
+
+const (
+	chromeGap           = 2 // cells between chrome segments and meta candidates
+	minChromeTitleWidth = 8 // below this the trimmed title carries no information
+)
+
+// chromeMeta builds the right chrome segment: the queued count, the host, and
+// the active session title, joined left to right with two-space gaps. The
+// title is tail-truncated to the room that remains next to the other
+// candidates; after that candidates degrade tail-first (title → host →
+// queued) until the segment fits or disappears.
+func (m Model) chromeMeta(left string, width int, p Palette) string {
+	meta := m.driver.Meta()
+	var parts []string
+	if meta.Queued > 0 {
+		parts = append(parts, p.PromptWarn.Render(fmt.Sprintf("⏸ %d queued", meta.Queued)))
+	}
+	if host := strings.TrimSpace(meta.Host); host != "" {
+		parts = append(parts, p.Dim.Render(host))
+	}
+	title := strings.TrimSpace(sanitizeFileCompletionText(m.driver.Active().Title))
+	if title != "" {
+		parts = append(parts, p.Dim.Render(title))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	avail := max(0, width-lipgloss.Width(left)-chromeGap)
+	if title != "" {
+		last := len(parts) - 1
+		room := avail - chromeMetaWidth(parts[:last]) - chromeGap
+		if room < minChromeTitleWidth {
+			parts = parts[:last]
+		} else {
+			parts[last] = p.Dim.Render(truncate(title, room))
+		}
+	}
+	for len(parts) > 0 && chromeMetaWidth(parts) > avail {
+		parts = parts[:len(parts)-1]
+	}
+	return strings.Join(parts, strings.Repeat(" ", chromeGap))
+}
+
+func chromeMetaWidth(parts []string) int {
+	w := 0
+	for i, part := range parts {
+		if i > 0 {
+			w += chromeGap
+		}
+		w += lipgloss.Width(part)
+	}
+	return w
+}
+
+// joinChromeRow composes one chrome row: the left segment, space padding, and
+// the right segment filling the row exactly. Widths use lipgloss.Width so CJK
+// cells stay aligned. An empty right segment leaves the left segment alone;
+// anything that still does not fit resolves to a truncated left segment.
+func joinChromeRow(left, right string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if right == "" {
+		return truncate(left, width)
+	}
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < chromeGap {
+		return truncate(left, width)
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 // spinnerLabel renders the busy chrome fragment: the current braille frame and
