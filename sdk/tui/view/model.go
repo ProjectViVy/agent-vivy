@@ -32,6 +32,18 @@ type fileCompletionStartMsg struct {
 	SessionID string
 }
 
+// spinnerTickMsg advances the busy spinner by one frame. The tick chain only
+// reschedules itself while the driver reports Busy, so it never outlives a run.
+type spinnerTickMsg time.Time
+
+const spinnerInterval = 120 * time.Millisecond
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func spinnerTickCmd() tea.Cmd {
+	return tea.Tick(spinnerInterval, func(t time.Time) tea.Msg { return spinnerTickMsg(t) })
+}
+
 // Model is the single Bubble Tea model used by both first-party terminal
 // faces. The Sessions dialog state is transient UI state; session data itself
 // remains owned by the surface.Driver.
@@ -103,6 +115,10 @@ type Model struct {
 	chatSessionID  string
 	mdCache        *messageMarkdownCache
 	shortcutsOpen  bool
+
+	spinnerIndex  int
+	busyStartedAt time.Time
+	prevBusy      bool
 
 	gateID           string
 	gateScroll       int
@@ -309,6 +325,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+	case spinnerTickMsg:
+		// The spinner chain advances only while a run is actually in flight;
+		// once the driver reports idle the chain simply stops rescheduling.
+		if m.driver.Meta().Busy {
+			m.spinnerIndex = (m.spinnerIndex + 1) % len(spinnerFrames)
+			cmds = append(cmds, spinnerTickCmd())
+		}
 	case surface.ErrMsg:
 		// The driver stores transport errors in Meta. Keep the dialog snapshot
 		// and local input intact so a retry does not discard user work.
@@ -332,6 +355,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.clampChatScroll()
 	m.clampGateScroll()
+	busy := m.driver.Meta().Busy
+	switch {
+	case busy && !m.prevBusy:
+		// Fresh local observation of a run: start the elapsed clock and the
+		// spinner tick chain. The clock is a local monotonic observation and
+		// the chrome label never claims a server-side duration.
+		m.busyStartedAt = time.Now()
+		cmds = append(cmds, spinnerTickCmd())
+	case !busy && m.prevBusy:
+		m.spinnerIndex = 0
+		m.busyStartedAt = time.Time{}
+	}
+	m.prevBusy = busy
 	return m, tea.Batch(cmds...)
 }
 

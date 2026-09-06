@@ -95,7 +95,7 @@
 
 ## 批次 B：忙碌态与状态行（对应 Crush spinner / status）
 
-### F1 动画 spinner + 计时器
+### F1 动画 spinner + 计时器（已完成）
 
 **现状**：busy 只有静态 `run…`（`render.go:829`）。全 TUI 无 spinner、无耗时显示。
 

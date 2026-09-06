@@ -862,9 +862,48 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
 		line = p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
 	} else if meta.Busy {
-		line = p.Dim.Render("run…") + p.HelpDesc.Render("  ") + hints
+		label := spinnerLabel(spinnerFrames, m.spinnerIndex, m.busyStartedAt, time.Now())
+		if label == "" {
+			// Busy was never observed through a busy transition (only possible
+			// for a model rendered before its first Update). Keep the static
+			// marker instead of dropping the busy signal.
+			label = "run…"
+		}
+		line = p.Dim.Render(label) + p.HelpDesc.Render("  ") + hints
 	}
 	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(line, width))
+}
+
+// spinnerLabel renders the busy chrome fragment: the current braille frame and
+// the locally observed elapsed time (e.g. "⠸ 12s"). A zero startedAt means the
+// busy transition was never observed, and the label is empty. now is injected
+// so tests stay deterministic.
+func spinnerLabel(frames []string, index int, startedAt, now time.Time) string {
+	if startedAt.IsZero() {
+		return ""
+	}
+	frame := ""
+	if len(frames) > 0 {
+		frame = frames[index%len(frames)]
+	}
+	return frame + " " + spinnerElapsed(startedAt, now)
+}
+
+// spinnerElapsed formats a locally observed run duration as "<1s", "12s", or
+// "1m05s" past the minute. Negative observations are clamped to zero.
+func spinnerElapsed(startedAt, now time.Time) string {
+	d := now.Sub(startedAt)
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Second {
+		return "<1s"
+	}
+	seconds := int(d / time.Second)
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	return fmt.Sprintf("%dm%02ds", seconds/60, seconds%60)
 }
 
 func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
