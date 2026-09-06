@@ -1698,6 +1698,10 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 		if err != nil {
 			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+			// A failed first exchange still leaves a user message worth a
+			// title; the generator's truncation fallback names it when no
+			// model is reachable.
+			s.maybeAutoTitle(ctx, sessionID)
 			return
 		}
 	}

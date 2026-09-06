@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
@@ -41,6 +42,33 @@ func newTitleService(t *testing.T, gen TitleGenerator) (*Service, *sqlite.Backen
 		t.Fatalf("resolve tools: %v", err)
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("first answer", nil)), ts, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: newTestSink(),
+		Titles: gen,
+	})
+	return svc, backend
+}
+
+// newTitleServiceWithModel wires the titler harness over a custom model so a
+// test can drive runs that fail before completion.
+func newTitleServiceWithModel(t *testing.T, gen TitleGenerator, m model.ToolCallingChatModel) (*Service, *sqlite.Backend) {
+	t.Helper()
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "titler.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	eng, err := NewEngine(ctx, m, ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
@@ -129,6 +157,34 @@ func TestAutoTitleKeepsEmptyOnGeneratorFailure(t *testing.T) {
 	}
 	if sess.Title != "" {
 		t.Fatalf("title = %q, want empty after generator failure", sess.Title)
+	}
+}
+
+func TestAutoTitleFiresAfterFailedRun(t *testing.T) {
+	// An empty scripted model fails the run at the first model call, the way
+	// a broken provider or a tool error ends a real first exchange.
+	gen := &fakeTitleGenerator{title: "Login Bug"}
+	svc, backend := newTitleServiceWithModel(t, gen, NewScriptedModel())
+	ctx, cancel := titleIdleCtx()
+	defer cancel()
+	if err := backend.CreateSession(context.Background(), domain.Session{ID: "sess-failed", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := svc.Run(ctx, "sess-failed", "fix the login bug"); err != nil {
+		t.Fatalf("run submit: %v", err)
+	}
+	if !svc.WaitIdle(ctx) {
+		t.Fatal("run did not go idle")
+	}
+	sess, err := backend.GetSession(context.Background(), "sess-failed")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.Title != "Login Bug" {
+		t.Fatalf("title = %q, want the auto title after a failed run", sess.Title)
+	}
+	if !strings.Contains(gen.gotUser, "login bug") {
+		t.Fatalf("generator got user=%q", gen.gotUser)
 	}
 }
 
