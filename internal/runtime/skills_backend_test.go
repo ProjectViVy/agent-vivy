@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -67,7 +68,7 @@ func TestEinoSkillBackendListGetAndView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list Vivy skills: %v", err)
 	}
-	if len(items) != 1 || len(items[0].Warnings) == 0 || items[0].Hash == "" {
+	if len(items) != 1 || len(items[0].Warnings) == 0 || items[0].Hash == "" || items[0].Origin != tools.SkillOriginUser {
 		t.Fatalf("summary = %+v", items)
 	}
 	view, err := backend.ViewSkill(context.Background(), "run_skill_test", "demo-skill", "references/guide.md")
@@ -253,4 +254,85 @@ func TestEinoSkillBackendSetSkillEnabled(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), "Body stays intact.") || !strings.Contains(string(data), "description: A test skill") {
 		t.Fatalf("rendered doc = %s, err %v", data, err)
 	}
+}
+
+func TestEinoSkillBackendProjectOverlayAndCollision(t *testing.T) {
+	backend, userRoot, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, userRoot, "shared", "user body")
+	writeSkillFixture(t, userRoot, "user-only", "only user")
+
+	cwdSkills := filepath.Join(t.TempDir(), ".agents", "skills")
+	writeSkillFixture(t, cwdSkills, "shared", "project body")
+	writeSkillFixture(t, cwdSkills, "project-only", "only project")
+	if err := os.MkdirAll(filepath.Join(cwdSkills, ".hidden"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwdSkills, ".hidden", "SKILL.md"), []byte("---\nname: hidden\ndescription: x\n---\n\nnope\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(cwdSkills, "project-only", "nested")
+	writeSkillFixture(t, nested, "nested", "nested should be ignored")
+
+	if err := backend.SetProjectSkillRoots([]string{cwdSkills}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := backend.ListSkills(context.Background(), "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]tools.SkillSummary{}
+	for _, item := range items {
+		byName[item.Name] = item
+	}
+	if byName["shared"].Origin != tools.SkillOriginProject || !strings.Contains(mustView(t, backend, "shared"), "project body") {
+		t.Fatalf("shared = %+v, want project overlay", byName["shared"])
+	}
+	if byName["user-only"].Origin != tools.SkillOriginUser {
+		t.Fatalf("user-only origin = %q", byName["user-only"].Origin)
+	}
+	if byName["project-only"].Origin != tools.SkillOriginProject {
+		t.Fatalf("project-only origin = %q", byName["project-only"].Origin)
+	}
+	if _, ok := byName["hidden"]; ok {
+		t.Fatal("hidden skill directory must be skipped")
+	}
+	if _, ok := byName["nested"]; ok {
+		t.Fatal("nested SKILL.md must not be listed")
+	}
+
+	if _, err := backend.SetSkillEnabled(context.Background(), "project-only", false, byName["project-only"].Hash); !errors.Is(err, errSkillReadOnly) {
+		t.Fatalf("enable project skill err = %v, want read-only", err)
+	}
+	_, err = backend.PrepareSkillProposal(context.Background(), "run", tools.SkillManageRequest{
+		Action: "edit", SkillName: "project-only", Content: "---\nname: project-only\ndescription: A test skill\n---\n\nhacked\n",
+	})
+	if !errors.Is(err, errSkillReadOnly) {
+		t.Fatalf("manage project skill err = %v, want read-only", err)
+	}
+}
+
+func TestEinoSkillBackendProjectAlwaysSkills(t *testing.T) {
+	backend, userRoot, _ := openSkillTestBackend(t)
+	writeAlwaysSkillFixture(t, userRoot, "user-always", "name: user-always\ndescription: user\nalways: true\n", "user always")
+	project := filepath.Join(t.TempDir(), ".agents", "skills")
+	writeAlwaysSkillFixture(t, project, "proj-always", "name: proj-always\ndescription: project\nalways: true\n", "project always")
+	if err := backend.SetProjectSkillRoots([]string{project}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := backend.AlwaysSkills(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "project always") || !strings.Contains(got, "user always") {
+		t.Fatalf("AlwaysSkills = %q", got)
+	}
+}
+
+func mustView(t *testing.T, backend *EinoSkillBackend, name string) string {
+	t.Helper()
+	view, err := backend.ViewSkill(context.Background(), "run", name, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view.Content
 }

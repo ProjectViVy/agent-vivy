@@ -77,6 +77,10 @@ type appOptions struct {
 	// tenant/sandbox workspace for ordinary Vivy processes, not necessarily
 	// the code project root from which a face may resolve attachments.
 	projectRoot string
+	// instructionRoot is the launch directory scanned for AGENTS.md and
+	// conventional skill packages. It is independent of projectRoot so the
+	// web sandbox can inject project instructions without exposing @file.
+	instructionRoot string
 }
 
 // WithoutEars composes the process with no channel Host: no partition, no
@@ -113,6 +117,13 @@ func WithSettingsPath(path string) AppOption {
 // workspace through the attachment resolver.
 func WithCodeProjectRoot(path string) AppOption {
 	return func(o *appOptions) { o.projectRoot = path }
+}
+
+// WithInstructionRoot supplies the launch directory whose AGENTS.md and
+// .agents/.vivy skill packages are discovered and fed to the existing Eino
+// agentsmd / skill middlewares. It does not change the file-tool world.
+func WithInstructionRoot(path string) AppOption {
+	return func(o *appOptions) { o.instructionRoot = path }
 }
 
 // fanoutSink publishes one event to both the gateway bus and the extra
@@ -372,7 +383,13 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		modelWindow = info.ContextWindow
 	}
 	cmp := compactionPolicyFor(cfg, nil, modelWindow)
-	engineCfg := buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
+	agentsMDBackend, agentsMDFiles, err := projectInstructionBackends(logger, ao.instructionRoot, skillBackend, fileBackend)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	engineCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
+	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
 	if err != nil {
@@ -607,7 +624,9 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			window := svc.GetModelInfo(context.Background()).ContextWindow
 			cmp := compactionPolicyFor(cfg, s.Compaction, window)
 			if toolsChanged || !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
-				if err := svc.ScheduleEngineReload(buildEngineConfig(cfg, skillBackend, fileBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)); err != nil {
+				reloadCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
+				reloadCfg.AgentsMDFiles = agentsMDFiles
+				if err := svc.ScheduleEngineReload(reloadCfg); err != nil {
 					logger.Warn("engine reload failed", "err", err)
 				}
 			}

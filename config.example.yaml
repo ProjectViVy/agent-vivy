@@ -66,14 +66,17 @@ runtime:
   # small_model: gpt-4o-mini
   # Default: <user data root>/workspace (under the OS user home). One
   # private sandbox directory per background run lives under this root.
-  # An AGENTS.md inside a run workspace is injected read-only into that
-  # run's model preamble (D6, transient — never persisted); `vivy init`
-  # generates a starter AGENTS.md for a project directory.
+  # Launch-directory AGENTS.md (walk-up to the git root) is injected
+  # read-only into the run preamble (D6, transient — never persisted).
+  # Project skills are discovered from .agents/skills and .vivy/skills.
+  # `vivy init` generates a starter AGENTS.md for a project directory.
   workspace_root: data/workspaces
   # sandbox = one private directory per run; local mounts workspace_root
   # directly and is intended for the interactive code face.
   world: sandbox
-  # Trusted local Skill packages. Skill text is still treated as untrusted data.
+  # Trusted user Skill packages (marketplace / skill_manage). Project
+  # .agents/skills and .vivy/skills overlays are discovered from the launch
+  # directory and are read-only. Skill text is still treated as untrusted data.
   # Default: <user data root>/skills.
   skills_root: data/skills
   # Skill marketplace base URL (skills.sh directory: search/featured/install).

@@ -23,21 +23,23 @@ const (
 )
 
 // AgentsMDBackend is the engine's AGENTS.md loading seam. The alias keeps
-// eino's middleware package out of the app wiring (D-007); the
-// EinoFilesystemBackend implements it by resolving paths inside the run
-// workspace of the request context.
+// eino's middleware package out of the app wiring (D-007). Without an
+// instruction root the EinoFilesystemBackend resolves paths inside the
+// run workspace; WithInstructionRoot switches to ProjectAgentsMDBackend.
 type AgentsMDBackend = agentsmd.Backend
 
 var _ AgentsMDBackend = (*EinoFilesystemBackend)(nil)
 
 // newAgentsMDHandler builds the agentsmd middleware for one engine.
-func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend) (adk.ChatModelAgentMiddleware, error) {
+func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []string) (adk.ChatModelAgentMiddleware, error) {
+	if len(files) == 0 {
+		files = []string{AgentsMDFileName}
+	}
 	return agentsmd.New(ctx, &agentsmd.Config{
 		Backend: backend,
-		// D6: exactly one file, resolved inside the current run workspace.
-		// A missing file is a non-fatal warning, so runs without one are
-		// unaffected; other read errors abort the load and fail the call.
-		AgentsMDFiles:       []string{AgentsMDFileName},
+		// D6: only AGENTS.md (discovered list when an instruction root is
+		// wired). A missing file is a non-fatal warning.
+		AgentsMDFiles:       append([]string(nil), files...),
 		AllAgentsMDMaxBytes: agentsMDMaxBytes,
 		OnLoadWarning: func(filePath string, err error) {
 			slog.Debug("agentsmd: skipping context file", "file", filePath, "reason", err.Error())
@@ -46,11 +48,11 @@ func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend) (adk.ChatM
 }
 
 // buildAgentsMDHandler is the NewEngine seam: nil backend disables injection.
-func buildAgentsMDHandler(ctx context.Context, backend AgentsMDBackend) (adk.ChatModelAgentMiddleware, error) {
+func buildAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []string) (adk.ChatModelAgentMiddleware, error) {
 	if backend == nil {
 		return nil, nil
 	}
-	handler, err := newAgentsMDHandler(ctx, backend)
+	handler, err := newAgentsMDHandler(ctx, backend, files)
 	if err != nil {
 		return nil, fmt.Errorf("runtime: agentsmd middleware: %w", err)
 	}
