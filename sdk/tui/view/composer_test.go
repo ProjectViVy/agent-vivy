@@ -376,3 +376,27 @@ func TestPasteGuardChipRendersBetweenAttachmentsAndInput(t *testing.T) {
 		t.Fatalf("unguarded layout editorH = %d, want 5 (attachments keep their row)", l.editorH)
 	}
 }
+
+func TestComposerBorderDimsWhileBusyAndRestoresModeColor(t *testing.T) {
+	p := DefaultPalette()
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
+		active:   "s1",
+		sidebar:  surface.Sidebar{Session: surface.Session{ID: "s1", PermissionPreset: "smart"}, Model: "gpt-4.1"},
+	}
+	m := New(driver)
+	idle := m.composerBoxStyle(p).GetBorderTopForeground()
+	// The dim border is p.Dim's text foreground fed to BorderForeground; the
+	// pinned lipgloss exposes per-side getters, so compare against GetForeground.
+	if idle == p.Dim.GetForeground() {
+		t.Fatal("idle composer border already used the dim color")
+	}
+	driver.busy = true
+	if busy := m.composerBoxStyle(p).GetBorderTopForeground(); busy != p.Dim.GetForeground() {
+		t.Fatalf("busy composer border = %v, want dim %v", busy, p.Dim.GetForeground())
+	}
+	driver.busy = false
+	if restored := m.composerBoxStyle(p).GetBorderTopForeground(); restored != idle {
+		t.Fatalf("border after busy = %v, want the working-mode color %v", restored, idle)
+	}
+}
