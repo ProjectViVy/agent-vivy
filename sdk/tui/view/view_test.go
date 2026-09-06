@@ -630,8 +630,10 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 		},
 	}
 	for i := 0; i < 20; i++ {
+		// No UpdatedAt: a full-width timestamp would legitimately starve the
+		// path below the file name, which this scroll test depends on.
 		driver.sidebar.ModifiedFiles = append(driver.sidebar.ModifiedFiles, surface.ModifiedFile{
-			Path: fmt.Sprintf("pkg/file-%02d.go", i), UpdatedAt: int64(i + 1),
+			Path: fmt.Sprintf("pkg/file-%02d.go", i),
 			Diff: surface.SidebarDiff{Additions: 1, Deletions: 1},
 		})
 	}
