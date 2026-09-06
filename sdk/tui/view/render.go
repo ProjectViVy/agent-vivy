@@ -263,9 +263,9 @@ func sanitizeCommandPaletteFilter(text string) string {
 }
 
 func (m Model) renderWide(l layout, p Palette) string {
-	chat := m.renderChat(l.mainW(), l.mainH(), p)
+	chat, scroll := m.renderChat(l.mainW(), l.mainH(), p)
 	editor := m.renderEditor(l.mainW(), p)
-	chrome := m.renderInputChrome(l.mainW(), p)
+	chrome := m.renderChromeRow(l.mainW(), p, scroll)
 	mainCol := lipgloss.JoinVertical(lipgloss.Left, chat, "", editor, chrome)
 	side := m.renderSidebar(l.sidebarW, lipgloss.Height(mainCol), p)
 	gap := lipgloss.NewStyle().Width(1).Height(lipgloss.Height(mainCol)).Render(" ")
@@ -275,9 +275,9 @@ func (m Model) renderWide(l layout, p Palette) string {
 
 func (m Model) renderCompact(l layout, p Palette) string {
 	header := m.renderCompactHeader(l, p)
-	chat := m.renderChat(l.innerW(), l.mainH(), p)
+	chat, scroll := m.renderChat(l.innerW(), l.mainH(), p)
 	editor := m.renderEditor(l.innerW(), p)
-	chrome := m.renderInputChrome(l.innerW(), p)
+	chrome := m.renderChromeRow(l.innerW(), p, scroll)
 	col := lipgloss.JoinVertical(lipgloss.Left, header, "", chat, "", editor, chrome)
 	return padHorizontal(col, l.marginX, l.width)
 }
@@ -540,13 +540,24 @@ func compactNumber(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-func (m Model) renderChat(width, height int, p Palette) string {
+// chatScrollInfo carries the chat viewport scroll state that renderChat
+// computes to the chrome row, so the scroll hint can be composed without
+// writing Model state during render.
+type chatScrollInfo struct {
+	follow    bool
+	offset    int
+	maxScroll int
+	viewport  int
+}
+
+func (m Model) renderChat(width, height int, p Palette) (string, chatScrollInfo) {
 	lines := m.chatLines(width, p)
 	maxScroll := max(0, len(lines)-height)
 	offset := min(max(0, m.chatScroll), maxScroll)
 	if m.chatFollow {
 		offset = maxScroll
 	}
+	info := chatScrollInfo{follow: m.chatFollow, offset: offset, maxScroll: maxScroll, viewport: max(1, height)}
 	end := min(len(lines), offset+height)
 	if offset < end {
 		lines = lines[offset:end]
@@ -554,7 +565,7 @@ func (m Model) renderChat(width, height int, p Palette) string {
 		lines = nil
 	}
 	content := strings.Join(lines, "\n")
-	return p.Chat.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
+	return p.Chat.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height)), info
 }
 
 func (m Model) chatLines(width int, p Palette) []string {
@@ -846,10 +857,40 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 }
 
 func (m Model) renderInputChrome(width int, p Palette) string {
+	// Dialog measurement and standalone callers see the follow-mode chrome:
+	// the scroll hint belongs to the live chat frame only.
+	return m.renderChromeRow(width, p, chatScrollInfo{follow: true})
+}
+
+// renderChromeRow composes the chrome row for the live frame: optional scroll
+// hint, the left hints/spinner/error segment, and the right environment meta.
+func (m Model) renderChromeRow(width int, p Palette, scroll chatScrollInfo) string {
 	left := m.chromeLeft(p)
+	if hint := chromeScrollHint(p, scroll); hint != "" {
+		left = hint + p.HelpDesc.Render("  ") + left
+	}
 	right := m.chromeMeta(left, width, p)
 	row := joinChromeRow(left, right, width)
 	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(row, width))
+}
+
+const chatScrollHintLines = 3 // near-bottom margin below which the hint stays hidden
+
+// chromeScrollHint describes a paused chat viewport: how to get back to the
+// bottom, or how much history remains below. It stays quiet while following,
+// when there is nothing to scroll, and within a few lines of the bottom.
+func chromeScrollHint(p Palette, info chatScrollInfo) string {
+	if info.follow || info.maxScroll == 0 {
+		return ""
+	}
+	below := info.maxScroll - info.offset
+	if below <= chatScrollHintLines {
+		return ""
+	}
+	if below > info.viewport {
+		return p.HelpKey.Render("↑ 历史") + p.HelpDesc.Render(fmt.Sprintf(" · 下方还有 %d 行", below))
+	}
+	return p.HelpKey.Render("↓ end") + p.HelpDesc.Render(" 回到底部")
 }
 
 // chromeLeft builds the left chrome segment with the existing priority:
