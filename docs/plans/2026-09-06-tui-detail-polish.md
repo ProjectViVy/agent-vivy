@@ -58,7 +58,7 @@
 
 **测试**：`render_test` 新增——单行/多行/超上限/含 CJK 宽字符行（`lipgloss.Width` 校验）/含 ANSI 序列行；`layout_test` 校验 `mainH` 随输入行数递减、下限 1。
 
-### F3 空输入占位符
+### F3 空输入占位符（已完成）
 
 **现状**：无。空态时 composer 只有一行 `::: ` + 光标。
 

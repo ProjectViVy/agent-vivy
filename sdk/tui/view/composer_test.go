@@ -269,3 +269,47 @@ func TestRenderEditorShowsWholeDraftAndTrailingCaret(t *testing.T) {
 		}
 	}
 }
+
+func TestComposerPlaceholderShowsOnlyForEmptyUngatedInput(t *testing.T) {
+	p := DefaultPalette()
+	dim := p.Dim.Render(composerPlaceholder)
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
+		active:   "s1",
+		sidebar:  surface.Sidebar{Model: "gpt-4.1"},
+	}
+	m := New(driver)
+	empty := m.renderEditor(60, p)
+	if !strings.Contains(ansi.Strip(empty), composerPlaceholder) {
+		t.Fatalf("empty composer missed the placeholder:\n%s", ansi.Strip(empty))
+	}
+	if !strings.Contains(empty, dim) {
+		t.Fatal("placeholder was not rendered with the dim style")
+	}
+	m.input = "draft text"
+	if strings.Contains(ansi.Strip(m.renderEditor(60, p)), composerPlaceholder) {
+		t.Fatal("placeholder leaked into a non-empty draft")
+	}
+	gated := New(&testDriver{
+		sessions: []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
+		active:   "s1",
+		gate:     &surface.Gate{Kind: "question", ID: "q1", Title: "answer"},
+	})
+	if strings.Contains(ansi.Strip(gated.renderEditor(60, p)), composerPlaceholder) {
+		t.Fatal("placeholder shown while a gate is pending")
+	}
+	m.input = ""
+	m.sidebarFocused = true
+	if strings.Contains(ansi.Strip(m.renderEditor(60, p)), composerPlaceholder) {
+		t.Fatal("placeholder shown while the sidebar is focused")
+	}
+	m.sidebarFocused = false
+	for _, width := range []int{12, 18, 30, 60} {
+		editor := m.renderEditor(width, p)
+		for i, line := range strings.Split(editor, "\n") {
+			if w := lipgloss.Width(line); w > width {
+				t.Fatalf("width %d line %d overflowed: %q", width, i, ansi.Strip(line))
+			}
+		}
+	}
+}

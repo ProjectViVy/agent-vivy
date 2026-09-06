@@ -745,6 +745,10 @@ func renderDiffBody(body string, p Palette) string {
 	return strings.Join(lines, "\n")
 }
 
+// composerPlaceholder is the ghost hint shown in an empty, ungated composer.
+// It is display-only: it never enters m.input.
+const composerPlaceholder = "问点什么…  / 命令 · @文件 · !shell"
+
 func (m Model) renderEditor(width int, p Palette) string {
 	inner := max(1, width-p.EditorBox.GetHorizontalFrameSize())
 	gate := m.driver.PendingGate()
@@ -769,23 +773,29 @@ func (m Model) renderEditor(width int, p Palette) string {
 		}
 		lines = append(lines, truncate(prompt+sanitizeFileCompletionText(display)+cursor, inner))
 	} else {
-		// The draft always appends at the tail, so the visible window is the
-		// trailing lines and the caret rides at the end of the last one. The
-		// window must come from the same helper the layout reserve uses or
-		// the bottom chrome would jitter while typing.
-		win := editorInputLines(m.input, inner, maxEditorLines)
-		indent := strings.Repeat(" ", lipgloss.Width(prompt))
-		for i, row := range win {
-			row = sanitizeFileCompletionText(row)
-			prefix := prompt
-			if i > 0 {
-				prefix = indent
-			}
-			if i == len(win)-1 {
-				body := truncate(row, max(1, inner-lipgloss.Width(prefix)-lipgloss.Width(cursor)))
-				lines = append(lines, truncate(prefix+body+cursor, inner))
-			} else {
-				lines = append(lines, truncate(prefix+row, inner))
+		if m.input == "" && !m.sidebarFocused {
+			// Ghost hint for the empty state: dim text after the prompt, no
+			// caret, never stored as a draft.
+			lines = append(lines, truncate(prompt+p.Dim.Render(composerPlaceholder), inner))
+		} else {
+			// The draft always appends at the tail, so the visible window is the
+			// trailing lines and the caret rides at the end of the last one. The
+			// window must come from the same helper the layout reserve uses or
+			// the bottom chrome would jitter while typing.
+			win := editorInputLines(m.input, inner, maxEditorLines)
+			indent := strings.Repeat(" ", lipgloss.Width(prompt))
+			for i, row := range win {
+				row = sanitizeFileCompletionText(row)
+				prefix := prompt
+				if i > 0 {
+					prefix = indent
+				}
+				if i == len(win)-1 {
+					body := truncate(row, max(1, inner-lipgloss.Width(prefix)-lipgloss.Width(cursor)))
+					lines = append(lines, truncate(prefix+body+cursor, inner))
+				} else {
+					lines = append(lines, truncate(prefix+row, inner))
+				}
 			}
 		}
 	}
