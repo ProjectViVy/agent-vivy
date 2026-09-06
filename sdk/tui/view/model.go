@@ -474,10 +474,18 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 func (m Model) layout() layout {
 	l := computeLayout(m.width, m.height)
 	hasAttachments := false
+	pasteGuard := false
+	inputLines := 1
 	if m.driver != nil {
 		hasAttachments = len(m.driver.PendingAttachments()) > 0
+		pasteGuard = pasteGuardChip(m.input) != ""
+		// A pending gate renders the composer as a single hint row (gate
+		// keys own the box), so the reserve must stay at one input line.
+		if m.driver.PendingGate() == nil {
+			inputLines = len(strings.Split(m.input, "\n"))
+		}
 	}
-	l.editorH = editorReserve(hasAttachments)
+	l.editorH = editorReserve(hasAttachments, pasteGuard, inputLines)
 	return l
 }
 
@@ -773,6 +781,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if text == "q" && m.input == "" && gate == nil && !meta.Busy {
 			return m, tea.Quit
 		}
+		if text == "G" && m.input == "" && gate == nil && !meta.Busy {
+			// Vim jump-to-bottom, same as the `end` key. Guarded like `q` so an
+			// in-progress draft or a running turn keeps `G` as plain input.
+			m.chatFollow = true
+			m.clampChatScroll()
+			return m, nil
+		}
 		if text == "/" && m.input == "" && gate == nil {
 			return m, m.openCommandPalette()
 		}
@@ -905,7 +920,7 @@ func (m Model) handleSidebarKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 }
 
 func (m Model) sidebarViewportHeight(l layout, p Palette) int {
-	chat := m.renderChat(l.mainW(), l.mainH(), p)
+	chat, _ := m.renderChat(l.mainW(), l.mainH(), p)
 	editor := m.renderEditor(l.mainW(), p)
 	chrome := m.renderInputChrome(l.mainW(), p)
 	return max(1, lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, chat, "", editor, chrome)))

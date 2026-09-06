@@ -263,9 +263,9 @@ func sanitizeCommandPaletteFilter(text string) string {
 }
 
 func (m Model) renderWide(l layout, p Palette) string {
-	chat := m.renderChat(l.mainW(), l.mainH(), p)
+	chat, scroll := m.renderChat(l.mainW(), l.mainH(), p)
 	editor := m.renderEditor(l.mainW(), p)
-	chrome := m.renderInputChrome(l.mainW(), p)
+	chrome := m.renderChromeRow(l.mainW(), p, scroll)
 	mainCol := lipgloss.JoinVertical(lipgloss.Left, chat, "", editor, chrome)
 	side := m.renderSidebar(l.sidebarW, lipgloss.Height(mainCol), p)
 	gap := lipgloss.NewStyle().Width(1).Height(lipgloss.Height(mainCol)).Render(" ")
@@ -275,9 +275,9 @@ func (m Model) renderWide(l layout, p Palette) string {
 
 func (m Model) renderCompact(l layout, p Palette) string {
 	header := m.renderCompactHeader(l, p)
-	chat := m.renderChat(l.innerW(), l.mainH(), p)
+	chat, scroll := m.renderChat(l.innerW(), l.mainH(), p)
 	editor := m.renderEditor(l.innerW(), p)
-	chrome := m.renderInputChrome(l.innerW(), p)
+	chrome := m.renderChromeRow(l.innerW(), p, scroll)
 	col := lipgloss.JoinVertical(lipgloss.Left, header, "", chat, "", editor, chrome)
 	return padHorizontal(col, l.marginX, l.width)
 }
@@ -570,13 +570,24 @@ func compactNumber(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-func (m Model) renderChat(width, height int, p Palette) string {
+// chatScrollInfo carries the chat viewport scroll state that renderChat
+// computes to the chrome row, so the scroll hint can be composed without
+// writing Model state during render.
+type chatScrollInfo struct {
+	follow    bool
+	offset    int
+	maxScroll int
+	viewport  int
+}
+
+func (m Model) renderChat(width, height int, p Palette) (string, chatScrollInfo) {
 	lines := m.chatLines(width, p)
 	maxScroll := max(0, len(lines)-height)
 	offset := min(max(0, m.chatScroll), maxScroll)
 	if m.chatFollow {
 		offset = maxScroll
 	}
+	info := chatScrollInfo{follow: m.chatFollow, offset: offset, maxScroll: maxScroll, viewport: max(1, height)}
 	end := min(len(lines), offset+height)
 	if offset < end {
 		lines = lines[offset:end]
@@ -584,7 +595,7 @@ func (m Model) renderChat(width, height int, p Palette) string {
 		lines = nil
 	}
 	content := strings.Join(lines, "\n")
-	return p.Chat.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height))
+	return p.Chat.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height)), info
 }
 
 func (m Model) chatLines(width int, p Palette) []string {
@@ -800,6 +811,10 @@ func renderDiffBody(body string, p Palette) string {
 	return strings.Join(lines, "\n")
 }
 
+// composerPlaceholder is the ghost hint shown in an empty, ungated composer.
+// It is display-only: it never enters m.input.
+const composerPlaceholder = "问点什么…  / 命令 · @文件 · !shell"
+
 func (m Model) renderEditor(width int, p Palette) string {
 	inner := max(1, width-p.EditorBox.GetHorizontalFrameSize())
 	gate := m.driver.PendingGate()
@@ -807,11 +822,6 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if gate != nil {
 		prompt = p.PromptWarn.Render(" ! ") + prompt
 	}
-	display := ansi.Strip(m.input)
-	if i := strings.LastIndex(display, "\n"); i >= 0 {
-		display = display[i+1:]
-	}
-	display = sanitizeFileCompletionText(display)
 	cursor := p.Dim.Render("█")
 	if gate != nil && gate.Kind == "approval" {
 		cursor = ""
@@ -820,7 +830,44 @@ func (m Model) renderEditor(width int, p Palette) string {
 	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
 		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
-	lines = append(lines, truncate(prompt+display+cursor, inner))
+	if chip := pasteGuardChip(m.input); chip != "" {
+		lines = append(lines, p.PromptWarn.Render(truncate(chip, inner)))
+	}
+	if gate != nil {
+		// A pending gate turns the input row into a status hint and gate keys
+		// own the composer; keep the historical single-line rendering.
+		display := ansi.Strip(m.input)
+		if i := strings.LastIndex(display, "\n"); i >= 0 {
+			display = display[i+1:]
+		}
+		lines = append(lines, truncate(prompt+sanitizeFileCompletionText(display)+cursor, inner))
+	} else {
+		if m.input == "" && !m.sidebarFocused {
+			// Ghost hint for the empty state: dim text after the prompt, no
+			// caret, never stored as a draft.
+			lines = append(lines, truncate(prompt+p.Dim.Render(composerPlaceholder), inner))
+		} else {
+			// The draft always appends at the tail, so the visible window is the
+			// trailing lines and the caret rides at the end of the last one. The
+			// window must come from the same helper the layout reserve uses or
+			// the bottom chrome would jitter while typing.
+			win := editorInputLines(m.input, inner, maxEditorLines)
+			indent := strings.Repeat(" ", lipgloss.Width(prompt))
+			for i, row := range win {
+				row = sanitizeFileCompletionText(row)
+				prefix := prompt
+				if i > 0 {
+					prefix = indent
+				}
+				if i == len(win)-1 {
+					body := truncate(row, max(1, inner-lipgloss.Width(prefix)-lipgloss.Width(cursor)))
+					lines = append(lines, truncate(prefix+body+cursor, inner))
+				} else {
+					lines = append(lines, truncate(prefix+row, inner))
+				}
+			}
+		}
+	}
 	// lipgloss Width is the padded content box; the rounded border is added
 	// outside it. Size the content so the final block is `width` cells.
 	boxWidth := max(1, width-p.EditorBox.GetHorizontalBorderSize())
@@ -870,6 +917,45 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func (m Model) renderInputChrome(width int, p Palette) string {
+	// Dialog measurement and standalone callers see the follow-mode chrome:
+	// the scroll hint belongs to the live chat frame only.
+	return m.renderChromeRow(width, p, chatScrollInfo{follow: true})
+}
+
+// renderChromeRow composes the chrome row for the live frame: optional scroll
+// hint, the left hints/spinner/error segment, and the right environment meta.
+func (m Model) renderChromeRow(width int, p Palette, scroll chatScrollInfo) string {
+	left := m.chromeLeft(p)
+	if hint := chromeScrollHint(p, scroll); hint != "" {
+		left = hint + p.HelpDesc.Render("  ") + left
+	}
+	right := m.chromeMeta(left, width, p)
+	row := joinChromeRow(left, right, width)
+	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(row, width))
+}
+
+const chatScrollHintLines = 3 // near-bottom margin below which the hint stays hidden
+
+// chromeScrollHint describes a paused chat viewport: how to get back to the
+// bottom, or how much history remains below. It stays quiet while following,
+// when there is nothing to scroll, and within a few lines of the bottom.
+func chromeScrollHint(p Palette, info chatScrollInfo) string {
+	if info.follow || info.maxScroll == 0 {
+		return ""
+	}
+	below := info.maxScroll - info.offset
+	if below <= chatScrollHintLines {
+		return ""
+	}
+	if below > info.viewport {
+		return p.HelpKey.Render("↑ 历史") + p.HelpDesc.Render(fmt.Sprintf(" · 下方还有 %d 行", below))
+	}
+	return p.HelpKey.Render("↓ end") + p.HelpDesc.Render(" 回到底部")
+}
+
+// chromeLeft builds the left chrome segment with the existing priority:
+// transport error first, then the busy spinner, then the hint keys.
+func (m Model) chromeLeft(p Palette) string {
 	hints := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 切换模式") + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
 	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
 		if gate.Kind == "question" {
@@ -882,24 +968,84 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 		hints = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
 	}
 	meta := m.driver.Meta()
-	left := hints
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		left = p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
-	} else if meta.Busy {
-		left = p.Dim.Render(m.busyStatus(meta)) + p.HelpDesc.Render("  ") + hints
+		return p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
 	}
-	line := left
-	if right := m.chromeRightStatus(meta); right != "" {
-		right = p.Dim.Render(right)
-		// Right-aligned split: pad the left segment up to the right edge. On
-		// overflow fall back to a single separating space and let truncate cut.
-		if pad := width - lipgloss.Width(right) - lipgloss.Width(left); pad >= 0 {
-			line += strings.Repeat(" ", pad) + right
+	if meta.Busy {
+		return p.Dim.Render(m.busyStatus(meta)) + p.HelpDesc.Render("  ") + hints
+	}
+	return hints
+}
+
+const (
+	chromeGap           = 2 // cells between chrome segments and meta candidates
+	minChromeTitleWidth = 8 // below this the trimmed title carries no information
+)
+
+// chromeMeta builds the right chrome segment: the queued count, the host, and
+// the active session title, joined left to right with two-space gaps. The
+// title is tail-truncated to the room that remains next to the other
+// candidates; after that candidates degrade tail-first (title → host →
+// queued) until the segment fits or disappears.
+func (m Model) chromeMeta(left string, width int, p Palette) string {
+	meta := m.driver.Meta()
+	var parts []string
+	if meta.Queued > 0 {
+		parts = append(parts, p.PromptWarn.Render(fmt.Sprintf("⏸ %d queued", meta.Queued)))
+	}
+	if host := strings.TrimSpace(meta.Host); host != "" {
+		parts = append(parts, p.Dim.Render(host))
+	}
+	title := strings.TrimSpace(sanitizeFileCompletionText(m.driver.Active().Title))
+	if title != "" {
+		parts = append(parts, p.Dim.Render(title))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	avail := max(0, width-lipgloss.Width(left)-chromeGap)
+	if title != "" {
+		last := len(parts) - 1
+		room := avail - chromeMetaWidth(parts[:last]) - chromeGap
+		if room < minChromeTitleWidth {
+			parts = parts[:last]
 		} else {
-			line += " " + right
+			parts[last] = p.Dim.Render(truncate(title, room))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).MaxWidth(width).MaxHeight(1).Align(lipgloss.Left).Render(truncate(line, width))
+	for len(parts) > 0 && chromeMetaWidth(parts) > avail {
+		parts = parts[:len(parts)-1]
+	}
+	return strings.Join(parts, strings.Repeat(" ", chromeGap))
+}
+
+func chromeMetaWidth(parts []string) int {
+	w := 0
+	for i, part := range parts {
+		if i > 0 {
+			w += chromeGap
+		}
+		w += lipgloss.Width(part)
+	}
+	return w
+}
+
+// joinChromeRow composes one chrome row: the left segment, space padding, and
+// the right segment filling the row exactly. Widths use lipgloss.Width so CJK
+// cells stay aligned. An empty right segment leaves the left segment alone;
+// anything that still does not fit resolves to a truncated left segment.
+func joinChromeRow(left, right string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if right == "" {
+		return truncate(left, width)
+	}
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < chromeGap {
+		return truncate(left, width)
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 // busyStatus renders the current spinner frame plus the elapsed run time
@@ -919,26 +1065,13 @@ func (m Model) busyStatus(meta surface.Meta) string {
 	return fmt.Sprintf("%s run %ds", frame, int(elapsed.Seconds()))
 }
 
-// chromeRightStatus builds the dim right-aligned status segment: the scroll
-// position with the end-key hint while scrolled away from the bottom, then the
-// queued turn count.
-func (m Model) chromeRightStatus(meta surface.Meta) string {
-	var parts []string
-	if !m.chatFollow && m.chatCanScroll() {
-		maxScroll := m.chatMaxScroll()
-		pct := 0
-		if maxScroll > 0 {
-			pct = max(0, min(100, 100*m.chatScroll/maxScroll))
-		}
-		parts = append(parts, fmt.Sprintf("↓ %d%% · end 回底", pct))
-	}
-	if meta.Queued > 0 {
-		parts = append(parts, fmt.Sprintf("queued %d", meta.Queued))
-	}
-	return strings.Join(parts, " · ")
-}
-
 func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
+	if m.driver.Meta().Busy {
+		// Busy outranks the working-mode color: the border dims to signal
+		// that input queues behind the running turn, and the mode color
+		// returns when the run finishes. Typing stays enabled.
+		return p.EditorBox.BorderForeground(p.Dim.GetForeground())
+	}
 	snapshot := m.driver.Sidebar()
 	if snapshot.Session.ID == "" {
 		snapshot.Session = m.driver.Active()
@@ -1764,6 +1897,42 @@ func tailOfWidth(s string, budget int) string {
 		tail = ansi.TruncateLeft(s, total-cells, "")
 	}
 	return tail
+}
+
+// pasteGuardChip flags a draft that looks like a giant paste: over the char
+// or the line threshold. It is derived from the current draft only, so
+// trimming back under the thresholds clears the chip without bookkeeping.
+func pasteGuardChip(input string) string {
+	runes := len([]rune(input))
+	lines := strings.Count(input, "\n") + 1
+	if runes <= pasteThresholdChars && lines <= pasteThresholdLines {
+		return ""
+	}
+	return fmt.Sprintf("⚠ 大段粘贴 · %d 行 / %d 字符 · enter 发送前请确认", lines, runes)
+}
+
+// editorInputLines splits a composer draft into the lines the editor shows.
+// CRLF is normalized to "\n", every line is ANSI-safe truncated to width, and
+// drafts past maxLines keep only the trailing window (input always appends at
+// the tail) with a "…" marker on the first kept line. The line count it
+// returns is the same accounting Model.layout uses for the editor reserve.
+func editorInputLines(input string, width, maxLines int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if maxLines < 1 {
+		maxLines = 1
+	}
+	normalized := strings.ReplaceAll(strings.ReplaceAll(input, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+		lines[0] = "…" + lines[0]
+	}
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, width, "…")
+	}
+	return lines
 }
 
 func padRight(s string, width int) string {

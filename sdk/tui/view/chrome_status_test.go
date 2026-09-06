@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -43,7 +41,7 @@ func TestRenderInputChromeQueuedCount(t *testing.T) {
 		meta:     surface.Meta{Queued: 2},
 	}
 	m := New(driver)
-	if chrome := m.renderInputChrome(80, m.palette); !strings.Contains(chrome, "queued 2") {
+	if chrome := m.renderInputChrome(80, m.palette); !strings.Contains(chrome, "⏸ 2 queued") {
 		t.Fatalf("chrome missing queued count: %q", chrome)
 	}
 	driver.meta.Queued = 0
@@ -52,28 +50,8 @@ func TestRenderInputChromeQueuedCount(t *testing.T) {
 	}
 }
 
-func TestRenderInputChromeScrollIndicator(t *testing.T) {
-	messages := map[string][]surface.Message{"s1": {}}
-	for i := 0; i < 60; i++ {
-		messages["s1"] = append(messages["s1"], surface.Message{Role: surface.RoleUser, Content: "chat line to overflow the viewport"})
-	}
-	driver := &testDriver{
-		sessions: []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
-		active:   "s1",
-		messages: messages,
-	}
-	m := New(driver)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 88, Height: 24})
-	m = updated.(Model)
-	if !m.chatCanScroll() {
-		t.Fatalf("chat should be scrollable with 60 overflow messages")
-	}
-	m.scrollChat(-10)
-	if m.chatFollow {
-		t.Fatalf("scrolling should release bottom follow")
-	}
-	chrome := m.renderInputChrome(m.layout().mainW(), m.palette)
-	if !strings.Contains(chrome, "↓ ") || !strings.Contains(chrome, "end 回底") {
-		t.Fatalf("scrolled chrome missing scroll indicator: %q", chrome)
-	}
-}
+// TestRenderInputChromeScrollIndicator was superseded during the
+// feat/tui-detail-polish merge: the scroll-position fragment moved out of the
+// right-aligned meta into the dedicated chromeScrollHint on the left segment,
+// which carries exact remaining-line counts. The live-frame hint is covered
+// end to end by TestChromeRowShowsScrollHintWhileParked in chrome_test.go.
