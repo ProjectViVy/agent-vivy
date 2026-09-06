@@ -429,6 +429,10 @@ func TestCommandDeleteUsesExistingConfirmationAndBusyFailsClosed(t *testing.T) {
 	busy := &commandDriver{testDriver: &testDriver{busy: true}}
 	m = New(busy)
 	m.input = `/new unsafe while busy`
+	// Observe the already-busy driver once so the guarded key below is not the
+	// first busy observation (which schedules a view-owned spinner tick cmd).
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 	if cmd != nil || busy.commandName != "" || !strings.Contains(m.View(), "unavailable") {
