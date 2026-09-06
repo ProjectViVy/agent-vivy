@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
-  initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
+  initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
   createSession: vi.fn(), renameSession: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
@@ -148,6 +148,43 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().openRun('r1', 's1');
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'tool.finished', created_at: 2, payload_version: 1, payload: { tool_name: 'task_create', tool_call_id: 'c1', result: '{}' } });
     await vi.waitFor(() => expect(useVivyStore.getState().todos.map((item) => item.subject)).toEqual(['wire rpc']));
+  });
+
+  it('updates todo status when session is idle', async () => {
+    useVivyStore.setState({
+      activeSessionId: 's1',
+      currentRun: null,
+      todos: [{ id: '1', session_id: 's1', subject: 'task 1', description: '', status: 'pending', blocks: [], blocked_by: [], position: 0, created_at: 1, updated_at: 1 }],
+    });
+    api.updateTodo.mockResolvedValueOnce({
+      todo: { id: '1', session_id: 's1', subject: 'task 1', description: '', status: 'completed', blocks: [], blocked_by: [], position: 0, created_at: 1, updated_at: 2 },
+    });
+    await useVivyStore.getState().updateTodoStatus('1', 'completed');
+    expect(api.updateTodo).toHaveBeenCalledWith('s1', '1', 'completed');
+    expect(useVivyStore.getState().todos[0].status).toBe('completed');
+  });
+
+  it('refuses to update todo status while a run is active', async () => {
+    useVivyStore.setState({
+      activeSessionId: 's1',
+      currentRun: { id: 'r1', session_id: 's1', status: 'active', created_at: 1 },
+      todos: [{ id: '1', session_id: 's1', subject: 'task 1', description: '', status: 'pending', blocks: [], blocked_by: [], position: 0, created_at: 1, updated_at: 1 }],
+    });
+    await useVivyStore.getState().updateTodoStatus('1', 'completed');
+    expect(api.updateTodo).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().todos[0].status).toBe('pending');
+  });
+
+  it('rolls back todo status on api failure', async () => {
+    useVivyStore.setState({
+      activeSessionId: 's1',
+      currentRun: null,
+      todos: [{ id: '1', session_id: 's1', subject: 'task 1', description: '', status: 'pending', blocks: [], blocked_by: [], position: 0, created_at: 1, updated_at: 1 }],
+    });
+    api.updateTodo.mockRejectedValueOnce(new Error('session has an active run'));
+    await useVivyStore.getState().updateTodoStatus('1', 'completed');
+    expect(useVivyStore.getState().todos[0].status).toBe('pending');
+    expect(useVivyStore.getState().todosError).toBe('session has an active run');
   });
 
   it('queues a message instead of dropping it while a run is active', async () => {

@@ -83,6 +83,11 @@ export const zh = {
       completed: '已完成',
       cancelled: '已取消',
     },
+    markCompleted: '标记为已完成',
+    markCancelled: '标记为已取消',
+    markPending: '恢复为待办',
+    runningLocked: '会话运行中，待办状态已锁定',
+    toggleComplete: '切换完成状态',
   },
   chat: {
     startNew: '开始新的对话',
