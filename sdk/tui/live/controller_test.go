@@ -244,6 +244,67 @@ func TestLiveBootListsOrCreatesSession(t *testing.T) {
 	}
 }
 
+func TestLiveBootCreatesUntitledSession(t *testing.T) {
+	var createdTitle = "unset"
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){
+		"initialize": baseScript()["initialize"],
+		"session/list": func(json.RawMessage) (any, error) {
+			return map[string]any{"sessions": []any{}}, nil
+		},
+		"session/create": func(raw json.RawMessage) (any, error) {
+			var params struct {
+				Title string `json:"title"`
+			}
+			_ = json.Unmarshal(raw, &params)
+			createdTitle = params.Title
+			return map[string]string{"id": "sess_new", "title": params.Title, "permission_preset": "smart"}, nil
+		},
+	}}
+	live := newLive(context.Background(), newClient(env), Options{Host: "vivy", Title: "VIVY CODE", InitialPrompt: "把输入框做成圆角"})
+	defer live.Close()
+	boot := mustMsg[liveBootMsg](t, live.bootCmd())
+	if boot.Err != nil {
+		t.Fatal(boot.Err)
+	}
+	live.Handle(boot)
+	// The session is born untitled even for a prompt launch: the kernel
+	// auto-titler (LLM summary, truncation fallback) owns the name.
+	if createdTitle != "" {
+		t.Fatalf("boot created the session with title %q, want empty", createdTitle)
+	}
+	if live.Active().Title != "" {
+		t.Fatalf("active session title = %q, want empty", live.Active().Title)
+	}
+}
+
+func TestNewSessionKeepsEmptyTitle(t *testing.T) {
+	var createdTitle = "unset"
+	env := &fakeEnv{script: map[string]func(json.RawMessage) (any, error){
+		"initialize": baseScript()["initialize"],
+		"session/create": func(raw json.RawMessage) (any, error) {
+			var params struct {
+				Title string `json:"title"`
+			}
+			_ = json.Unmarshal(raw, &params)
+			createdTitle = params.Title
+			return map[string]string{"id": "sess_next", "title": params.Title, "permission_preset": "smart"}, nil
+		},
+	}}
+	live := newLive(context.Background(), newClient(env), Options{Host: "vivy", Title: "VIVY CODE"})
+	defer live.Close()
+	cmd := live.NewSession("")
+	if cmd == nil {
+		t.Fatal("/new with no title returned no command")
+	}
+	msg := mustMsg[liveLoadedMsg](t, cmd)
+	if msg.Err != nil {
+		t.Fatal(msg.Err)
+	}
+	if createdTitle != "" {
+		t.Fatalf("/new created the session with title %q, want empty", createdTitle)
+	}
+}
+
 func TestApplyBootConsumesInitialPromptOnce(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	live := newLive(context.Background(), newClient(env), Options{InitialPrompt: "describe this workspace"})
