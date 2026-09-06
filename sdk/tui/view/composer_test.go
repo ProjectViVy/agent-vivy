@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -168,20 +169,23 @@ func TestEditorInputLinesSplitsTruncatesAndWindows(t *testing.T) {
 func TestEditorReserveGrowsWithInputLinesAndCaps(t *testing.T) {
 	for _, tc := range []struct {
 		attachments bool
+		pasteGuard  bool
 		inputLines  int
 		want        int
 	}{
-		{false, 1, 4},
-		{false, 0, 4},
-		{false, -3, 4},
-		{false, 3, 6},
-		{true, 1, 5},
-		{false, 6, 9},
-		{false, 99, 9},
-		{true, 99, 10},
+		{false, false, 1, 4},
+		{false, false, 0, 4},
+		{false, false, -3, 4},
+		{false, false, 3, 6},
+		{true, false, 1, 5},
+		{false, false, 6, 9},
+		{false, false, 99, 9},
+		{true, false, 99, 10},
+		{false, true, 1, 5},
+		{true, true, 99, 11},
 	} {
-		if got := editorReserve(tc.attachments, tc.inputLines); got != tc.want {
-			t.Fatalf("editorReserve(%v, %d) = %d, want %d", tc.attachments, tc.inputLines, got, tc.want)
+		if got := editorReserve(tc.attachments, tc.pasteGuard, tc.inputLines); got != tc.want {
+			t.Fatalf("editorReserve(%v, %v, %d) = %d, want %d", tc.attachments, tc.pasteGuard, tc.inputLines, got, tc.want)
 		}
 	}
 }
@@ -198,7 +202,9 @@ func TestLayoutShrinksMainHeightForTallerDrafts(t *testing.T) {
 	if l := m.layout(); l.editorH != 6 || l.mainH() != 13 {
 		t.Fatalf("three-line layout editorH=%d mainH=%d, want 6/13", l.editorH, l.mainH())
 	}
-	m.input = strings.Repeat("line\n", 60)
+	// Nine lines: past maxEditorLines but below the paste-guard thresholds,
+	// so only the line cap drives the reserve.
+	m.input = strings.Repeat("l\n", 8)
 	if l := m.layout(); l.editorH != 9 || l.mainH() != 10 {
 		t.Fatalf("capped layout editorH=%d mainH=%d, want 9/10", l.editorH, l.mainH())
 	}
@@ -311,5 +317,62 @@ func TestComposerPlaceholderShowsOnlyForEmptyUngatedInput(t *testing.T) {
 				t.Fatalf("width %d line %d overflowed: %q", width, i, ansi.Strip(line))
 			}
 		}
+	}
+}
+
+func TestPasteGuardChipThresholdBoundaries(t *testing.T) {
+	if chip := pasteGuardChip(strings.Repeat("x", pasteThresholdChars)); chip != "" {
+		t.Fatalf("chip at exactly %d chars = %q", pasteThresholdChars, chip)
+	}
+	if chip := pasteGuardChip(strings.Repeat("x", pasteThresholdChars+1)); !strings.Contains(chip, "2001 字符") || !strings.Contains(chip, "1 行") {
+		t.Fatalf("chip above char threshold = %q", chip)
+	}
+	linesAtThreshold := strings.Repeat("l\n", pasteThresholdLines-1) + "l"
+	if chip := pasteGuardChip(linesAtThreshold); chip != "" {
+		t.Fatalf("chip at exactly %d lines = %q", pasteThresholdLines, chip)
+	}
+	over := strings.Repeat("l\n", pasteThresholdLines)
+	if chip := pasteGuardChip(over); !strings.Contains(chip, fmt.Sprintf("%d 行", pasteThresholdLines+1)) {
+		t.Fatalf("chip above line threshold = %q", chip)
+	}
+	if chip := pasteGuardChip("normal draft"); chip != "" {
+		t.Fatalf("small draft raised a chip: %q", chip)
+	}
+}
+
+func TestPasteGuardChipRendersBetweenAttachmentsAndInput(t *testing.T) {
+	p := DefaultPalette()
+	driver := &testDriver{
+		sessions:    []surface.Session{{ID: "s1", PermissionPreset: "smart"}},
+		active:      "s1",
+		attachments: []surface.Attachment{{Name: "shot.png", Path: "shot.png"}},
+		sidebar:     surface.Sidebar{Model: "gpt-4.1"},
+	}
+	m := New(driver)
+	m.input = strings.Repeat("x", pasteThresholdChars+10)
+	editor := m.renderEditor(60, p)
+	plain := ansi.Strip(editor)
+	chip := pasteGuardChip(m.input)
+	if !strings.Contains(plain, chip) {
+		t.Fatalf("paste guard chip missing:\n%s", plain)
+	}
+	attachmentAt := strings.Index(plain, "[image: shot.png]")
+	chipAt := strings.Index(plain, "大段粘贴")
+	inputAt := strings.Index(plain, ":::")
+	if attachmentAt < 0 || chipAt < 0 || inputAt < 0 || !(attachmentAt < chipAt && chipAt < inputAt) {
+		t.Fatalf("chip order wrong: attachment=%d chip=%d input=%d", attachmentAt, chipAt, inputAt)
+	}
+	// The reserve grows with the chip and shrinks back once the draft is
+	// trimmed under the thresholds: border 2 + chips 1 + attachments 1 +
+	// single input line 1 + paste-guard 1.
+	if l := m.layout(); l.editorH != 6 {
+		t.Fatalf("guarded layout editorH = %d, want 6", l.editorH)
+	}
+	m.input = "small again"
+	if strings.Contains(ansi.Strip(m.renderEditor(60, p)), "大段粘贴") {
+		t.Fatal("chip survived trimming below the thresholds")
+	}
+	if l := m.layout(); l.editorH != 5 {
+		t.Fatalf("unguarded layout editorH = %d, want 5 (attachments keep their row)", l.editorH)
 	}
 }
