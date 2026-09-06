@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-09-06
+> Updated: 2026-09-07
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -553,6 +553,7 @@ SDK pack, no DSH.
 
 | Date | Item | Note |
 |---|---|---|
+| 2026-09-07 | Lane C 聊天体 F5/F9/F13 | 共享 view（`sdk/tui/view`）三项呈现升级：F5 工具卡 `ctrl+o` 会话内展开（默认 8 行截断保持，标记改为 `… N more lines · ctrl+o expand`，`tui.debug` 语义不变）；F9 reasoning `ctrl+r` 折叠为单行摘要（mdCache 增加 collapsed 维度防旧渲染）；F13 空会话 hero（wordmark、寻找真心之旅、CWD、键位提示）。gate 存在时两键不响应；快捷键面板补两行。built-in/packed/live 三路径共用。Filing: `docs/logs/2026-09-07-tui-chat-body-polish/`. |
 | 2026-09-06 | EINO-BOUNDARY-AUDIT §5.1/§5.5/§5.6 | Eino MCP `GetTools` 接管 tools/schema，mcp-go typed client 保留 resources/prompts/lifecycle 与 Vivy 的 `isError` 语义；保留 ChatModel stream observer（Eino callbacks 是 sibling Copy，不能满足 Begin 标记、有界背压、persist fail-closed、tool barrier）；`MCPBackend` 等六项去掉误导性 `Eino` 前缀。父项仍 OPEN（tool_search、Sequential Thinking、plantask）。Filing: `docs/logs/2026-09-06-eino-native-mcp/`、`docs/logs/2026-09-06-eino-boundary-stream-observer-naming/`. |
 | 2026-09-05 | TUI-CMD-N3 动态 skills / MCP prompt 命令 | user-invocable skill frontmatter 与 MCP prompts 进入 typed 动态命令目录；服务端展开前重新校验，MCP 参数按 `NAME=value` 校验；fullscreen 每次开面板刷新，REPL 启动加载；built-in/packed 同步支持 usage、异步 fence 和失败草稿恢复。Filing: `docs/logs/2026-09-05-vivy-code-dynamic-commands/`. |
 | 2026-09-04 | TUI-FILE-COMPLETE fullscreen `@文件` 补全 | 服务端 query-first metadata catalog、8 KiB 探测/访问预算与安全路径过滤；共享 popup debounce、stale/session fence、键盘导航和 quoted path round-trip；built-in/packed RPC parity。Filing: `docs/logs/2026-09-04-vivy-code-file-completion/`. |
