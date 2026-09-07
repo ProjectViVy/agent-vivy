@@ -220,6 +220,7 @@ type Driver interface {
 	DynamicCommandProvider
 	DynamicCommandRefresher
 	DynamicCommandExecutor
+	DynamicCommandCanceller
 	SidebarProvider
 	ThinkingController
 	RunModeController
@@ -275,6 +276,13 @@ type DynamicCommandsMsg struct {
 // control plane. The resulting model input still travels through Driver.Send.
 type DynamicCommandExecutor interface {
 	ExecuteDynamicCommand(request uint64, sessionID, id string, args []string) tea.Cmd
+}
+
+// DynamicCommandCanceller aborts an in-flight catalog expansion by request id
+// so Esc or a session switch does not keep the editor locked for the remainder
+// of the RPC timeout.
+type DynamicCommandCanceller interface {
+	CancelDynamicCommand(request uint64)
 }
 
 // DynamicCommandExpandedMsg carries server-expanded model input back through

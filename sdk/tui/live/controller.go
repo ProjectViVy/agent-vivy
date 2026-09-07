@@ -51,6 +51,9 @@ type Live struct {
 	// their error) from a stale epoch so a late boot can never overwrite a
 	// catalog a newer refresh already produced.
 	dynamicCommandEpoch uint64
+	// dynamicCommandCancels abort in-flight expansions by view-scoped request
+	// id; one Live serves one view, so request ids are unique here.
+	dynamicCommandCancels map[uint64]context.CancelFunc
 
 	busy      bool
 	busySince time.Time
@@ -682,6 +685,21 @@ func (l *Live) applyDynamicCommandsMsg(msg surface.DynamicCommandsMsg) {
 		return
 	}
 	l.dynamicCommands = append([]surface.DynamicCommand(nil), msg.Commands...)
+	if strings.HasPrefix(l.lastErr, "dynamic commands: ") {
+		l.lastErr = ""
+	}
+}
+
+// CancelDynamicCommand aborts an in-flight catalog expansion. Unknown or
+// already-finished requests are a no-op.
+func (l *Live) CancelDynamicCommand(request uint64) {
+	l.mu.Lock()
+	cancel := l.dynamicCommandCancels[request]
+	delete(l.dynamicCommandCancels, request)
+	l.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // ExecuteDynamicCommand asks the server to revalidate and expand an opaque
@@ -693,7 +711,18 @@ func (l *Live) ExecuteDynamicCommand(request uint64, sessionID, id string, args 
 			return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Err: fmt.Errorf("dynamic commands are unavailable")}
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
-		defer cancel()
+		l.mu.Lock()
+		if l.dynamicCommandCancels == nil {
+			l.dynamicCommandCancels = make(map[uint64]context.CancelFunc)
+		}
+		l.dynamicCommandCancels[request] = cancel
+		l.mu.Unlock()
+		defer func() {
+			l.mu.Lock()
+			delete(l.dynamicCommandCancels, request)
+			l.mu.Unlock()
+			cancel()
+		}()
 		expanded, err := l.client.expandDynamicCommand(ctx, id, args)
 		return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Text: expanded.Text, Err: err}
 	}

@@ -89,6 +89,7 @@ type Model struct {
 	dynamicCommandSession  string
 	dynamicCommandDraft    string
 	dynamicArgumentCommand *surface.DynamicCommand
+	dynamicArgumentSession string
 	dynamicArgumentValues  []string
 	dynamicArgumentCursor  int
 	dynamicArgumentError   string
@@ -353,6 +354,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.clampSidebarScroll()
 	if activeID := m.driver.Active().ID; activeID != m.chatSessionID {
+		// The active session moved underneath local surfaces: a pending
+		// expansion would discard its turn anyway, and argument input belongs
+		// to the session the palette was opened in. Cancel/close both so the
+		// pending lock cannot ride out the RPC timeout on a dead request.
+		if m.dynamicCommandPending && m.dynamicCommandSession != activeID {
+			m.driver.CancelDynamicCommand(m.dynamicCommandRequest)
+		}
+		if m.dynamicArgumentCommand != nil && m.dynamicArgumentSession != activeID {
+			m.clearDynamicArguments()
+		}
 		m.chatSessionID = activeID
 		m.chatScroll = 0
 		m.chatFollow = true
@@ -553,6 +564,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.shortcutsOpen = false
 	}
 	if gate == nil && m.dynamicCommandPending && msg.Type == tea.KeyEsc {
+		// Abort the RPC first so the editor unlock is immediate instead of
+		// waiting out the server timeout, then invalidate the stale result.
+		m.driver.CancelDynamicCommand(m.dynamicCommandRequest)
 		m.dynamicCommandRequest++
 		m.dynamicCommandPending = false
 		m.input = m.dynamicCommandDraft
@@ -1419,6 +1433,7 @@ func (m Model) handleCommandPaletteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			copyEntry := entry
 			copyEntry.Arguments = append([]surface.DynamicCommandArgument(nil), entry.Arguments...)
 			m.dynamicArgumentCommand = &copyEntry
+			m.dynamicArgumentSession = m.driver.Active().ID
 			m.dynamicArgumentValues = make([]string, len(copyEntry.Arguments))
 			m.dynamicArgumentCursor = 0
 			m.dynamicArgumentError = ""
@@ -1446,6 +1461,7 @@ func (m Model) handleCommandPaletteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m *Model) clearDynamicArguments() {
 	m.dynamicArgumentCommand = nil
+	m.dynamicArgumentSession = ""
 	m.dynamicArgumentValues = nil
 	m.dynamicArgumentCursor = 0
 	m.dynamicArgumentError = ""

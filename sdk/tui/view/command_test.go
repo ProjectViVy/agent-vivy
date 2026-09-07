@@ -23,6 +23,7 @@ type dynamicCommandDriver struct {
 	id       string
 	args     []string
 	refresh  uint64
+	cancels  []uint64
 }
 
 func (*dynamicCommandDriver) SupportsCapability(name string) bool {
@@ -44,6 +45,10 @@ func (d *dynamicCommandDriver) ExecuteDynamicCommand(request uint64, sessionID, 
 	return func() tea.Msg {
 		return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Text: "expanded skill input"}
 	}
+}
+
+func (d *dynamicCommandDriver) CancelDynamicCommand(request uint64) {
+	d.cancels = append(d.cancels, request)
 }
 
 type contextCommandDriver struct {
@@ -344,6 +349,74 @@ func TestDynamicCommandSerializesAndRestoresDraftAcrossCancellation(t *testing.T
 	m = updated.(Model)
 	if stale != nil || d.sent != "" || m.input != `/review "first"` {
 		t.Fatalf("stale expansion escaped fence: sent=%q draft=%q", d.sent, m.input)
+	}
+}
+
+func TestDynamicCommandEscapeCancelsInFlightExpansion(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}, commands: []surface.DynamicCommand{{ID: "skill:review", Kind: "skill", Name: "review"}}}
+	m := New(d)
+	m.input = `/review "first"`
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || !m.dynamicCommandPending {
+		t.Fatal("dispatch did not enter pending state")
+	}
+	request := m.dynamicCommandRequest
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+	if m.dynamicCommandPending || m.input != `/review "first"` {
+		t.Fatalf("escape did not cancel: pending=%v input=%q", m.dynamicCommandPending, m.input)
+	}
+	if len(d.cancels) != 1 || d.cancels[0] != request {
+		t.Fatalf("escape cancelled %v, want [%d]", d.cancels, request)
+	}
+	// The cancelled RPC still returns; the bumped request must discard it
+	// silently instead of restoring a stale draft.
+	updated, stale := m.Update(surface.DynamicCommandExpandedMsg{Request: request, SessionID: "session-1", ID: "skill:review", Err: fmt.Errorf("context canceled")})
+	m = updated.(Model)
+	if stale != nil || d.sent != "" {
+		t.Fatalf("cancelled expansion leaked into the model: cmd=%v sent=%q", stale != nil, d.sent)
+	}
+}
+
+func TestDynamicCommandSessionChangeCancelsAndClosesArgumentForm(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}, {ID: "session-2"}}, active: "session-1"}, commands: []surface.DynamicCommand{{
+		ID: "mcp:prompt", Kind: "mcp_prompt", Name: "mcp-review",
+		Arguments: []surface.DynamicCommandArgument{{Name: "focus", Required: true}},
+	}}}
+	m := New(d)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+
+	m.openCommandPalette()
+	m.commandPaletteFilter = "mcp-review"
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.dynamicArgumentCommand == nil || m.dynamicArgumentSession != "session-1" {
+		t.Fatalf("argument form session = %q", m.dynamicArgumentSession)
+	}
+
+	m.dynamicCommandPending = true
+	m.dynamicCommandID = "skill:review"
+	m.dynamicCommandSession = "session-1"
+	m.dynamicCommandDraft = "/review"
+	request := m.dynamicCommandRequest
+	d.active = "session-2"
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	if len(d.cancels) != 1 || d.cancels[0] != request {
+		t.Fatalf("session switch cancelled %v, want [%d]", d.cancels, request)
+	}
+	if m.dynamicArgumentCommand != nil {
+		t.Fatal("argument form survived the session switch")
+	}
+
+	// The cancelled RPC returns into the discard path: pending clears, the
+	// draft is restored, and the mismatch is surfaced.
+	updated, _ = m.Update(surface.DynamicCommandExpandedMsg{Request: request, SessionID: "session-1", ID: "skill:review", Err: fmt.Errorf("context canceled")})
+	m = updated.(Model)
+	if m.dynamicCommandPending || m.input != "/review" || !strings.Contains(m.View(), "active session changed") {
+		t.Fatalf("cancelled expansion was not discarded: pending=%v input=%q", m.dynamicCommandPending, m.input)
 	}
 }
 
