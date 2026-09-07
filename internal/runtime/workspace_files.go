@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -17,6 +18,11 @@ import (
 // truncated instead of streaming an unbounded listing to the UI.
 const workspaceListCap = 2000
 
+// ErrWorkspaceNotFound reports a run whose workspace does not exist. The UI
+// accessor never creates workspace state, so this is a terminal not-found,
+// not a retryable race.
+var ErrWorkspaceNotFound = errors.New("runtime: run workspace not found")
+
 // WorkspaceFileInfo is one file in a run workspace, path relative to the
 // workspace root with forward slashes.
 type WorkspaceFileInfo struct {
@@ -26,7 +32,8 @@ type WorkspaceFileInfo struct {
 
 // WorkspaceFiles exposes the run workspace to the control plane's UI
 // preview (workspace/list, workspace/read). It is read-only, symlink-free,
-// and bounded by the same byte cap as the filesystem tools.
+// bounded by the same byte cap as the filesystem tools, and never creates
+// workspace state: unknown or not-yet-started runs fail closed.
 type WorkspaceFiles struct {
 	manager      *WorkspaceManager
 	maxFileBytes int
@@ -42,7 +49,8 @@ func NewWorkspaceFiles(manager *WorkspaceManager, maxFileBytes int) *WorkspaceFi
 
 // List returns every regular file under the run workspace, sorted by path.
 // Symlinks are skipped (the workspace must stay symlink-free) and a listing
-// past the cap reports truncated.
+// past the cap reports truncated. A run without an existing workspace fails
+// closed instead of allocating one.
 func (s *WorkspaceFiles) List(ctx context.Context, runID domain.RunID) ([]WorkspaceFileInfo, bool, error) {
 	root, err := s.workspace(ctx, runID)
 	if err != nil {
@@ -96,7 +104,9 @@ type ReadFileResult struct {
 
 // Read returns one workspace file's content. Text over the byte cap is
 // truncated (flagged); binaries are flagged and returned without content —
-// the UI preview is text-only.
+// the UI preview is text-only. The file is re-stat'ed through the open
+// handle and read from that descriptor, so a path swapped after the Lstat
+// cannot redirect the bytes that leave this function.
 func (s *WorkspaceFiles) Read(ctx context.Context, runID domain.RunID, rel string) (ReadFileResult, error) {
 	root, err := s.workspace(ctx, runID)
 	if err != nil {
@@ -117,11 +127,23 @@ func (s *WorkspaceFiles) Read(ctx context.Context, runID domain.RunID, rel strin
 	if info.Mode()&fs.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return ReadFileResult{}, errors.New("runtime: workspace file is not a regular file")
 	}
-	data, err := os.ReadFile(full)
+	file, err := os.Open(full)
 	if err != nil {
 		return ReadFileResult{}, err
 	}
-	result := ReadFileResult{Path: clean, Size: info.Size()}
+	defer file.Close()
+	handleInfo, err := file.Stat()
+	if err != nil {
+		return ReadFileResult{}, err
+	}
+	if !handleInfo.Mode().IsRegular() {
+		return ReadFileResult{}, errors.New("runtime: workspace file is not a regular file")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, int64(s.maxFileBytes)+1))
+	if err != nil {
+		return ReadFileResult{}, err
+	}
+	result := ReadFileResult{Path: clean, Size: handleInfo.Size()}
 	if isBinary(data) {
 		result.Binary = true
 		return result, nil
@@ -138,9 +160,12 @@ func (s *WorkspaceFiles) workspace(ctx context.Context, runID domain.RunID) (str
 	if s == nil || s.manager == nil {
 		return "", errors.New("runtime: workspace files not wired")
 	}
-	ws, err := s.manager.Ensure(ctx, runID)
+	ws, found, err := s.manager.Existing(ctx, runID)
 	if err != nil {
 		return "", err
+	}
+	if !found {
+		return "", ErrWorkspaceNotFound
 	}
 	return ws.Path, nil
 }

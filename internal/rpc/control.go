@@ -2530,6 +2530,24 @@ type WorkspaceFiles interface {
 	Read(ctx context.Context, runID domain.RunID, path string) (runtime.ReadFileResult, error)
 }
 
+// workspaceRunOwner proves the requested run exists in this Journal before
+// any workspace filesystem access. The control plane has no per-client
+// identity beyond the loopback transport, so run existence in the Journal is
+// the ownership fact; unknown ids fail closed before WorkspaceFiles is
+// reached and can never allocate a directory.
+func (h *controlHandler) workspaceRunOwner(ctx context.Context, runID string) *Error {
+	if h.deps.Runs == nil {
+		return internalError(errors.New("rpc: run store is not wired"))
+	}
+	if _, err := h.deps.Runs.GetRun(ctx, domain.RunID(runID)); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return &Error{Code: CodeNotFound, Message: "run not found"}
+		}
+		return internalError(err)
+	}
+	return nil
+}
+
 func (h *controlHandler) workspaceList(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.WorkspaceFiles == nil {
 		return nil, &Error{Code: MethodNotFound, Message: "workspace files are not configured"}
@@ -2543,8 +2561,14 @@ func (h *controlHandler) workspaceList(ctx context.Context, request Request) (an
 	if params.RunID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "run_id is required"}
 	}
+	if rpcErr := h.workspaceRunOwner(ctx, params.RunID); rpcErr != nil {
+		return nil, rpcErr
+	}
 	files, truncated, err := h.deps.WorkspaceFiles.List(ctx, domain.RunID(params.RunID))
 	if err != nil {
+		if errors.Is(err, runtime.ErrWorkspaceNotFound) {
+			return nil, &Error{Code: CodeNotFound, Message: "run workspace not found"}
+		}
 		return nil, internalError(err)
 	}
 	return map[string]any{"files": files, "truncated": truncated}, nil
@@ -2564,8 +2588,14 @@ func (h *controlHandler) workspaceRead(ctx context.Context, request Request) (an
 	if params.RunID == "" || params.Path == "" {
 		return nil, &Error{Code: InvalidParams, Message: "run_id and path are required"}
 	}
+	if rpcErr := h.workspaceRunOwner(ctx, params.RunID); rpcErr != nil {
+		return nil, rpcErr
+	}
 	result, err := h.deps.WorkspaceFiles.Read(ctx, domain.RunID(params.RunID), params.Path)
 	if err != nil {
+		if errors.Is(err, runtime.ErrWorkspaceNotFound) {
+			return nil, &Error{Code: CodeNotFound, Message: "run workspace not found"}
+		}
 		return nil, internalError(err)
 	}
 	return map[string]any{
