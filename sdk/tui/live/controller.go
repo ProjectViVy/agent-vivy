@@ -46,6 +46,11 @@ type Live struct {
 	models                surface.ModelCatalog
 	dynamicCommands       []surface.DynamicCommand
 	dynamicCommandRequest uint64
+	// dynamicCommandEpoch is bumped every time a refresh is issued. A boot
+	// result captures the epoch at fetch start; applyBoot drops commands (and
+	// their error) from a stale epoch so a late boot can never overwrite a
+	// catalog a newer refresh already produced.
+	dynamicCommandEpoch uint64
 
 	busy      bool
 	busySince time.Time
@@ -320,14 +325,15 @@ type liveTickMsg struct{}
 
 // liveBootMsg is the result of the initial session list / create.
 type liveBootMsg struct {
-	Sessions   []surface.Session
-	ActiveID   string
-	Messages   []surface.Message
-	Sidebar    surface.Sidebar
-	SidebarErr error
-	Commands   []surface.DynamicCommand
-	CommandErr error
-	Err        error
+	Sessions     []surface.Session
+	ActiveID     string
+	Messages     []surface.Message
+	Sidebar      surface.Sidebar
+	SidebarErr   error
+	Commands     []surface.DynamicCommand
+	CommandErr   error
+	CommandEpoch uint64
+	Err          error
 }
 
 // liveLoadedMsg is history after a session switch / new session.
@@ -462,10 +468,14 @@ func (l *Live) bootCmd() tea.Cmd {
 		}
 		var commands []surface.DynamicCommand
 		var commandErr error
+		var commandEpoch uint64
 		if l.client.SupportsCapability("commands.list") && l.client.SupportsCapability("commands.expand") {
+			l.mu.Lock()
+			commandEpoch = l.dynamicCommandEpoch
+			l.mu.Unlock()
 			commands, commandErr = l.client.dynamicCommands(ctx)
 		}
-		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot, SidebarErr: sidebarErr, Commands: commands, CommandErr: commandErr}
+		return liveBootMsg{Sessions: out, ActiveID: activeID, Messages: messages, Sidebar: snapshot, SidebarErr: sidebarErr, Commands: commands, CommandErr: commandErr, CommandEpoch: commandEpoch}
 	}
 }
 
@@ -609,8 +619,13 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	l.activeID = msg.ActiveID
 	l.messages[msg.ActiveID] = msg.Messages
 	l.sidebar = msg.Sidebar
-	l.dynamicCommands = append([]surface.DynamicCommand(nil), msg.Commands...)
 	l.noteLSPStatusLocked(msg.Sidebar)
+	// A refresh issued while boot was in flight owns the catalog; the boot
+	// snapshot belongs to an older epoch and is dropped whole (commands and
+	// error) so late boot data cannot overwrite it.
+	if msg.CommandEpoch == l.dynamicCommandEpoch {
+		l.dynamicCommands = append([]surface.DynamicCommand(nil), msg.Commands...)
+	}
 	if l.sidebar.Session.ID == "" {
 		l.sidebar.Session = l.activeSessionLocked()
 	}
@@ -618,7 +633,7 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	if msg.SidebarErr != nil {
 		l.lastErr = "session sidebar: " + shortErr(msg.SidebarErr)
 	}
-	if msg.CommandErr != nil {
+	if msg.CommandEpoch == l.dynamicCommandEpoch && msg.CommandErr != nil {
 		l.lastErr = "dynamic commands: " + shortErr(msg.CommandErr)
 	}
 	if l.initialPrompt != "" {
@@ -643,6 +658,7 @@ func (l *Live) DynamicCommands() []surface.DynamicCommand {
 func (l *Live) RefreshDynamicCommands(request uint64) tea.Cmd {
 	l.mu.Lock()
 	l.dynamicCommandRequest = request
+	l.dynamicCommandEpoch++
 	l.mu.Unlock()
 	return func() tea.Msg {
 		if !l.SupportsCapability("commands.list") || !l.SupportsCapability("commands.expand") {

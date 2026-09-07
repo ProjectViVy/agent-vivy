@@ -782,6 +782,67 @@ func TestPackedLiveDynamicCommandsUseTypedCatalogAndExpansion(t *testing.T) {
 	}
 }
 
+func TestDynamicCommandBootSnapshotCannotOverwriteNewerRefresh(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	client := newClient(env)
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["commands.list","commands.expand"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	live := newLive(context.Background(), client, Options{})
+	catalog := func(description string) func(json.RawMessage) (any, error) {
+		return func(json.RawMessage) (any, error) {
+			return map[string]any{"commands": []any{map[string]any{"id": "skill:review", "kind": "skill", "name": "review", "usage": "/review [request]", "description": description}}}, nil
+		}
+	}
+
+	// A boot fetch that starts before a refresh but applies after it must not
+	// resurrect its older catalog.
+	env.script["commands/list"] = catalog("Boot catalog")
+	boot := mustMsg[liveBootMsg](t, live.bootCmd())
+	if boot.Err != nil || boot.CommandErr != nil || boot.CommandEpoch != 0 || len(boot.Commands) != 1 {
+		t.Fatalf("boot = %+v", boot)
+	}
+	env.script["commands/list"] = catalog("Refreshed catalog")
+	refreshed := mustMsg[surface.DynamicCommandsMsg](t, live.RefreshDynamicCommands(9))
+	if refreshed.Err != nil {
+		t.Fatalf("refresh = %+v", refreshed)
+	}
+	live.Handle(refreshed)
+	if got := live.DynamicCommands(); len(got) != 1 || got[0].Description != "Refreshed catalog" {
+		t.Fatalf("refreshed catalog = %+v", got)
+	}
+	live.Handle(boot)
+	if got := live.DynamicCommands(); len(got) != 1 || got[0].Description != "Refreshed catalog" {
+		t.Fatalf("late boot overwrote the newer catalog: %+v", got)
+	}
+
+	// A boot command error is stale under the same rule: the completed refresh
+	// owns the surface and the late failure must not be resurrected.
+	env.script["commands/list"] = func(json.RawMessage) (any, error) {
+		return nil, fmt.Errorf("catalog unavailable")
+	}
+	bootErr := mustMsg[liveBootMsg](t, live.bootCmd())
+	if bootErr.Err != nil || bootErr.CommandErr == nil {
+		t.Fatalf("boot error snapshot = %+v", bootErr)
+	}
+	env.script["commands/list"] = catalog("Second refresh")
+	refreshed2 := mustMsg[surface.DynamicCommandsMsg](t, live.RefreshDynamicCommands(10))
+	if refreshed2.Err != nil {
+		t.Fatalf("second refresh = %+v", refreshed2)
+	}
+	live.Handle(refreshed2)
+	if got := live.DynamicCommands(); len(got) != 1 || got[0].Description != "Second refresh" {
+		t.Fatalf("second refresh catalog = %+v", got)
+	}
+	live.Handle(bootErr)
+	if got := live.DynamicCommands(); len(got) != 1 || got[0].Description != "Second refresh" {
+		t.Fatalf("late boot error disturbed the catalog: %+v", got)
+	}
+	if meta := live.Meta(); strings.Contains(meta.Error, "dynamic commands") {
+		t.Fatalf("stale boot error surfaced in meta: %+v", meta)
+	}
+}
+
 func TestLiveAdvancedCommandValidationAndScopedFilesFailClosed(t *testing.T) {
 	env := &fakeEnv{script: baseScript()}
 	live := bootLive(t, env, Options{})
