@@ -106,12 +106,13 @@ type fakeEnv struct {
 	mu      sync.Mutex
 	calls   []string
 	params  map[string]json.RawMessage
+	ctxs    map[string]context.Context
 	handler func(method string, params json.RawMessage)
 	script  map[string]func(params json.RawMessage) (any, error)
 	seq     map[string]int
 }
 
-func (e *fakeEnv) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+func (e *fakeEnv) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	raw, _ := json.Marshal(params)
 	e.mu.Lock()
 	e.calls = append(e.calls, method)
@@ -119,6 +120,10 @@ func (e *fakeEnv) Call(_ context.Context, method string, params any) (json.RawMe
 		e.params = map[string]json.RawMessage{}
 	}
 	e.params[method] = raw
+	if e.ctxs == nil {
+		e.ctxs = map[string]context.Context{}
+	}
+	e.ctxs[method] = ctx
 	script := e.script[method]
 	e.mu.Unlock()
 	if script == nil {
@@ -171,6 +176,17 @@ func (e *fakeEnv) saw(method string) bool {
 		}
 	}
 	return false
+}
+
+// callContext returns the context of the most recent scripted call so handlers
+// can block until the controller cancels the RPC.
+func (e *fakeEnv) callContext(method string) context.Context {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.ctxs == nil {
+		return context.Background()
+	}
+	return e.ctxs[method]
 }
 
 func baseScript() map[string]func(json.RawMessage) (any, error) {
@@ -841,6 +857,76 @@ func TestDynamicCommandBootSnapshotCannotOverwriteNewerRefresh(t *testing.T) {
 	if meta := live.Meta(); strings.Contains(meta.Error, "dynamic commands") {
 		t.Fatalf("stale boot error surfaced in meta: %+v", meta)
 	}
+}
+
+func TestDynamicCommandRefreshSuccessClearsStaleCatalogError(t *testing.T) {
+	listCalls := 0
+	env := &fakeEnv{script: baseScript()}
+	env.script["commands/list"] = func(json.RawMessage) (any, error) {
+		listCalls++
+		if listCalls == 1 {
+			return nil, fmt.Errorf("catalog unavailable")
+		}
+		return map[string]any{"commands": []any{map[string]any{"id": "skill:review", "kind": "skill", "name": "review"}}}, nil
+	}
+	client := newClient(env)
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["commands.list","commands.expand"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	live := newLive(context.Background(), client, Options{})
+	defer live.Close()
+
+	failed := mustMsg[surface.DynamicCommandsMsg](t, live.RefreshDynamicCommands(3))
+	live.Handle(failed)
+	if meta := live.Meta(); !strings.Contains(meta.Error, "dynamic commands") {
+		t.Fatalf("failed refresh left no error: %+v", meta)
+	}
+	ok := mustMsg[surface.DynamicCommandsMsg](t, live.RefreshDynamicCommands(4))
+	live.Handle(ok)
+	if meta := live.Meta(); meta.Error != "" || len(live.DynamicCommands()) != 1 {
+		t.Fatalf("successful refresh did not clear the stale error: meta=%+v commands=%d", meta, len(live.DynamicCommands()))
+	}
+}
+
+func TestCancelDynamicCommandAbortsInFlightExpansion(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	env := &fakeEnv{script: baseScript()}
+	env.script["commands/expand"] = func(json.RawMessage) (any, error) {
+		close(entered)
+		select {
+		case <-release:
+			return map[string]any{"id": "skill:review", "text": "late"}, nil
+		case <-env.callContext("commands/expand").Done():
+			return nil, context.Canceled
+		}
+	}
+	client := newClient(env)
+	if err := client.setCapabilities(json.RawMessage(`{"capabilities":["commands.list","commands.expand"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	live := newLive(context.Background(), client, Options{})
+	defer live.Close()
+
+	cmd := live.ExecuteDynamicCommand(7, "session-1", "skill:review", nil)
+	done := make(chan surface.DynamicCommandExpandedMsg, 1)
+	go func() {
+		done <- cmd().(surface.DynamicCommandExpandedMsg)
+	}()
+	<-entered
+	live.CancelDynamicCommand(7)
+	select {
+	case msg := <-done:
+		if msg.Err == nil {
+			t.Fatalf("cancelled expansion succeeded: %+v", msg)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancel did not unblock the in-flight expansion")
+	}
+	// Cancelling again (or an unknown request) must stay a no-op.
+	live.CancelDynamicCommand(7)
+	live.CancelDynamicCommand(99)
+	close(release)
 }
 
 func TestLiveAdvancedCommandValidationAndScopedFilesFailClosed(t *testing.T) {

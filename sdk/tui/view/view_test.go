@@ -518,6 +518,7 @@ func (d *testDriver) ExecuteCommand(name string, args []string) tea.Cmd {
 }
 func (*testDriver) DynamicCommands() []surface.DynamicCommand { return nil }
 func (*testDriver) RefreshDynamicCommands(uint64) tea.Cmd     { return nil }
+func (*testDriver) CancelDynamicCommand(uint64)               {}
 func (*testDriver) ExecuteDynamicCommand(uint64, string, string, []string) tea.Cmd {
 	return nil
 }
