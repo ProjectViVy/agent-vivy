@@ -625,8 +625,8 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 				ReasoningTokens: 120, CachedTokens: 300, RequestCount: 3, CostKnown: false,
 			},
 			ModifiedFilesKnown: true,
-			MCPKnown:           true, MCP: []surface.MCPServer{{Name: "docs", State: "initialized"}, {Name: "local", State: "configured"}},
-			SkillsKnown: true, Skills: []surface.SidebarSkill{{Name: "review"}},
+			MCPKnown:           true, MCP: []surface.MCPServer{{Name: "docs", State: "initialized", ToolCount: -1}, {Name: "local", State: "configured", ToolCount: -1}},
+			SkillsKnown: true, Skills: []surface.SidebarSkill{{Name: "review", Origin: "user"}},
 			LSPKnown: true, LSP: []surface.LanguageServer{{Language: "go", State: "initialized"}, {Language: "typescript", State: "starting"}},
 		},
 	}
@@ -682,6 +682,54 @@ func TestSidebarRendersTruthAndScrollsIndependently(t *testing.T) {
 	m = updated.(Model)
 	if m.sidebarFocused || m.sidebarScroll != 0 {
 		t.Fatalf("compact resize retained hidden sidebar state: focused=%v scroll=%d", m.sidebarFocused, m.sidebarScroll)
+	}
+}
+
+func TestSidebarRendersMCPDetailsAndSkillOriginsSafely(t *testing.T) {
+	driver := &testDriver{
+		sessions: []surface.Session{{ID: "active", Title: "Current"}},
+		active:   "active",
+		sidebar: surface.Sidebar{
+			Session:  surface.Session{ID: "active", Title: "Current"},
+			MCPKnown: true,
+			MCP: []surface.MCPServer{
+				{Name: "docs", State: "initialized", ToolCount: 2},
+				{Name: "broken", State: "error", Error: "connection\x1b]2;PWN\a\r\nrefused\u202e", AuthMissing: true, ToolCount: 0},
+				{Name: "catalog", State: "configured", ToolCount: -1},
+				{Name: "skip-me", State: "unknown", ToolCount: 9},
+			},
+			SkillsKnown: true,
+			Skills: []surface.SidebarSkill{
+				{Name: "review", Origin: "project"},
+				{Name: "safe", Origin: "\x1b]2;PWN\auser"},
+			},
+		},
+	}
+	model := New(driver)
+	width := 48
+	lines := model.sidebarLines(width, DefaultPalette())
+	plainLines := make([]string, 0, len(lines))
+	for i, line := range lines {
+		plain := ansi.Strip(line)
+		plainLines = append(plainLines, plain)
+		if got := lipgloss.Width(plain); got > width-1 {
+			t.Fatalf("sidebar line %d width=%d, want <=%d: %q", i, got, width-1, plain)
+		}
+	}
+	plain := strings.Join(plainLines, "\n")
+	for _, want := range []string{
+		"docs \u00b7 initialized", "   2 tools",
+		"broken \u00b7 error", "   ! connection refused", "   auth missing", "   0 tools",
+		"catalog \u00b7 configured", "review \u00b7 project", "safe \u00b7 user",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("sidebar omitted %q:\n%s", want, plain)
+		}
+	}
+	for _, absent := range []string{"skip-me", "   9 tools", "PWN", "\u202e"} {
+		if strings.Contains(plain, absent) {
+			t.Fatalf("sidebar retained/skipped unsafe or unknown value %q:\n%s", absent, plain)
+		}
 	}
 }
 

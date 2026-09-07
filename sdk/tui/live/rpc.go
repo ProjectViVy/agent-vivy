@@ -246,12 +246,16 @@ func (c *client) expandDynamicCommand(ctx context.Context, id string, args []str
 }
 
 type sidebarMCPView struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Error       string `json:"error,omitempty"`
+	AuthMissing bool   `json:"auth_missing"`
+	ToolCount   *int   `json:"tool_count,omitempty"`
 }
 
 type sidebarSkillView struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Origin string `json:"origin,omitempty"`
 }
 
 type sidebarLSPView struct {
@@ -352,13 +356,23 @@ func mapSidebarView(view sidebarView) surface.Sidebar {
 	if view.MCPKnown {
 		snapshot.MCPKnown = true
 		for _, server := range view.MCP {
-			snapshot.MCP = append(snapshot.MCP, surface.MCPServer{Name: server.Name, State: server.State})
+			toolCount := -1
+			if server.ToolCount != nil && *server.ToolCount >= 0 {
+				toolCount = *server.ToolCount
+			}
+			snapshot.MCP = append(snapshot.MCP, surface.MCPServer{
+				Name:        server.Name,
+				State:       server.State,
+				Error:       server.Error,
+				AuthMissing: server.AuthMissing,
+				ToolCount:   toolCount,
+			})
 		}
 	}
 	if view.SkillsKnown {
 		snapshot.SkillsKnown = true
 		for _, skill := range view.Skills {
-			snapshot.Skills = append(snapshot.Skills, surface.SidebarSkill{Name: skill.Name})
+			snapshot.Skills = append(snapshot.Skills, surface.SidebarSkill{Name: skill.Name, Origin: skill.Origin})
 		}
 	}
 	if view.LSPKnown {

@@ -1558,14 +1558,20 @@ func mustMsg[T any](t *testing.T, cmd tea.Cmd) T {
 }
 
 func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
+	zero := 0
+	negative := -1
 	got := mapSidebarView(sidebarView{
 		Session:            sessionView{ID: "sess", UpdatedAt: 42},
 		Context:            &contextView{FeedTokens: 42, ModelLimitTokens: 128000, TokenCountsEstimated: true, ModelLimitKnown: false},
 		Usage:              &sidebarUsageView{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, ReasoningTokens: 3, CachedTokens: 2, RequestCount: 2, CostUSD: 0.125, CostKnown: true},
 		ModifiedFilesKnown: true,
 		ModifiedFiles:      []sidebarFileView{{Path: "main.go", Diff: sidebarDiffView{Additions: 3, Deletions: 1}}},
-		MCPKnown:           true, MCP: []sidebarMCPView{{Name: "docs", State: "initialized"}},
-		SkillsKnown: true, Skills: []sidebarSkillView{{Name: "review"}},
+		MCPKnown:           true, MCP: []sidebarMCPView{
+			{Name: "docs", State: "initialized", Error: "stale", AuthMissing: true, ToolCount: &zero},
+			{Name: "failed", State: "error", Error: "connection refused"},
+			{Name: "unknown", State: "configured", ToolCount: &negative},
+		},
+		SkillsKnown: true, Skills: []sidebarSkillView{{Name: "review", Origin: "user"}},
 		LSPKnown: true, LSP: []sidebarLSPView{{Language: "go", State: "initialized"}, {Language: "bad", State: "guessed"}},
 	})
 	if got.Session.UpdatedAt != 42 || !got.ModifiedFilesKnown || len(got.ModifiedFiles) != 1 {
@@ -1580,7 +1586,7 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 	if got.ModifiedFiles[0].Diff.Additions != 3 || got.ModifiedFiles[0].Diff.Deletions != 1 {
 		t.Fatalf("diff mapping = %+v", got.ModifiedFiles[0].Diff)
 	}
-	if !got.MCPKnown || len(got.MCP) != 1 || got.MCP[0].State != "initialized" || !got.SkillsKnown || len(got.Skills) != 1 {
+	if !got.MCPKnown || len(got.MCP) != 3 || got.MCP[0].State != "initialized" || got.MCP[0].Error != "stale" || !got.MCP[0].AuthMissing || got.MCP[0].ToolCount != 0 || got.MCP[1].ToolCount != -1 || got.MCP[2].ToolCount != -1 || !got.SkillsKnown || len(got.Skills) != 1 || got.Skills[0].Origin != "user" {
 		t.Fatalf("integration mapping = %+v", got)
 	}
 	if !got.LSPKnown || len(got.LSP) != 1 || got.LSP[0].Language != "go" {

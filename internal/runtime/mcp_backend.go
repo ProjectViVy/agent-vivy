@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
@@ -53,9 +54,20 @@ type MCPBackend struct {
 	closed           bool
 }
 
+// mcpStatusRecord belongs to one logical server configuration. A session
+// replacement keeps this record, while a settings replacement receives a new
+// one, so delayed work from a retired configuration cannot contaminate the
+// status of a same-named replacement.
+type mcpStatusRecord struct {
+	mu        sync.Mutex
+	initError string
+	toolCount int
+}
+
 type mcpServer struct {
 	config MCPServerConfig
 	cli    *client.Client
+	status *mcpStatusRecord
 
 	initMu  sync.Mutex
 	mu      sync.Mutex
@@ -75,9 +87,16 @@ type mcpServer struct {
 // MCPServerStatus is a secret-free snapshot of one configured server's
 // process state. Initialized means the backend completed the MCP handshake;
 // configured servers are not reported as connected before that happens.
+// Error is the sanitized last handshake failure for this configuration (empty
+// after a success); AuthMissing flags a configured auth env var that is
+// currently unset; ToolCount is the last successful catalog size, negative
+// when the server was never listed.
 type MCPServerStatus struct {
 	Name        string
 	Initialized bool
+	Error       string
+	AuthMissing bool
+	ToolCount   int
 }
 
 var _ tools.MCPOperations = (*MCPBackend)(nil)
@@ -169,18 +188,77 @@ func (b *MCPBackend) ConfiguredServers() []MCPServerConfig {
 // probing the network or exposing endpoints and authentication metadata.
 func (b *MCPBackend) ServerStatuses() []MCPServerStatus {
 	b.mu.RLock()
-	entries := make(map[string]*mcpServer, len(b.servers))
+	out := make([]MCPServerStatus, 0, len(b.servers))
 	for name, entry := range b.servers {
-		entries[name] = entry
+		entry.status.mu.Lock()
+		status := MCPServerStatus{
+			Name:        name,
+			Initialized: entry.isReady(),
+			Error:       entry.status.initError,
+			ToolCount:   entry.status.toolCount,
+		}
+		entry.status.mu.Unlock()
+		if entry.config.AuthEnv != "" && os.Getenv(entry.config.AuthEnv) == "" {
+			status.AuthMissing = true
+		}
+		out = append(out, status)
 	}
 	b.mu.RUnlock()
-
-	out := make([]MCPServerStatus, 0, len(entries))
-	for name, entry := range entries {
-		out = append(out, MCPServerStatus{Name: name, Initialized: entry.isReady()})
-	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// noteInitResult records or clears the handshake failure after an
+// initialization attempt. The backend read lock makes the current-entry check
+// and status write one operation relative to ReplaceServers.
+func (b *MCPBackend) noteInitResult(entry *mcpServer, err error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.closed || b.servers[entry.config.Name] != entry {
+		return
+	}
+	entry.status.mu.Lock()
+	defer entry.status.mu.Unlock()
+	if err == nil {
+		entry.status.initError = ""
+		return
+	}
+	entry.status.initError = boundedMCPStatusError(err.Error(), entry.config.Endpoint)
+}
+
+// noteToolCount records the projected catalog size after a successful listing.
+// It is called with the concrete entry held by runMCP, not only its name.
+func (b *MCPBackend) noteToolCount(entry *mcpServer, count int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.closed || b.servers[entry.config.Name] != entry {
+		return
+	}
+	entry.status.mu.Lock()
+	entry.status.toolCount = count
+	entry.status.mu.Unlock()
+}
+
+// boundedMCPStatusError keeps the sidebar secret-free: the server's endpoint
+// (which may embed credentials) never appears, control characters are
+// stripped, and the message is capped.
+func boundedMCPStatusError(message, endpoint string) string {
+	message = strings.ReplaceAll(message, endpoint, "")
+	message = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || isMCPStatusBidiControl(r) {
+			return -1
+		}
+		return r
+	}, message)
+	runes := []rune(strings.TrimSpace(message))
+	if len(runes) > 160 {
+		runes = runes[:160]
+	}
+	return string(runes)
+}
+
+func isMCPStatusBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }
 
 // Close shuts down every live MCP client. It is idempotent and safe to call
@@ -280,7 +358,11 @@ func (b *MCPBackend) ListTools(ctx context.Context, _ domain.RunID, server strin
 			if err != nil {
 				return nil, err
 			}
-			return projectEinoTools(ctx, mcpTools, server)
+			result, err := projectEinoTools(ctx, mcpTools, server)
+			if err == nil {
+				b.noteToolCount(entry, len(result))
+			}
+			return result, err
 		})
 		if err != nil {
 			return tools.MCPListResponse{}, err
@@ -296,7 +378,11 @@ func (b *MCPBackend) ListTools(ctx context.Context, _ domain.RunID, server strin
 			if err != nil {
 				return nil, err
 			}
-			return projectEinoTools(ctx, mcpTools, name)
+			result, err := projectEinoTools(ctx, mcpTools, name)
+			if err == nil {
+				b.noteToolCount(entry, len(result))
+			}
+			return result, err
 		})
 		if err != nil {
 			return tools.MCPListResponse{}, err
@@ -532,6 +618,7 @@ func (b *MCPBackend) newServer(config MCPServerConfig) (*mcpServer, error) {
 	return &mcpServer{
 		config:    config,
 		cli:       cli,
+		status:    &mcpStatusRecord{toolCount: -1},
 		closeDone: make(chan struct{}),
 	}, nil
 }
@@ -601,6 +688,7 @@ func (b *MCPBackend) replaceSession(name string, expected *mcpServer) {
 	if err != nil {
 		return
 	}
+	entry.status = expected.status
 	b.mu.Lock()
 	if b.closed || b.servers[name] != expected {
 		b.mu.Unlock()
@@ -740,6 +828,7 @@ func runMCP[T any](ctx context.Context, b *MCPBackend, name string, retry bool, 
 			return zero, err
 		}
 		initErr := entry.initialize(ctx)
+		b.noteInitResult(entry, initErr)
 		err = initErr
 		var result T
 		if err == nil {
