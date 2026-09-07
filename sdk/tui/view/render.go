@@ -1,6 +1,8 @@
 package view
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -774,9 +776,7 @@ func renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugTo
 	contentWidth := max(1, min(52, available-frame))
 	innerLines := wrapText(title, contentWidth)
 	if body != "" {
-		bodyLines := wrapText(body, contentWidth)
-		renderedBody := strings.Split(renderDiffBody(strings.Join(bodyLines, "\n"), p), "\n")
-		innerLines = append(innerLines, compactToolLines(renderedBody, debugToolOutput, contentWidth)...)
+		innerLines = append(innerLines, compactToolLines(renderToolBodyLines(body, contentWidth, p), debugToolOutput, contentWidth)...)
 	}
 	box := style.Width(contentWidth).MaxWidth(available).Render(strings.Join(innerLines, "\n"))
 	indented := make([]string, 0)
@@ -794,6 +794,101 @@ func compactToolLines(lines []string, debug bool, width int) []string {
 	compact := append([]string(nil), lines[:compactToolResultLines]...)
 	marker := fmt.Sprintf("… %d more lines · ctrl+o expand", omitted)
 	return append(compact, wrapText(marker, max(1, width))...)
+}
+
+type toolResultKind int
+
+const (
+	toolResultPlain toolResultKind = iota
+	toolResultJSON
+	toolResultDiff
+	toolResultMarkdown
+)
+
+// markdownSniffPatterns is the same heuristic crush uses to decide that tool
+// output carries markdown structure worth highlighting rather than wrapping.
+var markdownSniffPatterns = []string{"# ", "## ", "**", "```", "- ", "1. ", "> ", "---", "***"}
+
+// toolResultContent routes a tool body into the crush split: JSON, unified
+// diff, markdown, plain (board row TUI-MD-TOOL-RESULTS). Detection order
+// matters — JSON wins over diff/markdown because structured output can
+// contain any marker — and JSON re-indenting is byte-preserving.
+func toolResultContent(body string) (toolResultKind, string) {
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, []byte(trimmed), "", "  "); err == nil {
+			return toolResultJSON, buf.String()
+		}
+	}
+	if isUnifiedDiffContent(body) {
+		return toolResultDiff, body
+	}
+	for _, pattern := range markdownSniffPatterns {
+		if strings.Contains(body, pattern) {
+			return toolResultMarkdown, body
+		}
+	}
+	return toolResultPlain, body
+}
+
+// isUnifiedDiffContent reports whether body looks like a real unified diff,
+// following crush's internal/diffdetect rule (hunk marker plus file headers,
+// or git header plus file headers). The previous substring check ("\n+"/
+// "\n-") misclassified markdown lists as diffs; a bare "@@" hunk line still
+// routes to the diff renderer so Vivy's own hunk-style previews keep their
+// coloring.
+func isUnifiedDiffContent(content string) bool {
+	hasHunk, hasFileHeader, hasGitHeader := false, false, false
+	for line := range strings.SplitSeq(content, "\n") {
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			hasHunk = true
+		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
+			hasFileHeader = true
+		case strings.HasPrefix(line, "diff --git "):
+			hasGitHeader = true
+		}
+	}
+	if hasGitHeader && hasFileHeader {
+		return true
+	}
+	return hasHunk
+}
+
+// renderToolBodyLines renders a tool card body. JSON and markdown bodies are
+// syntax-highlighted through the shared markdown pipeline's chroma code
+// blocks; diffs keep the unified-diff coloring; everything else stays plain
+// wrapped text. Highlighted lines are truncated, never rewrapped, so ANSI
+// styling survives inside the card box.
+func renderToolBodyLines(body string, contentWidth int, p Palette) []string {
+	kind, content := toolResultContent(body)
+	switch kind {
+	case toolResultJSON, toolResultMarkdown:
+		lang := "markdown"
+		if kind == toolResultJSON {
+			lang = "json"
+		}
+		source := sanitizeMarkdownSource(content)
+		// The quiet style carries no chroma config; the normal style provides
+		// the palette chroma highlighting for the fenced code block.
+		rendered, err := renderMarkdown("```"+lang+"\n"+source+"\n```", markdownWrapWidth(contentWidth), false)
+		if err != nil || rendered == "" {
+			return wrapText(body, contentWidth)
+		}
+		lines := strings.Split(rendered, "\n")
+		for i, line := range lines {
+			if lipgloss.Width(line) > contentWidth {
+				lines[i] = ansi.Truncate(line, contentWidth, "…")
+			}
+		}
+		return lines
+	case toolResultDiff:
+		wrapped := wrapText(content, contentWidth)
+		return strings.Split(renderDiffBody(strings.Join(wrapped, "\n"), p), "\n")
+	default:
+		return wrapText(body, contentWidth)
+	}
 }
 
 func renderDiffBody(body string, p Palette) string {
