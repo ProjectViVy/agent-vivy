@@ -661,7 +661,7 @@ func renderMessageWithOptions(message surface.Message, width int, p Palette, deb
 		contentWidth = max(1, width)
 	}
 
-	bodyLines, painted := renderMessageBody(message.Content, contentWidth, message.Reasoning)
+	bodyLines, painted := renderMessageBody(message, contentWidth)
 	if message.Reasoning && reasoningCollapsed {
 		if len(bodyLines) > 0 {
 			bodyLines = []string{fmt.Sprintf("reasoning · %d 行 · ctrl+r 展开", len(bodyLines))}
@@ -701,13 +701,22 @@ func renderMessageWithOptions(message surface.Message, width int, p Palette, deb
 	return out
 }
 
-func renderMessageBody(content string, contentWidth int, quiet bool) ([]string, bool) {
-	source := sanitizeMarkdownSource(content)
+func renderMessageBody(message surface.Message, contentWidth int) ([]string, bool) {
+	quiet := message.Reasoning
+	source := sanitizeMarkdownSource(message.Content)
 	if source == "" {
 		return nil, true
 	}
 	wrapWidth := markdownWrapWidth(contentWidth)
-	rendered, err := renderMarkdown(source, wrapWidth, quiet)
+	var rendered string
+	var err error
+	if message.Streaming {
+		// A growing bubble renders through the stable-prefix cache so each
+		// flush re-renders only the trailing segment, not the whole document.
+		rendered, err = streamMarkdownRender(message.ID, source, wrapWidth, quiet)
+	} else {
+		rendered, err = renderMarkdown(source, wrapWidth, quiet)
+	}
 	if err != nil {
 		return wrapText(source, contentWidth), false
 	}

@@ -58,12 +58,19 @@ func renderMarkdown(source string, width int, quiet bool) (string, error) {
 	if source == "" {
 		return "", nil
 	}
+	mdRenderMu.Lock()
+	defer mdRenderMu.Unlock()
+	return renderMarkdownLocked(source, width, quiet)
+}
+
+// renderMarkdownLocked renders with a shared renderer; the caller must hold
+// mdRenderMu so multi-fragment streaming renders cannot interleave with other
+// renders on the same goldmark state.
+func renderMarkdownLocked(source string, width int, quiet bool) (string, error) {
 	renderer, err := markdownRenderer(width, quiet)
 	if err != nil {
 		return "", err
 	}
-	mdRenderMu.Lock()
-	defer mdRenderMu.Unlock()
 	out, err := renderer.Render(source)
 	if err != nil {
 		return "", err
