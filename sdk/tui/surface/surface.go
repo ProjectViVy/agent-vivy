@@ -193,6 +193,10 @@ type Meta struct {
 	// BusySince is when the current run started; zero while idle. The chrome
 	// uses it for the elapsed-run timer.
 	BusySince time.Time
+	// Loading marks an in-flight history projection for the active session:
+	// the session ID already switched, its messages have not landed yet. The
+	// view must not render the empty-conversation hero over a loading history.
+	Loading bool
 }
 
 // Driver is the fullscreen shell's data plane + async commands.

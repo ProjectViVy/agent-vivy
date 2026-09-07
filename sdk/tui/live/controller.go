@@ -305,6 +305,7 @@ func (l *Live) Meta() surface.Meta {
 		Error:     l.lastErr,
 		Footer:    footer,
 		BusySince: l.busySince,
+		Loading:   l.loadPending,
 	}
 }
 
