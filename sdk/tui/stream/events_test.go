@@ -32,6 +32,19 @@ func TestDecodeRejectsUnsequencedWireEvent(t *testing.T) {
 	}
 }
 
+func TestDecodeRequiresSubscriptionAndRunID(t *testing.T) {
+	for _, params := range []string{
+		`{"subscription_id":"","event":{"run_id":"run_1","seq":1,"type":"model.delta","payload":{"delta":"x"}}}`,
+		`{"subscription_id":"sub","event":{"run_id":"","seq":1,"type":"model.delta","payload":{"delta":"x"}}}`,
+		`{"event":{"run_id":"run_1","seq":1,"type":"model.delta","payload":{"delta":"x"}}}`,
+		`{"subscription_id":"sub","event":{"seq":1,"type":"model.delta","payload":{"delta":"x"}}}`,
+	} {
+		if event, ok := Decode(json.RawMessage(params)); ok {
+			t.Fatalf("envelope without subscription/run id accepted: %s -> %+v", params, event)
+		}
+	}
+}
+
 func TestInterpretKeepsUnknownSequence(t *testing.T) {
 	notice := Interpret(Event{RunID: "run_1", Seq: 3, Type: "context.compacted"})
 	if notice.RunID != "run_1" || notice.Seq != 3 || notice.Kind != "" {

@@ -2859,6 +2859,18 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 			return
 		}
 	}
+	// A re-subscribing client whose after_seq already covers the terminal
+	// record replays nothing; without this check the subscription would pin
+	// itself on the bus until peer close. Safe because emitTerminal persists
+	// the terminal event before flipping run status, so a terminal row means
+	// the terminal record is already replayable. Absent runs can never
+	// produce events either. An active run or an inspect error keeps the
+	// live-wait path.
+	if run, runErr := h.deps.Runs.GetRun(ctx, runID); runErr == nil && run.Status.Terminal() {
+		return
+	} else if errors.Is(runErr, storage.ErrNotFound) {
+		return
+	}
 	for {
 		select {
 		case <-ctx.Done():

@@ -10,7 +10,7 @@ func TestInboxIsLosslessAndPrependsGap(t *testing.T) {
 	for i := 0; i < 257; i++ {
 		inbox.Push(Notice{Delta: "界"})
 	}
-	pending := inbox.Take()
+	pending, _ := inbox.TakeWithOverflow()
 	if len(pending) != 257 || inbox.Len() != 0 {
 		t.Fatalf("take len=%d queue=%d", len(pending), inbox.Len())
 	}
@@ -18,7 +18,7 @@ func TestInboxIsLosslessAndPrependsGap(t *testing.T) {
 	if inbox.Len() != 57 {
 		t.Fatalf("prepend len=%d", inbox.Len())
 	}
-	if got := inbox.Take(); len(got) != 57 || strings.Repeat("界", len(got)) != strings.Repeat("界", 57) {
+	if got, _ := inbox.TakeWithOverflow(); len(got) != 57 || strings.Repeat("界", len(got)) != strings.Repeat("界", 57) {
 		t.Fatalf("retained notices = %d", len(got))
 	}
 }
@@ -35,8 +35,11 @@ func TestInboxCloseRejectsRacingLatePush(t *testing.T) {
 	var inbox Inbox
 	inbox.Push(Notice{Seq: 1})
 	inbox.Close()
-	if inbox.Push(Notice{Seq: 2}) != PushClosed || inbox.Len() != 0 || len(inbox.Take()) != 0 {
+	if inbox.Push(Notice{Seq: 2}) != PushClosed || inbox.Len() != 0 {
 		t.Fatalf("closed inbox accepted data: len=%d", inbox.Len())
+	}
+	if pending, _ := inbox.TakeWithOverflow(); len(pending) != 0 {
+		t.Fatalf("closed inbox returned data: %d notices", len(pending))
 	}
 	inbox.Prepend([]Notice{{Seq: 3}})
 	if inbox.Len() != 0 {
