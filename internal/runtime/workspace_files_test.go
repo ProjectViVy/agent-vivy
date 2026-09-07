@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,5 +111,63 @@ func TestWorkspaceFilesNotWired(t *testing.T) {
 	}
 	if _, err := svc.Read(context.Background(), "run_files_ui", "a.txt"); err == nil {
 		t.Fatal("nil manager read must fail")
+	}
+}
+
+// TestWorkspaceFilesUnknownRunFailsClosed pins the UI accessor's fail-closed
+// contract: a well-formed but unknown run id yields ErrWorkspaceNotFound, and
+// malformed ids (control characters, traversal, separators) are rejected by
+// the workspace name guard. Neither may leave filesystem state behind.
+func TestWorkspaceFilesUnknownRunFailsClosed(t *testing.T) {
+	manager, err := NewWorkspaceManager(filepath.Join(t.TempDir(), "workspaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewWorkspaceFiles(manager, 0)
+	for _, runID := range []domain.RunID{"run_never_created", "run_\x1b[31m", "run_\x00", "run_..", "run_a/b"} {
+		if _, _, err := svc.List(context.Background(), runID); err == nil {
+			t.Fatalf("list(%q) = nil error", runID)
+		}
+		if _, err := svc.Read(context.Background(), runID, "a.txt"); err == nil {
+			t.Fatalf("read(%q) = nil error", runID)
+		}
+	}
+	if _, _, err := svc.List(context.Background(), "run_never_created"); !errors.Is(err, ErrWorkspaceNotFound) {
+		t.Fatalf("unknown run list err = %v, want ErrWorkspaceNotFound", err)
+	}
+	if _, err := svc.Read(context.Background(), "run_never_created", "a.txt"); !errors.Is(err, ErrWorkspaceNotFound) {
+		t.Fatalf("unknown run read err = %v, want ErrWorkspaceNotFound", err)
+	}
+	if _, err := os.Stat(manager.root); !os.IsNotExist(err) {
+		t.Fatalf("workspace root created as side effect: stat err = %v", err)
+	}
+}
+
+// TestWorkspaceFilesReadSurvivesPathSwap covers the race hardening in Read:
+// the content must come from the handle whose stat validated regular-file
+// state, so a symlink placed at the final path component is rejected both
+// before and after the open.
+func TestWorkspaceFilesReadSurvivesPathSwap(t *testing.T) {
+	svc, root := newWorkspaceFiles(t)
+	outside := filepath.Join(filepath.Dir(root), "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Directory symlink: the whole workspace replaced after Ensure.
+	if err := os.Symlink(outside, filepath.Join(root, "dir_link")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := svc.Read(context.Background(), "run_files_ui", "dir_link"); err == nil {
+		t.Fatal("read through final-component symlink must fail")
+	}
+	if err := os.WriteFile(filepath.Join(root, "real.txt"), []byte("plain"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Read(context.Background(), "run_files_ui", "real.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content == "" {
+		t.Fatal("regular read broke after hardening")
 	}
 }
