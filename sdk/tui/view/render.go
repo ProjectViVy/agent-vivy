@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"hash/maphash"
 	"strconv"
 	"strings"
 	"time"
@@ -582,44 +583,162 @@ type chatScrollInfo struct {
 	viewport  int
 }
 
+// chatAssembly is the cached per-message segment table of the active chat
+// history. It is allocated once per Model and mutated in place so value
+// copies of Model share the cache.
+type chatAssembly struct {
+	sessionID string
+	width     int
+	collapsed bool
+	debugTool bool
+	loading   bool
+	stamp     uint64
+	segments  [][]string
+	lineCount int
+}
+
 func (m Model) renderChat(width, height int, p Palette) (string, chatScrollInfo) {
-	lines := m.chatLines(width, p)
-	maxScroll := max(0, len(lines)-height)
+	assembly := m.chatSegments(width, p)
+	maxScroll := max(0, assembly.lineCount-height)
 	offset := min(max(0, m.chatScroll), maxScroll)
 	if m.chatFollow {
 		offset = maxScroll
 	}
 	info := chatScrollInfo{follow: m.chatFollow, offset: offset, maxScroll: maxScroll, viewport: max(1, height)}
-	end := min(len(lines), offset+height)
+	end := min(assembly.lineCount, offset+height)
+	lines := make([]string, 0, max(0, end-offset))
 	if offset < end {
-		lines = lines[offset:end]
-	} else {
-		lines = nil
+		skipped := 0
+		for _, segment := range assembly.segments {
+			if skipped+len(segment) <= offset {
+				skipped += len(segment)
+				continue
+			}
+			start := max(0, offset-skipped)
+			stop := min(len(segment), end-skipped)
+			if start < stop {
+				lines = append(lines, segment[start:stop]...)
+			}
+			skipped += len(segment)
+			if skipped >= end {
+				break
+			}
+		}
 	}
 	content := strings.Join(lines, "\n")
 	return p.Chat.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(padBlock(content, width, height)), info
 }
 
-func (m Model) chatLines(width int, p Palette) []string {
+// chatSegments returns the assembled per-message line segments of the active
+// history, reusing chatAssembly across the several per-frame calls (clamp,
+// help overlay, render) so the full history is neither re-rendered nor
+// re-flattened. The stamp fingerprints every rendered field of every message;
+// separators are baked into each segment so viewport windows slice cleanly.
+func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 	messages := m.driver.ActiveMessages()
 	debugToolOutput := m.debugToolOutput || m.toolExpanded
+	loading := len(messages) == 0 && m.driver.Meta().Loading
+	assembly := m.chatAssembly
+	if assembly == nil {
+		assembly = &chatAssembly{}
+	}
+	if assembly.sessionID == m.driver.Active().ID && assembly.width == width && assembly.collapsed == m.reasoningCollapsed &&
+		assembly.debugTool == debugToolOutput && assembly.loading == loading && assembly.stamp == chatStamp(messages) {
+		return assembly
+	}
 	m.mdCache.ensure(m.driver.Active().ID, width, m.reasoningCollapsed)
-	var lines []string
+	segments := make([][]string, 0, len(messages))
 	if len(messages) == 0 {
-		lines = m.renderEmptyHero(p, width)
+		if loading {
+			segments = append(segments, m.renderHistoryLoading(p, width))
+		} else {
+			segments = append(segments, m.renderEmptyHero(p, width))
+		}
 	}
 	for index, message := range messages {
-		rendered, ok := m.mdCache.get(message, width)
+		segment, ok := m.mdCache.get(message, width)
 		if !ok {
-			rendered = renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
-			m.mdCache.put(message, width, rendered)
+			segment = renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
+			m.mdCache.put(message, width, segment)
 		}
-		lines = append(lines, rendered...)
 		if index < len(messages)-1 {
-			lines = append(lines, "")
+			segment = append(append([]string(nil), segment...), "")
 		}
+		segments = append(segments, segment)
+	}
+	assembly.sessionID = m.driver.Active().ID
+	assembly.width = width
+	assembly.collapsed = m.reasoningCollapsed
+	assembly.debugTool = debugToolOutput
+	assembly.loading = loading
+	assembly.stamp = chatStamp(messages)
+	assembly.segments = segments
+	assembly.lineCount = 0
+	for _, segment := range segments {
+		assembly.lineCount += len(segment)
+	}
+	return assembly
+}
+
+func (m Model) chatLines(width int, p Palette) []string {
+	assembly := m.chatSegments(width, p)
+	lines := make([]string, 0, assembly.lineCount)
+	for _, segment := range assembly.segments {
+		lines = append(lines, segment...)
 	}
 	return lines
+}
+
+// chatStampSeed fingerprints message content; maphash hashes without
+// allocating and the per-frame cost matches the per-message mdCache lookups
+// the render already performs.
+var chatStampSeed = maphash.MakeSeed()
+
+func chatStamp(messages []surface.Message) uint64 {
+	stamp := uint64(len(messages))
+	for _, message := range messages {
+		stamp = stamp*31 + messageStamp(message)
+	}
+	return stamp
+}
+
+func messageStamp(message surface.Message) uint64 {
+	h := maphash.String(chatStampSeed, message.ID)
+	h = h*31 + maphash.String(chatStampSeed, message.Role)
+	h = h*31 + maphash.String(chatStampSeed, message.Content)
+	if message.Tool != nil {
+		h = h*31 + maphash.String(chatStampSeed, message.Tool.ToolName)
+		h = h*31 + maphash.String(chatStampSeed, message.Tool.ToolCallID)
+		h = h*31 + maphash.String(chatStampSeed, message.Tool.Status)
+		h = h*31 + maphash.String(chatStampSeed, message.Tool.Preview)
+		h = h*31 + maphash.String(chatStampSeed, message.Tool.Result)
+		h = h*31 + maphash.String(chatStampSeed, message.Tool.ApprovalID)
+	}
+	if message.Streaming {
+		h = h*31 + 1
+	}
+	if message.Reasoning {
+		h = h*31 + 2
+	}
+	for _, attachment := range message.Attachments {
+		h = h*31 + maphash.String(chatStampSeed, attachment.Path)
+		h = h*31 + maphash.String(chatStampSeed, attachment.Name)
+		h = h*31 + maphash.String(chatStampSeed, attachment.MimeType)
+		h = h*31 + uint64(attachment.Size)
+	}
+	for _, file := range message.FileContexts {
+		h = h*31 + maphash.String(chatStampSeed, file.Path)
+		h = h*31 + maphash.String(chatStampSeed, file.Name)
+		h = h*31 + uint64(file.Size)
+	}
+	return h
+}
+
+// renderHistoryLoading replaces the empty-conversation hero while the active
+// session's history projection is still loading (Meta.Loading), so a session
+// switch never poses as an empty conversation.
+func (m Model) renderHistoryLoading(p Palette, width int) []string {
+	return []string{p.Dim.Render(truncate("正在加载会话历史…", width))}
 }
 
 func (m Model) renderEmptyHero(p Palette, width int) []string {

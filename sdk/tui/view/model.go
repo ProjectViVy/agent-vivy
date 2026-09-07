@@ -118,9 +118,18 @@ type Model struct {
 	chatScroll     int
 	chatFollow     bool
 	chatSessionID  string
-	mdCache        *messageMarkdownCache
-	shortcutsOpen  bool
-	spinFrame      int
+	// chatAnchor pins the paused viewport to a (segment, line) position of the
+	// assembled history so content growth above the anchor cannot drift the
+	// view. Negative segment means no anchor (following or numeric fallback).
+	// It only applies once the assembly stamp moved past chatAnchorStamp, so
+	// clamp passes leave an explicitly written offset alone.
+	chatAnchorSeg   int
+	chatAnchorOff   int
+	chatAnchorStamp uint64
+	chatAssembly    *chatAssembly
+	mdCache         *messageMarkdownCache
+	shortcutsOpen   bool
+	spinFrame       int
 
 	gateID           string
 	gateScroll       int
@@ -153,6 +162,8 @@ func New(driver surface.Driver, options ...Options) Model {
 		windowTitle:     windowTitleBrand,
 		chatFollow:      true,
 		chatSessionID:   driver.Active().ID,
+		chatAnchorSeg:   -1,
+		chatAssembly:    &chatAssembly{},
 		mdCache:         newMessageMarkdownCache(),
 	}
 }
@@ -367,6 +378,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chatSessionID = activeID
 		m.chatScroll = 0
 		m.chatFollow = true
+		m.chatAnchorSeg = -1
 	}
 	m.clampChatScroll()
 	m.clampGateScroll()
@@ -655,9 +667,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case tea.KeyHome:
 			m.chatScroll = 0
 			m.chatFollow = m.chatMaxScroll() == 0
+			m.setChatAnchor(0, 0)
 			return m, nil
 		case tea.KeyEnd:
 			m.chatFollow = true
+			m.chatAnchorSeg = -1
 			m.clampChatScroll()
 			return m, nil
 		}
@@ -1032,7 +1046,7 @@ func (m Model) chatMaxScroll() int {
 	if l.showSidebar {
 		width = l.mainW()
 	}
-	return max(0, len(m.chatLines(width, m.palette))-l.mainH())
+	return max(0, m.chatSegments(width, m.palette).lineCount-l.mainH())
 }
 
 func (m Model) chatCanScroll() bool {
@@ -1043,9 +1057,13 @@ func (m *Model) scrollChat(delta int) {
 	if delta == 0 {
 		return
 	}
+	// Drop the anchor first: this scroll defines a new pause position, which
+	// is captured from the resulting viewport below.
+	m.chatAnchorSeg = -1
 	m.chatScroll += delta
 	m.chatFollow = false
 	m.clampChatScroll()
+	m.captureChatAnchor()
 }
 
 func (m *Model) clampChatScroll() {
@@ -1054,13 +1072,71 @@ func (m *Model) clampChatScroll() {
 		m.chatScroll = maxScroll
 		return
 	}
+	if m.chatAnchorSeg >= 0 && m.chatAssembly != nil && m.chatAssembly.stamp != m.chatAnchorStamp {
+		if offset, ok := m.chatAnchorOffset(); ok {
+			m.chatScroll = offset
+		} else {
+			m.chatAnchorSeg = -1
+		}
+	}
 	if m.chatScroll < 0 {
 		m.chatScroll = 0
 	}
 	if m.chatScroll >= maxScroll {
 		m.chatScroll = maxScroll
 		m.chatFollow = true
+		m.chatAnchorSeg = -1
 	}
+}
+
+// setChatAnchor records the pause position at (segment, line) with the
+// assembly stamp current at capture time.
+func (m *Model) setChatAnchor(segment, offset int) {
+	m.chatAnchorSeg = segment
+	m.chatAnchorOff = offset
+	m.chatAnchorStamp = 0
+	if m.chatAssembly != nil {
+		m.chatAnchorStamp = m.chatAssembly.stamp
+	}
+}
+
+// captureChatAnchor records which (segment, line) currently tops the paused
+// viewport so later clamps can re-derive the offset when history above it
+// grows or shrinks. Needs a populated assembly (clampChatScroll builds one).
+func (m *Model) captureChatAnchor() {
+	if m.chatFollow || m.chatAssembly == nil {
+		m.chatAnchorSeg = -1
+		return
+	}
+	offset := m.chatScroll
+	for index, segment := range m.chatAssembly.segments {
+		if offset < len(segment) {
+			m.setChatAnchor(index, offset)
+			return
+		}
+		offset -= len(segment)
+	}
+	m.chatAnchorSeg = -1
+}
+
+// chatAnchorOffset maps the anchor to a flat line offset in the current
+// assembly; false means the anchor's segment vanished (numeric fallback).
+func (m Model) chatAnchorOffset() (int, bool) {
+	if m.chatAnchorSeg < 0 || m.chatAssembly == nil {
+		return 0, false
+	}
+	segments := m.chatAssembly.segments
+	if m.chatAnchorSeg >= len(segments) {
+		return 0, false
+	}
+	offset := min(m.chatAnchorOff, len(segments[m.chatAnchorSeg])-1)
+	if offset < 0 {
+		offset = 0
+	}
+	for _, segment := range segments[:m.chatAnchorSeg] {
+		offset += len(segment)
+	}
+	return offset, true
 }
 
 func (m Model) refreshFileCompletion() (Model, tea.Cmd) {
