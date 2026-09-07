@@ -373,7 +373,10 @@ func Decode(params json.RawMessage) (Event, bool) {
 	// Durable RunEvent sequence numbers are strictly positive by schema.
 	// Rejecting legacy/unsequenced wire events keeps overflow replay sound:
 	// every accepted notification can be reconstructed from the Journal.
-	if envelope.Event.Type == "" || envelope.Event.Seq <= 0 {
+	// subscription_id and run_id are likewise mandatory — the durable server
+	// always stamps both, and a transport that drops them would let a foreign
+	// or replay-broken notification advance this face's cursor.
+	if envelope.SubscriptionID == "" || envelope.Event.RunID == "" || envelope.Event.Type == "" || envelope.Event.Seq <= 0 {
 		return Event{}, false
 	}
 	return Event{

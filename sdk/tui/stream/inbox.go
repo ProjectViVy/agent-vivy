@@ -86,11 +86,6 @@ func (q *Inbox) Push(notice Notice) PushResult {
 	return PushAccepted
 }
 
-func (q *Inbox) Take() []Notice {
-	pending, _ := q.TakeWithOverflow()
-	return pending
-}
-
 func (q *Inbox) TakeWithOverflow() ([]Notice, bool) { return q.TakeBatch(0, 0) }
 
 // TakeBatch bounds one Bubble Tea update. Zero limits transfer all pending

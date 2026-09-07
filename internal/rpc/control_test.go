@@ -155,6 +155,63 @@ func TestRunSubscriptionTerminalReplayCleansUpImmediately(t *testing.T) {
 	}
 }
 
+// TestRunSubscriptionEmptyReplayAfterTerminalCleansUp pins the N5 contract:
+// a resubscribe whose after_seq already covers the terminal record must
+// release the subscription instead of pinning the bus until peer close.
+func TestRunSubscriptionEmptyReplayAfterTerminalCleansUp(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	runID := domain.RunID("run_empty_replay_terminal")
+	ctx := context.Background()
+	if err := env.backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: "sess_empty_replay", Status: domain.RunCompleted, CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{
+		Type: domain.EventRunCompleted, CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1, Payload: []byte(`{}`),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 2})
+	defer peer.Close()
+	params, err := json.Marshal(map[string]any{"run_id": string(runID), "after_seq": 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"empty-replay"`), Method: "run/subscribe", Params: params}
+	if _, rpcErr := handler.subscribe(ctx, peer, request); rpcErr != nil {
+		t.Fatalf("subscribe: %v", rpcErr)
+	}
+	peer.runAfterResponse(request.ID)
+	waitForControlSubscriptionCount(t, handler, 0)
+	if got := handler.deps.Bus.Subscribers(runID); got != 0 {
+		t.Fatalf("bus subscribers = %d, want 0", got)
+	}
+}
+
+// TestRunSubscriptionUnknownRunReleasesSubscription keeps an absent run id
+// from pinning a dead subscription; it can never produce events.
+func TestRunSubscriptionUnknownRunReleasesSubscription(t *testing.T) {
+	env := newControlTestEnv(t)
+	handler := env.handler.(*controlHandler)
+	ctx := context.Background()
+	left, right := net.Pipe()
+	defer right.Close()
+	peer := NewPeer(NewJSONLTransport(left, left, left.Close), nil, Options{OutgoingBuffer: 2})
+	defer peer.Close()
+	params, err := json.Marshal(map[string]any{"run_id": "run_never_existed", "after_seq": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`"unknown-run"`), Method: "run/subscribe", Params: params}
+	if _, rpcErr := handler.subscribe(ctx, peer, request); rpcErr != nil {
+		t.Fatalf("subscribe: %v", rpcErr)
+	}
+	peer.runAfterResponse(request.ID)
+	waitForControlSubscriptionCount(t, handler, 0)
+}
+
 func TestRunSubscriptionResponseCloseCleansPendingEntry(t *testing.T) {
 	env := newControlTestEnv(t)
 	handler := env.handler.(*controlHandler)
