@@ -80,11 +80,73 @@ func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 	if !snapshot.MCPKnown || len(snapshot.MCP) != 1 || snapshot.MCP[0].Name != "docs" || snapshot.MCP[0].State != "configured" {
 		t.Fatalf("mcp truth = %+v", snapshot.MCP)
 	}
-	if !snapshot.SkillsKnown || len(snapshot.Skills) != 1 || snapshot.Skills[0].Name != "enabled-skill" {
+	if !snapshot.SkillsKnown || len(snapshot.Skills) != 1 || snapshot.Skills[0].Name != "enabled-skill" || snapshot.Skills[0].Origin != "user" {
 		t.Fatalf("enabled skill truth = %+v", snapshot.Skills)
 	}
 	if !snapshot.LSPKnown || len(snapshot.LSP) != 2 || snapshot.LSP[0].Language != "go" || snapshot.LSP[0].State != "starting" || snapshot.LSP[1].Language != "typescript" {
 		t.Fatalf("lsp truth = %+v", snapshot.LSP)
+	}
+}
+
+type sidebarStatusCatalog struct {
+	mcpCatalogStub
+	statuses []runtime.MCPServerStatus
+}
+
+func (s *sidebarStatusCatalog) ServerStatuses() []runtime.MCPServerStatus {
+	return append([]runtime.MCPServerStatus(nil), s.statuses...)
+}
+
+func TestSessionSidebarProjectsMCPStatusPriorityAndWireUnknowns(t *testing.T) {
+	statusCatalog := &sidebarStatusCatalog{statuses: []runtime.MCPServerStatus{
+		{Name: "initialized", Initialized: true, Error: "stale handshake", AuthMissing: true, ToolCount: 0},
+		{Name: "failed", Error: "connection refused", AuthMissing: true, ToolCount: -1},
+		{Name: "configured", AuthMissing: true, ToolCount: -1},
+	}}
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.MCP = statusCatalog
+	})
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "mcp status"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	session := created.(sessionResult)
+	result, rpcErr := callControl(t, env.handler, "session/sidebar", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	snapshot := result.(sidebarResult)
+	if len(snapshot.MCP) != 3 {
+		t.Fatalf("mcp status projection = %+v", snapshot.MCP)
+	}
+	if snapshot.MCP[0].State != "initialized" || snapshot.MCP[0].Error != "stale handshake" || !snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount == nil || *snapshot.MCP[0].ToolCount != 0 {
+		t.Fatalf("initialized status priority/count = %+v", snapshot.MCP[0])
+	}
+	if snapshot.MCP[1].State != "error" || snapshot.MCP[1].Error != "connection refused" || !snapshot.MCP[1].AuthMissing || snapshot.MCP[1].ToolCount != nil {
+		t.Fatalf("error status/unknown count = %+v", snapshot.MCP[1])
+	}
+	if snapshot.MCP[2].State != "configured" || !snapshot.MCP[2].AuthMissing || snapshot.MCP[2].ToolCount != nil {
+		t.Fatalf("configured status/fallback fields = %+v", snapshot.MCP[2])
+	}
+}
+
+func TestSessionSidebarCatalogOnlyMCPRemainsConfigured(t *testing.T) {
+	catalog := &mcpCatalogStub{replaced: []runtime.MCPServerConfig{{Name: "catalog", Endpoint: "http://example.invalid/mcp"}}}
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.MCP = catalog
+	})
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "catalog"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	session := created.(sessionResult)
+	result, rpcErr := callControl(t, env.handler, "session/sidebar", map[string]string{"session_id": string(session.ID)})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	snapshot := result.(sidebarResult)
+	if len(snapshot.MCP) != 1 || snapshot.MCP[0].State != "configured" || snapshot.MCP[0].Error != "" || snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount != nil {
+		t.Fatalf("catalog-only MCP = %+v", snapshot.MCP)
 	}
 }
 

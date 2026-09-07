@@ -76,17 +76,23 @@ type ModifiedFile struct {
 }
 
 // MCPServer is one configured server and its current in-process handshake
-// state. State is "configured" or "initialized"; it is never inferred by the
-// terminal from a settings document.
+// state. State is "configured", "initialized", or "error"; it is never
+// inferred by the terminal from a settings document. ToolCount is -1 when no
+// successful catalog listing has been observed.
 type MCPServer struct {
-	Name  string
-	State string
+	Name        string
+	State       string
+	Error       string
+	AuthMissing bool
+	ToolCount   int
 }
 
 // SidebarSkill is one enabled skill from the backend that supplies the
-// runtime skill middleware. It describes availability, not per-turn use.
+// runtime skill middleware. Origin describes the catalog root (for example
+// user or project); it describes availability, not per-turn use or mounting.
 type SidebarSkill struct {
-	Name string
+	Name   string
+	Origin string
 }
 
 // LanguageServer is one live process owned by a workspace that belongs to

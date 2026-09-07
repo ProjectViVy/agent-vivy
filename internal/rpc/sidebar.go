@@ -39,8 +39,11 @@ type sidebarResult struct {
 }
 
 type sidebarMCPResult struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Error       string `json:"error,omitempty"`
+	AuthMissing bool   `json:"auth_missing"`
+	ToolCount   *int   `json:"tool_count,omitempty"`
 }
 
 type sidebarSkillResult struct {
@@ -171,8 +174,20 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 				state := "configured"
 				if server.Initialized {
 					state = "initialized"
+				} else if strings.TrimSpace(server.Error) != "" {
+					state = "error"
 				}
-				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, State: state})
+				item := sidebarMCPResult{
+					Name:        server.Name,
+					State:       state,
+					Error:       server.Error,
+					AuthMissing: server.AuthMissing,
+				}
+				if server.ToolCount >= 0 {
+					count := server.ToolCount
+					item.ToolCount = &count
+				}
+				result.MCP = append(result.MCP, item)
 			}
 		} else {
 			for _, server := range h.deps.MCP.ConfiguredServers() {

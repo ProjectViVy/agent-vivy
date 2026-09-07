@@ -517,14 +517,33 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			if name == "" {
 				continue
 			}
-			state := "configured"
+			state := ""
 			style := p.Dim
-			if server.State == "initialized" {
+			switch server.State {
+			case "configured":
+				state = "configured"
+			case "initialized":
 				state = "initialized"
 				style = p.Active
+			case "error":
+				state = "error"
+				style = p.PromptWarn
+			default:
+				continue
 			}
 			line := " " + name + " · " + state
 			lines = append(lines, style.Render(truncate(line, width-1)))
+			if state == "error" {
+				if message := sanitizeInline(server.Error); message != "" {
+					lines = append(lines, p.PromptWarn.Render(truncate("   ! "+message, width-1)))
+				}
+			}
+			if server.AuthMissing {
+				lines = append(lines, p.PromptWarn.Render(truncate("   auth missing", width-1)))
+			}
+			if server.ToolCount >= 0 {
+				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf("   %d tools", server.ToolCount), width-1)))
+			}
 		}
 	}
 	if snapshot.SkillsKnown {
@@ -535,7 +554,11 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		for _, skill := range snapshot.Skills {
 			name := strings.TrimSpace(sanitizeFileCompletionText(skill.Name))
 			if name != "" {
-				lines = append(lines, p.Dim.Render(truncate(" "+name, width-1)))
+				line := " " + name
+				if origin := strings.TrimSpace(sanitizeFileCompletionText(skill.Origin)); origin != "" {
+					line += " \u00b7 " + origin
+				}
+				lines = append(lines, p.Dim.Render(truncate(line, width-1)))
 			}
 		}
 	}

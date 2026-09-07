@@ -196,6 +196,10 @@ func TestMCPBackendStreamableHTTPAndEinoProjection(t *testing.T) {
 	if !strings.Contains(string(listed.Tools[0].InputSchema), `"properties"`) || !strings.Contains(string(listed.Tools[0].InputSchema), `"text"`) {
 		t.Fatalf("Eino schema conversion lost fields: %s", listed.Tools[0].InputSchema)
 	}
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 1 || !statuses[0].Initialized || statuses[0].Error != "" || statuses[0].ToolCount != 1 {
+		t.Fatalf("MCP status after listing = %+v", statuses)
+	}
 	called, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "local", Tool: "echo", Arguments: map[string]any{"text": "hi"}})
 	if err != nil {
 		t.Fatalf("call tool: %v", err)
@@ -275,6 +279,17 @@ func TestMCPBackendAuthEnvRotatesPerRequest(t *testing.T) {
 	if !containsStringMCP(auth, "Bearer first-token") || !containsStringMCP(auth, "Bearer rotated-token") {
 		t.Fatalf("authorization headers did not rotate: %v", auth)
 	}
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 1 || !statuses[0].Initialized || statuses[0].AuthMissing || statuses[0].ToolCount != 1 {
+		t.Fatalf("auth status with token = %+v", statuses)
+	}
+	if err := os.Unsetenv(env); err != nil {
+		t.Fatal(err)
+	}
+	statuses = backend.ServerStatuses()
+	if len(statuses) != 1 || !statuses[0].AuthMissing {
+		t.Fatalf("missing auth status = %+v", statuses)
+	}
 }
 
 func TestMCPBackendConcurrentInitializeOnce(t *testing.T) {
@@ -336,6 +351,10 @@ func TestMCPBackendFailedInitializeRecoversAndClosesOldClient(t *testing.T) {
 	if _, err := backend.ListTools(context.Background(), "", "recover"); err == nil {
 		t.Fatal("failed initialize must be returned")
 	}
+	failedStatus := backend.ServerStatuses()
+	if len(failedStatus) != 1 || failedStatus[0].Initialized || failedStatus[0].Error == "" || failedStatus[0].ToolCount != -1 {
+		t.Fatalf("failed initialize status = %+v", failedStatus)
+	}
 	select {
 	case <-old.closeDone:
 	case <-time.After(time.Second):
@@ -347,6 +366,52 @@ func TestMCPBackendFailedInitializeRecoversAndClosesOldClient(t *testing.T) {
 	}
 	if got := initializes.Load(); got != 2 {
 		t.Fatalf("initialize count=%d, want failed attempt plus recovery", got)
+	}
+	recoveredStatus := backend.ServerStatuses()
+	if len(recoveredStatus) != 1 || !recoveredStatus[0].Initialized || recoveredStatus[0].Error != "" || recoveredStatus[0].ToolCount != 1 {
+		t.Fatalf("recovered status = %+v", recoveredStatus)
+	}
+}
+
+func TestMCPBackendStatusSanitizesAndRejectsRetiredWrites(t *testing.T) {
+	endpoint := "https://user:secret@example.invalid/mcp"
+	backend := NewMCPBackend([]MCPServerConfig{{Name: "same", Endpoint: endpoint}}, nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	backend.mu.RLock()
+	old := backend.servers["same"]
+	backend.mu.RUnlock()
+	backend.noteInitResult(old, fmt.Errorf("%s\n\tconnection\u202Ebad\u2066", endpoint))
+	backend.noteToolCount(old, 7)
+	status := backend.ServerStatuses()
+	if len(status) != 1 || status[0].Error == "" || status[0].ToolCount != 7 {
+		t.Fatalf("initial status = %+v", status)
+	}
+	if strings.Contains(status[0].Error, endpoint) || strings.ContainsAny(status[0].Error, "\r\n\t") || strings.ContainsAny(status[0].Error, "\u202E\u2066") {
+		t.Fatalf("status error was not sanitized: %q", status[0].Error)
+	}
+
+	backend.ReplaceServers([]MCPServerConfig{{Name: "same", Endpoint: "https://new.example.invalid/mcp"}})
+	status = backend.ServerStatuses()
+	if len(status) != 1 || status[0].Error != "" || status[0].ToolCount != -1 {
+		t.Fatalf("replacement inherited old status = %+v", status)
+	}
+	backend.noteInitResult(old, errors.New("retired failure"))
+	backend.noteToolCount(old, 99)
+	status = backend.ServerStatuses()
+	if len(status) != 1 || status[0].Error != "" || status[0].ToolCount != -1 {
+		t.Fatalf("retired entry wrote current status = %+v", status)
+	}
+}
+
+func TestBoundedMCPStatusErrorRemovesControlsAndBoundsRunes(t *testing.T) {
+	endpoint := "https://secret.example.invalid/mcp"
+	message := endpoint + "\x00\n\t\u061c\u200e\u200f\u202A\u202E\u2066" + strings.Repeat("x", 200)
+	got := boundedMCPStatusError(message, endpoint)
+	if strings.Contains(got, endpoint) || strings.ContainsAny(got, "\x00\r\n\t\u061c\u200e\u200f\u202A\u202E\u2066") {
+		t.Fatalf("bounded status retained secret/control: %q", got)
+	}
+	if gotRunes := len([]rune(got)); gotRunes != 160 {
+		t.Fatalf("bounded status rune length = %d, want 160", gotRunes)
 	}
 }
 
