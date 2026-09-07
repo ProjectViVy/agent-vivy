@@ -318,6 +318,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chatFollow = true
 			cmds = append(cmds, cmd)
 		} else {
+			// Send refused the turn (e.g. a load transition). The expansion
+			// succeeded, so put the original slash draft back instead of
+			// silently dropping the operator's input.
+			m.input = retryDraft
 			m = m.showCommandError(fmt.Errorf("dynamic command could not start a turn"))
 		}
 	case surface.ProjectFilesMsg:
@@ -558,6 +562,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.commandOverlayTitle = ""
 		m.commandOverlay = ""
 		m.closeCommandPalette()
+		return m, nil
+	}
+	if gate == nil && m.dynamicCommandPending {
+		// An expansion owns the editor and every secondary surface until it
+		// resolves; typing meanwhile would be clobbered when the expansion
+		// restores its draft. Esc above is the only exit besides Ctrl+C.
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
 		return m, nil
 	}
 	if m.sessionsOpen {

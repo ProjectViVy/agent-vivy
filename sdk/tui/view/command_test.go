@@ -252,6 +252,72 @@ func TestDynamicCommandExpansionFailureNeverSends(t *testing.T) {
 	}
 }
 
+func TestDynamicCommandSendRefusalRestoresDraft(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1", sendBlocked: true}, commands: []surface.DynamicCommand{{ID: "skill:review", Kind: "skill", Name: "review"}}}
+	m := New(d)
+	m.input = `/review "this patch"`
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || !m.dynamicCommandPending {
+		t.Fatal("dispatch did not enter pending state")
+	}
+	updated, sendCmd := m.Update(surface.DynamicCommandExpandedMsg{Request: m.dynamicCommandRequest, SessionID: "session-1", ID: d.id, Text: "expanded skill input"})
+	m = updated.(Model)
+	if sendCmd != nil || d.sent != "" || m.input != `/review "this patch"` {
+		t.Fatalf("refused send dropped the draft: sent=%q input=%q cmd=%v", d.sent, m.input, sendCmd != nil)
+	}
+	if m.dynamicCommandPending {
+		t.Fatal("pending state was not cleared after the refused send")
+	}
+	if !strings.Contains(m.View(), "could not start a turn") {
+		t.Fatalf("refusal was not surfaced:\n%s", m.View())
+	}
+}
+
+func TestDynamicCommandPendingLocksEditorAndSurfaces(t *testing.T) {
+	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}, commands: []surface.DynamicCommand{{ID: "skill:review", Kind: "skill", Name: "review"}}}
+	m := New(d)
+	m.input = `/review "first"`
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || !m.dynamicCommandPending {
+		t.Fatal("dispatch did not enter pending state")
+	}
+	draft := m.dynamicCommandDraft
+
+	// Ctrl+C stays available while the expansion owns every other key.
+	updated, quitCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(Model)
+	if quitCmd == nil {
+		t.Fatal("ctrl+c did not respond while expansion was pending")
+	}
+	if _, ok := quitCmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c returned %T, want tea.QuitMsg", quitCmd())
+	}
+	if !m.dynamicCommandPending || m.input != "" {
+		t.Fatalf("ctrl+c disturbed the pending state: pending=%v input=%q", m.dynamicCommandPending, m.input)
+	}
+
+	// Typing, submitting, and secondary surfaces are swallowed while the
+	// expansion is in flight.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = updated.(Model)
+	updated, enter := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	updated, ctrlT := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	m = updated.(Model)
+	if m.input != "" || d.sent != "" || enter != nil || ctrlT != nil || m.shortcutsOpen {
+		t.Fatalf("pending state leaked input: input=%q sent=%q enter=%v ctrlT=%v shortcuts=%v", m.input, d.sent, enter != nil, ctrlT != nil, m.shortcutsOpen)
+	}
+
+	// Esc is the only exit besides Ctrl+C and restores the saved draft.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+	if m.dynamicCommandPending || m.input != draft {
+		t.Fatalf("escape did not cancel: pending=%v input=%q", m.dynamicCommandPending, m.input)
+	}
+}
+
 func TestDynamicCommandSerializesAndRestoresDraftAcrossCancellation(t *testing.T) {
 	d := &dynamicCommandDriver{testDriver: &testDriver{sessions: []surface.Session{{ID: "session-1"}}, active: "session-1"}, commands: []surface.DynamicCommand{{ID: "skill:review", Kind: "skill", Name: "review"}}}
 	m := New(d)
@@ -264,8 +330,10 @@ func TestDynamicCommandSerializesAndRestoresDraftAcrossCancellation(t *testing.T
 	m.input = "ordinary text"
 	updated, second := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if second != nil || !strings.Contains(m.View(), "wait for the current dynamic command") {
-		t.Fatal("second submission was not blocked while expansion was pending")
+	// The pending lock swallows keys before submitInput, so the second
+	// submission is dropped without a diagnostic and without reaching Send.
+	if second != nil || d.sent != "" || m.input != "ordinary text" {
+		t.Fatalf("second submission was not blocked while expansion was pending: cmd=%v sent=%q input=%q", second != nil, d.sent, m.input)
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(Model)
