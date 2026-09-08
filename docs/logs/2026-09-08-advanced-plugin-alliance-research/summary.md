@@ -7,6 +7,9 @@
 - Proposed `Module + Port + Generated Assembly`: a shared assembly model for internal and pluggable modules with different trust ceilings.
 - Classified existing Vivy capabilities into ready, consumer-required, internal-only, and kernel-coupled groups.
 - Defined an Eino-native reuse boundary and phased implementation path.
+- Consolidated the later discussion into four product layers: immutable Kernel, Required Internal, Optional Internal, and Pluggable Alliance Products.
+- Added the OpenAI/Anthropic/OAuth boundary, Web/TUI/A2UI extension reservations, the normative standard set, and quantified delivery ranges.
+- Collapsed the living-board entry to one proposal sentence: PLUGINS full completion awaits formal scheduling.
 
 ## Scope
 

@@ -9,3 +9,7 @@ A human can accept this research deliverable when:
 5. It includes an Eino capability check against the repository-pinned version.
 6. It gives a dependency-driven P0-P5 rollout and conformance matrix.
 7. It does not claim implementation authorization or modify executable behavior.
+8. It classifies the target into Kernel, Required Internal, Optional Internal, and Pluggable Alliance layers.
+9. It covers OpenAI-compatible bootstrap versus provider/OAuth plugins and reserves both Web and TUI extension contracts.
+10. It records bounded person-day estimates for proposal, plugin foundation, publishable standard, and full completion.
+11. `docs/TODO.md` keeps only the requested one-sentence PLUGINS proposal and report link.
