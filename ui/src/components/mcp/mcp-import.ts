@@ -12,15 +12,36 @@ function asEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : true;
 }
 
-export interface ParsedMcpImport {
-  servers: McpServerInput[];
-  skippedStdio: string[];
+function asArgs(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  if (typeof value === 'string') return value.split(/\r?\n/);
+  return [];
 }
 
-/** 把常见 MCP JSON 规范成 HTTP upsert 列表；stdio 项记入 skippedStdio。 */
+function asEnvFrom(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value).filter(([, item]) => typeof item === 'string') as [string, string][];
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function legacyEnvRefs(value: unknown, name: string, warnings: string[]): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const keys = Object.keys(value);
+  if (!keys.length) return undefined;
+  warnings.push(name);
+  return Object.fromEntries(keys.map((key) => [key, key]));
+}
+
+export interface ParsedMcpImport {
+  servers: McpServerInput[];
+  /** Server names whose legacy env values were discarded and converted to same-name refs. */
+  warnings: string[];
+}
+
+/** 把常见 MCP JSON 规范成 HTTP/stdio upsert 列表。 */
 export function parseMcpImport(config: unknown): ParsedMcpImport {
   const servers: McpServerInput[] = [];
-  const skippedStdio: string[] = [];
+  const warnings: string[] = [];
 
   const append = (nameHint: string, value: unknown) => {
     const record = isRecord(value) ? value : {};
@@ -31,12 +52,21 @@ export function parseMcpImport(config: unknown): ParsedMcpImport {
     const transport = asString(record.transport).toLowerCase();
     const looksStdio = transport === 'stdio' || (command !== '' && endpoint === '');
     if (looksStdio) {
-      skippedStdio.push(name);
+      servers.push({
+        name,
+        transport: 'stdio',
+        command,
+        args: asArgs(record.args ?? record.argv),
+        env_from: asEnvFrom(record.env_from ?? record.envFrom) ?? legacyEnvRefs(record.env, name, warnings),
+        cwd: asString(record.cwd) || undefined,
+        enabled: asEnabled(record.enabled),
+      });
       return;
     }
     if (!endpoint) return;
     servers.push({
       name,
+      transport: 'http',
       endpoint,
       auth_env: asString(record.auth_env) || asString(record.authEnv) || undefined,
       enabled: asEnabled(record.enabled),
@@ -45,9 +75,9 @@ export function parseMcpImport(config: unknown): ParsedMcpImport {
 
   if (Array.isArray(config)) {
     config.forEach((value) => append(isRecord(value) ? asString(value.name) : '', value));
-    return { servers, skippedStdio };
+    return { servers, warnings };
   }
-  if (!isRecord(config)) return { servers, skippedStdio };
+  if (!isRecord(config)) return { servers, warnings };
 
   const tools = isRecord(config.tools) ? config.tools : null;
   const serverMap = isRecord(config.mcpServers)
@@ -62,21 +92,29 @@ export function parseMcpImport(config: unknown): ParsedMcpImport {
   if (serverMap) {
     if (Array.isArray(serverMap)) serverMap.forEach((value) => append('', value));
     else Object.entries(serverMap).forEach(([name, value]) => append(name, value));
-    return { servers, skippedStdio };
+    return { servers, warnings };
   }
   if ('name' in config || 'endpoint' in config || 'url' in config || 'command' in config) {
     append('', config);
-    return { servers, skippedStdio };
+    return { servers, warnings };
   }
   Object.entries(config).forEach(([name, value]) => append(name, value));
-  return { servers, skippedStdio };
+  return { servers, warnings };
 }
 
 export function exportMcpConfig(servers: McpServer[]): { mcp_servers: Record<string, Record<string, unknown>> } {
   return {
     mcp_servers: Object.fromEntries(servers.map((server) => [server.name, {
-      endpoint: server.endpoint,
-      ...(server.auth_env ? { auth_env: server.auth_env } : {}),
+      transport: server.transport,
+      ...(server.transport === 'stdio'
+        ? {
+            command: server.command,
+            ...(server.args?.length ? { args: server.args } : {}),
+            ...(server.env_from && Object.keys(server.env_from).length ? { env_from: server.env_from } : {}),
+            ...(server.cwd ? { cwd: server.cwd } : {}),
+          }
+        : { endpoint: server.endpoint }),
+      ...(server.transport === 'http' && server.auth_env ? { auth_env: server.auth_env } : {}),
       enabled: server.enabled,
     }])),
   };

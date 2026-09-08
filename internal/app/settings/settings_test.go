@@ -708,6 +708,43 @@ func TestValidateMCPServers(t *testing.T) {
 	}
 }
 
+func TestValidateAndRoundTripMCPStdioServer(t *testing.T) {
+	enabled := BoolPtr(true)
+	list := []MCPServer{{
+		Name:    "local",
+		Command: "node",
+		Args:    []string{"server.js", "--stdio"},
+		EnvFrom: map[string]string{"MCP_TOKEN": "HOST_TOKEN"},
+		Cwd:     "tools/mcp",
+		Enabled: enabled,
+	}}
+	path := filepath.Join(t.TempDir(), FileName)
+	saved, err := Save(path, Settings{MCPServers: &list})
+	if err != nil {
+		t.Fatalf("save stdio server: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load stdio server: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, saved) || loaded.MCPServers == nil || (*loaded.MCPServers)[0].Command != "node" {
+		t.Fatalf("stdio round trip mismatch: saved=%+v loaded=%+v", saved, loaded)
+	}
+
+	invalid := []MCPServer{
+		{Name: "both", Endpoint: "https://example.com/mcp", Command: "node"},
+		{Name: "none"},
+		{Name: "danger", Command: "bash"},
+		{Name: "bad-env", Command: "node", EnvFrom: map[string]string{"TOKEN": "literal-token"}},
+		{Name: "stdio-auth", Command: "node", AuthEnv: "MCP_TOKEN"},
+	}
+	for _, server := range invalid {
+		if err := (Settings{MCPServers: &[]MCPServer{server}}).Validate(); err == nil {
+			t.Errorf("server %+v should be rejected", server)
+		}
+	}
+}
+
 func TestUpsertAndDeleteMCPServer(t *testing.T) {
 	s := Settings{}
 	first := s.UpsertMCPServer(MCPServer{Name: "docs", Endpoint: "https://a.example.com/mcp"})

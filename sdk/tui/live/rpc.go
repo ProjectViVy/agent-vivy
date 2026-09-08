@@ -246,11 +246,13 @@ func (c *client) expandDynamicCommand(ctx context.Context, id string, args []str
 }
 
 type sidebarMCPView struct {
-	Name        string `json:"name"`
-	State       string `json:"state"`
-	Error       string `json:"error,omitempty"`
-	AuthMissing bool   `json:"auth_missing"`
-	ToolCount   *int   `json:"tool_count,omitempty"`
+	Name        string   `json:"name"`
+	Transport   string   `json:"transport"`
+	State       string   `json:"state"`
+	Error       string   `json:"error,omitempty"`
+	AuthMissing bool     `json:"auth_missing"`
+	EnvMissing  []string `json:"env_missing,omitempty"`
+	ToolCount   *int     `json:"tool_count,omitempty"`
 }
 
 type sidebarSkillView struct {
@@ -362,9 +364,11 @@ func mapSidebarView(view sidebarView) surface.Sidebar {
 			}
 			snapshot.MCP = append(snapshot.MCP, surface.MCPServer{
 				Name:        server.Name,
+				Transport:   server.Transport,
 				State:       server.State,
 				Error:       server.Error,
 				AuthMissing: server.AuthMissing,
+				EnvMissing:  append([]string(nil), server.EnvMissing...),
 				ToolCount:   toolCount,
 			})
 		}

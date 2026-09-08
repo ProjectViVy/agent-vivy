@@ -89,7 +89,9 @@ runtime:
     - 127.0.0.1
     - ::1
   http_max_response_bytes: 1048576
-  # Streamable HTTP MCP servers; credentials are env references only.
+  # HTTP or local stdio MCP servers; credentials and child env values are
+  # environment references only. Stdio args are one argv item per list line;
+  # env_from maps CHILD_VAR to HOST_VAR.
   # This is the production default. The UI writes an overlay to the operator
   # settings document (settings.yaml mcp_servers). A saved overlay, including
   # an empty list, replaces this default on the next launch and immediately

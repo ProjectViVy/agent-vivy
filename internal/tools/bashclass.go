@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"agent-vivy/internal/commandpolicy"
+
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -108,12 +110,7 @@ var denyTable = []denyRule{
 		name:   "host escape",
 		reason: "deny-table: host shell or interpreter escape",
 		match: func(name string, _ []string, _ string) bool {
-			switch name {
-			case "sudo", "su", "runas", "powershell", "pwsh", "cmd", "cmd.exe", "sh", "bash", "zsh", "fish", "ksh", "dash", "eval", "source", ".", "exec", "nohup", "setsid":
-				return true
-			default:
-				return false
-			}
+			return commandpolicy.IsShellEscapeExecutable(name)
 		},
 	},
 	{

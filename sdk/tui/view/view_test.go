@@ -693,8 +693,8 @@ func TestSidebarRendersMCPDetailsAndSkillOriginsSafely(t *testing.T) {
 			Session:  surface.Session{ID: "active", Title: "Current"},
 			MCPKnown: true,
 			MCP: []surface.MCPServer{
-				{Name: "docs", State: "initialized", ToolCount: 2},
-				{Name: "broken", State: "error", Error: "connection\x1b]2;PWN\a\r\nrefused\u202e", AuthMissing: true, ToolCount: 0},
+				{Name: "docs", Transport: "http", State: "initialized", ToolCount: 2},
+				{Name: "broken", Transport: "stdio", State: "error", Error: "connection\x1b]2;PWN\a\r\nrefused\u202e", AuthMissing: true, EnvMissing: []string{"MCP_TOKEN"}, ToolCount: 0},
 				{Name: "catalog", State: "configured", ToolCount: -1},
 				{Name: "skip-me", State: "unknown", ToolCount: 9},
 			},
@@ -718,8 +718,9 @@ func TestSidebarRendersMCPDetailsAndSkillOriginsSafely(t *testing.T) {
 	}
 	plain := strings.Join(plainLines, "\n")
 	for _, want := range []string{
-		"docs \u00b7 initialized", "   2 tools",
+		"docs \u00b7 initialized \u00b7 http", "   2 tools",
 		"broken \u00b7 error", "   ! connection refused", "   auth missing", "   0 tools",
+		"broken \u00b7 error \u00b7 stdio", "   env missing: MCP_TOKEN",
 		"catalog \u00b7 configured", "review \u00b7 project", "safe \u00b7 user",
 	} {
 		if !strings.Contains(plain, want) {

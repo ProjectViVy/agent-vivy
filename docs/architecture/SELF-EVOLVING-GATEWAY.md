@@ -229,7 +229,7 @@ Studio **必须**：具备完整的第一方日常开发能力；其他已获授
 
 ## 6. 插件只剩「源码包」；装上就是新版本
 
-拒绝：WASM、`.dll`、Go `plugin`、stdio 外置 exe、把 MCP 当插件系统。  
+拒绝：WASM、`.dll`、Go `plugin`、把 stdio 外置 exe 当插件装载、把 MCP 当插件系统。MCP stdio 仅作为显式配置的 MCP 依赖开放，不进入插件装载范式。
 能力要进世界，只有一条路：
 
 > **实现 SDK 契约的源码 → `vivy-sdk pack` → 新的 `vivy.exe` → eval → promote。**  
@@ -252,7 +252,8 @@ Studio **必须**：具备完整的第一方日常开发能力；其他已获授
 
 `pack` 的输出。Kind B 的源码被链进这个 EXE。没有「先编一个插件 exe 再挂上去」的中间态。
 
-远程 MCP 若仍存在，只是**配置里的远程依赖**（像 provider endpoint），不是插件，不能替代 Kind B。
+远程 MCP 与显式配置的本地 MCP stdio 都只是**配置里的依赖**（像 provider endpoint），不是插件，不能替代 Kind B。stdio 配置即授权：只接受 PATH 可执行名或绝对路径，使用危险 basename denylist，不另起 execute allowlist；环境只能经 CHILD→HOST 名称引用注入，cwd 只能落在 `runtime.workspace_root` 内。
+本地 stdio 懒启动，进程死亡后下一次操作映射为既有 `error` 状态且不自动重启；raw-frame 上界与 Windows 子进程树回收另记 TODO。
 
 ---
 
@@ -366,6 +367,7 @@ DSH 不负责「怎么编 Vivy」；换掉 DSH，打包器还在 `sdk/`。作者
 | UI / 本机控制面 | 回环 WebSocket | 同一套 JSON-RPC（已有） |
 | Studio → 物种 | 只读 | `inspect`（物种不回调 Studio） |
 | 远程 MCP（若保留） | HTTP | 配置依赖，不是插件 |
+| 本地 MCP（显式配置） | stdio | MCP JSON-RPC；配置依赖，不是 worker/plugin 通道 |
 | Kind A Skill | 读文件 | — |
 
 拒绝：为插件再开 stdio/gRPC/WASM/dll。`vivy worker` 不是插件通道，是同二进制的子 run。
@@ -378,7 +380,8 @@ DSH 不负责「怎么编 Vivy」；换掉 DSH，打包器还在 `sdk/`。作者
 |---|---|
 | WASM | **拒绝。** 又一种运行时世界，和「装插件 = 造新版本」对着干 |
 | `.dll` / Go `plugin` | **拒绝。** 卸不掉，Windows / cgo 更差 |
-| 外置 stdio exe | **拒绝。** 无源盲盒，或第二种身体 |
+| 外置 stdio exe（作为插件） | **拒绝。** 无源盲盒，或第二种身体 |
+| 显式配置的 MCP stdio 命令 | **允许但受限。** 仅 MCP 依赖；命令、env 引用、cwd 均经配置校验与运行时治理 |
 | 目录扫描 / 插件市场 | **拒绝。** |
 
 有人交东西时只认两种：
@@ -516,7 +519,7 @@ Eino 仍是内置 loop，隔离不变。候选代才可以换 loop。不把 Cord
 - 多租户或托管 Studio（D-016 仍有效，除非另立决策）
 - 从 `vivy.exe` 打开 Studio，或把 Studio 做成网关里的一张卡
 - 插件市场、目录扫描、`dsh-plugin` 式发现
-- WASM、`.dll`、Go `plugin`、stdio 外置插件 exe
+- WASM、`.dll`、Go `plugin`、stdio 外置插件 exe（MCP 的显式配置依赖例外不属于插件）
 - 把远程 MCP 当成「装插件」
 - 把 Memory / Laputa / AutoDream 绑进本架构
 - 把「到达 AGI」当 sprint 验收
@@ -545,7 +548,7 @@ S0 已采纳。S1–S6 物种侧零件 **done**。S7 工作室卡 **产品含义
 | NG-8 | 物种控制面仍是唯一过日子写入；Studio 是另一应用，不是 Pod | 不要本机网格，也不要把 Studio 写成物种数据面 |
 | NG-9 | 适应度是命名套件 | 否则 Studio 是自膨胀 |
 | NG-10 | 模型可见 ≡ 已记录，升级 ADR-009 | 否则代与代无法对照 |
-| NG-11 | 拒绝 WASM、dll、Go plugin、stdio 外置插件。能力只经 `pack` 链进新 EXE | 装插件 = 造新版本；不要第二种身体 |
+| NG-11 | 拒绝 WASM、dll、Go plugin、stdio 外置插件。MCP stdio 仅作为显式配置依赖，能力插件仍只经 `pack` 链进新 EXE | 装插件 = 造新版本；不要第二种身体 |
 | NG-12 | 不扫描目录；配方里点名源码包，产物用哈希 | 精选目录，不是市场 |
 | NG-13 | 同合同的分流是 Generation，不是新物种 | 保住遗传与评测 |
 | NG-14 | `vivy-sdk` 是独立二进制，源码住仓库根 `sdk/`。日常 `vivy.exe` 不挂 sdk。热路径禁止编译。由 Studio 调 sdk | 住户 EXE 不能假装能编 |

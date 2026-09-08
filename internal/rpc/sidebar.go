@@ -39,11 +39,13 @@ type sidebarResult struct {
 }
 
 type sidebarMCPResult struct {
-	Name        string `json:"name"`
-	State       string `json:"state"`
-	Error       string `json:"error,omitempty"`
-	AuthMissing bool   `json:"auth_missing"`
-	ToolCount   *int   `json:"tool_count,omitempty"`
+	Name        string   `json:"name"`
+	Transport   string   `json:"transport"`
+	State       string   `json:"state"`
+	Error       string   `json:"error,omitempty"`
+	AuthMissing bool     `json:"auth_missing"`
+	EnvMissing  []string `json:"env_missing,omitempty"`
+	ToolCount   *int     `json:"tool_count,omitempty"`
 }
 
 type sidebarSkillResult struct {
@@ -172,16 +174,18 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 		if source, ok := h.deps.MCP.(MCPStatusProvider); ok {
 			for _, server := range source.ServerStatuses() {
 				state := "configured"
-				if server.Initialized {
-					state = "initialized"
-				} else if strings.TrimSpace(server.Error) != "" {
+				if len(server.EnvMissing) > 0 || (!server.Initialized && strings.TrimSpace(server.Error) != "") {
 					state = "error"
+				} else if server.Initialized {
+					state = "initialized"
 				}
 				item := sidebarMCPResult{
 					Name:        server.Name,
+					Transport:   server.Transport,
 					State:       state,
 					Error:       server.Error,
 					AuthMissing: server.AuthMissing,
+					EnvMissing:  append([]string(nil), server.EnvMissing...),
 				}
 				if server.ToolCount >= 0 {
 					count := server.ToolCount
@@ -191,7 +195,11 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 			}
 		} else {
 			for _, server := range h.deps.MCP.ConfiguredServers() {
-				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, State: "configured"})
+				transport := "http"
+				if strings.TrimSpace(server.Command) != "" {
+					transport = "stdio"
+				}
+				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, Transport: transport, State: "configured"})
 			}
 			sort.Slice(result.MCP, func(i, j int) bool { return result.MCP[i].Name < result.MCP[j].Name })
 		}

@@ -81,9 +81,11 @@ type ModifiedFile struct {
 // successful catalog listing has been observed.
 type MCPServer struct {
 	Name        string
+	Transport   string
 	State       string
 	Error       string
 	AuthMissing bool
+	EnvMissing  []string
 	ToolCount   int
 }
 

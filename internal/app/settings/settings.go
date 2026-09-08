@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync"
 
+	"agent-vivy/internal/commandpolicy"
+
 	"gopkg.in/yaml.v3"
 
 	"agent-vivy/internal/config"
@@ -77,6 +79,13 @@ const maxExecuteTimeoutSeconds = 600
 // backend clamps rather than fails, but a settings override beyond it would
 // never take effect, so it is rejected here up front.
 const maxHTTPTimeoutSeconds = 120
+
+const (
+	maxMCPArgs       = 128
+	maxMCPArgBytes   = 4096
+	maxMCPArgsBytes  = 64 << 10
+	maxMCPEnvEntries = 64
+)
 
 // Settings is the persisted, non-secret model provider selection plus the
 // network_search preference and the execute ceiling override.
@@ -226,12 +235,17 @@ type NetworkSearchSettings struct {
 	Provider string `yaml:"provider"`
 }
 
-// MCPServer is one operator-managed Streamable HTTP MCP server. AuthEnv is
-// an environment variable name, never a secret value.
+// MCPServer is one operator-managed MCP server. Endpoint selects Streamable
+// HTTP while Command selects local stdio; exactly one is required. EnvFrom
+// values are host environment variable references, never secret values.
 type MCPServer struct {
-	Name     string `yaml:"name"`
-	Endpoint string `yaml:"endpoint"`
-	AuthEnv  string `yaml:"auth_env,omitempty"`
+	Name     string            `yaml:"name"`
+	Endpoint string            `yaml:"endpoint,omitempty"`
+	Command  string            `yaml:"command,omitempty"`
+	Args     []string          `yaml:"args,omitempty"`
+	EnvFrom  map[string]string `yaml:"env_from,omitempty"`
+	Cwd      string            `yaml:"cwd,omitempty"`
+	AuthEnv  string            `yaml:"auth_env,omitempty"`
 	// Enabled defaults to true when omitted. A pointer distinguishes
 	// "unset" from an explicit false (YAML bool zero is false).
 	Enabled *bool `yaml:"enabled,omitempty"`
@@ -544,12 +558,43 @@ func validateMCPServers(servers *[]MCPServer) error {
 	for i, server := range *servers {
 		name := strings.TrimSpace(server.Name)
 		endpoint := strings.TrimSpace(server.Endpoint)
+		command := strings.TrimSpace(server.Command)
+		cwd := strings.TrimSpace(server.Cwd)
 		authEnv := strings.TrimSpace(server.AuthEnv)
-		if name == "" || endpoint == "" {
-			return fmt.Errorf("settings: mcp_servers[%d] requires name and endpoint", i)
+		if name == "" {
+			return fmt.Errorf("settings: mcp_servers[%d].name must not be empty", i)
 		}
-		if !apiBasePattern.MatchString(endpoint) {
-			return fmt.Errorf("settings: mcp_servers[%d].endpoint %q must be an http(s) absolute URL", i, endpoint)
+		if (endpoint == "") == (command == "") {
+			return fmt.Errorf("settings: mcp_servers[%d] must set exactly one of endpoint or command", i)
+		}
+		if endpoint != "" {
+			if !apiBasePattern.MatchString(endpoint) {
+				return fmt.Errorf("settings: mcp_servers[%d].endpoint %q must be an http(s) absolute URL", i, endpoint)
+			}
+			if cwd != "" || len(server.Args) > 0 || len(server.EnvFrom) > 0 {
+				return fmt.Errorf("settings: mcp_servers[%d] stdio fields require command", i)
+			}
+		} else {
+			if authEnv != "" {
+				return fmt.Errorf("settings: mcp_servers[%d].auth_env requires endpoint", i)
+			}
+			if err := validateMCPCommandSettings(command); err != nil {
+				return fmt.Errorf("settings: mcp_servers[%d].command: %w", i, err)
+			}
+			if err := validateMCPArgsSettings(command, server.Args); err != nil {
+				return fmt.Errorf("settings: mcp_servers[%d].args: %w", i, err)
+			}
+			if err := validateMCPWorkingDirSettings(cwd); err != nil {
+				return fmt.Errorf("settings: mcp_servers[%d].cwd: %w", i, err)
+			}
+			if len(server.EnvFrom) > maxMCPEnvEntries {
+				return fmt.Errorf("settings: mcp_servers[%d].env_from has too many entries", i)
+			}
+			for child, host := range server.EnvFrom {
+				if !config.ValidEnvKey(strings.TrimSpace(child)) || !config.ValidEnvKey(strings.TrimSpace(host)) {
+					return fmt.Errorf("settings: mcp_servers[%d].env_from must map environment variable names", i)
+				}
+			}
 		}
 		if authEnv != "" && !envKeyPattern.MatchString(authEnv) {
 			return fmt.Errorf("settings: mcp_servers[%d].auth_env must be an environment variable name", i)
@@ -561,7 +606,73 @@ func validateMCPServers(servers *[]MCPServer) error {
 		seen[key] = i
 		(*servers)[i].Name = name
 		(*servers)[i].Endpoint = endpoint
+		(*servers)[i].Command = command
+		(*servers)[i].Args = append([]string(nil), server.Args...)
+		(*servers)[i].Cwd = cwd
 		(*servers)[i].AuthEnv = authEnv
+		if server.EnvFrom != nil {
+			envFrom := make(map[string]string, len(server.EnvFrom))
+			for child, host := range server.EnvFrom {
+				envFrom[strings.TrimSpace(child)] = strings.TrimSpace(host)
+			}
+			(*servers)[i].EnvFrom = envFrom
+		}
+	}
+	return nil
+}
+
+func validateMCPCommandSettings(command string) error {
+	abs := filepath.IsAbs(command)
+	if strings.ContainsAny(command, "\t\r\n;&|><$()\"'`") || (!abs && strings.ContainsRune(command, ' ')) {
+		return errors.New("must be a PATH executable name or absolute path without shell syntax")
+	}
+	if strings.ContainsAny(command, `/\\`) && !abs {
+		return errors.New("relative executable paths are not allowed")
+	}
+	base := strings.ToLower(filepath.Base(command))
+	ext := filepath.Ext(base)
+	if ext == ".exe" || ext == ".cmd" || ext == ".bat" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	if commandpolicy.IsDeniedExecutable(command) {
+		return fmt.Errorf("executable %q is denied by the MCP command safety policy", base)
+	}
+	return nil
+}
+
+func validateMCPArgsSettings(command string, args []string) error {
+	if len(args) > maxMCPArgs {
+		return fmt.Errorf("too many arguments (maximum %d)", maxMCPArgs)
+	}
+	total := 0
+	for _, arg := range args {
+		if len(arg) > maxMCPArgBytes {
+			return fmt.Errorf("argument exceeds %d bytes", maxMCPArgBytes)
+		}
+		if strings.IndexByte(arg, 0) >= 0 || strings.ContainsAny(arg, "\r\n") {
+			return errors.New("argument contains NUL or newline")
+		}
+		if (strings.HasSuffix(strings.ToLower(command), ".cmd") || strings.HasSuffix(strings.ToLower(command), ".bat")) && strings.ContainsAny(arg, "&|<>^%") {
+			return errors.New("batch-file arguments cannot contain shell metacharacters")
+		}
+		total += len(arg)
+		if total > maxMCPArgsBytes {
+			return fmt.Errorf("argument payload exceeds %d bytes", maxMCPArgsBytes)
+		}
+	}
+	return nil
+}
+
+func validateMCPWorkingDirSettings(cwd string) error {
+	if cwd == "" {
+		return nil
+	}
+	if strings.IndexByte(cwd, 0) >= 0 || filepath.IsAbs(cwd) {
+		return errors.New("must be relative to runtime.workspace_root")
+	}
+	clean := filepath.Clean(cwd)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return errors.New("must stay within runtime.workspace_root")
 	}
 	return nil
 }
@@ -655,7 +766,16 @@ func (s Settings) MCPServersOrEmpty() []MCPServer {
 		return nil
 	}
 	out := make([]MCPServer, len(*s.MCPServers))
-	copy(out, *s.MCPServers)
+	for i, server := range *s.MCPServers {
+		out[i] = server
+		out[i].Args = append([]string(nil), server.Args...)
+		if server.EnvFrom != nil {
+			out[i].EnvFrom = make(map[string]string, len(server.EnvFrom))
+			for child, host := range server.EnvFrom {
+				out[i].EnvFrom[child] = host
+			}
+		}
+	}
 	return out
 }
 
@@ -664,7 +784,17 @@ func (s Settings) MCPServersOrEmpty() []MCPServer {
 func (s Settings) UpsertMCPServer(entry MCPServer) Settings {
 	entry.Name = strings.TrimSpace(entry.Name)
 	entry.Endpoint = strings.TrimSpace(entry.Endpoint)
+	entry.Command = strings.TrimSpace(entry.Command)
+	entry.Cwd = strings.TrimSpace(entry.Cwd)
 	entry.AuthEnv = strings.TrimSpace(entry.AuthEnv)
+	entry.Args = append([]string(nil), entry.Args...)
+	if entry.EnvFrom != nil {
+		envFrom := make(map[string]string, len(entry.EnvFrom))
+		for child, host := range entry.EnvFrom {
+			envFrom[strings.TrimSpace(child)] = strings.TrimSpace(host)
+		}
+		entry.EnvFrom = envFrom
+	}
 	current := s.MCPServersOrEmpty()
 	key := strings.ToLower(entry.Name)
 	for i, existing := range current {

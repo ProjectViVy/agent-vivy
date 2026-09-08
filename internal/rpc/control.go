@@ -201,6 +201,13 @@ type MCPStatusProvider interface {
 	ServerStatuses() []runtime.MCPServerStatus
 }
 
+// MCPErrorsSanitizer is the optional secret-free error projection used when a
+// live backend includes command/cwd/environment details in an operation
+// failure. Catalog stubs need not implement it.
+type MCPErrorsSanitizer interface {
+	SanitizeMCPError(string, error) string
+}
+
 // LanguageServerStatus is the narrow control-plane projection of a live LSP
 // process. Language is a logical identifier, never a command or host path.
 type LanguageServerStatus struct {
@@ -4469,14 +4476,20 @@ func (h *controlHandler) updateChannel(ctx context.Context, request Request) (an
 }
 
 type mcpServerResult struct {
-	Name       string `json:"name"`
-	Endpoint   string `json:"endpoint"`
-	AuthEnv    string `json:"auth_env,omitempty"`
-	AuthEnvSet bool   `json:"auth_env_set"`
-	Enabled    bool   `json:"enabled"`
-	ToolCount  int    `json:"tool_count"`
-	Status     string `json:"status"`
-	Error      string `json:"error,omitempty"`
+	Name       string            `json:"name"`
+	Transport  string            `json:"transport"`
+	Endpoint   string            `json:"endpoint,omitempty"`
+	Command    string            `json:"command,omitempty"`
+	Args       []string          `json:"args,omitempty"`
+	EnvFrom    map[string]string `json:"env_from,omitempty"`
+	Cwd        string            `json:"cwd,omitempty"`
+	AuthEnv    string            `json:"auth_env,omitempty"`
+	AuthEnvSet bool              `json:"auth_env_set"`
+	Enabled    bool              `json:"enabled"`
+	EnvMissing []string          `json:"env_missing,omitempty"`
+	ToolCount  int               `json:"tool_count"`
+	Status     string            `json:"status"`
+	Error      string            `json:"error,omitempty"`
 }
 
 type mcpListResult struct {
@@ -4487,7 +4500,12 @@ type mcpListResult struct {
 func toMCPServerResult(server settings.MCPServer) mcpServerResult {
 	return mcpServerResult{
 		Name:       server.Name,
+		Transport:  mcpServerTransport(server),
 		Endpoint:   server.Endpoint,
+		Command:    server.Command,
+		Args:       append([]string(nil), server.Args...),
+		EnvFrom:    cloneMCPEnvFromRPC(server.EnvFrom),
+		Cwd:        server.Cwd,
 		AuthEnv:    server.AuthEnv,
 		AuthEnvSet: server.AuthEnv != "" && os.Getenv(server.AuthEnv) != "",
 		Enabled:    settings.MCPServerEnabled(server),
@@ -4495,13 +4513,69 @@ func toMCPServerResult(server settings.MCPServer) mcpServerResult {
 	}
 }
 
+func mcpServerTransport(server settings.MCPServer) string {
+	if strings.TrimSpace(server.Command) != "" {
+		return "stdio"
+	}
+	return "http"
+}
+
+func cloneMCPEnvFromRPC(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]string, len(value))
+	for child, host := range value {
+		out[child] = host
+	}
+	return out
+}
+
 func (h *controlHandler) mcpView(s settings.Settings) mcpListResult {
 	servers := s.MCPServersOrEmpty()
+	statuses := h.mcpStatusMap()
 	out := make([]mcpServerResult, 0, len(servers))
 	for _, server := range servers {
-		out = append(out, toMCPServerResult(server))
+		result := toMCPServerResult(server)
+		if status, ok := statuses[strings.ToLower(server.Name)]; ok {
+			applyMCPStatus(&result, status)
+		}
+		out = append(out, result)
 	}
 	return mcpListResult{Servers: out, ReadOnly: h.deps.SettingsPath == ""}
+}
+
+func (h *controlHandler) mcpStatusMap() map[string]runtime.MCPServerStatus {
+	source, ok := h.deps.MCP.(MCPStatusProvider)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]runtime.MCPServerStatus)
+	for _, status := range source.ServerStatuses() {
+		out[strings.ToLower(strings.TrimSpace(status.Name))] = status
+	}
+	return out
+}
+
+func applyMCPStatus(result *mcpServerResult, status runtime.MCPServerStatus) {
+	if result == nil {
+		return
+	}
+	if status.Transport != "" {
+		result.Transport = status.Transport
+	}
+	result.EnvMissing = append([]string(nil), status.EnvMissing...)
+	result.AuthEnvSet = result.AuthEnv != "" && !status.AuthMissing
+	if status.ToolCount >= 0 {
+		result.ToolCount = status.ToolCount
+	}
+	if status.Initialized {
+		result.Status = "ok"
+	}
+	if status.Error != "" || len(status.EnvMissing) > 0 {
+		result.Status = "error"
+		result.Error = status.Error
+	}
 }
 
 func (h *controlHandler) listMCP(ctx context.Context) (any, *Error) {
@@ -4518,7 +4592,11 @@ func (h *controlHandler) listMCP(ctx context.Context) (any, *Error) {
 	servers := make([]settings.MCPServer, 0)
 	if h.deps.MCP != nil {
 		for _, server := range h.deps.MCP.ConfiguredServers() {
-			servers = append(servers, settings.MCPServer{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+			servers = append(servers, settings.MCPServer{
+				Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
+				Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFromRPC(server.EnvFrom),
+				Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+			})
 		}
 	}
 	return h.mcpView(settings.Settings{MCPServers: &servers}), nil
@@ -4529,10 +4607,15 @@ func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
 	var params struct {
-		Name     string `json:"name"`
-		Endpoint string `json:"endpoint"`
-		AuthEnv  string `json:"auth_env"`
-		Enabled  *bool  `json:"enabled"`
+		Name      string            `json:"name"`
+		Transport string            `json:"transport"`
+		Endpoint  string            `json:"endpoint"`
+		Command   string            `json:"command"`
+		Args      []string          `json:"args"`
+		EnvFrom   map[string]string `json:"env_from"`
+		Cwd       string            `json:"cwd"`
+		AuthEnv   string            `json:"auth_env"`
+		Enabled   *bool             `json:"enabled"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
@@ -4540,8 +4623,22 @@ func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *
 	entry := settings.MCPServer{
 		Name:     strings.TrimSpace(params.Name),
 		Endpoint: strings.TrimSpace(params.Endpoint),
+		Command:  strings.TrimSpace(params.Command),
+		Args:     append([]string(nil), params.Args...),
+		EnvFrom:  cloneMCPEnvFromRPC(params.EnvFrom),
+		Cwd:      strings.TrimSpace(params.Cwd),
 		AuthEnv:  strings.TrimSpace(params.AuthEnv),
 		Enabled:  params.Enabled,
+	}
+	transport := strings.ToLower(strings.TrimSpace(params.Transport))
+	if transport != "" && transport != "http" && transport != "stdio" {
+		return nil, &Error{Code: InvalidParams, Message: "transport must be http or stdio"}
+	}
+	if transport == "stdio" && entry.Command == "" {
+		return nil, &Error{Code: InvalidParams, Message: "stdio transport requires command"}
+	}
+	if transport == "http" && entry.Endpoint == "" {
+		return nil, &Error{Code: InvalidParams, Message: "http transport requires endpoint"}
 	}
 	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
 		return cur.UpsertMCPServer(entry), nil
@@ -4553,6 +4650,12 @@ func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *
 	_ = ctx
 	for _, server := range saved.MCPServersOrEmpty() {
 		if strings.EqualFold(server.Name, entry.Name) {
+			view := h.mcpView(saved)
+			for _, result := range view.Servers {
+				if strings.EqualFold(result.Name, server.Name) {
+					return result, nil
+				}
+			}
 			return toMCPServerResult(server), nil
 		}
 	}
@@ -4602,6 +4705,9 @@ func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *E
 		return nil, rpcErr
 	}
 	result := toMCPServerResult(found)
+	if status, ok := h.mcpStatusMap()[strings.ToLower(strings.TrimSpace(found.Name))]; ok {
+		applyMCPStatus(&result, status)
+	}
 	if !result.Enabled {
 		result.Status = "idle"
 		return result, nil
@@ -4609,7 +4715,7 @@ func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *E
 	listed, err := h.deps.MCP.ListTools(ctx, "", found.Name)
 	if err != nil {
 		result.Status = "error"
-		result.Error = err.Error()
+		result.Error = mcpBackendErrorFor(h.deps.MCP, found.Name, err).Message
 		return result, nil
 	}
 	result.Status = "ok"
@@ -4648,7 +4754,7 @@ func (h *controlHandler) listMCPResources(ctx context.Context, request Request) 
 	}
 	result, err := resourceOps.ListResources(ctx, "", server.Name)
 	if err != nil {
-		return nil, mcpBackendError(err)
+		return nil, mcpBackendErrorFor(h.deps.MCP, server.Name, err)
 	}
 	result.Untrusted = true
 	return result, nil
@@ -4683,7 +4789,7 @@ func (h *controlHandler) readMCPResource(ctx context.Context, request Request) (
 	params.Server = server.Name
 	result, err := resourceOps.ReadResource(ctx, "", params)
 	if err != nil {
-		return nil, mcpBackendError(err)
+		return nil, mcpBackendErrorFor(h.deps.MCP, server.Name, err)
 	}
 	result.Untrusted = true
 	return result, nil
@@ -4708,7 +4814,11 @@ func (h *controlHandler) configuredMCPServer(name string) (settings.MCPServer, *
 	}
 	for _, server := range h.deps.MCP.ConfiguredServers() {
 		if strings.EqualFold(server.Name, name) {
-			return settings.MCPServer{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv}, nil
+			return settings.MCPServer{
+				Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
+				Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFromRPC(server.EnvFrom),
+				Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+			}, nil
 		}
 	}
 	return settings.MCPServer{}, &Error{Code: CodeNotFound, Message: "mcp server not found"}
@@ -4743,6 +4853,14 @@ func mcpBackendError(err error) *Error {
 		message = string(runes[:2048])
 	}
 	return &Error{Code: code, Message: message}
+}
+
+func mcpBackendErrorFor(catalog any, server string, err error) *Error {
+	result := mcpBackendError(err)
+	if sanitizer, ok := catalog.(MCPErrorsSanitizer); ok {
+		result.Message = sanitizer.SanitizeMCPError(server, err)
+	}
+	return result
 }
 
 type generationResult struct {

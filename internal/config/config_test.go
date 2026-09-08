@@ -106,6 +106,53 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
+func TestMCPServerTransportValidation(t *testing.T) {
+	cfg := Default()
+	cfg.Runtime.MCPServers = []MCPServer{{
+		Name:    "local",
+		Command: "node",
+		Args:    []string{"server.js", "--stdio"},
+		EnvFrom: map[string]string{"MCP_TOKEN": "HOST_TOKEN"},
+		Cwd:     "tools/mcp",
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid stdio server rejected: %v", err)
+	}
+	if cfg.Runtime.MCPServers[0].Command != "node" || cfg.Runtime.MCPServers[0].Cwd != "tools/mcp" {
+		t.Fatalf("stdio server was not normalized: %+v", cfg.Runtime.MCPServers[0])
+	}
+
+	absoluteCwd := filepath.Join(t.TempDir(), "tmp")
+	invalid := []struct {
+		name   string
+		server MCPServer
+	}{
+		{"both transports", MCPServer{Name: "bad", Endpoint: "https://example.com/mcp", Command: "node"}},
+		{"no transport", MCPServer{Name: "bad"}},
+		{"dangerous command", MCPServer{Name: "bad", Command: "bash"}},
+		{"relative command path", MCPServer{Name: "bad", Command: "./node"}},
+		{"absolute cwd", MCPServer{Name: "bad", Command: "node", Cwd: absoluteCwd}},
+		{"env value is secret", MCPServer{Name: "bad", Command: "node", EnvFrom: map[string]string{"TOKEN": "literal-token"}}},
+		{"stdio auth env", MCPServer{Name: "bad", Command: "node", AuthEnv: "MCP_TOKEN"}},
+	}
+	for _, test := range invalid {
+		cfg := Default()
+		cfg.Runtime.MCPServers = []MCPServer{test.server}
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s: want validation error", test.name)
+		}
+	}
+
+	cfg = Default()
+	cfg.Runtime.MCPServers = []MCPServer{
+		{Name: "Docs", Endpoint: "https://docs.example.com/mcp"},
+		{Name: "docs", Command: "node"},
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("duplicate MCP names error=%v", err)
+	}
+}
+
 func TestConfigNormalizesLegacyToolSearchAtLoad(t *testing.T) {
 	doc := strings.Replace(validDoc,
 		"    - echo_info\n    - write_note\n",
