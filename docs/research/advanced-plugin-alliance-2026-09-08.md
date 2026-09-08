@@ -581,7 +581,196 @@ Describe → Construct → Start → Ready → Frozen → Stop → Close
 | 旧插件断裂 | v0 compatibility adapter + conformance tests |
 | 文档再次漂移 | Port catalog 生成 manifest schema、inspect schema 和文档表 |
 
-## 11. 最终判断
+## 11. 今日讨论收敛：四层落成模型
+
+前文的 `internal/pluggable` 是信任分类；为了回答“缺了什么还能不能称为 Vivy/Agent”，产品落成还需要四层必选性模型。
+
+### L0：不可变 Kernel
+
+Kernel 只制定物理定律，不承载具体厂商或可选产品能力：
+
+- Domain ID、event schema、run state machine；
+- 单一 `Service.Run` / `RunWithOptions`；
+- Journal authority、durability-before-visibility、exactly-one-terminal；
+- policy / approval / Grant 最终裁决；
+- session/workspace identity；
+- budget、cancel、recovery、worker authority；
+- credential redaction；
+- Module/Port catalog、Assembly compiler、Generation provenance；
+- ChannelHost、FaceHost、RPC mutation authorization；
+- Eino import quarantine。
+
+L0 丢失不是“少一个功能”，而是系统不再能证明一次 run 是谁启动、谁持久化、谁裁决、怎样终止。
+
+### L1：Required Internal Modules
+
+L1 的实现允许替换，但每个合法 Generation 必须为 required single Port 选择恰好一个实现；缺失或歧义均在 pack 阶段失败。
+
+| Required Port | 默认实现 | 可替换方向 |
+|---|---|---|
+| `core/loop-driver` | Eino ADK | 其他受控 loop driver |
+| `core/chat-model` | OpenAI-compatible bootstrap | Anthropic、Gemini、DeepSeek、Ollama 等经同一 Port |
+| `core/storage-engine` | SQLite | Postgres 或后续受控 backend |
+| `core/checkpoint-store` | Vivy versioned blob bridge | 兼容同一 envelope 的 internal backend |
+| `core/sandbox-backend` | 当前 workspace/sandbox 实现 | OS-specific internal implementation |
+| `core/credential-resolver` | env/config reference | OS vault 或受控 credential backend |
+| `core/face` | Web / TUI / Headless 配方明确选择 | 其他满足 Face contract 的实现 |
+
+因此，“核心层丢了连循环都跑不起来”应落实为：L0 永远存在，L1 必须在配方中满足 cardinality；不是把 Eino、OpenAI、SQLite 的具体代码永久焊进 Kernel。
+
+### L2：Optional Internal Organs
+
+L2 删除后仍能跑最小 model/tool loop，但默认产品会明显不像完整 Agent。建议默认物种启用、极简/嵌入式配方可删除：
+
+- Skill middleware 与 Skill source host；
+- MCP runtime/transport adapter；
+- context compaction；
+- ToolSearch / deferred tools；
+- AGENTS.md/project instruction loader；
+- filesystem/execute/HTTP/fetch/download world；
+- cron scheduler；
+- memory/retrieval；
+- title generator；
+- LSP/diagnostics；
+- child-agent/worker capability；
+- audit/telemetry observer；
+- context source pipeline。
+
+边界必须继续拆清：
+
+- MCP adapter 是 optional internal；某个 MCP endpoint/server 是配置，不是本地插件；
+- Skill middleware/source host 是 optional internal；具体 `SKILL.md` 是数据资产，不是代码插件；
+- compaction strategy 可选，但 durable compaction truth、token accounting 和 checkpoint compatibility 仍服从 Kernel 标准。
+
+### L3：Pluggable Alliance Products
+
+L3 是用户按需选择、可独立开发和发布的生态产品：
+
+- Anthropic、Gemini、DeepSeek、Ollama/local model provider；
+- OpenAI official OAuth、OpenAI Codex OAuth、Azure OpenAI；
+- 图像生成/编辑、视频生成、TTS/STT；
+- Web search、browser、RAG/vector provider；
+- 第三方 Channel、Memory、Skill source、IDE/LSP integration；
+- A2UI protocol/renderer；
+- Web/TUI panels、cards、actions；
+- notification/delivery provider。
+
+L3 能与 L2 使用同一 Module/Port/Generation 标准，但不能取得 L0 权威，也不能通过 manifest 自报为 internal。
+
+## 12. OpenAI、Anthropic 与 OAuth 的边界
+
+不建议把整个 OpenAI provider 定义成不可变 Kernel。正确拆分是：
+
+1. Kernel 固定标准：ChatModel Port、streaming/tool-call contract、route identity、provider-native model ID、usage accounting、credential handle、retry/cancel/error classification；
+2. 默认 Generation 的 Required Internal：`builtin/openai-compatible`，保证开箱可运行；
+3. Plugin Alliance：Anthropic、OpenAI official OAuth、OpenAI Codex OAuth、Azure OpenAI 和其他 provider/auth 产品。
+
+OAuth 插件可提供 `AuthFlow`、`TokenRefresh`、`CredentialSource`、`ProviderProfile`，但不能拥有 secret authority。Token storage、scope、refresh serialization、redaction 和 route freeze 仍由 Kernel/Required Internal 控制。
+
+因此更准确的产品规则是：
+
+> OpenAI-compatible 是默认不可缺的基准实现；不可变的是 Provider 标准和治理，不是某家厂商的实现。
+
+Anthropic 应迁移到同一个 ChatModel/Provider Port 下的插件联盟，不再成为 app composition root 的特例。
+
+## 13. UI、TUI 与 A2UI 的预留标准
+
+当前 Face 解决“整张脸替换”，尚未解决插件向既有 Web/TUI Face 贡献局部界面。全面落成前必须预留两级扩展。
+
+### 13.1 跨 Face Presentation Port
+
+优先定义声明式、平台中立的 contribution：
+
+- card、list、table、status；
+- form、action、notification、progress；
+- detail view、artifact/media preview。
+
+插件输出 typed ViewModel；Web/TUI 各自渲染。这样图像生成、MCP 状态、Provider 登录和插件设置无需同时携带任意 React 与 TUI 代码。
+
+### 13.2 平台专属 Slot
+
+声明式能力不足时，再开放 `ui/web-slot` 与 `ui/tui-slot`。建议预留：
+
+- navigation；
+- session-sidebar / run-sidebar；
+- settings/provider / settings/plugin；
+- message-attachment / tool-result；
+- status-bar / command-palette；
+- inspector / modal。
+
+FaceHost 必须拥有 slot key、cardinality、owner、lifecycle、action→RPC mapping、authorization、session scope、cleanup 和 renderer failure isolation。插件不得任意注册 RPC route、直接改 Journal/session state、注入宿主 DOM 或抢占全局 TUI 键盘。
+
+### 13.3 A2UI
+
+A2UI 是独立联盟产品，不是 Vivy UI Kernel：
+
+- `a2ui-protocol`：schema/decoder；
+- `a2ui-web-renderer`：Web renderer contribution；
+- `a2ui-tui-fallback`：把复杂组件降级为 table/form/text/action。
+
+图像生成提供媒体能力和 artifact；A2UI 提供动态声明式交互。二者可以组合，但不能互相成为必需依赖。
+
+## 14. Vivy Plugin Standard 交付物
+
+若插件要成为 Vivy 的新标准，必须同时落文档规范和机器可执行规范。
+
+| 规范 | 约束内容 |
+|---|---|
+| `VIVY-MODULE-STANDARD.md` | identity、internal/pluggable、provides/requires、conflict、Generation、runtime freeze |
+| `VIVY-PORT-STANDARD.md` | Definition/Provider/Consumer、naming、cardinality、scope、version、public/internal/closed |
+| `VIVY-PLUGIN-LIFECYCLE.md` | Describe/Construct/Start/Ready/Stop/Close、owner cleanup、rollback |
+| `VIVY-PLUGIN-SECURITY.md` | trust assignment、Grant、secret/fs/process/network、in-process/sidecar/WASM |
+| `VIVY-UI-EXTENSION-STANDARD.md` | Face、Presentation、Web/TUI slot、action、state、renderer、A2UI adapter |
+| `VIVY-PLUGIN-DEVELOPER-GUIDE.md` | create、verify、test、pack、inspect、publish、upgrade、diagnose |
+
+机器可执行部分至少包括：
+
+- `vivy.module/v1` JSON Schema；
+- generated Port catalog；
+- manifest/import/grant validator；
+- conformance test kit；
+- reference plugins；
+- compatibility matrix；
+- inspect output contract。
+
+没有 conformance suite 的“标准”只能算建议文档，不能形成生态。
+
+## 15. 难度与工作量估算
+
+### 15.1 基线与假设
+
+2026-09-08 本地 census：相关范围约 393 个 Go 文件/65,127 行 Go、372 个 TypeScript/TSX 文件/40,952 行 TypeScript/TSX，合计 832 个相关源码/配置文件，其中 275 个测试文件。估算按一名熟悉 Vivy 的高级工程师人日计，不含需求中途大改、外部 marketplace/cloud 服务和长期生态运营。
+
+### 15.2 分项估算
+
+| 工作包 | 人日 |
+|---|---:|
+| 标准冻结 | 6–10 |
+| Assembly compiler、typed wiring、v0 compatibility | 12–18 |
+| Optional Internal 迁移 | 15–25 |
+| Required Internal 端口化 | 20–30 |
+| Provider Alliance 与 OAuth 基线 | 10–16 |
+| UI/TUI 插件预留与 A2UI 基础 | 20–35 |
+| 图像等 reference products 与生态发布 | 18–30 |
+| conformance、安全、文档、发布横切 | 12–20 |
+| **全面落成合计** | **113–184** |
+
+### 15.3 可交付口径
+
+| 口径 | 范围 | 估算 |
+|---|---|---:|
+| 规范提案 | 文档、Port catalog、manifest v1、迁移矩阵、UI/TUI 预留 | 6–10 人日 |
+| 插件底座 v1 | 上述规范 + Assembly compiler + 现有 Tool/ToolWorld/Channel/Face 零行为迁移 | 26–40 人日 |
+| 可发布 Plugin Standard v1 | 再含 Optional/Required Internal、Provider Alliance 基线和主要 conformance | 69–109 人日 |
+| PLUGINS 全面落成 | 再含 UI/TUI、A2UI、OAuth、图像等 reference products | 113–184 人日 |
+
+单名高级工程师完成全面范围约 5.7–9.2 个月。松柏监督并使用 2–3 条隔离 Codex lane，考虑 composition root、Port 合同和迁移波次不能完全并行，现实日历估算约 4–6 个月。
+
+难度判断：规范本身为中等难度；插件底座及 existing seam 迁移已是重构级；全面落成是跨 runtime、SDK、provider、storage、build、Web UI、TUI 的大型架构工程。它不是推倒重写，因为现有 verify/pack/Generation/SDK/ChannelHost/FaceHost 已提供基础；也不能大爆炸实施，应按 P0–P5 逐 Port 迁移。
+
+上述数字是范围估算，不是排期承诺。正式启动前仍需冻结标准、确定第一期验收边界，再按依赖图形成排期。
+
+## 16. 最终判断
 
 Vivy 可以做到高级版“一切皆插件”，但正确形态不是 Cordis 的运行时热树，也不是 Hermes 的多 registry，也不是把所有能力塞进一个 `Plugin` interface。
 
@@ -591,7 +780,7 @@ Vivy 可以做到高级版“一切皆插件”，但正确形态不是 Cordis �
 
 第一步不应重构 `engine.go`，而应先定义 Module/Port/Assembly Compiler 合同；随后用现有 Tool/ToolWorld/Channel/Face 做零行为迁移，证明这套元模型成立，再开放 Provider、middleware、context 和 UI slot。
 
-本轮只完成调研与架构提案；未授权、未实施源码或测试改动。
+本轮只完成调研与架构提案；PLUGINS 全面落成尚未授权、未正式排期，也未实施源码或测试改动。
 
 ## Sources
 
