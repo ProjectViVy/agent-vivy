@@ -330,9 +330,14 @@ Adds a tool, a provider, or a tool-world. Shape:
 
 1. Manifest: name, seam, required grants, artifact hash, protocol
    version.
-2. Allowlist in config (no directory auto-load).
-3. Transport: current MCP HTTP, or stdio JSON-RPC extending the worker
-   protocol. WASM is allowed later for pure compute. Go `plugin` is
+2. An explicit config entry is the authorization (no directory auto-load).
+   For local stdio, the command is a PATH executable name or absolute path
+   checked against a dangerous-command denylist; there is no separate
+   execute allowlist. Child environment values use CHILD→HOST name
+   references and cwd is contained by `runtime.workspace_root`.
+3. Transport: current MCP HTTP, or explicitly configured stdio JSON-RPC.
+   MCP stdio is a configured dependency, not the worker protocol or a
+   plugin channel. WASM is allowed later for pure compute. Go `plugin` is
    not.
 4. Every invocation returns to the parent broker: schema, safety,
    policy, hooks, redaction, Journal.

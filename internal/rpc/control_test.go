@@ -1161,6 +1161,15 @@ type mcpCatalogStub struct {
 	replaced      []runtime.MCPServerConfig
 }
 
+type mcpStatusCatalogStub struct {
+	*mcpCatalogStub
+	statuses []runtime.MCPServerStatus
+}
+
+func (s *mcpStatusCatalogStub) ServerStatuses() []runtime.MCPServerStatus {
+	return append([]runtime.MCPServerStatus(nil), s.statuses...)
+}
+
 func (s *mcpCatalogStub) ListPrompts(context.Context, domain.RunID, string) (tools.MCPListPromptsResponse, error) {
 	return s.prompts, s.promptsErr
 }
@@ -1338,6 +1347,22 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 		t.Fatalf("OnSettingsChanged calls = %d, want 1", changes)
 	}
 
+	stdio, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
+		"name": "local", "transport": "stdio", "command": "node",
+		"args":     []string{"server.js", "--stdio"},
+		"env_from": map[string]string{"MCP_TOKEN": "HOST_TOKEN"}, "cwd": "tools",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	stdioEntry := stdio.(mcpServerResult)
+	if stdioEntry.Transport != "stdio" || stdioEntry.Command != "node" || len(stdioEntry.Args) != 2 || stdioEntry.EnvFrom["MCP_TOKEN"] != "HOST_TOKEN" || stdioEntry.Cwd != "tools" {
+		t.Fatalf("stdio upsert result = %+v", stdioEntry)
+	}
+	if changes != 2 {
+		t.Fatalf("OnSettingsChanged after stdio upsert = %d, want 2", changes)
+	}
+
 	if _, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
 		"name": "bad", "endpoint": "ftp://example.com/mcp",
 	}); rpcErr == nil || rpcErr.Code != InvalidParams {
@@ -1449,11 +1474,14 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 		t.Fatalf("failed probe = %+v", view)
 	}
 
+	if _, rpcErr := callControl(t, handler, "settings/mcp/delete", map[string]any{"name": "local"}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
 	if _, rpcErr := callControl(t, handler, "settings/mcp/delete", map[string]any{"name": "docs"}); rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	if changes != 2 {
-		t.Fatalf("OnSettingsChanged after delete = %d, want 2", changes)
+	if changes != 4 {
+		t.Fatalf("OnSettingsChanged after delete = %d, want 4", changes)
 	}
 	listed, rpcErr = callControl(t, handler, "settings/mcp", nil)
 	if rpcErr != nil {
@@ -1464,6 +1492,42 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, handler, "settings/mcp/delete", map[string]any{"name": "docs"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
 		t.Fatalf("expected not found, got %v", rpcErr)
+	}
+}
+
+func TestMCPSettingsProjectsStdioTransportAndMissingChildEnv(t *testing.T) {
+	base := &mcpCatalogStub{}
+	statusCatalog := &mcpStatusCatalogStub{
+		mcpCatalogStub: base,
+		statuses: []runtime.MCPServerStatus{{
+			Name: "local", Transport: "stdio", Error: "mcp: required environment variables are missing",
+			EnvMissing: []string{"MCP_TOKEN"}, ToolCount: -1,
+		}},
+	}
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.MCP = statusCatalog
+	})
+	if _, rpcErr := callControl(t, env.handler, "settings/mcp/upsert", map[string]any{
+		"name": "local", "transport": "stdio", "command": "node",
+		"env_from": map[string]string{"MCP_TOKEN": "HOST_TOKEN"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr := callControl(t, env.handler, "settings/mcp", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(mcpListResult)
+	if len(view.Servers) != 1 {
+		t.Fatalf("mcp view = %+v", view)
+	}
+	entry := view.Servers[0]
+	if entry.Transport != "stdio" || entry.Status != "error" || entry.Error == "" || len(entry.EnvMissing) != 1 || entry.EnvMissing[0] != "MCP_TOKEN" {
+		t.Fatalf("stdio status projection = %+v", entry)
+	}
+	encoded, _ := json.Marshal(entry)
+	if strings.Contains(string(encoded), "resolved-secret-value") {
+		t.Fatalf("browser-facing MCP result leaked resolved env value: %s", encoded)
 	}
 }
 

@@ -99,8 +99,8 @@ func (s *sidebarStatusCatalog) ServerStatuses() []runtime.MCPServerStatus {
 
 func TestSessionSidebarProjectsMCPStatusPriorityAndWireUnknowns(t *testing.T) {
 	statusCatalog := &sidebarStatusCatalog{statuses: []runtime.MCPServerStatus{
-		{Name: "initialized", Initialized: true, Error: "stale handshake", AuthMissing: true, ToolCount: 0},
-		{Name: "failed", Error: "connection refused", AuthMissing: true, ToolCount: -1},
+		{Name: "initialized", Transport: "http", Initialized: true, Error: "stale handshake", AuthMissing: true, ToolCount: 0},
+		{Name: "failed", Transport: "stdio", Error: "connection refused", AuthMissing: true, EnvMissing: []string{"MCP_TOKEN"}, ToolCount: -1},
 		{Name: "configured", AuthMissing: true, ToolCount: -1},
 	}}
 	env := newControlTestEnv(t, func(deps *ControlDeps) {
@@ -119,10 +119,10 @@ func TestSessionSidebarProjectsMCPStatusPriorityAndWireUnknowns(t *testing.T) {
 	if len(snapshot.MCP) != 3 {
 		t.Fatalf("mcp status projection = %+v", snapshot.MCP)
 	}
-	if snapshot.MCP[0].State != "initialized" || snapshot.MCP[0].Error != "stale handshake" || !snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount == nil || *snapshot.MCP[0].ToolCount != 0 {
+	if snapshot.MCP[0].State != "initialized" || snapshot.MCP[0].Transport != "http" || snapshot.MCP[0].Error != "stale handshake" || !snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount == nil || *snapshot.MCP[0].ToolCount != 0 {
 		t.Fatalf("initialized status priority/count = %+v", snapshot.MCP[0])
 	}
-	if snapshot.MCP[1].State != "error" || snapshot.MCP[1].Error != "connection refused" || !snapshot.MCP[1].AuthMissing || snapshot.MCP[1].ToolCount != nil {
+	if snapshot.MCP[1].State != "error" || snapshot.MCP[1].Transport != "stdio" || snapshot.MCP[1].Error != "connection refused" || !snapshot.MCP[1].AuthMissing || len(snapshot.MCP[1].EnvMissing) != 1 || snapshot.MCP[1].EnvMissing[0] != "MCP_TOKEN" || snapshot.MCP[1].ToolCount != nil {
 		t.Fatalf("error status/unknown count = %+v", snapshot.MCP[1])
 	}
 	if snapshot.MCP[2].State != "configured" || !snapshot.MCP[2].AuthMissing || snapshot.MCP[2].ToolCount != nil {

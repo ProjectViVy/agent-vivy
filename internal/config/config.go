@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"agent-vivy/internal/commandpolicy"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -52,6 +54,13 @@ const defaultMaxToolTurns = 8
 // (runtime.hardMaxCommandTimeout = 10m): a configured execute ceiling above
 // it would be silently clamped, so Validate rejects it up front.
 const maxExecuteTimeoutSeconds = 600
+
+const (
+	maxMCPArgs       = 128
+	maxMCPArgBytes   = 4096
+	maxMCPArgsBytes  = 64 << 10
+	maxMCPEnvEntries = 64
+)
 
 // DefaultSkillsMarketplaceURL is the public skills.sh directory backing the
 // skill marketplace (runtime.skills_marketplace_url default).
@@ -223,7 +232,9 @@ type Runtime struct {
 	// outside 1..120 are clamped by the runtime backend, so a typo can
 	// neither disable the timeout nor stall a run for minutes.
 	HTTPTimeoutSeconds int `yaml:"http_timeout_seconds"`
-	// MCPServers are explicitly configured Streamable HTTP JSON-RPC servers.
+	// MCPServers are explicitly configured MCP servers. Each entry selects
+	// exactly one transport: endpoint for Streamable HTTP or command for
+	// local stdio. Stdio environment values are indirect references only.
 	MCPServers []MCPServer `yaml:"mcp_servers"`
 	// ExecuteAllowedCommands is the executable allowlist for local process tools.
 	ExecuteAllowedCommands []string `yaml:"execute_allowed_commands"`
@@ -328,9 +339,21 @@ func DefaultCompactionConfig() CompactionConfig {
 }
 
 type MCPServer struct {
-	Name     string `yaml:"name"`
-	Endpoint string `yaml:"endpoint"`
-	AuthEnv  string `yaml:"auth_env"`
+	Name string `yaml:"name"`
+	// Endpoint selects the Streamable HTTP transport. It is mutually
+	// exclusive with Command.
+	Endpoint string `yaml:"endpoint,omitempty"`
+	// Command selects the local stdio transport. A PATH executable name or an
+	// absolute executable path is allowed; relative paths are not.
+	Command string `yaml:"command,omitempty"`
+	// Args is one argv item per YAML list entry. It is never shell-parsed.
+	Args []string `yaml:"args,omitempty"`
+	// EnvFrom maps child environment variable names to host environment
+	// variable names. Values are references, never secret values (D-010).
+	EnvFrom map[string]string `yaml:"env_from,omitempty"`
+	// Cwd is relative to runtime.workspace_root for stdio servers.
+	Cwd     string `yaml:"cwd,omitempty"`
+	AuthEnv string `yaml:"auth_env,omitempty"`
 }
 
 // SandboxConfig controls the file-effect policy boundary (D-021). It
@@ -739,16 +762,65 @@ func (c *Config) Validate() error {
 	if strings.ContainsAny(c.Runtime.Compaction.SummaryModel, "\r\n\x00") {
 		return errors.New("runtime.compaction.summary_model must be a single model id")
 	}
-	for i, server := range c.Runtime.MCPServers {
-		if server.Name == "" || server.Endpoint == "" {
-			return fmt.Errorf("runtime.mcp_servers[%d] requires name and endpoint", i)
+	seenMCPNames := make(map[string]int, len(c.Runtime.MCPServers))
+	for i := range c.Runtime.MCPServers {
+		server := &c.Runtime.MCPServers[i]
+		server.Name = strings.TrimSpace(server.Name)
+		server.Endpoint = strings.TrimSpace(server.Endpoint)
+		server.Command = strings.TrimSpace(server.Command)
+		server.Cwd = strings.TrimSpace(server.Cwd)
+		server.AuthEnv = strings.TrimSpace(server.AuthEnv)
+		if server.Name == "" {
+			return fmt.Errorf("runtime.mcp_servers[%d].name must not be empty", i)
 		}
-		parsed, err := url.Parse(server.Endpoint)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return fmt.Errorf("runtime.mcp_servers[%d].endpoint must be an absolute HTTP(S) URL", i)
+		nameKey := strings.ToLower(server.Name)
+		if previous, ok := seenMCPNames[nameKey]; ok {
+			return fmt.Errorf("runtime.mcp_servers[%d].name %q duplicates runtime.mcp_servers[%d]", i, server.Name, previous)
+		}
+		seenMCPNames[nameKey] = i
+		if (server.Endpoint == "") == (server.Command == "") {
+			return fmt.Errorf("runtime.mcp_servers[%d] must set exactly one of endpoint or command", i)
+		}
+		if server.Endpoint != "" {
+			parsed, err := url.Parse(server.Endpoint)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+				return fmt.Errorf("runtime.mcp_servers[%d].endpoint must be an absolute HTTP(S) URL", i)
+			}
+			if server.Cwd != "" || len(server.Args) > 0 || len(server.EnvFrom) > 0 {
+				return fmt.Errorf("runtime.mcp_servers[%d] stdio fields require command", i)
+			}
+		} else {
+			if server.AuthEnv != "" {
+				return fmt.Errorf("runtime.mcp_servers[%d].auth_env requires endpoint", i)
+			}
+			if err := validateMCPCommand(server.Command); err != nil {
+				return fmt.Errorf("runtime.mcp_servers[%d].command: %w", i, err)
+			}
+			if err := validateMCPArgs(server.Command, server.Args); err != nil {
+				return fmt.Errorf("runtime.mcp_servers[%d].args: %w", i, err)
+			}
+			if err := validateMCPWorkingDir(server.Cwd); err != nil {
+				return fmt.Errorf("runtime.mcp_servers[%d].cwd: %w", i, err)
+			}
+			if len(server.EnvFrom) > maxMCPEnvEntries {
+				return fmt.Errorf("runtime.mcp_servers[%d].env_from has too many entries", i)
+			}
+			for child, host := range server.EnvFrom {
+				if !envKeyPattern.MatchString(strings.TrimSpace(child)) || !envKeyPattern.MatchString(strings.TrimSpace(host)) {
+					return fmt.Errorf("runtime.mcp_servers[%d].env_from must map environment variable names", i)
+				}
+			}
 		}
 		if server.AuthEnv != "" && !envKeyPattern.MatchString(server.AuthEnv) {
 			return fmt.Errorf("runtime.mcp_servers[%d].auth_env must be an environment variable name", i)
+		}
+		server.Args = append([]string(nil), server.Args...)
+		if server.EnvFrom != nil {
+			envFrom := make(map[string]string, len(server.EnvFrom))
+			for child, host := range server.EnvFrom {
+				envFrom[strings.TrimSpace(child)] = strings.TrimSpace(host)
+			}
+			server.EnvFrom = envFrom
 		}
 	}
 
@@ -894,6 +966,68 @@ func (c *Config) Validate() error {
 		return errors.New("logging.retention_days must not be negative")
 	}
 
+	return nil
+}
+
+func validateMCPCommand(command string) error {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return errors.New("must not be empty")
+	}
+	abs := filepath.IsAbs(command)
+	if strings.ContainsAny(command, "\t\r\n;&|><$()\"'`") || (!abs && strings.ContainsRune(command, ' ')) {
+		return errors.New("must be a PATH executable name or absolute path without shell syntax")
+	}
+	if strings.ContainsAny(command, `/\\`) && !abs {
+		return errors.New("relative executable paths are not allowed")
+	}
+	base := strings.ToLower(filepath.Base(command))
+	ext := filepath.Ext(base)
+	if ext == ".exe" || ext == ".cmd" || ext == ".bat" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	if commandpolicy.IsDeniedExecutable(command) {
+		return fmt.Errorf("executable %q is denied by the MCP command safety policy", base)
+	}
+	return nil
+}
+
+func validateMCPArgs(command string, args []string) error {
+	if len(args) > maxMCPArgs {
+		return fmt.Errorf("too many arguments (maximum %d)", maxMCPArgs)
+	}
+	total := 0
+	for _, arg := range args {
+		if len(arg) > maxMCPArgBytes {
+			return fmt.Errorf("argument exceeds %d bytes", maxMCPArgBytes)
+		}
+		if strings.IndexByte(arg, 0) >= 0 || strings.ContainsAny(arg, "\r\n") {
+			return errors.New("argument contains NUL or newline")
+		}
+		if strings.HasSuffix(strings.ToLower(command), ".cmd") || strings.HasSuffix(strings.ToLower(command), ".bat") {
+			if strings.ContainsAny(arg, "&|<>^%") {
+				return errors.New("batch-file arguments cannot contain shell metacharacters")
+			}
+		}
+		total += len(arg)
+		if total > maxMCPArgsBytes {
+			return fmt.Errorf("argument payload exceeds %d bytes", maxMCPArgsBytes)
+		}
+	}
+	return nil
+}
+
+func validateMCPWorkingDir(cwd string) error {
+	if cwd == "" {
+		return nil
+	}
+	if strings.IndexByte(cwd, 0) >= 0 || filepath.IsAbs(cwd) {
+		return errors.New("must be relative to runtime.workspace_root")
+	}
+	clean := filepath.Clean(cwd)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return errors.New("must stay within runtime.workspace_root")
+	}
 	return nil
 }
 

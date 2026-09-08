@@ -303,7 +303,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	if fileBackend != nil {
 		downloadOps = runtime.NewDownloadBackend(fileBackend, sandboxManager)
 	}
-	mcpBackend := runtime.NewMCPBackend(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil)
+	mcpBackend := runtime.NewMCPBackendWithOptions(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil, runtime.MCPBackendOptions{
+		ProcessRoot: cfg.Runtime.WorkspaceRoot,
+		Logger:      logger,
+	})
 	mcpOwned := true
 	defer func() {
 		if mcpOwned {
@@ -917,7 +920,11 @@ func enabledMCPFromSettings(s settings.Settings) []config.MCPServer {
 		if !settings.MCPServerEnabled(server) {
 			continue
 		}
-		out = append(out, config.MCPServer{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+		out = append(out, config.MCPServer{
+			Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
+			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
+			Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+		})
 	}
 	return out
 }
@@ -925,7 +932,22 @@ func enabledMCPFromSettings(s settings.Settings) []config.MCPServer {
 func mcpRuntimeConfigs(servers []config.MCPServer) []runtime.MCPServerConfig {
 	out := make([]runtime.MCPServerConfig, 0, len(servers))
 	for _, server := range servers {
-		out = append(out, runtime.MCPServerConfig{Name: server.Name, Endpoint: server.Endpoint, AuthEnv: server.AuthEnv})
+		out = append(out, runtime.MCPServerConfig{
+			Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
+			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
+			Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+		})
+	}
+	return out
+}
+
+func cloneMCPEnvFrom(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]string, len(value))
+	for child, host := range value {
+		out[child] = host
 	}
 	return out
 }

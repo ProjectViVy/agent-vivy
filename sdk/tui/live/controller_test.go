@@ -1567,8 +1567,8 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 		ModifiedFilesKnown: true,
 		ModifiedFiles:      []sidebarFileView{{Path: "main.go", Diff: sidebarDiffView{Additions: 3, Deletions: 1}}},
 		MCPKnown:           true, MCP: []sidebarMCPView{
-			{Name: "docs", State: "initialized", Error: "stale", AuthMissing: true, ToolCount: &zero},
-			{Name: "failed", State: "error", Error: "connection refused"},
+			{Name: "docs", Transport: "http", State: "initialized", Error: "stale", AuthMissing: true, ToolCount: &zero},
+			{Name: "failed", Transport: "stdio", State: "error", Error: "connection refused", EnvMissing: []string{"MCP_TOKEN"}},
 			{Name: "unknown", State: "configured", ToolCount: &negative},
 		},
 		SkillsKnown: true, Skills: []sidebarSkillView{{Name: "review", Origin: "user"}},
@@ -1586,7 +1586,7 @@ func TestMapSidebarViewPreservesKnownEmptyAndNetDiff(t *testing.T) {
 	if got.ModifiedFiles[0].Diff.Additions != 3 || got.ModifiedFiles[0].Diff.Deletions != 1 {
 		t.Fatalf("diff mapping = %+v", got.ModifiedFiles[0].Diff)
 	}
-	if !got.MCPKnown || len(got.MCP) != 3 || got.MCP[0].State != "initialized" || got.MCP[0].Error != "stale" || !got.MCP[0].AuthMissing || got.MCP[0].ToolCount != 0 || got.MCP[1].ToolCount != -1 || got.MCP[2].ToolCount != -1 || !got.SkillsKnown || len(got.Skills) != 1 || got.Skills[0].Origin != "user" {
+	if !got.MCPKnown || len(got.MCP) != 3 || got.MCP[0].State != "initialized" || got.MCP[0].Transport != "http" || got.MCP[0].Error != "stale" || !got.MCP[0].AuthMissing || got.MCP[0].ToolCount != 0 || got.MCP[1].Transport != "stdio" || len(got.MCP[1].EnvMissing) != 1 || got.MCP[1].EnvMissing[0] != "MCP_TOKEN" || got.MCP[1].ToolCount != -1 || got.MCP[2].ToolCount != -1 || !got.SkillsKnown || len(got.Skills) != 1 || got.Skills[0].Origin != "user" {
 		t.Fatalf("integration mapping = %+v", got)
 	}
 	if !got.LSPKnown || len(got.LSP) != 1 || got.LSP[0].Language != "go" {

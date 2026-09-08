@@ -190,13 +190,14 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 
 	list := []settings.MCPServer{
 		{Name: "docs", Endpoint: "https://docs.example.com/mcp"},
+		{Name: "local", Command: "node", Args: []string{"server.js", "--stdio"}, EnvFrom: map[string]string{"MCP_TOKEN": "HOST_TOKEN"}, Cwd: "tools"},
 		{Name: "idle", Endpoint: "http://127.0.0.1:9/mcp", Enabled: settings.BoolPtr(false)},
 	}
 	if _, err := settings.Save(settings.Path(dir), settings.Settings{MCPServers: &list}); err != nil {
 		t.Fatal(err)
 	}
 	got = applySettingsOverlay(context.Background(), logger, cfg, nil)
-	if len(got.Runtime.MCPServers) != 1 || got.Runtime.MCPServers[0].Name != "docs" {
+	if len(got.Runtime.MCPServers) != 2 || got.Runtime.MCPServers[0].Name != "docs" || got.Runtime.MCPServers[1].Command != "node" || got.Runtime.MCPServers[1].Cwd != "tools" {
 		t.Fatalf("overlay mcp = %+v, want enabled docs only", got.Runtime.MCPServers)
 	}
 

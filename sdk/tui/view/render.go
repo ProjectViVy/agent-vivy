@@ -522,16 +522,19 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			switch server.State {
 			case "configured":
 				state = "configured"
-			case "initialized":
-				state = "initialized"
-				style = p.Active
 			case "error":
 				state = "error"
 				style = p.PromptWarn
+			case "initialized":
+				state = "initialized"
+				style = p.Active
 			default:
 				continue
 			}
 			line := " " + name + " · " + state
+			if transport := strings.TrimSpace(sanitizeMCPTransport(server.Transport)); transport != "" {
+				line += " · " + transport
+			}
 			lines = append(lines, style.Render(truncate(line, width-1)))
 			if state == "error" {
 				if message := sanitizeInline(server.Error); message != "" {
@@ -540,6 +543,9 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			}
 			if server.AuthMissing {
 				lines = append(lines, p.PromptWarn.Render(truncate("   auth missing", width-1)))
+			}
+			if missing := sanitizeMCPEnvMissing(server.EnvMissing); missing != "" {
+				lines = append(lines, p.PromptWarn.Render(truncate("   env missing: "+missing, width-1)))
 			}
 			if server.ToolCount >= 0 {
 				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf("   %d tools", server.ToolCount), width-1)))
@@ -573,6 +579,35 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		lines = append(lines, "", p.PromptWarn.Render(truncate(" ! "+errText, width-1)))
 	}
 	return lines
+}
+
+func sanitizeMCPTransport(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "http" || value == "stdio" {
+		return value
+	}
+	return ""
+}
+
+func sanitizeMCPEnvMissing(values []string) string {
+	clean := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		valid := true
+		for i, r := range value {
+			if (i == 0 && (r < 'A' || r > 'Z')) || (i > 0 && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_') {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			clean = append(clean, value)
+		}
+	}
+	return strings.Join(clean, ", ")
 }
 
 func sidebarTime(timestamp int64) string {

@@ -344,11 +344,18 @@ export interface ProviderRefreshInput {
 export const refreshProviderModels = (input: ProviderRefreshInput) => request<ProviderEntry>('settings/providers/refresh', input);
 
 export type McpStatus = 'idle' | 'ok' | 'error';
+export type McpTransport = 'http' | 'stdio';
 export interface McpServer {
   name: string;
-  endpoint: string;
+  transport: McpTransport;
+  endpoint?: string;
+  command?: string;
+  args?: string[];
+  env_from?: Record<string, string>;
+  cwd?: string;
   auth_env?: string;
   auth_env_set: boolean;
+  env_missing?: string[];
   enabled: boolean;
   tool_count: number;
   status: McpStatus;
@@ -356,7 +363,12 @@ export interface McpServer {
 }
 export interface McpServerInput {
   name: string;
-  endpoint: string;
+  transport: McpTransport;
+  endpoint?: string;
+  command?: string;
+  args?: string[];
+  env_from?: Record<string, string>;
+  cwd?: string;
   auth_env?: string;
   enabled?: boolean;
 }

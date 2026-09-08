@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +20,90 @@ import (
 	"agent-vivy/internal/tools"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// TestMCPStdioHelperProcess is a deterministic local MCP child used by the
+// stdio integration tests below. It is launched as the current test binary,
+// so the fixture needs no network, compiler, or external executable.
+func TestMCPStdioHelperProcess(t *testing.T) {
+	if os.Getenv("MCP_HELPER") != "1" {
+		return
+	}
+	if marker := os.Getenv("MCP_CWD_MARKER"); marker != "" {
+		_ = os.WriteFile(marker, []byte(mustMCPHelperWorkingDirectory()), 0o600)
+	}
+	if marker := os.Getenv("MCP_MARKER"); marker != "" {
+		current, _ := os.ReadFile(marker)
+		_ = os.WriteFile(marker, []byte(fmt.Sprintf("%d", len(strings.TrimSpace(string(current)))+1)), 0o600)
+	}
+	reader := bufio.NewScanner(os.Stdin)
+	writer := bufio.NewWriter(os.Stdout)
+	for reader.Scan() {
+		var request struct {
+			JSONRPC string          `json:"jsonrpc"`
+			ID      json.RawMessage `json:"id"`
+			Method  string          `json:"method"`
+		}
+		if json.Unmarshal(reader.Bytes(), &request) != nil {
+			continue
+		}
+		if request.ID == nil {
+			continue
+		}
+		var result any
+		var rpcError map[string]any
+		switch request.Method {
+		case "server/discover":
+			rpcError = map[string]any{"code": -32601, "message": "method not found"}
+		case "initialize":
+			if os.Getenv("MCP_HANDSHAKE_FAIL") == "1" {
+				rpcError = map[string]any{"code": -32000, "message": "fixture handshake failed"}
+				break
+			}
+			result = initializeResult(map[string]any{
+				"tools":     map[string]any{},
+				"resources": map[string]any{},
+				"prompts":   map[string]any{},
+			})
+		case "tools/list":
+			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "description": "stdio echo", "inputSchema": map[string]any{"type": "object"}}}}
+		case "tools/call":
+			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "stdio output"}}, "isError": false}
+		case "resources/list":
+			result = map[string]any{"resources": []any{map[string]any{"uri": "stdio://resource", "name": "resource", "description": "stdio resource", "mimeType": "text/plain"}}}
+		case "resources/read":
+			result = map[string]any{"contents": []any{map[string]any{"uri": "stdio://resource", "mimeType": "text/plain", "text": "stdio resource output"}}}
+		case "prompts/list":
+			result = map[string]any{"prompts": []any{map[string]any{"name": "review", "description": "stdio review", "arguments": []any{map[string]any{"name": "focus", "required": true}}}}}
+		case "prompts/get":
+			result = map[string]any{"description": "stdio prompt", "messages": []any{map[string]any{"role": "user", "content": map[string]any{"type": "text", "text": "stdio prompt output"}}}}
+		default:
+			rpcError = map[string]any{"code": -32601, "message": "method not found"}
+		}
+		envelope := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
+		if rpcError != nil {
+			envelope["error"] = rpcError
+		} else {
+			envelope["result"] = result
+		}
+		if err := json.NewEncoder(writer).Encode(envelope); err != nil {
+			return
+		}
+		if err := writer.Flush(); err != nil {
+			return
+		}
+		if request.Method == "tools/list" && os.Getenv("MCP_EXIT_AFTER_LIST") == "1" {
+			os.Exit(0)
+		}
+	}
+}
+
+func mustMCPHelperWorkingDirectory() string {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return workingDirectory
+}
 
 type testMCPRequest struct {
 	Method  string
@@ -773,6 +859,264 @@ func TestMCPBackendMapsErrorsFiltersBrowserUseAndSortsServers(t *testing.T) {
 	var remote *tools.MCPRemoteError
 	if !errors.As(err, &remote) || remote.Code != -32602 {
 		t.Fatalf("remote error=%T %v", err, err)
+	}
+}
+
+func TestMCPBackendStdioLazyProjectionAndCall(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "spawn-count")
+	root := t.TempDir()
+	t.Setenv("VIVY_MCP_HELPER", "1")
+	t.Setenv("VIVY_MCP_MARKER", marker)
+	t.Setenv("VIVY_MCP_NO_EXIT", "0")
+	backend := NewMCPBackendWithOptions([]MCPServerConfig{{
+		Name:    "local",
+		Command: mcpHelperCommand(t),
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+		EnvFrom: map[string]string{"MCP_HELPER": "VIVY_MCP_HELPER", "MCP_MARKER": "VIVY_MCP_MARKER", "MCP_EXIT_AFTER_LIST": "VIVY_MCP_NO_EXIT"},
+	}}, nil, MCPBackendOptions{ProcessRoot: root})
+	t.Cleanup(func() { _ = backend.Close() })
+	if statuses := backend.ServerStatuses(); len(statuses) != 1 || statuses[0].Initialized || statuses[0].Error != "" {
+		t.Fatalf("stdio backend opened before first operation: %+v", statuses)
+	}
+	listed, err := backend.ListTools(context.Background(), "", "local")
+	if err != nil || len(listed.Tools) != 1 || listed.Tools[0].Name != "echo" {
+		t.Fatalf("stdio tools=%#v err=%v", listed, err)
+	}
+	if count, _ := os.ReadFile(marker); string(count) != "1" {
+		t.Fatalf("stdio spawn count=%q, want 1", count)
+	}
+	called, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "local", Tool: "echo", Arguments: map[string]any{"text": "hi"}})
+	if err != nil || len(called.Content) != 1 || called.Content[0].Text != "stdio output" {
+		t.Fatalf("stdio call=%#v err=%v", called, err)
+	}
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 1 || !statuses[0].Initialized || statuses[0].ToolCount != 1 {
+		t.Fatalf("stdio status=%+v", statuses)
+	}
+}
+
+func TestMCPBackendStdioResourcesPromptsEnvAndCwd(t *testing.T) {
+	root := t.TempDir()
+	workingDirectory := filepath.Join(root, "nested")
+	if err := os.Mkdir(workingDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cwdMarker := filepath.Join(t.TempDir(), "cwd")
+	t.Setenv("VIVY_MCP_HELPER", "1")
+	t.Setenv("VIVY_MCP_CWD_MARKER", cwdMarker)
+	backend := NewMCPBackendWithOptions([]MCPServerConfig{{
+		Name:    "local",
+		Command: mcpHelperCommand(t),
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess", "", "  keep  "},
+		EnvFrom: map[string]string{"MCP_HELPER": "VIVY_MCP_HELPER", "MCP_CWD_MARKER": "VIVY_MCP_CWD_MARKER"},
+		Cwd:     "nested",
+	}}, nil, MCPBackendOptions{ProcessRoot: root})
+	t.Cleanup(func() { _ = backend.Close() })
+
+	resources, err := backend.ListResources(context.Background(), "", "local")
+	if err != nil || len(resources.Resources) != 1 || resources.Resources[0].URI != "stdio://resource" {
+		t.Fatalf("stdio resources=%#v err=%v", resources, err)
+	}
+	read, err := backend.ReadResource(context.Background(), "", tools.MCPReadResourceRequest{Server: "local", URI: "stdio://resource"})
+	if err != nil || len(read.Contents) != 1 || read.Contents[0].Text == nil || *read.Contents[0].Text != "stdio resource output" {
+		t.Fatalf("stdio resource read=%#v err=%v", read, err)
+	}
+	prompts, err := backend.ListPrompts(context.Background(), "", "local")
+	if err != nil || len(prompts.Prompts) != 1 || prompts.Prompts[0].Name != "review" || len(prompts.Prompts[0].Arguments) != 1 || !prompts.Prompts[0].Arguments[0].Required {
+		t.Fatalf("stdio prompts=%#v err=%v", prompts, err)
+	}
+	got, err := backend.GetPrompt(context.Background(), "", tools.MCPGetPromptRequest{Server: "local", Name: "review", Arguments: map[string]string{"focus": "security"}})
+	if err != nil || got.Text != "stdio prompt output" || got.Description != "stdio prompt" {
+		t.Fatalf("stdio prompt=%#v err=%v", got, err)
+	}
+	actualCWD, err := os.ReadFile(cwdMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCWD, err := filepath.EvalSymlinks(workingDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actualCWD) != wantCWD {
+		t.Fatalf("stdio cwd=%q, want %q", actualCWD, wantCWD)
+	}
+}
+
+func TestMCPBackendStdioSpawnAndHandshakeFailuresStayFailClosed(t *testing.T) {
+	t.Run("spawn", func(t *testing.T) {
+		command := filepath.Join(t.TempDir(), "missing-mcp.exe")
+		backend := NewMCPBackendWithOptions([]MCPServerConfig{{Name: "missing", Command: command}}, nil, MCPBackendOptions{ProcessRoot: t.TempDir()})
+		t.Cleanup(func() { _ = backend.Close() })
+		_, firstErr := backend.ListTools(context.Background(), "", "missing")
+		if firstErr == nil {
+			t.Fatal("missing executable unexpectedly started")
+		}
+		_, secondErr := backend.ListTools(context.Background(), "", "missing")
+		if secondErr == nil || secondErr.Error() != firstErr.Error() {
+			t.Fatalf("spawn failure was not cached: first=%v second=%v", firstErr, secondErr)
+		}
+		statuses := backend.ServerStatuses()
+		if len(statuses) != 1 || statuses[0].Transport != "stdio" || statuses[0].Error == "" || strings.Contains(statuses[0].Error, command) || len([]rune(statuses[0].Error)) > 160 {
+			t.Fatalf("spawn failure status=%+v", statuses)
+		}
+	})
+
+	t.Run("handshake", func(t *testing.T) {
+		marker := filepath.Join(t.TempDir(), "spawn-count")
+		t.Setenv("VIVY_MCP_HELPER", "1")
+		t.Setenv("VIVY_MCP_MARKER", marker)
+		t.Setenv("VIVY_MCP_HANDSHAKE_FAIL", "1")
+		backend := NewMCPBackendWithOptions([]MCPServerConfig{{
+			Name:    "handshake",
+			Command: mcpHelperCommand(t),
+			Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+			EnvFrom: map[string]string{"MCP_HELPER": "VIVY_MCP_HELPER", "MCP_MARKER": "VIVY_MCP_MARKER", "MCP_HANDSHAKE_FAIL": "VIVY_MCP_HANDSHAKE_FAIL"},
+		}}, nil, MCPBackendOptions{ProcessRoot: t.TempDir()})
+		t.Cleanup(func() { _ = backend.Close() })
+		_, firstErr := backend.ListTools(context.Background(), "", "handshake")
+		if firstErr == nil || !strings.Contains(firstErr.Error(), "initialize") {
+			t.Fatalf("handshake error=%v", firstErr)
+		}
+		_, secondErr := backend.ListTools(context.Background(), "", "handshake")
+		if secondErr == nil || secondErr.Error() != firstErr.Error() {
+			t.Fatalf("handshake failure was not cached: first=%v second=%v", firstErr, secondErr)
+		}
+		if count, _ := os.ReadFile(marker); string(count) != "1" {
+			t.Fatalf("handshake failure restarted process, spawn count=%q", count)
+		}
+		statuses := backend.ServerStatuses()
+		if len(statuses) != 1 || statuses[0].Initialized || statuses[0].Error == "" || len([]rune(statuses[0].Error)) > 160 {
+			t.Fatalf("handshake failure status=%+v", statuses)
+		}
+	})
+}
+
+func TestMCPBackendStdioReplaceRebuildsAndCloseIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	firstCWD := filepath.Join(root, "one")
+	secondCWD := filepath.Join(root, "two")
+	if err := os.MkdirAll(firstCWD, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(secondCWD, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "spawn-count")
+	cwdMarker := filepath.Join(t.TempDir(), "cwd")
+	t.Setenv("VIVY_MCP_HELPER", "1")
+	t.Setenv("VIVY_MCP_MARKER", marker)
+	t.Setenv("VIVY_MCP_CWD_MARKER", cwdMarker)
+	config := func(cwd string) MCPServerConfig {
+		return MCPServerConfig{
+			Name:    "replaceable",
+			Command: mcpHelperCommand(t),
+			Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+			EnvFrom: map[string]string{"MCP_HELPER": "VIVY_MCP_HELPER", "MCP_MARKER": "VIVY_MCP_MARKER", "MCP_CWD_MARKER": "VIVY_MCP_CWD_MARKER"},
+			Cwd:     cwd,
+		}
+	}
+	backend := NewMCPBackendWithOptions([]MCPServerConfig{config("one")}, nil, MCPBackendOptions{ProcessRoot: root})
+	if _, err := backend.ListTools(context.Background(), "", "replaceable"); err != nil {
+		t.Fatal(err)
+	}
+	backend.ReplaceServers([]MCPServerConfig{config("two")})
+	if _, err := backend.ListTools(context.Background(), "", "replaceable"); err != nil {
+		t.Fatal(err)
+	}
+	if count, _ := os.ReadFile(marker); string(count) != "2" {
+		t.Fatalf("replacement spawn count=%q, want 2", count)
+	}
+	actualCWD, err := os.ReadFile(cwdMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCWD, err := filepath.EvalSymlinks(secondCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actualCWD) != wantCWD {
+		t.Fatalf("replacement cwd=%q, want %q", actualCWD, wantCWD)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.ListTools(context.Background(), "", "replaceable"); err == nil || !strings.Contains(err.Error(), "backend is closed") {
+		t.Fatalf("closed backend operation error=%v", err)
+	}
+}
+
+func mcpHelperCommand(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestMCPBackendStdioMissingEnvIsVisibleAndFailClosed(t *testing.T) {
+	t.Setenv("VIVY_MCP_REQUIRED", "")
+	backend := NewMCPBackendWithOptions([]MCPServerConfig{{
+		Name:    "missing-env",
+		Command: mcpHelperCommand(t),
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+		EnvFrom: map[string]string{"MCP_HELPER": "VIVY_MCP_REQUIRED"},
+	}}, nil, MCPBackendOptions{ProcessRoot: t.TempDir()})
+	t.Cleanup(func() { _ = backend.Close() })
+	if _, err := backend.ListTools(context.Background(), "", "missing-env"); err == nil || !strings.Contains(err.Error(), "required environment variable") {
+		t.Fatalf("missing env error=%v", err)
+	}
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 1 || statuses[0].Transport != "stdio" || statuses[0].Error == "" || !strings.Contains(statuses[0].Error, "required environment variables") || len(statuses[0].EnvMissing) != 1 || statuses[0].EnvMissing[0] != "MCP_HELPER" || strings.Contains(statuses[0].Error, "VIVY_MCP_REQUIRED") {
+		t.Fatalf("missing env status=%+v", statuses)
+	}
+	if _, err := backend.ListTools(context.Background(), "", "missing-env"); err == nil {
+		t.Fatal("missing env server should remain fail-closed")
+	}
+}
+
+func TestMCPStatusErrorSanitizesPathsAndEnvironmentValues(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace-root")
+	command := filepath.Join(root, "trusted", "mcp-server.exe")
+	t.Setenv("VIVY_MCP_SECRET", "resolved-secret-value")
+	backend := NewMCPBackendWithOptions([]MCPServerConfig{{
+		Name: "local", Command: command, Cwd: "trusted", EnvFrom: map[string]string{"TOKEN": "VIVY_MCP_SECRET"},
+	}}, nil, MCPBackendOptions{ProcessRoot: root})
+	t.Cleanup(func() { _ = backend.Close() })
+	raw := fmt.Sprintf("open %s cwd=%s root=%s env=resolved-secret-value\x1b[31m\u202e", command, filepath.Join(root, "trusted"), root)
+	got := backend.SanitizeMCPError("local", errors.New(raw))
+	if len([]rune(got)) > 160 || strings.Contains(got, command) || strings.Contains(got, root) || strings.Contains(got, "trusted") || strings.Contains(got, "resolved-secret-value") || strings.ContainsAny(got, "\x1b\u202e") {
+		t.Fatalf("unsafe MCP status error=%q", got)
+	}
+}
+
+func TestMCPBackendStdioDeathDoesNotRestart(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "spawn-count")
+	t.Setenv("VIVY_MCP_HELPER", "1")
+	t.Setenv("VIVY_MCP_MARKER", marker)
+	t.Setenv("VIVY_MCP_EXIT_AFTER_LIST", "1")
+	backend := NewMCPBackendWithOptions([]MCPServerConfig{{
+		Name:    "dies",
+		Command: mcpHelperCommand(t),
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+		EnvFrom: map[string]string{"MCP_HELPER": "VIVY_MCP_HELPER", "MCP_MARKER": "VIVY_MCP_MARKER", "MCP_EXIT_AFTER_LIST": "VIVY_MCP_EXIT_AFTER_LIST"},
+	}}, nil, MCPBackendOptions{ProcessRoot: t.TempDir()})
+	t.Cleanup(func() { _ = backend.Close() })
+	if _, err := backend.ListTools(context.Background(), "", "dies"); err != nil {
+		t.Fatalf("first stdio list: %v", err)
+	}
+	if _, err := backend.ListTools(context.Background(), "", "dies"); err == nil || !strings.Contains(strings.ToLower(err.Error()), "stdio process exited") {
+		t.Fatalf("second stdio list error=%v", err)
+	}
+	if count, _ := os.ReadFile(marker); string(count) != "1" {
+		t.Fatalf("stdio restarted after death, spawn count=%q", count)
+	}
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 1 || statuses[0].Initialized || !strings.Contains(statuses[0].Error, "stdio process exited") {
+		t.Fatalf("dead stdio status=%+v", statuses)
 	}
 }
 

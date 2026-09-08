@@ -6,14 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	goRuntime "runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
+	"agent-vivy/internal/commandpolicy"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
 
@@ -34,7 +40,19 @@ const (
 type MCPServerConfig struct {
 	Name     string
 	Endpoint string
+	Command  string
+	Args     []string
+	EnvFrom  map[string]string
+	Cwd      string
 	AuthEnv  string
+}
+
+// MCPBackendOptions supplies the local-process policy used by stdio MCP
+// servers. ProcessRoot is the only root from which configured relative cwd
+// values may resolve. Logger is optional and defaults to slog.Default().
+type MCPBackendOptions struct {
+	ProcessRoot string
+	Logger      *slog.Logger
 }
 
 // MCPBackend is the Vivy governance adapter around one official MCP
@@ -44,6 +62,8 @@ type MCPServerConfig struct {
 // model. Calls continue through mcp_call and PrepareMCPCall.
 type MCPBackend struct {
 	client           *http.Client
+	processRoot      string
+	logger           *slog.Logger
 	servers          map[string]*mcpServer
 	mu               sync.RWMutex
 	retired          sync.WaitGroup
@@ -69,11 +89,16 @@ type mcpServer struct {
 	cli    *client.Client
 	status *mcpStatusRecord
 
+	processCtx    context.Context
+	processCancel context.CancelFunc
+
 	initMu  sync.Mutex
 	mu      sync.Mutex
 	initErr error
 	caps    mcp.ServerCapabilities
 	ready   bool
+	dead    bool
+	deadErr error
 
 	refs    int
 	closing bool
@@ -87,15 +112,18 @@ type mcpServer struct {
 // MCPServerStatus is a secret-free snapshot of one configured server's
 // process state. Initialized means the backend completed the MCP handshake;
 // configured servers are not reported as connected before that happens.
-// Error is the sanitized last handshake failure for this configuration (empty
-// after a success); AuthMissing flags a configured auth env var that is
-// currently unset; ToolCount is the last successful catalog size, negative
-// when the server was never listed.
+// Error is the sanitized last handshake or stdio lifecycle failure for this
+// configuration (empty after a success); AuthMissing flags a configured auth
+// env var that is currently unset; ToolCount is the last successful catalog
+// size, negative when the server was never listed. A dead stdio process is
+// represented through Error and never restarted by an MCP operation.
 type MCPServerStatus struct {
 	Name        string
+	Transport   string
 	Initialized bool
 	Error       string
 	AuthMissing bool
+	EnvMissing  []string
 	ToolCount   int
 }
 
@@ -109,10 +137,22 @@ var _ interface {
 // NewMCPBackend builds a backend without opening any network connection.
 // Each server is started and initialized lazily on its first operation.
 func NewMCPBackend(configs []MCPServerConfig, httpClient *http.Client) *MCPBackend {
+	return NewMCPBackendWithOptions(configs, httpClient, MCPBackendOptions{})
+}
+
+// NewMCPBackendWithOptions is the policy-aware constructor used by the app
+// composition root. The compatibility constructor above keeps focused HTTP
+// tests and embedders on the original seam.
+func NewMCPBackendWithOptions(configs []MCPServerConfig, httpClient *http.Client, options MCPBackendOptions) *MCPBackend {
 	backend := &MCPBackend{
 		maxResponseBytes: maxMCPResponseBytes,
 		timeout:          defaultMCPTimeout,
 		closeDone:        make(chan struct{}),
+		processRoot:      strings.TrimSpace(options.ProcessRoot),
+		logger:           options.Logger,
+	}
+	if backend.logger == nil {
+		backend.logger = slog.Default()
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultMCPTimeout}
@@ -122,16 +162,50 @@ func NewMCPBackend(configs []MCPServerConfig, httpClient *http.Client) *MCPBacke
 	return backend
 }
 
-// ReplaceServers swaps the live catalog. Entries whose endpoint/auth config
-// is unchanged are retained; removed or replaced entries are closed after any
+func normalizeMCPServerConfig(config MCPServerConfig) MCPServerConfig {
+	config.Name = strings.TrimSpace(config.Name)
+	config.Endpoint = strings.TrimSpace(config.Endpoint)
+	config.Command = strings.TrimSpace(config.Command)
+	config.Cwd = strings.TrimSpace(config.Cwd)
+	config.AuthEnv = strings.TrimSpace(config.AuthEnv)
+	config.Args = append([]string(nil), config.Args...)
+	if config.EnvFrom != nil {
+		envFrom := make(map[string]string, len(config.EnvFrom))
+		for child, host := range config.EnvFrom {
+			envFrom[strings.TrimSpace(child)] = strings.TrimSpace(host)
+		}
+		config.EnvFrom = envFrom
+	}
+	return config
+}
+
+func sameMCPServerConfig(left, right MCPServerConfig) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func hasMCPTransport(config MCPServerConfig) bool {
+	return strings.TrimSpace(config.Endpoint) != "" || strings.TrimSpace(config.Command) != ""
+}
+
+func mcpServerTransport(config MCPServerConfig) string {
+	if config.isStdio() {
+		return "stdio"
+	}
+	return "http"
+}
+
+func (config MCPServerConfig) isStdio() bool {
+	return strings.TrimSpace(config.Command) != ""
+}
+
+// ReplaceServers swaps the live catalog. Entries whose transport/config is
+// unchanged are retained; removed or replaced entries are closed after any
 // in-flight operation releases its reference.
 func (b *MCPBackend) ReplaceServers(configs []MCPServerConfig) {
 	normalized := make(map[string]MCPServerConfig, len(configs))
 	for _, config := range configs {
-		config.Name = strings.TrimSpace(config.Name)
-		config.Endpoint = strings.TrimSpace(config.Endpoint)
-		config.AuthEnv = strings.TrimSpace(config.AuthEnv)
-		if config.Name == "" || config.Endpoint == "" {
+		config = normalizeMCPServerConfig(config)
+		if config.Name == "" || !hasMCPTransport(config) {
 			continue
 		}
 		normalized[config.Name] = config
@@ -145,7 +219,7 @@ func (b *MCPBackend) ReplaceServers(configs []MCPServerConfig) {
 	old := b.servers
 	next := make(map[string]*mcpServer, len(normalized))
 	for name, config := range normalized {
-		if previous := old[name]; previous != nil && previous.config == config {
+		if previous := old[name]; previous != nil && sameMCPServerConfig(previous.config, config) {
 			next[name] = previous
 			continue
 		}
@@ -177,7 +251,7 @@ func (b *MCPBackend) ConfiguredServers() []MCPServerConfig {
 	b.mu.RLock()
 	out := make([]MCPServerConfig, 0, len(b.servers))
 	for _, entry := range b.servers {
-		out = append(out, entry.config)
+		out = append(out, normalizeMCPServerConfig(entry.config))
 	}
 	b.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -193,9 +267,16 @@ func (b *MCPBackend) ServerStatuses() []MCPServerStatus {
 		entry.status.mu.Lock()
 		status := MCPServerStatus{
 			Name:        name,
+			Transport:   mcpServerTransport(entry.config),
 			Initialized: entry.isReady(),
 			Error:       entry.status.initError,
 			ToolCount:   entry.status.toolCount,
+		}
+		if entry.config.isStdio() {
+			status.EnvMissing = missingMCPEnvChildren(entry.config.EnvFrom)
+			if len(status.EnvMissing) > 0 {
+				status.Error = "mcp: required environment variables are missing"
+			}
 		}
 		entry.status.mu.Unlock()
 		if entry.config.AuthEnv != "" && os.Getenv(entry.config.AuthEnv) == "" {
@@ -223,7 +304,7 @@ func (b *MCPBackend) noteInitResult(entry *mcpServer, err error) {
 		entry.status.initError = ""
 		return
 	}
-	entry.status.initError = boundedMCPStatusError(err.Error(), entry.config.Endpoint)
+	entry.status.initError = b.sanitizeMCPStatusError(entry, err)
 }
 
 // noteToolCount records the projected catalog size after a successful listing.
@@ -239,11 +320,63 @@ func (b *MCPBackend) noteToolCount(entry *mcpServer, count int) {
 	entry.status.mu.Unlock()
 }
 
-// boundedMCPStatusError keeps the sidebar secret-free: the server's endpoint
-// (which may embed credentials) never appears, control characters are
-// stripped, and the message is capped.
-func boundedMCPStatusError(message, endpoint string) string {
-	message = strings.ReplaceAll(message, endpoint, "")
+// SanitizeMCPError is the control-plane error seam. It keeps endpoints,
+// commands, cwd/path material, and resolved environment values out of RPC,
+// browser, and TUI projections while preserving a short diagnostic cause.
+func (b *MCPBackend) SanitizeMCPError(name string, err error) string {
+	if err == nil {
+		return ""
+	}
+	b.mu.RLock()
+	entry := b.servers[strings.TrimSpace(name)]
+	b.mu.RUnlock()
+	if entry == nil {
+		return boundedMCPStatusError(err.Error())
+	}
+	return b.sanitizeMCPStatusError(entry, err)
+}
+
+func (b *MCPBackend) sanitizeMCPStatusError(entry *mcpServer, err error) string {
+	if err == nil {
+		return ""
+	}
+	redactions := []string{
+		entry.config.Endpoint,
+		entry.config.Command,
+		entry.config.Cwd,
+		b.processRoot,
+	}
+	if root := strings.TrimSpace(b.processRoot); root != "" {
+		if absolute, absoluteErr := filepath.Abs(root); absoluteErr == nil {
+			redactions = append(redactions, absolute)
+			if entry.config.Cwd != "" {
+				redactions = append(redactions, filepath.Join(absolute, filepath.Clean(entry.config.Cwd)))
+			}
+		}
+	}
+	if entry.config.AuthEnv != "" {
+		if value, ok := os.LookupEnv(entry.config.AuthEnv); ok {
+			redactions = append(redactions, value)
+		}
+	}
+	for _, host := range entry.config.EnvFrom {
+		if value, ok := os.LookupEnv(strings.TrimSpace(host)); ok {
+			redactions = append(redactions, value)
+		}
+	}
+	return boundedMCPStatusError(err.Error(), redactions...)
+}
+
+// boundedMCPStatusError keeps the sidebar secret-free: configured endpoint,
+// command, cwd/path material, and environment values are redacted by the
+// caller; control characters are stripped, and the message is capped at 160
+// runes.
+func boundedMCPStatusError(message string, redactions ...string) string {
+	for _, redaction := range redactions {
+		if redaction != "" {
+			message = strings.ReplaceAll(message, redaction, "")
+		}
+	}
 	message = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || isMCPStatusBidiControl(r) {
 			return -1
@@ -600,28 +733,260 @@ func (b *MCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, request t
 }
 
 func (b *MCPBackend) newServer(config MCPServerConfig) (*mcpServer, error) {
-	cli, err := client.NewStreamableHttpClient(config.Endpoint,
-		mcptransport.WithHTTPBasicClient(b.client),
-		mcptransport.WithHTTPHeaderFunc(func(context.Context) map[string]string {
-			if config.AuthEnv == "" {
+	config = normalizeMCPServerConfig(config)
+	var cli *client.Client
+	var processCtx context.Context
+	var processCancel context.CancelFunc
+	if config.isStdio() {
+		processCtx, processCancel = context.WithCancel(context.Background())
+		stdio := mcptransport.NewStdioWithOptions(config.Command, nil, config.Args,
+			mcptransport.WithCommandFunc(b.stdioCommandFunc(config)),
+		)
+		// NewStdioWithOptions only constructs the official transport. Start is
+		// deliberately deferred to initialize so the backend remains lazy.
+		cli = client.NewClient(stdio)
+	} else {
+		var err error
+		cli, err = client.NewStreamableHttpClient(config.Endpoint,
+			mcptransport.WithHTTPBasicClient(b.client),
+			mcptransport.WithHTTPHeaderFunc(func(context.Context) map[string]string {
+				if config.AuthEnv == "" {
+					return nil
+				}
+				if token := os.Getenv(config.AuthEnv); token != "" {
+					return map[string]string{"Authorization": "Bearer " + token}
+				}
 				return nil
-			}
-			if token := os.Getenv(config.AuthEnv); token != "" {
-				return map[string]string{"Authorization": "Bearer " + token}
-			}
-			return nil
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("mcp %s: create streamable HTTP client: %w", config.Name, err)
+			}),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("mcp %s: create streamable HTTP client: %w", config.Name, err)
+		}
 	}
 	return &mcpServer{
-		config:    config,
-		cli:       cli,
-		status:    &mcpStatusRecord{toolCount: -1},
-		closeDone: make(chan struct{}),
+		config:        config,
+		cli:           cli,
+		status:        &mcpStatusRecord{toolCount: -1},
+		processCtx:    processCtx,
+		processCancel: processCancel,
+		closeDone:     make(chan struct{}),
 	}, nil
 }
+
+func (b *MCPBackend) stdioCommandFunc(config MCPServerConfig) mcptransport.CommandFunc {
+	return func(ctx context.Context, command string, _ []string, args []string) (*exec.Cmd, error) {
+		if err := validateMCPRuntimeConfig(config); err != nil {
+			return nil, err
+		}
+		env, err := resolveMCPEnv(config.EnvFrom)
+		if err != nil {
+			return nil, err
+		}
+		cwd, err := b.resolveMCPWorkingDir(config.Cwd)
+		if err != nil {
+			return nil, err
+		}
+
+		executable := command
+		commandArgs := append([]string(nil), args...)
+		if goRuntime.GOOS == "windows" {
+			ext := strings.ToLower(filepath.Ext(command))
+			if ext == ".cmd" || ext == ".bat" {
+				comspec := strings.TrimSpace(os.Getenv("ComSpec"))
+				if comspec == "" {
+					comspec = "cmd.exe"
+				}
+				line, err := windowsMCPCommandLine(command, args)
+				if err != nil {
+					return nil, err
+				}
+				executable = comspec
+				commandArgs = []string{"/d", "/s", "/c", line}
+			}
+		}
+		cmd := exec.CommandContext(ctx, executable, commandArgs...)
+		configureMCPProcess(cmd)
+		cmd.Env = env
+		cmd.Dir = cwd
+		cmd.WaitDelay = 2 * time.Second
+		b.logger.Info("mcp stdio spawn", "server", config.Name, "command", filepath.Base(command))
+		return cmd, nil
+	}
+}
+
+func validateMCPRuntimeConfig(config MCPServerConfig) error {
+	if strings.TrimSpace(config.Command) == "" {
+		return errors.New("mcp: stdio command is empty")
+	}
+	command := strings.TrimSpace(config.Command)
+	abs := filepath.IsAbs(command)
+	if strings.ContainsAny(command, "\t\r\n;&|><$()\"'`") || (!abs && strings.ContainsRune(command, ' ')) {
+		return errors.New("mcp: stdio command contains shell syntax")
+	}
+	if strings.ContainsAny(command, `/\\`) && !abs {
+		return errors.New("mcp: stdio command must be a PATH name or absolute path")
+	}
+	base := strings.ToLower(filepath.Base(command))
+	ext := filepath.Ext(base)
+	if ext == ".exe" || ext == ".cmd" || ext == ".bat" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	if commandpolicy.IsDeniedExecutable(command) {
+		return fmt.Errorf("mcp: executable %q is denied by the MCP command safety policy", base)
+	}
+	if len(config.Args) > maxMCPArgsRuntime {
+		return fmt.Errorf("mcp: too many stdio arguments (maximum %d)", maxMCPArgsRuntime)
+	}
+	total := 0
+	for _, arg := range config.Args {
+		if len(arg) > maxMCPArgBytesRuntime {
+			return fmt.Errorf("mcp: stdio argument exceeds %d bytes", maxMCPArgBytesRuntime)
+		}
+		if strings.IndexByte(arg, 0) >= 0 || strings.ContainsAny(arg, "\r\n") {
+			return errors.New("mcp: stdio argument contains NUL or newline")
+		}
+		if (ext == ".cmd" || ext == ".bat") && strings.ContainsAny(arg, "&|<>^%") {
+			return errors.New("mcp: batch-file argument contains shell metacharacters")
+		}
+		total += len(arg)
+		if total > maxMCPArgsBytesRuntime {
+			return fmt.Errorf("mcp: stdio argument payload exceeds %d bytes", maxMCPArgsBytesRuntime)
+		}
+	}
+	if err := validateMCPWorkingDirRuntime(config.Cwd); err != nil {
+		return err
+	}
+	return nil
+}
+
+func resolveMCPEnv(envFrom map[string]string) ([]string, error) {
+	env := make([]string, 0, 6+len(envFrom))
+	for _, key := range []string{"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "ComSpec"} {
+		if value := os.Getenv(key); value != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	keys := make([]string, 0, len(envFrom))
+	for child := range envFrom {
+		keys = append(keys, child)
+	}
+	sort.Strings(keys)
+	for _, child := range keys {
+		host := strings.TrimSpace(envFrom[child])
+		child = strings.TrimSpace(child)
+		if !validMCPEnvKey(child) || !validMCPEnvKey(host) {
+			return nil, fmt.Errorf("mcp: env_from %q must map environment variable names", child)
+		}
+		value, ok := os.LookupEnv(host)
+		if !ok || value == "" {
+			return nil, fmt.Errorf("mcp: required environment variable for child %q is not set", child)
+		}
+		if len(value) > maxMCPEnvValueBytes || strings.IndexByte(value, 0) >= 0 {
+			return nil, fmt.Errorf("mcp: environment value for child %q is invalid or too large", child)
+		}
+		env = append(env, child+"="+value)
+	}
+	return env, nil
+}
+
+func missingMCPEnvChildren(envFrom map[string]string) []string {
+	children := make([]string, 0, len(envFrom))
+	for child, host := range envFrom {
+		child = strings.TrimSpace(child)
+		host = strings.TrimSpace(host)
+		if value, ok := os.LookupEnv(host); !ok || value == "" {
+			children = append(children, child)
+		}
+	}
+	sort.Strings(children)
+	return children
+}
+
+func (b *MCPBackend) resolveMCPWorkingDir(cwd string) (string, error) {
+	if err := validateMCPWorkingDirRuntime(cwd); err != nil {
+		return "", err
+	}
+	root := strings.TrimSpace(b.processRoot)
+	if root == "" {
+		return "", errors.New("mcp: stdio process root is not configured")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("mcp: resolve process root: %w", err)
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("mcp: resolve process root: %w", err)
+	}
+	target := filepath.Join(realRoot, filepath.Clean(cwd))
+	realTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", fmt.Errorf("mcp: resolve stdio cwd: %w", err)
+	}
+	relative, err := filepath.Rel(realRoot, realTarget)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", errors.New("mcp: stdio cwd escapes runtime.workspace_root")
+	}
+	info, err := os.Stat(realTarget)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("mcp: stdio cwd is not a directory")
+	}
+	return realTarget, nil
+}
+
+func validateMCPWorkingDirRuntime(cwd string) error {
+	if cwd == "" {
+		return nil
+	}
+	if strings.IndexByte(cwd, 0) >= 0 || filepath.IsAbs(cwd) {
+		return errors.New("mcp: stdio cwd must be relative to runtime.workspace_root")
+	}
+	clean := filepath.Clean(cwd)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return errors.New("mcp: stdio cwd escapes runtime.workspace_root")
+	}
+	return nil
+}
+
+func windowsMCPCommandLine(command string, args []string) (string, error) {
+	parts := make([]string, 0, 1+len(args))
+	for _, value := range append([]string{command}, args...) {
+		if strings.ContainsAny(value, "\r\n\x00&|<>^%") {
+			return "", errors.New("mcp: Windows batch command contains shell metacharacters")
+		}
+		parts = append(parts, windowsMCPQuote(value))
+	}
+	return strings.Join(parts, " "), nil
+}
+
+func windowsMCPQuote(value string) string {
+	if value == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(value, " \t\"") {
+		return value
+	}
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func validMCPEnvKey(value string) bool {
+	if value == "" || (value[0] < 'A' || value[0] > 'Z') {
+		return false
+	}
+	for _, ch := range value[1:] {
+		if (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+const (
+	maxMCPArgsRuntime      = 128
+	maxMCPArgBytesRuntime  = 4096
+	maxMCPArgsBytesRuntime = 64 << 10
+	maxMCPEnvValueBytes    = 4096
+)
 
 func (b *MCPBackend) lookupServer(name string) (*mcpServer, error) {
 	name = strings.TrimSpace(name)
@@ -632,7 +997,7 @@ func (b *MCPBackend) lookupServer(name string) (*mcpServer, error) {
 	if closed {
 		return nil, errors.New("mcp: backend is closed")
 	}
-	if entry == nil || strings.TrimSpace(entry.config.Endpoint) == "" {
+	if entry == nil || !hasMCPTransport(entry.config) {
 		return nil, fmt.Errorf("mcp: server %q is not configured", name)
 	}
 	return entry, nil
@@ -646,7 +1011,7 @@ func (b *MCPBackend) acquireServer(name string) (*mcpServer, error) {
 		return nil, errors.New("mcp: backend is closed")
 	}
 	entry := b.servers[name]
-	if entry == nil || strings.TrimSpace(entry.config.Endpoint) == "" {
+	if entry == nil || !hasMCPTransport(entry.config) {
 		return nil, fmt.Errorf("mcp: server %q is not configured", name)
 	}
 	if !entry.acquire() {
@@ -681,7 +1046,7 @@ func (b *MCPBackend) replaceSession(name string, expected *mcpServer) {
 	current := b.servers[name]
 	closed := b.closed
 	b.mu.RUnlock()
-	if closed || current != expected {
+	if closed || current != expected || expected.config.isStdio() {
 		return
 	}
 	entry, err := b.newServer(expected.config)
@@ -752,7 +1117,17 @@ func (s *mcpServer) waitClosed() error {
 
 func (s *mcpServer) closeClient() error {
 	s.closeOnce.Do(func() {
+		if s.processCancel != nil {
+			s.processCancel()
+		}
 		err := s.cli.Close()
+		if s.processCancel != nil && isExpectedMCPStdioCloseError(err) {
+			// CommandContext intentionally terminates a local child during
+			// shutdown. mcp-go reports that expected termination as an
+			// exec.ExitError on Windows and Unix; it is not a backend close
+			// failure. Preserve real transport timeout/cleanup errors.
+			err = nil
+		}
 		s.mu.Lock()
 		s.closeErr = err
 		s.mu.Unlock()
@@ -761,11 +1136,50 @@ func (s *mcpServer) closeClient() error {
 	return s.waitClosed()
 }
 
+func isExpectedMCPStdioCloseError(err error) bool {
+	if err == nil || errors.Is(err, os.ErrProcessDone) {
+		return true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return true
+	}
+	// On Windows, CommandContext can race mcp-go's Wait/TerminateProcess
+	// cleanup and surface an *exec.Error instead of ExitError. The process is
+	// already under intentional shutdown here; this message is not a useful
+	// backend failure and must not make Close flaky.
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "canceling cmd") || strings.Contains(message, "terminateprocess")
+}
+
 func (s *mcpServer) isReady() bool {
 	s.mu.Lock()
 	ready := s.ready
 	s.mu.Unlock()
 	return ready
+}
+
+func (s *mcpServer) markDead(err error) error {
+	if err == nil {
+		err = mcptransport.ErrTransportClosed
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deadErr != nil {
+		return s.deadErr
+	}
+	s.dead = true
+	s.ready = false
+	s.deadErr = fmt.Errorf("mcp %s: stdio process exited: %w", s.config.Name, err)
+	s.initErr = s.deadErr
+	return s.deadErr
+}
+
+func (s *mcpServer) deadError() error {
+	s.mu.Lock()
+	err := s.deadErr
+	s.mu.Unlock()
+	return err
 }
 
 func (s *mcpServer) promptCapable() bool {
@@ -776,25 +1190,25 @@ func (s *mcpServer) promptCapable() bool {
 }
 
 func (s *mcpServer) initialize(ctx context.Context) error {
-	// initMu gives concurrent first operations one handshake. A failed
-	// handshake is cached on this client only; runMCP replaces and closes this
-	// client, so a later operation gets a fresh initialization attempt instead
-	// of permanently poisoning the configured server.
+	// initMu gives concurrent first operations one handshake. Stdio failures
+	// remain cached until the configuration is replaced: a dead local process
+	// is fail-closed and is never silently restarted by an MCP operation.
 	s.initMu.Lock()
 	defer s.initMu.Unlock()
 	s.mu.Lock()
-	if s.ready || s.initErr != nil {
+	if s.ready || s.initErr != nil || s.dead {
 		err := s.initErr
 		s.mu.Unlock()
 		return err
 	}
 	s.mu.Unlock()
-	if err := s.cli.Start(ctx); err != nil {
+	startCtx := ctx
+	if s.processCtx != nil {
+		startCtx = s.processCtx
+	}
+	if err := s.cli.Start(startCtx); err != nil {
 		err = fmt.Errorf("mcp %s: start client: %w", s.config.Name, err)
-		s.mu.Lock()
-		s.initErr = err
-		s.mu.Unlock()
-		return err
+		return s.cacheInitializeError(err)
 	}
 	result, err := s.cli.Initialize(ctx, mcp.InitializeRequest{Params: mcp.InitializeParams{
 		ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
@@ -803,10 +1217,7 @@ func (s *mcpServer) initialize(ctx context.Context) error {
 	}})
 	if err != nil {
 		err = fmt.Errorf("mcp %s: initialize: %w", s.config.Name, err)
-		s.mu.Lock()
-		s.initErr = err
-		s.mu.Unlock()
-		return err
+		return s.cacheInitializeError(err)
 	}
 	s.mu.Lock()
 	s.caps = result.Capabilities
@@ -815,8 +1226,35 @@ func (s *mcpServer) initialize(ctx context.Context) error {
 	return nil
 }
 
+func (s *mcpServer) cacheInitializeError(err error) error {
+	s.mu.Lock()
+	s.initErr = err
+	s.mu.Unlock()
+	if s.processCancel != nil {
+		// A failed stdio handshake otherwise leaves the child waiting on its
+		// pipe forever even though this configuration is now fail-closed.
+		// Close is idempotent and a replacement config gets a fresh client.
+		_ = s.closeClient()
+	}
+	return err
+}
+
 func isSessionTerminated(err error) bool {
 	return errors.Is(err, mcptransport.ErrSessionTerminated)
+}
+
+func isStdioTransportClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, mcptransport.ErrTransportClosed) || errors.Is(err, os.ErrProcessDone) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "broken pipe") ||
+		strings.Contains(message, "pipe closed") ||
+		strings.Contains(message, "pipe is being closed") ||
+		strings.Contains(message, "file already closed")
 }
 
 func runMCP[T any](ctx context.Context, b *MCPBackend, name string, retry bool, op func(context.Context, *mcpServer) (T, error)) (T, error) {
@@ -833,6 +1271,10 @@ func runMCP[T any](ctx context.Context, b *MCPBackend, name string, retry bool, 
 		var result T
 		if err == nil {
 			result, err = op(ctx, entry)
+		}
+		if err != nil && entry.config.isStdio() && isStdioTransportClosed(err) {
+			err = entry.markDead(err)
+			b.noteInitResult(entry, err)
 		}
 		entry.release()
 		if err == nil {
