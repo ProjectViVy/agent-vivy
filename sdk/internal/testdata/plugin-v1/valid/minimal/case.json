@@ -1,0 +1,23 @@
+{
+  "id": "valid-minimal",
+  "expect": "accept",
+  "rule": "A recipe may select a generation-scoped module with no port edges.",
+  "recipe": {
+    "apiVersion": "vivy.generation/v1",
+    "modules": ["fixture/minimal"]
+  },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/minimal", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/minimal@0123456",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

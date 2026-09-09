@@ -1,0 +1,21 @@
+{
+  "id": "unapproved-grant",
+  "expect": "reject",
+  "rule": "Effective Grants are the intersection of request, Port allowance, Trust ceiling, and Recipe approval.",
+  "wantError": "grant proc.spawn is not approved for fixture/process-tool",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/process-tool"], "grantApprovals": [] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/process-tool", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/process-tool@0123456",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "provides": [{ "port": "std/tool@v1", "id": "fixture.process" }],
+      "requires": [],
+      "requestedGrants": [{ "name": "proc.spawn" }],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

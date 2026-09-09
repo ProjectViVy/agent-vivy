@@ -125,7 +125,7 @@ export interface UIRoot {
 - Create: `ui/src/plugins/presentation-host.test.tsx`
 - Modify: `ui/src/routes/__root.tsx`
 - Modify: `ui/src/main.tsx`
-- Modify: `ui/src/index.css`
+- Modify: `ui/src/styles.css`
 
 **Interfaces:**
 

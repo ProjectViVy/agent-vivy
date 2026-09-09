@@ -249,6 +249,9 @@ type RuntimeAssembly struct {
 ## Phase exit and rollback
 
 Exit requires no functional v0 source, full default inventory parity, explicit
-inactive network state, and physical-removal proof. P1 and P2 land together.
+inactive network state, and physical-removal proof. Record build-owned
+seven-artifact evidence for the Tool, ToolWorld, Channel, and Face Ports before
+the default Recipe selects them; a Descriptor claim is never sufficient. P1
+and P2 land together.
 Rollback switches the branch back to the pre-v1 commit; no compatibility layer
 is introduced.

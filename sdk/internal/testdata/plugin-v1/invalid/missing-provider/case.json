@@ -1,0 +1,21 @@
+{
+  "id": "missing-provider",
+  "expect": "reject",
+  "rule": "Every required Port edge resolves to a selected Provider.",
+  "wantError": "missing provider for std/context-source@v1",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/context-host"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/context-host", "version": "1.0.0" },
+      "source": {
+        "ref": "internal:fixture/context-host",
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "provides": [],
+      "requires": [{ "port": "std/context-source@v1", "provider": "fixture/missing" }],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}
