@@ -34,6 +34,7 @@ import (
 
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/i18n"
 )
 
 // DefaultDir is the independent agent working directory under the user data
@@ -90,6 +91,9 @@ const (
 // Settings is the persisted, non-secret model provider selection plus the
 // network_search preference and the execute ceiling override.
 type Settings struct {
+	// Locale is the global user interface override. Empty means the running
+	// Generation/developer default applies.
+	Locale string `yaml:"locale,omitempty"`
 	// Provider is the active bundle name; empty means "use config default".
 	Provider string `yaml:"provider"`
 	// DefaultModel overrides the bundle's default model; empty means "use
@@ -282,7 +286,8 @@ func Default() Settings {
 // active selection, no legacy key, no registry, no network/execute override.
 // A missing document and an empty document are equivalent for the overlay.
 func (s Settings) IsZero() bool {
-	return s.Provider == "" &&
+	return s.Locale == "" &&
+		s.Provider == "" &&
 		s.DefaultModel == "" &&
 		s.BaseURL == "" &&
 		s.ApiKey == "" &&
@@ -419,6 +424,11 @@ func migrateLegacyMock(s *Settings) {
 
 // Validate rejects secret-shaped or structurally invalid values.
 func (s Settings) Validate() error {
+	if s.Locale != "" {
+		if _, err := i18n.Parse(s.Locale); err != nil {
+			return fmt.Errorf("settings: locale: %w", err)
+		}
+	}
 	switch s.Provider {
 	case "":
 		// empty => config default; allowed
