@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	corei18n "agent-vivy/internal/i18n"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -65,7 +66,7 @@ func TestCommandPaletteNavigationWrapsAndSelectedCommandUsesNormalDispatch(t *te
 		t.Fatalf("selected draft = %q", m.input)
 	}
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.commandOverlayTitle != "命令" || d.commandName != "" {
+	if m.commandOverlayTitle != "Commands" || d.commandName != "" {
 		t.Fatalf("normal dispatch overlay=%q driver=%q", m.commandOverlayTitle, d.commandName)
 	}
 }
@@ -87,7 +88,7 @@ func TestCommandPaletteEmptyStateAndBackspaceResetCursor(t *testing.T) {
 	m := New(&testDriver{})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzzz-no-command")})
-	if !strings.Contains(m.View(), "没有匹配的命令") {
+	if !strings.Contains(m.View(), "No matching commands") {
 		t.Fatalf("missing empty state:\n%s", m.View())
 	}
 	m.commandPaletteCursor = 8
@@ -167,7 +168,7 @@ func TestCommandPaletteRendersWithinSmallTerminal(t *testing.T) {
 	m.width, m.height = 32, 10
 	m.openCommandPalette()
 	got := m.View()
-	if !strings.Contains(got, "帮助") || !strings.Contains(got, "enter") || !strings.Contains(got, "/help") || !strings.Contains(got, "╯") || len(strings.Split(got, "\n")) != 10 {
+	if !strings.Contains(got, "Help") || !strings.Contains(got, "enter") || !strings.Contains(got, "/help") || !strings.Contains(got, "╯") || len(strings.Split(got, "\n")) != 10 {
 		t.Fatalf("small palette escaped frame (%d lines):\n%s", len(strings.Split(got, "\n")), got)
 	}
 }
@@ -191,7 +192,7 @@ func TestOverlayBlanksMainContentInsteadOfMixing(t *testing.T) {
 	if strings.Contains(plain, "UNIQUE_CHAT_MARKER_XYZ") {
 		t.Fatalf("overlay mixed with main chat:\n%s", plain)
 	}
-	if !strings.Contains(plain, "快捷方式") {
+	if !strings.Contains(plain, "Shortcuts") {
 		t.Fatalf("shortcuts overlay missing:\n%s", plain)
 	}
 }
@@ -214,12 +215,12 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = next.(Model)
 	plain := ansi.Strip(m.View())
-	for _, want := range []string{"deepseek-v4-flash(high)", "openai", "15%", "shift+tab", "切换模式", "智能", "shift+h", "帮助", "ctrl+x", "快捷", "host · 127.0.0.1:8787"} {
+	for _, want := range []string{"deepseek-v4-flash(high)", "openai", "15%", "shift+tab", "Switch mode", "Smart", "shift+h", "Help", "ctrl+x", "Shortcuts", "host · 127.0.0.1:8787"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("input chrome/sidebar omitted %q:\n%s", want, plain)
 		}
 	}
-	if strings.Contains(plain, "^p 命令") || strings.Contains(plain, "pgup/pgdn") {
+	if strings.Contains(plain, "^p") || strings.Contains(plain, "pgup/pgdn") {
 		t.Fatalf("old footer dump still on screen:\n%s", plain)
 	}
 	if strings.Contains(plain, "TUI") || strings.Contains(plain, " · live") || strings.Contains(plain, " model · ") || strings.Contains(plain, " provider · ") || strings.Contains(plain, " permission · ") {
@@ -231,13 +232,13 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 		t.Fatalf("rounded composer missing model chips:\n%s", editor)
 	}
 	chrome := strings.TrimLeft(ansi.Strip(m.renderInputChrome(computeLayout(120, 36).mainW(), DefaultPalette())), " ")
-	if !strings.HasPrefix(chrome, "shift+tab") || !strings.Contains(chrome, "切换模式") || strings.Index(chrome, "shift+tab") > strings.Index(chrome, "shift+h") {
+	if !strings.HasPrefix(chrome, "shift+tab") || !strings.Contains(chrome, "Switch mode") || strings.Index(chrome, "shift+tab") > strings.Index(chrome, "shift+h") {
 		t.Fatalf("hint row is not left-aligned switch-mode chrome:\n%s", chrome)
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
 	plain = ansi.Strip(m.View())
-	if !m.shortcutsOpen || !strings.Contains(plain, "快捷方式") || !strings.Contains(plain, "ctrl+s") {
+	if !m.shortcutsOpen || !strings.Contains(plain, "Shortcuts") || !strings.Contains(plain, "ctrl+s") {
 		t.Fatalf("ctrl+x did not open shortcuts:\n%s", plain)
 	}
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -246,7 +247,7 @@ func TestInputChromeUsesShiftHHelpAndKeepsKeysOnTheRight(t *testing.T) {
 	}
 
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
-	if !m.commandPaletteOpen || m.shortcutsOpen || !strings.Contains(ansi.Strip(m.View()), "帮助") {
+	if !m.commandPaletteOpen || m.shortcutsOpen || !strings.Contains(ansi.Strip(m.View()), "Help") {
 		t.Fatalf("shift+h did not open help: palette=%v shortcuts=%v\n%s", m.commandPaletteOpen, m.shortcutsOpen, m.View())
 	}
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -271,10 +272,10 @@ func TestShiftTabCyclesWorkingModes(t *testing.T) {
 	m := New(driver)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	m = next.(Model)
-	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "shift+tab") || !strings.Contains(got, "切换模式") {
+	if got := ansi.Strip(m.renderInputChrome(80, DefaultPalette())); !strings.Contains(got, "shift+tab") || !strings.Contains(got, "Switch mode") {
 		t.Fatalf("default mode chrome:\n%s", got)
 	}
-	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "智能") {
+	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "Smart") {
 		t.Fatalf("default composer mode chip:\n%s", got)
 	}
 
@@ -282,7 +283,7 @@ func TestShiftTabCyclesWorkingModes(t *testing.T) {
 	if driver.runMode != "plan" || driver.sessions[0].PermissionPreset != "smart" {
 		t.Fatalf("smart → plan: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
 	}
-	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "计划") {
+	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "Plan") {
 		t.Fatalf("plan composer chip:\n%s", got)
 	}
 
@@ -290,7 +291,7 @@ func TestShiftTabCyclesWorkingModes(t *testing.T) {
 	if driver.runMode != "normal" || driver.sessions[0].PermissionPreset != "cautious" {
 		t.Fatalf("plan → readonly: mode=%q perm=%q", driver.runMode, driver.sessions[0].PermissionPreset)
 	}
-	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "只读") {
+	if got := ansi.Strip(m.renderEditor(80, DefaultPalette())); !strings.Contains(got, "Read-only") {
 		t.Fatalf("readonly composer chip:\n%s", got)
 	}
 
@@ -345,7 +346,7 @@ func TestInputChromeUsesColorWithoutTTY(t *testing.T) {
 func TestCommandPaletteHighlightsMatchesAndHidesUnselectedUsage(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	d := &commandDriver{testDriver: &testDriver{}}
-	m := New(d)
+	m := New(d, Options{Locale: corei18n.Chinese})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
 	m = paletteKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("只读资源")})
 	view := m.View()

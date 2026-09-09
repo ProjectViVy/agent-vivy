@@ -97,6 +97,27 @@ be accepted before P6 defines a stable UI plugin SDK. If the contract is still
 moving, P1 remains `UNSCHEDULED`; compiler code must not guess the final I18N
 shape.
 
+### Recorded I18N Task 8 authority ruling (2026-09-09)
+
+Task 8 (plugin-owned catalog validation and provenance) is deliberately
+deferred. The current SDK still implements the rejected `vivy.plugin/v0`
+experiment: its directory/name identity and separate plugin/face artifact
+entries are not the normative v1 Module ID or selected-Module provenance
+schema. PLG-P1 remains `UNSCHEDULED`; its v1 Descriptor, Assembly Compiler,
+and sealed artifact implementation must exist before catalog ownership and
+provenance can be attached to an approved schema. No v0 extension, fallback
+identity, or artifact mapping is authorized by the core I18N work.
+
+Resumption requires the manually scheduled v1 foundation and explicit
+acceptance/scheduling of this extension, including catalog schema,
+Module-ID namespace ownership, selected-input hashing, and conformance tests.
+P1/P2 landing constraints still apply, and P6 runtime UI work is not scheduled
+by this ruling. The metadata below remains a non-normative proposal, not an
+implemented SDK, pack, or plugin runtime UI capability. This deferral does not
+reduce the complete Web/TUI English-and-Chinese localization requirement.
+
+### Proposed boundary
+
 The host/plugin boundary should use shared translation units with independently
 owned catalogs:
 

@@ -16,6 +16,7 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('generations/get');
     expect(api.RPC_METHODS).toContain('evals/start');
     expect(api.RPC_METHODS).toContain('settings/update');
+    expect(api.RPC_METHODS).toContain('settings/locale');
     expect(api.RPC_METHODS).toContain('settings/providers/refresh');
     expect(api.RPC_METHODS).toContain('session/todos');
     expect(api.RPC_METHODS).toContain('session/todo/update');
@@ -56,5 +57,11 @@ describe('typed Vivy API', () => {
     await api.deleteCronJob('cron_1'); expect(call).toHaveBeenLastCalledWith('cron/delete', { id: 'cron_1' });
     await api.triggerCronJob('cron_1'); expect(call).toHaveBeenLastCalledWith('cron/trigger', { id: 'cron_1' });
     await api.stopCronJob('cron_1'); expect(call).toHaveBeenLastCalledWith('cron/stop', { id: 'cron_1' });
+  });
+  it('updates the global locale through the narrow settings method', async () => {
+    call.mockResolvedValueOnce({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    const result = await api.updateLocale('zh');
+    expect(call).toHaveBeenLastCalledWith('settings/locale', { locale: 'zh' });
+    expect(result).toEqual({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
   });
 });

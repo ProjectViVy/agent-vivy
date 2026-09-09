@@ -2,13 +2,18 @@ package codeface
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"agent-vivy/internal/app"
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/storage/sqlite"
+	"agent-vivy/sdk/plugin"
+	"agent-vivy/sdk/tui/live"
 )
 
 func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
@@ -46,6 +51,53 @@ func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 		t.Fatalf("local world = %+v", first.Config.Runtime)
 	}
 }
+
+// The code launcher must hydrate from the shared settings, not the private
+// runtime's conflicting locale. The face test covers the remaining view hop.
+func TestCodeLaunchSettingsLocaleUsesSharedPath(t *testing.T) {
+	shared := t.TempDir()
+	cfg := config.Default()
+	cfg.Storage.DataDir = shared
+	cfg.Storage.SQLite.Path = filepath.Join(shared, "web.db")
+	cfg.Runtime.SkillsRoot = filepath.Join(shared, "skills")
+	cfg.Providers.BundleDir = filepath.Join("..", "..", "fixtures", "provider")
+	prepared, err := Prepare(cfg, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Save(prepared.SharedSettingsPath, settings.Settings{Locale: "zh"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Save(settings.Path(prepared.InstanceRoot), settings.Settings{Locale: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.RunFaceWithAppOptions(context.Background(), prepared.Config,
+		func(plugin.FaceOptions) plugin.Face { return &localeCheckingFace{t: t} },
+		plugin.FaceOptions{Out: io.Discard, Err: io.Discard}, codeAppOptions(prepared)...)
+	if err != nil || result.Status != "completed" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+type localeCheckingFace struct{ t *testing.T }
+
+func (*localeCheckingFace) Kind() string { return "tui" }
+
+func (f *localeCheckingFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, error) {
+	controller, err := live.New(ctx, localeFaceTransport{env}, live.Options{})
+	if err != nil {
+		return plugin.FaceResult{}, err
+	}
+	defer controller.Close()
+	if controller.Locale() != "zh" || controller.Meta().Error != "" {
+		f.t.Errorf("locale=%q warning=%q", controller.Locale(), controller.Meta().Error)
+	}
+	return plugin.FaceResult{Status: "completed"}, nil
+}
+
+type localeFaceTransport struct{ plugin.FaceEnv }
+
+func (t localeFaceTransport) OnNotify(fn func(string, json.RawMessage)) { t.OnEvent(fn) }
 
 func TestPrepareCanonicalizesProjectReachedThroughLinkedParent(t *testing.T) {
 	realParent := t.TempDir()

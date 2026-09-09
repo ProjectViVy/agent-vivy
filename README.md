@@ -35,7 +35,7 @@ just setup         # go mod download
 just ensure-studio # git submodule update --init studio/ (ProjectViVy/vivy-studio)
 just build         # go build ./...
 just test          # go test ./...
-just ci            # Go fmt/vet/test + UI install/typecheck/unit/build
+just ci            # Go fmt/vet/test + UI install/typecheck/unit/build + I18N completeness
 just run           # run the vivy process (health endpoint on :8787)
 just tui           # build and run an independent VIVY CODE TUI
 just dev           # one-click split loop: backend :8787 + Vite :3015
@@ -70,6 +70,57 @@ dev`. Open `http://127.0.0.1:3015`. The Vite server proxies `/rpc` to
 the backend, so UI and Go changes can be iterated independently. The
 embedded UI is the default release/CI path; use `just build-split` when
 you need the packaged headless backend and standalone static UI.
+
+## Interface language
+
+English (`en`) is the product default. Exactly `en` and `zh` are supported;
+browser or operating-system language does not select another locale.
+For development or a new pack, set this non-secret input in the local root
+`.env` (which remains gitignored; never commit it):
+
+```dotenv
+VIVY_DEFAULT_LOCALE=en
+```
+
+An already-set process `VIVY_DEFAULT_LOCALE` takes precedence over `.env`,
+including validation: an empty or unsupported process value fails rather than
+falling through to the file. If neither source supplies a value, use `en`.
+Only this setting is read by the locale loader; unrelated `.env` values are
+not logged or copied into presentation metadata.
+
+`vivy-sdk pack` embeds the resolved default in the executable and in
+`generation.json` at `recipe.settings.locale`. A sealed Generation keeps that
+default even if the process environment or source-tree `.env` later changes.
+An unsealed development body resolves the process/file default at startup.
+This existing core locale embedding does not imply that the current SDK
+implements the v1 plugin platform.
+
+Settings → Language writes `locale` in the global VIVY workspace
+`settings.yaml`, not the current project's settings or browser storage.
+That user override wins over the Generation/development default and is shared
+by Web, TUI, and VIVY CODE. An absent or empty workspace locale means no
+override. Sealing fixes the default, not the user's presentation preference.
+
+Both faces use backend authority: `settings/get` returns `locale`,
+`generation_locale`, `workspace_locale`, and `locale_read_only`;
+`settings/locale` accepts `{ "locale": "en" }` or `{ "locale": "zh" }`
+and returns the same locale view. The narrow write preserves unrelated
+settings, rejects unsupported locales and read-only deployments, and remains
+allowed when provider settings are frozen. Web applies the successful backend
+response; localStorage is only a startup cache and hydration supersedes it.
+TUI hydrates through the same settings RPC for in-process and `--live` use;
+if unavailable, it retains the embedded default with a sanitized warning.
+This is shared persistence and hydration, not cross-process live push.
+User/model/tool text, Journal content, and protocol identifiers remain data.
+
+From the repository root, `node scripts/check-i18n-completeness.js` validates
+Web catalog key/placeholder parity and maintained runtime copy. `just ci`
+runs it after UI dependency installation without replacing the existing Go,
+headless, plugin-module, or UI gates. See the
+[I18N implementation status](docs/superpowers/specs/2026-09-09-i18n-design.md#final-implementation-status)
+for fresh verification evidence and the deliberately deferred plugin catalog
+proposal; Go/TUI execution and the complete `just ci` gate remain unverified
+in the 2026-09-09 Task 9 environment.
 
 ## Layout
 

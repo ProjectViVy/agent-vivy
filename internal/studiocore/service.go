@@ -147,11 +147,12 @@ type sdkArtifact struct {
 	ArtifactSHA256 string `json:"artifact_sha256"`
 	SourceRef      string `json:"source_ref"`
 	Recipe         struct {
-		Loop      string   `json:"loop,omitempty"`
-		World     string   `json:"world,omitempty"`
-		Providers []string `json:"providers,omitempty"`
-		Tools     []string `json:"tools,omitempty"`
-		Plugins   []string `json:"plugins,omitempty"`
+		Loop      string                    `json:"loop,omitempty"`
+		World     string                    `json:"world,omitempty"`
+		Providers []string                  `json:"providers,omitempty"`
+		Tools     []string                  `json:"tools,omitempty"`
+		Plugins   []string                  `json:"plugins,omitempty"`
+		Settings  domain.GenerationSettings `json:"settings,omitempty"`
 	} `json:"recipe"`
 	Phase string `json:"phase"`
 }
@@ -209,6 +210,7 @@ func (s *Service) recordGeneration(ctx context.Context, outDir string) (domain.G
 			Providers: art.Recipe.Providers,
 			Tools:     art.Recipe.Tools,
 			Plugins:   art.Recipe.Plugins,
+			Settings:  art.Recipe.Settings,
 		},
 		Phase:     domain.GenerationBuilt,
 		CreatedAt: time.Now().UnixMilli(),

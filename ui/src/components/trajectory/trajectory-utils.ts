@@ -5,6 +5,7 @@
  */
 
 import type { TrajectoryRecord, TrajectoryTimelineMode, TrajectoryTimeRange } from './trajectory-types';
+import { t } from '@/i18n';
 
 /** 一条时间轴条带（记录在所选投影域内的位置）。 */
 export interface TrajectoryTimelineSpan {
@@ -177,7 +178,7 @@ export function formatTimelineOffset(milliseconds: number): string {
 
 /** 回合标签：`#N`；null 区段显示会话起始。 */
 export function turnLabel(turn: number | null): string {
-  return turn === null ? 'Session' : `#${turn}`;
+  return turn === null ? t('trajectory.session') : `#${turn}`;
 }
 
 /** 回合起始记录的索引（账本展示回合标签用；首个区段记录也算起始）。 */

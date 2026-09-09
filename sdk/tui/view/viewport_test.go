@@ -150,17 +150,17 @@ func TestLoadingHistoryNeverPosesAsEmptyConversation(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	m = updated.(Model)
 	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "正在加载会话历史") {
+	if !strings.Contains(view, "Loading session history") {
 		t.Fatalf("loading history did not show the loading row:\n%s", view)
 	}
-	if strings.Contains(view, "寻找真心之旅") {
+	if strings.Contains(view, "A journey to find a true heart") {
 		t.Fatalf("loading history rendered the empty-conversation hero:\n%s", view)
 	}
 
 	d.meta = surface.Meta{}
 	updated, _ = m.Update(surface.RefreshMsg{})
 	m = updated.(Model)
-	if !strings.Contains(ansi.Strip(m.View()), "寻找真心之旅") {
+	if !strings.Contains(ansi.Strip(m.View()), "A journey to find a true heart") {
 		t.Fatalf("empty session lost its hero:\n%s", ansi.Strip(m.View()))
 	}
 }

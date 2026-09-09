@@ -26,12 +26,14 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
+	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/tui/command"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 )
 
 var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
@@ -86,6 +88,14 @@ type ControlDeps struct {
 	// When empty the settings RPCs report the config defaults and reject
 	// updates (read-only mode).
 	SettingsPath string
+	// GenerationLocale is the immutable locale embedded in this Generation.
+	GenerationLocale i18n.Locale
+	// DeveloperLocale is the development-body default resolved by the
+	// composition root. Sealed generations ignore it.
+	DeveloperLocale i18n.Locale
+	// SealedGeneration prevents developer environment state from affecting
+	// the embedded Generation default.
+	SealedGeneration bool
 	// ConfigProvider is the production config default provider (non-secret),
 	// surfaced by settings/get so the UI can show the fallback.
 	ConfigProvider string
@@ -639,7 +649,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"child.start", "child.get", "child.list", "child.wait", "child.cancel",
 			"generations.list", "generations.get", "generations.create", "evals.list", "evals.record", "evals.start", "promotions.list", "promotions.promote",
 			"generations.reject", "species.inspect",
-			"settings.get", "settings.update",
+			"settings.get", "settings.update", "settings.locale",
 			"settings.providers", "settings.providers.upsert", "settings.providers.delete", "settings.providers.refresh", "settings.model.select",
 			"settings.mcp", "settings.mcp.upsert", "settings.mcp.delete", "settings.mcp.probe",
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
@@ -796,6 +806,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.inspectSpecies(ctx)
 	case "settings/get":
 		return h.getSettings(ctx)
+	case "settings/locale":
+		return h.updateLocale(request)
 	case "settings/update":
 		return h.updateSettings(ctx, request)
 	case "settings/providers":
@@ -1307,7 +1319,7 @@ func (h *controlHandler) listDynamicCommands(ctx context.Context) (any, *Error) 
 		if len(out) >= maxDynamicCommands || !safeDynamicCommandName(name) || strings.TrimSpace(item.ID) == "" {
 			return
 		}
-		if _, reserved := command.DefaultRegistry().Lookup(name); reserved {
+		if _, reserved := command.DefaultRegistry(tuii18n.New(i18n.English)).Lookup(name); reserved {
 			return
 		}
 		if _, duplicate := seen[name]; duplicate {
@@ -1415,7 +1427,7 @@ func (h *controlHandler) expandSkillCommand(ctx context.Context, id string, args
 	if !safeDynamicCommandName(name) {
 		return nil, &Error{Code: InvalidParams, Message: "a valid skill command id is required"}
 	}
-	if _, reserved := command.DefaultRegistry().Lookup(name); reserved {
+	if _, reserved := command.DefaultRegistry(tuii18n.New(i18n.English)).Lookup(name); reserved {
 		return nil, &Error{Code: CodeNotFound, Message: "dynamic command is unavailable"}
 	}
 	items, err := h.deps.Skills.ListSkills(ctx, "")
@@ -3257,6 +3269,7 @@ func (h *controlHandler) inspectSpecies(ctx context.Context) (any, *Error) {
 // network tool preferences surfaced in the Settings UI. Secret values are
 // never included: only the api_key_set flag is exposed.
 type settingsResult struct {
+	localeSettingsResult
 	// Provider is the active bundle name (openai|anthropic), or empty
 	// when the config default applies.
 	Provider string `json:"provider"`
@@ -3295,6 +3308,15 @@ type settingsResult struct {
 	// HTTP is the effective http_request surface (allowlist + timeout) plus
 	// the config defaults the UI falls back to when a field is cleared.
 	HTTP httpSettingsResult `json:"http"`
+}
+
+// localeSettingsResult is the backend-authoritative locale view shared by
+// settings/get and the narrow settings/locale write response.
+type localeSettingsResult struct {
+	Locale           string `json:"locale"`
+	GenerationLocale string `json:"generation_locale"`
+	WorkspaceLocale  string `json:"workspace_locale"`
+	ReadOnly         bool   `json:"locale_read_only"`
 }
 
 // compactionSettingsResult is the wire shape of the compaction overlay:
@@ -3398,19 +3420,28 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	var savedSandbox settings.SandboxSettings
 	var savedCompaction *settings.CompactionSettings
 	var savedHTTP *settings.HTTPSettings
+	workspaceLocale := ""
 	if h.deps.SettingsPath != "" {
-		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
-			out.Provider = s.Provider
-			out.DefaultModel = s.DefaultModel
-			out.BaseURL = s.BaseURL
-			out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
-			savedSearchProvider = s.NetworkSearch.Provider
-			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
-			savedSandbox = s.Sandbox
-			savedCompaction = s.Compaction
-			savedHTTP = s.HTTP
+		s, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
+		workspaceLocale = s.Locale
+		out.Provider = s.Provider
+		out.DefaultModel = s.DefaultModel
+		out.BaseURL = s.BaseURL
+		out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
+		savedSearchProvider = s.NetworkSearch.Provider
+		out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
+		savedSandbox = s.Sandbox
+		savedCompaction = s.Compaction
+		savedHTTP = s.HTTP
 	}
+	localeView, rpcErr := h.localeSettingsView(workspaceLocale)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	out.localeSettingsResult = localeView
 	// Reflect the production config defaults so the UI can show what a
 	// cleared field falls back to. The runtime never exposes secret values.
 	out.ConfigProvider = h.deps.ConfigProvider
@@ -3421,6 +3452,48 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out.Compaction = h.compactionView(savedCompaction)
 	out.HTTP = h.httpView(savedHTTP)
 	return out, nil
+}
+
+func (h *controlHandler) localeSettingsView(workspaceLocale string) (localeSettingsResult, *Error) {
+	generationLocale := h.deps.GenerationLocale
+	if generationLocale == "" {
+		generationLocale = i18n.English
+	}
+	effective, err := i18n.Resolve(workspaceLocale, generationLocale, h.deps.DeveloperLocale, h.deps.SealedGeneration)
+	if err != nil {
+		return localeSettingsResult{}, internalError(err)
+	}
+	return localeSettingsResult{
+		Locale:           string(effective),
+		GenerationLocale: string(generationLocale),
+		WorkspaceLocale:  workspaceLocale,
+		ReadOnly:         h.deps.SettingsPath == "",
+	}, nil
+}
+
+func (h *controlHandler) updateLocale(request Request) (any, *Error) {
+	if h.deps.SettingsPath == "" {
+		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
+	}
+	var params struct {
+		Locale string `json:"locale"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	locale, err := i18n.Parse(params.Locale)
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
+		cur.Locale = string(locale)
+		return cur, nil
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	h.notifySettingsChanged()
+	return h.localeSettingsView(saved.Locale)
 }
 
 func (h *controlHandler) sandboxView(saved settings.SandboxSettings) sandboxSettingsResult {
@@ -3637,10 +3710,15 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	}
 	h.notifySettingsChanged()
 	_ = ctx
+	localeView, rpcErr := h.localeSettingsView(saved.Locale)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	// Echo the config fallbacks too so the UI keeps its display values
 	// (provider/model/execute ceiling) consistent right after a save,
 	// instead of flashing empty/zero until the next settings/get.
 	return settingsResult{
+		localeSettingsResult:            localeView,
 		Provider:                       saved.Provider,
 		DefaultModel:                   saved.DefaultModel,
 		BaseURL:                        saved.BaseURL,
@@ -3679,19 +3757,25 @@ type toolsCatalogView struct {
 
 // activeToolsFromOverlay resolves the effective active set: the settings
 // tools_enabled overlay when written, else the config default.
-func (h *controlHandler) activeToolsFromOverlay() ([]string, bool) {
+func (h *controlHandler) activeToolsFromOverlay() ([]string, bool, *Error) {
 	if h.deps.SettingsPath == "" {
-		return append([]string(nil), h.deps.ConfigToolsEnabled...), false
+		return append([]string(nil), h.deps.ConfigToolsEnabled...), false, nil
 	}
-	s, err := settings.Load(h.deps.SettingsPath)
-	if err != nil || s.ToolsEnabled == nil {
-		return append([]string(nil), h.deps.ConfigToolsEnabled...), false
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, false, rpcErr
 	}
-	return append([]string(nil), *s.ToolsEnabled...), true
+	if s.ToolsEnabled == nil {
+		return append([]string(nil), h.deps.ConfigToolsEnabled...), false, nil
+	}
+	return append([]string(nil), *s.ToolsEnabled...), true, nil
 }
 
 func (h *controlHandler) listTools() (any, *Error) {
-	active, written := h.activeToolsFromOverlay()
+	active, written, rpcErr := h.activeToolsFromOverlay()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	activeSet := make(map[string]struct{}, len(active))
 	for _, name := range active {
 		activeSet[name] = struct{}{}

@@ -12,7 +12,38 @@ import (
 
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/i18n"
 )
+
+func TestDeveloperPresentationLocaleUsesRootDotEnvOnlyWhenUnsealed(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("VIVY_DEFAULT_LOCALE=zh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, existed := os.LookupEnv(i18n.DefaultLocaleEnv)
+	if err := os.Unsetenv(i18n.DefaultLocaleEnv); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(i18n.DefaultLocaleEnv, old)
+			return
+		}
+		_ = os.Unsetenv(i18n.DefaultLocaleEnv)
+	})
+
+	got, err := developerPresentationLocale(root, false)
+	if err != nil || got != i18n.Chinese {
+		t.Fatalf("unsealed developer locale = %q, %v; want zh", got, err)
+	}
+	if err := os.Setenv(i18n.DefaultLocaleEnv, "ja"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = developerPresentationLocale(root, true)
+	if err != nil || got != "" {
+		t.Fatalf("sealed developer locale = %q, %v; want empty and no dotenv/env read", got, err)
+	}
+}
 
 func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	dir := t.TempDir()

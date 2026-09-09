@@ -135,7 +135,7 @@ func TestFindSafeMarkdownBoundaryHazards(t *testing.T) {
 func TestStreamingMessageRendersThroughCache(t *testing.T) {
 	id := "stream-message"
 	t.Cleanup(func() { delete(streamEntries, streamEntryKey{id: id}) })
-	lines := renderMessage(surface.Message{
+	lines := (Model{}).renderMessage(surface.Message{
 		ID: id, Role: surface.RoleAssistant, Content: "# Live\n\nStreaming body", Streaming: true,
 	}, 80, DefaultPalette())
 	stripped := ansi.Strip(strings.Join(lines, "\n"))
