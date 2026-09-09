@@ -1,6 +1,28 @@
 package domain
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestGenerationSettingsJSON(t *testing.T) {
+	recipe := AssemblyRecipe{Settings: GenerationSettings{Locale: "zh"}}
+	raw, err := json.Marshal(recipe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(raw), `{"settings":{"locale":"zh"}}`; got != want {
+		t.Fatalf("json = %s, want %s", got, want)
+	}
+
+	var old AssemblyRecipe
+	if err := json.Unmarshal([]byte(`{"loop":"eino"}`), &old); err != nil {
+		t.Fatal(err)
+	}
+	if old.Loop != "eino" || old.Settings.Locale != "" {
+		t.Fatalf("old recipe = %+v", old)
+	}
+}
 
 func TestGenerationPhaseVocabulary(t *testing.T) {
 	for _, p := range []GenerationPhase{GenerationBuilt, GenerationEvalPending, GenerationEvaluated, GenerationPromoted, GenerationReleased, GenerationRejected} {
