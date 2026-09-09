@@ -12,7 +12,7 @@ import (
 
 func TestRenderMessageMarkdownTypography(t *testing.T) {
 	source := "# Title\n\n## Section\n\nThis is **bold** and `code`.\n\n- item one\n- item two\n\n> quoted\n\n```go\nfmt.Println(\"hi\")\n```\n\nSee [docs](https://example.com).\n"
-	lines := renderMessage(surface.Message{Role: surface.RoleAssistant, Content: source}, 80, DefaultPalette())
+	lines := (Model{}).renderMessage(surface.Message{Role: surface.RoleAssistant, Content: source}, 80, DefaultPalette())
 	if len(lines) == 0 {
 		t.Fatal("markdown message rendered no lines")
 	}
@@ -48,11 +48,11 @@ func TestRenderMessageMarkdownTypography(t *testing.T) {
 }
 
 func TestRenderMessageMarkdownUserAndReasoning(t *testing.T) {
-	user := strings.Join(renderMessage(surface.Message{Role: surface.RoleUser, Content: "# Hello\n\n- one"}, 80, DefaultPalette()), "\n")
+	user := strings.Join((Model{}).renderMessage(surface.Message{Role: surface.RoleUser, Content: "# Hello\n\n- one"}, 80, DefaultPalette()), "\n")
 	if !strings.Contains(ansi.Strip(user), "Hello") || strings.Contains(ansi.Strip(user), "# Hello") {
 		t.Fatalf("user markdown was not styled: %q", ansi.Strip(user))
 	}
-	thinking := strings.Join(renderMessage(surface.Message{
+	thinking := strings.Join((Model{}).renderMessage(surface.Message{
 		Role: surface.RoleAssistant, Content: "# Loud\n\n- quiet", Reasoning: true,
 	}, 80, DefaultPalette()), "\n")
 	plain := ansi.Strip(thinking)
@@ -67,7 +67,7 @@ func TestRenderMessageMarkdownUserAndReasoning(t *testing.T) {
 func TestRenderMessageMarkdownFitsNarrowViewportAndDropsBidi(t *testing.T) {
 	message := surface.Message{Role: surface.RoleAssistant, Content: "# 你e\u0301\n\n- 👨‍👩‍👧‍👦\u202eabc\u2066", Streaming: true}
 	for width := 1; width <= 12; width++ {
-		lines := renderMessage(message, width, DefaultPalette())
+		lines := (Model{}).renderMessage(message, width, DefaultPalette())
 		if len(lines) == 0 {
 			t.Fatalf("width %d rendered no message lines", width)
 		}

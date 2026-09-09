@@ -71,7 +71,7 @@ func TestChromeIdleKeepsHintsAndNoSpinner(t *testing.T) {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = next.(Model)
 	chrome := ansi.Strip(m.renderInputChrome(80, DefaultPalette()))
-	if !strings.Contains(chrome, "shift+tab") || !strings.Contains(chrome, "切换模式") {
+	if !strings.Contains(chrome, "shift+tab") || !strings.Contains(chrome, "Switch mode") {
 		t.Fatalf("idle chrome lost hints:\n%s", chrome)
 	}
 	for _, frame := range spinnerFrames {
@@ -247,21 +247,21 @@ func scrollHintModel(t *testing.T) (Model, *testDriver) {
 
 func TestChromeScrollHintVariants(t *testing.T) {
 	p := DefaultPalette()
-	if got := chromeScrollHint(p, chatScrollInfo{follow: true, offset: 0, maxScroll: 50, viewport: 10}); got != "" {
+	if got := (Model{}).chromeScrollHint(p, chatScrollInfo{follow: true, offset: 0, maxScroll: 50, viewport: 10}); got != "" {
 		t.Fatalf("follow-mode hint = %q, want empty", ansi.Strip(got))
 	}
-	if got := chromeScrollHint(p, chatScrollInfo{follow: false, offset: 0, maxScroll: 0, viewport: 10}); got != "" {
+	if got := (Model{}).chromeScrollHint(p, chatScrollInfo{follow: false, offset: 0, maxScroll: 0, viewport: 10}); got != "" {
 		t.Fatalf("maxScroll=0 hint = %q, want empty", ansi.Strip(got))
 	}
-	if got := chromeScrollHint(p, chatScrollInfo{follow: false, offset: 9, maxScroll: 12, viewport: 10}); got != "" {
+	if got := (Model{}).chromeScrollHint(p, chatScrollInfo{follow: false, offset: 9, maxScroll: 12, viewport: 10}); got != "" {
 		t.Fatalf("near-bottom hint = %q, want empty", ansi.Strip(got))
 	}
-	got := ansi.Strip(chromeScrollHint(p, chatScrollInfo{follow: false, offset: 2, maxScroll: 12, viewport: 10}))
-	if !strings.Contains(got, "↓ end") || !strings.Contains(got, "回到底部") {
+	got := ansi.Strip((Model{}).chromeScrollHint(p, chatScrollInfo{follow: false, offset: 2, maxScroll: 12, viewport: 10}))
+	if !strings.Contains(got, "↓ end") || !strings.Contains(got, "Back to bottom") {
 		t.Fatalf("near-bottom hint = %q, want the end jump", got)
 	}
-	got = ansi.Strip(chromeScrollHint(p, chatScrollInfo{follow: false, offset: 0, maxScroll: 79, viewport: 10}))
-	if !strings.Contains(got, "↑ 历史") || !strings.Contains(got, "下方还有 79 行") {
+	got = ansi.Strip((Model{}).chromeScrollHint(p, chatScrollInfo{follow: false, offset: 0, maxScroll: 79, viewport: 10}))
+	if !strings.Contains(got, "↑ History") || !strings.Contains(got, "79 lines below") {
 		t.Fatalf("deep-park hint = %q, want remaining lines", got)
 	}
 }
@@ -311,24 +311,24 @@ func TestChromeRowShowsScrollHintWhileParked(t *testing.T) {
 	m, _ := scrollHintModel(t)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 88, Height: 24})
 	m = next.(Model)
-	if strings.Contains(ansi.Strip(m.View()), "回到底部") {
+	if strings.Contains(ansi.Strip(m.View()), "Back to bottom") {
 		t.Fatal("following viewport shows the scroll hint")
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	m = next.(Model)
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "↓ end") || !strings.Contains(view, "回到底部") {
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "↓ end") || !strings.Contains(view, "Back to bottom") {
 		t.Fatalf("parked viewport missing the jump-to-bottom hint:\n%s", view)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	m = next.(Model)
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "↑ 历史") || !strings.Contains(view, "下方还有") {
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "↑ History") || !strings.Contains(view, "lines below") {
 		t.Fatalf("deep-parked viewport missing the remaining-lines hint:\n%s", view)
 	}
 	// Returning to the bottom with `end` hides the hint again.
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	m = next.(Model)
 	view := ansi.Strip(m.View())
-	if strings.Contains(view, "回到底部") || strings.Contains(view, "↑ 历史") {
+	if strings.Contains(view, "Back to bottom") || strings.Contains(view, "↑ History") {
 		t.Fatalf("bottom viewport still shows the scroll hint:\n%s", view)
 	}
 }
@@ -343,7 +343,7 @@ func TestChromeScrollHintHiddenNearBottom(t *testing.T) {
 	m.chatScroll = m.chatMaxScroll() - 2
 	next, _ = m.Update(surface.RefreshMsg{})
 	m = next.(Model)
-	if strings.Contains(ansi.Strip(m.View()), "回到底部") {
+	if strings.Contains(ansi.Strip(m.View()), "Back to bottom") {
 		t.Fatal("scroll hint shown within two lines of the bottom")
 	}
 	if m.chatFollow {

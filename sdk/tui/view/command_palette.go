@@ -22,20 +22,18 @@ func (m Model) renderCommandPalette(l layout, p Palette) string {
 	lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
 	query := sanitizeCommandPaletteFilter(m.commandPaletteFilter)
 	compact := l.height < 16
-	filter := p.DialogFooter.Render("输入以筛选命令…")
+	filter := p.DialogFooter.Render(m.translator.T("vivy.tui.palette.prompt", nil))
 	if query != "" {
-		label := "筛选："
-		if compact {
-			label = "筛选："
-		}
-		filter = p.DialogFooter.Render(label) + p.Match.Render(truncate(query, max(1, lineWidth-lipgloss.Width(label))))
+		label := m.translator.T("vivy.tui.filter.value", map[string]any{"filter": ""})
+		value := p.Match.Render(truncate(query, max(1, lineWidth-lipgloss.Width(label))))
+		filter = p.DialogFooter.Render(m.translator.T("vivy.tui.filter.value", map[string]any{"filter": value}))
 	}
 
-	lines := []string{p.DialogTitle.Render("帮助"), filter}
+	lines := []string{p.DialogTitle.Render(m.translator.T("vivy.tui.common.help", nil)), filter}
 	if m.commandCatalogLoading {
-		lines = append(lines, p.DialogFooter.Render("正在刷新动态命令…"))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.palette.loading", nil)))
 	} else if m.commandCatalogError != "" {
-		lines = append(lines, p.DialogFooter.Render("动态刷新失败："+truncate(m.commandCatalogError, max(1, lineWidth-12))))
+		lines = append(lines, p.DialogFooter.Render(truncate(m.translator.T("vivy.tui.palette.refreshError", map[string]any{"error": m.commandCatalogError}), lineWidth)))
 	}
 	if !compact {
 		lines = append(lines, "")
@@ -43,7 +41,7 @@ func (m Model) renderCommandPalette(l layout, p Palette) string {
 
 	commands := m.filteredCommands()
 	if len(commands) == 0 {
-		lines = append(lines, p.DialogFooter.Render("没有匹配的命令"))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.palette.empty", nil)))
 	} else {
 		cursor := min(max(0, m.commandPaletteCursor), len(commands)-1)
 		body := m.paletteBodyLines(sections, commands, cursor, query, lineWidth, !compact, p)
@@ -68,11 +66,14 @@ func (m Model) renderCommandPalette(l layout, p Palette) string {
 	if !compact {
 		lines = append(lines, "")
 	}
-	footer := "↑/↓ 选择 · enter 填入 · esc 关闭"
+	footer := m.translator.T("vivy.tui.palette.footer", nil)
 	if compact {
 		footer = "↑/↓ · enter · esc"
 	}
 	lines = append(lines, p.DialogFooter.Render(footer))
+	for i, line := range lines {
+		lines[i] = truncate(line, lineWidth)
+	}
 	return p.Dialog.Width(w).Render(strings.Join(lines, "\n"))
 }
 
@@ -91,13 +92,13 @@ func (m Model) paletteSections() []paletteSection {
 	}
 	sections := make([]paletteSection, 0, 3)
 	if len(system) > 0 {
-		sections = append(sections, paletteSection{title: "系统", rows: system})
+		sections = append(sections, paletteSection{title: m.translator.T("vivy.tui.palette.system", nil), rows: system})
 	}
 	if len(skill) > 0 {
-		sections = append(sections, paletteSection{title: "技能", rows: skill})
+		sections = append(sections, paletteSection{title: m.translator.T("vivy.tui.palette.skills", nil), rows: skill})
 	}
 	if len(mcp) > 0 {
-		sections = append(sections, paletteSection{title: "MCP", rows: mcp})
+		sections = append(sections, paletteSection{title: m.translator.T("vivy.tui.palette.mcp", nil), rows: mcp})
 	}
 	return sections
 }

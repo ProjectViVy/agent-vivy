@@ -79,7 +79,7 @@ func TestToolCardRoutesMarkdownResultThroughChroma(t *testing.T) {
 		Status:   "done",
 		Result:   "# Report\n\n- alpha\n- beta",
 	}
-	rendered := strings.Join(renderToolWithOptions(card, 80, DefaultPalette(), false), "\n")
+	rendered := strings.Join((Model{}).renderToolWithOptions(card, 80, DefaultPalette(), false), "\n")
 	if !strings.Contains(rendered, "\x1b[38;5;") {
 		t.Fatalf("markdown tool result did not use the code path:\n%q", rendered)
 	}
