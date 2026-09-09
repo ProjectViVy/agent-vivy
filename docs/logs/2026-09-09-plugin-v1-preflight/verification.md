@@ -40,4 +40,7 @@ Actions `just ci` job is the authoritative full run for this delivery.
   is an active-I18N expectation mismatch: the implementation now emits English
   while the existing test still expects a Chinese literal. These failures are
   outside this isolated lane and are intentionally not patched here.
-- Record the follow-up workflow URL and final result here after it runs.
+- [GitHub Actions run 2](https://github.com/ProjectViVy/agent-vivy/actions/runs/34370987236)
+  confirmed the runner fixes: no missing-`rg` or unapproved-build failure;
+  fixture checks, corpus validation, install, and typecheck passed. The full
+  gate then stopped on the same 16 pre-existing active-I18N test expectations.
