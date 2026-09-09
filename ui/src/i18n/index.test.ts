@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getLocale, localeOptions, resetLocaleForTests, setLocale, t } from './index';
+import * as localeStore from './index';
+import { getLocale, localeOptions, resetLocaleForTests, t } from './index';
 import { zh } from './zh';
 import { en } from './en';
 
@@ -39,15 +40,20 @@ describe('i18n dictionary parity', () => {
 });
 
 describe('t() lookup', () => {
-  it('defaults to zh', () => {
-    expect(getLocale()).toBe('zh');
-    expect(t('notebook.reports')).toBe('报告');
+  it('uses English with no saved or backend value', () => {
+    resetLocaleForTests();
+    expect(getLocale()).toBe('en');
+    expect(t('notebook.reports')).toBe('Reports');
   });
 
-  it('falls back to zh when the current locale lacks a key', () => {
-    setLocale('en');
-    expect(t('notebook.reports')).toBe('Reports');
-    resetLocaleForTests();
+  it('does not detect the locale from browser languages', async () => {
+    vi.stubGlobal('window', { localStorage: { getItem: () => null, setItem: () => undefined } });
+    vi.stubGlobal('navigator', { languages: ['zh-CN'], language: 'zh-CN' });
+    vi.resetModules();
+
+    const freshLocaleStore = await import('./index');
+
+    expect(freshLocaleStore.getLocale()).toBe('en');
   });
 
   it('returns the key itself when no dictionary has it', () => {
@@ -55,13 +61,13 @@ describe('t() lookup', () => {
   });
 
   it('interpolates {{params}}', () => {
-    expect(t('masks.current', { name: '程序员' })).toBe('当前：程序员');
-    expect(t('masks.useMask', { name: '研究员' })).toBe('使用「研究员」');
+    expect(t('masks.current', { name: 'Programmer' })).toBe('Current: Programmer');
+    expect(t('masks.useMask', { name: 'Researcher' })).toBe('Use “Researcher”');
   });
 
   it('indexes array leaves by dotted path', () => {
-    expect(t('demo.tokens.timeline.months.0')).toBe('1月');
-    expect(t('demo.tokens.timeline.months.11')).toBe('12月');
+    expect(t('demo.tokens.timeline.months.0')).toBe('Jan');
+    expect(t('demo.tokens.timeline.months.11')).toBe('Dec');
   });
 });
 
@@ -88,8 +94,13 @@ describe('locale switching', () => {
     });
   });
 
-  it('setLocale persists to localStorage and updates the DOM lang', () => {
-    setLocale('en');
+  it('backend hydration replaces a stale browser cache', () => {
+    storage['vivy.language'] = 'zh';
+    expect(localeStore).toHaveProperty('hydrateLocale');
+    const hydrateLocale = (localeStore as typeof localeStore & {
+      hydrateLocale: (locale: 'en' | 'zh') => void;
+    }).hydrateLocale;
+    hydrateLocale('en');
     expect(getLocale()).toBe('en');
     expect(storage['vivy.language']).toBe('en');
     expect((document.documentElement as { lang: string }).lang).toBe('en');
@@ -97,9 +108,13 @@ describe('locale switching', () => {
   });
 
   it('locale option labels follow the current language while nativeLabel stays constant', () => {
-    setLocale('zh');
+    expect(localeStore).toHaveProperty('hydrateLocale');
+    const hydrateLocale = (localeStore as typeof localeStore & {
+      hydrateLocale: (locale: 'en' | 'zh') => void;
+    }).hydrateLocale;
+    hydrateLocale('zh');
     const zhLabel = localeOptions().find((option) => option.id === 'zh')!.label;
-    setLocale('en');
+    hydrateLocale('en');
     const enLabel = localeOptions().find((option) => option.id === 'zh')!.label;
     expect(enLabel).not.toBe(zhLabel);
     expect(localeOptions().find((option) => option.id === 'zh')!.nativeLabel).toBe('简体中文');

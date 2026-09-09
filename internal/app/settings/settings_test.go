@@ -1006,3 +1006,81 @@ func TestUpdateReturnsPersistedDocument(t *testing.T) {
 		t.Fatalf("entry not applied: %+v", saved.Providers)
 	}
 }
+
+func TestLocaleMissingFieldRemainsCompatible(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("provider: openai\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load settings without locale: %v", err)
+	}
+	if loaded.Locale != "" {
+		t.Fatalf("missing locale = %q, want empty override", loaded.Locale)
+	}
+}
+
+func TestLocaleRoundTripAndValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if (Settings{Locale: "zh"}).IsZero() {
+		t.Fatal("locale override was treated as an empty settings document")
+	}
+	saved, err := Save(path, Settings{Locale: "zh"})
+	if err != nil {
+		t.Fatalf("save zh locale: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load zh locale: %v", err)
+	}
+	if saved.Locale != "zh" || loaded.Locale != "zh" {
+		t.Fatalf("locale round trip = saved %q, loaded %q; want zh", saved.Locale, loaded.Locale)
+	}
+	if _, err := Save(path, Settings{Locale: "ja"}); err == nil {
+		t.Fatal("unsupported locale ja was accepted")
+	}
+}
+
+func TestUpdateLocalePreservesUnrelatedSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	toolsEnabled := []string{"echo_info"}
+	mcpServers := []MCPServer{{Name: "docs", Endpoint: "https://docs.example.com/mcp"}}
+	channelEnabled := true
+	allowedSenders := []string{"alice"}
+	initial := Settings{
+		Provider:     ProviderOpenAI,
+		DefaultModel: "gpt-4o",
+		Providers: []ProviderEntry{{
+			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: ProviderOpenAI,
+			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
+		}},
+		MCPServers:  &mcpServers,
+		ToolsEnabled: &toolsEnabled,
+		Channels: []ChannelOverlay{{
+			Name: "telegram", Enabled: &channelEnabled, AllowFrom: &allowedSenders,
+		}},
+	}
+	if _, err := Save(path, initial); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+	saved, err := Update(path, func(s Settings) (Settings, error) {
+		s.Locale = "zh"
+		return s, nil
+	})
+	if err != nil || saved.Locale != "zh" {
+		t.Fatalf("saved = %+v, %v", saved, err)
+	}
+	want := initial
+	want.Locale = "zh"
+	if !reflect.DeepEqual(saved, want) {
+		t.Fatalf("locale update changed unrelated settings:\n got: %+v\nwant: %+v", saved, want)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load updated settings: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, want) {
+		t.Fatalf("persisted locale update changed unrelated settings:\n got: %+v\nwant: %+v", loaded, want)
+	}
+}

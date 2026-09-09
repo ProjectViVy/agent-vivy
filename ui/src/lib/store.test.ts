@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
-  createSession: vi.fn(), renameSession: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
+  createSession: vi.fn(), renameSession: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
@@ -11,21 +11,29 @@ vi.mock('./rpc', () => ({ resetRpcClient: vi.fn() }));
 vi.mock('./run-subscription', () => ({ subscribeRun: vi.fn((_id: string, _seq: number, onEvent: typeof subscription.onEvent) => { subscription.onEvent = onEvent; return { close: vi.fn(), lastSeq: () => 0 }; }) }));
 
 import { resetStoreForTests, useVivyStore } from './store';
+import * as localeStore from '@/i18n';
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
+function hydrateLocale(locale: 'en' | 'zh'): void {
+  expect(localeStore).toHaveProperty('hydrateLocale');
+  (localeStore as typeof localeStore & { hydrateLocale: (value: 'en' | 'zh') => void }).hydrateLocale(locale);
+}
 
 describe('Vivy store integrity', () => {
   beforeEach(() => {
     const values = new Map<string, string>();
-    vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) });
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) };
+    vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal('window', { localStorage: storage });
     resetStoreForTests();
+    localeStore.resetLocaleForTests();
     useVivyStore.setState(useVivyStore.getInitialState(), true);
     vi.clearAllMocks();
     subscription.onEvent = undefined;
     api.initialize.mockResolvedValue({ protocol_version: 'vivy.rpc.v1', capabilities: ['session', 'run.subscribe'] });
     api.recoverBackgroundRuns.mockResolvedValue({ recovered: true });
     api.listBackgroundRuns.mockResolvedValue({ runs: [] });
-    api.getSettings.mockResolvedValue({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30 });
+    api.getSettings.mockResolvedValue({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'en', generation_locale: 'en', workspace_locale: '', locale_read_only: false });
     api.listProviders.mockResolvedValue({ entries: [], active_provider: '', active_model: '', active_base_url: '', read_only: false, config_provider: '', config_model: '' });
     api.listReviews.mockResolvedValue({ reviews: [] });
     api.listTodos.mockResolvedValue({ todos: [] });
@@ -37,6 +45,49 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().initialize();
     expect(useVivyStore.getState()).toMatchObject({ initialized: true, activeSessionId: 's1', messagesPhase: 'ready' });
     expect(useVivyStore.getState().messages[0].content).toBe('hello');
+  });
+
+  it('hydrates the effective locale from settings during initialization', async () => {
+    hydrateLocale('en');
+    api.getSettings.mockResolvedValue({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0, read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30, locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    api.listSessions.mockResolvedValue({ sessions: [{ id: 's1', title: 'One', created_at: 1 }] });
+    api.listMessages.mockResolvedValue({ messages: [] });
+
+    await useVivyStore.getState().initialize();
+
+    expect(localeStore.getLocale()).toBe('zh');
+    expect(localStorage.getItem('vivy.language')).toBe('zh');
+  });
+
+  it('applies only the locale returned by the backend when saving', async () => {
+    hydrateLocale('zh');
+    useVivyStore.setState({ settings: await api.getSettings() });
+    api.updateLocale.mockResolvedValue({ locale: 'en', generation_locale: 'en', workspace_locale: '', locale_read_only: false });
+    const saveLocale = (useVivyStore.getState() as ReturnType<typeof useVivyStore.getState> & {
+      saveLocale: (locale: 'en' | 'zh') => Promise<void>;
+    }).saveLocale;
+    expect(saveLocale).toBeTypeOf('function');
+
+    await saveLocale('zh');
+
+    expect(api.updateLocale).toHaveBeenCalledWith('zh');
+    expect(localeStore.getLocale()).toBe('en');
+    expect(useVivyStore.getState().settings).toMatchObject({ locale: 'en', workspace_locale: '' });
+    expect(useVivyStore.getState()).toMatchObject({ settingsPhase: 'ready', settingsError: null });
+  });
+
+  it('keeps the effective locale and exposes settingsError when saving fails', async () => {
+    hydrateLocale('en');
+    api.updateLocale.mockRejectedValue(new Error('settings are read-only'));
+    const saveLocale = (useVivyStore.getState() as ReturnType<typeof useVivyStore.getState> & {
+      saveLocale: (locale: 'en' | 'zh') => Promise<void>;
+    }).saveLocale;
+    expect(saveLocale).toBeTypeOf('function');
+
+    await expect(saveLocale('zh')).rejects.toThrow('settings are read-only');
+
+    expect(localeStore.getLocale()).toBe('en');
+    expect(useVivyStore.getState()).toMatchObject({ settingsPhase: 'error', settingsError: 'settings are read-only' });
   });
 
   it('creates and selects the first session during initialization when none exist', async () => {
@@ -90,7 +141,7 @@ describe('Vivy store integrity', () => {
       payload: { cause_category: 'provider_error', message: 'provider openai: API key missing' },
     });
     expect(useVivyStore.getState().currentRun?.status).toBe('failed');
-    expect(useVivyStore.getState().runError).toBe('无法连接！请检查供应商配置！');
+    expect(useVivyStore.getState().runError).toBe('Unable to connect! Check your provider configuration!');
   });
 
   it('restores a historical run.failed message when reopening the run', async () => {
@@ -113,7 +164,7 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().openRun('r1', 's1');
     useVivyStore.setState({ streamingText: 'complete answer', streamingReasoning: 'reasoning' });
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
-    await vi.waitFor(() => expect(useVivyStore.getState().runError).toContain('消息刷新失败'));
+    await vi.waitFor(() => expect(useVivyStore.getState().runError).toContain('refreshing messages failed'));
     expect(useVivyStore.getState().streamingText).toBe('complete answer');
     expect(useVivyStore.getState().streamingReasoning).toBe('reasoning');
   });
@@ -328,4 +379,3 @@ describe('Vivy store integrity', () => {
     expect(useVivyStore.getState().runError).toBeTruthy();
   });
 });
-

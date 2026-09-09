@@ -4,7 +4,7 @@ import { runFailedMessage } from './failure';
 import { resetRpcClient } from './rpc';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
 import { isTaskToolName } from './todos';
-import { t } from '@/i18n';
+import { hydrateLocale, t } from '@/i18n';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -117,6 +117,7 @@ interface RuntimeState {
   setTodoPanelOpen: (open: boolean) => void;
   loadSettings: () => Promise<void>;
   saveSettings: (value: api.SettingsUpdate) => Promise<void>;
+  saveLocale: (locale: api.Locale) => Promise<void>;
   loadSessionContext: (sessionId?: string) => Promise<void>;
   compactSession: (sessionId: string) => Promise<api.CompactResult>;
   /** session/rewind 后重读消息；返回刷新后的可见视图。 */
@@ -245,6 +246,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         const capabilities = await api.initialize();
         await api.recoverBackgroundRuns().catch(() => undefined);
         const [sessions, background, settings, providers] = await Promise.all([api.listSessions(), api.listBackgroundRuns(), api.getSettings().catch(() => null), api.listProviders().catch(() => null)]);
+        if (settings) hydrateLocale(settings.locale);
         // 合并会话列表：去重合并用户在 initialize 等待期内可能已创建/更新的会话
         const inFlightSessions = get().sessions;
         const serverSessionIds = new Set(sessions.sessions.map((item) => item.id));
@@ -511,8 +513,19 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   setReviewCenterOpen: (open) => set({ reviewCenterOpen: open }),
   setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
   setSessionDrawerOpen: (open) => set({ sessionDrawerOpen: open }),
-  loadSettings: async () => { set({ settingsPhase: 'loading', settingsError: null }); try { set({ settings: await api.getSettings(), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); } },
+  loadSettings: async () => { set({ settingsPhase: 'loading', settingsError: null }); try { const settings = await api.getSettings(); hydrateLocale(settings.locale); set({ settings, settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); } },
   saveSettings: async (value) => { set({ settingsPhase: 'processing', settingsError: null }); try { set({ settings: await api.updateSettings(value), settingsPhase: 'ready' }); } catch (error) { set({ settingsPhase: 'error', settingsError: errorMessage(error) }); throw error; } },
+  saveLocale: async (locale) => {
+    set({ settingsPhase: 'processing', settingsError: null });
+    try {
+      const result = await api.updateLocale(locale);
+      hydrateLocale(result.locale);
+      set((state) => ({ settings: state.settings ? { ...state.settings, ...result } : state.settings, settingsPhase: 'ready' }));
+    } catch (error) {
+      set({ settingsPhase: 'error', settingsError: errorMessage(error) });
+      throw error;
+    }
+  },
   loadSessionContext: async (sessionId = get().activeSessionId ?? undefined) => { if (sessionId) await loadContextIntoStore(sessionId); },
   compactSession: async (sessionId) => {
     const result = await api.compactSession(sessionId);
