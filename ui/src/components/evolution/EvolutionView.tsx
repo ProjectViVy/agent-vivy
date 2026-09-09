@@ -27,7 +27,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { MasterDetail } from '@/components/layout/MasterDetail';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
 import { Dna, GitBranch, History, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
 
 type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
@@ -48,7 +48,7 @@ const RUN_STATE_VARIANT: Record<AutoDreamRunState, BadgeVariant> = {
 };
 
 function formatDateTime(iso: string | null | undefined, placeholder: string) {
-  return iso ? new Date(iso).toLocaleString() : placeholder;
+  return iso ? new Date(iso).toLocaleString(dateTimeLocale()) : placeholder;
 }
 
 function masterListShell(children: React.ReactNode) {
@@ -114,7 +114,7 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
 
       <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
         <p className="min-w-0 break-all font-mono text-xs text-muted-foreground">{t('skills.contentHash')}{doc.content_hash}</p>
-        <p className="text-xs text-muted-foreground">{t('skills.updatedAt')}{new Date(doc.updated_at).toLocaleString()}</p>
+        <p className="text-xs text-muted-foreground">{t('skills.updatedAt')}{new Date(doc.updated_at).toLocaleString(dateTimeLocale())}</p>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -185,7 +185,7 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
             history.map((entry) => (
               <div key={entry.revision} className="rounded-lg border p-3">
                 <Button variant="ghost" size="sm" className="h-auto justify-start py-1 font-mono text-xs" onClick={() => void onPreviewHistory(doc.slug, entry.revision)}>
-                  #{entry.revision} · {entry.content_hash.slice(0, 12)} · {new Date(entry.updated_at).toLocaleString()}
+                  #{entry.revision} · {entry.content_hash.slice(0, 12)} · {new Date(entry.updated_at).toLocaleString(dateTimeLocale())}
                 </Button>
               </div>
             ))
@@ -352,7 +352,7 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
 
       <div className="mb-5 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
         <p className="min-w-0 break-all font-mono">{t('evolution.requests.baseHash', { hash: request.base_hash })}</p>
-        <p>{t('evolution.requests.createdAt', { time: new Date(request.created_at).toLocaleString() })}</p>
+        <p>{t('evolution.requests.createdAt', { time: new Date(request.created_at).toLocaleString(dateTimeLocale()) })}</p>
       </div>
 
       <div className="rounded-lg bg-muted p-4">
@@ -442,7 +442,7 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
             <ol className="space-y-2">
               {events.map((event) => (
                 <li key={event.id} className="grid gap-1 rounded-lg border p-3 text-xs sm:grid-cols-[10rem_8rem_minmax(0,1fr)] sm:items-baseline sm:gap-3">
-                  <time className="text-muted-foreground">{new Date(event.created_at).toLocaleString()}</time>
+                  <time className="text-muted-foreground">{new Date(event.created_at).toLocaleString(dateTimeLocale())}</time>
                   <span className="font-mono font-semibold text-primary">{event.kind}</span>
                   <span className="text-muted-foreground">{event.message}</span>
                 </li>
@@ -651,7 +651,7 @@ export function EvolutionView() {
                     </Badge>
                   </div>
                   <p className="mt-1 truncate text-sm text-muted-foreground">{request.slug} · {request.source}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{new Date(request.updated_at).toLocaleString()}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{new Date(request.updated_at).toLocaleString(dateTimeLocale())}</p>
                 </button>
               )),
             )}
@@ -694,7 +694,7 @@ export function EvolutionView() {
                     <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`evolution.autodream.states.${run.state}`)}</Badge>
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{run.summary ?? run.trigger}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{new Date(run.started_at).toLocaleString()}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{new Date(run.started_at).toLocaleString(dateTimeLocale())}</p>
                 </button>
               )),
             )}

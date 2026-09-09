@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
 import {
   TRAJECTORY_KIND_LABEL,
   type TrajectoryRecord,
@@ -151,7 +151,7 @@ function RequestDetails({
             ] as const).map(([key, value]) => (
               <div key={key} className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{t(`trajectory.token.${key}`)}</dt>
-                <dd className="font-mono tabular-nums">{value.toLocaleString()}</dd>
+                <dd className="font-mono tabular-nums">{value.toLocaleString(dateTimeLocale())}</dd>
               </div>
             ))}
           </dl>

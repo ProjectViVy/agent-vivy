@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 // 通道平台信息定义（移植自 Agent-Diva agent-diva-gui
 // src/components/settings/channel-platforms.ts）。
 // 只保留本代可编译进内核的平台（以 plugin.Name() 为键）；向导的
@@ -31,14 +33,9 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
     tutorialPath: '/docs/channels/telegram.md',
     difficulty: 1,
     requiresPublicIP: false,
-    accessMethod: 'Long Polling',
+    get accessMethod() { return t('channelGuide.telegram.accessMethod'); },
     credentialFields: CHANNEL_CREDENTIAL_FIELDS.telegram,
-    quickGuideSteps: [
-      '在 Telegram 中搜索 @BotFather 并打开对话',
-      '发送 /newbot 命令创建新机器人',
-      '按提示设置机器人名称和用户名（以 bot 结尾）',
-      '复制 BotFather 返回的 Bot Token',
-    ],
+    get quickGuideSteps() { return [t('channelGuide.telegram.steps.0'), t('channelGuide.telegram.steps.1'), t('channelGuide.telegram.steps.2'), t('channelGuide.telegram.steps.3')]; },
   },
   discord: {
     name: 'discord',
@@ -46,14 +43,9 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
     tutorialPath: '/docs/channels/discord.md',
     difficulty: 2,
     requiresPublicIP: false,
-    accessMethod: 'WebSocket Gateway',
+    get accessMethod() { return t('channelGuide.discord.accessMethod'); },
     credentialFields: CHANNEL_CREDENTIAL_FIELDS.discord,
-    quickGuideSteps: [
-      '访问 Discord Developer Portal (https://discord.com/developers)',
-      '创建新应用并进入 Bot 页面',
-      '点击 "Reset Token" 生成机器人 Token',
-      '复制并保存 Token（只显示一次）',
-    ],
+    get quickGuideSteps() { return [t('channelGuide.discord.steps.0'), t('channelGuide.discord.steps.1'), t('channelGuide.discord.steps.2'), t('channelGuide.discord.steps.3')]; },
   },
   feishu: {
     name: 'feishu',
@@ -61,15 +53,9 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
     tutorialPath: '/docs/channels/feishu.md',
     difficulty: 2,
     requiresPublicIP: false,
-    accessMethod: 'WebSocket 长连接',
+    get accessMethod() { return t('channelGuide.feishu.accessMethod'); },
     credentialFields: CHANNEL_CREDENTIAL_FIELDS.feishu,
-    quickGuideSteps: [
-      '登录飞书开放平台 (https://open.feishu.cn)',
-      '创建企业自建应用',
-      '在"凭证与基础信息"获取 App ID 和 App Secret',
-      '添加机器人能力并开通权限',
-      '选择"使用长连接接收事件"并添加 im.message.receive_v1',
-    ],
+    get quickGuideSteps() { return [t('channelGuide.feishu.steps.0'), t('channelGuide.feishu.steps.1'), t('channelGuide.feishu.steps.2'), t('channelGuide.feishu.steps.3'), t('channelGuide.feishu.steps.4')]; },
   },
   dingtalk: {
     name: 'dingtalk',
@@ -77,15 +63,9 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
     tutorialPath: '/docs/channels/dingtalk.md',
     difficulty: 2,
     requiresPublicIP: false,
-    accessMethod: 'Stream 模式 (WebSocket)',
+    get accessMethod() { return t('channelGuide.dingtalk.accessMethod'); },
     credentialFields: CHANNEL_CREDENTIAL_FIELDS.dingtalk,
-    quickGuideSteps: [
-      '登录钉钉开放平台 (https://open-dev.dingtalk.com)',
-      '创建企业内部应用',
-      '在"应用凭证"获取 AppKey 和 AppSecret',
-      '开启机器人功能并选择"Stream 模式"',
-      '发布应用并设置可见范围',
-    ],
+    get quickGuideSteps() { return [t('channelGuide.dingtalk.steps.0'), t('channelGuide.dingtalk.steps.1'), t('channelGuide.dingtalk.steps.2'), t('channelGuide.dingtalk.steps.3'), t('channelGuide.dingtalk.steps.4')]; },
   },
   qq: {
     name: 'qq',
@@ -93,13 +73,8 @@ export const CHANNEL_PLATFORMS: Record<string, ChannelPlatformInfo> = {
     tutorialPath: '/docs/channels/qq.md',
     difficulty: 2,
     requiresPublicIP: false,
-    accessMethod: 'QQ 开放平台 API',
+    get accessMethod() { return t('channelGuide.qq.accessMethod'); },
     credentialFields: CHANNEL_CREDENTIAL_FIELDS.qq,
-    quickGuideSteps: [
-      '访问 QQ 开放平台 (https://q.qq.com)',
-      '创建机器人应用',
-      '在开发设置获取 AppID 和 AppSecret',
-      '配置功能权限和沙箱环境',
-    ],
+    get quickGuideSteps() { return [t('channelGuide.qq.steps.0'), t('channelGuide.qq.steps.1'), t('channelGuide.qq.steps.2'), t('channelGuide.qq.steps.3')]; },
   },
 };

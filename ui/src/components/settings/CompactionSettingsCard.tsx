@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { listSessionCompactions, settingsUpdateFrom, type SessionCompactionRecord } from '@/lib/api';
 import { runActive, useVivyStore } from '@/lib/store';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
 
 /**
  * 上下文压缩（真实）：配置持久化到 settings.yaml（settings/update），保存后
@@ -111,8 +111,8 @@ export function CompactionSettingsCard() {
         setFeedback(t('settings.compaction.notNeeded'));
       } else {
         setFeedback(t('settings.compaction.done', {
-          before: result.before_tokens.toLocaleString(),
-          after: result.after_tokens.toLocaleString(),
+          before: result.before_tokens.toLocaleString(dateTimeLocale()),
+          after: result.after_tokens.toLocaleString(dateTimeLocale()),
         }));
 		await refreshHistory(activeSessionId);
       }
@@ -167,7 +167,7 @@ export function CompactionSettingsCard() {
             <div className="mt-2 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{t('settings.compaction.feedUsage')}</span>
-                <span className="font-medium">{sessionContext.feed_tokens.toLocaleString()} / {sessionContext.model_limit_tokens.toLocaleString()} tokens</span>
+                <span className="font-medium">{sessionContext.feed_tokens.toLocaleString(dateTimeLocale())} / {sessionContext.model_limit_tokens.toLocaleString(dateTimeLocale())} tokens</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div className={`h-full rounded-full transition-all ${wouldCompact ? 'bg-destructive' : pressure >= 60 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} />
@@ -176,7 +176,7 @@ export function CompactionSettingsCard() {
                 <Badge variant={wouldCompact ? 'secondary' : 'outline'}>{t('settings.compaction.pressureBadge', { percent: pressure })}</Badge>
                 <span>{wouldCompact ? t('settings.compaction.thresholdReached') : t('settings.compaction.notNeeded')}</span>
                 {Boolean(sessionContext.has_compaction_summary) ? <span>{t('settings.compaction.hasSummary')}</span> : null}
-                {last ? <span>{t('settings.compaction.lastCompaction', { mode: last.mode, before: last.before_tokens.toLocaleString(), after: last.after_tokens.toLocaleString() })}</span> : null}
+                {last ? <span>{t('settings.compaction.lastCompaction', { mode: last.mode, before: last.before_tokens.toLocaleString(dateTimeLocale()), after: last.after_tokens.toLocaleString(dateTimeLocale()) })}</span> : null}
               </div>
             </div>
           ) : (
@@ -200,7 +200,7 @@ export function CompactionSettingsCard() {
                 <li key={`${record.run_id}-${record.created_at}`} className="rounded-md bg-muted/40 p-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant="outline">{t('settings.compaction.historyRun', { runId: record.run_id })}</Badge>
-                    <span>{new Date(record.created_at).toLocaleString()}</span>
+                    <span>{new Date(record.created_at).toLocaleString(dateTimeLocale())}</span>
                     <span>{t('settings.compaction.historyDropped', { count: record.dropped_count })}</span>
                   </div>
                   <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-sm">{record.summary}</p>

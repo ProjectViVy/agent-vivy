@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n';
 import { useEffect, useState } from 'react';
 import { Wrench } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -7,6 +8,8 @@ import { Switch } from '@/components/ui/switch';
 import { listTools, setActiveTools, type ToolsCatalogView } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 
+type ToolsFeedback = { kind: 'saved'; count: number } | { kind: 'error'; message: string };
+
 /**
  * 工具配置（真实）：tools/list 拉取内置注册表全量目录（激活 + 隐藏），
  * tools/set-active 以整表替换 settings.yaml 的 tools_enabled 覆盖层。保存后
@@ -14,12 +17,13 @@ import { useVivyStore } from '@/lib/store';
  * 请求、不占上下文；SKILL 声明的工具集可在 run 内动态挂载。
  */
 export function ToolsSettingsCard() {
+  const { t } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
   const [view, setView] = useState<ToolsCatalogView | null>(null);
   const [active, setActive] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<ToolsFeedback | null>(null);
   const locked = Boolean(settings?.read_only || settings?.frozen);
 
   const load = async () => {
@@ -48,9 +52,9 @@ export function ToolsSettingsCard() {
       const result = await setActiveTools(next ?? active);
       setView(result);
       setActive(result.active);
-      setFeedback(result.active.length === 0 ? '已保存：纯对话模式（0 个工具）。' : `已保存：${result.active.length} 个工具激活，对下一次运行生效。`);
+      setFeedback({ kind: 'saved', count: result.active.length });
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : String(error));
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       setSaving(false);
     }
@@ -66,7 +70,7 @@ export function ToolsSettingsCard() {
     return (
       <div className="space-y-3">
         <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{loadError}</p>
-        <Button type="button" variant="outline" onClick={() => void load()}>重试</Button>
+        <Button type="button" variant="outline" onClick={() => void load()}>{t('common.retry')}</Button>
       </div>
     );
   }
@@ -77,9 +81,8 @@ export function ToolsSettingsCard() {
   return (
     <CardContent className="space-y-4">
       <p className="rounded-lg border p-3 text-xs text-muted-foreground">
-        激活的工具每次请求都会绑定给模型；隐藏的工具不进入模型请求、不占上下文。
-        隐藏工具仍可由声明它的 SKILL 在运行中动态挂载。配置默认值：{view.config_enabled.length} 个
-        {view.overlay_written ? '（当前使用自定义覆盖层）' : '（当前未写覆盖层）'}。
+        {t('toolsSettings.description', { count: view.config_enabled.length })}
+        {' '}{view.overlay_written ? t('toolsSettings.overlay') : t('toolsSettings.noOverlay')}
       </p>
       <div className="space-y-2">
         {view.tools.map((tool) => {
@@ -89,21 +92,27 @@ export function ToolsSettingsCard() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="text-sm font-medium">{tool.name}</code>
-                  {tool.readonly ? <Badge variant="outline">只读</Badge> : <Badge variant="secondary">需审批</Badge>}
+                  {tool.readonly ? <Badge variant="outline">{t('toolsSettings.readonly')}</Badge> : <Badge variant="secondary">{t('toolsSettings.approval')}</Badge>}
                 </div>
                 <p className="mt-1 truncate text-sm text-muted-foreground" title={tool.description}>{tool.description}</p>
               </div>
-              <Switch checked={checked} disabled={locked || saving} onCheckedChange={(checked) => toggle(tool.name, checked)} aria-label={`${tool.name} 激活状态`} />
+              <Switch checked={checked} disabled={locked || saving} onCheckedChange={(checked) => toggle(tool.name, checked)} aria-label={t('toolsSettings.activeLabel', { name: tool.name })} />
             </div>
           );
         })}
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" disabled={locked || saving || !dirty} onClick={() => void save()}>{saving ? '保存中…' : '保存工具配置'}</Button>
-        <Button type="button" variant="outline" disabled={locked || saving} onClick={reset}>恢复配置默认</Button>
-        {dirty ? <span className="text-sm text-amber-600 dark:text-amber-400">有未保存的改动</span> : null}
+        <Button type="button" disabled={locked || saving || !dirty} onClick={() => void save()}>{saving ? t('toolsSettings.saving') : t('toolsSettings.save')}</Button>
+        <Button type="button" variant="outline" disabled={locked || saving} onClick={reset}>{t('toolsSettings.reset')}</Button>
+        {dirty ? <span className="text-sm text-amber-600 dark:text-amber-400">{t('toolsSettings.dirty')}</span> : null}
       </div>
-      {feedback ? <p className="text-xs text-muted-foreground" aria-live="polite">{feedback}</p> : null}
+      {feedback ? (
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {feedback.kind === 'error' ? feedback.message : feedback.count === 0
+            ? t('toolsSettings.savedEmpty')
+            : t('toolsSettings.saved', { count: feedback.count })}
+        </p>
+      ) : null}
     </CardContent>
   );
 }
