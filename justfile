@@ -3,8 +3,10 @@
 set shell := ["powershell.exe", "-NoProfile", "-Command"]
 set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
-go := if os() == "windows" { "C:/Program Files/Go/bin/go.exe" } else { "go" }
-gofmt := if os() == "windows" { "C:/Program Files/Go/bin/gofmt.exe" } else { "gofmt" }
+# Use the toolchain selected on PATH. This lets actions/setup-go enforce the
+# go.mod version instead of silently using a preinstalled Windows copy.
+go := "go"
+gofmt := "gofmt"
 vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 
 # Persist GOPROXY mirror (proxy.golang.org is unreachable) and download deps

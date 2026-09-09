@@ -23,6 +23,9 @@ compiler instead of maintaining separate verify/pack logic.
 ## Global Constraints
 
 - State: `UNSCHEDULED`; only a human may schedule it.
+- Do not schedule P1 until the cross-cutting I18N descriptor, catalog-hash,
+  fallback, and Generation identity contract is accepted. Strict parsing and
+  provenance hashing cannot safely be built against a moving descriptor.
 - P1 and P2 are one clean-break landing unit. P1 commits may exist on the
   feature branch, but main MUST NOT receive a half-cut state that still exposes
   v0 without the P2 default-body cutover.
@@ -41,12 +44,15 @@ compiler instead of maintaining separate verify/pack logic.
 - Create: `sdk/module/lifecycle.go`
 - Create: `sdk/port/catalog.go`
 - Create: `sdk/port/catalog_test.go`
+- Create: `sdk/port/support.go`
+- Create: `sdk/port/support_test.go`
 
 **Interfaces:**
 
 - Consumes: the canonical Descriptor and 14 public Port names.
 - Produces: `module.Descriptor`, `module.PortRef`, `module.Requirement`,
-  `module.Grant`, `module.Lifecycle`, and `port.Definition`.
+  `module.Grant`, `module.Lifecycle`, `port.Definition`, and the evidence-owned
+  support states consumed by the compiler and Inspect.
 
 Target types:
 
@@ -80,6 +86,12 @@ type Definition struct {
 - [ ] Write `TestCatalogContainsExactlyApprovedPublicPorts` with the 14 exact
   names from the normative catalog.
 - [ ] Implement the typed catalog constants and reject unknown Ports.
+- [ ] Write `TestDescriptorCannotClaimSupport` and table tests proving a
+  `SPECIFIED` Port cannot be selected without build-owned evidence. A Module
+  descriptor or README cannot set its support state.
+- [ ] Define the support-state and evidence-reference primitives now; later
+  phases populate them as each Port's seven artifacts land, and P9 performs the
+  release-wide audit rather than introducing this rule after selection exists.
 - [ ] Run `go test ./sdk/module ./sdk/port` and expect PASS.
 - [ ] Commit `feat(sdk): define v1 module and port contracts`.
 
@@ -91,7 +103,8 @@ type Definition struct {
 - Modify: `sdk/internal/verify.go`
 - Create: `sdk/internal/manifest_test.go`
 - Modify: `sdk/internal/verify_test.go`
-- Replace fixtures under: `sdk/internal/testdata/`
+- Replace legacy fixtures under: `sdk/internal/testdata/`; preserve and consume
+  `sdk/internal/testdata/plugin-v1/`
 
 **Interfaces:**
 
@@ -107,6 +120,8 @@ type Definition struct {
   semantic-field rejection.
 - [ ] Replace old Seam fixtures with v1 Descriptor success/failure fixtures;
   retain one v0 fixture solely to prove hard rejection.
+- [ ] Load the preflight `plugin-v1` fixture index in the real Go tests; keep
+  its case IDs and stable diagnostic substrings usable across compiler tasks.
 - [ ] Remove `apiVersionV0`, Seam validation, and Seam-specific branches.
 - [ ] Run `go test ./sdk/internal -run 'Descriptor|Manifest|Verify'`.
 - [ ] Commit `feat(sdk): accept only v1 module descriptors`.
@@ -143,6 +158,8 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 - [ ] Write failing tests for duplicate Module, missing Provider, duplicate
   exclusive Provider, unused Provider, unresolved order edge, conflict, and
   dependency cycle.
+- [ ] Run the matching cases from `sdk/internal/testdata/plugin-v1/` through
+  the real compiler rather than duplicating their data in Go source.
 - [ ] Write `TestDescriptorCannotAssignTrust`; expected RED is the absence of a
   Source Catalog authority.
 - [ ] Implement source resolution and T1/T2 assignment independent of Module
@@ -176,6 +193,7 @@ type EffectiveGrant struct {
 - [ ] Write a table-driven RED test for all 12 approved Grants, unknown Grant,
   unauthorized `proc.spawn`, constrained `net.client`, and implicit default
   denial.
+- [ ] Run the `unapproved-grant` acceptance fixture through this calculation.
 - [ ] Implement the four-way intersection exactly once in the compiler.
 - [ ] Reject Secret values and environment-derived material in constraints.
 - [ ] Run `go test ./sdk/internal/assembly -run Grant`.

@@ -216,5 +216,7 @@ type Host interface {
 
 Exit requires one ToolHost for every source, all protected names enforced,
 deterministic Middleware, separated Observers, read-only Status, and no Eino
-import outside quarantine. Rollback uses the prior sealed Generation; it never
-restores v0.
+import outside quarantine. Update the Tool, ToolWorld, Middleware, Observer,
+and Status evidence records for every artifact this phase supplies; support
+state remains compiler/conformance-owned. Rollback uses the prior sealed
+Generation; it never restores v0.

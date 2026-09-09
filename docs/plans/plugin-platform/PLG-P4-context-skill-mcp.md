@@ -236,5 +236,6 @@ type Candidate struct {
 
 Exit requires one Host per capability, pinned upstream adapter evidence, no
 Prompt/Tool/Run bypass, explicit MCP Resource bridging, and default inactive
-network state. Rollback selects the prior Generation; missing upstream
-capabilities remain deferred.
+network state. Record build-owned seven-artifact evidence before Context or
+Skill Source Ports become selectable; missing upstream capabilities remain
+deferred. Rollback selects the prior Generation.

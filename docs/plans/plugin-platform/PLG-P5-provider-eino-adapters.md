@@ -21,8 +21,9 @@ EinoExt Claude v0.1.25, existing config/RPC/UI model settings, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on P2 and joins SCX Gate B only when SCX needs
-  a Profile covered by this phase.
+- State: `UNSCHEDULED`; depends on P2. P7 Task 2 consumes its ModelHost, so P5
+  is a required P7 and SCX Gate B input even when SCX uses the default model
+  Provider.
 - There is no `std/model-provider@v1`.
 - Provider raw model IDs remain unchanged for native compatible endpoints.
 - Missing pinned Eino/EinoExt execution or OAuth capability is

@@ -1,0 +1,35 @@
+{
+  "id": "valid-ordered-tool",
+  "expect": "accept",
+  "rule": "A selected consumer may depend on one selected provider for a public multi-provider port.",
+  "recipe": {
+    "apiVersion": "vivy.generation/v1",
+    "modules": ["fixture/tool-host", "fixture/tool-clock"]
+  },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/tool-host", "version": "1.0.0" },
+      "source": {
+        "ref": "internal:fixture/tool-host",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "provides": [],
+      "requires": [{ "port": "std/tool@v1", "provider": "fixture/tool-clock" }],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation", "after": ["fixture/tool-clock"] }
+    },
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/tool-clock", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/tool-clock@89abcde",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "provides": [{ "port": "std/tool@v1", "id": "fixture.clock" }],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}
