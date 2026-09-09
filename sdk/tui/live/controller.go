@@ -1923,7 +1923,9 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 // server-owned shell/start route. A packed face never starts a local process.
 func (l *Live) ExecuteShell(script string) tea.Cmd {
 	if !l.SupportsCapability("shell.start") {
-		return func() tea.Msg { return surface.ErrMsg{Err: errors.New(l.translator.T("vivy.tui.live.shellUnavailable", nil))} }
+		return func() tea.Msg {
+			return surface.ErrMsg{Err: errors.New(l.translator.T("vivy.tui.live.shellUnavailable", nil))}
+		}
 	}
 	return l.sendShell(script)
 }

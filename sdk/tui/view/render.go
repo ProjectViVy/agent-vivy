@@ -1506,7 +1506,7 @@ func (m Model) renderGateDialog(gate *surface.Gate, l layout, p Palette) string 
 	}
 	lines = append(lines, bodyLines[start:end]...)
 	if len(bodyLines) > viewport {
-		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.gate.lines", map[string]any{"start": start+1, "end": end, "total": len(bodyLines)})))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.gate.lines", map[string]any{"start": start + 1, "end": end, "total": len(bodyLines)})))
 	}
 	lines = append(lines, "")
 	helpText := m.translator.T("vivy.tui.gate.approvalFooter", nil)
@@ -1542,7 +1542,7 @@ func (m Model) renderGateMetadata(gate *surface.Gate, width int, p Palette) []st
 	}
 	for i, risk := range gate.Risks {
 		if i == 3 {
-			lines = append(lines, p.ToolFail.Render(m.translator.T("vivy.tui.gate.moreRisks", map[string]any{"count": len(gate.Risks)-i})))
+			lines = append(lines, p.ToolFail.Render(m.translator.T("vivy.tui.gate.moreRisks", map[string]any{"count": len(gate.Risks) - i})))
 			break
 		}
 		if risk = sanitizeInline(risk); risk != "" {
@@ -1858,6 +1858,7 @@ func (m Model) gateMaxHorizontal() int {
 }
 
 func (m Model) renderSessionsDialog(l layout, p Palette) string {
+	w := max(1, min(l.width-8, 72))
 	rows := m.filteredSessions()
 	title := p.DialogTitle.Render(m.translator.T("vivy.tui.sessions.title", nil))
 	filter := m.translator.T("vivy.tui.filter.value", map[string]any{"filter": m.sessionFilter})
@@ -1906,13 +1907,12 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 		}
 		lines = append(lines, p.PromptWarn.Render(truncate(m.translator.T("vivy.tui.sessions.delete", map[string]any{"name": name}), max(8, l.width-14))), p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.deleteFooter", nil)))
 	} else {
-		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.footer", nil)))
+		lines = append(lines, p.DialogFooter.Render(wrapWords(m.translator.T("vivy.tui.sessions.footer", nil), max(1, w-p.Dialog.GetHorizontalPadding()))))
 	}
 	if m.sessionError != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
 	}
 	inner := strings.Join(lines, "\n")
-	w := max(1, min(l.width-8, 72))
 	return p.Dialog.Width(w).Render(inner)
 }
 
@@ -2120,6 +2120,35 @@ func truncate(s string, width int) string {
 		return ""
 	}
 	return ansi.Truncate(s, width, "…")
+}
+
+// wrapWords folds a dialog footer onto whitespace boundaries so keyboard
+// hints survive narrow widths whole instead of being split mid-word by the
+// border style's hard wrap.
+func wrapWords(text string, width int) string {
+	if width <= 0 || lipgloss.Width(text) <= width {
+		return text
+	}
+	var lines []string
+	line := ""
+	for _, word := range strings.Split(text, " ") {
+		if word == "" {
+			continue
+		}
+		switch {
+		case line == "":
+			line = word
+		case lipgloss.Width(line+" "+word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // middleTruncate shortens s to at most width display cells by keeping a head

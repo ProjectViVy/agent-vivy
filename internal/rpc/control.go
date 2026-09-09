@@ -3718,7 +3718,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	// (provider/model/execute ceiling) consistent right after a save,
 	// instead of flashing empty/zero until the next settings/get.
 	return settingsResult{
-		localeSettingsResult:            localeView,
+		localeSettingsResult:           localeView,
 		Provider:                       saved.Provider,
 		DefaultModel:                   saved.DefaultModel,
 		BaseURL:                        saved.BaseURL,

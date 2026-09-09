@@ -1265,7 +1265,7 @@ func TestSettingsLocaleUpdatesOnlyLocaleAndAllowsFrozenProvider(t *testing.T) {
 			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: settings.ProviderOpenAI,
 			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
 		}},
-		MCPServers:  &mcpServers,
+		MCPServers:   &mcpServers,
 		ToolsEnabled: &toolsEnabled,
 		Channels: []settings.ChannelOverlay{{
 			Name: "telegram", Enabled: &channelEnabled, AllowFrom: &allowedSenders,

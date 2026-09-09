@@ -11,10 +11,15 @@ import (
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/sdk/plugin"
 	"agent-vivy/sdk/tui/live"
 )
+
+// pinnedEinoVersion matches the go.mod eino pin; go test binaries lack the
+// embedded module metadata app.New's checkpoint bridge fail-closes on.
+const pinnedEinoVersion = "v0.9.13"
 
 func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 	shared := t.TempDir()
@@ -55,6 +60,8 @@ func TestPrepareSharesSettingsAndIsolatesRuntime(t *testing.T) {
 // The code launcher must hydrate from the shared settings, not the private
 // runtime's conflicting locale. The face test covers the remaining view hop.
 func TestCodeLaunchSettingsLocaleUsesSharedPath(t *testing.T) {
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
 	shared := t.TempDir()
 	cfg := config.Default()
 	cfg.Storage.DataDir = shared
