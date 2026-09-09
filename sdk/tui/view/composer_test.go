@@ -26,7 +26,7 @@ func TestComposerUsesRoundedBoxAndChips(t *testing.T) {
 	if !strings.Contains(editor, "╭") || !strings.Contains(editor, "╰") || !strings.Contains(editor, "╮") || !strings.Contains(editor, "╯") {
 		t.Fatalf("missing rounded corners:\n%s", editor)
 	}
-	if !strings.Contains(editor, "gpt-4.1") || !strings.Contains(editor, "(auto)") || !strings.Contains(editor, "智能") {
+	if !strings.Contains(editor, "gpt-4.1") || !strings.Contains(editor, "(auto)") || !strings.Contains(editor, "Smart") {
 		t.Fatalf("composer chips missing:\n%s", editor)
 	}
 	if !strings.Contains(editor, ":::") || !strings.Contains(editor, "hello") {
@@ -42,7 +42,7 @@ func TestComposerFallsBackWhenModelMissing(t *testing.T) {
 	}
 	m := New(driver)
 	editor := ansi.Strip(m.renderEditor(36, DefaultPalette()))
-	if !strings.Contains(editor, "╭") || !strings.Contains(editor, "model") || !strings.Contains(editor, "只读") {
+	if !strings.Contains(editor, "╭") || !strings.Contains(editor, "model") || !strings.Contains(editor, "Read-only") {
 		t.Fatalf("missing fallback chips:\n%s", editor)
 	}
 }
@@ -97,7 +97,7 @@ func TestComposerHelpRowStaysVisible(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "shift+tab") || !strings.Contains(view, "切换模式") || !strings.Contains(view, "帮助") {
+	if !strings.Contains(view, "shift+tab") || !strings.Contains(view, "Switch mode") || !strings.Contains(view, "Help") {
 		t.Fatalf("help row clipped after taller composer:\n%s", view)
 	}
 	if !strings.Contains(view, "╭") || !strings.Contains(view, "gpt-4.1") {
@@ -121,7 +121,7 @@ func TestComposerBoxColorFollowsWorkingMode(t *testing.T) {
 	if smart == plan || plan == read || smart == read {
 		t.Fatalf("composer border did not change with mode")
 	}
-	if !strings.Contains(ansi.Strip(smart), "智能") || !strings.Contains(ansi.Strip(plan), "计划") || !strings.Contains(ansi.Strip(read), "只读") {
+	if !strings.Contains(ansi.Strip(smart), "Smart") || !strings.Contains(ansi.Strip(plan), "Plan") || !strings.Contains(ansi.Strip(read), "Read-only") {
 		t.Fatalf("mode chips missing smart=%q plan=%q read=%q", ansi.Strip(smart), ansi.Strip(plan), ansi.Strip(read))
 	}
 }
@@ -277,6 +277,7 @@ func TestRenderEditorShowsWholeDraftAndTrailingCaret(t *testing.T) {
 }
 
 func TestComposerPlaceholderShowsOnlyForEmptyUngatedInput(t *testing.T) {
+	const composerPlaceholder = "Ask something…  / commands · @files · !shell"
 	p := DefaultPalette()
 	dim := p.Dim.Render(composerPlaceholder)
 	driver := &testDriver{
@@ -321,21 +322,21 @@ func TestComposerPlaceholderShowsOnlyForEmptyUngatedInput(t *testing.T) {
 }
 
 func TestPasteGuardChipThresholdBoundaries(t *testing.T) {
-	if chip := pasteGuardChip(strings.Repeat("x", pasteThresholdChars)); chip != "" {
+	if chip := (Model{}).pasteGuardChip(strings.Repeat("x", pasteThresholdChars)); chip != "" {
 		t.Fatalf("chip at exactly %d chars = %q", pasteThresholdChars, chip)
 	}
-	if chip := pasteGuardChip(strings.Repeat("x", pasteThresholdChars+1)); !strings.Contains(chip, "2001 字符") || !strings.Contains(chip, "1 行") {
+	if chip := (Model{}).pasteGuardChip(strings.Repeat("x", pasteThresholdChars+1)); !strings.Contains(chip, "chars: 2001") || !strings.Contains(chip, "lines: 1") {
 		t.Fatalf("chip above char threshold = %q", chip)
 	}
 	linesAtThreshold := strings.Repeat("l\n", pasteThresholdLines-1) + "l"
-	if chip := pasteGuardChip(linesAtThreshold); chip != "" {
+	if chip := (Model{}).pasteGuardChip(linesAtThreshold); chip != "" {
 		t.Fatalf("chip at exactly %d lines = %q", pasteThresholdLines, chip)
 	}
 	over := strings.Repeat("l\n", pasteThresholdLines)
-	if chip := pasteGuardChip(over); !strings.Contains(chip, fmt.Sprintf("%d 行", pasteThresholdLines+1)) {
+	if chip := (Model{}).pasteGuardChip(over); !strings.Contains(chip, fmt.Sprintf("lines: %d", pasteThresholdLines+1)) {
 		t.Fatalf("chip above line threshold = %q", chip)
 	}
-	if chip := pasteGuardChip("normal draft"); chip != "" {
+	if chip := (Model{}).pasteGuardChip("normal draft"); chip != "" {
 		t.Fatalf("small draft raised a chip: %q", chip)
 	}
 }
@@ -352,12 +353,12 @@ func TestPasteGuardChipRendersBetweenAttachmentsAndInput(t *testing.T) {
 	m.input = strings.Repeat("x", pasteThresholdChars+10)
 	editor := m.renderEditor(60, p)
 	plain := ansi.Strip(editor)
-	chip := pasteGuardChip(m.input)
+	chip := (Model{}).pasteGuardChip(m.input)
 	if !strings.Contains(plain, chip) {
 		t.Fatalf("paste guard chip missing:\n%s", plain)
 	}
 	attachmentAt := strings.Index(plain, "[image: shot.png]")
-	chipAt := strings.Index(plain, "大段粘贴")
+	chipAt := strings.Index(plain, "Large paste")
 	inputAt := strings.Index(plain, ":::")
 	if attachmentAt < 0 || chipAt < 0 || inputAt < 0 || !(attachmentAt < chipAt && chipAt < inputAt) {
 		t.Fatalf("chip order wrong: attachment=%d chip=%d input=%d", attachmentAt, chipAt, inputAt)
@@ -369,7 +370,7 @@ func TestPasteGuardChipRendersBetweenAttachmentsAndInput(t *testing.T) {
 		t.Fatalf("guarded layout editorH = %d, want 6", l.editorH)
 	}
 	m.input = "small again"
-	if strings.Contains(ansi.Strip(m.renderEditor(60, p)), "大段粘贴") {
+	if strings.Contains(ansi.Strip(m.renderEditor(60, p)), "Large paste") {
 		t.Fatal("chip survived trimming below the thresholds")
 	}
 	if l := m.layout(); l.editorH != 5 {

@@ -74,7 +74,7 @@ func TestReasoningCtrlRCollapse(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	m = next.(Model)
 	collapsed := ansi.Strip(m.View())
-	if !strings.Contains(collapsed, "ctrl+r 展开") {
+	if !strings.Contains(collapsed, "ctrl+r expand") {
 		t.Fatalf("ctrl+r did not collapse reasoning:\n%s", collapsed)
 	}
 	if strings.Contains(collapsed, "secret-plan-alpha") {
@@ -90,7 +90,7 @@ func TestReasoningCtrlRCollapse(t *testing.T) {
 func TestEmptySessionHero(t *testing.T) {
 	m := chatBodyModel(t, chatBodyDriver(nil))
 	hero := ansi.Strip(m.View())
-	if !strings.Contains(hero, "寻找真心之旅") || !strings.Contains(hero, "ctrl+o 工具输出 · ctrl+r reasoning") {
+	if !strings.Contains(hero, "A journey to find a true heart") || !strings.Contains(hero, "ctrl+o tool output · ctrl+r reasoning") {
 		t.Fatalf("empty session did not render the hero:\n%s", hero)
 	}
 	withCwd := chatBodyDriver(nil)
@@ -101,7 +101,7 @@ func TestEmptySessionHero(t *testing.T) {
 	}
 
 	m = chatBodyModel(t, chatBodyDriver([]surface.Message{{ID: "m1", Role: surface.RoleAssistant, Content: "hello"}}))
-	if strings.Contains(ansi.Strip(m.View()), "ctrl+o 工具输出 · ctrl+r reasoning") {
+	if strings.Contains(ansi.Strip(m.View()), "ctrl+o tool output · ctrl+r reasoning") {
 		t.Fatalf("non-empty session rendered the hero hints:\n%s", ansi.Strip(m.View()))
 	}
 }

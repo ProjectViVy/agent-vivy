@@ -237,7 +237,7 @@ func TestDynamicSkillCommandFiltersDispatchesAndSendsExpandedInput(t *testing.T)
 	m.input = "/help"
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if m.commandOverlayTitle != "命令" || !strings.Contains(m.commandOverlay, "/review focus=<value>") || strings.Contains(m.commandOverlay, "\u202e") {
+	if m.commandOverlayTitle != "Commands" || !strings.Contains(m.commandOverlay, "/review focus=<value>") || strings.Contains(m.commandOverlay, "\u202e") {
 		t.Fatalf("effective help omitted dynamic command or static help was shadowed:\n%s", m.commandOverlay)
 	}
 }
@@ -430,12 +430,12 @@ func TestDynamicCommandPaletteCollectsRequiredArguments(t *testing.T) {
 	m.commandPaletteFilter = "mcp-review"
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if cmd != nil || m.dynamicArgumentCommand == nil || !strings.Contains(m.View(), "focus (必填)") {
+	if cmd != nil || m.dynamicArgumentCommand == nil || !strings.Contains(m.View(), "focus (required)") {
 		t.Fatalf("argument form did not open:\n%s", m.View())
 	}
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if cmd != nil || !strings.Contains(m.View(), "focus 为必填") {
+	if cmd != nil || !strings.Contains(m.View(), "focus is required") {
 		t.Fatal("required argument was not enforced")
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("security")})
@@ -602,7 +602,7 @@ func TestAdvancedSessionCommandsRequireConfirmation(t *testing.T) {
 		if cmd != nil || m.commandConfirmName == "" || d.commandName != "" {
 			t.Fatalf("%s bypassed confirmation: cmd=%v confirm=%q driver=%q", input, cmd != nil, m.commandConfirmName, d.commandName)
 		}
-		if !strings.Contains(m.View(), "确认") {
+		if !strings.Contains(m.View(), "Confirm") {
 			t.Fatalf("%s confirmation was not rendered:\n%s", input, m.View())
 		}
 		updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})

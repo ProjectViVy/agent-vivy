@@ -143,6 +143,9 @@ type Model struct {
 
 // Options controls presentation-only behavior of the shared terminal view.
 type Options struct {
+	// Locale defaults to English when omitted. Startup locale resolution is
+	// owned by the caller, not the view.
+	Locale          corei18n.Locale
 	DebugToolOutput bool
 }
 
@@ -155,9 +158,10 @@ func New(driver surface.Driver, options ...Options) Model {
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	// Task 6 adds the locale option and migrates the remaining view copy. Keep
-	// the current terminal locale until that constructor boundary is available.
-	translator := tuii18n.New(corei18n.Chinese)
+	if opts.Locale == "" {
+		opts.Locale = corei18n.English
+	}
+	translator := tuii18n.New(opts.Locale)
 	return Model{
 		driver:          driver,
 		translator:      translator,
@@ -323,7 +327,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dynamicCommandDraft = ""
 		if msg.SessionID == "" || msg.SessionID != m.driver.Active().ID {
 			m.input = retryDraft
-			m = m.showCommandError(fmt.Errorf("dynamic command was discarded after the active session changed"))
+			m = m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicSessionChanged", nil)))
 			break
 		}
 		m.closeCommandPalette()
@@ -332,7 +336,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.showCommandError(msg.Err)
 		} else if strings.TrimSpace(msg.Text) == "" {
 			m.input = retryDraft
-			m = m.showCommandError(fmt.Errorf("dynamic command expanded to empty input"))
+			m = m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicEmpty", nil)))
 		} else if cmd := m.driver.Send(msg.Text); cmd != nil {
 			m.chatFollow = true
 			cmds = append(cmds, cmd)
@@ -341,7 +345,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// succeeded, so put the original slash draft back instead of
 			// silently dropping the operator's input.
 			m.input = retryDraft
-			m = m.showCommandError(fmt.Errorf("dynamic command could not start a turn"))
+			m = m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicStart", nil)))
 		}
 	case surface.ProjectFilesMsg:
 		m.applyProjectFilesMsg(msg)
@@ -512,7 +516,7 @@ func (m Model) layout() layout {
 	inputLines := 1
 	if m.driver != nil {
 		hasAttachments = len(m.driver.PendingAttachments()) > 0
-		pasteGuard = pasteGuardChip(m.input) != ""
+		pasteGuard = m.pasteGuardChip(m.input) != ""
 		// A pending gate renders the composer as a single hint row (gate
 		// keys own the box), so the reserve must stay at one input line.
 		if m.driver.PendingGate() == nil {
@@ -998,24 +1002,25 @@ func (m Model) cycleWorkingMode() (Model, tea.Cmd) {
 }
 
 func nextWorkingMode(runMode, preset string) (nextRun, nextPerm string, changePerm bool) {
-	switch workingModeLabel(runMode, preset) {
-	case "计划":
+	switch workingMode(runMode, preset) {
+	case "plan":
 		return "normal", "cautious", true
-	case "只读":
+	case "readOnly":
 		return "normal", "smart", true
 	default:
 		return "plan", "", false
 	}
 }
 
-func workingModeLabel(runMode, preset string) string {
+// workingMode returns a stable identity for cycling and styling, never copy.
+func workingMode(runMode, preset string) string {
 	if strings.EqualFold(strings.TrimSpace(runMode), "plan") {
-		return "计划"
+		return "plan"
 	}
 	if strings.EqualFold(strings.TrimSpace(preset), "cautious") {
-		return "只读"
+		return "readOnly"
 	}
-	return "智能"
+	return "smart"
 }
 
 func (m Model) sidebarMaxScroll() int {
@@ -1323,14 +1328,14 @@ func (m Model) modelSelectionAvailable() bool {
 
 func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 	if !m.modelSelectionAvailable() {
-		return m.showCommandError(fmt.Errorf("model selection is unavailable")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelUnavailable", nil))), nil
 	}
 	meta := m.driver.Meta()
 	if m.driver.PendingGate() != nil {
-		return m.showCommandError(fmt.Errorf("a pending gate must be answered first")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.pendingGate", nil))), nil
 	}
 	if meta.Busy || meta.Queued > 0 {
-		return m.showCommandError(fmt.Errorf("finish or cancel active and queued work before changing models")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.modelBusy", nil))), nil
 	}
 	m.closeCommandPalette()
 	m.closeFileCompletion()
@@ -1350,7 +1355,7 @@ func (m Model) openModelPicker(filter string) (Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.modelPickerLoading = false
-	m.modelPickerError = "model catalog is unavailable"
+	m.modelPickerError = m.translator.T("vivy.tui.error.modelCatalog", nil)
 	return m, nil
 }
 
@@ -1428,7 +1433,7 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		catalog := m.driver.ModelCatalog()
 		if catalog.ReadOnly || catalog.Frozen {
-			m.modelPickerError = "model selection is read-only in this deployment"
+			m.modelPickerError = m.translator.T("vivy.tui.error.modelReadOnly", nil)
 			return m, nil
 		}
 		cursor := min(max(0, m.modelPickerCursor), len(rows)-1)
@@ -1444,7 +1449,7 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, cmd
 		}
 		m.modelPickerSelecting = false
-		m.modelPickerError = "model selection is unavailable"
+		m.modelPickerError = m.translator.T("vivy.tui.error.modelUnavailable", nil)
 	case tea.KeyRunes:
 		m.modelPickerFilter = sanitizeCommandPaletteFilter(m.modelPickerFilter + string(msg.Runes))
 		m.modelPickerCursor = 0
@@ -1589,7 +1594,7 @@ func (m Model) handleDynamicArgumentKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			value := strings.TrimSpace(m.dynamicArgumentValues[i])
 			if argument.Required && value == "" {
 				m.dynamicArgumentCursor = i
-				m.dynamicArgumentError = argument.Name + " 为必填"
+				m.dynamicArgumentError = m.translator.T("vivy.tui.arguments.missing", map[string]any{"argument": argument.Name})
 				return m, nil
 			}
 			if value != "" {
@@ -1696,7 +1701,7 @@ func safeDynamicCommandName(name string) bool {
 
 func (m Model) submitInput() (Model, tea.Cmd) {
 	if m.dynamicCommandPending {
-		return m.showCommandError(fmt.Errorf("wait for the current dynamic command to finish expanding")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicPending", nil))), nil
 	}
 	registry, _ := m.effectiveCommandRegistry()
 	parsed, err := registry.Parse(m.input)
@@ -1710,25 +1715,25 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 	}
 	if parsed.IsShell() {
 		if !m.driver.SupportsCapability("shell.start") {
-			return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.shellUnavailable", nil))), nil
 		}
 		if cmd := m.driver.ExecuteShell(parsed.Shell.Script); cmd != nil {
 			m.input = ""
 			m.chatFollow = true
 			return m, cmd
 		}
-		return m.showCommandError(fmt.Errorf("! shell commands are unavailable")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.shellUnavailable", nil))), nil
 	}
 	if parsed.IsFile() {
 		if strings.TrimSpace(parsed.Text) == "" {
-			return m.showCommandError(fmt.Errorf("@file references require a prompt")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.filePrompt", nil))), nil
 		}
 		if cmd := m.driver.SendWithContext(parsed.Text, parsed.FilePaths()); cmd != nil {
 			m.input = ""
 			m.chatFollow = true
 			return m, cmd
 		}
-		return m.showCommandError(fmt.Errorf("@file references are unavailable")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.fileUnavailable", nil))), nil
 	}
 	if !parsed.IsCommand() {
 		cmd := m.driver.Send(parsed.Text)
@@ -1747,7 +1752,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 
 func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) {
 	if invocation == nil {
-		return m.showCommandError(fmt.Errorf("missing command")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.missingCommand", nil))), nil
 	}
 	registry, dynamic := m.effectiveCommandRegistry()
 	spec, ok := registry.Lookup(invocation.Name)
@@ -1755,19 +1760,19 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		// Registry.Parse already performs this check. Keep the guard here so a
 		// future registry change cannot turn an unknown slash line into model
 		// text.
-		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.unknownCommand", map[string]any{"command": invocation.Name}))), nil
 	}
 	name := spec.Name
 	args := invocation.Args
 	if entry, ok := dynamic[name]; ok {
 		if !m.driver.SupportsCapability("commands.expand") {
-			return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicUnavailable", map[string]any{"command": name}))), nil
 		}
 		m.dynamicCommandRequest++
 		request := m.dynamicCommandRequest
 		sessionID := m.driver.Active().ID
 		if sessionID == "" {
-			return m.showCommandError(fmt.Errorf("dynamic command /%s requires an active session", name)), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicNoSession", map[string]any{"command": name}))), nil
 		}
 		if cmd := m.driver.ExecuteDynamicCommand(request, sessionID, entry.ID, append([]string(nil), args...)); cmd != nil {
 			m.dynamicCommandPending = true
@@ -1776,33 +1781,33 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 			m.dynamicCommandDraft = invocation.Raw
 			return m, cmd
 		}
-		return m.showCommandError(fmt.Errorf("dynamic command /%s is unavailable", name)), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.dynamicUnavailable", map[string]any{"command": name}))), nil
 	}
 	switch name {
 	case "help":
 		if len(args) != 0 {
-			return m.showCommandError(fmt.Errorf("usage: /help")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/help"}))), nil
 		}
-		m.commandOverlayTitle = "命令"
+		m.commandOverlayTitle = m.translator.T("vivy.tui.dialog.commands", nil)
 		m.commandOverlay = registry.HelpFor(m.driver.SupportsCapability("shell.start"))
 		return m, nil
 	case "status":
 		if len(args) != 0 {
-			return m.showCommandError(fmt.Errorf("usage: /status")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/status"}))), nil
 		}
-		m.commandOverlayTitle = "状态"
+		m.commandOverlayTitle = m.translator.T("vivy.tui.dialog.status", nil)
 		m.commandOverlay = m.statusText()
 		return m, nil
 	case "sessions":
 		if len(args) != 0 {
-			return m.showCommandError(fmt.Errorf("usage: /sessions")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/sessions"}))), nil
 		}
 		return m.openSessions()
 	case "model":
 		return m.openModelPicker(strings.Join(args, " "))
 	case "new":
 		if len(args) > 1 && strings.TrimSpace(strings.Join(args, " ")) == "" {
-			return m.showCommandError(fmt.Errorf("usage: /new [title]")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/new [title]"}))), nil
 		}
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -1810,7 +1815,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m.executeDriverCommand(name, args)
 	case "session":
 		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-			return m.showCommandError(fmt.Errorf("usage: /session <id>")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/session <id>"}))), nil
 		}
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -1818,7 +1823,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m.executeDriverCommand(name, args)
 	case "rename":
 		if len(args) == 0 || strings.TrimSpace(strings.Join(args, " ")) == "" {
-			return m.showCommandError(fmt.Errorf("usage: /rename <title>")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/rename <title>"}))), nil
 		}
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -1826,7 +1831,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m.executeDriverCommand(name, args)
 	case "delete":
 		if len(args) > 1 {
-			return m.showCommandError(fmt.Errorf("usage: /delete [id]")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/delete [id]"}))), nil
 		}
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -1838,17 +1843,17 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m.openSessionsForDelete(id)
 	case "cancel":
 		if len(args) != 0 {
-			return m.showCommandError(fmt.Errorf("usage: /cancel")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/cancel"}))), nil
 		}
 		return m.executeDriverCommand(name, args)
 	case "queue":
 		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
-			return m.showCommandError(fmt.Errorf("usage: /queue clear")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/queue clear"}))), nil
 		}
 		return m.executeDriverCommand(name, args)
 	case "permission":
 		if len(args) > 1 {
-			return m.showCommandError(fmt.Errorf("usage: /permission [cautious|smart|trusted]")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/permission [cautious|smart|trusted]"}))), nil
 		}
 		if blocked, reason := m.commandBlocked(name); blocked {
 			return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -1856,7 +1861,7 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		if len(args) == 1 {
 			preset := strings.ToLower(strings.TrimSpace(args[0]))
 			if preset != "cautious" && preset != "smart" && preset != "trusted" {
-				return m.showCommandError(fmt.Errorf("permission must be cautious, smart, or trusted")), nil
+				return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.permission", nil))), nil
 			}
 		}
 		return m.executeDriverCommand(name, args)
@@ -1884,11 +1889,11 @@ func (m Model) dispatchCommand(invocation *command.Invocation) (Model, tea.Cmd) 
 		return m.executeDriverCommand(name, args)
 	case "quit":
 		if len(args) != 0 {
-			return m.showCommandError(fmt.Errorf("usage: /quit")), nil
+			return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/quit"}))), nil
 		}
 		return m, tea.Quit
 	default:
-		return m.showCommandError(fmt.Errorf("unknown command /%s", invocation.Name)), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.unknownCommand", map[string]any{"command": invocation.Name}))), nil
 	}
 }
 
@@ -1896,7 +1901,7 @@ func (m Model) executeImageCommand(args []string) (Model, tea.Cmd) {
 	if cmd := m.driver.ExecuteCommand("image", append([]string(nil), args...)); cmd != nil {
 		return m, cmd
 	}
-	return m.showCommandError(fmt.Errorf("/image is unavailable")), nil
+	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.commandUnavailable", map[string]any{"command": "image"}))), nil
 }
 
 func (m Model) setThinking(mode string) (Model, tea.Cmd) {
@@ -1904,12 +1909,12 @@ func (m Model) setThinking(mode string) (Model, tea.Cmd) {
 		mode = nextThinking(m.driver.ThinkingMode())
 	}
 	if mode != "auto" && mode != "on" && mode != "off" {
-		return m.showCommandError(fmt.Errorf("thinking must be auto, on, or off")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.thinking", nil))), nil
 	}
 	if err := m.driver.SetThinkingMode(mode); err != nil {
 		return m.showCommandError(err), nil
 	}
-	return m.showCommandResult("Thinking", "next turn thinking: "+mode), nil
+	return m.showCommandResult(m.translator.T("vivy.tui.dialog.thinking", nil), m.translator.T("vivy.tui.thinking.next", map[string]any{"mode": mode})), nil
 }
 
 func nextThinking(current string) string {
@@ -1926,7 +1931,7 @@ func nextThinking(current string) string {
 func (m Model) confirmCommand(name string, args []string) (Model, tea.Cmd) {
 	sessionID := m.driver.Active().ID
 	if sessionID == "" {
-		return m.showCommandError(fmt.Errorf("no active session")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.noSession", nil))), nil
 	}
 	m.commandConfirmName = name
 	m.commandConfirmArgs = append([]string(nil), args...)
@@ -1954,7 +1959,7 @@ func (m Model) handleCommandConfirmation(msg tea.KeyMsg) (Model, tea.Cmd) {
 	sessionID := m.commandConfirmSID
 	m.clearCommandConfirmation()
 	if m.driver.Active().ID != sessionID {
-		return m.showCommandError(fmt.Errorf("active session changed; /%s cancelled", name)), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.sessionChanged", map[string]any{"command": name}))), nil
 	}
 	if blocked, reason := m.commandBlocked(name); blocked {
 		return m.showCommandError(fmt.Errorf("%s", reason)), nil
@@ -1970,10 +1975,10 @@ func (m *Model) clearCommandConfirmation() {
 
 func (m Model) commandBlocked(name string) (bool, string) {
 	if gate := m.driver.PendingGate(); gate != nil {
-		return true, "a pending gate must be answered first"
+		return true, m.translator.T("vivy.tui.error.pendingGate", nil)
 	}
 	if m.driver.Meta().Busy {
-		return true, fmt.Sprintf("run in flight; /%s is unavailable (use /cancel)", name)
+		return true, m.translator.T("vivy.tui.error.commandBusy", map[string]any{"command": name})
 	}
 	return false, ""
 }
@@ -1982,7 +1987,7 @@ func (m Model) executeDriverCommand(name string, args []string) (Model, tea.Cmd)
 	if cmd := m.driver.ExecuteCommand(name, append([]string(nil), args...)); cmd != nil {
 		return m, cmd
 	}
-	return m.showCommandError(fmt.Errorf("/%s is unavailable", name)), nil
+	return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.commandUnavailable", map[string]any{"command": name}))), nil
 }
 
 func (m Model) openSessionsForDelete(id string) (Model, tea.Cmd) {
@@ -1990,7 +1995,7 @@ func (m Model) openSessionsForDelete(id string) (Model, tea.Cmd) {
 		id = m.driver.Active().ID
 	}
 	if id == "" {
-		return m.showCommandError(fmt.Errorf("no active session")), nil
+		return m.showCommandError(fmt.Errorf("%s", m.translator.T("vivy.tui.error.noSession", nil))), nil
 	}
 	m, cmd := m.openSessions()
 	if len(m.sessionRows) > 0 {
@@ -2002,7 +2007,7 @@ func (m Model) openSessionsForDelete(id string) (Model, tea.Cmd) {
 			}
 		}
 		if !found {
-			m.sessionError = "session not found: " + id
+			m.sessionError = m.translator.T("vivy.tui.sessions.notFound", map[string]any{"id": id})
 			return m, cmd
 		}
 	}
@@ -2020,7 +2025,7 @@ func (m Model) showCommandError(err error) Model {
 	if err == nil {
 		return m
 	}
-	return m.showCommandResult("Command error", err.Error())
+	return m.showCommandResult(m.translator.T("vivy.tui.dialog.commandError", nil), err.Error())
 }
 
 func (m *Model) applyCommandResult(msg surface.CommandResultMsg) {
@@ -2030,7 +2035,7 @@ func (m *Model) applyCommandResult(msg surface.CommandResultMsg) {
 		return
 	}
 	if strings.TrimSpace(msg.Output) != "" {
-		next := m.showCommandResult("Command", msg.Output)
+		next := m.showCommandResult(m.translator.T("vivy.tui.dialog.command", nil), msg.Output)
 		*m = next
 	}
 }
@@ -2040,28 +2045,28 @@ func (m Model) statusText() string {
 	active := m.driver.Active()
 	var lines []string
 	if active.ID == "" {
-		lines = append(lines, "session: none")
+		lines = append(lines, m.translator.T("vivy.tui.status.noSession", nil))
 	} else {
 		title := strings.TrimSpace(active.Title)
 		if title == "" {
-			title = "untitled session"
+			title = m.translator.T("vivy.tui.session.untitled", nil)
 		}
-		lines = append(lines, "session: "+title, "id: "+active.ID)
+		lines = append(lines, m.translator.T("vivy.tui.status.session", map[string]any{"name": title}), m.translator.T("vivy.tui.status.id", map[string]any{"id": active.ID}))
 	}
 	if meta.Busy {
-		line := "run: active"
+		line := m.translator.T("vivy.tui.status.active", nil)
 		if meta.RunID != "" {
 			line += " (" + meta.RunID + ")"
 		}
 		lines = append(lines, line)
 	} else {
-		lines = append(lines, "run: idle")
+		lines = append(lines, m.translator.T("vivy.tui.status.idle", nil))
 	}
-	lines = append(lines, fmt.Sprintf("queue: %d", meta.Queued))
+	lines = append(lines, m.translator.T("vivy.tui.status.queue", map[string]any{"count": meta.Queued}))
 	if active.PermissionPreset != "" {
-		lines = append(lines, "permission: "+active.PermissionPreset)
+		lines = append(lines, m.translator.T("vivy.tui.status.permission", map[string]any{"preset": active.PermissionPreset}))
 	}
-	lines = append(lines, "thinking (next turn): "+m.driver.ThinkingMode())
+	lines = append(lines, m.translator.T("vivy.tui.status.thinking", map[string]any{"mode": m.driver.ThinkingMode()}))
 	snapshot := m.driver.Sidebar()
 	if snapshot.HasContext {
 		ctx := snapshot.Context
@@ -2071,13 +2076,13 @@ func (m Model) statusText() string {
 		}
 		if ctx.ModelLimitKnown && ctx.ModelLimitTokens > 0 {
 			percentage := int(float64(ctx.FeedTokens) / float64(ctx.ModelLimitTokens) * 100)
-			lines = append(lines, fmt.Sprintf("context: %s%d/%d tokens (%s%d%%)", estimated, ctx.FeedTokens, ctx.ModelLimitTokens, estimated, percentage))
+			lines = append(lines, m.translator.T("vivy.tui.status.context", map[string]any{"estimated": estimated, "tokens": ctx.FeedTokens, "limit": ctx.ModelLimitTokens, "percentage": percentage}))
 		} else if ctx.FeedTokens > 0 {
-			lines = append(lines, fmt.Sprintf("context: %s%d tokens (model limit unknown)", estimated, ctx.FeedTokens))
+			lines = append(lines, m.translator.T("vivy.tui.status.contextUnknown", map[string]any{"estimated": estimated, "tokens": ctx.FeedTokens}))
 		}
 	}
 	if strings.TrimSpace(meta.Error) != "" {
-		lines = append(lines, "error: "+meta.Error)
+		lines = append(lines, m.translator.T("vivy.tui.status.error", map[string]any{"error": meta.Error}))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2203,7 +2208,7 @@ func (m Model) beginDelete() (Model, tea.Cmd) {
 	}
 	row := rows[m.sessionCursor]
 	if meta := m.driver.Meta(); meta.Busy && row.ID == m.driver.Active().ID {
-		m.sessionError = "cannot delete the active session while a run is in progress"
+		m.sessionError = m.translator.T("vivy.tui.error.deleteBusy", nil)
 		return m, nil
 	}
 	m.sessionDeleteID = row.ID
@@ -2214,12 +2219,12 @@ func (m Model) beginDelete() (Model, tea.Cmd) {
 func (m Model) submitRename() (Model, tea.Cmd) {
 	title := strings.TrimSpace(m.sessionRenameInput)
 	if title == "" {
-		m.sessionError = "title cannot be empty"
+		m.sessionError = m.translator.T("vivy.tui.error.emptyTitle", nil)
 		return m, nil
 	}
 	cmd := m.driver.RenameSession(m.sessionRenameID, title)
 	if cmd == nil {
-		m.sessionError = "session rename is unavailable"
+		m.sessionError = m.translator.T("vivy.tui.error.renameUnavailable", nil)
 		return m, nil
 	}
 	m.sessionActionBusy = true
@@ -2230,7 +2235,7 @@ func (m Model) submitRename() (Model, tea.Cmd) {
 func (m Model) submitDelete() (Model, tea.Cmd) {
 	cmd := m.driver.DeleteSession(m.sessionDeleteID)
 	if cmd == nil {
-		m.sessionError = "session delete is unavailable"
+		m.sessionError = m.translator.T("vivy.tui.error.deleteUnavailable", nil)
 		return m, nil
 	}
 	m.sessionActionBusy = true
@@ -2245,7 +2250,7 @@ func (m Model) chooseSession() (Model, tea.Cmd) {
 	}
 	cmd := m.driver.SelectSession(rows[m.sessionCursor].ID)
 	if cmd == nil {
-		m.sessionError = "session selection is unavailable"
+		m.sessionError = m.translator.T("vivy.tui.error.sessionUnavailable", nil)
 		return m, nil
 	}
 	m.sessionsOpen = false
