@@ -85,6 +85,40 @@ Source: `.workspace/deepseek-harness/deepseek-harness/` (local working clone, th
 - `docs/architecture/VIVY-FACE-PACK.md` (proposal, not implemented): Face = a compilable organ in the recipe, one primary face per generation; `RegisterFace()` pack overlay; "a live EXE does not dynamically load any face code."
 - Granularity distinction: a face is **the entire shell** (web|tui|headless), while the plugin UI contribution discussed here is **panels/cards/commands/tabs inside the shell**. They are orthogonal: the face changes the shell, and plugin UI fills the shell. The design must not conflict with FACE-PACK—plugin UI descriptors are meaningful only in the `faces/web` face.
 
+### 2.6 Cross-frontend I18N proposal (non-normative)
+
+Plugin UI should not depend on one monolithic VIVY-owned dictionary. The
+preferred direction is an extensible I18N registry with one shared
+translation-unit contract and independently owned catalogs:
+
+- Core VIVY strings use a reserved `vivy.*` namespace.
+- A plugin may ship an explicitly declared catalog, for example
+  `i18n/catalog.json`, as part of its Module package.
+- Plugin strings use a reserved `plugin.<module-id>.*` namespace. A plugin
+  cannot overwrite core keys or another plugin's keys.
+- A translation unit contains a stable key, locale messages, a placeholder
+  list, and human-readable description/context. Optional `short` and `long`
+  variants can serve different Web and TUI layout constraints without creating
+  separate semantic units.
+- Web and TUI resolve the same key and arguments. Dynamic plugin descriptors
+  carry `label_key` plus `label_args`, rather than a pre-rendered English or
+  Chinese string.
+- Catalogs are explicit Recipe/build inputs, not files discovered from an
+  arbitrary runtime directory or downloaded at runtime. Catalog schema,
+  namespace ownership, duplicate keys, placeholder parity, and locale
+  fallback should be validated; catalog hashes should be included in
+  Generation provenance.
+- Resolution should try the active locale, then the plugin's declared default
+  locale, then a safe diagnostic/key fallback. Core VIVY can retain its
+  current default locale; `en` is the recommended default for new plugins.
+- Host localization applies to host and plugin UI copy. Generated plugin
+  content, user text, model output, and tool output remain data and are not
+  translated by the host.
+
+This keeps translation units shared across frontends while allowing each
+plugin to own and version its vocabulary. It also gives full-code UI Modules a
+host localization API without requiring them to edit a central VIVY catalog.
+
 ## 3. Options: three-tier trust spectrum
 
 ### Option one (recommended first): UI as data — descriptor channel
@@ -150,6 +184,7 @@ Two small supporting items:
 3. Data-source boundary allowed by the settings-card schema: may a plugin query only its own tools, or may it reference general stats? This determines whether the widget vocabulary needs authorization semantics.
 4. If option three is approved: sandbox choice, CSP, and the relationship between the two trust levels for tenant web UI and the Studio shell.
 5. Should TUI (`internal/tui`) consume the same descriptors (text slots) to fulfill "multiple frontends, one plugin"?
+6. What exact translation-unit schema and host API should be standardized so plugin-owned catalogs work identically in Web, TUI, and future frontends?
 
 ## 6. Reference paths
 
@@ -192,6 +227,6 @@ AGENTS.md entry point (DSH ground-truth location + governance constraints)
 1. **Finalize option-one contract**: the manifest v1 `ui` block allowlist vocabulary—use the rendering capabilities of existing `settings/mcp` cards and provider forms as the widget-vocabulary baseline; first produce a field draft + parse/validate test design.
 2. **Pack spike**: verify whether the overlay mechanism can generate `zz_ui.go` in parallel with `zz_register.go` (the same `go build -overlay`, without changing the SDK Go API window).
 3. **RPC contract impact**: `plugins/list` payload shape vs. dynamic `capabilities`—read `internal/tui/client.go` and worker-client handshake dependencies to confirm the additive path.
-4. **i18n strategy**: compatibility plan for inline zh/en in descriptors and the twin-enforcement tests in `ui/src/i18n/index.test.ts`.
+4. **i18n strategy**: define the shared translation-unit schema, plugin-owned catalog manifest, `plugin.<module-id>.*` namespace, Web/TUI resolution API, fallback behavior, and twin-enforcement tests in `ui/src/i18n/index.test.ts`.
 5. **Generation awareness**: minimal implementation location for `generation_id` comparison and the "prompt for refresh" interaction (`store.initialize` vs. route guard).
 6. **Prerequisite research for option three** (proceed slowly): inventory the current CSP in `ui/index.html` and response headers; experiment with an iframe sandbox prototype vs. DSH-style build-time purity gate; record the relationship with the sealed skin in `VIVY-STUDIO.md` §9.1 in the product contract.

@@ -209,6 +209,46 @@ Backend authorization is unaffected. The server rechecks identity, schema,
 Policy, Grant, approval, and instance state. UI code cannot grant itself
 backend authority by hiding, replacing, or forging a view.
 
+### 7.1 Proposed plugin I18N extension (non-normative)
+
+The following is a proposed follow-up contract for plugin localization. It is
+not part of the current v1 verification requirements until it is accepted and
+scheduled in the platform plan.
+
+A Module that contributes localized UI may declare an owned catalog in its
+descriptor:
+
+```yaml
+i18n:
+  catalog: i18n/catalog.json
+  default_locale: en
+  locales: [en, zh]
+```
+
+The proposed rules are:
+
+- Core VIVY messages use `vivy.*` keys. Plugin messages use
+  `plugin.<module-id>.*` keys, and a plugin may not override another owner's
+  keys.
+- A catalog entry defines a stable key, locale messages, placeholders, and
+  description/context. Optional `short` and `long` forms are presentation
+  variants of the same translation unit.
+- The host exposes one key-and-arguments localization surface to Web and TUI.
+  Full-code UI Modules may use that surface directly; descriptor-based plugin
+  UI carries a key and arguments instead of a pre-rendered string.
+- Catalogs are explicit Recipe/package inputs. They are schema-checked for
+  valid locale data, namespace ownership, duplicate keys, and placeholder
+  parity. Their hashes are included in Generation provenance.
+- Locale resolution tries the active locale, the plugin default locale, and a
+  safe key/diagnostic fallback in that order. The host owns the fallback
+  policy; plugin code does not silently replace core messages.
+- Localization is not a new permission boundary. The existing v1 rule that
+  full-code UI Modules are trusted remains unchanged.
+
+This proposal intentionally separates shared translation units from catalog
+ownership: Web and TUI consume the same semantic units, while each plugin can
+ship and evolve its own vocabulary without modifying a central VIVY file.
+
 ## 8. Runtime and lifecycle
 
 Module code follows:
