@@ -1,5 +1,10 @@
 # ACP / Remote Control Proposal
 
+> **Plugin v1 note (2026-09-09):** any `seam:*`, `vivy.plugin/v0`, or old
+> Generation mechanics below are historical terminology. The remote-control
+> proposal remains deferred; any future integration must use the normative
+> Module/Port/Assembly contracts and has no v0 compatibility path.
+
 Status: proposal only — implementation deferred pending explicit approval.
 
 Same-process mouths (web / tui / headless) are a different contract:

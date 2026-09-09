@@ -1,7 +1,14 @@
 # Vivy Channel Pack — 超级通道合同
 
-> 状态：**方向已采纳**（2026-08-30 讨论拍板：超级通道 + 本批全部插件化）。
-> 未改内核、未改 `sdk/plugin` 落地缝之前，本文是合同正本，不是实现。
+> **2026-09-09 v1 规范覆盖：** 本文的超级通道、ChannelHost、信封、账本和
+> 传输语义继续有效；所有 `seam: channel`、`vivy.plugin/v0`、
+> `vivy.generation/v0`、`[]plugin.Plugin`、旧 ABI 和兼容迁移表述均为历史
+> 记录，不得作为新实现依据。v1 唯一机制是 `std/channel@v1` + ChannelHost
+> + `vivy.module/v1` + Generation Recipe，且不保留 v0 API。规范正本见
+> `VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
+> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。
+>
+> 状态：**产品语义已采纳；插件装配机制由 v1 规范取代**。
 > 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、`VIVY-PLUGIN-SPEC.md`、**`VIVY-STUDIO.md`**、PRD §5.0 / D-016。
 > 日期：2026-08-30
 >

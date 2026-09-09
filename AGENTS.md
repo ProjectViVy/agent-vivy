@@ -121,7 +121,11 @@ That directory is the engine's scratch, not the species Journal.
 - Browser UI during development: `http://127.0.0.1:3015` (split Vite), not
   the embedded UI on `:8787`
 - Kernel / docs / UI: `just ci`
-- User plugin: `vivy-sdk verify plugins/<name>` then `vivy-sdk pack --with <name>`
+- User plugin v1: first use `.agents/skills/vivy-plugin` and the manually
+  scheduled phase under `docs/plans/plugin-platform/`. The v1 Ports are
+  currently specified, not implemented; do not fall back to the rejected v0
+  API. Once the v1 SDK phase ships, verify with `vivy-sdk verify
+  plugins/<name>`, pack the explicit Recipe, then inspect the artifact.
 - Studio lifecycle (pack → eval → release → install → rollback):
   `just studio` builds `vivy-studio.exe`; the ledger lives at
   `data/studio-home/studio.db` (Studio-owned, not the species Journal).
@@ -131,9 +135,51 @@ That directory is the engine's scratch, not the species Journal.
 - Do not treat a hand-rolled `go test` as the product path when `just ci` exists
 - Do not open `internal/runtime/engine.go` to "install" a plugin
 
-Prefabricated Studio skills: `.agents/skills/vivy-plugin-five`,
+Prefabricated skills: `.agents/skills/vivy-plugin`,
+`.agents/skills/vivy-plugin-five` (legacy redirect only),
 `.agents/skills/vivy-kernel-ci`, `.agents/skills/vivy-studio-lifecycle`,
 `.agents/skills/vivy-studio-skin`.
+
+## Plugin development v1 (mandatory)
+
+Normative sources are `docs/architecture/VIVY-MODULE-STANDARD.md`,
+`docs/architecture/VIVY-PORT-CATALOG.md`,
+`docs/architecture/VIVY-PLUGIN-SPEC.md`, and
+`docs/architecture/VIVY-ASSEMBLY.md`. The executable program plan is
+`docs/plans/plugin-platform/README.md`. Use `.agents/skills/vivy-plugin` for
+any Module, Port, plugin, Recipe, Generation, `vivy-sdk`, pack, or Inspect
+work.
+
+- Design in the order **Module -> typed Port -> Provider/Consumer -> Recipe ->
+  generated Assembly -> Generation evidence**. Do not recreate a God `Plugin`
+  interface, untyped registry, or last-writer-wins composition.
+- `vivy.plugin/v0`, `Seam`, the legacy public API, compatibility Adapters, and
+  migration commands are rejected. Do not extend or preserve them. Until P1/P2
+  ships, v1 implementation requests follow the approved plan instead of using
+  v0 as a shortcut.
+- External Modules enter only through explicit Recipe source pins. Never scan a
+  directory or load Go/UI Module code at runtime. Do not hand-edit generated
+  Assembly files.
+- Every public Provider uses one cataloged `std/*` Port and one named Host
+  Consumer. Public Modules cannot provide `core/*`, access raw Journal/Policy/
+  storage/credentials, or bypass `Service.Run`, ToolHost, ChannelHost,
+  FaceHost, or ActionHost.
+- The protected Tools `ask_user`, `list_dir`, `read_file`, `search_files`,
+  `write_file`, `patch`, `multiedit`, `execute`, `bash`, `skills_list`, and
+  `skill_view` are T1 implementations with reserved IDs. Public Modules cannot
+  shadow, alias, replace, or override them.
+- All public Port Hosts and established first-party Providers belong to the
+  default Generation. Missing network configuration/credentials means
+  unconfigured and inactive, not automatic connection.
+- A selected UI Module has complete UI control by default. There is no UI Grant
+  or authorization prompt. Backend inputs remain untrusted and server-side
+  identity, schema, Policy, Grant, approval, Run, Tool, and Journal checks stay
+  authoritative.
+- For Provider/model/OAuth/orchestration/RAG/MCP adapter capability, inspect
+  and cite the pinned Eino/EinoExt API. Adapt it when present; otherwise mark
+  the capability `DEFERRED-INDEFINITE`. Do not build a custom substitute.
+- A Port is supported only with Definition, SDK Contract, Host Consumer, real
+  Provider, Failure Model, Conformance Suite, and Inspect Projection.
 
 ## DSH harness reference source
 

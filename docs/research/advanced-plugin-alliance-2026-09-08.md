@@ -1,7 +1,10 @@
 # Vivy 进阶插件联盟调研：编译期自由装配与内核边界
 
 > 日期：2026-09-08
-> 状态：调研结论 / 架构提案，尚未构成实现授权
+> 状态：**研究归档**。2026-09-09 的规范级决策已取代本文提案；实现只服从
+> `docs/architecture/VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
+> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。本文仅保留调查证据和历史
+> 选项，尤其不得据此恢复 v0 兼容、可执行公共 Provider 或受限 UI 方案。
 > 范围：Vivy 物种内核；不含 Vivy Studio 壳层实现
 > 目标：评估“一切皆插件”，统一 `internal` 与 `pluggable` 的装配语义，同时守住单一 `Service.Run` / Journal / policy 路径。
 
