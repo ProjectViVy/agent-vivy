@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resetLocaleForTests } from '@/i18n';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { loadRuntimeConfig, resolveControlPlaneOrigin } from './runtime-config';
+
+beforeEach(() => resetLocaleForTests());
 
 describe('Vivy runtime config', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -19,12 +22,12 @@ describe('Vivy runtime config', () => {
 
   it('reports an actionable error when the runtime file cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
-    await expect(loadRuntimeConfig()).rejects.toThrow('无法加载');
+    await expect(loadRuntimeConfig()).rejects.toThrow('Vivy runtime config failed to load');
   });
 
   it('rejects credentials and paths in the control plane URL', () => {
-    expect(() => resolveControlPlaneOrigin('http://user:pass@127.0.0.1:8787')).toThrow('只能包含协议、主机和端口');
-    expect(() => resolveControlPlaneOrigin('http://127.0.0.1:8787/app')).toThrow('只能包含协议、主机和端口');
+    expect(() => resolveControlPlaneOrigin('http://user:pass@127.0.0.1:8787')).toThrow('Vivy controlPlaneUrl may contain only the scheme, host, and port');
+    expect(() => resolveControlPlaneOrigin('http://127.0.0.1:8787/app')).toThrow('Vivy controlPlaneUrl may contain only the scheme, host, and port');
     expect(resolveControlPlaneOrigin('', 'http://127.0.0.1:3015').origin).toBe('http://127.0.0.1:3015');
   });
 });
