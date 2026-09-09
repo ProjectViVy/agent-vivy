@@ -33,6 +33,11 @@ fmt-check:
 plugin-ci:
     powershell -NoProfile -Command '$fail = 0; foreach ($root in @(''plugins'', ''faces'')) { if (-not (Test-Path $root)) { continue }; $mods = Get-ChildItem $root -Directory | Where-Object { Test-Path (Join-Path $_.FullName ''go.mod'') }; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $root + ''/'' + $m.Name); Push-Location $m.FullName; & ''{{go}}'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''{{go}}'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location } }; exit $fail'
 
+# Build the assets required by go:embed without coupling backend checks to the
+# UI typecheck/test gate. CI jobs intentionally use separate installations.
+ui-build:
+    Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
+
 ui-ci:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
@@ -49,6 +54,10 @@ build-split:
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
 ci: fmt-check ui-ci vet test headless-compile plugin-ci
+
+# Independent backend gate for Actions. It builds ui/dist for go:embed but
+# leaves UI typechecking and tests to ui-ci so both lanes always report.
+backend-ci: fmt-check ui-build vet test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
