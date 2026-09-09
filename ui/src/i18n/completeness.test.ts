@@ -1,19 +1,21 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true }); });
 
-function check(en: string, zh: string, source = '') {
+function check(en: string, zh: string, source = '', sourcePath = 'surface.tsx') {
   const root = mkdtempSync(join(tmpdir(), 'vivy-i18n-check-'));
   roots.push(root);
   mkdirSync(join(root, 'ui/src/i18n'), { recursive: true });
   writeFileSync(join(root, 'ui/src/i18n/en.ts'), `export const en = ${en};`);
   writeFileSync(join(root, 'ui/src/i18n/zh.ts'), `export const zh = ${zh};`);
-  writeFileSync(join(root, 'ui/src/surface.tsx'), source);
+  const sourceFile = join(root, 'ui/src', sourcePath);
+  mkdirSync(dirname(sourceFile), { recursive: true });
+  writeFileSync(sourceFile, source);
   const result = spawnSync(process.execPath, [resolve('../scripts/check-i18n-completeness.js'), '--root', root], { encoding: 'utf8' });
   return { status: result.status, output: result.stdout + result.stderr };
 }
@@ -62,6 +64,12 @@ describe('catalog completeness command', () => {
     expect(result.status).toBe(1);
     expect(result.output).toContain('Uncatalogued JSX');
     expect(result.output).toContain('Unknown translation: missing.key');
+  });
+  it('rejects uncatalogued reveal-engine diagnostics', () => {
+    const result = check("{a: 'A'}", "{a: '甲'}",
+      'console.warn("[reveal-engine] 初始化失败，已降级为全部可见：", message);', 'lib/reveal-engine.ts');
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Uncatalogued Han: ui/src/lib/reveal-engine.ts');
   });
   it('rejects English copy hidden in JSX string expressions', () => {
     const result = check("{a: 'A'}", "{a: '甲'}", 'const el = <button aria-label={"Save changes"}>{"Save"}</button>;');
