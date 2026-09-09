@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  just-ci:
-    name: just ci
+  backend:
+    name: backend ci
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -51,5 +51,52 @@ jobs:
       - name: Validate plugin v1 fixture corpus
         run: node scripts/check-plugin-v1-fixtures.mjs
 
-      - name: Run repository CI
-        run: just ci
+      - name: Run backend CI
+        run: just backend-ci
+
+  ui:
+    name: ui ci
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.19.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install just
+        uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+
+      - name: Run UI CI
+        run: just ui-ci
+
+  aggregate:
+    name: just ci
+    if: always()
+    needs:
+      - backend
+      - ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every CI lane
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          UI_RESULT: ${{ needs.ui.result }}
+        run: |
+          echo "backend ci: $BACKEND_RESULT"
+          echo "ui ci: $UI_RESULT"
+          test "$BACKEND_RESULT" = "success"
+          test "$UI_RESULT" = "success"

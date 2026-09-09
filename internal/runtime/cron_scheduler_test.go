@@ -88,6 +88,9 @@ func TestCronSchedulerFiresDueJobAndWritesBack(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		// This test observes the first write-back, not repeated firing. Keep the
+		// next recurrence visible while a loaded Windows runner polls SQLite.
+		j.Schedule.EveryMs = 30_000
 		j.State.NextRunAtMs = now + 80 // first fire ~80ms out
 	})
 
@@ -172,8 +175,8 @@ func TestCronAtJobDisablesAfterRun(t *testing.T) {
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
 		// Leave enough startup margin that a loaded Windows scheduler cannot
 		// classify this fresh job as an offline, already-missed one-shot.
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 500}
-		j.State.NextRunAtMs = now + 500
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 5_000}
+		j.State.NextRunAtMs = now + 5_000
 	})
 
 	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
@@ -194,8 +197,8 @@ func TestCronAtJobDeletesAfterSuccessfulRun(t *testing.T) {
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
 		// See TestCronAtJobDisablesAfterRun: the recovery contract intentionally
 		// disables truly past one-shots, so this wiring test needs startup margin.
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 500}
-		j.State.NextRunAtMs = now + 500
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 5_000}
+		j.State.NextRunAtMs = now + 5_000
 		j.DeleteAfterRun = true
 	})
 
@@ -377,7 +380,9 @@ func TestCronRecoveryPastDueRecurringJobFiresOnceOnWakeAndSkipsStorm(t *testing.
 	now := time.Now().UnixMilli()
 
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleEvery, EveryMs: 200}
+		// The recovery behavior needs one fire and a future write-back. A long
+		// recurrence keeps that state observable under loaded Windows CI.
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleEvery, EveryMs: 30_000}
 		j.State.NextRunAtMs = now - 5000
 	})
 
