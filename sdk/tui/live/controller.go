@@ -12,18 +12,24 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"agent-vivy/internal/generated/presentation"
 	corei18n "agent-vivy/internal/i18n"
 	"agent-vivy/sdk/tui/command"
 	tuii18n "agent-vivy/sdk/tui/i18n"
+	"agent-vivy/sdk/tui/internal/textsafe"
 	"agent-vivy/sdk/tui/stream"
 	"agent-vivy/sdk/tui/surface"
 )
 
 // Live is a surface.Driver backed by a control-plane client.
 type Live struct {
-	client *client
-	host   string
-	title  string
+	client     *client
+	translator tuii18n.Translator
+	// startupWarning is consumed by applyBoot so a successful boot cannot
+	// erase the non-fatal settings failure before the first usable frame.
+	startupWarning string
+	host           string
+	title          string
 
 	mu sync.Mutex
 
@@ -121,7 +127,7 @@ type Options struct {
 // state machine. Call Init from the Bubble Tea model after this succeeds.
 func New(parent context.Context, transport Transport, opts Options) (*Live, error) {
 	if transport == nil {
-		return nil, errors.New("tui: client is not connected")
+		return nil, errors.New(tuii18n.New(presentation.DefaultLocale).T("vivy.tui.live.connected", nil))
 	}
 	if parent == nil {
 		parent = context.Background()
@@ -134,8 +140,25 @@ func New(parent context.Context, transport Transport, opts Options) (*Live, erro
 	if err := client.setCapabilities(initialized); err != nil {
 		return nil, fmt.Errorf("tui: initialize capabilities: %w", err)
 	}
-	return newLive(parent, client, opts), nil
+	settingsCtx, cancelSettings := context.WithTimeout(parent, 15*time.Second)
+	locale, settingsErr := client.effectiveLocale(settingsCtx)
+	cancelSettings()
+	if settingsErr == nil {
+		client.translator = tuii18n.New(locale)
+	}
+	l := newLive(parent, client, opts)
+	if settingsErr != nil {
+		// Sanitize the display copy before shortening: truncating an OSC first
+		// could leave an unterminated sequence or discard readable suffix text.
+		l.startupWarning = l.translator.T("vivy.tui.live.settingsWarning", nil) + shortText(textsafe.Inline(settingsErr.Error()))
+		l.lastErr = l.startupWarning
+	}
+	return l, nil
 }
+
+// Locale is the immutable backend-effective locale (or embedded fallback)
+// selected during initialization, shared with the view by every launcher.
+func (l *Live) Locale() corei18n.Locale { return l.translator.Locale() }
 
 func newLive(parent context.Context, client *client, opts Options) *Live {
 	if opts.Title == "" {
@@ -144,6 +167,7 @@ func newLive(parent context.Context, client *client, opts Options) *Live {
 	ctx, cancel := context.WithCancel(parent)
 	l := &Live{
 		client:         client,
+		translator:     client.translator,
 		host:           strings.TrimSpace(opts.Host),
 		title:          opts.Title,
 		initialPrompt:  strings.TrimSpace(opts.InitialPrompt),
@@ -294,10 +318,10 @@ func (l *Live) Meta() surface.Meta {
 		footer += " · " + l.host
 	}
 	if l.busy {
-		footer += " · run…"
+		footer += l.translator.T("vivy.tui.live.runFooter", nil)
 	}
 	if queued > 0 {
-		footer += fmt.Sprintf(" · queued %d", queued)
+		footer += l.translator.T("vivy.tui.live.queueFooter", map[string]any{"count": queued})
 	}
 	return surface.Meta{
 		Host:      l.host,
@@ -561,7 +585,7 @@ func (l *Live) RefreshModels(request uint64) tea.Cmd {
 	l.mu.Unlock()
 	return func() tea.Msg {
 		if !l.SupportsModelSelection() {
-			return surface.ModelsMsg{Request: request, Err: fmt.Errorf("model selection is unavailable")}
+			return surface.ModelsMsg{Request: request, Err: errors.New(l.translator.T("vivy.tui.error.modelUnavailable", nil))}
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
@@ -577,10 +601,10 @@ func (l *Live) SelectModel(request uint64, option surface.ModelOption) tea.Cmd {
 	l.mu.Unlock()
 	return func() tea.Msg {
 		if blocked {
-			return surface.ModelSelectedMsg{Request: request, Option: option, Err: fmt.Errorf("finish or cancel active and queued work before changing models")}
+			return surface.ModelSelectedMsg{Request: request, Option: option, Err: errors.New(l.translator.T("vivy.tui.error.modelBusy", nil))}
 		}
 		if !l.SupportsModelSelection() {
-			return surface.ModelSelectedMsg{Request: request, Option: option, Err: fmt.Errorf("model selection is unavailable")}
+			return surface.ModelSelectedMsg{Request: request, Option: option, Err: errors.New(l.translator.T("vivy.tui.error.modelUnavailable", nil))}
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		defer cancel()
@@ -635,12 +659,13 @@ func (l *Live) applyBoot(msg liveBootMsg) tea.Cmd {
 	if l.sidebar.Session.ID == "" {
 		l.sidebar.Session = l.activeSessionLocked()
 	}
-	l.lastErr = ""
+	l.lastErr = l.startupWarning
+	l.startupWarning = ""
 	if msg.SidebarErr != nil {
-		l.lastErr = "session sidebar: " + shortErr(msg.SidebarErr)
+		l.lastErr = l.translator.T("vivy.tui.live.sidebarWarning", nil) + shortErr(msg.SidebarErr)
 	}
 	if msg.CommandEpoch == l.dynamicCommandEpoch && msg.CommandErr != nil {
-		l.lastErr = "dynamic commands: " + shortErr(msg.CommandErr)
+		l.lastErr = l.translator.T("vivy.tui.live.dynamicWarning", nil) + shortErr(msg.CommandErr)
 	}
 	if l.initialPrompt != "" {
 		autoSend = l.initialPrompt
@@ -684,11 +709,11 @@ func (l *Live) applyDynamicCommandsMsg(msg surface.DynamicCommandsMsg) {
 		return
 	}
 	if msg.Err != nil {
-		l.lastErr = "dynamic commands: " + shortErr(msg.Err)
+		l.lastErr = l.translator.T("vivy.tui.live.dynamicWarning", nil) + shortErr(msg.Err)
 		return
 	}
 	l.dynamicCommands = append([]surface.DynamicCommand(nil), msg.Commands...)
-	if strings.HasPrefix(l.lastErr, "dynamic commands: ") {
+	if strings.HasPrefix(l.lastErr, l.translator.T("vivy.tui.live.dynamicWarning", nil)) {
 		l.lastErr = ""
 	}
 }
@@ -711,7 +736,7 @@ func (l *Live) CancelDynamicCommand(request uint64) {
 func (l *Live) ExecuteDynamicCommand(request uint64, sessionID, id string, args []string) tea.Cmd {
 	return func() tea.Msg {
 		if !l.SupportsCapability("commands.expand") {
-			return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Err: fmt.Errorf("dynamic commands are unavailable")}
+			return surface.DynamicCommandExpandedMsg{Request: request, SessionID: sessionID, ID: id, Err: errors.New(l.translator.T("vivy.tui.live.dynamicUnavailable", nil))}
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		l.mu.Lock()
@@ -791,7 +816,7 @@ func (l *Live) applyLoaded(msg liveLoadedMsg) tea.Cmd {
 	l.replayPending = false
 	l.lastErr = ""
 	if msg.SidebarErr != nil {
-		l.lastErr = "session sidebar: " + shortErr(msg.SidebarErr)
+		l.lastErr = l.translator.T("vivy.tui.live.sidebarWarning", nil) + shortErr(msg.SidebarErr)
 	}
 	l.mu.Unlock()
 	return l.unsubscribeCmd(subscriptionID)
@@ -826,7 +851,7 @@ func (l *Live) applyTurnStarted(msg liveTurnStartedMsg) tea.Cmd {
 		l.appendLocked(surface.Message{
 			ID:      l.nextID("err"),
 			Role:    roleAssistant,
-			Content: "turn failed: " + shortErr(msg.Err),
+			Content: l.translator.T("vivy.tui.live.turnFailed", nil) + shortErr(msg.Err),
 		})
 		l.mu.Unlock()
 		if len(msg.ContextPaths) > 0 {
@@ -924,7 +949,7 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 		l.recoveryNeeded = true
 		l.replayPending = false
 		l.nextRecoveryAt = time.Now().Add(time.Second)
-		l.lastErr = "stream replay: " + shortErr(msg.Err)
+		l.lastErr = l.translator.T("vivy.tui.live.streamWarning", nil) + shortErr(msg.Err)
 		l.mu.Unlock()
 		return nil
 	}
@@ -969,9 +994,9 @@ func (l *Live) waitRunTerminal(ctx context.Context, runID string) error {
 		select {
 		case <-ctx.Done():
 			if err != nil {
-				return fmt.Errorf("wait for run terminal: %w", err)
+				return fmt.Errorf("%s: %w", l.translator.T("vivy.tui.live.waitTerminal", nil), err)
 			}
-			return fmt.Errorf("wait for run terminal: %w", ctx.Err())
+			return fmt.Errorf("%s: %w", l.translator.T("vivy.tui.live.waitTerminal", nil), ctx.Err())
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -1232,9 +1257,9 @@ func (l *Live) markStreamFailureLocked(subscriptionID, message string) {
 	l.replayPending = false
 	l.nextRecoveryAt = time.Now().Add(250 * time.Millisecond)
 	if strings.TrimSpace(message) == "" {
-		message = "event replay failed"
+		message = l.translator.T("vivy.tui.live.replayFailed", nil)
 	}
-	l.lastErr = "stream replay: " + message
+	l.lastErr = l.translator.T("vivy.tui.live.streamWarning", nil) + message
 }
 
 // enqueueNotice keeps the event stream ordered and lossless between UI
@@ -1251,7 +1276,7 @@ func (l *Live) enqueueNotice(notice eventNotice) {
 		if l.runID != "" {
 			l.markRecoveryNeededLocked()
 			if notice.Seq <= 0 {
-				l.lastErr = "stream backlog overflow: an unsequenced event could not be replayed"
+				l.lastErr = l.translator.T("vivy.tui.live.streamOverflow", nil)
 			}
 		}
 		l.mu.Unlock()
@@ -1479,7 +1504,7 @@ func (l *Live) DeleteSession(id string) tea.Cmd {
 	l.mu.Unlock()
 	if busy {
 		return func() tea.Msg {
-			return surface.SessionsMsg{Action: "delete", ID: id, Err: errors.New("cannot delete the active session while a run is in progress")}
+			return surface.SessionsMsg{Action: "delete", ID: id, Err: errors.New(l.translator.T("vivy.tui.error.deleteBusy", nil))}
 		}
 	}
 	l.mu.Lock()
@@ -1677,7 +1702,7 @@ func (l *Live) refreshSidebarCmd() tea.Cmd {
 			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: err}
 		}
 		if snapshot.Session.ID == "" {
-			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: fmt.Errorf("session/sidebar returned no session")}
+			return liveSidebarMsg{Request: request, SessionID: sessionID, Err: errors.New(l.translator.T("vivy.tui.live.missingField", map[string]any{"method": "session/sidebar", "field": "session"}))}
 		}
 		return liveSidebarMsg{Request: request, SessionID: sessionID, Sidebar: snapshot}
 	}
@@ -1731,14 +1756,14 @@ func (l *Live) applyContext(msg liveContextMsg) {
 	}
 	if msg.Err != nil {
 		l.sidebar.HasContext = false
-		if l.lastErr == "" || strings.HasPrefix(l.lastErr, "session context:") {
-			l.lastErr = "session context: " + shortErr(msg.Err)
+		if l.lastErr == "" || strings.HasPrefix(l.lastErr, l.translator.T("vivy.tui.live.contextWarning", nil)) {
+			l.lastErr = l.translator.T("vivy.tui.live.contextWarning", nil) + shortErr(msg.Err)
 		}
 		return
 	}
 	l.sidebar.Context = msg.Context
 	l.sidebar.HasContext = true
-	if strings.HasPrefix(l.lastErr, "session context:") {
+	if strings.HasPrefix(l.lastErr, l.translator.T("vivy.tui.live.contextWarning", nil)) {
 		l.lastErr = ""
 	}
 	if l.sidebar.Session.ID == "" {
@@ -1753,8 +1778,8 @@ func (l *Live) applySidebar(msg liveSidebarMsg) {
 		return
 	}
 	if msg.Err != nil {
-		if l.lastErr == "" || strings.HasPrefix(l.lastErr, "session sidebar:") {
-			l.lastErr = "session sidebar: " + shortErr(msg.Err)
+		if l.lastErr == "" || strings.HasPrefix(l.lastErr, l.translator.T("vivy.tui.live.sidebarWarning", nil)) {
+			l.lastErr = l.translator.T("vivy.tui.live.sidebarWarning", nil) + shortErr(msg.Err)
 		}
 		return
 	}
@@ -1769,7 +1794,7 @@ func (l *Live) applySidebar(msg liveSidebarMsg) {
 			break
 		}
 	}
-	if strings.HasPrefix(l.lastErr, "session sidebar:") {
+	if strings.HasPrefix(l.lastErr, l.translator.T("vivy.tui.live.sidebarWarning", nil)) {
 		l.lastErr = ""
 	}
 }
@@ -1802,7 +1827,7 @@ func (l *Live) SendWithContext(text string, paths []string) tea.Cmd {
 func (l *Live) CompleteProjectFiles(request uint64, query string) tea.Cmd {
 	return func() tea.Msg {
 		if !l.SupportsCapability("project-context.list") {
-			return surface.ProjectFilesMsg{Request: request, Query: query, Err: errors.New("project file completion is unavailable")}
+			return surface.ProjectFilesMsg{Request: request, Query: query, Err: errors.New(l.translator.T("vivy.tui.live.fileCompletionUnavailable", nil))}
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
 		l.mu.Lock()
@@ -1841,10 +1866,10 @@ func (l *Live) sendWithAttachments(text, thinking, mode string, attachments []su
 func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attachments []surface.Attachment, contextPaths []string, consumeDraft bool) tea.Cmd {
 	if strings.TrimSpace(text) == "" {
 		if len(attachments) > 0 {
-			return commandResultCmd("image", "", errors.New("text is required; image-only turns are not supported"))
+			return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.live.imageTextRequired", nil)))
 		}
 		if len(contextPaths) > 0 {
-			return commandResultCmd("file", "", errors.New("@file references require a prompt"))
+			return commandResultCmd("file", "", errors.New(l.translator.T("vivy.tui.error.filePrompt", nil)))
 		}
 		return nil
 	}
@@ -1898,7 +1923,7 @@ func (l *Live) sendWithAttachmentsAndContext(text, thinking, mode string, attach
 // server-owned shell/start route. A packed face never starts a local process.
 func (l *Live) ExecuteShell(script string) tea.Cmd {
 	if !l.SupportsCapability("shell.start") {
-		return func() tea.Msg { return surface.ErrMsg{Err: errors.New("governed shell is unavailable")} }
+		return func() tea.Msg { return surface.ErrMsg{Err: errors.New(l.translator.T("vivy.tui.live.shellUnavailable", nil))} }
 	}
 	return l.sendShell(script)
 }
@@ -1909,17 +1934,17 @@ func (l *Live) SupportsCapability(name string) bool {
 
 func (l *Live) sendShell(script string) tea.Cmd {
 	if strings.TrimSpace(script) == "" {
-		return commandResultCmd("shell", "", errors.New("shell script is required"))
+		return commandResultCmd("shell", "", errors.New(l.translator.T("vivy.tui.live.shellScriptRequired", nil)))
 	}
 	l.mu.Lock()
 	if l.loadPending {
 		l.mu.Unlock()
-		return commandResultCmd("shell", "", errors.New("session is still loading"))
+		return commandResultCmd("shell", "", errors.New(l.translator.T("vivy.tui.live.sessionLoading", nil)))
 	}
 	sessionID := l.activeID
 	if sessionID == "" {
 		l.mu.Unlock()
-		return commandResultCmd("shell", "", errors.New("no active session"))
+		return commandResultCmd("shell", "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 	}
 	if l.busy || l.gate != nil {
 		l.queue = append(l.queue, queuedTurn{SessionID: sessionID, ShellScript: script})
@@ -1965,7 +1990,7 @@ func (l *Live) RunMode() string {
 func (l *Live) SetRunMode(mode string) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode != "normal" && mode != "plan" {
-		return errors.New("run mode must be normal or plan")
+		return errors.New(l.translator.T("vivy.tui.live.runMode", nil))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1978,12 +2003,12 @@ func (l *Live) SetRunMode(mode string) error {
 func (l *Live) SetThinkingMode(mode string) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode != "auto" && mode != "on" && mode != "off" {
-		return errors.New("thinking must be auto, on, or off")
+		return errors.New(l.translator.T("vivy.tui.error.thinking", nil))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if mode == "on" && (!l.sidebar.HasContext || !l.sidebar.Context.ThinkingSupported) {
-		return errors.New("extended thinking is unavailable for the active model")
+		return errors.New(l.translator.T("vivy.tui.live.thinkingUnavailable", nil))
 	}
 	l.thinkingMode = mode
 	return nil
@@ -2069,14 +2094,12 @@ func (l *Live) SetPermission(preset string) tea.Cmd {
 func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
-		return commandResultCmd(name, "", errors.New("command name is required"))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.commandRequired", nil)))
 	}
-	// Task 7 replaces this temporary English translator with the hydrated
-	// controller translator.
-	registry := command.DefaultRegistry(tuii18n.New(corei18n.English))
+	registry := command.DefaultRegistry(l.translator)
 	spec, ok := registry.Lookup(name)
 	if !ok {
-		return commandResultCmd(name, "", fmt.Errorf("unknown command /%s", name))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.unknownCommand", map[string]any{"command": name})))
 	}
 	name = spec.Name
 	if err := registry.Validate(&command.Invocation{Name: name, Args: args}); err != nil {
@@ -2087,7 +2110,7 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 		blocked := l.busy || l.gate != nil || l.loadPending || l.commandInFlight
 		l.mu.Unlock()
 		if blocked {
-			return commandResultCmd(name, "", errors.New("a run or gate is active; finish it before changing session state"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.sessionBusy", nil)))
 		}
 	}
 	switch name {
@@ -2095,42 +2118,42 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 		return l.NewSession(strings.TrimSpace(strings.Join(args, " ")))
 	case "session":
 		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-			return commandResultCmd(name, "", errors.New("usage: /session <id>"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/session <id>"})))
 		}
 		if cmd := l.SelectSession(args[0]); cmd != nil {
 			return cmd
 		}
-		return commandResultCmd(name, "", errors.New("session selection is unavailable"))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.sessionUnavailable", nil)))
 	case "rename":
 		if len(args) == 0 {
-			return commandResultCmd(name, "", errors.New("usage: /rename <title>"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/rename <title>"})))
 		}
 		l.mu.Lock()
 		activeID := l.activeID
 		l.mu.Unlock()
 		if activeID == "" {
-			return commandResultCmd(name, "", errors.New("no active session"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 		}
 		if cmd := l.RenameSession(activeID, strings.TrimSpace(strings.Join(args, " "))); cmd != nil {
 			return cmd
 		}
-		return commandResultCmd(name, "", errors.New("session rename is unavailable"))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.renameUnavailable", nil)))
 	case "cancel":
 		if !l.Meta().Busy {
-			return commandResultCmd(name, "nothing to cancel", nil)
+			return commandResultCmd(name, l.translator.T("vivy.tui.live.cancelEmpty", nil), nil)
 		}
 		if cmd := l.Cancel(); cmd != nil {
 			return cmd
 		}
-		return commandResultCmd(name, "", errors.New("cancel is unavailable"))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.cancelUnavailable", nil)))
 	case "queue":
 		if len(args) != 1 || !strings.EqualFold(args[0], "clear") {
-			return commandResultCmd(name, "", errors.New("usage: /queue clear"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/queue clear"})))
 		}
 		if l.ClearQueue() {
-			return commandResultCmd(name, "queued turns cleared", nil)
+			return commandResultCmd(name, l.translator.T("vivy.tui.live.queueCleared", nil), nil)
 		}
-		return commandResultCmd(name, "queue is already empty", nil)
+		return commandResultCmd(name, l.translator.T("vivy.tui.live.queueEmpty", nil), nil)
 	case "permission":
 		preset := ""
 		if len(args) == 1 {
@@ -2141,27 +2164,27 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 			l.mu.Unlock()
 			preset = nextCommandPermission(current)
 		} else {
-			return commandResultCmd(name, "", errors.New("usage: /permission [cautious|smart|trusted]"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/permission [cautious|smart|trusted]"})))
 		}
 		if preset != "cautious" && preset != "smart" && preset != "trusted" {
-			return commandResultCmd(name, "", errors.New("permission must be cautious, smart, or trusted"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.permission", nil)))
 		}
 		if cmd := l.SetPermission(preset); cmd != nil {
 			return cmd
 		}
-		return commandResultCmd(name, "", errors.New("permission change is unavailable"))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.permissionUnavailable", nil)))
 	case "image":
 		return l.executeImageCommand(args)
 	case "compact":
 		sessionID, ok := l.commandSessionID()
 		if !ok {
-			return commandResultCmd(name, "", errors.New("no active session"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 		}
 		return l.commandRPCCmd(name, "context/compact", map[string]string{"session_id": sessionID})
 	case "fork":
 		sessionID, ok := l.commandSessionID()
 		if !ok {
-			return commandResultCmd(name, "", errors.New("no active session"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 		}
 		params := map[string]string{"session_id": sessionID, "message_id": args[0]}
 		if len(args) == 2 {
@@ -2171,13 +2194,13 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	case "rewind":
 		sessionID, ok := l.commandSessionID()
 		if !ok {
-			return commandResultCmd(name, "", errors.New("no active session"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 		}
 		return l.commandRPCCmd(name, "session/rewind", map[string]string{"session_id": sessionID, "message_id": args[0]})
 	case "todos":
 		sessionID, ok := l.commandSessionID()
 		if !ok {
-			return commandResultCmd(name, "", errors.New("no active session"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 		}
 		return l.commandRPCCmd(name, "session/todos", map[string]string{"session_id": sessionID})
 	case "stats":
@@ -2212,7 +2235,7 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 			l.mu.Unlock()
 		}
 		if runID == "" {
-			return commandResultCmd(name, "", errors.New("a run_id is required; workspace files are scoped to a run"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.runIDRequired", nil)))
 		}
 		if len(args) == 2 {
 			return l.commandRPCCmd(name, "workspace/read", map[string]string{"run_id": runID, "path": args[1]})
@@ -2221,7 +2244,7 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	case "tools":
 		return l.commandRPCCmd(name, "tools/list", nil)
 	default:
-		return commandResultCmd(name, "", fmt.Errorf("/%s is handled by the shared view or is unavailable", name))
+		return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.viewCommand", map[string]any{"command": name})))
 	}
 }
 
@@ -2241,20 +2264,20 @@ func (l *Live) executeImageCommand(args []string) tea.Cmd {
 		delete(l.drafts, l.activeID)
 		l.mu.Unlock()
 		if count == 0 {
-			return commandResultCmd("image", "no pending image attachments", nil)
+			return commandResultCmd("image", l.translator.T("vivy.tui.live.imagesEmpty", nil), nil)
 		}
-		return commandResultCmd("image", fmt.Sprintf("cleared %d pending image attachment(s)", count), nil)
+		return commandResultCmd("image", l.translator.T("vivy.tui.live.imagesCleared", map[string]any{"count": count}), nil)
 	}
 	if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "remove") {
 		index, err := strconv.Atoi(strings.TrimSpace(args[1]))
 		if err != nil || index < 1 {
-			return commandResultCmd("image", "", errors.New("image remove index must be a positive number"))
+			return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.live.imageIndex", nil)))
 		}
 		l.mu.Lock()
 		pending := l.drafts[l.activeID]
 		if index > len(pending) {
 			l.mu.Unlock()
-			return commandResultCmd("image", "", fmt.Errorf("image attachment %d is not pending", index))
+			return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.live.imageNotPending", map[string]any{"index": index})))
 		}
 		pending = append(pending[:index-1], pending[index:]...)
 		if len(pending) == 0 {
@@ -2263,10 +2286,10 @@ func (l *Live) executeImageCommand(args []string) tea.Cmd {
 			l.drafts[l.activeID] = pending
 		}
 		l.mu.Unlock()
-		return commandResultCmd("image", fmt.Sprintf("removed pending image attachment %d", index), nil)
+		return commandResultCmd("image", l.translator.T("vivy.tui.live.imageRemoved", map[string]any{"index": index}), nil)
 	}
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		return commandResultCmd("image", "", errors.New("usage: /image <relative-path> | /image remove <index> | /image clear"))
+		return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/image <relative-path> | /image remove <index> | /image clear"})))
 	}
 	l.mu.Lock()
 	sessionID := l.activeID
@@ -2274,13 +2297,13 @@ func (l *Live) executeImageCommand(args []string) tea.Cmd {
 	supported := known && l.sidebar.Context.ImageSupported
 	l.mu.Unlock()
 	if sessionID == "" {
-		return commandResultCmd("image", "", errors.New("no active session"))
+		return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.error.noSession", nil)))
 	}
 	if !known {
-		return commandResultCmd("image", "", errors.New("image attachments are unavailable until model image support is known"))
+		return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.live.imageSupportUnknown", nil)))
 	}
 	if !supported {
-		return commandResultCmd("image", "", errors.New("the active model does not support image attachments"))
+		return commandResultCmd("image", "", errors.New(l.translator.T("vivy.tui.live.imageUnsupported", nil)))
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(l.ctx, 15*time.Second)
@@ -2304,7 +2327,7 @@ func (l *Live) applyAttachmentResolved(msg liveAttachmentResolvedMsg) tea.Cmd {
 		l.drafts = make(map[string][]surface.Attachment)
 	}
 	if len(l.drafts[msg.SessionID])+len(msg.Attachments) > 4 {
-		l.lastErr = "at most 4 image attachments are allowed per message"
+		l.lastErr = l.translator.T("vivy.tui.live.imageLimit", nil)
 		return nil
 	}
 	l.drafts[msg.SessionID] = append(l.drafts[msg.SessionID], cloneAttachments(msg.Attachments)...)
@@ -2324,7 +2347,7 @@ func (l *Live) commandRPCCmd(name, method string, params any) tea.Cmd {
 		l.mu.Lock()
 		if l.busy || l.gate != nil || l.loadPending || l.commandInFlight {
 			l.mu.Unlock()
-			return commandResultCmd(name, "", errors.New("a session operation is already in flight or the session is busy"))
+			return commandResultCmd(name, "", errors.New(l.translator.T("vivy.tui.live.operationBusy", nil)))
 		}
 		sessionID = l.activeID
 		l.commandInFlight = true
@@ -2334,7 +2357,7 @@ func (l *Live) commandRPCCmd(name, method string, params any) tea.Cmd {
 		ctx, cancel := context.WithTimeout(l.ctx, 20*time.Second)
 		defer cancel()
 		raw, err := l.client.Call(ctx, method, params)
-		return surface.CommandResultMsg{Name: name, Output: command.FormatResult(name, raw), Err: err, Mutation: commandMutates(name), SessionID: sessionID}
+		return surface.CommandResultMsg{Name: name, Output: command.FormatResultWithTranslator(l.translator, name, raw), Err: err, Mutation: commandMutates(name), SessionID: sessionID}
 	}
 }
 
@@ -2483,11 +2506,15 @@ func shortErr(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := err.Error()
+	return shortText(err.Error())
+}
+
+func shortText(text string) string {
+	s := []rune(text)
 	if len(s) > 80 {
-		return s[:77] + "…"
+		return string(s[:77]) + "…"
 	}
-	return s
+	return string(s)
 }
 
 var _ surface.Driver = (*Live)(nil)
