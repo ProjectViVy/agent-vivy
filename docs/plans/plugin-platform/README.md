@@ -50,18 +50,18 @@ and `just ci`.
 
 ## Program status
 
-| Phase | Deliverable | State | Depends on | SCX relation |
-|---|---|---|---|---|
-| PLG-P0 | Normative contract and executable plan | `COMPLETE` | Approved decisions | Defines Gate A |
-| PLG-P1 | v1 SDK and Assembly Compiler foundation | `UNSCHEDULED` | P0 | Gate A critical path |
-| PLG-P2 | Default Generation zero-behavior parity | `UNSCHEDULED` | P1 | Gate B critical path |
-| PLG-P3 | Unified Tool governance and protected Tools | `UNSCHEDULED` | P2 | Gate B critical path |
-| PLG-P4 | Context, Skill, and MCP Hosts/Sources | `UNSCHEDULED` | P3 | Gate B critical path |
-| PLG-P5 | Declarative Provider Profile and Eino adapters | `UNSCHEDULED` | P2 | Conditional Gate B input |
-| PLG-P6 | Full-code UI Modules and Control Actions | `UNSCHEDULED` | P2 | Not on core SCX path |
-| PLG-P7 | Closed internal Module composition | `UNSCHEDULED` | P2, P3, P4, P5 | Gate B hardening |
-| PLG-P8 | SCX integration Gates A/B/C | `UNSCHEDULED` | P1–P7 as identified | Direct SCX integration |
-| PLG-P9 | Release conformance, Inspect, removal, rollback | `UNSCHEDULED` | P1–P8 | Gate C critical path |
+| Phase | Tracker | Deliverable | State | Depends on | SCX relation |
+|---|---|---|---|---|---|
+| PLG-P0 | — | Normative contract and executable plan | `COMPLETE` | Approved decisions | Defines Gate A |
+| PLG-P1 | [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) | v1 SDK and Assembly Compiler foundation | `UNSCHEDULED` | P0 + accepted I18N descriptor contract | Gate A foundation |
+| PLG-P2 | [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) | Default Generation zero-behavior parity | `UNSCHEDULED` | P1 | Gate B critical path |
+| PLG-P3 | [#8](https://github.com/ProjectViVy/agent-vivy/issues/8) | Unified Tool governance and protected Tools | `UNSCHEDULED` | P2 | Gate B critical path |
+| PLG-P4 | [#9](https://github.com/ProjectViVy/agent-vivy/issues/9) | Context, Skill, and MCP Hosts/Sources | `UNSCHEDULED` | P3 | Gate B critical path |
+| PLG-P5 | [#10](https://github.com/ProjectViVy/agent-vivy/issues/10) | Declarative Provider Profile and Eino adapters | `UNSCHEDULED` | P2 | Gate B and P7 critical path |
+| PLG-P6 | [#11](https://github.com/ProjectViVy/agent-vivy/issues/11) | Full-code UI Modules and Control Actions | `UNSCHEDULED` | P2 | Not on core SCX path |
+| PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `UNSCHEDULED` | P2, P3, P4, P5 | Gate B hardening |
+| PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `UNSCHEDULED` | P1–P7 as identified | Direct SCX integration |
+| PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `UNSCHEDULED` | P1–P8 | Gate C critical path |
 
 Only a human changes an `UNSCHEDULED` phase to scheduled. Dependency order is
 an execution constraint, not a calendar commitment. P0 is complete as a
@@ -70,25 +70,32 @@ documentation-only contract freeze; it starts no implementation lane.
 ## Critical path
 
 ```text
-P0 contract
-  -> P1 compiler/SDK                      [SCX Gate A]
+P0 contract + accepted I18N descriptor contract
+  -> P1 compiler/SDK                      [Gate A foundation]
   -> P2 default parity
   -> P3 Tool governance
-  -> P4 Context/Skill/MCP
+  -> P4 Context/Skill/MCP                 [Gate A completes in P8 Task 2]
   -> P7 internal composition
-  -> P8 SCX integration                  [SCX Gate B]
-  -> P9 release proof                    [SCX Gate C]
+  -> P8 SCX integration                  [Gate B]
+  -> P9 release proof                    [Gate C]
+
+P2 -> P5 Provider/ModelHost -> P7         [required parallel branch]
 ```
 
-P5 joins Gate B only for an SCX slice that requires its Provider Profile.
-P6 may execute in parallel after P2 in an isolated worktree and does not block
-SCX core semantics.
+P5 is mandatory before P7 Task 2 because that task consumes P5 ModelHost, and
+its evidence is therefore a Gate B input. P6 may execute in parallel after P2
+in an isolated worktree and does not block SCX core semantics unless an SCX
+release explicitly selects a custom UI Module.
 
 ## Cross-cutting proposal: extensible I18N for plugin frontends
 
 This is a design proposal for the plugin platform, not a scheduled
-implementation phase. It should be accepted before P6 defines a stable UI
-plugin SDK.
+implementation phase. Its descriptor, catalog-hash, fallback, and Generation
+identity semantics must be accepted before P1 starts strict descriptor parsing
+or provenance hashing. Its Web/TUI host API and conformance details must also
+be accepted before P6 defines a stable UI plugin SDK. If the contract is still
+moving, P1 remains `UNSCHEDULED`; compiler code must not guess the final I18N
+shape.
 
 The host/plugin boundary should use shared translation units with independently
 owned catalogs:

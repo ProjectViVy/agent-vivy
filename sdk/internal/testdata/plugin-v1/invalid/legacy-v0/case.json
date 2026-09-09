@@ -1,0 +1,17 @@
+{
+  "id": "legacy-v0",
+  "expect": "reject",
+  "rule": "The clean-break compiler accepts only vivy.module/v1 descriptors.",
+  "wantError": "unsupported apiVersion vivy.plugin/v0",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/legacy"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.plugin/v0",
+      "module": { "id": "fixture/legacy", "version": "0.9.0" },
+      "source": {
+        "ref": "git:fixture/legacy@0123456",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  ]
+}

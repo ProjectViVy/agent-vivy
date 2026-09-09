@@ -77,7 +77,8 @@ Use this mandatory classification:
 
 **Interfaces:**
 
-- Consumes: P0 contracts and P1 SDK/Compiler evidence.
+- Consumes: P0 contracts plus P1 compiler, P2 Tool/ToolWorld, P3 ToolHost, and
+  P4 Context/Skill/MCP Host and Source evidence.
 - Produces: start authorization for SCX tasks that depend only on frozen
   contracts.
 
@@ -95,7 +96,8 @@ Gate A requires:
   fake Providers and no Runtime implementation import.
 - [ ] Verify an invalid direct Provider dependency fails source/architecture
   checks.
-- [ ] Record exact P1 commit and Port versions in the SCX integration document.
+- [ ] Record the exact P1, P2, P3, and P4 evidence commits and Port versions in
+  the SCX integration document.
 - [ ] Mark Gate A passed only after evidence exists; documentation approval
   alone is insufficient.
 
@@ -189,6 +191,7 @@ Critical:
 - P2 default Generation parity;
 - P3 ToolHost and protected Tools;
 - P4 ContextHost, SkillHost, and MCPHost;
+- P5 ModelHost and Provider Profile required by P7 Task 2;
 - P7 relevant internal authority composition;
 - P9 conformance, Inspect, and rollback.
 

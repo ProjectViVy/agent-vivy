@@ -1,0 +1,36 @@
+{
+  "id": "duplicate-exclusive-provider",
+  "expect": "reject",
+  "rule": "An exclusive Port has exactly one selected Provider.",
+  "wantError": "duplicate provider for std/ui-root@v1",
+  "recipe": {
+    "apiVersion": "vivy.generation/v1",
+    "modules": ["fixture/root-a", "fixture/root-b"]
+  },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/root-a", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/root-a@0123456",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "provides": [{ "port": "std/ui-root@v1", "id": "fixture.root-a" }],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    },
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/root-b", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/root-b@0123456",
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "provides": [{ "port": "std/ui-root@v1", "id": "fixture.root-b" }],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "id": "dependency-cycle",
+  "expect": "reject",
+  "rule": "Lifecycle ordering must form an acyclic graph.",
+  "wantError": "dependency cycle: fixture/a -> fixture/b -> fixture/a",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/a", "fixture/b"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/a", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/a@0123456",
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation", "after": ["fixture/b"] }
+    },
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/b", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/b@0123456",
+        "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation", "after": ["fixture/a"] }
+    }
+  ]
+}
