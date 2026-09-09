@@ -32,3 +32,10 @@
 and PowerShell are unavailable. The pull request's Windows Actions run is the
 authoritative full-path verification and must show the independent backend
 and UI results before the aggregate status is accepted.
+
+- Actions run 7 proved the lane split: `ui ci` passed independently, while
+  `backend ci` reached `go test ./...` and failed only
+  `TestCronSchedulerFiresDueJobAndWritesBack`.
+- The failed row already had `LastStatus: ok`; its 120 ms next recurrence had
+  elapsed before the loaded Windows runner could observe it. The test now
+  uses a 30-second recurrence because it validates only the first write-back.
