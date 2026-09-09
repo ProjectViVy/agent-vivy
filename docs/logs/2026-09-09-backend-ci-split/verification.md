@@ -49,3 +49,7 @@ and UI results before the aggregate status is accepted.
   disabled with empty run status, proving startup recovery saw them as already
   missed. Their startup margins are now 5 seconds, within the existing 15- and
   30-second acceptance bounds.
+- [Actions run 10](https://github.com/ProjectViVy/agent-vivy/actions/runs/34410681843)
+  passed all three independent statuses: `backend ci`, `ui ci`, and aggregate
+  `just ci`. The backend log confirms all Go packages, headless compilation,
+  and every independent plugin/face module passed on Windows.
