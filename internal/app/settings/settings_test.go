@@ -1190,7 +1190,7 @@ func TestUpdateLocalePreservesUnrelatedSettings(t *testing.T) {
 			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: ProviderOpenAI,
 			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
 		}},
-		MCPServers:  &mcpServers,
+		MCPServers:   &mcpServers,
 		ToolsEnabled: &toolsEnabled,
 		Channels: []ChannelOverlay{{
 			Name: "telegram", Enabled: &channelEnabled, AllowFrom: &allowedSenders,
