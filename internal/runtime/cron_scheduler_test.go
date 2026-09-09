@@ -88,6 +88,9 @@ func TestCronSchedulerFiresDueJobAndWritesBack(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
+		// This test observes the first write-back, not repeated firing. Keep the
+		// next recurrence visible while a loaded Windows runner polls SQLite.
+		j.Schedule.EveryMs = 30_000
 		j.State.NextRunAtMs = now + 80 // first fire ~80ms out
 	})
 
