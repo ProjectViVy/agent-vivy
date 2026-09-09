@@ -56,7 +56,7 @@ func TestRecordGenerationRecordsPackOutput(t *testing.T) {
 		"id": "gen_demo",
 		"artifact_sha256": "` + sum + `",
 		"source_ref": "file:` + filepath.ToSlash(exe) + `",
-		"recipe": {"loop":"eino","world":"sandbox","plugins":["hello-fs"]},
+		"recipe": {"loop":"eino","world":"sandbox","plugins":["hello-fs"],"settings":{"locale":"zh"}},
 		"phase": "built"
 	}`)
 	if err := os.WriteFile(filepath.Join(outDir, "generation.json"), raw, 0o600); err != nil {
@@ -76,12 +76,18 @@ func TestRecordGenerationRecordsPackOutput(t *testing.T) {
 	if len(g.Recipe.Plugins) != 1 || g.Recipe.Plugins[0] != "hello-fs" {
 		t.Fatalf("recipe = %+v", g.Recipe)
 	}
+	if g.Recipe.Settings.Locale != "zh" {
+		t.Fatalf("recipe locale = %q, want zh", g.Recipe.Settings.Locale)
+	}
 	got, err := svc.Ledger().GetGeneration(ctx, g.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Phase != domain.GenerationBuilt {
 		t.Fatalf("recorded phase = %q", got.Phase)
+	}
+	if got.Recipe.Settings.Locale != "zh" {
+		t.Fatalf("recorded recipe locale = %q, want zh", got.Recipe.Settings.Locale)
 	}
 }
 
