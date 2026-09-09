@@ -1166,6 +1166,86 @@ func TestSettingsGetExposesBackendAuthoritativeLocale(t *testing.T) {
 	}
 }
 
+func TestSettingsGetPropagatesDocumentErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, string)
+	}{
+		{
+			name: "malformed yaml",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("locale: [\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "invalid locale",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("locale: ja\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "read error",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, path := newSettingsHandlerEnv(t, nil)
+			tt.prepare(t, path)
+			result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+			if result != nil || rpcErr == nil || rpcErr.Code != InternalError {
+				t.Fatalf("settings/get = result %#v, error %v; want nil InternalError", result, rpcErr)
+			}
+		})
+	}
+}
+
+func TestSettingsGetMissingDocumentReturnsEmptyOverlay(t *testing.T) {
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.GenerationLocale = i18n.English
+	})
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatalf("missing settings document: %v", rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.Locale != "en" || get.WorkspaceLocale != "" {
+		t.Fatalf("missing settings overlay = %+v; want generation locale en and empty workspace override", get.localeSettingsResult)
+	}
+}
+
+func TestToolsListPropagatesSettingsDocumentError(t *testing.T) {
+	env, path := newSettingsHandlerEnv(t, nil)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("locale: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, rpcErr := callControl(t, env.handler, "tools/list", nil)
+	if result != nil || rpcErr == nil || rpcErr.Code != InternalError {
+		t.Fatalf("tools/list = result %#v, error %v; want nil InternalError", result, rpcErr)
+	}
+}
+
 func TestSettingsLocaleUpdatesOnlyLocaleAndAllowsFrozenProvider(t *testing.T) {
 	probe := &settingsApplierProbe{}
 	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {

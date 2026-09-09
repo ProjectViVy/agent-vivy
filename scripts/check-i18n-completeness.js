@@ -18,12 +18,13 @@ const errors = [];
 const han = /\p{Script=Han}/u;
 const placeholders = (value) => [...value.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((match) => match[1]).sort();
 
-function flatten(value, prefix = '', result = Object.create(null)) {
+function flatten(value, prefix = '', result = Object.create(null), locale = '') {
   if (typeof value === 'string') {
     if (!value.trim()) errors.push('Empty translation: ' + prefix);
+    if (Object.hasOwn(result, prefix)) errors.push('Flattened key collision: ' + prefix + (locale ? ' (' + locale + ')' : ''));
     result[prefix] = value;
   } else if (value && typeof value === 'object') {
-    for (const [key, child] of Object.entries(value)) flatten(child, prefix ? prefix + '.' + key : key, result);
+    for (const [key, child] of Object.entries(value)) flatten(child, prefix ? prefix + '.' + key : key, result, locale);
   } else {
     errors.push('Non-string translation: ' + prefix);
   }
@@ -36,13 +37,20 @@ function parse(file) {
 }
 function catalog(locale) {
   const source = parse(resolve(root, 'ui/src/i18n/' + locale + '.ts'));
+  function propertyName(name) {
+    if (!name) return undefined;
+    if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) return name.text;
+    if (ts.isComputedPropertyName(name) &&
+        (ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression))) return name.expression.text;
+    return undefined;
+  }
   function duplicates(node) {
     if (ts.isObjectLiteralExpression(node)) {
       const seen = new Set();
       for (const prop of node.properties) {
-        const key = prop.name?.getText(source);
-        if (key && seen.has(key)) errors.push('Duplicate key in ' + locale + ': ' + key);
-        seen.add(key);
+        const key = propertyName(prop.name);
+        if (key !== undefined && seen.has(key)) errors.push('Duplicate key in ' + locale + ': ' + key);
+        if (key !== undefined) seen.add(key);
       }
     }
     ts.forEachChild(node, duplicates);
@@ -51,7 +59,7 @@ function catalog(locale) {
   const code = ts.transpileModule(source.text, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const context = { exports: {} };
   runInNewContext(code, context, { timeout: 1000 });
-  return flatten(context.exports[locale]);
+  return flatten(context.exports[locale], '', Object.create(null), locale);
 }
 
 // This module exclusively constructs synthetic user/model/tool event payloads.
@@ -67,9 +75,33 @@ const exactHanData = {
   'ui/src/components/settings/channel-icons.tsx': new Set(['飞书', '钉钉']),
 };
 // Brand marks, protocol names, license/version/numeric notation and syntax examples.
-const exactJsxData = new Set(['Vivy', 'VIVY', 'V', 'Project ViVY', 'HTTP', 'STDIO', 'MIT', 'projectViVY', 'tokens', 'r', 'MCP_DOCS_TOKEN', 'npx', 'CHILD_VAR', 'HOST_VAR']);
+const exactJsxData = new Set(['Vivy', 'VIVY', 'V', 'Project ViVY', 'AutoDream', 'HTTP', 'STDIO', 'MIT', 'projectViVY', 'tokens', 'r', 'MCP_DOCS_TOKEN', 'npx', 'CHILD_VAR', 'HOST_VAR']);
 function isJsxData(value) {
   return !/[\p{L}]/u.test(value) || exactJsxData.has(value) || /^https?:\/\//.test(value);
+}
+function isLogicalExpression(node) {
+  return ts.isBinaryExpression(node) && [
+    ts.SyntaxKind.AmpersandAmpersandToken,
+    ts.SyntaxKind.BarBarToken,
+    ts.SyntaxKind.QuestionQuestionToken,
+  ].includes(node.operatorToken.kind);
+}
+function presentationContainer(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (ts.isJsxExpression(parent)) {
+      const container = parent.parent;
+      if (ts.isJsxElement(container) || ts.isJsxFragment(container)) return container;
+      if (ts.isJsxAttribute(container) && ['aria-label', 'title', 'placeholder', 'alt'].includes(container.name.getText())) return container;
+      return undefined;
+    }
+    if (!(ts.isConditionalExpression(parent) || isLogicalExpression(parent) ||
+          ts.isTemplateExpression(parent) || ts.isTemplateSpan(parent) ||
+          ts.isParenthesizedExpression(parent))) return undefined;
+    current = parent;
+  }
+  return undefined;
 }
 function scan(file, english) {
   const name = relative(root, file).replaceAll('\\', '/');
@@ -84,7 +116,7 @@ function scan(file, english) {
       if (han.test(value) && !exactHanData[name]?.has(value)) errors.push('Uncatalogued Han: ' + location + ': ' + value.trim());
       const parent = ts.isJsxExpression(node.parent) ? node.parent.parent : node.parent;
       const visibleAttribute = ts.isJsxAttribute(parent) && ['aria-label', 'title', 'placeholder', 'alt'].includes(parent.name.getText(source));
-      const visibleExpression = ts.isJsxExpression(node.parent) && (ts.isJsxElement(parent) || ts.isJsxFragment(parent));
+      const visibleExpression = presentationContainer(node) !== undefined;
       if ((ts.isJsxText(node) || visibleAttribute || visibleExpression) && !isJsxData(value.trim())) errors.push('Uncatalogued JSX: ' + location + ': ' + value.trim());
     }
     if (ts.isCallExpression(node) && node.expression.getText(source) === 't' && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {

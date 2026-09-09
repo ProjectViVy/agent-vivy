@@ -76,6 +76,34 @@ describe('catalog completeness command', () => {
     expect(result.status).toBe(1);
     expect(result.output).toContain('Uncatalogued JSX');
   });
+  it('rejects English copy in conditional JSX branches', () => {
+    const result = check("{a: 'A'}", "{a: '甲'}", "const el = <button>{ready ? 'Save' : 'Saving'}</button>;");
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Uncatalogued JSX');
+  });
+  it('rejects English copy in logical JSX branches', () => {
+    const result = check("{a: 'A'}", "{a: '甲'}", "const el = <button>{ready && 'Save'}</button>;");
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Uncatalogued JSX');
+  });
+  it('allows an exact product name in a nullish JSX branch', () => {
+    expect(check("{a: 'A'}", "{a: '甲'}", "const el = <p>{summary ?? 'AutoDream'}</p>;").status).toBe(0);
+  });
+  it('rejects English copy in JSX template expressions', () => {
+    const result = check("{a: 'A'}", "{a: '甲'}", 'const el = <button>{`Saved ${count} items`}</button>;');
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Uncatalogued JSX');
+  });
+  it('normalizes literal property names when detecting duplicate keys', () => {
+    const result = check("{a: 'A', \"a\": 'B'}", "{a: '甲'}");
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Duplicate key in en: a');
+  });
+  it('rejects catalog keys that collide after flattening', () => {
+    const result = check("{a: {b: 'Nested'}, 'a.b': 'Flat'}", "{a: {b: '嵌套'}}");
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Flattened key collision: a.b');
+  });
   it.each(["{a: ''}", "{a: 7}", "{a: 'A', a: 'B'}"])('rejects invalid dictionary leaves or duplicate keys: %s', (dictionary) => {
     expect(check(dictionary, dictionary).status).toBe(1);
   });

@@ -10,6 +10,12 @@ import { listSessionCompactions, settingsUpdateFrom, type SessionCompactionRecor
 import { runActive, useVivyStore } from '@/lib/store';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 
+type CompactionFeedback =
+  | { kind: 'saved' }
+  | { kind: 'not-needed' }
+  | { kind: 'compacted'; beforeTokens: number; afterTokens: number }
+  | { kind: 'error'; message: string };
+
 /**
  * 上下文压缩（真实）：配置持久化到 settings.yaml（settings/update），保存后
  * 立即（或最迟下一次 run）重建引擎的 Eino reduction + summarization 中间件；
@@ -39,7 +45,7 @@ export function CompactionSettingsCard() {
   const [keepRecent, setKeepRecent] = useState(base?.keep_recent ?? 12);
   const [saving, setSaving] = useState(false);
   const [compacting, setCompacting] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<CompactionFeedback | null>(null);
   const locked = settings?.read_only || Boolean(settings?.frozen);
 
   const [history, setHistory] = useState<SessionCompactionRecord[]>([]);
@@ -93,9 +99,9 @@ export function CompactionSettingsCard() {
           keep_recent: Math.max(1, Number(keepRecent) || 1),
         },
       }));
-      setFeedback(t('settings.compaction.saved'));
+      setFeedback({ kind: 'saved' });
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : String(error));
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       setSaving(false);
     }
@@ -108,16 +114,13 @@ export function CompactionSettingsCard() {
     try {
       const result = await compactSession(activeSessionId);
       if (result.skipped) {
-        setFeedback(t('settings.compaction.notNeeded'));
+        setFeedback({ kind: 'not-needed' });
       } else {
-        setFeedback(t('settings.compaction.done', {
-          before: result.before_tokens.toLocaleString(dateTimeLocale()),
-          after: result.after_tokens.toLocaleString(dateTimeLocale()),
-        }));
+        setFeedback({ kind: 'compacted', beforeTokens: result.before_tokens, afterTokens: result.after_tokens });
 		await refreshHistory(activeSessionId);
       }
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : String(error));
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       setCompacting(false);
     }
@@ -218,7 +221,17 @@ export function CompactionSettingsCard() {
           <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => { void loadSessionContext(); void loadBackgroundRuns(); if (activeSessionId) void refreshHistory(activeSessionId); }}>{t('settings.compaction.refresh')}</Button>
           {busy ? <span className="text-xs text-amber-600 dark:text-amber-400">{t('settings.compaction.busyHint')}</span> : null}
         </div>
-        {feedback ? <p className="text-xs text-muted-foreground" aria-live="polite">{feedback}</p> : null}
+        {feedback ? (
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            {feedback.kind === 'error' ? feedback.message
+              : feedback.kind === 'saved' ? t('settings.compaction.saved')
+              : feedback.kind === 'not-needed' ? t('settings.compaction.notNeeded')
+              : t('settings.compaction.done', {
+                before: feedback.beforeTokens.toLocaleString(dateTimeLocale()),
+                after: feedback.afterTokens.toLocaleString(dateTimeLocale()),
+              })}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

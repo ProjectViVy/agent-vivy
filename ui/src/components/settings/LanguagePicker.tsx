@@ -13,7 +13,7 @@ export function LanguagePicker() {
   const error = useVivyStore((state) => state.settingsError);
   const saveLocale = useVivyStore((state) => state.saveLocale);
   const selectedLocale = settings?.locale;
-  const disabled = !settings || phase === 'processing' || settings.locale_read_only;
+  const disabled = !settings || phase === 'loading' || phase === 'processing' || settings.locale_read_only;
 
   return (
     <Card>

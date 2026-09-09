@@ -3422,18 +3422,20 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	var savedHTTP *settings.HTTPSettings
 	workspaceLocale := ""
 	if h.deps.SettingsPath != "" {
-		if s, err := settings.Load(h.deps.SettingsPath); err == nil {
-			workspaceLocale = s.Locale
-			out.Provider = s.Provider
-			out.DefaultModel = s.DefaultModel
-			out.BaseURL = s.BaseURL
-			out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
-			savedSearchProvider = s.NetworkSearch.Provider
-			out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
-			savedSandbox = s.Sandbox
-			savedCompaction = s.Compaction
-			savedHTTP = s.HTTP
+		s, rpcErr := h.loadSettingsOrError()
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
+		workspaceLocale = s.Locale
+		out.Provider = s.Provider
+		out.DefaultModel = s.DefaultModel
+		out.BaseURL = s.BaseURL
+		out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
+		savedSearchProvider = s.NetworkSearch.Provider
+		out.ExecuteMaxTimeoutSeconds = s.ExecuteMaxTimeoutSeconds
+		savedSandbox = s.Sandbox
+		savedCompaction = s.Compaction
+		savedHTTP = s.HTTP
 	}
 	localeView, rpcErr := h.localeSettingsView(workspaceLocale)
 	if rpcErr != nil {
@@ -3755,19 +3757,25 @@ type toolsCatalogView struct {
 
 // activeToolsFromOverlay resolves the effective active set: the settings
 // tools_enabled overlay when written, else the config default.
-func (h *controlHandler) activeToolsFromOverlay() ([]string, bool) {
+func (h *controlHandler) activeToolsFromOverlay() ([]string, bool, *Error) {
 	if h.deps.SettingsPath == "" {
-		return append([]string(nil), h.deps.ConfigToolsEnabled...), false
+		return append([]string(nil), h.deps.ConfigToolsEnabled...), false, nil
 	}
-	s, err := settings.Load(h.deps.SettingsPath)
-	if err != nil || s.ToolsEnabled == nil {
-		return append([]string(nil), h.deps.ConfigToolsEnabled...), false
+	s, rpcErr := h.loadSettingsOrError()
+	if rpcErr != nil {
+		return nil, false, rpcErr
 	}
-	return append([]string(nil), *s.ToolsEnabled...), true
+	if s.ToolsEnabled == nil {
+		return append([]string(nil), h.deps.ConfigToolsEnabled...), false, nil
+	}
+	return append([]string(nil), *s.ToolsEnabled...), true, nil
 }
 
 func (h *controlHandler) listTools() (any, *Error) {
-	active, written := h.activeToolsFromOverlay()
+	active, written, rpcErr := h.activeToolsFromOverlay()
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	activeSet := make(map[string]struct{}, len(active))
 	for _, name := range active {
 		activeSet[name] = struct{}{}

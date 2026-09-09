@@ -37,6 +37,8 @@ ui-ci:
 # Uses the locked TypeScript parser installed by ui-ci.
 i18n-check: ui-ci
     node scripts/check-i18n-completeness.js
+    node --test scripts/check-i18n-cross-face.test.js
+    node scripts/check-i18n-cross-face.js
 
 headless-compile:
     & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
