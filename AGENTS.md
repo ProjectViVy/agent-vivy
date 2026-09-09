@@ -203,6 +203,12 @@ tree, not `node_modules`, as the source of truth for harness behavior.
 Ordinary design notes, research, reviews, plans, reports, and iteration
 records belong under `docs/`.
 
+### Documentation language (mandatory)
+
+Write all human-readable documentation in English. Preserve non-English text
+only when it is an exact code, UI selector, test fixture, localization value,
+protocol payload, or other literal that must remain unchanged.
+
 Keep at the repository root only intentional entry points: `AGENTS.md`,
 `README.md`, `LICENSE`, `justfile`, `config.example.yaml`. Product-contract
 docs live in `docs/architecture/`. Research dossiers live in `docs/research/`.
