@@ -3,6 +3,9 @@
 import type { Dictionary } from './zh';
 
 export const en: Dictionary = {
+  reveal: {
+    initializationFailed: '[reveal-engine] Initialization failed; all content remains visible:',
+  },
   channelDescriptions: {
     dingtalk: 'An enterprise messaging platform by Alibaba',
     discord: 'A gaming and community platform with a rich bot ecosystem',

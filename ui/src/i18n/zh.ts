@@ -1,6 +1,9 @@
 // 权威词典（简体中文）。en.ts 的结构必须与此文件完全一致（i18n.test.ts 深度校验）。
 // 新增词条：先加到这里，再同步 en.ts；组件内通过 useTranslation().t 按 `域.键` 查询。
 export const zh = {
+  reveal: {
+    initializationFailed: '[reveal-engine] 初始化失败，已降级为全部可见：',
+  },
   channelDescriptions: {
     dingtalk: '阿里巴巴旗下企业通讯平台',
     discord: '游戏和社区交流平台，支持丰富的机器人生态',

@@ -65,7 +65,6 @@ const exactHanData = {
   'ui/src/i18n/index.ts': new Set(['简体中文']), // Native language self-name.
   'ui/src/components/settings/channel-platforms.ts': new Set(['飞书', '钉钉']), // Channel brands.
   'ui/src/components/settings/channel-icons.tsx': new Set(['飞书', '钉钉']),
-  'ui/src/lib/reveal-engine.ts': new Set(['[reveal-engine] 初始化失败，已降级为全部可见：']), // Developer console diagnostic.
 };
 // Brand marks, protocol names, license/version/numeric notation and syntax examples.
 const exactJsxData = new Set(['Vivy', 'VIVY', 'V', 'Project ViVY', 'HTTP', 'STDIO', 'MIT', 'projectViVY', 'tokens', 'r', 'MCP_DOCS_TOKEN', 'npx', 'CHILD_VAR', 'HOST_VAR']);

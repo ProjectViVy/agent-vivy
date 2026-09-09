@@ -34,6 +34,10 @@ plugin-ci:
 ui-ci:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
+# Uses the locked TypeScript parser installed by ui-ci.
+i18n-check: ui-ci
+    node scripts/check-i18n-completeness.js
+
 headless-compile:
     & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
 
@@ -46,7 +50,7 @@ build-split:
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: fmt-check ui-ci vet test headless-compile plugin-ci
+ci: fmt-check ui-ci i18n-check vet test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
