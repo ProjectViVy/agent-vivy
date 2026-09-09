@@ -84,6 +84,38 @@ P5 joins Gate B only for an SCX slice that requires its Provider Profile.
 P6 may execute in parallel after P2 in an isolated worktree and does not block
 SCX core semantics.
 
+## Cross-cutting proposal: extensible I18N for plugin frontends
+
+This is a design proposal for the plugin platform, not a scheduled
+implementation phase. It should be accepted before P6 defines a stable UI
+plugin SDK.
+
+The host/plugin boundary should use shared translation units with independently
+owned catalogs:
+
+- Core VIVY keys live under `vivy.*`; plugin keys live under
+  `plugin.<module-id>.*` and cannot collide with keys owned by another module.
+- A plugin declares an optional catalog path, default locale, and supported
+  locales in its Module descriptor. The catalog is an explicit Recipe/package
+  input and its hash participates in Generation provenance.
+- Web and TUI receive the same host localization API and resolve the same key
+  with the same arguments. Plugin descriptors carry `label_key` and
+  `label_args`, not pre-rendered locale-specific text.
+- Catalog validation covers the schema, namespace ownership, duplicate keys,
+  placeholder parity, and fallback behavior. Locale resolution falls back
+  from the active locale to the plugin default and then to a safe diagnostic
+  key.
+- Full-code UI Modules may call the host API but remain trusted code; I18N
+  does not change the existing UI trust model. User text, model output, tool
+  output, and generated plugin content remain data rather than host-localized
+  strings.
+
+The detailed proposal is recorded in
+`docs/research/pluggable-frontend-research-2026-08-30.md` and
+`docs/architecture/VIVY-PLUGIN-SPEC.md` §7.1. Acceptance should add the
+catalog schema, host API, and Web/TUI conformance tests to the appropriate P6
+tasks.
+
 ## Phase documents
 
 - `00-standing-orders.md` — authority, execution, evidence, and scheduling.
