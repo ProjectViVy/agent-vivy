@@ -1,41 +1,50 @@
 # CH-C5 — verification
 
-日期：2026-08-30。工作区：worktree `agent-vivy-channel-c2`（顺序复用），分支 `feat/channel-c5`，基线 5374d6f（含 C1–C4）。
+Date: 2026-08-30. Worktree: `agent-vivy-channel-c2` (reused sequentially),
+branch `feat/channel-c5`, baseline 5374d6f (including C1–C4).
 
-## GOAL 运行方式（子代理分工）
+## GOAL execution (subagent roles)
 
-- explore（只读）：扫 RPC 分发/ControlDeps、settings overlay 机制（唯一运行时持久化路径）、Host inspect 缺口、UI channel 三件套 + i18n + 测试/е2e 格局。
-- executor（写盘）：23 文件（Go 四包 + UI 十三文件 + 测试）。
-- reviewer（只读独立评审）：**PASS**，无 blocker；2 条 should-fix（log/TODO、分支名）均为落地步骤，已处理。
-- 浏览器冒烟：GOAL 持有人亲做（smoke-for-user-visible-change）。
+- explore (read-only): scanned RPC dispatch/ControlDeps, the settings overlay
+  mechanism (the only runtime persistence path), Host inspect gaps, and the UI channel
+  trio + i18n + test/e2e layout.
+- executor (writes): 23 files (four Go packages + thirteen UI files + tests).
+- reviewer (independent read-only review): **PASS**, no blocker; two should-fix items
+  (log/TODO and branch name) were handled as landing steps.
+- Browser smoke: run by the GOAL owner (smoke-for-user-visible-change).
 
-## 命令与结果
+## Commands and results
 
-| 命令 | 结果 |
+| Command | Result |
 |---|---|
-| `gofmt -l ./internal ./sdk ./cmd` / `go build ./...` / `go vet ./...` | 干净（executor） |
-| `go test ./...`（executor） | 全绿 |
-| `just ci`（executor） | 绿：ui-ci 21 文件 / 172 测试（较 175 减 3 = email/neuro-link 平台用例随功能移除）+ typecheck + vite build |
-| reviewer 复核 `go test ./internal/{rpc,channelhost,app,app/settings}/... -count=1` | 全 ok |
-| reviewer 复核 `pnpm vitest run`（channel-schema/store/api/i18n） | 41/41 pass |
-| 秘钥面 grep（reviewer） | RPC 全表面仅 `TokenEnv`(名) + `TokenEnvSet`(bool)；`token_value` 不存在 |
-| localStorage grep（reviewer） | `vivy.ui.channels` 零读取残留 |
-| i18n 死键双向 grep（reviewer） | 12 键清除、零悬挂引用 |
+| `gofmt -l ./internal ./sdk ./cmd` / `go build ./...` / `go vet ./...` | Clean (executor) |
+| `go test ./...` (executor) | All green |
+| `just ci` (executor) | Green: ui-ci 21 files / 172 tests (3 fewer than 175 because email/neuro-link platform cases were removed) + typecheck + vite build |
+| reviewer recheck `go test ./internal/{rpc,channelhost,app,app/settings}/... -count=1` | All ok |
+| reviewer recheck `pnpm vitest run` (channel-schema/store/api/i18n) | 41/41 pass |
+| Secret-surface grep (reviewer) | The full RPC surface contains only `TokenEnv` (name) + `TokenEnvSet` (bool); `token_value` does not exist |
+| localStorage grep (reviewer) | Zero read residue for `vivy.ui.channels` |
+| i18n dead-key bidirectional grep (reviewer) | 12 keys removed, zero dangling references |
 
-## 浏览器冒烟（真实路径，非截图验收）
+## Browser smoke (real path, not screenshot acceptance)
 
-| 步骤 | 结果 |
+| Step | Result |
 |---|---|
-| `just run`（默认身体 8787）+ `pnpm dev`（3015）+ 打开 `/settings?tab=channels` | 空态「这一代没有耳朵」+ 指引；无添加按钮、无 email/neuro-link；截图留档 |
-| `go run ./sdk pack --with telegram --out <scratch>` → 候选 EXE + scratch config（mock provider；`channels.telegram` enabled + allow_from + 双处 token_env；env 故意不设） | 候选起、telegram 卡片可见（已启用/需配置），`start failed: …` 原因逐字展示 = fail-closed 全链可感知（settings 解码 → 信封钉名 → Secret env 解析失败） |
-| 编辑器 | 「每行一个发送者；留空 = 拒绝启动」+ token_env 名 + 「未设置」徽章 + D-010 说明 |
-| 清空 allow_from 保存 | `settings.yaml` 落盘 `allow_from: []`（拒启语义持久化） |
-| 恢复两行名单保存 | overlay 更新为两行（UI→RPC→settings.yaml 全链） |
-| 窄视口 375×720 | 卡片/操作钮正常，无横向溢出 |
+| `just run` (default body 8787) + `pnpm dev` (3015) + open `/settings?tab=channels` | Empty state "This generation has no ears" + guidance; no Add button or email/neuro-link; screenshot archived |
+| `go run ./sdk pack --with telegram --out <scratch>` → candidate EXE + scratch config (mock provider; `channels.telegram` enabled + allow_from + token_env in both places; env deliberately unset) | Candidate starts, telegram card visible (enabled/needs configuration), `start failed: …` reason shown verbatim = full fail-closed chain observable (settings decode → envelope name pinning → Secret env resolution failure) |
+| Editor | "one sender per line; empty = refuse startup" + token_env name + "unset" badge + D-010 explanation |
+| Clear allow_from and save | `settings.yaml` persists `allow_from: []` (refused-start semantics) |
+| Restore the two-line allowlist and save | Overlay updates to two lines (full UI→RPC→settings.yaml chain) |
+| Narrow viewport 375×720 | Cards/controls normal, no horizontal overflow |
 
-冒烟环境注记：起候选时发现并清掉了占住 3015 的根树残留 Vite dev server（服务旧代码，会污染冒烟）；scratch 配置/数据全部在系统临时目录，空气墙无触碰；冒烟后进程与 scratch 全清。
+Smoke environment note: while starting the candidate, a root-tree Vite dev server
+occupying 3015 was found and cleared (it served old code and would contaminate the
+smoke); scratch config/data stayed in system temporary directories, with the air gap
+untouched; processes and scratch were all cleared afterward.
 
-## 范围看守
+## Scope guard
 
-- 24 文件改动全部在 CH-C5 §5 清单方向内（rpc / app / app/settings / channelhost / ui channel 面 / i18n）；`internal/config`、插件、`zz_register.go`、go.mod 零触碰。
-- 未 push。
+- All 24 modified files are within the CH-C5 §5 directions (rpc / app / app/settings /
+  channelhost / UI channel surface / i18n); `internal/config`, plugins,
+  `zz_register.go`, and go.mod were untouched.
+- Not pushed.

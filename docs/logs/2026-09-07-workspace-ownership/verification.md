@@ -9,14 +9,15 @@ Commands run from repository root (Windows, Git Bash):
 | `go test ./internal/runtime/ ./internal/rpc/ -count=1` | ok 164.665s / 82.264s |
 | `gofmt -l` on the four changed files | clean |
 | `go vet ./internal/runtime/ ./internal/rpc/` | clean |
-| `just ci` | exit 0（全部包 ok，含 plugin-ci 与 UI 构建） |
+| `just ci` | exit 0 (all packages ok, including plugin-ci and UI build) |
 
 New tests:
 
-- `internal/rpc`: `TestWorkspaceRPCFailsClosedForUnknownRun`（unknown run → 404，
-  WorkspaceFiles stub 零调用）、`TestWorkspaceRPCWorkspaceNotFoundIsNotFound`
-  （`ErrWorkspaceNotFound` → 404）。
-- `internal/runtime`: `TestWorkspaceFilesUnknownRunFailsClosed`（未知 run →
-  `ErrWorkspaceNotFound`；控制字符/`..`/分隔符 id 全被拒；manager root 目录零创建）、
-  `TestWorkspaceFilesReadSurvivesPathSwap`（final-component symlink 拒绝 + 硬化后
-  常规读取不受影响）。
+- `internal/rpc`: `TestWorkspaceRPCFailsClosedForUnknownRun` (unknown run → 404,
+  with zero calls to the WorkspaceFiles stub),
+  `TestWorkspaceRPCWorkspaceNotFoundIsNotFound` (`ErrWorkspaceNotFound` → 404).
+- `internal/runtime`: `TestWorkspaceFilesUnknownRunFailsClosed` (unknown run →
+  `ErrWorkspaceNotFound`; ids containing control characters / `..` / separators
+  are all rejected; zero manager-root directory creation),
+  `TestWorkspaceFilesReadSurvivesPathSwap` (final-component symlink rejected +
+  ordinary reads remain unaffected after hardening).

@@ -1,44 +1,54 @@
-# 2026-09-07 — VIVY CODE 状态行：spinner / 计时 / 右段队列与滚动指示
+# 2026-09-07 — VIVY CODE status line: spinner / elapsed time / queued right segment and scroll indicator
 
 ## What changed
 
-B 状态行三件套（bubbletea 全屏 shell，`sdk/tui`），交付提交 `e2ad7f2`：
+B status-line trio (bubbletea fullscreen shell, `sdk/tui`), delivered in commit `e2ad7f2`:
 
-- **F1 braille spinner + 计时器**：busy 时状态行左侧的静态 `run…` 升级为
-  `⠙ run 1m15s`。`surface.Meta` 新增 `BusySince`（零值=空闲），`live` 侧全部
-  busy 切换收敛到 `setBusyLocked`（7 处调用点），`Meta()` 透出时间戳；视图
-  `Model.spinFrame` 在 `Update` 中随消息自增（驱动层既有 40ms `liveTickMsg`
-  心跳持续重绘，busy 与否均在自续，无需新增定时器），手写 10 帧 braille，
-  不引入 `bubbles` 依赖。
-- **F12 chrome 行左右分段 + 队列数**：`renderInputChrome` 由左对齐单行改为
-  左右分段——左 = `err · …` / spinner+计时 / 快捷键 hints（优先级不变），
-  右 = `queued N`（仅 `Queued > 0` 时显示），右对齐 pad 到整行宽，
-  `lipgloss.Width()` 量宽，单行高度不变（`chromeHeight=1` 布局零抖动）。
-- **F6 滚动指示 + end 回底**：右段在上滚（`!chatFollow` 且可滚）时显示
-  `↓ <pct>% · end 回底`，pct 取 `chatScroll/chatMaxScroll` 并夹取 0–100；
-  End 回底行为本就存在（`model.go` KeyEnd → `chatFollow=true`），本次补齐
-  可见指示与发现性，不改键位。
+- **F1 braille spinner + elapsed timer**: the static `run…` on the left side
+  of the busy status line becomes `⠙ run 1m15s`. `surface.Meta` adds
+  `BusySince` (zero value = idle); all busy transitions on the `live` side
+  converge on `setBusyLocked` (7 call sites), and `Meta()` exposes the
+  timestamp. The view's `Model.spinFrame` increments with each message in
+  `Update` (the driver's existing 40ms `liveTickMsg` heartbeat keeps
+  redrawing; it continues on its own whether busy or not, so no new timer is
+  needed). Ten braille frames are hand-written, with no `bubbles` dependency.
+- **F12 chrome row left/right segments + queue count**: `renderInputChrome`
+  changes from a left-aligned single row to left/right segments—the left is
+  `err · …` / spinner+elapsed time / shortcut hints (priority unchanged), and
+  the right is `queued N` (shown only when `Queued > 0`). The right side is
+  padded and aligned to the full row width; `lipgloss.Width()` measures width,
+  and the single-line height remains unchanged (`chromeHeight=1`, no layout
+  jitter).
+- **F6 scroll indicator + end to bottom**: when scrolled up
+  (`!chatFollow` and scrollable), the right segment shows
+  `↓ <pct>% · end to bottom`; `pct` is `chatScroll/chatMaxScroll` clamped to 0–100.
+  The End-to-bottom behavior already existed (`model.go` KeyEnd →
+  `chatFollow=true`); this change completes the visible indicator and its
+  discoverability without changing keybindings.
 
 ## Files
 
-- `sdk/tui/surface/surface.go` — `Meta.BusySince`（加法域字段）
-- `sdk/tui/live/controller.go` — `busySince` + `setBusyLocked`，7 处 busy 切换收敛
-- `sdk/tui/view/model.go` — `spinFrame` 字段 + `Update` 自增一行
-- `sdk/tui/view/render.go` — `spinnerFrames`、`busyStatus`、`chromeRightStatus`、`renderInputChrome` 右对齐分段
-- `sdk/tui/view/chrome_status_test.go` — 3 个确定性单测（新增）
-- `sdk/tui/view/zpreview_test.go` — 手动预览工具扩展 busy+queued / 上滚两帧（仍 TUI_PREVIEW=1 门控）
+- `sdk/tui/surface/surface.go` — `Meta.BusySince` (additive domain field)
+- `sdk/tui/live/controller.go` — `busySince` + `setBusyLocked`, consolidating 7 busy-transition call sites
+- `sdk/tui/view/model.go` — `spinFrame` field + one increment in `Update`
+- `sdk/tui/view/render.go` — `spinnerFrames`, `busyStatus`, `chromeRightStatus`, and right-aligned `renderInputChrome` segments
+- `sdk/tui/view/chrome_status_test.go` — 3 deterministic unit tests (new)
+- `sdk/tui/view/zpreview_test.go` — manual preview tool extended with busy+queued / two scrolled frames (still gated by `TUI_PREVIEW=1`)
 
 ## Explicitly not done
 
-- compact header（`renderCompactHeader`）不动，其左中右分段维持原样；
-  sidebar 的 `queue · N` 行保留未动。
-- 不加 `bubbles`/新依赖；不改任何滚动键位；不新增第二个定时器。
-- TODO line 64 记录的 viewport 既有债务（paused offset 为渲染行号锚点、
-  clamp 全量重渲历史）不在本批次处理。
+- The compact header (`renderCompactHeader`) is untouched, and its left/middle/
+  right segmentation remains as before; the sidebar's `queue · N` row is also
+  unchanged.
+- No `bubbles`/new dependency, scroll-key changes, or second timer was added.
+- The existing viewport debt recorded at TODO line 64 (paused offset uses a
+  render-line-number anchor, and clamp fully re-renders history) is outside
+  this batch.
 
 ## Lane note
 
-本批次与并行的 window-title / sidebar 配色 lane 曾同时在根树写入
-`model.go`/`render.go`；该 lane 已自行以 `2768390`、`83d242e`、`fc63529`
-三笔提交落地，本提交只含状态行交付物自身路径，两 lane 内容在提交态下
-完整正交。
+This batch and the parallel window-title / sidebar-color lane both wrote
+`model.go`/`render.go` in the root tree. That lane independently landed three
+commits, `2768390`, `83d242e`, and `fc63529`; this commit contains only the
+status-line deliverable paths, and the two lanes' contents are fully orthogonal
+in the committed state.

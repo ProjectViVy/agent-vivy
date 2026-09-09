@@ -1,18 +1,23 @@
-# 2026-08-30 · 超级通道 EPIC PLAN 包
+# 2026-08-30 — Super Channel EPIC PLAN package
 
-## 目标与背景
+## Goal and background
 
-原架构师不再继续开发。给后续子 AGENT 一套可单独领取的 PLAN（模仿本会话 PLAN 模式十节），外加演进架构树。无运行时代码。
+The original architect is no longer continuing development. Provide subsequent child
+agents with independently claimable PLANs (mirroring this session's ten-section PLAN
+pattern), plus an evolution architecture tree. No runtime code.
 
-## 变更内容
+## Changes
 
-- `docs/architecture/VIVY-CHANNEL-EVOLUTION.md` — 分层树、包树、控制流、阶段 A–H、能力矩阵、Eino/插件纪律。Host 包名拍板 `internal/channelhost`。
-- `docs/plans/channel-epic/` — README、站立命令、CH-C1..C9 各一份 PLAN（C8/C9 为后切备忘）。
-- `docs/TODO.md` §0.1 Plan 路径；§0.2.8 索引。
-- `docs/research/README.md` 14c。
-- 合同交叉引用。
+- `docs/architecture/VIVY-CHANNEL-EVOLUTION.md` — layering tree, package tree, control
+  flow, stages A–H, capability matrix, and Eino/plugin discipline. The Host package
+  name was settled as `internal/channelhost`.
+- `docs/plans/channel-epic/` — README, standing orders, and one PLAN for each
+  CH-C1..C9 (C8/C9 are later-cut memos).
+- `docs/TODO.md` §0.1 Plan paths; §0.2.8 index.
+- `docs/research/README.md` 14c.
+- Contract cross-references.
 
-## 明确未做
+## Explicitly not done
 
-- 未实现 C1–C7 代码。
-- 未开 `feat/channel-c1` worktree。
+- C1–C7 code was not implemented.
+- The `feat/channel-c1` worktree was not created.

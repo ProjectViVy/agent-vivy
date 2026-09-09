@@ -1,10 +1,14 @@
-# Acceptance — 参考项目许可审查
+# Acceptance — reference-project license review
 
-人如何确认生效：
+How a human confirms it is effective:
 
-1. 打开 `docs/research/license-review-2026-09-02.md`：§1 应引用 claude-code 上游
-   LICENSE 原文（专有裁定），§2 应给出 rig 的 MIT 全文要点与误读更正说明。
-2. `docs/research/REFERENCE-INDEX.md` §6：RI-OQ-1 / RI-OQ-2 应标 RESOLVED 并指向该文档。
-3. `docs/TODO.md` §0.1：P3-1、P3-2 两行应显示 DONE 2026-09-02 且带 filing 链接。
-4. 行为不变式：仓库内 grep 不到任何来自 claude-code / rig 的源码——本片零代码改动，
-   未来任何人复用前会先撞见许可审查文档的结论。
+1. Open `docs/research/license-review-2026-09-02.md`: §1 should quote the upstream
+   claude-code LICENSE verbatim (proprietary ruling), and §2 should give the key points of
+   rig's full MIT license plus the correction of the earlier misreading.
+2. In §6 of `docs/research/REFERENCE-INDEX.md`, RI-OQ-1 / RI-OQ-2 should be marked
+   RESOLVED and point to that document.
+3. In §0.1 of `docs/TODO.md`, the P3-1 and P3-2 lines should show DONE 2026-09-02 and
+   include filing links.
+4. Behavioral invariant: grep should find no source code from claude-code / rig in the
+   repository — this slice makes no code changes, and anyone considering reuse will first
+   encounter the license-review conclusion.

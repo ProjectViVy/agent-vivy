@@ -1,23 +1,24 @@
-# Acceptance — VC-3 切片 2（人工可判）
+# Acceptance — VC-3 slice 2 (manually verifiable)
 
-## 怎么判断它成功了
+## How to tell it works
 
-1. `vivy-sdk pack --with lsp` 的 generation.json `tools` 列出全部四个：
-   `lsp_diagnostics`、`lsp_definition`、`lsp_references`、`lsp_symbols`
-   （全部 `readonly: true`）。核对命令：
-   `vivy-sdk inspect-artifact dist/gen_4bb127429f3049aa`。
-2. 装了 gopls 后的真实会话（pack 出的 EXE）：
-   - `lsp_symbols {"path":"main.go"}` → 缩进符号树
-     （`function main :1:1`…）；
+1. `vivy-sdk pack --with lsp` produces a generation.json whose `tools` lists all four:
+   `lsp_diagnostics`, `lsp_definition`, `lsp_references`, `lsp_symbols`
+   (all with `readonly: true`). Verify with:
+   `vivy-sdk inspect-artifact dist/gen_4bb127429f3049aa`.
+2. In a real session with gopls installed (using the packed EXE):
+   - `lsp_symbols {"path":"main.go"}` → an indented symbol tree
+     (`function main :1:1`…);
    - `lsp_definition {"path":"a.go","line":10,"column":7}` →
-     `b.go:3:14` 形态的落点行；
+     a target line in the form `b.go:3:14`;
    - `lsp_references {"path":"a.go","line":10,"column":7}` →
-     每个引用一行；`"include_declaration":true` 时包含声明本身；
-   - 无匹配（如内置类型跳定义）→ `no matches`，不报错；
-   - line/column 传 0 → 明确的 `line and column are 1-based` 错误。
-3. 安全边界不变：四个工具全部 effect read，不进 write 审批路径；命令
-   与路径边界与切片 1 相同（PATH 裸名/workspace 相对、Env-only spawn）。
+     one line per reference; `"include_declaration":true` includes the declaration itself;
+   - no matches (such as jumping to the definition of a built-in type) → `no matches`, not an error;
+   - passing 0 for line/column → an explicit `line and column are 1-based` error.
+3. Security boundaries are unchanged: all four tools have effect read and do not enter the
+   write-approval path; command and path boundaries match slice 1 (bare PATH name/workspace-
+   relative path, Env-only spawn).
 
-## 回滚
+## Rollback
 
-revert 本切片 commit（只触 plugins/lsp 与其日志，自包含）。
+Revert this slice's commit (it touches only plugins/lsp and its logs and is self-contained).

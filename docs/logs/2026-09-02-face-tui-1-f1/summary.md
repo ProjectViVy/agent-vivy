@@ -1,26 +1,63 @@
-# FACE-TUI-1 F1 — 无网页控制面（gateway-less composition）
+# FACE-TUI-1 F1 — gateway-less control plane (gateway-less composition)
 
 ## What changed
 
-VIVY-FACE-PACK（PR 2 / F1）验收句："启动器 / app 组合可在无 embed 时工作；审批在无 UI 时的失败路径有测试"。本片交付两条：
+VIVY-FACE-PACK (PR 2 / F1) acceptance criterion: "the launcher/app composition works
+without embed; the failure path for approval without a UI is tested." This slice delivers
+two items:
 
-1. **组合拆耦合**（`internal/app/app.go`）：新增 `WithoutGateway() AppOption`。gateway 分支（浏览器 origin policy、`/rpc` mux、嵌入式 UI shell、`http.Server`）只在默认组合下构建；`WithoutGateway` 时进程完全没有 listener/embed，但控制面 handler 保留在 `App.control`。`Run`/shutdown 对 `httpServer == nil` 空安全。`vivy_headless` 组合（`internal/app/headless.go`）随之改为 `WithoutGateway()`——headless 此前会构建一个从不 serve 的 http.Server，现在按 §7 语义彻底不监听。
-2. **进程内控制面**（`internal/app/facehost.go`）：`App.DialControl(ctx, notifications)` 用 `net.Pipe` + 既有 `controlrpc.NewJSONLTransport` + `NewPeer` 拉起 loopback JSON-RPC 对——宿主侧 handler 就是 web face 经 WebSocket 到达的同一个 `controlHandler`，零协议层改动（协议层本就 transport 无关）。
+1. **Decouple the composition** (`internal/app/app.go`): add `WithoutGateway() AppOption`.
+   The gateway branch (browser origin policy, `/rpc` mux, embedded UI shell, and
+   `http.Server`) is built only for the default composition; with `WithoutGateway`, the
+   process has no listener/embed at all, while the control-plane handler remains in
+   `App.control`. `Run`/shutdown are safe when `httpServer == nil`. The `vivy_headless`
+   composition (`internal/app/headless.go`) now uses `WithoutGateway()` as well — headless
+   previously built an `http.Server` that it never served; under the §7 semantics it now
+   does not listen at all.
+2. **In-process control plane** (`internal/app/facehost.go`):
+   `App.DialControl(ctx, notifications)` uses `net.Pipe` + the existing
+   `controlrpc.NewJSONLTransport` + `NewPeer` to start a loopback JSON-RPC pair. The host-side
+   handler is the same `controlHandler` reached by the web face over WebSocket, with no
+   protocol-layer changes (the protocol layer was transport-independent already).
 
-测试（`internal/app/facehost_test.go`，app 级组合测试，脚本化 Anthropic SSE 服务器 + frozen ENV 会话）：
+Tests (`internal/app/facehost_test.go`, app-level composition tests, scripted Anthropic SSE
+server + frozen ENV session):
 
-- `TestLoopbackControlCompletesApprovedConversation`：无 embed/无 listener 的组合内，经 `DialControl` 走完 web face 同款方法链 `initialize → session/create → turn/start → approval/list → approval/respond(approved) → run/get(completed)`，journal 断言 `tool.finished` 零错误、终文落 `session/messages`。
-- `TestGatewaylessRunWithoutFaceCancelsDurably`：审批挂起后无 face 应答，run 永不自愈；`run/cancel` 经同一进程内控制面把 run 收到 `cancelled`，gateway-less `App.Run` 在 ctx 取消后返回 nil。
+- `TestLoopbackControlCompletesApprovedConversation`: in a composition with no embed or
+  listener, `DialControl` completes the same method chain as the web face
+  (`initialize → session/create → turn/start → approval/list →
+  approval/respond(approved) → run/get(completed)`); the journal asserts zero errors for
+  `tool.finished`, and the final text lands in `session/messages`.
+- `TestGatewaylessRunWithoutFaceCancelsDurably`: after approval suspends with no face
+  response, the run never self-heals; `run/cancel` through the same in-process control plane
+  settles the run in `cancelled`, and gateway-less `App.Run` returns nil after context
+  cancellation.
 
-## Key findings（钉进测试的事实）
+## Key findings (facts pinned down in tests)
 
-- 只读工具在审批闸上被 `EvaluateApprovalPolicy` 恒自动放行（`internal/runtime/policy.go` "readonly or question tools do not require approval"）——governance prompt 规则对只读工具不构成挂起点。F1 审批轮次因此选 `write_note`（非只读，headless 审批测试的既有选型）。
-- 手工构造的 `config.Config` 绕过默认值：`Runtime.WorkspaceRoot` 缺省为空会让引擎 agentsmd loader 拿到 nil filesystem backend 而崩；`Tools.Approval.Expiration` 缺省为 0 会让审批即时过期。测试配置里两者显式给出（真实装配路径由 config 默认值兜底）。
-- 引擎流式调用模型：脚本服务器按 `"stream":true` 判别回 Anthropic SSE 转录，非流式请求仍回 JSON（对齐 `provider/claude_test.go` 的协议级测法）。
-- 修一个真实回归隐患：`appOptions` 的 `gateway` 初值必须显式 `true`（零值 false 会让所有默认组合丢掉 HTTP server，`TestRPCBootstrapRoutePrecedesUIShell` 当场抓住）。
+- Read-only tools are always allowed through the approval gate by
+  `EvaluateApprovalPolicy` (`internal/runtime/policy.go`, "readonly or question tools do
+  not require approval") — governance-prompt rules do not create a suspension point for
+  read-only tools. F1 therefore uses `write_note` for the approval round (non-read-only,
+  the existing choice for headless approval tests).
+- A manually constructed `config.Config` bypasses defaults: an empty
+  `Runtime.WorkspaceRoot` makes the engine's agentsmd loader receive a nil filesystem
+  backend and crash; a zero `Tools.Approval.Expiration` makes approval expire immediately.
+  Both are explicit in the test config (the real assembly path is covered by config
+  defaults).
+- The engine calls the model in streaming mode: the scripted server uses `"stream":true`
+  to select an Anthropic SSE transcription response, while non-streaming requests still
+  return JSON (matching the protocol-level test method in `provider/claude_test.go`).
+- Fixed a real regression risk: `appOptions` must explicitly initialize `gateway` to `true`
+  (the zero value `false` would remove the HTTP server from every default composition;
+  `TestRPCBootstrapRoutePrecedesUIShell` caught it immediately).
 
 ## Explicitly not done
 
-- FaceHost / SDK Face 契约、出厂 `faces/tui` 器官、pack `face:` 配方键（FACE-TUI-1 后续片）。
-- F2 headless 器官化（现 `vivy run` 走 `RunHeadless`，不依赖本片新增面）。
-- §14 四问（faces/ 独立 go.mod、默认 face、网页与 TUI 同居、headless 审批失败退出）——按合同在 F2/F3 片前呈报拍板。
+- FaceHost / SDK Face contract, the built-in `faces/tui` organ, and the pack `face:` recipe
+  key (later FACE-TUI-1 slices).
+- F2 headless organization (`vivy run` currently uses `RunHeadless` and does not depend on
+  a new face from this slice).
+- The four §14 questions (standalone `go.mod` for `faces/`, default face, web/TUI
+  cohabitation, and headless approval failure exit) — present them for decision under the
+  contract before the F2/F3 slices.

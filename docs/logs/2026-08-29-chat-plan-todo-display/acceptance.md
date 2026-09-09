@@ -1,18 +1,25 @@
-# Acceptance · 聊天区真实 PLAN / TODO
+# Acceptance · Real PLAN / TODO in the chat area
 
-人在 `http://127.0.0.1:3015`（split Vite，不是 `:8787` 内嵌 UI）可以确认：
+At `http://127.0.0.1:3015` (split Vite, not the embedded UI at `:8787`), confirm:
 
-1. **空会话**  
-   新会话没有待办时，输入框上方没有进度条。点顶栏待办：桌面打开右轨 / 窄屏打开 Sheet，文案为「这个会话还没有待办」。没有演示条目。
+1. **Empty session**
+   When a new session has no todos, there is no progress bar above the input box. Click the top-bar todos button: desktop opens
+   the right rail / narrow screens open the Sheet, with the copy `This session has no todos`. There are
+   no demo items.
 
-2. **有进行中任务**  
-   智能体对本会话调用 `task_create` / `task_update` 后，进度条出现：左侧「任务」、中间当前 `in_progress` 的 `active_form` 或 `subject`、右侧 `已完成 · 进行中 · 待处理`（零段省略）。点进度条打开右侧清单。
+2. **In-progress task**
+   After the agent calls `task_create` / `task_update` for this session, the progress bar appears: `Tasks` on the
+   left, the current `in_progress` `active_form` or `subject` in the center, and `Completed · In progress · Pending` ("Completed · In
+   progress · Pending") on the right (zero segments omitted). Click the progress bar to open the right-side list.
 
-3. **当前 / 历史分段**  
-   右侧「当前」只含 pending 与 in_progress；「历史」含 completed 与 cancelled（cancelled 删除线）。刷新页面后列表仍在（持久化，不是 DSH 下一 turn 清空）。
+3. **Current / historical sections**
+   The right-side `Current` contains only pending and in_progress; `History` contains completed and
+   cancelled (cancelled is struck through). After refreshing the page, the list remains (persistent; DSH does not clear it on the
+   next turn).
 
-4. **会话隔离**  
-   切换会话后清单换成该会话的 todos；旧会话的晚到响应不能覆盖新会话。
+4. **Session isolation**
+   After switching sessions, the list changes to that session's todos; a late response from the old session cannot overwrite the
+   new session.
 
-5. **聊天仍可用**  
-   待办加载失败时，聊天输入不锁死；面板给错误 + 重试。
+5. **Chat remains usable**
+   If loading todos fails, chat input is not locked; the panel shows an error + retry.

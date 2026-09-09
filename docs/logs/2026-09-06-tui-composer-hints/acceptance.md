@@ -1,5 +1,5 @@
 # Acceptance
 
-1. 输入框下方快捷键从左侧开始，先是 `shift+tab 切换模式`。
-2. 按 Shift+Tab 后，chip 里的 智能/计划/只读 会变，底栏文案仍是「切换模式」。
-3. 三种模式的圆角边框颜色不同。
+1. Shortcuts below the input start from the left, with `shift+tab toggle mode` first.
+2. After pressing Shift+Tab, the Smart/Plan/Read-only value in the chip changes, while the footer label remains “Toggle mode”.
+3. The rounded border uses a different color for each of the three modes.

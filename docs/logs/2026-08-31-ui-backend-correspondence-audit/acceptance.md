@@ -1,6 +1,6 @@
 # Acceptance
 
-1. 打开报告，能按 P1/P2、文件与行号复核每个“后端已有但 UI 不对应”的证据。
-2. 报告的“已核实对应”与“明确排除”部分不把通道或后端不存在的演示功能误报为本次缺陷。
-3. 运行 `just ci` 可复现本次门禁结果；运行 split pair 后两个健康/首页 URL 返回 200。
-4. 报告明确指出浏览器 runtime 不可用，未把 HTTP 200 当成完整视觉 smoke。
+1. Open the report and, by P1/P2, file, and line number, reproduce the evidence for each case of “backend exists but the UI does not correspond.”
+2. The report's “verified correspondence” and “explicitly excluded” sections do not misreport demo features that are absent from the channel or backend as defects in this delivery.
+3. Run `just ci` to reproduce the gate result; after starting the split pair, both health/home URLs return 200.
+4. The report explicitly states that the browser runtime is unavailable and does not treat HTTP 200 as a complete visual smoke test.

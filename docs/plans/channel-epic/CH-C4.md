@@ -1,97 +1,97 @@
-# CH-C4 — `plugins/telegram` 私聊文本（ABI 样板）
+# CH-C4 — `plugins/telegram` Private-Chat Text (ABI Template)
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C4 |
-| 阶段 | D ABI 样板 |
-| 人日 | 2 |
-| 里程碑 | M-CH2 |
-| 依赖 | CH-C3 |
-| 后继 | CH-C5；C6 可已并行 |
-| 分支 | `feat/channel-c4` |
-| 合同 | §9、§14.3 telegram、C4 |
+| Stage | D ABI Template |
+| Person-days | 2 |
+| Milestone | M-CH2 |
+| Dependency | CH-C3 |
+| Successor | CH-C5; C6 may already be parallel |
+| Branch | `feat/channel-c4` |
+| Contract | §9, §14.3 telegram, C4 |
 
-这是第一只真耳朵。后续 feishu/qq/discord **抄这个包的形状**，不要各发明一套。
+This is the first real ear. Later feishu/qq/discord adapters must **copy this package's shape**; do not invent a separate shape for each.
 
-**备注：** 正式写 telegram 适配器前，先读 picoclaw 对应实现——五个通道里它是**最完整**的 Go 样本。只读改写，禁止 import。对照目录：`.workspace/picoclaw/pkg/channels/telegram` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\telegram`。偷 Start/Stop/Send、错误分类、token 用法；不偷 `init()` blank import、空 allow_from 放行、插件自建 HTTP。详见 `00-standing-orders.md`。
+**Note:** Before formally writing the telegram adapter, first read the corresponding picoclaw implementation—the **most complete** Go sample among the five channels. Read-only rewrite; imports are prohibited. Reference directory: `.workspace/picoclaw/pkg/channels/telegram` or `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\telegram`. Borrow Start/Stop/Send, error classification, and token usage; do not borrow `init()` blank imports, empty allow_from approval, or plugin-created HTTP. See `00-standing-orders.md`.
 
-## 2. 目标
+## 2. Goal
 
-`plugins/telegram` 独立 go.mod。`vivy-sdk verify` + `pack --with telegram` 得到候选 EXE，能收发私聊文本。默认 `just ci` / 物种 `go.mod` **没有** `github.com/mymmrac/telego`。空 allow_from 仍拒绝。
+`plugins/telegram` has an independent go.mod. `vivy-sdk verify` + `pack --with telegram` produces a candidate EXE that can send and receive private-chat text. The default `just ci` / species `go.mod` **does not contain** `github.com/mymmrac/telego`. Empty allow_from is still rejected.
 
-## 3. 现状
+## 3. Current State
 
-- Host TCK 只认 fake channel。
-- `plugins/` 只有 `hello-fs`（物种 module）。
-- picoclaw 对照（只读）：`.workspace/picoclaw/pkg/channels/telegram` 或用户机 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw`。
-- 设置页仍是 localStorage（C5 才接）。
+- Host TCK recognizes only the fake channel.
+- `plugins/` contains only `hello-fs` (species module).
+- picoclaw reference (read-only): `.workspace/picoclaw/pkg/channels/telegram` or the user's machine at `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw`.
+- The settings page still uses localStorage (wired in C5).
 
-## 4. 目标结构
+## 4. Target Structure
 
 ```text
 plugins/telegram/
   go.mod                 module .../plugins/telegram
   vivy-plugin.json       seam: channel, grants: [channel.poll, secret.read]
-  plugin.go              New() plugin.Plugin 且实现 Channel
-  settings.go            解码 opaque yaml（proxy/base_url 可放这里）
-  plugin_test.go         无真网络；假更新
+  plugin.go              New() plugin.Plugin and implements Channel
+  settings.go            decode opaque yaml (proxy/base_url may go here)
+  plugin_test.go         no real network; fake updates
   README.md
 ```
 
-Transport：出站 long-poll。不实现 webhook。
+Transport: outbound long-poll. Do not implement webhook.
 
-## 5. 文件清单
+## 5. File Inventory
 
-**建** `plugins/telegram/**`
+**Create** `plugins/telegram/**`
 
-**改** pack 配方示例（文档或 testdata recipe，不要改默认 just run 配方）；C3 Host 若发现 telegram 特有坑，只许修 Host 的 **通用信封**，不许加 `TelegramSettings` 到 `internal/config`。
+**Modify** the pack recipe example (documentation or testdata recipe; do not change the default just run recipe); if the C3 Host finds a telegram-specific issue, it may fix only the Host's **generic envelope**, and must not add `TelegramSettings` to `internal/config`.
 
-**禁止碰** 物种 `go.mod` 直接 require telego；`voice`；`internal/runtime/engine.go`。
+**Do Not Touch** direct telego requirements in a species' `go.mod`; `voice`; `internal/runtime/engine.go`.
 
-## 6. 步骤
+## 6. Steps
 
-1. `go mod init` 独立模块；`replace` sdk/plugin 到仓库相对路径。
-2. 对照 picoclaw **改写** Start/Stop/Send、SenderInfo、错误分类。不 import 其模块。
-3. Start：读 `token_env` → `ChannelEnv.Secret`；poll 循环；入站 `PublishInbound`。
-4. allow_from 由 Host 执行；插件不要自己放行空名单。
-5. 单测：解码 settings；构造 inbound；无 live Telegram。
-6. `vivy-sdk verify plugins/telegram`。
-7. `vivy-sdk pack --with telegram`；`inspect-artifact` 含 telegram/telego；默认树 `go list` 不含 telego。
-8. 手工冒烟（可选，不挡 ci）：真 Bot + 非空 allow_from。
-9. `just ci`（默认路径）。
-10. log `docs/logs/YYYY-MM-DD-channel-c4/`。
+1. `go mod init` an independent module; `replace` sdk/plugin with the repository-relative path.
+2. **Rewrite** Start/Stop/Send, SenderInfo, and error classification from the picoclaw reference. Do not import its module.
+3. Start: read `token_env` → `ChannelEnv.Secret`; run the poll loop; call inbound `PublishInbound`.
+4. Host enforces allow_from; the plugin must not allow an empty list itself.
+5. Unit-test settings decoding and inbound construction; no live Telegram.
+6. `vivy-sdk verify plugins/telegram`.
+7. `vivy-sdk pack --with telegram`; `inspect-artifact` contains telegram/telego; `go list` on the default tree does not contain telego.
+8. Manual smoke test (optional, not a CI blocker): real Bot + non-empty allow_from.
+9. `just ci` (default path).
+10. Log to `docs/logs/YYYY-MM-DD-channel-c4/`.
 
-## 7. 验收
+## 7. Acceptance
 
-- 默认 `go test ./...` 不编译 `plugins/telegram` 的 telego 闭包，或 ci 明确排除该 module 的 vet/test 于物种 `./...`（独立 module 本就不在 `./...` 里——确认 `just ci` 的 `go test ./...` 不会 `-r` 进去）。
-- pack 候选能链 telego。
-- verify 拒绝清单带 tools。
-- 空 allow_from 不能 Start（Host 行为，回归 C3 TCK + telegram 配置）。
+- Default `go test ./...` does not compile the telego closure of `plugins/telegram`, or CI explicitly excludes vet/test for that module from the species `./...` (the independent module is not in `./...` anyway—confirm that `go test ./...` in `just ci` does not recurse into it with `-r`).
+- The pack candidate links telego.
+- verify rejects manifests containing tools.
+- Empty allow_from cannot Start (Host behavior; regress C3 TCK + telegram configuration).
 
-## 8. 禁止
+## 8. Prohibitions
 
-- webhook、群触发、媒体、命令菜单、MarkdownV2 全套。
-- 把 telego 写进物种 go.mod。
-- `init()` blank import。
-- 插件 `net.Listen`。
+- Webhook, group triggers, media, command menus, or the full MarkdownV2 feature set.
+- Write telego into a species go.mod.
+- `init()` blank imports.
+- Plugin `net.Listen`.
 
-## 9. 风险与回滚
+## 9. Risks and Rollback
 
-- telego API 与 picoclaw 年代差：以能稳收私聊文本为准，不要追新。
-- replace 路径在 pack 生成环境必须可解析。
-- 回滚：配方不 --with telegram；默认身体无变化。
+- The telego API may differ from picoclaw's vintage: prioritize reliably receiving private-chat text; do not chase the newest API.
+- The replace path must resolve in the pack-generation environment.
+- Rollback: omit --with telegram from the recipe; the default body remains unchanged.
 
-## 10. 交接
+## 10. Handoff
 
-[CH-C5.md](CH-C5.md) 需要 compiled-in 名 `telegram`。C6/C7 抄本包目录形状。
+[CH-C5.md](CH-C5.md) requires the compiled-in name `telegram`. C6/C7 copy this package's directory shape.
 
-> **DONE（2026-08-30）**：已交付，见 `docs/logs/2026-08-30-channel-c4/`。
-> 交接要点：compiled-in 名 `telegram`；settings 经 `ChannelEnv.Settings()`
-> （`json.RawMessage`，`{}` 表缺省）传给插件——本批唯一 ABI 新增；
-> `token_env` 双处声明（信封 = 审计声明，settings = 插件解析名），
-> Host 把 `Secret` 钉死到信封名字；pack 对独立模块走 `-modfile` 合并
-> require/go.sum 闭包（`-mod=mod` 在临时对里完成合并），真实
-> go.mod/go.sum 零写入。遗留：CH-C4-N1（4096 rune 出站上限无人执行）、
-> CH-C4-N2（EnsureSession 并发测试）。
+> **DONE (2026-08-30)**: Delivered; see `docs/logs/2026-08-30-channel-c4/`.
+> Handoff notes: compiled-in name `telegram`; settings are passed to the plugin through `ChannelEnv.Settings()`
+> (`json.RawMessage`, `{}` means absent)—the only ABI addition in this batch;
+> `token_env` is declared in two places (envelope = audit declaration, settings = plugin lookup name),
+> and the Host pins `Secret` to the envelope name; pack uses `-modfile` for the independent module to merge
+> the require/go.sum closure (`-mod=mod` completes the merge in a temporary directory), with no writes to the real
+> go.mod/go.sum. Remaining: CH-C4-N1 (no one enforces the 4096-rune outbound limit),
+> CH-C4-N2 (EnsureSession concurrency tests).

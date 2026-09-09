@@ -1,147 +1,147 @@
-# Vivy 进阶插件联盟调研：编译期自由装配与内核边界
+# Vivy Advanced Plugin Alliance Research: Compile-Time Free Assembly and Kernel Boundaries
 
-> 日期：2026-09-08
-> 状态：**研究归档**。2026-09-09 的规范级决策已取代本文提案；实现只服从
-> `docs/architecture/VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
-> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。本文仅保留调查证据和历史
-> 选项，尤其不得据此恢复 v0 兼容、可执行公共 Provider 或受限 UI 方案。
-> 范围：Vivy 物种内核；不含 Vivy Studio 壳层实现
-> 目标：评估“一切皆插件”，统一 `internal` 与 `pluggable` 的装配语义，同时守住单一 `Service.Run` / Journal / policy 路径。
+> Date: 2026-09-08
+> Status: **research archive**. The standards-level decisions of 2026-09-09 supersede the proposals in this document; implementation follows only
+> `docs/architecture/VIVY-MODULE-STANDARD.md`, `VIVY-PORT-CATALOG.md`,
+> `VIVY-PLUGIN-SPEC.md` and `VIVY-ASSEMBLY.md`. This document retains only investigation evidence and historical
+> options; in particular, it must not be used to restore v0 compatibility, executable public Providers, or the constrained UI proposal.
+> Scope: Vivy species kernel; excludes Vivy Studio shell implementation
+> Goal: evaluate “everything is a plugin,” unify the assembly semantics of `internal` and `pluggable`, and preserve the single `Service.Run` / Journal / policy path.
 
-## 0. 执行摘要
+## 0. Executive Summary
 
-### 结论
+### Conclusion
 
-方向可行，但必须把原命题精确化为：
+The direction is feasible, but the original proposition must be made precise:
 
-> **一切产品能力都是可声明、可依赖、可替换的装配单元；并非一切内核不变量都可由普通插件接管。**
+> **Every product capability is a declarable, dependency-bearing, replaceable assembly unit; not every kernel invariant can be taken over by an ordinary plugin.**
 
-推荐采用“**统一元模型、分级端口、生成式装配、运行时冻结**”：
+Recommended: **a unified metamodel, tiered ports, generative assembly, and runtime freeze**:
 
-1. `internal` 与 `pluggable` 共用 Module Descriptor、依赖图、生命周期、Generation provenance 和 inspect；
-2. 二者不共用权限。`internal` 可实现特权端口，`pluggable` 只能实现公开 SDK 端口并经 Grant/Host；
-3. 编译前可自由选择能力实现；`vivy-sdk pack` 解析依赖、生成强类型 wiring，再由 Go 编译链接；
-4. 进程启动后插件图冻结，不做 Go 动态加载、热卸载或第二运行时；
-5. Eino 是受控编排内核，不是插件管理器。Eino 组件只在 `internal/runtime`、`internal/provider` 适配；
-6. `Service.Run`、Journal authority、policy/approval、domain event schema、composition compiler 等必须耦合在 kernel；它们的后端实现可有 internal provider，但权威语义不能外放。
+1. `internal` and `pluggable` share the Module Descriptor, dependency graph, lifecycle, Generation provenance, and inspect;
+2. They do not share permissions. `internal` may implement privileged ports; `pluggable` may implement only public SDK ports through Grant/Host;
+3. Capability implementations can be selected freely before compilation; `vivy-sdk pack` resolves dependencies and generates strongly typed wiring, then Go compiles and links it;
+4. The plugin graph freezes after process startup; there is no Go dynamic loading, hot-unload, or second runtime;
+5. Eino is a controlled orchestration kernel, not a plugin manager. Eino components are adapted only in `internal/runtime` and `internal/provider`;
+6. `Service.Run`, Journal authority, policy/approval, the domain event schema, the composition compiler, and similar elements must be coupled to the kernel; their backends may be internal providers, but authoritative semantics cannot be exported.
 
-### 建议拍板
+### Recommended Decisions
 
-| 决策 | 建议 |
+| Decision | Recommendation |
 |---|---|
-| 总体模型 | `Module + Port + Generated Assembly` |
-| 装配时机 | pack/Go build 前解析；启动时只初始化已编入模块 |
-| 运行时动态插件 | 不做 |
-| 公共插件执行 | 可信源码编进同一 EXE；不可信能力走 MCP/sidecar，不冒充 Go 插件 |
-| API 形态 | 元数据统一、能力接口分开；拒绝一个万能 `Plugin` 接口 |
-| 冲突语义 | 默认 fail-closed；禁止 last-writer-wins |
-| Eino | internal loop/provider adapter，复用 ADK/Compose/Middleware；不泄漏到 SDK |
-| 第一批迁移 | Tool / ToolWorld / Channel / Face 进入联盟，但保持现有 ABI |
-| 第二批端口 | Provider、pre-tool middleware、run observer、context source、skill source |
-| UI | Face 保持整脸；另建细粒度 `ui/slot`，不混为一类 |
+| Overall model | `Module + Port + Generated Assembly` |
+| Assembly timing | Resolve before pack/Go build; at startup initialize only modules already compiled in |
+| Runtime dynamic plugins | Do not implement |
+| Public plugin execution | Compile trusted source into the same EXE; route untrusted capabilities through MCP/sidecar, without pretending they are Go plugins |
+| API shape | Unify metadata, separate capability interfaces; reject one universal `Plugin` interface |
+| Conflict semantics | Fail-closed by default; prohibit last-writer-wins |
+| Eino | Internal loop/provider adapter; reuse ADK/Compose/Middleware; do not leak into the SDK |
+| First migration batch | Bring Tool / ToolWorld / Channel / Face into the alliance while preserving the existing ABI |
+| Second-batch ports | Provider, pre-tool middleware, run observer, context source, skill source |
+| UI | Keep Face as the whole face; create a separate fine-grained `ui/slot`, not the same category |
 
-## 1. 当前 Vivy：已经有插件骨架，但还不是“联盟”
+## 1. Current Vivy: It Has a Plugin Skeleton, but Not Yet an “Alliance”
 
-### 1.1 已成立的事实
+### 1.1 Established Facts
 
-当前插件是“源码治理单元 + 编译期 pack”，而非运行时动态库：
+Current plugins are “source-governance units + compile-time pack,” not runtime dynamic libraries:
 
-- `vivy-plugin.json` 由 SDK 验证；
-- `vivy-sdk pack` 生成注册文件并编译新 EXE；
-- 未进入配方的源码不属于该 Generation；
-- 插件不能 import `internal` 或 Eino；
-- 同进程插件崩溃会影响整个 EXE。
+- `vivy-plugin.json` is verified by the SDK;
+- `vivy-sdk pack` generates a registration file and compiles a new EXE;
+- source not included in the recipe does not belong to that Generation;
+- plugins cannot import `internal` or Eino;
+- a crash in an in-process plugin affects the entire EXE.
 
-证据：`docs/architecture/VIVY-PLUGIN-SPEC.md:16-28,165-177,227-264`。
+Evidence: `docs/architecture/VIVY-PLUGIN-SPEC.md:16-28,165-177,227-264`.
 
-现有源码已经支持五种 seam：`tool`、`tool-world`、`provider`、`channel`、`face`，以及 11 个 Grant；架构文档仍有“四类 seam”和旧 Grant 词表，已发生文档漂移。证据：`sdk/plugin/plugin.go:12-35,37-88` 对比 `docs/architecture/VIVY-PLUGIN-SPEC.md:77-87,98-117`。
+The existing source already supports five seams: `tool`, `tool-world`, `provider`, `channel`, and `face`, plus 11 Grants; the architecture documentation still has “four seam types” and the old Grant vocabulary, so documentation drift has occurred. Evidence: `sdk/plugin/plugin.go:12-35,37-88` compared with `docs/architecture/VIVY-PLUGIN-SPEC.md:77-87,98-117`.
 
-真正有消费者的公共能力是：
+The public capabilities that actually have consumers are:
 
-| 能力 | 当前消费者 | 状态 |
+| Capability | Current consumer | Status |
 |---|---|---|
-| Tool / ToolWorld | `internal/pluginhost.Adapt` → `internal/tools.Tool` | 已成立 |
-| Channel | `ChannelHost` | 已成立 |
-| Face | `FaceHost` / control-plane client | 已成立 |
-| Diagnostic observer | file mutation diagnostic bridge | 已成立的窄能力 |
-| LSP status provider | control-plane status source | 已成立的窄能力 |
-| Provider seam | 无专用消费者 | 只有枚举/清单概念，尚未成立 |
+| Tool / ToolWorld | `internal/pluginhost.Adapt` → `internal/tools.Tool` | Established |
+| Channel | `ChannelHost` | Established |
+| Face | `FaceHost` / control-plane client | Established |
+| Diagnostic observer | file mutation diagnostic bridge | Established narrow capability |
+| LSP status provider | control-plane status source | Established narrow capability |
+| Provider seam | No dedicated consumer | Only an enumeration/catalog concept; not yet established |
 
-`pluginhost.Adapt` 只显式跳过 Channel，然后把其他 `plugin.Plugin.Tools()` 适配为工具；这证明 `SeamProvider` 目前没有独立运行语义。证据：`internal/pluginhost/host.go:23-45`。
+`pluginhost.Adapt` explicitly skips only Channel, then adapts the other `plugin.Plugin.Tools()` into tools; this proves that `SeamProvider` currently has no independent runtime semantics. Evidence: `internal/pluginhost/host.go:23-45`.
 
-### 1.2 当前装配的局限
+### 1.2 Current Assembly Limitations
 
-1. **统一接口过窄**：`Plugin` 只返回 `Tools()`，Channel/Face 需要旁路 ABI；继续加能力会把接口变成 God object。
-2. **分类与信任混在一起**：`seam` 表达能力类型，却不能表达 internal/pluggable 的信任等级、依赖、冲突、cardinality 和生命周期。
-3. **生成注册表只覆盖用户插件**：出厂 loop/world/provider/tool 仍由 `internal/app` 手工 wiring；无法实现真正的编译期自由组合。
-4. **缺少依赖图**：没有 Definition/Provider/Consumer、缺失依赖、循环依赖和多实现选择的统一规则。
-5. **缺少 owner-scoped lifecycle**：工具是值，Channel/Face 有各自启停；后台资源、cleanup 和失败回滚没有统一语义。
-6. **默认物种体与窄 Generation 语义不同**：提交的 `internal/generated/plugins/zz_register.go` 手工编入全部第一方 Channel，pack 才替换为窄注册表。证据：`internal/generated/plugins/zz_register.go:1-28`。
-7. **运行时仍有动态能力开关**：builtin tools 可通过 settings 重建 Eino engine，plugin tools 始终追加；MCP server 也可运行时替换。它们是“已编入能力的激活/配置”，不是新代码装载。证据：`internal/app/app.go:335-358,394-471,614-619`。
+1. **The unified interface is too narrow**: `Plugin` returns only `Tools()`; Channel/Face require side-channel ABIs, and continuing to add capabilities would turn the interface into a God object.
+2. **Classification and trust are mixed together**: `seam` expresses the capability type, but cannot express internal/pluggable trust level, dependencies, conflicts, cardinality, or lifecycle.
+3. **The generated registry covers only user plugins**: the factory loop/world/provider/tool are still wired manually by `internal/app`; true compile-time free composition is impossible.
+4. **There is no dependency graph**: no unified rules for Definition/Provider/Consumer, missing dependencies, dependency cycles, or choosing among multiple implementations.
+5. **There is no owner-scoped lifecycle**: tools are values, while Channel/Face have their own start/stop; background resources, cleanup, and failure rollback have no unified semantics.
+6. **The default species body and narrow Generation have different semantics**: the committed `internal/generated/plugins/zz_register.go` manually compiles all first-party Channels, and pack replaces it with a narrow registry. Evidence: `internal/generated/plugins/zz_register.go:1-28`.
+7. **Runtime still has dynamic capability switches**: builtin tools can rebuild the Eino engine through settings, while plugin tools are always appended; MCP servers can also be replaced at runtime. These are “activation/configuration of compiled-in capabilities,” not loading new code. Evidence: `internal/app/app.go:335-358,394-471,614-619`.
 
-### 1.3 与旧架构文档的关系
+### 1.3 Relationship to the Older Architecture Documentation
 
-`VIVY-ASSEMBLY.md` 当前明确规定“只有用户自定义叫插件”，出厂能力按 loop/world/provider/tool 命名。证据：`docs/architecture/VIVY-ASSEMBLY.md:30-38,42-74,140-157`。
+`VIVY-ASSEMBLY.md` currently specifies that “only user-defined items are called plugins,” while factory capabilities are named loop/world/provider/tool. Evidence: `docs/architecture/VIVY-ASSEMBLY.md:30-38,42-74,140-157`.
 
-本报告提出的是更高一级的**内部元模型统一**：
+This report proposes a higher-level **unification of the internal metamodel**:
 
-- 产品/UI 仍应称“工具、模型出口、世界、通道、脸”；
-- 架构和 pack 层把它们统一视为 Module；
-- “internal/pluggable”是来源与信任分类，不要求产品界面把所有东西显示成“插件”。
+- The product/UI should still call them “tools, model exits, worlds, channels, and faces”;
+- the architecture and pack layers should treat them uniformly as Modules;
+- “internal/pluggable” is a source and trust classification; the product interface does not need to display everything as a “plugin.”
 
-因此这不是简单补文档，而是对现有命名合同的方向性扩展；必须经架构拍板后才能改合同。
+Therefore, this is not a simple documentation supplement, but a directional extension of the existing naming contract; the contract can be changed only after an architecture decision.
 
-## 2. 参考项目结论
+## 2. Conclusions from Reference Projects
 
-## 2.1 Eino：复用编排，不复刻插件系统
+## 2.1 Eino: Reuse Orchestration, Do Not Recreate the Plugin System
 
-Vivy 锁定 Eino `v0.9.13`，本地 `.workspace/eino` 已是更高的 alpha 版本，所以 API 判断以 Go module cache 的 `v0.9.13` 为准。[1]
+Vivy is pinned to Eino `v0.9.13`; the local `.workspace/eino` is already a higher alpha version, so API judgments use `v0.9.13` in the Go module cache as the reference.[1]
 
-Eino v0.9.13 提供：
+Eino v0.9.13 provides the following component interfaces and adapters:
 
-- Component interfaces：ChatModel、Tool、Retriever、Embedding、Loader、Transformer、Indexer；
-- Compose：Graph、Chain、Workflow、Parallel、Branch、Lambda 和 `Compile`；
-- ADK：Agent、Runner、Interrupt、Resume、Checkpoint；
-- Agent middleware、Tool middleware 和 callbacks；
-- EinoExt 的 OpenAI、Claude、MCP 等具体 adapter。
+- Component interfaces: ChatModel, Tool, Retriever, Embedding, Loader, Transformer, Indexer;
+- Compose: Graph, Chain, Workflow, Parallel, Branch, Lambda, and `Compile`;
+- ADK: Agent, Runner, Interrupt, Resume, Checkpoint;
+- Agent middleware, Tool middleware, and callbacks;
+- Concrete OpenAI, Claude, MCP, and other adapters in EinoExt.
 
-本地证据：`go.mod:13-19`，以及 `C:/Users/Administrator/go/pkg/mod/github.com/cloudwego/eino@v0.9.13/components/types.go:17-86`、`compose/chain.go:157-536`、`compose/graph.go:296-467`、`adk/handler.go:139-265`、`adk/runner.go:50-149`。
+Local evidence: `go.mod:13-19`, plus `C:/Users/Administrator/go/pkg/mod/github.com/cloudwego/eino@v0.9.13/components/types.go:17-86`, `compose/chain.go:157-536`, `compose/graph.go:296-467`, `adk/handler.go:139-265`, and `adk/runner.go:50-149`.
 
-Eino没有通用插件发现、版本、信任、Grant、Factory registry。`schema.Register` 是序列化类型注册；callbacks 不保证跨 Handler 的全局顺序，也不是 durable event bus。因此不能把 Eino 当成 Vivy 插件管理器。[1]
+Eino has no general-purpose plugin discovery, versioning, trust, Grant, or Factory registry. `schema.Register` registers serialization types; callbacks do not guarantee global ordering across Handlers and are not a durable event bus. Therefore, Eino cannot be treated as Vivy's plugin manager.[1]
 
-Vivy 已正确复用 Eino 的 ADK、dynamic tool search、Skill、AgentsMD、reduction、summarization；工具经 `toolAdapter` 才进入 Eino，并在这里统一执行参数校验、policy、hook、approval 和结果边界。证据：`internal/runtime/engine.go:9-15,118-220`、`internal/runtime/tooladapter.go:24-35,79-180`。
+Vivy correctly reuses Eino's ADK, dynamic tool search, Skill, AgentsMD, reduction, and summarization; tools enter Eino only through `toolAdapter`, where argument validation, policy, hooks, approval, and result boundaries are enforced uniformly. Evidence: `internal/runtime/engine.go:9-15,118-220`, `internal/runtime/tooladapter.go:24-35,79-180`.
 
-结论：新增插件系统应在 Eino 之上做 Vivy-owned assembly compiler；不要重写 Eino 已有 Compose/ADK/Middleware，也不要向 SDK 暴露 Eino 类型。
+Conclusion: build a Vivy-owned assembly compiler on top of Eino for the new plugin system; do not rewrite Eino's existing Compose/ADK/Middleware, and do not expose Eino types to the SDK.
 
-## 2.2 Hermes：学习 facade/provider profile，拒绝多套 registry
+## 2.2 Hermes: Learn the Facade/Provider Profile, Reject Multiple Registries
 
-Hermes 当前不是一个插件系统，而是通用 Python plugin、model provider、memory、context engine、MCP、skills、dashboard、gateway hooks 等多套扩展机制并存。[2]
+Hermes is currently not one plugin system, but a collection of coexisting extension mechanisms for generic Python plugins, model providers, memory, context engine, MCP, skills, dashboard, gateway hooks, and more.[2]
 
-值得吸收：
+Worth adopting:
 
-- provider profile 只声明 endpoint/auth/request 差异，核心持有 client、凭证轮换和 streaming；
-- `PluginContext` 作为 Host facade，不直接交出 kernel 对象；
-- deferred tools 只是模型可见性层，真实调用仍经过工具 registry、hooks 和 approval；
-- profile 隔离 config、session、skill 和 subprocess home；
-- plugin/MCP failure 可局部 unavailable。
+- provider profiles declare only endpoint/auth/request differences; the core owns the client, credential rotation, and streaming;
+- `PluginContext` acts as a Host facade and does not hand out kernel objects directly;
+- deferred tools are only a model-visibility layer; actual calls still pass through the tool registry, hooks, and approval;
+- profiles isolate config, session, skill, and subprocess home;
+- plugin/MCP failure can be locally unavailable.
 
-本地证据：`C:/Users/Administrator/Desktop/morediva/.workspace/hermes-agent/providers/base.py:1-10`、`hermes_cli/plugins.py:286-354`、`tools/tool_search.py:150-209`、`hermes_cli/profiles.py:37-52`。
+Local evidence: `C:/Users/Administrator/Desktop/morediva/.workspace/hermes-agent/providers/base.py:1-10`, `hermes_cli/plugins.py:286-354`, `tools/tool_search.py:150-209`, `hermes_cli/profiles.py:37-52`.
 
-不应照搬：
+Do not copy:
 
-- 多个 discovery loader；
-- 全局 registry；
-- last-writer-wins / first-writer-wins / silent ignore 混合冲突策略；
-- 非事务式 `register(ctx)`；
-- 把 skills、MCP、代码 plugin、UI plugin 混成同一信任等级。
+- multiple discovery loaders;
+- a global registry;
+- a mixed conflict strategy of last-writer-wins / first-writer-wins / silent ignore;
+- non-transactional `register(ctx)`;
+- treating skills, MCP, code plugins, and UI plugins as the same trust level.
 
-Hermes 的核心经验可归纳为：插件实现能力，kernel 决定能力何时可用、谁能调用、是否审批，以及结果怎样进入 session state。[2]
+Hermes's core lesson can be summarized as: plugins implement capabilities; the kernel decides when a capability is available, who can call it, whether approval is required, and how the result enters session state.[2]
 
-## 2.3 DeepSeek Harness / Cordis：学习语义，不复制热加载
+## 2.3 DeepSeek Harness / Cordis: Learn the Semantics, Do Not Copy Hot Loading
 
-Cordis 的最小底座是根 Context、Reflect service registration、Registry、Fiber/effect lifecycle、Events 和 Loader；产品能力通过 Definition、Provider、Consumer、`inject` 与 owner-scoped effects 进入系统。[3]
+Cordis's minimal base consists of a root Context, Reflect service registration, Registry, Fiber/effect lifecycle, Events, and Loader; product capabilities enter the system through Definition, Provider, Consumer, `inject`, and owner-scoped effects.[3]
 
-本地证据：
+Local evidence:
 
 - `.../.workspace/deepseek-harness/deepseek-harness/vendor/cordis/src/context.ts:9-84`
 - `vendor/cordis/src/registry.ts:91-145,189-337`
@@ -149,89 +149,89 @@ Cordis 的最小底座是根 Context、Reflect service registration、Registry�
 - `vendor/cordis/src/events.ts:24-32,125-301`
 - `docs/user/develop/practice/index.md:5-49`
 
-最值得迁移到 Go 编译期模型的语义：
+Semantics most worth migrating to the Go compile-time model:
 
-| Cordis | Vivy 对应 |
+| Cordis | Vivy equivalent |
 |---|---|
 | Service Definition / Provider / Consumer | typed Port contract / Provider factory / generated consumer wiring |
-| `inject` | pack 阶段依赖 DAG |
+| `inject` | Dependency DAG at pack time |
 | Fiber owner | Module owner + Cleanup stack |
-| effect/disposer | `Start` 成功后登记、逆序 `Close` |
-| PENDING | 编译期缺依赖直接失败；仅显式 optional 才允许 absent |
+| effect/disposer | Register after successful `Start`, reverse-order `Close` |
+| PENDING | Fail directly on missing compile-time dependencies; allow absent only when explicitly optional |
 | profile/bundle/patch | generation recipe layering |
-| event dispatch mode | 类型化 middleware/event phase |
-| rollback | startup 部分失败时撤销本 Module 全部贡献 |
+| event dispatch mode | Typed middleware/event phase |
+| rollback | Revoke all contributions from this Module when startup partially fails |
 
-不迁移 runtime dynamic import、反射式 `ctx.foo`、依赖变化热重载、Node VM 或无 payload 合同的通用事件总线。
+Do not migrate runtime dynamic import, reflective `ctx.foo`, hot reload on dependency changes, Node VM, or a generic event bus without a payload contract.
 
-DSH 还揭示一个重要规则：只有 Provider 没有 Consumer，不算完整 seam。Vivy 当前 `SeamProvider` 正是这个状态。
+DSH also reveals an important rule: a Provider without a Consumer is not a complete seam. Vivy's current `SeamProvider` is exactly in this state.
 
-## 2.4 其他旁证
+## 2.4 Other Corroborating Evidence
 
-OpenFang 的 Channel/Provider/Tool 仍有大量静态 module 和 `match` 分发，但其 WASM fuel、epoch timeout、capability-checked host function 值得未来不可信执行层参考。[4]
+OpenFang still has many static modules and `match` dispatch for Channel/Provider/Tool, but its WASM fuel, epoch timeout, and capability-checked host functions are worth referencing for a future untrusted execution layer.[4]
 
-ZeroClaw 用 feature flags 和宏维护 provider slot 的单一清单，并把配置、遍历和 factory dispatch 一起生成；Go 对应物应是 generation codegen，而不是多个手写 switch。其 WASM Channel 在当前快照仍有 placeholder，说明“manifest 声明 capability”不能替代 conformance test。[5]
+ZeroClaw uses feature flags and macros to maintain a single catalog of provider slots, and generates configuration, traversal, and factory dispatch together; the Go equivalent should be generation codegen, not multiple handwritten switches. Its WASM Channel still has a placeholder in the current snapshot, showing that “manifest-declared capability” cannot replace conformance tests.[5]
 
-OpenClaw 的 manifest-first、metadata snapshot、owner-tagged registry 和 rollback 很成熟，但 native plugin 与 Gateway 同进程同权限，不适合作为 Vivy 第三方默认信任模型。[6]
+OpenClaw's manifest-first design, metadata snapshot, owner-tagged registry, and rollback are mature, but native plugins share a process and permissions with the Gateway, so it is unsuitable as Vivy's default third-party trust model.[6]
 
-Pi 的小型 typed lifecycle、逐 extension 错误收集和 stale-context invalidation 有参考价值；其 extension 默认拥有宿主进程权限，必须配合外部 sandbox 才能形成安全边界。[7]
+Pi's small typed lifecycle, per-extension error collection, and stale-context invalidation are useful references; its extensions have host-process permissions by default and require an external sandbox to form a security boundary.[7]
 
-综合结论：
+Combined conclusion:
 
-- ZeroClaw：借编译期 single source of truth；
-- Cordis：借依赖和 owner lifecycle；
-- Hermes：借 capability facade 和 provider profile；
-- OpenClaw：借 manifest snapshot 与原子回滚；
-- OpenFang：只为未来 sidecar/WASM 借资源计量；
-- Pi：借简单生命周期，不借权限模型。
+- ZeroClaw: borrow the compile-time single source of truth;
+- Cordis: borrow dependency handling and owner lifecycle;
+- Hermes: borrow the capability facade and provider profile;
+- OpenClaw: borrow the manifest snapshot and atomic rollback;
+- OpenFang: borrow resource metering only for a future sidecar/WASM layer;
+- Pi: borrow the simple lifecycle, not the permission model.
 
-## 3. 推荐架构：统一 Module，分级 Port
+## 3. Recommended Architecture: Unified Module, Tiered Port
 
-## 3.1 四层模型
+## 3.1 Four-Layer Model
 
 ```text
 Generation Recipe
       │
       ▼
-Assembly Compiler / Verifier           ← kernel，唯一
+Assembly Compiler / Verifier           ← kernel, sole authority
       │  resolve DAG + trust + grants + conflicts
       ▼
-Generated Typed Wiring                 ← Go source，禁止手改
+Generated Typed Wiring                 ← Go source, do not edit by hand
       │
-      ├── internal modules             ← 特权实现
-      └── pluggable modules            ← 公开 SDK + Host grants
+      ├── internal modules             ← privileged implementations
+      └── pluggable modules            ← public SDK + Host grants
       │
       ▼
 Frozen Runtime Assembly
       │
       ▼
-Single Service.Run / Journal / Policy  ← 唯一权威路径
+Single Service.Run / Journal / Policy  ← sole authoritative path
       │
       ▼
-Eino adapter / providers               ← 仅 internal/runtime + internal/provider
+Eino adapter / providers               ← only internal/runtime + internal/provider
 ```
 
-关键点：统一的是**治理和装配元模型**，不是把所有能力压进一个 Go interface。
+Key point: what is unified is the **governance and assembly metamodel**, not every capability being forced into one Go interface.
 
-## 3.2 `internal` 与 `pluggable`
+## 3.2 `internal` and `pluggable`
 
-| 维度 | internal | pluggable |
+| Dimension | internal | pluggable |
 |---|---|---|
-| 来源 | Vivy 仓库/受控第一方模块 | 用户或生态源码模块 |
-| 选择 | generation recipe | generation recipe |
-| 描述 | 同一 Module Descriptor | 同一 Module Descriptor |
-| 生命周期 | 同一 owner/cleanup 模型 | 同一 owner/cleanup 模型 |
-| 可实现端口 | public + privileged core-provider ports | public ports only |
-| import | 按内部 package firewall；Eino 仍限 runtime/provider | `sdk/plugin`、公开 port contract、自有依赖；禁止 internal/Eino |
-| world access | 仍优先走窄接口 | 只能走 Grant-filtered Host facade |
-| 信任 | 构建时受信 | 经审核的同进程源码；不是安全沙箱 |
-| 失败 | required 默认启动失败 | manifest 明确 required/optional；禁止隐式降级 |
+| Source | Vivy repository / controlled first-party modules | User or ecosystem source modules |
+| Selection | generation recipe | generation recipe |
+| Description | Same Module Descriptor | Same Module Descriptor |
+| Lifecycle | Same owner/cleanup model | Same owner/cleanup model |
+| Implementable ports | public + privileged core-provider ports | public ports only |
+| Import | Internal package firewall; Eino still restricted to runtime/provider | `sdk/plugin`, public port contract, own dependencies; internal/Eino prohibited |
+| World access | Still prefer narrow interfaces | Grant-filtered Host facade only |
+| Trust | Trusted at build time | Reviewed in-process source; not a security sandbox |
+| Failure | Required modules fail startup by default | Manifest explicitly marks required/optional; implicit degradation prohibited |
 
-模块不能靠 manifest 自称 `internal`。信任等级由 assembly compiler 根据 source catalog / recipe lane 赋予并写入 Generation；否则用户插件可自我提权。
+Modules cannot declare themselves `internal` through the manifest. The assembly compiler assigns the trust level from the source catalog / recipe lane and writes it into the Generation; otherwise a user plugin could self-escalate.
 
 ## 3.3 Module Descriptor
 
-建议从单一 `seam` 升级为多 contribution 描述：
+Upgrade from a single `seam` to a multi-contribution description:
 
 ```yaml
 apiVersion: vivy.module/v1
@@ -251,20 +251,20 @@ grants: []
 lifecycle: process
 ```
 
-规则：
+Rules:
 
-- `source/trust` 的有效值由 pack 赋予，不信任模块自报；
-- 一个 Module 可提供多个相关 Port，但每个 Port 仍有独立 typed contract；
-- `requires` 默认 required；optional 必须显式；
-- Port catalog 定义 cardinality、scope、允许的 trust、failure policy；
-- Descriptor 纯数据，无初始化副作用；
-- v0 `seam` 可在过渡期转换为一个标准 Port。
+- Valid values for `source/trust` are assigned by pack; do not trust a module's self-report;
+- one Module may provide multiple related Ports, but each Port still has an independent typed contract;
+- `requires` is required by default; optional must be explicit;
+- the Port catalog defines cardinality, scope, permitted trust, and failure policy;
+- the Descriptor is pure data, with no initialization side effects;
+- v0 `seam` may be converted into one standard Port during the transition.
 
-## 3.4 Port 分层
+## 3.4 Port Tiers
 
 ### A. kernel-closed ports
 
-只有 kernel 或 internal module 可提供/消费：
+Only the kernel or internal modules may provide/consume these:
 
 - `core/loop-driver@v1`
 - `core/chat-model@v1`
@@ -273,11 +273,11 @@ lifecycle: process
 - `core/credential-resolver@v1`
 - `core/sandbox-backend@v1`
 
-“closed”不代表实现硬编码；它表示只能被受控 internal module 替换，且必须满足 kernel conformance。
+“closed” does not mean the implementation is hard-coded; it means it can be replaced only by a controlled internal module and must satisfy kernel conformance.
 
 ### B. public standard ports
 
-可由 internal 或 pluggable 实现：
+May be implemented by internal or pluggable modules:
 
 - `std/tool@v1`
 - `std/tool-world@v1`
@@ -289,40 +289,40 @@ lifecycle: process
 - `std/middleware/pre-tool@v1`
 - `std/observer/run@v1`
 - `std/observer/diagnostic@v1`
-- `std/ui/slot@v1`（未来）
+- `std/ui/slot@v1` (future)
 
 ### C. extension ports
 
-使用 `x/<author>/<port>@vN`，但不提供 `map[string]any` 服务定位器：
+Use `x/<author>/<port>@vN`, but do not provide a `map[string]any` service locator:
 
-- producer 与 consumer 必须共享一个可验证的 Go contract package；
-- codegen 生成静态 import 与类型赋值，让 Go 编译器做最终类型检查；
-- kernel 只记录 ID、版本、owner 和 provenance，不自动把 extension port 暴露给模型、RPC 或 Journal；
-- 无 consumer 的 extension provider 在 pack 阶段报错，而不是静默存在。
+- producer and consumer must share a verifiable Go contract package;
+- codegen generates static imports and type assignments, letting the Go compiler perform the final type check;
+- the kernel records only ID, version, owner, and provenance; it does not automatically expose an extension port to the model, RPC, or Journal;
+- an extension provider without a consumer errors at pack time instead of existing silently.
 
-## 3.5 为什么不要万能 `Plugin` 接口
+## 3.5 Why Not a Universal `Plugin` Interface
 
-一个包含 Tool、Channel、Provider、Storage、UI、Hook、Lifecycle 的接口会产生：
+An interface containing Tool, Channel, Provider, Storage, UI, Hook, and Lifecycle would produce:
 
-- 大量无意义空方法；
-- 不同生命周期互相污染；
-- public API 被 internal 特权能力拖宽；
-- 每加一种能力都破坏全部实现；
-- 无法表达一个模块提供多个独立 contribution。
+- many meaningless no-op methods;
+- contamination between different lifecycles;
+- a public API widened by internal privileged capabilities;
+- every new capability breaking all implementations;
+- no way to express one module providing multiple independent contributions.
 
-推荐：Descriptor/owner 统一，Port interface 分开，generated binder 负责将每个模块的 typed contribution 放入 Assembly。
+Recommendation: unify Descriptor/owner, keep Port interfaces separate, and have the generated binder place each module's typed contributions into the Assembly.
 
 ## 4. Assembly Compiler
 
-## 4.1 三种“编译”必须区分
+## 4.1 Three Kinds of “Compilation” Must Be Distinguished
 
-1. **Assembly compile**：`vivy-sdk pack` 解析 recipe、manifest、依赖和权限；
-2. **Go compile/link**：生成静态 imports/wiring，构建 EXE；
-3. **Eino Compile**：进程启动时对已构造 Graph/Chain/Workflow 做运行图编译。
+1. **Assembly compile**: `vivy-sdk pack` parses the recipe, manifest, dependencies, and permissions;
+2. **Go compile/link**: generate static imports/wiring and build the EXE;
+3. **Eino Compile**: at process startup, compile the runtime graph for the already constructed Graph/Chain/Workflow.
 
-Eino Compile 不是 Go 插件加载，也不能代替前两步。
+Eino Compile is not Go plugin loading and cannot replace the first two steps.
 
-## 4.2 管道
+## 4.2 Pipeline
 
 ```text
 generation.yml + module manifests + source catalog
@@ -339,451 +339,453 @@ generation.yml + module manifests + source catalog
   → startup initialize and freeze
 ```
 
-必须保持：
+Must preserve:
 
-- 不扫描目录自动加入；recipe 点名才存在；
-- default conflict = error；不做 last-writer-wins；
-- single port 的多实现只能由 recipe 显式选择；
-- optional 依赖缺失必须形成可 inspect 的状态；
-- Generated file 不可手改；
-- artifact 可列出 module、port、implementation、version、trust、grants、source hash 和依赖边。
+- Do not scan directories for automatic inclusion; a module exists only when named by the recipe;
+- default conflict = error; do not use last-writer-wins;
+- multiple implementations of a single port may be selected only explicitly by the recipe;
+- a missing optional dependency must produce an inspectable state;
+- Generated files cannot be edited manually;
+- the artifact can list module, port, implementation, version, trust, grants, source hash, and dependency edges.
 
-## 4.3 启动生命周期
+## 4.3 Startup Lifecycle
 
-推荐阶段：
+Recommended phases:
 
 ```text
 Describe → Construct → Start → Ready → Frozen → Stop → Close
 ```
 
-语义：
+Semantics:
 
-- `Describe` 必须纯函数；
-- `Construct` 按 DAG 顺序创建 typed contribution，不启动后台工作；
-- `Start` 才允许占用资源；每一步立即登记 owner cleanup；
-- required 模块失败：逆序关闭已启动模块并中止启动；
-- optional 模块失败：只有 manifest 和 Port policy 明确允许 unavailable 才继续；
-- `Frozen` 后禁止新增/删除代码模块；
-- `Stop/Close` 逆 DAG、幂等、有 deadline；
-- Run/session scope 的资源由 kernel 创建子 owner，但不能另建运行时 registry。
+- `Describe` must be a pure function;
+- `Construct` creates typed contributions in DAG order without starting background work;
+- only `Start` may acquire resources; register owner cleanup immediately at every step;
+- required-module failure: close already-started modules in reverse order and abort startup;
+- optional-module failure: continue only when the manifest and Port policy explicitly allow unavailable;
+- after `Frozen`, adding or removing code modules is prohibited;
+- `Stop/Close` runs in reverse DAG order, is idempotent, and has a deadline;
+- the kernel creates child owners for Run/session-scope resources, but no separate runtime registry may be created.
 
-不做 Cordis 热更新，但保留其最重要的 owner-scoped cleanup 语义。
+Do not implement Cordis hot updates, but retain its most important owner-scoped cleanup semantics.
 
-## 4.4 失败与冲突矩阵
+## 4.4 Failure and Conflict Matrix
 
-| 情况 | 结果 |
+| Situation | Result |
 |---|---|
-| required port 缺失 | pack fail |
-| single port 多 provider 未显式选择 | pack fail |
-| 依赖循环 | pack fail，并打印 cycle |
-| pluggable 请求 closed port | verify fail |
-| Grant 超出该 Port 允许上限 | verify fail |
-| Eino import 出现在非 runtime/provider | import gate fail |
-| 模块构造失败 | startup fail + rollback |
-| optional 模块启动失败 | 标记 unavailable；仅在合同允许时继续 |
-| tool/schema 名冲突 | pack fail |
-| extension port 无 consumer | pack fail 或显式 `allowUnused`；默认 fail |
-| module panic | 当前同进程模型会伤及 EXE；必须在文档/inspect 明示 |
-| 不可信第三方代码 | 不编入；改走 MCP/sidecar |
-
-## 5. Vivy 现有能力的“插件联盟”地图
-
-## 5.1 第一梯队：直接纳入，保留现有 ABI
-
-| 联盟成员 | 现状 | 动作 |
-|---|---|---|
-| Tool | builtin + pluginhost 已有统一 domain Tool | 包一层 Module Descriptor；不改 Eino adapter |
-| ToolWorld | LSP、文件/进程世界能力已有 Grant Env | 纳入 `std/tool-world`，细分可选 observer ports |
-| Channel | Channel ABI + ChannelHost 已成立 | Channel 为 module contribution；Host 留 kernel |
-| Face | 整体 Face ABI + FaceHost 已成立 | Face 为 exclusive public port；Host/RPC 留 kernel |
-| Diagnostic observer | 已有窄 optional interface | 提升为 `std/observer/diagnostic` |
-| LSP status | 已有窄 provider interface | 提升为只读 status port |
-
-这一步应是兼容迁移：现有插件无需一次性重写，v0 manifest 由 pack 转译。
-
-## 5.2 第二梯队：适合加入，但必须先补 Consumer
-
-| 候选 | 可插件化实现 | 必须保留的宿主控制 |
-|---|---|---|
-| Model provider | provider profile、request quirks、model catalog enricher | credential resolver、route freeze、streaming accounting、raw model ID 规则 |
-| Loop driver | Eino ADK/Compose loop 或未来替代实现 | `Service.Run`、Journal mapping、budget、cancel、terminal |
-| World backend | sandbox/local/fs/exec/http/fetch/download | workspace identity、Grant、network policy、audit |
-| Context source | AGENTS.md、always skill、retrieval context | token budget、session/log boundary、redaction |
-| Compaction strategy | Eino reduction/summarization 参数与策略 | durable compaction event、checkpoint compatibility、token accounting |
-| Tool middleware | pre/post-tool typed contribution | phase ordering、policy re-evaluation、approval不可绕过 |
-| Run observer | audit、telemetry、channel projection | Journal 顺序、redaction、backpressure；observer 不得成为 authority |
-| Skill source | filesystem/marketplace/custom source | trust scan、install governance、session mount truth |
-| Title generator | provider/model strategy chain | session identity、durable update、usage attribution |
-| Search/media backend | network search、image/audio/video provider | routing、secret、timeout、result caps |
-| MCP adapter | server-to-tool/resource/prompt adapter | transport lifecycle、approval、schema/size、remote side effect |
-| UI slot | 声明式 card/tab/action contribution | RPC auth、state mutation policy、renderer isolation |
-
-注意：MCP endpoint/config 本身仍是外部依赖，不等于本地代码插件；可以插件化的是“将 MCP 能力投影进 Vivy 的 adapter/provider”。
-
-## 5.3 第三梯队：internal-only provider
-
-| 候选 | 可替换部分 | 不可替换语义 |
-|---|---|---|
-| Storage backend | SQLite / Postgres engine implementation | Journal append contract、transaction boundaries、terminal uniqueness |
-| Checkpoint store | blob backend / encoding implementation | Vivy envelope、engine version、checksum、fail-closed recovery |
-| Credential backend | env/OS vault/未来 secret store | secret 不持久化、不记录、最小暴露 |
-| Sandbox implementation | OS-specific executor | policy、workspace scope、deny rules、audit |
-| Worker transport | process transport / future remote worker adapter | parent authority、budget、approval route、event validation |
-| Memory/index backend | retrieval/index provider | namespace、authorization、durability、provenance |
-
-这些可成为 internal Module，但不能成为普通 pluggable port。
-
-## 5.4 暂不进入联盟
-
-- 任意事件总线 listener；先定义 typed event/phase；
-- 任意 RPC route；先定义 UI slot/action contract；
-- 任意 Journal reader/writer；只能开放窄查询或 append-intent API；
-- 任意 policy evaluator replacement；可开放 policy rule contribution，但最终裁决器留 kernel；
-- 任意长期后台 service；除非有明确 Port、owner、deadline、cleanup 和资源预算；
-- arbitrary Eino Graph/Lambda；仅 internal recipe 可以装配，不能成为公共 SDK ABI。
-
-## 6. 必须耦合的内容
-
-“必须耦合”指语义和权威必须由 kernel 统一拥有；不等于每个后端实现都必须写死。
-
-| 必须耦合项 | 原因 | 可替换边界 |
-|---|---|---|
-| Module/Port catalog 与 Assembly compiler | 若它也可被普通插件替换，系统无法定义插件是否合法 | 无；kernel 自举底座 |
-| Generation identity/provenance/hash | artifact 必须可重建、可 inspect | hash 实现可内部维护，不开放 |
-| Domain IDs、event schema、run state machine | 所有模块必须共享同一语言 | 只能版本演进 |
-| 单一 `Service.Run` / `RunWithOptions` | 防止第二 agent runtime 和多套终止语义 | LoopDriver 可替换，Service 不替换 |
-| Journal authority | durability-before-visibility、顺序、exactly-one-terminal | backend 可 internal 替换 |
-| policy / approval / Grant enforcement | 插件不能自授予或绕过安全决策 | 可贡献规则，最终裁决不可替换 |
-| tool dispatch envelope | schema、argument safety、policy、hook rewrite、approval 必须同路 | tool implementation 可替换 |
-| checkpoint envelope/recovery protocol | 版本、checksum、迁移与 resume 必须一致 | store backend 可替换 |
-| workspace/session/tenant identity | 文件、记忆、通道、模型上下文都依赖相同 scope | adapter 可替换，身份权威不可 |
-| credential resolution/redaction | secret 不得进入 manifest、Journal、error | secret backend internal-only |
-| ChannelHost / FaceHost | transport/UI 只能通过宿主进入 run/RPC | Channel/Face adapter 可替换 |
-| RPC protocol 与 mutation authorization | UI/plugin 不得绕过 control plane | renderer/slot 可替换 |
-| budget/cancellation/worker supervision | 必须跨模型、工具、child run 统一计量 | transport 可 internal 替换 |
-| Eino quarantine | 避免框架类型污染产品契约 | Eino adapter/版本可替换 |
-
-现有 `Service` 明确保证“先持久化、后发布”，并维护 active/pending/recovery/budget/terminal 状态。证据：`internal/runtime/service.go:144-205,2542-2612`。这些都不能下放给 Loop 插件或 Eino callback。
-
-工具策略也必须保持单一路径：参数校验 → policy → pre-hook → 重写后重新校验/重新 policy → approval → execution。证据：`internal/runtime/tooladapter.go:79-180`。
-
-## 7. Eino capability check
-
-本设计触及 agent loop、model/tool orchestration、middleware、streaming、checkpoint、MCP 和 context，因此必须先列出 Eino 可复用面。
-
-| 需求 | 锁定 Eino/EinoExt 能力 | Vivy 决策 |
-|---|---|---|
-| Agent loop | `adk.NewChatModelAgent`、`adk.Runner` | Eino loop 作为 internal module，复用 |
-| Tool orchestration | `components/tool`、`compose.ToolsNode` | 复用；Domain Tool 经现有 adapter |
-| Dynamic tool visibility | `adk/middlewares/dynamictool/toolsearch` | 已复用；不是 plugin registry |
-| Skill injection | `adk/middlewares/skill` | 已复用；Skill source 可做 Vivy port |
-| Project instructions | agentsmd middleware | 已复用；source 可装配，boundary 留 Vivy |
-| Compaction | reduction + summarization middleware | 已复用；策略可装配，durability 留 Vivy |
-| Middleware | `TypedChatModelAgentMiddleware`、`ToolMiddleware` | internal 直接组合；public 经 Vivy typed port |
-| Graph composition | Graph/Chain/Workflow/Branch/Parallel | internal recipe target；不公开 Eino ABI |
-| Callbacks | callbacks Handler | 只做观测；不做 Journal authority |
-| Checkpoint/resume | `CheckPointStore`、Interrupt、Resume | 复用 Eino机制；Vivy envelope/store authority 保留 |
-| MCP tools | EinoExt `mcp.GetTools` | 只做 schema/tool adapter；transport/governance 留 Vivy |
-| RAG | Retriever/Embedding/Loader/Transformer/Indexer interfaces | 未来优先适配这些接口，不重写同类编排 |
-
-自定义 Vivy Assembly 的正当 gap：Eino 没有 module discovery、dependency graph、version/trust/grant、Generation provenance、public SDK firewall 和 kernel authority contract。迁移边界也明确：若未来 Eino 提供稳定组件 registry，可替换 `internal/runtime` 内 factory adapter，但不能替换 Vivy manifest、trust、Service.Run 和 Journal。
-
-## 8. 分阶段落地
-
-### P0：合同拍板，不写功能
-
-1. 接受或拒绝“架构层一切皆 Module、产品层按真名显示”；
-2. 冻结 `internal` / `pluggable` 定义；
-3. 冻结 Port naming、cardinality、scope、failure policy；
-4. 明确 v0 seam → v1 port 兼容策略；
-5. 更新 `VIVY-ASSEMBLY.md` 与 `VIVY-PLUGIN-SPEC.md` 的五 seam/Grant 漂移。
-
-验收：没有代码迁移；合同能回答谁提供、谁消费、谁掌权、失败怎么办。
-
-### P1：Assembly compiler 最小闭环
-
-- Module Descriptor v1；
-- source catalog 和 trust assignment；
-- provides/requires/conflicts DAG；
-- duplicate/missing/cycle diagnostics；
-- generated typed wiring；
-- Generation inspect；
-- owner-scoped startup cleanup；
-- v0 manifest compatibility adapter。
-
-先只承载 Tool/ToolWorld/Channel/Face，不改变行为。
-
-### P2：第一方 internal 装配
-
-- 把当前 app wiring 映射为 internal modules；
-- 先描述、不急于物理搬目录；
-- 提取 Eino LoopDriver、World、Provider、builtin Tool factories；
-- 每次只迁一个 Port，并证明仍经过单一 Service.Run。
-
-### P3：高级公共端口
-
-按风险由低到高：
-
-1. observer/diagnostic、run observer；
-2. context source、skill source；
-3. provider profile / chat model consumer；
-4. pre/post-tool middleware；
-5. UI slot。
-
-每个 Port 必须同时交付 Definition、Provider、Consumer、failure model 和 conformance suite；禁止只加枚举。
-
-### P4：internal-only 后端
-
-- storage engine；
-- checkpoint store；
-- sandbox backend；
-- credential backend；
-- memory/index backend；
-- worker transport。
-
-要求 contract test 证明替换实现不改变 kernel authority。
-
-### P5：不可信生态（按需）
-
-只有出现明确市场需求再做：
-
-- sidecar JSON-RPC/MCP；或
-- WASM/WIT + fuel/timeout/capability host。
-
-不把它和第一版编译期 Go 插件混做一个项目。
-
-## 9. 验收矩阵
-
-| 验收项 | 必须结果 |
+| Situation | Result |
 |---|---|
-| 自由装配 | recipe 删除某 Module 后，产物不包含其 import/实现 |
-| 强类型 | Port 类型错误由生成代码/Go 编译失败暴露 |
-| 依赖 | missing/duplicate/cycle 在 pack 阶段确定性失败 |
-| 权限 | pluggable 不能提供 closed port，不能自称 internal |
-| 架构统一 | 所有用户/Channel/worker 入口最终进入同一个 Service.Run |
-| Eino | 只有 runtime/provider import Eino；公开 SDK 无 Eino 类型 |
-| durability | Journal 仍先于 event visibility |
-| tool governance | builtin/plugin/MCP tool 经过同一 policy/approval pipeline |
-| 生命周期 | 部分启动失败能按 owner 逆序清理 |
-| provenance | inspect 显示 Module、Port、版本、trust、Grant、hash、依赖 |
-| runtime freeze | 运行中不能装载新 Go module；配置只能激活已编入能力 |
-| 兼容 | v0 Tool/Channel/Face 插件可通过 adapter 继续 pack |
+| Required port missing | pack fail |
+| Multiple providers for a single port without explicit selection | pack fail |
+| Dependency cycle | pack fail, and print the cycle |
+| pluggable requests a closed port | verify fail |
+| Grant exceeds the Port's permitted maximum | verify fail |
+| Eino import appears outside runtime/provider | import gate fail |
+| Module construction fails | startup fail + rollback |
+| Optional module startup fails | Mark unavailable; continue only when the contract allows it |
+| Tool/schema name conflict | pack fail |
+| Extension port has no consumer | pack fail or explicit `allowUnused`; fail by default |
+| Module panic | The current in-process model can damage the EXE; document and expose this in inspect |
+| Untrusted third-party code | Do not compile it in; use MCP/sidecar instead |
 
-## 10. 主要风险
+## 5. Map of Vivy's Existing Capabilities in the “Plugin Alliance”
 
-| 风险 | 控制 |
-|---|---|
-| “一切皆插件”演化为第二运行时 | kernel-owned Service/Journal/Policy 明文不可替换 |
-| 过度 DI / `map[string]any` | standard Port typed；extension Port 共享 contract package；generated wiring |
-| public SDK 膨胀 | 每个 Port 独立版本；internal port 不进 public SDK |
-| manifest 自我提权 | trust 由 source catalog/recipe 赋予 |
-| 同进程插件被误认为 sandbox | 文档与 inspect 明示；不可信代码走 sidecar/WASM |
-| Eino 类型泄漏 | 保留 import quarantine 与 adapter |
-| 编译期和运行时开关混淆 | Generation 决定“存在”；settings 决定已编入能力的“激活” |
-| 一次大搬家 | 先 metadata/wiring，再逐 Port 迁移；目录移动最后做 |
-| 旧插件断裂 | v0 compatibility adapter + conformance tests |
-| 文档再次漂移 | Port catalog 生成 manifest schema、inspect schema 和文档表 |
+## 5.1 First Tier: Include Directly, Preserve the Existing ABI
 
-## 11. 今日讨论收敛：四层落成模型
-
-前文的 `internal/pluggable` 是信任分类；为了回答“缺了什么还能不能称为 Vivy/Agent”，产品落成还需要四层必选性模型。
-
-### L0：不可变 Kernel
-
-Kernel 只制定物理定律，不承载具体厂商或可选产品能力：
-
-- Domain ID、event schema、run state machine；
-- 单一 `Service.Run` / `RunWithOptions`；
-- Journal authority、durability-before-visibility、exactly-one-terminal；
-- policy / approval / Grant 最终裁决；
-- session/workspace identity；
-- budget、cancel、recovery、worker authority；
-- credential redaction；
-- Module/Port catalog、Assembly compiler、Generation provenance；
-- ChannelHost、FaceHost、RPC mutation authorization；
-- Eino import quarantine。
-
-L0 丢失不是“少一个功能”，而是系统不再能证明一次 run 是谁启动、谁持久化、谁裁决、怎样终止。
-
-### L1：Required Internal Modules
-
-L1 的实现允许替换，但每个合法 Generation 必须为 required single Port 选择恰好一个实现；缺失或歧义均在 pack 阶段失败。
-
-| Required Port | 默认实现 | 可替换方向 |
+| Alliance member | Current state | Action |
 |---|---|---|
-| `core/loop-driver` | Eino ADK | 其他受控 loop driver |
-| `core/chat-model` | OpenAI-compatible bootstrap | Anthropic、Gemini、DeepSeek、Ollama 等经同一 Port |
-| `core/storage-engine` | SQLite | Postgres 或后续受控 backend |
-| `core/checkpoint-store` | Vivy versioned blob bridge | 兼容同一 envelope 的 internal backend |
-| `core/sandbox-backend` | 当前 workspace/sandbox 实现 | OS-specific internal implementation |
-| `core/credential-resolver` | env/config reference | OS vault 或受控 credential backend |
-| `core/face` | Web / TUI / Headless 配方明确选择 | 其他满足 Face contract 的实现 |
+| Tool | builtin + pluginhost already have a unified domain Tool | Wrap it in a Module Descriptor; do not change the Eino adapter |
+| ToolWorld | LSP and file/process world capabilities already have Grant Env | Include it as `std/tool-world`; split out optional observer ports |
+| Channel | Channel ABI + ChannelHost are established | Channel becomes a module contribution; keep Host in the kernel |
+| Face | Whole Face ABI + FaceHost are established | Face becomes an exclusive public port; keep Host/RPC in the kernel |
+| Diagnostic observer | Narrow optional interface already exists | Promote it to `std/observer/diagnostic` |
+| LSP status | Narrow provider interface already exists | Promote it to a read-only status port |
 
-因此，“核心层丢了连循环都跑不起来”应落实为：L0 永远存在，L1 必须在配方中满足 cardinality；不是把 Eino、OpenAI、SQLite 的具体代码永久焊进 Kernel。
+This step should be a compatibility migration: existing plugins need not be rewritten all at once; pack translates the v0 manifest.
 
-### L2：Optional Internal Organs
+## 5.2 Second Tier: Suitable to Add, but Consumer Must Be Added First
 
-L2 删除后仍能跑最小 model/tool loop，但默认产品会明显不像完整 Agent。建议默认物种启用、极简/嵌入式配方可删除：
+| Candidate | Pluggable implementation | Host control that must remain |
+|---|---|---|
+| Model provider | provider profile, request quirks, model-catalog enricher | credential resolver, route freeze, streaming accounting, raw model ID rules |
+| Loop driver | Eino ADK/Compose loop or a future replacement | `Service.Run`, Journal mapping, budget, cancel, terminal |
+| World backend | sandbox/local/fs/exec/http/fetch/download | workspace identity, Grant, network policy, audit |
+| Context source | AGENTS.md, always skill, retrieval context | token budget, session/log boundary, redaction |
+| Compaction strategy | Eino reduction/summarization parameters and strategy | durable compaction event, checkpoint compatibility, token accounting |
+| Tool middleware | pre/post-tool typed contribution | phase ordering, policy re-evaluation, approval cannot be bypassed |
+| Run observer | audit, telemetry, channel projection | Journal ordering, redaction, backpressure; observer must not become authority |
+| Skill source | filesystem/marketplace/custom source | trust scan, install governance, session-mount truth |
+| Title generator | provider/model strategy chain | session identity, durable update, usage attribution |
+| Search/media backend | network search, image/audio/video provider | routing, secret, timeout, result caps |
+| MCP adapter | server-to-tool/resource/prompt adapter | transport lifecycle, approval, schema/size, remote side effects |
+| UI slot | Declarative card/tab/action contribution | RPC auth, state-mutation policy, renderer isolation |
 
-- Skill middleware 与 Skill source host；
-- MCP runtime/transport adapter；
-- context compaction；
-- ToolSearch / deferred tools；
-- AGENTS.md/project instruction loader；
-- filesystem/execute/HTTP/fetch/download world；
-- cron scheduler；
-- memory/retrieval；
-- title generator；
-- LSP/diagnostics；
-- child-agent/worker capability；
-- audit/telemetry observer；
-- context source pipeline。
+Note: the MCP endpoint/config itself remains an external dependency and is not a local code plugin; what can be made pluggable is “projecting MCP capabilities into Vivy's adapter/provider.”
 
-边界必须继续拆清：
+## 5.3 Third Tier: internal-only Providers
 
-- MCP adapter 是 optional internal；某个 MCP endpoint/server 是配置，不是本地插件；
-- Skill middleware/source host 是 optional internal；具体 `SKILL.md` 是数据资产，不是代码插件；
-- compaction strategy 可选，但 durable compaction truth、token accounting 和 checkpoint compatibility 仍服从 Kernel 标准。
+| Candidate | Replaceable part | Semantics that cannot be replaced |
+|---|---|---|
+| Storage backend | SQLite / Postgres engine implementation | Journal append contract, transaction boundaries, terminal uniqueness |
+| Checkpoint store | blob backend / encoding implementation | Vivy envelope, engine version, checksum, fail-closed recovery |
+| Credential backend | env/OS vault/future secret store | Secrets are not persisted, recorded, or exposed beyond the minimum |
+| Sandbox implementation | OS-specific executor | policy, workspace scope, deny rules, audit |
+| Worker transport | process transport / future remote worker adapter | parent authority, budget, approval route, event validation |
+| Memory/index backend | retrieval/index provider | namespace, authorization, durability, provenance |
 
-### L3：Pluggable Alliance Products
+These may become internal Modules, but cannot become ordinary pluggable ports.
 
-L3 是用户按需选择、可独立开发和发布的生态产品：
+## 5.4 Not Yet Entering the Alliance
 
-- Anthropic、Gemini、DeepSeek、Ollama/local model provider；
-- OpenAI official OAuth、OpenAI Codex OAuth、Azure OpenAI；
-- 图像生成/编辑、视频生成、TTS/STT；
-- Web search、browser、RAG/vector provider；
-- 第三方 Channel、Memory、Skill source、IDE/LSP integration；
-- A2UI protocol/renderer；
-- Web/TUI panels、cards、actions；
-- notification/delivery provider。
+- Arbitrary event-bus listeners; define typed event/phase first;
+- Arbitrary RPC routes; define the UI slot/action contract first;
+- Arbitrary Journal readers/writers; expose only a narrow query or append-intent API;
+- Arbitrary policy-evaluator replacement; policy-rule contributions may be exposed, but the final arbiter remains in the kernel;
+- Arbitrary long-lived background services; only with an explicit Port, owner, deadline, cleanup, and resource budget;
+- Arbitrary Eino Graph/Lambda; only internal recipes may assemble them, and they cannot become a public SDK ABI.
 
-L3 能与 L2 使用同一 Module/Port/Generation 标准，但不能取得 L0 权威，也不能通过 manifest 自报为 internal。
+## 6. Content That Must Be Coupled
 
-## 12. OpenAI、Anthropic 与 OAuth 的边界
+“Must be coupled” means that semantics and authority must be owned uniformly by the kernel; it does not mean every backend implementation must be hard-coded.
 
-不建议把整个 OpenAI provider 定义成不可变 Kernel。正确拆分是：
+| Must-couple item | Reason | Replaceable boundary |
+|---|---|---|
+| Module/Port catalog and Assembly compiler | If ordinary plugins could replace these too, the system could not define whether a plugin is valid | None; kernel bootstrap foundation |
+| Generation identity/provenance/hash | Artifacts must be reproducible and inspectable | Hash implementation may be maintained internally, not exposed |
+| Domain IDs, event schema, run state machine | All modules must share one language | Version evolution only |
+| Single `Service.Run` / `RunWithOptions` | Prevent a second agent runtime and multiple termination semantics | LoopDriver replaceable; Service is not |
+| Journal authority | Durability-before-visibility, ordering, exactly-one-terminal | Backend may be replaced internally |
+| policy / approval / Grant enforcement | Plugins cannot self-grant or bypass security decisions | Rules may be contributed; final arbiter is not replaceable |
+| tool dispatch envelope | Schema, argument safety, policy, hook rewrite, and approval must use the same path | Tool implementation replaceable |
+| checkpoint envelope/recovery protocol | Version, checksum, migration, and resume must remain consistent | Store backend replaceable |
+| workspace/session/tenant identity | Files, memory, channels, and model context all depend on the same scope | Adapter replaceable; identity authority is not |
+| credential resolution/redaction | Secrets must not enter the manifest, Journal, or errors | Secret backend internal-only |
+| ChannelHost / FaceHost | Transport/UI may enter run/RPC only through the host | Channel/Face adapter replaceable |
+| RPC protocol and mutation authorization | UI/plugins must not bypass the control plane | Renderer/slot replaceable |
+| budget/cancellation/worker supervision | Must be measured uniformly across models, tools, and child runs | Transport may be replaced internally |
+| Eino quarantine | Avoid framework types contaminating product contracts | Eino adapter/version replaceable |
 
-1. Kernel 固定标准：ChatModel Port、streaming/tool-call contract、route identity、provider-native model ID、usage accounting、credential handle、retry/cancel/error classification；
-2. 默认 Generation 的 Required Internal：`builtin/openai-compatible`，保证开箱可运行；
-3. Plugin Alliance：Anthropic、OpenAI official OAuth、OpenAI Codex OAuth、Azure OpenAI 和其他 provider/auth 产品。
+The existing `Service` explicitly guarantees “persist before publish” and maintains active/pending/recovery/budget/terminal states. Evidence: `internal/runtime/service.go:144-205,2542-2612`. None of these may be delegated to a Loop plugin or Eino callback.
 
-OAuth 插件可提供 `AuthFlow`、`TokenRefresh`、`CredentialSource`、`ProviderProfile`，但不能拥有 secret authority。Token storage、scope、refresh serialization、redaction 和 route freeze 仍由 Kernel/Required Internal 控制。
+Tool policy must also retain a single path: argument validation → policy → pre-hook → revalidation/repolicy after rewrite → approval → execution. Evidence: `internal/runtime/tooladapter.go:79-180`.
 
-因此更准确的产品规则是：
+## 7. Eino Capability Check
 
-> OpenAI-compatible 是默认不可缺的基准实现；不可变的是 Provider 标准和治理，不是某家厂商的实现。
+This design touches the agent loop, model/tool orchestration, middleware, streaming, checkpoint, MCP, and context, so the reusable Eino surface must be listed first.
 
-Anthropic 应迁移到同一个 ChatModel/Provider Port 下的插件联盟，不再成为 app composition root 的特例。
+| Requirement | Eino/EinoExt capability | Vivy decision |
+|---|---|---|
+| Agent loop | `adk.NewChatModelAgent`, `adk.Runner` | Reuse the Eino loop as an internal module |
+| Tool orchestration | `components/tool`, `compose.ToolsNode` | Reuse; Domain Tool goes through the existing adapter |
+| Dynamic tool visibility | `adk/middlewares/dynamictool/toolsearch` | Already reused; not a plugin registry |
+| Skill injection | `adk/middlewares/skill` | Already reused; Skill source can become a Vivy port |
+| Project instructions | agentsmd middleware | Already reused; source can be assembled, boundary remains with Vivy |
+| Compaction | reduction + summarization middleware | Already reused; strategy can be assembled, durability remains with Vivy |
+| Middleware | `TypedChatModelAgentMiddleware`, `ToolMiddleware` | Compose directly internally; public exposure through a Vivy typed port |
+| Graph composition | Graph/Chain/Workflow/Branch/Parallel | Internal recipe target; do not expose Eino ABI |
+| Callbacks | callbacks Handler | Observation only; not Journal authority |
+| Checkpoint/resume | `CheckPointStore`, Interrupt, Resume | Reuse Eino mechanisms; retain Vivy envelope/store authority |
+| MCP tools | EinoExt `mcp.GetTools` | Schema/tool adapter only; transport/governance remains with Vivy |
+| RAG | Retriever/Embedding/Loader/Transformer/Indexer interfaces | Adapt these interfaces first in the future; do not rewrite equivalent orchestration |
 
-## 13. UI、TUI 与 A2UI 的预留标准
+The legitimate gap for a custom Vivy Assembly is that Eino has no module discovery, dependency graph, version/trust/grant, Generation provenance, public SDK firewall, or kernel authority contract. The migration boundary is also clear: if Eino later provides a stable component registry, the factory adapter inside `internal/runtime` may be replaced, but Vivy's manifest, trust, Service.Run, and Journal may not.
 
-当前 Face 解决“整张脸替换”，尚未解决插件向既有 Web/TUI Face 贡献局部界面。全面落成前必须预留两级扩展。
+## 8. Phased Delivery
 
-### 13.1 跨 Face Presentation Port
+### P0: Decide the Contract, Write No Features
 
-优先定义声明式、平台中立的 contribution：
+1. Accept or reject “everything is a Module at the architecture layer, displayed by its real name at the product layer”;
+2. Freeze the definitions of `internal` / `pluggable`;
+3. Freeze Port naming, cardinality, scope, and failure policy;
+4. Define the v0 seam → v1 port compatibility strategy;
+5. Update the five-seam/Grant drift in `VIVY-ASSEMBLY.md` and `VIVY-PLUGIN-SPEC.md`.
 
-- card、list、table、status；
-- form、action、notification、progress；
-- detail view、artifact/media preview。
+Acceptance: no code migration; the contract can answer who provides, who consumes, who has authority, and what happens on failure.
 
-插件输出 typed ViewModel；Web/TUI 各自渲染。这样图像生成、MCP 状态、Provider 登录和插件设置无需同时携带任意 React 与 TUI 代码。
+### P1: Minimal Closed Loop for the Assembly Compiler
 
-### 13.2 平台专属 Slot
+- Module Descriptor v1;
+- source catalog and trust assignment;
+- provides/requires/conflicts DAG;
+- duplicate/missing/cycle diagnostics;
+- generated typed wiring;
+- Generation inspect;
+- owner-scoped startup cleanup;
+- v0 manifest compatibility adapter.
 
-声明式能力不足时，再开放 `ui/web-slot` 与 `ui/tui-slot`。建议预留：
+Initially carry only Tool/ToolWorld/Channel/Face, without changing behavior.
 
-- navigation；
-- session-sidebar / run-sidebar；
-- settings/provider / settings/plugin；
-- message-attachment / tool-result；
-- status-bar / command-palette；
-- inspector / modal。
+### P2: First-Party internal Assembly
 
-FaceHost 必须拥有 slot key、cardinality、owner、lifecycle、action→RPC mapping、authorization、session scope、cleanup 和 renderer failure isolation。插件不得任意注册 RPC route、直接改 Journal/session state、注入宿主 DOM 或抢占全局 TUI 键盘。
+- Map the current app wiring to internal modules;
+- describe first; do not rush to physically move directories;
+- extract Eino LoopDriver, World, Provider, and builtin Tool factories;
+- migrate one Port at a time, proving that it still passes through the single Service.Run.
+
+### P3: Advanced Public Ports
+
+In order of increasing risk:
+
+1. observer/diagnostic, run observer;
+2. context source, skill source;
+3. provider profile / chat model consumer;
+4. pre/post-tool middleware;
+5. UI slot.
+
+Every Port must ship with Definition, Provider, Consumer, failure model, and conformance suite together; adding only an enumeration is prohibited.
+
+### P4: internal-only Backends
+
+- storage engine;
+- checkpoint store;
+- sandbox backend;
+- credential backend;
+- memory/index backend;
+- worker transport.
+
+Contract tests must prove that replacement implementations do not change kernel authority.
+
+### P5: Untrusted Ecosystem (As Needed)
+
+Do this only when there is clear market demand:
+
+- sidecar JSON-RPC/MCP; or
+- WASM/WIT + fuel/timeout/capability host.
+
+Do not combine this with the first version's compile-time Go plugin project.
+
+## 9. Acceptance Matrix
+
+| Acceptance item | Required result |
+|---|---|
+| Free assembly | After the recipe removes a Module, the artifact contains none of its imports/implementation |
+| Strong typing | Port type errors are exposed through generated code/Go compilation failure |
+| Dependencies | missing/duplicate/cycle fail deterministically at pack time |
+| Permissions | pluggable cannot provide a closed port or claim to be internal |
+| Architectural unification | Every user/Channel/worker entry eventually reaches the same Service.Run |
+| Eino | Only runtime/provider imports Eino; the public SDK has no Eino types |
+| durability | Journal still precedes event visibility |
+| tool governance | builtin/plugin/MCP tools pass through the same policy/approval pipeline |
+| Lifecycle | Partial startup failure can clean up by owner in reverse order |
+| provenance | inspect displays Module, Port, version, trust, Grant, hash, and dependencies |
+| runtime freeze | No new Go module can be loaded at runtime; configuration can only activate compiled-in capabilities |
+| Compatibility | v0 Tool/Channel/Face plugins can continue to pack through the adapter |
+
+## 10. Main Risks
+
+| Risk | Control |
+|---|---|
+| “Everything is a plugin” evolves into a second runtime | Kernel-owned Service/Journal/Policy are explicitly non-replaceable |
+| Excessive DI / `map[string]any` | Standard Ports are typed; extension Ports share a contract package; generated wiring |
+| Public SDK bloat | Each Port has an independent version; internal Ports do not enter the public SDK |
+| Manifest self-escalation | Trust assigned by source catalog/recipe |
+| In-process plugin mistaken for a sandbox | State it in documentation and inspect; route untrusted code through sidecar/WASM |
+| Eino type leakage | Retain import quarantine and adapter |
+| Compile-time and runtime switches confused | Generation determines “existence”; settings determine “activation” of compiled-in capabilities |
+| One large migration | Metadata/wiring first, then migrate Port by Port; move directories last |
+| Old plugins break | v0 compatibility adapter + conformance tests |
+| Documentation drifts again | Port catalog generates the manifest schema, inspect schema, and documentation tables |
+
+## 11. Today's Convergence: Four-Layer Completion Model
+
+The `internal/pluggable` distinction above is a trust classification; to answer “what can be missing while it is still Vivy/Agent,” product completion also needs a four-layer necessity model.
+
+### L0: Immutable Kernel
+
+The Kernel defines only physical laws; it does not carry a specific vendor or optional product capability:
+
+- Domain ID, event schema, run state machine;
+- single `Service.Run` / `RunWithOptions`;
+- Journal authority, durability-before-visibility, exactly-one-terminal;
+- final policy / approval / Grant decisions;
+- session/workspace identity;
+- budget, cancel, recovery, worker authority;
+- credential redaction;
+- Module/Port catalog, Assembly compiler, Generation provenance;
+- ChannelHost, FaceHost, RPC mutation authorization;
+- Eino import quarantine.
+
+L0 loss is not “one fewer feature”; it means the system can no longer prove who started a run, who persisted it, who decided, or how it terminated.
+
+### L1: Required Internal Modules
+
+L1 implementations may be replaced, but every valid Generation must select exactly one implementation for each required single Port; missing or ambiguous selections fail at pack time.
+
+| Required Port | Default implementation | Replacement direction |
+|---|---|---|
+| `core/loop-driver` | Eino ADK | Other controlled loop driver |
+| `core/chat-model` | OpenAI-compatible bootstrap | Anthropic, Gemini, DeepSeek, Ollama, etc. through the same Port |
+| `core/storage-engine` | SQLite | Postgres or a later controlled backend |
+| `core/checkpoint-store` | Vivy versioned blob bridge | Internal backend compatible with the same envelope |
+| `core/sandbox-backend` | Current workspace/sandbox implementation | OS-specific internal implementation |
+| `core/credential-resolver` | env/config reference | OS vault or controlled credential backend |
+| `core/face` | Explicit selection of Web / TUI / Headless in the recipe | Other implementation satisfying the Face contract |
+
+Therefore, “the core is missing, so even the loop cannot run” should be implemented as: L0 always exists, and L1 must satisfy cardinality in the recipe; it does not mean permanently welding the specific Eino, OpenAI, or SQLite code into the Kernel.
+
+### L2: Optional Internal Organs
+
+After L2 is removed, the minimal model/tool loop still runs, but the default product will clearly no longer resemble a complete Agent. Enable these in the default species; minimal/embedded recipes may remove them:
+
+- Skill middleware and Skill source host;
+- MCP runtime/transport adapter;
+- context compaction;
+- ToolSearch / deferred tools;
+- AGENTS.md/project instruction loader;
+- filesystem/execute/HTTP/fetch/download world;
+- cron scheduler;
+- memory/retrieval;
+- title generator;
+- LSP/diagnostics;
+- child-agent/worker capability;
+- audit/telemetry observer;
+- context source pipeline.
+
+Keep the boundaries explicit:
+
+- The MCP adapter is optional internal; an MCP endpoint/server is configuration, not a local plugin;
+- Skill middleware/source host is optional internal; a specific `SKILL.md` is a data asset, not a code plugin;
+- the compaction strategy is optional, but durable compaction truth, token accounting, and checkpoint compatibility still follow Kernel standards.
+
+### L3: Pluggable Alliance Products
+
+L3 consists of ecosystem products that users select as needed and that can be developed and released independently:
+
+- Anthropic, Gemini, DeepSeek, Ollama/local model providers;
+- OpenAI official OAuth, OpenAI Codex OAuth, Azure OpenAI;
+- image generation/editing, video generation, TTS/STT;
+- Web search, browser, RAG/vector providers;
+- third-party Channel, Memory, Skill source, IDE/LSP integration;
+- A2UI protocol/renderer;
+- Web/TUI panels, cards, actions;
+- notification/delivery providers.
+
+L3 can use the same Module/Port/Generation standard as L2, but cannot obtain L0 authority or declare itself internal through the manifest.
+
+## 12. OpenAI, Anthropic, and OAuth Boundaries
+
+Do not define the entire OpenAI provider as an immutable Kernel. The correct split is:
+
+1. The Kernel fixes the standards: ChatModel Port, streaming/tool-call contract, route identity, provider-native model ID, usage accounting, credential handle, retry/cancel/error classification;
+2. Required Internal in the default Generation: `builtin/openai-compatible`, ensuring it works out of the box;
+3. Plugin Alliance: Anthropic, OpenAI official OAuth, OpenAI Codex OAuth, Azure OpenAI, and other provider/auth products.
+
+OAuth plugins may provide `AuthFlow`, `TokenRefresh`, `CredentialSource`, and `ProviderProfile`, but cannot own secret authority. Token storage, scope, refresh serialization, redaction, and route freeze remain controlled by the Kernel/Required Internal.
+
+Therefore the more accurate product rule is:
+
+> OpenAI-compatible is the default indispensable baseline implementation; what is immutable is the Provider standard and governance, not any particular vendor's implementation.
+
+Anthropic should migrate into the Plugin Alliance under the same ChatModel/Provider Port, rather than remaining a special case in the app composition root.
+
+## 13. Reserved Standards for UI, TUI, and A2UI
+
+The current Face solves “replacing the whole face,” but does not yet solve plugins contributing local UI to an existing Web/TUI Face. Two levels of extension must be reserved before full completion.
+
+### 13.1 Cross-Face Presentation Port
+
+First define declarative, platform-neutral contributions:
+
+- card, list, table, status;
+- form, action, notification, progress;
+- detail view, artifact/media preview.
+
+Plugins output a typed ViewModel; Web/TUI render it independently. Thus image generation, MCP status, Provider login, and plugin settings need not carry arbitrary React and TUI code at the same time.
+
+### 13.2 Platform-Specific Slots
+
+When declarative capabilities are insufficient, open `ui/web-slot` and `ui/tui-slot`. Reserve:
+
+- navigation;
+- session-sidebar / run-sidebar;
+- settings/provider / settings/plugin;
+- message-attachment / tool-result;
+- status-bar / command-palette;
+- inspector / modal.
+
+FaceHost must own slot key, cardinality, owner, lifecycle, action→RPC mapping, authorization, session scope, cleanup, and renderer failure isolation. Plugins must not arbitrarily register RPC routes, directly change Journal/session state, inject host DOM, or seize the global TUI keyboard.
 
 ### 13.3 A2UI
 
-A2UI 是独立联盟产品，不是 Vivy UI Kernel：
+A2UI is an independent alliance product, not the Vivy UI Kernel:
 
-- `a2ui-protocol`：schema/decoder；
-- `a2ui-web-renderer`：Web renderer contribution；
-- `a2ui-tui-fallback`：把复杂组件降级为 table/form/text/action。
+- `a2ui-protocol`: schema/decoder;
+- `a2ui-web-renderer`: Web renderer contribution;
+- `a2ui-tui-fallback`: downgrade complex components to table/form/text/action.
 
-图像生成提供媒体能力和 artifact；A2UI 提供动态声明式交互。二者可以组合，但不能互相成为必需依赖。
+Image generation provides media capabilities and artifacts; A2UI provides dynamic declarative interaction. They can be combined, but neither may become a required dependency of the other.
 
-## 14. Vivy Plugin Standard 交付物
+## 14. Vivy Plugin Standard Deliverables
 
-若插件要成为 Vivy 的新标准，必须同时落文档规范和机器可执行规范。
+For plugins to become a new Vivy standard, the documentation specification and machine-executable specification must be delivered together.
 
-| 规范 | 约束内容 |
+| Specification | Constraints |
 |---|---|
-| `VIVY-MODULE-STANDARD.md` | identity、internal/pluggable、provides/requires、conflict、Generation、runtime freeze |
-| `VIVY-PORT-STANDARD.md` | Definition/Provider/Consumer、naming、cardinality、scope、version、public/internal/closed |
-| `VIVY-PLUGIN-LIFECYCLE.md` | Describe/Construct/Start/Ready/Stop/Close、owner cleanup、rollback |
-| `VIVY-PLUGIN-SECURITY.md` | trust assignment、Grant、secret/fs/process/network、in-process/sidecar/WASM |
-| `VIVY-UI-EXTENSION-STANDARD.md` | Face、Presentation、Web/TUI slot、action、state、renderer、A2UI adapter |
-| `VIVY-PLUGIN-DEVELOPER-GUIDE.md` | create、verify、test、pack、inspect、publish、upgrade、diagnose |
+| `VIVY-MODULE-STANDARD.md` | identity, internal/pluggable, provides/requires, conflict, Generation, runtime freeze |
+| `VIVY-PORT-STANDARD.md` | Definition/Provider/Consumer, naming, cardinality, scope, version, public/internal/closed |
+| `VIVY-PLUGIN-LIFECYCLE.md` | Describe/Construct/Start/Ready/Stop/Close, owner cleanup, rollback |
+| `VIVY-PLUGIN-SECURITY.md` | trust assignment, Grant, secret/fs/process/network, in-process/sidecar/WASM |
+| `VIVY-UI-EXTENSION-STANDARD.md` | Face, Presentation, Web/TUI slot, action, state, renderer, A2UI adapter |
+| `VIVY-PLUGIN-DEVELOPER-GUIDE.md` | create, verify, test, pack, inspect, publish, upgrade, diagnose |
 
-机器可执行部分至少包括：
+The machine-executable portion must include at least:
 
-- `vivy.module/v1` JSON Schema；
-- generated Port catalog；
-- manifest/import/grant validator；
-- conformance test kit；
-- reference plugins；
-- compatibility matrix；
-- inspect output contract。
+- `vivy.module/v1` JSON Schema;
+- generated Port catalog;
+- manifest/import/grant validator;
+- conformance test kit;
+- reference plugins;
+- compatibility matrix;
+- inspect output contract.
 
-没有 conformance suite 的“标准”只能算建议文档，不能形成生态。
+Without a conformance suite, a “standard” is only a recommendation document and cannot form an ecosystem.
 
-## 15. 难度与工作量估算
+## 15. Difficulty and Effort Estimate
 
-### 15.1 基线与假设
+### 15.1 Baseline and Assumptions
 
-2026-09-08 本地 census：相关范围约 393 个 Go 文件/65,127 行 Go、372 个 TypeScript/TSX 文件/40,952 行 TypeScript/TSX，合计 832 个相关源码/配置文件，其中 275 个测试文件。估算按一名熟悉 Vivy 的高级工程师人日计，不含需求中途大改、外部 marketplace/cloud 服务和长期生态运营。
+Local census on 2026-09-08: the relevant scope contains about 393 Go files / 65,127 lines of Go and 372 TypeScript/TSX files / 40,952 lines of TypeScript/TSX, for a total of 832 related source/configuration files, including 275 test files. Estimates are in person-days for one senior engineer familiar with Vivy, excluding major midstream requirement changes, external marketplace/cloud services, and long-term ecosystem operations.
 
-### 15.2 分项估算
+### 15.2 Itemized Estimate
 
-| 工作包 | 人日 |
+| Work package | Person-days |
 |---|---:|
-| 标准冻结 | 6–10 |
-| Assembly compiler、typed wiring、v0 compatibility | 12–18 |
-| Optional Internal 迁移 | 15–25 |
-| Required Internal 端口化 | 20–30 |
-| Provider Alliance 与 OAuth 基线 | 10–16 |
-| UI/TUI 插件预留与 A2UI 基础 | 20–35 |
-| 图像等 reference products 与生态发布 | 18–30 |
-| conformance、安全、文档、发布横切 | 12–20 |
-| **全面落成合计** | **113–184** |
+| Standard freeze | 6–10 |
+| Assembly compiler, typed wiring, v0 compatibility | 12–18 |
+| Optional Internal migration | 15–25 |
+| Required Internal porting | 20–30 |
+| Provider Alliance and OAuth baseline | 10–16 |
+| UI/TUI plugin reservations and A2UI foundation | 20–35 |
+| Reference products such as image capabilities and ecosystem release | 18–30 |
+| Conformance, security, documentation, and release cross-cutting work | 12–20 |
+| **Total for full completion** | **113–184** |
 
-### 15.3 可交付口径
+### 15.3 Deliverable Definitions
 
-| 口径 | 范围 | 估算 |
+| Definition | Scope | Estimate |
 |---|---|---:|
-| 规范提案 | 文档、Port catalog、manifest v1、迁移矩阵、UI/TUI 预留 | 6–10 人日 |
-| 插件底座 v1 | 上述规范 + Assembly compiler + 现有 Tool/ToolWorld/Channel/Face 零行为迁移 | 26–40 人日 |
-| 可发布 Plugin Standard v1 | 再含 Optional/Required Internal、Provider Alliance 基线和主要 conformance | 69–109 人日 |
-| PLUGINS 全面落成 | 再含 UI/TUI、A2UI、OAuth、图像等 reference products | 113–184 人日 |
+| Specification proposal | Documentation, Port catalog, manifest v1, migration matrix, UI/TUI reservations | 6–10 person-days |
+| Plugin foundation v1 | The above specifications + Assembly compiler + behavior-preserving migration of existing Tool/ToolWorld/Channel/Face | 26–40 person-days |
+| Publishable Plugin Standard v1 | Also includes Optional/Required Internal, Provider Alliance baseline, and major conformance | 69–109 person-days |
+| Full PLUGINS completion | Also includes UI/TUI, A2UI, OAuth, image and other reference products | 113–184 person-days |
 
-单名高级工程师完成全面范围约 5.7–9.2 个月。松柏监督并使用 2–3 条隔离 Codex lane，考虑 composition root、Port 合同和迁移波次不能完全并行，现实日历估算约 4–6 个月。
+One senior engineer completing the full scope would take about 5.7–9.2 months. With Songbai supervision and 2–3 isolated Codex lanes, accounting for the fact that the composition root, Port contracts, and migration waves cannot be fully parallelized, the realistic calendar estimate is about 4–6 months.
 
-难度判断：规范本身为中等难度；插件底座及 existing seam 迁移已是重构级；全面落成是跨 runtime、SDK、provider、storage、build、Web UI、TUI 的大型架构工程。它不是推倒重写，因为现有 verify/pack/Generation/SDK/ChannelHost/FaceHost 已提供基础；也不能大爆炸实施，应按 P0–P5 逐 Port 迁移。
+Difficulty assessment: the specification itself is medium difficulty; the plugin foundation and existing-seam migration are already refactoring-grade; full completion is a large architectural project spanning runtime, SDK, provider, storage, build, Web UI, and TUI. It is not a rewrite from scratch because the existing verify/pack/Generation/SDK/ChannelHost/FaceHost provide a foundation; it also cannot be implemented as a big bang, and should migrate Port by Port through P0–P5.
 
-上述数字是范围估算，不是排期承诺。正式启动前仍需冻结标准、确定第一期验收边界，再按依赖图形成排期。
+The figures above are range estimates, not scheduling commitments. Before formally starting, freeze the standard, define the first-phase acceptance boundary, and then schedule according to the dependency graph.
 
-## 16. 最终判断
+## 16. Final Judgment
 
-Vivy 可以做到高级版“一切皆插件”，但正确形态不是 Cordis 的运行时热树，也不是 Hermes 的多 registry，也不是把所有能力塞进一个 `Plugin` interface。
+Vivy can achieve an advanced version of “everything is a plugin,” but the correct form is neither Cordis's runtime hot tree, Hermes's multiple registries, nor forcing every capability into one `Plugin` interface.
 
-正确形态是：
+The correct form is:
 
-> **Kernel 是不可替换的物理定律；internal/pluggable 是遵守同一装配协议、拥有不同权限的器官；Eino 是循环器官内部的编排引擎；Generation 是唯一组成真相。**
+> **The Kernel is the non-replaceable physical law; internal/pluggable are organs that follow the same assembly protocol with different permissions; Eino is the orchestration engine inside the loop organ; Generation is the single source of composition truth.**
 
-第一步不应重构 `engine.go`，而应先定义 Module/Port/Assembly Compiler 合同；随后用现有 Tool/ToolWorld/Channel/Face 做零行为迁移，证明这套元模型成立，再开放 Provider、middleware、context 和 UI slot。
+The first step should not refactor `engine.go`, but define the Module/Port/Assembly Compiler contract; then use the existing Tool/ToolWorld/Channel/Face for a behavior-preserving migration to prove the metamodel, and only then open Provider, middleware, context, and UI slot ports.
 
-本轮只完成调研与架构提案；PLUGINS 全面落成尚未授权、未正式排期，也未实施源码或测试改动。
+This round completes only the research and architecture proposal; full PLUGINS completion is not authorized or formally scheduled, and no source or test changes have been implemented.
 
 ## Sources
 

@@ -535,7 +535,7 @@ studio work during bootstrap.
 3. Release is always human in Studio. No auto-release until a later
    decision.
 4. Lifecycle objects live in Studio's store, not the species SQLite.
-5. Product name: 「Vivy Studio」 / 「工作室」 means the independent
+5. Product name: 「Vivy Studio」 / 「Studio」 means the independent
    app. English `Studio` in logs. It does not mean a gateway card.
 
 Remaining implementation choices (install path layout, first-period

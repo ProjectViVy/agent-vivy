@@ -1,82 +1,82 @@
-# 综合审查 — findings 全量清单
+# Comprehensive review — complete findings list
 
-分级：🔴 blocker（0）/ 🟠 should-fix（17，处置见括号）/ ⚪ note（节选代表，全量见各 lane 原始报告）。处置：**已修** = 修复轮落地；**记板** = `docs/TODO.md` §0.1 新行；**不修** = 记录即可。
+Severity: 🔴 blocker (0) / 🟠 should-fix (17, disposition in parentheses) / ⚪ note (representative excerpts; see each lane's original report for the complete set). Disposition: **fixed** = landed in the fix round; **boarded** = new line in `docs/TODO.md` §0.1; **not fixed** = recording is sufficient.
 
-## L1 合同符合性（PASS）
+## L1 Contract compliance (PASS)
 
-- 🟠 F1 §8「错误分类」槽位无 SDK 落点且未登记 → **记板**（CH-R-1）
-- 🟠 F2 §9.3「import picoclaw/.workspace 禁止」verify 未实现 → **已修**（bannedImportPrefixes + `.workspace` 子串规则 + bad-picoclaw-import 夹具）
-- 🟠 F3 §10 per-seam inspect 列表缺失只在 C2 日志、未上板 → **记板**（CH-R-5）
-- ⚪ F4 §20「pack 空列表仍为空身体」字面不可执行（pack 拒绝零 --with）；不变量实际由 zz_register=nil + go.mod 零 SDK 保持 → 不修
-- ⚪ F5 §14.3 qq「频道文本」未交付（源码核实 SDK 解不出群地址，偏离已记录）→ 建议合同行回写，待 SDK 补齐
-- ⚪ F6 §12 payload 草图与实现不一致 → 建议回写合同（identifiers-only payload 是更优设计）；CH-C1-N2 已附 review 结论
-- ⚪ F7 C2 日志「已登记 §0.1」主张不实（该行不存在）→ **已修**（补 CH-R-4 备忘行，注明启动期已兜底）
-- ⚪ F8 `channels:` 信封与 settings overlay 无用户面文档（config.example.yaml/README 无章节）→ 不修（记入 findings；后继文档切片）
-- ⚪ F9 §13「后切只读 RPC」与 C5 的 update RPC：判符合（写 settings.yaml 文件、重启生效，正是 §13 真正禁止物的反面），附注记录
-- ⚪ F10 = F7 的闭环面（partitionChannels 兜底存在）
+- 🟠 F1 §8 "error classification" slot has no SDK landing point and was not registered → **boarded** (CH-R-1)
+- 🟠 F2 §9.3's "import picoclaw/.workspace prohibited" rule was not implemented in verify → **fixed** (bannedImportPrefixes + `.workspace` substring rule + bad-picoclaw-import fixture)
+- 🟠 F3 §10's per-seam inspect list exists only in the C2 log and was not boarded → **boarded** (CH-R-5)
+- ⚪ F4 §20's "pack empty list remains an empty body" is literally unexecutable (pack rejects zero --with); the invariant is actually maintained by zz_register=nil + zero SDKs in go.mod → not fixed
+- ⚪ F5 §14.3's qq "channel text" was not delivered (source review confirmed that the SDK cannot resolve a group address; the deviation is recorded) → recommend writing it back into the contract; pending SDK support
+- ⚪ F6 The §12 payload sketch differs from the implementation → recommend writing it back into the contract (an identifiers-only payload is the better design); CH-C1-N2 includes the review conclusion
+- ⚪ F7 The C2 log's claim that it was "registered in §0.1" was false (the line did not exist) → **fixed** (added the CH-R-4 memo line, noting that startup-time fallback already existed)
+- ⚪ F8 There is no user-facing documentation for the `channels:` envelope and settings overlay (config.example.yaml/README have no section) → not fixed (recorded in findings; follow-up documentation slice)
+- ⚪ F9 The §13 "post-slice read-only RPC" and C5's update RPC are compliant (writing the settings.yaml file and taking effect after restart is precisely the opposite of what §13 prohibits); recorded as a note
+- ⚪ F10 = the closed-loop aspect of F7 (`partitionChannels` fallback exists)
 
-## L2 内核正确性+安全（PASS）
+## L2 Kernel correctness + security (PASS)
 
-- 🟠 1 deliverCompleted/OnRunEvent nil 通道 panic 形（装配序不可达、注释与码不符）→ **已修**（两处守卫 + TestDeliverCompletedDropsUnregisteredChannel）
-- ⚪ 2 终态先于 targets 注册的理论竞态（三语句 vs 一次模型往返；只丢不炸；CH-C3-N1 已跟踪）→ 不修
-- ⚪ 3 会话 ID NUL 别名合并（平台 ID 均不可含 NUL；64 位截断够用）→ 不修
-- ⚪ 4 allow_from 全串精确匹配无绕过；方向恒 fail-closed（大小写/空白只造成误拒）→ 不修
-- ⚪ 5 `*_env` 走查：嵌套/别名/合并键/RPC 注入全不可扩权；CH-C6-N2 的实态比板面略真（Windows 大小写不敏感）→ 维持 OPEN
-- ⚪ 6 丢弃类早退全部 return nil + 结构化日志（仅标识符）；策略丢弃无 Journal 痕迹（产品留白）→ 不修
-- ⚪ 7 恰一次投递成立；关停窗口丢失有界（CH-C3-N1）+ CH-C4-N1 runes 上限无人执行 → 维持 OPEN
-- ⚪ 8 StartAll/StopAll/Inspect 干净；双 StartAll 会重复登记（app 只调一次）→ 不修
-- ⚪ 9 overlay 合并序健全（幽灵名先丢、partitionChannels 兜底、opaque node 不被改）
-- ⚪ 10 RPC 全错误路径 + 密钥零回流复核通过；channel/update 未知字段静默忽略（无密私字段可走私）→ 不修
-- ⚪ 11 Provenance nil 路径与 C1 前逐字节等价；伪造属内核内部调用者问题（CH-C1-N4 已跟踪）
-- ⚪ 12 双引擎 provenance 列等价；v14 冻结夹具真实驱动原地升级；DSN 门控缺口=CH-C1-N5
-- ⚪ 13 四厂商日志风险缓解全部在位（telego 脱敏/botgo 静默+断言/discordgo 钉 LogLevel/feishu 无 token 日志）
+- 🟠 1 deliverCompleted/OnRunEvent nil-channel panic shape (unreachable in the assembly order; comment and code disagreed) → **fixed** (two guards + TestDeliverCompletedDropsUnregisteredChannel)
+- ⚪ 2 Theoretical race where the terminal state precedes target registration (three statements vs. one model round trip; it can only drop, not crash; tracked as CH-C3-N1) → not fixed
+- ⚪ 3 Session-ID NUL alias merging (platform IDs cannot contain NUL; 64-bit truncation is sufficient) → not fixed
+- ⚪ 4 `allow_from` uses exact whole-string matching with no bypass; direction is always fail-closed (case/whitespace only cause false rejection) → not fixed
+- ⚪ 5 `*_env` audit: nesting/aliases/merge keys/RPC injection cannot expand privileges; the actual state of CH-C6-N2 is slightly more nuanced than the board view (Windows is case-insensitive) → keep OPEN
+- ⚪ 6 All discard-class early exits return nil + structured logs (identifiers only); policy discards leave no Journal trace (a product gap) → not fixed
+- ⚪ 7 Exactly-once delivery holds; loss during the shutdown window is bounded (CH-C3-N1) + the CH-C4-N1 runes limit is not enforced → keep OPEN
+- ⚪ 8 StartAll/StopAll/Inspect are clean; two StartAll calls would register twice (the app calls it only once) → not fixed
+- ⚪ 9 Overlay merge order is sound (ghost names are dropped first, `partitionChannels` provides fallback, opaque nodes are not modified)
+- ⚪ 10 All RPC error paths + zero key return flow passed review; unknown fields in channel/update are silently ignored (there are no secret fields to smuggle) → not fixed
+- ⚪ 11 The Provenance nil path is byte-for-byte equivalent to before C1; forgery is an internal-kernel-caller issue (tracked as CH-C1-N4)
+- ⚪ 12 Provenance columns are equivalent across both engines; the frozen v14 fixture genuinely drives the in-place upgrade; the DSN-gating gap is CH-C1-N5
+- ⚪ 13 All four vendor log-risk mitigations are in place (telego redaction/botgo silence + assertion/discordgo pinned LogLevel/feishu no-token logging)
 
-## L3 适配器横切（PASS；一致性矩阵 20 行 × 5 插件全 ✓ 或已记录偏离）
+## L3 Adapter cross-cutting review (PASS; every cell in the 20-row × 5-plugin consistency matrix is ✓ or has a recorded deviation)
 
-- 🟠 F1 dingtalk 网络级静默断线失聪（SDK Start 在 conn 存活时立即返回；仅优雅断连帧触发重拨；回环测试未覆盖死链）→ 注释已纠正 + **记板**（CH-C6-N3）；行为修复留后继
-- 🟠 F2 dingtalk/feishu restart-after-stop 锁存未复位（feishu 潜在 Start 挂起）→ **已修**（Start 复位 + TestStartAfterStopStartsFresh ×2）
-- ⚪ F3 telegram 迟到回调栅栏为 join 型（Stop ctx 已取消时可有一发在途；Host 丢弃安全）→ 不修
-- ⚪ F4 SDK logger 姿态不对称（qq 静默/dingtalk 全盲/feishu 默认/telego 脱敏/discordgo 钉死）→ 后继 ChannelEnv 日志面（CH-C6-N1）一并定
-- ⚪ F5 qq sender 形 `qq:user_<openid>` 唯一偏离裸 `<platform>:<id>`（已文档化，运维须知）
-- ⚪ F6 dingtalk webhooks / qq chats 运行时 map 无上限（小字符串、picoclaw 同形）→ 不修
-- ⚪ F7 已核实无动作项：feishu encrypt_key WS 惰性、discord 不重投故无去重必要、telegram 4096 即 API 上限
-- 五项 SDK 主张源码核实全 CONFIRMED（telego 脱敏 logger.go:98-103；dingtalk WithAutoReconnect option.go:15 + 重连循环 Background ctx；lark v3.11 Start 返回 vs v3.9.4 select{}；botgo identify 帧 INFO 级；discordgo Identify 仅 LogDebug）
+- 🟠 F1 DingTalk becomes deaf after a network-level silent disconnect (the SDK's Start returns immediately while conn is alive; only a graceful disconnect frame triggers redial; the loopback test does not cover a dead link) → comment corrected + **boarded** (CH-C6-N3); behavioral fix deferred
+- 🟠 F2 DingTalk/Feishu restart-after-stop latches were not reset (Feishu could potentially hang in Start) → **fixed** (Start reset + TestStartAfterStopStartsFresh ×2)
+- ⚪ F3 Telegram's late-callback barrier is join-like (one callback may be in flight after Stop ctx is canceled; Host safely drops it) → not fixed
+- ⚪ F4 SDK logger posture is asymmetric (QQ silent/DingTalk fully blind/Feishu default/telego redacted/discordgo pinned) → define together with the follow-up ChannelEnv logging surface (CH-C6-N1)
+- ⚪ F5 The QQ sender shape `qq:user_<openid>` is the sole deviation from bare `<platform>:<id>` (documented; operations must know)
+- ⚪ F6 DingTalk webhooks / QQ chats runtime maps have no upper bound (small strings, same shape as picoclaw) → not fixed
+- ⚪ F7 Verified no-action items: Feishu encrypt_key is lazy for WS, Discord does not redeliver so deduplication is unnecessary, and Telegram 4096 is the API limit
+- The five SDK claims were all confirmed from source (telego redaction logger.go:98-103; dingtalk WithAutoReconnect option.go:15 + reconnect loop Background ctx; lark v3.11 Start returns vs. v3.9.4 select{}; botgo identify frame at INFO level; discordgo Identify only LogDebug)
 
-## L4 SDK/pack（PASS）
+## L4 SDK/pack (PASS)
 
-- 🟠 1 Listen 封禁可被方法调用/ListenPacket/tls.Listen 绕过（实证探针）→ **已修**（任意接收者方法名封禁 + tls.Listen + bad-channel-listen2 夹具；保守方向假阳性已注释）
-- 🟠 2 pack 静默丢弃插件非 agent-vivy replace/exclude → **已修**（显式报错 + 分块/单行/合法三形测试）
-- 🟠 3 双独立 module pack 无测试；重复 --with 不去重 → **已修**（TestPackTwoStandaloneModules 真构建 + 按解析目录去重 + 测试）
-- 🟠 4 C2 日志「已登记 §0.1」不实 → **已修**（CH-R-4）
-- ⚪ 5 verify 规则↔夹具完备表：14 负夹具一一对应；约 18 条规则无夹具（多为 apiVersion/semver 等既有行）；§9.3 picoclaw 行曾未实现 → **已修**
-- ⚪ 6 ABI 家族相干；C8+ 最可能破签名排序：ChannelEnv 方法增长 > MediaStore 缺 Get > WebhookHandler 两方法集 > 空接口 TaskLifecycle/PipeServer 恒真断言陷阱（已注释未设防）> InboundMessage 缺显示名（加法安全）
-- ⚪ 7 capabilities.go 对插件断言 MediaStore 属类目混淆（无害，无人实现）→ 不修
-- ⚪ 8 pack 解析边角（行尾注释/`require(`无空格/块注释）→ 下游响亮失败，不修
-- ⚪ 9 channel.go 九处「C4 pins the ABI」措辞过时（五耳均纯文本未实现可选能力）→ 修饰性，留后继
-- 失败模式表 13 行全记录（原报告）；活树字节不变有测试链（zz_register/go.mod/go.sum 三者）
+- 🟠 1 The Listen ban could be bypassed through method calls/ListenPacket/tls.Listen (empirical probe) → **fixed** (ban any receiver method name + tls.Listen + bad-channel-listen2 fixture; the conservative false-positive direction is commented)
+- 🟠 2 pack silently discarded plugin replace/exclude directives for non-agent-vivy modules → **fixed** (explicit error + tests for block, single-line, and valid forms)
+- 🟠 3 pack of two standalone modules had no test; repeated --with values were not deduplicated → **fixed** (real build in TestPackTwoStandaloneModules + deduplication by resolved directory + test)
+- 🟠 4 The C2 log's "registered in §0.1" claim was false → **fixed** (CH-R-4)
+- ⚪ 5 verify rule↔fixture completeness table: 14 negative fixtures map one-to-one; about 18 rules have no fixture (mostly existing apiVersion/semver lines); the §9.3 picoclaw line was previously unimplemented → **fixed**
+- ⚪ 6 The ABI family is coherent; the most likely C8+ signature breaks are ordered: added ChannelEnv methods > MediaStore missing Get > two WebhookHandler method sets > the always-true assertion trap in empty interfaces TaskLifecycle/PipeServer (commented, not guarded) > InboundMessage missing display name (additive and safe)
+- ⚪ 7 capabilities.go confuses the category of the MediaStore assertion for plugins (harmless; nobody implements it) → not fixed
+- ⚪ 8 pack parsing edge cases (end-of-line comments/`require(` without a space/block comments) → loud downstream failure; not fixed
+- ⚪ 9 Nine "C4 pins the ABI" wordings in channel.go are stale (all five adapters have optional capabilities implemented as plain text) → cosmetic; defer
+- The 13-line failure-mode table is fully recorded (in the original report); a test chain proves that the live-tree bytes are unchanged (zz_register/go.mod/go.sum together)
 
-## L5 UI（PASS；删除清单 8 项零悬挂）
+## L5 UI (PASS; all 8 deletion-list items have zero dangling references)
 
-- 🟠 1 inspect 失败仍渲染「这一代没有耳朵」空态（错误仅 12px 工具条文本）→ **已修**（错误面板 + loadFailed i18n）
-- 🟠 2 向导「输入平台凭据」超承诺（无 token 输入口是设计使然）→ **已修**（改「准备凭据环境变量」+ 界面外设 env + 重启指引，zh/en 对齐）
-- 🟠 3 教程体过期且仅 zh（描述已删的凭据表单）→ **已修**（步骤重写为现实流程）
-- 🟠 4 discord guild_id 占位符含审计禁语「留空表示不限制」（元数据字段）→ **已修**（改「留空 = 处理全部服务器」）
-- ⚪ 5 zh.ts sandbox 域名占位符同短语（非通道面、语义本就如此）→ 不修
-- ⚪ 6 channel-schema 导出的多组函数仅测试消费（「C6/C7 复用」理由已失效）→ 清理候选
-- ⚪ 7 死 i18n 键（channels.channels、diva.channels 块、假统计 1/3 就绪）→ 清理候选
-- ⚪ 8 重挂载不自动 refetch（手刷按钮存在；刷新间无缓存）→ 记录即可
-- ⚪ 9 测试缺口：fail-closed 文案的值未钉（仅钉键名）、无组件级测试、api.test 只断方法名 → 后继补
-- 删除台账 8 项全部零悬挂引用；数据真相/密钥纪律/i18n 对齐/a11y 全过
+- 🟠 1 inspect failure still rendered the `This generation has no ears` empty state (the error was only 12px toolbar text) → **fixed** (error panel + loadFailed i18n)
+- 🟠 2 The wizard's `enter platform credentials` wording overpromised (having no token input is intentional by design) → **fixed** (changed to `prepare credential environment variables` + set env outside the UI + restart guidance, zh/en aligned)
+- 🟠 3 The tutorial text was stale and zh-only (it described the deleted credential form) → **fixed** (steps rewritten to match the real flow)
+- 🟠 4 The discord guild_id placeholder contained the audit-prohibited wording `leaving it blank means no limit` (a metadata field) → **fixed** (changed to `blank = process all servers`)
+- ⚪ 5 The sandbox domain placeholder in zh.ts uses the same phrase (not part of the channel surface; the semantics are correct as-is) → not fixed
+- ⚪ 6 Multiple functions exported by channel-schema are consumed only by tests (the reason "C6/C7 reuse" is no longer valid) → cleanup candidate
+- ⚪ 7 Dead i18n keys (channels.channels, the diva.channels block, fake 1/3-ready statistics) → cleanup candidate
+- ⚪ 8 Remounting does not automatically refetch (a manual refresh button exists; there is no cache between refreshes) → recording is sufficient
+- ⚪ 9 Test gaps: the value of the fail-closed wording is not pinned (only the key name is pinned), there are no component-level tests, and api.test asserts only method names → follow-up needed
+- All 8 deletion-ledger items have zero dangling references; data truth, key discipline, i18n alignment, and a11y all pass
 
-## L6 文档看板（PASS；9 日志逐条核验表全过）
+## L6 Documentation board (PASS; the item-by-item verification table for all 9 logs passes)
 
-- 🟠 1 幽灵分支 `feat/channel-c7a`（12a2a70 实落 c6 线；CH-C7a 横幅/C7b 两日志/TODO §0.2.7 四处措辞失实）→ **已修**
-- 🟠 2 `ChannelEnv.Settings()` 未回写 CHANNEL-PACK §9.3 与 PLUGIN-SPEC §4（照文档实现编译不过）→ **已修**（两处补第五方法）
-- 🟠 3 `UI-CHANNELS-BE` 陈旧行仍 OPEN（CH-C5 已领取交付）→ **已修**（置 DONE）
-- 🟠 4 V0 架构文档 line~300 漏改「CN-01..16」→ **已修**（CN-17）
-- ⚪ 5/6/7/8/9/10：C3 测试名拼写、C5 文件计数口径、CH-C1-N3/N4 路由陈旧（已随修复轮更新 N3；N4 维持）、C7a SDK 论证树外不可验（已披露）→ 记录即可
-- 左扫：9 commit 零 scratch/二进制/routeTree 混入；新 Go/UI 代码零 TODO/FIXME；go.mod/go.sum 全程字节不变
+- 🟠 1 Ghost branch `feat/channel-c7a` (12a2a70 actually landed on the c6 line; four inaccurate wordings in the CH-C7a banner/C7b two logs/TODO §0.2.7) → **fixed**
+- 🟠 2 `ChannelEnv.Settings()` was not written back into CHANNEL-PACK §9.3 and PLUGIN-SPEC §4 (implementing from the docs would not compile) → **fixed** (added the fifth method in both places)
+- 🟠 3 The stale `UI-CHANNELS-BE` line remained OPEN (CH-C5 had already claimed the delivery) → **fixed** (set to DONE)
+- 🟠 4 The V0 architecture document around line~300 missed the `CN-01..16` update → **fixed** (CN-17)
+- ⚪ 5/6/7/8/9/10: C3 test-name spelling, C5 file-count convention, stale CH-C1-N3/N4 routing (N3 updated during the fix round; N4 remains), and the C7a SDK argument tree being unverifiable outside the tree (disclosed) → recording is sufficient
+- Left scan: zero scratch/binary/routeTree contamination across 9 commits; zero TODO/FIXME in new Go/UI code; go.mod/go.sum byte-for-byte unchanged throughout
 
-## TEST-3（审查期间新立）
+## TEST-3 (newly created during the review)
 
-- 🟠 `just ui-e2e` 2 用例失败（runtime 全流程、welcome-wizard）——基线 82ecf14 复跑同败 → **记板**（§0.1 TEST-3：e2e 基线腐烂，与通道 EPIC 无关）
+- 🟠 Two `just ui-e2e` cases failed (the full runtime flow and welcome-wizard) — rerunning the 82ecf14 baseline failed identically → **boarded** (§0.1 TEST-3: e2e baseline is broken; unrelated to the channel EPIC)

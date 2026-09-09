@@ -1,53 +1,67 @@
-# UI-TRAJ / UI-TRAJECTORY-DEMO — 会话真实轨迹 RPC + 面板接线
+# UI-TRAJ / UI-TRAJECTORY-DEMO — real session-trajectory RPC + panel wiring
 
 ## Summary
 
-把「中控台 → 轨迹」面板从纯演示数据切换为内核真实数据，交付内核
-`trajectory/session` RPC 能力（UI-TRAJ）并完成面板换真实 api（UI-TRAJECTORY-DEMO）。
+Switch the "Console → Trajectory" panel from demo data to real kernel data, deliver the
+kernel `trajectory/session` RPC capability (UI-TRAJ), and wire the panel to the real API
+(UI-TRAJECTORY-DEMO).
 
-### Kernel（internal/）
+### Kernel (`internal/`)
 
-- `internal/runtime/trajectory.go`（新）：`Service.SessionTrajectory` 把一个会话的
-  最近 N 个 run（默认 20、上限 50）的 journal（run_events）+ 消息存储投影为
-  turn 级轨迹结构。语义：
-  - 一个 run == 一个用户回合（turn）；回合内每个模型调用是一个 Step；
-  - 折叠事件：`run.started`（首个 run 产出 Session 区段 system 行，后续 run 仅更新
-    provider/model 出处）、`model.request`（开请求槽）、`model.usage`（token）、
-    `provider.retry`（重试计数）、`model.completed`（关请求槽 + ASSISTANT 行）、
-    `tool.requested/started/finished`（工具行，入参/结果入详情）、
-    `context.compacted`（turn 为 null 的 Compaction 行）、`run.failed`（Run 组失败行）；
-  - 用户文案来自 Messages 存储按 RunID 关联（非 journal 重放）；
-  - 有界投影：文本/详情截断 8 KiB（UTF-8 安全），悬空请求收口为 error。
-  - 请求载荷只含哈希与字节长度（D-010），不做超出持久化内容的转录重组。
-- `internal/rpc/control.go`：新增 `trajectory/session` 路由与 handler
-  （session_id 必填、limit 可选；Service 未配置 → MethodNotFound；会话无 run → 404 语义保留给 ErrNotFound，空投影正常返回）。
-- 测试：`internal/runtime/trajectory_test.go`（手工两 run 投影结构断言、limit 钳制、
-  真实 Echo run 端到端投影）、`internal/rpc/control_test.go` 的
-  `TestTrajectorySessionRoute`（缺参 InvalidParams + 播种 run 的形状断言）。
+- `internal/runtime/trajectory.go` (new): `Service.SessionTrajectory` projects the most
+  recent N runs of a session (default 20, maximum 50) from the journal (`run_events`) +
+  message storage into a turn-level trajectory structure. Semantics:
+  - one run == one user turn; each model call within a turn is a Step;
+  - folded events: `run.started` (the first run produces the Session section's system row;
+    later runs only update provider/model provenance), `model.request` (opens a request
+    slot), `model.usage` (tokens), `provider.retry` (retry count), `model.completed` (closes
+    the request slot + ASSISTANT row), `tool.requested/started/finished` (tool row, with
+    input/result in details), `context.compacted` (Compaction row with a null turn), and
+    `run.failed` (Run-group failure row);
+  - user copy comes from Messages storage joined by RunID (not journal replay);
+  - bounded projection: text/details are truncated at 8 KiB (UTF-8 safe), and dangling
+    requests are closed as error.
+  - request payloads contain only hashes and byte lengths (D-010); no transcript
+    reconstruction beyond persisted content.
+- `internal/rpc/control.go`: add the `trajectory/session` route and handler
+  (`session_id` required, limit optional; unconfigured Service → MethodNotFound; a session
+  with no run retains 404 semantics for ErrNotFound, while an empty projection returns
+  normally).
+- Tests: `internal/runtime/trajectory_test.go` (hand-built two-run projection shape
+  assertions, limit capping, real Echo-run end-to-end projection), and
+  `TestTrajectorySessionRoute` in `internal/rpc/control_test.go` (missing-parameter
+  InvalidParams + seeded-run shape assertion).
 
-### UI（ui/src/）
+### UI (`ui/src/`)
 
-- `ui/src/lib/api.ts`：`trajectory/session` 进 RPC_METHODS；snake_case wire 类型
-  （TrajectorySessionWire / TrajectoryRecordWire / TrajectoryRequestWire /
-  TrajectoryTokensWire）与 `fetchSessionTrajectory`。
-- `ui/src/components/trajectory/trajectory-types.ts`（新）：面板展示层类型的唯一来源
-  （TrajectoryCellKind、TRAJECTORY_KIND_LABEL、TrajectoryRecord、TrajectoryRequest 等），
-  请求类型补充真实 RPC 携带的 `messages` / `preambleBytes`。
-- `ui/src/components/trajectory/trajectory-session.ts`（新）：wire → 展示层映射
-  （snake_case → camelCase、usage 缺省补 0、Compaction 组请求标记 purpose）。
-- `ui/src/components/trajectory/TrajectoryPanel.tsx`：会话选择器（listSessions +
-  Select，默认第一个会话）+ 刷新按钮；加载骨架 / 无会话空态 / 错误态
-  （DemoLoadError）+ 折叠、搜索、选区、详情等既有交互全部作用于真实数据；
-  演示辅助函数（requestByNumber / recordForRequest）由真实数据上的本地查找替代。
-- 其余轨迹子组件（Toolbar/Timeline/Ledger/DetailPanel）仅改类型导入来源。
-- `ui/src/components/trajectory/trajectory-demo-data.ts`：降级为
-  `trajectory-utils.test.ts` 专用测试夹具（生产链路不再引用，bundle 不含）。
-- i18n：`dashboard.trajectoryDesc` 改为真实数据描述；trajectory 段新增
-  `pickSession` / `sessionEmpty` / `refresh`（en + zh 同步）。
+- `ui/src/lib/api.ts`: register `trajectory/session` in RPC_METHODS; add snake_case wire
+  types (TrajectorySessionWire / TrajectoryRecordWire / TrajectoryRequestWire /
+  TrajectoryTokensWire) and `fetchSessionTrajectory`.
+- `ui/src/components/trajectory/trajectory-types.ts` (new): the single source of truth for
+  panel presentation types (TrajectoryCellKind, TRAJECTORY_KIND_LABEL, TrajectoryRecord,
+  TrajectoryRequest, etc.); request types add the real RPC's `messages` / `preambleBytes`.
+- `ui/src/components/trajectory/trajectory-session.ts` (new): wire → presentation-layer
+  mapping (snake_case → camelCase, fill missing usage with 0, mark the purpose of requests
+  in a Compaction group).
+- `ui/src/components/trajectory/TrajectoryPanel.tsx`: session selector (listSessions +
+  Select, first session by default) + refresh button; loading skeleton / no-session empty
+  state / error state (DemoLoadError) + all existing folding, search, selection, and detail
+  interactions now operate on real data. Demo helpers (requestByNumber / recordForRequest)
+  are replaced by local lookup on the real data.
+- The remaining trajectory subcomponents (Toolbar/Timeline/Ledger/DetailPanel) only change
+  the source of their type imports.
+- `ui/src/components/trajectory/trajectory-demo-data.ts`: reduced to a test fixture solely
+  for `trajectory-utils.test.ts` (no production-chain reference; excluded from the bundle).
+- i18n: change `dashboard.trajectoryDesc` to describe real data; add
+  `pickSession` / `sessionEmpty` / `refresh` to the trajectory section (en + zh in sync).
 
 ## Explicitly not done
 
-- 详情面板未展示 `messages` / `preambleBytes`（类型已就位，UI 呈现留待需要时再加）。
-- 轨迹投影不包含 token 成本（cost）——journal 中无价格事实，不做推算。
-- DSF `context` / `subtool` kind 仅为渲染兼容保留，Vivy 内核不产出这两类记录。
-- run 内的中间 thinking 内容不在投影里（journal 不持久化明文思考流）。
+- The detail panel does not display `messages` / `preambleBytes` (types are in place; add UI
+  presentation when needed).
+- The trajectory projection does not include token cost (cost) — the journal has no price
+  fact, so none is inferred.
+- DSF `context` / `subtool` kinds remain only for rendering compatibility; the Vivy kernel
+  does not produce these record types.
+- Intermediate thinking content within a run is not in the projection (the journal does not
+  persist plaintext thinking streams).

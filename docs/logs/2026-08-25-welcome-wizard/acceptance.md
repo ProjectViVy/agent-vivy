@@ -2,33 +2,40 @@
 
 Date: 2026-08-25
 
-## 用户视角：如何判断移植成功
+## User perspective: how to tell the port succeeded
 
-1. **首次使用自动引导**：在全新浏览器（无 `vivy.ui.welcome.completed`
-   标记）打开 `http://127.0.0.1:3015`（或产品访问地址），等待初始化完成，
-   「欢迎使用 Vivy」向导自动弹出，介绍页面说明 Vivy 是本机 AI 代理、
-   三步进度（开始 / 模型 / 完成）。
-2. **跳过且不再打扰**：点击「跳过向导」，向导关闭；刷新页面不再弹出。
-   浏览器 localStorage 中 `vivy.ui.welcome.completed` 为 `'1'`。
-3. **随时可重跑**：进入 设置 → 通用，见「欢迎向导」卡片，点「重新运行
-   向导」再次打开；向导每次从第 1 步开始并按当前设置预填。
-4. **配置默认模型**：模型步骤可填 Provider（`openai` / `anthropic` /
-   `mock` 之一，DeepSeek 等通过 Base URL 接入）、默认模型与 Base URL；
-   界面明示 API 密钥由运行环境注入、不在界面填写保存。点「下一步」保存，
-   后端校验失败时在向导内内联提示并停留在当前步。
-5. **完成导航**：保存成功进入「准备就绪！」完成页，三张卡片直达：
-   开始聊天（聊天页）、模型设置（设置页并选中「模型」分区、
-   URL 带 `?tab=model`）、技能库（技能页）。
-6. **状态持久**：完成后刷新，向导不再弹出；设置页模型分区显示刚保存的
-   Provider / 默认模型值。
+1. **Automatic first-use onboarding**: in a fresh browser (with no
+   `vivy.ui.welcome.completed` marker), open `http://127.0.0.1:3015` (or the
+   product URL) and wait for initialization. The “Welcome to Vivy” wizard opens
+   automatically; its introduction explains that Vivy is a local AI agent and
+   shows three steps (Start / Model / Complete).
+2. **Skip without being bothered again**: click “Skip Wizard”; the wizard closes
+   and does not reappear after refresh. `vivy.ui.welcome.completed` is `'1'` in
+   browser localStorage.
+3. **Rerun at any time**: go to Settings → General, find the “Welcome Wizard”
+   card, and click “Run Wizard Again” to open it. The wizard starts at step 1 each
+   time and pre-fills the current settings.
+4. **Configure the default model**: in the Model step, enter a Provider (one of
+   `openai` / `anthropic` / `mock`; DeepSeek and others connect through Base URL),
+   the default model, and Base URL. The UI clearly states that API keys are
+   injected by the runtime environment and are not entered or saved in the UI.
+   Click “Next” to save; if backend validation fails, an inline notice appears in
+   the wizard and it stays on the current step.
+5. **Completion navigation**: after a successful save, the “Ready!” completion
+   page offers three direct cards: Start Chat (Chat page), Model Settings
+   (Settings page with the “Model” section selected and `?tab=model` in the URL),
+   and Skills Library (Skills page).
+6. **Persistent state**: after completion, refresh and the wizard does not open;
+   the Model section in Settings shows the just-saved Provider / default model values.
 
-## 验收路径
+## Acceptance path
 
-- `just ci` 全绿（51 单测，含 `use-welcome` 5 例）。
-- `just ui-e2e` 2 项通过（`welcome-wizard.spec.ts` 覆盖第 1–6 条全流程，
-  `runtime.spec.ts` 回归）。
-- 开发者浏览器在 `http://127.0.0.1:3015` 人工走通 1–5 条（见
-  verification.md）。
+- `just ci` is all green (51 unit tests, including 5 `use-welcome` cases).
+- `just ui-e2e` has 2 passing tests (`welcome-wizard.spec.ts` covers the full
+  flow in steps 1–6; `runtime.spec.ts` is the regression suite).
+- The developer browser manually completes steps 1–5 at
+  `http://127.0.0.1:3015` (see verification.md).
 
-注意：若开发者浏览器已点过「模型设置」/「跳过」，首访标记已写入，
-再次验证自动弹出需清掉 `vivy.ui.welcome.completed` 或使用无痕窗口。
+Note: if the developer browser has already clicked “Model Settings” / “Skip,”
+the first-visit marker has been written. To verify automatic opening again,
+clear `vivy.ui.welcome.completed` or use an incognito window.

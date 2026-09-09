@@ -47,12 +47,12 @@ with `runtime.mock: true`, `tools.network_search.provider: ""` in a
 scratch config (removed afterwards), and `SEARXNG_SEARCH_URL` set to a
 dummy URL to prove availability flip:
 
-- 设置 → 工具 renders the real 网络搜索 card: provider select on
-  自动（按可用性回退）, badges `bing/google 未配置（需 …KEY）`,
-  `duckduckgo/wikipedia 已配置`, `searxng 已配置` (env present — flip
-  proven).
+- Settings → Tools renders the real Network Search card: provider select on
+  Automatic (fallback based on availability), badges `bing/google Not configured
+  (requires …KEY)`, `duckduckgo/wikipedia Configured`, and `searxng Configured`
+  (env present — flip proven).
 - Selected `wikipedia` via the combobox, hint text switched to the
-  pinned-provider wording, 保存网络搜索设置 dispatched.
+  pinned-provider wording, and Save Network Search Settings dispatched.
 - Persisted document `data/smoke/settings.yaml`:
   `network_search: {provider: wikipedia}` (model fields empty —
   full-replace semantics).

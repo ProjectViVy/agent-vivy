@@ -1,17 +1,23 @@
-# Acceptance — 2026-08-26 AGENTS.md 并行与提交规则
+# Acceptance — 2026-08-26 AGENTS.md parallel and commit rules
 
-## 人工验收（产品/用户视角）
+## Manual acceptance (product/user perspective)
 
-1. 打开仓库根 `AGENTS.md`：
-   - "Validation" 一节之前可见新章节 **"Parallel lanes (worktree isolation,
-     hard requirement)"**，写明根树单一活跃 lane、`git worktree add
-     ../agent-vivy-<slug> -b feat/<slug>`、lane 经分支/PR 落回、无 LOCK.md。
-   - Rulebook 末尾新增两条：`parallel-worktree-isolation`（标注 hard
-     requirement）与 `commit-one-concern-per-deliverable`（推送仍需授权）。
-   - "Not ported from agent-diva on purpose" 段已改写：说明锁文件被结构性
-     worktree 隔离替代、提交跟随交付而非每次更新。
-2. `docs/TODO.md` §0.1 出现 `PROC-COMMIT`（根树三个未提交主题待拆分入库）。
-3. 行为验收（下次并行时生效）：再开一个 agent 会话/Studio 会话动这个仓库时，
-   它应当自建 worktree + 分支工作，而不是编辑根树；本仓库后续每个完成的交付
-   以独立单一关注点 commit 落库（本次交付本身就是第一个示范：仅含
-   `AGENTS.md` 与本日志，未卷入根树其他脏改，未推送）。
+1. Open the repository root `AGENTS.md`:
+   - Before the “Validation” section, the new **“Parallel lanes (worktree
+     isolation, hard requirement)”** section is visible. It specifies one active
+     lane in the root tree, `git worktree add ../agent-vivy-<slug> -b feat/<slug>`,
+     returning each lane through a branch/PR, and no LOCK.md.
+   - Two rules were added at the end of the Rulebook:
+     `parallel-worktree-isolation` (marked hard requirement) and
+     `commit-one-concern-per-deliverable` (push still requires authorization).
+   - The “Not ported from agent-diva on purpose” section was rewritten to explain
+     that structural worktree isolation replaces the lock file and that commits
+     follow deliverables rather than every update.
+2. `docs/TODO.md` §0.1 contains `PROC-COMMIT` (the three uncommitted root-tree
+   topics are to be split into separate deliveries).
+3. Behavioral acceptance (effective for the next parallel run): when another
+   agent or Studio session opens this repository, it should create and work in a
+   worktree + branch rather than edit the root tree; every completed delivery in
+   this repository should land as an independent single-concern commit (this
+   delivery is the first example: it contains only `AGENTS.md` and this log,
+   excludes other dirty root-tree changes, and was not pushed).

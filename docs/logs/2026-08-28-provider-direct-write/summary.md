@@ -1,84 +1,84 @@
-# 2026-08-28 · Provider 直接写配置 + 写时环境变量同步 + 系统级用户默认工作空间
+# 2026-08-28 · Provider direct configuration write + write-time environment variable synchronization + system-level user default workspace
 
-## 目标与背景
+## Goal and background
 
-用户指出「现在不支持直接配置写入，得在环境变量处理」是有问题的产品方向；
-要求（1）**完全变更整体写 provider 逻辑**——UI 里新增/编辑/删除供应商、配置
-base_url/模型列表/API Key 不再是 localStorage 本地偏好，而是真实写入后端持久化
-文档，且写入后**同步更新环境变量值**；（2）默认有一个**系统级用户工作空间**
-（diva 式：`~/.vivy` 含 `workspace/` 与其它内容）。
+The user pointed out that “not supporting direct configuration writes and requiring handling through environment variables” is a problematic product direction;
+they required (1) **completely changing the overall provider write logic**—adding/editing/deleting providers in the UI and configuring
+base_url/model lists/API Key must no longer be localStorage preferences, but instead be actually written to a backend-persisted
+document, with the environment variable values **synchronized after writing**; (2) providing a **system-level user workspace**
+by default (diva-style: `~/.vivy` contains `workspace/` and other contents).
 
-## 变更内容
+## Changes
 
-### Go 后端
+### Go backend
 
-- `internal/app/settings/settings.go` — Settings 新增 `Providers []ProviderEntry`
-  注册表（id/display_name/bundle/base_url/default_model/models/api_key）；逐条校验
-  （缺字段、坏 bundle、坏 URL、换行 key、重复 (bundle,base_url) 拒绝，mock 不可
-  注册）；`FindProvider`（按 bundle+base_url 命中）、`ActiveKey`（注册表条目密钥
-  优先、legacy `api_key` 覆盖层兜底）、`UpsertProvider`、`IsZero`；Load 归一空
-  注册表为 nil。
-- `internal/app/app.go` — 抽出 `applySettingsEnv`（base_url → `VIVY_API_BASE`、
-  解析出的 key → 活动 bundle 的 `env_key`），启动 overlay 与**写时同步共用**
-  （经 `ControlDeps.ApplySettingsEnv` 回调）：设置/供应商写入后立刻更新当前进程
-  环境变量，下次启动由同文档重放。
-- `internal/rpc/control.go` — 新 RPC：`settings/providers`（列注册表，只回
-  `api_key_set`）、`settings/providers/upsert`（按 id 新建/更新，key 写-only）、
-  `settings/providers/delete`；`settings/update` 改为**读-改-写**（不再整档覆盖，
-  注册表/网络/execute 段全部保留），active api_key 改由后端权威解析；能力广播
-  增三项；`settings/get` 的 `api_key_set` 反映解析后的 key。
-- 测试：注册表 round-trip/校验/冲突、ActiveKey 优先级、UpsertProvider、
-  RPC 列表/upsert/delete/拒绝/read-only、update 保注册表、写时 env 回调计数。
+- `internal/app/settings/settings.go` — Settings adds a `Providers []ProviderEntry`
+  registry (id/display_name/bundle/base_url/default_model/models/api_key); validates each entry
+  (rejects missing fields, invalid bundle, invalid URL, keys containing newlines, and duplicate (bundle,base_url); mock cannot be
+  registered); `FindProvider` (matches by bundle+base_url), `ActiveKey` (registry entry key takes
+  precedence, with the legacy `api_key` overlay as fallback), `UpsertProvider`, `IsZero`; Load normalizes an empty
+  registry to nil.
+- `internal/app/app.go` — extracts `applySettingsEnv` (base_url → `VIVY_API_BASE`,
+  parsed key → the active bundle's `env_key`); startup overlay and **write-time synchronization share**
+  it (via the `ControlDeps.ApplySettingsEnv` callback): settings/provider writes immediately update the current process's
+  environment variables, and the same document replays them on the next startup.
+- `internal/rpc/control.go` — new RPCs: `settings/providers` (lists the registry, returning only
+  `api_key_set`), `settings/providers/upsert` (creates/updates by id, key write-only),
+  `settings/providers/delete`; `settings/update` now uses **read-modify-write** (it no longer overwrites the entire document,
+  and preserves the registry/network/execute sections), while active api_key is authoritatively resolved by the backend; the
+  capability broadcast adds three entries; `settings/get`'s `api_key_set` reflects the resolved key.
+- Tests: registry round-trip/validation/conflicts, ActiveKey precedence, UpsertProvider,
+  RPC list/upsert/delete/rejection/read-only, update preserving the registry, and write-time env callback counts.
 
-### TS 前端
+### TS frontend
 
-- `ui/src/lib/api.ts` — RPC_METHODS 增三项；`ProviderEntry`/`ProviderEntryInput`/
-  `ProvidersView` 类型与 `listProviders/upsertProvider/deleteProvider`。
-- `ui/src/lib/store.ts` — `providers/providersPhase/providersError` 状态与
-  `loadProviders/saveProvider/removeProvider`；`initialize()` 并行载入注册表。
-- `ui/src/components/settings/custom-providers.ts` — **删除 localStorage**
-  （`vivy.ui.customProviders` 不再读写）；改为纯逻辑层（校验/冲突/合并/折叠/
-  检索/`customApiKeySetFor`），数据源 = store 中 wire `ProviderEntry[]`。
-- `ui/src/components/settings/ModelSettingsCard.tsx` — 注册表 CRUD 走
-  `saveProvider/removeProvider` RPC；对话框/新增模型/面板 Key 均写后端；选模型/
-  chip/快捷切换 `settings/update` **不再携带 api_key**（后端按注册表解析）；
-  「已配置 API Key」提示用 `customApiKeySetFor`。
-- `ui/src/components/chat/MaskAndModelSwitcher.tsx`、`NetworkToolsCard.tsx`、
-  `GenerationParamsCard.tsx`、`saved-models.ts` — 厂商标签/快捷切换/网络偏好
-  适配注册表参数与去 key。
-- `ui/src/i18n/{zh,en}.ts` — apiKeyHint 改「写入运行数据并同步环境变量」；
-  新增 `errors.saveFailed`。
-- `ui/AGENTS.md` — 密钥/注册表规则改写为新口径。
-- 测试：custom-providers.test.ts 重写为纯逻辑；saved-models.test.ts 标签接
-  providers 参数；store.test.ts mock 补 `listProviders`。
+- `ui/src/lib/api.ts` — RPC_METHODS adds three entries; `ProviderEntry`/`ProviderEntryInput`/
+  `ProvidersView` types and `listProviders/upsertProvider/deleteProvider`.
+- `ui/src/lib/store.ts` — `providers/providersPhase/providersError` state with
+  `loadProviders/saveProvider/removeProvider`; `initialize()` loads the registry in parallel.
+- `ui/src/components/settings/custom-providers.ts` — **remove localStorage**
+  (`vivy.ui.customProviders` is no longer read or written); it is now a pure logic layer
+  (validation/conflicts/merge/collapse/search/`customApiKeySetFor`), with the data source = wire `ProviderEntry[]` in the store.
+- `ui/src/components/settings/ModelSettingsCard.tsx` — registry CRUD uses
+  `saveProvider/removeProvider` RPCs; dialog/add-model/panel Key values all write to the backend; model selection/
+  chip/quick switching `settings/update` **no longer carries api_key** (the backend resolves it from the registry);
+  the “API Key configured” prompt uses `customApiKeySetFor`.
+- `ui/src/components/chat/MaskAndModelSwitcher.tsx`, `NetworkToolsCard.tsx`,
+  `GenerationParamsCard.tsx`, `saved-models.ts` — vendor labels/quick switching/network preferences
+  adapted to registry parameters and key removal.
+- `ui/src/i18n/{zh,en}.ts` — apiKeyHint changed to “write to runtime data and synchronize environment variables”;
+  added `errors.saveFailed`.
+- `ui/AGENTS.md` — secret/registry rules rewritten to the new semantics.
+- Tests: custom-providers.test.ts rewritten as pure logic; saved-models.test.ts labels wired to
+  the providers parameter; store.test.ts mock adds `listProviders`.
 
-### 系统级用户默认工作空间（diva 式）
+### System-level user default workspace (diva-style)
 
-- `internal/config/config.go` — 新增 `userDataRoot()`：`VIVY_USER_HOME` →
-  `os.UserHomeDir()/.vivy` → 回退 `data`（CI/开发兜底）；`Default()` 的
-  sqlite/workspace_root/skills_root/data_dir 默认全部落到该根下；
-  `DataDirectory()` 的 postgres/兜底分支同步。
-- `config.example.yaml` — 默认路径注释改指用户主目录（显式值仍优先）。
+- `internal/config/config.go` — adds `userDataRoot()`: `VIVY_USER_HOME` →
+  `os.UserHomeDir()/.vivy` → fallback to `data` (CI/development fallback); `Default()`'s
+  sqlite/workspace_root/skills_root/data_dir defaults all live under that root;
+  `DataDirectory()`'s postgres/fallback branches are synchronized as well.
+- `config.example.yaml` — default path comments now point to the user home directory (explicit values still take precedence).
 
-## 密钥语义契约（一处权威）
+## API key semantics contract (single source of truth)
 
-- `settings/providers/upsert` 的 `api_key` 是**写-only**：落 0600 运行文档，
-  永不回传、永不进日志；`settings/providers` 只回 `api_key_set`。
-- active key = 注册表 (bundle,base_url) 命中条目的 key，否则 legacy
-  `settings.ApiKey` 覆盖层；都没有则不动环境（回落运行束 env_key）。
-- 生效时机：写入即同步进程环境变量；已构造的模型仍「下次启动生效」（与既有
-  overlay 契约一致，无运行时热换）。
+- `settings/providers/upsert`'s `api_key` is **write-only**: written to a 0600 runtime document,
+  never returned and never logged; `settings/providers` returns only `api_key_set`.
+- active key = the key from the registry entry matching (bundle,base_url), otherwise the legacy
+  `settings.ApiKey` overlay; if neither exists, the environment is left unchanged (falling back to the runtime bundle's env_key).
+- Effective timing: writing immediately synchronizes the process environment variables; already-constructed models still
+  “take effect on next startup” (consistent with the existing overlay contract, with no runtime hot swap).
 
-## 明确不做
+## Explicitly not done
 
-- 不做运行时引擎热切换（写入同步 env；模型重建仍需重启）。
-- 不做每网关独立密钥的运行时解析改造（`UI-MODEL-KEY-SCOPE` 的 provider 层
-  按 base_url 取 key 仍 OPEN；注册表与写路径后端化为其铺路）。
-- 不做真实在线供应商目录同步（`UI-PROV-RPC` 保持 OPEN）。
-- `saved-models` 书签继续 localStorage（UI 偏好，非 provider 配置）。
-- 本迭代在独立 worktree `feat/provider-direct-write` 完成（根树并行合并中）。
+- No runtime engine hot switching (writing synchronizes env; rebuilding models still requires a restart).
+- No runtime parsing changes for independent per-gateway keys (`UI-MODEL-KEY-SCOPE`'s provider layer
+  remains OPEN for retrieving keys by base_url; the registry and write path were moved to the backend to pave the way).
+- No real online provider directory synchronization (`UI-PROV-RPC` remains OPEN).
+- `saved-models` bookmarks continue to use localStorage (a UI preference, not provider configuration).
+- This iteration was completed in the independent worktree `feat/provider-direct-write` (the root tree is being merged in parallel).
 
-## 发布说明
+## Release notes
 
-无独立发布：随日常构建发布，`just ci` 已含 go test + ui build；不单写
-`release.md`。
+No standalone release: it ships with the daily build, and `just ci` already includes go test + ui build; no separate
+`release.md` entry is written.

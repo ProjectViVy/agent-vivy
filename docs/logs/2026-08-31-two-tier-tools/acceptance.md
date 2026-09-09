@@ -1,44 +1,44 @@
-# 验收指南 — 人怎么确认"工具接上了"
+# Acceptance guide — How a person can confirm "tools are connected"
 
-## 1. 聊天有工具了（本次投诉的直接验收）
+## 1. Tools are available in chat (direct acceptance for this complaint)
 
-1. `just dev` 打开 http://127.0.0.1:3015，新建会话。
-2. 发送：`你现在有什么工具？你能看到工作区里有什么吗？`
-3. 预期：模型不再回答"我没有被分配工具"；它应能报出工具清单，并在被问到
-   工作区时**实际调用** `list_dir` / `read_file` 等并给出真实目录内容
-   （轨迹面板/回答中能看到工具调用记录）。
-4. 用纯中文、不含任何"关键词"的消息验证（旧 bug 下中文必为 0 工具）。
+1. Open http://127.0.0.1:3015 with `just dev` and create a session.
+2. Send: `What tools do you have now? Can you see what is in the workspace?`
+3. Expected: the model no longer answers "I was not assigned any tools"; it should report the tool list and, when asked about
+   the workspace, **actually call** `list_dir` / `read_file` and provide the real directory contents
+   (tool-call records should be visible in the trajectory panel or the response).
+4. Verify with a message that contains no "keywords" (under the old bug, Chinese messages always had 0 tools).
 
-## 2. 设置→工具配置是真的了
+## 2. Settings → Tools is real configuration
 
-1. 设置 → 工具：应显示内置工具全量目录（约 24 个），逐个带 只读/需审批
-   徽标与开关；不再是"演示沙箱模式"假卡片。
-2. 关掉某工具（如 `search_files`）→ 保存 → 新会话问模型有哪些工具：
-   清单里不再出现它；重新打开并保存后恢复。
-3. 全部关掉保存 → 新会话为纯对话模式（模型自述无工具可用）；恢复默认按钮
-   一键回到配置默认集。
-4. 保存后**无需重启**：下一次运行即生效（空闲时引擎热重建）。
+1. Settings → Tools should show the complete built-in catalog (about 24 tools), with read-only / approval-required
+   badges and toggles for each; it should no longer be fake "demo sandbox mode" cards.
+2. Turn off a tool (such as `search_files`) → save → ask the model in a new session which tools it has:
+   it should no longer appear in the list; turn it back on and save to restore it.
+3. Turn everything off and save → the new session is pure chat mode (the model says no tools are available); the Restore defaults button
+   returns to the config-default set with one click.
+4. **No restart is required** after saving: the next run takes effect (the engine is rebuilt while idle).
 
-## 3. SKILL 拉起隐藏工具
+## 3. SKILL brings up hidden tools
 
-1. 设置→工具里把 `write_file`（或任一你不想常驻上下文的工具）隐藏并保存。
-2. 准备一个技能，SKILL.md frontmatter 写：
+1. In Settings → Tools, hide `write_file` (or any tool you do not want permanently in the context) and save.
+2. Prepare a skill with this SKILL.md frontmatter:
    ```yaml
    ---
    name: note-writer
-   description: 把要点写成工作区文件
+   description: Write key points to a workspace file
    tools:
      - write_file
    ---
    ```
-   （skills_root 下建目录放入；可用 skills_manage 或直接放文件。）
-3. 聊天里让模型"查看 note-writer 技能并按它做"：模型调用 `skill_view` 后，
-   **同一轮**即可调用 `write_file` 并真实写出文件；未查看技能的其他会话中
-   该工具依然不可见不可调。
-4. 若技能声明了不存在的工具名，挂载时被忽略（不炸 run）；`skill_manage`
-   编辑技能后 `tools:` 声明不丢失。
+   (Create and place the directory under `skills_root`; use `skills_manage` or place the file directly.)
+3. In chat, ask the model to "view the note-writer skill and follow it": after calling `skill_view`,
+   it can call `write_file` **in the same turn** and actually write the file; in other sessions that have not viewed the skill,
+   the tool remains invisible and unavailable.
+4. If a skill declares a nonexistent tool name, it is ignored when mounted (the run does not fail); editing the skill with `skill_manage`
+   does not lose the `tools:` declaration.
 
-## 4. 审批语义未被破坏
+## 4. Approval semantics are unchanged
 
-隐藏的 effectful 工具被技能挂载后调用时，仍按原规则弹审批（普通模式），
-不会因为"挂载"而绕过人闸（D-012）。
+When a hidden effectful tool is called after a skill mounts it, the normal approval prompt still appears;
+"mounting" does not bypass the human gate (D-012).

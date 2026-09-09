@@ -18,7 +18,7 @@ plugin (`vdbg-1`, lost on restart), is now **first-party Studio code**:
   - `client.js` — Browser half: injected into `index.html` via
     `webServer.tapIndex` (same mechanism as the skin). Floating **◈** button
     pinned bottom-right of the main page; click opens a status/log panel with
-    ▶ 启动 / ■ 停止 / ⟳ 重启 and an exe-path override.
+    ▶ Start / ■ Stop / ⟳ Restart and an exe-path override.
   - `cordis.patch.yml` — one insert row `vivy-debugger`.
   - `package.json` / `README.md`.
 - `launch-vivy-studio.ps1` now composes `dsh-vivy-debugger` into the profile

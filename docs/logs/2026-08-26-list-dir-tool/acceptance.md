@@ -3,8 +3,8 @@
 How a human can tell it worked, from the product view:
 
 1. **Dev loop**: start `just dev`, open `http://127.0.0.1:3015`, and ask the
-   agent something like "看看这个工作区里都有什么文件" (look at what files are in
-   this workspace). With a configured model, the agent now has `list_dir`
+   agent something like “List the files in this workspace.” With a configured
+   model, the agent now has `list_dir`
    available and can answer by listing the run workspace tree — including
    bounded recursion (`recursive: true`, `depth`) — instead of being stuck
    between `read_file` (needs a known path) and `search_files` (needs known

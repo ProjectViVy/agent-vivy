@@ -1,17 +1,17 @@
-# 验证记录
+# Verification record
 
-命令均在 worktree `agent-vivy-tui-chat-body`（分支 `feat/tui-chat-body-polish`）执行：
+All commands were run in worktree `agent-vivy-tui-chat-body` (branch `feat/tui-chat-body-polish`):
 
-- `go test ./sdk/tui/... -race -count=1` — 全绿（command/face/live/stream/view 均 ok）。builder 交付后与 reviewer P2 修复后各跑一次。
-- `just ci` — CI-EXIT:0。kernel `go test ./...`、UI 测试、`cmd/vivy`/`cmd/vivy-code`/`ui` headless 编译、plugins（dingtalk/discord/feishu/lsp/qq/telegram）与 faces（headless/tui）plugin-ci 全部 ok。
+- `go test ./sdk/tui/... -race -count=1` — all green (command/face/live/stream/view all ok). Run once after builder delivery and once after the reviewer's P2 fixes.
+- `just ci` — CI-EXIT:0. Kernel `go test ./...`, UI tests, headless compilation of `cmd/vivy`/`cmd/vivy-code`/`ui`, plugin-ci for plugins (dingtalk/discord/feishu/lsp/qq/telegram), and faces (headless/tui) all passed.
 
-新增测试（`sdk/tui/view/chat_body_test.go`）覆盖：ctrl+o 默认 8 行截断→展开→还原、`tui.debug` 与 ctrl+o 组合、ctrl+r reasoning 折叠→还原（同宽度 mdCache 失效）、空会话 hero 渲染与非空会话不渲染、gate 存在时两键不改变聊天体状态。
+New tests (`sdk/tui/view/chat_body_test.go`) cover: default 8-line ctrl+o truncation → expansion → restoration, the `tui.debug` + ctrl+o combination, ctrl+r reasoning collapse → restoration (same-width mdCache invalidation), empty-session hero rendering and no rendering for non-empty sessions, and no chat-body state change from either key when a gate exists.
 
-## 真机评审补充（2026-09-07，Windows Terminal + vivy-code.exe）
+## Real-device review supplement (2026-09-07, Windows Terminal + vivy-code.exe)
 
-以真实 `vivy-code.exe`（私有实例 Journal）跑通后逐项确认：
+After running through the flow with a real `vivy-code.exe` (private-instance Journal), each item was confirmed:
 
-- **F13**：空会话 hero 渲染正确（wordmark、寻找真心之旅、cwd、命令/键位提示），UIA 文本与截图双证。
-- **F9**：ctrl+r 把 reasoning 块折叠为单行 `┊ reasoning · 5 行 · ctrl+r 展开`，再按还原，双向验证（埋点日志 + 终端缓冲双证）。
-- **F5**：真实 list_dir 回合中工具卡截断为 8 行正文 + `… 33 more lines · ctrl+o expand`（实例日志 `tool-cap-hit, omitted=33` 逐帧确认 `debug=false` 路径），ctrl+o 展开方向由单测钉死并经人类验收确认。
-- 评审期间排查结论：曾出现的「截断/折叠未生效」为桌面焦点拉锯导致的按键落点与双次切换问题，非功能缺陷；代码、二进制（marker 串在包内）、`config.yaml`/`data/settings.yaml`（均无 `tui.debug`）三层核过，view 层无绕过渲染路径。诊断用临时埋点已还原，交付后根树无残留改动。
+- **F13**: The empty-session hero rendered correctly (wordmark, “Journey to Find Your True Heart”, cwd, and command/key hints), with UIA text and a screenshot providing independent evidence.
+- **F9**: ctrl+r collapsed each reasoning block to the one-line `┊ reasoning · 5 lines · ctrl+r expand`, then restored it; bidirectional verification used instrumentation logs and the terminal buffer.
+- **F5**: In a real `list_dir` turn, the tool card truncated to 8 body lines plus `… 33 more lines · ctrl+o expand` (the instance log `tool-cap-hit, omitted=33` confirmed the `debug=false` path frame by frame); the ctrl+o expansion direction was pinned by the unit test and confirmed by human acceptance.
+- Investigation during review concluded that the previously observed “truncation/collapse not taking effect” was caused by desktop focus contention, which led to key events landing in the wrong place and to a double toggle—not by a functional defect. The code, binary (the marker string was present in the package), and `config.yaml`/`data/settings.yaml` (neither contains `tui.debug`) were checked at three layers; the view layer has no bypass render path. Temporary diagnostic instrumentation was restored, and the root tree had no residual changes after delivery.

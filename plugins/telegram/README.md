@@ -1,40 +1,44 @@
-# plugins/telegram — Vivy 的第一只真耳朵（私聊文本）
+# plugins/telegram — Vivy’s first real ear (private-chat text)
 
-`telegram` 是一个 seam-channel 插件（VIVY-CHANNEL-PACK.md §9 / §14.3），
-由内核 ChannelHost 启动和消费，不是模型工具。它是后续 feishu / qq /
-discord / dingtalk 适配器的**形状模板**——抄目录结构和 Start/Stop/Send
-的骨架，不要另发明一套。
+`telegram` is a seam-channel plugin (VIVY-CHANNEL-PACK.md §9 / §14.3),
+started and consumed by the kernel’s ChannelHost; it is not a model tool. It is the
+**shape template** for the later feishu / qq / discord / dingtalk adapters—copy
+the directory structure and the Start/Stop/Send skeleton instead of inventing
+another one.
 
-## 第一刀范围（做什么 / 不做什么）
+## Initial slice scope (what it does / does not do)
 
-**做：**
+**Does:**
 
-- 私聊（`chat.type == "private"`）**纯文本**收 / 发
-- 出站 long-poll（`getUpdates`），无 webhook、无监听端口
-- 平台侧过滤 `AllowedUpdates: ["message"]`：edited message、channel post
-  等一律不进耳朵
-- 忽略机器人自己的消息（防止回声循环）、代发消息、非文本消息
+- Private chats (`chat.type == "private"`) **receive/send plain text**
+- Outbound long-poll (`getUpdates`), with no webhook and no listening port
+- Platform-side filtering with `AllowedUpdates: ["message"]`: edited messages,
+  channel posts, and so on never reach the ear
+- Ignore the bot’s own messages (to prevent echo loops), forwarded messages, and non-text messages
 
-**不做（后切）：** 群触发、媒体、命令菜单、MarkdownV2 / HTML 全套、语音、
-webhook、回复线程与话题。
+**Does not do (later slice):** group triggers, media, command menus, the full
+MarkdownV2 / HTML suites, voice, webhooks, reply threads, or topics.
 
-## 权限与策略边界
+## Permission and policy boundaries
 
-| 事项 | 归属 |
+| Item | Owner |
 |---|---|
-| `allow_from` 发信人白名单 | **Host（内核）** 强制，插件不做自己的白名单 |
-| `token_env` 密钥解析 | Host 把 `Secret` 钉在信封声明的 `token_env` 上；插件只能解析这个名字 |
-| channel settings | 插件严格解码（未知字段 fail-closed），内核不认识 `settings` 里的键 |
-| 监听端口 | 没有。long-poll 是纯出站连接 |
+| `allow_from` sender allowlist | Enforced by **Host (kernel)**; the plugin has no separate allowlist |
+| `token_env` secret resolution | Host pins `Secret` to the `token_env` declared in the envelope; the plugin may resolve only that name |
+| channel settings | Strictly decoded by the plugin (unknown fields fail closed); the kernel does not know the keys in `settings` |
+| Listening port | None. long-poll is an outbound-only connection |
 
-私聊发信人写成 `telegram:<数字用户ID>`，与配置里的 `allow_from` 条目
-**精确匹配**（无通配，`"*"` 不允许）。
+Private-chat senders are written as `telegram:<numeric user ID>` and must
+**exactly match** an `allow_from` entry in the configuration (no wildcards;
+`"*"` is not allowed).
 
-`token_env` 出现两次是**故意的**：配置信封里的 `channels.telegram.token_env`
-是 Host 审计用的声明，`settings.token_env` 是插件真正去 `Secret` 解析的名字。
-两处不一致时 `Secret` 直接失败闭合，Start 拒绝启动。
+The two occurrences of `token_env` are **intentional**: the
+`channels.telegram.token_env` in the configuration envelope is the declaration
+Host audits, while `settings.token_env` is the name the plugin actually resolves
+through `Secret`. If the two differ, `Secret` fails closed and Start refuses to
+launch.
 
-## 配置示例（信封固定，settings 不透明）
+## Configuration example (fixed envelope, opaque settings)
 
 ```yaml
 channels:
@@ -42,32 +46,35 @@ channels:
     enabled: true
     allow_from: ["telegram:123456"]
     token_env: TELEGRAM_BOT_TOKEN
-    settings:                    # 内核对这块不透明；由本插件解码
-      token_env: TELEGRAM_BOT_TOKEN   # 必须与信封 token_env 一致
-      # base_url: "http://127.0.0.1:8081"   # 可选：本地 Bot API sidecar
-      # proxy: "http://127.0.0.1:7890"       # 可选：HTTP 代理
+    settings:                    # Opaque to the kernel; decoded by this plugin
+      token_env: TELEGRAM_BOT_TOKEN   # Must match the envelope token_env
+      # base_url: "http://127.0.0.1:8081"   # Optional: local Bot API sidecar
+      # proxy: "http://127.0.0.1:7890"       # Optional: HTTP proxy
 ```
 
-密钥只经环境变量：`export TELEGRAM_BOT_TOKEN=123456:AA...`（D-010，
-token 永不出现在配置、日志、事件 payload 中）。
+Secrets travel only through environment variables:
+`export TELEGRAM_BOT_TOKEN=123456:AA...` (D-010; the token never appears in
+configuration, logs, or event payloads).
 
-`settings` 未知字段会被**拒绝**——本代 lib 不认识的键要升版本重新 pack，
-不能靠配置硬塞。
+Unknown `settings` fields are **rejected**—a key the current lib does not know
+requires a version bump and a new pack; it cannot be forced in through configuration.
 
-## 打包与验证
+## Packaging and verification
 
 ```text
-vivy-sdk verify plugins/telegram          # 静态规则 + 可链接性
-vivy-sdk pack --with telegram --out dist/ # 产出候选 EXE（链接 telego）
-vivy-sdk inspect-artifact dist/<gen>/     # recipes.plugins 含 telegram
+vivy-sdk verify plugins/telegram          # Static rules + linkability
+vivy-sdk pack --with telegram --out dist/ # Produce candidate EXE (linked with telego)
+vivy-sdk inspect-artifact dist/<gen>/     # recipes.plugins contains telegram
 ```
 
-独立 go.mod（`example.com/vivy/plugins/telegram`）是硬要求：默认
-`just ci` 与物种 `go build ./cmd/vivy` 的 import 图到不了
-`github.com/mymmrac/telego`——只有 pack 出来的那一代身体里有耳朵。
+The standalone go.mod (`example.com/vivy/plugins/telegram`) is mandatory:
+the default `just ci` and the species’ `go build ./cmd/vivy` import graphs do
+not reach `github.com/mymmrac/telego`—only the generation produced by pack has
+the ear in its body.
 
-## 模块依赖
+## Module dependencies
 
-本模块只允许 import：`agent-vivy/sdk/plugin` + 标准库 +
-`github.com/mymmrac/telego`。禁止 import `agent-vivy/internal/...`、
-eino、picoclaw 或 `.workspace`；禁止 `net.Listen`；禁止 `init()` blank import。
+This module may import only `agent-vivy/sdk/plugin` + the standard library +
+`github.com/mymmrac/telego`. Imports of `agent-vivy/internal/...`, eino,
+picoclaw, or `.workspace` are forbidden; `net.Listen` is forbidden; blank
+`init()` imports are forbidden.

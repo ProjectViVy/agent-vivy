@@ -1,4 +1,4 @@
-# Verification — 2026-08-27 console 总控台
+# Verification — 2026-08-27 console Main Console
 
 Commands run from the repo root (`C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy`).
 
@@ -14,7 +14,7 @@ node --check studio/dsh-vivy-console/client.js   # exit 0
   `data/studio-home/profiles/vivy-studio/node_modules/dsh-vivy-console/`
   (`client.js`, `package.json`, `README.md`).
 - No host-half change → **no Studio restart needed**; the client bundle is
-  served fresh per request, so the 总控台 appears after a browser refresh.
+  served fresh per request, so the Main Console appears after a browser refresh.
 
 ## Gate: `just ci`
 
@@ -35,6 +35,6 @@ host-behaviour proof.
 
 ## Interaction check (user view)
 
-After a browser refresh at `http://127.0.0.1:3090`, the 「Vivy 控制台」 tab
-shows two sections 总控台 / 日志; the 总控台 shows the overall state line,
+After a browser refresh at `http://127.0.0.1:3090`, the 「Vivy Console」 tab
+shows two sections Main Console / Logs; the Main Console shows the overall state line,
 one-click buttons, and the backend/frontend status cards.

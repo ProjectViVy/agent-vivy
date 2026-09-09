@@ -1,26 +1,34 @@
-# 2026-08-30 · 超级通道合同：Eino 原生 A2A 澄清
+# 2026-08-30 — Super Channel contract: Eino-native A2A clarification
 
-## 目标与背景
+## Goal and background
 
-C0 合同把 A2A 写成后切 `plugins/a2a`、Task = Run。补一句产品问过的边界：Eino 原生支持 A2A，这批五个聊天插件会不会挡原生路线。
+C0's contract described A2A as a later `plugins/a2a` slice, with Task = Run. This
+added one product boundary that had been asked about: Eino natively supports A2A, so
+would these five chat plugins block the native route?
 
-结论写进合同，不是新架构。
+The conclusion was written into the contract; it is not a new architecture.
 
-## 变更内容
+## Changes
 
-- `docs/architecture/VIVY-CHANNEL-PACK.md` — §1 拍板、§5 采纳/拒绝、§14.1 源、§15.1 叠法、§18 / §19 / §20 C9 / §21。
-- `docs/architecture/VIVY-PLUGIN-SPEC.md` — 禁止项：`eino-ext/a2a` 与 `RegisterServerHandlers`。
-- `docs/research/README.md` — 14a 一行。
-- `docs/TODO.md` §10 — 记一笔。
+- `docs/architecture/VIVY-CHANNEL-PACK.md` — §1 decision, §5 adopt/reject,
+  §14.1 source, §15.1 layering, §18 / §19 / §20 C9 / §21.
+- `docs/architecture/VIVY-PLUGIN-SPEC.md` — prohibition on `eino-ext/a2a` and
+  `RegisterServerHandlers`.
+- `docs/research/README.md` — one line for 14a.
+- `docs/TODO.md` §10 — one record.
 
-锁定：
+Locked:
 
-- Eino 核心没有 A2A 线协议。进程内 `AgentAsTool` / DeepAgent 不是 A2A，本批不碰。
-- `eino-ext/a2a` 拆两层：偷 `models` + `transport`；禁止 `RegisterServerHandlers(adk.Agent)` 当网关。
-- 后切叠法：codec → `plugins/a2a` → ChannelHost → `Service.Run` → 已有 ADK Runner。
-- 本批五个聊天插件零 Eino import。C1–C8 不改形状。
+- Eino core has no A2A wire protocol. In-process `AgentAsTool` / DeepAgent is not A2A;
+  this slice does not touch it.
+- `eino-ext/a2a` is split into two layers: reuse `models` + `transport`; do not use
+  `RegisterServerHandlers(adk.Agent)` as the gateway.
+- Later layering: codec → `plugins/a2a` → ChannelHost → `Service.Run` → the existing
+  ADK Runner.
+- The five chat plugins in this batch have zero Eino imports. C1–C8 keep their shape.
 
-## 明确未做
+## Explicitly not done
 
-- 未实现 A2A、未引入 `eino-ext/a2a` 依赖、未改内核 / SDK / UI。
-- 未开 C9 能力提案。
+- A2A was not implemented; the `eino-ext/a2a` dependency was not introduced; kernel /
+  SDK / UI were not changed.
+- The C9 capability proposal was not opened.

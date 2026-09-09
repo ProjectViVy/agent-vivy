@@ -1,43 +1,48 @@
-# UI-AUDIT-DASHBOARD-LIVE — Dashboard 概览接真实 RPC，删除演示快照
+# UI-AUDIT-DASHBOARD-LIVE — Connect the Dashboard overview to real RPCs and remove the demo snapshot
 
-## 变更
+## Changes
 
-`/dashboard` 的 Overview Tab 不再读 `vivy.demo.dashboard` localStorage
-演示快照，改为并行调真实 RPC：
+The `/dashboard` Overview tab no longer reads the `vivy.demo.dashboard` localStorage
+demo snapshot; it now calls the real RPCs in parallel:
 
-- 会话数 → `session/list`（`sessions.length`）
-- 活跃运行 → `background/list`（status 非终结态
-  `completed/failed/cancelled` 的运行数；审查行指定的 background RPC，
-  内核无"列出全部运行"端点，后台注册表即运行清单）
-- 待处理 Review → `review/list`（`status: 'pending'` 由后端过滤，
-  覆盖 approval + question 两类）
+- Session count → `session/list` (`sessions.length`)
+- Active runs → `background/list` (runs whose status is not one of the terminal
+  `completed/failed/cancelled` states; the audit item specified the background
+  RPC because the kernel has no "list all runs" endpoint, so the background
+  registry is the run list)
+- Pending Review → `review/list` (the backend filters `status: 'pending'`,
+  covering both approval and question)
 
-错误态沿用 `DemoLoadError`（共享错误横幅，Token Tab 同款）+ 重试；
-加载中保持骨架屏。**近期活动卡整卡删除**（审查行裁定：活动项无现有
-端点则删除——内核没有通用活动流 RPC，演示活动项是编造数据）。
+The error state reuses `DemoLoadError` (the shared error banner, also used by
+the Token tab) + retry; loading retains the skeleton screen. **The entire Recent
+activity card is deleted** (the audit ruling was to delete activity items when
+there is no existing endpoint—the kernel has no general activity-stream RPC, so
+the demo activity items were fabricated data).
 
-## 删除的演示面
+## Removed demo surface
 
-- `demo-api.ts`：`getDemoDashboard`、`DEFAULT_DASHBOARD`、
-  `STORAGE_KEYS.DASHBOARD`（`vivy.demo.dashboard`）
-- `types.ts`：`DemoDashboardSnapshot`
-- i18n en/zh：`dashboard.activityTitle/activityDesc`、
-  `demo.dashboard.*`（活动项文案块）
-- 组件更名以正名：`components/demo/DashboardDemoView.tsx` →
-  `components/dashboard/DashboardView.tsx`（路由 `_layout.dashboard`
-  同步改 import）；组件内其余演示命名（`DemoLoadError`、
-  `TokenStatsPanel` 位于 `components/demo/`）不动——它们是真实面板
-  在用的共享件，不属本行。
+- `demo-api.ts`: `getDemoDashboard`, `DEFAULT_DASHBOARD`,
+  `STORAGE_KEYS.DASHBOARD` (`vivy.demo.dashboard`)
+- `types.ts`: `DemoDashboardSnapshot`
+- i18n en/zh: `dashboard.activityTitle/activityDesc`,
+  `demo.dashboard.*` (activity-item copy block)
+- The component was renamed to its canonical name:
+  `components/demo/DashboardDemoView.tsx` →
+  `components/dashboard/DashboardView.tsx` (the `_layout.dashboard` route import
+  was updated as well); the remaining demo names inside the component
+  (`DemoLoadError`, `TokenStatsPanel` in `components/demo/`) remain unchanged—
+  they are real shared panels in use and are out of scope for this item.
 
-## 范围外（发现并另立新行）
+## Out of scope (discovered and tracked separately)
 
-- Trajectory Tab 的 `TrajectoryPanel` 仍是纯演示数据
-  （`trajectory-demo-data.ts`，组件注释自述"无后端"）。审查行只规定了
-  overview 数字与活动项，轨迹面板是独立大面——另立 TODO 行
-  UI-TRAJECTORY-DEMO 跟踪，不在本切片扩权。
-- Token Tab 已是真实 `stats/tokens`，无需改动。
+- The Trajectory tab's `TrajectoryPanel` remains demo-only data
+  (`trajectory-demo-data.ts`; the component comment says "no backend"). The audit
+  item covered only the overview numbers and activity items; the trajectory panel
+  is a separate surface tracked by the UI-TRAJECTORY-DEMO TODO and is not
+  expanded in this slice.
+- The Token tab already uses the real `stats/tokens` and needs no change.
 
-## 本来就真实的部分
+## Already-real surface
 
-`TokenStatsPanel`（`stats/tokens` 周期快照、模型分布、趋势、导出）
-与路由结构保持原样。
+`TokenStatsPanel` (periodic `stats/tokens` snapshots, model distribution, trends,
+and export) and the route structure remain unchanged.

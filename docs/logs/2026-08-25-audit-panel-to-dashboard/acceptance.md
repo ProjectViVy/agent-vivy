@@ -2,9 +2,9 @@
 
 A later agent or human working in this repo should:
 
-1. Find the audit section only in the dashboard (中控台) "审计" card —
+1. Find the audit section only in the dashboard (Dashboard) "Audit" card —
    `ui/src/components/demo/DashboardDemoView.tsx` renders `AuditPanel`.
-2. Not look for a top-right 审计 header button or `AuditDrawer.tsx`; both are
+2. Not look for a top-right Audit header button or `AuditDrawer.tsx`; both are
    gone. Reintroducing a header drawer would need a fresh product decision.
 3. Keep the audit preview static (`DIVA_AUDIT_EVENTS`); wiring it to real
    journal data is a separate, later task.

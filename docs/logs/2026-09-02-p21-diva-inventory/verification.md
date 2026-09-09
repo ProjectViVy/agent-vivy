@@ -1,20 +1,23 @@
-# Verification — P2-1 Diva 能力清单
+# Verification — P2-1 Diva capability inventory
 
-日期：2026-09-02。
+Date: 2026-09-02.
 
 ```text
-（只读盘点，无命令产物；证据以文件路径落档于清单各行）
+ (read-only inventory, with no command artifacts; evidence is recorded by file path in each
+ inventory row)
 ls C:/Users/Administrator/Desktop/morediva/agent-diva
-  → 17 crates + README/AGENTS-ARCH.MD/LAPUTA.md 等确认在位
+  → confirmed 17 crates + README/AGENTS-ARCH.MD/LAPUTA.md and related files are present
 grep -c '#[tauri::command]' agent-diva-gui/src-tauri/src/commands.rs
-  → 176（+ lib.rs 1 = 177，清单记 176+1）
+  → 176 (+ 1 in lib.rs = 177; the inventory records 176+1)
 grep -c '^- name:' agent-diva-providers/src/providers.yaml
-  → 47 个 provider 预设
-（探索代理 25 次工具调用覆盖各 crate README/头注/命令簇；完成报告全文并入清单）
+  → 47 provider presets
+(the exploration agent's 25 tool calls covered each crate's README/header/command cluster;
+the full report was incorporated into the inventory)
 
-just ci   （与本日 P3 许可审查 / SR-4 裁定两片 docs 合并过门）
+just ci   (combined docs gate with today's P3 license review / SR-4 ruling slices)
   → CI-EXIT:0
 ```
 
-交叉核对：清单 §11 统计（68 = 29+15+18+6）与逐表 tag 人工复核一致；
-"已交付 28"逐行对照 `docs/TODO.md` §10 完成记录。
+Cross-check: the inventory's §11 statistics (68 = 29+15+18+6) agree with manual tag
+review table by table; "28 delivered" was checked row by row against the completion records
+in `docs/TODO.md` §10.

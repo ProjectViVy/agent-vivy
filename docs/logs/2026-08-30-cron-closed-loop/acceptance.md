@@ -1,14 +1,39 @@
-# Acceptance（人如何确认它工作了）
+# Acceptance (how a person can confirm it works)
 
-前置：`just dev`（或 `just run` + `cd ui; pnpm dev`），浏览器开 `http://127.0.0.1:3015`。
+Prerequisite: `just dev` (or `just run` + `cd ui; pnpm dev`), with a browser open at
+`http://127.0.0.1:3015`.
 
-1. **不再是演示页**：左侧导航「定时任务」进入 `/cron-tasks`，页面顶部没有橙色「演示 / 本地模拟」横幅；副标题为「创建定时任务，到点自动在任务的专属会话里运行一次 agent。」
-2. **创建即排期**：新建任务（如名称「每日报告」、Cron 表达式 `0 9 * * *`、任务内容随意），保存后详情里「下次运行」显示后端算出的具体时间（不是「—」）；把系统时区/表达式改一下再保存，「下次运行」随之变化。
-3. **立即运行闭环**：点「立即运行」，按钮短暂变为运行中，随后任务徽标与「上次状态」变为「已完成」，「上次运行」更新为本分钟内的时间。若把模型 API Key 配错或清空，状态会变「失败」并显示「最近错误」的具体原因。
-4. **专属会话可回溯**：点「查看会话」，跳转到聊天页，会话标题为「Cron: 任务名」，里面能看到任务消息作为用户消息和 agent 的回复——每次触发的运行历史都积累在这里，与日常聊天互不干扰。
-5. **到点自动跑**：建一个「固定间隔 0.25 小时」（或临时把表达式改成每分钟 `* * * * *`）并启用的任务，等一个周期，不点任何按钮，「上次运行/上次状态」自动更新。禁用开关后不再自动触发；重新启用后恢复。
-6. **一次性任务自清理**：通过 API（`cron/create`，`schedule.kind=at` + `delete_after_run=true`）建一个几秒后的一次性任务，触发成功后任务从列表消失。
-7. **持久化**：刷新页面或重启 `vivy.exe`，任务与运行状态都还在（SQLite）；重复启动第二个进程会因 organism 租约被拒，不会出现双重触发。
-8. **配置开关**：`config.yaml` 写 `runtime.cron.enabled: false` 后重启，任务列表仍可管理，但不再有任何自动触发。
+1. **It is no longer a demo page**: the left navigation item "Scheduled tasks" opens
+   `/cron-tasks`; the orange "Demo / local simulation" banner is absent; the subtitle
+   is "Create a scheduled task and automatically run it once in its dedicated session
+   when due."
+2. **Creation schedules immediately**: create a task (for example, name it "Daily
+   report", use Cron expression `0 9 * * *`, and enter any task content). After saving,
+   "Next run" in the details shows the concrete time calculated by the backend, not
+   "—". Change the system timezone or expression and save again; "Next run" changes
+   accordingly.
+3. **The Run now loop is complete**: click "Run now"; the button briefly changes to
+   "Running", then the task badge and "Last status" become "Completed", and "Last run"
+   updates to a time within the current minute. If the model API key is wrong or
+   cleared, the status becomes "Failed" and "Recent error" shows the specific reason.
+4. **The dedicated session is traceable**: click "View session" to open the chat page;
+   the session title is "Cron: task name", and it contains the task message as a user
+   message and the agent reply. Each triggered run accumulates here without interfering
+   with regular chat.
+5. **It runs automatically when due**: create and enable a task with a "Fixed interval
+   0.25 hours" (or temporarily change the expression to every minute, `* * * * *`),
+   wait one cycle without clicking anything, and "Last run / Last status" update
+   automatically. Disabling the toggle stops automatic triggers; re-enabling restores
+   them.
+6. **One-off tasks clean themselves up**: through the API (`cron/create`,
+   `schedule.kind=at` + `delete_after_run=true`), create a one-off task a few seconds
+   in the future; after it succeeds, the task disappears from the list.
+7. **Persistence**: refresh the page or restart `vivy.exe`; the task and run state are
+   still present (SQLite). Starting a second process is rejected by the organism lease,
+   so no double trigger occurs.
+8. **Configuration toggle**: set `runtime.cron.enabled: false` in `config.yaml` and
+   restart; the task list remains manageable, but no automatic trigger occurs.
 
-回归证据：`ui/e2e/cron-tasks.spec.ts` 自动覆盖第 1/2/3/4/7 步的核心链路；冒烟截图（本目录同级留存于验证机 `vivy-cron-smoke/`）显示详情页与任务会话的实际渲染。
+Regression evidence: `ui/e2e/cron-tasks.spec.ts` automatically covers the core paths in
+steps 1/2/3/4/7; smoke screenshots (kept beside this directory on the verification
+machine in `vivy-cron-smoke/`) show the actual details page and task-session rendering.

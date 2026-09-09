@@ -1,15 +1,12 @@
-# 验收：人怎么看出它生效了
+# Acceptance: how a person can tell it works
 
-1. 长会话中让一个工具调用输出多行结果（如 `bash` 跑一个循环打印）。
-2. 结果返回前用 PgUp / 滚轮向上停在历史中间。
-3. 结果填充进卡片时：**视口停住的位置不漂移**（锚点上方内容长高，画面内容
-   跟着下移同样的行数，而不是画面“跳”走）。
-4. 长会话来回滚动：无卡顿（每帧只拼装可见窗口，不再全量重渲染历史）。
-5. 切换到一个消息很多的历史会话：短暂显示“正在加载会话历史…”，**不会**
-   先闪一下“寻找真心之旅”的空对话欢迎页，随后历史才出现。
+1. In a long session, have a tool call produce multiple lines of output (e.g. run a loop with `bash` and print).
+2. Before the result returns, use PgUp / the mouse wheel to stop midway through history.
+3. When the result fills the card: **the viewport's stopped position does not drift** (content above the anchor grows, and the on-screen content moves down by the same number of lines rather than the screen “jumping” away).
+4. Scroll back and forth through a long session: no stutter (each frame assembles only the visible window and no longer re-renders the entire history).
+5. Switch to a history session with many messages: it briefly shows “Loading session history…”, **without** first flashing the empty-conversation welcome page “Journey to Find Your True Heart”; the history then appears.
 
-## 回归锚点
+## Regression anchors
 
-- PgUp 停住后 `End` 回到底部、到底后滚动提示隐藏（chrome_test 既有断言）。
-- 距底 2 行内不显示“回到底部”提示（chrome_test 既有断言，依赖指纹门闩
-  不干扰直接写入的偏移）。
+- After stopping with PgUp, `End` returns to the bottom and the scroll hint hides (existing `chrome_test` assertion).
+- Within 2 lines of the bottom, the “return to bottom” hint is not shown (existing `chrome_test` assertion; relies on the fingerprint latch not interfering with direct offset writes).

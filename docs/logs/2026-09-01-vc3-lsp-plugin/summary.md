@@ -1,72 +1,84 @@
-# 2026-09-01 — VC-3 切片 1：proc.spawn 能力 + LSP 插件（lsp_diagnostics）
+# 2026-09-01 — VC-3 slice 1: proc.spawn capability + LSP plugin (`lsp_diagnostics`)
 
 ## What changed
 
-本切片是 VC-3（D4：LSP = vivy-sdk 独立 module 插件，tool_world seam）的第一个
-可交付切片，两部分一体交付（能力 + 消费者，缺一不可）：
+This is the first deliverable slice of VC-3 (D4: LSP = an independent vivy-sdk
+module plugin using the tool_world seam), delivered as one capability + consumer
+pair:
 
-### 内核侧：proc.spawn 能力（kernel/SDK）
+### Kernel side: proc.spawn capability (kernel/SDK)
 
-- `sdk/plugin/plugin.go` — 新 grant `proc.spawn`；`SpawnSpec`/`Proc` 类型；
-  `plugin.Env` 增加第五个方法 `Spawn(ctx, spec) (Proc, error)`。`os/exec` 在
-  插件源码中保持禁封——spawn 是 kernel-hosted 能力，与 Listen 属 ChannelHost
-  同构。子进程 cwd 固定在插件 workspace，outlives 工具调用（插件持有关照
-  责任直至 Close）。
-- `sdk/internal/manifest.go` — proc.spawn 仅 tool_world seam 可声明（tool seam
-  声明即 verify 失败），与 channel 族 grant 的 seam 限制同型。
-- `sdk/internal/testdata/bad-procspawn-seam/` + `verify_test.go` — 负面 fixture
-  与断言。
-- `internal/pluginhost/host.go` — `hostedEnv.Spawn` 实现：grant fail-closed；
-  命令 = 裸 PATH 名或 workspace 相对路径（绝对路径/逃逸拒绝）；`exec` 用
-  `context.WithoutCancel`（保住 context 值、丢弃 run 取消，语言服务器必须
-  跨调用存活）；stdin/stdout/stderr 三管道；`Close()` = kill + reap。
-- `internal/pluginhost/host_test.go` — 真实子进程测试（echo/cd/pwd 证明管道
-  与 workspace cwd 固定；无 grant 拒绝；逃逸拒绝；Close 杀子进程）。
+- `sdk/plugin/plugin.go` — new `proc.spawn` grant; `SpawnSpec`/`Proc` types;
+  `plugin.Env` adds a fifth method `Spawn(ctx, spec) (Proc, error)`. `os/exec`
+  remains blocked in plugin source—spawn is a kernel-hosted capability, analogous
+  to Listen in ChannelHost. The child-process cwd is fixed to the plugin
+  workspace, and it outlives a tool call (the plugin is responsible for it until
+  Close).
+- `sdk/internal/manifest.go` — proc.spawn may be declared only by the tool_world seam
+  (declaring it on the tool seam makes verify fail), matching the seam restriction for
+  channel-family grants.
+- `sdk/internal/testdata/bad-procspawn-seam/` + `verify_test.go` — negative fixture
+  and assertion.
+- `internal/pluginhost/host.go` — `hostedEnv.Spawn` implementation: grant
+  fail-closed; command = bare PATH name or workspace-relative path (absolute
+  paths/escapes rejected); `exec` uses `context.WithoutCancel` (retains context
+  values while dropping run cancellation, because language servers must survive
+  across calls); stdin/stdout/stderr are three pipes; `Close()` = kill + reap.
+- `internal/pluginhost/host_test.go` — real subprocess tests (echo/cd/pwd prove pipes
+  and the fixed workspace cwd; no-grant rejection; escape rejection; Close kills the child).
 
-### 插件侧：plugins/lsp（独立 module，D4 首例）
+### Plugin side: plugins/lsp (independent module, D4 first example)
 
-- `plugins/lsp/` 独立 module（`module example.com/vivy/plugins/lsp` +
-  `replace agent-vivy => ../..`），零第三方依赖（含 go.sum 无新增）。
-- `jsonrpc.go` — 手写 LSP base protocol 编解码（Content-Length 帧、
-  Content-Type 跳过）。研究行原文评估 powernap（MIT）fallback 自写约 1-2k
-  行；实际自写仅 ~110 行即覆盖本插件所需子集，故未引入 powernap——
-  供应链零新增。
+- `plugins/lsp/` is an independent module (`module example.com/vivy/plugins/lsp` +
+  `replace agent-vivy => ../..`), with zero third-party dependencies (including no new go.sum entries).
+- `jsonrpc.go` — hand-written LSP base-protocol codec (Content-Length frames,
+  skipping Content-Type). The research item evaluated a powernap (MIT) fallback
+  and estimated 1–2k lines of hand-written code; the actual hand-written subset
+  needed by this plugin is ~110 lines, so powernap was not introduced—zero new
+  supply-chain dependency.
 - `protocol.go` / `languages.go` / `client.go` / `manager.go` / `plugin.go` —
-  LSP 客户端（initialize/initialized、didOpen/didChange 全文同步、
-  publishDiagnostics 捕获与"新发布"等待语义）；manager 按 (语言, workspace
-  root) 键控懒启动 + 死进程替换 + 空闲收割（10 分钟，1 分钟巡检——插件契约
-  无 Stop 钩子，收割即关闭故事）；工具 `lsp_diagnostics`（effect read，
-  仅保存内容：env.OpenRead 读盘 → didOpen/didChange → 等新鲜发布 → 格式化
-  `path:line:col: severity: message [source]`，wait_ms 默认 3000 上限
-  15000，超时返回现有结果并附注）。
-- `vivy-plugin.json` — seam tool-world，grants [fs.read, proc.spawn]，
-  tools [lsp_diagnostics]。
-- `plugin_test.go` — 无真实服务器依赖的确定性端到端：fakeEnv.Spawn 起
-  内存假语言服务器（io.Pipe + 真 jsonrpc 帧协议），覆盖 initialize →
-  didOpen → publish → 格式化全链路 + 第二次调用复用连接（didChange 路径）
-  + 参数校验不触发 spawn。
+  LSP client (initialize/initialized, full-text didOpen/didChange sync,
+  publishDiagnostics capture and "new publication" waiting semantics); manager
+  lazily starts by (language, workspace root), replaces dead processes, and
+  reaps idle servers (10 minutes, checked every minute—the plugin contract has no
+  Stop hook, so reaping is the close story); `lsp_diagnostics` tool (effect read,
+  content-only: env.OpenRead → didOpen/didChange → wait for fresh publication →
+  format `path:line:col: severity: message [source]`, wait_ms default 3000,
+  maximum 15000, timeout returns existing results with a note).
+- `vivy-plugin.json` — tool-world seam, grants [fs.read, proc.spawn],
+  tools [lsp_diagnostics].
+- `plugin_test.go` — deterministic end-to-end tests with no real-server dependency:
+  fakeEnv.Spawn starts an in-memory fake language server (io.Pipe + real jsonrpc
+  frame protocol), covering initialize → didOpen → publish → formatting end to end,
+  connection reuse on the second call (didChange path), and argument validation that
+  does not trigger spawn.
 
-## 验证命令
+## Verification command
 
-见 `verification.md`。
+See `verification.md`.
 
-## Explicitly not done（本切片不做）
+## Explicitly not done (not in this slice)
 
-- **编辑后诊断回填**（write/patch/multiedit 结果附加 LSP 诊断）——需内核
-  write 路径与插件诊断的衔接设计（VC-3 行内为实现设计点），下一切片。
-- **lsp_definition / lsp_references / lsp_symbols / lsp_rename** 工具族
-  后续分批；rename 走 write 审批。
-- **文件版本 history**（L2 会话级回退）——RB-1 行挂靠，待用户拍板 O1..O6。
-- **UI 文件预览 / 语法高亮 / read_file 图片**。
-- **powernap 评估**——自写客户端已覆盖，评估项作废（供应链零新增）。
-- 诊断位置为 LSP UTF-16 code unit 口径（协议默认），未做编码协商
-  （positionEncoding）与 utf-8 换算——gopls 场景行号一致，列号可能偏差，
-  后续切片再议。
-- 诊断仅取工具调用目标 URI 的发布（server 可能推其他文件，暂不展示）。
+- **Post-edit diagnostic backfill** (attach LSP diagnostics to write/patch/multiedit results) —
+  requires a design connecting the kernel write path to plugin diagnostics (an implementation
+  design point in the VC-3 line); deferred to the next slice.
+- **lsp_definition / lsp_references / lsp_symbols / lsp_rename** tool family —
+  to follow in batches; rename goes through write approval.
+- **File-version history** (L2 session-level rollback) — attached to the RB-1 line,
+  pending the user's decision on O1..O6.
+- **UI file preview / syntax highlighting / read_file images**.
+- **powernap evaluation** — the hand-written client covers the need, so the evaluation item
+  is void (zero new supply-chain dependencies).
+- Diagnostic positions use LSP UTF-16 code units (the protocol default); no encoding negotiation
+  (`positionEncoding`) or UTF-8 conversion was implemented — line numbers match in gopls scenarios,
+  while columns may differ; revisit in a later slice.
+- Diagnostics include only publications for the tool call's target URI (the server may publish
+  other files, which are not displayed for now).
 
-## Crush 对齐口径
+## Crush alignment
 
-Crush 为 FSL-1.1-MIT：本切片 = 行为/协议对齐（LSP 诊断作为编码质量反馈），
-零代码拷贝。`lsp_diagnostics` 是 Crush 已有行为（LSP 诊断 + lint/type 错误
-直达模型）；本切片未添加 Crush 没有的功能面。诊断回填（Crush 的关键机制）
-属下一切片。
+Crush is FSL-1.1-MIT: this slice is behavior/protocol alignment (LSP diagnostics
+as coding-quality feedback), with zero code copied. `lsp_diagnostics` is an
+existing Crush behavior (LSP diagnostics + lint/type errors delivered directly
+to the model); this slice adds no surface that Crush lacks. Diagnostic backfill
+(Crush's key mechanism) belongs to the next slice.

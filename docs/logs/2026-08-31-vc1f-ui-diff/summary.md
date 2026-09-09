@@ -1,44 +1,44 @@
-# VC-1f — UI diff 渲染（unified/split + 统计 + Review Center）
+# VC-1f — UI diff rendering (unified/split + statistics + Review Center)
 
-日期：2026-08-31 · 分支：`feat/vc1a-bash-tool`（worktree `agent-vivy-vc0`）
+Date: 2026-08-31 · Branch: `feat/vc1a-bash-tool` (worktree `agent-vivy-vc0`)
 
 ## What changed
 
-服务端一半（go-udiff，标准统一 diff）与 UI 一半（自写渲染器）同属本交付：
+The server half (go-udiff, standard unified diff) and UI half (a custom renderer) are both part of this delivery:
 
-- **服务端**：`internal/runtime/filesystem_backend.go` 的 `boundedDiff` 改用
-  `go-udiff`（`github.com/aymanbagabas/go-udiff`，MIT，自研清单第 2 项）输出
-  标准统一 diff（3 行上下文、`--- a/…`/`+++ b/…` 头、`@@ -l,c +l,c @@` hunk），
-  保留 32 KiB `maxDiffBytes` 截断帽（截断后追加 `[diff truncated]` 标记行）。
-  5 个调用点（WriteFile / PatchFile / MultiPatchFile / PrepareWriteFile /
-  PreparePatchFile / PrepareMultiPatchFile）随之自动升级；旧的单 hunk 伪 diff
-  生成器删除。`go.mod` 中 go-udiff 由间接依赖提升为直接依赖。
-  两个 Go 测试的 diff 断言同步更新（真实统一 diff 上下文行带 ' ' 前缀）。
-- **UI 解析器**：`ui/src/lib/diff.ts` —— 宽松统一 diff 解析：不信任 hunk 头
-  声明的行数（截断会砍断尾部 hunk），只按行类型推进行号；容忍伪 diff（裸
-  `@@`、上下文无前缀）、`\ No newline`、`[diff truncated]` 标记；文本缺文件
-  头或缺 hunk 时返回 null（调用方回退纯文本）。附 `diffSplitRows`（删除块/
-  新增块按下标配对供分栏渲染）与 `parseToolResultDiff`（从 FileMutationResult
-  JSON 提取 diff/path）。
-- **UI 组件**：`ui/src/components/ui/DiffView.tsx` —— 对照 Crush 呈现行为
-  （D10 拍板，FSL-1.1-MIT 下行为对齐、零代码复制，渲染器自写）：
-  `+N −M` 统计、unified/split 双模式切换、行号 + 增删着色（emerald/rose）、
-  hunk 头行、截断提示；`max-h-96` 滚动容器；解析失败时保底按纯文本 `<pre>`。
-- **接入点 1（Review Center）**：`ApprovalsView.tsx` 审批详情 `preview` ——
-  `looksLikeDiff()` 判定为 diff 时用 DiffView，否则维持原纯文本 `<pre>`
-  （bash 等非 diff 审批不受影响）。顺带关闭 FACE-TUI-2「审批 diff 高亮」余项。
-- **接入点 2（聊天气泡）**：`MessageBubble.tsx` 工具结果分支 —— 内容为
-  FileMutationResult JSON（含非空 `diff` 字段）时渲染「工具结果 + 路径 +
-  DiffView + 折叠原始 JSON」；其余工具结果（bash/grep/read 等）维持原样。
-- **i18n**：新增 `diff.{unified,split,truncated,statsLabel}` 与
-  `chat.toolResultRaw`，zh/en 同步（词典 parity 测试覆盖）。
-- **测试**：`ui/src/lib/diff.test.ts`（解析/配对/截断/工具结果提取 12 例）、
-  `ui/src/components/ui/DiffView.test.tsx`（SSR 渲染冒烟 2 例）。
+- **Server**: `boundedDiff` in `internal/runtime/filesystem_backend.go` now uses
+  `go-udiff` (`github.com/aymanbagabas/go-udiff`, MIT, item 2 in the self-developed inventory) to output
+  standard unified diff (3 context lines, `--- a/…`/`+++ b/…` headers, `@@ -l,c +l,c @@` hunks),
+  retaining the 32 KiB `maxDiffBytes` truncation cap (appending a `[diff truncated]` marker line after truncation).
+  Five call sites (WriteFile / PatchFile / MultiPatchFile / PrepareWriteFile /
+  PreparePatchFile / PrepareMultiPatchFile) were upgraded automatically; the old single-hunk pseudo-diff
+  generator was deleted. go-udiff was promoted from an indirect to a direct dependency in `go.mod`.
+  Two Go test diff assertions were updated in sync (real unified-diff context lines carry a ` ` prefix).
+- **UI parser**: `ui/src/lib/diff.ts` — lenient unified-diff parsing: it does not trust the line counts
+  declared by hunk headers (truncation can cut off a trailing hunk), and advances line numbers by line type only;
+  it tolerates pseudo-diff (bare `@@`, context without a prefix), `\ No newline`, and `[diff truncated]` markers;
+  it returns null when text lacks file headers or a hunk (the caller falls back to plain text). It also adds
+  `diffSplitRows` (pair deletion/addition blocks by index for split rendering) and `parseToolResultDiff` (extract diff/path
+  from FileMutationResult JSON).
+- **UI component**: `ui/src/components/ui/DiffView.tsx` — presentation aligned with Crush
+  (D10 decision, behavioral alignment under FSL-1.1-MIT, zero code copying, custom renderer):
+  `+N −M` statistics, unified/split mode toggle, line numbers + add/delete coloring (emerald/rose),
+  hunk header lines, truncation notice, and a `max-h-96` scrolling container; on parse failure it falls back to plain-text `<pre>`.
+- **Integration point 1 (Review Center)**: `ApprovalsView.tsx` approval-detail `preview` uses DiffView when
+  `looksLikeDiff()` identifies a diff, otherwise retaining the original plain-text `<pre>`
+  (non-diff approvals such as bash are unaffected). This also closes the FACE-TUI-2 "approval diff highlighting" item.
+- **Integration point 2 (chat bubble)**: the `MessageBubble.tsx` tool-result branch renders
+  "tool result + path + DiffView + collapsed raw JSON" when content is FileMutationResult JSON with a non-empty `diff` field;
+  other tool results (bash/grep/read, etc.) remain unchanged.
+- **i18n**: added `diff.{unified,split,truncated,statsLabel}` and
+  `chat.toolResultRaw`, synchronized zh/en (covered by dictionary-parity tests).
+- **Tests**: `ui/src/lib/diff.test.ts` (parsing/pairing/truncation/tool-result extraction, 12 cases),
+  `ui/src/components/ui/DiffView.test.tsx` (2 SSR-render smoke cases).
 
 ## Explicitly not done
 
-- LSP/诊断 diff 着色与语法高亮（Crush 用 tree-sitter 高亮，属后续拍板范围）。
-- `filetracker`/`file_versions` 陈旧读保护（RB-1，等 O1..O6 拍板，未动）。
-- 既往历史数据里的旧伪 diff（无 `--- a/` 头的裸 hunk 变体）也能被宽松解析器
-  渲染，但未做迁移——旧消息保持原样可读。
-- MessageBubble 编辑 / 回退 / 分叉仍为占位（不属于本卡片）。
+- LSP/diagnostic diff coloring and syntax highlighting (Crush uses tree-sitter highlighting; this is reserved for a later decision).
+- Stale-read protection for `filetracker`/`file_versions` (RB-1, pending O1..O6 decisions; untouched).
+- Old pseudo-diffs in historical data (bare hunk variants without `--- a/` headers) can also be rendered by the lenient parser,
+  but no migration was performed—old messages remain readable as-is.
+- MessageBubble editing / reverting / forking remain placeholders (outside this card).

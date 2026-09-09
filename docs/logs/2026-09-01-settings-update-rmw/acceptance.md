@@ -1,11 +1,15 @@
-# Acceptance（人如何确认）
+# Acceptance: how to verify manually
 
-- 行为对单用户不可见——这是并发正确性修复。可观察证据：
+- The behavior is invisible to a single user—this is a concurrency-correctness
+  fix. Observable evidence:
   - `go test ./internal/app/settings/ -run TestUpdateConcurrentUpserts -race`
-    绿：8 个并发 writer 各写入一条 provider 条目，8/8 存活。把实现换回
-    Load→modify→Save 同一测试会丢条目（可在本地 stash 后复跑验证）。
-- 所有 Settings UI 流程照常（回归面）：模型/Provider 注册表增删改与「刷新
-  模型列表」、MCP 增删、工具开关、通道旋钮、沙箱/压缩/网络偏好保存——
-  `just ui-e2e` 全绿覆盖。
-- e2e 里 model-refresh spec（真实 UI 路径触发两段式刷新）通过，确认
-  两段式重构未改变用户可见的刷新行为。
+    is green: 8 concurrent writers each write one provider entry, and all 8
+    survive. Restoring the Load→modify→Save implementation makes the same test
+    lose entries (it can be verified by stashing locally and rerunning).
+- All Settings UI flows continue to work (regression surface): model/provider
+  registry create/update/delete and "Refresh model list", MCP create/delete,
+  tool toggles, channel controls, and sandbox/compaction/network preference
+  saves are covered green by `just ui-e2e`.
+- The e2e `model-refresh` spec (the real UI path that triggers the two-stage
+  refresh) passes, confirming that the refactor did not change user-visible
+  refresh behavior.

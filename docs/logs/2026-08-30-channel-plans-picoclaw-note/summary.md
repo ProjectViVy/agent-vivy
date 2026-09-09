@@ -1,14 +1,15 @@
-# 2026-08-30 · PLAN：正式做通道时对照 picoclaw
+# 2026-08-30 — PLAN: compare against picoclaw when formally implementing channels
 
-## 目标与背景
+## Goal and background
 
-给子 AGENT PLAN 补一条：五个真实适配器以 picoclaw 为最完整 Go 样本，只读改写、禁止 import。
+Add a note to the child-agent PLANs: the five real adapters use picoclaw as the most
+complete Go sample; rewrite it read-only and do not import it.
 
-## 变更内容
+## Changes
 
-- `docs/plans/channel-epic/00-standing-orders.md` — 专节。
-- README + CH-C4 / C6 / C7a / C7b / C7c / C3 交接 + 演进树阶段 D。
+- `docs/plans/channel-epic/00-standing-orders.md` — dedicated section.
+- README + CH-C4 / C6 / C7a / C7b / C7c / C3 handoff + evolution-tree Stage D.
 
-## 明确未做
+## Explicitly not done
 
-- 未改内核代码，未开 C4 实现。
+- No kernel code was changed, and C4 implementation was not started.

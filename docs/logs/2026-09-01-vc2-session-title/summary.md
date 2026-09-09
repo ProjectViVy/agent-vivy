@@ -1,4 +1,4 @@
-# Summary — VC-2 会话自动标题（small→large chain）
+# Summary — VC-2 automatic session titles (small→large chain)
 
 ## What changed
 

@@ -1,10 +1,11 @@
-# VC-3 slice 4: 编辑后诊断回填（diagnostics backfill）
+# VC-3 slice 4: Diagnostics backfill after edits
 
 Date: 2026-09-01. Lane: `feat/vc1a-bash-tool` (worktree `agent-vivy-vc0`).
 
 ## What changed
 
-The D4 open design point「插件诊断与内核 write/patch 结果的回填衔接（待定观察者契约设计）」is
+The D4 open design point "wiring plugin diagnostics back into kernel write/patch
+results (observer-contract design pending)" is
 now resolved and implemented. After the kernel's `write_file` / `patch` /
 `multiedit` tools change a file, the mutation result carries lint/type
 findings from tool-world plugins, so the model sees errors without a
@@ -61,6 +62,6 @@ plugin architecture, not a port.
 
 ## Explicitly not done
 
-- `positionEncoding` negotiation (stays on the VC-3 余 list).
+- `positionEncoding` negotiation (stays on the VC-3 remaining list).
 - No kernel-side dedup of identical diagnostics across successive writes —
   each mutation reports its own fresh round.

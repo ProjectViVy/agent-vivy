@@ -1,11 +1,11 @@
-# Vivy Studio 启动修复 — dsh-plugin 集成命名与构建问题
+# Vivy Studio launch fix — dsh-plugin integration naming and build issues
 
 Date: 2026-08-26
-Scope: Vivy Studio overlay（`launch-vivy-studio.ps1` + 已安装 profile），不是 Vivy 内核。
+Scope: Vivy Studio overlay (`launch-vivy-studio.ps1` + installed profile), not the Vivy kernel.
 
-## 现象
+## Symptom
 
-`launch-vivy-studio.ps1` 启动即崩，dsh 报
+`launch-vivy-studio.ps1` crashed immediately on startup; dsh reported
 
 ```
 Error: dsh: plugin tree failed to load: failed to apply loader entry include (cordis:include):
@@ -13,36 +13,41 @@ failed to import loader entry dsh-plugin (dsh-plugin): Cannot find package 'dsh-
 imported from ...\data\studio-home\profiles\vivy-studio\
 ```
 
-`http://127.0.0.1:3090` 无响应。
+`http://127.0.0.1:3090` was unresponsive.
 
-## 根因（两个叠加）
+## Root causes (two overlapping issues)
 
-1. **包名不一致**：`studio/dsh-plugin-hub/package.json` 声明的包名是 `dsh-plugin`
-   （其 `cordis.patch.yml` 也按 `dsh-plugin` 注册 loader 条目），但
-   `launch-vivy-studio.ps1` 把该包作为依赖 key 和 bundle 名都写成了
-   `dsh-plugin-hub`。pnpm 按依赖 key 装出 `node_modules/dsh-plugin-hub`，
-   cordis loader 却按 `dsh-plugin` 解析 → `ERR_MODULE_NOT_FOUND`。
+1. **Package-name mismatch**: `studio/dsh-plugin-hub/package.json` declares the
+   package name `dsh-plugin` (its `cordis.patch.yml` also registers the loader
+   entry as `dsh-plugin`), but `launch-vivy-studio.ps1` used `dsh-plugin-hub` as
+   both the dependency key and bundle name. pnpm installed
+   `node_modules/dsh-plugin-hub` from the dependency key, while the cordis loader
+   resolved `dsh-plugin` → `ERR_MODULE_NOT_FOUND`.
 
-2. **第三方包 lib 构建过期**：修好命名后暴露第二层问题 —
-   `studio/dsh-plugin-hub` 的 git HEAD 里提交的 `lib/` 是过期的不完整构建
-   （只有 `http/routes.js`、`services/loader.js`，缺 `services/install/`、
-   `services/profile/` 等），而 `lib/index.js` 引用
-   `./services/install/install.js` → 运行时缺模块。该仓库的 `lib` 只在
-   `prepack` 时重建，提交里没跟上 `src/server` 的重构。
+2. **Stale third-party lib build**: fixing the name exposed a second issue—the
+   committed `lib/` at the git HEAD of `studio/dsh-plugin-hub` was an outdated,
+   incomplete build (only `http/routes.js` and `services/loader.js`, missing
+   `services/install/`, `services/profile/`, and so on), while `lib/index.js`
+   referenced `./services/install/install.js` → the module was missing at runtime.
+   That repository rebuilds `lib` only during `prepack`, and the committed build
+   had not kept up with the `src/server` refactor.
 
-## 修复
+## Fix
 
-- `launch-vivy-studio.ps1`：把 plugin-hub 统一按真实包名 `dsh-plugin` 引用
-  （依赖 key、`dsh.profile.bundles`、seal 检查三处一致）；seal 检查改用带引号的
-  精确匹配 `"dsh-plugin"`，避免 `dsh-plugin-hub` 子串误判。
-- `studio/dsh-plugin-hub`：用仓库自带工具链从 `src/server` 重建 `lib`
-  （`npm install` + `npm run build:server`），未改任何源码。
-- 已安装 profile（`data/studio-home/profiles/vivy-studio/`）同步：package.json
-  改用 `dsh-plugin` key，重装 `node_modules/dsh-plugin` 拿到完整 lib。
+- `launch-vivy-studio.ps1`: consistently references plugin-hub by its real package
+  name `dsh-plugin` (dependency key, `dsh.profile.bundles`, and seal check all
+  agree); the seal check now uses an exact quoted match for `"dsh-plugin"` to
+  avoid a false match on the `dsh-plugin-hub` substring.
+- `studio/dsh-plugin-hub`: rebuilt `lib` from `src/server` with the repository’s
+  toolchain (`npm install` + `npm run build:server`), without changing source.
+- Synced the installed profile (`data/studio-home/profiles/vivy-studio/`):
+  package.json uses the `dsh-plugin` key, and reinstalling
+  `node_modules/dsh-plugin` provides the complete lib.
 
-## 未做的事
+## Not done
 
-- 未改动 Vivy 内核、`internal/`、`cmd/`、`ui/`。
-- 未把 plugin-hub 的 `lib` 重建提交进其仓库（第三方、父仓库未跟踪）。
-- 未提交本次改动到 git（launch 脚本的 debugger+plugin-hub 集成是进行中的工作，
-  提交与否由当前交付 owner 决定）。
+- The Vivy kernel, `internal/`, `cmd/`, and `ui/` were not changed.
+- The plugin-hub `lib` rebuild was not committed to its repository (third-party,
+  and untracked by the parent repository).
+- These changes were not committed to git (the debugger + plugin-hub integration
+  in the launch script is ongoing; the current delivery owner decides whether to commit).

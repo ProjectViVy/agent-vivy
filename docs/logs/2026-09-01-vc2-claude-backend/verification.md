@@ -1,4 +1,4 @@
-# Verification — VC-2 Anthropic 后端接线（eino-ext/claude）
+# Verification — VC-2 Anthropic backend wiring (`eino-ext/claude`)
 
 Worktree `agent-vivy-vc0`, branch `feat/vc1a-bash-tool`.
 

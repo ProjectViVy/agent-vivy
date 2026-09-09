@@ -1,28 +1,29 @@
-# 验证记录 — 移除恋粉主题
+# Verification record — Remove the Love theme
 
-## just ci（仓库根目录）
+## just ci (repository root)
 
-命令：`just ci`。结果见下方补记。
+Command: `just ci`. See the addendum below for the result.
 
-## 定向检查（ui/）
+## Targeted checks (ui/)
 
-- `pnpm typecheck`：tsc 无错。
-- `pnpm test`：8 个测试文件 30 例全过（2026-08-25 06:20）。
-  其中 `use-theme.test.ts` 的存储回退用例现以 `'love'` 为非法值输入，
-  断言回落 `DEFAULT_THEME_ID`。
+- `pnpm typecheck`: tsc reported no errors.
+- `pnpm test`: all 30 cases in 8 test files passed (2026-08-25 06:20).
+  The storage fallback case in `use-theme.test.ts` now supplies `'love'` as an
+  invalid value and asserts fallback to `DEFAULT_THEME_ID`.
 
-## 浏览器实走（smoke-for-user-visible-change）
+## Browser run (smoke-for-user-visible-change)
 
-环境：既有 split pair（Vite `http://127.0.0.1:3015`，HMR）。
+Environment: existing split pair (Vite `http://127.0.0.1:3015`, HMR).
 
-1. 刷新 `http://127.0.0.1:3015/settings`：
-   - "主题"卡只剩 4 个按钮：Vivy 蓝（默认）、简约粉白、深蓝夜色、
-     Miku 青；"恋粉"不再出现。
-   - `<html data-theme="default">`，主题卡正常渲染。
-2. 残留存储回退由单测覆盖（`readStoredTheme('love') → default`），
-   index.html 引导脚本使用同一 id 白名单逻辑。
+1. Refresh `http://127.0.0.1:3015/settings`:
+   - The “Theme” card has only 4 buttons: Vivy Blue (default), Minimal Pink &
+     White, Deep Blue Night, and Miku Teal; “Love” no longer appears.
+   - `<html data-theme="default">`; the theme card renders normally.
+2. Leftover-storage fallback is covered by a unit test
+   (`readStoredTheme('love') → default`); the index.html bootstrap script uses
+   the same ID-allowlist logic.
 
-## just ci 补记
+## just ci addendum
 
-`just ci`（fmt-check + vet + go test + headless-compile + ui-ci）
-于本次改动后运行通过（exit 0）。
+`just ci` (fmt-check + vet + go test + headless-compile + ui-ci) passed after
+these changes (exit 0).

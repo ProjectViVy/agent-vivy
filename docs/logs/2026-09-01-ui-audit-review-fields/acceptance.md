@@ -1,22 +1,32 @@
 # Acceptance
 
-## 人如何确认生效
+## How to verify
 
-1. 打开 `http://127.0.0.1:3015`（split Vite + `just run` 控制面）。
-2. 进入审批中心（聊天页盾形入口的 Review sheet，或 `/approvals`）。
-3. 选择任一条记录，详情 `<dl>` 中在 影响/可逆性/作用范围/信任状态 之后：
-   - 创建时间 / 过期时间 两行必现，格式随界面语言（设置 → 语言切换后
-     刷新，时间串跟随 zh/en locale）。
-   - 有 decided_at 的记录（已批准/已拒绝/已过期）多一行 决定时间。
-   - 被拒绝的审批能看到 决定理由（deny 时填写的 reason）。
-   - 过期/失效记录能看到 失效原因；提交出错的能看到红色 错误 行。
-   - 带前置条件的审批显示 前置条件 哈希（等宽字体，超长可断行）。
-4. 双语检查：zh 显示 创建时间/过期时间/发起者 等；切 English 后同一行
-   为 Created/Expires/Actor 等，无原始 i18n 键漏出。
+1. Open `http://127.0.0.1:3015` (split Vite + `just run` control plane).
+2. Open the Review sheet from the chat-page shield entry, or open `/approvals`.
+3. Select any record. After Impact/Reversibility/Scope/Trust in the detail
+   `<dl>`:
+   - Created at / Expires at are always present, formatted for the interface
+     language (switch language in Settings → Language and refresh; the time
+     string follows the zh/en locale).
+   - Records with `decided_at` (approved/rejected/expired) add a Decision time
+     row.
+   - A rejected approval shows the Decision reason (the reason entered for
+     deny).
+   - An expired/stale record shows the Stale reason; a failed submission shows a
+     red Error row.
+   - An approval with a precondition shows the Precondition hash (monospace,
+     with long values allowed to wrap).
+4. Check both languages: zh shows labels such as Created at/Expires at/Actor;
+   after switching to English, the same rows use Created/Expires/Actor, with no
+   raw i18n keys exposed.
 
-## 快速制造可观察状态
+## Quick ways to create observable states
 
-- pending 审批：让模型执行一个需要审批的写操作，即出现 待处理 记录
-  （此时无 决定时间/决定理由，属正常——字段按存在性渲染）。
-- 过期态：让记录过期（或用旧数据）→ 失效原因 行出现。
-- 拒绝：在 deny 输入框填理由后提交 → 该记录详情出现 决定理由。
+- Pending approval: have the model execute a write operation that requires
+  approval; a pending record appears (no Decision time/Decision reason yet,
+  which is expected because fields render only when present).
+- Expired state: let a record expire (or use old data) → the Stale reason row
+  appears.
+- Rejection: enter a reason in the deny field and submit → the record details
+  show the Decision reason.

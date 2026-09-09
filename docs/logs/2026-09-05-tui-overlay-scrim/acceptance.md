@@ -1,5 +1,5 @@
 # Acceptance
 
-1. 在有聊天内容的会话里按 `ctrl+x` 或 `shift+tab`。
-2. 主页面的消息、侧栏、底栏提示不应再从对话框旁边或内部透出来。
-3. 只看到居中的新 UI；`esc` 关掉后主页面恢复。
+1. In a session with chat content, press `ctrl+x` or `shift+tab`.
+2. Messages, the sidebar, and footer hints from the main page should no longer show through beside or inside the dialog.
+3. Only the new centered UI should be visible; after `esc` closes it, the main page returns.

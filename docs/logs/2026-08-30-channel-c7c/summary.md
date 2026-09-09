@@ -1,30 +1,30 @@
-# CH-C7c — `plugins/discord` 文本，无 voice（summary）· 本期关门切片
+# CH-C7c — `plugins/discord` text, no voice (summary) — closing slice
 
-日期：2026-08-30。分支 `feat/channel-c7c`（自 `feat/channel-c7b` d5f4506 切出；顺序切片复用同一 worktree）。
-PLAN：`docs/plans/channel-epic/CH-C7c.md`。合同：`VIVY-CHANNEL-PACK.md` §14.1（discord 行）。对照 picoclaw discord（**voice.go 未移植**）。
+Date: 2026-08-30. Branch `feat/channel-c7c` (cut from `feat/channel-c7b` d5f4506; the sequential slice reused the same worktree).
+PLAN: `docs/plans/channel-epic/CH-C7c.md`. Contract: `VIVY-CHANNEL-PACK.md` §14.1 (discord row). Compared with picoclaw discord (**`voice.go` not ported**).
 
-## 做了什么
+## What changed
 
-第四只国际耳朵，本期 M-CH4 关门切片：Discord Gateway WS 的 DM + 文本频道纯文本。
+The fourth international ear, the M-CH4 closing slice: pure text for Discord Gateway WS DM + text channels.
 
-1. **独立 module** `plugins/discord`（**上游** discordgo v0.29.0——picoclaw 用 fork replace，我们不用 fork，README 注明）。
-2. **session 接口隔离**：discordgo 无干净的端点注入（`Session.gateway` 未导出、endpoint 是进程级全局）→ 细 `session` 接口（Open/Close/ChannelMessageSend）+ 工厂缝，测试全 fake/回环。settings 仅 `token_env`（单凭据，信封钉名语义与 telegram 同）。
-3. **生命周期（discordgo v0.29 源码核实）**：`Open()` 同步走完 READY（坏 token / 4014 intent 拒绝首连即败）；`reconnect()` 无视 Close 无限循环 → `ShouldReconnectOnError=false` + 每次重拨换全新 session；死亡信号 = 合成 DISCONNECT 事件（双重触发真实存在 → `sync.OnceFunc`）；** ear/api 分离**——专用永不开机的 session 走纯 REST `ChannelMessageSendComplex`（回复在耳朵重拨期间仍可用）。Stop 是 latch+cancel+有界等待、从不从 Stop 路径 Close（Open 持锁全握手，Stop 侧 Close 会互斥卡死——qq 同型）。
-4. **入站**：DM + guild 文本频道；bot 自环 / 空内容 / 系统与 interaction 类型丢弃；`ReplyTo` 入站捕获（出站本刀忽略）；`Sender = "discord:<id>"`。无去重栅栏（Discord 网关不重投已派发事件——源码核实，README 记录）。类型别名即处理函数（discordgo 的 `handlerForInterface` 类型开关不识别具名函数类型——测试抓出的真 bug，已注释）。
-5. **pion 封禁入 SDK verify（CH-C7c §6.2 要求）**：`bannedImportPrefixes` 增加 `github.com/pion/` **全前缀**封禁，对全部 seam 生效（tool 插件也不许）；夹具 `bad-pion-import` 被拒实测。voice.go / webrtc / TTS / slash 全家桶零移植（grep 全零；`ShouldReconnectVoiceOnSessionError=false` 有测试钉住）。
-6. **密钥**：`LogLevel` 显式钉 `LogError`（discordgo 会在 LogDebug 打含 token 的 Identify 包——不依赖库默认值，评审 note 落实）。`Message Content Intent` 是特权 intent，README 写明开通前置。
+1. **Independent module** `plugins/discord` (**upstream** discordgo v0.29.0—picoclaw uses a fork replacement, we do not use the fork, and the README notes this).
+2. **Session interface isolation**: discordgo has no clean endpoint injection (`Session.gateway` is unexported and the endpoint is process-global) → a narrow `session` interface (Open/Close/ChannelMessageSend) plus a factory seam; tests are all fake/loopback. Settings only has `token_env` (single credential, with envelope-pinned semantics matching telegram).
+3. **Lifecycle (verified against discordgo v0.29 source)**: `Open()` synchronously completes READY (bad token / 4014 intent rejection fails on first connection); `reconnect()` ignores Close and loops forever → `ShouldReconnectOnError=false` + a fresh session for every redial; death signal = a synthesized DISCONNECT event (the double trigger is real → `sync.OnceFunc`); **ear/API separation**—a dedicated session that is never opened uses pure REST `ChannelMessageSendComplex` (replies remain available while the ear redials). Stop is latch+cancel, bounded wait, and never Close from the Stop path (`Open` holds the lock through the handshake, so Close from Stop can deadlock—same shape as qq).
+4. **Inbound**: DM + guild text channels; bot self-echo / empty content / system and interaction types are dropped; `ReplyTo` is captured inbound (ignored outbound in this slice); `Sender = "discord:<id>"`. No deduplication fence (the Discord gateway does not redeliver already-dispatched events—verified against source, recorded in the README). A named function type was used as the handler (discordgo's `handlerForInterface` type switch does not recognize named function types—a real bug caught by tests, now commented).
+5. **Ban pion in SDK verify (CH-C7c §6.2 requirement)**: `bannedImportPrefixes` adds a **full-prefix** ban on `github.com/pion/`, effective across every seam (tool plugins cannot smuggle it in either); the `bad-pion-import` fixture was rejected in a real test. Zero porting of `voice.go` / webrtc / TTS / slash suite (grep all zero; `ShouldReconnectVoiceOnSessionError=false` is pinned by a test).
+6. **Secrets**: explicitly pin `LogLevel` to `LogError` (discordgo prints Identify packets containing the token at LogDebug—do not rely on the library default; the review note is implemented). `Message Content Intent` is a privileged intent, and the README states the enablement prerequisite.
 
-## 明确没做（不做声明）
+## Explicitly not done (non-goals)
 
-- voice / WebRTC / TTS / 打字指示 / 反应 / 编辑 / embeds / 媒体 / 论坛与线程管理 / slash 与 interaction 处理——合同禁止或后切。
-- RESUME 续传（v0.29 session id/seq 未导出）→ 每次重拨重新 IDENTIFY，重拨间隙事件有界丢失（防卡死优先于零丢失，记录为有意偏离）。
-- 群触发策略（可读文本全走 Host allow_from 闸门）。
-- 真实 Discord 冒烟未做（无凭据；Intent 前置需开发者面板开通；回滚 = 配方不点名）。
+- voice / WebRTC / TTS / typing indicators / reactions / edits / embeds / media / forum and thread management / slash commands and interaction handling—the contract prohibits them or defers them to a later slice.
+- RESUME continuation (session ID/seq are not exported in v0.29) → every redial sends IDENTIFY again, with bounded event loss during the redial gap (prioritizing deadlock avoidance over zero loss; recorded as an intentional deviation).
+- Group trigger policy (all readable text goes through the Host `allow_from` gate).
+- Real Discord smoke testing was not done (no credentials; enabling the Intent requires the developer dashboard; rollback = omit discord from the recipe).
 
-## 门禁与证据
+## Gates and evidence
 
-`just ci` exit 0（Go 24 包 + UI 172 测试）；`vivy-sdk verify plugins/discord` ok；`bad-pion-import` 被拒；`pack --with discord` 候选 EXE 链接 discordgo v0.29.0 且 **0 pion**；物种 `go.mod`/`go.sum` 字节不变；`go list -deps ./cmd/vivy` 零 discordgo；插件测试 + `-race` 绿。
+`just ci` exit 0 (24 Go packages + 172 UI tests); `vivy-sdk verify plugins/discord` ok; `bad-pion-import` rejected; `pack --with discord` candidate EXE links discordgo v0.29.0 and has **0 pion**; the species `go.mod`/`go.sum` are byte-identical; `go list -deps ./cmd/vivy` has zero discordgo; plugin tests + `-race` are green.
 
-## 结构性缺口（登记 §0.1）
+## Structural gap (registered in §0.1)
 
-`just ci` 不编译/不测 `plugins/*`（fmt-check 的 rg glob 只扫 cmd internal sdk ui；`go test ./...` 不过独立 module 边界）——五只耳朵的 gofmt/vet/test 全靠切片内人工执行。插件数量已到五，建议后继加 `plugin-ci` 配方逐 module 跑（记 CH-C7c-N1）。
+`just ci` does not compile/test `plugins/*` (the fmt-check's rg glob scans only cmd internal sdk ui; `go test ./...` does not cross independent module boundaries)—all five ears' gofmt/vet/test rely on manual execution inside each slice. There are now five plugins; a follow-up `plugin-ci` recipe should run per module (recorded as CH-C7c-N1).

@@ -1,29 +1,36 @@
-# 供应商编辑入口打磨：对话框语义「管理供应商」+ 头部按钮排版统一
+# Provider-edit entry polish: 「Manage provider」 dialog semantics + unified header-button layout
 
-## 问题（用户反馈）
+## Problems (user feedback)
 
-1. 从右侧头部的铅笔（编辑）入口打开对话框时，标题显示「新增自定义供应商」——
-   与"编辑"意图冲突；用户希望这类入口对应「管理供应商」。
-2. 上轮把铅笔按钮放进地址文本行内（小图标 h-3、p-1），与右上角「从官方同步」/
-   「新增」图标（h-3.5、p-1）大小、位置不一致，头部按钮排版混乱。
+1. Opening the dialog from the pencil (Edit) entry in the right header showed the title
+   「Add custom provider」, which conflicted with the intent to edit; the user wanted this
+   entry to correspond to 「Manage provider」.
+2. The previous round placed the pencil button inside the address-text row (small icon h-3,
+   p-1), inconsistent in size and position with the 「Sync from official」 / 「Add」 icons in
+   the upper right (h-3.5, p-1), making the header-button layout messy.
 
-## 改动
+## Changes
 
-- `ModelSettingsCard.tsx`：
-  - 对话框标题/说明按来源区分三种语义：
-    - `editing`（自定义条目）→「编辑自定义供应商」，
-    - `preset`（目录条目，铅笔入口，预填克隆）→「管理供应商」+ 专属说明
-      （保存后成为自定义供应商、目录原条目保持不变），
-    - 空新增（左侧「＋ 新增自定义供应商」）→「新增自定义供应商」。
-  - 右栏头部排版重构：地址文本回归纯文本行（不再内嵌按钮）；铅笔（编辑）、
-    刷新、新增三个图标按钮统一为**同一排、同尺寸（h-4 w-4）、同 padding
-    （p-1.5）、同间距**，位于右侧运行束徽标之后，视觉上一组对齐。
-- `i18n/zh.ts` / `en.ts`：新增 `settingsModel.customDialogTitleManage`
-  （管理供应商 / Manage provider）与 `customDialogHintManage`（管理语义说明）。
+- `ModelSettingsCard.tsx`:
+  - dialog title/copy now distinguish three semantics by source:
+    - `editing` (custom entry) → 「Edit custom provider」;
+    - `preset` (catalog entry, pencil entry, prefilled clone) → 「Manage provider」 + a
+      dedicated explanation (it becomes a custom provider after saving, while the original
+      catalog entry remains unchanged);
+    - empty add (left-side 「＋ Add custom provider」) → 「Add custom provider」.
+  - rebuilt the right-header layout: address text returns to a plain text row (no embedded
+    button); the pencil (Edit), Refresh, and Add icon buttons now use **the same row, size
+    (h-4 w-4), padding (p-1.5), and spacing**, positioned after the right-side runtime-bundle
+    badge and visually aligned as one group.
+- `i18n/zh.ts` / `en.ts`: added `settingsModel.customDialogTitleManage`
+  (Manage provider) and `customDialogHintManage` (manage-semantics hint).
 
-## 未做（显式边界）
+## Not done (explicit boundaries)
 
-- 目录条目仍不可原地修改：保存管理对话框后生成新的自定义条目，目录原条目
-  保持不变（冲突校验与既有 `(bundle, baseUrl)` 优先级规则未放宽）。
-- 未改地址仅改别名保存时仍会命中重复地址校验（既有规则）。
-- 真实在线目录同步 `UI-PROV-RPC`、同束多网关密钥 `UI-MODEL-KEY-SCOPE` 维持 OPEN。
+- Catalog entries still cannot be modified in place: saving the management dialog creates a
+  new custom entry and leaves the original catalog entry unchanged (conflict validation and
+  the existing `(bundle, baseUrl)` priority rule were not relaxed).
+- Saving after changing only the alias, without changing the address, still hits duplicate-
+  address validation (existing rule).
+- Real online catalog synchronization `UI-PROV-RPC` and same-bundle, multi-gateway keys
+  `UI-MODEL-KEY-SCOPE` remain OPEN.

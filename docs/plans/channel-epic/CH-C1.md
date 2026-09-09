@@ -1,110 +1,110 @@
-# CH-C1 — 账本：`channel.inbound` + Message 出处
+# CH-C1 — Ledger: `channel.inbound` + Message Provenance
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C1 |
-| 阶段 | A 遗传物质 |
-| 人日 | 2 |
-| 里程碑 | M-CH1 地基 |
-| 依赖 | CH-0（已 DONE） |
-| 后继 | CH-C2 |
-| 分支 | **新** `feat/channel-c1`（不要写进 `feat/channel-super-contract`） |
-| 合同 | `VIVY-CHANNEL-PACK.md` §7.3、§8、C1 |
-| 演进 | `VIVY-CHANNEL-EVOLUTION.md` 阶段 A |
+| Stage | A Genetic Material |
+| Person-days | 2 |
+| Milestone | M-CH1 Foundation |
+| Dependency | CH-0 (DONE) |
+| Successor | CH-C2 |
+| Branch | **New** `feat/channel-c1` (do not write into `feat/channel-super-contract`) |
+| Contract | `VIVY-CHANNEL-PACK.md` §7.3, §8, C1 |
+| Evolution | `VIVY-CHANNEL-EVOLUTION.md` Stage A |
 
-开工前：`00-standing-orders.md`。
+Before starting: `00-standing-orders.md`.
 
-## 2. 目标
+## 2. Goal
 
-Journal 能记下「世界从哪只耳朵进来说了什么」。本机 UI 对话不变。身体上还没有耳朵。
+Journal can record "what the world said and through which ear it entered." Local UI conversations remain unchanged. The body still has no ears.
 
-成功：`just ci` 绿；新事件 schema 存在；旧 Message 读出来 `Source=ui`；无适配器、无 Host、无 sdk/plugin 行为变化。
+Success: `just ci` is green; the new event schema exists; old Messages read back with `Source=ui`; no adapter, Host, or sdk/plugin behavior changes.
 
-## 3. 现状
+## 3. Current State
 
-- `internal/domain/session.go` `Message`：ID/SessionID/RunID/Role/CreatedAt/Content/Tool*。无出处。
-- `internal/domain/event.go` 无 `channel.*`。
-- `schemas/events/payloads/` 无 `channel.inbound.json`。
-- `internal/storage/sqlite/messages.go` INSERT 九列；`postgres/schema.go` `CREATE TABLE messages` 同样。
-- `internal/runtime/service.go` `RunWithOptions` 直接 `AppendMessage` 用户行，无 Source。
-- 无 ChannelHost。
+- `internal/domain/session.go` `Message`: ID/SessionID/RunID/Role/CreatedAt/Content/Tool*. No provenance.
+- `internal/domain/event.go` has no `channel.*`.
+- `schemas/events/payloads/` has no `channel.inbound.json`.
+- `internal/storage/sqlite/messages.go` inserts nine columns; `postgres/schema.go` `CREATE TABLE messages` does the same.
+- `internal/runtime/service.go` `RunWithOptions` directly `AppendMessage`s the user row, with no Source.
+- No ChannelHost.
 
-## 4. 目标结构
+## 4. Target Structure
 
-本切片只长 L0 遗传物质，不长 Host。
+This slice grows only the L0 genetic material, not the Host.
 
 ```text
 domain.Message
-  + Source            "ui" | "channel"（空读作 ui）
-  + Channel           平台名；ui 行空
-  + ChatID            会话键一部分；ui 行空
-  + ChannelMessageID  平台 message_id；ui 行空
-  禁止：token、raw JSON blob、平台私有 metadata 当主列
+  + Source            "ui" | "channel" (empty means ui)
+  + Channel           platform name; empty on ui rows
+  + ChatID            part of the session key; empty on ui rows
+  + ChannelMessageID  platform message_id; empty on ui rows
+  Forbidden: token, raw JSON blob, or platform-private metadata as primary columns
 
 domain.EventChannelInbound = "channel.inbound"
   payload: channel, chat_id, sender, message_id, session_id, run_id?
-  不含密钥、不含原始 webhook body
+  No secrets and no raw webhook body
 
-messages 表：新列 DEFAULT ''，旧行 = ui
+messages table: new column DEFAULT ''; existing rows = ui
 ```
 
-## 5. 文件清单
+## 5. File Inventory
 
-**改**
+**Modify**
 
-- `internal/domain/session.go` — Message 字段 + 校验
+- `internal/domain/session.go` — Message fields + validation
 - `internal/domain/event.go` — EventType
 - `schemas/events/payloads/channel.inbound.json`
-- `schemas/events/run-event.schema.json` — enum 加类型（若有）
-- `internal/storage/sqlite/sqlite.go` — messages DDL / 迁移
+- `schemas/events/run-event.schema.json` — add the type to the enum (if present)
+- `internal/storage/sqlite/sqlite.go` — messages DDL / migration
 - `internal/storage/sqlite/messages.go` — INSERT/SELECT
 - `internal/storage/postgres/schema.go` + `postgres/messages.go`
-- `internal/storage/conformance` — 出处往返
-- `internal/runtime/service.go` — UI 路径显式 `Source: "ui"`（或空=ui）
-- 触及 Message 字面量的测试夹具
+- `internal/storage/conformance` — provenance round trip
+- `internal/runtime/service.go` — explicitly set `Source: "ui"` on the UI path (or empty=ui)
+- Test fixtures that touch Message literals
 
-**禁止碰**
+**Do Not Touch**
 
-- `sdk/plugin`、`internal/pluginhost`、`plugins/`、平台 SDK
-- `internal/runtime/engine.go` 的 Eino 循环
-- UI 设置页
+- `sdk/plugin`, `internal/pluginhost`, `plugins/`, or platform SDKs
+- The Eino loop in `internal/runtime/engine.go`
+- UI settings pages
 
-## 6. 步骤
+## 6. Steps
 
-1. 给 `Message` 加字段；空 Source 视为 `ui`。单测：零值兼容。
-2. 加 `EventChannelInbound` + JSON schema。payload 不得含 token。
-3. sqlite/pg：`ALTER` 或重建测试库 DDL，DEFAULT `''`。conformance：写入 channel 行再读回。
-4. `Service.Run` UI 路径：Source 保持 ui。现有 runtime 测试必须绿。
-5. 不实现 Host。可加纯函数测试「构造 inbound payload」。
-6. `just ci`。
-7. `docs/logs/YYYY-MM-DD-channel-c1/`。TODO CH-C1 → DONE。
+1. Add fields to `Message`; treat an empty Source as `ui`. Unit-test zero-value compatibility.
+2. Add `EventChannelInbound` + JSON schema. The payload must not contain a token.
+3. sqlite/pg: use `ALTER` or rebuild the test-database DDL, with DEFAULT `''`. Conformance: write a channel row and read it back.
+4. `Service.Run` UI path: keep Source as ui. Existing runtime tests must remain green.
+5. Do not implement the Host. A pure-function test for "construct inbound payload" may be added.
+6. `just ci`.
+7. `docs/logs/YYYY-MM-DD-channel-c1/`. TODO CH-C1 → DONE.
 
-## 7. 验收
+## 7. Acceptance
 
-- `just ci` 绿。
-- 无 `telego` 等出现在物种 `go.mod`。
-- 新库 Message 无出处列读失败 = 不合格；旧行必须还能 List。
-- 事件 schema 有 `channel.inbound`；夹具不含密钥。
-- UI 对话（runtime 测试）不要求新字段也能跑。
+- `just ci` is green.
+- No `telego` or similar appears in a species' `go.mod`.
+- A new-database Message read without the provenance column fails = unacceptable; old rows must still be Listable.
+- The event schema contains `channel.inbound`; fixtures contain no secrets.
+- UI conversations (runtime tests) still run without requiring the new fields.
 
-## 8. 禁止
+## 8. Prohibitions
 
-- 建 `internal/channelhost`。
-- 改 `sdk/plugin` ABI。
-- 把 `Metadata map[string]string` 当主合同。
-- 密钥进 Journal / 事件。
-- 把本切片和 C2 混在一个 commit。
+- Create `internal/channelhost`.
+- Change the `sdk/plugin` ABI.
+- Treat `Metadata map[string]string` as the primary contract.
+- Put secrets into Journal / events.
+- Mix this slice with C2 in one commit.
 
-## 9. 风险与回滚
+## 9. Risks and Rollback
 
-- sqlite 测试库是全量 DDL 而非迁移：两处 schema 都要改。
-- Message 结构体字段加多会破未具名复合字面量：全仓搜 `domain.Message{`。
-- 回滚：revert 本分支；无运行时耳朵，风险限于存储列。
+- The sqlite test database uses full DDL rather than migrations: both schemas must be changed.
+- Adding fields to the Message struct can break unnamed composite literals: search the repository for `domain.Message{`.
+- Rollback: revert this branch; with no runtime ears, the risk is limited to storage columns.
 
-## 10. 交接
+## 10. Handoff
 
-完成后：下一 AGENT 读 [CH-C2.md](CH-C2.md)。C2 依赖本切片的 Message 出处字段名，不要在 C2 改名。
+After completion: the next AGENT reads [CH-C2.md](CH-C2.md). C2 depends on this slice's Message provenance field names; do not rename them in C2.
 
-> **DONE 2026-08-30** — 分支 `feat/channel-c1`；字段定形 `Source` / `Channel` / `ChatID` / `ChannelMessageID`（空 Source=ui，`Message.EffectiveSource()`）。C2 直接依赖这些名字。Filing: `docs/logs/2026-08-30-channel-c1/`。
+> **DONE 2026-08-30** — Branch `feat/channel-c1`; finalized fields `Source` / `Channel` / `ChatID` / `ChannelMessageID` (empty Source=ui, `Message.EffectiveSource()`). C2 directly depends on these names. Filing: `docs/logs/2026-08-30-channel-c1/`.

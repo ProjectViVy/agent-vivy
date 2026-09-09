@@ -1,16 +1,19 @@
-# 验收
+# Acceptance
 
-## 从产品/用户视角如何确认修复
+## How to confirm the fix from a product/user perspective
 
-1. 打开应用（http://127.0.0.1:3015），看左侧栏：
-   - 「Vivy」分组下出现 **「进化」** 项，右侧带一个 **「待实现」** 小标签；
-   - 「工具管理」分组保留 **MCP / Skill**，其中 Skill 是技能页唯一入口。
-2. 点击左侧栏「进化」：
-   - **不会跳转**，侧边栏底部出现提示「进化功能暂未接入」，约 1.8 秒后消失。
-3. 点击「Skill」进入技能页：
-   - 侧边栏**只有「Skill」一项高亮**，「进化」始终不被高亮。
-4. 在技能页点其他导航项（如「聊天」「中控台」）：
-   - 高亮正确转移，「Skill」不再被额外高亮覆盖。
-5. 语言切换（设置 → 语言）后：
-   - 「进化」标签 zh=进化 / en=Evolution，Badge zh=待实现 / en=Planned，
-     提示 zh=进化功能暂未接入 / en=Evolution is not implemented yet。
+1. Open the app (http://127.0.0.1:3015) and inspect the left sidebar:
+   - The Vivy group contains an **Evolution** item with a **Planned** badge on the right;
+   - The Tools Management group still contains **MCP / Skill**, with Skill as the
+     only entry to the Skills page.
+2. Click Evolution in the left sidebar:
+   - **There is no navigation**; a notice saying “Evolution is not implemented
+     yet” appears at the bottom of the sidebar and disappears after about 1.8 seconds.
+3. Click Skill to enter the Skills page:
+   - **Only Skill is highlighted** in the sidebar; Evolution never becomes highlighted.
+4. On the Skills page, click another navigation item (such as Chat or Dashboard):
+   - Highlighting moves correctly, and Skill is no longer covered by an extra highlight.
+5. After switching languages (Settings → Language):
+   - In the English UI, the label is Evolution, the badge is Planned, and the
+     notice says “Evolution is not implemented yet”; the corresponding zh UI
+     strings remain localized in the product.

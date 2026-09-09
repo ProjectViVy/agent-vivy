@@ -1,13 +1,13 @@
-# 简化底栏：shift+tab 模式 / ctrl+x 快捷
+# Simplified Footer: shift+tab Mode / ctrl+x Shortcuts
 
-## 已交付
+## Delivered
 
-- 底栏不再铺一排 `^s ^p enter y/n…`。默认只留 `shift+tab 模式`、`ctrl+x 快捷` 和状态。
-- `shift+tab` 进入命令模式（命令面板）。
-- `ctrl+x` 打开快捷方式浮层，列出原来的快捷键；`esc` / 再按 `ctrl+x` 关闭。
-- 审批中底栏改成 `y/n 批准`；会话列表里 `ctrl+x` 仍是删除。
+- The footer no longer lays out a row of `^s ^p enter y/n…`. By default, only `shift+tab mode`, `ctrl+x shortcuts`, and the status remain.
+- `shift+tab` enters command mode (the command palette).
+- `ctrl+x` opens the shortcuts overlay, listing the original shortcuts; `esc` / pressing `ctrl+x` again closes it.
+- During approval, the footer changes to `y/n approve`; in the session list, `ctrl+x` still deletes.
 
-## 边界
+## Boundaries
 
-- `/` 与 `ctrl+p` 仍可打开命令面板。
-- 没有做成前缀和弦（按完 ctrl+x 再按单键执行）。
+- `/` and `ctrl+p` can still open the command palette.
+- It was not made into a prefix chord (press ctrl+x, then a single key to execute).

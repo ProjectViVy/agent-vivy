@@ -1,27 +1,27 @@
-# Verification — 聊天框功能栏伪操作清理与闭环
+# Verification — Chat Input Toolbar Fake-Action Cleanup and Closure
 
 ## Commands Run & Results
 
-1. **静态类型检查与单元测试**：
-   - `pnpm typecheck` in `ui/`: 退出码 0，无任何类型错误。
-   - `pnpm test` in `ui/`: 退出码 0，24 个测试套件全绿（197 passed），包括 `src/i18n/index.test.ts` 校验双语字典对称性完全一致。
+1. **Static type checking and unit tests**:
+   - `pnpm typecheck` in `ui/`: exit code 0, with no type errors.
+   - `pnpm test` in `ui/`: exit code 0, all 24 test suites green (197 passed), including `src/i18n/index.test.ts`, which verifies that the bilingual dictionaries are exactly symmetric.
 
-2. **UI 构建与 E2E 浏览器规格**：
-   - `pnpm build` in `ui/`: 退出码 0，Vite 生产包构建成功。
-   - `pnpm e2e thinking-gate.spec.ts` in `ui/`: 退出码 0，1 passed。
-     - 断言 `getByRole('button', { name: '思考模式' })` count = 0（无 provider 时隐藏）。
-     - 断言 `getByTitle('手动触发 AutoDream')` 与 `getByLabel('手动触发 AutoDream')` count = 0（AutoDream 图标已清退）。
-     - 断言点击展开执行模式下拉菜单后：`智能体模式` 与 `计划模式` 正常渲染，`询问模式` count = 0（伪模式已清退）。
+2. **UI build and E2E browser specification**:
+   - `pnpm build` in `ui/`: exit code 0, Vite production bundle built successfully.
+   - `pnpm e2e thinking-gate.spec.ts` in `ui/`: exit code 0, 1 passed.
+     - Asserts `getByRole('button', { name: '思考模式' })` count = 0 (hidden when there is no provider).
+     - Asserts `getByTitle('手动触发 AutoDream')` and `getByLabel('手动触发 AutoDream')` count = 0 (the AutoDream icon was removed).
+     - After clicking to expand the execution-mode dropdown, asserts that `智能体模式` and `计划模式` render normally and `询问模式` count = 0 (the fake mode was removed).
 
-3. **内核测试单测修复验证**：
-   - `go test -v ./internal/codeface`: 退出码 0，3 passed，Windows 短路径兼容正常。
+3. **Kernel unit-test fix verification**:
+   - `go test -v ./internal/codeface`: exit code 0, 3 passed, with Windows short-path compatibility working normally.
 
-4. **全量网关质量门禁（Gate）**：
-   - `just ci` in 根目录：
-     - `fmt-check`：通过
-     - `ui-ci` (install -> typecheck -> test -> build)：通过
-     - `vet`：通过
-     - `test`：全量 Go 测试通过
-     - `headless-compile`：通过
-     - `plugin-ci`：通过
-     - 最终退出码 0。
+4. **Full gateway quality gate (Gate)**:
+   - `just ci` in the repository root:
+     - `fmt-check`: PASS
+     - `ui-ci` (install -> typecheck -> test -> build): PASS
+     - `vet`: PASS
+     - `test`: all Go tests passed
+     - `headless-compile`: PASS
+     - `plugin-ci`: PASS
+     - Final exit code 0.

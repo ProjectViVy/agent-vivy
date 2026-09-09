@@ -1,43 +1,57 @@
-# CMP-1 — reduction clear 转存 Backend（文件级恢复）
+# CMP-1 — reduction clear offload Backend (file-level recovery)
 
 ## What changed
 
-eino reduction 的 clear 阶段此前在 Vivy 里只跑 clear-only（`Backend: nil`）：
-被清的老工具结果变成内存占位，内容彻底丢弃。本切片把转存半边接上：
+The clear phase of eino reduction previously ran only in clear-only mode
+(`Backend: nil`) in Vivy: old tool results being cleared became in-memory
+placeholders and their content was discarded completely. This slice connects
+the offload side:
 
-- `runtime.EngineConfig` 新增 `OffloadBackend *EinoFilesystemBackend`
-  （internal/runtime/engine.go）。选具体类型而非 eino 接口：typed-nil
-  指针装箱成非 nil 接口会让 eino 误判 offload 模式、随后每次写都在 nil
-  receiver 上失败——在 `buildCompactionHandlers` 里做 nil 检查后转接口，
-  typed-nil 被结构性排除。
-- `buildCompactionHandlers` 新参 `offload`，写入 eino reduction
-  `Config.Backend`；`ReadFileToolName: tools.ReadFileName`（占位文案点名
-  Vivy 的 read_file）；`GenClearOffloadFilePath: genClearOffloadPath`。
-- `genClearOffloadPath`（internal/runtime/compaction_middleware.go）：工作区
-  相对、正斜杠路径 `compaction/clear/<call-id>`。eino 默认路径是
-  `filepath.Join(RootDir, "clear", callID)`（RootDir 默认 `/tmp`，Windows
-  反斜杠进占位文案）；自定义后占位文本跨平台可被 read_file 直开。
-- `safeOffloadCallID`：provider 发的 call id 直接成为文件名。eino 默认实现
-  不做净化——恶意/异常 id（`..\x`、`../../x`）会试图逃逸 run workspace（下游
-  safeWorkspacePath 虽 fail-closed，但会让整个 clear 报错）。此处白名单
-  `[a-zA-Z0-9_-]`≤128，越界或为空回退 `uuid.NewString()`（与 eino 默认语义
-  一致）。go.mod 中 google/uuid 由 indirect 转直接。
-- app 装配（internal/app/compaction.go `buildEngineConfig` + app.go 两处
-  调用）：复用既有 `fileBackend`（与 AgentsMDBackend 同一 run workspace
-  后端），启动与 settings-save 重载两条路径一致。
+- `runtime.EngineConfig` adds `OffloadBackend *EinoFilesystemBackend`
+  (`internal/runtime/engine.go`). A concrete type is used instead of the eino
+  interface: boxing a typed-nil pointer in a non-nil interface would make eino
+  misidentify offload mode and then fail every write on a nil receiver. A nil
+  check is performed in `buildCompactionHandlers` before conversion, structurally
+  excluding typed-nil values.
+- `buildCompactionHandlers` receives a new `offload` argument and writes it to
+  eino reduction's `Config.Backend`; `ReadFileToolName: tools.ReadFileName`
+  names Vivy's `read_file` in the placeholder text; and
+  `GenClearOffloadFilePath: genClearOffloadPath` is wired in.
+- `genClearOffloadPath` (`internal/runtime/compaction_middleware.go`) produces
+  the workspace-relative, forward-slash path `compaction/clear/<call-id>`. The
+  eino default is `filepath.Join(RootDir, "clear", callID)` (`RootDir` defaults
+  to `/tmp`, and Windows backslashes enter the placeholder text); with the
+  custom path, the placeholder text can be opened directly by `read_file` on
+  every platform.
+- `safeOffloadCallID`: the provider-supplied call ID becomes the filename. The
+  eino default implementation does not sanitize it—malicious or abnormal IDs
+  (`..\x`, `../../x`) would try to escape the run workspace (although the
+  downstream `safeWorkspacePath` fails closed, it would make the entire clear
+  operation error). The whitelist is `[a-zA-Z0-9_-]` with a maximum length of
+  128; an out-of-range or empty value falls back to `uuid.NewString()` (matching
+  eino's default semantics). `google/uuid` in go.mod was changed from indirect
+  to direct.
+- App wiring (`internal/app/compaction.go` `buildEngineConfig` plus two call
+  sites in app.go) reuses the existing `fileBackend` (the same run-workspace
+  backend as AgentsMDBackend); the startup and settings-save reload paths are
+  consistent.
 
-## 行为
+## Behavior
 
-- 有 workspace（`runtime.workspace_root` 配置）时：clear 触发 → 老工具结果
-  内容写入 `<run-workspace>/compaction/clear/<call-id>`，占位文案
-  `<persisted-output>Tool result saved to: compaction/clear/<call-id> …
-  Use read_file to view.`，模型同 run 内可 read_file 取回。
-- 无 workspace（`fileBackend` 为 nil，如直接 runtime 测试座架）：与旧版
-  逐字节一致（无 offload 的内存占位）。
+- With a workspace (`runtime.workspace_root` configured), a clear trigger writes
+  the old tool-result content to `<run-workspace>/compaction/clear/<call-id>`.
+  The placeholder text is `<persisted-output>Tool result saved to:
+  compaction/clear/<call-id> … Use read_file to view.`, and the model can
+  retrieve it with `read_file` within the same run.
+- Without a workspace (`fileBackend` is nil, as in a direct runtime test
+  harness), behavior remains byte-for-byte identical to the old version
+  (in-memory placeholder with no offload).
 
 ## What was explicitly not done
 
-- Offload 文件的跨 run 生命周期/清理：run workspace 本身已有隔离与清理
-  语义，转存只在 run 内有意义，未加额外 TTL/清理钩子。
-- summarization 摘要结果的 offload（eino summarization 无此 seam）。
-- 压缩设置 UI 覆盖层（CMP-2 遗留，同属另开切片）。
+- Cross-run lifecycle and cleanup for offload files: the run workspace already
+  provides isolation and cleanup semantics, and offload is meaningful only
+  within a run, so no additional TTL or cleanup hook was added.
+- Offloading summarization results (eino summarization has no such seam).
+- The compaction-settings UI overlay (a CMP-2 leftover covered by a separate
+  slice).

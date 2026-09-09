@@ -1,53 +1,51 @@
-# 2026-08-31 主线默认全量通道本体（default-full-channel-body）
+# 2026-08-31 Mainline default full channel body (default-full-channel-body)
 
-## 概要
+## Overview
 
-主线提交的物种身体从空表改为**全量本体**：`internal/generated/plugins/zz_register.go`
-注册全部 5 个第一方通道插件（telegram、dingtalk、discord、feishu、qq）。
-`just run`、内嵌 UI 二进制、Docker、`just build-split` 开箱即有全部耳朵；
-设置 → 通道不再出现「这一代没有耳朵」空态。
+The body committed on the mainline changed from an empty table to a **full body**:
+`internal/generated/plugins/zz_register.go` registers all 5 first-party channel plugins
+(telegram, dingtalk, discord, feishu, qq). `just run`, the embedded UI binary, Docker,
+and `just build-split` now include all adapters out of the box; Settings → Channels no
+longer shows the `This generation has no ears` empty state.
 
-背景：用户在设置页看到空态文案，确认决策为「开发默认做全量版本」。
+Background: the user saw the empty-state wording in Settings; the confirmed decision was
+"make the full version the development default."
 
-## 变更范围
+## Scope of changes
 
-- `internal/generated/plugins/zz_register.go` — 空表 → 5 通道全量注册。
-  文件头从 "Code generated / DO NOT EDIT" 改为手写本体声明；pack 的
-  `-overlay` 仍在构建期替换同一路径，窄代装配不受影响。
-- `go.mod` / `go.sum` — 根模块 require+replace 5 个插件独立模块
-  （`example.com/vivy/plugins/<name>` => `./plugins/<name>`），并合并
-  插件三方依赖闭包（telego、dingtalk-stream-sdk、discordgo、oapi-sdk-go、
-  botgo 等）。
-- `plugins/discord/go.mod|go.sum`、`plugins/qq/go.mod|go.sum` — 重新
-  `go mod tidy`。根因见 notes：插件 `replace agent-vivy => ../..` 会把根
-  模块整个依赖图拉进插件 MVS，全量本体抬高共享依赖（x/net → v0.50 带
-  动 x/crypto → v0.48）后，插件旧 pin 失配，`go list`（readonly）报
-  "updates to go.mod needed"，verify 随之失败。
-- `sdk/internal/pack.go` — `-modfile` 合并幂等化：root go.mod 已
-  require+replace 的插件模块跳过追加（重复 replace 是
-  conflicting-replacement 构建错误），三方闭包仍照常合并。新增
-  `parseReplaceTargets` 解析（单行 + block 形态）。
-- `sdk/internal/pack_test.go` — 新增幂等测试（root 携带 telegram 时合并
-  结果恰含一条 require + 一条 replace，且 go-command 可解析）与
-  `parseReplaceTargets` 单测；`TestOverlayGoModMergesPluginRequires`
-  改用 root 未携带的合成模块（merge 路径仍被真实覆盖）；MVS drift 测试
-  的 scratch 校验对本地 replace 目标做绝对化；删除「物种 go.mod 不得
-  出现 telego」的过时断言（全量本体下合法，真正的持不变量是 pack 不改
-  动 live 文件，字节级断言已在）。
-- `docs/architecture/VIVY-CHANNEL-PACK.md` — 「默认提交的物种身体为空」
-  契约改述为「主线提交全量本体，pack 构建期收窄」。
-- `docs/TODO.md` §0.1 — 记录 `TFLAKE-CRON` 偶发（与本改动无关的既有
-  时序脆弱测试）。
+- `internal/generated/plugins/zz_register.go` — empty table → full registration of 5 channels.
+  The file header changed from "Code generated / DO NOT EDIT" to a hand-written body declaration;
+  pack's `-overlay` still replaces the same path at build time, so narrow-generation assembly is unaffected.
+- `go.mod` / `go.sum` — the root module now requires and replaces the 5 standalone plugin modules
+  (`example.com/vivy/plugins/<name>` => `./plugins/<name>`), and merges the plugins' third-party
+  dependency closures (telego, dingtalk-stream-sdk, discordgo, oapi-sdk-go, botgo, etc.).
+- `plugins/discord/go.mod|go.sum`, `plugins/qq/go.mod|go.sum` — reran `go mod tidy`. See notes for
+  the root cause: the plugin `replace agent-vivy => ../..` pulls the root module's entire dependency
+  graph into the plugin MVS. After the full body raised shared dependencies (x/net → v0.50, taking
+  x/crypto → v0.48 with it), the plugins' old pins no longer matched; `go list` (readonly) reported
+  "updates to go.mod needed", and verify failed as a result.
+- `sdk/internal/pack.go` — made `-modfile` merging idempotent: plugin modules already required+replaced
+  by root go.mod skip the append (a duplicate replace causes a conflicting-replacement build error),
+  while third-party closures continue to merge normally. Added `parseReplaceTargets` parsing (single-line + block forms).
+- `sdk/internal/pack_test.go` — added idempotence tests (when root carries telegram, the merged result
+  contains exactly one require + one replace and is parseable by go-command) and a
+  `parseReplaceTargets` unit test; `TestOverlayGoModMergesPluginRequires` now uses a synthetic module
+  not carried by root (the merge path is still genuinely covered); the MVS drift test's scratch check
+  absolutizes local replace targets; removed the stale assertion that the "species go.mod must not
+  contain telego" (legal under the full body; the actual invariant is that pack does not modify live
+  files, and byte-level assertions already cover that).
+- `docs/architecture/VIVY-CHANNEL-PACK.md` — restated the contract wording "the default committed body is empty"
+  as "the mainline commit has the full body; pack narrows it at build time."
+- `docs/TODO.md` §0.1 — recorded the `TFLAKE-CRON` flake (an existing timing-sensitive test unrelated to this change).
 
-## 明确未做
+## Explicitly not done
 
-- hello-fs（tool-world 演示件）**不**进全量本体——「全量」只指通道。
-- UI 空态文案「这一代没有耳朵」保留：pack 出的窄代（如纯 tool 组合）
-  仍会正确显示它。
-- 命名打包配方（`generations.yaml` / `just pack <name>`）未做，另立后续。
-- Studio 生命周期流程未动；pack → eval → release → install 语义不变。
+- hello-fs (the tool-world demo) is **not** included in the full body—"full" refers only to channels.
+- The UI empty-state wording `This generation has no ears` is retained: a narrow generation produced by pack (such as a pure-tool combination) still displays it correctly.
+- Named packaging recipes (`generations.yaml` / `just pack <name>`) were not implemented; they will be handled separately.
+- The Studio lifecycle flow was not changed; pack → eval → release → install semantics are unchanged.
 
-## 提交
+## Commit
 
-单 Concern 提交于 `feat/default-full-channels`，fast-forward 合回 `main`。
-未推送（需用户显式授权）。
+One Concern was committed on `feat/default-full-channels` and fast-forwarded back to `main`.
+Not pushed (explicit user authorization required).

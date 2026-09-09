@@ -1,28 +1,39 @@
-# Acceptance — 2026-08-25 VIVY 界面 i18n 国际化支持
+# Acceptance — 2026-08-25 VIVY UI i18n support
 
-## 用户视角如何确认
+## How a user can confirm it
 
-**当前状态（接线前）**：
+**Current state (before wiring):**
 
-1. 打开 `http://127.0.0.1:3015`，整个界面以中文（默认语言）渲染，无任何裸 i18n key（如 `common.retry`）露出；各页面（聊天/中控台/定时任务/人格/面具/进化/记忆/记事本/MCP/设置）文案完整。
+1. Open `http://127.0.0.1:3015`; the entire UI renders in Chinese (the default
+   language), with no bare i18n keys such as `common.retry` exposed. Copy is
+   complete on every page (Chat / Dashboard / Cron Tasks / Persona / Masks /
+   Evolution / Memory / Notebook / MCP / Settings).
 
-**接线完成后（SettingsView 挂载 `LanguagePicker` 后）**：
+**After wiring (`LanguagePicker` mounted in SettingsView):**
 
-2. 侧边栏 →「设置」→「语言」页，出现两张语言卡「简体中文 / English」。
-3. 点击「English」：整个界面立即切换为英文（导航、设置、各视图同步更新，无需刷新）。
-4. 刷新页面：仍为英文（`vivy.language=en` 已持久化到当前浏览器）。
-5. 切回「简体中文」：界面恢复中文并同样持久化。
-6. 浏览器地址栏可观察到 `document.documentElement.lang` 随语言在 `zh-CN` / `en` 之间切换。
-7. 已缓存的 `vivy.demo.*` 演示数据保持写入时语言，不因切换被改写。
+2. Go to Sidebar → “Settings” → the “Language” page; two language cards appear:
+   “Simplified Chinese / English”.
+3. Click “English”: the entire UI switches to English immediately (navigation,
+   settings, and every view update together without a refresh).
+4. Refresh the page: it remains in English (`vivy.language=en` is persisted in
+   the current browser).
+5. Switch back to “Simplified Chinese”: the UI returns to Chinese and is likewise persisted.
+6. Observe in the browser address bar that `document.documentElement.lang` switches
+   between `zh-CN` and `en` with the language.
+7. Cached `vivy.demo.*` demo data retains the language from when it was written
+   and is not rewritten when the locale changes.
 
-## 判定标准
+## Acceptance criteria
 
-- 默认语言为中文，既有界面文案无回归。
-- zh / en 词典结构一致（测试断言叶子键与数组长度对齐）。
-- 切换后全局 UI（而非仅某页）立即重渲染；刷新后保持。
-- 无新增依赖、无 token/密钥落入日志或词典。
-- `just ci` 通过。
+- The default language is Chinese, with no regressions in existing UI copy.
+- The zh / en dictionaries have the same structure (tests assert aligned leaf
+  keys and array lengths).
+- The global UI—not just one page—rerenders immediately after switching and
+  stays switched after a refresh.
+- No new dependencies; no tokens/secrets enter logs or dictionaries.
+- `just ci` passes.
 
-## 当前待办（移交对方）
+## Current follow-up (handed to the other party)
 
-- `docs/TODO.md` §0.1 `UI-SET-I18N`：在 `SettingsView.tsx` 语言页挂载 `<LanguagePicker />`（3 行），随后执行上述 2–7 步验收。
+- `docs/TODO.md` §0.1 `UI-SET-I18N`: mount `<LanguagePicker />` on the language
+  page in `SettingsView.tsx` (3 lines), then perform acceptance steps 2–7 above.

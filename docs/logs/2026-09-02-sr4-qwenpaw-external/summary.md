@@ -1,22 +1,24 @@
-# Summary — SR-4：QwenPaw 保持外部，不 vendor
+# Summary — SR-4: keep QwenPaw external; do not vendor
 
 ## What changed
 
-- `docs/research/qwenpaw-vendor-ruling.md`（新）：裁定 QwenPaw 保持 external-by-URL。
-  理由：无已核验使用场景（fsjournal 探针 P2-3 DEFERRED）、Apache-2.0 随时可取、
-  避免"索引声称在/磁盘没有"的陈旧事实源；§3.17 核验结论已保全，重验优于信旧拷贝。
-  附推翻条件（探针立项或提案需要实现级参考）。
-- `docs/research/REFERENCE-INDEX.md`：§3.17 open follow-up（RI-OQ-5）标 RESOLVED；
-  §6 加行。
-- `docs/research/OPEN-ITEMS.md` / `docs/TODO.md`：SR-4 翻 DONE；P2-3 行补注裁定，
-  状态维持 DEFERRED；TODO §10 记录。
+- `docs/research/qwenpaw-vendor-ruling.md` (new): rules that QwenPaw stays
+  external-by-URL. Reasons: no verified use case (fsjournal probe P2-3 DEFERRED), Apache-2.0
+  is always available, and this avoids the stale source of truth where "the index claims it
+  is present / the disk does not"; the §3.17 verification conclusion is preserved, and
+  revalidation is preferable to trusting an old copy. Includes reversal conditions (a probe
+  or proposal needing implementation-level reference).
+- `docs/research/REFERENCE-INDEX.md`: marks the §3.17 open follow-up (RI-OQ-5) RESOLVED and
+  adds a line in §6.
+- `docs/research/OPEN-ITEMS.md` / `docs/TODO.md`: moves SR-4 to DONE; adds the ruling note
+  to P2-3, keeps its status DEFERRED, and records it in TODO §10.
 
 ## What was explicitly not done
 
-- 不创建 `.workspace/qwenpaw`；不做 fsjournal 探针（P2-3 维持 DEFERRED，前置 MEM-1
-  亦 DEFERRED）。
-- channel 全家停驶拍板不受影响。
+- Do not create `.workspace/qwenpaw`; do not run the fsjournal probe (P2-3 remains DEFERRED,
+  and prerequisite MEM-1 is also DEFERRED).
+- The decision to halt the entire channel family is unaffected.
 
 ## Scope
 
-docs-only；零代码。
+Docs-only; zero code.

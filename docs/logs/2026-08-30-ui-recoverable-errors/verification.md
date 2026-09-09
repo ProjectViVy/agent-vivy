@@ -1,4 +1,4 @@
-# Verification · 前端可恢复错误
+# Verification — Recoverable frontend errors
 
 ## Commands
 

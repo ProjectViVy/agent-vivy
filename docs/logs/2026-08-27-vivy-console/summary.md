@@ -6,7 +6,7 @@ Scope: Vivy Studio overlay (Studio bundle), not the Vivy kernel.
 ## What changed
 
 The gateway debugger is upgraded from a floating bottom-right button into a
-first-party **Vivy 控制台** (`dsh-vivy-console`) that manages the Vivy
+first-party **Vivy Console** (`dsh-vivy-console`) that manages the Vivy
 development/distribution lifecycle inside the Studio UI, per the user's
 three requests:
 
@@ -33,7 +33,7 @@ three requests:
    `controlPlaneUrl`.
 3. **Old plugin retired, new placement** — the floating bottom-right ◈
    debugger (`studio/dsh-vivy-debugger/`) is removed from the profile and
-   deleted. The console registers a **「Vivy 控制台」** tab in the
+   deleted. The console registers a **「Vivy Console」** tab in the
    `conversation.view` ring (id `vivy-console`, order 30) beside
    Trajectory and Context (dsh-context's pattern), via a hand-authored
    client module in the DSH client-modules handoff format (no build step).

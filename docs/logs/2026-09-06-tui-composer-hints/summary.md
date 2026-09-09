@@ -1,12 +1,12 @@
-# Composer 底栏居左与模式变色
+# Left-Aligned Composer Footer and Mode Colors
 
-## 已交付
+## Delivered
 
-- 圆角框下方快捷键居左：`shift+tab 切换模式  shift+h 帮助  ctrl+x 快捷`。
-- `shift+tab` 文案固定为「切换模式」；当前模式仍显示在圆角框 chip 里。
-- 切模式时圆角边框变色：智能青绿、计划金色、只读蓝色。
+- Shortcuts below the rounded box are left-aligned: `shift+tab toggle mode  shift+h help  ctrl+x shortcuts`.
+- The `shift+tab` label is fixed to “Toggle mode”; the current mode is still shown in the rounded-box chip.
+- When switching modes, the rounded border changes color: Smart teal-green, Plan gold, and Read-only blue.
 
-## 边界
+## Boundaries
 
-- 忙碌/错误仍作为底栏前缀，快捷键跟在后面。
-- trusted 仍不在 Shift+Tab 循环里。
+- Busy/error remain as footer prefixes, with shortcuts following them.
+- trusted remains outside the Shift+Tab cycle.

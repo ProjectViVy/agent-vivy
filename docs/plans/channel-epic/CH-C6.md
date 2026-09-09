@@ -1,65 +1,65 @@
-# CH-C6 — `plugins/dingtalk` Stream 单聊文本
+# CH-C6 — `plugins/dingtalk` Stream Private-Chat Text
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C6 |
-| 阶段 | F 国内过夜 |
-| 人日 | 2 |
-| 里程碑 | M-CH3 |
-| 依赖 | CH-C3（Host ABI）；建议等 C4 形状 |
-| 并行 | 可与 C4 分 worktree |
-| 分支 | `feat/channel-c6` |
-| 合同 | §14.3 dingtalk；Stream 不是 Octos webhook |
+| Stage | F Domestic Overnight |
+| Person-days | 2 |
+| Milestone | M-CH3 |
+| Dependency | CH-C3 (Host ABI); recommended to wait for the C4 shape |
+| Parallelism | Can use a separate worktree from C4 |
+| Branch | `feat/channel-c6` |
+| Contract | §14.3 dingtalk; Stream is not an Octos webhook |
 
-## 2. 目标
+## 2. Goal
 
-独立 `plugins/dingtalk`。Stream WS 单聊文本闭环。`session_webhook` 只进插件 settings / 运行时，不进内核 Config。默认 EXE 无钉钉 SDK。
+Independent `plugins/dingtalk`. Complete the Stream WS private-chat text loop. `session_webhook` enters only plugin settings / runtime, not the kernel Config. The default EXE has no DingTalk SDK.
 
-## 3. 现状
+## 3. Current State
 
-C3 Host 通用信封。DIVA：保留 Stream，不要倒退成 webhook 文本机器人。
+C3 Host generic envelope. DIVA: retain Stream; do not regress to a webhook text bot.
 
-**备注：** 正式写钉钉适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/dingtalk` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\dingtalk`。走 Stream WS，不要抄成 Octos webhook 文本机器人。详见 `00-standing-orders.md`。
+**Note:** Before formally writing the DingTalk adapter, first read picoclaw—it is the **most complete** Go sample among the channel implementations. Read-only rewrite; imports are prohibited. Reference: `.workspace/picoclaw/pkg/channels/dingtalk` or `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\dingtalk`. Use Stream WS; do not copy it into an Octos webhook text bot. See `00-standing-orders.md`.
 
-## 4. 目标结构
+## 4. Target Structure
 
-抄 [CH-C4.md](CH-C4.md) 目录形状。`vivy-plugin.json`：`transport: poll`（出站 WS 客户端算本批 poll）。grants：`channel.poll` + `secret.read`。凭据：`client_id` / `client_secret` 的 env_key。
+Copy the directory shape from [CH-C4.md](CH-C4.md). `vivy-plugin.json`: `transport: poll` (the outbound WS client counts as poll for this batch). grants: `channel.poll` + `secret.read`. Credentials: the env_key for `client_id` / `client_secret`.
 
-## 5. 文件清单
+## 5. File Inventory
 
-**建** `plugins/dingtalk/**`（独立 go.mod）。
+**Create** `plugins/dingtalk/**` (independent go.mod).
 
-**禁止** 改 Host 认识钉钉卡片；物种 go.mod 加钉钉 SDK；改成 HTTP webhook 机器人。
+**Prohibited:** Teach the Host about DingTalk cards; add the DingTalk SDK to a species go.mod; turn it into an HTTP webhook bot.
 
-## 6. 步骤
+## 6. Steps
 
-1. 独立 module；改写 picoclaw Stream 客户端。
-2. 入站 PublishInbound；出站 Send 用入站带来的 session webhook（存插件侧）。
-3. verify + pack --with dingtalk。
-4. `just ci` 默认路径无该 SDK。
-5. log `docs/logs/YYYY-MM-DD-channel-c6/`。
+1. Independent module; rewrite the picoclaw Stream client.
+2. Inbound PublishInbound; outbound Send uses the session webhook carried by the inbound message (stored on the plugin side).
+3. verify + pack --with dingtalk.
+4. The default `just ci` path has no such SDK.
+5. Log to `docs/logs/YYYY-MM-DD-channel-c6/`.
 
-## 7. 验收
+## 7. Acceptance
 
-- 候选单聊文本；默认身体无钉钉依赖。
-- 空 allow_from 拒绝。
-- 无公网 webhook 模式。
+- Candidate private-chat text works; the default body has no DingTalk dependency.
+- Empty allow_from is rejected.
+- No public webhook mode.
 
-## 8. 禁止
+## 8. Prohibitions
 
-- Octos 式 webhook 文本机器人当基线。
-- 卡片 / 媒体（后切）。
-- `channel.webhook` grant。
+- Use an Octos-style webhook text bot as the baseline.
+- Cards / media (later slice).
+- `channel.webhook` grant.
 
-## 9. 风险与回滚
+## 9. Risks and Rollback
 
-- Stream 协议变更：以能稳收单聊文本为准。
-- 回滚：配方不点名。
+- Stream protocol changes: prioritize reliably receiving private-chat text.
+- Rollback: do not name it in the recipe.
 
-## 10. 交接
+## 10. Handoff
 
-[CH-C7a.md](CH-C7a.md)。不要在本切片改信封槽。
+[CH-C7a.md](CH-C7a.md). Do not change the envelope slots in this slice.
 
-> **DONE 2026-08-30** — 分支 `feat/channel-c6`。包形状与 telegram 完全同构；`hostEnv.Secret` 支持 settings 顶层 `*_env` 多密钥声明（feishu/qq 的 app_id+app_secret 直接沿用此模式）；sessionWebhook 类「入站自带回执端点」的处理样板在本包。Filing: `docs/logs/2026-08-30-channel-c6/`。
+> **DONE 2026-08-30** — Branch `feat/channel-c6`. Package shape is fully isomorphic with telegram; `hostEnv.Secret` supports top-level `*_env` multi-secret declarations in settings (feishu/qq app_id+app_secret directly reuse this pattern); this package contains the handling template for sessionWebhook-style "inbound-carried reply endpoints". Filing: `docs/logs/2026-08-30-channel-c6/`.

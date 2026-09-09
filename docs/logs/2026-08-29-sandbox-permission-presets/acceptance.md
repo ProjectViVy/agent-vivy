@@ -1,8 +1,10 @@
 # Acceptance
 
-1. 打开 `http://127.0.0.1:3015` → 设置 → 沙箱：标签无「预览」徽标。
-2. 默认权限改为「谨慎」并保存，刷新后仍为谨慎。
-3. 新建会话，聊天区权限显示「谨慎」。让模型写文件或执行命令：沙箱拒绝，而不是「预览已更新」。
-4. 切到「智能」：工作区内写入走审批中心。
-5. 切到「信任」：必须确认；白名单只读工具不再弹审批；命令不再被普通白名单挡住。
-6. 改设置默认不影响已经打开的会话，只影响之后新建的。
+1. Open `http://127.0.0.1:3015` → Settings → “Sandbox”: the label has no “Preview” badge.
+2. Change the default permission to “Cautious” and save; after refreshing, it remains Cautious.
+3. Create a new session; the chat-area permission shows “Cautious”. Have the model write a file or execute a command:
+   the sandbox rejects it rather than showing “Preview updated”.
+4. Switch to “Smart”: writes within the workspace go through the approval center.
+5. Switch to “Trusted”: confirmation is required; allowlisted read-only tools no longer prompt for approval; commands
+   are no longer blocked by the ordinary allowlist.
+6. Changing the default in Settings does not affect already-open sessions; it only affects sessions created afterward.

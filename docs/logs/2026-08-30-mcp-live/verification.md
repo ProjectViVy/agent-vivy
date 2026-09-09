@@ -44,7 +44,7 @@ cd ui; pnpm e2e -- mcp-settings.spec.ts runtime.spec.ts
 ```
 
 - `e2e/mcp-settings.spec.ts` **passed** (2.8s): empty state, add HTTP server, reload, toggle, delete, no `vivy.demo.*`.
-- `e2e/runtime.spec.ts` **failed on a pre-existing assertion** `getByRole('button', { name: '画图' })` at line 9. ChatInput no longer has a drawing button on this branch; this is not an MCP regression. The MCP section of that file was not reached.
+- `e2e/runtime.spec.ts` **failed on a pre-existing assertion** `getByRole('button', { name: 'Drawing' })` at line 9. ChatInput no longer has a drawing button on this branch; this is not an MCP regression. The MCP section of that file was not reached.
 
 ## Browser smoke
 

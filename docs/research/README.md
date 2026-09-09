@@ -2,7 +2,7 @@
 
 > **Status:** Final document index for `diva-go/`. Single entry point for any reader.
 > **Updated:** 2026-08-15
-> **Owner:** 📋 John (PM) + user (大湿)
+> **Owner:** 📋 John (PM) + user (mastwet)
 
 ---
 
@@ -25,7 +25,7 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 | 9 | `AGENT-VIVY-STORAGE-ARCHITECTURE-ADDENDUM.md` | Storage architecture proposal; treated as **proposal-only** until ADR baseline reconciles (D-035) | When discussing storage design |
 | — | `AGENT-VIVY-ARCHITECTURE-V0.md` | **MISSING — first work item**. ADR baseline ADR-001..008 v0 | (to be authored) |
 | — | `eino-capability-verify.md` | **MISSING — second work item**. Verification record for addendum §6 Eino claims | (to be authored) |
-| 10 | `agent-vivy/docs/architecture/VIVY-STUDIO.md` | **Studio 正本。** 独立应用；第一方日常开发 IDE；分发生命周期权威；其他获授权工具可直接开发（NG-26） | Before any Studio or post-V1 implementation |
+| 10 | `agent-vivy/docs/architecture/VIVY-STUDIO.md` | **Studio canonical source.** Independent application; first-party daily development IDE; authority for the distribution lifecycle; other authorized tools may develop directly (NG-26) | Before any Studio or post-V1 implementation |
 | 11 | `agent-vivy/docs/architecture/SELF-EVOLVING-GATEWAY.md` | Species / kernel / packing narrative. Studio shape defers to `VIVY-STUDIO.md`. | Post-V1 evolution, packing, user plugins |
 | 12 | `agent-vivy/docs/architecture/VIVY-GATEWAY-AND-STUDIO.md` | Compact English decision table (NG-1..NG-28, ST-*) | When you need the decision ids, not the essay |
 | 13 | `agent-vivy/docs/architecture/VIVY-PLUGIN-SPEC.md` | User-plugin spec only (`plugins/`). First-party units are not plugins | When writing a user-defined capability |

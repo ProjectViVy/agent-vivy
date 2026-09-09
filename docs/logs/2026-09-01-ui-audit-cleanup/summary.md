@@ -12,25 +12,28 @@ a numbered ruling; this iteration implements it.
    `promptInjectionPattern` regex, and its test. `ValidateArgsSafety` and
    `RedactSensitive` stay (live callers in tooladapter/broker/worker). A
    `vivy dry-run` command was explicitly rejected by the maintainer.
-2. **Dashboard: remove the 会话 (overview) tab.** `DashboardDemoView` now has
-   exactly two tabs — Token 统计 and 轨迹 (both kept per maintainer ruling).
+2. **Dashboard: remove the Session (overview) tab.** `DashboardDemoView` now has
+   exactly two tabs — Token statistics and Trajectory (both kept per maintainer
+   ruling).
    Deleted the fake session/run/review numbers and the recent-activity feed,
    plus `getDemoDashboard`, `DemoDashboardSnapshot`, the
    `vivy.demo.dashboard` storage key, and their tests/i18n.
-3. **Skills: remove the 变更请求 (change requests) tab.** The staged-revision
+3. **Skills: remove the Change requests tab.** The staged-revision
    review surface in `SkillsView` is gone along with `listSkillRevisions`,
    `SkillRevision`, and their i18n. The backend `skills/revisions/list` RPC and
    the SkillRevisions store stay untouched — they are written by the runtime's
    staged skill-write path, not by this UI.
-4. **Chat input: relocate 新建会话.** The bottom-row Plus button (previously a
-   「更多」stub that only raised "not wired up") is now the real 新建会话
-   button; the duplicate 新建会话 in the upper toolbar row was deleted, as was
-   the 更多 stub (`chatInput.more`/`moreUnavailable` i18n removed).
+4. **Chat input: relocate New session.** The bottom-row Plus button (previously
+   a "More" stub that only raised "not wired up") is now the real New session
+   button; the duplicate New session button in the upper toolbar row was
+   deleted, as was the More stub (`chatInput.more`/`moreUnavailable` i18n
+   removed).
 
 ## Explicitly not done (maintainer ruling)
 
-- 记忆 / 记事本 / 人格 / 进化 demo pages **stay** as-is with their demo data;
+- Memory / Notebook / Persona / Evolution demo pages **stay** as-is with their
+  demo data;
   they are slated for real backend integration later.
-- Remaining hookless buttons (附件, AutoDream, 思考模式, 智能体模式 ask-branch,
-  消息「编辑/回到这里/从此分叉」) stay for now.
+- Remaining hookless buttons (Attachment, AutoDream, Thinking mode, Agent mode
+  ask-branch, and message "Edit / Return here / Fork from here") stay for now.
 - Backend `skills/revisions/list` method and store unchanged.

@@ -1,48 +1,48 @@
-# 超级通道 EPIC（C1–C7c）综合审查报告（summary）
+# Super Channel EPIC (C1–C7c) comprehensive review report (summary)
 
-日期：2026-08-31。对象：`feat/channel-c7c` @ eb0cba0（9 个实现 commit，151 文件 +16.5k/−1.3k，基线 82ecf14）。
-方法：机械门禁清扫（协调人亲跑）+ 六条独立审查 lane（全新子代理，与实现上下文隔离）+ 修复轮 + 复门禁 + 只读合入预演。
+Date: 2026-08-31. Subject: `feat/channel-c7c` @ eb0cba0 (9 implementation commits, 151 files +16.5k/−1.3k, baseline 82ecf14).
+Method: mechanical gate sweep (run directly by the coordinator) + six independent review lanes (fresh subagents, isolated from the implementation context) + fix round + gate rerun + read-only merge rehearsal.
 
-## 判词：可合入（修复轮后）
+## Verdict: mergeable (after the fix round)
 
-六条 lane 全部 **PASS、零 blocker**。修复轮处理 12 项（1 代码防御 + 2 verify 规则补强 + 2 pack 卫生 + 2 插件生命周期 + 3 UI 呈现 + 2 文档对账），复门禁 `just ci` exit 0。分支链与 `main` 的合入预演**零冲突**。
+All six lanes were **PASS, with zero blockers**. The fix round handled 12 items (1 code defense + 2 verify-rule reinforcements + 2 pack hygiene items + 2 plugin-lifecycle items + 3 UI presentation items + 2 documentation reconciliations); the gate rerun `just ci` exited 0. The merge rehearsal between the branch chain and `main` had **zero conflicts**.
 
-## 机械门禁清扫（全部实测，非引用旧记录）
+## Mechanical gate sweep (all measured, not quoted from old records)
 
-- `just ci` exit 0（fmt-check / vet / test / headless-compile / ui-ci 172 测试）。
-- 五插件逐 module（现有门禁盲区）：gofmt 0 脏、vet 0、test 全绿、**`-race` 全绿**。
-- verify 矩阵：5 真插件全 ok；8 个 bad-* 夹具全部 exit 1。
-- pack 矩阵：5 插件各产候选、EXE 均链接各自 SDK；默认身体 `go list -deps` 对 telego/dingtalk/lark/botgo/discordgo/pion **全零**；`go.mod`/`go.sum` 对 82ecf14 字节差为空；`zz_register.go` 仍 `return nil`。
-- 存储：sqlite 17.9s 绿 + postgres（DSN 门控 SKIP，CH-C1-N5 维持 OPEN——本机无 Docker/5432）。
-- UI：typecheck/test/build 绿；`just ui-e2e` **6 过 2 败——失败集与基线 82ecf14 完全一致**（runtime 全流程 + welcome-wizard，`git worktree` 基线复跑实证），属 e2e 基线腐烂的既有问题，非本 EPIC 回归；已立 §0.1 TEST-3。
-- L5 浏览器冒烟（协调人亲跑，3015）：默认身体空态（无 email/neuro-link、无添加按钮）+ pack telegram 候选（卡片/失败原因逐字/编辑器 fail-closed 文案/token_env 只显名）两场景全过，与 C5 落地时一致。
+- `just ci` exited 0 (fmt-check / vet / test / headless-compile / ui-ci, 172 tests).
+- Per-module checks for the five plugins (an existing gate blind spot): gofmt 0 dirty, vet 0, all tests green, **`-race` all green**.
+- verify matrix: all 5 real plugins passed; all 8 bad-* fixtures exited 1.
+- pack matrix: each of the 5 plugins produced a candidate, and every EXE linked its own SDK; the default body had **zero** telego/dingtalk/lark/botgo/discordgo/pion dependencies according to `go list -deps`; `go.mod`/`go.sum` had no byte differences from 82ecf14; `zz_register.go` still has `return nil`.
+- Storage: sqlite 17.9s green + postgres (DSN-gated SKIP, CH-C1-N5 remains OPEN—no Docker/5432 locally).
+- UI: typecheck/test/build green; `just ui-e2e` **6 passed, 2 failed—the failure set exactly matched baseline 82ecf14** (full runtime flow + welcome-wizard, confirmed by rerunning the baseline in a `git worktree`), an existing e2e baseline-broken issue rather than an EPIC regression; recorded as §0.1 TEST-3.
+- L5 browser smoke (run directly by the coordinator, 3015): both scenarios passed—the default body empty state (no email/neuro-link, no add button) + packed Telegram candidate (card/exact failure reason/fail-closed editor wording/token_env name only)—matching the state when C5 landed.
 
-## 六 lane 结论与代表发现
+## Six lane conclusions and representative findings
 
-| Lane | 判词 | 代表发现（详见 findings.md） |
+| Lane | Verdict | Representative findings (see findings.md) |
 |---|---|---|
-| L1 合同符合性 | PASS | 3 条未上板的登记缺口（§8 错误分类槽、verify picoclaw 行未实现、per-seam inspect 未上板）；§12 payload 建议回写合同 |
-| L2 内核+安全 | PASS | `deliverCompleted` nil 通道 panic 形（装配序不可达）→ 已修；allow_from 无绕过；密钥零泄漏 |
-| L3 适配器横切 | PASS | **dingtalk 网络级静默断线后耳朵失聪**（SDK 语义，注释已纠正 + §0.1 CH-C6-N3）；dingtalk/feishu 重启锁存未复位 → 已修；5 项 SDK 主张源码全证实 |
-| L4 SDK/pack | PASS | Listen 封禁可被方法调用绕过 → 封禁已加宽；pack 静默丢 replace/exclude → 改显式报错；双独立 module pack 无测试 → 已补；picoclaw import 封禁缺失 → 已补 |
-| L5 UI | PASS | inspect 失败误显空态 → 已修；向导文案超承诺 → 已修；教程文案过期 → 已修；禁语「不限制」残留 → 已修 |
-| L6 文档看板 | PASS | 幽灵分支名 c7a（commit 实落 c6 线）→ 文档已纠正；`Settings()` 未回写合同/spec → 已补；UI-CHANNELS-BE 陈旧行 → 已闭 |
+| L1 Contract compliance | PASS | 3 unboarded registration gaps (§8 error-classification slot, unimplemented verify picoclaw line, per-seam inspect not boarded); §12 payload should be written back into the contract |
+| L2 Kernel + security | PASS | `deliverCompleted` nil-channel panic shape (unreachable in assembly order) → fixed; no `allow_from` bypass; zero key leakage |
+| L3 Adapter cross-cutting | PASS | **DingTalk becomes deaf after a network-level silent disconnect** (SDK semantics, comment corrected + §0.1 CH-C6-N3); DingTalk/Feishu restart latches not reset → fixed; all 5 SDK claims confirmed from source |
+| L4 SDK/pack | PASS | Listen ban could be bypassed through a method call → ban widened; pack silently dropped replace/exclude → changed to explicit error; no test for two-standalone-module pack → added; picoclaw import ban missing → added |
+| L5 UI | PASS | inspect failure showed the wrong empty state → fixed; wizard wording overpromised → fixed; tutorial wording stale → fixed; prohibited "unlimited" wording remained → fixed |
+| L6 Documentation board | PASS | ghost branch name c7a (commit actually landed on c6 line) → docs corrected; `Settings()` not written back into contract/spec → added; stale UI-CHANNELS-BE line → closed |
 
-## 修复轮（12 项全落，协调查验证）
+## Fix round (all 12 items landed, verified by the coordinator)
 
-代码：dispatch nil 通道守卫（+测试）、Listen 封禁加宽（任意接收者 ListenAndServe*/ListenPacket + tls.Listen，+夹具 bad-channel-listen2）、picoclaw/.workspace import 封禁（+夹具）、pack 对非 agent-vivy replace/exclude 显式报错（+测试）、TestPackTwoStandaloneModules + 重复 --with 去重、dingtalk/feishu Start 复位 stopped 锁存（+TestStartAfterStopStartsFresh，feishu 潜在挂起一并消除）、UI 错误态/向导文案/教程文案/禁语四修。
-文档：TODO §0.1 新增 CH-R-1/4/5、CH-C6-N3，修 CH-C1-N2/N3、UI-CHANNELS-BE→DONE；§0.2.7 与 CH-C7a/C7b 分支表述纠正；V0 文档 CN-17 漏网处补齐；CHANNEL-PACK §9.3 与 PLUGIN-SPEC §4 补 `Settings()`（C4 新增的符号级对齐）。
+Code: dispatch nil-channel guard (+test), widened Listen ban (any receiver's ListenAndServe*/ListenPacket + tls.Listen, + bad-channel-listen2 fixture), picoclaw/.workspace import ban (+fixture), explicit error for non-agent-vivy replace/exclude in pack (+test), TestPackTwoStandaloneModules + deduplication of repeated --with values, reset of DingTalk/Feishu Start stopped latches (+TestStartAfterStopStartsFresh, also eliminating the potential Feishu hang), and four UI fixes for error state/wizard wording/tutorial wording/prohibited wording.
+Docs: added CH-R-1/4/5 and CH-C6-N3 to TODO §0.1, fixed CH-C1-N2/N3, changed UI-CHANNELS-BE → DONE; corrected the branch wording in §0.2.7 and CH-C7a/C7b; filled the missed CN-17 in the V0 docs; added `Settings()` to CHANNEL-PACK §9.3 and PLUGIN-SPEC §4 (symbol-level alignment for the method added in C4).
 
-## 合入预演（只读）
+## Merge rehearsal (read-only)
 
-`git merge-tree`（merge-base HEAD↔main）冲突块数 **0**。合入清单：
+`git merge-tree` (merge-base HEAD↔main) reported **0** conflict blocks. Merge checklist:
 
-- 分支链干净（eb0cba0 处 `git status` 干净）；25 个未 push commit（含合同分支先行的 16 个）。
-- 两条路径：**A. 整链 merge `feat/channel-c7c` 进 main**——保留 9 个切片 commit + 合同文档 commit，历史最完整，推荐；B. squash——单一 commit，丢切片粒度，不利于回滚到单刀。不建议 B。
-- 根树 main 当前有与本 EPIC 无关的脏区（service_test.go、studio、failure.ts 等）——合入前须先由其归属 lane 处理或 stash，勿混入。
+- The branch chain is clean (`git status` clean at eb0cba0); 25 unpushed commits (including the 16 that led with the contract branch).
+- Two paths: **A. Merge the entire `feat/channel-c7c` chain into main**—retains the 9 slice commits + contract documentation commit and the most complete history; recommended. B. squash—one commit, loses slice granularity, and makes rollback to a single slice difficult. B is not recommended.
+- The main root tree currently has dirty areas unrelated to this EPIC (service_test.go, studio, failure.ts, etc.); before merging, their owning lanes must handle or stash them so they are not mixed in.
 
-## 明确没做（不做声明）
+## Explicitly not done (declaration of non-work)
 
-- 真实厂商冒烟 ×5（无凭据；各插件 acceptance 含人工脚本）；真实 Postgres 路径（无 Docker，CH-C1-N5 开）；C8/C9（需点名/需提案）。
-- e2e 两条基线腐烂用例的修复（非本 EPIC 范围，已立 §0.1 TEST-3）。
-- note 级发现（约 30 条）未逐条修复，全量见 findings.md。
+- Real vendor smoke tests ×5 (no credentials; each plugin's acceptance includes a manual script); the real Postgres path (no Docker, CH-C1-N5 open); C8/C9 (requires explicit request/proposal).
+- Fixes for the two e2e baseline-broken cases (outside this EPIC's scope; recorded as §0.1 TEST-3).
+- Note-level findings (about 30) were not fixed one by one; see findings.md for the complete set.

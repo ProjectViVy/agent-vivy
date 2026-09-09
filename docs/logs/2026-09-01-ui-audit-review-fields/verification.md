@@ -1,29 +1,36 @@
 # Verification
 
-## 门禁
+## Gates
 
-- `just ci` — 通过（exit 0）：Go fmt/vet/test、headless 编译、plugin-ci
-  6 module、UI install + `tsc --noEmit` + `vitest run` + `vite build`
-  全绿（新增 8 个 approvals i18n 键 en/zh 对齐，详情 dl 扩展过类型检查）。
-- `just ui-e2e` — 通过（exit 0，10 passed / 1 skipped，27.3s）：真实浏览器
-  + 真实控制面；`runtime.spec.ts` 覆盖 review 主路径（打开 Review sheet），
-  详情 dl 追加行未回归既有断言。
+- `just ci` — passed (exit 0): Go fmt/vet/test, headless compile, six plugin-ci
+  modules, and UI install + `tsc --noEmit` + `vitest run` + `vite build` all
+  green (8 new approvals i18n keys are aligned in en/zh, and the detail `<dl>`
+  extension passes type checking).
+- `just ui-e2e` — passed (exit 0, 10 passed / 1 skipped, 27.3s): real browser +
+  real control plane; `runtime.spec.ts` covers the main Review path (opening the
+  Review sheet), and the appended detail `<dl>` rows did not regress existing
+  assertions.
 
-## Smoke 说明
+## Smoke notes
 
-- 审批详情新字段需要终态/过期记录才能全量观察（pending 记录只有
-  created/expires 两行必显），无组件专属 spec 可造数；按 CH-C1-N3 先例
-  以全套 e2e 为 smoke 替代，人工观察路径在 acceptance.md。
-- WebSocket RPC 传输（`/rpc/bootstrap` → WS upgrade）无 curl smoke 路径。
+- The new approval-detail fields require terminal/expired records for full
+  observation (pending records only show the always-present created/expires rows),
+  and there is no component-specific spec that can seed the data; following the
+  CH-C1-N3 precedent, the full e2e suite is the smoke substitute, with the
+  manual observation path in acceptance.md.
+- WebSocket RPC transport (`/rpc/bootstrap` → WS upgrade) has no curl smoke
+  path.
 
-## 复核证据（静态）
+## Static review evidence
 
-- `ui/src/lib/api.ts` `ReviewItem`：`actor?/created_at/expires_at/decided_at?/
-  precondition_hash?/stale_reason?/decision_reason?/error?` 均为线格式
-  已有字段，本改动纯前端渲染，无 RPC/后端变更。
-- `ui/src/components/approvals/ApprovalsView.tsx`：dl 在 trust 后追加
-  8 类行，全部按字段存在性条件渲染；时间统一
-  `new Date(x).toLocaleString(dateTimeLocale())`（zh/en locale 感知，
-  与 PersonaMemoryView/CronTaskManagementView 同一来源）。
-- i18n：`approvals.{createdAt,expiresAt,decidedAt,actor,precondition,
-  staleReason,decisionReason,errorLabel}` en/zh 同步新增，锚点 trust: 后。
+- `ui/src/lib/api.ts` `ReviewItem`: `actor?/created_at/expires_at/decided_at?/
+  precondition_hash?/stale_reason?/decision_reason?/error?` are all existing
+  wire-format fields; this change is front-end rendering only, with no RPC/backend
+  change.
+- `ui/src/components/approvals/ApprovalsView.tsx`: the detail `<dl>` adds 8
+  categories of rows after trust, all conditional on field presence; times use
+  `new Date(x).toLocaleString(dateTimeLocale())` consistently (zh/en locale-aware,
+  from the same source as PersonaMemoryView/CronTaskManagementView).
+- i18n: `approvals.{createdAt,expiresAt,decidedAt,actor,precondition,
+  staleReason,decisionReason,errorLabel}` is added in sync to en/zh after the
+  trust anchor.

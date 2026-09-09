@@ -1,4 +1,4 @@
-# Verification — VC-2 会话自动标题
+# Verification — VC-2 automatic session titles
 
 Worktree `agent-vivy-vc0`, branch `feat/vc1a-bash-tool`.
 
@@ -36,9 +36,10 @@ specs re-run against clean HEAD (`cf0e3e8`, the D5 commit):
 Failure inventory (all recorded in `docs/TODO.md` §0.1 row `UI-E2E-STALE`):
 
 1. `runtime.spec.ts` — `getByRole('button', { name: '附件' })` not found
-   (attachment entry no longer on the ChatInput default face after VC-1g).
-2. `welcome-wizard.spec.ts` — stale "API 密钥通过运行环境变量注入…" copy
-   assertion (already tracked since 2026-08-30).
+   (the executable selector literal is preserved; the attachment entry is no longer
+   on the ChatInput default face after VC-1g).
+2. `welcome-wizard.spec.ts` — stale "API key is injected through the runtime
+   environment…" copy assertion (already tracked since 2026-08-30).
 3. `language-setting.spec.ts` — `filter({ hasText: 'EN' })` strict-mode
    collision: `hasText` is a case-insensitive substring, so the top-bar
    model switcher ("OpenAI | gpt-4o-mini") matches "en" alongside the

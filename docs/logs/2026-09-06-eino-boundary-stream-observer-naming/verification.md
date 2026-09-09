@@ -1,6 +1,6 @@
 # Verification
 
-日期：2026-09-06 ｜ worktree `agent-vivy-eino-boundary`（分支 `feat/eino-boundary-5-5-5-6`）
+Date: 2026-09-06 ｜ worktree `agent-vivy-eino-boundary` (branch `feat/eino-boundary-5-5-5-6`)
 
 ```
 go test ./internal/runtime/ -count=1 -timeout 60s -run 'TestObservingChatModel'

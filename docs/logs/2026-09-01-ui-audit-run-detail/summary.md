@@ -1,28 +1,34 @@
-# UI-AUDIT-RUN-DETAIL — Run 事件 payload 的键盘可达详情
+# UI-AUDIT-RUN-DETAIL — Keyboard-accessible details for Run event payloads
 
-## 问题（审查行）
+## Problem (audit item)
 
-`RunInspector` 的事件列表把结构化 `RunLogEvent.payload` 只放在 HTML
-`title` 属性里：悬停才见（触屏完全不可见）、键盘/读屏不可达——违反
-"日志一等公民"要求（后端 payload 是结构化事实源，UI 却无可读呈现）。
+The `RunInspector` event list put structured `RunLogEvent.payload` only in the
+HTML `title` attribute: it was visible only on hover (completely invisible on
+touch) and unreachable by keyboard or screen reader—violating the "logs are
+first-class" requirement (the backend payload is structured factual data, but
+the UI had no readable presentation).
 
-## 修复
+## Fix
 
-事件行（原本就是 `<button>`）改为**可展开开关**：
+Event rows (already `<button>` elements) become **expandable toggles**:
 
-- 点击（或键盘 Enter/Space——原生 button 语义）切换该行详情；
-- 展开时在行下渲染 `<pre>`：pretty-print 的 payload JSON
-  （`JSON.stringify(event.payload ?? null, null, 2)`），
-  `whitespace-pre-wrap break-words` 防溢出，`max-h-48` 内滚动；
-- `aria-expanded` 标记展开态，展开行加 `bg-muted` 高亮；
-- 移除 `title`（tooltip 与详情重复，且是缺陷本体）；
-- 零新 i18n 键（内容是 JSON 字面量）。
+- Clicking (or pressing Enter/Space—the native button semantics) toggles the row
+  details.
+- When expanded, a `<pre>` renders the pretty-printed payload JSON below the row
+  (`JSON.stringify(event.payload ?? null, null, 2)`); `whitespace-pre-wrap
+  break-words` prevents overflow and `max-h-48` enables internal scrolling.
+- `aria-expanded` marks the expanded state, and the expanded row is highlighted
+  with `bg-muted`.
+- `title` is removed (the tooltip duplicated the details and was the defect
+  itself).
+- No new i18n keys (the content is a JSON literal).
 
-同一时间只展开一行（`openSeq: number | null` 单值状态）——事件流较长，
-多行展开会让列表失去锚点。
+Only one row is expanded at a time (`openSeq: number | null` single-value state)
+—expanding multiple rows in a long event stream would make the list lose its
+anchor.
 
-## 变更清单
+## Change list
 
-- `ui/src/components/chat/RunInspector.tsx`：`openSeq` 状态 + 事件行
-  展开/收起 + payload `<pre>` 详情；其余（run/background/children 面板）
-  不动。
+- `ui/src/components/chat/RunInspector.tsx`: `openSeq` state + event-row
+  expand/collapse + payload `<pre>` details; the other run/background/children
+  panels are unchanged.

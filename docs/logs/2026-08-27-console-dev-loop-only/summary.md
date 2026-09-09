@@ -8,7 +8,7 @@ Scope: Vivy Studio overlay (`studio/dsh-vivy-console`), not the Vivy kernel.
 Per explicit user decision, the console is trimmed to the **development
 loop only** and the "plugin doesn't work" root cause is fixed.
 
-1. **Lifecycle pane removed.** The `dsh-vivy-console`「生命周期」tab
+1. **Lifecycle pane removed.** The `dsh-vivy-console` 「Lifecycle」 tab
    (`pack` / `eval` / `release` / `reject` / `install` / `rollback` /
    `inspect` + the generations/evals/releases/installs/events/worktrees
    ledger) is deleted from the client and its host routes
@@ -27,7 +27,7 @@ loop only** and the "plugin doesn't work" root cause is fixed.
    `ba18c1b`); config parsing is strict (`KnownFields(true)`), so the
    gateway aborted with `field allowed_origins not found in type
    config.Server` and never came up — the console was unusable
-   ("插件用不了"). Rebuilt `vivy.exe` from current source
+   ("The plugin cannot be used"). Rebuilt `vivy.exe` from current source
    (`go build -o vivy.exe ./cmd/vivy`); the gateway now starts, serves
    `/healthz`, and the `/vivy-web/` facade + debug-bridge injection work.
 

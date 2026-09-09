@@ -6,7 +6,7 @@ A later agent or human working in this repo should:
 2. Open `http://127.0.0.1:3015/dashboard`.
 3. Confirm the **DemoBanner is gone** from the dashboard page.
 4. Click the **Token** tab. With a fresh database, see the empty state message
-   ("所选周期内暂无模型调用记录" / "No model calls recorded in this period").
+   ("No model calls recorded in the selected period" / "No model calls recorded in this period").
 5. Send at least one chat message that triggers a model call with usage data.
 6. Refresh the Token tab. Verify:
    - KPI cards show non-zero Total Tokens / Input / Output / Request Count.

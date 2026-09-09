@@ -1,24 +1,24 @@
-# Acceptance — UI-CHAT-ACT R2（编辑 / 回退 / 分叉）
+# Acceptance — UI-CHAT-ACT R2 (edit / rewind / fork)
 
-人工如何确认本切片生效（开发环境 `just run` + `cd ui; pnpm dev` →
-http://127.0.0.1:3015）：
+How to manually confirm this slice is working (development environment `just run` + `cd ui; pnpm dev` →
+http://127.0.0.1:3015):
 
-1. **编辑**：向任一会话发一条消息（离线也会入账，回合失败无妨）。悬停自己
-   的蓝色气泡 → 消息下方浮现「复制 / 编辑」→ 点「编辑」，气泡原地变为
-   文本框（预填原文）→ 改文 → 点对勾（保存并重跑）：旧输入从视图中消失，
-   新输入作为新回合重发。原输入在数据库中留档（`session/messages` 折叠，
-   不删行）。
-2. **回退**（离线无助手气泡时可在有助手回合的会话验证）：悬停助手消息 →
-   「回到这里」→ 确认弹窗（"该消息及其后的内容将退出上下文；原文留档，不会
-   删除。"）→ 确认后该消息（含）起退出视图，输入框自动预填仍在上下文里的
-   最近一条用户输入，可直接改后重发。
-3. **分叉**：悬停助手消息 → 「从此分叉」→ 确认弹窗（"将以该消息为止的历史
-   创建新会话；原会话保持不变。"）→ 确认后自动跳进新会话；会话列表出现
-   "原标题 (fork)" 或自定义标题的子会话，子会话里有分叉点（含）之前的全部
-   历史；原会话视图不变。
-4. **尾锚回归**（本切片核心修正）：回退/编辑之后继续发新消息——新回合必须
-   出现在视图里（旧实现会把 rewind 之后的一切永久折叠，重试"蒸发"）。
-5. 运行期间三键均禁用；失败动作在聊天底部以可重试错误条呈现。
+1. **Edit**: send a message in any session (it is recorded even offline; a failed turn is fine). Hover over your own
+   blue bubble → "Copy / Edit" appears below the message → click "Edit", and the bubble becomes a
+   text box in place (pre-filled with the original text) → edit the text → click the checkmark (save and rerun): the old input disappears from the view,
+   and the new input is sent again as a new turn. The original input remains in the database (`session/messages` folded,
+   no rows deleted).
+2. **Rewind** (when offline and there is no assistant bubble, verify in a session with an assistant turn): hover over an assistant message →
+   "Rewind to here" → confirmation dialog ("This message and everything after it will leave the context; the original text is retained and will not be
+   deleted.") → after confirmation, the selected message (inclusive) leaves the view, and the input box is automatically pre-filled with
+   the most recent user input that remains in context, ready to edit and resend.
+3. **Fork**: hover over an assistant message → "Fork from here" → confirmation dialog ("Create a new session using the history through this message;
+   the original session remains unchanged.") → after confirmation, automatically jump to the new session; the session list shows
+   a child session named "Original title (fork)" or using a custom title, and the child session contains all
+   history through and including the fork point; the original session view is unchanged.
+4. **Tail-anchor regression** (the core correction in this slice): continue sending new messages after rewind/edit—the new turn must
+   appear in the view (the old implementation permanently folded everything after rewind, causing the retry to "evaporate").
+5. All three buttons are disabled during a run; failed actions appear in a retryable error bar at the bottom of the chat.
 
-自动化等价物：`ui/e2e/chat-act.spec.ts`（离线全流程）与
-`ui/e2e/runtime.spec.ts` 既有主规格的三键启用断言。
+Automation equivalent: `ui/e2e/chat-act.spec.ts` (offline end-to-end flow) and
+`ui/e2e/runtime.spec.ts` existing main spec's assertion that all three buttons are enabled.

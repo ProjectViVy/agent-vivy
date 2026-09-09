@@ -1,20 +1,22 @@
-# 验收路径 — Vivy UI 皮肤功能
+# Acceptance path — Vivy UI theming
 
-从用户视角如何确认功能已生效：
+How a user can confirm the feature is working:
 
-1. 启动开发环境（`just dev`，或既有 split pair），打开
-   `http://127.0.0.1:3015`。
-2. 左侧导航点击"设置"，停留在"通用"tab。
-3. 在"应用信息"卡下方应看到"主题"卡，含 5 张预览卡：
-   Vivy 蓝（默认选中）、恋粉、简约粉白、深蓝夜色、Miku 青；
-   每张卡显示该皮肤的渐变预览、名称与一句描述。
-4. 依次点击各主题：整个应用（侧边栏、顶栏、卡片、按钮强调色）
-   应立即换肤，无需刷新。
-   - 恋粉 / 简约粉白：浅色粉系界面。
-   - 深蓝夜色 / Miku 青：深色界面（后者强调色为青绿色）。
-5. 选定任一主题后刷新页面（F5）：主题应保持不变，且加载过程无
-   白屏/错误配色闪烁。
-6. 回到"通用"tab：当前主题卡仍显示"已选中"对勾；
-   迁移预览区（演示 / 本地模拟）不再包含主题选择假卡。
-7. 主题选择只保存在当前浏览器（localStorage `vivy.theme`），
-   不影响运行配置、其他浏览器或后端状态。
+1. Start the development environment (`just dev`, or the existing split pair)
+   and open `http://127.0.0.1:3015`.
+2. Click “Settings” in the left navigation and stay on the “General” tab.
+3. Below the “Application Info” card, find the “Theme” card with 5 preview cards:
+   Vivy Blue (selected by default), Love, Minimal Pink & White, Deep Blue Night,
+   and Miku Teal. Each card shows a gradient preview, the theme name, and a description.
+4. Click each theme in turn: the entire app (sidebar, top bar, cards, and button
+   accent color) should switch immediately without a refresh.
+   - Love / Minimal Pink & White: a light pink-toned interface.
+   - Deep Blue Night / Miku Teal: dark interfaces (the latter uses a teal accent).
+5. After selecting any theme, refresh the page (F5): the theme remains selected,
+   with no blank screen or incorrect-color flash during loading.
+6. Return to the “General” tab: the current theme card still shows a “Selected”
+   check mark; the migration-preview area (Demo / Local Mock) no longer contains
+   a fake theme-selection card.
+7. Theme selection is stored only in the current browser (localStorage
+   `vivy.theme`) and does not affect runtime configuration, other browsers, or
+   backend state.

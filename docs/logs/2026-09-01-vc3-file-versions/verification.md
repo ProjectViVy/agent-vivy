@@ -1,22 +1,39 @@
 # Verification
 
-| 命令 | 结果 |
+| Command | Result |
 |---|---|
-| `go build ./...` | 通过 |
-| `go vet ./internal/storage/... ./internal/runtime/... ./internal/tools/... ./internal/app/...` | 通过（无输出） |
-| `go test ./internal/storage/... ./internal/runtime/ -run 'FileVersion|Conformance' -count=1` | ok（postgres 0.087s / sqlite 10.907s / runtime 0.228s；postgres 侧 TestFileVersionChainSemantics 因未设 VIVY_POSTGRES_TEST_DSN 按既有门控 skip，CN-18 在 sqlite 全量跑过） |
-| `just ci`（fmt-check + vet + go test + headless + plugin-ci + UI） | 通过（exit 0，2026-09-02 完整跑完；UI vite build ✓ built in 4.00s） |
+| `go build ./...` | Passed |
+| `go vet ./internal/storage/... ./internal/runtime/... ./internal/tools/... ./internal/app/...` | Passed (no output) |
+| `go test ./internal/storage/... ./internal/runtime/ -run 'FileVersion|Conformance' -count=1` | ok (Postgres 0.087s / sqlite 10.907s / runtime 0.228s; Postgres `TestFileVersionChainSemantics` skipped by the existing gate because `VIVY_POSTGRES_TEST_DSN` was unset; CN-18 ran through the full sqlite suite) |
+| `just ci` (fmt-check + vet + go test + headless + plugin-ci + UI) | Passed (exit 0, completed in full on 2026-09-02; UI vite build ✓ built in 4.00s) |
 
-| `go test ./internal/pluginhost/ -count=1` | ok 0.247s（13 个测试：既有 6 + 新 7，全部通过） |
-| `go vet ./internal/pluginhost/... ./internal/app/...` | 通过 |
-| `just ci`（fmt-check + vet + go test + headless + plugin-ci + UI，切片2后复跑） | 通过（exit 0；首次运行 fmt-check 因 versioning_test.go 结构体对齐失败，gofmt 修复后复跑通过） |
+| `go test ./internal/pluginhost/ -count=1` | ok 0.247s (13 tests: 6 existing + 7 new, all passed) |
+| `go vet ./internal/pluginhost/... ./internal/app/...` | Passed |
+| `just ci` (fmt-check + vet + go test + headless + plugin-ci + UI, rerun after slice 2) | Passed (exit 0; the first run failed fmt-check on versioning_test.go struct alignment, then passed after gofmt) |
 
-新增测试覆盖（切片2）：
-- `internal/pluginhost/versioning_test.go`：OpenWrite 新文件/覆盖写产生正确链记录（display 路径 + session/run）；超限新内容直通落盘不记录、超限旧内容跳过链但刷新标记；无 session / nil recorder 静默直通；缓冲语义钉死（Close 前磁盘保留旧内容、Close 后落新内容且只记录一次）。
-- `internal/storage/conformance/suite.go` CN-18：记录不报错 + tracker upsert 往返 + DeleteSession 级联（双后端共享）。
-- `internal/storage/sqlite/fileversions_test.go` / `internal/storage/postgres/fileversions_test.go`：链语义（基线、链上 latest 匹配时只追加新内容、外部修改插中间态、相同内容去重、保留 20 版、>1MB 跳过不截断）。
-- `internal/runtime/fileversion_backend_test.go`：写/读/patch 产生正确的 RecordMutation 序列；stale-read 拒绝 → 重读恢复 → 再写成功；未 tracked 路径放行（fail-open）；无 session 上下文完全不触 recorder。
+New test coverage (slice 2):
+- `internal/pluginhost/versioning_test.go`: OpenWrite new/overwrite writes
+  produce the correct chain records (display path + session/run); over-limit new
+  content writes through without recording, over-limit old content skips the
+  chain but refreshes the marker; no session / nil recorder silently passes
+  through; buffering is pinned down (old content remains on disk before Close,
+  new content lands after Close, and only one record is made).
+- `internal/storage/conformance/suite.go` CN-18: recording does not error +
+  tracker upsert round trip + DeleteSession cascade (shared by both backends).
+- `internal/storage/sqlite/fileversions_test.go` /
+  `internal/storage/postgres/fileversions_test.go`: chain semantics (baseline,
+  append only new content when chain latest matches, external modification inserts
+  an intermediate state, identical-content deduplication, retain 20 versions,
+  >1MB skip without truncation).
+- `internal/runtime/fileversion_backend_test.go`: write/read/patch produce the
+  correct RecordMutation sequence; stale-read rejection → reread recovery →
+  successful write; untracked paths allowed (fail-open); no session context does
+  not touch the recorder.
 
-## Smoke 边界说明
+## Smoke boundary
 
-本切片无 UI/浏览器面变更；记录侧行为发生在 agent run 的工具执行路径内，需要真实 provider 会话才能端到端观察。内核测试 + `just ci` 为本切片的验证面；浏览器 3015 冒烟不适用（smoke-for-user-visible-change 规则所指的 UI 变更不存在）。
+This slice has no UI/browser-surface change; recording-side behavior occurs in an
+agent run's tool-execution path and requires a real provider session for end-to-end
+observation. Kernel tests + `just ci` are the verification surface; browser 3015
+smoke is not applicable because there is no UI change under the
+smoke-for-user-visible-change rule.

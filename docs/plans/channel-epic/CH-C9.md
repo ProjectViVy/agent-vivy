@@ -1,53 +1,53 @@
-# CH-C9 — A2A / NeuroLink（DEFERRED 备忘，不是开工令）
+# CH-C9 — A2A / NeuroLink (DEFERRED Note, Not a Work Order)
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C9 |
-| 状态 | **DEFERRED** — 各需独立能力提案 |
-| 合同 | §15、§15.1；演进阶段 H |
-| Eino | 偷 `eino-ext/a2a` 的 models/transport；禁止 `RegisterServerHandlers` |
+| Status | **DEFERRED** — Each requires an independent capability proposal |
+| Contract | §15, §15.1; Evolution Stage H |
+| Eino | Borrow models/transport from `eino-ext/a2a`; `RegisterServerHandlers` prohibited |
 
-未提案授权前 **不要领取实现**。
+**Do not claim implementation** before proposal authorization.
 
-## 2. 目标（将来）
+## 2. Goal (Future)
 
-两者都是 ChannelHost 上的重量级插件，不是新内核，不是 Face，不是 ACP。
+Both are heavyweight plugins on ChannelHost, not a new kernel, Face, or ACP.
 
-**NeuroLink：** 本机 WS server；grant `channel.listen`；Host 拥有 bind，默认 loopback；不进 telegram 式必填字段卡。
+**NeuroLink:** Local WS server; grant `channel.listen`; the Host owns the bind, defaulting to loopback; do not add a telegram-style required-fields card.
 
-**A2A：** 北向互操作；grant `channel.a2a`；HTTP+JSON 默认关；`taskId` = `run_id`；请求进 `Service.Run`。
+**A2A:** Northbound interoperability; grant `channel.a2a`; HTTP+JSON off by default; `taskId` = `run_id`; requests enter `Service.Run`.
 
-叠法：
+Layering:
 
 ```text
 A2A JSON-RPC     ← eino-ext/a2a models + transport
     ↓
-plugins/a2a      ← 独立 go.mod；只做编解码
+plugins/a2a      ← independent go.mod; encoding and decoding only
     ↓
-ChannelHost      ← 已有
+ChannelHost      ← existing
     ↓
-Service.Run      ← 已有 ADK Runner
+Service.Run      ← existing ADK Runner
 ```
 
-## 3. 现状
+## 3. Current State
 
-信封槽已在 C2 定形。Listen 面 C3 已声明。五个聊天插件不得占用 `channel.a2a` / `channel.listen` grant。
+Envelope slots were finalized in C2. The Listen surface was declared in C3. The five chat plugins must not use the `channel.a2a` / `channel.listen` grants.
 
-## 4–8. 禁止（即使将来开工）
+## 4–8. Prohibitions (Even if Work Starts in the Future)
 
-- `RegisterServerHandlers(adk.Agent)` 当 Vivy 网关。
-- 第二套 TaskStore。
-- Listen 挂 `:8787` `/rpc`。
-- 默认身体 import `eino-ext/a2a`。
-- 设置页在插件未编进身体时列出「添加 NeuroLink」。
-- 远程返回当可信工具输出。
+- Use `RegisterServerHandlers(adk.Agent)` as the Vivy gateway.
+- A second TaskStore.
+- Have Listen bind `:8787` `/rpc`.
+- Import `eino-ext/a2a` into the default body.
+- List "Add NeuroLink" on the settings page when the plugin is not compiled into the body.
+- Treat remote returns as trusted tool output.
 
-## 9. 风险
+## 9. Risk
 
-eino-ext/a2a 仍是 alpha，且声明的 eino 版本与 Vivy pin 不对齐。只能当 codec 对照，不能 drop-in 示例服务器。
+eino-ext/a2a is still alpha, and its declared eino version does not align with Vivy's pin. Use it only as a codec reference, not as a drop-in example server.
 
-## 10. 交接
+## 10. Handoff
 
-各写一份能力提案后再开切片 PLAN。不要从本备忘直接开写代码。
+Open a slice PLAN only after writing an independent capability proposal for each. Do not start writing code directly from this note.

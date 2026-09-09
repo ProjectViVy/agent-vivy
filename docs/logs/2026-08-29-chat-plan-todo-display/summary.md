@@ -1,4 +1,4 @@
-# 2026-08-29 · 聊天区真实 PLAN / TODO 显示
+# 2026-08-29 · Real PLAN / TODO display in the chat area
 
 Date: 2026-08-29
 Status: complete
@@ -6,34 +6,34 @@ Lane: `feat/plan-todo-display` worktree (`../agent-vivy-plan-todo-display`)
 
 ## Outcome
 
-对照 DSH 的 composer 进度条 + 可折叠清单，把 Vivy 聊天页的计划/待办从
-`demo-api` 假数据换成内核真实的 session-scoped todos。
+Following DSH's composer progress strip + collapsible list, the plan/todos on Vivy's chat page were changed from
+`demo-api` fake data to real session-scoped todos from the kernel.
 
-权威数据是 Journal `todos` 表（`task_create` / `task_update` / `task_list`）。
-没有移植 DSH `goal` / `todo_write`，也没有复活 Diva `PlanRuntimeState`。
+The authoritative data is the Journal `todos` table (`task_create` / `task_update` / `task_list`).
+DSH `goal` / `todo_write` were not ported, and Diva `PlanRuntimeState` was not revived.
 
 ## Delivered
 
 ### RPC
 
-- `session/todos`：按 `session_id` 列出该会话 todos（不含 `metadata`）。
-- `ControlDeps.Todos`；生产接线 `backend`。
-- `Todos == nil` → method-not-found。
-- capabilities 增加 `session.todos`。
+- `session/todos`: lists this session's todos by `session_id` (excluding `metadata`).
+- `ControlDeps.Todos`; production wiring `backend`.
+- `Todos == nil` → method-not-found.
+- capabilities adds `session.todos`.
 
 ### UI
 
-- `api.listTodos` + store `todos` / `todosPhase` / `todoPanelOpen`。
-- 选会话、run 终态、`task_*` 的 `tool.finished` 刷新列表。
-- 聊天输入框上方 `TodoProgressStrip`：空则隐藏；显示当前进行中标题 + 状态计数。
-- 右侧 `SessionTodoPanel`：当前（pending / in_progress）与历史（completed / cancelled）。
-- 桌面右轨折叠；窄屏仍用顶栏 Sheet。同一面板组件。
-- 顶栏待办按钮不再调用 `getPlanSidebarData`。删除仅服务假通路的 `PlanSidebarPanel`。
+- `api.listTodos` + store `todos` / `todosPhase` / `todoPanelOpen`.
+- Selecting a session, a terminal run state, or a `task_*` `tool.finished` event refreshes the list.
+- Above the chat input, `TodoProgressStrip` is hidden when empty; it displays the current in-progress title + status counts.
+- Right-side `SessionTodoPanel`: current (pending / in_progress) and history (completed / cancelled).
+- The desktop right rail collapses; narrow screens still use the top-bar Sheet. The same panel component is used.
+- The top-bar todos button no longer calls `getPlanSidebarData`. Delete `PlanSidebarPanel`, which only served the fake path.
 
 ## Explicitly not done
 
-- UI 增删改待办（避免伪操作）。
-- DSH `create_goal` / plan-mode review。
-- 跨会话历史。
-- 新 journal 事件类型。
-- 合并回 `main` / push（需用户授权）。
+- UI add/edit/delete of todos (to avoid fake operations).
+- DSH `create_goal` / plan-mode review.
+- Cross-session history.
+- New journal event types.
+- Merge back to `main` / push (requires user authorization).

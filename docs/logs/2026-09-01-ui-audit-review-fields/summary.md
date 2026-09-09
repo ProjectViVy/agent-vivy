@@ -1,36 +1,41 @@
 # Summary
 
-## 主题
+## Topic
 
-UI-AUDIT-REVIEW-FIELDS：审批中心详情补齐审计字段，消除「过期/失效原因不可审计」缺口。
+UI-AUDIT-REVIEW-FIELDS: fill in audit fields in the Review Center details,
+eliminating the gap where expired/stale reasons could not be audited.
 
-## 背景与审查发现
+## Background and audit finding
 
-2026-08-31 UI 审计确认：后端 `ReviewItem`（`ui/src/lib/api.ts`）已携带
-`actor`、`created_at`、`expires_at`、`decided_at`、`precondition_hash`、
-`stale_reason`、`decision_reason`、`error` 等审计字段，但
-`ApprovalsView.tsx` 详情 `<dl>` 只渲染
-run/action/target/effect/reversibility/scope/trust——过期审批为何失效、
-拒绝理由是什么、审批者是谁均无处可看。
+The 2026-08-31 UI audit confirmed that the backend `ReviewItem`
+(`ui/src/lib/api.ts`) already carried audit fields such as `actor`, `created_at`,
+`expires_at`, `decided_at`, `precondition_hash`, `stale_reason`,
+`decision_reason`, and `error`, but the `ApprovalsView.tsx` detail `<dl>` only
+rendered run/action/target/effect/reversibility/scope/trust—there was nowhere to
+see why an approval expired, what the rejection reason was, or who approved it.
 
-## 改动
+## Changes
 
-- `ui/src/components/approvals/ApprovalsView.tsx`：详情 `<dl>` 在
-  trust 之后追加（全部按字段存在性条件渲染）：
-  - `actor`（发起者）
-  - `createdAt` / `expiresAt`（必显，`new Date(x).toLocaleString(dateTimeLocale())`
-    —— 与 PersonaMemoryView/CronTaskManagementView 同一 i18n 感知格式）
-  - `decidedAt`（决定时间，有 decided_at 才显示）
-  - `precondition_hash`（`<code>` + break-all，哈希原样）
-  - `staleReason` / `decisionReason`（失效/决定理由）
-  - `error`（text-destructive 标红）
-- `ui/src/i18n/en.ts` + `zh.ts`：`approvals` 块 `trust:` 锚点后新增
-  8 键（createdAt/expiresAt/decidedAt/actor/precondition/staleReason/
-  decisionReason/errorLabel），双语同步。
+- `ui/src/components/approvals/ApprovalsView.tsx`: the detail `<dl>` appends
+  the following after trust (all rendered conditionally on field presence):
+  - `actor` (initiator)
+  - `createdAt` / `expiresAt` (always shown, using
+    `new Date(x).toLocaleString(dateTimeLocale())`, the same i18n-aware format as
+    PersonaMemoryView/CronTaskManagementView)
+  - `decidedAt` (decision time, shown only when `decided_at` exists)
+  - `precondition_hash` (`<code>` + break-all, hash unchanged)
+  - `staleReason` / `decisionReason` (stale/decision reason)
+  - `error` (red `text-destructive` text)
+- `ui/src/i18n/en.ts` + `zh.ts`: adds 8 keys after the `trust:` anchor in the
+  `approvals` block (createdAt/expiresAt/decidedAt/actor/precondition/staleReason/
+  decisionReason/errorLabel), synchronized across both languages.
 
-## 明确不做
+## Explicitly not done
 
-- 列表（master 侧）行不加字段——详情页才是审计面，列表保持可扫读。
-- 不改 pending 操作区/流程逻辑；本行只补只读审计展示。
-- UI-AUDIT-REVIEW-INSPECTOR（Inspector inline review）与
-  UI-AUDIT-REVIEW-BUSY-SCOPE（按 item 锁）是另外的行，不混入。
+- List (master-side) rows do not gain fields—the detail page is the audit surface,
+  and the list remains scannable.
+- The pending-action area/workflow is unchanged; this item adds read-only audit
+  display only.
+- UI-AUDIT-REVIEW-INSPECTOR (Inspector inline review) and
+  UI-AUDIT-REVIEW-BUSY-SCOPE (per-item lock) are separate items and are not
+  mixed in here.

@@ -32,16 +32,16 @@ and states that without keys it degrades to DuckDuckGo/Wikipedia.
 
 ## network_search is configurable in the UI
 
-Settings → 工具 → 网络搜索:
+Settings → Tools → Network Search:
 
 - Availability badges show which providers are live right now and which
-  env var is missing (`bing · 未配置（需 BING_SEARCH_API_KEY）` etc.);
+  env var is missing (`bing · Not configured (requires BING_SEARCH_API_KEY)`, etc.);
   setting that env var flips the badge on the next start.
-- Pick a default provider (自动 or a configured one), 保存网络搜索设置,
+- Pick a default provider (Automatic or a configured one), Save Network Search Settings,
   reload the page — the choice persists (settings document on disk) and
   takes effect on the next launch of the engine. An unavailable preferred
   provider silently falls back to automatic selection instead of failing
   searches.
-- Saving from the 模型 tab / welcome wizard / model switcher no longer
+- Saving from the Model tab / welcome wizard / model switcher no longer
   wipes the network_search preference (whole-document replace now always
   carries it).

@@ -1,91 +1,91 @@
-# Phase 3：会话与审批中心迁移 - 完成报告
+# Phase 3: Session and Approval Center Migration - Completion Report
 
-**完成日期：** 2026-08-23  
-**状态：** ✅ 已完成
-
----
-
-## 执行摘要
-
-Phase 3（会话与审批中心迁移）已顺利完成。本阶段实现了会话搜索过滤、Pin/Unpin 功能、AskUserQuestion 轮询以及消息操作（复制/编辑/重新生成）。
-
-### 关键成果
-
-1. **会话侧边栏增强**
-   - ✅ 搜索过滤功能
-   - ✅ Pin/Unpin 会话（本地状态维护）
-   - ✅ 会话分组渲染（Pinned/Sessions）
-   - ✅ 相对时间显示（刚刚/N分钟前/小时前/天前）
-
-2. **AskUserQuestion 轮询**
-   - ✅ 定时拉取待回答问题（5秒间隔）
-   - ✅ 自动更新 Store 状态
-   - ✅ 错误容错处理
-
-3. **消息操作**
-   - ✅ 复制按钮（带成功反馈）
-   - ✅ 编辑按钮（用户消息）
-   - ✅ 重新生成按钮（助手消息）
-
-4. **构建验证**
-   - ✅ TypeScript 编译通过
-   - ✅ Vite 构建成功
-   - ✅ 无运行时错误
+**Completion Date:** 2026-08-23  
+**Status:** ✅ Completed
 
 ---
 
-## 详细完成情况
+## Executive Summary
 
-### 1. Session 类型扩展
+Phase 3 (Session and Approval Center Migration) was completed successfully. This phase implemented session search and filtering, Pin/Unpin functionality, AskUserQuestion polling, and message actions (copy/edit/regenerate).
 
-**文件：** `ui/src/api.ts`
+### Key Results
 
-**新增字段：**
+1. **Session Sidebar Enhancement**
+   - ✅ Search and filtering
+   - ✅ Pin/Unpin sessions (maintained in local state)
+   - ✅ Session-group rendering (Pinned/Sessions)
+   - ✅ Relative-time display (just now/minutes ago/hours ago/days ago)
+
+2. **AskUserQuestion Polling**
+   - ✅ Periodically fetches unanswered questions (5-second interval)
+   - ✅ Automatically updates Store state
+   - ✅ Error-tolerant handling
+
+3. **Message Actions**
+   - ✅ Copy button (with success feedback)
+   - ✅ Edit button (user messages)
+   - ✅ Regenerate button (assistant messages)
+
+4. **Build Verification**
+   - ✅ TypeScript compilation passed
+   - ✅ Vite build succeeded
+   - ✅ No runtime errors
+
+---
+
+## Detailed Completion Status
+
+### 1. Session Type Extension
+
+**File:** `ui/src/api.ts`
+
+**New Fields:**
 ```typescript
 export interface Session {
   id: string;
   title: string;
   created_at: number;
-  pinned?: boolean;          // 新增：是否固定
-  last_message?: string;     // 新增：最后一条消息预览
-  message_count?: number;    // 新增：消息数量
-  updated_at?: number;       // 新增：最后更新时间
+  pinned?: boolean;          // added: whether it is pinned
+  last_message?: string;     // added: preview of the last message
+  message_count?: number;    // added: message count
+  updated_at?: number;       // added: last update time
 }
 ```
 
-### 2. Shell 元素扩展
+### 2. Shell Element Extension
 
-**文件：** `ui/src/app/shell.ts`
+**File:** `ui/src/app/shell.ts`
 
-**新增 HTML 元素：**
+**New HTML Element:**
 ```html
 <div class="sidebar-search">
   <input type="search" id="session-search" placeholder="" aria-label="Search sessions" />
 </div>
 ```
 
-**新增接口字段：**
+**New Interface Field:**
 ```typescript
 sessionSearch: HTMLInputElement;
 ```
 
-### 3. Store 状态扩展
+### 3. Store State Extension
 
-**文件：** `ui/src/app/store.ts`
+**File:** `ui/src/app/store.ts`
 
-**新增状态：**
+**New State:**
 ```typescript
-sessionSearchQuery: string;      // 搜索查询
-pinBusySessionID: string | null; // Pin 操作忙状态
+sessionSearchQuery: string;      // search query
+pinBusySessionID: string | null; // busy state for the Pin operation
 ```
 
-### 4. 会话侧边栏增强
+### 4. Session Sidebar Enhancement
 
-**文件：** `ui/src/features/sessions/view.ts`
+**File:** `ui/src/features/sessions/view.ts`
 
-**新增功能：**
+**New Functionality:**
 
-#### A. 搜索过滤
+#### A. Search and Filtering
 ```typescript
 const searchQuery = state.sessionSearchQuery.toLowerCase().trim();
 let filteredSessions = state.sessions;
@@ -98,7 +98,7 @@ if (searchQuery) {
 }
 ```
 
-#### B. Pin/Unpin 功能
+#### B. Pin/Unpin Functionality
 ```typescript
 menu.open(more, [
   { 
@@ -109,26 +109,26 @@ menu.open(more, [
 ]);
 ```
 
-#### C. 会话分组渲染
+#### C. Session-Group Rendering
 ```typescript
 const pinnedSessions = filteredSessions.filter((s) => s.pinned);
 const unpinnedSessions = filteredSessions.filter((s) => !s.pinned);
 
-// 先渲染 Pinned 组
+// render the Pinned group first
 if (pinnedSessions.length > 0) {
   const pinnedHeading = node("div", "section-heading");
   pinnedHeading.textContent = translate(state.locale, "convSidebarPinned");
   shell.sessionList.appendChild(pinnedHeading);
-  // 渲染 pinned 会话...
+  // render pinned sessions...
 }
 
-// 再渲染 Sessions 组
+// then render the Sessions group
 if (unpinnedSessions.length > 0) {
   // ...
 }
 ```
 
-#### D. 相对时间显示
+#### D. Relative-Time Display
 ```typescript
 function formatRelativeTime(timestamp: number): string {
   const now = Date.now();
@@ -145,9 +145,9 @@ function formatRelativeTime(timestamp: number): string {
 }
 ```
 
-### 5. Controller 层新增方法
+### 5. New Controller-Layer Methods
 
-**文件：** `ui/src/app/controller.ts`
+**File:** `ui/src/app/controller.ts`
 
 #### A. togglePinSession
 ```typescript
@@ -187,7 +187,7 @@ setSessionSearchQuery(query: string): void {
 }
 ```
 
-#### C. AskUserQuestion 轮询
+#### C. AskUserQuestion Polling
 ```typescript
 private askUserPollTimer: number | null = null;
 private readonly ASK_USER_POLL_INTERVAL_MS = 5000;
@@ -220,29 +220,29 @@ private stopAskUserPolling(): void {
 }
 ```
 
-**在 boot() 中启动：**
+**Start in `boot()`:**
 ```typescript
 async boot(): Promise<void> {
   await Promise.all([this.refreshSessions(), this.refreshActiveRuns(), this.refreshAttention()]);
-  this.startAskUserPolling();  // 新增
+  this.startAskUserPolling();  // added
   // ...
 }
 ```
 
-**在 dispose() 中停止：**
+**Stop in `dispose()`:**
 ```typescript
 dispose(): void {
   if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
-  this.stopAskUserPolling();  // 新增
+  this.stopAskUserPolling();  // added
   this.stopSubscription();
 }
 ```
 
-### 6. 消息操作
+### 6. Message Actions
 
-**文件：** `ui/src/features/conversation/message-renderer.ts`
+**File:** `ui/src/features/conversation/message-renderer.ts`
 
-**新增函数：**
+**New Function:**
 ```typescript
 function createMessageActions(message: Message): HTMLElement {
   const actions = node("div", "message-actions");
@@ -292,7 +292,7 @@ function createMessageActions(message: Message): HTMLElement {
 }
 ```
 
-**CSS 样式（chat.css）：**
+**CSS Styles (`chat.css`):**
 ```css
 .message-actions {
   display: flex;
@@ -323,11 +323,11 @@ function createMessageActions(message: Message): HTMLElement {
 }
 ```
 
-### 7. 搜索框样式
+### 7. Search-Box Styles
 
-**文件：** `ui/src/styles/components/sidebar.css`
+**File:** `ui/src/styles/components/sidebar.css`
 
-**新增样式：**
+**New Styles:**
 ```css
 /* Search Input */
 .sidebar-search {
@@ -357,92 +357,92 @@ function createMessageActions(message: Message): HTMLElement {
 
 ---
 
-## 验收标准核对
+## Acceptance Criteria Check
 
-- [x] 用户可以搜索和过滤会话
-- [x] 用户可以 Pin/Unpin 会话
-- [x] 重命名对话框体验优化
-- [x] AskUserQuestion 正常轮询并显示
-- [x] 消息支持复制/编辑/重新生成操作
-- [x] 无 console error/warning
-- [x] 构建通过（`npm run build`）
+- [x] Users can search and filter sessions
+- [x] Users can Pin/Unpin sessions
+- [x] The rename-dialog experience is improved
+- [x] AskUserQuestion polls and displays correctly
+- [x] Messages support copy/edit/regenerate actions
+- [x] No console error/warning
+- [x] Build passes (`npm run build`)
 
 ---
 
-## 工作量统计
+## Effort Summary
 
-| 任务 | 计划工时 | 实际工时 | 偏差 |
+| Task | Planned Effort | Actual Effort | Variance |
 |------|---------|---------|------|
-| 扩展 Session 类型 | 0.25 天 | 0.1 天 | -60% |
-| 增强会话侧边栏 UI | 1.5 天 | 1 天 | -33% |
-| 添加 Shell 元素和 Store 状态 | 0.25 天 | 0.15 天 | -40% |
-| Controller 新增方法 | 0.5 天 | 0.3 天 | -40% |
-| AskUserQuestion 轮询 | 0.5 天 | 0.25 天 | -50% |
-| 消息操作 | 1 天 | 0.5 天 | -50% |
-| i18n 补充 | 0.25 天 | 0.1 天 | -60% |
-| 测试与修复 | 0.5 天 | 0.4 天 | -20% |
-| **总计** | **5 天** | **2.8 天** | **-44%** |
+| Extend Session type | 0.25 day | 0.1 day | -60% |
+| Enhance session-sidebar UI | 1.5 days | 1 day | -33% |
+| Add Shell elements and Store state | 0.25 day | 0.15 day | -40% |
+| Add Controller methods | 0.5 day | 0.3 day | -40% |
+| AskUserQuestion polling | 0.5 day | 0.25 day | -50% |
+| Message actions | 1 day | 0.5 day | -50% |
+| Add i18n content | 0.25 day | 0.1 day | -60% |
+| Testing and fixes | 0.5 day | 0.4 day | -20% |
+| **Total** | **5 days** | **2.8 days** | **-44%** |
 
-**效率提升原因：**
-- 复用现有架构（FloatingMenu、DialogHost）
-- 清晰的模块划分减少了耦合
-- TypeScript 类型检查提前发现错误
-
----
-
-## 创建的文件清单
-
-**修改文件（6 个）：**
-1. `ui/src/api.ts` - 扩展 Session 类型
-2. `ui/src/app/shell.ts` - 添加搜索输入框和 ShellElements 字段
-3. `ui/src/app/store.ts` - 添加 sessionSearchQuery 和 pinBusySessionID
-4. `ui/src/app/controller.ts` - 添加 togglePinSession、setSessionSearchQuery、AskUserQuestion 轮询
-5. `ui/src/features/sessions/view.ts` - 增强会话侧边栏（搜索/Pin/分组/相对时间）
-6. `ui/src/features/conversation/message-renderer.ts` - 添加消息操作按钮
-7. `ui/src/styles/components/sidebar.css` - 添加搜索框样式
-8. `ui/src/styles/components/chat.css` - 添加消息操作按钮样式
+**Reasons for Efficiency Gains:**
+- Reused the existing architecture (FloatingMenu, DialogHost)
+- Clear module boundaries reduced coupling
+- TypeScript type checking caught errors early
 
 ---
 
-## 已知问题与后续优化
+## Created File Inventory
 
-### 已知问题
-1. **Pin 功能仅在本地维护**：Backend 尚未支持 pin_session/unpin_session 端点
-   - **缓解措施：** 重启后 Pin 状态丢失，未来需对接 Backend
-
-2. **重新生成功能未实现**：仅 UI 按钮，实际逻辑留到后续阶段
-   - **计划：** Phase 4 或 Phase 5 实现
-
-3. **搜索无防抖**：大量会话时可能性能下降
-   - **优化：** 添加 debounce（300ms）
-
-### 优化建议
-1. **会话排序持久化**：当前排序仅在内存中
-   - **建议：** 将排序结果保存到 localStorage
-
-2. **消息操作权限控制**：某些消息不应允许编辑/重新生成
-   - **建议：** 根据消息状态禁用相应按钮
+**Modified Files (6):**
+1. `ui/src/api.ts` - Extended the Session type
+2. `ui/src/app/shell.ts` - Added the search input and ShellElements field
+3. `ui/src/app/store.ts` - Added `sessionSearchQuery` and `pinBusySessionID`
+4. `ui/src/app/controller.ts` - Added `togglePinSession`, `setSessionSearchQuery`, and AskUserQuestion polling
+5. `ui/src/features/sessions/view.ts` - Enhanced the session sidebar (search/Pin/groups/relative time)
+6. `ui/src/features/conversation/message-renderer.ts` - Added message-action buttons
+7. `ui/src/styles/components/sidebar.css` - Added search-box styles
+8. `ui/src/styles/components/chat.css` - Added message-action button styles
 
 ---
 
-## 下一步行动
+## Known Issues and Follow-up Optimizations
 
-**Phase 4：设置面板迁移**
+### Known Issues
+1. **Pin Functionality Is Maintained Locally Only:** Backend does not yet support the pin_session/unpin_session endpoints
+   - **Mitigation:** Pin state is lost after restart; Backend integration is needed in the future
 
-**前置条件：** ✅ 已完成
-- [x] 核心聊天系统就绪
-- [x] 会话侧边栏增强完成
-- [x] 审批中心基础完成
+2. **Regeneration Not Implemented:** Only the UI button is present; the actual logic is deferred to a later phase
+   - **Plan:** Implement in Phase 4 or Phase 5
 
-**Phase 4 关键任务：**
-1. Provider 管理（内置 + 自定义）
-2. Channel 管理（Telegram/Discord/QQ 等）
-3. Skills 市场浏览与安装
-4. MCP 服务器管理
-5. 审计日志查看
+3. **Search Has No Debouncing:** Performance may decline with a large number of sessions
+   - **Optimization:** Add debounce (300ms)
+
+### Optimization Recommendations
+1. **Persist Session Ordering:** The current ordering exists only in memory
+   - **Recommendation:** Save the ordering to localStorage
+
+2. **Message-Action Permission Control:** Some messages should not allow editing/regeneration
+   - **Recommendation:** Disable the corresponding buttons based on message state
 
 ---
 
-**报告生成时间：** 2026-08-23  
-**负责人：** UI Migration Team  
-**状态：** ✅ Phase 3 完成，准备进入 Phase 4
+## Next Actions
+
+**Phase 4: Settings Panel Migration**
+
+**Prerequisites:** ✅ Completed
+- [x] Core chat system ready
+- [x] Session sidebar enhancement complete
+- [x] Approval Center foundation complete
+
+**Phase 4 Key Tasks:**
+1. Provider management (built-in + custom)
+2. Channel management (Telegram/Discord/QQ, etc.)
+3. Skills marketplace browsing and installation
+4. MCP server management
+5. Audit-log viewing
+
+---
+
+**Report Generated:** 2026-08-23  
+**Owner:** UI Migration Team  
+**Status:** ✅ Phase 3 complete; ready to enter Phase 4
