@@ -22,7 +22,8 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on P2–P5 where relevant.
+- State: `UNSCHEDULED`; depends on P2–P5. In particular, Task 2 consumes the
+  P5 ModelHost, so P5 is not optional for phase completion.
 - Migrate one internal Port per focused commit; physical directory moves occur
   only after semantic wiring is green.
 - Public Recipes cannot provide, override, or configure `core/*` authority.

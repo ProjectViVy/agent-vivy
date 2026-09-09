@@ -1,0 +1,24 @@
+{
+  "id": "duplicate-module",
+  "expect": "reject",
+  "rule": "A Recipe selects each Module identity at most once.",
+  "wantError": "duplicate module fixture/duplicate",
+  "recipe": {
+    "apiVersion": "vivy.generation/v1",
+    "modules": ["fixture/duplicate", "fixture/duplicate"]
+  },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/duplicate", "version": "1.0.0" },
+      "source": {
+        "ref": "git:fixture/duplicate@0123456",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

@@ -62,7 +62,7 @@ type ConformanceResult struct {
 - [ ] Run `go test ./sdk/conformance ./sdk/internal/conformance`.
 - [ ] Commit `feat(conformance): define plugin port evidence`.
 
-### Task 2: Make support state evidence-derived
+### Task 2: Aggregate and audit evidence-derived support state
 
 **Files:**
 
@@ -73,11 +73,13 @@ type ConformanceResult struct {
 
 **Interfaces:**
 
-- Consumes: Port Definition and Conformance results.
+- Consumes: the P1 support-state primitives, per-phase evidence records, Port
+  Definitions, and Conformance results.
 - Produces: `RESERVED`, `SPECIFIED`, `CANDIDATE`, `SUPPORTED`, or
   `DEFERRED-INDEFINITE` Inspect state.
 
-- [ ] Write table tests proving each missing artifact prevents `SUPPORTED`.
+- [ ] Write release-wide table tests proving each missing artifact still
+  prevents `SUPPORTED` and no phase bypassed the P1 selection rule.
 - [ ] Prevent Module or README claims from changing computed state.
 - [ ] Include evidence IDs without embedding local absolute paths or Secrets.
 - [ ] Run `go test ./sdk/internal -run SupportState`.

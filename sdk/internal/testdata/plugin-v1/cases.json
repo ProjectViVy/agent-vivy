@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "id": "valid-minimal", "path": "valid/minimal/case.json", "expect": "accept" },
+    { "id": "valid-ordered-tool", "path": "valid/ordered-tool/case.json", "expect": "accept" },
+    { "id": "legacy-v0", "path": "invalid/legacy-v0/case.json", "expect": "reject" },
+    { "id": "duplicate-module", "path": "invalid/duplicate-module/case.json", "expect": "reject" },
+    { "id": "missing-provider", "path": "invalid/missing-provider/case.json", "expect": "reject" },
+    { "id": "duplicate-exclusive-provider", "path": "invalid/duplicate-exclusive-provider/case.json", "expect": "reject" },
+    { "id": "dependency-cycle", "path": "invalid/dependency-cycle/case.json", "expect": "reject" },
+    { "id": "unapproved-grant", "path": "invalid/unapproved-grant/case.json", "expect": "reject" },
+    { "id": "bad-source-hash", "path": "invalid/bad-source-hash/case.json", "expect": "reject" }
+  ]
+}
