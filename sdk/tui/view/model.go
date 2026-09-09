@@ -15,7 +15,9 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/rivo/uniseg"
 
+	corei18n "agent-vivy/internal/i18n"
 	"agent-vivy/sdk/tui/command"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -32,8 +34,6 @@ const (
 	windowTitleMaxRunes = 64
 )
 
-var commandRegistry = command.DefaultRegistry()
-
 type fileCompletionStartMsg struct {
 	Request   uint64
 	Query     string
@@ -45,6 +45,8 @@ type fileCompletionStartMsg struct {
 // remains owned by the surface.Driver.
 type Model struct {
 	driver          surface.Driver
+	translator      tuii18n.Translator
+	commandRegistry command.Registry
 	width           int
 	height          int
 	input           string
@@ -153,8 +155,13 @@ func New(driver surface.Driver, options ...Options) Model {
 	if len(options) > 0 {
 		opts = options[0]
 	}
+	// Task 6 adds the locale option and migrates the remaining view copy. Keep
+	// the current terminal locale until that constructor boundary is available.
+	translator := tuii18n.New(corei18n.Chinese)
 	return Model{
 		driver:          driver,
+		translator:      translator,
+		commandRegistry: command.DefaultRegistry(translator),
 		width:           120,
 		height:          36,
 		palette:         DefaultPalette(),
@@ -1636,14 +1643,14 @@ func (m Model) filteredCommands() []command.Spec {
 }
 
 func (m Model) effectiveCommandRegistry() (command.Registry, map[string]surface.DynamicCommand) {
-	specs := commandRegistry.Specs()
+	specs := make([]command.Spec, 0)
 	dynamic := make(map[string]surface.DynamicCommand)
 	for _, candidate := range m.driver.DynamicCommands() {
 		name := strings.ToLower(strings.TrimSpace(candidate.Name))
 		if !safeDynamicCommandName(name) || strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Kind) == "" {
 			continue
 		}
-		if _, reserved := commandRegistry.Lookup(name); reserved {
+		if _, reserved := m.commandRegistry.Lookup(name); reserved {
 			continue
 		}
 		if _, duplicate := dynamic[name]; duplicate {
@@ -1655,9 +1662,12 @@ func (m Model) effectiveCommandRegistry() (command.Registry, map[string]surface.
 		candidate.Name = name
 		dynamic[name] = candidate
 	}
-	registry, err := command.NewRegistry(specs...)
+	if len(specs) == 0 {
+		return m.commandRegistry, dynamic
+	}
+	registry, err := m.commandRegistry.Extend(specs...)
 	if err != nil {
-		return commandRegistry, map[string]surface.DynamicCommand{}
+		return m.commandRegistry, map[string]surface.DynamicCommand{}
 	}
 	return registry, dynamic
 }

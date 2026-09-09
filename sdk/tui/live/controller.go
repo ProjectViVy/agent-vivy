@@ -12,7 +12,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	corei18n "agent-vivy/internal/i18n"
 	"agent-vivy/sdk/tui/command"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 	"agent-vivy/sdk/tui/stream"
 	"agent-vivy/sdk/tui/surface"
 )
@@ -2069,7 +2071,9 @@ func (l *Live) ExecuteCommand(name string, args []string) tea.Cmd {
 	if name == "" {
 		return commandResultCmd(name, "", errors.New("command name is required"))
 	}
-	registry := command.DefaultRegistry()
+	// Task 7 replaces this temporary English translator with the hydrated
+	// controller translator.
+	registry := command.DefaultRegistry(tuii18n.New(corei18n.English))
 	spec, ok := registry.Lookup(name)
 	if !ok {
 		return commandResultCmd(name, "", fmt.Errorf("unknown command /%s", name))
