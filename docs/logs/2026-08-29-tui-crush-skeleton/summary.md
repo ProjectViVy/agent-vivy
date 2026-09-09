@@ -12,8 +12,8 @@ by deterministic mock data. No gateway dial, no second kernel, no packed
 
 ## Delivered
 
-- `internal/tui/demo` — three-session script (过夜 / 审批中 / 空), y/n
-  approval mutation, scripted enter reply `（demo：未接控制面）`.
+- `internal/tui/demo` — three-session script (overnight / approval pending / empty), y/n
+  approval mutation, scripted enter reply `(demo: control plane not connected)`.
 - `internal/tui/view` — single Bubble Tea model + lipgloss layout/render.
 - `cmd/vivy/tui.go` — `--demo` (default) / `--plain` / `--addr`.
 - Charm deps: `bubbletea`, `lipgloss` (no Crush / `charm.land` fork).

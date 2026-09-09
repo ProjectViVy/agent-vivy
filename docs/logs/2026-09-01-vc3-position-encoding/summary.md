@@ -1,4 +1,4 @@
-# VC-3 slice 6: LSP positionEncoding 协商（+ 诊断等待竞态修复）
+# VC-3 slice 6: LSP positionEncoding negotiation (+ diagnostics-wait race fix)
 
 Date: 2026-09-01. Lane: `feat/vc1a-bash-tool` (worktree `agent-vivy-vc0`).
 

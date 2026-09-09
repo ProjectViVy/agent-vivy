@@ -2,26 +2,31 @@
 
 | Command | Result |
 |---|---|
-| `go test ./internal/app/settings/ -race -count=1` | ok 2.481s（含 4 个新 Update 测试） |
+| `go test ./internal/app/settings/ -race -count=1` | ok 2.481s (including 4 new Update tests) |
 | `go vet ./internal/rpc/ ./internal/app/settings/` | clean |
 | `go test ./internal/rpc/ -count=1` | ok 17.655s |
-| `just ci` | 绿（golangci-lint + go test ./... + ui tsc/eslint/vitest 195 tests + vite build） |
-| `just ui-e2e` | 10 passed / 1 skipped（cron-tasks 预存 skip），21.6s |
+| `just ci` | Green (golangci-lint + go test ./... + UI tsc/eslint/vitest, 195 tests + vite build) |
+| `just ui-e2e` | 10 passed / 1 skipped (pre-existing cron-tasks skip), 21.6s |
 
-## 新增测试（internal/app/settings/settings_test.go）
+## New tests (`internal/app/settings/settings_test.go`)
 
-- `TestUpdateConcurrentUpsertsAllSurvive` — SET-RMW 回归：8 goroutine 各
-  Update-upsert 一条唯一 (id, base_url) provider 条目，最终 Load 8/8 全存；
-  同调度下 Load→modify→Save 会丢条目（last-writer-wins）。
-- `TestUpdateFnErrorAbortsWrite` — fn 错误原样穿透且文档零变化
-  （errors.Is 断言 + 前后文档 DeepEqual）。
-- `TestUpdateRejectsInvalidCandidate` — 候选文档校验失败 → IsValidationError
-  为真、errors.As 解出底层错误、文档保持先前状态。
-- `TestUpdateReturnsPersistedDocument` — 缺文件从零文档起步，返回值 ==
-  Load 结果（DeepEqual）。
+- `TestUpdateConcurrentUpsertsAllSurvive` — SET-RMW regression: 8 goroutines
+  each Update-upsert one unique `(id, base_url)` provider entry; the final Load
+  preserves all 8. Under the same scheduling, Load→modify→Save loses entries
+  (last-writer-wins).
+- `TestUpdateFnErrorAbortsWrite` — the `fn` error passes through unchanged and
+  the document remains unchanged (`errors.Is` assertion + before/after
+  `DeepEqual`).
+- `TestUpdateRejectsInvalidCandidate` — candidate-document validation fails →
+  `IsValidationError` is true, `errors.As` extracts the underlying error, and the
+  document remains in its previous state.
+- `TestUpdateReturnsPersistedDocument` — starts from a missing file and an empty
+  document; the return value equals the Load result (`DeepEqual`).
 
 ## Notes
 
-- 首版 `TestUpdateReturnsPersistedDocument` 撞上既有 YAML 往返行为：nil
-  `Models` 切片 marshal 成 `models: []` 再 decode 为空切片，DeepEqual
-  不等（Save 同样如此，非 Update 引入）。测试给条目赋非空 Models 后绕开。
+- The first version of `TestUpdateReturnsPersistedDocument` hit existing YAML
+  round-trip behavior: a nil `Models` slice marshals as `models: []` and decodes
+  as an empty slice, so `DeepEqual` fails (the same happens with Save and was not
+  introduced by Update). The test avoids this by giving the entry a non-empty
+  `Models` value.

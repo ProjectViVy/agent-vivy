@@ -1,10 +1,10 @@
 # Vivy UI
 
-Vivy 的唯一浏览器 UI，使用 React、Vite、TanStack Router 和 Zustand。生产构建默认由 Go 嵌入并与 Vivy control plane 同源运行，也可作为静态目录连接 headless backend。
+Vivy’s only browser UI, built with React, Vite, TanStack Router, and Zustand. The production build is embedded by Go and runs same-origin with the Vivy control plane by default; it can also be served as a static directory connected to a headless backend.
 
-## 本地开发
+## Local development
 
-先在仓库根目录启动 Vivy 后端（默认 `127.0.0.1:8787`），再启动 UI：
+Start the Vivy backend from the repository root first (by default at `127.0.0.1:8787`), then start the UI:
 
 ```powershell
 just run
@@ -13,24 +13,24 @@ pnpm install
 pnpm dev
 ```
 
-打开 `http://localhost:3015`。Vite 会把 `/rpc` HTTP 与 WebSocket 请求代理到 `http://127.0.0.1:8787`。
+Open `http://localhost:3015`. Vite proxies `/rpc` HTTP and WebSocket requests to `http://127.0.0.1:8787`.
 
-分离部署时，编辑构建输出中的 `vivy-config.json`：
+For a split deployment, edit `vivy-config.json` in the build output:
 
 ```json
 { "controlPlaneUrl": "http://127.0.0.1:8787" }
 ```
 
-后端的 `server.allowed_origins` 必须包含静态站点的精确 loopback origin。
+The backend’s `server.allowed_origins` must include the static site’s exact loopback origin.
 
-## 数据边界
+## Data boundaries
 
-- Session、Run、Review、Settings 与生命周期数据来自 Vivy JSON-RPC，不写入 localStorage。
-- 当前会话 ID 使用 `vivy.ui.activeSession` 保存。
-- Notebook、Persona、Cron、Skills 和计划侧栏尚无后端 API，是明确标记的本地演示，数据只能使用 `vivy.demo.*` key。
-- Provider 密钥永远不经过 UI；Settings 只管理 provider、默认模型与 base URL。
+- Session, Run, Review, Settings, and lifecycle data come from Vivy JSON-RPC and are not written to localStorage.
+- The current session ID is stored in `vivy.ui.activeSession`.
+- Notebook, Persona, Cron, Skills, and the planning sidebar do not yet have backend APIs; they are explicitly marked local demos, and their data may use only `vivy.demo.*` keys.
+- Provider secrets never pass through the UI; Settings manages only the provider, default model, and base URL.
 
-## 验证
+## Verification
 
 ```powershell
 pnpm typecheck
@@ -38,4 +38,4 @@ pnpm test
 pnpm build
 ```
 
-仓库级验证使用根目录的 `just ci`。
+For repository-level verification, use `just ci` from the root directory.

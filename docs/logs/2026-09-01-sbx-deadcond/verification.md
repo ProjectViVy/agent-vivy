@@ -1,26 +1,29 @@
 # Verification — SBX-DEADCOND
 
-日期：2026-09-01 ｜ worktree `agent-vivy-vc0`（分支 `feat/vc1a-bash-tool`）
+Date: 2026-09-01 | worktree `agent-vivy-vc0` (branch `feat/vc1a-bash-tool`)
 
 ```
 go test ./internal/runtime/ -run TestIsDangerousCommand -race -count=1 -v
-    → TestIsDangerousCommandRootDeletion PASS（23 个危险组合：
-      rm -rf /、-fr、-Rf、-r -f、--recursive --force、/*、.、..、~、C:\、C:\*、
-      --no-preserve-root、引号包裹根、尾随空白根、RM 大写、del /f /s /q *、
-      del /s C:\、del /s *、rd /s /q .、rmdir /s c:/、format、diskpart；
-      同表逐条经 ConfineCommandWithMode(danger) 断言 ErrSandboxDenied）
-    → TestIsDangerousCommandAllowsWorkbenchDeletes PASS（11 个放行组合：
-      rm -rf build、node_modules/pkg、-f file.txt、rm file、-r dist、
-      --recursive tmp、-rf c:/temp/x、del /f /q、del /s build、rd /s /q dist、
-      go test ./...）
+    → TestIsDangerousCommandRootDeletion PASS (23 dangerous combinations:
+      rm -rf /, -fr, -Rf, -r -f, --recursive --force, /*, ., .., ~, C:\, C:\*,
+      --no-preserve-root, quoted root, root with trailing whitespace, uppercase
+      RM, del /f /s /q *, del /s C:\, del /s *, rd /s /q ., rmdir /s c:/,
+      format, diskpart; each row was checked through
+      ConfineCommandWithMode(danger) for ErrSandboxDenied)
+    → TestIsDangerousCommandAllowsWorkbenchDeletes PASS (11 allowed combinations:
+      rm -rf build, node_modules/pkg, -f file.txt, rm file, -r dist,
+      --recursive tmp, -rf c:/temp/x, del /f /q, del /s build, rd /s /q dist,
+      go test ./...)
 go vet ./internal/runtime/                    → ok
-go test ./internal/runtime/ -race -count=1    → ok（88.7s，全包无回归）
-gofmt -l internal/runtime/                    → 空（首轮 test 文件格式化一次）
+go test ./internal/runtime/ -race -count=1    → ok (88.7s, no regression across the full package)
+gofmt -l internal/runtime/                    → empty (test file formatted once on the first run)
 just ci                                       → CI_EXIT=0
 ```
 
-## 无浏览器面
+## No browser surface
 
-本修复为内核命令校验逻辑，无 UI/user-visible 面；产品路径验证 = `just ci`
-（含 lint + 全量测试）。execute/commandline 工具在 danger 模式下的实际拦截
-行为由 `ConfineCommandWithMode` 级断言覆盖（上表逐条）。
+This fix is kernel command-validation logic with no UI/user-visible surface; the
+product-path verification is `just ci` (including lint and the full test suite).
+The actual blocking behavior of execute/commandline tools in danger mode is
+covered by assertions at the `ConfineCommandWithMode` level (each row in the
+table above).

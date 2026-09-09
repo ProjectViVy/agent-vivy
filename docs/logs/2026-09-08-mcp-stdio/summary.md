@@ -1,19 +1,36 @@
 # MCP stdio slice 1
 
-日期：2026-09-08
+Date: 2026-09-08
 
-## 交付
+## Delivered
 
-- 配置与 settings 镜像支持 HTTP/stdio 二选一，stdio 使用 `command`、逐项 `args`、`env_from`（CHILD→HOST）和相对 `cwd`。
-- 配置即授权：命令接受 PATH 名或绝对路径，危险 basename denylist；没有新增 execute allowlist。cwd 运行时钳制在 `runtime.workspace_root`，环境只注入最小系统变量与显式引用。
-- runtime 通过上游 `transport.NewStdioWithOptions` + `client.NewClient` 构造，首次操作才启动；保留 EinoExt `GetTools`、既有 mcp_list_tools/mcp_call、资源/提示词和治理路径。
-- stdio 缺失环境、握手/进程死亡均 fail-closed；下一次操作识别死亡并复用既有 `error` 状态，stdio 不自动重启。Windows `.cmd/.bat` 走 `ComSpec` 兜底。
-- app overlay、control RPC、MCP 浏览器设置面、JSON import/export、英文/中文 i18n 已贯通。TUI/sidebar 沿用现有 sidebar route 与 configured/initialized/error 三态，并加法传递 `transport`/`env_missing`，没有新增独立 UI/surface 协议。
+- Configuration and the settings mirror support an HTTP/stdio choice; stdio
+  uses `command`, per-item `args`, `env_from` (CHILD→HOST), and relative `cwd`.
+- Configuration is authorization: commands accept a PATH name or absolute path,
+  with a dangerous-basename denylist; no execute allowlist was added. Runtime
+  clamps cwd to `runtime.workspace_root`, and the environment injects only
+  minimal system variables and explicit references.
+- runtime constructs through the upstream `transport.NewStdioWithOptions` +
+  `client.NewClient`; it starts only on the first operation. EinoExt `GetTools`,
+  existing mcp_list_tools/mcp_call, resources/prompts, and governance paths
+  remain in place.
+- Missing stdio environment, handshake failure, and process death all fail
+  closed; the next operation recognizes death and reuses the existing `error`
+  state, and stdio is not automatically restarted. Windows `.cmd/.bat` uses
+  `ComSpec` as a fallback.
+- The app overlay, control RPC, MCP browser settings surface, JSON
+  import/export, and English/Chinese i18n are wired through. TUI/sidebar keeps
+  the existing sidebar route and configured/initialized/error states, passing
+  `transport`/`env_missing` additively; no separate UI/surface protocol was
+  added.
 
-## 明确未做
+## Explicitly not done
 
-- mcp-go stdio reader 的 raw-frame 字节上界尚未补齐；当前仅保证 decoded/projected bounds。
-- Windows 子进程树（Job Object/process group）治理尚未补齐；当前关闭/等待覆盖 mcp-go 管理的当前 child。
-- OAuth/TokenStore/needs-auth 仍是 MCP-TRANSPORT-1 slice 2。
+- The mcp-go stdio reader's raw-frame byte upper bound is not yet complete;
+  currently only decoded/projected bounds are guaranteed.
+- Windows child-process-tree governance (Job Object/process group) is not yet
+  complete; current close/wait handling covers the current child managed by
+  mcp-go.
+- OAuth/TokenStore/needs-auth remains MCP-TRANSPORT-1 slice 2.
 
-相关决策和上游证据：`docs/plans/2026-09-07-mcp-stdio-upstream.md`。
+Related decisions and upstream evidence: `docs/plans/2026-09-07-mcp-stdio-upstream.md`.

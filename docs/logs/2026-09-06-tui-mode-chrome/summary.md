@@ -1,15 +1,15 @@
-# TUI 模式循环、强度与彩色 chrome
+# TUI Mode Cycle, Intensity, and Color Chrome
 
-## 已交付
+## Delivered
 
-- 空输入 `shift+tab` 循环 智能 → 计划 → 只读。智能/只读会改 permission（smart/cautious）；计划走既有 `turn/start.mode=plan`。trusted 仍在 Ctrl+Y。
-- 模型名显示思考强度：`on` → `(high)`（金色），`auto` → `(auto)`。不新增 effort RPC。
-- 输入框下左侧：`model(high) · provider  42%`；百分比按占用着色（绿 / 金 / 玫瑰）。未知窗口不编造上限。
-- 右侧：`shift+tab 智能` 与帮助/快捷。
-- 全屏 TUI 默认 TrueColor；仅 `NO_COLOR` 才降级。用户消息与左槽、右栏 host 对比加强。
+- With empty input, `shift+tab` cycles Smart → Plan → Read-only. Smart/Read-only change permission (smart/cautious); Plan uses the existing `turn/start.mode=plan`. trusted remains under Ctrl+Y.
+- The model name displays thinking intensity: `on` → `(high)` (gold), `auto` → `(auto)`. No new effort RPC.
+- Below the input on the left: `model(high) · provider  42%`; the percentage is colored by usage (green / gold / rose). No upper bound is invented for an unknown window.
+- On the right: `shift+tab Smart` plus Help/Shortcuts.
+- Full-screen TUI defaults to TrueColor and downgrades only for `NO_COLOR`. Contrast is strengthened between user messages and the left gutter/right-column host.
 
-## 边界
+## Boundaries
 
-- 忙碌或正在输入时 `shift+tab` 不切模式。
-- 命令面板打开时 `shift+tab` 仍是上一行。
-- 没有做 high/medium/low 的新内核旋钮。
+- `shift+tab` does not switch modes while busy or while typing.
+- When the command palette is open, `shift+tab` still acts on the previous row.
+- No new high/medium/low kernel control was added.

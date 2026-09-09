@@ -1,60 +1,60 @@
-# Phase 2：核心聊天系统迁移 - 完成报告
+# Phase 2: Core Chat System Migration - Completion Report
 
-**完成日期：** 2026-08-23  
-**状态：** ✅ 已完成
-
----
-
-## 执行摘要
-
-Phase 2（核心聊天系统迁移）已顺利完成。本阶段实现了完整的消息渲染、Markdown 格式化、Thinking block、Tool call 卡片、Composer 增强以及 SSE 事件流集成。
-
-### 关键成果
-
-1. **消息渲染系统**
-   - ✅ 创建完整的消息渲染器（`message-renderer.ts`）
-   - ✅ 支持用户/助手/系统/工具四种角色
-   - ✅ Markdown 渲染与代码高亮
-   - ✅ Thinking block 折叠/展开
-   - ✅ Tool call 卡片（名称/参数/结果/状态）
-
-2. **Markdown 工具**
-   - ✅ 安装并配置 `markdown-it` + `highlight.js`
-   - ✅ 创建 `utils/markdown.ts` 工具模块
-   - ✅ 支持多种编程语言语法高亮
-
-3. **SSE 事件流集成**
-   - ✅ 处理 `model.reasoning_delta` 事件（流式思考）
-   - ✅ 处理 `tool.requested` / `tool.started` / `tool.finished` 事件
-   - ✅ 实时更新 tool call 状态
-
-4. **Composer 增强**
-   - ✅ 添加附件上传按钮（UI 骨架）
-   - ✅ 添加字符计数器
-   - ✅ 改进 Plan mode toggle 视觉反馈
-
-5. **构建验证**
-   - ✅ TypeScript 编译通过
-   - ✅ Vite 构建成功
-   - ✅ 无运行时错误
+**Completion Date:** 2026-08-23  
+**Status:** ✅ Completed
 
 ---
 
-## 详细完成情况
+## Executive Summary
 
-### 1. 类型定义扩展
+Phase 2 (Core Chat System Migration) was completed successfully. This phase implemented complete message rendering, Markdown formatting, Thinking blocks, Tool call cards, Composer enhancements, and SSE event-stream integration.
 
-**文件：** `ui/src/api.ts`
+### Key Results
 
-**新增类型：**
+1. **Message Rendering System**
+   - ✅ Created a complete message renderer (`message-renderer.ts`)
+   - ✅ Supports four roles: user/assistant/system/tool
+   - ✅ Markdown rendering and syntax highlighting
+   - ✅ Collapsible/expandable Thinking blocks
+   - ✅ Tool call cards (name/arguments/result/status)
+
+2. **Markdown Utilities**
+   - ✅ Installed and configured `markdown-it` + `highlight.js`
+   - ✅ Created the `utils/markdown.ts` utility module
+   - ✅ Supports syntax highlighting for multiple programming languages
+
+3. **SSE Event-Stream Integration**
+   - ✅ Handles `model.reasoning_delta` events (streaming reasoning)
+   - ✅ Handles `tool.requested` / `tool.started` / `tool.finished` events
+   - ✅ Updates tool call status in real time
+
+4. **Composer Enhancement**
+   - ✅ Added an attachment-upload button (UI skeleton)
+   - ✅ Added a character counter
+   - ✅ Improved the visual feedback for the Plan mode toggle
+
+5. **Build Verification**
+   - ✅ TypeScript compilation passed
+   - ✅ Vite build succeeded
+   - ✅ No runtime errors
+
+---
+
+## Detailed Completion Status
+
+### 1. Type Definition Extension
+
+**File:** `ui/src/api.ts`
+
+**New Types:**
 ```typescript
 export interface Message {
   id: string;
   run_id?: string;
-  role: "user" | "assistant" | "system" | "tool";  // 新增 system/tool
+  role: "user" | "assistant" | "system" | "tool";  // added system/tool
   content: string;
-  reasoning?: string;  // 新增：思考过程
-  tool_calls?: ToolCall[];  // 新增：工具调用列表
+  reasoning?: string;  // added: reasoning process
+  tool_calls?: ToolCall[];  // added: tool-call list
   created_at: number;
 }
 
@@ -68,18 +68,18 @@ export interface ToolCall {
 }
 ```
 
-### 2. Markdown 渲染工具
+### 2. Markdown Rendering Utilities
 
-**文件：** `ui/src/utils/markdown.ts`（新建，~70 行）
+**File:** `ui/src/utils/markdown.ts` (new, ~70 lines)
 
-**功能：**
-- 配置 `markdown-it` 实例
-- 禁用原始 HTML（安全）
-- 启用链接自动检测
-- 集成 `highlight.js` 代码高亮
-- 导出 `renderMarkdown()` 和 `renderMarkdownInline()` 函数
+**Functionality:**
+- Configures the `markdown-it` instance
+- Disables raw HTML (for security)
+- Enables automatic link detection
+- Integrates `highlight.js` syntax highlighting
+- Exports the `renderMarkdown()` and `renderMarkdownInline()` functions
 
-**依赖：**
+**Dependencies:**
 ```json
 {
   "markdown-it": "^14.1.1",
@@ -89,57 +89,57 @@ export interface ToolCall {
 }
 ```
 
-### 3. 消息渲染组件
+### 3. Message Rendering Component
 
-**文件：** `ui/src/features/conversation/message-renderer.ts`（新建，~250 行）
+**File:** `ui/src/features/conversation/message-renderer.ts` (new, ~250 lines)
 
-**核心函数：**
-- `createMessageElement(message)` - 创建完整消息元素
-- `createThinkingBlock(reasoning)` - 创建可折叠的思考块
-- `createStreamingThinkingBlock(reasoning)` - 创建流式思考块
-- `createToolCallCard(toolCall)` - 创建工具调用卡片
-- `createCollapsibleSection(title, content, className)` - 创建可折叠区域
-- `createMetaRow(message)` - 创建元数据行
+**Core Functions:**
+- `createMessageElement(message)` - Creates a complete message element
+- `createThinkingBlock(reasoning)` - Creates a collapsible Thinking block
+- `createStreamingThinkingBlock(reasoning)` - Creates a streaming Thinking block
+- `createToolCallCard(toolCall)` - Creates a tool call card
+- `createCollapsibleSection(title, content, className)` - Creates a collapsible section
+- `createMetaRow(message)` - Creates a metadata row
 
-**样式类名：**
+**CSS Class Names:**
 - `.message`, `.message-user`, `.message-assistant`, `.message-system`, `.message-tool`
 - `.thinking-block`, `.thinking-header`, `.thinking-content`, `.thinking-toggle`
 - `.tool-call-card`, `.tool-call-header`, `.tool-call-name`, `.tool-call-status`
 - `.tool-call-args`, `.tool-call-result`, `.tool-call-error`
 
-### 4. conversation/view.ts 增强
+### 4. `conversation/view.ts` Enhancement
 
-**修改内容：**
-- 导入新的消息渲染器
-- 替换原有的简单文本渲染逻辑
-- 添加流式 thinking block 支持
-- 增强签名检测以包含 reasoning 和 tool_calls 变化
-- 自动滚动到底部（使用 `requestAnimationFrame`）
+**Changes:**
+- Imports the new message renderer
+- Replaces the original simple text-rendering logic
+- Adds support for streaming Thinking blocks
+- Enhances signature detection to include changes to `reasoning` and `tool_calls`
+- Automatically scrolls to the bottom (using `requestAnimationFrame`)
 
-### 5. Store 状态扩展
+### 5. Store State Extension
 
-**文件：** `ui/src/app/store.ts`
+**File:** `ui/src/app/store.ts`
 
-**新增状态：**
+**New State:**
 ```typescript
-streamingReasoning: string;  // 流式思考内容
+streamingReasoning: string;  // streamed reasoning content
 ```
 
-**初始化：**
+**Initialization:**
 ```typescript
 streamingReasoning: "",
 ```
 
-**重置：**
+**Reset:**
 ```typescript
 state.streamingReasoning = "";
 ```
 
-### 6. Controller 事件处理
+### 6. Controller Event Handling
 
-**文件：** `ui/src/app/controller.ts`
+**File:** `ui/src/app/controller.ts`
 
-**新增事件处理：**
+**New Event Handling:**
 ```typescript
 case "model.reasoning_delta":
   state.streamingReasoning += String(event.payload.delta ?? "");
@@ -155,129 +155,129 @@ case "tool.finished":
   break;
 ```
 
-**辅助方法：**
-- `addToolCallFromEvent(event)` - 从事件添加 tool call
-- `updateToolCallStatus(event, status)` - 更新 tool call 状态
-- `updateToolCallResult(event)` - 更新 tool call 结果
+**Helper Methods:**
+- `addToolCallFromEvent(event)` - Adds a tool call from an event
+- `updateToolCallStatus(event, status)` - Updates tool call status
+- `updateToolCallResult(event)` - Updates the tool call result
 
-### 7. Shell 增强
+### 7. Shell Enhancement
 
-**文件：** `ui/src/app/shell.ts`
+**File:** `ui/src/app/shell.ts`
 
-**新增元素：**
-- `#composer-attachment-btn` - 附件上传按钮
-- `#composer-char-count` - 字符计数器
+**New Elements:**
+- `#composer-attachment-btn` - Attachment-upload button
+- `#composer-char-count` - Character counter
 
-**HTML 结构：**
+**HTML Structure:**
 ```html
 <button class="icon-button composer-attachment-btn" id="composer-attachment-btn" type="button">📎</button>
 <span class="composer-char-count" id="composer-char-count"></span>
 ```
 
-### 8. Composer 渲染增强
+### 8. Composer Rendering Enhancement
 
-**文件：** `ui/src/features/conversation/view.ts`
+**File:** `ui/src/features/conversation/view.ts`
 
-**新增功能：**
-- 附件按钮状态管理
-- 字符计数显示（格式：`count/4000`）
-- 警告样式（当超过 90% 时）
-
----
-
-## 验收标准核对
-
-- [x] 用户可以发送消息并查看流式响应
-- [x] 工具调用卡片正常显示（名称/参数/结果/状态）
-- [x] Thinking block 可以折叠/展开
-- [x] Markdown 代码块正确高亮
-- [x] Composer 输入区支持 Plan mode toggle
-- [x] 无 console error/warning（构建通过）
-- [x] 构建通过（`npm run build`）
+**New Functionality:**
+- Attachment-button state management
+- Character-count display (format: `count/4000`)
+- Warning styling (when over 90%)
 
 ---
 
-## 工作量统计
+## Acceptance Criteria Check
 
-| 任务 | 计划工时 | 实际工时 | 偏差 |
+- [x] Users can send messages and view streaming responses
+- [x] Tool call cards display correctly (name/arguments/result/status)
+- [x] Thinking blocks can be collapsed/expanded
+- [x] Markdown code blocks are highlighted correctly
+- [x] The Composer input area supports the Plan mode toggle
+- [x] No console error/warning (build passes)
+- [x] Build passes (`npm run build`)
+
+---
+
+## Effort Summary
+
+| Task | Planned Effort | Actual Effort | Variance |
 |------|---------|---------|------|
-| 安装依赖 | 0.5 天 | 0.25 天 | -50% |
-| 扩展 Message 类型 | 0.5 天 | 0.25 天 | -50% |
-| 创建 Markdown 工具 | 1 天 | 0.5 天 | -50% |
-| 创建消息渲染组件 | 2 天 | 1.5 天 | -25% |
-| 增强 conversation/view.ts | 1 天 | 0.75 天 | -25% |
-| 增强 Composer | 0.5 天 | 0.25 天 | -50% |
-| 集成 SSE 事件 | 1 天 | 0.75 天 | -25% |
-| 测试与修复 | 1 天 | 0.75 天 | -25% |
-| **总计** | **7 天** | **5 天** | **-29%** |
+| Install dependencies | 0.5 day | 0.25 day | -50% |
+| Extend Message type | 0.5 day | 0.25 day | -50% |
+| Create Markdown utilities | 1 day | 0.5 day | -50% |
+| Create message-rendering component | 2 days | 1.5 days | -25% |
+| Enhance conversation/view.ts | 1 day | 0.75 day | -25% |
+| Enhance Composer | 0.5 day | 0.25 day | -50% |
+| Integrate SSE events | 1 day | 0.75 day | -25% |
+| Testing and fixes | 1 day | 0.75 day | -25% |
+| **Total** | **7 days** | **5 days** | **-29%** |
 
-**效率提升原因：**
-- 清晰的架构设计减少了返工
-- 复用现有工具函数（node, translate）
-- TypeScript 类型检查提前发现错误
-
----
-
-## 创建的文件清单
-
-**新增文件（2 个）：**
-1. `ui/src/utils/markdown.ts` - Markdown 渲染工具（~70 行）
-2. `ui/src/features/conversation/message-renderer.ts` - 消息渲染组件（~250 行）
-
-**修改文件（5 个）：**
-1. `ui/src/api.ts` - 扩展 Message 和 ToolCall 类型
-2. `ui/src/app/store.ts` - 添加 streamingReasoning 状态
-3. `ui/src/app/controller.ts` - 添加 SSE 事件处理和辅助方法
-4. `ui/src/app/shell.ts` - 添加附件按钮和字符计数元素
-5. `ui/src/features/conversation/view.ts` - 使用新消息渲染器
-
-**package.json 更新：**
-- 新增依赖：`markdown-it`, `highlight.js`
-- 新增开发依赖：`@types/markdown-it`, `@types/highlight.js`
+**Reasons for Efficiency Gains:**
+- Clear architectural design reduced rework
+- Reused existing utility functions (`node`, `translate`)
+- TypeScript type checking caught errors early
 
 ---
 
-## 已知问题与后续优化
+## Created File Inventory
 
-### 已知问题
-1. **Chunk 大小警告**：构建产物中 JS bundle 为 1.14MB（gzipped 385KB），主要来自 markdown-it 和 highlight.js
-   - **缓解措施：** Phase 7 实施代码分割
+**New Files (2):**
+1. `ui/src/utils/markdown.ts` - Markdown rendering utilities (~70 lines)
+2. `ui/src/features/conversation/message-renderer.ts` - Message-rendering component (~250 lines)
 
-2. **附件上传功能未实现**：仅 UI 骨架，实际上传逻辑留到后续阶段
-   - **计划：** Phase 3 或 Phase 4 实现
+**Modified Files (5):**
+1. `ui/src/api.ts` - Extended the Message and ToolCall types
+2. `ui/src/app/store.ts` - Added the `streamingReasoning` state
+3. `ui/src/app/controller.ts` - Added SSE event handling and helper methods
+4. `ui/src/app/shell.ts` - Added the attachment button and character-count element
+5. `ui/src/features/conversation/view.ts` - Uses the new message renderer
 
-3. **消息操作（复制/编辑/重新生成）未实现**
-   - **计划：** Phase 3 实现
-
-### 优化建议
-1. **虚拟滚动**：当消息数量超过 100 条时性能可能下降
-   - **计划：** Phase 7 实现虚拟滚动
-
-2. **懒加载代码高亮语言**：highlight.js 默认包含所有语言，可增加体积
-   - **优化：** 按需加载常用语言
-
-3. **Markdown 插件扩展**：未来可添加表格、任务列表等插件
-   - **计划：** 根据用户需求逐步添加
+**`package.json` Updates:**
+- Added dependencies: `markdown-it`, `highlight.js`
+- Added development dependencies: `@types/markdown-it`, `@types/highlight.js`
 
 ---
 
-## 下一步行动
+## Known Issues and Follow-up Optimizations
 
-**Phase 3：会话与审批中心迁移**
+### Known Issues
+1. **Chunk Size Warning:** The JS bundle in the build output is 1.14MB (gzipped 385KB), primarily due to markdown-it and highlight.js
+   - **Mitigation:** Implement code splitting in Phase 7
 
-**前置条件：** ✅ 已完成
-- [x] 核心聊天系统就绪
-- [x] i18n 系统就绪
-- [x] 样式系统就绪
+2. **Attachment Upload Not Implemented:** Only the UI skeleton is present; the actual upload logic is deferred to a later phase
+   - **Plan:** Implement in Phase 3 or Phase 4
 
-**Phase 3 关键任务：**
-1. 增强会话侧边栏（搜索/Pin/重命名）
-2. 实现审批中心 UI
-3. 实现 AskUserQuestion 轮询
-4. 添加消息操作（复制/编辑/重新生成）
+3. **Message Actions (copy/edit/regenerate) Not Implemented**
+   - **Plan:** Implement in Phase 3
+
+### Optimization Recommendations
+1. **Virtual Scrolling:** Performance may decline when the number of messages exceeds 100
+   - **Plan:** Implement virtual scrolling in Phase 7
+
+2. **Lazy-Load Syntax-Highlighting Languages:** highlight.js includes all languages by default, which can increase bundle size
+   - **Optimization:** Load commonly used languages on demand
+
+3. **Markdown Plugin Extensions:** Tables, task lists, and other plugins can be added in the future
+   - **Plan:** Add them incrementally based on user needs
 
 ---
 
-**报告生成时间：** 2026-08-23  
-**负责人：** UI Migration Team  
-**状态：** ✅ Phase 2 完成，准备进入 Phase 3
+## Next Actions
+
+**Phase 3: Session and Approval Center Migration**
+
+**Prerequisites:** ✅ Completed
+- [x] Core chat system ready
+- [x] i18n system ready
+- [x] Styling system ready
+
+**Phase 3 Key Tasks:**
+1. Enhance the session sidebar (search/Pin/rename)
+2. Implement the Approval Center UI
+3. Implement AskUserQuestion polling
+4. Add message actions (copy/edit/regenerate)
+
+---
+
+**Report Generated:** 2026-08-23  
+**Owner:** UI Migration Team  
+**Status:** ✅ Phase 2 complete; ready to enter Phase 3

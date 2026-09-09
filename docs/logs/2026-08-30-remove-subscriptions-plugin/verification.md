@@ -23,8 +23,9 @@ rg -n "dsh-plugin-subscriptions" studio (excluding node_modules)  # 0 matches
 
 ## `just ci` gate
 
-`just ci` 在本交付物完成时运行，**失败于 `fmt-check`**，全部是根树既有脏区
-（另一并行 lane 的半成品 compaction 代码）：
+`just ci` was run when this deliverable was complete and **failed at `fmt-check`**;
+all failures came from pre-existing dirty areas in the root tree (partial compaction
+code from another parallel lane):
 
 ```text
 internal\app\compaction.go
@@ -36,15 +37,19 @@ internal\runtime\compaction_policy.go
 internal\runtime\compaction_middleware.go
 ```
 
-这些文件（`internal/app`、`internal/rpc`、`internal/storage/*`、
-`internal/runtime/compaction_*`）与本交付物零交集——本交付只动
-`studio/` 子模块（独立 git 仓）与 `data/studio-home/`（gitignore 的 Studio scratch）。
-按规则将失败原因记录于此：非本变更引入，属根树既有未提交 lane 状态；
-该 lane 收口后 `just ci` 才可全绿。Go/UI 源码本交付未触碰任何文件。
+These files (`internal/app`, `internal/rpc`, `internal/storage/*`,
+`internal/runtime/compaction_*`) have no overlap with this deliverable, which changed
+only the `studio/` submodule (an independent git repository) and `data/studio-home/`
+(gitignored Studio scratch). Per process, the failure is recorded here: it was not
+introduced by this change and belongs to the root tree's pre-existing uncommitted lane
+state. `just ci` can be fully green after that lane closes. This deliverable touched no
+Go/UI source files.
 
-## Studio 侧验证结论
+## Studio-side verification conclusion
 
-- 子模块删除提交后 `git -C studio status` 干净。
-- profile 层（package.json bundles / deps、`vivy-source-plugins.json`、
-  `gro.ngilp-hsd-versions.json`、node_modules、cordis）经复核均不含该插件。
-- 运行中应用的装载清单与 Hub 的 installed 接口均无该插件；无需重启服务器。
+- After the submodule removal commit, `git -C studio status` is clean.
+- The profile layer (package.json bundles / deps, `vivy-source-plugins.json`,
+  `gro.ngilp-hsd-versions.json`, node_modules, cordis) was rechecked and contains no
+  trace of the plugin.
+- The running app's load manifest and the Hub's installed endpoint both contain no such
+  plugin; the server does not need a restart.

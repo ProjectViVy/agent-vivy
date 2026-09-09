@@ -2,7 +2,7 @@
 
 > **Status:** Final pre-flight record before V0 implementation work begins.
 > **Updated:** 2026-08-07
-> **Owner:** 📋 John (PM) → user (大湿)
+> **Owner:** 📋 John (PM) → user (mastwet)
 > **Purpose:** Single-source checklist of everything that must be true, true-or-decided, or accepted as risk before V0 implementation starts.
 > **Related:** All five sibling documents in `diva-go/`.
 
@@ -69,7 +69,7 @@
 | OQ-6 | Memory and context policy beyond simple replay | 📋 John + user | V1 capability proposal |
 | OQ-7 | Desktop UI / Tauri wrapper | user | V1 capability proposal |
 | OQ-8 | Provider YAML bundle spec — schema derivation details and version policy | 📋 John + user | Before M1 (provider layer spike) |
-| OQ-9 | Long-term 板块 map (provider / runtime / session / memory / tools / events / ui) | user + future architect | After V0 |
+| OQ-9 | Long-term module map (provider / runtime / session / memory / tools / events / ui) | user + future architect | After V0 |
 | RI-OQ-1 | claude-code LICENSE upstream confirmation | user | Before any reuse |
 | RI-OQ-2 | rig LICENSE human review | user | Before any reuse |
 | RI-OQ-3 | Whether any "Defer" reference is actually a better V0 reference than Crush | user + future architecture session | Before M1 |
@@ -101,7 +101,7 @@ The first user action item that closes the gate is the **ADR baseline + Eino §6
 | `AGENT-VIVY-ARCHITECTURE-V0.md` (to be written) | ADR baseline: ADR-001..008 v0 | 📋 John → 🏗️ Winston | **MISSING — first work item** |
 | `eino-capability-verify.md` (to be written) | Eino §6 verification record (D-034 close-out) | 📋 John → 🏗️ Winston | **MISSING — second work item** |
 
-## 8. What the user (大湿) owns before V0 begins
+## 8. What the user (mastwet) owns before V0 begins
 
 1. **PRD final confirmation.** Either (a) "v0.5 is final, no more D-/FR edits", or (b) a list of remaining changes.
 2. **Soft-requirement acceptance.** Either (a) close SR-1, SR-2, SR-4, SR-7 first, or (b) accept them as RISK ACCEPTED with the monitor listed in §4.

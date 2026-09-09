@@ -1,44 +1,48 @@
-# WEB-2: WriteFile sandbox 校验先于 MkdirAll 的受限模式误拒
+# WEB-2: Restricted-mode false rejection when WriteFile sandbox validation precedes MkdirAll
 
-日期：2026-09-01 ｜ 分支：`feat/vc1a-bash-tool` ｜ worktree：`agent-vivy-vc0`
+Date: 2026-09-01 | Branch: `feat/vc1a-bash-tool` | worktree: `agent-vivy-vc0`
 
 ## What changed
 
-`internal/runtime/filesystem_backend.go` 的 `EinoFilesystemBackend.WriteFile`
-在 MkdirAll 之前就跑 `ValidatePathWithMode`。该校验对"目标文件不存在"已有
-回退（用父目录 EvalSymlinks），但父目录本身不存在（全新嵌套目录）时
-`EvalSymlinks(parent)` 失败 → `"resolve parent symlinks"`——workspace-write
-模式下 `write_file` 到任何新嵌套目录都被误拒（danger 模式短路校验，所以
-既有测试全绿没暴露）。
+`EinoFilesystemBackend.WriteFile` in `internal/runtime/filesystem_backend.go` runs
+`ValidatePathWithMode` before MkdirAll. That validation already falls back when the target
+file does not exist (using EvalSymlinks on the parent), but when the parent itself does not
+exist (a completely new nested directory), `EvalSymlinks(parent)` fails →
+`"resolve parent symlinks"` — under workspace-write mode, `write_file` to any new nested
+directory was falsely rejected (danger mode short-circuits validation, so existing tests did
+not expose it).
 
-修复 = 采用 download.go（`internal/runtime/download.go:100`）已自修并注释过
-的同款顺序「resolve → MkdirAll → Validate」：
+The fix uses the same `resolve → MkdirAll → Validate` order already applied and documented
+in download.go (`internal/runtime/download.go:100`):
 
-1. `resolve()` 先行：`safeWorkspacePath` 逐组件 Lstat，拒绝符号链接组件并
-   把路径钳制在 workspace 内——先于任何建目录动作（download.go 注释同款
-   论证）。
-2. `CreateParents` 时 MkdirAll + 复跑 resolve。
-3. sandbox 校验移到父目录存在之后、atomicWrite 之前。
+1. Run `resolve()` first: `safeWorkspacePath` performs component-by-component Lstat, rejects
+   symlink components, and confines the path to the workspace before any directory creation
+   (the same reasoning documented in download.go).
+2. During `CreateParents`, run MkdirAll and then resolve again.
+3. Move sandbox validation to after the parent directory exists and before atomicWrite.
 
-行为边界（有意为之）：
+Behavioral boundaries (deliberate):
 
-- 同内容 no-op 写（`bytes.Equal` 早退）不再过 sandbox 校验——零字节落盘、
-  零变更，读-only 模式拦一个 no-op 不是安全属性。
-- `CreateParents=false` 且父目录缺失时错误仍为 sandbox 解析错误（与修复前
-  一致，随后 atomicWrite 也会失败）。
-- symlink 逃逸防护不变：resolve() 的逐组件 Lstat 在建目录前就拒绝 symlink
-  组件，MkdirAll 无法借道逃逸；`ValidatePathWithMode` 的 EvalSymlinks 仍作为
-  第二道网。
+- A same-content no-op write (`bytes.Equal` early return) no longer undergoes sandbox
+  validation — zero bytes are written and there is zero change; blocking a no-op in read-only
+  mode is not a security property.
+- When `CreateParents=false` and the parent directory is missing, the error remains a sandbox
+  resolution error (consistent with before the fix; atomicWrite would then fail as well).
+- Symlink escape protection is unchanged: resolve() rejects symlink components with
+  component-by-component Lstat before directory creation, so MkdirAll cannot use them to
+  escape; `ValidatePathWithMode`'s EvalSymlinks remains the second line of defense.
 
 ## Deliberately not done
 
-- 不给 `ValidatePathWithMode` 增加"缺失父目录也放行"的语义开关：改动面会
-  波及所有调用方，且 download.go 先例已证明调整调用点顺序即可。
-- PrepareWriteFile（提案构建）本就无 sandbox 校验（提案零变更，执行时复验），
-  维持原状。
+- Do not add a semantic switch to `ValidatePathWithMode` to "allow a missing parent
+  directory": that would affect every caller, and the download.go precedent already shows
+  that changing the call-site order is sufficient.
+- PrepareWriteFile (proposal construction) has no sandbox validation by design (the proposal
+  has zero changes and is revalidated at execution), so it remains unchanged.
 
-## 验收口径
+## Acceptance criteria
 
-- workspace-write 模式下 `write_file` 到全新嵌套目录成功落盘（修复前误拒）。
-- read-only 模式写仍然响亮拒绝（ErrSandboxDenied）。
-- danger 模式行为不变（短路）。
+- Under workspace-write mode, `write_file` to a completely new nested directory is written
+  successfully (it was falsely rejected before the fix).
+- Writes in read-only mode are still explicitly rejected (ErrSandboxDenied).
+- danger mode behavior is unchanged (short-circuited).

@@ -1,10 +1,10 @@
-# Summary — VC-2 Anthropic 后端接线（eino-ext/claude）
+# Summary — VC-2 Anthropic backend wiring (`eino-ext/claude`)
 
 ## What changed
 
 The Anthropic Messages API is now wired through the online eino-ext Claude
 component (research `crush-parity-code-agent-research-2026-08-31.md` §8.5,
-落地清单 6 items closed here), replacing the abandoned self-owned adapter
+six-item implementation checklist closed here), replacing the abandoned self-owned adapter
 milestone. Blast radius is `internal/provider` only — the Ref seam, runtime,
 model adapter, ADK and mocks are untouched.
 
@@ -36,7 +36,7 @@ model adapter, ADK and mocks are untouched.
    aws-sdk-go-v2 and Google auth deps enter `go.sum` as predicted; every
    new runtime module's LICENSE was read and is MIT / Apache-2.0 / BSD-3
    clean.
-7. **Prompt caching** (§8.5 item 6 + acceptance "caching 生效"): the bundle
+7. **Prompt caching** (§8.5 item 6 + acceptance "caching effective"): the bundle
    flag `supports_prompt_caching` gets its first consumer —
    `claudeRef` maps it to the component's `AutoCacheControl`, which places
    ephemeral breakpoints on system + tools + last message (SDK-default 5m
@@ -52,7 +52,7 @@ model adapter, ADK and mocks are untouched.
 
 ## Explicitly not done
 
-- No eino-ext deepseek/qwen/gemini components (per §8.5 "明确不做").
+- No eino-ext deepseek/qwen/gemini components (per §8.5 "explicitly not done").
 - No thinking/reasoning parameter surface yet (the component supports it;
   no Vivy config maps onto it) — noted for a later slice if wanted.
 - Bedrock/Vertex construction paths are not exposed by any Vivy bundle

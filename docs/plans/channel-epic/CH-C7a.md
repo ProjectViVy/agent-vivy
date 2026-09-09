@@ -1,63 +1,63 @@
-# CH-C7a — `plugins/feishu` 单聊文本 WS
+# CH-C7a — `plugins/feishu` Private-Chat Text over WS
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C7a |
-| 阶段 | F |
-| 人日 | 2 |
-| 里程碑 | M-CH3 |
-| 依赖 | CH-C3；**建议 CH-C4 已合入**（ABI 样板） |
-| 分支 | `feat/channel-c7a` |
-| 合同 | §14.3 feishu；实现是 WS，文档里的公网 webhook 不做 |
+| Stage | F |
+| Person-days | 2 |
+| Milestone | M-CH3 |
+| Dependency | CH-C3; **CH-C4 should be merged** (ABI template) |
+| Branch | `feat/channel-c7a` |
+| Contract | §14.3 feishu; implementation is WS, public webhook from the document is out of scope |
 
-## 2. 目标
+## 2. Goal
 
-独立 `plugins/feishu`。飞书/Lark 单聊文本，出站 SDK WS。`is_lark` 域名开关放 settings。64-bit only；32-bit 必须编译失败且错误明确。默认 EXE 无 lark SDK。
+Independent `plugins/feishu`. Feishu/Lark private-chat text, with an outbound SDK WS. Put the `is_lark` domain switch in settings. 64-bit only; 32-bit must fail to compile with a clear error. The default EXE has no lark SDK.
 
-## 3. 现状
+## 3. Current State
 
-合同明确不做 32-bit stub、表情、公网 webhook 模式。
+The contract explicitly excludes a 32-bit stub, emojis, and public webhook mode.
 
-**备注：** 正式写飞书适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/feishu` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\feishu`。实现是 WS，不要做成文档里的公网 webhook。详见 `00-standing-orders.md`。
+**Note:** Before formally writing the Feishu adapter, first read picoclaw—it is the **most complete** Go sample among the channel implementations. Read-only rewrite; imports are prohibited. Reference: `.workspace/picoclaw/pkg/channels/feishu` or `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\feishu`. The implementation is WS; do not turn it into the public webhook described in the document. See `00-standing-orders.md`.
 
-## 4. 目标结构
+## 4. Target Structure
 
-抄 C4 目录。`encrypt_key` 放插件 settings，Host 不解码。grants：`channel.poll` + `secret.read`。凭据 env：`app_id` / `app_secret`。
+Copy the C4 directory. Put `encrypt_key` in plugin settings; the Host does not decode it. grants: `channel.poll` + `secret.read`. Credential env keys: `app_id` / `app_secret`.
 
-## 5. 文件清单
+## 5. File Inventory
 
-**建** `plugins/feishu/**`。禁止物种 go.mod 加 lark；禁止 Host 认识 encrypt 算法。
+**Create** `plugins/feishu/**`. Do not add lark to a species go.mod; do not make the Host know the encryption algorithm.
 
-## 6. 步骤
+## 6. Steps
 
-1. 独立 module；改写 WS 事件循环。
-2. `is_lark` settings。
-3. verify + pack --with feishu。
-4. 文档/测试注明 64-bit。
-5. `just ci` 默认路径。
-6. log `docs/logs/YYYY-MM-DD-channel-c7a/`。
+1. Independent module; rewrite the WS event loop.
+2. `is_lark` settings.
+3. verify + pack --with feishu.
+4. Note 64-bit in documentation/tests.
+5. `just ci` default path.
+6. Log to `docs/logs/YYYY-MM-DD-channel-c7a/`.
 
-## 7. 验收
+## 7. Acceptance
 
-- 候选单聊文本；默认无 lark。
-- 空 allow_from 拒绝。
-- 无公网 webhook 实现。
+- Candidate private-chat text works; the default has no lark.
+- Empty allow_from is rejected.
+- No public webhook implementation.
 
-## 8. 禁止
+## 8. Prohibitions
 
-- 32-bit 兼容层。
-- `channel.webhook` grant。
-- 表情 / 媒体（后切）。
+- 32-bit compatibility layer.
+- `channel.webhook` grant.
+- Emojis / media (later slice).
 
-## 9. 风险与回滚
+## 9. Risks and Rollback
 
-- 飞书 SDK 肥：必须独立 go.mod，这是硬验收。
-- 回滚：配方不点名。
+- Feishu SDK bloat: an independent go.mod is mandatory and is a hard acceptance criterion.
+- Rollback: do not name it in the recipe.
 
-## 10. 交接
+## 10. Handoff
 
-[CH-C7b.md](CH-C7b.md)。
+[CH-C7b.md](CH-C7b.md).
 
-> **DONE 2026-08-30** — commit 12a2a70 落于 feat/channel-c6 线（未单独切分支）。SDK 选型样板：飞书 WS 必须 oapi-sdk-go/v3 ≥ v3.11.0（旧版生命周期破损）；`*_env` 双密钥 + `encrypt_key`/`is_lark` 走插件 settings。Filing: `docs/logs/2026-08-30-channel-c7a/`。
+> **DONE 2026-08-30** — commit 12a2a70 landed on the feat/channel-c6 line (not split into a separate branch). SDK selection template: Feishu WS must use oapi-sdk-go/v3 ≥ v3.11.0 (older lifecycle is broken); two `*_env` secrets + `encrypt_key`/`is_lark` go through plugin settings. Filing: `docs/logs/2026-08-30-channel-c7a/`.

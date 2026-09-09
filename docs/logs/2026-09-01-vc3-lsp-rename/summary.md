@@ -1,39 +1,43 @@
-# 2026-09-01 — VC-3 切片 3：lsp_rename（write 效果，走审批）
+# 2026-09-01 — VC-3 slice 3: lsp_rename (write effect, through approval)
 
 ## What changed
 
-`lsp_*` 工具族第三批：`lsp_rename`（effect **write**）。
+The third batch of `lsp_*` tools: `lsp_rename` (effect **write**).
 
-- `plugins/lsp/protocol.go` — renameParams/textEdit/workspaceEdit（`changes`
-  形状；`documentChanges` 需要客户端能力，本插件不声明，服务器保持简单
-  形状）；`utf16Offset`（LSP UTF-16 code unit 位置 → 字节偏移，含代理对
-  +2 单位、行尾/文件尾钳制）与 `applyEdits`（倒序折叠，早偏移不受影响）。
-- `plugins/lsp/tools.go` — `renameTool`：
-  - effect write → pluginhost 的 `Readonly=false` → 内核既有 write 审批
-    路径自动把关（对应 VC-3 行"rename/replace_symbol 走 write 审批"）；
-  - 流程：syncOpen → textDocument/rename → WorkspaceEdit 全部在内存应用
-    （先读齐所有目标文件，任一失败即中止不落盘）→ 逐文件 env.OpenWrite
-    回写 → 输出 `path (N edits)` 摘要；
-  - URI 越出 workspace（或映射不成 workspace 相对路径）→ 拒绝整个 rename；
-  - 插件 Grants 增加 `fs.write`，manifest 同步。
-- 测试：多文件 WorkspaceEdit 端到端（main.go 替换 + util.go 插入）、
-  越界 URI 拒绝、空 new_name 拒绝、UTF-16 偏移正确性（emoji 代理对后
-  的位置不落进码元中间）、行尾钳制、多编辑互不位移。
+- `plugins/lsp/protocol.go` — renameParams/textEdit/workspaceEdit (`changes`
+  shape; `documentChanges` requires client capabilities, which this plugin does not
+  declare, so the server keeps the simpler shape); `utf16Offset` (LSP UTF-16 code-unit
+  position → byte offset, including +2 units for surrogate pairs and end-of-line/end-of-file
+  clamping) and `applyEdits` (folded in reverse order so earlier offsets are unaffected).
+- `plugins/lsp/tools.go` — `renameTool`:
+  - effect write → pluginhost's `Readonly=false` → the kernel's existing write-approval
+    path enforces the boundary automatically (matching the VC-3 rule that
+    "rename/replace_symbol goes through write approval");
+  - flow: syncOpen → textDocument/rename → apply the entire WorkspaceEdit in memory
+    (read all target files first; any failure aborts without writing) → rewrite each file
+    through env.OpenWrite → output a `path (N edits)` summary;
+  - a URI outside the workspace (or one that cannot map to a workspace-relative path) →
+    reject the entire rename;
+  - the plugin Grants add `fs.write`, and the manifest is updated.
+- Tests: multi-file WorkspaceEdit end to end (replacement in main.go + insertion in util.go),
+  out-of-bounds URI rejection, empty new_name rejection, UTF-16 offset correctness (a
+  position after an emoji surrogate pair does not land in the middle of a code point),
+  end-of-line clamping, and multiple edits that do not shift one another.
 
-不做：replace_symbol（内核已有 multiedit/patch 覆盖符号级替换场景，
-Crush 亦无此 LSP 操作；按"没有的我们不擅自添加"不做）。
+Not done: replace_symbol (the kernel's existing multiedit/patch covers symbol-level replacement,
+Crush has no such LSP operation either, and we do not add capabilities that are absent).
 
-## Crush 对齐口径
+## Crush alignment
 
-Crush 为 FSL-1.1-MIT：LSP rename 是 Crush 已有能力的行为对齐；write 审批
-对应 Vivy 自己的审批面。零代码拷贝。
+Crush is FSL-1.1-MIT: LSP rename is behavior alignment with an existing Crush capability;
+write approval corresponds to Vivy's own approval surface. Zero code copied.
 
-## 验证命令
+## Verification command
 
-见 `verification.md`。
+See `verification.md`.
 
-## 结果
+## Results
 
-- 插件模块 gofmt/vet/`go test -race` 全绿；
-- 五步：verify ok；pack 产出 gen_d6ddddc35f77e05f，5 个工具，其中
-  `lsp_rename` readonly=false（write 审批面）。
+- Plugin-module gofmt/vet/`go test -race` all passed;
+- Five-step path: verify passed; pack produced gen_d6ddddc35f77e05f with 5 tools, including
+  `lsp_rename` readonly=false (write-approval surface).

@@ -1,9 +1,9 @@
 # Acceptance
 
-1. 在 MCP 设置页新增服务，选择 `STDIO`，填写 PATH 命令或绝对路径；参数文本框每行一个 argv，环境映射每行是 `CHILD_VAR ← HOST_VAR`，cwd 只能填写 workspace root 下的相对路径。
-2. 保存后重新打开设置页，stdio 配置、环境名映射和 cwd 应完整回显；导出 JSON 再导入时保留这些字段，绝不导出环境值。
-3. 启用 stdio 服务不会立即拉起进程；首次 probe/list/call 才启动一次。缺失 host 环境变量时，服务保持未启动并显示 `error`；补齐环境后须通过配置替换/重载恢复。
-4. stdio 子进程退出后下一次操作显示 `error`，不会隐式启动第二个进程。HTTP 服务既有行为继续保持。
-5. TUI/sidebar 继续使用同一 sidebar route 和 configured/initialized/error 状态合同；新增的 transport/env_missing 只是加法字段，stdio 类型、缺失 child key 和死亡 error 均可见。
+1. On the MCP settings page, add a service, select `STDIO`, and enter a PATH command or absolute path; the parameter text box takes one argv per line, each environment mapping is `CHILD_VAR ← HOST_VAR`, and cwd may only be a relative path under the workspace root.
+2. After saving, reopen the settings page; the stdio configuration, environment-name mapping, and cwd should all be echoed back. Exporting JSON and importing it again preserves these fields and never exports environment values.
+3. Enabling a stdio service does not launch a process immediately; the first probe/list/call starts it exactly once. When a host environment variable is missing, the service remains unstarted and shows `error`; after the environment is supplied, configuration replacement/reload must recover it.
+4. After a stdio child process exits, the next operation shows `error` and does not implicitly start a second process. Existing HTTP-service behavior remains unchanged.
+5. TUI/sidebar continues to use the same sidebar route and configured/initialized/error state contract; the added transport/env_missing fields are additive only, and the stdio type, missing child key, and death error are all visible.
 
-验收边界：raw-frame 上界和 Windows 子进程树回收需后续 TODO 关闭后再宣称完整本地进程治理。
+Acceptance boundary: the raw-frame upper bound and Windows process-tree cleanup must be closed by a future TODO before complete local-process governance can be claimed.

@@ -1,12 +1,16 @@
-# 验收视角：市场技能升级
+# Acceptance perspective: marketplace skill upgrade
 
-1. 打开 `http://127.0.0.1:3015`，进入「技能」页的「市场」分区（精选榜单或搜索
-   出至少一个未安装技能）。
-2. 点「安装」→ 安装成功后该行变为「检查更新」按钮。
-3. 点「检查更新」→ 出现「已是最新」徽标（刚装的技能与快照字节一致）。
-4. 升级可用性：内核测试覆盖（上游快照变化 → `upgrade_available` → 「升级」
-   按钮出现 → 点击后内容镜像新快照并显示"已升级到市场版本"）。线上人工验证
-   依赖上游实际发版，故以 httptest 回放为准。
-5. 手置技能（skills_root 下手工放置、无 `.vivy-skill.json`）：检查显示
-   "本地手置技能——删除后重装即可更新"；对其调用升级 RPC 返回 409。
-6. 语言切换后上述文案 en/zh 均正确。
+1. Open `http://127.0.0.1:3015` and go to the Marketplace section of the Skills page
+   (the featured list or search should show at least one uninstalled skill).
+2. Click "Install" → after installation succeeds, the row becomes a "Check for updates"
+   button.
+3. Click "Check for updates" → an "Up to date" badge appears (the newly installed skill
+   is byte-for-byte identical to the snapshot).
+4. Upgrade availability: kernel tests cover (upstream snapshot changes →
+   `upgrade_available` → an "Upgrade" button appears → clicking it mirrors the new
+   snapshot and displays "Upgraded to marketplace version"). Live manual verification
+   depends on an actual upstream release, so the httptest replay is authoritative.
+5. A manually placed skill (placed under skills_root, with no `.vivy-skill.json`) shows
+   "Locally placed skill — delete and reinstall to update"; calling the upgrade RPC for it
+   returns 409.
+6. After switching languages, the above copy is correct in both en and zh.

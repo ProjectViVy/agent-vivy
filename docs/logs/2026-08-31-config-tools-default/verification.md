@@ -1,30 +1,29 @@
-# Verification — 2026-08-31 config tools 默认面保留
+# Verification — 2026-08-31 config tools default surface retained
 
-## 命令与结果
+## Commands and results
 
 ```text
 go test ./internal/config/ -count=1
   -> ok  agent-vivy/internal/config  1.150s
 
 just ci
-  -> EXIT=0（fmt/vet、Go 全量、ui 175 测试、ui build 全绿）
+  -> EXIT=0 (fmt/vet, all Go tests, 175 UI tests, and UI build all passed)
 ```
 
-## 新增测试
+## Added test
 
 `TestToolsSectionWithoutEnabledKeepsDefault`（internal/config/config_test.go）：
 
-- `tools:` 段省略 `enabled` 键（其余字段保留）→ 加载成功，
-  `cfg.Tools.Enabled` 与 `Default().Tools.Enabled` 等长（26）；
-- 显式 `enabled: []` → Load 返回校验错误，不静默放行。
+- The `tools:` section omits the `enabled` key (all other fields are retained) → loading succeeds, and `cfg.Tools.Enabled` has the same length (26) as `Default().Tools.Enabled`.
+- An explicit `enabled: []` → `Load` returns a validation error and does not silently allow it through.
 
-## 真路径证据（修复前）
+## Real-path evidence (before the fix)
 
-删除本地 config.yaml 的 `enabled:` 两行后 `just run`：
+After deleting the two `enabled:` lines from the local config.yaml, `just run`:
 
 ```text
 startup aborted: invalid config config.yaml:
   tools.enabled must list at least one tool
 ```
 
-修复后同一份 config.yaml 启动成功（见本日志 acceptance 的复验步骤）。
+After the fix, the same config.yaml starts successfully (see the re-verification steps in this log's acceptance document).

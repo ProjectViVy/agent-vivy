@@ -1,23 +1,66 @@
-# CH-C2 — SDK `seam: channel` + 空注册表 + 信封配置（summary）
+# CH-C2 — SDK `seam: channel` + empty registry + envelope configuration (summary)
 
-日期：2026-08-30。分支 `feat/channel-c2`（自 `feat/channel-c1` c811d9f 切出，独立 worktree）。
-PLAN：`docs/plans/channel-epic/CH-C2.md`。合同：`VIVY-CHANNEL-PACK.md` §4/§8/§9/§10/§11。
+Date: 2026-08-30. Branch: `feat/channel-c2` (cut from `feat/channel-c1` c811d9f,
+in an independent worktree).
+PLAN: `docs/plans/channel-epic/CH-C2.md`. Contract:
+`VIVY-CHANNEL-PACK.md` §4/§8/§9/§10/§11.
 
-## 做了什么
+## What changed
 
-物种窗口开了 `seam: channel` 这条缝：作者能写 channel 插件、verify 接受、pack 能把**自带 go.mod** 的插件 overlay 进 `Register()`——但默认身体仍 `Register() = nil`，还没有 Host，跑不起来。
+The product window now exposes the `seam: channel` seam: authors can write channel
+plugins, verify accepts them, and pack can overlay a plugin with its **own go.mod**
+into `Register()`—but the default body is still `Register() = nil`, there is no Host,
+and it cannot run yet.
 
-1. **sdk/plugin**：`SeamChannel`；五个 Grant（`channel.poll` / `channel.webhook` / `channel.listen` / `channel.a2a` / `secret.read`，词表全收，按 seam 的限制归 verify）。新文件 `sdk/plugin/channel.go`：合同 §9.3 的 `Channel` / `ChannelEnv` 接口逐符号落地（`Send` 返回 `([]string, error)`；`HTTP()` 出站 client 无 Listen；`Secret` fail-closed）；类型化信封 `InboundMessage` / `OutboundMessage` / `Part`（text / media-ref / structured；**禁止 map 当主合同**）；九个预留能力槽（MediaStore、Typing、MessageEditor、Placeholder、MediaSender、WebhookHandler、StreamingCapable、TaskLifecycle、PipeServer，零方法 + 保留注释，C3 Host 才断言）。
-2. **verify**：按 seam 分流。`seam: channel` ⇒ 禁 `tools`、grants ⊆ {channel.poll, secret.read}（webhook/listen/a2a 本批拒绝）、必须带 `channel` 对象且 `transport: "poll"`；非 channel seam 禁领 channel 族 grant。AST 层新增 `net.Listen` / `http.ListenAndServe[+TLS]` 封禁（Listen 是 Host 的）；eino / internal / os.Open / exec 封禁对 channel 继续生效。新夹具 `bad-channel-tools` / `bad-channel-listen` / `bad-channel-grant`，正向夹具 `TestVerifyFakeChannel`。
-3. **pack 独立 module**：`--with` 的插件若自带 go.mod，解析其 module 路径作为生成 `Register()` 的 import path；构建用**双文件 overlay**（生成的 zz_register.go + 根 go.mod 副本追加 `require <mod> v0.0.0` + `replace <mod> => <abs>`），真实树零写入。`TestPackFakeChannelStandaloneModule` 跑真实 `go build` 并断言 live `zz_register.go` **和** live `go.mod` 字节不变。
-4. **pluginhost**：`Adapt` 显式跳过 `SeamChannel`（测试用带非空 Tools() 的 channel 桩证明不是「碰巧为空」）——channel 永远不进工具表。
-5. **config**：`channels:` 信封骨架（map<名字> → `{enabled, allow_from, token_env, settings}`，settings 为 `yaml.Node` 不透明）；结构校验：名字 slug、`token_env` 匹配 env-key 模式（D-010 文案）、`allow_from` 条目非空且禁 `*`；空 `allow_from` 允许入配置（拒 Start 是 C3 Host 的事）；settings 内部未知键**不**报错（有测试钉住 strict 解码与 opaque 的交互）。未知名字对照 `Register()` 的校验按 PLAN 留给 C3。
-6. **PLUGIN-SPEC §4 符号级对齐**（CH-C2 §5 授权范围内，合同语义零改动）：Grant 常量 + Channel/ChannelEnv 签名 + 类型化信封一句话。
+1. **sdk/plugin**: `SeamChannel`; five Grants (`channel.poll` /
+   `channel.webhook` / `channel.listen` / `channel.a2a` / `secret.read`; the
+   vocabulary accepts all of them, while verify enforces seam restrictions). New file
+   `sdk/plugin/channel.go`: every symbol of the contract §9.3 `Channel` /
+   `ChannelEnv` interfaces is implemented (`Send` returns `([]string, error)`;
+   `HTTP()` is an outbound client with no Listen; `Secret` is fail-closed);
+   typed `InboundMessage` / `OutboundMessage` / `Part` envelopes (text /
+   media-ref / structured; **maps are forbidden as the primary contract**); nine
+   reserved capability slots (MediaStore, Typing, MessageEditor, Placeholder,
+   MediaSender, WebhookHandler, StreamingCapable, TaskLifecycle, PipeServer, with zero
+   methods plus retained comments, asserted only by the C3 Host).
+2. **verify**: dispatches by seam. `seam: channel` ⇒ forbid `tools`, require
+   grants ⊆ {channel.poll, secret.read} (webhook/listen/a2a are rejected in this
+   batch), require a `channel` object with `transport: "poll"`; non-channel seams
+   may not claim channel-family grants. AST-level bans add `net.Listen` /
+   `http.ListenAndServe[+TLS]` (Listen belongs to the Host); the existing eino /
+   internal / os.Open / exec bans continue to apply to channel. New fixtures:
+   `bad-channel-tools` / `bad-channel-listen` / `bad-channel-grant`; positive
+   fixture `TestVerifyFakeChannel`.
+3. **pack independent module**: if a `--with` plugin has its own go.mod, parse its
+   module path as the import path for generated `Register()`; build with a **two-file
+   overlay** (generated zz_register.go + a root go.mod copy with
+   `require <mod> v0.0.0` + `replace <mod> => <abs>` appended), leaving the real
+   tree untouched. `TestPackFakeChannelStandaloneModule` runs a real `go build` and
+   asserts that both live `zz_register.go` **and** live `go.mod` are byte-for-byte
+   unchanged.
+4. **pluginhost**: `Adapt` explicitly skips `SeamChannel` (a test channel stub with
+   non-empty Tools() proves this is not an accidental empty result)—channel never
+   enters the tool table.
+5. **config**: `channels:` envelope skeleton (map<name> →
+   `{enabled, allow_from, token_env, settings}`, with settings opaque as a
+   `yaml.Node`); structural validation covers slug names, `token_env` matching the
+   env-key pattern (D-010 copy), non-empty `allow_from` entries, and rejection of
+   `*`; empty `allow_from` is allowed in config (refusing Start belongs to the C3
+   Host); unknown keys inside settings do **not** error (tests pin the interaction
+   between strict decoding and opacity). Validation of unknown names against
+   `Register()` is left to C3 per PLAN.
+6. **PLUGIN-SPEC §4 symbol-level alignment** (within the scope authorized by CH-C2 §5,
+   with no contract semantic change): Grant constants + Channel/ChannelEnv signatures +
+   one sentence on typed envelopes.
 
-## 明确没做（不做声明）
+## Explicitly not done
 
-- 无 `internal/channelhost`、无 Session 映射、无 `Service.Run` 接线（全部 C3）。
-- verify 无法类型检查「必须实现 Channel」（AST/清单层面做不到）——C3 Host 断言兜底，已登记 §0.1。
-- `inspect` / `generation.json` 按 seam 分类列出（name/version/seam/grants/transport/…）未做，后续切片。
-- 真实平台 SDK 未引入；独立 module 的传递依赖闭包（require/go.sum 合入 overlay）留 C4 真包踩实。
-- `zz_register.go` 提交态仍 `return nil`；`go.mod` / `go.sum` 零改动；未 push。
+- No `internal/channelhost`, Session mapping, or `Service.Run` wiring (all C3).
+- verify cannot type-check "must implement Channel" (the AST/manifest layer cannot do
+  this)—the C3 Host assertion is the backstop, recorded in §0.1.
+- `inspect` / `generation.json` classification by seam
+  (name/version/seam/grants/transport/…) was not done; it belongs to a later slice.
+- No real platform SDK was introduced; the independent module's transitive dependency
+  closure (merging require/go.sum into the overlay) is left for the real C4 package.
+- Submitted `zz_register.go` still `return nil`; `go.mod` /
+  `go.sum` unchanged; not pushed.

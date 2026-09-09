@@ -1,32 +1,40 @@
-# 验收指引 — 2026-08-27 「已选模型」快捷切换
+# Acceptance guide — 2026-08-27 「Selected models」 quick switch
 
-以用户视角确认功能生效（开发环境：`just dev`，打开
-`http://127.0.0.1:3015`；或直接在 Vivy Studio 会话中执行）：
+Confirm that the feature works from the user's perspective (development environment:
+`just dev`, open `http://127.0.0.1:3015`; or run directly in a Vivy Studio session):
 
-1. **设置页新增「已选模型」区**：进入「设置 → 模型」。模型卡顶部出现
-   「已选模型」区——首次为空，显示"在下方供应商列表点击模型，即可加入
-   快捷切换"。
-2. **点模型即选用并加入**：在供应商列表选中一家（如 DeepSeek），点击右侧
-   任意模型（如 deepseek-chat）：该模型立即成为运行配置（顶栏变为
-   "DeepSeek | deepseek-chat"），同时上方「已选模型」出现
-   `DeepSeek · deepseek-chat` chip；模型行尾部出现 ✓（当前运行配置）。
-3. **重复点击不重复加入**：再点一次同一模型，chip 数量不变（幂等）。
-4. **chip 点击 = 立即切换**：从「已选模型」点另一个 chip（如先加
-   `OpenAI · gpt-4o`），运行配置立即切换过去，无需再点「保存真实设置」。
-5. **行内 X = 只移除书签**：点 chip 里的小 X，该模型从快捷列表消失，
-   **当前运行配置不变**（diva 的"移除即清空"副作用未移植）。
-6. **Bookmark 标记已加入**：已加入但非当前运行的模型行尾部显示灰色
-   书签图标（鼠标悬停有"已加入快捷列表"提示）；当前运行的那行显示 ✓。
-7. **顶栏快速切换**：点顶栏模型按钮，下拉为「当前配置」+「已选模型」
-   两段（只有已加入的模型；当前项已去重）。点任意一行立即切换；行尾
-   X 悬停出现，点击仅移除、菜单不关闭、不改变运行配置。
-8. **管理入口直达**：顶栏下拉底部「管理模型设置」进入设置页并自动切到
-   「模型」Tab（URL 变为 `?tab=model`）。
-9. **刷新后持久**：刷新页面，「已选模型」列表仍在（`vivy.ui.savedModels`
-   本地存储）。
-10. **手改表单仍是显式提交**：三输入框手工改成目录外自定义组合后，仍需
-    点「保存真实设置」才生效（自动保存边界不变）。
-11. **只读部署**：`read_only` 部署中点击模型 / chip / 顶栏行被禁用（锁定），
-    但移除书签仍可用。
+1. **The settings page adds a 「Selected models」 area**: go to 「Settings → Model」. A
+   「Selected models」 area appears at the top of the model card—initially empty, showing
+   "Click a model in the provider list below to add it to quick switch".
+2. **Clicking a model selects and adds it**: select a provider (such as DeepSeek) in the
+   provider list and click any model on the right (such as deepseek-chat). The model becomes
+   the runtime configuration immediately (the top bar becomes "DeepSeek | deepseek-chat"),
+   a `DeepSeek · deepseek-chat` chip appears in the 「Selected models」 area above, and ✓
+   appears at the model-row end (current runtime configuration).
+3. **Repeated clicks do not add duplicates**: click the same model again; the chip count is
+   unchanged (idempotent).
+4. **Chip click = immediate switch**: click another chip in 「Selected models」 (for example,
+   first add `OpenAI · gpt-4o`); the runtime configuration switches immediately, without
+   clicking 「Save real settings」 again.
+5. **Inline X = remove bookmark only**: click the small X in a chip; the model disappears
+   from the quick list, while **the current runtime configuration is unchanged** (diva's
+   "removal clears configuration" side effect was not ported).
+6. **Bookmark marks selected models**: a selected but non-current model row shows a gray
+   bookmark icon (hover notice "Added to quick list"); the current runtime row shows ✓.
+7. **Top-bar quick switch**: click the top-bar model button; the dropdown has two sections,
+   「Current configuration」 + 「Selected models」 (only added models, with the current item
+   deduplicated). Click any row to switch immediately; X appears on hover at the row end,
+   and clicking it only removes the bookmark, leaving the menu open and runtime configuration
+   unchanged.
+8. **Management entry goes directly there**: 「Manage model settings」 at the bottom of the
+   top-bar dropdown enters the settings page and switches to the 「Model」 tab automatically
+   (URL becomes `?tab=model`).
+9. **Persists after refresh**: refresh the page; the 「Selected models」 list remains
+   (`vivy.ui.savedModels` local storage).
+10. **Manual form edits still require explicit submission**: after manually changing the
+    three inputs to a custom combination outside the catalog, click 「Save real settings」 for
+    it to take effect (the auto-save boundary is unchanged).
+11. **Read-only deployment**: in a `read_only` deployment, clicking a model / chip / top-bar
+    row is disabled (locked), but bookmark removal remains available.
 
-密钥一如既往只由运行环境管理，快捷列表不存任何密钥。
+As before, keys are managed only by the runtime environment; the quick list stores no keys.

@@ -1,11 +1,11 @@
-# 浮层与主页面隔离
+# Overlay and Main-Page Isolation
 
-## 已交付
+## Delivered
 
-- 命令面板、快捷方式、会话、模型等浮层不再叠在聊天文字上。打开后先清空主画面，再居中放不透明对话框。
-- 对话框加了实心底色；叠加按单元格裁切，避免中文宽字符把边框切进正文。
+- Command palette, shortcuts, session, model, and other overlays no longer stack over chat text. When opened, they first clear the main screen and then center an opaque dialog.
+- Dialogs have a solid background; overlays are clipped by cell to prevent wide CJK characters from cutting the border into the body.
 
-## 边界
+## Boundaries
 
-- 浮层打开时主聊天/侧栏暂时不可见，关掉后回来。
-- 没有做半透明遮罩（终端做不到真正半透明）。
+- While an overlay is open, the main chat/sidebar is temporarily invisible and returns after it is closed.
+- No semitransparent mask was implemented (the terminal cannot do true semitransparency).

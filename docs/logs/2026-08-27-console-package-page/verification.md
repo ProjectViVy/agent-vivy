@@ -1,4 +1,4 @@
-# Verification — 2026-08-27 console 打包与版本 page
+# Verification — 2026-08-27 console Packaging & Version page
 
 Commands run from the repo root (`C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy`).
 
@@ -25,7 +25,7 @@ Run: `node data/studio-home/vivy-console/smoke-lifecycle.mjs` →
 | release without confirm refused before spawn (NG-25 guard) | PASS |
 | unknown action refused | PASS |
 | job machinery end-to-end: `inspect` on a bogus target spawns, streams output, terminates | PASS |
-| unknown job id → 任务不存在 | PASS |
+| unknown job id → literal `Job not found` | PASS |
 | dev regression: `/status` + `/logs` OK; lifecycle did **not** start backend or frontend | PASS |
 
 The CLI contract was also probed directly:
@@ -47,7 +47,7 @@ install/rollback ran.
 - Host routes changed → Studio restarted detached
   (`data/studio-home/restart-studio.ps1`); the listener at
   `http://127.0.0.1:3090` came back up. Refresh the browser to see the new
-  「打包与版本」 tab.
+  「Packaging & Version」 tab.
 
 ## Gate: `just ci`
 

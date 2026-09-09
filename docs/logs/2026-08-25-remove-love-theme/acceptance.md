@@ -1,8 +1,10 @@
-# 验收路径 — 移除恋粉主题
+# Acceptance path — Remove Love theme
 
-1. 打开 `http://127.0.0.1:3015`，进入"设置"→"通用"tab。
-2. "主题"卡应只有 4 个选项：Vivy 蓝、简约粉白、深蓝夜色、Miku 青；
-   不再有"恋粉"。
-3. 依次点击其余主题，换肤与刷新持久化行为与之前一致。
-4. 若某浏览器此前选过恋粉：刷新后自动回到 Vivy 蓝默认主题，
-   不报错、不出现在选择卡中。
+1. Open `http://127.0.0.1:3015` and go to the “Settings” → “General” tab.
+2. The “Theme” card should have only 4 options: Vivy Blue, Minimal Pink & White,
+   Deep Blue Night, and Miku Teal; “Love” should no longer appear.
+3. Click the remaining themes in turn; theming and persistence after refresh
+   should behave as before.
+4. If a browser previously selected Love, refreshing should automatically return
+   to the Vivy Blue default theme, without errors and without Love appearing in
+   the selection card.

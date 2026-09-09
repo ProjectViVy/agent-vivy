@@ -1,41 +1,41 @@
-# VC-1g-2 验证记录
+# VC-1g-2 verification record
 
-日期：2026-08-31
+Date: 2026-08-31
 
-## 命令与结果
+## Commands and results
 
-| 命令 | 结果 |
+| Command | Result |
 | --- | --- |
 | `go build ./...` | exit 0 |
 | `go vet ./internal/rpc ./internal/runtime ./internal/storage/... ./internal/domain` | clean |
-| `go test ./internal/rpc ./internal/runtime ./internal/storage/sqlite ./internal/domain` | ok（含新增 `TestTurnStartAttachmentsValidationAndRoundTrip`、`TestBuildRunContextProjectsImageAttachments`、`TestMessagesPersistImageAttachments`） |
+| `go test ./internal/rpc ./internal/runtime ./internal/storage/sqlite ./internal/domain` | ok (including new `TestTurnStartAttachmentsValidationAndRoundTrip`, `TestBuildRunContextProjectsImageAttachments`, and `TestMessagesPersistImageAttachments`) |
 | `cd ui && pnpm typecheck` | exit 0 |
-| `cd ui && pnpm test` | 24 files / 195 tests passed（新增 store 用例：附件随消息排队并在完成后携附件派发；既有派发断言更新为 5 参） |
-| `just ci`（完整门禁） | 首跑在 `fmt-check` 失败（control.go 结构体 tag 对齐），`gofmt -w` 后重跑 exit 0 |
+| `cd ui && pnpm test` | 24 files / 195 tests passed (new store case: attachments queue with the message and dispatch with the attachment after completion; the existing dispatch assertion was updated to 5 arguments) |
+| `just ci` (full gate) | The first run failed in `fmt-check` (control.go struct-tag alignment); after `gofmt -w`, the rerun exited 0 |
 
-## just ci 备注
+## just ci notes
 
-- 第一轮 `just ci` exit 1：`fmt-check` 报 `internal/rpc/control.go` 未格式化
-  （`messageResult` 新增字段后 struct tag 未对齐）。`gofmt -w` 修复，
-  复跑 `just ci` exit 0（日志 `/tmp/just-ci-vc1g2b.log`）。
+- The first `just ci` exited 1: `fmt-check` reported that `internal/rpc/control.go` was not formatted
+  (the struct tag was misaligned after `messageResult` gained a field). `gofmt -w` fixed it;
+  rerunning `just ci` exited 0 (log `/tmp/just-ci-vc1g2b.log`).
 
-## Smoke 政策
+## Smoke policy
 
-本片为用户可见变更（UI 贴图/选图）。按 `smoke-for-user-visible-change` 应在
-`http://127.0.0.1:3015` 走真实链路；但端到端图片轮次需要真实 provider key
-（TEST-1 移除 mock provider 后无本地假模型），本轮无 key，无法产出真实
-vision 响应。例外已按惯例记录于此。
+This slice is a user-visible change (UI image pasting/file selection). Under `smoke-for-user-visible-change`, it should use the real path at
+`http://127.0.0.1:3015`; however, an end-to-end image run requires a real provider key
+(after TEST-1 removed the mock provider there is no local fake model), and this round had no key, so it could not produce a real
+vision response. The exception is recorded here according to the usual practice.
 
-已替代执行的真实验证：
+Real substitute verification that was performed:
 
-- `internal/rpc` 集成测试通过真实 RPC Handler 走完整链路：非法 mime / 非法
-  base64 / 空 data / 超 5MiB / 超 4 张 → InvalidParams；合法 png → run 跑完 →
-  `session/messages` 回传同名同 mime 且 base64 data URL 完全回环。
-- `internal/runtime` 断言 `buildRunContext` 把带图用户消息投影为 eino
-  `UserInputMultiContent`（text part + image part，Base64Data/MIMEType 正确，
-  Content 置空），且图片字节不计入文本 byte 预算。
-- `internal/storage/sqlite` 断言附件持久化、顺序、DeleteSession 清理。
-- UI store 测试断言附件经队列派发 5 参透传 `api.startTurn`。
-- UI 组件层面：`pnpm dev` + `just run` 分裂对在浏览器人工走查（选择文件、
-  粘贴截图、缩略图移除、门禁提示、发送后气泡缩略图）留待有 key 的下一轮
-  与 VC-2 SupportsImages 门控一起验收（见 acceptance.md 的人工路径）。
+- `internal/rpc` integration tests used the real RPC Handler through the complete path: invalid MIME / invalid
+  base64 / empty data / over 5MiB / over 4 images → InvalidParams; valid png → run completes →
+  `session/messages` returns the same name and MIME with a fully round-tripped base64 data URL.
+- `internal/runtime` asserts that `buildRunContext` projects an image-bearing user message into eino
+  `UserInputMultiContent` (text part + image part, correct Base64Data/MIMEType, Content empty),
+  and that image bytes are excluded from the text-byte budget.
+- `internal/storage/sqlite` asserts attachment persistence, ordering, and DeleteSession cleanup.
+- UI store tests assert that attachments pass through `api.startTurn` as 5 arguments when dispatched through the queue.
+- At the UI component level, a browser walkthrough with `pnpm dev` + `just run` as a split pair (file selection,
+  screenshot paste, thumbnail removal, gate notices, post-send bubble thumbnails) is deferred to the next round with a key,
+  together with VC-2 SupportsImages gating (see the manual path in acceptance.md).

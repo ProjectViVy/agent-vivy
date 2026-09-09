@@ -1,26 +1,30 @@
-# 2026-08-30 · 超级通道节目排期
+# 2026-08-30 — Super Channel program plan
 
-## 目标与背景
+## Goal and background
 
-合同 C0 已采纳。按项目经理把实现拆进 `docs/TODO.md`：可领取 WBS、里程碑日历、依赖活动图、单 lane 甘特。
+Contract C0 was adopted. Per the project manager, split the implementation into
+`docs/TODO.md`: claimable WBS items, a milestone calendar, a dependency activity graph,
+and a single-lane Gantt.
 
-## 变更内容
+## Changes
 
-- `docs/TODO.md` §0.1：CH-A / CH-B 标 SUPERSEDED；新增 CH-C1..C9；`UI-CHANNELS-BE` 并入 CH-C5。
-- `docs/TODO.md` §0.2：里程碑 M-CH0..M-CH5、人日、关键路径、mermaid 活动图与甘特。
-- `VIVY-CHANNEL-PACK.md` §20：排期权威指向 §0.2。
+- `docs/TODO.md` §0.1: mark CH-A / CH-B SUPERSEDED; add CH-C1..C9;
+  merge `UI-CHANNELS-BE` into CH-C5.
+- `docs/TODO.md` §0.2: milestones M-CH0..M-CH5, person-days, critical path, Mermaid
+  activity graph, and Gantt.
+- `VIVY-CHANNEL-PACK.md` §20: the authoritative schedule points to §0.2.
 
-锁定的期：
+Locked schedule:
 
-| 里程碑 | 计划 | 缓冲 |
+| Milestone | Plan | Buffer |
 |---|---|---|
-| M-CH1 地基（C1–C3） | 2026-09-08 | 2026-09-10 |
-| M-CH2 第一只耳朵（telegram+设置页） | 2026-09-14 | 2026-09-16 |
-| M-CH4 本期关门（+discord） | 2026-09-24 | 2026-09-30 |
+| M-CH1 foundation (C1–C3) | 2026-09-08 | 2026-09-10 |
+| M-CH2 first ear (telegram + Settings page) | 2026-09-14 | 2026-09-16 |
+| M-CH4 iteration close (+discord) | 2026-09-24 | 2026-09-30 |
 
-下一刀：**CH-C1**。C8 / C9 / 企业微信不进本期。
+Next: **CH-C1**. C8 / C9 / WeCom are not part of this iteration.
 
-## 明确未做
+## Explicitly not done
 
-- 未实现任何内核 / SDK / 插件代码。
-- 未开 CH-C1 的 worktree。
+- No kernel / SDK / plugin code was implemented.
+- The CH-C1 worktree was not created.

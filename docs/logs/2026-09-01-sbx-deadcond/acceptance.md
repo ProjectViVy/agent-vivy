@@ -1,28 +1,31 @@
 # Acceptance — SBX-DEADCOND
 
-## 人怎么看它工作了
+## How a human can tell it works
 
-配置 `sandbox.mode: danger-full-access`（完全信任模式）时，即使白名单放开，
-以下类命令仍被拒绝并返回 "command pattern is too dangerous even in
-full-access mode"：
+With `sandbox.mode: danger-full-access` (full-trust mode), the following classes
+of commands are still rejected and return "command pattern is too dangerous even
+in full-access mode", even when the allowlist is open:
 
-- `rm -rf /`、`rm -fr /*`、`rm -r /`、`rm --recursive --force /`（任何旗标组合的
-  系统根递归删除）
-- `rm -rf .` / `..`（当前/上级目录整体递归删除）
-- `rm -rf ~`、`rm -rf C:\`、`rm -rf C:\*`（home、盘符根）
-- 带 `--no-preserve-root` 的任何 rm
-- Windows：`del /f /s /q *`、`del /s C:\`、`rd /s /q .`
+- `rm -rf /`, `rm -fr /*`, `rm -r /`, `rm --recursive --force /` (any flag
+  combination that recursively deletes the system root)
+- `rm -rf .` / `..` (recursively deletes the current/parent directory as a whole)
+- `rm -rf ~`, `rm -rf C:\`, `rm -rf C:\*` (home directory, drive root)
+- Any `rm` with `--no-preserve-root`
+- Windows: `del /f /s /q *`, `del /s C:\`, `rd /s /q .`
 
-同时不被误伤的正常用法保持可用：`rm -rf build`、`rm -rf node_modules`、
-`rm -f file.txt`、`del /q file.txt`、`rm -rf c:/temp/x`（具体子目录）等。
+At the same time, normal uses that must not be caught remain available:
+`rm -rf build`, `rm -rf node_modules`, `rm -f file.txt`, `del /q file.txt`,
+`rm -rf c:/temp/x` (a specific subdirectory), and so on.
 
-## 边界
+## Boundaries
 
-- 该防线只覆盖 execute/commandline 路径的 danger 模式；bash 工具路径由其
-  既有 deny 表覆盖（未变更）。
-- confined（workspace-write/read-only）模式不受影响——本就不靠这条防线。
+- This defense covers only the danger mode of the execute/commandline path; the
+  bash tool path is covered by its existing deny table (unchanged).
+- confined (workspace-write/read-only) modes are unaffected; they do not rely on
+  this defense in the first place.
 
-## 修复前对照
+## Before-fix comparison
 
-原实现的单参数交叉条件永假，`rm -rf /` 可通过 danger 模式校验直接执行——
-本切片后由测试钉死（`TestIsDangerousCommandRootDeletion`）。
+The original implementation's single-argument cross-condition was always false,
+so `rm -rf /` could pass danger-mode validation and execute directly. This slice
+pins the behavior with `TestIsDangerousCommandRootDeletion`.

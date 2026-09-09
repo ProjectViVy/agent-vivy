@@ -1,20 +1,22 @@
-# 验证记录
+# Verification record
 
-## 命令与结果（2026-08-27）
+## Commands and results (2026-08-27)
 
-- `cd ui; pnpm typecheck` → ✅ 通过（tsc --noEmit 无错误）
-- `cd ui; pnpm test` → ✅ 105/105 用例通过（含 kiwi 中英 key 对等校验，
-  新增 `editAddressAria` 键两边同步添加）
-- 根目录 `just ci` → ✅ 全绿：
-  - gofmt -l（cmd/internal/sdk/ui 全部 .go）无未格式化文件
-  - `go vet ./...`、`go test ./...` 全部通过
-  - ui: pnpm install（frozen-lockfile）→ typecheck → test（105/105）→ build
-    （3.94s，产物 dist/assets/index-*.js 974.12 kB；仅有既有的 chunk > 500 kB
-    警告，与本次改动无关）
+- `cd ui; pnpm typecheck` → ✅ passed (tsc --noEmit, no errors)
+- `cd ui; pnpm test` → ✅ 105/105 tests passed (including the kiwi zh/en key-parity check;
+  `editAddressAria` added to both sides)
+- Root `just ci` → ✅ all green:
+  - gofmt -l (all .go files under cmd/internal/sdk/ui) found no unformatted files
+  - `go vet ./...` and `go test ./...` all passed
+  - ui: pnpm install (frozen-lockfile) → typecheck → test (105/105) → build
+    (3.94s, output dist/assets/index-*.js 974.12 kB; only the existing chunk > 500 kB
+    warning, unrelated to this change)
 
-## 浏览器冒烟
+## Browser smoke test
 
-8787 / 3015 端口被用户 Vivy Studio 调试会话占用（vivy-backend pid 22900、
-Vite pid 21516），未自行启动服务器——按既有约定由**用户 Studio 调试代验**，
-见 acceptance.md。提醒用户：改动只存在于分离 Vite `http://127.0.0.1:3015`
-（需硬刷新 Ctrl+Shift+R）；`:8787` 嵌入式页面是发行构建包，不含本轮 UI 改动。
+Ports 8787 / 3015 were occupied by the user's Vivy Studio debug session (vivy-backend pid
+22900, Vite pid 21516), so no server was started separately—in accordance with the existing
+convention, **the user's Studio debug session performed the verification**; see
+acceptance.md. The user was reminded that the change exists only in split Vite
+`http://127.0.0.1:3015` (hard refresh with Ctrl+Shift+R required); the embedded page at
+`:8787` is the release build and does not contain this round's UI changes.

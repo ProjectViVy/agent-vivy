@@ -3,7 +3,8 @@
 How a human can tell CH-C4-N1 is closed:
 
 1. Talk to Vivy through a Telegram private chat and ask for something
-   that produces a very long reply (e.g. "把 Vivy 的架构分层完整讲一遍").
+   that produces a very long reply (e.g. the literal prompt "Give a complete explanation
+   of Vivy's architectural layers").
    Before this slice the reply was silently lost (sendMessage 400).
    Now it arrives as several consecutive messages, each within the
    4096-character limit, in order, and together reading as the full

@@ -23,5 +23,5 @@ Notes:
   `wrapText` output carries no ANSI at all.
 - No manual TUI smoke was run: the change is render-only inside tool-card
   bodies and is exercised by the deterministic card-rendering tests above;
-  visual review follows the 真机评审 recommendation recorded for
+  visual review follows the real-device review recommendation recorded for
   `docs/logs/2026-09-07-tui-chat-body-polish/verification.md`.

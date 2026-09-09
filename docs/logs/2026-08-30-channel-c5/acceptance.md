@@ -1,33 +1,55 @@
-# CH-C5 — acceptance（人怎么看出它成了）
+# CH-C5 — acceptance (how a person can tell it worked)
 
-日期：2026-08-30。
+Date: 2026-08-30.
 
-## 产品视角：愿望单变成了身体清单
+## Product view: the wishlist became the body's inventory
 
-打开 `http://127.0.0.1:3015` → 设置 → 通道：
+Open `http://127.0.0.1:3015` → Settings → Channels:
 
-- **默认下载的身体**：一页空态——「这一代没有耳朵：当前二进制没有编译进任何通道插件」。没有七个平台的幻想列表，没有「添加 Email / Neuro-Link」。
-- **带 telegram 的一代**：卡片上写真实状态（已启用/需配置/待重启），启动失败原因逐字可见，不装懂装在线。
+- **Default downloaded body**: an empty-state page—"This generation has no ears: the
+  current binary has no channel plugins compiled in". There is no fantasy list of
+  seven platforms and no "Add Email / Neuro-Link".
+- **A generation with telegram**: cards show real status (enabled / needs configuration /
+  pending restart), and startup-failure reasons are visible verbatim instead of
+  pretending to be online.
 
-## 人可以亲手验证的点
+## Human-verifiable points
 
-1. **门是绿的**：`just ci` 退出码 0。
-2. **所见即所编**：通道页列表严格等于这一代编译进的 channel 插件。想配置身体里没有的名字？UI 不给入口；绕过 UI 直接 RPC `channel/update` 也会被拒（"not compiled into this generation"）。
-3. **文案不再骗人**：allow_from 提示是「留空 = 拒绝启动」（中英一致），不再是「留空表示不限制」。
-4. **密钥零回流**：界面上 token 永远只是一行环境变量名 + 已设置/未设置徽章；RPC 返回体里不存在 token 值字段（reviewer 全表面 grep 证实）。
-5. **改配置有回声**：保存后写 `settings.yaml` overlay（可打开文件亲见 channels 覆盖项）；卡片出现「待重启」徽章；重启进程后耳朵按新配置起落——今晚关耳朵 = 改 `enabled: false` 再重启。
-6. **窄屏可用**：375px 宽度下卡片与操作不溢出。
+1. **The gate is green**: `just ci` exits 0.
+2. **What you see is what is compiled**: the Channels page list is exactly the set of
+   channel plugins compiled into this generation. Want to configure a name absent from
+   the body? The UI offers no entry point; calling RPC `channel/update` directly
+   also gets rejected ("not compiled into this generation").
+3. **The copy no longer misleads**: the allow_from hint is "empty = refuse startup"
+   in both Chinese and English, rather than "empty means unrestricted".
+4. **No key flows back**: the UI shows only an environment-variable name plus a set/
+   unset badge for the token; the RPC response body has no token-value field (confirmed
+   by reviewer grep across the full surface).
+5. **Configuration changes echo back**: saving writes a `settings.yaml` overlay
+   (open the file to see the channels override); the card shows a "pending restart"
+   badge; after restarting, the ear follows the new configuration—to turn an
+   ear off tonight, set `enabled: false` and restart.
+6. **Narrow screens work**: cards and controls do not overflow at 375px wide.
 
-## 一次真实冒烟记录（2026-08-30）
+## Real smoke record (2026-08-30)
 
-默认身体空态 → pack telegram 候选 + 配置 telegram（token env 故意不设）→ 卡片出现且 `start failed: …TELEGRAM_BOT_TOKEN…` 可见（fail-closed 演示）→ 清空 allow_from 保存 → `settings.yaml` 出现 `allow_from: []` → 恢复两行名单保存 → overlay 更新。全程未触碰真实 Telegram 网络（mock provider + 无 token）。
+Default-body empty state → pack telegram candidate + configure telegram (token env
+deliberately unset) → card appears and `start failed: …TELEGRAM_BOT_TOKEN…` is
+visible (fail-closed demonstration) → clear allow_from and save →
+`settings.yaml` contains `allow_from: []` → restore the two-line allowlist and
+save → overlay updates. No real Telegram network was touched (mock provider + no token).
 
-## 明确不属于本刀的验收（勿在此追讨）
+## Explicitly not part of this slice's acceptance
 
-- 耳朵热重启（改完配置即时生效）→ 后继切片决定是否做。
-- 真实 Telegram 收发 → CH-C4 已具备能力，真 Bot 冒烟属发布前人工验收。
-- 钉钉/飞书/QQ/Discord 出现在列表 → 它们编译进那一代才会出现（C6/C7）。
+- Hot-restarting an ear (configuration taking effect immediately) → a later slice decides
+  whether to implement it.
+- Real Telegram send/receive → CH-C4 has the capability; real-Bot smoke is pre-release
+  human acceptance.
+- DingTalk/Feishu/QQ/Discord appearing in the list → they appear only in generations
+  where they are compiled in (C6/C7).
 
-## 回滚
+## Rollback
 
-revert 本分支：UI 回到只读旧版前的状态不可取（旧版是 localStorage 幻想）；如需临时回退，设置页可暂时只读，但**不要**回退到「留空不限制」文案。
+Revert this branch: returning the UI to the old read-only state is undesirable (the old
+version was a localStorage fantasy); for a temporary fallback, the Settings page may
+be read-only, but **do not** revert to the "empty means unrestricted" copy.

@@ -1,26 +1,38 @@
 # Acceptance — FACE-TUI-1 F1
 
-## 怎么看出来它成立（人验视角）
+## How to verify it (human acceptance perspective)
 
-1. **进程内跑完一次带审批的对话，不开任何端口。**
+1. **Complete one approval-requiring conversation in-process, without opening any port.**
    ```
    go test ./internal/app -run TestLoopbackControlCompletesApprovedConversation -v
    ```
-   通过 = 在 `WithoutGateway()` 组合（无 embed、无 mux、无 origin policy、无 listener）里，一个普通 Go 客户端经 `App.DialControl` 用 web face 的同一批 RPC 方法创建了会话、发起回合、收到审批、批准、等 run 跑完，journal 里 `write_note` 零错误、终文在会话消息里。
+   Pass = in a `WithoutGateway()` composition (no embed, mux, origin policy, or listener),
+   an ordinary Go client uses `App.DialControl` and the same RPC method set as the web face
+   to create a session, start a turn, receive approval, approve it, wait for the run to
+   finish, and see zero `write_note` errors in the journal with the final text in the
+   session messages.
 
-2. **无 UI 时审批不会悄悄自愈，取消是持久出路。**
+2. **Without a UI, approval does not silently self-heal; cancellation is the durable exit.**
    ```
    go test ./internal/app -run TestGatewaylessRunWithoutFaceCancelsDurably -v
    ```
-   通过 = 审批挂起后 run 一直停着；从同一进程内控制面发 `run/cancel`，run 状态落 `cancelled`，进程 `Run` 干净退出。
+   Pass = after approval suspends, the run stays suspended; send `run/cancel` through the
+   in-process control plane, the run settles in `cancelled`, and the process's `Run` exits
+   cleanly.
 
-3. **headless 组合真的不再监听。**
-   `TestLoopbackControl*` 内断言 `a.httpServer == nil`；`vivy_headless`（ci 的 headless-compile 步骤）现在经 `RunHeadless → WithoutGateway()` 组装，进程内不再有 `http.Server`。
+3. **The headless composition really no longer listens.**
+   `TestLoopbackControl*` asserts `a.httpServer == nil`; `vivy_headless` (the headless-compile
+   step in CI) now composes through `RunHeadless → WithoutGateway()`, so there is no
+   in-process `http.Server`.
 
-4. **web face 一切照旧。**
-   默认组合（不带新选项）与改动前逐字节等价——`just ci` 的 embedded-UI 路径、origin policy 测试（`TestRPCBootstrapRoutePrecedesUIShell`）全绿。
+4. **The web face is unchanged.**
+   The default composition (without the new option) is byte-for-byte equivalent to before
+   the change — the embedded-UI path and origin-policy test
+   (`TestRPCBootstrapRoutePrecedesUIShell`) in `just ci` are all green.
 
-## 边界
+## Boundaries
 
-- TUI 器官本身（faces/tui）、pack `face:` 键、FaceHost SDK 契约属后续片，不在本片验收范围内。
-- 审批轮次使用 `write_note`：只读工具被审批闸恒自动放行是既有设计（`runtime/policy.go`），不是本片缺陷。
+- The TUI organ itself (`faces/tui`), the pack `face:` key, and the FaceHost SDK contract
+  belong to later slices and are outside this slice's acceptance scope.
+- The approval round uses `write_note`: read-only tools being automatically allowed through
+  the approval gate is existing design (`runtime/policy.go`), not a defect in this slice.

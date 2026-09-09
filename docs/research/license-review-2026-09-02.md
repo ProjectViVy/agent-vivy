@@ -1,39 +1,39 @@
-# Reference License Review — claude-code (P3-1) 与 rig (P3-2)
+# Reference License Review — claude-code (P3-1) and rig (P3-2)
 
 > **Date:** 2026-09-02
-> **Closes:** TODO §0.1 rows P3-1、P3-2；REFERENCE-INDEX open questions RI-OQ-1、RI-OQ-2
-> **Method:** 上游一手验证（GitHub API + raw LICENSE 全文），非二手转述；本地 `.workspace/` 树状态现场核实。
+> **Closes:** TODO §0.1 rows P3-1, P3-2; REFERENCE-INDEX open questions RI-OQ-1, RI-OQ-2
+> **Method:** direct upstream verification (GitHub API + full raw LICENSE), not second-hand reporting; local `.workspace/` tree status verified on site.
 
-## 0. 前提核实：两个本地副本均已不存在
+## 0. Prerequisite verification: neither local copy still exists
 
-`REFERENCE-INDEX.md`（2026-08-15 版）把 claude-code 记为 `.workspace/claude-code/`、rig 记为 `.workspace/rig/`。2026-09-02 现场 `ls .workspace/` 核实：两棵树都已被清理，`.workspace/` 现存仅 agent-wiki-library / caveman / crush / deepseek-harness / eino / headroom / oh-dsh / smoke 八个目录。因此本次审查全部改为对**上游仓库**取证；索引条目同步更新（见 §3）。
+`REFERENCE-INDEX.md` (2026-08-15 edition) recorded claude-code as `.workspace/claude-code/` and rig as `.workspace/rig/`. An on-site `ls .workspace/` check on 2026-09-02 confirmed that both trees had been cleaned; `.workspace/` now contains only the eight directories agent-wiki-library / caveman / crush / deepseek-harness / eino / headroom / oh-dsh / smoke. Therefore, this review uses the **upstream repositories** as evidence throughout; the index entries were updated accordingly (see §3).
 
-## 1. P3-1 — claude-code 上游 LICENSE：专有，禁止源码复用
+## 1. P3-1 — claude-code upstream LICENSE: proprietary; source reuse prohibited
 
-- **上游仓库：** `anthropics/claude-code`（本地旧副本 README 声称的 `claude-code-best/claude-code` 为镜像）。
-- **上游 LICENSE.md 全文（2026-09-02 经 GitHub raw/contents API 取得）：**
+- **Upstream repository:** `anthropics/claude-code` (the `claude-code-best/claude-code` named by the old local-copy README is a mirror).
+- **Full upstream LICENSE.md (obtained through the GitHub raw/contents API on 2026-09-02):**
   > © Anthropic PBC. All rights reserved. Use is subject to Anthropic's [Commercial Terms of Service](https://www.anthropic.com/legal/commercial-terms).
-- **GitHub 许可证检测：** `license: None`（API `repos/anthropics/claude-code` 的 license 字段为 null——GitHub 无法把它归类为任何 OSI 许可证）。
-- **裁定：** 专有软件（all-rights-reserved + 商业 ToS 约束）。**禁止任何形式的源码复制或衍生**。这与 2026-08-06 的既有立场（"无 LICENSE 文件，按 all-rights-reserved 处理，仅作交互 UX 参考"）一致，且从"缺席推断"升级为"上游明文证实"。
-- **允许的接触面（不变）：** 阅读 AGENTS.md/CLAUDE.md 层面的 UX 语汇与交互模式描述；不复用任何源文件、prompt 资产、schema。
-- **Vivy intent 维持 Defer，理由从"license 未证实"变为"license 已证实为专有"。**
+- **GitHub license detection:** `license: None` (the API `repos/anthropics/claude-code` license field is null—GitHub cannot classify it under any OSI license).
+- **Ruling:** proprietary software (all-rights-reserved + commercial ToS constraints). **Source copying or derivation in any form is prohibited.** This is consistent with the prior position on 2026-08-06 ("no LICENSE file; treat as all-rights-reserved and use only as an interaction UX reference"), upgraded from an "absence inference" to explicit upstream confirmation.
+- **Permitted contact surface (unchanged):** read UX vocabulary and interaction-pattern descriptions at the AGENTS.md/CLAUDE.md level; do not reuse any source files, prompt assets, or schema.
+- **Vivy intent remains Defer, with the reason changing from "license unverified" to "license confirmed proprietary."**
 
-## 2. P3-2 — rig 上游 LICENSE：标准 MIT，"自定义许可"疑云解除
+## 2. P3-2 — rig upstream LICENSE: standard MIT; "custom license" concern resolved
 
-- **上游仓库：** `0xPlaygrounds/rig`（Playgrounds Analytics 的 Rust LLM 框架）。
-- **上游 LICENSE 全文（2026-09-02 经 raw.githubusercontent 取得）：** 标准 MIT 正文，版权行为
+- **Upstream repository:** `0xPlaygrounds/rig` (Playgrounds Analytics' Rust LLM framework).
+- **Full upstream LICENSE (obtained from raw.githubusercontent on 2026-09-02):** standard MIT text, with the copyright line
   > Copyright (c) 2024, Playgrounds Analytics Inc.
-  其后为逐字的标准 MIT 授权条款（use/copy/modify/merge/publish/distribute/sublicense/sell + 保留版权声明 + AS-IS 免责）。
-- **历史疑点的根源：** 2026-08-06 的索引把"Copyright (c) 2024, Playgrounds Analytics Inc."这行**标准 MIT 版权声明**误读成了自定义许可标记。经全文核对，不存在任何 BSL / source-available / 附加限制条款。
-- **裁定：** rig 为 **MIT**，许可层面可复用。但 Vivy intent 维持 **Drop**——它是 Rust 框架，与 V0 的 Go+Eino 选型不合，许可障碍解除≠架构理由改变。若未来 SystemV 探针需要 Rust 组件，rig 现在是"许可安全"的候选参考。
-- **RI-OQ-2 关闭。**
+The remainder is the verbatim standard MIT license text (use/copy/modify/merge/publish/distribute/sublicense/sell + retention of the copyright notice + AS-IS disclaimer).
+- **Root of the historical concern:** the 2026-08-06 index misread the **standard MIT copyright notice** "Copyright (c) 2024, Playgrounds Analytics Inc." as a custom license marker. Full-text review found no BSL / source-available / additional restriction terms.
+- **Ruling:** rig is **MIT** and reusable from a licensing perspective. Vivy intent nevertheless remains **Drop**—it is a Rust framework and does not align with V0's Go+Eino choice; removing the licensing obstacle does not change the architectural rationale. If a future SystemV probe needs Rust components, rig is now a "license-safe" candidate reference.
+- **RI-OQ-2 closed.**
 
-## 3. REFERENCE-INDEX 同步
+## 3. REFERENCE-INDEX synchronization
 
-- §3.3 claude-code：补上游专有许可证据与日期，注明本地副本已清理。
-- §3.15 rig：更正 License 结论为 MIT（误读更正），注明本地副本已清理。
-- §6 RI-OQ-1 / RI-OQ-2：标记 RESOLVED（2026-09-02，见本文档）。
+- §3.3 claude-code: add upstream proprietary-license evidence and date; note that the local copy was cleaned.
+- §3.15 rig: correct the License conclusion to MIT (misreading corrected); note that the local copy was cleaned.
+- §6 RI-OQ-1 / RI-OQ-2: mark RESOLVED (2026-09-02; see this document).
 
-## 4. 对 Vivy 的净影响
+## 4. Net impact on Vivy
 
-零代码影响。两项审查均不改变任何实现路径；产出是"哪些参考项目碰不得、哪些解禁"的确定性。保留既有的聚合格约束（REFERENCE-INDEX §4）不变：GPL/AGPL/无许可证项目依旧禁止源码复用。
+Zero code impact. Neither review changes any implementation path; the result is a definitive determination of "which reference projects are off-limits and which are cleared." The existing aggregate-license constraints (REFERENCE-INDEX §4) remain unchanged: source reuse is still prohibited for GPL/AGPL/unlicensed projects.

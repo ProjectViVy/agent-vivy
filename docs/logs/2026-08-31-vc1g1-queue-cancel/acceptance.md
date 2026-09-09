@@ -1,20 +1,20 @@
-# acceptance — VC-1g-1
+# Acceptance — VC-1g-1
 
-人类如何确认「消息排队 + 两段式取消」生效（需要真实 provider 的运行回合）：
+How a human can confirm that message queuing + two-stage cancellation works (requires a run from a real provider):
 
-1. 打开 `http://127.0.0.1:3015`，发送一条会让 agent 忙一阵的消息（例如让它读几个
-   文件再总结）。
-2. 在运行期间（流式输出未结束）直接在输入框打字并按 Enter：
-   - 输入框**不再被禁用**；
-   - 消息不消失也不立即发送，composer 上方出现「已排队 1 条」pill，chip 显示原文。
-3. 再排一条 → pill 计数变 2；点 chip 上的 ✕ 可以移除单条；点「清空队列」全部移除。
-4. 等本轮正常完成后：队首消息**自动发出**（出现新的用户气泡和新一轮流式输出），
-   pill 计数递减直至消失。
-5. 两段式取消：重新发起一个回合并排一条消息 →
-   - 第一次按停止按钮（或 textarea 内按 Esc）：队列被清空，运行**继续**；
-   - 第二次按停止按钮（或 Esc）：运行被取消。
-6. 失败路径：让回合失败（例如断网/坏 key），确认队列 pill 仍在、消息没有被丢弃，
-   可手动清空或等下一轮成功后自动派发。
-7. 切换会话后回来：队列已清空（不跨会话）。
+1. Open `http://127.0.0.1:3015` and send a message that keeps the agent busy for a while (for example, ask it to read several
+   files and summarize them).
+2. While the run is active (before streaming output ends), type directly in the input box and press Enter:
+   - the input box is **not disabled**;
+   - the message does not disappear or send immediately; a "1 queued" pill appears above the composer, and the chip shows the original text.
+3. Queue another message → the pill count becomes 2; click the chip's ✕ to remove one; click "Clear queue" to remove all.
+4. After the current run completes normally, the first queued message is **sent automatically** (a new user bubble and new streaming output appear),
+   and the pill count decreases until it disappears.
+5. Two-stage cancellation: start another run and queue one message →
+   - the first press of Stop (or Esc in the textarea) clears the queue while the run **continues**;
+   - the second press of Stop (or Esc) cancels the run.
+6. Failure path: make the run fail (for example, disconnect the network/use a bad key), confirm the queue pill remains and the message is not discarded,
+   then clear it manually or wait for automatic dispatch after the next successful run.
+7. Return after switching sessions: the queue is empty (it does not cross sessions).
 
-中英文切换后，pill 与按钮文案随语言变化（已排队 N 条 / N queued 等）。
+After switching between Chinese and English, the pill and button copy follows the selected language (for example, "N queued").

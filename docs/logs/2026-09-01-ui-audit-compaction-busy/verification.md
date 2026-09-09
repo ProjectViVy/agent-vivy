@@ -1,27 +1,33 @@
 # Verification
 
-## 门禁
+## Gates
 
-- `just ci` — 通过（exit 0）：Go fmt/vet/test、headless 编译、plugin-ci
-  6 module、UI install + `tsc --noEmit` + `vitest run` + `vite build`
-  全绿（`runActive` 导出、卡片订阅、busyHint 键均过类型与 lint）。
-- `just ui-e2e` — 通过（exit 0，10 passed / 1 skipped）：真实浏览器 +
-  真实控制面；`compaction-setting.spec.ts` 只断言标签文案（不点按钮），
-  按钮禁用逻辑不影响既有断言。
+- `just ci` — passed (exit 0): Go fmt/vet/test, headless compile, six plugin-ci
+  modules, and UI install + `tsc --noEmit` + `vitest run` + `vite build` all
+  green (`runActive` export, card subscription, and busyHint key pass type and
+  lint checks).
+- `just ui-e2e` — passed (exit 0, 10 passed / 1 skipped): real browser + real
+  control plane; `compaction-setting.spec.ts` asserts labels only (it does not
+  click the button), so button-disabling logic does not affect existing
+  assertions.
 
-## Smoke 说明
+## Smoke notes
 
-- 忙碌态的行为级浏览器断言（发起 turn → 设置页按钮禁用 → 运行结束
-  恢复）无组件专属 spec；按 CH-C1-N3 先例以全套 e2e 为 smoke 替代，
-  行为路径在 acceptance.md 供人工复核。
-- 409 兜底路径未动（后端与 `compactNow` catch 原样），竞态行为不回归。
+- There is no component-specific spec for the busy-state browser assertion
+  (start a turn → the Settings button disables → the run ends → it recovers);
+  following the CH-C1-N3 precedent, the full e2e suite is the smoke substitute,
+  and the behavior path is available for manual review in acceptance.md.
+- The 409 fallback path is unchanged (the backend and `compactNow` catch remain
+  as-is), so race behavior does not regress.
 
-## 复核证据（静态）
+## Static review evidence
 
-- `internal/runtime/compaction_service.go:123-127`：busy =
-  `len(s.active) > 0 || len(s.pending) > 0`（引擎全局）→ 409。
-- `ui/src/lib/store.ts`：`runActive` 谓词导出；`currentRun` 由订阅事件
-  实时更新（run.started → active，run.completed/failed/cancelled → 终结）；
-  `backgroundRuns` 由 init 与 `loadBackgroundRuns()` 维护。
-- 卡片禁用条件 `runActive(currentRun) || backgroundRuns.some(runActive)`
-  覆盖两个可观察源；跨端前台运行的盲区记录于 summary.md。
+- `internal/runtime/compaction_service.go:123-127`: busy =
+  `len(s.active) > 0 || len(s.pending) > 0` (global to the engine) → 409.
+- `ui/src/lib/store.ts`: exports the `runActive` predicate; `currentRun` is
+  updated in real time by subscription events (`run.started` → active,
+  `run.completed/failed/cancelled` → terminal); `backgroundRuns` is maintained
+  by init and `loadBackgroundRuns()`.
+- The card's disabling condition `runActive(currentRun) ||
+  backgroundRuns.some(runActive)` covers both observable sources; the blind spot
+  for cross-client foreground runs is recorded in summary.md.

@@ -17,13 +17,13 @@ Date: 2026-08-27
 
 - Studio restart via detached `restart-studio.ps1` (in-tree processes die
   with the listener), then browser smoke at `http://127.0.0.1:3090`:
-  1. Conversation view ring shows 「Vivy 控制台」 after 上下文; `.vdbg-fab`
+  1. Conversation view ring shows 「Vivy Console」 after Context; `.vdbg-fab`
      (old floating button) is gone.
-  2. 网关 pane: start mock gateway → status green, logs stream.
+  2. Gateway pane: start mock gateway → status green, logs stream.
   3. VIVY WEB pane: proxied iframe renders the gateway UI; RPC capture shows
      `initialize` traffic; console capture shows app logs; evaluate box
      answers `document.title`.
-  4. 生命周期 pane: `list generations` renders; `release` without
+  4. Lifecycle pane: `list generations` renders; `release` without
      confirmation is refused; a pack/eval round-trip completes.
   5. Air gap: `data/vivy.db`, `data/demo/`, `data/workspaces/` untouched;
      gateway data only under `data/studio-home/vivy-console/`.

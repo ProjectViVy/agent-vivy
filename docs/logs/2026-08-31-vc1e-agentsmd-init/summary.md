@@ -1,45 +1,45 @@
-# VC-1e — AGENTS.md 注入（eino agentsmd 直采）+ `vivy init`
+# VC-1e — AGENTS.md injection (direct eino agentsmd integration) + `vivy init`
 
-日期：2026-08-31 ｜ 分支：`feat/vc1a-bash-tool`（vc0 worktree）｜ 轨道：VIVY-CODE VC-1
+Date: 2026-08-31 | Branch: `feat/vc1a-bash-tool` (vc0 worktree) | Track: VIVY-CODE VC-1
 
 ## What changed
 
-**D6 上下文文件注入（只读 AGENTS.md → run preamble）**
+**D6 context-file injection (read-only AGENTS.md → run preamble)**
 
-- 采用 eino v0.9.13 原生 `adk/middlewares/agentsmd` 中间件（D6 免费直通，零自研注入逻辑）。
-  - `internal/runtime/agentsmd.go`：`AgentsMDFileName = "AGENTS.md"`（D6 拍板：不引 CLAUDE.md/VIVY.md 多文件优先级）、累计 64 KiB 注入预算、`AgentsMDBackend` 类型别名（app 层不触碰 eino 类型，D-007）。
-  - `internal/runtime/engine.go`：`EngineConfig.AgentsMDBackend`；middleware 注册在 compaction handlers **之后**（官方推荐顺序：注入内容瞬态、不参与摘要压缩）。
-  - Backend = 既有 `EinoFilesystemBackend`（结构化满足 `agentsmd.Backend` 的单一 `Read` 方法），按请求 ctx 的 run ID 解析到**本次 run 的私有 workspace** 内的 `AGENTS.md`——逐 run 隔离，不跨 run 泄漏。
-- 行为：缺文件 → 中间件 warning + 跳过（run 不受影响）；文件存在 → 每次模型调用在第一条真实 user 消息前注入一条 user 消息（带 idempotency Extra 标记，同一 run 只注入一次）；**瞬态**——从不写入 Journal / 消息存储。
-- 配套修复：`safeWorkspacePath` 的 "path does not exist" 错误现在 wrap `os.ErrNotExist`——agentsmd loader 以 `errors.Is(err, os.ErrNotExist)` 区分"文件不存在（跳过）"与"其他读取错误（致命）"，原通用错误会让无 AGENTS.md 的 run 直接失败。消息文本不变，仅补全 sentinel 链。
-- app 装配：`buildEngineConfig` 新增 `agentsMDBackend` 参数，startup 与 settings-save 重载两条路径都接到 `fileBackend`（workspace root 未配置时自然不注入）。
+- Uses the native eino v0.9.13 `adk/middlewares/agentsmd` middleware (D6 direct pass-through; no custom injection logic).
+  - `internal/runtime/agentsmd.go`: `AgentsMDFileName = "AGENTS.md"` (D6 decision: no multi-file priority involving CLAUDE.md/VIVY.md), a cumulative 64 KiB injection budget, and the `AgentsMDBackend` type alias (the app layer does not touch eino types, D-007).
+  - `internal/runtime/engine.go`: `EngineConfig.AgentsMDBackend`; middleware registration occurs **after** the compaction handlers (the officially recommended order: injected content is transient and does not participate in summary compaction).
+  - Backend = the existing `EinoFilesystemBackend` (its shape satisfies the single `Read` method of `agentsmd.Backend`), resolving the request context's run ID to `AGENTS.md` inside **this run's private workspace**—isolated per run, with no cross-run leakage.
+- Behavior: missing file → middleware warning + skip (the run is unaffected); existing file → one user message is injected before the first real user message on every model call (with an idempotency Extra marker, injected only once per run); **transient**—never written to the Journal or message storage.
+- Companion fix: `safeWorkspacePath` now wraps `os.ErrNotExist` for the "path does not exist" error— the agentsmd loader uses `errors.Is(err, os.ErrNotExist)` to distinguish "file missing (skip)" from "other read error (fatal)"; the old generic error caused runs without AGENTS.md to fail immediately. Message text is unchanged; only the sentinel chain was completed.
+- App assembly: `buildEngineConfig` adds an `agentsMDBackend` parameter, and both the startup and settings-save reload paths connect it to `fileBackend` (no injection occurs naturally when no workspace root is configured).
 
-**`vivy init` 生成 AGENTS.md**
+**`vivy init` generates AGENTS.md**
 
-- `cmd/vivy/init.go`：新子命令 `vivy init`（main.go dispatch 在 worker/tui 之前）。
-- 行为对齐研究 §8.4 initialize 要点（行为对齐，零代码拷贝，FSL-1.1-MIT）：
-  - **空目录拒绝**（仅含 `.git` 等隐藏条目视为空）——init 描述既有项目；
-  - **拒绝覆盖** 已存在的 AGENTS.md（exit 1，原文件原样保留）；
-  - **探测既有规则文件**（`.cursorrules`、`.cursor/rules`、`.github/copilot-instructions.md`），命中时在生成的 AGENTS.md 末尾列出"保持同步或引用"提示；
-  - 模板核心原则："只记录非显而易见的知识——agent 读得了代码，猜不到意图"，四节：Project overview / Build, test, verify / Conventions the code does not show / Known pitfalls。
+- `cmd/vivy/init.go`: new subcommand `vivy init` (main.go dispatches it before worker/tui).
+- Behavior follows the initialize points in research §8.4 (behavioral alignment, no code copying, FSL-1.1-MIT):
+  - **Rejects empty directories** (directories containing only hidden entries such as `.git` count as empty)—init describes existing projects;
+  - **Refuses to overwrite** an existing AGENTS.md (exit 1; the original file is preserved byte-for-byte);
+  - **Detects existing rule files** (`.cursorrules`, `.cursor/rules`, `.github/copilot-instructions.md`) and, when found, lists a "Keep in sync or reference" reminder at the end of the generated AGENTS.md;
+  - The template's core principle is "Record only non-obvious knowledge—an agent can read the code but cannot guess intent," with four sections: Project overview / Build, test, verify / Conventions the code does not show / Known pitfalls.
 
 ## Scope / not done
 
-- **stale-read 防护（filetracker/file_versions）**：RB-1 结论挂靠，与文件版本 history 合并为一次存储设计，等用户 O1..O6 批准，未实现（同 VC-1d）。
-- 无全局（用户级）AGENTS.md：D6 拍板只覆盖工作区文件，Crush 的 `~/.config/crush/CRUSH.md` 全局层未纳入（未拍板不擅自加）。
-- 注入无配置开关：无 AGENTS.md 时中间件为 no-op（一次 Debug 日志），常规 run 零成本；不加未拍板的 knob。
-- `vivy init` 不做代码分析生成内容（Crush 用模型生成摘要）；V0 交付的是结构化模板 + 规则文件探测，"由 run 生成内容"走正常对话即可。
+- **Stale-read protection (filetracker/file_versions):** the RB-1 conclusion merges stale-read protection and file-version history into one storage design, pending the user's O1..O6 approval; not implemented here (same as VC-1d).
+- No global (user-level) AGENTS.md: D6 covers workspace files only; Crush's global `~/.config/crush/CRUSH.md` layer is not included (do not add unapproved scope).
+- No injection configuration switch: when AGENTS.md is absent, the middleware is a no-op (one Debug log), so normal runs have zero cost; no unapproved knob was added.
+- `vivy init` does not analyze code to generate content (Crush uses a model to generate summaries); V0 delivers a structured template + rule-file detection, and "generate content from a run" can use normal chat.
 
 ## FSL compliance
 
-Crush 为 FSL-1.1-MIT：仅行为/协议对齐（initialize 的空目录拒绝、规则文件探测、"只记非显而易见知识"原则），模板文本与实现全部自写，无源码拷入。
+Crush is FSL-1.1-MIT: this only aligns behavior/protocol (initialize's empty-directory refusal, rule-file detection, and the "record only non-obvious knowledge" principle); the template text and implementation were written from scratch, with no source copied.
 
 ## Files
 
-- `internal/runtime/agentsmd.go`（新）：D6 常量、`AgentsMDBackend` 别名、middleware 构造。
-- `internal/runtime/engine.go`：EngineConfig 字段 + handler 装配（compaction 之后）。
-- `internal/runtime/filesystem_backend.go`：ErrNotExist sentinel wrap（一行 + 注释）。
-- `internal/app/compaction.go` / `internal/app/app.go`：`buildEngineConfig` 双路径接线。
-- `cmd/vivy/init.go`（新）+ `cmd/vivy/main.go`：`vivy init` 子命令。
-- `config.example.yaml`：workspace_root 注释记录注入行为。
-- 测试：`internal/runtime/agentsmd_test.go`（5 个）、`cmd/vivy/init_test.go`（4 个）。
+- `internal/runtime/agentsmd.go` (new): D6 constants, `AgentsMDBackend` alias, and middleware construction.
+- `internal/runtime/engine.go`: EngineConfig field + handler assembly (after compaction).
+- `internal/runtime/filesystem_backend.go`: ErrNotExist sentinel wrap (one line + comment).
+- `internal/app/compaction.go` / `internal/app/app.go`: `buildEngineConfig` wiring on both paths.
+- `cmd/vivy/init.go` (new) + `cmd/vivy/main.go`: `vivy init` subcommand.
+- `config.example.yaml`: workspace_root comment documenting injection behavior.
+- Tests: `internal/runtime/agentsmd_test.go` (5), `cmd/vivy/init_test.go` (4).

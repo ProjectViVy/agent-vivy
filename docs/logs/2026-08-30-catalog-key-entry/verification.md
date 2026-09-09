@@ -1,60 +1,65 @@
-# 验证记录 — 2026-08-30 目录厂商 API Key 可填写
+# Verification record — 2026-08-30 catalog-provider API Key entry
 
-仓库根：`C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy`。
+Repository root: `C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy`.
 
-## 单元与构建（根目录 `just ci`，全绿 exit 0）
+## Unit tests and build (root `just ci`, all green, exit 0)
 
 ```
 just ci
 # fmt-check ✓  vet ✓  go test ./... ✓  headless-compile ✓
-# ui-ci：pnpm install --frozen-lockfile ✓
-#        pnpm typecheck（tsc --noEmit）✓
-#        pnpm test → 21 files / 174 tests 全部通过
-#          （custom-providers.test.ts 19 项，含本次新增
-#           目录厂商密钥落地条 4 项覆盖）
-#        pnpm build（vite build）✓
+# ui-ci: pnpm install --frozen-lockfile ✓
+#        pnpm typecheck (tsc --noEmit) ✓
+#        pnpm test → 21 files / 174 tests all passed
+#          (custom-providers.test.ts 19 tests, including 4 new
+#           catalog-provider key overlay cases)
+#        pnpm build (vite build) ✓
 ```
 
-新增测试断言：
-- `catalogOverlayId('deepseek')` → `catalog-deepseek`；`isCatalogOverlayEntry` 判定前缀；
-- `allProviderEntries` 隐藏 `catalog-*` 落地条、保留普通自定义条目（克隆）；
-- `providerEntryByEndpoint` 按 `(bundle, base_url)` 命中（与后端 `ActiveKey`
-  同口径）；
-- `customApiKeySetFor` 目录端点命中注册表密钥覆盖返回 true；无覆盖/未配密钥
-  返回 false。
+New test assertions:
+- `catalogOverlayId('deepseek')` → `catalog-deepseek`; `isCatalogOverlayEntry`
+  recognizes the prefix;
+- `allProviderEntries` hides `catalog-*` overlay entries and retains ordinary custom
+  entries (clones);
+- `providerEntryByEndpoint` matches by `(bundle, base_url)` (the same semantics as
+  backend `ActiveKey`);
+- `customApiKeySetFor` returns true when a catalog endpoint hits a registry key
+  override, and false with no override or no configured key.
 
-## 浏览器冒烟（真实路径，Dev split pair）
+## Browser smoke (real path, Dev split pair)
 
-前置：仓库自带的 split pair 已在运行（Vite `127.0.0.1:3015` → 代理 `/rpc`
-到 `127.0.0.1:8787` 的 Studio console 后端）。冒烟脚本为**只读**：不输入
-密钥、不触发写，仅点击目录行断言输入框态。
+Prerequisite: the repository's split pair was already running (Vite
+`127.0.0.1:3015` → `/rpc` proxy to the Studio console backend at
+`127.0.0.1:8787`). The smoke script was **read-only**: it entered no key, triggered
+no write, and only clicked a catalog row to assert the field state.
 
 ```
 $env:NODE_PATH = "<repo>\ui\node_modules\.pnpm\node_modules"
 node .workspace/smoke/catalog-key-smoke.cjs
 ```
 
-结果（Playwright headless chromium，`http://127.0.0.1:3015/settings?tab=model`）：
+Result (Playwright headless Chromium, `http://127.0.0.1:3015/settings?tab=model`):
 
 ```json
 {
-  "catalog": { "disabled": false, "placeholder": "sk-…（留空=应用时清除已配置密钥）",
-               "hint": "写入本机用户工作区（~/.vivy/settings.yaml）；值不会回传界面或写入日志。下一条消息即生效。" },
-  "mock":    { "disabled": true,  "placeholder": "内置 Mock 供应商无需 API Key。", "hint": "内置 Mock 供应商无需 API Key。" },
+  "catalog": { "disabled": false, "placeholder": "sk-… (empty = clear the configured key when applied)",
+               "hint": "Written to the local user workspace (~/.vivy/settings.yaml); the value is not returned to the UI or written to logs. It takes effect on the next message." },
+  "mock":    { "disabled": true,  "placeholder": "The built-in Mock provider does not need an API Key.", "hint": "The built-in Mock provider does not need an API Key." },
   "consoleErrors": []
 }
 ```
 
-- 目录厂商（DeepSeek）行：输入框**可编辑**，占位符/提示为可填写文案；
-- Mock 行：输入框**仍禁用**，提示为 Mock 专属文案；
-- 页面无 console 错误。
+- Catalog provider (DeepSeek) row: the field is **editable**, with the entry copy for
+  editable providers;
+- Mock row: the field remains **disabled**, with Mock-specific copy;
+- The page has no console errors.
 
-未做 WebSocket 层写路径验证（避免向用户正在使用的 Studio console
-settings.yaml 写入测试密钥）；写路径由 `custom-providers` 纯函数单测 +
-`just ci` 覆盖，密钥安全边界与自定义供应商同路径（`settings/providers/upsert`，
-0600 写-only，D-010）。
+WebSocket-level write-path validation was not run (to avoid writing a test key to the
+Studio console `settings.yaml` currently in use by the user). The write path is
+covered by `custom-providers` pure-function unit tests plus `just ci`; the key
+security boundary is the same as for custom providers (`settings/providers/upsert`,
+0600 write-only, D-010).
 
-## 明确跳过
+## Explicitly skipped
 
-- `ui/e2e`：不跑（需要独立后端 fixture 启动，且本迭代为 UI 状态/文案变更，
-  已由 vitest + 上述 DOM 冒烟覆盖）。
+- `ui/e2e`: not run (it requires an independent backend fixture, while this iteration
+  changes UI state/copy; vitest plus the DOM smoke above provides coverage).

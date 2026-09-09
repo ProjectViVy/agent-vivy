@@ -1,144 +1,144 @@
-# Vivy Face Pack — 出厂 face 的冷拔插
+# Vivy Face Pack — Cold Plug/Unplug for the Built-In Face
 
-> **2026-09-09 v1 规范覆盖：** 本文的 Face 产品语义继续有效；所有
-> `seam: face`、`vivy.plugin/v0`、`vivy.generation/v0`、旧 ABI 和兼容迁移
-> 表述均为历史记录，不得作为新实现依据。v1 唯一机制是
-> `std/face@v1` + FaceHost + `vivy.module/v1` + Generation Recipe，且不保留
-> v0 API。规范正本见 `VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
-> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。
+> **2026-09-09 v1 specification coverage:** The Face product semantics in this document remain valid; all
+> descriptions of `seam: face`, `vivy.plugin/v0`, `vivy.generation/v0`, the old ABI, and compatibility migration
+> are historical records and must not be used as the basis for new implementations. The only v1 mechanism is
+> `std/face@v1` + FaceHost + `vivy.module/v1` + Generation Recipe, and it retains no v0 API.
+> The canonical specification is `VIVY-MODULE-STANDARD.md`, `VIVY-PORT-CATALOG.md`,
+> `VIVY-PLUGIN-SPEC.md`, and `VIVY-ASSEMBLY.md`.
 >
-> 状态：**产品语义已采纳；插件装配机制由 v1 规范取代**。安卓仍是下游产品用内核。
-> 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、`VIVY-PLUGIN-SPEC.md`、**`VIVY-STUDIO.md`**、PRD §5.0 / D-016。
-> 日期：2026-08-29
+> Status: **product semantics adopted; the plugin assembly mechanism is superseded by the v1 specification**. Android remains a downstream product using the kernel.
+> Follows `SELF-EVOLVING-GATEWAY.md`, `VIVY-ASSEMBLY.md`, `VIVY-PLUGIN-SPEC.md`, **`VIVY-STUDIO.md`**, PRD §5.0 / D-016.
+> Date: 2026-08-29
 >
-> **2026-09-04 修订（覆盖旧 D1/NG-11 的产品形态结论）：** 第一方
-> `vivy-code.exe` 现在是允许的独立 TUI 制品。它不是第二套内核：仍复用同一
-> app/runtime/provider/tool/FaceHost；但进程边界独立。`vivy.exe` 与所有
-> `vivy-code.exe` 实例共享 config/settings/skills，每个 code 实例使用独立
-> SQLite Journal 与运行目录，因此不共享会话记录，也不竞争 organism lease。
+> **2026-09-04 revision (superseding the old D1/NG-11 product-shape conclusion):** First-party
+> `vivy-code.exe` is now an allowed independent TUI artifact. It is not a second kernel: it still reuses the same
+> app/runtime/provider/tool/FaceHost, but has an independent process boundary. `vivy.exe` and all
+> `vivy-code.exe` instances share config/settings/skills; each code instance uses an independent
+> SQLite Journal and run directory, so they do not share session records or compete for the organism lease.
 >
-> 对照证据（只读，不是依赖）：DeepSeek Harness 的 `dsh-base` + `dsh-web-app` /
-> `dsh-headless` 分层；[oh-dsh](https://github.com/hust-open-atom-club/oh-dsh)
-> 的 Desktop / Web / TUI surface profile；`.workspace/crush` 的终端交互手感。
-> 网页仍是当前主线。本文记录一条 **可进化出不带 web 的 coding 物种** 的装配合同，
-> 不是立刻做 Bubble Tea，也不是给日常 `vivy.exe` 热挂一张终端。
+> Comparative evidence (read-only, not dependencies): DeepSeek Harness's `dsh-base` + `dsh-web-app` /
+> `dsh-headless` layering; the Desktop / Web / TUI surface profile of [oh-dsh](https://github.com/hust-open-atom-club/oh-dsh);
+> and the terminal interaction feel of `.workspace/crush`.
+> The Web remains the current mainline. This document records an assembly contract for a **coding species that can evolve without web**;
+> it is not an immediate Bubble Tea implementation and does not hot-mount a terminal onto daily `vivy.exe`.
 
-相关：
+Related:
 
-- `VIVY-ASSEMBLY.md` — 按所是命名；出厂单元不住 `plugins/`
-- `VIVY-PLUGIN-SPEC.md` — 只约束用户层 `plugins/<name>/`
-- `SELF-EVOLVING-GATEWAY.md` — 装插件 = 造新版本；默认 `Register()` 为空
-- `VIVY-GATEWAY-AND-STUDIO.md` — NG-10 模型可见≡入账；NG-11 拒绝第二种身体
-- `VIVY-CHANNEL-PACK.md` — 超级通道（方向采纳 2026-08-30）；face 是嘴。channel 不得替代本机 UI
-- `ACP-REMOTE-CONTROL-PROPOSAL.md` — 跨进程 / 跨设备遥控器；不是 face
-- `.workspace/deepseek-harness/` — profile / bundle 证据，不是物种依赖
-- `.workspace/oh-dsh/` — 同一 runtime 上的多 surface 发行
-- `.workspace/crush/` — TUI 手感参考，不是代码来源
+- `VIVY-ASSEMBLY.md` — name things by what they are; built-in units do not live in `plugins/`
+- `VIVY-PLUGIN-SPEC.md` — constrains only user-layer `plugins/<name>/`
+- `SELF-EVOLVING-GATEWAY.md` — installing a plugin = building a new version; default `Register()` is empty
+- `VIVY-GATEWAY-AND-STUDIO.md` — NG-10 model-visible ≡ accounted; NG-11 rejects a second body
+- `VIVY-CHANNEL-PACK.md` — super-channel (direction adopted 2026-08-30); face is the mouth. Channel must not replace the local UI
+- `ACP-REMOTE-CONTROL-PROPOSAL.md` — cross-process / cross-device remote control; not a face
+- `.workspace/deepseek-harness/` — profile / bundle evidence, not a species dependency
+- `.workspace/oh-dsh/` — multiple surfaces on the same runtime
+- `.workspace/crush/` — TUI interaction reference, not a code source
 
 ---
 
-## 0. 一句话
+## 0. One Sentence
 
-> **Face 是配方上的可编译器官，不是工具，也不是内核。**
-> 控制面留在物种里；嘴放进出厂模块或用户 `seam: face` 插件。
-> 一代一张主脸。真卸 = 配方改行再 `pack`。网页网关与 coding TUI 是两条世代，不是一个开关。
+> **Face is a compilable organ in the recipe, not a tool and not the kernel.**
+> The control plane stays in the species; the mouth goes into a built-in module or a user `seam: face` plugin.
+> One primary face per generation. True removal = change the recipe line and `pack` again. The web gateway and coding TUI are two generations, not one switch.
 
-这是把 DSH「base 上叠应用层」译成 Vivy 冷拔插的方式：偷分层和可检查的登记，不偷热挂、不偷把 Journal 当插件、不偷第二种 EXE。
-
----
-
-## 1. 要解决的感觉
-
-允许某一代身体 **没有网页**。不允许作者觉得自己在给活着的网关挂零件，也不允许 `config.yaml` 把 TUI 变出来。
-
-判定「像在做 face」的标准：
-
-1. 出厂工作目录只有 `faces/<name>/`。用户自写的才进 `plugins/<name>/`（`seam: face`）。日常不打开 `internal/`。
-2. 世界只通过公开 SDK 进来：face 生命周期与 Host 能力仅经
-   `sdk/plugin`；第一方终端 face 复用 `sdk/tui` 中唯一的展示、流状态与
-   受限控制面客户端状态机。
-   `sdk/tui` 不开放 Host、Journal、`Service.Run`、策略或密钥能力，脸仍
-   看不见这些内核对象。
-3. 身份是清单里的名字和 seam，不是某个 `.go` 被 `cmd/vivy` 引用。
-4. 换脸，作者改的是**配方**，不是 embed 开关或 `engine.go`。`pack` 生成 `RegisterFace()`。
-5. 跑起来之前，它只是源。跑起来之后，它已经是某一代 EXE 的一张嘴。默认提交的网关世代仍是 `face: web`。
-
-网页主线继续过夜。coding 线另长一具身体。
+This translates DSH's "layer the application on base" into Vivy's cold plug/unplug model: borrow the layering and inspectable registration, not hot mounting, not treating the Journal as a plugin, and not a second EXE.
 
 ---
 
-## 2. 从 DSH / oh-dsh / crush 偷什么，拒绝什么
+## 1. The Feeling to Solve
 
-### 2.1 偷
+Allow a generation's body to have **no web**. Do not let authors feel they are attaching parts to a live gateway, and do not let `config.yaml` conjure a TUI.
 
-| 来源 | 想法 | Vivy 形态 |
+The criteria for "feels like building a face":
+
+1. The built-in working directory contains only `faces/<name>/`. User-written code goes in `plugins/<name>/` (`seam: face`). Do not open `internal/` for daily work.
+2. The world enters only through the public SDK: face lifecycle and Host capabilities go through
+   `sdk/plugin`; the first-party terminal face reuses the only presentation, stream-state, and
+   restricted control-plane client state machine in `sdk/tui`.
+   `sdk/tui` exposes no Host, Journal, `Service.Run`, policy, or secret capabilities, so the face still
+   cannot see these kernel objects.
+3. Identity is the name in the manifest and the seam, not a `.go` file referenced by `cmd/vivy`.
+4. To change the face, the author changes the **recipe**, not an embed switch or `engine.go`. `pack` generates `RegisterFace()`.
+5. Before it runs, it is only source. Once it runs, it is a mouth in a generation's EXE. The committed default gateway generation remains `face: web`.
+
+The Web mainline continues overnight. The coding line grows another body.
+
+---
+
+## 2. What to Borrow from DSH / oh-dsh / crush, and What to Refuse
+
+### 2.1 Borrow
+
+| Source | Idea | Vivy form |
 |---|---|---|
-| DSH | `dsh-base` 共享，应用层互斥 | 内核永远在；`face: web \| tui \| headless` 一代点一个 |
-| DSH | `dsh-web-app` / `dsh-headless` 是 bundle，不是内核 | 出厂 `faces/web`、`faces/tui`、`faces/headless` |
-| DSH | TUI 可树外安装：`dsh plugin --profile tui add …` | 用户 `plugins/<name>`，`seam: face`，仍经 pack 换代 |
-| DSH | headless 无 Host、无 HTTP、无浏览器 | `face: headless` 的 EXE 不 embed UI，不听端口 |
-| oh-dsh | Desktop / Web / TUI 是同一 runtime 上的 surface | 同一内核，不同配方；TUI-only 对齐「不带 web 的发行」 |
-| oh-dsh | TUI-only 不带 Electron / 浏览器 UI | coding 世代制品不含 `ui/dist` |
-| crush | 无参进交互，`run` 走管道 | 出厂 tui / headless 的启动手感 |
-| crush | 权限是一等交互 | TUI overlay 走同一套审批，不许 stderr Yes/No 冒充 HITL |
-| ADR-015 | 活注册表为空；pack overlay 才链进去 | `internal/generated/faces/zz_register.go` 同构 |
-| channel 提案 | 按所是命名；Host 在内核 | FaceHost 在内核；适配器只画嘴 |
+| DSH | Shared `dsh-base`, mutually exclusive application layer | Kernel is always present; choose one `face: web \| tui \| headless` per generation |
+| DSH | `dsh-web-app` / `dsh-headless` are bundles, not the kernel | Built-in `faces/web`, `faces/tui`, `faces/headless` |
+| DSH | TUI can be installed outside the tree: `dsh plugin --profile tui add …` | User `plugins/<name>`, `seam: face`, still changes generation through pack |
+| DSH | headless has no Host, HTTP, or browser | An EXE with `face: headless` does not embed UI or listen on a port |
+| oh-dsh | Desktop / Web / TUI are surfaces on the same runtime | Same kernel, different recipe; TUI-only matches a "webless distribution" |
+| oh-dsh | TUI-only has no Electron / browser UI | Coding-generation artifact contains no `ui/dist` |
+| crush | Enter interaction without arguments; `run` uses a pipe | Startup feel of built-in tui / headless |
+| crush | Permissions are first-class interaction | TUI overlay uses the same approvals; stderr Yes/No must not masquerade as HITL |
+| ADR-015 | Live registry is empty; only pack overlay links entries in | Same shape as `internal/generated/faces/zz_register.go` |
+| channel proposal | Name things by what they are; Host is in the kernel | FaceHost is in the kernel; the adapter only draws the mouth |
 
-### 2.2 拒绝
+### 2.2 Refuse
 
-| 想法 | 原因 |
+| Idea | Reason |
 |---|---|
-| 现有 `tool` / `tool-world` seam 硬塞 TUI | 那是模型的手。face 是人看见的嘴 |
-| 出厂 TUI 放进 `plugins/` | 冒充用户层（`VIVY-ASSEMBLY.md`） |
-| 改 yaml / flag 就把网页藏起来，冒充 coding 物种 | 资产还在、端口还在；不是「不带 web」 |
-| 运行时 `vivy plugin add tui` | NG-15；Go 卸不掉原生代码 |
-| 复制内核形成独立 `vivy-tui.exe` | NG-11 仍禁止第二套 runtime；第一方薄启动器 `vivy-code.exe` 是 2026-09-04 明确批准的例外，复用同一内核且隔离 Journal |
-| face 插件 `net.Listen` / 自开 loop | 插件不是进程；loop 是内核 |
-| face 插件写 Journal / 改 policy / 读密钥值 | 环境不能是种群成员 |
-| `--yolo` 当默认 | 心在人这边 |
-| 用 channel 替代本机脸 | 已写在 `VIVY-CHANNEL-PACK.md` 非目标 |
-| 把 Crush / dsh-TUI / oh-dsh 嵌进物种 | 偷手感与分层；不偷 Node、不偷整棵 TUI 树 |
-| 把安卓写成 `face: android` 或 `habitat: apk` | 安卓是下游产品用内核，不是 Vivy 的编译目标 |
+| Forcibly putting TUI into the existing `tool` / `tool-world` seam | Those are the model's hands. Face is the mouth humans see |
+| Putting the built-in TUI in `plugins/` | Pretends to be user-layer code (`VIVY-ASSEMBLY.md`) |
+| Hiding the web by changing yaml / flag and pretending to be a coding species | The assets and port remain; it is not "webless" |
+| Runtime `vivy plugin add tui` | NG-15; Go cannot unload native code |
+| Copying the kernel into an independent `vivy-tui.exe` | NG-11 still forbids a second runtime; the first-party thin launcher `vivy-code.exe` is the explicitly approved 2026-09-04 exception, reusing the same kernel with an isolated Journal |
+| Face plugin calling `net.Listen` / starting its own loop | A plugin is not a process; the loop is the kernel |
+| Face plugin writing the Journal / changing policy / reading secret values | The environment cannot be a population member |
+| Making `--yolo` the default | The human remains in charge |
+| Using a channel instead of the local face | Already listed as a non-goal in `VIVY-CHANNEL-PACK.md` |
+| Embedding Crush / dsh-TUI / oh-dsh into the species | Borrow the feel and layering, not Node or the entire TUI tree |
+| Writing Android as `face: android` or `habitat: apk` | Android is a downstream product using the kernel, not a Vivy compilation target |
 
 ---
 
-## 3. 三层，名词分开
+## 3. Three Layers, Keep Terms Separate
 
 ```text
-vivy.exe  内核（永不可插件化）
-  Journal · Policy · SecretResolver · HITL 裁定 · inspect
-  进程内控制面（JSON-RPC 语义；HTTP 监听不是内核义务）
-  FaceHost          ← 新的一等对象：选这代的嘴、把事件交给它、回收 TTY/HTTP
+vivy.exe  Kernel (never pluginized)
+  Journal · Policy · SecretResolver · HITL arbitration · inspect
+  In-process control plane (JSON-RPC semantics; HTTP listening is not a kernel obligation)
+  FaceHost          ← new first-class object: select this generation's mouth, deliver events to it, reclaim TTY/HTTP
        │
-       ├─ 出厂模块 faces/web | faces/tui | faces/headless     配方键 face:
-       └─ 用户模块 plugins/crush-face                        配方键 plugins: ，seam: face
+       ├─ Built-in modules faces/web | faces/tui | faces/headless     recipe key face:
+       └─ User module plugins/crush-face                            recipe key plugins:, seam: face
               ▲
-              │  都只实现 SDK Face 契约
-              │  没点名的脸不存在于这一代
+              │  all implement only the SDK Face contract
+              │  an unnamed face does not exist in this generation
 ```
 
-| 层 | 住哪 | 改它的感觉 | 怎么出现在活身体里 |
+| Layer | Where it lives | What it feels like to change | How it appears in the live body |
 |---|---|---|---|
-| 内核 FaceHost + 控制面 | `internal/` | 在改 Vivy | 永远编进来 |
-| 出厂 face 包 | `faces/<name>/` | 在做网页壳 / TUI / 一次性 runner | 配方 `face:` + pack |
-| 用户 face 包 | `plugins/<name>/` | 在做插件 | 配方 `plugins:` + pack，seam 必须是 `face` |
-| 配置 | `config.yaml` 的脸专属旋钮 | 在调旋钮 | 只能旋转 **inspect 已列出** 的那张脸 |
+| Kernel FaceHost + control plane | `internal/` | Modifying Vivy | Always compiled in |
+| Built-in face package | `faces/<name>/` | Building the web shell / TUI / one-shot runner | Recipe `face:` + pack |
+| User face package | `plugins/<name>/` | Building a plugin | Recipe `plugins:` + pack; seam must be `face` |
+| Configuration | Face-specific knobs in `config.yaml` | Adjusting knobs | May turn only the face **listed by inspect** |
 
-出厂代码禁止放进 `plugins/`。用户代码禁止放进 `faces/`。两边 ABI 相同，目录和口头禅不同。
+Built-in code must not go in `plugins/`. User code must not go in `faces/`. The ABI is the same; the directories and vocabulary differ.
 
-HTTP 监听是 `faces/web` 的效果，不是内核义务。`vivy_headless` 构建标签是今日的权宜；采纳后应升为配方效果。
+HTTP listening is an effect of `faces/web`, not a kernel obligation. The `vivy_headless` build tag is today's workaround; after adoption it should become a recipe effect.
 
 ---
 
-## 4. 配方：一代一张脸
+## 4. Recipe: One Face per Generation
 
-`vivy.generation.yml`（采纳后）增加一等键：
+`vivy.generation.yml` (after adoption) adds a first-class key:
 
 ```yaml
 apiVersion: vivy.generation/v0
 loop: eino
 world: sandbox
-face: web                 # 恰好一个。没写则 pack 失败
+face: web                 # exactly one; pack fails if omitted
 providers:
   - openai
 tools:
@@ -146,64 +146,64 @@ tools:
   - filesystem
   - execute
   - ask-user
-plugins: []               # 用户 seam: face 与出厂 face 抢同一个键：点谁谁进
+plugins: []               # user seam: face competes with the built-in face for the same key; whichever is named enters
 ```
 
-规则：
+Rules:
 
-- **`face:` 恰好一个。** 物种必须有一张嘴。空列表非法。
-- 出厂名：`web`、`tui`、`headless`。用户插件用目录名，经 `plugins:` 点名且 `seam: face`，**替换** 出厂脸，不是叠第二张。
-- 没写进配方的出厂 face，这一代不存在。不扫描 `faces/`。
-- 卸出厂脸 = 改 `face:` 再 pack。卸用户脸 = 从 `plugins:` 删行，改回出厂名。都要 eval / promote。
-- `inspect` 列出：`face` 名、kind（web / tui / headless）、是否 listen、是否 embed UI、source_ref、tree_hash。
+- **Exactly one `face:`.** A species must have one mouth. An empty list is invalid.
+- Built-in names: `web`, `tui`, `headless`. A user plugin uses its directory name, is named through `plugins:` with `seam: face`, and **replaces** the built-in face rather than stacking a second one.
+- A built-in face not written into the recipe does not exist in this generation. Do not scan `faces/`.
+- Remove a built-in face = change `face:` and pack again. Remove a user face = delete its line from `plugins:` and change back to a built-in name. Both require eval / promote.
+- `inspect` lists: `face` name, kind (web / tui / headless), whether it listens, whether it embeds UI, source_ref, and tree_hash.
 
-两条合法世代（示意，不是现在就切默认）：
+Two valid generations (illustrative; not an immediate default switch):
 
-**网关世代（当前主线）**
+**Gateway generation (current mainline)**
 
 ```yaml
 face: web
 world: sandbox
 ```
 
-**coding 世代（进化目标）**
+**Coding generation (evolution target)**
 
 ```yaml
-face: tui                 # 或 plugins/crush-face
-world: local              # 启动目录就是项目
-# 这一代 EXE 没有 go:embed ui/dist，不开 :8787
+face: tui                 # or plugins/crush-face
+world: local              # working directory is the project
+# This generation's EXE has no go:embed ui/dist and does not open :8787
 ```
 
-`world: local` 不是 face 的副作用。coding 物种要换世界，另点 `world:`。脸只负责怎么跟人说话。
+`world: local` is not a face side effect. A coding species changes worlds by selecting `world:` separately. The face only controls how it speaks with people.
 
 ---
 
-## 5. 出厂三张脸
+## 5. Three Built-In Faces
 
-| 名字 | 启动 | 听端口 | embed UI | 交互 |
+| Name | Startup | Listen port | embed UI | Interaction |
 |---|---|---|---|---|
-| `web` | 无参开网关 | loopback | 是 | 浏览器；Review Center |
-| `tui` | 无参占 TTY | 否 | 否 | 会话、流式、审批 overlay、取消 |
-| `headless` | `vivy run "…"` | 否 | 否 | 一轮 prompt，stdout 终态，退出 |
+| `web` | Start the gateway with no arguments | loopback | yes | Browser; Review Center |
+| `tui` | Claim the TTY with no arguments | no | no | Sessions, streaming, approval overlay, cancellation |
+| `headless` | `vivy run "…"` | no | no | One prompt, terminal state on stdout, then exit |
 
-`headless` 不是残缺的 tui。它是脚本/CI 的嘴。无 TTY 时审批必须失败响亮，不许默默放行。
+`headless` is not an incomplete tui. It is the mouth for scripts/CI. Without a TTY, approval must fail loudly; silent allowance is forbidden.
 
-TUI 第一刀是薄的：会话列表、流式对话、一等审批/提问、取消、接同一 Journal。不复刻设置页、不复刻审阅中心全量。设置仍回网页世代，或以后的专用命令。
+The first TUI cut is thin: session list, streaming conversation, first-class approvals/questions, cancellation, and connection to the same Journal. It does not reproduce the settings page or the full Review Center. Settings remain in the web generation or a future dedicated command.
 
-成功标准（tui）：终端里过完一轮带审批的对话，同一 Journal 在网页世代的二进制里能回放。两具身体不要求同时运行。
+Success criterion (tui): complete one approval-bearing conversation in the terminal, and replay the same Journal in the web-generation binary. The two bodies need not run simultaneously.
 
-**当前入口（2026-09-05）。** `sdk/tui` 是全屏壳、控制面投影和 Live
-状态机的唯一实现；独立 `vivy-code.exe`、`vivy tui` 与出厂
-`faces/tui` 都委托给它。`vivy tui --live [--addr host]` 通过
-`internal/tui` 的 WebSocket 传输连接驻留网关；网关未起则失败退出。
-旧的离线 `--demo` 和行式 `--plain` 已退役，不存在 demo 或本地执行
-fallback。`faces/tui` 仍经 FaceHost + 配方点名进入不含 `ui/dist` 的制品。
+**Current entry point (2026-09-05).** `sdk/tui` is the sole implementation of the full-screen shell, control-plane projection, and Live
+state machine; the independent `vivy-code.exe`, `vivy tui`, and built-in
+`faces/tui` all delegate to it. `vivy tui --live [--addr host]` connects
+to the resident gateway through the WebSocket transport in `internal/tui`; it fails and exits if the gateway is not running.
+The old offline `--demo` and line-based `--plain` modes are retired; there is no demo or local-execution
+fallback. `faces/tui` still enters an artifact without `ui/dist` through FaceHost and recipe selection.
 
 ---
 
-## 6. `seam: face`（用户层）
+## 6. `seam: face` (User Layer)
 
-跟 channel 同构，不走 tool 的 `Adapt`。
+It is structurally parallel to channel and does not use the tool `Adapt` path.
 
 ```json
 {
@@ -220,192 +220,192 @@ fallback。`faces/tui` 仍经 FaceHost + 配方点名进入不含 `ui/dist` 的�
 }
 ```
 
-| 字段 | 规则 |
+| Field | Rule |
 |---|---|
-| `seam` | 必须是 `face` |
-| `tools` | **禁止**出现。脸不是模型工具 |
+| `seam` | Must be `face` |
+| `tools` | **Forbidden**. A face is not a model tool |
 | `face.kind` | `web` \| `tui` \| `headless` |
-| `face.listen` | 用户插件默认 `false`。`true` 第一刀拒绝 |
-| `grants` | `tty`、`argv`、`rpc.client`。没有 `journal.write`、`secret.read`、`policy.write` |
+| `face.listen` | User plugins default to `false`. `true` is rejected in the first cut |
+| `grants` | `tty`, `argv`, `rpc.client`. No `journal.write`, `secret.read`, or `policy.write` |
 
-`verify` 对 `seam: face`：
+For `verify` with `seam: face`:
 
-- 零个 tool
-- 不 import `internal/`
-- 不 `net.Listen`
-- 不 `go:embed` 可执行文件
-- `kind` 合法；与配方点名的那一个 `face:` 冲突时，以配方为准（用户插件替换出厂）
+- zero tools;
+- do not import `internal/`;
+- no `net.Listen`;
+- no `go:embed` executable files;
+- `kind` is valid; if it conflicts with the `face:` named by the recipe, the recipe wins (the user plugin replaces the built-in face).
 
-Face Env（示意，落地时写进 `sdk/plugin`）只允许：列会话、开 run、订事件、回答审批/提问、取消。禁止 Journal 直写、改 policy hash、读密钥值、自开 loop。
+Face Env (illustrative; to be added to `sdk/plugin` when implemented) permits only listing sessions, starting a run, subscribing to events, answering approvals/questions, and cancelling. Direct Journal writes, changing the policy hash, reading secret values, and starting a loop are forbidden.
 
-`source` 入账：`web` \| `tui` \| `headless`（或用户脸的名字）。不能伪装成另一张脸的 `user` 行，也不能写成 `channel`。
+`source` provenance: `web` \| `tui` \| `headless` (or the user face's name). It cannot masquerade as another face's `user` row or be written as `channel`.
 
-崩溃 = 这一代 EXE 崩溃。隔离在下一代：配方换脸再 pack。
+Crash = this generation's EXE crashes. Isolate it in the next generation: change the face in the recipe and pack again.
 
 ---
 
-## 7. 内核：脸能缺席
+## 7. Kernel: Face Can Be Absent
 
-今日阻碍不是缺 Bubble Tea，是内核把网页当默认身体：
+Today's obstacle is not the absence of Bubble Tea; it is that the kernel treats the web as the default body:
 
-1. `cmd/vivy` 无参就组 HTTP 服务
-2. UI 默认 `go:embed`；`vivy_headless` 只是构建标签
-3. 审批/提问的人机面默认长在网页
+1. `cmd/vivy` composes an HTTP service when called without arguments
+2. UI uses `go:embed` by default; `vivy_headless` is only a build tag
+3. The human interface for approvals/questions is rooted in the web by default
 
-内核该变成：
+The kernel should become:
 
 ```text
-启动器
-  → 读编进身体的 face
-  → web        听 loopback，embed UI
-  → tui        占 TTY，不听端口
-  → headless   跑一次 prompt，退出
-  → 没有 face  pack 已拒绝；运行时不可达
+launcher
+  → read the face compiled into the body
+  → web        listen on loopback, embed UI
+  → tui        occupy TTY, listen on no port
+  → headless   run one prompt, then exit
+  → no face    pack already rejected; unreachable at runtime
 ```
 
-控制面留在进程内。出厂脸和用户脸都是控制面的 **in-process 客户端**，不是第二套 run 模型。网页已经是 JSON-RPC 客户端；TUI 走同一套方法，运输从 WebSocket 变成函数调用。
+The control plane remains in-process. Built-in and user faces are **in-process clients** of the control plane, not a second run model. The web is already a JSON-RPC client; TUI uses the same methods, with transport changed from WebSocket to function calls.
 
-FaceHost 列入「内核永不插件化」名单，与 Journal、Policy、Secret resolver、inspect、`vivy worker` 监督并列。它不画 UI。它只保证：这一代有且仅有一张嘴，事件与审批仍由内核裁定。
+FaceHost is on the "kernel never pluginized" list alongside Journal, Policy, Secret resolver, inspect, and `vivy worker` supervision. It does not draw UI. It guarantees only that this generation has exactly one mouth and that events and approvals remain decided by the kernel.
 
 ---
 
-## 8. coding 世代还要换什么（脸以外）
+## 8. What Else the Coding Generation Must Change (Beyond the Face)
 
-只换脸会得到「终端里的个人网关」，不是 Crush。Crush / DSH headless 默认 **调用目录就是 workspace**。
+Changing only the face produces a "personal gateway in a terminal," not Crush. Crush / DSH headless defaults to **the working directory being the workspace**.
 
-| 旋钮 | 网关世代 | coding 世代 |
+| Knob | Gateway generation | Coding generation |
 |---|---|---|
-| `face` | web | tui（或用户 face 插件） |
-| `world` | sandbox | local（`--cwd` / 启动目录） |
-| persona | 网关 / 陪伴 | coding agent，cwd 进系统提示 |
-| 工具密度 | notes + 保守 execute | grep / glob / edit / bash 级 |
-| HITL | Review Center | TTY overlay；同一 first-writer-wins |
-| 监听 | loopback | 无 |
+| `face` | web | tui (or user face plugin) |
+| `world` | sandbox | local (`--cwd` / working directory) |
+| persona | gateway / companion | coding agent, cwd in the system prompt |
+| Tool density | notes + conservative execute | grep / glob / edit / bash level |
+| HITL | Review Center | TTY overlay; same first-writer-wins |
+| Listening | loopback | none |
 
-LSP、项目 skills 发现、Crush 式 `crushrc` **不是第一刀**。配置仍是严格解码的 yaml + `env_key`，不许另长一套加载即执行的可信代码配置。
+LSP, project skill discovery, and Crush-style `crushrc` are **not in the first cut**. Configuration remains strictly decoded yaml + `env_key`; do not grow another trusted code configuration that executes upon loading.
 
 ---
 
-## 9. 安卓：下游产品，不是 face
+## 9. Android: Downstream Product, Not a Face
 
-安卓 App **使用 Vivy 内核**，不是 Vivy 去编译 APK，也不是 `face: android`。
+An Android app **uses the Vivy kernel**; Vivy does not compile the APK, and it is not `face: android`.
 
 ```text
-Vivy 内核     Journal · policy · run · 审批 · 控制面
+Vivy kernel   Journal · policy · run · approvals · control plane
     │
-    ├─ 第一方物种    vivy.exe（face: web | tui | headless）
-    ├─ 用户 face     plugins/crush-face（编进某一代 EXE）
-    └─ 下游产品      某个安卓 App（自己的工程、自己的 APK）
+    ├─ first-party species    vivy.exe (face: web | tui | headless)
+    ├─ user face              plugins/crush-face (compiled into a generation's EXE)
+    └─ downstream product     an Android app (its own project, its own APK)
 ```
 
-Studio 继续只 pack 物种身体。安卓团队用自己的工具链出包。Vivy 不负责 Android SDK、签名、上架、gomobile。
+Studio continues to pack only species bodies. The Android team ships with its own toolchain. Vivy is not responsible for the Android SDK, signing, store submission, or gomobile.
 
-因此本提案 **不增加** `habitat:`，不让 `seam: face` 认识 Activity。
+Therefore this proposal **does not add** `habitat:` or make `seam: face` understand Activity.
 
-安卓要对内核成立，只要求 F1：控制面在无 embed、无 listen 时仍能跑完一轮对话和审批。那是网页主线、TUI、下游 App 共用的一刀。
+For Android to work with the kernel, only F1 is required: the control plane must still complete one conversation and approval without embed or listen. That is a shared cut for the Web mainline, TUI, and downstream apps.
 
-以后若要「手机遥控家里的 `vivy.exe`」，那是 `ACP-REMOTE-CONTROL-PROPOSAL.md` 的远程主体，不是 face，不是 channel。手机 Journal 与电脑 Journal 默认同步另案。
+If phones later need to "remote-control the `vivy.exe` at home," that is the remote principal in `ACP-REMOTE-CONTROL-PROPOSAL.md`, not a face or channel. Synchronizing a phone Journal with a computer Journal is a separate proposal.
 
 ---
 
-## 10. 和 channel / ACP 的边界
+## 10. Boundary with Channel / ACP
 
 | | face | channel | ACP / companion |
 |---|---|---|---|
-| 是什么 | 这具进程的嘴 | 世界先说话的耳朵 | 另一进程/设备上的遥控器 |
-| 配方 | `face:` 恰好一个 | `channels:` 列表 | 不进 generation.yml |
-| 出处 | `source=web\|tui\|headless` | `channel.inbound` | 控制面主体，另记 |
-| 审批 | 本机脸，可以是 HITL 主体 | 第一刀不当审批人 | 须显式批准远程主体 |
-| 例子 | 浏览器、TTY、`vivy run` | Telegram、飞书 | 未来安卓遥控、编辑器 |
+| What it is | The mouth of this process | The ear through which the world speaks first | A remote control on another process/device |
+| Recipe | Exactly one `face:` | `channels:` list | Not in generation.yml |
+| Provenance | `source=web\|tui\|headless` | `channel.inbound` | Control-plane principal, recorded separately |
+| Approvals | Local face may be the HITL principal | Not an approver in the first cut | Remote principal must be explicitly approved |
+| Examples | Browser, TTY, `vivy run` | Telegram, Feishu | Future Android remote control, editor |
 
-三种混权是 bug。
+Mixing the three authorities is a bug.
 
 ---
 
-## 11. 冷拔插的卸载
+## 11. Cold Plug/Unplug Removal
 
 ```text
-1. 换代拔插（真冷）
-   配方 face: tui → pack → 下一代没有网页资产，也不听 8787
+1. Generation replacement (true cold)
+   recipe face: tui → pack → the next generation has no web assets and does not listen on 8787
 
-2. 运行时不能「关掉网页假装 TUI」
-   活着的 EXE 不动态加载任何 face 代码
+2. Runtime cannot "turn off the web and pretend to be TUI"
+   A live EXE does not dynamically load any face code
 
-3. 没有「杀一张脸、物种还用另一张」
-   一代一张嘴。崩溃即这一代死
+3. There is no "kill one face while the species uses another"
+   One mouth per generation. A crash kills the generation
 ```
 
-「卸得干净」只适用于 (1)。`inspect` 必须能证明：`web=false` 的制品里没有 `ui/dist`。
+"Clean removal" applies only to (1). `inspect` must prove that an artifact with `web=false` contains no `ui/dist`.
 
 ---
 
-## 12. 非目标（本提案）
+## 12. Non-goals (This Proposal)
 
-- V0 交付、把 TUI 写进当前 `just ci` 必过路径
-- 热挂 / 热卸 / 市场扫描
-- 现在就实现 Bubble Tea / Crush 复刻 / 设置页 TUI
-- 独立 `vivy-tui.exe`、把 Crush 或 dsh-TUI 当依赖
-- `habitat: android`、APK 流水线、gomobile
-- 用 channel 或 ACP 替代本机脸
-- 在本文件合并时改 `sdk/plugin` 或加事件类型（那是采纳后的实现 PR）
+- V0 delivery or putting TUI into the current mandatory `just ci` path
+- Hot mounting / hot unloading / marketplace scanning
+- Implementing Bubble Tea / a Crush clone / a TUI settings page now
+- An independent `vivy-tui.exe` or treating Crush or dsh-TUI as a dependency
+- `habitat: android`, an APK pipeline, or gomobile
+- Replacing the local face with channel or ACP
+- Changing `sdk/plugin` or adding event types while merging this document (that is a post-adoption implementation PR)
 
 ---
 
-## 13. 落地切片（采纳后）
+## 13. Implementation Slices (After Adoption)
 
-顺序就是依赖。每一刀应能单独评测；未做的不出现在默认网关 EXE。
+The order is the dependency order. Each cut should be independently evaluable; unfinished work does not appear in the default gateway EXE.
 
-| 切片 | 做什么 | 成功 |
+| Slice | Does | Success |
 |---|---|---|
-| F0 合同 | 本文采纳；`VIVY-ASSEMBLY.md` 增加 `face` 行；内核永不插件化名单加上 FaceHost 与「HTTP 不是内核」；PLUGIN-SPEC 声明 `seam: face` 分流 | 文档一致，无代码 |
-| F1 控制面无网页 | 进程内 RPC 可在无 embed、无 listen 下跑完一轮对话+审批 | `vivy_headless` 从构建标签升级为配方效果的前置 |
-| F2 出厂 `faces/headless` | `vivy run "…"`，stdout 终态，无端口 | 脚本可用；无 TTY 时审批失败要响 |
-| F3 出厂 `faces/tui` | 薄 TUI：会话、流式、审批 overlay、取消 | 同一 Journal；网关二进制仍可不含这张脸 |
-| F4 coding 配方 | `world: local` + coding persona + 工具集；pack 出不带 `ui/dist` 的制品 | `inspect` 显示 `face=tui`、`web=false` |
-| F5 用户 `seam: face` | `plugins/crush-face` 能换掉出厂 tui | verify 禁 tools、禁 Listen、禁 import internal |
+| F0 Contract | Adopt this document; add the `face` line to `VIVY-ASSEMBLY.md`; add FaceHost and "HTTP is not the kernel" to the kernel-never-pluginized list; PLUGIN-SPEC declares `seam: face` routing | Documentation consistent, no code |
+| F1 Control plane without web | In-process RPC completes one conversation + approval without embed or listen | Prerequisite for upgrading `vivy_headless` from a build tag to a recipe effect |
+| F2 Built-in `faces/headless` | `vivy run "…"`, terminal state on stdout, no port | Usable for scripts; approval must fail loudly without a TTY |
+| F3 Built-in `faces/tui` | Thin TUI: sessions, streaming, approval overlay, cancellation | Same Journal; gateway binary may still omit this face |
+| F4 Coding recipe | `world: local` + coding persona + tool set; pack an artifact without `ui/dist` | `inspect` shows `face=tui`, `web=false` |
+| F5 User `seam: face` | `plugins/crush-face` can replace the built-in tui | verify forbids tools, Listen, and import internal |
 
-网页主线继续走，F0–F1 不挡。F3 之后才允许有人在 Studio 里进化 Crush 风格实现。
+The Web mainline continues; F0–F1 do not block it. Only after F3 may someone evolve a Crush-style implementation in Studio.
 
-F0 是文档 PR。F1 起才动内核。F3 之前禁止把 Bubble Tea 写进物种默认 `go.mod` 的必经 import。
-
----
-
-## 14. 尚未关闭的问题（采纳前要人拍板）
-
-2026-09-02 四问已拍板（用户裁决，全取推荐值；F2/F3 切片的前置解除）：
-
-1. **出厂 `faces/` 是否独立 `go.mod`。** 拍板：**独立 `go.mod`**——网关世代编译期就不见 TUI deps，不可能被内核误 import；代价是多一个 module 的维护面。
-2. **默认提交的物种身体是否永远 `face: web`。** 拍板：**永远 `face: web`**。coding 世代是另一条配方，不替换日常双击的网关。
-3. **网页与 TUI 能否点同一 Journal 同居。** 拍板：**第一刀否**（一代一张嘴）。多客户端同居是后切，且必须先钉死审批 first-writer-wins。
-4. **`headless` 遇到审批时的产品句子。** 拍板：**失败退出**——不挂起等待、不 yolo 放行（run 级持久挂起+可取消语义由 F1 测试钉死；进程级句子=失败退出）。
+F0 is a documentation PR. The kernel changes only from F1 onward. Before F3, Bubble Tea must not be a required import in the species default `go.mod`.
 
 ---
 
-## 15. PR Plan（采纳后）
+## 14. Unresolved Questions (Require a Decision Before Adoption)
 
-### PR 1 — 采纳合同
+The four questions were decided on 2026-09-02 (user ruling, all recommended values accepted; prerequisites for F2/F3 cleared):
 
-- 文件：本文状态改为方向采纳；`VIVY-ASSEMBLY.md` 增加 `face` 行；`VIVY-PLUGIN-SPEC.md` 交叉引用 seam 分流；`SELF-EVOLVING-GATEWAY.md` 内核名单加上 FaceHost
-- 依赖：无
-- 无运行时代码
-
-### PR 2 — 无网页控制面（F1）
-
-- 文件：启动器 / app 组合可在无 embed 时工作；审批在无 UI 时的失败路径有测试
-- 依赖：PR 1
-
-### PR 3 — 出厂 headless（F2）
-
-- 文件：`faces/headless/`、`vivy run`、pack overlay
-- 依赖：PR 2
-
-后续 F3–F5 各一次 PR，禁止与 channel 适配器、安卓工程混在同一交付。
+1. **Whether built-in `faces/` should have an independent `go.mod`.** Decided: **independent `go.mod`**—the gateway generation will not see TUI dependencies at compile time and the kernel cannot accidentally import them; the cost is another module to maintain.
+2. **Whether the default committed species body should always be `face: web`.** Decided: **always `face: web`**. The coding generation is another recipe and does not replace the gateway opened by the daily double-click.
+3. **Whether Web and TUI can share one Journal.** Decided: **no in the first cut** (one mouth per generation). Multi-client coexistence comes later and must first pin down approval first-writer-wins.
+4. **Product wording when `headless` encounters approval.** Decided: **fail and exit**—do not suspend and wait or allow via yolo (run-level durable suspension + cancellable semantics are pinned by F1 tests; process-level behavior = fail and exit).
 
 ---
 
-## 16. 一句话（再写一遍）
+## 15. PR Plan (After Adoption)
 
-> **脸是配方上的器官，不是工具，也不是第二种内核。**
-> DSH 用 profile 叠 bundle 去掉 `dsh-web-app`；oh-dsh 用 TUI-only 证明可以不带浏览器。
-> Vivy 对应物是：`face: web | tui | headless` + 用户 `seam: face` + 一条不点名 web 的 coding 世代。
-> 装上 = pack 进新 EXE。卸 = 配方改行再 pack。安卓 App 用这颗内核，自己出包。
+### PR 1 — Adopt Contract
+
+- Files: change this document's status to direction adopted; add the `face` line to `VIVY-ASSEMBLY.md`; cross-reference seam routing in `VIVY-PLUGIN-SPEC.md`; add FaceHost to the kernel list in `SELF-EVOLVING-GATEWAY.md`
+- Dependencies: none
+- No runtime code
+
+### PR 2 — Control Plane Without Web (F1)
+
+- Files: launcher / app composition works without embed; test the approval failure path without UI
+- Dependency: PR 1
+
+### PR 3 — Built-In Headless (F2)
+
+- Files: `faces/headless/`, `vivy run`, pack overlay
+- Dependency: PR 2
+
+Follow-up F3–F5 are one PR each; do not mix them with channel adapters or Android projects in the same deliverable.
+
+---
+
+## 16. One Sentence (Repeated)
+
+> **The face is an organ in the recipe, not a tool and not a second kernel.**
+> DSH layers bundles with a profile to remove `dsh-web-app`; oh-dsh uses TUI-only to prove a distribution can omit the browser.
+> Vivy's equivalent is: `face: web | tui | headless` + a user `seam: face` + a coding generation whose recipe does not name the web.
+> Install = pack into a new EXE. Remove = change the recipe line and pack again. Android apps use this kernel and ship themselves.

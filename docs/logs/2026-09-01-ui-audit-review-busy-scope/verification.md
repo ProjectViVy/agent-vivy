@@ -1,28 +1,33 @@
 # Verification
 
-## 门禁
+## Gates
 
-- `just ci` — 通过（exit 0）：Go fmt/vet/test、headless 编译、plugin-ci
-  6 module、UI install + `tsc --noEmit` + `vitest run` + `vite build`
-  全绿（`reviewBusyIds: string[]` 改型、respondReview 按 id 单飞、
-  ApprovalsView/_layout 引用点全部过类型与 lint）。
-- `just ui-e2e` — 通过（10 passed / 1 skipped）：真实浏览器 + 真实控制面；
-  `runtime.spec.ts` 覆盖 review 主路径（打开 Review sheet + 响应流），
-  busy 锁改型未回归既有断言。
+- `just ci` — passed (exit 0): Go fmt/vet/test, headless compile, six plugin-ci
+  modules, and UI install + `tsc --noEmit` + `vitest run` + `vite build` all
+  green (`reviewBusyIds: string[]` refactor, per-ID `respondReview` single-flight,
+  and all ApprovalsView/_layout references pass type and lint checks).
+- `just ui-e2e` — passed (10 passed / 1 skipped): real browser + real control
+  plane; `runtime.spec.ts` covers the main Review path (open the Review sheet +
+  response stream), and the busy-lock refactor did not regress existing
+  assertions.
 
-## Smoke 说明
+## Smoke notes
 
-- 双记录并发响应的浏览器级断言（响应 A 期间选 B、B 解锁后可响应）
-  无组件专属 spec；按 CH-C1-N3 先例以全套 e2e 为 smoke 替代，人工观察
-  路径在 acceptance.md。
-- WebSocket RPC 传输（`/rpc/bootstrap` → WS upgrade）无 curl smoke 路径。
+- There is no component-specific spec for the browser assertion of two-record
+  concurrent responses (select B while A responds, then respond after B
+  unlocks); following the CH-C1-N3 precedent, the full e2e suite is the smoke
+  substitute, and the manual observation path is in acceptance.md.
+- WebSocket RPC transport (`/rpc/bootstrap` → WS upgrade) has no curl smoke
+  path.
 
-## 复核证据（静态）
+## Static review evidence
 
-- `ui/src/lib/store.ts` `respondReview`：`includes(id)` 单飞（同 id
-  重复响应 early-return），busy 集合按 id 增删（finally 过滤）；乐观
-  状态映射按 id，`loadReviews()` 幂等 GET，并发安全。
-- 全库无 `reviewBusyId`（单数）残留（grep 复核）；cron/mcp 等组件的
-  同名局部变量不受影响。
-- `ui/src/routes/_layout.tsx`：sheet 关闭守卫 `reviewBusyIds.length > 0`
-  ——任一响应在途时不可关（与原 `!!reviewBusyId` 语义一致）。
+- `ui/src/lib/store.ts` `respondReview`: `includes(id)` provides single-flight
+  (same-ID repeats early-return); the busy set adds/removes by ID (`finally`
+  filters it); optimistic state mapping is by ID, and `loadReviews()` is an
+  idempotent, concurrency-safe GET.
+- No `reviewBusyId` (singular) remains anywhere in the repository (grep review);
+  same-named local variables in cron/mcp and other components are unaffected.
+- `ui/src/routes/_layout.tsx`: the sheet close guard
+  `reviewBusyIds.length > 0` keeps the sheet closed while any response is in
+  flight (same semantics as the original `!!reviewBusyId`).

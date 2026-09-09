@@ -4,29 +4,37 @@ Commands run from the worktree root (`agent-vivy-vc0`, branch `feat/vc1a-bash-to
 
 | Command | Result |
 |---|---|
-| `just ci` | 绿。UI `tsc --noEmit` 干净；`vitest run` 24 files / **195 passed**（含 `src/i18n/index.test.ts` zh/en 键位对等 9 项、`diva-preview-data.test.ts` 分区唯一性 1 项）；`vite build` 成功（chunk 体积警告为既有现象）。 |
-| `just ui-e2e` | **10 passed / 1 skipped**（21.4s，workers=1，webServer 真内核 127.0.0.1:8799）。 |
+| `just ci` | Green. UI `tsc --noEmit` clean; `vitest run` 24 files / **195 passed** (including 9 zh/en key-equivalence checks in `src/i18n/index.test.ts` and 1 section-uniqueness check in `diva-preview-data.test.ts`); `vite build` succeeded (the chunk-size warning is pre-existing). |
+| `just ui-e2e` | **10 passed / 1 skipped** (21.4s, workers=1, real-kernel webServer at 127.0.0.1:8799). |
 
-e2e 对本改动敏感的规格均通过：
+The e2e specs sensitive to this change all passed:
 
-- `network-tools-setting.spec.ts` — 断言 network tab 触发器文案「网络工具」；
-  本条将 `tabs.network` 键值由「网络」改为「网络工具」后经真实渲染命中。
-- `language-setting.spec.ts` — 语言切换持久化主链路，覆盖本条全部新键的双语言渲染。
-- `compaction-setting.spec.ts` — 压缩卡回归不受本次 `DivaSettingsPreview` 改动影响。
+- `network-tools-setting.spec.ts` — asserts the network-tab trigger copy
+  "Network tools"; this item changed the `tabs.network` value from "Network" to
+  "Network tools", and the assertion hit the real rendered text.
+- `language-setting.spec.ts` — the main language-switch persistence path, covering
+  bilingual rendering of all new keys in this item.
+- `compaction-setting.spec.ts` — the compaction-card regression is unaffected by
+  this `DivaSettingsPreview` change.
 - `runtime.spec.ts` / `welcome-wizard.spec.ts` / `genparams-advanced.spec.ts` /
   `sandbox-setting.spec.ts` / `mcp-settings.spec.ts` / `model-refresh.spec.ts` /
-  `files-panel.spec.ts` — 均绿。
+  `files-panel.spec.ts` — all green.
 
-smoke-for-user-visible-change 说明：本条的用户可见行为 = 设置页各 tab 与预览
-分区在中/英两种语言下的渲染文案。`just ui-e2e` 的 webServer 是真实 `go run
-./cmd/vivy` 内核 + 真实构建产物 UI，规格通过 Playwright 真实打开设置页断言
-渲染后的本地化文本（含语言切换规格），等价于在 3015 分裂 Vite 下逐分区点开
-验证；未再单独起 3015 会话。
+Smoke-for-user-visible-change note: the user-visible behavior in this item is the
+rendered copy for each Settings tab and preview section in Chinese and English.
+The `just ui-e2e` webServer uses the real `go run ./cmd/vivy` kernel and the real
+built UI artifact; the specs use Playwright to open the Settings page and assert
+the rendered localized text (including the language-switch spec), which is
+equivalent to opening each section in the split Vite instance on 3015. A separate
+3015 session was not started.
 
-Skip 项：`cron-tasks.spec.ts` 预存 skip（需真实 provider），与本条无关。
+Skip item: `cron-tasks.spec.ts` has a pre-existing skip (requires a real
+provider), unrelated to this item.
 
 ## Notes
 
-- `git status` 中 `ui/src/routeTree.gen.ts` 为生成器 churn，未入提交。
-- zh/en 键位对等由 `src/i18n/index.test.ts` 门禁保证；新增顶层 `divaPreview`
-  段两侧同步，未破坏该测试。
+- In `git status`, `ui/src/routeTree.gen.ts` is generator churn and was not
+  included in the commit.
+- `src/i18n/index.test.ts` gates zh/en key equivalence; the new top-level
+  `divaPreview` section is synchronized on both sides and does not break that
+  test.

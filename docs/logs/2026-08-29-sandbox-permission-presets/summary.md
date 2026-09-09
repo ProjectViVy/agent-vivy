@@ -1,22 +1,27 @@
-# 2026-08-29 — 沙箱真实接入与三段权限预设
+# 2026-08-29 — Sandbox real integration and three-tier permission presets
 
-## 目标
+## Goal
 
-把设置页「沙箱」从迁移预览升级为真实配置，并把聊天区「谨慎 / 智能 / 信任」接到会话级沙箱模式 + 审批策略。EINO 文件系统 / 命令 / HTTP 后端按当轮会话策略执行。
+Upgrade the settings page “Sandbox” from a migration preview to real configuration, and connect the chat area's
+“Cautious” / “Smart” / “Trusted” to the session-level sandbox mode + approval policy. EINO
+filesystem / command / HTTP backends execute according to the current turn's session policy.
 
-## 变更
+## Changes
 
-- 领域：`PermissionPreset`（cautious / smart / trusted / custom）映射到 `read_only+ask` / `workspace_write+ask` / `danger_full_access+auto`。
-- 存储：`SessionStore.UpdateSandboxPolicy`；创建会话写入默认预设。
-- 运行时：`SandboxManager` 按调用带模式；`toolAdapter` 接入 `EvaluateApprovalPolicy`；`Service` 在 `turn/start` 钉死当轮 knobs。
-- RPC：`session/set_permission`；`sessionResult` 回传沙箱字段；`settings/get|update` 增加 sandbox 分区。
-- UI：`SandboxSettingsCard` 替换预览；聊天区权限选择器写当前会话；切到「信任」需确认。
+- Domain: `PermissionPreset` (cautious / smart / trusted / custom) maps to `read_only+ask` / `workspace_write+ask` /
+  `danger_full_access+auto`.
+- Storage: `SessionStore.UpdateSandboxPolicy`; new sessions write the default preset.
+- Runtime: `SandboxManager` passes the mode with each call; `toolAdapter` hooks into `EvaluateApprovalPolicy`; `Service` pins
+  the current turn's knobs at `turn/start`.
+- RPC: `session/set_permission`; `sessionResult` returns sandbox fields; `settings/get|update` adds a sandbox section.
+- UI: `SandboxSettingsCard` replaces the preview; the chat-area permission selector writes to the current session; switching to
+  “Trusted” requires confirmation.
 
-## 明确未做
+## Explicitly not done
 
-- OS 级进程沙箱（bwrap / Seatbelt / Windows ACL）
-- deny glob、可编辑 `auto_approve_tools`、沙箱内工具超时
-- 进行中 run 热切预设
-- `danger_full_access` 仍不能逃出 per-run 工作区
+- OS-level process sandbox (bwrap / Seatbelt / Windows ACL)
+- deny glob, editable `auto_approve_tools`, and tool timeouts inside the sandbox
+- hot-switching presets during an in-progress run
+- `danger_full_access` still cannot escape the per-run workspace
 
-未做项记入 `docs/TODO.md` §0.1：`SBX-OS` / `SBX-GLOB` / `SBX-LIVE`。
+The not-done items are recorded in `docs/TODO.md` §0.1: `SBX-OS` / `SBX-GLOB` / `SBX-LIVE`.

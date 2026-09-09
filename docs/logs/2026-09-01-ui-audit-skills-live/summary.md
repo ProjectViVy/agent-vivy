@@ -1,41 +1,47 @@
-# UI-AUDIT-SKILLS-LIVE — /skills 页接线复核 + 死 hook 清除
+# UI-AUDIT-SKILLS-LIVE — Verify `/skills` wiring and remove the dead hook
 
-## 结论
+## Conclusion
 
-复核推翻了 2026-08-31 审查行的前提。`/skills` 页（路由 `/_layout/skills` →
-`ui/src/components/skills/SkillsView.tsx`）**早已全量接真实 RPC**，不存在
-"未接 `skills/list` / `skills/get`" 的问题：
+The review disproved the premise of the 2026-08-31 audit item. The `/skills`
+page (route `/_layout/skills` → `ui/src/components/skills/SkillsView.tsx`) was
+**already fully connected to real RPCs**; there was no issue of missing
+`skills/list` / `skills/get` wiring:
 
-- `api.listSkills()` → `skills/list`（`{skills: SkillSummary[]}`）
-- `api.getSkill(name, path?)` → `skills/get`（详情 + 支撑文件）
+- `api.listSkills()` → `skills/list` (`{skills: SkillSummary[]}`)
+- `api.getSkill(name, path?)` → `skills/get` (details + supporting files)
 - `api.setSkillEnabled(name, enabled, hash)` → `skills/set-enabled`
-  （hash CAS，409 时重读目录——组件内有注释明确该契约）
-- `api.listSkillRevisions()` → `skills/revisions/list`（HITL 暂存修订 Tab）
-- Marketplace Tab 由 capabilities `skills.marketplace` 门控
+  (hash CAS; on 409, rereads the catalog—the component comment explicitly
+  documents this contract)
+- `api.listSkillRevisions()` → `skills/revisions/list` (HITL staged-revision tab)
+- The Marketplace tab is gated by the `skills.marketplace` capability.
 
-错误/空/警告态齐全：加载失败渲染错误卡 + 重试；目录空渲染空态卡；
-warnings 逐条展示；master/detail 走 `MasterDetail`。
+Error/empty/warning states are all covered: load failures render an error card +
+retry; an empty catalog renders an empty-state card; warnings are shown one by
+one; master/detail uses `MasterDetail`.
 
-## 真实残留与处置
+## Actual residue and disposition
 
-真正的 demo 残留是 `ui/src/hooks/useSkills.ts`：一个**零引用的死 hook**，
-仍从 `@/lib/demo-api` 导入 `listSkills` / `getSkillDocument` /
-`createSkillRequest` / `getSkillRequests`（指向 `vivy.demo.skills`
-localStorage）。页面不经过任何 hook，直接调 `api.*`。按"确定未用即彻底
-删除"的仓库规则删除该文件。
+The actual demo residue was `ui/src/hooks/useSkills.ts`: a **zero-reference dead
+hook** that still imported `listSkills` / `getSkillDocument` /
+`createSkillRequest` / `getSkillRequests` from `@/lib/demo-api` (pointing to
+`vivy.demo.skills` localStorage). The page uses no hook and calls `api.*`
+directly. Per the repository rule "delete confirmed-unused code completely",
+the file was deleted.
 
-## 范围外（明确不做）
+## Out of scope (explicitly not done)
 
-- `demo-api.ts` 的技能函数（`listSkills` / `getSkillDocument` /
+- The skill functions in `demo-api.ts` (`listSkills` / `getSkillDocument` /
   `updateSkillDocument` / `createSkillRequest` / `getSkillRequests` /
-  `acceptSkillRequest` / `rejectSkillRequest` 等）**保留**：仍被
-  Evolution 页（`useEvolution.ts` + `EvolutionView.tsx` +
-  `demo-api.evolution.test.ts`）消费，归 UI-EVO 行管辖（该行前提是整页
-  demo 数据，等 MEM-1 能力提案后才换真实 RPC），与本行无关。
-- `lib/types.ts` 的 `SkillDto` / `SkillDocument` / `SkillRequest` 等类型
-  同理保留（Evolution 页在用）。
+  `acceptSkillRequest` / `rejectSkillRequest`, etc.) **are retained** and are
+  still consumed by the Evolution page (`useEvolution.ts` +
+  `EvolutionView.tsx` + `demo-api.evolution.test.ts`), which is governed by the
+  UI-EVO item (that item treats the whole page as demo data until the MEM-1
+  capability proposal enables real RPC); they are unrelated here.
+- The `SkillDto` / `SkillDocument` / `SkillRequest` types in `lib/types.ts` are
+  likewise retained because the Evolution page uses them.
 
-## 变更清单
+## Change list
 
-- 删除 `ui/src/hooks/useSkills.ts`（唯一变更）。
-- `docs/TODO.md`：UI-AUDIT-SKILLS-LIVE 行翻转 DONE（复核结论），§10 登记。
+- Delete `ui/src/hooks/useSkills.ts` (the only change).
+- `docs/TODO.md`: mark UI-AUDIT-SKILLS-LIVE DONE (review conclusion) and record
+  it in §10.

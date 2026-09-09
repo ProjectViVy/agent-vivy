@@ -1,49 +1,51 @@
-# 验证记录 — 2026-08-27 供应商目录折叠移植
+# Verification record — 2026-08-27 provider-catalog folding port
 
-## 自动化门禁
+## Automated gates
 
-| 命令 | 结果 |
+| Command | Result |
 |---|---|
-| `cd ui; pnpm typecheck` | ✅ 无错误 |
-| `cd ui; pnpm test`（vitest） | ✅ 13 个文件 / 68 用例全过（含新增 `provider-catalog.test.ts` 13 用例；i18n zh/en 结构同步测试过） |
-| `just ci`（仓库根，= fmt-check + vet + go test + headless-compile + ui-ci[install/typecheck/test/build]） | ✅ 全绿，ui build `✓ built in 3.20s`（仅既有 chunk>500kB 警告） |
+| `cd ui; pnpm typecheck` | ✅ no errors |
+| `cd ui; pnpm test` (vitest) | ✅ 13 files / 68 tests all passed (including 13 new `provider-catalog.test.ts` cases; i18n zh/en structure-sync tests passed) |
+| `just ci` (repository root, = fmt-check + vet + go test + headless-compile + ui-ci[install/typecheck/test/build]) | ✅ all green, ui build `✓ built in 3.20s` (only the existing chunk>500kB warning) |
 
-## 浏览器冒烟（split pair：`just run` :8787 + `cd ui; pnpm dev` :3015）
+## Browser smoke test (split pair: `just run` :8787 + `cd ui; pnpm dev` :3015)
 
-在 `http://127.0.0.1:3015/settings?tab=model` 逐项验证（内置浏览器 +
-DOM 快照断言）：
+Validated each item at `http://127.0.0.1:3015/settings?tab=model` (built-in browser +
+DOM snapshot assertions):
 
-1. **目录渲染**：常用供应商 27 行平铺（OpenRouter…Mimo），当前配置
-   （mock）命中的 Mock 行带「当前」徽标且选中；折叠行
-   「更多供应商 20」存在（数量=20 与 diva 名单一致）。
-2. **折叠展开**：点击折叠行后 CherryIN / Together AI / Yi (01.AI) /
-   PPIO / Cerebras 等折叠供应商出现。
-3. **搜索绕过折叠**：搜索 "yi" → 仅平铺 CherryIN 与 Yi (01.AI)（子串
-   命中），折叠行隐藏，DeepSeek/Mock 等被过滤。
-4. **选择供应商（关键映射）**：搜索 deepseek → 点击 DeepSeek 行 →
-   右栏显示 DeepSeek / https://api.deepseek.com/v1 / bundle 标签
-   `openai` 与 5 个模型；表单填充 Provider=openai、
-   默认模型=deepseek-v4-pro、Base URL=https://api.deepseek.com/v1。
-5. **选模型**：点击 deepseek-chat → 默认模型输入更新为 deepseek-chat。
-6. **保存落盘**：点击「保存真实设置」→ 无错误；顶栏切换器变为
-   "DeepSeek | deepseek-chat"；DeepSeek 行获得「当前」徽标；
-   `data/settings.yaml` 实际写为
+1. **Catalog rendering**: 27 common providers displayed flat (OpenRouter…Mimo); the
+   Mock row matching the current configuration (mock) had a 「Current」 badge and was
+   selected; the folded row 「More providers 20」 existed (count = 20, matching the diva list).
+2. **Expand folding**: clicking the folded row revealed folded providers such as CherryIN /
+   Together AI / Yi (01.AI) / PPIO / Cerebras.
+3. **Search bypasses folding**: search "yi" → only CherryIN and Yi (01.AI) displayed flat
+   (substring matches); the folded row was hidden, and DeepSeek/Mock were filtered out.
+4. **Select provider (key mapping)**: search deepseek → click the DeepSeek row → the right
+   side showed DeepSeek / https://api.deepseek.com/v1 / bundle label `openai` and 5 models;
+   the form was filled with Provider=openai, default model=deepseek-v4-pro, Base
+   URL=https://api.deepseek.com/v1.
+5. **Select model**: clicking deepseek-chat updated the default-model input to deepseek-chat.
+6. **Persist save**: click 「Save real settings」 → no error; the top-bar switcher became
+   "DeepSeek | deepseek-chat"; the DeepSeek row gained the 「Current」 badge;
+   `data/settings.yaml` actually contained
    `provider: openai / default_model: deepseek-chat / base_url: https://api.deepseek.com/v1`
-   （UI→RPC→settings.Save 全链路实证）。
-7. **顶栏切换器**：下拉显示「当前配置 DeepSeek | deepseek-chat」与
-   「DeepSeek 可选模型」（deepseek-v4-pro / v4-flash / coder /
-   reasoner，当前模型已去重）。
-8. **环境恢复**：冒烟后把 `data/settings.yaml` 恢复为 mock 三元组并
-   刷新页面，顶栏回到 "Mock | mock"、Mock 行重获「当前」徽标。
+   (full UI→RPC→settings.Save path verified).
+7. **Top-bar switcher**: the dropdown showed 「Current configuration DeepSeek | deepseek-chat」
+   and 「DeepSeek available models」 (deepseek-v4-pro / v4-flash / coder / reasoner, with the
+   current model deduplicated).
+8. **Environment restoration**: after smoke testing, restored `data/settings.yaml` to the
+   mock triple and refreshed; the top bar returned to "Mock | mock", and the Mock row regained
+   the 「Current」 badge.
 
-## 工具备注
+## Tool note
 
-冒烟所用内置浏览器（IAB）对滚动容器内元素的定位器点击会超时
-（actionability 探测缺陷），改用 DOM 节点点击完成全部交互；属浏览器
-工具层怪癖，非产品缺陷——元素对真实用户点击响应正常（键盘/坐标/节点
-三种路径均触发过同一 React 处理器）。
+The built-in browser (IAB) used for smoke testing timed out when locator-clicking elements
+inside a scroll container (an actionability-detection defect), so DOM-node clicks were used
+for all interactions. This is a browser-tool quirk, not a product defect—the elements respond
+to real user clicks normally (keyboard/coordinate/node paths all triggered the same React
+handler).
 
-## 结论
+## Conclusion
 
-`just ci` 绿 + 真实路径冒烟通过，符合 `smoke-for-user-visible-change`
-与 `just-ci-is-the-gate` 规则。
+`just ci` green + real-path smoke passed, satisfying the `smoke-for-user-visible-change`
+and `just-ci-is-the-gate` rules.

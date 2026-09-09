@@ -1,35 +1,36 @@
 # Verification — 2026-08-26 studio-launch-fix
 
-## 修复前复现
+## Reproduction before the fix
 
 `powershell -NoProfile -ExecutionPolicy Bypass -File ./launch-vivy-studio.ps1`
-→ dsh 抛 `ERR_MODULE_NOT_FOUND`（`dsh-plugin` 无法解析），`:3090` 无响应。
+→ dsh threw `ERR_MODULE_NOT_FOUND` (`dsh-plugin` could not be resolved); `:3090` was unresponsive.
 
-## 修复后验证（真实启动，非单测）
+## Verification after the fix (real launch, not unit tests)
 
-1. 重新启动 `launch-vivy-studio.ps1`，日志：
+1. Restarted `launch-vivy-studio.ps1`; log:
 
    ```
    [hub] routes mounted (profile=vivy-studio, loader=provided)
    dsh web: http://127.0.0.1:3090
    ```
 
-2. 路由探活（全部 HTTP 200）：
+2. Route health checks (all HTTP 200):
 
-   | 端点 | 状态 |
+   | Endpoint | Status |
    |---|---|
-   | `http://127.0.0.1:3090/`（主页面） | 200 |
-   | `/vivy-debugger/api/status`（debugger） | 200 |
-   | `/dsh-plugin-hub/settings`（plugin-hub） | 200 |
-   | `/dsh-plugin-hub/debug/loader-entries`（plugin-hub） | 200 |
+   | `http://127.0.0.1:3090/` (main page) | 200 |
+   | `/vivy-debugger/api/status` (debugger) | 200 |
+   | `/dsh-plugin-hub/settings` (plugin-hub) | 200 |
+   | `/dsh-plugin-hub/debug/loader-entries` (plugin-hub) | 200 |
 
-3. `node_modules/dsh-plugin/package.json` 名称为 `dsh-plugin`，
-   `lib/services/install/` 等缺失模块已补齐。
+3. `node_modules/dsh-plugin/package.json` is named `dsh-plugin`, and missing
+   modules such as `lib/services/install/` are present.
 
 ## just ci
 
-`just ci` 是内核/UI gate；本次改动是 Studio 的 PowerShell 启动脚本 + 第三方
-plugin-hub 的 `lib` 重建 + 已安装 profile 运行时状态，均不在 `just ci` 覆盖
-范围内（`justfile` 的 ci: fmt-check vet test headless-compile ui-ci）。已另行
-通过真实启动 + 路由探活验证。`just ci` 也已后台跑完：**exit 0**（仅 UI 构建有
-常规 chunk 体积警告），无连带破坏。
+`just ci` is the kernel/UI gate; this change consists of the Studio PowerShell
+launch script, the third-party plugin-hub `lib` rebuild, and installed-profile
+runtime state, all outside `just ci`’s coverage (`justfile` ci: fmt-check vet test
+headless-compile ui-ci). They were verified separately through a real launch and
+route health checks. `just ci` also completed in the background: **exit 0** (only
+the usual UI build chunk-size warning), with no collateral breakage.

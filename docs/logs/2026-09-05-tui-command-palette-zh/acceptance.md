@@ -1,8 +1,8 @@
 # Acceptance
 
-1. 在真实 `vivy tui --live` 中按 `/`。
-2. 列表应显示 `/help` 加「查看命令」这类短中文，而不是满屏 `/mcp [server|resources…]`。
-3. 上下移动时，当前行有底色；完整 usage 只出现在选中行下方。
-4. 输入 `mcp` 或中文关键词时，匹配字有下划线高亮。
-5. 底栏为「命令 / 发送 / 批准」等中文。
-6. Enter 仍回填 `/help`、`/image` 这种英文命令；`//hello` 仍作为字面量发送。
+1. In a real `vivy tui --live`, press `/`.
+2. The list should show `/help` with a short label such as “View commands”, rather than a screen full of `/mcp [server|resources…]`.
+3. When moving up and down, the current row has a background; full usage appears only below the selected row.
+4. When entering `mcp` or a Chinese keyword, matching characters are underlined.
+5. The footer uses Chinese labels such as “Command / Send / Approve”.
+6. Enter still fills in English commands such as `/help` and `/image`; `//hello` is still sent literally.

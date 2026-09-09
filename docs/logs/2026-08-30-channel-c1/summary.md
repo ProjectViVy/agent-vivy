@@ -1,34 +1,79 @@
-# CH-C1 — 账本：`channel.inbound` + Message 出处（summary）
+# CH-C1 — Ledger: `channel.inbound` + Message provenance (summary)
 
-日期：2026-08-30。分支 `feat/channel-c1`（自 `feat/channel-super-contract` 82ecf14 切出，独立 worktree）。
-PLAN：`docs/plans/channel-epic/CH-C1.md`。合同：`docs/architecture/VIVY-CHANNEL-PACK.md` §7.3/§8/§12。
+Date: 2026-08-30. Branch: `feat/channel-c1` (cut from
+`feat/channel-super-contract` 82ecf14, in an independent worktree).
+PLAN: `docs/plans/channel-epic/CH-C1.md`. Contract:
+`docs/architecture/VIVY-CHANNEL-PACK.md` §7.3/§8/§12.
 
-## 做了什么
+## What changed
 
-Journal 认识「世界从哪只耳朵进来说了什么」。身体上还没有耳朵：无适配器、无 ChannelHost、无 sdk/plugin ABI 变化，Eino 循环未动。
+The Journal now knows "what came in through which ear from the world." The body still
+has no ears: no adapter, ChannelHost, or sdk/plugin ABI change, and the Eino loop is
+untouched.
 
-1. **Message 出处四字段**（`internal/domain/session.go`）：`Source`（`"ui" | "channel"`，空读作 ui）、`Channel`、`ChatID`、`ChannelMessageID`。新增 `EffectiveSource()`（空 → `"ui"`）与零值兼容单测（`TestMessageEffectiveSource`）。全仓 `domain.Message{` 字面量均为键名字面量，加字段零编译破坏（explore 扫描确认）。
-2. **新事件类型**（`internal/domain/event.go`）：`EventChannelInbound = "channel.inbound"`，登记进 `EventTypes`（35→36）；非终态，`Terminal()`/`RunStatus()` 未动。`TestEventVocabulary` 同步 36。
-3. **事件 schema**：新建 `schemas/events/payloads/channel.inbound.json`（`channel/chat_id/sender/message_id/session_id` 必填，`run_id` 可选，`additionalProperties: false`；无 token、无原始 webhook body、无内容字段）。`run-event.schema.json` 枚举加 `"channel.inbound"`，与 `EventTypes` 逐项镜像。
-4. **存储迁移（双引擎）**：
-   - sqlite：`migration016` 四条 `ALTER TABLE messages ADD COLUMN ... TEXT NOT NULL DEFAULT ''`（沿用 migration011 模式；测试经 `Open` 走全迁移链）。
-   - postgres：`schemaVersion` 14→15；`migrate()` 增加原地升级分支——已记录 version 14 的库执行 `schemaV15Upgrade`（同四条 ALTER），全新库走全量 `schemaV15` DDL。存量 postgres 库因此不被甩下。
-   - 两处 `messages.go`（INSERT/SELECT/Scan，9→13 列）保持字节级同构。
-5. **conformance CN-17**「message provenance round-trip」：channel 行四字段精确往返 + 空 Source 行读回 `EffectiveSource()=="ui"`；guard 16→17。双后端自动挂载。
-6. **UI 路径**：`internal/runtime/service.go` `RunWithOptions` 用户行显式 `Source: "ui"`；assistant/tool 投影保持空（空=ui），语义不变。
-7. **升级路径测试**：`internal/storage/postgres/upgrade_test.go` 用 82ecf14 冻结的 v14 DDL 手工搭库 → 经生产 `OpenSchema` 原地升级 → 断言版本记录 `[14 15]`、四列 `NOT NULL DEFAULT ''`、旧行存活且 `EffectiveSource()=="ui"`、带出处写入可往返。
-8. **文档一致性**：`docs/AGENT-VIVY-ARCHITECTURE-V0.md` conformance 计数 CN-01..CN-16 → CN-01..CN-17。
+1. **Four Message provenance fields** (`internal/domain/session.go`): `Source`
+   (`"ui" | "channel"`, with empty read as ui), `Channel`, `ChatID`, and
+   `ChannelMessageID`. Added `EffectiveSource()` (empty → `"ui"`) and a zero-value
+   compatibility test (`TestMessageEffectiveSource`). All `domain.Message{` literals
+   across the repository use keyed fields, so adding fields causes no compile break
+   (confirmed by the explore scan).
+2. **New event type** (`internal/domain/event.go`): `EventChannelInbound =
+   "channel.inbound"`, registered in `EventTypes` (35→36); it is non-terminal, and
+   `Terminal()`/`RunStatus()` are unchanged. `TestEventVocabulary` is updated to
+   36.
+3. **Event schema**: created `schemas/events/payloads/channel.inbound.json`
+   (`channel/chat_id/sender/message_id/session_id` required, `run_id` optional,
+   `additionalProperties: false`; no token, raw webhook body, or content fields).
+   Added `"channel.inbound"` to the `run-event.schema.json` enum as a one-for-one
+   mirror of `EventTypes`.
+4. **Storage migration (both engines)**:
+   - sqlite: `migration016` adds four `ALTER TABLE messages ADD COLUMN ... TEXT NOT NULL
+     DEFAULT ''` statements (following the migration011 pattern; tests run the full
+     migration chain through `Open`).
+   - postgres: `schemaVersion` 14→15; `migrate()` adds an in-place upgrade branch—
+     databases recorded at version 14 run `schemaV15Upgrade` (the same four ALTERs),
+     while new databases use the full `schemaV15` DDL. Existing postgres databases
+     are therefore not left behind.
+   - The two `messages.go` implementations (INSERT/SELECT/Scan, 9→13 columns) remain
+     byte-for-byte isomorphic.
+5. **Conformance CN-17**, "message provenance round-trip": exact round-trip of the
+   four channel fields plus an empty-Source row reading back as
+   `EffectiveSource()=="ui"`; guard 16→17. Both backends mount it automatically.
+6. **UI path**: `RunWithOptions` in `internal/runtime/service.go` explicitly sets
+   `Source: "ui"` on user rows; assistant/tool projections remain empty (empty = ui),
+   so semantics are unchanged.
+7. **Upgrade-path test**: `internal/storage/postgres/upgrade_test.go` manually
+   creates a database from the v14 DDL frozen at 82ecf14 → upgrades it in place through
+   production `OpenSchema` → asserts version history `[14 15]`, four
+   `NOT NULL DEFAULT ''` columns, survival of old rows with
+   `EffectiveSource()=="ui"`, and round-tripping of a provenance-bearing write.
+8. **Documentation consistency**: the conformance count in
+   `docs/AGENT-VIVY-ARCHITECTURE-V0.md` changed from CN-01..CN-16 to CN-01..CN-17.
 
-## 与合同的差异（照 PLAN 执行，待架构师追认）
+## Difference from the contract (implemented per PLAN; architect confirmation pending)
 
-合同 §12 的 Journal 草图写 `{channel, peer, message_id, content_digest, bytes}`；CH-C1 PLAN §4 定形为 `{channel, chat_id, sender, message_id, session_id, run_id?}`（peer 拆为 chat_id+sender，无 content_digest/bytes）。按权威顺序（PLAN 为本切片开工令）执行，已在 `docs/TODO.md` §0.1 登记请架构师确认是否回写合同。
+The Journal sketch in contract §12 specifies
+`{channel, peer, message_id, content_digest, bytes}`; CH-C1 PLAN §4 defines
+`{channel, chat_id, sender, message_id, session_id, run_id?}` (peer is split into
+chat_id+sender, with no content_digest/bytes). Per the authority order (the PLAN is
+this slice's start order), that definition was implemented and recorded in
+`docs/TODO.md` §0.1 for the architect to confirm whether the contract should be
+updated.
 
-## 明确没做（不做声明）
+## Explicitly not done
 
-- 无 ChannelHost（禁止建 `internal/channelhost`）、无五个适配器、无平台 SDK、`go.mod` 零新增依赖。
-- `sdk/plugin`、`internal/pluginhost`、`plugins/`、`internal/generated/plugins/zz_register.go`（仍 `return nil`）零改动。
-- RPC `messageResult` 不投影出处（UI/JSON-RPC 不可见）——留给 CH-C5 inspect/设置页切片，已登记 §0.1。
-- `Source` 无类型词表校验（透传任意非空值）——C2 SDK seam 落地时随合同定词表，已登记 §0.1。
-- 未加 `channel.inbound` 的 Go payload 结构体与发射器（无 Host 即无发射方；C3 随 mapper 一起长）。
-- `run-event` envelope 必填 `run_id` 与 `channel.inbound`（发生在 run 存在前）的信封张力——C3 设计前拍板，已登记 §0.1。
-- 未 push。
+- No ChannelHost (creation of `internal/channelhost` is prohibited), five adapters,
+  or platform SDK; `go.mod` has no new dependencies.
+- No changes to `sdk/plugin`, `internal/pluginhost`, `plugins/`, or
+  `internal/generated/plugins/zz_register.go` (it still `return nil`).
+- RPC `messageResult` does not project provenance (not visible in UI/JSON-RPC); left
+  for the CH-C5 inspect/Settings slice and recorded in §0.1.
+- `Source` has no typed vocabulary validation (any non-empty value is passed through);
+  the vocabulary will be settled with the contract when the C2 SDK seam lands, and is
+  recorded in §0.1.
+- No Go payload struct or emitter for `channel.inbound` (without a Host there is no
+  emitter; C3 grows it with the mapper).
+- The envelope tension between required `run_id` in the `run-event` envelope and
+  `channel.inbound` (which occurs before a run exists) was left for a decision before
+  C3 design and recorded in §0.1.
+- Not pushed.

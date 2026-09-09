@@ -1,4 +1,4 @@
-# TUI-CMD-N4 — 动态命令异步状态后续收口
+# TUI-CMD-N4 — Dynamic-command asynchronous-state follow-up closeout
 
 ## What changed
 

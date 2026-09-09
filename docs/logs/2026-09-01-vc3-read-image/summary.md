@@ -1,4 +1,4 @@
-# VC-3 slice 5: read_file 图片支持（tool-result parts envelope）
+# VC-3 slice 5: read_file image support (tool-result parts envelope)
 
 Date: 2026-09-01. Lane: `feat/vc1a-bash-tool` (worktree `agent-vivy-vc0`).
 
@@ -56,9 +56,9 @@ numbered content, same truncation and binary handling.
 Behavior/protocol alignment only; zero code copied (Crush is FSL-1.1-MIT).
 Crush's read tool attaches images for vision models; Vivy reaches the same
 model experience through the tool-result parts envelope on the eino-native
-multimodal surface (per the 不自研清单: multimodal 读走 eino 原生).
+multimodal surface (per the no-homegrown list: multimodal reads use native eino).
 
 ## Explicitly not done
 
-- `positionEncoding` negotiation stays on the VC-3 余 list.
+- `positionEncoding` negotiation stays on the VC-3 remaining list.
 - No config knob for the image cap — it reuses `max_file_bytes`.

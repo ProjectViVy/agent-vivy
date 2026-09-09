@@ -1,21 +1,30 @@
-# Acceptance（人如何确认）
+# Acceptance (how a person can confirm it)
 
-打开 `http://127.0.0.1:3015`（split dev）或嵌入 UI：
+Open `http://127.0.0.1:3015` (split dev) or the embedded UI:
 
-1. **聊天框可新建会话**：聊天输入框顶栏右侧（历史左边）有 ⊕ 按钮，悬停提示"新建会话"；
-   点击后立即切到空白新会话，打开"历史"或顶栏"会话"能看到列表多了一条。
-2. **旧入口已消失**：
-   - 左侧边栏顶部不再有"新会话 ⊕"按钮；
-   - "历史 / 会话"抽屉顶部不再有"新建会话"虚线按钮；
-   - 聊天框底行不再有麦克风（语音）按钮；
-   - 聊天框顶栏不再有猫爪（桌面伙伴）按钮。
-3. **执行模式是真的**：顶栏"智能体模式"下拉选"计划模式"后发一条会触发工具的消息，
-   会出现预检横幅"预检已阻止本次运行 … unavailable in plan mode"；切回"智能体模式"
-   重发即可正常执行。选"询问模式"会提示"询问模式暂未接入"，不影响当前选择。
-4. **审批与权限本来就是聊天框内的真功能**（本次未改、已复核）：
-   - 顶栏盾牌按钮打开"审批中心"，有待处理数角标；
-   - 权限下拉（谨慎/智能/信任）切换立即生效，运行中锁定，"信任"需二次确认。
-5. **以下按钮仍是占位（用户已知悉，保留 UI）**：附件、AutoDream、"＋更多"、思考模式
-   （自动/开启/关闭）。点击附件/AutoDream/更多会提示"暂未接入"。
+1. **The chat box can create a session**: the right side of the chat-input top bar
+   (left of History) has a ⊕ button with the hover label "Create new session". Clicking
+   it immediately switches to a blank new session; opening "History" or the top-bar
+   "Sessions" shows one more item in the list.
+2. **The old entry points are gone**:
+   - The "New session ⊕" button is no longer at the top of the left sidebar.
+   - The "Create new session" dashed button is no longer at the top of the
+     "History / Sessions" drawer.
+   - The microphone (voice) button is no longer on the bottom row of the chat box.
+   - The cat-paw (desktop companion) button is no longer on the chat-box top bar.
+3. **Execution modes are real**: choose "Plan mode" from the top-bar "Agent mode"
+   dropdown and send a tool-triggering message. A preflight banner appears:
+   "Preflight blocked this run … unavailable in plan mode". Switch back to "Agent mode"
+   and resend to execute normally. Choosing "Ask mode" displays "Ask mode is not
+   connected yet" without changing the current selection.
+4. **Approval and permissions are already real chat-box features** (not changed this
+   time; rechecked):
+   - The top-bar shield button opens "Approval Center" with a pending-count badge.
+   - The permission dropdown (Cautious / Smart / Trust) takes effect immediately, is
+     locked while a run is active, and requires a second confirmation for "Trust".
+5. **The following buttons remain placeholders (known to the user; UI retained)**:
+   Attachments, AutoDream, "+ More", and Thinking mode (Auto / On / Off). Clicking
+   Attachments, AutoDream, or More displays "Not connected yet".
 
-如果第 3 条想快速看到效果：计划模式下输入"帮我建一个待办"类会调用工具的消息最直观。
+To see item 3 quickly, in Plan mode enter a tool-calling message such as "Help me
+create a task".

@@ -1,10 +1,10 @@
 # Verification
 
-## 自动化
+## Automation
 
-- `go test ./sdk/tui/view ./sdk/tui/live`：通过。
-- `just ci`：通过。
+- `go test ./sdk/tui/view ./sdk/tui/live`: passed.
+- `just ci`: passed.
 
-## 真实路径 smoke
+## Real-path smoke
 
-- 未读取或写入 `data/vivy.db`、`data/demo/`、`data/workspaces/`。
+- Did not read or write `data/vivy.db`, `data/demo/`, or `data/workspaces/`.

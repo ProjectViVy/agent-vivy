@@ -1,4 +1,4 @@
-# Verification — VC-2 成本核算 + 模型元数据 (D9)
+# Verification — VC-2 Cost accounting + model metadata (D9)
 
 All commands run in the worktree `agent-vivy-vc0` on `feat/vc1a-bash-tool`.
 

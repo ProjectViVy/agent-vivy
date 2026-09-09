@@ -1,4 +1,4 @@
-# 超级通道合同：Eino 原生 A2A 澄清 — 验证
+# Super Channel contract: Eino-native A2A clarification — verification
 
 Date: 2026-08-30
 

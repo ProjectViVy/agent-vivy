@@ -19,6 +19,6 @@
 
 ## User-visible smoke
 
-Open `http://127.0.0.1:3015/dashboard` in the split pair: the "审计" card is
-visible below "近期活动"; tabs, date picker, and refresh feedback work. The
-top-right header no longer shows the 审计 button.
+Open `http://127.0.0.1:3015/dashboard` in the split pair: the "Audit" card is
+visible below "Recent Activity"; tabs, date picker, and refresh feedback work. The
+top-right header no longer shows the Audit button.

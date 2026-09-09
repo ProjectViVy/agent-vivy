@@ -1,4 +1,4 @@
-# Acceptance — VC-2 Anthropic 后端接线（eino-ext/claude）
+# Acceptance — VC-2 Anthropic backend wiring (`eino-ext/claude`)
 
 How a human can tell it worked.
 

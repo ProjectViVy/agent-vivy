@@ -1,38 +1,45 @@
-# Summary — 思考模式端到端接线（UI-COMPOSER / UI-CHAT-TOOLBAR 可行部分）
+# Summary — end-to-end thinking-mode wiring (feasible UI-COMPOSER / UI-CHAT-TOOLBAR portion)
 
 ## What changed
 
-聊天框的思考模式从纯 UI 状态接成真实内核能力，按 D9（模型元数据归 provider/model
-管理，不另起数据源）门控：
+The chat box's thinking mode is now wired from UI-only state to real kernel capability,
+gated under D9 (model metadata is managed by provider/model, with no separate data source):
 
-- **domain**：新增 `ThinkingMode`（auto/on/off）与 run 级 context 携带
-  （`WithThinkingMode` / `ThinkingModeFromContext`）；`ModelInfo` 新增
-  `SupportsThinking`（零值保守 false）。
-- **provider**：Anthropic 目录逐模型标注 thinking 支持（Claude 3.7 Sonnet 及以后
-  代际为 true）；`resolvingChatModel` 在每次调用读取 run context，仅当
-  thinking=on 且目录元数据声明支持时注入 `einoclaude.WithThinking`（预算
-  4096，低于协议 max_tokens 8192）。未知模型 / 非 Anthropic 后端一律不发该参数
-  —— 与附件的 SupportsImages 门同构（零值默认不破坏自定义网关）。
-- **runtime**：`RunOptions.Thinking`（空 = auto）经 `normalizeThinkingMode` 校验
-  后写入 runCtx；无效值在持久化任何数据前拒绝（`ErrInvalidThinkingMode`）。
-- **rpc**：`turn/start` 新增 `thinking` 参数（无效值 → InvalidParams）；
-  `session/context` 新增 `thinking_supported`（D9 门控面，UI 由此决定选择器可见性）。
-- **UI**：`ChatInput` 思考选择器仅当 `context.thinking_supported` 时渲染（D9 门
-  —— 死控件一律不出现）；偏好随发送链（直接发送与排队两条路）贯通
-  ChatInput → ChatView → store.startRun → `api.startTurn` → turn/start。
+- **domain**: add `ThinkingMode` (auto/on/off) and carry it in run-level context
+  (`WithThinkingMode` / `ThinkingModeFromContext`); add `SupportsThinking` to `ModelInfo`
+  (conservatively false at the zero value).
+- **provider**: annotate thinking support per model in the Anthropic catalog (Claude 3.7
+  Sonnet and later generations are true); `resolvingChatModel` reads run context on each
+  call and injects `einoclaude.WithThinking` only when thinking=on and catalog metadata says
+  it is supported (budget 4096, below the protocol max_tokens 8192). Unknown models and
+  non-Anthropic backends never send the parameter — structurally matching the attachment's
+  SupportsImages gate (zero value defaults do not break custom gateways).
+- **runtime**: validate `RunOptions.Thinking` (empty = auto) through
+  `normalizeThinkingMode`, then write it to runCtx; reject invalid values before persisting
+  any data (`ErrInvalidThinkingMode`).
+- **rpc**: add a `thinking` parameter to `turn/start` (invalid value → InvalidParams); add
+  `thinking_supported` to `session/context` (the D9 gate surface from which the UI decides
+  whether the selector is visible).
+- **UI**: render the `ChatInput` thinking selector only when
+  `context.thinking_supported` is true (D9 gate — dead controls never appear); carry the
+  preference through both send paths (direct send and queue): ChatInput → ChatView →
+  store.startRun → `api.startTurn` → turn/start.
 
 ## Explicitly not done
 
-- **OpenAI 兼容路径的 reasoning_effort 旋钮**：eino openai 适配器有
-  `WithReasoningEffort`，但 o 系/gpt-5 的"关闭"语义不统一（minimal 仅部分模型
-  合法），本代不接；元数据全部 false，选择器不出现。后续如需再立行。
-- **'off' 的强制关闭**：Anthropic 缺省即不思考，auto/off 都是"不发参数"；
-  对常开推理模型（o 系）off 退化为 provider 默认。
-- **AutoDream / 询问模式 / 桌面伙伴 / 语音**：维持 stub（AutoDream 等 MEM-1
-  DEFERRED；询问模式无内核语义）。
-- **思考偏好持久化**：本轮跟随 Crush 语义为逐回合选择，不做会话级持久化。
+- **The `reasoning_effort` control on the OpenAI-compatible path**: the eino openai
+  adapter has `WithReasoningEffort`, but the "off" semantics for the o-series/gpt-5 are not
+  uniform (`minimal` is valid for only some models); it is not wired in this generation. All
+  metadata is false, so the selector does not appear. Open a separate item if needed later.
+- **Forced 'off'**: Anthropic does not think by default, and auto/off both mean "do not send
+  the parameter"; for always-on reasoning models (the o-series), off falls back to the
+  provider default.
+- **AutoDream / question mode / desktop companion / voice**: remain stubs (AutoDream, etc.,
+  MEM-1 DEFERRED; question mode has no kernel semantics).
+- **Persistence of thinking preferences**: this round follows Crush semantics with a
+  per-turn choice; there is no session-level persistence.
 
 ## Filing
 
-- TODO 行 UI-COMPOSER / UI-CHAT-TOOLBAR 注释更新（可行部分已交付，余项注明
-  阻塞原因）。
+- Updated the TODO-line notes for UI-COMPOSER / UI-CHAT-TOOLBAR (the feasible portion is
+  delivered; remaining items include their blocking reasons).

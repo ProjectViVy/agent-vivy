@@ -1,59 +1,59 @@
-# 站立命令 — 超级通道全体切片
+# Standing Orders — All Super-Channel Slices
 
-子 AGENT 开工前必读。违反即停，不要靠评审事后纠正。
+Sub-AGENTs must read this before starting work. Violation means stop; do not rely on review to correct it afterward.
 
-## 权威
+## Authority
 
-合同 `VIVY-CHANNEL-PACK.md` > 演进 `VIVY-CHANNEL-EVOLUTION.md` > 本切片 PLAN > `docs/TODO.md` §0.2 日历。
+Contract `VIVY-CHANNEL-PACK.md` > Evolution `VIVY-CHANNEL-EVOLUTION.md` > this slice's PLAN > `docs/TODO.md` §0.2 calendar.
 
-日历不改合同。PLAN 不发明第二套循环。发现合同漏洞：写入 `docs/TODO.md` §0.1，不要擅自扩缝。
+The calendar does not change the contract. A PLAN must not invent a second loop. If you find a contract gap, write it to `docs/TODO.md` §0.1; do not widen the seam on your own.
 
-## 车道
+## Lanes
 
-- 根树脏或已有写 lane：`git worktree add ../agent-vivy-<id> -b feat/channel-<id>`。
-- 文档包在 `feat/channel-super-contract`。**实现切片不得往该分支堆代码。**
-- 并行 C4∥C6 必须两棵 worktree。第三只真 SDK 等 C4 合入后再开（ABI 样板）。
+- If the root tree is dirty or an existing write lane is present: `git worktree add ../agent-vivy-<id> -b feat/channel-<id>`.
+- The documentation package is on `feat/channel-super-contract`. **Implementation slices must not pile code onto that branch.**
+- Parallel C4∥C6 requires two worktrees. Open the third real SDK only after C4 merges (ABI template).
 
-## Eino（D-007）
+## Eino (D-007)
 
-- 只有 `internal/runtime` 与 `internal/provider` 可 import `github.com/cloudwego/eino*`。
-- `internal/channelhost`、`sdk/plugin`、全部 `plugins/<channel>` **零 Eino import**。
-- 禁止 Host 或插件 `adk.NewRunner`。唯一循环是 `runtime.Service.Run`。
-- 后切 A2A 才允许独立 `plugins/a2a` 依赖 `eino-ext/a2a` 的 **models/transport**。禁止 `RegisterServerHandlers(adk.Agent)`。
-- `AgentAsTool` / DeepAgent 不是本 EPIC。
+- Only `internal/runtime` and `internal/provider` may import `github.com/cloudwego/eino*`.
+- `internal/channelhost`, `sdk/plugin`, and all `plugins/<channel>` must have **zero Eino imports**.
+- Host and plugins must not use `adk.NewRunner`. The only loop is `runtime.Service.Run`.
+- Only the later A2A slice may let the independent `plugins/a2a` depend on `eino-ext/a2a` **models/transport**. `RegisterServerHandlers(adk.Agent)` is prohibited.
+- `AgentAsTool` / DeepAgent are not part of this EPIC.
 
-## 插件
+## Plugins
 
-- 作者只 import `agent-vivy/sdk/plugin`。禁止 `import agent-vivy/internal/...`。
-- 禁止 `net.Listen` / `http.ListenAndServe`。Listen 是 Host 的。
-- 禁止把 telego / discordgo / lark / 钉钉 / botgo 写入物种默认 `go.mod`。
-- 默认提交的 `internal/generated/plugins/zz_register.go` 必须保持 `return nil`。
-- `pluginhost.Adapt` 不得把 `seam: channel` 变成 `tools.Tool`。
+- Authors may import only `agent-vivy/sdk/plugin`. `import agent-vivy/internal/...` is prohibited.
+- `net.Listen` / `http.ListenAndServe` are prohibited. Listen belongs to the Host.
+- Do not write telego / discordgo / lark / DingTalk / botgo into a species' default `go.mod`.
+- The default submitted `internal/generated/plugins/zz_register.go` must remain `return nil`.
+- `pluginhost.Adapt` must not turn `seam: channel` into `tools.Tool`.
 
-## picoclaw 对照（正式做通道时必读）
+## picoclaw Reference (Required Reading for Formal Channel Work)
 
-五个真实适配器（CH-C4 / C6 / C7a / C7b / C7c）以 **picoclaw 的 channel 实现为最完整的 Go 样本**。开工前先读对应包，再改写进 `plugins/<name>/`。
+The five real adapters (CH-C4 / C6 / C7a / C7b / C7c) use **picoclaw's channel implementations as the most complete Go samples**. Read the corresponding package before starting, then rewrite it into `plugins/<name>/`.
 
-- 只读。禁止 `import` picoclaw 模块，禁止把 `.workspace` 写进 `go.mod`。
-- 偷：`Start` / `Stop` / `Send`、InboundContext / SenderInfo、错误分类、该平台 token 用法。
-- 不偷：`init()` blank import 进网关、空 `allow_from` 放行、插件自建 `net.Listen`、内核里的 `TelegramSettings` 一类类型。
-- 路径（按存在选用）：仓库 `.workspace/picoclaw/pkg/channels/<name>`；本机 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\<name>`。
-- Discord **不要**移植 `voice.go` / pion。钉钉走 Stream，不要倒退成 webhook 文本机器人。QQ 是官方 Bot，不是个人号 / OneBot。
+- Read-only. Do not `import` picoclaw modules or write `.workspace` into `go.mod`.
+- Borrow: `Start` / `Stop` / `Send`, InboundContext / SenderInfo, error classification, and the platform's token usage.
+- Do not borrow: `init()` blank-importing into the gateway, allowing an empty `allow_from`, plugins creating their own `net.Listen`, or kernel types such as `TelegramSettings`.
+- Paths (use whichever exists): repository `.workspace/picoclaw/pkg/channels/<name>`; local `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\<name>`.
+- For Discord, **do not** port `voice.go` / pion. DingTalk uses Stream; do not regress to a webhook text bot. QQ is an official Bot, not a personal account / OneBot.
 
-## 循环与账本
+## Loop and Ledger
 
-- 入站只走 `Env.PublishInbound` → ChannelHost → `channel.inbound` → `Message(source=channel)` → `Service.Run`。
-- 密钥只经 `token_env` / `*_env`。值不进配置、不进 Journal、不进事件 payload。
-- 空 `allow_from` = 拒绝 Start。禁止 `"*"`。
+- Inbound traffic goes only through `Env.PublishInbound` → ChannelHost → `channel.inbound` → `Message(source=channel)` → `Service.Run`.
+- Secrets go only through `token_env` / `*_env`. Values do not enter configuration, Journal, or event payloads.
+- Empty `allow_from` = reject Start. `"*"` is prohibited.
 
-## 验证与提交
+## Verification and Submission
 
-- 交付前根（或该 worktree）跑 `just ci`。
-- 用户可见面走 `http://127.0.0.1:3015`，不是嵌入 UI `:8787`。
-- 写 `docs/logs/YYYY-MM-DD-<id>/{summary,verification,acceptance}.md`。
-- 一个切片一个主题 commit。不 push，除非用户明示。
-- TODO 该行标 DONE 并指向 log。在本切片 PLAN §10 勾交接。
+- Before delivery, run `just ci` in the root (or this worktree).
+- The user-visible surface is `http://127.0.0.1:3015`, not the embedded UI at `:8787`.
+- Write `docs/logs/YYYY-MM-DD-<id>/{summary,verification,acceptance}.md`.
+- One theme commit per slice. Do not push unless the user explicitly says so.
+- Mark the TODO line DONE and point it to the log. Check off the handoff in this slice's PLAN §10.
 
-## 语言
+## Language
 
-代码标识英语。用户文案中文。iteration log 中文。
+Code identifiers are in English. User-facing copy is in Chinese. Iteration logs are in Chinese.

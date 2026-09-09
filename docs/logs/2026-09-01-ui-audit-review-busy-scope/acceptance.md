@@ -1,22 +1,27 @@
 # Acceptance
 
-## 人如何确认生效
+## How to verify
 
-1. 打开 `http://127.0.0.1:3015`，制造两条以上待处理审批/问题
-   （或用已有记录）。
-2. 打开 Review sheet（聊天页盾形入口）。
-3. 对记录 A 点「批准」：A 行变半透明且不可点，按钮显示 处理中…；
-   与此同时：
-   - 其余行不再灰锁——点记录 B 立刻能看到 B 的详情（旧行为是整个
-     队列冻结）；
-   - 顶部「刷新」按钮在响应期间可点（仅加载中/刷新中禁用）。
-4. 响应 A 进行中时选中 B：B 的动作按钮禁用（防止静默 no-op），
-   A 完成后 B 的按钮解锁，可立即批准/拒绝。
-5. 响应进行中 Review sheet 无法被 Esc/点外/关闭按钮关闭（保持原保护）；
-   队列清空（无在途响应）后恢复可关。
-6. 双语无回归：处理中/Processing… 等文案照旧。
+1. Open `http://127.0.0.1:3015` and create at least two pending approvals or
+   questions (or use existing records).
+2. Open the Review sheet from the shield entry on the chat page.
+3. Click "Approve" for record A: row A becomes translucent and unavailable, and
+   its button shows Processing…; at the same time:
+   - the other rows are no longer gray-locked—clicking record B immediately
+     shows B's details (previously the entire queue froze);
+   - the top "Refresh" button remains clickable during the response (disabled
+     only while loading/refreshing).
+4. Select B while A is responding: B's action buttons are disabled (preventing
+   a silent no-op); once A finishes, B's buttons unlock and can be used to
+   approve or reject immediately.
+5. The Review sheet cannot be closed with Esc, by clicking outside, or with the
+   close button while a response is in flight (the existing protection remains);
+   it becomes closable again when the queue is clear.
+6. No bilingual regression: copy such as Processing… remains unchanged.
 
-## 并发语义
+## Concurrency semantics
 
-- 同一条记录重复提交仍被挡（store 按 id 单飞 + 按钮禁用双保险）。
-- 不同记录可真正并发响应（各自独立 RPC + 各自按 id 的乐观状态更新）。
+- Repeated submissions for the same record remain blocked (per-ID single-flight
+  in the store + button disabling as a second safeguard).
+- Different records can respond concurrently (independent RPCs + independent
+  per-ID optimistic state updates).

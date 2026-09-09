@@ -2,7 +2,7 @@
 
 > **Status:** Living index. V0 is closed; remaining work matches `docs/TODO.md` §0.1.
 > **Updated:** 2026-08-30
-> **Owner:** 📋 John (PM) + user (大湿)
+> **Owner:** 📋 John (PM) + user (mastwet)
 > **Purpose:** Single place to see "what still needs doing" without re-reading every sibling document.
 > **Archive:** `docs/logs/2026-08-25-todo-board-archive/summary.md`
 
@@ -23,7 +23,7 @@ Canonical table: `docs/TODO.md` §0.1.
 | MEM-1 Memory / Laputa family | DEFERRED |
 | P2-1 Diva inventory | OPEN |
 | P2-3 / SR-4 QwenPaw fsjournal | DEFERRED / OPEN |
-| P2-4 V3 板块 map | DEFERRED |
+| P2-4 V3 module map | DEFERRED |
 | P3-1 / P3-2 licenses | OPEN |
 | UI-TREE child-run visualization | DEFERRED |
 
@@ -31,7 +31,7 @@ Canonical table: `docs/TODO.md` §0.1.
 
 - **Priority** — `P0` blocks V0 from starting; `P1` blocks specific milestones (M0–M4); `P2` should be done before V1; `P3` informational.
 - **Status** — `PENDING` (not started), `IN PROGRESS`, `BLOCKED` (waiting on someone), `DONE`, `DEFERRED`.
-- **Owner** — `John` (PM), `user` (大湿), `Winston` (architect when activated), `team` (whoever picks it up).
+- **Owner** — `John` (PM), `user` (mastwet), `Winston` (architect when activated), `team` (whoever picks it up).
 - **Closes** — the parent decision / open question / risk this item resolves.
 
 ## 2. P0 — Blocks V0 from starting
@@ -47,18 +47,18 @@ P1-5 (QwenPaw location) remains as SR-4 / P2-3 — it never blocked V0.
 
 | ID | Item | Status | Owner | Closes |
 |---|---|---|---|---|
-| P2-1 | Diva capability inventory document: list every Diva capability, tag with `Keep / Adapt / Defer / Drop`, link to capability proposals. | **DONE 2026-09-02** | John | OQ-1, PRD §6.3 — `diva-capability-inventory.md`（68 行，Keep 29 / Adapt 15 / Defer 18 / Drop 6） |
+| P2-1 | Diva capability inventory document: list every Diva capability, tag with `Keep / Adapt / Defer / Drop`, link to capability proposals. | **DONE 2026-09-02** | John | OQ-1, PRD §6.3 — `diva-capability-inventory.md` (68 lines, Keep 29 / Adapt 15 / Defer 18 / Drop 6) |
 | P2-2 | First capability proposal after V0 ships. | DONE | — | V1 MA-1..MA-4 shipped 2026-08-08; Channel Pack proposal 2026-08-25 is the next unadopted proposal |
 | P2-3 | QwenPaw filesystem journal backend probe spec — standalone artifact; out of V0 scope. | DEFERRED | John | D-031 |
-| P2-4 | Long-term 板块 map (provider / runtime / session / memory / tools / events / ui) for V3 redesign. | DEFERRED | user + architect | OQ-9 |
+| P2-4 | Long-term module map (provider / runtime / session / memory / tools / events / ui) for V3 redesign. | DEFERRED | user + architect | OQ-9 |
 | P2-5 | Decide `.workspace/` versioning policy (committable vs `.gitignore`). | DONE | — | `/.workspace/` gitignored |
 
 ## 5. P3 — Informational / ambient
 
 | ID | Item | Status | Owner |
 |---|---|---|---|
-| P3-1 | Verify upstream LICENSE for `claude-code` (currently no LICENSE file found locally). | **DONE 2026-09-02** — 上游专有 | `license-review-2026-09-02.md` |
-| P3-2 | Human review of `rig` LICENSE (custom Playgrounds Analytics form). | **DONE 2026-09-02** — 标准 MIT，误读更正 | `license-review-2026-09-02.md` |
+| P3-1 | Verify upstream LICENSE for `claude-code` (currently no LICENSE file found locally). | **DONE 2026-09-02** — proprietary upstream | `license-review-2026-09-02.md` |
+| P3-2 | Human review of `rig` LICENSE (custom Playgrounds Analytics form). | **DONE 2026-09-02** — standard MIT; misreading corrected | `license-review-2026-09-02.md` |
 | P3-3 | Evaluate whether any "Defer" reference project is actually a better V0 application-assembly reference than Crush. | PENDING | user + future architect |
 | P3-4 | Review whether Crush's FSL-1.1-MIT allows deeper reuse than V0 currently plans. | DEFERRED | user |
 | P3-5 | Decide whether the storage architecture addendum should be (a) adopted as-is, (b) adopted with edits after ADR baseline reconciles, or (c) treated as proposal-only with D-026..D-033 capturing the substance. | DONE | ADR-001..008 + D-026..D-033; addendum remains historical |

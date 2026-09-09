@@ -1,35 +1,46 @@
-# 验收指引 — 2026-08-27 自定义供应商注册表
+# Acceptance guide — 2026-08-27 custom provider registry
 
-以用户视角确认功能生效（开发环境：`just dev`，打开
-`http://127.0.0.1:3015`；或直接在 Vivy Studio 会话中执行）：
+Confirm that the feature works from the user's perspective (development environment:
+`just dev`, open `http://127.0.0.1:3015`; or run directly in a Vivy Studio session):
 
-1. **新增自定义供应商**：进入「设置 → 模型」。左侧供应商列表底部是虚线行
-   「＋ 新增自定义供应商」，点击打开对话框。填写：显示名（如"我家网关"）、
-   运行束（OpenAI 兼容 / Anthropic 原生）、Base URL（如
-   `http://localhost:11435/v1`）、默认模型（可选）、模型列表（每行一个或用
-   逗号分隔）。保存后列表出现新行，行尾带灰底「自定义」标记。
-2. **自定义行可编辑/删除**：鼠标悬停自定义行，行尾出现 铅笔(编辑) 与
-   X(删除)；编辑对话框预填原值，改显示名保存后行名更新；删除后该行消失
-   （不影响已保存书签与当前运行配置）。
-3. **校验与冲突**：显示名/Base URL 为空被拦；Base URL 不是 http(s) 被拦；
-   填入与目录或既有自定义相同的 (运行束 + Base URL) 时对话框就地报错
-   "该 Base URL 已存在"。
-4. **点自定义模型即选用**：点击自定义行，右栏出现它的模型列表（空列表则显示
-   "没有静态模型"提示）。点击某模型：该模型立即成为运行配置（顶栏变为
-   "显示名 | 模型"），上方「已选模型」出现 `显示名 · 模型` chip，同时书签生效。
-5. **顶栏快捷切换自定义模型**：点顶栏模型按钮，「已选模型」段列出刚加入的
-   自定义条目（标题=模型 id、副标题=显示名），点击即切换；行尾 X 悬停出现，
-   点击仅移除书签、不影响运行配置。
-6. **重命名全局生效**：编辑自定义供应商改显示名 → 所有已保存书签的 chip、
-   顶栏副标题同步变为新名字（单一权威来源，无需逐个改书签）。
-7. **删除供应商后的标签回退**：删除某自定义供应商，其书签仍在；chips / 顶栏
-   中该条目的厂商名回退为 Base URL 主机名（如 `localhost:11435`），运行配置
-   不受影响。
-8. **注册表与目录同源展示**：搜索供应商时，自定义条目按显示名参与匹配并混排
-   （带「自定义」标记）；非搜索态自定义行恒可见（永不进「更多供应商」折叠）。
-9. **刷新后持久**：刷新页面，自定义供应商列表与已选模型书签都在
-   （`vivy.ui.customProviders` / `vivy.ui.savedModels` 本地存储）。
-10. **只读部署**：`read_only` 时模型/切换类操作锁定，但新增/编辑/删除自定义
-    供应商及移除书签仍可用（本地偏好）。
+1. **Add custom provider**: go to 「Settings → Model」. At the bottom of the left provider
+   list is the dashed row 「＋ Add custom provider」; click it to open the dialog. Fill in:
+   display name (for example the literal "My home gateway"), runtime bundle
+   (OpenAI-compatible / native Anthropic), Base URL (for example
+   `http://localhost:11435/v1`), optional default model, and model list (one per line or
+   comma-separated). After saving, a new row appears with a gray 「Custom」 marker at the end.
+2. **Custom rows can be edited/deleted**: hover over a custom row to reveal the Pencil
+   (Edit) and X (Delete) actions; the edit dialog is prefilled, and saving a changed
+   display name updates the row; deleting removes the row (without affecting saved
+   bookmarks or the current runtime configuration).
+3. **Validation and conflicts**: an empty display name/Base URL is blocked; a Base URL
+   that is not http(s) is blocked; entering the same (runtime bundle + Base URL) as the
+   catalog or an existing custom provider produces the literal in-dialog error
+   "That Base URL already exists".
+4. **Clicking a custom model selects it**: click the custom row and its model list appears
+   on the right (an empty list shows the literal "No static models" notice). Click a model: it
+   immediately becomes the runtime configuration (the top bar becomes the literal
+   "Display name | Model"), a `Display name · Model` chip appears in the "Selected models" area above,
+   and the bookmark takes effect.
+5. **Quick-switch custom models from the top bar**: click the top-bar model button; the
+   「Selected models」 section lists the newly added custom entry (title = model id,
+   subtitle = display name), and clicking it switches immediately. Hovering reveals X at
+   the row end; clicking only removes the bookmark and does not affect runtime configuration.
+6. **Rename takes effect globally**: edit the custom provider's display name → every saved
+   bookmark chip and top-bar subtitle updates to the new name (single source of truth, with
+   no need to edit bookmarks individually).
+7. **Label fallback after provider deletion**: delete a custom provider and its bookmark
+   remains; the provider name for that entry in chips / the top bar falls back to the Base
+   URL hostname (such as `localhost:11435`), without affecting runtime configuration.
+8. **Registry and catalog display together**: when searching providers, custom entries
+   participate by display name and are mixed into the results (with a 「Custom」 marker);
+   outside search, custom rows are always visible (they never enter the 「More providers」
+   fold).
+9. **Persistence after refresh**: refresh the page; the custom-provider list and selected-
+   model bookmarks remain (`vivy.ui.customProviders` / `vivy.ui.savedModels` local storage).
+10. **Read-only deployment**: with `read_only`, model/switch-like operations are locked,
+    but adding/editing/deleting custom providers and removing bookmarks remain available
+    (local preferences).
 
-密钥一如既往只由运行环境管理：注册表与快捷列表均不存任何密钥字段。
+As before, keys are managed only by the runtime environment: neither the registry nor the
+quick list stores any key fields.

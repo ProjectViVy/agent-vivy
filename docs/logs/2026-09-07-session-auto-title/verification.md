@@ -16,11 +16,11 @@ Built `vivy-code.exe` (`just vivy-code`) and launched a fresh instance:
 
 1. Boot: tab title bare `VIVY CODE`, rail shows the `untitled session`
    placeholder — sessions are now born untitled.
-2. Sent `用一句话介绍你自己` (plain chat, no tools). The run completed.
+2. Sent `Introduce yourself in one sentence` (plain chat, no tools). The run completed.
 3. Seconds after the run ended (kernel LLM titler + 4s-paced sidebar
    re-check): the rail header showed the generated title
-   `用一句话介绍你自己` and the Windows Terminal tab title became
-   `VIVY CODE · 用一句话介绍你自己` — the F7 title sync consumed the same
+   `Introduce yourself in one sentence` and the Windows Terminal tab title became
+   `VIVY CODE · Introduce yourself in one sentence` — the F7 title sync consumed the same
    value with no further interaction.
 
 Instance logs for the smoke instance contain no auto-title skip/failure

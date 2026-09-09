@@ -1,15 +1,19 @@
-# Acceptance — P2-1 Diva 能力清单
+# Acceptance — P2-1 Diva capability inventory
 
-人如何确认生效：
+How a human confirms it is effective:
 
-1. 打开 `docs/research/diva-capability-inventory.md`：10 个域表 + §11 统计 +
-   §12 再入规则；每行应有 Diva 证据路径与 Vivy 现状两列。
-2. 抽查可证伪行：
-   - 行 2.1 应记 47 个 provider 预设（可在 `agent-diva-providers/src/providers.yaml`
-     数 `- name:` 验证）；
-   - 行 9.1 应记 176+1 个 Tauri 命令（grep `#[tauri::command]` 可验证）；
-   - 行 1.10（消息编辑/回退/分叉）应指向 UI-CHAT-ACT 在办状态。
-3. `docs/TODO.md` §0.1：P2-1 行 DONE 2026-09-02 + §10 有对应记录；
-   `docs/research/OPEN-ITEMS.md` P2-1 同步。
-4. 用途判据：下一个想做 Defer 能力的人，应能在清单里找到该能力的 Diva 对照、
-   现状差距与"必须先写提案"的提示，而无需重新考古 agent-diva。
+1. Open `docs/research/diva-capability-inventory.md`: 10 domain tables + §11 statistics +
+   §12 re-entry rules; every row should have Diva evidence paths and two columns comparing
+   the current Vivy state.
+2. Spot-check falsifiable rows:
+   - Row 2.1 should record 47 provider presets (verify by counting `- name:` in
+     `agent-diva-providers/src/providers.yaml`);
+   - Row 9.1 should record 176+1 Tauri commands (verify with grep
+     `#[tauri::command]`);
+   - Row 1.10 (message edit/rewind/fork) should point to the in-progress UI-CHAT-ACT
+     status.
+3. In §0.1 of `docs/TODO.md`, the P2-1 line should be DONE 2026-09-02 with a corresponding
+   §10 record; `docs/research/OPEN-ITEMS.md` should be synchronized for P2-1.
+4. Usefulness criterion: someone who wants to implement a Defer capability next should be
+   able to find its Diva comparison, current gap, and the reminder that a proposal must be
+   written first, without re-archaeologizing agent-diva.

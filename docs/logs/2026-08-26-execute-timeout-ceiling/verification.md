@@ -48,8 +48,8 @@ operator settings document lives at `data/settings.yaml` in the worktree —
 not `data/agent-home/` (that is the default path used only when the data
 root is empty).
 
-1. Settings → 通用 renders the 执行超时上限 card (input, range hint,
-   保存通用设置 button; the input reflects the persisted override and the
+1. Settings → General renders the Execute Timeout Ceiling card (input, range hint,
+   Save General Settings button; the input reflects the persisted override and the
    placeholder the config fallback).
 2. Typing 120 into the field and submitting through the real React form
    handler (Playwright's physical click is unreliable in this IAB session —

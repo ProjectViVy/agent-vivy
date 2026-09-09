@@ -1,41 +1,46 @@
-# 验收（2026-08-27，设置 → 网络工具）
+# Acceptance (2026-08-27, Settings → Network Tools)
 
-人站在产品视角如何确认这次改动生效：
+How a person can confirm from the product perspective that this change works:
 
-## 后端
+## Backend
 
-1. `config.example.yaml` 的 `tools:` 下有 `network_search.provider` 注释段
-   （说明 bing/google/searxng 需要环境变量、duckduckgo/wikipedia 免密钥，
-   不写任何密钥值）。
-2. 用 `just run` 启动后，调用真实 RPC（或在浏览器设置页查看）：
-   - `settings/get` 返回 `network_search: { provider, config_provider, providers:
-     [bing, google, duckduckgo, searxng, wikipedia] }`；无环境变量时
-     `duckduckgo`、`wikipedia` 为 `configured: true, keyless: true`，
-     bing/google/searxng 为 `configured: false` 并带 `env_key` 名。
-   - `settings/update` 传 `network_search.provider: "wikipedia"` 后，
-     `data/agent-home/settings.yaml` 出现 `network_search: provider: wikipedia`，
-     `settings/get` 回显 `provider: "wikipedia"`；传未知 provider（如
-     `yandex`）被拒绝（InvalidParams）。
-3. 重启后（或直接看 `Search` 行为）：请求不指定 provider 时，首选
-   `wikipedia` 生效；若首选缺少密钥，自动降级到免密钥 provider，搜索不失败。
-4. 设置文档里已有 api_key 覆盖层时，保存网络工具设置**不会**清掉 api_key
-   （卡片保存合并现有字段 + 自定义注册表回显）。
+1. Under `tools:` in `config.example.yaml`, a `network_search.provider` comment section
+   explains that bing/google/searxng require environment variables and duckduckgo/wikipedia
+   are keyless, without writing any key values.
+2. After starting with `just run`, call the real RPC (or inspect the browser settings page):
+   - `settings/get` returns `network_search: { provider, config_provider, providers:
+     [bing, google, duckduckgo, searxng, wikipedia] }`; without environment variables,
+     `duckduckgo` and `wikipedia` are `configured: true, keyless: true`, while
+     bing/google/searxng are `configured: false` and include their `env_key` names.
+   - After sending `network_search.provider: "wikipedia"` to `settings/update`,
+     `data/agent-home/settings.yaml` contains `network_search: provider: wikipedia`,
+     `settings/get` echoes `provider: "wikipedia"`; an unknown provider (such as `yandex`)
+     is rejected (InvalidParams).
+3. After restart (or by observing `Search` behavior directly): when a request omits a
+   provider, `wikipedia` is preferred; if the preferred provider lacks a key, it
+   automatically falls back to a keyless provider and the search does not fail.
+4. When the settings document already has an api_key overlay, saving Network Tools settings
+   **does not** clear api_key (the card merges existing fields + the custom-registry echo).
 
-## 前端
+## Frontend
 
-1. `http://127.0.0.1:3015/settings?tab=network` 深链落在「网络工具」分区，
-   无「预览」徽标；卡片标题与描述为真实文案（zh/en 跟随全局语言）。
-2. 卡片显示真实 provider 名单：DuckDuckGo、Wikipedia 为「已配置/免密钥」；
-   Bing、Google、SearXNG 在无环境变量时为「待配置」并显示
-   「需要环境变量 BING_SEARCH_API_KEY」等提示（只显示变量名）。
-3. 选择 Wikipedia → 点保存 → 出现「已保存，下次启动生效」→ 刷新后选择仍是
-   Wikipedia（持久化）；恢复「自动」并保存后回到空首选。
-4. `设置 → 网络`（旧预览 tab）不再存在；Agent-Diva 的 bocha/brave/zhipu
-   假数据无处可见。
+1. The deep link `http://127.0.0.1:3015/settings?tab=network` lands on the 「Network
+   Tools」 section without a 「Preview」 badge; the card title and description are real copy
+   that follows the global language (zh/en).
+2. The card shows the real provider list: DuckDuckGo and Wikipedia are 「Configured / Keyless」;
+   without environment variables, Bing, Google, and SearXNG are 「Needs configuration」 and
+   show notices such as 「Environment variable BING_SEARCH_API_KEY required」 (variable name
+   only).
+3. Select Wikipedia → click Save → 「Saved; effective at next startup」 appears → after
+   refresh, Wikipedia remains selected (persistent); restore 「Automatic」 and save to return
+   to an empty preference.
+4. `Settings → Network` (the old preview tab) no longer exists; Agent-Diva's bocha/brave/zhipu
+   fake data is nowhere visible.
 
-## 未验证 / 边界
+## Not verified / boundaries
 
-- 未做真实网络搜索的线上调用验证（用户明确「不用端到端可用」）；provider
-  请求路径由现有 `network_search_test.go` 的 httptest 覆盖。
-- read_only 部署（SettingsPath 空）：卡片只读，保存禁用。
-- 密钥值永不进入 UI、日志、设置文档或 RPC 响应（D-010）。
+- No live-call verification of real network search was performed (the user explicitly said
+  「end-to-end availability is not required」); the provider request path is covered by the
+  existing `network_search_test.go` httptest.
+- read_only deployment (empty SettingsPath): the card is read-only and saving is disabled.
+- Key values never enter the UI, logs, settings document, or RPC responses (D-010).

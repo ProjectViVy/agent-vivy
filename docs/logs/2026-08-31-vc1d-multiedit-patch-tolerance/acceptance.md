@@ -4,7 +4,7 @@
 
 1. Start the split pair (`just dev`) and open `http://127.0.0.1:3015`.
 2. Ask the model to make several small changes to one file
-   (“把这个文件里的三个 TODO 都改成对应的说明”) — the transcript should show a
+   (“Change the three TODOs in this file to their corresponding explanations”) — the transcript should show a
    single `multiedit` call (one approval card for one write), not three
    sequential `patch` calls, and the file should end with all changes.
 3. Ask for an edit where the model typically mis-guesses indentation — the

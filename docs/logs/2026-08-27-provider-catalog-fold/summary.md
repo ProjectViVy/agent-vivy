@@ -1,70 +1,78 @@
-# 2026-08-27 · Agent-Diva 供应商目录与折叠逻辑移植（前端）
+# 2026-08-27 · Agent-Diva provider catalog and fold-logic port (frontend)
 
-## 变更内容
+## Changes
 
-把 Agent-Diva 的模型供应商目录及其"一批不常用供应商默认折叠"的交互逻辑
-移植到 Vivy 前端，落地在设置页「模型」Tab 与顶栏模型切换器。
+Ported Agent-Diva's model-provider catalog and its interaction logic for "a batch of
+infrequently used providers folded by default" to the Vivy frontend, in the 「Model」 tab
+of the settings page and the top-bar model switcher.
 
-### 新增
+### Added
 
-- `ui/scripts/gen-provider-catalog.py` — 从
-  `ui/agent-diva-source/agent-diva-providers/src/providers.yaml` 确定性生成
-  前端目录的脚本（可重复执行，仓库内即含数据源）。
-- `ui/src/components/settings/provider-catalog.ts` — 生成的供应商目录
-  （47 家 Agent-Diva 供应商 + vivy 本地 mock，共 48 条）与移植逻辑：
-  - `FOLDED_PROVIDER_NAMES`：与 Diva `ProvidersSettings.vue` 的
-    `hiddenProviderNames` 完全一致的 20 个折叠 id；
-  - `searchProviders` / `splitByFold`：检索按 displayName/name 子串、
-    大小写不敏感；搜索时绕过折叠（`more` 恒空），非搜索态按折叠名单拆分；
-  - `matchProviderEntry`：用 `(provider, base_url)` 反查目录条目。
-- `ui/src/components/settings/provider-catalog.test.ts` — 目录完整性、
-  折叠拆分、检索、反查的纯逻辑测试（13 个用例）。
-- `ui/src/components/settings/ModelSettingsCard.tsx` — 设置页「Vivy 模型
-  配置」卡新实现：左栏供应商列表（搜索框 + 常用供应商 + 「更多供应商」
-  折叠行 [MoreHorizontal 图标 + 数量 + chevron] + 当前选中供应商被折叠时
-  自动展开），右栏所选供应商的静态模型列表（点击填充默认模型，当前项
-  打勾），下方保留原 (Provider / 默认模型 / Base URL) 三输入与显式保存。
-- `ui/src/i18n/{zh,en}.ts` — 新增 `settingsModel` 词条块（搜索占位、
-  更多供应商、当前徽标、无模型提示、自定义组合提示、无匹配）。
+- `ui/scripts/gen-provider-catalog.py` — deterministic generator for the frontend catalog
+  from `ui/agent-diva-source/agent-diva-providers/src/providers.yaml` (rerunnable, with the
+  data source included in the repository).
+- `ui/src/components/settings/provider-catalog.ts` — generated provider catalog (47
+  Agent-Diva providers + the local vivy mock, 48 entries total) and ported logic:
+  - `FOLDED_PROVIDER_NAMES`: 20 folded ids exactly matching Diva's
+    `hiddenProviderNames` in `ProvidersSettings.vue`;
+  - `searchProviders` / `splitByFold`: search by displayName/name substring, case-insensitive;
+    search bypasses folding (`more` always empty), while non-search state splits by the fold
+    list;
+  - `matchProviderEntry`: looks up catalog entries by `(provider, base_url)`.
+- `ui/src/components/settings/provider-catalog.test.ts` — pure-logic tests for catalog
+  completeness, fold splitting, search, and reverse lookup (13 cases).
+- `ui/src/components/settings/ModelSettingsCard.tsx` — new settings-page 「Vivy model
+  configuration」 card: left provider list (search box + common providers + 「More providers」
+  folded row [MoreHorizontal icon + count + chevron] + automatic expansion when the current
+  provider is folded), selected provider's static model list on the right (click fills the
+  default model, current item checked), with the original three-input form below (Provider /
+  default model / Base URL) and explicit save retained.
+- `ui/src/i18n/{zh,en}.ts` — added the `settingsModel` entry block (search placeholder, more
+  providers, current badge, no-model notice, custom-combination notice, no match).
 
-### 修改
+### Modified
 
-- `ui/src/components/settings/SettingsView.tsx` — 模型 Tab 的表单逻辑
-  迁入 `ModelSettingsCard`，深链 `?tab=` 行为不变。
-- `ui/src/components/chat/MaskAndModelSwitcher.tsx` — 删除本地
-  `MODEL_CATALOG`，改用共享目录：按 `(bundle, base_url)` 解析当前厂商
-  （如 provider=openai + DeepSeek 网关 → 顶栏显示 "DeepSeek" 并列出其
-  模型）；精选模型描述文案（balanced/lighter/…）保留为副标题，未收录
-  模型不显示副标题。
+- `ui/src/components/settings/SettingsView.tsx` — moved the Model-tab form logic into
+  `ModelSettingsCard`; deep-link `?tab=` behavior is unchanged.
+- `ui/src/components/chat/MaskAndModelSwitcher.tsx` — removed the local
+  `MODEL_CATALOG` and switched to the shared catalog: resolves the current provider by
+  `(bundle, base_url)` (for example, provider=openai + a DeepSeek gateway → the top bar
+  shows "DeepSeek" and lists its models); retained curated-model descriptions
+  (balanced/lighter/…) as subtitles, with no subtitle for unlisted models.
 
-## 关键适配（为什么不是逐字移植）
+## Key adaptation (why this is not a word-for-word port)
 
-Vivy 后端 `settings.Validate` 只接受 `provider ∈ {"", openai, anthropic,
-mock}`，且产品规则要求向原生端点发送原始模型 id、不得自动加网关前缀。
-因此目录条目按 Agent-Diva 厂商展示，但选择时映射为 vivy 合法三元组
-`(bundle, baseUrl, defaultModel)`：
+The Vivy backend's `settings.Validate` accepts only `provider ∈ {"", openai, anthropic,
+mock}`, and product rules require sending the original model id to native endpoints without
+automatically adding a gateway prefix. Therefore catalog entries are displayed as
+Agent-Diva providers but mapped on selection to the Vivy-valid triple
+`(bundle, baseUrl, defaultModel)`:
 
-- `api_type: anthropic` → bundle `anthropic`，其余（diva `api_type:
-  openai`）→ bundle `openai`，vivy 本地 → `mock`；
-- `default_model` 剥离自家网关前缀（`openrouter/anthropic/claude-sonnet-4`
-  → `anthropic/claude-sonnet-4`；`dashscope/qwen-max` → `qwen-max`）；
-- diva `custom` 条目的 `custom/default` 占位模型不移植（无推荐模型）；
-- 修复 diva 数据 bug：`aionly` 的 `default_api_base` 带全角冒号前缀
-  `：https://…`，生成时归一为合法 URL。
+- `api_type: anthropic` → bundle `anthropic`; all others (diva `api_type: openai`) →
+  bundle `openai`; local vivy → `mock`;
+- strip the provider's own gateway prefix from `default_model`
+  (`openrouter/anthropic/claude-sonnet-4` → `anthropic/claude-sonnet-4`;
+  `dashscope/qwen-max` → `qwen-max`);
+- do not port the `custom/default` placeholder models from the diva `custom` entry (no
+  recommended models);
+- fix a diva data bug: `aionly`'s `default_api_base` had the full-width-colon prefix
+  `：https://…`, normalized to a valid URL during generation.
 
-## 明确不做
+## Explicitly not done
 
-- 模型列表在线刷新（diva 的 `get_provider_models` 运行时拉取）：vivy 无
-  provider/model 目录 RPC，目录是静态快照 → 已登记 `docs/TODO.md`
-  §0.1 `UI-PROV-RPC`。
-- 每供应商 API Key 配置与连接测试向导：密钥只由运行环境管理（产品规
-  则，UI 不持有密钥）。
-- 自定义供应商的创建/删除（diva 的 custom provider CRUD）。
-- 折叠行为的 Playwright e2e：本次以浏览器冒烟覆盖；未新增 e2e 用例。
-- 模型 Tab 原有三输入框标签（"Provider/默认模型/Base URL"）等既有硬编码
-  中文未迁移 i18n（见 §0.1 既有 `UI-SET-I18N` 条目，避免混入他人条目）。
+- Online model-list refresh (diva's runtime `get_provider_models` fetch): vivy has no
+  provider/model catalog RPC, so the catalog is a static snapshot → recorded in
+  `docs/TODO.md` §0.1 `UI-PROV-RPC`.
+- Per-provider API Key configuration and connection-test wizard: keys are managed only by
+  the runtime environment (product rule; the UI does not hold keys).
+- Custom-provider creation/deletion (diva's custom-provider CRUD).
+- Playwright e2e for folding behavior: browser smoke coverage was used this round; no e2e
+  cases were added.
+- Existing hard-coded Chinese labels for the Model-tab three-input form
+  ("Provider/default model/Base URL") were not migrated to i18n (see the existing §0.1
+  `UI-SET-I18N` item; avoid mixing in another person's item).
 
-## 发布说明
+## Release notes
 
-无独立发布：随 UI 常规构建发布，`just ci` 已含 ui build，故不单写
-`release.md`。
+No standalone release: shipped with the regular UI build; `just ci` already includes the UI
+build, so no separate `release.md` was written.

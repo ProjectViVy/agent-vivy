@@ -1,14 +1,14 @@
-# TUI 工具输出 DEBUG 模式
+# TUI Tool Output DEBUG Mode
 
-## 已交付
+## Delivered
 
-- 新增 `tui.debug` 配置，默认值为 `false`。
-- 默认模式将已完成工具卡片的正文限制为 8 个终端换行，并显示省略行数及开启方式。
-- `tui.debug: true` 显示完整工具结果；终端控制字符清理和宽度约束仍然生效。
-- 独立 `vivy-code`、进程内 `vivy tui`、远程 `vivy tui --live` 和打包 TUI face 共用同一个 renderer 行为。
+- Added the `tui.debug` configuration, defaulting to `false`.
+- In the default mode, the body of a completed tool card is limited to 8 terminal line breaks, with the number of omitted lines and the way to enable them displayed.
+- `tui.debug: true` shows the complete tool result; terminal control-character cleanup and width constraints still apply.
+- Standalone `vivy-code`, in-process `vivy tui`, remote `vivy tui --live`, and the packaged TUI face share the same renderer behavior.
 
-## 边界
+## Boundaries
 
-- 没有裁剪工具实际返回、Journal 数据或发送给模型的上下文；这是纯展示配置。
-- 没有修改工具协议、Eino 编排或 Studio。
-- 本次不是发布操作，因此没有 `release.md`。
+- The actual tool return, Journal data, and context sent to the model are not truncated; this is a display-only configuration.
+- Tool protocols, Eino orchestration, and Studio were not modified.
+- This was not a release operation, so there is no `release.md`.

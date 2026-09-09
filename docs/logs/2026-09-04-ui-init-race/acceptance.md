@@ -1,19 +1,19 @@
-# UI-INIT-RACE 验收指南
+# UI-INIT-RACE Acceptance Guide
 
-## 用户视角验证步骤
+## User-perspective verification steps
 
-### 场景 1：页面初次加载时极速新建会话并打字发送
-1. 打开应用（`http://127.0.0.1:3015`）。
-2. 在页面刚启动、数据拉取尚未全部完成的瞬间，立即点击侧边栏「新建会话」按钮。
-3. 立即在输入框打字并回车提交消息。
-4. **预期表现**：
-   - 界面停留在用户刚刚点击新建的会话中，绝不跳回旧会话或默认会话。
-   - 会话抽屉列表同时显示新建的会话和原有的历史会话。
-   - 消息正常进入发送流程，不会被静默吞掉，DOM 正常显示用户消息。
+### Scenario 1: Create a session and send text immediately during initial page load
+1. Open the application (`http://127.0.0.1:3015`).
+2. Immediately click the “New session” button in the sidebar as soon as the page starts, before data loading has fully completed.
+3. Immediately type in the input box and press Enter to submit the message.
+4. **Expected behavior**:
+   - The interface remains in the session the user just created and never jumps back to the old or default session.
+   - The session drawer shows both the newly created session and the existing historical sessions.
+   - The message enters the send flow normally, is not silently swallowed, and the user's message appears in the DOM.
 
-### 场景 2：会话不匹配保护与草稿保留
-1. 模拟在特定组件或网络延迟导致会话 ID 不一致的场景下触发消息发送。
-2. **预期表现**：
-   - 输入框中输入的内容和待发送附件完整保留，不会被清空为白框。
-   - 聊天界面上方呈现 `RecoverableError` 错误提示条（“当前会话与发送目标不一致，已保留草稿，请重试。”）。
-   - 用户可以重新点击发送或编辑草稿后重新发送。
+### Scenario 2: Session-mismatch protection and draft retention
+1. Simulate triggering message sending when a particular component or network latency causes the session ID values to differ.
+2. **Expected behavior**:
+   - The content entered in the input box and pending attachments remain intact; the box is not cleared to a blank state.
+   - A `RecoverableError` alert bar appears above the chat interface ("The current session does not match the send target; the draft was kept. Please try again.").
+   - The user can click Send again or edit the draft and resend it.

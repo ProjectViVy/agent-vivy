@@ -1,68 +1,68 @@
-# Eino/上游复用清单：VC track 哪些不用自研（2026-08-31）
+# Eino/upstream reuse inventory: what the VC track does not need to build itself (2026-08-31)
 
-- 日期：2026-08-31
-- 范围口径（用户拍板）：**功能面对齐 Crush；Crush 没有的功能不擅自添加。** 本清单只覆盖 Crush 对标面（`docs/research/crush-parity-code-agent-research-2026-08-31.md` §3/§5 的 VC-0..VC-4 + 既有归并项），eino/上游超出该面的能力一律只做内部实现件或明确"不暴露"（见 §3 护栏）。
-- 核查基线：eino v0.9.13（go.mod 锁定，module cache 实读）；eino-ext 组件经 `go list -m @latest` 验证存在；Crush 上游依赖读其 go.mod（`.workspace/crush/`，FSL-1.1-MIT 仅参照，代码不拷）。
-- 结论一句话：**VC track 约六成的"新工具面/回路"工作可落在现成组件上——eino 原生中间件 + Crush 同款上游库（MIT/BSD，可直接依赖）；真正必须自研的是治理挂钩（存档/审批/审计）和 Vivy 语义件（面具/预算/Journal），而这些正是差异化所在。**
+- Date: 2026-08-31
+- Scope definition (user decision): **Align the functional surface with Crush; do not add functionality that Crush does not have.** This inventory covers only the Crush comparison surface (`docs/research/crush-parity-code-agent-research-2026-08-31.md` §3/§5 VC-0..VC-4 + existing merged items); any eino/upstream capability beyond that surface is either an internal implementation detail or explicitly "not exposed" (see the guardrails in §3).
+- Verification baseline: eino v0.9.13 (locked in go.mod, read directly from the module cache); eino-ext components verified to exist through `go list -m @latest`; Crush upstream dependencies read from its go.mod (`.workspace/crush/`, FSL-1.1-MIT for reference only, no code copied).
+- One-sentence conclusion: **About 60% of the VC track's "new tool surface/loops" work can be delivered with existing components—native eino middleware + the same upstream libraries as Crush (MIT/BSD, directly usable as dependencies); the parts that truly must be built in-house are governance hooks (archiving/approval/audit) and Vivy semantic components (masks/budget/Journal), which are precisely the differentiators.**
 
 ---
 
-## 1. 三档复用判定总表
+## 1. Three-tier reuse classification overview
 
-判定档位：**A 已在用**（零工作）/ **B 直接复用**（接上即可，评估点已列）/ **C 薄自研**（Crush 同款也是自写，无上游可拿，但多数是小件）/ **D 治理自研**（Vivy 语义，本就不该外包）。
+Classification tiers: **A already in use** (zero work) / **B direct reuse** (wire it in; evaluation points are listed) / **C thin in-house build** (Crush also wrote it itself, with no upstream component to take, but most are small) / **D governance build** (Vivy semantics that should not be outsourced in the first place).
 
-### 1.1 eino 原生（v0.9.13，无需新增依赖）
+### 1.1 Native eino (v0.9.13, no new dependencies)
 
-| 能力（Crush 对位） | 档 | 说明与评估点 |
+| Capability (Crush equivalent) | Tier | Notes and evaluation points |
 |---|---|---|
-| checkpoint/中断恢复（Crush resume） | A | `adk.CheckPointStore`；Vivy VersionedCheckpointStore 已消费。纯运行态，与文件回退（RB-1 L1/L2）无关 |
-| AGENTS.md 注入（D6 上下文文件） | B | `middlewares/agentsmd`：@import 递归 5 层、总量字节上限、model-call 瞬态注入（不进会话状态/不进摘要）。**D6 免费直通**；`vivy init` 生成 AGENTS.md 仍自建 |
-| 文件/搜索工具注册面（ls/read_file/write_file/edit_file/glob/grep/execute 七工具+中英描述） | B | `middlewares/filesystem` 原生注册；Vivy 的 `EinoFilesystemBackend` 已实现 `einofs.Backend`，接注册层即得 grep/glob 工具。评估点：工具命名对表（eino `edit_file` vs Vivy `patch`——按 Crush 面 `edit`/`multiedit` 定名，eino 工具名可经 `selectToolName` 定制）；策略标注/审批走 Vivy 既有管线 |
-| read 支持图片/PDF（VC-3 read_file 图片） | B | `filesystem.MultiModalReader` 协议位现成，backend 实现即可 |
-| execute 后台标志位 | B(部分) | `Shell`/`StreamingShell` + `RunInBackendGround` 协议位原生；**job 取回/终止管理原生无**（见 C） |
-| 悬空 tool calls 修补 | B(评估) | `middlewares/patchtoolcalls`——resume/压缩边界卫生；内部件，非产品面。评估后可替代自研修补 |
-| 压缩/技能/工具检索 | A | `summarization`/`reduction`/`skill`/`dynamictool(toolsearch)` Vivy 已用或已有等价 |
-| gitignore 感知 glob（`**`） | B | eino 自身用 `bmatcuk/doublestar/v4`（见 1.2）；Vivy `matchesGlob` 现为 filepath.Match 手写，无 `**` 递归——换 doublestar 即补齐 |
+| checkpoint/interrupt recovery (Crush resume) | A | `adk.CheckPointStore`; Vivy's VersionedCheckpointStore already consumes it. Pure runtime state, unrelated to file rollback (RB-1 L1/L2) |
+| AGENTS.md injection (D6 context file) | B | `middlewares/agentsmd`: 5-level recursive @import, total-byte limit, transient model-call injection (not added to session state or summaries). **D6 is a free pass-through**; `vivy init` still needs to generate AGENTS.md itself |
+| File/search tool registration surface (seven tools—ls/read_file/write_file/edit_file/glob/grep/execute—with Chinese and English descriptions) | B | Native registration in `middlewares/filesystem`; Vivy's `EinoFilesystemBackend` already implements `einofs.Backend`, so connecting the registration layer provides the grep/glob tools. Evaluation point: tool-name mapping (eino `edit_file` vs. Vivy `patch`—name them `edit`/`multiedit` to match the Crush surface; eino tool names can be customized through `selectToolName`); policy annotations/approval go through Vivy's existing pipeline |
+| read supports images/PDF (VC-3 read_file images) | B | `filesystem.MultiModalReader` protocol slot is ready; only the backend implementation is needed |
+| execute background flag | B (partial) | `Shell`/`StreamingShell` + `RunInBackendGround` protocol slots are native; **native job retrieval/termination management is absent** (see C) |
+| Orphaned tool-call repair | B (evaluation) | `middlewares/patchtoolcalls`—resume/compaction-boundary hygiene; an internal component, not a product surface. May replace the in-house repair after evaluation |
+| Compaction/skills/tool discovery | A | `summarization`/`reduction`/`skill`/`dynamictool(toolsearch)` is already used by Vivy or has an equivalent |
+| Gitignore-aware glob (`**`) | B | eino itself uses `bmatcuk/doublestar/v4` (see 1.2); Vivy's `matchesGlob` is currently handwritten with filepath.Match and has no `**` recursion—switching to doublestar fills the gap |
 
-### 1.2 Crush 同款上游库（MIT/BSD，可直接依赖——"移植"即引库，符合 FSL 行为对齐要求）
+### 1.2 Upstream libraries also used by Crush (MIT/BSD, directly usable as dependencies—"porting" means importing the library, consistent with FSL behavioral-alignment requirements)
 
-| Crush 用途 | 上游库（license） | Vivy 落点 |
+| Crush use | Upstream library (license) | Vivy destination |
 |---|---|---|
-| 嵌入式 POSIX shell（bash 工具） | `mvdan.cc/sh/v3`（BSD-3）+ `mvdan.cc/sh/moreinterp`（扩展命令解释器，Crush 同引） | VC-1 bash 工具核心。Windows 无 WSL 可跑 POSIX 语法；与沙箱路径约束的兼容是 VC-1 验收点 |
-| unified diff 生成 | `aymanbagabas/go-udiff`（MIT） | VC-1 后端 diff（write/patch/execute 提案与结果出 unified diff + 增删统计）；替换 Vivy 手写 `boundedDiff` 单 hunk 伪 diff |
-| `**` 递归 glob | `bmatcuk/doublestar/v4`（MIT） | glob 工具 + search_files glob 过滤升级 |
-| LSP 客户端 | `charmbracelet/x/powernap`（MIT） | VC-3 LSP manager（懒启动/自动发现/诊断）。fallback：自写最小 jsonrpc2 客户端（1-2k 行，既有拍板保留） |
-| diff 小工具 | `pmezard/go-difflib`（BSD） | 增删行统计等杂项（go-udiff 不够处） |
-| ripgrep 优先 | 外部 `rg` 二进制探测（Crush 同策略） | grep 工具 rg-first：有 rg 用 rg（原生 gitignore 感知），无则纯 Go 回退（backend `GrepRaw` 已有 regex 走查） |
-| MCP 客户端 | `eino-ext/components/tool/mcp` v0.0.9（Apache-2.0）+ `mark3labs/mcp-go` v1.0.0（MIT） | MCP slice 已完成：Eino `GetTools` 负责 tools/schema，官方 `client.NewStreamableHttpClient` 以 `mcp.LATEST_PROTOCOL_VERSION` 首选 modern discover 并回退 legacy，mcp-go typed client 负责 list/call/resources/prompts/Close；Vivy 保留 mcp_list_tools/mcp_call、PrepareMCPCall、isError、untrusted/bounds 与 lifecycle。未做 stdio/OAuth/continuous listening；未来 Eino 覆盖 resources/prompts/lifecycle 且保留 isError 后才移除 typed plumbing。 |
-| Anthropic 原生 | `eino-ext/components/model/claude` v0.1.25（已验证存在） | VC-2，§8.5 既定拍板，6 项落地清单 |
+| Embedded POSIX shell (bash tool) | `mvdan.cc/sh/v3` (BSD-3) + `mvdan.cc/sh/moreinterp` (extended command interpreter, also used by Crush) | VC-1 bash tool core. Windows can run POSIX syntax without WSL; compatibility with sandbox path constraints is a VC-1 acceptance point |
+| Unified diff generation | `aymanbagabas/go-udiff` (MIT) | VC-1 backend diff (write/patch/execute proposals and results output unified diff + addition/deletion counts); replaces Vivy's handwritten single-hunk pseudo-diff `boundedDiff` |
+| `**` recursive glob | `bmatcuk/doublestar/v4` (MIT) | Upgrade glob-tool + search_files glob filtering |
+| LSP client | `charmbracelet/x/powernap` (MIT) | VC-3 LSP manager (lazy startup/auto-discovery/diagnostics). Fallback: write a minimal jsonrpc2 client (1–2k lines, retained by the existing decision) |
+| Small diff utilities | `pmezard/go-difflib` (BSD) | Miscellaneous tasks such as addition/deletion line counts (where go-udiff is insufficient) |
+| Ripgrep first | External `rg` binary detection (same strategy as Crush) | grep tool is rg-first: use rg when available (native gitignore awareness), otherwise use a pure-Go fallback (the backend `GrepRaw` regex path has already been audited) |
+| MCP client | `eino-ext/components/tool/mcp` v0.0.9 (Apache-2.0) + `mark3labs/mcp-go` v1.0.0 (MIT) | MCP slice is complete: Eino `GetTools` handles tools/schema; the official `client.NewStreamableHttpClient` prefers modern discovery with `mcp.LATEST_PROTOCOL_VERSION` and falls back to legacy; the mcp-go typed client handles list/call/resources/prompts/Close; Vivy retains mcp_list_tools/mcp_call, PrepareMCPCall, isError, untrusted/bounds, and lifecycle. stdio/OAuth/continuous listening are not implemented; typed plumbing is removed only after future Eino coverage includes resources/prompts/lifecycle while retaining isError |
+| Native Anthropic | `eino-ext/components/model/claude` v0.1.25 (verified to exist) | VC-2, the established §8.5 decision, six-item implementation checklist |
 
-### 1.3 UI 侧（浏览器组件，不自研渲染）
+### 1.3 UI side (browser components; do not build rendering in-house)
 
-| Crush 用途 | 上游 | Vivy 落点 |
+| Crush use | Upstream | Vivy destination |
 |---|---|---|
-| diff 视图 unified/split | react-diff-view / diff2html / primevue diff 等（实现时选型，MIT 系） | VC-1 UI diff 渲染（D10 呈现行为对齐 Crush，组件用现成） |
-| 文件预览语法高亮 | shiki / prism（实现时选型） | VC-3 UI 文件预览 |
+| Unified/split diff view | react-diff-view / diff2html / primevue diff, etc. (select during implementation, MIT family) | VC-1 UI diff rendering (D10 presentation behavior aligned with Crush, using an existing component) |
+| Syntax highlighting for file preview | shiki / prism (select during implementation) | VC-3 UI file preview |
 
-## 2. C/D 档：必须自研（Crush 亦自写，或 Vivy 语义专有）
+## 2. C/D tiers: must be built in-house (Crush also writes these itself, or they are Vivy-specific semantics)
 
-| 件 | 档 | 说明 |
+| Item | Tier | Notes |
 |---|---|---|
-| multiedit | C | eino 只有单 edit；Crush 自写。小件 |
-| patch 空白容错回退 | C | Crush `normalizedReplace` 同款逻辑自写（行为对齐） |
-| stale-read filetracker + file_versions 存储 + 恢复 RPC | D | RB-1 L1/L2：治理核心（存储迁移+审批+Journal），Crush 版本链亦无恢复消费方。2026-09-01 拍板：记录侧（file_versions + filetracker）随 VC-3 尾款落地；恢复 RPC 暂缓（RB-L2-DEFER，MVP 后再议） |
-| 后台 job 注册表（job_output/job_kill、超时转后台） | C | eino 只有协议位；Crush 自写。挂在 bash 工具实现内 |
-| 死循环检测（签名去重） | C | Crush 自写；Vivy 挂 MaxToolTurns 旁 |
-| 成本核算元数据表（context window/价格） | C | D9 拍板与 web provider/model 管理同步；Crush 用远端 Catwalk 我们明确不引 |
-| headless `vivy run`（FACE-0） | C | Crush 自写 CLI 面；Vivy 落 face 装配 |
-| hooks 引擎（PreToolUse 协议） | C | Crush 自写；Vivy 挂既有 `ToolHookChain` |
-| 401 重认证重试 | C | Crush 自写三分支；Vivy 对齐 chatmodel retry（eino 有 retry_chatmodel/failover 原生——评估点：`adk` retry/failover ChatModel 可能覆盖大半） |
-| 会话自动标题 | C | 小件 |
-| 消息排队 + 两段式取消 | C | UI 交互件 |
-| 图片附件链路 | C | UI+provider workaround |
-| LSP 诊断回填 | C | powernap 拿到诊断后，回填 write/patch 结果的粘合层是 Vivy 治理面 |
-| gitignore 纯 Go 回退走查 | C | rg 缺席时的 fallback；可评估 `sabhiram/go-gitignore`（MIT）减量 |
-| 沙箱/审批/预算/Journal/面具 | D | Vivy 专有差异化，本就不外包 |
+| multiedit | C | eino has only single edit; Crush writes this itself. Small item |
+| Patch whitespace-tolerant fallback | C | Write the same logic as Crush's `normalizedReplace` (behavioral alignment) |
+| stale-read filetracker + file_versions storage + recovery RPC | D | RB-1 L1/L2: governance core (storage migration + approval + Journal); Crush's version chain also has no recovery consumer. Decision on 2026-09-01: the recording side (file_versions + filetracker) lands with the VC-3 tail payment; recovery RPC is deferred (RB-L2-DEFER, revisit after MVP) |
+| Background job registry (job_output/job_kill, move to background on timeout) | C | eino has only the protocol slot; Crush writes it itself. Attach it inside the bash tool implementation |
+| Infinite-loop detection (signature deduplication) | C | Crush writes it itself; Vivy attaches it beside MaxToolTurns |
+| Cost-accounting metadata table (context window/prices) | C | D9 decision synchronized with web provider/model management; Crush uses remote Catwalk, which we explicitly do not bring in |
+| Headless `vivy run` (FACE-0) | C | Crush writes the CLI surface itself; Vivy puts it in face assembly |
+| Hooks engine (PreToolUse protocol) | C | Crush writes it itself; Vivy attaches the existing `ToolHookChain` |
+| 401 re-authentication retry | C | Crush writes three branches itself; Vivy aligns with chatmodel retry (eino has native retry_chatmodel/failover—the evaluation point is that `adk` retry/failover ChatModel may cover most of it) |
+| Automatic session title | C | Small item |
+| Message queuing + two-phase cancellation | C | UI interaction item |
+| Image-attachment path | C | UI + provider workaround |
+| LSP diagnostic backfill | C | After powernap obtains diagnostics, the glue layer that backfills write/patch results is part of Vivy's governance surface |
+| Pure-Go gitignore fallback audit | C | Fallback when rg is absent; `sabhiram/go-gitignore` (MIT) can be evaluated to reduce the work |
+| Sandbox/approval/budget/Journal/masks | D | Vivy-specific differentiators that should not be outsourced in the first place |
 
 ## 2026-09-06 superseded note
 
@@ -75,20 +75,20 @@ HITL, audit, and Skill-mount projection around business tools. The retired
 custom search implementation and its registry entry are removed; historical
 research conclusions are otherwise unchanged.
 
-## 3. 护栏：eino/上游超出 Crush 面的能力——处置表（不擅自添加）
+## 3. Guardrails: eino/upstream capabilities beyond the Crush surface—disposition table (do not add them unilaterally)
 
-| eino/上游能力 | Crush 有无 | 处置 |
+| eino/upstream capability | Present in Crush? | Disposition |
 |---|---|---|
-| `adk/prebuilt/deep`（DeepAgents）、`planexecute` | 无 | **不采用不暴露**。理由（2026-08-31 用户质询后记录）：① `planexecute` = plan–execute–replan 回路，Crush 面没有，按"不擅自添加"出局；② `deep` 是自带 task_tool/计划文件的完整 DeepAgents 栈，超出 Crush 的 task 语义且与 Vivy 治理（审批/预算/Journal/面具）平行，接入即双轨；③ 三者的"协调"都发生在 eino 图内，而 Vivy 子代理治理（WorkerChildAuthority/预算/审批并入父会话 D5/PolicySnapshot 面具）全在 runtime 服务层——用 prebuilt 得先拆它再接回管线，比薄封装既有 child run RPC 更费工。Crush 面真正要的只是 `agent` 工具=薄包装。**重启条件**：将来立项"规划-执行"类能力提案时，prebuilt 可作为内核候选再评估（走提案流程） |
-| `adk/prebuilt/supervisor` | 无（Crush 硬编码 coder/task 亦被我们否决） | 不采用；该 prebuilt 本身就是"中央 agent 协调一群子 agent"（supervisor.go 包注释原文）——恰是 2026-08-31 拍板否决的 Crush coordinator 模式；vivy = 单主人格戴面具，supervisor 语义由产品人格承担而非编排组件。子代理 = Vivy child run 自有语义的薄包装 |
-| `middlewares/plantask`（task_*） | 有等价（todos） | 不切换不双暴露；Vivy task_* 维持 |
-| `middlewares/dynamictool/toolsearch` | 无 | Vivy 已有 tool_search（既有能力维持现状，不借 eino 扩面） |
-| `middlewares/filesystem` large_tool_result | 内部件 | 内部卫生，评估采用，不构成产品面 |
-| 未来 eino 新中间件/组件 | — | 一律先过"Crush 面"过滤：产品可见即违护栏，内部实现件可评估 |
+| `adk/prebuilt/deep` (DeepAgents), `planexecute` | No | **Do not adopt or expose.** Rationale recorded after the user challenge on 2026-08-31: (1) `planexecute` = plan–execute–replan loop, absent from the Crush surface and excluded under "do not add unilaterally"; (2) `deep` is a complete DeepAgents stack with built-in task_tool/plan files, beyond Crush's task semantics and parallel to Vivy's governance (approval/budget/Journal/masks), so integrating it creates two tracks; (3) all three forms of "coordination" happen inside the eino graph, whereas Vivy child-agent governance (WorkerChildAuthority/budget/approval merged into the parent session D5/PolicySnapshot mask) is entirely in the runtime service layer—using a prebuilt requires dismantling it first and reconnecting it to the pipeline, which is more work than a thin wrapper around the existing child-run RPC. The Crush surface actually needs only the `agent` tool = thin wrapper. **Reopening condition:** if a planning–execution capability proposal is approved in the future, the prebuilt can be reevaluated as a kernel candidate (through the proposal process) |
+| `adk/prebuilt/supervisor` | No (we also rejected Crush's hard-coded coder/task) | Do not adopt; the prebuilt itself is "a central agent coordinating a group of child agents" (verbatim supervisor.go package comment)—exactly the Crush coordinator pattern rejected by the 2026-08-31 decision; vivy = a single persona wearing a mask, with supervisor semantics handled by the product persona rather than an orchestration component. A child agent = a thin wrapper with Vivy child-run semantics |
+| `middlewares/plantask` (task_*) | Equivalent exists (todos) | Do not switch or expose both; keep Vivy task_* |
+| `middlewares/dynamictool/toolsearch` | No | Vivy already has tool_search (keep the existing capability as-is; do not use eino to expand the surface) |
+| `middlewares/filesystem` large_tool_result | Internal component | Internal hygiene; evaluate adoption, but it does not constitute a product surface |
+| Future eino middleware/components | — | Always filter through the "Crush surface" first: product-visible capability violates the guardrail; internal implementation details may be evaluated |
 
-## 4. 对 VC 工作量的影响（对研究 §5 的修正）
+## 4. Impact on VC workload (correction to research §5)
 
-- **VC-1 减量最显著**：grep/glob/execute 工具定义层、unified diff 后端、`**` glob、POSIX shell 全部改"引库/接 middleware"；自研集中到 multiedit、空白容错、filetracker/版本链、job 注册表、审批标注粘合。粗估 2-3 周 → **1.5-2 周**。
-- **VC-2**：Anthropic 引 claude 组件（既定）；hooks/headless/成本仍自研；retry/failover 评估 eino 原生减量。粗估 2 周 → **1.5 周**。
-- **VC-3**：LSP 库不自研（powernap），自研集中诊断回填粘合与版本链读侧。粗估 3-4 周 → **2.5-3 周**。
-- RB-1（回退）结论不受影响：eino 无文件版本原语，L1/L2 照 §5 落 Vivy 侧。
+- **VC-1 has the largest reduction**: the grep/glob/execute tool-definition layer, unified diff backend, `**` glob, and POSIX shell all become "import a library/connect middleware"; in-house work concentrates on multiedit, whitespace tolerance, filetracker/version chain, job registry, and approval-annotation glue. Rough estimate 2–3 weeks → **1.5–2 weeks**.
+- **VC-2**: import the Anthropic claude component (established); hooks/headless/cost remain in-house; evaluate native eino to reduce retry/failover work. Rough estimate 2 weeks → **1.5 weeks**.
+- **VC-3**: do not build the LSP library in-house (powernap); in-house work concentrates on diagnostic-backfill glue and the read side of the version chain. Rough estimate 3–4 weeks → **2.5–3 weeks**.
+- The RB-1 (rollback) conclusion is unaffected: eino has no file-version primitive, so L1/L2 land on the Vivy side as described in §5.

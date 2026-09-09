@@ -1,38 +1,52 @@
-# 设置→通用 压缩卡 raw i18n 键修复（UI-I18N-COMPACTION）
+# Fix raw i18n keys in the Settings → General compaction card (UI-I18N-COMPACTION)
 
-## 现象
+## Symptom
 
-设置 → 通用 的「上下文压缩」卡片把 `settings.compaction.*` 渲染成原始键
-（标题、描述、开关标签、三个表单标签、保存/压缩按钮全部显示键名字面量）；
-同时卡内若干文案是硬编码中文（`最大 tokens`、`压缩阈值 (%)`、`保留最近消息`、
-`0 = 模型上下文窗口…`、`会话 feed 占用`、`{{percent}}% 占用`、`最近压缩：…`、
-`保存中…`、`压缩中…`、占位 `自动`、空态提示），英文界面下也显示中文。
+The "Context compaction" card under Settings → General rendered
+`settings.compaction.*` as raw keys (the title, description, switch label, all
+three form labels, and the save/compaction buttons displayed the literal key
+names). Several pieces of copy in the card were also hardcoded in Chinese
+(`Max tokens`, `Compaction threshold (%)`, `Keep recent messages`,
+`0 = model context window…`, `Session feed usage`, `{{percent}}% used`,
+`Last compaction: …`, `Saving…`, `Compacting…`, the `Auto` placeholder, and the
+empty-state hint), so they appeared in Chinese
+even in the English interface.
 
-## 根因
+## Root cause
 
-键位放错段落，不是键缺失：`zh.ts`/`en.ts` 里确有 `compaction: { … }` 块，
-但挂在 `diva` 段下（`diva.compaction`），而组件读的是 `settings.compaction.*`
-——键位错配让全部查找 miss，`t()` 回退渲染原始键。全仓库无任何
-`diva.compaction` 引用，该块是「压缩配置毕业为真实设置」时挂错位置的死键块。
+The keys were in the wrong section, not missing: `zh.ts`/`en.ts` did contain a
+`compaction: { … }` block, but it was attached under the `diva` section
+(`diva.compaction`), while the component reads `settings.compaction.*`. The key
+mismatch made every lookup miss, so `t()` fell back to rendering the raw key.
+There were no `diva.compaction` references anywhere in the repository; the
+block was a dead key block placed in the wrong location when the compaction
+configuration graduated into real settings.
 
-## 修复
+## Fix
 
-- `ui/src/i18n/zh.ts` / `en.ts`：`compaction` 块移入 `settings` 段
-  （zh/en 键位对等迁移），并新增 11 个键：
+- `ui/src/i18n/zh.ts` / `en.ts`: moved the `compaction` block into the
+  `settings` section (an equivalent zh/en key migration) and added 11 keys:
   `saving`/`compacting`/`maxTokensLabel`/`maxTokensHint`/`autoPlaceholder`/
   `triggerLabel`/`keepRecentLabel`/`feedUsage`/`pressureBadge`/`lastCompaction`/
-  `openSessionHint`——消化卡内全部硬编码文案；zh 文案与原硬编码逐字一致
-  （中文用户零感知），en 为新翻译。
-- `ui/src/components/settings/CompactionSettingsCard.tsx`：10 处硬编码
-  中文改 `t()` 调用（含 `pressureBadge`/`lastCompaction` 的插值参数）。
-- 新增 `ui/e2e/compaction-setting.spec.ts` 回归规格：zh 默认语言断言卡片
-  标题与三个表单标签；断言全页无 `settings.compaction.` 原始键；经
-  localStorage 切 English 重载后断言英文标签，且卡内无中文残留、无原始键。
+  `openSessionHint`. These absorb all hardcoded copy in the card; the zh copy
+  is character-for-character identical to the original hardcoded text (no
+  visible change for Chinese users), while en contains the new translations.
+- `ui/src/components/settings/CompactionSettingsCard.tsx`: changed 10 hardcoded
+  Chinese strings to `t()` calls, including interpolation parameters for
+  `pressureBadge`/`lastCompaction`.
+- Added the `ui/e2e/compaction-setting.spec.ts` regression spec: with zh as the
+  default language, it asserts the card title and three form labels; it asserts
+  that the full page has no `settings.compaction.` raw key; after switching to
+  English through localStorage and reloading, it asserts the English labels and
+  that the card contains neither Chinese leftovers nor raw keys.
 
-## 明确不做（另开 TODO）
+## Explicitly not done (separate TODO)
 
-- `DivaSettingsPreview` 通用段（聊天显示/缓存与运行状态/关于 Vivy 及
-  「压缩配置已毕业」迁移说明）整体硬编码中文，是预览区既有欠账，
-  与本卡无关——登记 TODO 行 `UI-DIVA-PREVIEW-I18N`。
-- 设置页 `SettingsView.tsx` 的 `通用` tab 触发器也是硬编码中文（同页相邻
-  问题，一并记入欠账行）。
+- The General section of `DivaSettingsPreview` (chat display, cache and runtime
+  status, About Vivy, and the "Compaction configuration has graduated" migration
+  note) is hardcoded in
+  Chinese throughout. It is a pre-existing preview-area debt unrelated to this
+  card and is recorded in TODO row `UI-DIVA-PREVIEW-I18N`.
+- The `General` tab trigger in the settings page's `SettingsView.tsx` is also
+  hardcoded in Chinese (a neighboring problem on the same page, recorded in the
+  same debt row).

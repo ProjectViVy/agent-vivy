@@ -1,4 +1,4 @@
-# TUI-MD-STREAM-CACHE — 流式 Markdown 的 stable-prefix 增量渲染
+# TUI-MD-STREAM-CACHE — Stable-prefix incremental rendering for streaming Markdown
 
 ## What changed
 
