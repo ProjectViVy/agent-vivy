@@ -21,5 +21,23 @@
 
 The local runtime does not provide Go, `just`, or PowerShell, so it cannot
 faithfully execute this Windows-oriented repository gate. The new GitHub
-Actions `just ci` job is the authoritative full run for this delivery. Record
-the workflow URL and result here after the branch is published.
+Actions `just ci` job is the authoritative full run for this delivery.
+
+- Run 1 failed in `ui-ci`. The log showed two independent configuration
+  defects: Windows had no `rg`, so `fmt-check` did no work, and pnpm 11.19.0
+  rejected the unreviewed `esbuild@0.28.2` lifecycle script with
+  `ERR_PNPM_IGNORED_BUILDS`.
+- The follow-up replaces the non-portable `rg` dependency with `git ls-files`
+  and explicitly allows only the lockfile-pinned esbuild version in
+  `ui/pnpm-workspace.yaml`.
+
+## Existing I18N baseline
+
+- `pnpm install --frozen-lockfile` passed locally with pnpm 11.19.0 after the
+  exact esbuild approval; its postinstall completed.
+- `pnpm typecheck` passed.
+- `pnpm test` reached 213 tests and reported 16 failures. Each observed failure
+  is an active-I18N expectation mismatch: the implementation now emits English
+  while the existing test still expects a Chinese literal. These failures are
+  outside this isolated lane and are intentionally not patched here.
+- Record the follow-up workflow URL and final result here after it runs.

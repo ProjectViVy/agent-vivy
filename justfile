@@ -24,7 +24,7 @@ vet:
     & "{{go}}" vet ./...
 
 fmt-check:
-    powershell -NoProfile -Command '$files = rg --files cmd internal sdk ui plugins faces -g ''*.go''; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
+    powershell -NoProfile -Command '$files = & git ls-files -- ''*.go''; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $unformatted = $files | ForEach-Object { & ''{{gofmt}}'' -l $_ }; if ($unformatted) { Write-Output $unformatted; exit 1 }'
 
 # Per-module vet+test for plugins/* and faces/* independent modules (each
 # with its own go.mod; hello-fs belongs to the main module and is covered
