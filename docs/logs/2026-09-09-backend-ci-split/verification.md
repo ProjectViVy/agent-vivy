@@ -44,3 +44,8 @@ and UI results before the aggregate status is accepted.
   `TestCronRecoveryPastDueRecurringJobFiresOnceOnWakeAndSkipsStorm` (200 ms).
   That recovery test also validates one fire and a future write-back, so its
   unused next recurrence now uses the same 30-second observation window.
+- Actions run 9 passed both recurring cases, then failed the two one-shot
+  cases whose due times were only 500 ms after creation. Both stored rows were
+  disabled with empty run status, proving startup recovery saw them as already
+  missed. Their startup margins are now 5 seconds, within the existing 15- and
+  30-second acceptance bounds.
