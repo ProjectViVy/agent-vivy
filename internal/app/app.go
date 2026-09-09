@@ -26,6 +26,8 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	genplugins "agent-vivy/internal/generated/plugins"
+	"agent-vivy/internal/generated/presentation"
+	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/pluginhost"
 	"agent-vivy/internal/provider"
@@ -126,6 +128,16 @@ func WithInstructionRoot(path string) AppOption {
 	return func(o *appOptions) { o.instructionRoot = path }
 }
 
+// developerPresentationLocale reads the development-only locale input from
+// the launch root. A sealed Generation must depend solely on its embedded
+// presentation settings and therefore never consult process or dotenv state.
+func developerPresentationLocale(root string, sealed bool) (i18n.Locale, error) {
+	if sealed {
+		return "", nil
+	}
+	return i18n.DeveloperDefault(filepath.Join(root, ".env"))
+}
+
 // fanoutSink publishes one event to both the gateway bus and the extra
 // face sink, preserving the synchronous persist order.
 type fanoutSink struct {
@@ -146,6 +158,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
 		opt(&ao)
+	}
+	developerLocale, err := developerPresentationLocale(ao.instructionRoot, presentation.SealedGeneration)
+	if err != nil {
+		return nil, fmt.Errorf("app: resolve developer locale: %w", err)
 	}
 	liveSettingsPath := ao.settingsPath
 	if liveSettingsPath == "" {
@@ -539,6 +555,9 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		Eval:                           evalRunner,
 		Children:                       workerManager,
 		SettingsPath:                   liveSettingsPath,
+		GenerationLocale:               presentation.DefaultLocale,
+		DeveloperLocale:                developerLocale,
+		SealedGeneration:               presentation.SealedGeneration,
 		ConfigProvider:                 configProvider,
 		ConfigModel:                    configModel,
 		ProviderBundles:                []provider.Bundle{openaiBundle, anthropicBundle},

@@ -5,6 +5,8 @@
  * `trajectory/session` RPC 的 snake_case wire 形态映射而来。
  */
 
+import { t } from '@/i18n';
+
 /** 轨迹记录类型的闭合集合（与 DSH TrajectoryCellKind 一致）。 */
 export type TrajectoryCellKind =
   | 'system'
@@ -15,15 +17,15 @@ export type TrajectoryCellKind =
   | 'tool'
   | 'subtool';
 
-/** 类型徽标文案（与 DSH KIND_LABEL 一致，不做本地化）。 */
+/** Host-owned badge labels; record kind values remain protocol identifiers. */
 export const TRAJECTORY_KIND_LABEL: Record<TrajectoryCellKind, string> = {
-  system: 'SYSTEM',
-  user: 'USER',
-  context: 'CONTEXT',
-  compacted: 'COMPACTED',
-  message: 'ASSISTANT',
-  tool: 'TOOL',
-  subtool: 'SUBTOOL',
+  get system() { return t('trajectory.kinds.system'); },
+  get user() { return t('trajectory.kinds.user'); },
+  get context() { return t('trajectory.kinds.context'); },
+  get compacted() { return t('trajectory.kinds.compacted'); },
+  get message() { return t('trajectory.kinds.message'); },
+  get tool() { return t('trajectory.kinds.tool'); },
+  get subtool() { return t('trajectory.kinds.subtool'); },
 };
 
 /** Token 用量明细。 */

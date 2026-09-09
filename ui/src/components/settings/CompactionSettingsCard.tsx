@@ -8,7 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { listSessionCompactions, settingsUpdateFrom, type SessionCompactionRecord } from '@/lib/api';
 import { runActive, useVivyStore } from '@/lib/store';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
+
+type CompactionFeedback =
+  | { kind: 'saved' }
+  | { kind: 'not-needed' }
+  | { kind: 'compacted'; beforeTokens: number; afterTokens: number }
+  | { kind: 'error'; message: string };
 
 /**
  * 上下文压缩（真实）：配置持久化到 settings.yaml（settings/update），保存后
@@ -39,7 +45,7 @@ export function CompactionSettingsCard() {
   const [keepRecent, setKeepRecent] = useState(base?.keep_recent ?? 12);
   const [saving, setSaving] = useState(false);
   const [compacting, setCompacting] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<CompactionFeedback | null>(null);
   const locked = settings?.read_only || Boolean(settings?.frozen);
 
   const [history, setHistory] = useState<SessionCompactionRecord[]>([]);
@@ -93,9 +99,9 @@ export function CompactionSettingsCard() {
           keep_recent: Math.max(1, Number(keepRecent) || 1),
         },
       }));
-      setFeedback(t('settings.compaction.saved'));
+      setFeedback({ kind: 'saved' });
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : String(error));
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       setSaving(false);
     }
@@ -108,16 +114,13 @@ export function CompactionSettingsCard() {
     try {
       const result = await compactSession(activeSessionId);
       if (result.skipped) {
-        setFeedback(t('settings.compaction.notNeeded'));
+        setFeedback({ kind: 'not-needed' });
       } else {
-        setFeedback(t('settings.compaction.done', {
-          before: result.before_tokens.toLocaleString(),
-          after: result.after_tokens.toLocaleString(),
-        }));
+        setFeedback({ kind: 'compacted', beforeTokens: result.before_tokens, afterTokens: result.after_tokens });
 		await refreshHistory(activeSessionId);
       }
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : String(error));
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       setCompacting(false);
     }
@@ -167,7 +170,7 @@ export function CompactionSettingsCard() {
             <div className="mt-2 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{t('settings.compaction.feedUsage')}</span>
-                <span className="font-medium">{sessionContext.feed_tokens.toLocaleString()} / {sessionContext.model_limit_tokens.toLocaleString()} tokens</span>
+                <span className="font-medium">{sessionContext.feed_tokens.toLocaleString(dateTimeLocale())} / {sessionContext.model_limit_tokens.toLocaleString(dateTimeLocale())} tokens</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div className={`h-full rounded-full transition-all ${wouldCompact ? 'bg-destructive' : pressure >= 60 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} />
@@ -176,7 +179,7 @@ export function CompactionSettingsCard() {
                 <Badge variant={wouldCompact ? 'secondary' : 'outline'}>{t('settings.compaction.pressureBadge', { percent: pressure })}</Badge>
                 <span>{wouldCompact ? t('settings.compaction.thresholdReached') : t('settings.compaction.notNeeded')}</span>
                 {Boolean(sessionContext.has_compaction_summary) ? <span>{t('settings.compaction.hasSummary')}</span> : null}
-                {last ? <span>{t('settings.compaction.lastCompaction', { mode: last.mode, before: last.before_tokens.toLocaleString(), after: last.after_tokens.toLocaleString() })}</span> : null}
+                {last ? <span>{t('settings.compaction.lastCompaction', { mode: last.mode, before: last.before_tokens.toLocaleString(dateTimeLocale()), after: last.after_tokens.toLocaleString(dateTimeLocale()) })}</span> : null}
               </div>
             </div>
           ) : (
@@ -200,7 +203,7 @@ export function CompactionSettingsCard() {
                 <li key={`${record.run_id}-${record.created_at}`} className="rounded-md bg-muted/40 p-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant="outline">{t('settings.compaction.historyRun', { runId: record.run_id })}</Badge>
-                    <span>{new Date(record.created_at).toLocaleString()}</span>
+                    <span>{new Date(record.created_at).toLocaleString(dateTimeLocale())}</span>
                     <span>{t('settings.compaction.historyDropped', { count: record.dropped_count })}</span>
                   </div>
                   <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-sm">{record.summary}</p>
@@ -218,7 +221,17 @@ export function CompactionSettingsCard() {
           <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => { void loadSessionContext(); void loadBackgroundRuns(); if (activeSessionId) void refreshHistory(activeSessionId); }}>{t('settings.compaction.refresh')}</Button>
           {busy ? <span className="text-xs text-amber-600 dark:text-amber-400">{t('settings.compaction.busyHint')}</span> : null}
         </div>
-        {feedback ? <p className="text-xs text-muted-foreground" aria-live="polite">{feedback}</p> : null}
+        {feedback ? (
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            {feedback.kind === 'error' ? feedback.message
+              : feedback.kind === 'saved' ? t('settings.compaction.saved')
+              : feedback.kind === 'not-needed' ? t('settings.compaction.notNeeded')
+              : t('settings.compaction.done', {
+                before: feedback.beforeTokens.toLocaleString(dateTimeLocale()),
+                after: feedback.afterTokens.toLocaleString(dateTimeLocale()),
+              })}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

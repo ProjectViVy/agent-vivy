@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { generateNotebookReport, getNotebookReports, searchSessions } from '@/lib/demo-api';
 import type { NotebookReport, ReportPeriod, SessionSearchHit } from '@/lib/types';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 const PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly'];
@@ -152,7 +152,7 @@ export function NotebookView() {
                   <article key={`${hit.session_id}-${hit.message_index}`} className="mb-2 rounded-lg border bg-card p-3">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Calendar className="h-3.5 w-3.5" />
-                      {new Date(hit.timestamp).toLocaleString()}
+                      {new Date(hit.timestamp).toLocaleString(dateTimeLocale())}
                     </div>
                     <p className="mt-2 text-sm">{hit.snippet}</p>
                   </article>

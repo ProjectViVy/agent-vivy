@@ -10,7 +10,7 @@ export const RPC_METHODS = [
   'child/start', 'child/get', 'child/list', 'child/wait', 'child/cancel',
   'generations/list', 'generations/get', 'generations/create', 'generations/reject',
   'evals/list', 'evals/record', 'evals/start', 'promotions/list', 'promotions/promote', 'species/inspect',
-  'settings/get', 'settings/update',
+  'settings/get', 'settings/update', 'settings/locale',
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'tools/list', 'tools/set-active',
@@ -91,7 +91,14 @@ export interface WorkspaceFile { path: string; size: number }
 export interface WorkspaceFileContent { path: string; content: string; size: number; truncated: boolean; binary: boolean }
 export const listWorkspaceFiles = (runId: string) => request<{ files: WorkspaceFile[]; truncated: boolean }>('workspace/list', { run_id: runId });
 export const readWorkspaceFile = (runId: string, path: string) => request<WorkspaceFileContent>('workspace/read', { run_id: runId, path });
-export interface Settings {
+export type Locale = 'en' | 'zh';
+export interface LocaleSettings {
+  locale: Locale;
+  generation_locale: Locale;
+  workspace_locale: Locale | '';
+  locale_read_only: boolean;
+}
+export interface Settings extends LocaleSettings {
   provider: string;
   default_model: string;
   base_url: string;
@@ -279,6 +286,7 @@ export const startEval = (params: { candidate_id: string; baseline_id?: string; 
 export const listPromotions = () => request<{ promotions: Promotion[] }>('promotions/list');
 export const promoteGeneration = (params: { from_id: string; to_id: string; eval_id?: string; actor?: string }) => request<Promotion>('promotions/promote', params);
 export const getSettings = () => request<Settings>('settings/get');
+export const updateLocale = (locale: Locale) => request<LocaleSettings>('settings/locale', { locale });
 
 /** tools/list 目录项：内置注册表全量（active + hidden）。 */
 export interface ToolCatalogEntry { name: string; description: string; readonly: boolean; active: boolean }

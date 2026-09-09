@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"agent-vivy/internal/generated/presentation"
+	corei18n "agent-vivy/internal/i18n"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -20,7 +23,8 @@ type Transport interface {
 
 // client owns the protocol projection shared by every first-party TUI entry.
 type client struct {
-	transport Transport
+	transport  Transport
+	translator tuii18n.Translator
 
 	mu   sync.RWMutex
 	caps map[string]struct{}
@@ -53,7 +57,23 @@ func (c *client) SupportsCapability(name string) bool {
 }
 
 func newClient(transport Transport) *client {
-	return &client{transport: transport}
+	return &client{transport: transport, translator: tuii18n.New(presentation.DefaultLocale)}
+}
+
+// Only locale is authoritative; the other settings fields are metadata and
+// never form a second client-side precedence chain.
+func (c *client) effectiveLocale(ctx context.Context) (corei18n.Locale, error) {
+	raw, err := c.Call(ctx, "settings/get", nil)
+	if err != nil {
+		return "", err
+	}
+	var settings struct {
+		Locale string `json:"locale"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return "", err
+	}
+	return corei18n.Parse(settings.Locale)
 }
 
 // OnNotify registers the callback for server notifications (run/event).
@@ -66,7 +86,7 @@ func (c *client) OnNotify(fn func(method string, params json.RawMessage)) {
 // Call issues one JSON-RPC method through the face environment.
 func (c *client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if c == nil || c.transport == nil {
-		return nil, fmt.Errorf("tui: client is not connected")
+		return nil, fmt.Errorf("%s", tuii18n.New(presentation.DefaultLocale).T("vivy.tui.live.connected", nil))
 	}
 	return c.transport.Call(ctx, method, params)
 }
@@ -418,7 +438,7 @@ func (c *client) createSession(ctx context.Context, title string) (sessionView, 
 		return sessionView{}, fmt.Errorf("tui: session/create: %w", err)
 	}
 	if session.ID == "" {
-		return sessionView{}, fmt.Errorf("tui: session/create returned no id")
+		return sessionView{}, fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "session/create", "field": "id"}))
 	}
 	return session, nil
 }
@@ -449,7 +469,7 @@ func (c *client) getSession(ctx context.Context, sessionID string) (sessionView,
 		return sessionView{}, fmt.Errorf("tui: session/get: %w", err)
 	}
 	if envelope.Session.ID == "" {
-		return sessionView{}, fmt.Errorf("tui: session/get returned no id")
+		return sessionView{}, fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "session/get", "field": "id"}))
 	}
 	return envelope.Session, nil
 }
@@ -476,7 +496,7 @@ func (c *client) sessionSidebar(ctx context.Context, sessionID string) (sidebarV
 		return sidebarView{}, fmt.Errorf("tui: session/sidebar: %w", err)
 	}
 	if view.Session.ID == "" {
-		return sidebarView{}, fmt.Errorf("tui: session/sidebar returned no session")
+		return sidebarView{}, fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "session/sidebar", "field": "session"}))
 	}
 	return view, nil
 }
@@ -557,7 +577,7 @@ func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 		return runAccepted{}, fmt.Errorf("tui: turn/start: %w", err)
 	}
 	if accepted.RunID == "" {
-		return runAccepted{}, fmt.Errorf("tui: turn/start returned no run_id")
+		return runAccepted{}, fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "turn/start", "field": "run_id"}))
 	}
 	return accepted, nil
 }
@@ -577,7 +597,7 @@ func (c *client) startShell(ctx context.Context, sessionID, script string) (runA
 		return runAccepted{}, fmt.Errorf("tui: shell/start: %w", err)
 	}
 	if accepted.RunID == "" {
-		return runAccepted{}, fmt.Errorf("tui: shell/start returned no run_id")
+		return runAccepted{}, fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "shell/start", "field": "run_id"}))
 	}
 	return accepted, nil
 }
@@ -600,7 +620,7 @@ func (c *client) resolveProjectContext(ctx context.Context, paths []string) ([]s
 			return nil, fmt.Errorf("tui: project-context/resolve: %w", err)
 		}
 		if len(direct) != len(clean) {
-			return nil, fmt.Errorf("tui: project-context/resolve returned %d contexts, want %d", len(direct), len(clean))
+			return nil, fmt.Errorf("%s", c.translator.T("vivy.tui.live.contextCount", map[string]any{"count": len(direct), "expected": len(clean)}))
 		}
 		return direct, nil
 	}
@@ -615,7 +635,7 @@ func (c *client) resolveProjectContext(ctx context.Context, paths []string) ([]s
 		contexts = envelope.Items
 	}
 	if len(contexts) != len(clean) {
-		return nil, fmt.Errorf("tui: project-context/resolve returned %d contexts, want %d", len(contexts), len(clean))
+		return nil, fmt.Errorf("%s", c.translator.T("vivy.tui.live.contextCount", map[string]any{"count": len(contexts), "expected": len(clean)}))
 	}
 	return contexts, nil
 }
@@ -664,7 +684,7 @@ func (c *client) resolveAttachments(ctx context.Context, paths []string) ([]surf
 		return nil, fmt.Errorf("tui: attachments/resolve: %w", err)
 	}
 	if len(envelope.Attachments) != len(paths) {
-		return nil, fmt.Errorf("tui: attachments/resolve returned %d attachments, want %d", len(envelope.Attachments), len(paths))
+		return nil, fmt.Errorf("%s", c.translator.T("vivy.tui.live.attachmentCount", map[string]any{"count": len(envelope.Attachments), "expected": len(paths)}))
 	}
 	return envelope.Attachments, nil
 }
@@ -693,7 +713,7 @@ func (c *client) subscribe(ctx context.Context, runID string, afterSeq int) (str
 		return "", fmt.Errorf("tui: run/subscribe: %w", err)
 	}
 	if strings.TrimSpace(result.SubscriptionID) == "" {
-		return "", fmt.Errorf("tui: run/subscribe returned no subscription_id")
+		return "", fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "run/subscribe", "field": "subscription_id"}))
 	}
 	return result.SubscriptionID, nil
 }
@@ -723,7 +743,7 @@ func (c *client) runStatus(ctx context.Context, runID string) (string, error) {
 		return "", fmt.Errorf("tui: run/get: %w", err)
 	}
 	if strings.TrimSpace(result.Status) == "" {
-		return "", fmt.Errorf("tui: run/get returned no status")
+		return "", fmt.Errorf("%s", c.translator.T("vivy.tui.live.missingField", map[string]any{"method": "run/get", "field": "status"}))
 	}
 	return result.Status, nil
 }

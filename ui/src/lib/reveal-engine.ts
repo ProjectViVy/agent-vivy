@@ -9,6 +9,8 @@
 //
 // 交错延迟：data-reveal-delay="120"（毫秒，仅影响 transition-delay）。
 
+import { t } from '../i18n';
+
 const REVEAL_SELECTOR = ".reveal, .reveal-up, .reveal-left, .reveal-right, .reveal-zoom, .animate-on-scroll, [data-reveal]";
 const READY_CLASS = "reveal-ready";
 const VISIBLE_CLASS = "visible";
@@ -129,6 +131,6 @@ export function initRevealEngine(): void {
     // 引擎自身异常时移除门控 class，确保所有内容可见
     document.documentElement.classList.remove(READY_CLASS);
     const message = e instanceof Error ? e.message : String(e);
-    console.warn("[reveal-engine] 初始化失败，已降级为全部可见：", message);
+    console.warn(t('reveal.initializationFailed'), message);
   }
 }

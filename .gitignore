@@ -51,6 +51,7 @@ meoo_zip_*.zip
 
 # Local agent scratch (plans, transient state)
 /.zcode/
+/.worktrees/
 
 # Editor / OS noise
 .idea/
