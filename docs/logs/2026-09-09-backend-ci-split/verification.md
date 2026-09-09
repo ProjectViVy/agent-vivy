@@ -39,3 +39,8 @@ and UI results before the aggregate status is accepted.
 - The failed row already had `LastStatus: ok`; its 120 ms next recurrence had
   elapsed before the loaded Windows runner could observe it. The test now
   uses a 30-second recurrence because it validates only the first write-back.
+- Actions run 8 passed that test, then exposed the only other predicate with
+  the same timing shape in
+  `TestCronRecoveryPastDueRecurringJobFiresOnceOnWakeAndSkipsStorm` (200 ms).
+  That recovery test also validates one fire and a future write-back, so its
+  unused next recurrence now uses the same 30-second observation window.

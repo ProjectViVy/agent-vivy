@@ -380,7 +380,9 @@ func TestCronRecoveryPastDueRecurringJobFiresOnceOnWakeAndSkipsStorm(t *testing.
 	now := time.Now().UnixMilli()
 
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleEvery, EveryMs: 200}
+		// The recovery behavior needs one fire and a future write-back. A long
+		// recurrence keeps that state observable under loaded Windows CI.
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleEvery, EveryMs: 30_000}
 		j.State.NextRunAtMs = now - 5000
 	})
 
