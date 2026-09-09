@@ -1,40 +1,22 @@
 ---
 name: vivy-plugin-five
-description: Develop a user plugin under plugins/<name>. Verify, pack, and inspect a new vivy.exe generation. Use when adding or changing a Vivy user plugin, running vivy-sdk, or the user mentions 插件五步 / hello-fs / pack.
+description: Use when an older Vivy request mentions plugin five-step, hello-fs, vivy-plugin.json, Seam, or the pre-v1 pack workflow.
 ---
 
-# Vivy plugin five-step
+# Legacy plugin workflow redirect
 
-Vivy feature development starts the split pair (`just run` + `cd ui; pnpm
-dev`, open `http://127.0.0.1:3015`) when browser validation is needed.
-Studio is not a mandatory authoring venue. Other authorized developer tools
-may develop plugins directly in this workspace using their own native
-capabilities. Do not develop plugins inside daily `vivy.exe` or against the
-embedded UI.
+The five-step workflow targeted the rejected, unreleased v0 API. Do not use,
+extend, emulate, or preserve it.
 
-## Air gap
+**REQUIRED REPLACEMENT SKILL:** Use `vivy-plugin`.
 
-Do not read or write `data/vivy.db`, `data/demo/`, or `data/workspaces/`.
-Those are the tenant Journal. Studio sessions live in `data/studio-home/`.
+`vivy.plugin/v0`, `vivy-plugin.json`, `Seam`, `sdk/plugin.Plugin`, and the old
+`pack --with` contract are not valid targets and have no migration path. If the
+v1 phase required by the request is still `UNSCHEDULED` or only `SPECIFIED`,
+stop and report that Gate instead of implementing with v0.
 
-## Procedure
-
-Work only in `plugins/<name>/` (`plugin.go`, `vivy-plugin.json`, tests).
-
-```text
-vivy-sdk verify plugins/<name>
-vivy-sdk pack --with <name>
-vivy-sdk inspect-artifact dist/gen-...
-```
-
-Success is a new EXE plus a Generation manifest that names this plugin.
-Refreshing a browser does not install a plugin.
-
-## Forbidden
-
-- Opening `internal/runtime/engine.go` (or any kernel file) to add an import
-- Building a standalone `hello-fs.exe` and pointing config at it
-- Treating Skill text or a remote MCP URL as a plugin
-- Importing anything except `agent-vivy/sdk/plugin`
-
-`just ci` is the kernel path (skill `vivy-kernel-ci`), not this skill.
+Do not edit `internal/runtime/engine.go`, hand-edit generated registration, or
+scan plugin directories at runtime. The v1 source of truth is under
+`docs/architecture/VIVY-*-STANDARD.md`, `VIVY-PORT-CATALOG.md`,
+`VIVY-PLUGIN-SPEC.md`, `VIVY-ASSEMBLY.md`, and
+`docs/plans/plugin-platform/`.

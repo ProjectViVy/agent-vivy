@@ -1,283 +1,303 @@
-# Vivy Plugin Spec v0
+# Vivy Plugin Specification v1
 
-> 状态：**提案**（tool / tool-world / provider 缝）。`seam: channel` 的通道规则服从已采纳的 **`VIVY-CHANNEL-PACK.md`**。
-> 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、**`VIVY-STUDIO.md`**。
-> 日期：2026-08-30（扩 `seam: channel`；Studio 为第一方日常 IDE，但不排他）
->
-> **本规范约束仓库里的 `plugins/<name>/`。**
-> 出厂的 loop / world / tool / provider **不叫插件**，不放在本目录，装配见 `VIVY-ASSEMBLY.md`。
-> 本批通道适配器是例外：它们是可选耳朵，不是内核，因此也住在 `plugins/`，清单必须 `seam: channel`（见 `VIVY-ASSEMBLY.md` 与 `VIVY-CHANNEL-PACK.md`）。
-> Skill 文本不是插件。远程 MCP / provider 地址是配置，不是插件。
-> `seam: channel` 已由 **`VIVY-CHANNEL-PACK.md`** 扩入（方向采纳 2026-08-30）。通道插件零个 `tools`，不进工具表。Host 在内核。
-> `seam: face`（出厂 `faces/` 与用户插件共用 ABI）已由 **`VIVY-FACE-PACK.md`** 扩入（方向采纳 2026-08-31，VC 决策 D2）。face 清单零个 `tools`，禁止 `net.Listen`；kind/listen/grants 规则见该合同 §6。出厂脸走配方 `face:`，用户脸走 `plugins/` + `seam: face` 且**替换**出厂脸。
+> Status: **Normative**
+> Decision date: 2026-09-09
+> Applies to public Module source selected by a Vivy Generation Recipe.
+> `vivy.plugin/v0`, `Seam`, and the old God `Plugin` interface are unsupported
+> and have no migration path.
 
----
+## 1. Definition
 
-## 1. 规范要解决的感觉
+A Vivy plugin is a public T2 Module source that:
 
-允许纯 Go 代码。不允许作者觉得自己在改内核。
+1. has a `vivy.module/v1` Descriptor;
+2. provides one or more public Ports from `VIVY-PORT-CATALOG.md`;
+3. is named explicitly by a Generation Recipe;
+4. is validated and compiled into a new immutable Generation;
+5. appears with exact version, source hash, Ports, Grants, and dependencies in
+   Generation Inspect.
 
-判定「像在开发插件」的标准：
+It is not a runtime-loaded shared library, remote URL, Skill document, MCP
+Server, standalone executable, arbitrary Eino Graph, or directory discovered
+at startup.
 
-1. 工作目录只有 `plugins/<name>/`。日常不打开 `internal/`、`cmd/`。
-2. 世界只通过 `sdk/plugin` 进来。import 内核包，`vivy-sdk verify` 失败。
-3. 身份是清单里的名字和 seam，不是某个 `.go` 碰巧被主程序引用。
-4. 加入 / 拿掉一个插件，作者改的是**配方**，不是 `engine.go` 的 import 列表。`pack` 生成注册表。
-5. 跑起来之前，它只是源。跑起来之后，它已经是某一代 EXE 的一块肉——但开发时的心理模型仍是「这块插件」，不是「Vivy 本体」。
+Internal and public Modules share Descriptor, dependency graph, lifecycle,
+Generation provenance, and Inspect semantics. They do not share authority.
+Public Modules cannot provide `core/*` Ports or claim T0/T1 Trust.
 
-纯代码是实现。插件是**治理单元**：清单、契约、出处、世代。
+## 2. Source layout
 
----
-
-## 2. 一个插件长什么样
+The target public Module layout is:
 
 ```text
-plugins/
-  hello-fs/
-    vivy-plugin.json     身份与契约（pack / verify 必读）
-    plugin.go            实现 sdk/plugin.Plugin
-    plugin_test.go       只测本包，不拉起完整网关
-    README.md            给人看，运行时不读
+plugins/<module-name>/
+  vivy-module.yaml
+  go.mod                    when the Go module is independently versioned
+  module.go                 Module constructor and typed Providers
+  module_test.go
+  ui/                       only when providing a UI Port
+    package.json
+    pnpm-lock.yaml
+    src/
 ```
 
-名字 = 目录名 = 清单 `name`，小写、数字、连字符，如 `hello-fs`。  
-一个目录一个插件。禁止一个包注册两个 seam。
+The directory is a source boundary, not an execution boundary. One directory
+has one Module identity but may provide several cohesive public Ports. A module
+that mixes unrelated products should be split.
 
-`plugins/` 在物种仓库根下，和 `internal/`、`cmd/` 平级。它**不是** `internal` 的一部分，也**不是**可单独执行的模块。
+Public Go code imports only versioned public SDK packages. It MUST NOT import:
 
-`hello-fs` 一类无肥依赖的插件可以留在物种 `go.mod` 里。`seam: channel` 且拖入平台 SDK 的插件（本批 telegram / discord / feishu / dingtalk / qq）**必须**自带 `go.mod`，默认 `just ci` 不得编译它们（`VIVY-CHANNEL-PACK.md` §9.1）。
+- `agent-vivy/internal/*`;
+- Eino or EinoExt;
+- generated Assembly packages;
+- raw Journal, Policy, storage, RPC server, or credential packages.
 
----
+## 3. Descriptor
 
-## 3. 清单 `vivy-plugin.json`
-
-```json
-{
-  "apiVersion": "vivy.plugin/v0",
-  "name": "hello-fs",
-  "version": "0.1.0",
-  "seam": "tool-world",
-  "module": ".",
-  "grants": ["fs.read"],
-  "tools": [
-    {
-      "name": "hello_stat",
-      "effect": "read",
-      "description": "stat a path inside the run workspace",
-      "schema": {
-        "type": "object",
-        "properties": { "path": { "type": "string" } },
-        "required": ["path"]
-      }
-    }
-  ]
-}
-```
-
-| 字段 | 规则 |
-|---|---|
-| `apiVersion` | 目前只有 `vivy.plugin/v0` |
-| `name` | 与目录名一致；本代配方内唯一 |
-| `version` | semver；进入 Generation 出处 |
-| `seam` | 只许 `tool`、`tool-world`、`provider`、`channel`。**禁止** `journal`、`policy`、`sdk`、`studio`。`channel` 的清单、grants 与 verify 规则见 `VIVY-CHANNEL-PACK.md` |
-| `module` | 相对本目录的 Go 包路径，通常 `.` |
-| `grants` | 本插件可申请的上限。pack 进这一代后冻结 |
-| `tools` | 将出现在模型面前的工具。名字全局唯一（跨插件不撞车）。`seam: channel` **禁止**出现本字段 |
-
-没有 `runtime`、没有 `entry`、没有 exe/wasm 路径。清单是给 **SDK 编译器用的配方卡**，不是给运行时装载器的。
-
----
-
-## 4. 代码契约（纯 Go，窗口很小）
-
-作者只 import `agent-vivy/sdk/plugin`（包名以落地时为准）。公开面大约是：
-
-```go
-package plugin
-
-type Seam string
-
-const (
-    SeamTool      Seam = "tool"
-    SeamToolWorld Seam = "tool-world"
-    SeamProvider  Seam = "provider"
-    SeamChannel   Seam = "channel" // 见 VIVY-CHANNEL-PACK.md
-)
-
-const (
-    GrantFSRead  Grant = "fs.read"
-    GrantFSWrite Grant = "fs.write"
-    // Channel family (VIVY-CHANNEL-PACK.md §9.3). Per-seam restriction
-    // is verify's job, not the vocabulary's.
-    GrantChannelPoll    Grant = "channel.poll"
-    GrantChannelWebhook Grant = "channel.webhook"
-    GrantChannelListen  Grant = "channel.listen"
-    GrantChannelA2A     Grant = "channel.a2a"
-    GrantSecretRead     Grant = "secret.read"
-)
-
-type Plugin interface {
-    Name() string
-    Seam() Seam
-    Grants() []Grant
-    Tools() []Tool
-}
-
-type Tool interface {
-    Name() string
-    Effect() Effect // read | write
-    Schema() json.RawMessage
-    Run(ctx context.Context, env Env, args json.RawMessage) (string, error)
-}
-
-// Env is the only world a plugin may touch. It is capability-filtered
-// by Grants(). Asking for a missing grant fails closed.
-type Env interface {
-    Workspace() string
-    OpenRead(path string) (io.ReadCloser, error)
-    OpenWrite(path string) (io.WriteCloser, error) // needs fs.write
-    // no Journal, no Policy, no raw OS, no Eino
-}
-
-// Channel is the ABI of a seam-channel plugin. Its Consumer is the kernel
-// ChannelHost, never the model tool table (VIVY-CHANNEL-PACK.md §9.3).
-type Channel interface {
-    Name() string
-    Seam() Seam // must be SeamChannel
-    Grants() []Grant
-    Start(ctx context.Context, env ChannelEnv) error
-    Stop(ctx context.Context) error
-    Send(ctx context.Context, msg OutboundMessage) (ids []string, err error)
-}
-
-// ChannelEnv is the only world a channel plugin may touch.
-type ChannelEnv interface {
-    Secret(envKey string) (string, error) // fail-closed; values never logged
-    HTTP() *http.Client                   // outbound client only; no Listen
-    Settings() json.RawMessage            // C4 新增；opaque settings 以 JSON 传插件
-    PublishInbound(ctx context.Context, msg InboundMessage) error
-    Media() MediaStore
-}
-```
-
-Channel 信封是类型化的（`InboundMessage` / `OutboundMessage` / `Part`）；`map[string]string` 不是合同。通道 ABI 的合同源头是 `VIVY-CHANNEL-PACK.md` §9.3。
-
-`pack` 生成一份作者**不许手改**的注册文件（例如 `internal/generated/plugins/zz_register.go`）：
-
-```go
-// Code generated by vivy-sdk pack. DO NOT EDIT.
-func Register() []plugin.Plugin {
-    return []plugin.Plugin{
-        hellofs.New(),
-        // ...
-    }
-}
-```
-
-内核只调用 `Register()`。作者永远不要自己去改这份文件，也不要在 `internal/runtime` 里手写 `import`。
-
----
-
-## 5. 禁止项（`vivy-sdk verify` 失败即拒收）
-
-| 禁止 | 原因 |
-|---|---|
-| import `agent-vivy/internal/...`（`sdk` 除外） | 一碰内核，感觉就变成改本体 |
-| import `github.com/cloudwego/eino...` | Eino 是 L1，不是插件窗口。`eino-ext/a2a` 同样：后切独立 `plugins/a2a` 的 go.mod 才碰协议 codec；默认身体不得 import；禁止 `RegisterServerHandlers` 绑 ADK（`VIVY-CHANNEL-PACK.md` §15.1） |
-| 自己 `os.Open` / `exec.Command` 绕过 `Env` | 票形同虚设 |
-| 清单 `name` ≠ 目录名 | 身份漂移 |
-| 两个插件登记同一 `tools[].name` | 模型面冲突 |
-| `seam: channel` 清单带 `tools` | channel 不是模型工具；Consumer 是 ChannelHost |
-| seam 为 `journal` / `policy` | 重构世界的物理不许插件化 |
-| 包内再 `go:embed` 可执行文件当「内置插件」 | 走私外置二进制 |
-| 在插件里起长期后台服务抢端口 | 插件不是进程。`seam: channel` 的例外只此一条：持有 `channel.poll` 时，`Start` 可以跑**出站**长轮询或出站 WS 客户端；`net.Listen` 仍禁止（Listen 是 Host 的，见 `VIVY-CHANNEL-PACK.md`） |
-
-测试可以放在插件目录。测试也不得 import `internal/runtime`。集成感放在物种测试里，由内核去拉 `Register()`。
-
----
-
-## 6. 开发时的手感（规定动作）
-
-作者的一天应当是：
-
-```text
-cd plugins/hello-fs
-编辑 plugin.go 和 vivy-plugin.json
-
-vivy-sdk verify plugins/hello-fs
-        → 只骂这个插件：契约、import、清单
-
-vivy-sdk pack --with hello-fs
-        → 出新一代 EXE，配方里多这一块
-
-vivy-sdk inspect-artifact dist/gen-...
-        → 看见 hello-fs@0.1.0 的出处和哈希
-```
-
-不出现：
-
-- 打开 `engine.go` 加一行 import
-- 「先编一个 hello-fs.exe 再配置路径」
-- 改完刷新浏览器就当插件已装上
-
-Vivy Studio（独立应用）把上面三条做成预制 Skill。作者在 Studio 里的心理模型是 **当前插件 + 当前配方 + 下一代 EXE**。不在日常 `vivy.exe` 里做插件。其他已获授权读取源码工作区的开发工具，可用自身能力直接开发与验证插件，无需把工作迁移到 Studio（NG-26）。
-
----
-
-## 7. 配方：插件如何组成一代
-
-仓库根一份 pack 配方（示意 `vivy.generation.yml`），点名本代链哪些源码包：
+Example:
 
 ```yaml
-apiVersion: vivy.generation/v0
-plugins:
-  - plugins/hello-fs
-  - plugins/notes-extra
+apiVersion: vivy.module/v1
+module:
+  id: acme/search
+  version: 1.0.0
+source:
+  ref: git:acme/search@0123456
+  sha256: 9f4a000000000000000000000000000000000000000000000000000000000000
+provides:
+  - port: std/tool@v1
+  - port: std/ui-extension@v1
+  - port: std/control-action@v1
+requires:
+  - port: core/tool-host@v1
+  - port: core/presentation-host@v1
+  - port: core/action-host@v1
+requestedGrants:
+  - net.client
+lifecycle:
+  scope: generation
 ```
 
-`pack` 读这份清单，不扫 `plugins/` 下所有目录。没点名的源码包不存在于这一代。  
-卸插件 = 从配方删一行，再 `pack`。不是删运行时 allowlist。
+Trust does not appear in this document. The Source Catalog identifies the
+source; the Recipe selects the source and approves effective Grants.
 
-这一代 EXE 的 `inspect` 必须能列出：编进来的每个插件名、版本、seam、grants、源哈希。这是「我在开发某个插件」在**成品上的回声**：住户看见的是一代身体，作者对照的仍是一块块插件。
+`Describe` and parsing the Descriptor perform no side effects. Source hashes
+are calculated from a canonical file set with normalized paths and explicit
+exclusions for build output and local scratch.
 
----
+## 4. No universal Plugin interface
 
-## 8. 和内核、Eino、工作室的边界
+Each Port has its own typed Provider interface. A Module constructor returns a
+typed contribution set; it does not implement methods such as `Seam()`,
+`Tools()`, or `Grants()`.
+
+Conceptual target:
+
+```go
+type Module interface {
+    Descriptor() module.Descriptor
+    Construct(context.Context, module.Host) (module.Instance, error)
+}
+
+type Contributions struct {
+    Tools          []tool.Provider
+    ToolWorlds     []toolworld.Provider
+    Channels       []channel.Provider
+    ContextSources []contextsource.Provider
+}
+```
+
+The concrete v1 SDK may split these types into focused packages. It MUST NOT
+collapse them back into `[]any`, reflection registration, or a single interface
+whose methods grow for every new capability.
+
+## 5. Recipe inclusion
+
+Example target Recipe:
+
+```yaml
+apiVersion: vivy.generation/v1
+profile: default
+modules:
+  - id: vivy/default-body
+  - id: acme/search
+    source: git:acme/search@0123456
+    sha256: 9f4a000000000000000000000000000000000000000000000000000000000000
+    grants:
+      net.client:
+        schemes: [https]
+        hosts: [search.example.com]
+        ports: [443]
+order:
+  std/ui-extension@v1:
+    - vivy/default-ui
+    - acme/search
+```
+
+Rules:
+
+- The Recipe lists every external Module explicitly.
+- The Assembly Compiler never scans `plugins/` for candidates.
+- Removal means deleting the Module from the Recipe and building a new
+  Generation.
+- Configuration can activate only code already compiled into the Generation.
+- A Recipe cannot grant a capability the Port or Trust level forbids.
+- Ordered Port composition is explicit; last-writer-wins is forbidden.
+
+## 6. Public capability rules
+
+### Tools
+
+All Tool Providers use `std/tool@v1` or `std/tool-world@v1`. They enter the
+single ToolHost path. Public Modules cannot replace the protected internal Tool
+IDs listed in `VIVY-PORT-CATALOG.md`.
+
+### Channels and Face
+
+ChannelHost consumes `std/channel@v1`; a Channel never appears in the model
+Tool table. FaceHost consumes one `std/face@v1` for an Interactive Generation;
+a Face remains an authenticated control-plane client.
+
+### Provider profiles
+
+A public Module can provide `std/provider-profile@v1` data. It cannot provide
+an executable Model Provider. Model execution is an internal Eino/EinoExt
+adapter; a missing pinned capability is deferred indefinitely.
+
+### Context, Skills, MCP, and Observers
+
+Sources return typed, bounded data to their internal Hosts. They cannot mutate
+the final Prompt, Run, Journal, or Tool execution path. MCP Server instances
+are T3 external systems managed by MCPHost, not native public Modules.
+
+### Middleware
+
+Only `std/middleware/pre-tool@v1` may affect execution. It can pass, deny,
+require approval, or rewrite arguments. ToolHost revalidates after every
+rewrite. Failure is fail-closed.
+
+### Control Actions
+
+Module-specific control operations use `std/control-action@v1` and the single
+ActionHost RPC method. Plugins cannot register arbitrary RPC or HTTP routes.
+
+## 7. Full UI access by default
+
+A Module providing `std/ui-extension@v1` or `std/ui-root@v1` receives complete
+UI access when selected into the Generation. There is:
+
+- no `ui.full` Grant;
+- no UI permission prompt;
+- no component or DOM allow-list;
+- no CSS isolation requirement;
+- no per-change UI audit.
+
+UI code may modify or replace routes, navigation, pages, components, styles,
+themes, client state, shortcuts, commands, and the Web Face root. It may use
+browser APIs and can observe client-visible state. This is trusted code, not a
+sandboxed widget.
+
+The build still enforces provenance:
+
+- UI source and dependency lock hashes enter the Generation inputs;
+- the built UI artifact hash enters the Manifest;
+- `std/ui-root@v1` remains exclusive;
+- extension order and replacement relationships are explicit;
+- remote code download and T3 UI injection are forbidden.
+
+Backend authorization is unaffected. The server rechecks identity, schema,
+Policy, Grant, approval, and instance state. UI code cannot grant itself
+backend authority by hiding, replacing, or forging a view.
+
+## 8. Runtime and lifecycle
+
+Module code follows:
 
 ```text
-作者
-  └─ plugins/<name>/     只准待在这里
-        │  sdk/plugin
-        ▼
-pack 生成 Register()
-        │
-        ▼
-物种内核     票、policy、Journal、只读 inspect、ChannelHost
-        │  adapter（作者不可见）
-        ▼
-Eino L1      只看见内核包装过的 Tool
-        │
-        ChannelHost 只消费 seam: channel；不 Adapt 成 Tool
+Describe -> Construct -> Start -> Ready -> Frozen -> Stop -> Close
 ```
 
-插件崩溃 = 这一代 EXE 崩溃。隔离不在进程，在**下一代**：配方拿掉它，再盖一栋。  
-同二进制的 `vivy worker` 不是插件通道。
-
----
-
-## 9. 版本与出处
-
-每一个被 `pack` 进去的插件，Generation 清单里有一条：
+Configured instances follow:
 
 ```text
-name, version, seam, grants, source_ref, tree_hash, apiVersion
+Configured -> Activate -> Ready | Unavailable -> Deactivate -> Close
 ```
 
-没有这条，这一代不合法。重构：丢掉 EXE，用配方 + 源码还能再 `pack` 出同一组成（哈希尽力而为，出处必须在）。
+Required startup failure aborts the startup and closes earlier owners in
+reverse order. Cleanup is idempotent and deadline-bound. Runtime instance
+failure is visible as `Unavailable`; it cannot select an undeclared fallback.
 
----
+Long-running work belongs to a Port whose lifecycle and resource ownership
+explicitly permit it. A generic Tool Module cannot start an invisible daemon.
 
-## 10. 一句话
+## 9. Verify, pack, and inspect target contract
 
-> **代码是纯的；单元是插件；进世界的方式是编进新版本。**  
-> 作者在 Studio 里、永远待在 `plugins/<name>`。内核永远看不见他们，除非经过 SDK 和生成的注册表。
+The v1 command surface remains conceptually:
+
+```text
+vivy-sdk verify plugins/<name>
+vivy-sdk pack --recipe vivy.generation.yml
+vivy-sdk inspect-artifact dist/<generation>
+```
+
+These commands are target contracts until their implementation phase reaches
+`SUPPORTED`. Documentation and Skills MUST NOT pretend that the current v0 SDK
+already implements v1.
+
+`verify` checks Descriptor schema, typed Port declarations, import firewall,
+source identity, Grant requests, UI build metadata, and focused conformance.
+
+`pack` compiles the complete Recipe graph, creates typed generated wiring,
+builds backend and UI contributions, runs Generation conformance, embeds the
+immutable Manifest, and emits no artifact on failure.
+
+`inspect-artifact` displays Module/Port graph, Trust assignment, effective
+Grants, source and artifact hashes, lifecycle order, Middleware/UI composition,
+default and deferred capability status, and compiler version.
+
+## 10. Failure rules
+
+The following fail before a formal Generation is emitted:
+
+- unsupported `apiVersion`;
+- duplicate Module ID or exclusive Provider;
+- missing Consumer or required Provider;
+- dependency cycle or conflict;
+- public Provider for `core/*`;
+- reserved protected Tool identity;
+- unknown, excessive, or unapproved Grant;
+- forbidden import;
+- unpinned external source;
+- UI root conflict or ambiguous extension order;
+- invalid schema or lifecycle scope;
+- missing Conformance evidence for a claimed `SUPPORTED` Port;
+- Eino-scoped capability with neither a verified upstream adapter nor an
+  explicit `DEFERRED-INDEFINITE` result.
+
+Errors MUST name the Module, Port, field or edge, and the violated rule. Error
+cause chains are preserved and Secret values are redacted.
+
+## 11. Prohibited legacy and bypasses
+
+New work MUST NOT:
+
+- use `vivy.plugin/v0`;
+- implement or preserve `Plugin`, `Seam`, `SeamProvider`, or Seam-specific
+  compatibility types;
+- add a v0-to-v1 converter or hidden legacy branch;
+- install a Module by editing `internal/runtime/engine.go`;
+- register a Module during process startup;
+- load Go or UI code from an unpinned runtime location;
+- bypass ToolHost, ChannelHost, FaceHost, ActionHost, Policy, or Journal;
+- import Eino outside `internal/runtime` and `internal/provider`;
+- describe same-process T2 code as sandboxed.
+
+## 12. Completion definition
+
+A public plugin feature is complete only when its Port is `SUPPORTED`, the
+Module passes its focused Conformance Suite, the complete Recipe passes
+Generation conformance, Inspect proves provenance and authority, failure-path
+tests pass, `just ci` is green, and the iteration log records human acceptance.
+
+Until the v1 foundation exists, the correct result of a plugin implementation
+request is to follow the approved phase plan, not to fall back to v0.

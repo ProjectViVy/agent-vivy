@@ -1,5 +1,10 @@
 # 如何让 Vivy 成为单 EXE 的自主进化网关
 
+> **Plugin v1 note (2026-09-09):** 本文保留单 EXE / 换代产品方向；其中
+> `vivy.plugin/v0`、`vivy.generation/v0`、Seam、旧注册表和兼容迁移描述均为
+> 历史。新实现只服从 `VIVY-MODULE-STANDARD.md`、
+> `VIVY-PORT-CATALOG.md`、`VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。
+>
 > 状态：**方向已采纳**（2026-08-14）。**Studio 形状于 2026-08-15 纠正**：独立应用，管开发与分发；Studio 是第一方日常开发 IDE，但不是排他的执行场地。
 > 不取代 V0 ADR。物种侧 S1–S6 零件仍可用；S7 工作室卡产品含义作废。
 > 日期：2026-08-15（Studio 纠正）

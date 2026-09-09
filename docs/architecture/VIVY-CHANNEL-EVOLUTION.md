@@ -1,5 +1,10 @@
 # Vivy Channel — 演进架构
 
+> **Plugin v1 note (2026-09-09):** 本文保留 Channel 产品演进记录；其中
+> `seam:*`、v0 Manifest/Recipe、旧注册表和 ABI 描述均被
+> `VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
+> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md` 取代，不得形成兼容实现。
+>
 > 状态：伴随已采纳合同的**实现演进正本**（2026-08-30）。
 > 不替代 `VIVY-CHANNEL-PACK.md`。冲突时合同优先。
 > 子 AGENT 领取面：`docs/plans/channel-epic/`。日历：`docs/TODO.md` §0.2。

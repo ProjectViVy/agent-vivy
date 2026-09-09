@@ -1,157 +1,319 @@
-# Vivy 怎么分、怎么装配
+# Vivy Assembly and Generation Contract v1
 
-> 状态：**提案**。服从重构世界、`SELF-EVOLVING-GATEWAY.md` 与 **`VIVY-STUDIO.md`**。
-> channel 作为超级通道见 **`VIVY-CHANNEL-PACK.md`**（**方向已采纳** 2026-08-30）。Host 在内核；本批适配器是 `plugins/` + `seam: channel`，**不**增加 `channels:` 配方键。
-> face 作为一等装配单元见 **`VIVY-FACE-PACK.md`**（**方向已采纳** 2026-08-31，VC 决策 D2）。出厂脸走配方 `face:` 恰好一张；用户脸走 `plugins/` + `seam: face`。
-> 日期：2026-08-15（Studio 纠正：装配发生在独立 Studio 应用里，不在网关里）
-> 对照：DeepSeek Harness 的 profile / bundle / 按职责命名的包，不是对照它的热加载。
+> Status: **Normative**
+> Decision date: 2026-09-09
+> Companion contracts: `VIVY-MODULE-STANDARD.md`,
+> `VIVY-PORT-CATALOG.md`, `VIVY-PLUGIN-SPEC.md`.
 
----
+## 1. One composition root
 
-## 1. 从 DSH 学到的装配，不是名字
-
-DSH 运行时是一棵树，但**树上每一行的名字是它是什么**，不是「plugin」：
+Vivy is assembled once, before the product artifact runs:
 
 ```text
-id: session      → 会话日志
-id: llm          → 模型适配
-id: tools        → 工具注册表
-id: agent-loop   → 循环
-id: tool-bash    → bash 工具
-id: fs           → 文件系统
+Generation Recipe + Source Catalog + Module Descriptors
+  -> normalize canonical inputs
+  -> validate Trust, Ports, dependencies, conflicts, Grants, and hashes
+  -> generate typed wiring
+  -> compile backend and UI
+  -> run conformance
+  -> embed immutable Generation Manifest
+  -> emit one Generation artifact
 ```
 
-Cordis 在底下把它们都当成可逆插件。对人、对配方，它们是 session、llm、loop。  
-用户再往 profile 上叠的、树外装的，才是「我加的那一层」。
+The running process consumes that frozen Assembly. It does not discover,
+compile, import, or replace Module code. Runtime configuration controls only
+instances of capabilities already compiled into the Generation.
 
-装配方式是 **叠加**：`dsh-base` → `dsh-web-app` / `dsh-headless` → 用户 patch。  
-一行一个 id，后写覆盖整行 config。
+## 2. Architecture versus product language
 
-Vivy 学这三件事：
+At the architecture layer all selectable capabilities are Modules. At product
+surfaces they retain their real names: Loop, Tool, Channel, Face, Context
+Source, Skill Source, UI Module, Storage Engine, or Provider Profile.
 
-1. **按所是命名。** 工具叫工具，世界叫世界，循环叫循环。
-2. **用配方装配，不靠内核里手写 import。**
-3. **只有用户加进来的那一层叫插件。**
+`Plugin` describes a public Module source. It is not a Port, base interface,
+runtime registry item, or synonym for every internal organ.
 
-不学：运行时热挂、把 Journal / policy 也编成可卸行。
+## 3. Assembly inputs
 
-Vivy 的叠加发生在 **`vivy-sdk pack`**，产物是一整代 EXE，不是一棵活树。
+### Generation Recipe
 
----
+The Recipe states which Module sources enter a Generation, approves scoped
+Grants, selects exclusive Providers, and defines order for ordered Ports. It
+does not contain Secret values or executable scripts.
 
-## 2. 怎么分（名词就是种类）
+### Source Catalog
 
-```text
-内核（不可装配掉）
-  journal / policy / rpc / 只读 inspect / ChannelHost
-  （盖房工具是独立二进制 vivy-sdk，源码在 sdk/，不在内核里可卸）
+The Source Catalog resolves a Module ID to an authoritative source class and
+assigns T1 or T2 Trust. A Module Descriptor cannot assign its own Trust.
 
-可装配的一等单元（是什么叫什么）
-  loop        这一轮怎么算     出厂：eino
-  world       fs+exec 绑在一起   出厂：sandbox | local
-  provider    模型出口         出厂：openai | anthropic
-  tool        面向模型的能力    出厂：notes、filesystem、execute、ask_user…
-  skill       行为文本         出厂与用户都可以有；不编译
+### Module Descriptor
 
-只有用户自定义
-  plugin      别人/自己加的能力源码包
-```
+The Descriptor provides pure-data identity, version, source hash, provided and
+required Ports, optional dependencies, conflicts, requested Grants, and
+lifecycle scope.
 
-| 种类 | 仓库里住哪（目标） | 配方里的键 | 谁开发时的感觉 |
-|---|---|---|---|
-| 内核 | `internal/{domain,storage,rpc,app,…}` | 没有。永远编进来 | 在改 Vivy |
-| loop | `loop/eino`（今：`internal/runtime` 里的 Engine） | `loop:` | 在改循环 |
-| world | `worlds/sandbox` | `world:` | 在改执行世界 |
-| provider | `providers/openai`（今：`internal/provider`） | `providers:` | 在改模型出口 |
-| tool | `tools/notes`（今：`internal/tools`） | `tools:` | 在改工具 |
-| skill | `skills/…` 或 `data/skills` | 不进 pack 链接 | 在写技能 |
-| **plugin** | **`plugins/<name>/`** | **`plugins:`** | **在做插件** |
+### Port Catalog
 
-出厂代码**禁止**放进 `plugins/`。放进去就会冒充用户层，命名就脏了。
+The normative Port Catalog fixes public/internal status, cardinality, sole
+Consumer, authority, and conformance state. An unknown Port is not resolved by
+late binding; it fails compilation.
 
-例外（`VIVY-CHANNEL-PACK.md` 2026-08-30）：本批通道适配器（telegram / discord / feishu / dingtalk / qq）不是内核器官，是可选耳朵，因此进 `plugins/<name>/`，清单 `seam: channel`，inspect 按 seam 打标签而不是叫 tool。不增加 `channels:` 配方键。日后若第一方器官变多，目录可迁到 `channels/<name>/`，ABI 不变。
+## 4. Default Generation
 
-现有 `internal/tools`、`internal/provider` 可以先继续住在 `internal/`，配方用名词点名它们。物理搬家是后续切片，不挡装配语义。
+The default Vivy Generation contains:
 
----
+- all L0 Kernel authorities;
+- every required L1 internal Module;
+- established L2 internal Hosts and organs;
+- Consumers for all public v1 Ports;
+- all established first-party feature Providers;
+- the protected internal Tool set;
+- one product-appropriate Face for an Interactive recipe;
+- the default first-party UI root and extensions for the Web Face.
 
-## 3. 怎么装配（一代一张配方）
+Network-capable runtime instances remain unconfigured and inactive until
+configuration and credentials exist. Default inclusion never means silent
+network activation.
 
-`vivy.generation.yml`（仓库根；由 **Vivy Studio** 打开的工程树持有，不是日常 `data/`）：
+### Minimal Generation
+
+A deliberate minimal Recipe MAY omit an optional Host and its Providers. The
+Assembly Compiler MUST reject a Provider whose Consumer was removed. Inspect
+MUST display absence, not claim an inactive capability that was never compiled.
+
+A protected Tool may be explicitly omitted from a minimal VIVY CODE Recipe.
+Its reserved identity remains unavailable to public Providers.
+
+## 5. Recipe shape
+
+The target canonical form is:
 
 ```yaml
-apiVersion: vivy.generation/v0
-loop: eino
-world: sandbox
-providers:
-  - openai
-tools:
-  - notes
-  - filesystem
-  - execute
-  - ask-user
-  - http-request
-plugins:
-  - acme-search          # 只住在 plugins/acme-search
+apiVersion: vivy.generation/v1
+profile: default
+modules:
+  - id: vivy/default-body
+  - id: acme/search
+    source: git:acme/search@0123456
+    sha256: 9f4a000000000000000000000000000000000000000000000000000000000000
+    grants:
+      net.client:
+        schemes: [https]
+        hosts: [search.example.com]
+        ports: [443]
+exclusive:
+  std/face@v1: vivy/web-face
+  std/ui-root@v1: vivy/default-ui
+order:
+  std/middleware/pre-tool@v1:
+    - vivy/policy-guard
+    - acme/search-guard
+  std/ui-extension@v1:
+    - vivy/default-settings
+    - acme/search
 ```
 
-规则：
+The final implementation may encode the same typed information differently,
+but it MUST preserve these facts and deterministic semantics.
 
-- `loop` / `world` 各一个。`providers` / `tools` / `plugins` 是列表。
-- **没写进配方的，这一代不存在。** 不扫描 `tools/`，更不扫描 `plugins/`。
-- `pack` 按配方链接，生成一份作者不准手改的注册表。
-- `inspect` 分类列出：loop、world、providers、tools、**plugins**。不要把 notes 打印成 plugin。
+## 6. Assembly Compiler gates
 
-这就是 DSH 的 bundle 行在重构世界里的对应物：id 还是 session/llm/tool，只是「应用」变成「链进这一代 EXE」。
+### G0 — Parse and canonicalize
 
-叠加顺序（对应 DSH 的 base → mode → user patch）：
+- accept only `vivy.generation/v1` and `vivy.module/v1`;
+- normalize paths, identifiers, ordering, and structured Grant constraints;
+- reject duplicate keys, unsupported fields that change semantics, and all v0
+  inputs;
+- produce the same canonical bytes for semantically identical input.
+
+### G1 — Resolve identity and Trust
+
+- resolve every source through the Source Catalog;
+- verify exact source and tree hashes;
+- assign T1 or T2 independently of the Descriptor;
+- reject missing, ambiguous, floating, or self-promoted sources.
+
+### G2 — Compile the Port graph
+
+- resolve every Provider to its sole Consumer;
+- validate required and optional edges;
+- enforce cardinality and exclusive selection;
+- detect cycles and conflicts;
+- reject unused Providers and missing conditional Hosts;
+- freeze deterministic lifecycle and ordered-Port sequences.
+
+### G3 — Enforce authority
+
+- reject public Providers for `core/*` Ports;
+- calculate effective Grants;
+- protect reserved Tool and UI identities;
+- enforce SDK and import firewalls;
+- verify Eino imports exist only in `internal/runtime` and
+  `internal/provider`;
+- reject any path around Service, Journal, Policy, ToolHost, ChannelHost,
+  FaceHost, or ActionHost.
+
+### G4 — Generate and prove
+
+- write typed Assembly wiring to generated files;
+- compile selected backend Modules only;
+- build selected UI roots and extensions only;
+- run focused Port and complete Generation conformance;
+- verify startup rollback and cleanup order;
+- emit no formal artifact when any proof fails.
+
+Generated files carry a generated-code marker and MUST NOT be hand edited.
+
+### G5 — Seal
+
+- calculate all component and artifact hashes;
+- calculate the content-addressed Generation ID;
+- embed the immutable Manifest and Inspect schema;
+- emit the executable/UI artifact and a machine-readable build report;
+- verify that reading the embedded Manifest reproduces the sealed identity.
+
+## 7. Generation identity
+
+Generation ID is derived from canonical, content-addressed inputs:
 
 ```text
-1. 内核              永远在
-2. 出厂 loop/world/provider/tool   配方点名
-3. plugins:          用户层，最后叠上
+specification version
++ canonical Recipe
++ Module IDs, versions, source refs, and source hashes
++ Port contract versions
++ SDK version
++ backend and frontend dependency lock results
++ UI artifact hashes
++ Assembly Compiler version
 ```
 
-用户层只能**增加**自己的 plugin，不能用配方删掉内核，也不能把 plugin 的 seam 写成 journal/policy。覆盖某个出厂 tool：在配方里拿掉那个 tool，再在 `plugins/` 里给一个同职责的实现——名字仍是 plugin，因为它是用户加的。
+Runtime settings, Secret values, instance activation, health, and user data do
+not enter the Generation ID.
 
----
+One Generation ID MUST never identify different code. A changed input produces
+a different identity even when a human-readable version string is unchanged.
 
-## 4. 开发手感（名词分开）
+## 8. Embedded Manifest and Inspect
 
-| 你在干什么 | 待在哪 | 口头禅 |
-|---|---|---|
-| 改审批、Journal、物种合同 | `internal/` | 改内核 |
-| 改 Eino 接线、middleware | `loop/` 或 runtime | 改循环 |
-| 改 notes / 文件工具 | `tools/<name>/` | 改工具 |
-| 接一个新模型出口 | `providers/<name>/` | 改 provider |
-| **给自己或客户加能力** | **`plugins/<name>/`** | **做插件** |
+Every artifact embeds an immutable Manifest containing:
 
-Studio 预制流水线也按名词拆，不要一条「添加插件」包打天下。这些流水线属于独立 Studio 应用（`VIVY-STUDIO.md`）；其他已获授权工具也可直接在源码工作区开发与验证：
+- Generation ID and compiler version;
+- canonical Recipe digest;
+- Module ID, version, source ref, hash, and assigned Trust;
+- provided and required Port edges;
+- effective Grants and structured constraints;
+- lifecycle start/stop order;
+- pre-tool Middleware order;
+- UI root, extension order, replacement relationships, and asset hashes;
+- default, inactive, unavailable, unsupported, and deferred capability facts;
+- Eino/EinoExt packages and APIs used by scoped internal adapters;
+- focused and Generation conformance results.
 
-- 新工具（出厂贡献）
-- 新 provider
-- **新插件**（用户自定义）
-- 换 world / 换 loop（换代，仍不叫插件）
+Inspect is read-only. It MUST distinguish:
 
-`VIVY-PLUGIN-SPEC.md` **只约束 `plugins/`**。出厂 tool / provider 可以共用同一套 Go 接口（方便 pack），但目录、配方键、inspect 标签、口头禅都不是 plugin。
+- not compiled;
+- compiled but unconfigured;
+- configured but inactive;
+- ready;
+- unavailable;
+- specified but not implemented;
+- deferred indefinitely.
 
----
+It MUST NOT reveal Secret values, raw Journal blobs, or private configuration.
 
-## 5. 和 DSH 对照（短）
+## 9. Runtime freeze and instance activation
 
-| DSH | Vivy |
-|---|---|
-| 一切在 Cordis 里都是插件 | 只有用户自定义叫插件 |
-| `id: session` 等按所是命名 | 同样按所是命名 |
-| bundle + profile 运行时叠加 | generation.yml + `vivy-sdk pack` 编译期叠加 |
-| 用户树外插件 | `plugins/` |
-| 卸 = 回放逆操作 | 卸 = 配方去掉再 pack 一版 |
-| loop 也是可热换行 | loop 是可换代的装配单元，物种内特权 |
+After Assembly startup reaches `Frozen`:
 
----
+- no Module or Port edge can be added, removed, or reordered;
+- no effective Grant can expand;
+- no Go package, shared object, UI bundle, or arbitrary remote code can load;
+- configuration can create, activate, deactivate, and close only declared
+  runtime instances;
+- a remote MCP Server may change availability, but remains behind the compiled
+  MCPHost and ToolWorld Port;
+- a UI refresh cannot install or replace a Module.
 
-## 6. 一句话
+## 10. Startup and shutdown transaction
 
-> **分的时候用真名：循环、世界、工具、出口、技能。**  
-> **装的时候用配方：点谁，谁才进这一代 EXE。**  
-> **插件这个词留给用户自己加的那一层。**
+Start Modules in the compiler-produced topological order. A required Module
+that fails or misses Ready aborts startup. The Host then:
+
+1. cancels the startup context;
+2. stops started Modules in exact reverse owner order;
+3. closes constructed instances in reverse order;
+4. preserves the initiating error and attaches cleanup failures;
+5. records a bounded, redacted diagnostic result;
+6. does not publish the Generation as ready.
+
+Stop and Close are idempotent and deadline-bound. Optional runtime instances
+can become unavailable only where their Port failure model permits it; the
+Module graph itself remains frozen.
+
+## 11. UI Assembly
+
+UI Modules are full code and receive complete UI access by default. The
+Assembly Compiler still governs their presence and deterministic composition:
+
+- `std/ui-root@v1` is exclusive;
+- `std/ui-extension@v1` follows Recipe order;
+- `before`, `after`, and `replaces` references must resolve;
+- source, lockfile, and build output hashes enter provenance;
+- no runtime remote-code download is part of the Module system.
+
+There is no UI Grant or UI authorization step. Backend RPC, Policy, approval,
+ToolHost, and Journal authority remain server-side.
+
+## 12. Rebuild, removal, and rollback
+
+Adding, updating, removing, or reordering a Module always creates a new
+Generation. Removal is proven when:
+
+- the Recipe no longer names the Module;
+- generated wiring has no import or constructor for it;
+- backend and UI artifacts contain no selected source or asset;
+- the Manifest has no Module, Port edge, or Grant record for it;
+- default and focused conformance pass.
+
+Rollback switches to a previously sealed Generation artifact. It does not
+modify the current artifact in place and does not perform runtime code
+downgrade. Runtime data compatibility remains governed by its own Kernel
+contracts and is not weakened by plugin composition.
+
+## 13. Eino boundary
+
+Eino is an internal implementation framework, not the Assembly system.
+Assembly may select an internal adapter Module, but public contracts never
+contain Eino types.
+
+For an Eino-scoped capability, the implementation phase records the exact
+pinned package/API inspected. A suitable upstream primitive is adapted. A
+missing primitive produces `DEFERRED-INDEFINITE`; it does not authorize a
+parallel Vivy orchestration, Provider, OAuth, RAG, or MCP implementation.
+
+Vivy-owned Assembly remains justified because Eino has no authority contract
+for Module identity, dependency graph, Trust, Grants, public SDK firewall,
+Generation provenance, or the single Journal and Policy path.
+
+## 14. Clean-break rule
+
+The compiler has no v0 normalization gate. `vivy.plugin/v0`,
+`vivy.generation/v0`, `Seam`, and the God `Plugin` interface fail before graph
+construction. There is no migration Adapter, warning period, alias, or reverse
+conversion.
+
+Existing first-party product behavior is registered directly as v1 Modules.
+Behavior parity is mandatory; preserving the old public API is forbidden.
+
+## 15. Completion
+
+The Assembly platform is complete only when:
+
+- all six compiler gates have executable proof;
+- the default Generation preserves established product behavior;
+- a minimal Generation proves real code removal;
+- graph, Trust, Grant, UI, lifecycle, and provenance failures are deterministic;
+- Inspect reports the sealed truth;
+- rollback uses whole Generation artifacts;
+- no runtime discovery or v0 path remains;
+- SCX Gates A, B, and C in the project plan are satisfied.

@@ -1,6 +1,13 @@
 # Vivy Face Pack — 出厂 face 的冷拔插
 
-> 状态：**方向采纳**（2026-08-31，VC 决策 D2：`face: web | tui | headless` 一等装配 + 用户 `seam: face`；安卓是下游产品用内核）。§14 的四个开放问题在各自实施片（F2/F3/F4）开工前按推荐值呈报拍板。
+> **2026-09-09 v1 规范覆盖：** 本文的 Face 产品语义继续有效；所有
+> `seam: face`、`vivy.plugin/v0`、`vivy.generation/v0`、旧 ABI 和兼容迁移
+> 表述均为历史记录，不得作为新实现依据。v1 唯一机制是
+> `std/face@v1` + FaceHost + `vivy.module/v1` + Generation Recipe，且不保留
+> v0 API。规范正本见 `VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
+> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。
+>
+> 状态：**产品语义已采纳；插件装配机制由 v1 规范取代**。安卓仍是下游产品用内核。
 > 服从 `SELF-EVOLVING-GATEWAY.md`、`VIVY-ASSEMBLY.md`、`VIVY-PLUGIN-SPEC.md`、**`VIVY-STUDIO.md`**、PRD §5.0 / D-016。
 > 日期：2026-08-29
 >

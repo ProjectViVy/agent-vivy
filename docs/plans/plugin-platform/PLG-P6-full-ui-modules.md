@@ -1,0 +1,230 @@
+# PLG-P6 Full UI Modules Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use
+> `superpowers:subagent-driven-development` (recommended) or
+> `superpowers:executing-plans` to implement this plan task-by-task. Steps use
+> checkbox (`- [ ]`) syntax for tracking. REQUIRED DOMAIN SKILL: use
+> `oil-frontend` for frontend implementation and verification.
+
+**Goal:** Allow selected T2 Modules to modify or replace the complete Web Face
+UI without a UI permission system while preserving server-side authority and
+deterministic Generation builds.
+
+**Architecture:** A public TypeScript UI SDK defines full-code extension and
+exclusive-root entry points. Assembly compilation builds selected UI source
+into a generated frontend composition; an internal PresentationHost invokes it
+in Recipe order. Module-specific backend operations use one typed ActionHost
+RPC method rather than arbitrary routes.
+
+**Tech Stack:** React 19, TypeScript, Vite 7, TanStack Router, pnpm, Go Control
+RPC, Playwright/Vitest, `just ci`.
+
+**Spec:** `docs/architecture/VIVY-PLUGIN-SPEC.md` section 7 and
+`docs/architecture/VIVY-PORT-CATALOG.md` sections 11–12.
+
+## Global Constraints
+
+- State: `UNSCHEDULED`; depends on P2 and is not on the core SCX critical path.
+- There is no `ui.full` Grant, approval dialog, component allow-list, DOM audit,
+  CSS isolation, or permission registry.
+- External UI source is explicit, pinned, compiled, and hashed in the
+  Generation; runtime remote-code loading remains forbidden.
+- All browser input is untrusted by the backend.
+
+---
+
+### Task 1: Define full-code UI Port contracts
+
+**Files:**
+
+- Create: `sdk/ui/package.json`
+- Create: `sdk/ui/tsconfig.json`
+- Create: `sdk/ui/src/index.ts`
+- Create: `sdk/ui/src/module.ts`
+- Create: `sdk/ui/src/module.test.ts`
+- Modify: `ui/package.json`
+- Modify: `ui/vite.config.ts`
+
+**Interfaces:**
+
+- Consumes: `std/ui-extension@v1` and `std/ui-root@v1` definitions.
+- Produces: `UIExtension`, `UIRoot`, `FullUIHost`, and explicit cleanup handles.
+
+```ts
+export interface UIExtension {
+  id: string
+  install(host: FullUIHost): void | (() => void)
+}
+
+export interface UIRoot {
+  id: string
+  render(host: FullUIHost): React.ReactNode
+}
+```
+
+- [ ] Write `rejects duplicate root providers` as a RED test against the UI
+  composition input.
+- [ ] Write type tests for missing IDs, duplicate IDs, invalid cleanup, and
+  unresolved `before`/`after`/`replaces` references.
+- [ ] Expose full UI composition and current Face client APIs; do not add a
+  permission request method.
+- [ ] Pin the SDK package version in UI build provenance.
+- [ ] Run `cd ui; pnpm test` and `cd ui; pnpm typecheck`.
+- [ ] Commit `feat(ui-sdk): define full ui module contracts`.
+
+### Task 2: Generate deterministic UI composition
+
+**Files:**
+
+- Create: `sdk/internal/assembly/ui.go`
+- Create: `sdk/internal/assembly/ui_test.go`
+- Generate: `ui/src/generated/assembly.ts`
+- Modify: `ui/vite.config.ts`
+
+**Interfaces:**
+
+- Consumes: selected UI Module sources, lockfiles, root selection, extension
+  order, and replacement graph.
+- Produces: deterministic TypeScript imports plus UI source/lock/output hashes
+  in the Generation Manifest.
+
+- [ ] Write a golden RED test proving different filesystem enumeration order
+  cannot change generated imports or hashes.
+- [ ] Write failures for two roots, ambiguous extension order, missing target,
+  floating package dependency, and remote entry URL.
+- [ ] Generate only explicit Recipe Modules; never glob plugin directories.
+- [ ] Include source, dependency lock, SDK, and final asset hashes in Manifest.
+- [ ] Verify omitted UI Modules leave no import or asset in a minimal build.
+- [ ] Run `go test ./sdk/internal/assembly -run UI` and `cd ui; pnpm build`.
+- [ ] Commit `feat(assembly): generate full ui composition`.
+
+### Task 3: Install UI Modules in PresentationHost
+
+**Files:**
+
+- Create: `ui/src/plugins/presentation-host.tsx`
+- Create: `ui/src/plugins/presentation-host.test.tsx`
+- Modify: `ui/src/routes/__root.tsx`
+- Modify: `ui/src/main.tsx`
+- Modify: `ui/src/index.css`
+
+**Interfaces:**
+
+- Consumes: generated root and ordered extension constructors.
+- Produces: one Web Face UI tree and reverse-order cleanup.
+
+- [ ] Write a RED test proving an extension can replace navigation, register a
+  route, change global styles, and observe current client state without asking
+  for UI permission.
+- [ ] Write lifecycle tests for install failure, root render failure, cleanup,
+  and extension ordering.
+- [ ] Install the selected root once and extensions in exact Recipe order.
+- [ ] Display Module provenance for diagnostics without restricting behavior.
+- [ ] Run `cd ui; pnpm test` and `cd ui; pnpm typecheck`.
+- [ ] Commit `feat(ui): host unrestricted generation ui modules`.
+
+### Task 4: Define typed Control Actions
+
+**Files:**
+
+- Create: `sdk/port/controlaction/action.go`
+- Create: `sdk/port/controlaction/action_test.go`
+- Create: `internal/actionhost/host.go`
+- Create: `internal/actionhost/host_test.go`
+- Modify: `internal/app/app.go`
+
+**Interfaces:**
+
+- Consumes: namespaced Action Providers and effective Grants.
+- Produces: `ActionHost.Invoke(ctx, caller, moduleID, actionID, input)`.
+
+```go
+type Provider interface {
+    Definition() Definition
+    Invoke(context.Context, Host, json.RawMessage) (json.RawMessage, error)
+}
+```
+
+- [ ] Write `TestActionHostDistrustsBrowserAuthorityClaims`; expected RED is
+  any caller-supplied approval/Trust result accepted by the Host.
+- [ ] Write tests for invalid input/output schema, wrong owner, unavailable
+  instance, denied Grant, Secret leak, timeout, and effect-specific audit.
+- [ ] Implement one Host with no arbitrary route registration.
+- [ ] Ensure starting a Run and executing a model Tool re-enter their existing
+  authoritative paths.
+- [ ] Run `go test ./sdk/port/controlaction ./internal/actionhost`.
+- [ ] Commit `feat(action): host typed module control actions`.
+
+### Task 5: Expose one authenticated Action RPC
+
+**Files:**
+
+- Modify: `internal/rpc/protocol.go`
+- Modify: `internal/rpc/control.go`
+- Create: `internal/rpc/module_action_test.go`
+- Create: `sdk/ui/src/action-client.ts`
+- Create: `sdk/ui/src/action-client.test.ts`
+
+**Interfaces:**
+
+- Consumes: authenticated Face caller and ActionHost.
+- Produces: `module.action.invoke` with schema-bounded request/result.
+
+- [ ] Write RPC RED tests for spoofed Module ID, forged approval, oversized
+  payload, unknown Action, cancellation, and redacted error.
+- [ ] Implement the single method and reject plugin-defined paths or methods.
+- [ ] Add a typed UI SDK client with no local authority decisions.
+- [ ] Run `go test ./internal/rpc -run ModuleAction` and UI SDK tests.
+- [ ] Commit `feat(rpc): expose governed module actions`.
+
+### Task 6: Build a real full-access fixture
+
+**Files:**
+
+- Create: `sdk/internal/testdata/full-ui-module/vivy-module.yaml`
+- Create: `sdk/internal/testdata/full-ui-module/ui/package.json`
+- Create: `sdk/internal/testdata/full-ui-module/ui/pnpm-lock.yaml`
+- Create: `sdk/internal/testdata/full-ui-module/ui/src/index.tsx`
+- Create: `ui/e2e/plugin-full-ui.spec.ts`
+
+**Interfaces:**
+
+- Consumes: UI SDK, generated composition, and a fake typed Control Action.
+- Produces: realistic proof of root/route/style/state modification with no UI
+  permission prompt.
+
+- [ ] Write the Playwright test first and observe the default UI cannot display
+  the fixture route or replacement.
+- [ ] Build the fixture as a selected T2 Module.
+- [ ] Assert it changes global UI and calls its Action through the one RPC.
+- [ ] Assert a forged approval still fails server-side.
+- [ ] Assert no permission dialog or UI Grant appears in Inspect.
+- [ ] Run the split development pair and Playwright test at
+  `http://127.0.0.1:3015`.
+- [ ] Commit `test(ui): prove unrestricted ui module composition`.
+
+### Task 7: Complete UI conformance and removal proof
+
+**Files:**
+
+- Create: `ui/src/plugins/conformance.test.tsx`
+- Modify: `sdk/internal/assembly/ui_test.go`
+- Modify: `sdk/internal/assembly/manifest_test.go`
+
+**Interfaces:**
+
+- Consumes: default, extension, replacement-root, and minimal UI builds.
+- Produces: seven-artifact proof for both UI Ports and Control Action.
+
+- [ ] Cover duplicate/missing Provider, order conflict, build failure, runtime
+  install failure, cleanup, hash provenance, Action failure, and omission.
+- [ ] Build/inspect all four fixture Generations.
+- [ ] Run UI unit, typecheck, build, Playwright smoke, and `just ci`.
+- [ ] Commit `test(ui): prove full ui module conformance`.
+
+## Phase exit and rollback
+
+Exit requires complete UI modification without a UI authorization system,
+deterministic build provenance, one UI root, ordered cleanup, one Action RPC,
+and server-side authority tests. Rollback selects the previous sealed
+Generation and does not hot-unload frontend code.

@@ -1,5 +1,10 @@
 # Vivy Next Architecture — Gateway and Studio
 
+> **Plugin v1 note (2026-09-09):** Module/Port/Recipe/Generation mechanics now
+> follow the normative v1 plugin contracts. Any v0 Seam, Manifest, generated
+> registry, or compatibility language retained below is historical and cannot
+> be used for new implementation.
+>
 > Status: **direction adopted** 2026-08-14. **Studio shape corrected
 > 2026-08-15**: independent app; owns develop + distribute; development
 > venue is Studio after bootstrap.

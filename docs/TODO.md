@@ -4,7 +4,7 @@
 > Archive of closed tracks: `docs/logs/2026-08-25-todo-board-archive/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-09-08
+> Updated: 2026-09-09
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -30,11 +30,26 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 > commit `fe81075`). C6 may proceed once its remaining predecessors (B4, C3)
 > land; no outer-loop fallback needed.
 
-## 0.1 Open remaining (updated 2026-09-07; completed rows archived verbatim to §10.1)
+## 0.1 Open remaining (updated 2026-09-09; completed rows archived verbatim to §10.1)
 
 Everything in §1–§8, §9.1–§9.9, §11–§13, and HITL-01..07 P0 is **done**.
 Do not pick work from those tables. Closed-track filing:
 `docs/logs/2026-08-25-todo-board-archive/summary.md`.
+
+> **PLG-1 normative ruling (2026-09-09):** P0 is a documentation-only contract
+> freeze; functional phases P1–P9 remain `UNSCHEDULED` until the human manually
+> schedules them. Sources of truth are
+> `docs/architecture/VIVY-MODULE-STANDARD.md`, `VIVY-PORT-CATALOG.md`,
+> `VIVY-PLUGIN-SPEC.md`, `VIVY-ASSEMBLY.md`, and
+> `docs/plans/plugin-platform/README.md`. The track is a clean break: no v0 API,
+> migration, compatibility Adapter, or runtime discovery. Existing first-party
+> functions stay in the default Generation; protected file/process/HITL/Skill
+> Tools remain internal; UI Modules are fully open by default with no UI Grant.
+> Provider/model/OAuth/orchestration/RAG/MCP adapter work uses a pinned
+> Eino/EinoExt capability or becomes `DEFERRED-INDEFINITE`. SCX depends on
+> PLG-1 Gate A (contract/compiler), Gate B (default governed assembly), and
+> Gate C (conformance/Inspect/rollback); broader ecosystem and advanced UI work
+> are not on the SCX core critical path.
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
@@ -53,7 +68,7 @@ Do not pick work from those tables. Closed-track filing:
 | TUI-SIDEBAR-N1-OPEN | 右栏后续真值扩展 | OPEN | 2026-09-08 wave 1 DONE：MCP 右栏继续由 live backend 提供，并新增 handshake error、auth missing、projected tool count 真值；Skills enabled catalog 显示 origin（不冒充 mounted），见 `docs/logs/2026-09-08-tui-sidebar-n1/`。仍保留后续范围：MCP event/notification status、真正的 skill→session mount provenance（origin ≠ mounted），以及 LSP bounded failed/exited history 与 workspace diagnostics aggregates；主聊天 viewport/鼠标滚动见 `docs/logs/2026-09-05-vivy-code-chat-viewport/`。 |
 | TUI-CMD-I18N | TUI 文案可切换中/英 | OPEN | 本轮按产品要求暂时统一中文硬编码，未做 locale 框架。侧栏区块标题（Modified Files 等）与服务端动态 description 仍可能是英文。后续若要回切或跟系统语言，应集中词表而不是继续散落字符串。 |
 | VC-0A-N1 | VIVY CODE 私有实例目录的保留、清理与命名恢复策略 | OPEN | 当前每次启动创建唯一 `code-instances/<instance>/`，避免共享会话与租约冲突并保留本次运行证据，但长期会累积；待明确产品是否需要自动过期清理或显式恢复某个私有实例。不得退回多个进程共享 Journal。 |
-| PLG-1 | PLUGINS 全面落成 | PROPOSED | 另有 PLUGINS 全面落成，仅提案，待正式排期；调研见 `docs/research/advanced-plugin-alliance-2026-09-08.md`。 |
+| PLG-1 | PLUGINS v1 全面落成 | P0 DOCS COMPLETE · P1–P9 UNSCHEDULED | 规范与分阶段计划见 `docs/plans/plugin-platform/README.md`；研究归档见 `docs/research/advanced-plugin-alliance-2026-09-08.md`。本轮不写功能代码，实施由人工后续排期。 |
 | VC-4 | 生态与产品化（按需）：MCP stdio 传输 + OAuth 2.1 + resources（`list_mcp_resources`/`read_mcp_resource`）+ prompts（映射进 Vivy 命令/技能体系）+ `mcp_{server}_{tool}` 直通工具（沿用审批标注）+ 沙箱升级并轨（SBX-OS/SBX-GLOB + bash deny glob 可编辑 auto_approve）+ builtin 编码 skills（git 工作流/vivy-code 用法/just-ci）+ 本地模型发现（ollama 等 enricher，只填零值字段）+ 401 重认证重试 + 自诊断工具（crush_info 式）+ VCR 式 LLM 录制回放测试基建评估（与 scriptedmodel mock 对齐）+ `agentic_fetch`/`sourcegraph`（=WEB-1） | OPEN | 部分项可与 VC-1..2 并行。主动差异化（Crush 没有的卖点）：cron、policy hard-deny、手动 CompactSession、server 鉴权与远程多端（潜在）。明确不做：crushrc DSL、Catwalk 远端目录、PostHog 遥测、TUI 主题系统照搬 |
 | RB-L2-DEFER | 回退恢复侧：files/restore RPC + 会话级一键回退 UI（Crush 式"本会话改了哪些文件"展示面板可选附赠） | OPEN | 2026-09-01 拍板暂缓：原型 MVP 未出，先对齐 Crush（记录侧随 VC-3 尾款）；恢复侧是超出 Crush 的差异化，MVP 验证后再议。设计已备好：回退研究 §5.2/5.3/5.4，O4（存档范围）/O5（恢复治理）两项裁决随启动再拍 |
 | CH-A | ChannelHost + telegram + dingtalk（粗粒度） | SUPERSEDED | 2026-08-30 拆成 CH-C1..C6，见 §0.2。勿再按本行领取 |
