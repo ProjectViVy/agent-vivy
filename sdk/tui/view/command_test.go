@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	corei18n "agent-vivy/internal/i18n"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -108,6 +109,29 @@ func TestEnterUnknownSlashCommandNeverSendsToDriver(t *testing.T) {
 		t.Fatalf("unknown command was not rendered locally:\n%s", m.View())
 	}
 	if m.input != `/not-registered "🙂"` {
+		t.Fatalf("unknown command draft was discarded: %q", m.input)
+	}
+}
+
+func TestEnterUnknownSlashCommandLocalizesFramingAndPreservesToken(t *testing.T) {
+	d := &testDriver{}
+	const input = `/not-registered-原样 "🙂"`
+	m := New(d, Options{Locale: corei18n.Chinese})
+	m.input = input
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if cmd != nil || d.sent != "" {
+		t.Fatalf("unknown command sent=%q cmd=%v", d.sent, cmd != nil)
+	}
+	if !strings.Contains(m.View(), "未知命令 /not-registered-原样") {
+		t.Fatalf("unknown command framing or token was not localized safely:\n%s", m.View())
+	}
+	if strings.Contains(m.View(), "unknown command") {
+		t.Fatalf("unknown command retained English framing:\n%s", m.View())
+	}
+	if m.input != input {
 		t.Fatalf("unknown command draft was discarded: %q", m.input)
 	}
 }

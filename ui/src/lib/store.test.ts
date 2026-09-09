@@ -19,6 +19,14 @@ function hydrateLocale(locale: 'en' | 'zh'): void {
   (localeStore as typeof localeStore & { hydrateLocale: (value: 'en' | 'zh') => void }).hydrateLocale(locale);
 }
 
+function settings(locale: 'en' | 'zh', workspaceLocale: '' | 'en' | 'zh' = locale): Awaited<ReturnType<typeof api.getSettings>> {
+  return {
+    provider: 'openai', default_model: 'gpt-4o-mini', base_url: '', execute_max_timeout_seconds: 0,
+    read_only: false, config_provider: '', config_model: '', config_execute_max_timeout_seconds: 30,
+    locale, generation_locale: 'en', workspace_locale: workspaceLocale, locale_read_only: false,
+  };
+}
+
 describe('Vivy store integrity', () => {
   beforeEach(() => {
     const values = new Map<string, string>();
@@ -88,6 +96,91 @@ describe('Vivy store integrity', () => {
 
     expect(localeStore.getLocale()).toBe('en');
     expect(useVivyStore.getState()).toMatchObject({ settingsPhase: 'error', settingsError: 'settings are read-only' });
+  });
+
+  it('does not let a delayed settings read override a newer locale save', async () => {
+    const read = deferred<Awaited<ReturnType<typeof api.getSettings>>>();
+    api.getSettings.mockReturnValueOnce(read.promise);
+    api.updateLocale.mockResolvedValue({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    useVivyStore.setState({ settings: settings('en', '') });
+
+    const load = useVivyStore.getState().loadSettings();
+    const save = useVivyStore.getState().saveLocale('zh');
+    await save;
+    read.resolve(settings('en', ''));
+    await load;
+
+    expect(localeStore.getLocale()).toBe('zh');
+    expect(useVivyStore.getState().settings).toMatchObject({ locale: 'zh', workspace_locale: 'zh' });
+    expect(useVivyStore.getState()).toMatchObject({ settingsPhase: 'ready', settingsError: null });
+  });
+
+  it('does not let a settings read started during a locale save suppress that save', async () => {
+    const localeSave = deferred<Awaited<ReturnType<typeof api.updateLocale>>>();
+    api.updateLocale.mockReturnValueOnce(localeSave.promise);
+    api.getSettings.mockResolvedValueOnce(settings('en', ''));
+    useVivyStore.setState({ settings: settings('en', '') });
+
+    const save = useVivyStore.getState().saveLocale('zh');
+    await useVivyStore.getState().loadSettings();
+    localeSave.resolve({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    await save;
+
+    expect(localeStore.getLocale()).toBe('zh');
+    expect(useVivyStore.getState().settings).toMatchObject({ locale: 'zh', workspace_locale: 'zh' });
+    expect(useVivyStore.getState()).toMatchObject({ settingsPhase: 'ready', settingsError: null });
+  });
+
+  it('does not let delayed initialization settings override a locale save started later', async () => {
+    const initializationSettings = deferred<Awaited<ReturnType<typeof api.getSettings>>>();
+    api.getSettings.mockReturnValueOnce(initializationSettings.promise);
+    api.listSessions.mockResolvedValue({ sessions: [{ id: 's1', title: 'One', created_at: 1 }] });
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.updateLocale.mockResolvedValue({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    useVivyStore.setState({ settings: settings('en', '') });
+
+    const initialize = useVivyStore.getState().initialize();
+    await vi.waitFor(() => expect(api.getSettings).toHaveBeenCalledTimes(1));
+    await useVivyStore.getState().saveLocale('zh');
+    initializationSettings.resolve(settings('en', ''));
+    await initialize;
+
+    expect(localeStore.getLocale()).toBe('zh');
+    expect(useVivyStore.getState().settings).toMatchObject({ locale: 'zh', workspace_locale: 'zh' });
+  });
+
+  it('does not let an older locale-save response override a newer locale save', async () => {
+    const firstSave = deferred<Awaited<ReturnType<typeof api.updateLocale>>>();
+    api.updateLocale.mockReturnValueOnce(firstSave.promise).mockResolvedValueOnce({ locale: 'en', generation_locale: 'en', workspace_locale: 'en', locale_read_only: false });
+    useVivyStore.setState({ settings: settings('en', '') });
+
+    const older = useVivyStore.getState().saveLocale('zh');
+    await useVivyStore.getState().saveLocale('en');
+    firstSave.resolve({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    await older;
+
+    expect(localeStore.getLocale()).toBe('en');
+    expect(useVivyStore.getState().settings).toMatchObject({ locale: 'en', workspace_locale: 'en' });
+  });
+
+  it('hydrates locale from the newest ordinary settings-save response', async () => {
+    const localeSave = deferred<Awaited<ReturnType<typeof api.updateLocale>>>();
+    const settingsSave = deferred<Awaited<ReturnType<typeof api.updateSettings>>>();
+    api.updateLocale.mockReturnValueOnce(localeSave.promise);
+    api.updateSettings.mockReturnValueOnce(settingsSave.promise);
+    useVivyStore.setState({ settings: settings('zh', 'zh') });
+    hydrateLocale('zh');
+
+    const older = useVivyStore.getState().saveLocale('zh');
+    const newer = useVivyStore.getState().saveSettings({ provider: 'openai', default_model: 'gpt-4o-mini', base_url: '' });
+    settingsSave.resolve(settings('en', 'en'));
+    await newer;
+    localeSave.resolve({ locale: 'zh', generation_locale: 'en', workspace_locale: 'zh', locale_read_only: false });
+    await older;
+
+    expect(localeStore.getLocale()).toBe('en');
+    expect(localStorage.getItem('vivy.language')).toBe('en');
+    expect(useVivyStore.getState().settings).toMatchObject({ locale: 'en', workspace_locale: 'en' });
   });
 
   it('creates and selects the first session during initialization when none exist', async () => {

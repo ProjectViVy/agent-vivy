@@ -307,12 +307,11 @@ func (s Settings) IsZero() bool {
 // Load reads and validates the settings document at path. A missing file is
 // not an error: it returns the zero Settings so the config defaults stand.
 
-// fileMu serializes access to the settings document file. On Windows,
-// renaming over a file another goroutine is reading fails with access
-// denied, and concurrent writes to a shared temp file could publish a
-// corrupt document; readers and writers take this lock around the file
-// I/O window. Update holds it across the whole read-modify-write, so a
-// fn that itself calls Load/Save/Update would deadlock and must not.
+// fileMu serializes access within this process. Save and Update additionally
+// acquire the workspace lock file so independent Vivy faces cannot overlap a
+// shared settings write transaction. Update holds both locks across the whole
+// read-modify-write, so a fn that itself calls Load/Save/Update would deadlock
+// and must not.
 var fileMu sync.Mutex
 
 func Load(path string) (Settings, error) {
@@ -870,11 +869,13 @@ func Save(path string, s Settings) (Settings, error) {
 	}
 	fileMu.Lock()
 	defer fileMu.Unlock()
-	return write(path, s)
+	return withSettingsFileLock(path, func() (Settings, error) {
+		return write(path, s)
+	})
 }
 
-// write is the unlocked Save body; callers must hold fileMu and pass an
-// already-validated document.
+// write is the unlocked Save body; callers must hold fileMu and the workspace
+// lock and pass an already-validated document.
 func write(path string, s Settings) (Settings, error) {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -924,30 +925,32 @@ func IsValidationError(err error) bool {
 	return errors.As(err, &ve)
 }
 
-// Update runs fn against the current document under one fileMu hold —
-// load → fn → validate → write — so a handler-level read-modify-write can
-// never lose another writer's concurrent change. fn receives the decoded
-// document and returns the candidate to persist; returning an error aborts
-// the write and passes the error through verbatim, so callers can carry
-// their own domain errors across the transaction. A rejected candidate is
-// wrapped in *ValidationError; load, fn, and write errors come back as-is.
-// fn must not call Load/Save/Update (deadlock on fileMu) and must not retain
-// the passed document beyond the call. The returned Settings is the
-// persisted document.
+// Update runs fn against the current document under one in-process mutex and
+// one cross-process workspace lock — load → fn → validate → write — so a
+// handler-level read-modify-write cannot lose another cooperating writer's
+// concurrent change. fn receives the decoded document and returns the
+// candidate to persist; returning an error aborts the write and passes the
+// error through verbatim, so callers can carry their own domain errors across
+// the transaction. A rejected candidate is wrapped in *ValidationError; load,
+// fn, and write errors come back as-is. fn must not call Load/Save/Update
+// (deadlock on fileMu) and must not retain the passed document beyond the
+// call. The returned Settings is the persisted document.
 func Update(path string, fn func(Settings) (Settings, error)) (Settings, error) {
 	fileMu.Lock()
 	defer fileMu.Unlock()
-	current, err := load(path)
-	if err != nil {
-		return Settings{}, err
-	}
-	next, err := fn(current)
-	if err != nil {
-		return Settings{}, err
-	}
-	normalizeLegacyToolSearch(&next)
-	if err := next.Validate(); err != nil {
-		return Settings{}, &ValidationError{Err: err}
-	}
-	return write(path, next)
+	return withSettingsFileLock(path, func() (Settings, error) {
+		current, err := load(path)
+		if err != nil {
+			return Settings{}, err
+		}
+		next, err := fn(current)
+		if err != nil {
+			return Settings{}, err
+		}
+		normalizeLegacyToolSearch(&next)
+		if err := next.Validate(); err != nil {
+			return Settings{}, &ValidationError{Err: err}
+		}
+		return write(path, next)
+	})
 }

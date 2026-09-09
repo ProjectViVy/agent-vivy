@@ -3,6 +3,7 @@
 package view
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -2025,7 +2026,12 @@ func (m Model) showCommandError(err error) Model {
 	if err == nil {
 		return m
 	}
-	return m.showCommandResult(m.translator.T("vivy.tui.dialog.commandError", nil), err.Error())
+	message := err.Error()
+	var unknown *command.UnknownCommandError
+	if errors.As(err, &unknown) {
+		message = m.translator.T("vivy.tui.error.unknownCommand", map[string]any{"command": unknown.Name})
+	}
+	return m.showCommandResult(m.translator.T("vivy.tui.dialog.commandError", nil), message)
 }
 
 func (m *Model) applyCommandResult(msg surface.CommandResultMsg) {

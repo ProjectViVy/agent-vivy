@@ -94,6 +94,13 @@ describe('LanguagePicker', () => {
     expect(elements(LanguagePicker(), 'button').every((button) => button.props.disabled)).toBe(true);
   });
 
+  it('disables an already-hydrated picker while authoritative settings are loading', () => {
+    view.settings = { locale: 'en', locale_read_only: false };
+    view.settingsPhase = 'loading';
+
+    expect(elements(LanguagePicker(), 'button').every((button) => button.props.disabled)).toBe(true);
+  });
+
   it('shows a translated save error with the backend detail', () => {
     view.settingsError = 'settings are read-only';
     const alerts = elements(LanguagePicker(), 'p').filter((element) => element.props.role === 'alert');
