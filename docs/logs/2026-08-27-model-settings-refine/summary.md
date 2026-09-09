@@ -1,60 +1,71 @@
-# 2026-08-27 · 模型设置页交互重构（评审三项建议落地）
+# 2026-08-27 · Model-settings interaction refactor (three review suggestions implemented)
 
-## 背景
+## Background
 
-用户在 Vivy Studio 评审「模型」设置页后提出三项建议，本迭代按建议落地：
+After reviewing the 「Model」 settings page in Vivy Studio, the user made three suggestions;
+this iteration implements them:
 
-1. 自定义供应商行右侧有**常驻小编辑按钮**，可编辑地址（Base URL）与别名（显示名）；
-2. 右侧具体模型列表头部加**「从官方同步」刷新按钮**与**「新增」按钮**（手动加模型）；
-3. **删除下方三输入表单**（Provider / 默认模型 / Base URL / API Key + 保存真实设置），
-   **API Key 填写移到模型列表上方**。
+1. Add a **persistent small edit button** on the right side of custom-provider rows so the
+   address (Base URL) and alias (display name) can be edited.
+2. Add a **「Sync from official」 refresh button** and an **「Add」 button** (manually add a
+   model) to the header of the concrete model list on the right.
+3. **Remove the three-input form below** (Provider / default model / Base URL / API Key +
+   Save real settings), and **move API Key entry above the model list**.
 
-## 变更内容
+## Changes
 
-- `ui/src/components/settings/ModelSettingsCard.tsx` — 重构：
-  - 删除底部 2×2 输入表单与「保存真实设置」按钮：选中/应用完全走"选供应商 →
-    点模型/新增模型 → 立即选用并保存"（表单曾是旧的显式提交边界，与快捷切换
-    语义重复，按用户建议移除）；表单相关 state（`form` / `applyProviderEntry` /
-    `selectProvider`）一并删除，选中改为 `selectedName` 游标（默认跟随当前运行
-    供应商）；
-  - 供应商行：自定义行的**编辑按钮（Pencil）常驻可见**（点击即打开新增/编辑
-    对话框，可编辑显示名=别名、Base URL=地址、运行束、默认模型、模型列表、
-    API Key）；删除（X）保持 hover 显示；
-  - 右侧模型列表头部（原 bundle 标签旁）新增两个图标按钮：
-    - `RefreshCw`「从官方同步」——重新载入合并视图并显示反馈
-      「模型列表已重新载入（静态目录快照）」。诚实边界：在线同步在
-      `docs/TODO.md` §0.1 `UI-PROV-RPC`（接口未建，按钮当前是"重载 + 反馈"，
-      不会假装拉取到新数据）；
-    - `Plus`「新增」——列表顶部展开内联输入（回车/✓ 加入，Esc/✕ 取消）：
-      自定义供应商同时把模型 id 持久化进注册表 `models`，随后与点击模型同
-      语义（立即选用 + 加入快捷列表 + 存密钥）；目录厂商不落注册表，但书签
-      会持久化该组合；
-  - API Key 从底部表单移到模型列表上方：选中自定义供应商时可编辑（失焦写回
-    注册表，随模型点击应用）；目录厂商禁用并提示
-    「目录厂商的密钥由运行环境变量注入」；
-  - `read_only` 提示移到卡片顶部；「已配置 API Key」提示仅在所选供应商为当前
-    运行配置时显示于密钥行下方；错误段保留在卡片底部。
-- `ui/src/i18n/{zh,en}.ts` — 新增 `refreshModels / refreshedModels / addModel /
-  addModelPlaceholder / addModelConfirm / catalogKeyHint`；更新 `noModels` 与
-  `customProviderHint` 文案（不再指向已删除的表单）。
+- `ui/src/components/settings/ModelSettingsCard.tsx` — refactored:
+  - removed the bottom 2×2 input form and 「Save real settings」 button: selection/application
+    now entirely follows "select provider → click model/add model → select and save
+    immediately" (the form was an old explicit-submission boundary whose semantics
+    duplicated quick switching, so it was removed per the user's suggestion); also removed
+    form-related state (`form` / `applyProviderEntry` / `selectProvider`), with selection
+    changed to the `selectedName` cursor (default follows the current runtime provider);
+  - provider rows: the custom-row **Edit button (Pencil) is persistently visible** (clicking
+    opens the add/edit dialog, where display name = alias, Base URL = address, runtime
+    bundle, default model, model list, and API Key can be edited); Delete (X) remains shown
+    on hover;
+  - added two icon buttons to the right model-list header (beside the original bundle label):
+    - `RefreshCw` 「Sync from official」—reloads the merged view and shows the feedback
+      「Model list reloaded (static catalog snapshot)」. Honest boundary: online sync remains
+      in `docs/TODO.md` §0.1 `UI-PROV-RPC` (the interface does not exist; the button is
+      currently "reload + feedback" and does not pretend to fetch new data);
+    - `Plus` 「Add」—expands an inline input at the top of the list (Enter/✓ add, Esc/✕
+      cancel): for custom providers, the model id is also persisted into the registry's
+      `models`, then follows the same semantics as clicking a model (select immediately +
+      add to quick list + store the key); catalog providers do not write to the registry,
+      but the bookmark persists the combination;
+  - moved API Key from the bottom form to above the model list: it is editable when a custom
+    provider is selected (written back to the registry on blur and applied with model
+    clicks); it is disabled for catalog providers with the notice
+    「Catalog-provider keys are injected by the runtime environment」;
+  - moved the `read_only` notice to the card top; the 「API Key configured」 notice appears
+    below the key row only when the selected provider is the current runtime configuration;
+    the error section remains at the bottom of the card.
+- `ui/src/i18n/{zh,en}.ts` — added `refreshModels / refreshedModels / addModel /
+  addModelPlaceholder / addModelConfirm / catalogKeyHint`; updated `noModels` and
+  `customProviderHint` copy (no longer pointing to the deleted form).
 
-## 交互契约
+## Interaction contract
 
-- 一个意图一个动作不变：点模型/新增模型/chip/顶栏行 = 选用即生效；编辑/删除
-  注册表 = 只动本地；密钥随应用提交。
-- 主表单删除后，任意模型 id 的唯一入口是「新增」；任意自定义组合的唯一入口是
-  「新增自定义供应商」对话框——两处都真实持久化/生效，无伪操作。
-- 「从官方同步」不伪造网络行为：只重载静态快照并明示反馈；在线同步任务仍在
-  `UI-PROV-RPC`。
+- One intent, one action remains: click model/add model/chip/top-bar row = select and take
+  effect; edit/delete registry = local-only; the key is submitted with application.
+- After removing the main form, the sole entry point for any model id is 「Add」; the sole
+  entry point for any custom combination is the 「Add custom provider」 dialog—both genuinely
+  persist and take effect, with no fake operation.
+- 「Sync from official」 does not fake network behavior: it only reloads the static snapshot
+  and states that feedback clearly; the online-sync task remains in `UI-PROV-RPC`.
 
-## 明确不做
+## Explicitly not done
 
-- 真实在线供应商目录同步（Go 端无 provider/model 目录 RPC）——保持
-  `docs/TODO.md` §0.1 `UI-PROV-RPC` OPEN。
-- 目录供应商行的编辑（官方条目不可改；编辑仅限自定义供应商）。
-- 浏览器冒烟：8787 / 3015 仍被用户 Vivy Studio 会话占用，跳过自测，由用户
-  会话代验（见 `verification.md`）。
+- Real online provider-catalog synchronization (the Go side has no provider/model catalog
+  RPC)—`docs/TODO.md` §0.1 `UI-PROV-RPC` remains OPEN.
+- Editing catalog-provider rows (official entries cannot be changed; editing is limited to
+  custom providers).
+- Browser smoke test: 8787 / 3015 were still occupied by the user's Vivy Studio session,
+  so self-testing was skipped and delegated to that session (see `verification.md`).
 
-## 发布说明
+## Release notes
 
-无独立发布：随 UI 常规构建发布，`just ci` 已含 ui build，不单写 `release.md`。
+No standalone release: shipped with the regular UI build; `just ci` already includes the UI
+build, so no separate `release.md` was written.

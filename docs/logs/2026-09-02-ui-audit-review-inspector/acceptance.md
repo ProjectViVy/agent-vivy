@@ -1,11 +1,12 @@
 # Acceptance
 
-人如何确认：
+How a human confirms it:
 
-1. 打开 http://127.0.0.1:3015 → 设置 → Vivy 功能 → Run Inspector 卡片出现第 4 个
-   tab「审批 (0)」；无审批时显示「此 Run 没有审批或提问」。
-2. 发起一次会触发工具审批的对话（如 bash 危险命令），Run Inspector → 审批 tab
-   出现与 Review Center 完全一致的审批卡：审计字段、风险提示、脱敏参数、
-   批准/拒绝按钮；在 inspector 里批准后，审批中心队列的同一请求同步落定。
-3. 审批中心页面行为不变：详情仍是同一张卡（现在来自共享组件），列表/刷新/回退
-   不受影响。
+1. Open http://127.0.0.1:3015 → Settings → Vivy features → the Run Inspector card has a
+   fourth "Reviews (0)" tab; with no reviews it shows "This run has no reviews or questions."
+2. Start a conversation that triggers tool approval (for example, a dangerous bash command).
+   Run Inspector → Reviews tab shows an approval card exactly matching Review Center:
+   audit fields, risk warning, redacted parameters, and Approve/Reject buttons. Approve it in
+   the inspector, and the same request settles in the approval-center queue.
+3. Review Center page behavior is unchanged: details are still the same card (now from the
+   shared component), and list/refresh/rewind are unaffected.

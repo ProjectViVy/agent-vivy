@@ -9,7 +9,7 @@ manifest fields a reviewer needs.
 - `sdk/internal/pack.go`: `Artifact` gains `plugins[]`
   (`omitempty`); each entry is `name / version / seam / grants /
   transport / source_ref / tree_hash`. Flat per-plugin entries with a `seam`
-  field satisfy "按 seam 分类列出" — telegram prints as `channel`, not tool.
+  field satisfy "listed by seam" — telegram prints as `channel`, not tool.
 - `tree_hash` is a deterministic sha256 over the plugin source tree
   (`hashPluginTree`): `filepath.WalkDir` regular files in sorted order, each
   contributing its slash-relative path + length prefix + content bytes. Same
@@ -23,10 +23,10 @@ manifest fields a reviewer needs.
 ## What was explicitly not done
 
 - No `vivy-sdk inspect` CLI output changes beyond what generation.json now
-  carries (the §10 "inspect 按 seam 分类列出" printing can build on the new
+  carries (the §10 "inspect listed by seam" printing can build on the new
   field later).
 - No runtime allowlist, install, or promote-path change — pack-side manifest
-  only (卸通道插件 = 从 plugins: 删一行，再 pack, unchanged).
+  only (removing a channel plugin = delete one line from `plugins`, then pack; unchanged).
 - webhook/listen/a2a transports stay out of this batch (§9.2), so transport
   is always `poll` for current channel plugins.
 

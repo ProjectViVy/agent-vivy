@@ -1,4 +1,4 @@
-# TUI-MD-TOOL-RESULTS — 工具卡片正文分流 Markdown/chroma/diff
+# TUI-MD-TOOL-RESULTS — Tool-card body routing: Markdown/chroma/diff
 
 ## What changed
 

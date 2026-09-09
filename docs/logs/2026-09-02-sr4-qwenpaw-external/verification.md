@@ -1,15 +1,16 @@
-# Verification — SR-4 QwenPaw vendor 裁定
+# Verification — SR-4 QwenPaw vendor ruling
 
-日期：2026-09-02。
+Date: 2026-09-02.
 
 ```text
 ls .workspace/
-  → 无 qwenpaw 目录（裁定落地即"零磁盘动作"，无需 vendor）
+  → no qwenpaw directory (the ruling is implemented as "zero disk action"; no vendor needed)
 
-just ci   （与本日 P3 许可审查 / P2-1 清单两片 docs 合并过门）
+just ci   (combined docs gate with today's P3 license review / P2-1 inventory slices)
   → CI-EXIT:0
 ```
 
-事实源核对：`REFERENCE-INDEX.md` §3.17（2026-08-07 的 P9 式核验记录：Apache-2.0、
-Scroll/Creator 双策略、atomic_store/jsonl_store/locking/session_store 细节、shadow-Git
-checkpoint 非 Eino）——裁定引用的全部技术结论均出自该既有核验，未做新上游抓取。
+Fact-source check: `REFERENCE-INDEX.md` §3.17 (the 2026-08-07 P9-style verification record:
+Apache-2.0, the Scroll/Creator dual strategy, atomic_store/jsonl_store/locking/session_store
+details, and shadow-Git checkpoint not being Eino) — every technical conclusion cited by the
+ruling comes from that existing verification; no new upstream fetch was performed.

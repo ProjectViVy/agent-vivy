@@ -11,7 +11,12 @@ go test ./internal/app -run 'TestLoopbackControlCompletesApprovedConversation|Te
 ok  agent-vivy/internal/app  11.682s
 ```
 
-第一测覆盖 F1 成功判据：无 embed/无 listener 组合内，进程内 JSON-RPC 客户端走 web face 同款方法链（initialize → session/create → turn/start → approval/list → approval/respond(approved) → run/get completed），journal `tool.finished` 零错误，终文落 session/messages。第二测覆盖无 UI 审批失败路径：审批挂起无人应答 → run/cancel 收到 cancelled → gateway-less `App.Run` 干净返回。
+The first test covers the F1 success criterion: in a composition with no embed or listener,
+an in-process JSON-RPC client follows the web face's method chain (initialize → session/create
+→ turn/start → approval/list → approval/respond(approved) → run/get completed), with zero
+`tool.finished` errors in the journal and the final text in session/messages. The second
+test covers the no-UI approval failure path: approval suspends without a response →
+run/cancel receives cancelled → gateway-less `App.Run` returns cleanly.
 
 ## Static + package
 
@@ -29,10 +34,20 @@ go test ./internal/app -count=1 # ok
 CI-EXIT:0   # fmt-check, ui-ci, vet, test, headless-compile, plugin-ci — 0 FAIL lines
 ```
 
-headless-compile 步骤同时证明 `vivy_headless` 组合在 `WithoutGateway()` 下仍编译。
+The headless-compile step also proves that the `vivy_headless` composition still compiles
+under `WithoutGateway()`.
 
 ## Real-path note (smoke)
 
-- F1 是组合层能力，无可视 UI 变更——`:3015` 浏览器冒烟不适用（web face 路径未动，`just ci` 的 embedded-UI 测试与 `TestRPCBootstrapRoutePrecedesUIShell` 回归钉住默认 gateway 组合）。
-- 可执行面冒烟 = 组合测试本身：`DialControl` 走的是真 `controlHandler` + 真 journal + 真 sqlite 存储 + 脚本化模型端点（frozen ENV 会话经 `VIVY_API_BASE` 指向本地 SSE 服务器），即 headless face 将来的真实驱动方式。
-- 开发中发现并当场修复的回归：`appOptions.gateway` 零值错误导致默认组合 `httpServer == nil`，被既有 `TestRPCBootstrapRoutePrecedesUIShell`（整包测试）抓住——初版仅跑新测未见此问题，整包跑法保留为流程依据。
+- F1 is a composition-layer capability with no visible UI change — browser smoke at `:3015`
+  is not applicable (the web-face path is untouched; the embedded-UI tests in `just ci` and
+  `TestRPCBootstrapRoutePrecedesUIShell` regression-pin the default gateway composition).
+- Executable-surface smoke = the composition tests themselves: `DialControl` uses the real
+  `controlHandler` + real journal + real sqlite storage + scripted model endpoint (the frozen
+  ENV session points `VIVY_API_BASE` at a local SSE server), which is the future real driver
+  path for the headless face.
+- A regression found and fixed during development: the zero-value
+  `appOptions.gateway` caused `httpServer == nil` in the default composition and was caught
+  by the existing `TestRPCBootstrapRoutePrecedesUIShell` (full-package test). The initial
+  run only covered the new tests and missed it; the full-package run remains the process
+  precedent.

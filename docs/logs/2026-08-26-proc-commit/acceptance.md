@@ -1,10 +1,11 @@
-# Acceptance — PROC-COMMIT 拆分入库
+# Acceptance — Split PROC-COMMIT into separate deliveries
 
 Date: 2026-08-26
 
-## 如何确认收尾完成
+## How to confirm closure
 
-1. `git log --oneline -5` 顶部为三个聚焦功能提交 + 本收尾 docs 提交：
+1. The top of `git log --oneline -5` contains the three focused feature commits
+   plus this closing docs commit:
 
    ```
    <hash> docs: close PROC-COMMIT after split commits
@@ -13,21 +14,25 @@ Date: 2026-08-26
    a857976 feat(ui): add evolution page with demo governance workflow
    ```
 
-2. `git show --stat a857976` / `9a11370` / `1a3f0c7`：每个提交只含各自主题的
-   文件 + 自己的 `docs/logs/<主题>/`；没有任何一个提交同时含两个主题的核心文件
-   （如 evolution 提交不含 `WelcomeWizard.tsx`，chat 提交不含 `EvolutionView.tsx`）。
+2. `git show --stat a857976` / `9a11370` / `1a3f0c7`: each commit contains only
+   its topic’s files + its own `docs/logs/<topic>/`; no commit contains core files
+   from two topics (for example, the Evolution commit does not contain
+   `WelcomeWizard.tsx`, and the Chat commit does not contain `EvolutionView.tsx`).
 
-3. 共享文件拆开可见：
-   - `git show a857976 -- ui/src/i18n/zh.ts`：只有 nav/skills.status/evolution/demo.evolution
-     词条；`git show 1a3f0c7 -- ui/src/i18n/zh.ts`：只有 `chat.copy` 等词条；
-     `git show 9a11370 -- ui/src/i18n/zh.ts`：只有 `welcome.*` 词条。
-   - `git show 9a11370 -- ui/e2e/runtime.spec.ts` 与 `git show 1a3f0c7 -- ui/e2e/runtime.spec.ts`
-     分别只含向导适配与功能栏断言的 hunk。
+3. The split is visible in shared files:
+   - `git show a857976 -- ui/src/i18n/zh.ts` contains only nav/skills.status/
+     evolution/demo.evolution entries; `git show 1a3f0c7 -- ui/src/i18n/zh.ts`
+     contains only entries such as `chat.copy`; `git show 9a11370 --
+     ui/src/i18n/zh.ts` contains only `welcome.*` entries.
+   - `git show 9a11370 -- ui/e2e/runtime.spec.ts` and `git show 1a3f0c7 --
+     ui/e2e/runtime.spec.ts` contain only the wizard adaptation and action-bar
+     assertion hunks, respectively.
 
-4. `git status` 干净（根树回到零未提交改动的单 lane 状态）。
+4. `git status` is clean (the root tree returns to a single-lane state with zero uncommitted changes).
 
-5. `docs/TODO.md`：§0.1 不再有 PROC-COMMIT 行（UI-EVO、UI-CHAT-ACT 保留为
-   后续真实后端接线的 OPEN 项）；§10 Completion log 顶部新增 2026-08-26
-   PROC-COMMIT 完成条目。
+5. `docs/TODO.md`: §0.1 no longer has a PROC-COMMIT row (UI-EVO and UI-CHAT-ACT
+   remain OPEN items for later real backend wiring); §10 Completion log has a new
+   2026-08-26 PROC-COMMIT completion entry at the top.
 
-6. 未推送：`git status` 的 ahead 计数为本地领先远端的提交数，push 待用户授权。
+6. Nothing was pushed: `git status`’s ahead count is the number of commits the
+   local branch has over the remote; push awaits user authorization.

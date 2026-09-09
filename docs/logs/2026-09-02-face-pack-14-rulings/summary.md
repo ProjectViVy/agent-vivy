@@ -1,16 +1,24 @@
-# FACE-PACK §14 四问拍板记录
+# FACE-PACK §14 four-question decision record
 
 ## What changed
 
-`docs/architecture/VIVY-FACE-PACK.md` §14：四道"采纳前要人拍板"的问题全部收到用户终审（2026-09-02，全取合同推荐值），F2/F3 切片前置解除：
+`docs/architecture/VIVY-FACE-PACK.md` §14: all four "requires human decision before
+adoption" questions received final user review (2026-09-02, all taking the contract's
+recommended values), clearing the F2/F3 slice prerequisites:
 
-1. **faces/ 独立 `go.mod`**——网关世代编译期不见 TUI deps。
-2. **默认永远 `face: web`**——coding 世代是另一条配方，不替换日常双击。
-3. **网页与 TUI 第一刀不同居**——一代一张嘴；多客户端同居后切且需先钉死审批 first-writer-wins。
-4. **headless 遇审批 = 失败退出**——不挂起等待、不 yolo（run 级持久挂起+可取消由 F1 测试钉死，进程级句子=失败退出）。
+1. **Standalone `go.mod` for `faces/`** — gateway-generation compilation does not see TUI
+   dependencies.
+2. **Default is always `face: web`** — the coding generation is a separate recipe and
+   does not replace the everyday double-click flow.
+3. **Web and TUI do not coexist in the first cut** — one mouth per generation; multi-client
+   coexistence and switching require first-writer-wins approval to be nailed down first.
+4. **Approval in headless = fail exit** — do not hang waiting and do not yolo (run-level
+   durable suspension + cancellation is fixed by F1 tests; the process-level rule is fail
+   exit).
 
-`docs/TODO.md`：FACE-TUI-1 行补拍板注记 + §10 记账。
+`docs/TODO.md`: added the decision note to the FACE-TUI-1 line + §10 ledger entry.
 
 ## Explicitly not done
 
-- F2（出厂 `faces/headless` 器官 + pack overlay）与 F3（出厂 `faces/tui` 器官）的实现——本片只解除其决策前置。
+- Implementation of F2 (built-in `faces/headless` organ + pack overlay) and F3
+  (built-in `faces/tui` organ) — this slice only clears their decision prerequisites.

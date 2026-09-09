@@ -1,84 +1,84 @@
-# UI 迁移 RPC 端点差距分析
+# UI Migration RPC Endpoint Gap Analysis
 
-本文档对比 Agent Diva GUI 所需的 Tauri commands 与 VIVY 现有的 JSON-RPC 端点，识别需要补充的端点。
+This document compares the Tauri commands required by Agent Diva GUI with VIVY's existing JSON-RPC endpoints and identifies endpoints that need to be added.
 
-## 1. 现有端点清单（VIVY）
+## 1. Existing Endpoint Inventory (VIVY)
 
-基于 `internal/rpc/control.go` 的 `Handle` 方法：
+Based on the `Handle` method in `internal/rpc/control.go`:
 
-### 会话管理
-- ✅ `session/create` - 创建会话
-- ✅ `session/list` - 列出会话
-- ✅ `session/get` - 获取会话详情（含消息）
-- ✅ `session/rename` - 重命名会话
-- ✅ `session/delete` - 删除会话
-- ✅ `session/messages` - 列出会话消息
+### Session Management
+- ✅ `session/create` - Create a session
+- ✅ `session/list` - List sessions
+- ✅ `session/get` - Get session details (including messages)
+- ✅ `session/rename` - Rename a session
+- ✅ `session/delete` - Delete a session
+- ✅ `session/messages` - List session messages
 
-### 运行控制
-- ✅ `preflight/run` - 预检运行
-- ✅ `turn/start` - 启动对话轮次
-- ✅ `turn/interrupt` / `run/cancel` - 取消运行
-- ✅ `run/get` - 获取运行状态
-- ✅ `run/subscribe` - 订阅运事件流
-- ✅ `run/unsubscribe` - 取消订阅
-- ✅ `run/log` - 获取运行日志
+### Run Control
+- ✅ `preflight/run` - Run preflight checks
+- ✅ `turn/start` - Start a conversation turn
+- ✅ `turn/interrupt` / `run/cancel` - Cancel a run
+- ✅ `run/get` - Get run status
+- ✅ `run/subscribe` - Subscribe to the run event stream
+- ✅ `run/unsubscribe` - Unsubscribe
+- ✅ `run/log` - Get the run log
 
-### 审批与问答
-- ✅ `approval/list` - 列出待审批项
-- ✅ `approval/respond` - 响应审批（approve/deny）
-- ✅ `question/list` - 列出待回答问题
-- ✅ `question/respond` - 回答问题
+### Approval and Questions
+- ✅ `approval/list` - List pending approvals
+- ✅ `approval/respond` - Respond to an approval (approve/deny)
+- ✅ `question/list` - List unanswered questions
+- ✅ `question/respond` - Answer a question
 
-### 审查中心
-- ✅ `review/list` - 列出审查项
-- ✅ `review/get` - 获取审查详情
-- ✅ `review/respond` - 响应审查
+### Review Center
+- ✅ `review/list` - List review items
+- ✅ `review/get` - Get review details
+- ✅ `review/respond` - Respond to a review
 
-### 子进程管理
-- ✅ `child/start` - 启动子进程
-- ✅ `child/get` - 获取子进程状态
-- ✅ `child/list` - 列出子进程
-- ✅ `child/wait` - 等待子进程完成
-- ✅ `child/cancel` - 取消子进程
+### Subprocess Management
+- ✅ `child/start` - Start a subprocess
+- ✅ `child/get` - Get subprocess status
+- ✅ `child/list` - List subprocesses
+- ✅ `child/wait` - Wait for a subprocess to complete
+- ✅ `child/cancel` - Cancel a subprocess
 
-### 背景任务
-- ✅ `background/recover` - 恢复后台任务
-- ✅ `background/list` - 列出后台任务
-- ✅ `background/attach` - 附加到后台任务
+### Background Tasks
+- ✅ `background/recover` - Recover background tasks
+- ✅ `background/list` - List background tasks
+- ✅ `background/attach` - Attach to a background task
 
-### Studio 相关
-- ✅ `generations/list` - 列出生成物
-- ✅ `generations/get` - 获取生成物详情
-- ✅ `generations/create` - 创建生成物
-- ✅ `generations/reject` - 拒绝生成物
-- ✅ `evals/list` - 列出评估
-- ✅ `evals/record` - 记录评估
-- ✅ `evals/start` - 启动评估
-- ✅ `promotions/list` - 列出晋升
-- ✅ `promotions/promote` - 执行晋升
-- ✅ `species/inspect` - 检查物种状态
+### Studio-Related
+- ✅ `generations/list` - List generations
+- ✅ `generations/get` - Get generation details
+- ✅ `generations/create` - Create a generation
+- ✅ `generations/reject` - Reject a generation
+- ✅ `evals/list` - List evaluations
+- ✅ `evals/record` - Record an evaluation
+- ✅ `evals/start` - Start an evaluation
+- ✅ `promotions/list` - List promotions
+- ✅ `promotions/promote` - Execute a promotion
+- ✅ `species/inspect` - Inspect species status
 
-### 设置
-- ✅ `settings/get` - 获取设置
-- ✅ `settings/update` - 更新设置
+### Settings
+- ✅ `settings/get` - Get settings
+- ✅ `settings/update` - Update settings
 
 ---
 
-## 2. Agent Diva 所需但 VIVY 缺失的端点
+## 2. Endpoints Required by Agent Diva but Missing from VIVY
 
-### 2.1 计划管理（高优先级）
+### 2.1 Plan Management (High Priority)
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `get_active_plan` | 获取会话当前活动计划 | ❌ 缺失 | 新增 `plan/get_active` |
-| `approve_active_plan_execution` | 批准计划并继续执行 | ❌ 缺失 | 新增 `plan/approve_execution` |
-| `continue_approved_plan_execution` | 继续已批准计划的执行 | ❌ 缺失 | 复用 `turn/start` + plan context |
-| `get_plan_reports` | 获取计划报告列表 | ❌ 缺失 | 新增 `plan/list_reports` |
-| `return_active_plan_to_draft` | 将计划退回草稿 | ❌ 缺失 | 新增 `plan/return_to_draft` |
+| `get_active_plan` | Get the session's current active plan | ❌ Missing | Add `plan/get_active` |
+| `approve_active_plan_execution` | Approve the plan and continue execution | ❌ Missing | Add `plan/approve_execution` |
+| `continue_approved_plan_execution` | Continue execution of an approved plan | ❌ Missing | Reuse `turn/start` + plan context |
+| `get_plan_reports` | Get the plan-report list | ❌ Missing | Add `plan/list_reports` |
+| `return_active_plan_to_draft` | Return the plan to draft | ❌ Missing | Add `plan/return_to_draft` |
 
-**实现建议：**
+**Implementation Recommendation:**
 ```go
-// internal/rpc/control.go 添加：
+// Add to internal/rpc/control.go:
 case "plan/get_active":
     return h.getActivePlan(ctx, request)
 case "plan/approve_execution":
@@ -89,122 +89,122 @@ case "plan/return_to_draft":
     return h.returnPlanToDraft(ctx, request)
 ```
 
-### 2.2 配置管理（中优先级）
+### 2.2 Configuration Management (Medium Priority)
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `get_runtime_config` | 获取完整运行时配置 | ⚠️ 部分（仅 provider/model） | 扩展 `settings/get` |
-| `update_runtime_config` | 更新运行时配置 | ⚠️ 部分（仅 provider/model） | 扩展 `settings/update` |
-| `list_providers` | 列出所有 Provider | ❌ 缺失 | 新增 `providers/list` |
-| `add_provider` | 添加自定义 Provider | ❌ 缺失 | 新增 `providers/add` |
-| `delete_provider` | 删除 Provider | ❌ 缺失 | 新增 `providers/delete` |
-| `test_provider_connection` | 测试 Provider 连接 | ❌ 缺失 | 新增 `providers/test` |
+| `get_runtime_config` | Get the complete runtime configuration | ⚠️ Partial (provider/model only) | Extend `settings/get` |
+| `update_runtime_config` | Update the runtime configuration | ⚠️ Partial (provider/model only) | Extend `settings/update` |
+| `list_providers` | List all Providers | ❌ Missing | Add `providers/list` |
+| `add_provider` | Add a custom Provider | ❌ Missing | Add `providers/add` |
+| `delete_provider` | Delete a Provider | ❌ Missing | Add `providers/delete` |
+| `test_provider_connection` | Test the Provider connection | ❌ Missing | Add `providers/test` |
 
-**实现建议：**
-扩展现有 `settings/get` 和 `settings/update` 以包含更多配置字段，或拆分为专门的 `config/*` 端点。
+**Implementation Recommendation:**
+Extend the existing `settings/get` and `settings/update` to include more configuration fields, or split them into dedicated `config/*` endpoints.
 
-### 2.3 Channel 管理（中优先级）
+### 2.3 Channel Management (Medium Priority)
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `list_channels` | 列出通道 | ✅ 已有（但未在 handler 中暴露） | 确认实现 |
-| `create_channel` | 创建通道 | ✅ 已有（但未在 handler 中暴露） | 确认实现 |
-| `update_channel` | 更新通道 | ❌ 缺失 | 新增 `channels/update` |
-| `delete_channel` | 删除通道 | ❌ 缺失 | 新增 `channels/delete` |
-| `test_channel_connection` | 测试通道连接 | ❌ 缺失 | 新增 `channels/test` |
+| `list_channels` | List channels | ✅ Exists (but is not exposed in the handler) | Confirm implementation |
+| `create_channel` | Create a channel | ✅ Exists (but is not exposed in the handler) | Confirm implementation |
+| `update_channel` | Update a channel | ❌ Missing | Add `channels/update` |
+| `delete_channel` | Delete a channel | ❌ Missing | Add `channels/delete` |
+| `test_channel_connection` | Test the channel connection | ❌ Missing | Add `channels/test` |
 
-**注意：** VIVY 的 `control.go` 中没有看到 channel 相关的 case，需要确认是否在别处实现。
+**Note:** No channel-related case was found in VIVY's `control.go`; confirm whether it is implemented elsewhere.
 
-### 2.4 Skills 管理（低优先级）
+### 2.4 Skills Management (Low Priority)
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `list_skills` | 列出已安装 skills | ❌ 缺失 | 新增 `skills/list` |
-| `install_skill` | 安装 skill | ❌ 缺失 | 新增 `skills/install` |
-| `uninstall_skill` | 卸载 skill | ❌ 缺失 | 新增 `skills/uninstall` |
-| `list_marketplace_skills` | 列出市场 skills | ❌ 缺失 | 新增 `skills/marketplace` |
+| `list_skills` | List installed skills | ❌ Missing | Add `skills/list` |
+| `install_skill` | Install a skill | ❌ Missing | Add `skills/install` |
+| `uninstall_skill` | Uninstall a skill | ❌ Missing | Add `skills/uninstall` |
+| `list_marketplace_skills` | List marketplace skills | ❌ Missing | Add `skills/marketplace` |
 
-### 2.5 记忆与 Persona（低优先级）
+### 2.5 Memory and Persona (Low Priority)
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `list_memories` | 列出记忆条目 | ❌ 缺失 | 新增 `memories/list` |
-| `get_memory` | 获取记忆详情 | ❌ 缺失 | 新增 `memories/get` |
-| `delete_memory` | 删除记忆 | ❌ 缺失 | 新增 `memories/delete` |
-| `search_memories` | 搜索记忆 | ❌ 缺失 | 新增 `memories/search` |
-| `get_persona` | 获取 Persona | ❌ 缺失 | 新增 `persona/get` |
-| `update_persona` | 更新 Persona | ❌ 缺失 | 新增 `persona/update` |
-| `get_evolution_proposals` | 获取 Evolution 提案 | ❌ 缺失 | 新增 `evolution/list_proposals` |
-| `apply_evolution_proposal` | 应用 Evolution 提案 | ❌ 缺失 | 新增 `evolution/apply` |
+| `list_memories` | List memory entries | ❌ Missing | Add `memories/list` |
+| `get_memory` | Get memory details | ❌ Missing | Add `memories/get` |
+| `delete_memory` | Delete a memory | ❌ Missing | Add `memories/delete` |
+| `search_memories` | Search memories | ❌ Missing | Add `memories/search` |
+| `get_persona` | Get the Persona | ❌ Missing | Add `persona/get` |
+| `update_persona` | Update the Persona | ❌ Missing | Add `persona/update` |
+| `get_evolution_proposals` | Get Evolution proposals | ❌ Missing | Add `evolution/list_proposals` |
+| `apply_evolution_proposal` | Apply an Evolution proposal | ❌ Missing | Add `evolution/apply` |
 
-### 2.6 审计与诊断（低优先级）
+### 2.6 Audit and Diagnostics (Low Priority)
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `get_token_stats` | 获取 Token 统计 | ❌ 缺失 | 新增 `stats/tokens` |
-| `get_audit_log` | 获取审计日志 | ❌ 缺失 | 新增 `audit/log` |
-| `get_gui_log` | 获取 GUI 操作日志 | ❌ 缺失 | 新增 `audit/gui_log` |
-| `get_raw_log` | 获取原始事件流 | ⚠️ 部分（`run/log`） | 扩展为跨 run 查询 |
+| `get_token_stats` | Get Token statistics | ❌ Missing | Add `stats/tokens` |
+| `get_audit_log` | Get the audit log | ❌ Missing | Add `audit/log` |
+| `get_gui_log` | Get the GUI operation log | ❌ Missing | Add `audit/gui_log` |
+| `get_raw_log` | Get the raw event stream | ⚠️ Partial (`run/log`) | Extend to cross-run queries |
 
-### 2.7 其他辅助端点
+### 2.7 Other Helper Endpoints
 
-| Agent Diva Command | 用途 | VIVY 现状 | 建议方案 |
+| Agent Diva Command | Purpose | VIVY Status | Recommended Approach |
 |-------------------|------|----------|---------|
-| `generate_session_title` | 自动生成会话标题 | ❌ 缺失 | 新增 `sessions/generate_title` |
-| `pin_session` | Pin 会话 | ❌ 缺失 | 新增 `sessions/pin` |
-| `unpin_session` | Unpin 会话 | ❌ 缺失 | 新增 `sessions/unpin` |
-| `get_compaction_status` | 获取压缩状态 | ❌ 缺失 | 新增 `compaction/status` |
-| `trigger_compaction` | 触发压缩 | ❌ 缺失 | 新增 `compaction/trigger` |
+| `generate_session_title` | Generate a session title automatically | ❌ Missing | Add `sessions/generate_title` |
+| `pin_session` | Pin a session | ❌ Missing | Add `sessions/pin` |
+| `unpin_session` | Unpin a session | ❌ Missing | Add `sessions/unpin` |
+| `get_compaction_status` | Get compaction status | ❌ Missing | Add `compaction/status` |
+| `trigger_compaction` | Trigger compaction | ❌ Missing | Add `compaction/trigger` |
 
 ---
 
-## 3. 实施优先级建议
+## 3. Recommended Implementation Priorities
 
-### Phase 1A：核心功能必需（立即实施）
-1. **计划管理端点**（5 个）
+### Phase 1A: Core-Functionality Requirements (Implement Immediately)
+1. **Plan-management endpoints** (5)
    - `plan/get_active`
    - `plan/approve_execution`
    - `plan/list_reports`
    - `plan/return_to_draft`
-   - `continue_approved_plan_execution`（可复用 `turn/start`）
+   - `continue_approved_plan_execution` (can reuse `turn/start`)
 
-2. **会话标题生成**（1 个）
+2. **Session-title generation** (1)
    - `sessions/generate_title`
 
-**理由：** 这些是聊天界面和计划审批流程的核心依赖，没有它们无法完成基本的对话和计划管理功能。
+**Rationale:** These are core dependencies for the chat interface and plan-approval workflow; without them, basic conversation and plan-management functionality cannot be completed.
 
-### Phase 1B：配置管理（短期实施）
-1. **Provider 管理**（4 个）
+### Phase 1B: Configuration Management (Short-Term Implementation)
+1. **Provider management** (4)
    - `providers/list`
    - `providers/add`
    - `providers/delete`
    - `providers/test`
 
-2. **扩展设置端点**
-   - 扩展 `settings/get` 以返回更多配置
-   - 扩展 `settings/update` 以支持更多字段
+2. **Extend settings endpoints**
+   - Extend `settings/get` to return more configuration
+   - Extend `settings/update` to support more fields
 
-**理由：** 用户需要能够配置 LLM Provider 和其他运行时参数。
+**Rationale:** Users need to be able to configure the LLM Provider and other runtime parameters.
 
-### Phase 2：Channel 与 Skills（中期实施）
-1. **Channel 管理**（5 个）
-2. **Skills 管理**（4 个）
+### Phase 2: Channel and Skills (Medium-Term Implementation)
+1. **Channel management** (5)
+2. **Skills management** (4)
 
-**理由：** 这些是多通道网关和扩展能力的核心，但对于单用户桌面场景不是立即必需的。
+**Rationale:** These are core to a multi-channel gateway and extensibility, but are not immediately required for a single-user desktop scenario.
 
-### Phase 3：记忆与审计（长期实施）
-1. **记忆管理**（8 个）
-2. **审计日志**（4 个）
+### Phase 3: Memory and Auditing (Long-Term Implementation)
+1. **Memory management** (8)
+2. **Audit logging** (4)
 
-**理由：** 高级功能，可以在核心功能稳定后逐步添加。
+**Rationale:** These are advanced features that can be added incrementally after the core functionality is stable.
 
 ---
 
-## 4. 数据模型差异
+## 4. Data-Model Differences
 
-### 4.1 计划数据结构
+### 4.1 Plan Data Structure
 
-**Agent Diva 的 PlanRuntimeState：**
+**Agent Diva's PlanRuntimeState:**
 ```typescript
 interface PlanRuntimeState {
   plan_id: string;
@@ -225,11 +225,11 @@ interface PlanRuntimeState {
 }
 ```
 
-**VIVY 需要定义对应的 domain 类型和存储接口。**
+**VIVY needs to define the corresponding domain types and storage interfaces.**
 
-### 4.2 Approval 数据结构差异
+### 4.2 Approval Data-Structure Differences
 
-**Agent Diva 的 ApprovalView：**
+**Agent Diva's ApprovalView:**
 ```typescript
 interface ApprovalView {
   request_id: string;
@@ -249,7 +249,7 @@ interface ApprovalView {
 }
 ```
 
-**VIVY 的 approvalResult：**
+**VIVY's approvalResult:**
 ```go
 type approvalResult struct {
     ID         string       `json:"id"`
@@ -260,45 +260,45 @@ type approvalResult struct {
 }
 ```
 
-**差异：** VIVY 缺少 `version`、`domain`、`resource`、`presentation` 等字段，需要扩展以支持计划审批。
+**Difference:** VIVY lacks fields such as `version`, `domain`, `resource`, and `presentation`; it must be extended to support plan approval.
 
 ---
 
-## 5. 下一步行动
+## 5. Next Actions
 
-1. **确认 VIVY 的 Plan 域模型是否存在**
-   - 检查 `internal/domain/` 是否有 Plan 相关类型
-   - 如果没有，需要定义 `domain.Plan`、`domain.PlanRevision`、`domain.PlanReport` 等
+1. **Confirm whether VIVY has a Plan domain model**
+   - Check whether `internal/domain/` contains Plan-related types
+   - If not, define `domain.Plan`, `domain.PlanRevision`, `domain.PlanReport`, and others
 
-2. **确认 VIVY 的 Approval Store 是否支持 Plan 审批**
-   - 检查 `storage.ApprovalStore` 接口
-   - 确认是否需要扩展以支持 `domain='plan'` 的审批
+2. **Confirm whether VIVY's Approval Store supports Plan approvals**
+   - Check the `storage.ApprovalStore` interface
+   - Confirm whether it must be extended to support approvals with `domain='plan'`
 
-3. **设计计划管理的存储层**
-   - 定义 `storage.PlanStore` 接口
-   - 实现 SQLite backend
+3. **Design the plan-management storage layer**
+   - Define the `storage.PlanStore` interface
+   - Implement the SQLite backend
 
-4. **逐个实施缺失的 RPC 端点**
-   - 按优先级从高到低
-   - 每个端点配套单元测试
+4. **Implement the missing RPC endpoints one by one**
+   - In order from highest to lowest priority
+   - Add unit tests for each endpoint
 
-5. **更新 UI 层的 `rpc.ts`**
-   - 添加新的 RPC 调用封装
-   - 确保类型安全
+5. **Update the UI-layer `rpc.ts`**
+   - Add wrappers for the new RPC calls
+   - Ensure type safety
 
 ---
 
-## 6. 风险评估
+## 6. Risk Assessment
 
-| 风险 | 影响 | 缓解措施 |
+| Risk | Impact | Mitigation |
 |------|------|---------|
-| Plan 域模型完全缺失 | 高 | 需要从头设计，参考 Agent Diva 的实现 |
-| Approval Store 不支持 Plan | 中 | 扩展存储接口，保持向后兼容 |
-| 配置管理复杂度高 | 中 | 分阶段实施，先支持 Provider，再扩展其他 |
-| Channel/Skills 依赖外部服务 | 低 | 可以先实现 stub，后续对接真实服务 |
+| Plan domain model completely missing | High | Design from scratch, referring to Agent Diva's implementation |
+| Approval Store does not support Plan | Medium | Extend the storage interface while preserving backward compatibility |
+| Configuration management is complex | Medium | Implement in phases: support Provider first, then extend to others |
+| Channel/Skills depend on external services | Low | Implement a stub first and integrate real services later |
 
 ---
 
-**文档版本：** v0.1  
-**最后更新：** 2026-01-XX  
-**维护者：** UI Migration Team
+**Document Version:** v0.1  
+**Last Updated:** 2026-01-XX  
+**Maintainer:** UI Migration Team

@@ -1,4 +1,4 @@
-# 超级通道 EPIC PLAN 包 — 验证
+# Super Channel EPIC PLAN package — verification
 
 Date: 2026-08-30
 

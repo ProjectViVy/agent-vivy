@@ -1,18 +1,22 @@
 # Acceptance
 
-## 人工验收
+## Manual acceptance
 
-1. 打开 `http://127.0.0.1:3015`，进 设置 → 通用 → 上下文压缩卡：无运行
-   时「立即压缩」照常可点。
-2. 在聊天页发起一个 turn（长回复便于观察），回到设置页：按钮变为禁用，
-   按钮行尾出现 amber 提示"有运行进行中，压缩会在运行内自动进行"。
-3. 运行结束后（或点「刷新占用」后）按钮恢复可点。
-4. 有后台运行（background/list 非终结态）时同样禁用。
-5. 英文界面提示为 "A run is in flight; compaction runs inside it.
-   Wait for it to finish."，无原始 i18n 键。
+1. Open `http://127.0.0.1:3015` and go to Settings → General → Context
+   compaction: with no run active, "Compact now" remains clickable.
+2. Start a turn on the chat page (a long reply makes it easier to observe), then
+   return to Settings: the button becomes disabled, and an amber hint appears at
+   the end of the button row: "A run is in flight; compaction runs inside it."
+3. After the run ends (or after clicking "Refresh usage"), the button becomes
+   clickable again.
+4. The button is likewise disabled when a background run exists
+   (`background/list` is non-terminal).
+5. In the English interface, the hint is "A run is in flight; compaction runs
+   inside it. Wait for it to finish." and no raw i18n key appears.
 
-## 判定标准
+## Acceptance criteria
 
-- `just ci` 绿（tsc/eslint/vitest/build 无断裂；compaction e2e spec
-  只断言标签，不受按钮禁用影响）。
-- 409 路径保留：竞态下点击仍能收到错误消息（feedback 区）。
+- `just ci` is green (tsc/eslint/vitest/build has no breakage; the compaction e2e
+  spec asserts labels only and is unaffected by button disabling).
+- The 409 path remains: a click during a race still produces an error message in
+  the feedback area.

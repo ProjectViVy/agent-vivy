@@ -1,8 +1,8 @@
-# 验收：人如何确认生效
+# Acceptance: how a person confirms the change took effect
 
-1. 启动开发对（`just dev`），打开 `http://127.0.0.1:3015`。
-2. 点击左侧导航「中控台」。
-3. 预期：进入后默认停在 **Token** 选项卡，直接看到 Token 统计（总量、模型分布、趋势、会话明细）。
-4. 选项卡从左到右依次是：**Token、轨迹、会话**——没有叫「概览」的选项卡，第三项叫「会话」。
-5. 点「会话」看到的仍是原来的概览内容：运行状态（会话/活跃运行/待处理 Review）与近期活动。
-6. 切换三个选项卡均正常渲染、无报错。
+1. Start the development pair (`just dev`) and open `http://127.0.0.1:3015`.
+2. Click the left navigation item `Console`.
+3. Expected: after entering, the **Token** tab is selected by default and Token statistics (total, model distribution, trend, and session details) are immediately visible.
+4. The tabs from left to right are **Token, Trajectory, Sessions** (`Trajectory`, `Sessions`); there is no tab named `Overview`, and the third tab is named `Sessions`.
+5. Clicking `Sessions` still shows the original overview content: runtime status (sessions/active runs/pending Review) and recent activity.
+6. All three tabs render normally without errors when switched.

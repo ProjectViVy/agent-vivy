@@ -1,13 +1,18 @@
-# 验收：人视角怎么确认
+# Acceptance: How to verify from the user's perspective
 
-- 打开 `http://127.0.0.1:3015` → 设置 → 通用：「上下文压缩」卡片全部文案
-  正常显示（标题、说明、启用开关、三个表单标签与提示、按钮），不再出现
-  `settings.compaction.title` 之类的原始键。
-- 右侧语言分区切到 English 并刷新：同一卡片显示英文
-  （Context compaction / Max tokens / Compaction threshold (%) /
-  Keep recent messages / Compact now / Saving… 等），不再夹杂中文。
-- 切回简体中文：文案与修复前逐字一致（中文用户无感知变化）。
-- 保存配置/立即压缩/刷新占用的成功与失败反馈同样双语
-  （`压缩配置已保存…` / `Compaction config saved…`、`压缩完成：X → Y tokens。`）。
-- 回归线：`just ui-e2e` 的 `compaction-setting.spec.ts` 在 zh/en 双语言下
-  断言标签齐全且全页无原始键，断言失败即回归。
+- Open `http://127.0.0.1:3015` → Settings → General: all copy in the
+  "Context compaction" card displays normally (title, description, enable switch, the
+  three form labels and hints, and buttons), with no raw keys such as
+  `settings.compaction.title`.
+- Switch the language section on the right to English and refresh: the same card
+  displays English (Context compaction / Max tokens / Compaction threshold (%) /
+  Keep recent messages / Compact now / Saving… and so on), with no Chinese mixed
+  in.
+- Switch back to Simplified Chinese: the copy is character-for-character
+  identical to before the fix (Chinese users see no change).
+- Success and failure feedback for saving configuration, Compact now, and
+  refreshing usage is localized for both languages as well (for example,
+  `Compaction config saved…` and `Compaction complete: X → Y tokens.`).
+- Regression line: `compaction-setting.spec.ts` in `just ui-e2e` asserts that all
+  labels are present in both zh/en and that the full page contains no raw keys;
+  a failed assertion is a regression.

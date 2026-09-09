@@ -1,59 +1,59 @@
-# CH-C7c — `plugins/discord` 文本（无 voice）
+# CH-C7c — `plugins/discord` Text (No Voice)
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C7c |
-| 阶段 | G 国际补齐 / 本期关门 |
-| 人日 | 2 |
-| 里程碑 | M-CH4 |
-| 依赖 | CH-C3；建议 C4 已合入 |
-| 分支 | `feat/channel-c7c` |
-| 合同 | §14.3 discord；禁止 voice.go / pion / TTS |
+| Stage | G International Completion / Phase Close |
+| Person-days | 2 |
+| Milestone | M-CH4 |
+| Dependency | CH-C3; C4 should be merged |
+| Branch | `feat/channel-c7c` |
+| Contract | §14.3 discord; voice.go / pion / TTS prohibited |
 
-## 2. 目标
+## 2. Goal
 
-独立 `plugins/discord`。DM / 文本频道文本 + Message Content Intent。默认 EXE 无 discordgo。本期关门切片。
+Independent `plugins/discord`. DM / text-channel text + Message Content Intent. The default EXE has no discordgo. This is the phase-closing slice.
 
-## 3. 现状
+## 3. Current State
 
-**备注：** 正式写 Discord 适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/discord` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\discord`。picoclaw 含 `voice.go` / pion——**那些文件不要移植**。详见 `00-standing-orders.md`。
+**Note:** Before formally writing the Discord adapter, first read picoclaw—it is the **most complete** Go sample among the channel implementations. Read-only rewrite; imports are prohibited. Reference: `.workspace/picoclaw/pkg/channels/discord` or `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\discord`. picoclaw contains `voice.go` / pion—**do not port those files**. See `00-standing-orders.md`.
 
-## 4. 目标结构
+## 4. Target Structure
 
-抄 C4。grant `channel.poll` + `secret.read`。token_env。不实现 slash command 全家桶。
+Copy C4. grant `channel.poll` + `secret.read`. token_env. Do not implement the full slash-command feature set.
 
-## 5. 文件清单
+## 5. File Inventory
 
-**建** `plugins/discord/**`。禁止 pion/webrtc、voice.go、TTS 探测、物种 go.mod 加 discordgo。
+**Create** `plugins/discord/**`. Prohibit pion/webrtc, voice.go, TTS probing, and adding discordgo to a species go.mod.
 
-## 6. 步骤
+## 6. Steps
 
-1. 改写 Gateway WS 文本路径。显式不 copy voice。
-2. verify 可扫 `pion` import 作为失败（建议加）。
-3. pack --with discord。
-4. `just ci` 默认路径。
-5. log `docs/logs/YYYY-MM-DD-channel-c7c/`。TODO M-CH4 关门备注。
+1. Rewrite the Gateway WS text path. Explicitly do not copy voice.
+2. Have verify scan `pion` imports as a failure (recommended addition).
+3. pack --with discord.
+4. `just ci` default path.
+5. Log to `docs/logs/YYYY-MM-DD-channel-c7c/`. Add the TODO M-CH4 phase-close note.
 
-## 7. 验收
+## 7. Acceptance
 
-- 候选 DM/文本频道文本。
-- 依赖图无 pion。
-- 空 allow_from 拒绝。
+- Candidate DM/text-channel text works.
+- The dependency graph has no pion.
+- Empty allow_from is rejected.
 
-## 8. 禁止
+## 8. Prohibitions
 
-- `voice.go`、WebRTC、slash 全家桶、TTS。
-- 公网 webhook。
+- `voice.go`, WebRTC, the full slash-command feature set, or TTS.
+- Public webhook.
 
-## 9. 风险与回滚
+## 9. Risks and Rollback
 
-- discordgo 易把 voice 当默认 example：评审 diff 盯 import。
-- 回滚：配方不点名。
+- discordgo may easily make voice the default example: inspect imports carefully during diff review.
+- Rollback: do not name it in the recipe.
 
-## 10. 交接
+## 10. Handoff
 
-本期实现关门。后切读 [CH-C8.md](CH-C8.md) / [CH-C9.md](CH-C9.md)（备忘，不是开工令）。
+Implementation closes this phase. For later slices, read [CH-C8.md](CH-C8.md) / [CH-C9.md](CH-C9.md) (notes, not work orders).
 
-> **DONE 2026-08-30** — 分支 `feat/channel-c7c`（基于 c7b）。本期 C1–C7c 全部落地，M-CH4 关门：默认身体 `Register()=nil` 零平台 SDK；五耳各自独立 module；pion 封禁入 verify。后切开工需用户点名（C8）或能力提案（C9）。Filing: `docs/logs/2026-08-30-channel-c7c/`。
+> **DONE 2026-08-30** — Branch `feat/channel-c7c` (based on c7b). C1–C7c all landed in this phase, closing M-CH4: default body `Register()=nil` with zero platform SDKs; five ears each use an independent module; pion is blocked by verify. Work on later slices requires the user to name one (C8) or a capability proposal (C9). Filing: `docs/logs/2026-08-30-channel-c7c/`.

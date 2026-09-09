@@ -12,4 +12,4 @@
 - Settings overlay empty `allowed_domains` is normalized to nil so YAML round-trips stay stable.
 - Sandbox path checks compare against the symlink-resolved workspace root (Windows short-path / junction).
 - Playwright `ui/e2e/sandbox-setting.spec.ts` is added; live `:3015` smoke is recorded separately if the split pair is running.
-- `npx playwright test e2e/sandbox-setting.spec.ts` against the split pair — pass (settings → 沙箱, no preview badge, persist 谨慎 then restore 智能)
+- `npx playwright test e2e/sandbox-setting.spec.ts` against the split pair — pass (settings → “Sandbox”, no preview badge, persist “Cautious” then restore “Smart”)

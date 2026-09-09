@@ -5,15 +5,15 @@ Status: complete
 
 ## What changed
 
-The dashboard (中控台, `/dashboard`) now has a **Token 统计** section modeled on
+The dashboard (Dashboard, `/dashboard`) now has a **Token Stats** section modeled on
 Diva's console `TokenStatsPanel`, using local fake data only.
 
-- Overview: period chips (1天 / 3天 / 1周 / 1月 / 6月 / 1年), totals (总 Token /
-  输入 / 输出 / 预估费用), model share table, usage trend, session table, export,
+- Overview: period chips (1 day / 3 days / 1 week / 1 month / 6 months / 1 year), totals (Total Tokens /
+  Input / Output / Estimated Cost), model share table, usage trend, session table, export,
   and a detail view (cache, endpoints, per-session input/output).
 - Fake snapshots come from `getDemoTokenUsage(period)` in `ui/src/lib/demo-api.ts`.
   They are computed, not stored under `vivy.demo.*`.
-- The previous single KPI card **Token 使用** was removed so the same number is
+- The previous single KPI card **Token Usage** was removed so the same number is
   not shown twice. Session / active-run / review cards stay.
 
 ## Unchanged

@@ -1,41 +1,49 @@
-# UI-AUDIT-COMPACTION-BUSY — 立即压缩的忙碌预判
+# UI-AUDIT-COMPACTION-BUSY — Busy-state precheck for Compact now
 
-## 问题（审查行）
+## Problem (audit item)
 
-Settings → 上下文压缩卡的「立即压缩」可在引擎忙碌时点击，用户点了才收到
-409 `ErrCompactionBusy`。后端 busy 是**引擎全局**的：
-`compaction_service.go` 的 `CompactSession` 在 `len(s.active) > 0 ||
-len(s.pending) > 0` 时拒绝——任一会话的活动/排队运行都挡住手动压缩
-（运行本身已在运行内压缩）。
+The "Compact now" action in the Settings → Context compaction card could be
+clicked while the engine was busy, so the user received 409
+`ErrCompactionBusy` only after clicking. Backend busy state is **global to the
+engine**: `CompactSession` in `compaction_service.go` rejects when
+`len(s.active) > 0 || len(s.pending) > 0`—activity or queued runs in any session
+block manual compaction (the run itself compacts inside the run).
 
-## 修复（UI 预判 + 409 兜底）
+## Fix (UI precheck + 409 fallback)
 
-`CompactionSettingsCard` 现订阅 store 的运行真相：
+`CompactionSettingsCard` now subscribes to the store's source of truth for run
+state:
 
-- `runActive(currentRun)` —— 当前挂接会话的在途 turn（订阅事件实时更新）
-- `backgroundRuns.some(runActive)` —— 后台注册表中的非终结态运行
-  （`completed/failed/cancelled` 之外）
+- `runActive(currentRun)` — the in-flight turn in the currently attached session
+  (updated in real time by subscription events)
+- `backgroundRuns.some(runActive)` — non-terminal runs in the background
+  registry (anything other than `completed/failed/cancelled`)
 
-任一命中即禁用「立即压缩」并显示 amber 提示
-`settings.compaction.busyHint`（en/zh）："有运行进行中，压缩会在运行内
-自动进行；请等运行结束。" 「刷新占用」按钮现在同时调
-`loadBackgroundRuns()` 重取后台注册表，用户可手动复核忙碌状态。
+Either match disables "Compact now" and displays the amber
+`settings.compaction.busyHint` (en/zh): "A run is in flight; compaction runs
+inside it; wait for the run to finish." The "Refresh usage" button now also
+calls `loadBackgroundRuns()` to refetch the background registry, so the user
+can manually recheck the busy state.
 
-`store.runActive`（终结态谓词，单一判断源）由模块私有改为导出复用。
+`store.runActive` (the terminal-state predicate and single source of truth) is
+now exported for reuse instead of remaining module-private.
 
-## 残余竞态（记录，不修）
+## Remaining races (recorded, not fixed)
 
-- 预判与点击之间新 run 可能启动——409 保留为兜底，`compactNow` 的
-  catch 已把错误消息显示在 feedback 区。
-- 其他客户端（如另一浏览器标签）挂接的**前台**运行对本 tab 的 store
-  不可见（未进后台注册表）；此类跨端忙碌只能由 409 兜底。
-- `store.ts` 与 `DashboardView.tsx` 各有一份终结态集合字面量；卡片已
-  收敛到 `runActive`，Dashboard 的计数谓词形态不同（filter 计数），
-  暂不强行合一。
+- A new run can start between the precheck and the click—409 remains the
+  fallback, and `compactNow`'s catch already displays the error in the feedback
+  area.
+- A **foreground** run attached by another client (such as another browser tab)
+  is invisible to this tab's store if it is not in the background registry; only
+  the 409 fallback can handle this cross-client busy state.
+- `store.ts` and `DashboardView.tsx` each have a terminal-state set literal. The
+  card now uses `runActive`, while Dashboard's count predicate has a different
+  shape (filter count), so they are not forcibly unified yet.
 
-## 变更清单
+## Change list
 
-- `ui/src/lib/store.ts`：`runActive` 加 `export`。
-- `ui/src/components/settings/CompactionSettingsCard.tsx`：忙碌订阅 +
-  按钮禁用 + busyHint + 刷新联动 `loadBackgroundRuns`；doc comment 更新。
-- `ui/src/i18n/en.ts` / `zh.ts`：`settings.compaction.busyHint`。
+- `ui/src/lib/store.ts`: add `export` to `runActive`.
+- `ui/src/components/settings/CompactionSettingsCard.tsx`: busy subscription +
+  button disabling + busyHint + refresh coupling to `loadBackgroundRuns`; update
+  the doc comment.
+- `ui/src/i18n/en.ts` / `zh.ts`: `settings.compaction.busyHint`.

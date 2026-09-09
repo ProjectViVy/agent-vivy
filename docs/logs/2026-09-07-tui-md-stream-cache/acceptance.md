@@ -1,7 +1,7 @@
 # Acceptance — TUI-MD-STREAM-CACHE
 
 How a human can tell the fix landed (VIVY CODE fullscreen TUI, long streaming
-answer, e.g. "写一篇分多节、含代码块与列表的长文"):
+answer, e.g. "Write a long document with multiple sections, code blocks, and lists"):
 
 1. **Streaming output looks unchanged where it matters**
    - While the answer streams, headings/paragraphs/code blocks render with

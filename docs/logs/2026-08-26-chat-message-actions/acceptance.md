@@ -2,26 +2,30 @@
 
 Date: 2026-08-26
 
-## 用户视角：如何判断移植成功
+## User perspective: how to tell the port succeeded
 
-1. 打开 `http://127.0.0.1:3015` 进入有消息的会话：
-   - **用户消息（蓝色气泡）**：平时气泡下方无任何可见控件；鼠标悬停
-     到该消息行时，气泡下方浮现复制 + 编辑两个小按钮（编辑为禁用
-     占位），移开后隐藏；
-   - **助手消息**：气泡下方时间戳 + 复制 + 重新生成 + 回到这里 /
-     从此分叉（后两者禁用占位），悬停更清晰。
-2. **复制**：点助手消息的复制按钮 → 按钮短暂变为「已复制」（对勾），
-   系统剪贴板可粘贴出该消息原文。在内嵌浏览器里同样可用（走兜底路径）。
-3. **编辑**：用户消息上的禁用占位，悬停提示「编辑（待实现）」，与
-   Agent-DIVA 一致；回到这里 / 从此分叉在助手消息上同为禁用占位。
-4. **重新生成**：助手消息可点（无运行进行时）。点击后以该回答对应的
-   用户提问重新发起一轮（仍走预检），新回答追加在会话末尾；运行中
-   所有重新生成按钮禁用。
-5. 流式输出中的气泡暂不显示操作栏，回答落盘后出现。
+1. Open `http://127.0.0.1:3015` and enter a conversation with messages:
+   - **User messages (blue bubbles)**: normally there are no visible controls
+     below the bubble; hovering over the message row reveals small Copy + Edit
+     buttons below it (Edit is a disabled placeholder), which hide when the pointer leaves;
+   - **Assistant messages**: a timestamp + Copy + Regenerate + Rewind / Fork
+     below the bubble (the latter two are disabled placeholders), clearer on hover.
+2. **Copy**: click Copy on an assistant message → the button briefly changes to
+   “Copied” (check mark), and the original message text can be pasted from the
+   system clipboard. It also works in the embedded browser (using the fallback path).
+3. **Edit**: the disabled placeholder on a user message shows “Edit (Planned)” on
+   hover, matching Agent-DIVA; Rewind / Fork are likewise disabled placeholders on
+   assistant messages.
+4. **Regenerate**: the assistant-message action is clickable when no run is in
+   progress. Clicking it starts another turn from the user question associated
+   with that answer (still using preflight), appending the new answer at the end
+   of the conversation; all Regenerate buttons are disabled while a run is active.
+5. Streaming bubbles do not show the action bar until the answer is persisted.
 
-## 验收路径
+## Acceptance path
 
-- `just ci` 全绿（57 单测）。
-- `just ui-e2e` 通过（功能栏存在性、禁用态、复制反馈与剪贴板回读）。
-- 开发者浏览器在 `http://127.0.0.1:3015` 人工验证 1–4（见
-  verification.md）。
+- `just ci` is all green (57 unit tests).
+- `just ui-e2e` passes (action-bar presence, disabled states, copy feedback, and
+  clipboard read-back).
+- The developer browser manually verifies steps 1–4 at
+  `http://127.0.0.1:3015` (see verification.md).

@@ -1,7 +1,11 @@
-# Acceptance（人如何确认）
+# Acceptance: how to verify manually
 
-- `go test ./internal/runtime/ -run TestCronSettle -count=1` 秒级通过且
-  确定（可任意重复）：成功即删、失败保留禁用两条契约直接可读。
-- `just ci` 满载连跑不再被 cron 契约的偶发超时击落——即便端到端金丝雀在
-  极端负载下超时，`TestCronSettle*` 仍证明 delete-after-run 行为正确，
-  失败归因从「契约可疑」收窄为「环境调度噪声」。
+- `go test ./internal/runtime/ -run TestCronSettle -count=1` passes
+  deterministically within seconds and can be repeated freely: the two
+  contracts—delete on success and retain/disable on failure—are directly
+  readable.
+- Repeated full-load `just ci` runs are no longer brought down by intermittent
+  timeouts in the cron contract; even if the end-to-end canary times out under
+  extreme load, `TestCronSettle*` still proves that delete-after-run is correct,
+  narrowing the failure cause from "suspect contract" to "environmental
+  scheduling noise".

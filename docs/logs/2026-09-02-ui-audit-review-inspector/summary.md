@@ -2,26 +2,28 @@
 
 ## Scope
 
-`docs/architecture/hitl-review-center.md` §UI 要求 "The run inspector uses the
-same `renderReviewCard` renderer for inline decisions"，但 Run Inspector 只有
-run/background/children 三个 tab，审批只能去 Review Center。
+`docs/architecture/hitl-review-center.md` §UI requires "The run inspector uses the
+same `renderReviewCard` renderer for inline decisions", but Run Inspector had only
+run/background/children tabs, so approvals could be handled only in Review Center.
 
-- 新增 `ui/src/components/approvals/ReviewCard.tsx`：从 ApprovalsView 详情抽出的
-  共享审批卡（标题 + 状态徽章 + 审计 dl + prompt/preview(差异优先)/risk/脱敏参数
-  + pending 时内联决策控件）。ApprovalsView 详情与 RunInspector 复用同一组件，
-  满足 "same renderer" 约束。
-- `RunInspector.tsx`：Tabs 改受控并加第 4 个「审批」tab（计数），按当前 run 的
-  `run_id` 过滤 store reviews；切到该 tab 时刷新 `loadReviews()`（事件驱动的
-  approval/question 刷新保持不变）；卡片动作直接走 `respondReview`，与队列同一
-  忙碌锁（reviewBusyIds）。
-- ApprovalsView 改为薄壳：列表 + 布局保留，详情体替换为 `ReviewCard`（`key` 按
-  review id 重挂载，保持"换选中清空草稿"的旧行为）。`statusLabel` 改由 ReviewCard
-  导出复用。
-- i18n en/zh 增 `runInspector.review`（审批 {{count}}）与 `runInspector.noReviews`。
+- Add `ui/src/components/approvals/ReviewCard.tsx`: a shared approval card extracted from
+  the ApprovalsView detail (title + status badge + audit dl + prompt/preview [diff first]/
+  risk/redacted parameters + inline decision controls while pending). ApprovalsView details
+  and RunInspector reuse the same component, satisfying the "same renderer" constraint.
+- `RunInspector.tsx`: make Tabs controlled and add a fourth "Reviews" tab (with count),
+  filter store reviews by the current run's `run_id`, and refresh `loadReviews()` when the
+  tab is selected (event-driven approval/question refresh remains unchanged). Card actions
+  call `respondReview` directly and use the same queue busy lock (`reviewBusyIds`).
+- Make ApprovalsView a thin shell: retain list + layout, replace the detail body with
+  `ReviewCard` (`key` remounts by review ID, preserving the old "changing the selection clears
+  the draft" behavior). Export `statusLabel` from ReviewCard for reuse.
+- Add `runInspector.review` (Reviews {{count}}) and `runInspector.noReviews` to i18n en/zh.
 
 ## Explicitly not done
 
-- 未为"运行中真实产生审批 → inspector 内联决策"写 e2e：需要真实 provider 触发
-  工具审批；spec 只覆盖入口可达 + 空态（provider 无关）。
-- 未改 reviews 的轮询策略（无新轮询；仍为打开 run / 事件 / 切 tab 时刷新）。
-- 未动 Review Center 队列的交互与 Review sheet。
+- Did not write e2e for "a running process produces a real approval → inline decision in the
+  inspector": it requires a real provider to trigger tool approval; the spec covers only
+  entry reachability + empty state (provider-independent).
+- Did not change the reviews polling strategy (no new polling; it still refreshes when a run
+  opens, on events, and when switching tabs).
+- Did not change Review Center queue interactions or the Review sheet.

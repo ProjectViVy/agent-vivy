@@ -4,8 +4,8 @@
 
 1. Start the split pair (`just dev`) and open `http://127.0.0.1:3015`.
 2. In any session, ask the model something like
-   “找出工作区里所有包含 `JobRegistry` 的 Go 代码行” or
-   “列出 internal/runtime 下所有 `*_test.go` 文件”.
+   “Find all Go code lines in the workspace containing `JobRegistry`” or
+   “List all `*_test.go` files under internal/runtime”.
 3. The model should call the `grep` (and/or `glob`) tool — visible in the
    tool-call transcript as a readonly call that executes immediately without
    an approval card, even when the session approval policy is `ask`.

@@ -1,17 +1,19 @@
-# 验证记录
+# Verification record
 
-## 命令与结果（2026-08-27）
+## Commands and results (2026-08-27)
 
-- `cd ui; pnpm typecheck` → ✅ 通过（tsc --noEmit 无错误）
-- `cd ui; pnpm test` → ✅ 105/105 用例通过（含 kiwi 中英 key 对等校验；
-  新增 `customDialogTitleManage` / `customDialogHintManage` 两边同步）
-- 根目录 `just ci` → ✅ 全绿：
-  - gofmt -l 无未格式化文件；`go vet ./...`、`go test ./...` 全部通过
-  - ui: pnpm install（frozen-lockfile）→ typecheck → test（105/105）→ build
-    （3.67s；仅有既有的 chunk > 500 kB 警告，与本次改动无关）
+- `cd ui; pnpm typecheck` → ✅ passed (tsc --noEmit, no errors)
+- `cd ui; pnpm test` → ✅ 105/105 tests passed (including the kiwi zh/en key-parity check;
+  `customDialogTitleManage` / `customDialogHintManage` synchronized on both sides)
+- Root `just ci` → ✅ all green:
+  - gofmt -l found no unformatted files; `go vet ./...` and `go test ./...` all passed
+  - ui: pnpm install (frozen-lockfile) → typecheck → test (105/105) → build
+    (3.67s; only the existing chunk > 500 kB warning, unrelated to this change)
 
-## 浏览器冒烟
+## Browser smoke test
 
-8787 / 3015 端口被用户 Vivy Studio 调试会话占用，未自行启动服务器——按既有
-约定由**用户 Studio 调试代验**，见 acceptance.md。提醒：改动只在分离 Vite
-`http://127.0.0.1:3015`（硬刷新 Ctrl+Shift+R）；`:8787` 嵌入式页面是发行包。
+Ports 8787 / 3015 were occupied by the user's Vivy Studio debug session, so no server was
+started separately—in accordance with the existing convention, **the user's Studio debug
+session performed the verification**; see acceptance.md. Reminder: the change exists only in
+split Vite `http://127.0.0.1:3015` (hard refresh Ctrl+Shift+R); the `:8787` embedded page is
+the release package.

@@ -45,7 +45,7 @@ implementations even when tests pass.
 
 ## Scope Separation: Vivy vs Vivy Studio
 
-**Default scope is VIVY (the species/kernel).** When the user mentions "Vivy" without "Studio", develop the Vivy kernel/species itself — not the Studio overlay. Only when the user explicitly says "Studio", "Vivy Studio", or "工作室" should you work on the Studio overlay/shell.
+**Default scope is VIVY (the species/kernel).** When the user mentions "Vivy" without "Studio", develop the Vivy kernel/species itself — not the Studio overlay. Only when the user explicitly says "Studio" or "Vivy Studio" should you work on the Studio overlay/shell.
 
 - **Vivy (default)**: Kernel, engine, UI, skills, recipes, plugins, product-contract docs. Use `just ci` for verification.
 - **Vivy Studio (explicit only)**: First-party IDE shell, skin, theme, lifecycle. Use `just studio` for builds. See `.agents/skills/vivy-studio-lifecycle`.
@@ -316,7 +316,7 @@ routing requires a test that asserts the outbound `model` field.
   the comparison and exception evidence required by “Architecture decision
   order”. Maintainer: current design and delivery owner.
 - **expert-mode-subagent-supervision** — When the user explicitly asks to
-  enable “专家模式” / Expert Mode, start subagents for the problem-analysis,
+  enable “Expert Mode”, start subagents for the problem-analysis,
   localization/diagnosis, and actual code-writing phases. The main agent is
   the supervisor: it assigns and scopes the work, keeps lanes isolated,
   reviews the findings and changes, and owns the final integration and

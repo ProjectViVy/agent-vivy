@@ -5,11 +5,11 @@ Status: complete
 
 ## What changed
 
-中控台 (`/dashboard`) now uses the same tab + card grouping as 设置:
+Dashboard (`/dashboard`) now uses the same tab + card grouping as Settings:
 
-- Tabs: 概览 / Token / 审计
-- 概览: one 运行状态 card (会话、活跃运行、待处理 Review) and one 近期活动 card
-- Token / 审计: one card each, with title and description
+- Tabs: Overview / Token / Audit
+- Overview: one Runtime Status card (Sessions, Active Runs, Pending Reviews) and one Recent Activity card
+- Token / Audit: one card each, with title and description
 
 Removed the three separate KPI cards and the single long scroll of every block.
 

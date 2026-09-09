@@ -1,35 +1,43 @@
-# 验收：人如何确认它工作了
+# Acceptance: how a human verifies it works
 
-## 产品视角
+## Product view
 
-1. **模型能看到 agent 工具**：启动 vivy（默认配置），任一会话里向模型
-   询问可用工具（或打开 Settings 工具面），`agent` 出现在工具清单中，
-   描述为"委托子任务给干净上下文的只读子代理"。
-2. **一次真实委托**：配好 provider key 后，对 vivy 说
-   "用 agent 工具调查 <某个读类问题>，然后把结论告诉我"。观察：
-   - 会话出现一条 `agent` 工具调用记录，随后模型引用其结果作答；
-   - Runs/子运行视图（或 Journal）出现一条 Kind=child、ParentID=当前
-     run 的子运行，状态终态 completed；
-   - Token 统计面板的会话/模型用量**包含**子代理消耗（成本汇总回父
-     会话，D9 面板直接可见）。
-3. **面具生效**：带 `mask` 参数（如 "terse reviewer"）委托时，子代理
-   行为风格随提示变化（Journal 中子运行的首条 system 消息含
-   `Persona hint (mask): …`）。
-4. **审批并入父会话**：若子代理调用进入 ask 分级的效果性工具（在只读
-   面内不会，此为防御语义验证），审批请求出现在父会话的 Review Center，
-   Kind=child。
-5. **不可嵌套**：要求子代理"再派生一个 agent"时，其工具面中没有
-   `agent` 工具，子代理只能直接作答。
-6. **无 MCP**：子代理工具面不含任何 `mcp_*` 工具。
+1. **The model can see the agent tool**: start vivy with the default
+   configuration, ask the model about available tools in any session (or open
+   the Settings tool surface), and verify that `agent` appears in the tool list
+   with the description "Delegate a subtask to a read-only subagent with a clean
+   context."
+2. **One real delegation**: configure a provider key, then tell vivy
+   "Use the agent tool to investigate <a read-only question>, then tell me the
+   conclusion." Observe:
+   - the session shows an `agent` tool-call record, after which the model uses its
+     result in the answer;
+   - Runs/sub-run view (or Journal) shows a child run with Kind=child and
+     ParentID equal to the current run, ending in completed;
+   - the Token statistics panel's session/model usage **includes** subagent
+     consumption (cost rolls up to the parent session and is directly visible in
+     the D9 panel).
+3. **The mask takes effect**: delegate with a `mask` parameter (such as
+   "terse reviewer"), and verify that the subagent's behavior changes with the
+   prompt (the first system message of the child run in Journal contains
+   `Persona hint (mask): …`).
+4. **Approval joins the parent session**: if the subagent calls an ask-level
+   effectful tool (not possible in the read-only surface; this validates the
+   defensive semantics), the approval request appears in the parent session's
+   Review Center with Kind=child.
+5. **No nesting**: ask the subagent to "spawn another agent"; its tool surface
+   contains no `agent` tool, so it can only answer directly.
+6. **No MCP**: the subagent tool surface contains no `mcp_*` tools.
 
-## 无 key 环境的最小验证（本片实际执行的）
+## Minimum verification without a key (actually run for this slice)
 
-- `just ci` 全绿（见 verification.md）；
-- worker 协议层系统消息贯穿测试证明子代理 harness 收到并使用了 persona
-  提示；
-- app 层守卫测试证明未装配/无 run/超并发时委托会清晰失败而不是悬挂。
+- `just ci` is fully green (see verification.md).
+- Worker protocol-layer system-message threading tests prove that the subagent
+  harness receives and uses the persona hint.
+- App-layer guard tests prove that delegation fails clearly rather than hanging
+  when the tool is unassembled, no run exists, or concurrency is exhausted.
 
-## 回滚
+## Rollback
 
-单 commit（`feat/vc1a-bash-tool` 分支），revert 即整体退场；无 schema
-迁移、无数据格式变更。
+Single commit (on the `feat/vc1a-bash-tool` branch); revert it to remove the
+whole slice. No schema migration or data-format change.

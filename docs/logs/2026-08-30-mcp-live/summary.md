@@ -1,43 +1,57 @@
-# MCP 面板接真实后端（2026-08-30）
+# MCP panel connected to the real backend (2026-08-30)
 
-## 变更内容
+## Changes
 
-把 `/mcp` 从 `vivy.demo.mcp` 本地模拟改成真实管理面。面板上的添加 / 编辑 / 启用 / 删除 / 导入导出写入用户工作区 `settings.yaml`，并立刻进入 `mcp_list_tools` / `mcp_call` 的运行时目录。
+Turn `/mcp` from the `vivy.demo.mcp` local mock into a real management surface. Add /
+edit / enable / delete / import / export actions in the panel write to the user's
+`settings.yaml` workspace and immediately enter the runtime catalog used by
+`mcp_list_tools` / `mcp_call`.
 
-### 内核
+### Core
 
-- `internal/app/settings`：`mcp_servers` overlay。nil = 沿用 `config.yaml` `runtime.mcp_servers`；非 nil（含空列表）整表覆盖。字段：`name` / `endpoint` / `auth_env` / `enabled`。`auth_env` 只接受环境变量名（D-010）。
-- `applySettingsOverlay`：启用项叠到 `cfg.Runtime.MCPServers`。
-- `EinoMCPBackend.ReplaceServers`：热替换目录并丢掉旧 session。
-- Streamable HTTP SSE：`text/event-stream` 响应解析 `data:` 行中的 JSON-RPC result；JSON 路径不变。
+- `internal/app/settings`: `mcp_servers` overlay. nil = use `config.yaml`
+  `runtime.mcp_servers`; non-nil (including an empty list) replaces the whole list.
+  Fields: `name` / `endpoint` / `auth_env` / `enabled`. `auth_env` accepts only an
+  environment-variable name (D-010).
+- `applySettingsOverlay`: merge enabled entries into `cfg.Runtime.MCPServers`.
+- `EinoMCPBackend.ReplaceServers`: hot-replace the catalog and discard old sessions.
+- Streamable HTTP SSE: parse the JSON-RPC result in `data:` lines of the
+  `text/event-stream` response; the JSON path is unchanged.
 
 ### RPC
 
-新增（capabilities 已登记）：
+Added (capabilities registered):
 
 - `settings/mcp`
 - `settings/mcp/upsert`
 - `settings/mcp/delete`
 - `settings/mcp/probe`
 
-密钥永不回传；`auth_env_set` 只报环境变量是否存在。保存后 `OnSettingsChanged` → `ReplaceServers`。
+Secrets are never returned; `auth_env_set` reports only whether the environment variable
+exists. After saving, `OnSettingsChanged` → `ReplaceServers`.
 
 ### UI
 
-- 新视图 `ui/src/components/mcp/McpView.tsx`，路由去掉 `DemoBanner`。
-- 表单只收 HTTP 地址 + 可选 `auth_env`。不再提供 STDIO（本迭代伪操作）。
-- 导入接受常见 MCP JSON；stdio 项跳过并说明，不假装已接入。
-- 删除 `McpDemoView`、`demo-api` MCP CRUD、`DemoMcpServer`。
+- New view `ui/src/components/mcp/McpView.tsx`; the route removes `DemoBanner`.
+- The form accepts only an HTTP address plus optional `auth_env`. STDIO is no longer
+  offered (it was a fake operation in this iteration).
+- Imports accept common MCP JSON; stdio entries are skipped with an explanation rather
+  than being presented as connected.
+- Delete `McpDemoView`, MCP CRUD from `demo-api`, and `DemoMcpServer`.
 
-## 明确不做
+## Explicitly not done
 
-- Notebook / Persona / Cron / Skills / Memory / Evolution 去演示化
-- 聊天编辑 / 回退 / 分叉、附件 / AutoDream / 语音
-- MCP elicitation、stdio 传输、把远端工具升格为独立 catalog 条目
-- 引入 `eino-ext` MCP 包
+- Remove demos from Notebook / Persona / Cron / Skills / Memory / Evolution.
+- Chat edit / revert / fork, attachments / AutoDream / voice.
+- MCP elicitation, stdio transport, or promoting remote tools to independent catalog
+  entries.
+- Introduce the `eino-ext` MCP package.
 
-## 变更文件
+## Changed files
 
-后端：`internal/app/settings`、`internal/runtime/mcp_backend.go`、`internal/app/app.go`、`internal/rpc/control.go`、`config.example.yaml` 及对应测试。
+Backend: `internal/app/settings`, `internal/runtime/mcp_backend.go`,
+`internal/app/app.go`, `internal/rpc/control.go`, `config.example.yaml`, and
+corresponding tests.
 
-前端：`ui/src/components/mcp/`、`ui/src/routes/_layout.mcp.tsx`、`ui/src/lib/api.ts`、`ui/src/lib/demo-api.ts`、i18n、e2e。
+Frontend: `ui/src/components/mcp/`, `ui/src/routes/_layout.mcp.tsx`,
+`ui/src/lib/api.ts`, `ui/src/lib/demo-api.ts`, i18n, and e2e.

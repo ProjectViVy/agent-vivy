@@ -1,17 +1,23 @@
 # Acceptance — CH-C1-N3 provenance
 
-## 人工如何确认
+## How to verify manually
 
-1. 绑定一个 channel（如 telegram 插件）后，从该平台给 Vivy 发一条消息。
-2. 在 web UI（`http://127.0.0.1:3015`）打开同一会话：该用户消息气泡上方
-   应出现一行小字出处标记（如 `telegram · chat-1`）。
-3. 在 UI 里直接发送的消息：无任何出处标记（与改动前渲染逐像素一致）。
-4. API 面：`session/messages` / `session/get` 返回里，channel 用户消息带
+1. After binding a channel (such as the Telegram plugin), send Vivy a message from
+   that platform.
+2. Open the same session in the web UI (`http://127.0.0.1:3015`): a small
+   provenance marker should appear above the user message bubble (such as
+   `telegram · chat-1`).
+3. Messages sent directly in the UI have no provenance marker (rendering remains
+   pixel-for-pixel identical to before the change).
+4. At the API level, channel user messages in the `session/messages` /
+   `session/get` responses include
    `"provenance":{"source":"channel","channel":"…","chat_id":"…",
-   "channel_message_id":"…"}`；ui 消息无 `provenance` 键。
-5. 历史数据（改动前入库的空 Source 行）：读作 ui，无标记，不报错。
+   "channel_message_id":"…"}`; UI messages have no `provenance` key.
+5. Historical data (empty Source rows written before the change) is read as ui,
+   with no marker and no error.
 
-## 回归面
+## Regression surface
 
-- 既有消息列表/附件渲染（data URL 图像）不变——ui-e2e runtime.spec 全绿。
-- RPC 契约为纯增量字段（omitempty），旧客户端不受影响。
+- Existing message-list and attachment rendering (data URL images) is unchanged;
+  the ui-e2e runtime.spec is all green.
+- The RPC contract only adds a field (`omitempty`), so old clients are unaffected.

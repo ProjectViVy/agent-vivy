@@ -1,16 +1,17 @@
-# Acceptance — UI-CRON-P2（at 表单）
+# Acceptance — UI-CRON-P2 (at form)
 
-人工如何确认本切片生效（开发环境 `just run` + `cd ui; pnpm dev` →
-http://127.0.0.1:3015/cron-tasks）：
+How to manually confirm this slice works (development environment `just run` + `cd ui; pnpm dev` →
+http://127.0.0.1:3015/cron-tasks):
 
-1. 定时任务页 → 新建任务：运行方式下拉出现第三项「定时一次」（英文界面
-   One-shot (at time)）。
-2. 选中「定时一次」后出现「触发时间」字段（datetime-local）；填一个过去的
-   时间并提交，表单报「触发时间必须晚于当前时间。」，不发创建请求。
-3. 填一个未来时间 + 名称 + 内容提交成功；列表里该任务运行方式显示
-   「定时一次：<本地时间>」；到点后由既有 scheduler 正常触发（与后端行为
-   一致，无需新后端逻辑）。
-4. 编辑既有 `at` 任务：运行方式正确回显为「定时一次」，触发时间回填为
-   原时刻的本地格式。
-5. 既有 cron 表达式/固定间隔两类任务的创建、编辑、启停、删除行为不变
-   （`ui/e2e/cron-tasks.spec.ts` 主规格回归）。
+1. Cron-tasks page → New task: the schedule-mode dropdown shows a third option,
+   "One-shot (at time)" (the English UI label).
+2. Select "One-shot (at time)" and a "Trigger time" field (`datetime-local`) appears; enter
+   a time in the past and submit, and the form reports "Trigger time must be later than the
+   current time." without sending a create request.
+3. Submit a future time + name + content successfully; the task's schedule mode in the list
+   shows "One-shot: <local time>"; the existing scheduler triggers it at the appointed time
+   (matching backend behavior, with no new backend logic).
+4. Edit an existing `at` task: the schedule mode correctly displays "One-shot (at time)"
+   and the trigger time is restored in the original moment's local format.
+5. Creation, editing, enabling/disabling, and deletion of existing cron-expression and fixed-
+   interval tasks is unchanged (`ui/e2e/cron-tasks.spec.ts` main-spec regression).

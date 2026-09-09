@@ -1,4 +1,4 @@
-# Vivy Console — 打包与版本 page (packaging & version management restored)
+# Vivy Console — Packaging & Version page (packaging & version management restored)
 
 Date: 2026-08-27
 Scope: Vivy Studio overlay (`studio/dsh-vivy-console`), not the Vivy kernel.
@@ -8,15 +8,15 @@ Scope: Vivy Studio overlay (`studio/dsh-vivy-console`), not the Vivy kernel.
 Per user request, the previously trimmed Studio distribution surface is back
 in the console as its own page — **clearly separated from the dev mode**:
 
-1. **「打包与版本」 page restored** (was「生命周期」in the original console,
+1. **「Packaging & Version」 page restored** (was 「Lifecycle」 in the original console,
    removed in the dev-loop-only trim). The client gains a third section
-   总控台 / **打包与版本** / 日志. The page:
+   Main Console / **Packaging & Version** / Logs. The page:
    - states up front that it is the Studio distribution lifecycle executed
      through `vivy-studio.exe` on the pinned worktree and is **completely
-     separate from the 总控台 dev loop — it never starts or stops any
+     separate from the Main Console dev loop — it never starts or stops any
      backend/frontend process**;
    - ledger chips: generations / evals / releases / installs / events /
-     worktrees (JSON table per ledger, 刷新 button);
+     worktrees (JSON table per ledger, Refresh button);
    - action form + buttons: pack / eval / release / reject / install /
      rollback / inspect, with the release human-confirmation checkbox
      (forwards `--actor human --yes` only when checked, NG-25);
@@ -32,7 +32,7 @@ in the console as its own page — **clearly separated from the dev mode**:
      `VIVY_STUDIO` override or root);
    - release without UI confirmation is refused before spawn (keep the
      CLI-side human gate intact).
-3. The dev loop (总控台) is untouched: still the pure-API `vivy_headless`
+3. The dev loop (Main Console) is untouched: still the pure-API `vivy_headless`
    backend + Vite dev server, one-click orchestration, unified logs. The
    lifecycle surface is a sibling page, not part of it.
 
@@ -42,7 +42,7 @@ in the console as its own page — **clearly separated from the dev mode**:
   (jobs map, `resolveStudioExe`, `lifecycleList/Run`, `jobSnapshot`, routes,
   dispose kills jobs); header comment + route table updated to the two
   concerns.
-- `studio/dsh-vivy-console/client.js` — `PackagePane` (打包与版本 page) added,
+- `studio/dsh-vivy-console/client.js` — `PackagePane` (Packaging & Version page) added,
   three-section ring; lifecycle CSS restored (`vc-grid`/`vc-field`/`vc-tbl`/
   `vc-empty`).
 - `studio/dsh-vivy-console/README.md` / `package.json` — scope, route table,
@@ -62,7 +62,7 @@ in the console as its own page — **clearly separated from the dev mode**:
 
 ## Follow-up (same delivery)
 
-Per user feedback, the tab order is corrected to **总控台 / 日志 / 打包与版本**
+Per user feedback, the tab order is corrected to **Main Console / Logs / Packaging & Version**
 (the packaging page comes after the log page). Client-only change
 (`SECTIONS` order in `client.js` + README section list); the installed copy
 was re-synced — no host change, no Studio restart needed, visible after a
@@ -72,7 +72,7 @@ deliverable.
 ## Notes
 
 - The lifecycle page intentionally does not show backend/frontend dev state
-  and the 总控台 does not show distribution state — the separation the user
+  and the Main Console does not show distribution state — the separation the user
   asked for is structural (sibling pages) not just cosmetic.
 - Host routes changed, so this iteration needs the detached Studio restart
   after syncing (same no-hot-reload rule as before).

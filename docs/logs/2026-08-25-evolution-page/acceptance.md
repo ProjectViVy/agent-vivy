@@ -2,33 +2,45 @@
 
 Date: 2026-08-25
 
-从用户视角如何确认「进化页面点不进去」已修复、且新页面可用：
+From a user’s perspective, how to confirm that “the Evolution page cannot be
+opened” is fixed and the new page works:
 
-1. 打开 `http://127.0.0.1:3015`（开发拆分对；或任何已安装新版本的入口）。
-2. 左侧导航 Vivy 分组点「进化」：不再弹「进化功能暂未接入」提示，而是进入
-   「进化」页面，顶部有黄色「演示 / 本地模拟」横幅与副标题
-   「Skill 权威与可审计的进化治理（本地演示数据）」。
+1. Open `http://127.0.0.1:3015` (the development split pair; or any entry point
+   with the new version installed).
+2. In the Vivy group of the left navigation, click “Evolution”: the “Evolution
+   is not yet connected” notice no longer appears; instead, the “Evolution” page
+   opens with a yellow “Demo / Local Mock” banner and the subtitle
+   “Skill authority and auditable evolution governance (local demo data)” at the top.
 
-全新浏览器（或清除 `vivy.demo.skills` / `vivy.demo.skill-requests` /
-`vivy.demo.skill-docs` / `vivy.demo.autodream` 后刷新）可以看到完整演示闭环：
+In a fresh browser (or after clearing `vivy.demo.skills` /
+`vivy.demo.skill-requests` / `vivy.demo.skill-docs` / `vivy.demo.autodream` and
+refreshing), the complete demo loop is visible:
 
-3. 默认落在「待审 (1)」Tab：列表有三条请求（待审/已接受/已失效）。
-   点「文档同步：补充回滚步骤」→ 右侧出现提案详情（Markdown、基准哈希、
-   Evidence JSON）。
-4. 点「接受」：请求变「已接受」，Tab 计数变为 待审 (0) / Skill (1)。
-5. 切到「Skill (1)」：出现 `vivy-doc-sync`，点开可见提案内容已成为权威文档，
-   内容哈希已更新，下方有 编辑 / 停用 / 硬删 / 历史快照 操作。
-6. 切到「AutoDream (3)」：三条运行记录；点 `run-demo-1` 看到运行事实卡与
-   5 条进度事件；点「查看待审请求」自动跳回待审 Tab 并选中提案。
-7. 「待审」Tab 右上「新建请求」可填写并提交一条新待审请求（slug/标题/原因必填），
-   提交后出现在列表中。
-8. 已失效（stale）请求的详情会显示红框提示「请求已 stale…不能接受」，
-   接受/拒绝按钮禁用——这是有意的治理语义，不是 bug。
-9. 刷新页面，以上状态全部保留（数据在本机浏览器 localStorage）。
+3. The default tab is “Pending Review (1)”: the list has three requests
+   (Pending Review / Accepted / Stale). Click “Sync Documentation: Add Rollback
+   Steps” → proposal details appear on the right (Markdown, base hash, Evidence JSON).
+4. Click “Accept”: the request becomes “Accepted,” and the tab counts become
+   Pending Review (0) / Skill (1).
+5. Switch to “Skill (1)”: `vivy-doc-sync` appears. Open it to see that the
+   proposal content is now the authoritative document, its content hash has been
+   updated, and Edit / Disable / Hard Delete / History Snapshots actions are available below.
+6. Switch to “AutoDream (3)”: three run records appear. Click `run-demo-1` to
+   see the run facts card and 5 progress events; click “View Pending Review
+   Request” to return automatically to the Pending Review tab with the proposal selected.
+7. The “New Request” action in the upper-right of the “Pending Review” tab lets
+   you fill out and submit a new pending request (slug/title/reason required);
+   it appears in the list after submission.
+8. Details for a stale request show a red-box notice “Request is stale… cannot
+   accept”; the Accept/Reject buttons are disabled. This is intentional governance
+   semantics, not a bug.
+9. Refresh the page; all of the above state is retained (data is stored in the
+   browser’s localStorage).
 
-边界说明（预期行为，非缺陷）：
+Boundary notes (expected behavior, not defects):
 
-- 本页是演示数据层页面（同人格/记忆/记事本），不代表 Vivy 服务端状态；
-  内核真实 AutoDream/Evolution 能力仍处规划（TODO 板 MEM-1）。
-- 若浏览器以前访问过旧版技能页，Skill Tab 可能为空（旧缓存无进化管理项）：
-  清除上述 `vivy.demo.*` 键或直接接受一条请求即可看到进化管理 skill。
+- This is a demo-data-layer page (like Persona / Memory / Notebook), not Vivy
+  server state; the kernel’s real AutoDream/Evolution capabilities are still
+  planned (TODO board MEM-1).
+- If the browser previously visited the old Skills page, the Skill tab may be
+  empty (the old cache has no evolution-managed item): clear the `vivy.demo.*`
+  keys above or accept a request directly to see the evolution-managed skill.

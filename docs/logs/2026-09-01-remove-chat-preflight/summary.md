@@ -2,9 +2,9 @@
 
 ## What changed
 
-The chat-turn preflight (预检) feature was removed entirely, per maintainer
+The chat-turn preflight feature was removed entirely, per maintainer
 decision: the feature was never requested, and every message send surfaced an
-amber "预检发现警告 / Preflight found warnings" confirmation banner before the
+amber "Preflight found warnings" confirmation banner before the
 run started.
 
 Removed:
@@ -17,7 +17,7 @@ Removed:
   `internal/rpc/control_test.go`.
 - UI preflight gate in `ui/src/components/chat/ChatView.tsx`: the submit flow
   now calls `startRun` directly; the pending-preflight state, the amber
-  warning/blocked banner, and the 继续/Cancel confirmation step are gone.
+  warning/blocked banner, and the Continue/Cancel confirmation step are gone.
 - `preflight` client, `Preflight` type, and `preflight/run` entry in
   `ui/src/lib/api.ts` (+ test).
 - i18n keys `chat.preflightHint`, `chat.preflightBlocked`,

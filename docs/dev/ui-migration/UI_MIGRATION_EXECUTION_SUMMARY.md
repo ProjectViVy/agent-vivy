@@ -1,384 +1,384 @@
-# Agent Diva GUI → VIVY UI 全量化迁移计划 - 执行总结
+# Agent Diva GUI → VIVY UI Full Migration Plan - Execution Summary
 
-## 执行摘要
+## Executive Summary
 
-本文档总结了 Phase 1（基础设施准备）的完成情况和后续阶段的规划。
+This document summarizes the completion status of Phase 1 (Infrastructure Preparation) and the plans for subsequent phases.
 
-### ✅ Phase 1 完成情况（2026-01-XX）
+### ✅ Phase 1 Completion Status (2026-01-XX)
 
-| 任务 | 状态 | 产出物 |
+| Task | Status | Deliverable |
 |------|------|--------|
-| RPC 端点审查 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_RPC_GAP_ANALYSIS.md` |
-| 国际化迁移计划 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_I18N_PLAN.md` |
-| 样式系统扩展计划 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_STYLES_PLAN.md` |
-| 基础设施审查报告 | ✅ 完成 | `docs/dev/ui-migration/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md` |
+| RPC endpoint review | ✅ Complete | `docs/dev/ui-migration/UI_MIGRATION_RPC_GAP_ANALYSIS.md` |
+| Internationalization migration plan | ✅ Complete | `docs/dev/ui-migration/UI_MIGRATION_I18N_PLAN.md` |
+| Styling system extension plan | ✅ Complete | `docs/dev/ui-migration/UI_MIGRATION_STYLES_PLAN.md` |
+| Infrastructure review report | ✅ Complete | `docs/dev/ui-migration/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md` |
 
-**本阶段结论：**
-- VIVY 现有 RPC 端点覆盖率 **39%**（22/56），核心缺口在**计划管理**（0%）
-- 国际化需新增约 **300 个翻译键**（排除 PET 相关后）
-- 样式系统需扩展 **10+ 组 CSS 变量**和 **10+ 个组件样式文件**
-- 预计 Phase 1 实际实施需 **2-3 周**
-
----
-
-## 关键发现
-
-### 1. RPC 端点差距分析
-
-**高优先级缺口（Blocker）：**
-- ❌ `plan/get_active` - 获取活动计划
-- ❌ `plan/approve` - 批准计划
-- ❌ `plan/reject` - 拒绝计划
-- ❌ `plan/list_reports` - 获取计划报告列表
-- ❌ `sessions/generate_title` - 自动生成会话标题
-
-**影响：** 没有这些端点，无法实现计划审批流程，这是 Agent Diva 的核心差异化功能。
-
-**建议方案：** 
-- **MVP 路径**：先实现简化版计划支持（仅审批决策，无版本管理）
-- **完整路径**：从 Agent Diva 移植完整的 Plan 域模型（2-3 周工作量）
-
-### 2. 国际化策略
-
-**决策：** 采用**混合命名空间**方案
-- 保留 VIVY 现有的扁平键名（如 `newSession`）
-- 新功能使用前缀分组（如 `chatPlaceholder`, `settingsTitle`）
-- 避免破坏性变更，同时保持可扩展性
-
-**工作量估算：** 3.5-4.5 天
-- 扩展 i18n.ts 结构：1 天
-- 更新 translate() 函数：0.5 天
-- 编写完整性检查脚本：0.5 天
-- 人工审核翻译质量：1-2 天
-- 添加翻译键文档：0.5 天
-
-### 3. 样式系统对齐
-
-**设计原则：** 
-- **保留 VIVY 的中性工业风**（符合 DeepSeek Harness IDE 风格）
-- **复用 Agent Diva 的布局结构和交互模式**
-- **调整颜色以匹配 VIVY 调色板**（不使用粉色渐变）
-
-**工作量估算：** 5.5-7.5 天
-- 扩展 tokens.css：1 天
-- 创建组件样式文件：2-3 天
-- 导入新样式文件：0.5 天
-- 移除 Tailwind 依赖：1 天
-- 视觉回归测试：1-2 天
+**Conclusion for This Phase:**
+- VIVY's existing RPC endpoint coverage is **39%** (22/56), with the primary gap in **plan management** (0%)
+- Internationalization requires approximately **300 new translation keys** (excluding PET-related keys)
+- The styling system requires **10+ CSS variable groups** and **10+ component style files** to be added
+- Actual Phase 1 implementation is estimated to require **2-3 weeks**
 
 ---
 
-## 后续阶段规划
+## Key Findings
 
-### Phase 2：核心聊天系统迁移（2-3 周）
+### 1. RPC Endpoint Gap Analysis
 
-**目标：** 实现完整的对话界面，包括消息渲染、流式输出、工具卡片等。
+**High-Priority Gaps (Blocker):**
+- ❌ `plan/get_active` - Get the active plan
+- ❌ `plan/approve` - Approve the plan
+- ❌ `plan/reject` - Reject the plan
+- ❌ `plan/list_reports` - Get the plan-report list
+- ❌ `sessions/generate_title` - Generate a session title automatically
 
-**关键任务：**
-1. **增强 `conversation/view.ts`**
-   - 实现消息列表渲染器
-   - 集成 Markdown 渲染（markdown-it + highlight.js）
-   - 添加工具卡片组件（ToolCallCard）
-   - 实现 Thinking block 折叠/展开
+**Impact:** Without these endpoints, the plan-approval workflow cannot be implemented; this is Agent Diva's core differentiating feature.
 
-2. **实现 Composer 输入区**
-   - 文本输入 + 提交
+**Recommended Approaches:** 
+- **MVP path:** Implement simplified plan support first (approval decisions only, without version management)
+- **Full path:** Port the complete Plan domain model from Agent Diva (2-3 weeks of effort)
+
+### 2. Internationalization Strategy
+
+**Decision:** Adopt a **hybrid namespace** approach
+- Retain VIVY's existing flat key names (such as `newSession`)
+- Group new features by prefix (such as `chatPlaceholder`, `settingsTitle`)
+- Avoid breaking changes while retaining extensibility
+
+**Estimated Effort:** 3.5-4.5 days
+- Extend the i18n.ts structure: 1 day
+- Update the translate() function: 0.5 day
+- Write the completeness-check script: 0.5 day
+- Manually review translation quality: 1-2 days
+- Add translation-key documentation: 0.5 day
+
+### 3. Styling System Alignment
+
+**Design Principles:** 
+- **Retain VIVY's neutral industrial aesthetic** (consistent with the DeepSeek Harness IDE style)
+- **Reuse Agent Diva's layout structure and interaction patterns**
+- **Adjust colors to match VIVY's palette** (do not use pink gradients)
+
+**Estimated Effort:** 5.5-7.5 days
+- Extend tokens.css: 1 day
+- Create component style files: 2-3 days
+- Import the new style files: 0.5 day
+- Remove the Tailwind dependency: 1 day
+- Visual regression testing: 1-2 days
+
+---
+
+## Subsequent Phase Planning
+
+### Phase 2: Core Chat System Migration (2-3 Weeks)
+
+**Goal:** Implement a complete conversation interface, including message rendering, streaming output, tool cards, and more.
+
+**Key Tasks:**
+1. **Enhance `conversation/view.ts`**
+   - Implement a message-list renderer
+   - Integrate Markdown rendering (markdown-it + highlight.js)
+   - Add the tool-card component (ToolCallCard)
+   - Implement collapsible/expandable Thinking blocks
+
+2. **Implement the Composer input area**
+   - Text input + submission
    - Plan mode toggle
-   - Draft 持久化
+   - Draft persistence
 
-3. **集成 SSE 事件流**
-   - 复用现有 `sse.ts`
-   - 解析 text.delta/tool.start/tool.finish 事件
-   - 管理流式占位符（isStreaming 状态）
+3. **Integrate the SSE event stream**
+   - Reuse the existing `sse.ts`
+   - Parse text.delta/tool.start/tool.finish events
+   - Manage streaming placeholders (`isStreaming` state)
 
-**依赖：** 
-- RPC 端点 `turn/start`, `run/subscribe` 已存在 ✅
-- 需要补充 `plan/get_active`（如果支持计划模式）⚠️
+**Dependencies:** 
+- RPC endpoints `turn/start`, `run/subscribe` already exist ✅
+- `plan/get_active` needs to be added (if plan mode is supported) ⚠️
 
-**验收标准：**
-- [ ] 用户可以发送消息并查看流式响应
-- [ ] 工具调用卡片正常显示（名称/参数/结果）
-- [ ] Thinking block 可以折叠/展开
-- [ ] Markdown 代码块正确高亮
-
----
-
-### Phase 3：会话与审批中心（1-2 周）
-
-**目标：** 实现会话侧边栏和审批中心，完成 HITL（Human-in-the-Loop）流程。
-
-**关键任务：**
-1. **增强 `sessions/view.ts`**
-   - 会话列表渲染（标题/摘要/时间戳）
-   - 搜索过滤
-   - Pin/Unpin 操作
-   - 重命名对话框
-
-2. **实现 `reviews/view.ts`（审批中心）**
-   - 审批列表分页加载
-   - 审批详情展示（工具名称/参数/风险上下文）
-   - 决策按钮（Allow/Deny/Cancel）
-   - AskUserQuestion 轮询定时器
-
-**依赖：**
-- RPC 端点 `session/list`, `session/rename`, `approval/list`, `question/list` 已存在 ✅
-- 需要补充 `sessions/generate_title`, `sessions/pin` ⚠️
-
-**验收标准：**
-- [ ] 用户可以创建/重命名/删除会话
-- [ ] 审批中心显示待处理审批项
-- [ ] 用户可以批准/拒绝审批
-- [ ] AskUserQuestion 正常轮询并显示
+**Acceptance Criteria:**
+- [ ] Users can send messages and view streaming responses
+- [ ] Tool call cards display correctly (name/arguments/result)
+- [ ] Thinking blocks can be collapsed/expanded
+- [ ] Markdown code blocks are highlighted correctly
 
 ---
 
-### Phase 4：设置面板（2-3 周）
+### Phase 3: Session and Approval Center (1-2 Weeks)
 
-**目标：** 实现完整的设置界面，包括 Provider/Channel/Skills/MCP 管理。
+**Goal:** Implement the session sidebar and Approval Center, completing the HITL (Human-in-the-Loop) workflow.
 
-**关键任务：**
-1. **大幅扩展 `settings/view.ts`**
-   - Provider 管理（内置 + 自定义）
-   - Channel 管理（Telegram/Discord/QQ 等）
-   - Skills 市场浏览与安装
-   - MCP 服务器管理
-   - 审计日志查看
-   - 主题/语言切换
+**Key Tasks:**
+1. **Enhance `sessions/view.ts`**
+   - Render the session list (title/summary/timestamp)
+   - Search and filtering
+   - Pin/Unpin actions
+   - Rename dialog
 
-2. **实现表单控件**
+2. **Implement `reviews/view.ts` (Approval Center)**
+   - Paginated approval-list loading
+   - Display approval details (tool name/arguments/risk context)
+   - Decision buttons (Allow/Deny/Cancel)
+   - AskUserQuestion polling timer
+
+**Dependencies:**
+- RPC endpoints `session/list`, `session/rename`, `approval/list`, `question/list` already exist ✅
+- `sessions/generate_title`, `sessions/pin` need to be added ⚠️
+
+**Acceptance Criteria:**
+- [ ] Users can create/rename/delete sessions
+- [ ] The Approval Center displays pending approval items
+- [ ] Users can approve/reject approvals
+- [ ] AskUserQuestion polls and displays correctly
+
+---
+
+### Phase 4: Settings Panel (2-3 Weeks)
+
+**Goal:** Implement a complete settings interface, including Provider/Channel/Skills/MCP management.
+
+**Key Tasks:**
+1. **Significantly extend `settings/view.ts`**
+   - Provider management (built-in + custom)
+   - Channel management (Telegram/Discord/QQ, etc.)
+   - Skills marketplace browsing and installation
+   - MCP server management
+   - Audit-log viewing
+   - Theme/language switching
+
+2. **Implement form controls**
    - Input/Select/Checkbox
-   - Wizard 分步表单
-   - 验证和错误提示
+   - Step-by-step Wizard form
+   - Validation and error messages
 
-**依赖：**
-- RPC 端点 `settings/get`, `settings/update` 已存在 ✅
-- 需要补充 `providers/list`, `channels/list`, `skills/list` 等 ⚠️
+**Dependencies:**
+- RPC endpoints `settings/get`, `settings/update` already exist ✅
+- `providers/list`, `channels/list`, `skills/list`, and others need to be added ⚠️
 
-**验收标准：**
-- [ ] 用户可以添加/编辑/删除 Provider
-- [ ] 用户可以配置 Channel
-- [ ] 用户可以浏览和安装 Skills
-- [ ] 主题和语言切换正常工作
-
----
-
-### Phase 5：记忆与高级功能（2-3 周）
-
-**目标：** 实现记忆管理、Persona 工作区和 Evolution 提案审查。
-
-**关键任务：**
-1. **创建 `memory/view.ts`**
-   - BML 记忆浏览（短期/长期/核心）
-   - FTS5 全文搜索
-   - 记忆条目编辑/删除
-
-2. **实现 Persona Markdown 编辑器**
-   - 集成 CodeMirror
-   - Frozen Core 锁定
-   - 版本历史
-
-3. **实现 Evolution 提案审查**
-   - AutoDream 生成的变更建议
-   - Governed apply（审查后应用）
-   - Rollback 支持
-
-**依赖：**
-- 需要新增 `memories/list`, `persona/get`, `evolution/list_proposals` 等端点 ❌
-
-**验收标准：**
-- [ ] 用户可以浏览和搜索记忆
-- [ ] 用户可以编辑 Persona Markdown
-- [ ] 用户可以审查和应用 Evolution 提案
+**Acceptance Criteria:**
+- [ ] Users can add/edit/delete Providers
+- [ ] Users can configure Channels
+- [ ] Users can browse and install Skills
+- [ ] Theme and language switching works correctly
 
 ---
 
-### Phase 6：控制台与诊断（1 周）
+### Phase 5: Memory and Advanced Features (2-3 Weeks)
 
-**目标：** 实现 Gateway 状态监控、日志查看器和 Token 统计。
+**Goal:** Implement memory management, the Persona workspace, and Evolution proposal review.
 
-**关键任务：**
-1. **创建 `console/view.ts`**
-   - Gateway 健康检查
-   - 通道连接状态
-   - Cron 任务列表
+**Key Tasks:**
+1. **Create `memory/view.ts`**
+   - Browse BML memories (short-term/long-term/core)
+   - FTS5 full-text search
+   - Edit/delete memory entries
 
-2. **实现日志查看器**
-   - 实时日志流（SSE）
-   - 过滤/搜索
-   - 级别切换（info/debug/error）
+2. **Implement the Persona Markdown editor**
+   - Integrate CodeMirror
+   - Lock the Frozen Core
+   - Version history
 
-3. **添加 Token 统计面板**
-   - 会话级 token 消耗
-   - 预算阈值警告
+3. **Implement Evolution proposal review**
+   - Change suggestions generated by AutoDream
+   - Governed apply (apply after review)
+   - Rollback support
 
-**依赖：**
-- 需要新增 `stats/tokens`, `audit/log` 等端点 ❌
+**Dependencies:**
+- New endpoints such as `memories/list`, `persona/get`, and `evolution/list_proposals` are required ❌
 
-**验收标准：**
-- [ ] 用户可以查看 Gateway 状态
-- [ ] 用户可以查看实时日志
-- [ ] 用户可以查看 Token 统计
-
----
-
-### Phase 7：Onboarding 与收尾（1 周）
-
-**目标：** 实现欢迎向导，完善错误处理和边界情况。
-
-**关键任务：**
-1. **创建 `onboarding/view.ts`**
-   - DeepSeek API Key 输入
-   - Bocha search key 配置
-   - 快速导航（chat/providers/network/console）
-
-2. **完善错误处理**
-   - 网络超时重试
-   - RPC 错误提示
-   - 边界情况处理
-
-3. **性能优化**
-   - 虚拟滚动（长消息列表）
-   - 懒加载（设置面板按需渲染）
-
-**验收标准：**
-- [ ] 首次启动显示欢迎向导
-- [ ] 所有错误都有友好的提示
-- [ ] 长列表滚动流畅（60fps）
+**Acceptance Criteria:**
+- [ ] Users can browse and search memories
+- [ ] Users can edit Persona Markdown
+- [ ] Users can review and apply Evolution proposals
 
 ---
 
-### Phase 8：测试与发布（1-2 周）
+### Phase 6: Console and Diagnostics (1 Week)
 
-**目标：** 完成全面测试，发布候选版本。
+**Goal:** Implement Gateway status monitoring, a log viewer, and Token statistics.
 
-**关键任务：**
-1. **单元测试**
-   - 迁移 Agent Diva 的 Vitest 测试
-   - 覆盖关键工具函数（Markdown 渲染、审批 idempotency 等）
+**Key Tasks:**
+1. **Create `console/view.ts`**
+   - Gateway health checks
+   - Channel connection status
+   - Cron task list
 
-2. **E2E 测试**
-   - 扩展现有 Playwright 配置
-   - 编写核心路径测试：
-     - 会话创建 → 发送消息 → 查看响应
-     - 计划审批流程
-     - 设置修改流程
+2. **Implement the log viewer**
+   - Real-time log stream (SSE)
+   - Filtering/search
+   - Level switching (info/debug/error)
 
-3. **视觉回归测试**
-   - 截图对比关键页面
-   - 确保 Light/Dark 模式正常
+3. **Add the Token statistics panel**
+   - Session-level token usage
+   - Budget-threshold warnings
 
-4. **性能基准测试**
-   - 首屏加载时间 ≤ 2s
-   - Lighthouse 评分 ≥ 90
-   - 构建产物大小 ≤ 500KB（gzipped）
+**Dependencies:**
+- New endpoints such as `stats/tokens` and `audit/log` are required ❌
 
-**验收标准：**
-- [ ] 所有核心路径的 E2E 测试通过
-- [ ] 无 console error/warning
-- [ ] Lighthouse 性能评分 ≥ 90
-- [ ] 构建产物大小 ≤ 500KB（gzipped）
-- [ ] 用户验收测试通过
+**Acceptance Criteria:**
+- [ ] Users can view Gateway status
+- [ ] Users can view real-time logs
+- [ ] Users can view Token statistics
 
 ---
 
-## 总体时间表
+### Phase 7: Onboarding and Wrap-up (1 Week)
 
-| 阶段 | 工期 | 开始日期 | 结束日期 |
+**Goal:** Implement the welcome wizard and complete error handling and boundary-case handling.
+
+**Key Tasks:**
+1. **Create `onboarding/view.ts`**
+   - DeepSeek API Key input
+   - Bocha search key configuration
+   - Quick navigation (chat/providers/network/console)
+
+2. **Complete error handling**
+   - Retry network timeouts
+   - RPC error messages
+   - Boundary-case handling
+
+3. **Optimize performance**
+   - Virtual scrolling (long message lists)
+   - Lazy loading (render the settings panel on demand)
+
+**Acceptance Criteria:**
+- [ ] The welcome wizard appears on first launch
+- [ ] All errors have user-friendly messages
+- [ ] Long lists scroll smoothly (60fps)
+
+---
+
+### Phase 8: Testing and Release (1-2 Weeks)
+
+**Goal:** Complete comprehensive testing and publish a release candidate.
+
+**Key Tasks:**
+1. **Unit Tests**
+   - Migrate Agent Diva's Vitest tests
+   - Cover key utility functions (Markdown rendering, approval idempotency, and more)
+
+2. **E2E Tests**
+   - Extend the existing Playwright configuration
+   - Write core-path tests:
+     - Create session → send message → view response
+     - Plan-approval workflow
+     - Settings-modification workflow
+
+3. **Visual Regression Tests**
+   - Compare screenshots of key pages
+   - Ensure Light/Dark modes work correctly
+
+4. **Performance Benchmarking**
+   - First-screen load time ≤ 2s
+   - Lighthouse score ≥ 90
+   - Build output size ≤ 500KB (gzipped)
+
+**Acceptance Criteria:**
+- [ ] E2E tests for all core paths pass
+- [ ] No console error/warning
+- [ ] Lighthouse performance score ≥ 90
+- [ ] Build output size ≤ 500KB (gzipped)
+- [ ] User acceptance testing passes
+
+---
+
+## Overall Schedule
+
+| Phase | Duration | Start Date | End Date |
 |------|------|---------|---------|
-| Phase 1: 基础设施准备 | 2-3 周 | 2026-01-XX | 2026-02-XX |
-| Phase 2: 核心聊天系统 | 2-3 周 | 2026-02-XX | 2026-03-XX |
-| Phase 3: 会话与审批 | 1-2 周 | 2026-03-XX | 2026-03-XX |
-| Phase 4: 设置面板 | 2-3 周 | 2026-03-XX | 2026-04-XX |
-| Phase 5: 记忆与高级功能 | 2-3 周 | 2026-04-XX | 2026-05-XX |
-| Phase 6: 控制台与诊断 | 1 周 | 2026-05-XX | 2026-05-XX |
-| Phase 7: Onboarding 与收尾 | 1 周 | 2026-05-XX | 2026-05-XX |
-| Phase 8: 测试与发布 | 1-2 周 | 2026-05-XX | 2026-06-XX |
-| **总计** | **12-18 周** | | |
+| Phase 1: Infrastructure Preparation | 2-3 weeks | 2026-01-XX | 2026-02-XX |
+| Phase 2: Core Chat System | 2-3 weeks | 2026-02-XX | 2026-03-XX |
+| Phase 3: Sessions and Approval | 1-2 weeks | 2026-03-XX | 2026-03-XX |
+| Phase 4: Settings Panel | 2-3 weeks | 2026-03-XX | 2026-04-XX |
+| Phase 5: Memory and Advanced Features | 2-3 weeks | 2026-04-XX | 2026-05-XX |
+| Phase 6: Console and Diagnostics | 1 week | 2026-05-XX | 2026-05-XX |
+| Phase 7: Onboarding and Wrap-up | 1 week | 2026-05-XX | 2026-05-XX |
+| Phase 8: Testing and Release | 1-2 weeks | 2026-05-XX | 2026-06-XX |
+| **Total** | **12-18 weeks** | | |
 
-**注意：** 以上时间为串行估算，实际执行时部分任务可并行开展（如国际化迁移可与样式扩展同时进行）。
+**Note:** The schedule above is a serial estimate; some tasks can run in parallel during execution (for example, internationalization migration can run alongside styling extensions).
 
 ---
 
-## 资源需求
+## Resource Requirements
 
-### 人员配置
-- **Frontend Developer**：2 人（全职）
-- **Backend Developer**：1 人（兼职，负责 RPC 端点补充）
-- **QA Engineer**：1 人（兼职，Phase 8 全职）
-- **Product Manager**：1 人（兼职，负责翻译审核和视觉验收）
+### Staffing
+- **Frontend Developer:** 2 people (full-time)
+- **Backend Developer:** 1 person (part-time, responsible for adding RPC endpoints)
+- **QA Engineer:** 1 person (part-time, full-time during Phase 8)
+- **Product Manager:** 1 person (part-time, responsible for translation review and visual acceptance)
 
-### 技术依赖
-- **Node.js**：>= 18（Vite 要求）
+### Technical Dependencies
+- **Node.js**: >= 18 (required by Vite)
 - **TypeScript**：>= 5.0
 - **Playwright**：>= 1.40
-- **Go**：>= 1.26（backend 开发）
+- **Go**: >= 1.26 (backend development)
 
 ---
 
-## 风险总览
+## Risk Overview
 
-### 高风险
-1. **Plan 域模型从零设计**
-   - 影响：可能导致 Phase 2 延期
-   - 缓解：采用 MVP 路径，先实现简化版
+### High Risk
+1. **Designing the Plan domain model from scratch**
+   - Impact: May delay Phase 2
+   - Mitigation: Use the MVP path and implement a simplified version first
 
-2. **RPC 端点补充工作量超预期**
-   - 影响：阻塞前端开发
-   - 缓解：Backend 提前介入，Phase 1 期间完成高优先级端点
+2. **RPC endpoint additions take more effort than expected**
+   - Impact: Blocks frontend development
+   - Mitigation: Involve Backend early and complete high-priority endpoints during Phase 1
 
-### 中风险
-3. **样式迁移工作量大**
-   - 影响：UI 视觉效果不一致
-   - 缓解：严格遵循 VIVY 设计令牌，不做创造性发挥
+### Medium Risk
+3. **Styling migration requires substantial effort**
+   - Impact: Inconsistent UI visuals
+   - Mitigation: Follow VIVY design tokens strictly; do not introduce creative deviations
 
-4. **国际化键名冲突**
-   - 影响：翻译混乱
-   - 缓解：使用命名空间前缀，运行完整性检查脚本
+4. **Internationalization key-name conflicts**
+   - Impact: Confusing translations
+   - Mitigation: Use namespace prefixes and run the completeness-check script
 
-### 低风险
-5. **Tailwind 依赖残留**
-   - 影响：构建产物体积增大
-   - 缓解：grep 扫描确认无 Tailwind 类名
+### Low Risk
+5. **Residual Tailwind dependency**
+   - Impact: Larger build output
+   - Mitigation: Use grep to confirm that no Tailwind class names remain
 
 ---
 
-## 下一步行动
+## Next Actions
 
-### 立即开始（本周）
-1. **Backend Team：** 实现高优先级 RPC 端点
+### Start Immediately (This Week)
+1. **Backend Team:** Implement the high-priority RPC endpoints
    - `plan/get_active`
    - `plan/approve`
    - `plan/reject`
    - `sessions/generate_title`
 
-2. **Frontend Team：** 开始 Phase 1 实际实施
-   - 扩展 `i18n.ts`（按 `UI_MIGRATION_I18N_PLAN.md`）
-   - 扩展 `tokens.css`（按 `UI_MIGRATION_STYLES_PLAN.md`）
+2. **Frontend Team:** Begin actual Phase 1 implementation
+   - Extend `i18n.ts` (according to `UI_MIGRATION_I18N_PLAN.md`)
+   - Extend `tokens.css` (according to `UI_MIGRATION_STYLES_PLAN.md`)
 
-3. **PM：** 组织评审会议
-   - 审查本计划文档
-   - 确认优先级和时间表
-   - 分配资源
+3. **PM:** Organize a review meeting
+   - Review this plan document
+   - Confirm priorities and the schedule
+   - Allocate resources
 
-### 下周目标
-- 完成 Phase 1 的基础设施实施
-- 开始 Phase 2 的核心聊天系统开发
-- Backend 完成高优先级 RPC 端点
-
----
-
-## 附录：参考文档
-
-1. **RPC 端点差距分析**：`docs/dev/ui-migration/UI_MIGRATION_RPC_GAP_ANALYSIS.md`
-2. **国际化迁移计划**：`docs/dev/ui-migration/UI_MIGRATION_I18N_PLAN.md`
-3. **样式系统扩展计划**：`docs/dev/ui-migration/UI_MIGRATION_STYLES_PLAN.md`
-4. **基础设施审查报告**：`docs/dev/ui-migration/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md`
-5. **原始迁移计划**：（见 plan mode 退出时的完整计划）
+### Goals for Next Week
+- Complete the Phase 1 infrastructure implementation
+- Begin development of the Phase 2 core chat system
+- Backend completes the high-priority RPC endpoints
 
 ---
 
-**文档版本：** v0.1  
-**创建日期：** 2026-01-XX  
-**最后更新：** 2026-01-XX  
-**维护者：** UI Migration Team  
-**状态：** ✅ Phase 1 规划完成，待实施
+## Appendix: Reference Documents
+
+1. **RPC Endpoint Gap Analysis:** `docs/dev/ui-migration/UI_MIGRATION_RPC_GAP_ANALYSIS.md`
+2. **Internationalization Migration Plan:** `docs/dev/ui-migration/UI_MIGRATION_I18N_PLAN.md`
+3. **Styling System Extension Plan:** `docs/dev/ui-migration/UI_MIGRATION_STYLES_PLAN.md`
+4. **Infrastructure Review Report:** `docs/dev/ui-migration/UI_MIGRATION_INFRASTRUCTURE_REVIEW.md`
+5. **Original Migration Plan:** (see the complete plan when exiting plan mode)
+
+---
+
+**Document Version:** v0.1  
+**Created:** 2026-01-XX  
+**Last Updated:** 2026-01-XX  
+**Maintainer:** UI Migration Team  
+**Status:** ✅ Phase 1 planning complete, pending implementation

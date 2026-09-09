@@ -1,16 +1,27 @@
-# Acceptance — 2026-08-25 设置页布局与说明一致性整理
+# Acceptance — 2026-08-25 Settings-page layout and description consistency
 
-## 用户视角如何确认
+## How a user can confirm it
 
-1. 打开 `http://127.0.0.1:3015` → 侧边栏「设置」。
-2. 顶部标签栏：真实标签（通用/模型/人格/工具/Vivy 功能）与迁移预览标签（通道/网络/语言/压缩/自进化/沙箱）可以通过预览标签上的「预览」小标记区分。
-3. 「通用」页：从上到下为 应用信息、主题、Agent-Diva 迁移预览（含「通用与关于」聊天显示 / 缓存与运行状态 / 关于 Vivy），不再有错位的「演示 / 本地模拟」提示条。
-4. 「网络」预览页：「当前预览摘要」卡有说明；「压缩」预览页：「压缩配置」卡有说明 —— 与同页其他卡片说明风格一致。
-5. 「Vivy 功能」页：生命周期与 Run Inspector 两张卡头部结构一致（图标在上、标题、说明）。
+1. Open `http://127.0.0.1:3015` → the “Settings” item in the sidebar.
+2. In the top tab bar, distinguish the real tabs (General / Models / Persona /
+   Tools / Vivy Features) from the migration-preview tabs (Channels / Network /
+   Language / Compression / Self-Evolution / Sandbox) by the small “Preview” badge
+   on preview tabs.
+3. On the “General” page, the top-to-bottom order is Application Info, Theme,
+   and the Agent-Diva migration preview (including General & About chat display /
+   Cache & Runtime Status / About Vivy); the misplaced “Demo / Local Mock” notice
+   bar is gone.
+4. On the “Network” preview page, the “Current Preview Summary” card has a
+   description; on the “Compression” preview page, the “Compression
+   Configuration” card has a description—matching the description style of the
+   other cards on each page.
+5. On the “Vivy Features” page, the Lifecycle and Run Inspector cards have the
+   same header structure (icon above, title, description).
 
-## 判定标准
+## Acceptance criteria
 
-- 设置页所有卡片都有标题 + 说明，同类卡结构一致。
-- 真实配置与迁移预览在标签栏即可区分。
-- 无错位、无职责不明的提示文案。
-- `just ci` 通过。
+- Every card on the Settings page has a title + description, and cards of the
+  same kind share a structure.
+- Real configuration and migration previews are distinguishable from the tab bar.
+- No misplaced or ambiguous notices.
+- `just ci` passes.

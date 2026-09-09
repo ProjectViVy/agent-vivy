@@ -1,29 +1,40 @@
-# 模型地址常驻编辑入口（右侧头部铅笔 + 目录克隆为自定义）
+# Persistent model-address edit entry (right-header pencil + catalog clone as custom)
 
-## 问题
+## Problem
 
-用户反馈「还是没看见可以自定义编辑模型地址」：上一轮已有的铅笔编辑按钮只渲染在左侧
-**自定义供应商**行上——若用户尚未新增任何自定义条目，页面任何地方都不出现编辑按钮；
-而右侧头部恰恰是显示模型地址（Base URL）文本的位置，却完全没有编辑入口，用户盯着
-地址文本自然找不到入口。
+The user reported 「still cannot see where to customize and edit the model address」: the
+pencil edit button from the previous round was rendered only on the left-side
+**custom-provider** row—if the user had not added any custom entry yet, no edit button
+appeared anywhere on the page. The right header was precisely where the model address (Base
+URL) text was shown, yet it had no edit entry at all, so a user looking at the address text
+naturally could not find the entry point.
 
-## 改动
+## Changes
 
-- `ModelSettingsCard.tsx`：
-  - 右侧选中供应商的头部，**地址文本旁新增常驻铅笔按钮**（aria/title = 「编辑地址与别名」）。
-    - 选中条目为自定义供应商 → 打开**编辑**对话框（地址/别名/运行束/默认模型/模型列表/API Key）。
-    - 选中条目为目录厂商 → 打开**新增自定义供应商**对话框并**预填**该目录条目的
-      显示名/运行束/地址/默认模型/模型列表；改完地址保存即生成新的自定义条目
-      （目录条目本身不可原地编辑，克隆为自定义是唯一既有的改地址路径）。
-  - `CustomProviderDialog` 新增 `preset` 属性（新增模式预填；`editing` 优先），
-    关闭/复用对话框时随 `customDialog` 状态一并复位。
-  - 未改地址、仅改别名保存目录克隆时将命中既有的 `(bundle, baseUrl)` 重复校验，
-    对话框提示「该 Base URL 已存在……」（既有防冲突规则，未放宽）。
-- `i18n/zh.ts` / `en.ts`：新增 `settingsModel.editAddressAria`（中英对等）。
+- `ModelSettingsCard.tsx`:
+  - in the selected provider's right-side header, **added a persistent pencil button beside
+    the address text** (aria/title = 「Edit address and alias」).
+    - If the selected entry is a custom provider → open the **edit** dialog (address/alias/
+      runtime bundle/default model/model list/API Key).
+    - If the selected entry is a catalog provider → open the **Add custom provider** dialog
+      with the catalog entry's display name/runtime bundle/address/default model/model list
+      **pre-filled**; saving after changing the address creates a new custom entry (the
+      catalog entry itself cannot be edited in place; cloning it as custom is the only
+      existing path for changing the address).
+  - `CustomProviderDialog` adds a `preset` prop (prefill in add mode; `editing` takes
+    priority), reset together with `customDialog` state when the dialog is closed/reused.
+  - Saving a catalog clone after changing only the alias, without changing the address,
+    hits the existing `(bundle, baseUrl)` duplicate check; the dialog shows
+    「That Base URL already exists...」 (the existing conflict rule, not relaxed).
+- `i18n/zh.ts` / `en.ts`: added `settingsModel.editAddressAria` (zh/en parity).
 
-## 未做（显式边界）
+## Not done (explicit boundaries)
 
-- 编辑地址不会立即应用为运行配置：保存后需点击该供应商列表中的模型（或新增模型）
-  才真正选用新地址——与「点击模型 = 立即选用并保存」的单入口语义保持一致。
-- 真实在线目录同步仍是 `UI-PROV-RPC`（静态快照重载），未在本轮实现。
-- 同运行束不同网关共享一个密钥（`UI-MODEL-KEY-SCOPE`）维持 OPEN。
+- Editing the address does not immediately apply it as runtime configuration: after saving,
+  the user must click a model in that provider's list (or add a model) to actually select
+  the new address—preserving the single-entry semantics of 「click model = select and save
+  immediately」.
+- Real online catalog synchronization remains `UI-PROV-RPC` (static-snapshot reload) and
+  was not implemented in this round.
+- Sharing one key across different gateways in the same runtime bundle keeps
+  `UI-MODEL-KEY-SCOPE` OPEN.

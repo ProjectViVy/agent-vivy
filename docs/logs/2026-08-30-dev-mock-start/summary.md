@@ -1,24 +1,34 @@
 # Restore runtime.mock for offline start (2026-08-30)
 
-## 变更内容
+## Changes
 
-编译修复把 `ModelResolver` / `NewResolvingChatModel` 合回主线后，产品路径不再走 `config.Runtime.Mock`，Catalog 也拒绝 `mock`。`just dev` / `dev.ps1` 在没有 API key 时仍切到 `config.dev.yaml`（`runtime.mock: true`），结果进程能听端口，但解析出的模型 `Ready=false`，对话立即失败（欢迎向导 / 「no model configured」）。
+After the compile fix restored `ModelResolver` / `NewResolvingChatModel` to mainline,
+the product path no longer used `config.Runtime.Mock`, and the Catalog also rejected
+`mock`. When no API key was present, `just dev` / `dev.ps1` still switched to
+`config.dev.yaml` (`runtime.mock: true`), so the process listened on its port but the
+resolved model had `Ready=false` and chat failed immediately (welcome wizard / "no model
+configured").
 
-本迭代把离线 mock 接回 resolver 与 Catalog，不改 UI、不删 `runtime.mock` 配置。
+This iteration reconnects the offline mock to the resolver and Catalog, without changing
+the UI or removing the `runtime.mock` config.
 
-### 内核
+### Core
 
-- `ModelResolver`：`runtime.mock=true` 时解析为 ready 的 `mock` / `mock:<scenario>`，且不冻结 ENV 会话（避免残留 `OPENAI_API_KEY` 盖过 `just dev`）。
-- `Catalog.For("mock")` 再次返回 mock Ref（仅配置/测试路径；operator settings 仍拒绝 mock）。
-- `defaultModelFor` 恢复 mock / mock_scenario 回退。
+- `ModelResolver`: when `runtime.mock=true`, resolve a ready `mock` /
+  `mock:<scenario>` and do not freeze the ENV session (so a leftover `OPENAI_API_KEY`
+  cannot override `just dev`).
+- `Catalog.For("mock")` returns the mock Ref again (config/test paths only; operator
+  settings still reject mock).
+- `defaultModelFor` restores mock / mock_scenario fallback.
 
-## 明确不做
+## Explicitly not done
 
-- 不删除 `config.Runtime.Mock`（`just dev` 与 e2e 仍依赖它）
-- 不改欢迎向导 / 设置页文案
-- 不处理本机已占用的 Vite `:3015`（环境问题，不是这次代码缺口）
+- Do not delete `config.Runtime.Mock` (`just dev` and e2e still depend on it).
+- Do not change welcome-wizard or Settings-page copy.
+- Do not address Vite `:3015` already occupied on this machine (an environment issue,
+  not a code gap in this iteration).
 
-## 变更文件
+## Changed files
 
 - `internal/app/model.go`, `internal/app/model_test.go`, `internal/app/app.go`
 - `internal/provider/{catalog.go,doc.go,mockref.go,provider_test.go}`

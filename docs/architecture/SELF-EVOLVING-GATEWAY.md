@@ -1,276 +1,276 @@
-# 如何让 Vivy 成为单 EXE 的自主进化网关
+# How to Make Vivy a Single-EXE Self-Evolving Gateway
 
-> **Plugin v1 note (2026-09-09):** 本文保留单 EXE / 换代产品方向；其中
-> `vivy.plugin/v0`、`vivy.generation/v0`、Seam、旧注册表和兼容迁移描述均为
-> 历史。新实现只服从 `VIVY-MODULE-STANDARD.md`、
-> `VIVY-PORT-CATALOG.md`、`VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md`。
+> **Plugin v1 note (2026-09-09):** This document retains the single-EXE / generational-product direction; the
+> descriptions of `vivy.plugin/v0`, `vivy.generation/v0`, Seam, the old registry, and compatibility migration are
+> historical. New implementations follow only `VIVY-MODULE-STANDARD.md`,
+> `VIVY-PORT-CATALOG.md`, `VIVY-PLUGIN-SPEC.md`, and `VIVY-ASSEMBLY.md`.
 >
-> 状态：**方向已采纳**（2026-08-14）。**Studio 形状于 2026-08-15 纠正**：独立应用，管开发与分发；Studio 是第一方日常开发 IDE，但不是排他的执行场地。
-> 不取代 V0 ADR。物种侧 S1–S6 零件仍可用；S7 工作室卡产品含义作废。
-> 日期：2026-08-15（Studio 纠正）
-> 来源：对 `.workspace/deepseek-harness/upstream`（含论文）与 agent-vivy 现状的对照讨论。
-> 读者：要一次读完「为什么拆、拆成什么、插件怎么装、和 DSH 像多少」的人。
+> Status: **direction adopted** (2026-08-14). **Studio shape corrected on 2026-08-15**: an independent app that manages development and distribution; Studio is the first-party daily development IDE, but not the exclusive execution venue.
+> It does not replace the V0 ADR. Species-side S1–S6 parts remain usable; the S7 Studio card's product meaning is void.
+> Date: 2026-08-15 (Studio correction)
+> Source: comparative discussion of `.workspace/deepseek-harness/upstream` (including the paper) and the current state of agent-vivy.
+> Readers: people who want to read in one pass "why split, what to split into, how to install plugins, and how much it resembles DSH."
 >
-> **Studio 正本是 `VIVY-STUDIO.md`。** 精简决策表仍见 `VIVY-GATEWAY-AND-STUDIO.md`（NG-1..NG-28、S0..S6 + ST-*）。
-> 本文管物种 / 内核 / 装配。若与 `VIVY-STUDIO.md` 在 Studio 形状上冲突，以那份为准，并回写本文。
+> **The canonical Studio source is `VIVY-STUDIO.md`.** The condensed decision table remains in `VIVY-GATEWAY-AND-STUDIO.md` (NG-1..NG-28, S0..S6 + ST-*).
+> This document governs the species / kernel / assembly. If it conflicts with `VIVY-STUDIO.md` on Studio shape, that document wins and this one must be updated.
 
-相关：
+Related:
 
-- `../../AGENT-VIVY-DIRECTION.md` — V0–V3 分期
-- `../../prd-agent-vivy-v0.md` — §5.0 哲学锚、D-014..D-021
-- `../AGENT-VIVY-ARCHITECTURE-V0.md` — 已组装内核
-- `../GOAL-AGENT-HARNESS-ROADMAP.md` — 已完成的 harness 切片
-- `ACP-REMOTE-CONTROL-PROPOSAL.md` — 控制面草案；只借本地与准入，不借远程托管
-- `VIVY-CHANNEL-PACK.md` — 超级通道合同（方向采纳 2026-08-30；Host 在内核；本批适配器是 `plugins/` + `seam: channel`）
-- `VIVY-FACE-PACK.md` — 出厂 face 冷拔插提案（FaceHost 在内核；嘴在 `faces/`；一代一张脸；安卓是下游产品）
-- `VIVY-STUDIO.md` — Studio 产品身份、生命周期、开发环境策略（正本）
-- `VIVY-WORLDVIEW.md` — 为何物种/实验室分裂和这个名字是同一根骨头
-- `.workspace/deepseek-harness/upstream` — 证据，不是物种依赖
+- `../../AGENT-VIVY-DIRECTION.md` — V0–V3 staging
+- `../../prd-agent-vivy-v0.md` — §5.0 philosophy anchors, D-014..D-021
+- `../AGENT-VIVY-ARCHITECTURE-V0.md` — assembled kernel
+- `../GOAL-AGENT-HARNESS-ROADMAP.md` — harness slices already completed
+- `ACP-REMOTE-CONTROL-PROPOSAL.md` — control-plane draft; borrows local and admission principles, not remote hosting
+- `VIVY-CHANNEL-PACK.md` — super-channel contract (direction adopted 2026-08-30; Host in the kernel; this batch's adapters are `plugins/` + `seam: channel`)
+- `VIVY-FACE-PACK.md` — built-in face cold plug/unplug proposal (FaceHost in the kernel; mouths in `faces/`; one face per generation; Android is a downstream product)
+- `VIVY-STUDIO.md` — Studio product identity, lifecycle, and development-environment strategy (canonical)
+- `VIVY-WORLDVIEW.md` — why the species/lab split and this name are the same underlying idea
+- `.workspace/deepseek-harness/upstream` — evidence, not a species dependency
 
 ---
 
-## 0. 一句话
+## 0. One Sentence
 
-**日常 Vivy 是人双击就能开的那一个 `vivy.exe`。**  
-**Vivy Studio 是另一个独立应用**：开发、评测、发布、安装下一代身体。  
-第一任开发发动机可以是 DeepSeek Harness，但它是 Studio 内部的可替换发动机，不是根，也不是从网关打开的一张卡。
+**Daily Vivy is the `vivy.exe` a person can open by double-clicking.**  
+**Vivy Studio is another independent application**: develop, evaluate, release, and install the next-generation body.  
+The first development engine may be DeepSeek Harness, but it is a replaceable engine inside Studio—not the root and not a card opened from the gateway.
 
-住户始终面对一个网关。单 EXE 指**日常安装、日常生命、以及全部能力都编在这份身体里**。装插件 = 用 SDK 造新版本，不是往活进程上挂零件。作者面对的是 Studio，不是「网关里的演化按钮」。
+The resident always faces one gateway. Single EXE means **the daily installation, daily life, and all capabilities are compiled into this body**. Installing a plugin = using the SDK to build a new version, not attaching parts to a live process. Authors face Studio, not an "evolution button in the gateway."
 
 ```text
-作者 ──独立应用──► Vivy Studio
-                      │ 改源 / verify / pack / 评测 / 发布 / 安装
+author ──independent app──► Vivy Studio
+                      │ modify source / verify / pack / evaluate / release / install
                       ▼
-                 日常安装位的 vivy.exe   物种
-                      │ 只读 inspect
+                 vivy.exe at daily install   species
+                      │ read-only inspect
                       ▲
-                 Studio 可以看、换、停；物种不启动 Studio
+                 Studio can view, replace, stop; species does not start Studio
 ```
 
 ---
 
-## 1. 违和从哪来
+## 1. Where the Unease Comes From
 
-讨论里叠了五件不能住在同一地址空间、同一条发布列车里的事：
+The discussion stacked five things that cannot live in the same address space or on the same release train:
 
-| 主张 | 成功长什么样 | 塞进同一个进程会怎样 |
+| Claim | What success looks like | What happens in one process |
 |---|---|---|
-| 个人网关 | 今天能用、能审、能恢复、密钥在本地 | 变成平台或实验室，人不敢过夜 |
-| 高性能单 EXE | Windows 一键、无 cgo、热路径短 | 插件海、Node、端口、网格 |
-| 一切皆插件（DSH） | 卸得净、依赖能重绑、loop 可换 | Journal 和审批也被卸掉 |
-| 自主进化直到更强 | 能试下一代、能杀、能比较 | 没有适应度就是永久重写 |
-| 微服务 / 像 K8s | 控制面稳、数据面可杀 | 本机变成集群，测量先碎 |
+| Personal gateway | Usable, auditable, recoverable today; keys stay local | Becomes a platform or lab that people will not leave running overnight |
+| High-performance single EXE | One-click Windows, no cgo, short hot path | Plugin sprawl, Node, ports, and a mesh |
+| Everything is a plugin (DSH) | Clean removal, rebinding dependencies, replaceable loop | The Journal and approvals are removed too |
+| Self-evolve toward greater capability | Can try the next generation, kill it, and compare it | Without fitness, it is permanent rewriting |
+| Microservices / K8s-like | Stable control plane, killable data plane | The local machine becomes a cluster and measurement breaks first |
 
-方向文档已经写过：一个阶段不能同时承诺稳定产品、完整框架替换、AGI-OS。  
-本文把三件事分给三具身体，而不是假装一个 EXE 里能同时当物种、框架和实验室。
+The direction document already says that one stage cannot promise a stable product, complete framework replacement, and AGI-OS at the same time.  
+This document assigns the three things to three bodies instead of pretending one EXE can be a species, framework, and laboratory at once.
 
-| 身体 | 使命 |
+| Body | Mission |
 |---|---|
-| **物种** `vivy.exe` | V1 Operate：日常网关 |
-| **Vivy Studio** | 独立应用：开发与分发；V2 Explore 也在这里发生，不在网关里 |
-| **更后面的一代 EXE** | 若有证据，才是 V3 Rebuild |
+| **Species** `vivy.exe` | V1 Operate: daily gateway |
+| **Vivy Studio** | Independent application: development and distribution; V2 Explore happens here, not in the gateway |
+| **A later-generation EXE** | V3 Rebuild only if there is evidence |
 
 ---
 
-## 2. DeepSeek Harness 到底是什么
+## 2. What Exactly Is DeepSeek Harness
 
-### 2.1 核心理念
+### 2.1 Core Ideas
 
-DSH 不是又一个 Claude Code 克隆。底下是论文 *A Programming Paradigm for Spatiotemporal Composability*（Shi / Zhang / Cui，北大 + DeepSeek）：
+DSH is not another Claude Code clone. Underneath it is the paper *A Programming Paradigm for Spatiotemporal Composability* (Shi / Zhang / Cui, Peking University + DeepSeek):
 
-- **时间可组合：** 卸组件时，它对共享环境的副作用必须完整、有序撤销。每个副作用带着逆，运行时记账（`ctx.effect()`）。
-- **空间可组合：** 组件声明依赖（`inject`），依赖出现/消失时激活或停用。
-- 二者合成同一个 `ctx`，称为 context paradigm。实现是 vendor 的 **Cordis**。
+- **Temporal composability:** when a component is unloaded, its side effects on the shared environment must be completely and orderly reversed. Every effect carries an inverse, recorded at runtime (`ctx.effect()`).
+- **Spatial composability:** components declare dependencies (`inject`) and activate or deactivate as dependencies appear or disappear.
+- Both compose into one `ctx`, called the context paradigm. The implementation is the vendor's **Cordis**.
 
-产品口号：**everything is a plugin**。模型适配器、工具表、会话日志、**连 agent loop 本身**都是插件。没有特权产品内核；真正的内核是 Cordis（加载 + 记账）。扩展方式是把插件挂到旁边，不是给 loop 打补丁。
+Product slogan: **everything is a plugin**. Model adapters, the tool table, session logs, and **even the agent loop itself** are plugins. There is no privileged product kernel; the real kernel is Cordis (loading + accounting). Extension means attaching a plugin alongside the system, not patching the loop.
 
-另外几条工程纪律，和理念同等重要：
+Several other engineering disciplines are equally important:
 
-- **模型可见 ≡ 已记录。** 进模型请求的一切必须能从会话日志重建。
-- **双事件平面。** `session/event` 是持久事实；`agent/*` 是进行中的协调。
-- **能力 seam** = Service Definition + Provider + Consumer。换执行世界（本地 / E2B）带走 fs、shell、PTY、LSP。
-- **组装是 profile 叠 bundle 再叠 patch**，不是写死启动顺序。
+- **Model-visible ≡ logged.** Everything that enters a model request must be reconstructable from the session log.
+- **Two event planes.** `session/event` is durable fact; `agent/*` is in-progress coordination.
+- **Capability seam** = Service Definition + Provider + Consumer. Switching execution worlds (local / E2B) carries fs, shell, PTY, and LSP with it.
+- **Assembly is profile over bundle over patch**, not a hard-coded startup order.
 
-### 2.2 创举
+### 2.2 Innovations
 
-1. 把编译期的 effect / coeffect **抬到运行时**（经典系统停在词法作用域）。
-2. 自演化 harness 做成真工具：`cordis_inspect / define / run / stop / undefine`，模型可检查并挂载自己写的插件。
-3. 微内核循环 + 瀑布式扩展点；改 loop 必须改架构文档。
-4. seam 让「换世界」是组合，不是 fork 一套工具。
+1. **Lift** compile-time effect / coeffect **into runtime** (classic systems stop at lexical scope).
+2. Turn a self-evolving harness into real tools: `cordis_inspect / define / run / stop / undefine`; the model can inspect and mount plugins it wrote itself.
+3. Microkernel loop + waterfall extension points; changing the loop requires changing the architecture document.
+4. The seam makes "switching worlds" composition, not a forked toolset.
 
-它**没有**做成的（对网关很关键）：动态包只在内存、重启即散；官方写明不是安全边界、可能影响同进程其他会话；没有跨代适应度；预发布阶段正确性优先于过夜可用性。
+What it **does not** provide (critical for a gateway): dynamic packages live only in memory and disappear on restart; the official documentation says it is not a security boundary and may affect other sessions in the same process; there is no across-generation fitness; and pre-release correctness takes priority over overnight availability.
 
-### 2.3 语言事实
+### 2.3 Language Facts
 
-没有任何量产语言把「可逆 effect + 反应式 coeffect」做成语法。
+No production language has made "reversible effect + reactive coeffect" into syntax.
 
-- TypeScript 只是凑齐了**宿主最低条件**（`Proxy`、声明合并、模块可扔），所以 Cordis 长在那里。
-- Koka / Effekt 是类型系统上的祖先，不管运行时装卸。
-- Erlang 是「杀进程即卸」的量产答案。
-- WASM 是「丢掉实例即卸」的沙箱动态库。
-- Go 给得出快的单二进制，**卸不掉**原生代码。
+- TypeScript merely satisfies the **minimum host conditions** (`Proxy`, declaration merging, disposable modules), which is why Cordis lives there.
+- Koka / Effekt are ancestors at the type-system level, not runtime loading/unloading.
+- Erlang is the production answer of "kill the process to unload."
+- WASM is a sandboxed dynamic library where "discard the instance to unload."
+- Go provides a fast single binary but **cannot unload** native code.
 
-因此：物种用 Go；实验室可以用 TS（若后端是 DSH）；能力插件是 Go 源码，只经 SDK 链进下一代 EXE。不要逼 Go 做 Cordis，也不要再开一个 WASM/进程插件世界。
+Therefore: the species uses Go; the lab may use TS (if its backend is DSH); capability plugins are Go source linked into the next-generation EXE only through the SDK. Do not force Go to become Cordis, and do not open another WASM/process plugin world.
 
-### 2.4 和今日 Vivy 哪些像
+### 2.4 What Resembles Today's Vivy
 
-两边都是事件溯源的本地 agent harness：Journal / 会话日志、ReAct + 中断、工具审批、Ask User、Plan Mode、hooks、子代理由父治理、JSON-RPC、薄 UI。
+Both are local event-sourced agent harnesses: Journal / session log, ReAct + interruption, tool approval, Ask User, Plan Mode, hooks, parent-governed subagents, JSON-RPC, and a thin UI.
 
-Vivy 已经有的，不必向 DSH 再买一遍：Skill、MCP、worker stdio、policy profile、预算、隔离 workspace、恢复。
+Vivy already has what it does not need to buy from DSH again: Skill, MCP, worker stdio, policy profiles, budgets, isolated workspaces, and recovery.
 
-身份相反：Vivy 是个人网关、精选目录、Eino 隔离在 `internal/runtime`；DSH 是插件 OS、loop 也可卸、社区发现。
+Their identities are opposite: Vivy is a personal gateway with a curated catalog and Eino isolated in `internal/runtime`; DSH is a plugin OS with an unloadable loop and community discovery.
 
 ---
 
-## 3. 新理念下能实现 DSH 核心理念的多少
+## 3. How Much of DSH's Core Ideas Can Be Realized Under the New Model
 
-不要一个百分数。按柱子看。
+Do not use one percentage. Look at the pillars.
 
-| 支柱 | 物种 EXE | 物种 + 工作室(DSH) | 故意不补 |
+| Pillar | Species EXE | Species + Studio (DSH) | Deliberately not added |
 |---|---|---|---|
-| 模型可见 ≡ 已记录 | 90–100%（须升级 ADR-009） | 同左 | — |
-| 能力 seam | 80–90% | 同左 | 运行时 `inject` 热重绑 |
-| 薄 loop / 事件扩展 | 80% | 同左 | 同进程 waterfall 网 |
-| 时间可组合 | 30–40%（换代 / 杀候选进程） | 实验室内 ~100% | 细粒度逆操作栈 |
-| 空间可组合 | 35–45%（星形经网关） | 实验室内 ~100% | 插件互调成网 |
-| 一切皆插件 | 30–40%（产品面可换代） | Studio 内发动机 ~100% | Journal / policy / 物种内核 |
-| 活着改自己 | 15–25% | 实验室内 ~90% | 生产实例同进程挂载 |
+| Model-visible ≡ logged | 90–100% (requires upgrading ADR-009) | Same as left | — |
+| Capability seam | 80–90% | Same as left | Runtime `inject` hot rebinding |
+| Thin loop / event extensions | 80% | Same as left | In-process waterfall mesh |
+| Temporal composability | 30–40% (generation change / kill candidate process) | ~100% in the lab | Fine-grained inverse-operation stack |
+| Spatial composability | 35–45% (star topology through the gateway) | ~100% in the lab | Network of inter-plugin calls |
+| Everything is a plugin | 30–40% (the product surface can change generation) | ~100% for the Studio engine | Journal / policy / species kernel |
+| Modify itself while alive | 15–25% | ~90% in the lab | In-process mounting on a production instance |
 
-- 只算物种：**约 35–45%**，理论上限约 **60%**（内核永不插件化）。
-- 对人而言的「自演化网关」效果：**约 70–80%**，因为满血 Cordis 住在实验室。
-- 过夜可积累的进化（气隙、EvalRun、晋级）：**可以高于 DSH 现货**。DSH 演示重启即散。
+- Species only: **about 35–45%**, with a theoretical ceiling of about **60%** (the kernel is never pluginized).
+- The human-facing effect of a "self-evolving gateway": **about 70–80%**, because full-strength Cordis lives in the lab.
+- Evolution that can accumulate overnight (air gap, EvalRun, promotion): **can exceed DSH out of the box**. The DSH demo disappears on restart.
 
-刷到 80% 的 Cordis 复刻率 = 取消物种/实验室分裂。不要刷。
+Pushing Cordis reproduction to 80% = canceling the species/lab split. Do not do it.
 
 ---
 
-## 4. 架构：物种、Studio、数据面
+## 4. Architecture: Species, Studio, and Data Plane
 
-### 4.1 物种 — 人双击的那个
+### 4.1 Species — The One a Human Double-Clicks
 
-单安装器、单快捷方式、日常只有一个主 EXE。
+One installer, one shortcut, and one primary EXE for daily life.
 
-它拥有：
+It owns:
 
-- Session / Run 状态机
-- Journal（产品历史；模型可见投影的真源）
+- Session / Run state machine
+- Journal (product history; source of truth for the model-visible projection)
 - Policy、Approval、Ask User
-- 预算、取消、恢复
-- 密钥解析（只读 env，值永不落盘）
-- JSON-RPC 控制面和住户 UI
-- 本代编进来的能力清单（pack 时冻结）
-- 只读身份：`inspect`（哈希、配方、工具名、channel 插件名与 seam）
+- Budget, cancellation, and recovery
+- Secret resolution (env only; values never persist)
+- JSON-RPC control plane and resident UI
+- The capability list compiled into this generation (frozen at pack time)
+- Read-only identity: `inspect` (hash, recipe, tool names, channel plugin names, and seams)
 
-不拥有：pack、评测农场、发布、安装位、Studio 主界面。那些属于 `VIVY-STUDIO.md`。
+It does not own: pack, the evaluation farm, releases, the installation location, or the Studio main interface. Those belong to `VIVY-STUDIO.md`.
 
-### 4.2 内核（永远不是插件）
+### 4.2 Kernel (Never a Plugin)
 
 ```text
-Journal 写入
-事件词汇与序号
-Policy 准入（deny / prompt / allow，不可变 hash）
-密钥解析
-本代编进来的能力清单（pack 时冻结）
-只读 inspect 的实现
-进程监督（仅 worker，不含外置插件、不含 Studio）
-ChannelHost（世界入口：准入、会话映射、channel.inbound、出站；永不插件化）
-FaceHost（本代嘴的选择与宿主：一代恰好一张脸，face 是配方器官；永不插件化）
+Journal writes
+Event vocabulary and sequence
+Policy admission (deny / prompt / allow, immutable hash)
+Secret resolution
+Capability list compiled into this generation (frozen at pack time)
+Read-only inspect implementation
+Process supervision (worker only; no external plugins and no Studio)
+ChannelHost (world ingress: admission, session mapping, channel.inbound, outbound; never pluginized)
+FaceHost (selection and hosting of this generation's mouth: exactly one face per generation, face is a recipe organ; never pluginized)
 ```
 
-以后 V3 可以换内核，那是**晋级新一代物种**，不是热卸。
+V3 may replace the kernel later; that is **promotion to a new species generation**, not a hot unload.
 
-### 4.3 数据面（可杀）
+### 4.3 Data Plane (Killable)
 
-过日子的控制面留在物种进程里。Studio 是另一套控制面，住在独立应用里。物种名下的短命进程只有：
+The control plane for daily life stays in the species process. Studio is another control plane in an independent application. The only short-lived process under the species is:
 
-| 进程 | 角色 | 失败 |
+| Process | Role | Failure |
 |---|---|---|
-| `vivy worker` | 同二进制子 run；工具仍在这份 EXE 里 | 已有 `worker_lost_after_restart` |
+| `vivy worker` | Same-binary child run; tools remain in this EXE | Existing `worker_lost_after_restart` |
 
-候选 EXE 由 **Studio** 拉起和杀死，记入 Studio 的 EvalRun，不是物种的孩子。Studio 自己也是独立进程：杀 Studio 不影响已打开的日常网关。
+Candidate EXEs are started and killed by **Studio** and recorded in Studio's EvalRun; they are not children of the species. Studio itself is also an independent process: killing Studio does not affect an already-open daily gateway.
 
-不要把物种写成 kube-apiserver、把 Studio 写成 Pod。Studio 不是网关的数据面。
+Do not write the species as kube-apiserver or Studio as a Pod. Studio is not the gateway's data plane.
 
-微服务会毁掉热路径、单一 Journal、Windows 一键、以及一周能杀掉的突变体数量。评测农场以后若要多机，是挂在同一对象面后的**另一套东西**，不是把个人网关拆成服务。
+Microservices would destroy the hot path, single Journal, one-click Windows experience, and the number of mutants that can be killed in a week. If the evaluation farm later needs multiple machines, it is **another system** behind the same object surface, not the personal gateway split into services.
 
-### 4.4 Vivy Studio — 独立应用
+### 4.4 Vivy Studio — Independent Application
 
-完整形状、开发环境策略、bootstrap 与切片见 **`VIVY-STUDIO.md`**。这里只留和物种的边界。
+For the complete shape, development-environment strategy, bootstrap, and slices, see **`VIVY-STUDIO.md`**. This section keeps only the boundary with the species.
 
-Studio 是独立应用，不是物种上的角色，不是「再装一个通用 agent」。产品比喻是老工业软件的 IDE：打开就能编、能烧、能装到日常位。不是从 `vivy.exe` 弹出的一张卡。
+Studio is an independent application, not a role on the species and not "another general-purpose agent." The product metaphor is an IDE for old industrial software: open it to build, burn, and install into the daily location. It is not a card that pops out of `vivy.exe`.
 
-职责（权威在 Studio）：管理工程 → 开发 → 验证 → `vivy-sdk pack` → **自己**评测候选 → 人在 Studio 里发布 → 安装到日常位 / 回滚。只读询问活物种的 `inspect`。
+Responsibilities (authority in Studio): manage the project → develop → verify → `vivy-sdk pack` → **evaluate the candidate itself** → human release in Studio → install into the daily location / roll back. Read-only query of the live species uses `inspect`.
 
-第一任开发发动机可以是钉死的 DeepSeek Harness 工厂 profile。人看见的名字是 Vivy Studio。DSH 是发动机；换掉它，Studio 还在。
+The first development engine may be a pinned DeepSeek Harness factory profile. The name the human sees is Vivy Studio. DSH is the engine; replace it and Studio remains.
 
-Studio **不准**：写生产 Journal、拿住户 API 密钥、热替换活内核。  
-Studio **必须**：具备完整的第一方日常开发能力；其他已获授权工具可用自身能力直接处理源码工作区（NG-26）。
+Studio **must not**: write the production Journal, take resident API keys, or hot-replace a live kernel.  
+Studio **must**: provide complete first-party daily development capability; other authorized tools may handle the source workspace directly using their own capabilities (NG-26).
 
-不存在「打开工作室」。物种不启动 Studio。
+There is no "open Studio" action. The species does not start Studio.
 
 ---
 
-## 5. 血缘：插件、一代、分流、新物种
+## 5. Lineage: Plugins, Generations, Forks, and New Species
 
-| 改了什么 | 名称 | 关系 |
+| What changed | Name | Relationship |
 |---|---|---|
-| Skill 文本 | **行为包** | 同代可改想法，不改编身体 |
-| 能力源码（工具 / world / provider 实现） | **待编译的插件** | 还不是身体；只有 `pack` 之后才存在 |
-| `vivy-sdk pack` 出的新 EXE | **Generation** | 装插件的唯一结果 |
-| fork 源码但合同还在 | 仍是 Generation | 源在别人的 git |
-| 换皮 UI、换模型供应商、远程 MCP 地址 | 配置 | 不是插件 |
-| Journal 语义、事件词、或不要物种合同 | **另一物种** | 不能公平 EvalRun |
+| Skill text | **Behavior package** | Ideas can change within a generation; the compiled body does not |
+| Capability source (tool / world / provider implementation) | **Plugin awaiting compilation** | Not a body yet; exists only after `pack` |
+| New EXE from `vivy-sdk pack` | **Generation** | The only result of installing a plugin |
+| Forked source with the contract intact | Still a Generation | The source is in someone else's git |
+| UI skin, model-provider switch, remote MCP address | Configuration | Not a plugin |
+| Journal semantics, event vocabulary, or species contract changed | **Another species** | Cannot be fairly compared in an EvalRun |
 
-判定：
+Rule:
 
-> 还能用同一份账本词汇和同一套门说话的，是同物种的不同代。  
-> 门或账本换了，才是新种。
+> If it can still speak through the same ledger vocabulary and the same gates, it is a different generation of the same species.  
+> It becomes a new species only when the gates or ledger change.
 
-谱系记在 `Generation.parent` 上。树枝不是新种。种一分裂，适应度消失。
+Lineage is recorded in `Generation.parent`. A branch is not a new species. Once the species splits, fitness disappears.
 
-插件源码**不是物种**。它只有被编进某一代 EXE 之后，才成为那一代身体的一部分。卸插件 = 再 pack 一版没有它的身体，下次启动换过去。
-
----
-
-## 6. 插件只剩「源码包」；装上就是新版本
-
-拒绝：WASM、`.dll`、Go `plugin`、把 stdio 外置 exe 当插件装载、把 MCP 当插件系统。MCP stdio 仅作为显式配置的 MCP 依赖开放，不进入插件装载范式。
-能力要进世界，只有一条路：
-
-> **实现 SDK 契约的源码 → `vivy-sdk pack` → 新的 `vivy.exe` → eval → promote。**  
-> **装插件 = 造新版本。**
-
-代码可以是纯 Go。出厂单元用真名装配（loop / world / tool / provider），见 `VIVY-ASSEMBLY.md`。  
-**只有用户自定义进 `plugins/`，才叫插件**，规范见 `VIVY-PLUGIN-SPEC.md`。
-
-### Kind A — 行为（仍是文本，不编译）
-
-`data/skills/**/SKILL.md`。改怎么想，不改编身体。不是插件系统。
-
-### Kind B — 能力源码（编译期包）
-
-工具 / provider / tool-world / **channel** 的 **Go 源码包**，实现 `sdk/plugin` 契约。  
-在被 `pack` 编进某一代之前，它在磁盘上只是源，活进程看不见它。
-`seam: channel` 由 ChannelHost 消费，不进工具表（`VIVY-CHANNEL-PACK.md`）。
-
-### Kind C — 世代（唯一装载动作）
-
-`pack` 的输出。Kind B 的源码被链进这个 EXE。没有「先编一个插件 exe 再挂上去」的中间态。
-
-远程 MCP 与显式配置的本地 MCP stdio 都只是**配置里的依赖**（像 provider endpoint），不是插件，不能替代 Kind B。stdio 配置即授权：只接受 PATH 可执行名或绝对路径，使用危险 basename denylist，不另起 execute allowlist；环境只能经 CHILD→HOST 名称引用注入，cwd 只能落在 `runtime.workspace_root` 内。
-本地 stdio 懒启动，进程死亡后下一次操作映射为既有 `error` 状态且不自动重启；raw-frame 上界与 Windows 子进程树回收另记 TODO。
+Plugin source is **not the species**. It becomes part of a generation's body only after being compiled into that generation's EXE. Removing a plugin = pack another body without it and switch to it at the next start.
 
 ---
 
-## 7. 插件格式（给编译器用，不给装载器）
+## 6. Plugins Are Just "Source Packages"; Installing Means a New Version
 
-物种运行时不读插件目录。清单是 **pack 配方**：
+Reject: WASM, `.dll`, Go `plugin`, loading an external stdio exe as a plugin, and treating MCP as the plugin system. MCP stdio is available only as an explicitly configured MCP dependency; it is not part of the plugin-loading model.
+There is only one path for a capability to enter the world:
+
+> **Source implementing the SDK contract → `vivy-sdk pack` → new `vivy.exe` → eval → promote.**  
+> **Installing a plugin = building a new version.**
+
+Code may be pure Go. Built-in units are assembled by their real names (loop / world / tool / provider); see `VIVY-ASSEMBLY.md`.  
+**Only user-defined code under `plugins/` is called a plugin**; see `VIVY-PLUGIN-SPEC.md` for the specification.
+
+### Kind A — Behavior (Still Text, Not Compiled)
+
+`data/skills/**/SKILL.md`. Changes how the system thinks, not the compiled body. Not a plugin system.
+
+### Kind B — Capability Source (Compile-Time Package)
+
+**Go source packages** for tools / providers / tool-worlds / **channels**, implementing the `sdk/plugin` contract.  
+Before being compiled into a generation by `pack`, they are only source on disk and invisible to the live process.
+`seam: channel` is consumed by ChannelHost and does not enter the tool table (`VIVY-CHANNEL-PACK.md`).
+
+### Kind C — Generation (The Only Loading Action)
+
+The output of `pack`. Kind B source is linked into this EXE. There is no intermediate state of "build a plugin exe first and then attach it."
+
+Remote MCP and explicitly configured local MCP stdio are only **configured dependencies** (like a provider endpoint), not plugins, and cannot replace Kind B. Stdio configuration is authorization: accept only a PATH executable name or absolute path, use the dangerous-basename denylist, and do not create a separate execute allowlist; environment values may be injected only through CHILD→HOST name references, and cwd may fall only within `runtime.workspace_root`.
+Local stdio starts lazily; after the process dies, the next operation maps to the existing `error` state and does not restart automatically. Raw-frame limits and Windows child-process-tree cleanup are tracked separately in TODO.
+
+---
+
+## 7. Plugin Format (For the Compiler, Not the Loader)
+
+The species runtime does not read the plugin directory. The manifest is a **pack recipe**:
 
 ```text
 hello-fs/
-  vivy-plugin.json      pack 时读
+  vivy-plugin.json      read at pack time
   README.md
-  plugin.go             实现 sdk/plugin 契约
+  plugin.go             implements the sdk/plugin contract
 ```
 
 ```json
@@ -296,133 +296,133 @@ hello-fs/
 }
 ```
 
-没有 `runtime`、没有 `entry` exe、没有 wasm。`module` 指向被 `pack` 链进去的 Go 包。挂 `journal` / `policy` 的 seam 拒收。`grants` 在编译进这一代时冻结，运行时只能按这一代的清单执行，不能靠配置放宽。
+No `runtime`, no `entry` exe, and no wasm. `module` points to the Go package linked in by `pack`. Seams that attach `journal` / `policy` are rejected. `grants` freeze when compiled into the generation; runtime may execute only according to that generation's manifest and cannot widen them through configuration.
 
 ---
 
-## 8. 装载 = 打包新版本
+## 8. Loading = Packaging a New Version
 
-没有 `plugins.allow` 拉起外置进程。没有启动预检再 spawn。
+There is no `plugins.allow` to launch an external process. There is no startup preflight followed by spawn.
 
 ```text
-加入 / 删掉一个插件源
+add / remove a plugin source
     → vivy-sdk verify
-    → vivy-sdk pack          链进新 vivy.exe，记下 source_ref + 配方 + 哈希
-    → 登记 Generation
-    → eval 候选（独立数据目录）
-    → 人 promote
-    → 下次启动换身体
+    → vivy-sdk pack          link into new vivy.exe, record source_ref + recipe + hash
+    → register Generation
+    → evaluate candidate (separate data directory)
+    → human promote
+    → switch body at next start
 ```
 
-卸插件：从配方里拿掉那个源，再 `pack` 一版，同样走 eval / promote。  
-活着的 EXE **不**动态加载任何插件代码。
+Remove a plugin: take that source out of the recipe and `pack` another version, again through eval / promote.  
+A live EXE **does not** dynamically load any plugin code.
 
-`execute` 指着物种源码硬编，仍是无门自改写；正式路径只许 `vivy-sdk pack`。
+`execute` pointing at species source and compiling it directly is still ungated self-rewriting; the formal path permits only `vivy-sdk pack`.
 
-### 8.4 Vivy SDK：独立二进制，同一棵源码树
+### 8.4 Vivy SDK: Separate Binary, Same Source Tree
 
-盖房工具必须在场，但不能住在住户那份网关里。`vivy-sdk` **是单独的二进制**，代码住在仓库根的 `sdk/`，不进 `cmd/`，也不挂在 `vivy.exe` 上。
+The building tool must be available, but it cannot live in the resident's gateway. `vivy-sdk` **is a separate binary**; its code lives under the repository root's `sdk/`, not in `cmd/` and not attached to `vivy.exe`.
 
-它可以长很大：以后允许自带物种源码快照、Go 发行版或整套 toolchain。体积和发布列车与日常网关切开。
+It may grow large: later it may bundle a species-source snapshot, a Go distribution, or a complete toolchain. Its size and release train are separate from the daily gateway.
 
 ```text
-vivy.exe              物种：日常网关 + worker
-vivy-sdk.exe          盖房：verify / pack / inspect-artifact
-                      源码树：sdk/   （plugin/ 给作者；internal/ 给打包器）
+vivy.exe              Species: daily gateway + worker
+vivy-sdk.exe          Builder: verify / pack / inspect-artifact
+                      Source tree: sdk/   (plugin/ for authors; internal/ for packer)
 ```
 
-住户只拿 `vivy.exe`。作者或工作室拿源码树（或以后的 SDK 发行包）再编。没有物种源码、没有 `go`（本机或 SDK 自带），`pack` 必须高声失败。
+Residents receive only `vivy.exe`. Authors or Studio use the source tree (or a future SDK distribution) to compile again. Without species source or `go` (local or bundled with the SDK), `pack` must fail loudly.
 
-**它打包什么**
+**What It Packages**
 
-| 命令 | 输入 | 输出 |
+| Command | Input | Output |
 |---|---|---|
-| `vivy-sdk verify` | 插件源 + `vivy-plugin.json` | 契约是否满足（seam、grants、schema、可链接） |
-| `vivy-sdk pack` | 物种源码 + 要链进这一代的插件源 | **唯一产物：** 一份新 `vivy.exe` + Generation 清单（含哈希与出处） |
-| `vivy-sdk inspect-artifact` | 一代 EXE / 清单 | 出处是否完整，能否再盖 |
+| `vivy-sdk verify` | Plugin source + `vivy-plugin.json` | Whether the contract is satisfied (seam, grants, schema, linkability) |
+| `vivy-sdk pack` | Species source + plugin sources to link into this generation | **Only output:** a new `vivy.exe` + Generation manifest (with hashes and provenance) |
+| `vivy-sdk inspect-artifact` | Generation EXE / manifest | Whether provenance is complete and it can be rebuilt |
 
-没有单独的 `build-plugin` 产出外置 exe。插件不能单独成为可加载工件。
+There is no separate `build-plugin` output that produces an external exe. A plugin cannot be a loadable artifact by itself.
 
-**随时准备，不等于住户机能编**
+**Always Ready Does Not Mean the Resident Machine Can Compile**
 
-- **准备：** 打包器入口永远在这棵仓库的 `sdk/`，契约与物种同模块，不会和某个外部分发包分叉。
-- **现编：** 只在工作室或开发机上发生。日常 `vivy.exe` 里没有 `sdk` 子命令。
-- **热路径：** 聊天、工具、审批 **禁止** 调 pack。
+- **Prepared:** the packer entry point always lives in this repository's `sdk/`; the contract and species share a module and do not fork into an external distribution package.
+- **Compile in place:** happens only in Studio or on a development machine. Daily `vivy.exe` has no `sdk` subcommand.
+- **Hot path:** chat, tools, and approvals **must not** call pack.
 
-**给插件作者的可 import 面**
+**Import Surface for Plugin Authors**
 
-只开放 `agent-vivy/sdk/plugin`。作者 `import` 后实现接口；`pack` 把包**链接进**新的 `vivy.exe`。不另开 git 模块（D-006）。Eino 不进公开面。
+Only `agent-vivy/sdk/plugin` is exposed. Authors `import` it and implement the interfaces; `pack` **links** the package into a new `vivy.exe`. Do not create another git module (D-006). Eino is not part of the public surface.
 
-**和 Studio 的关系**
+**Relationship to Studio**
 
-Studio（人或其内部发动机）改源 → 调 **`vivy-sdk pack`** → 得到 Generation → **Studio** 评测 / 发布 / 安装。  
-DSH 不负责「怎么编 Vivy」；换掉 DSH，打包器还在 `sdk/`。作者不直接打开 sdk，由 Studio 调。
+Studio (the human or its internal engine) modifies source → calls **`vivy-sdk pack`** → obtains a Generation → **Studio** evaluates / releases / installs it.  
+DSH does not own "how Vivy is compiled"; replace DSH and the packer remains in `sdk/`. Authors do not open the SDK directly; Studio calls it.
 
 ---
 
-## 9. 通信：哪根管子
+## 9. Communication: Which Pipe
 
-能力编进 EXE 之后，工具调用是**进程内函数**（仍过 policy / hook / Journal）。没有插件专用管道。
+After a capability is compiled into the EXE, tool calls are **in-process functions** (still passing through policy / hook / Journal). There is no plugin-specific pipe.
 
-还在用的管子只剩下「不是插件」的那些：
+The only remaining pipes are the ones that are "not plugins":
 
-| 对面 | 传输 | 帧 |
+| Counterparty | Transport | Frames |
 |---|---|---|
-| `vivy worker` | 同二进制 stdio | JSONL JSON-RPC（已有） |
-| UI / 本机控制面 | 回环 WebSocket | 同一套 JSON-RPC（已有） |
-| Studio → 物种 | 只读 | `inspect`（物种不回调 Studio） |
-| 远程 MCP（若保留） | HTTP | 配置依赖，不是插件 |
-| 本地 MCP（显式配置） | stdio | MCP JSON-RPC；配置依赖，不是 worker/plugin 通道 |
-| Kind A Skill | 读文件 | — |
+| `vivy worker` | Same-binary stdio | JSONL JSON-RPC (existing) |
+| UI / local control plane | Loopback WebSocket | Same JSON-RPC (existing) |
+| Studio → species | Read-only | `inspect` (the species does not call Studio back) |
+| Remote MCP (if retained) | HTTP | Configured dependency, not a plugin |
+| Local MCP (explicitly configured) | stdio | MCP JSON-RPC; configured dependency, not a worker/plugin channel |
+| Kind A Skill | File read | — |
 
-拒绝：为插件再开 stdio/gRPC/WASM/dll。`vivy worker` 不是插件通道，是同二进制的子 run。
+Reject opening another stdio/gRPC/WASM/dll channel for plugins. `vivy worker` is not a plugin channel; it is a same-binary child run.
 
 ---
 
-## 10. 拒绝一切运行时装载
+## 10. Reject All Runtime Loading
 
-| 形态 | 结论 |
+| Form | Conclusion |
 |---|---|
-| WASM | **拒绝。** 又一种运行时世界，和「装插件 = 造新版本」对着干 |
-| `.dll` / Go `plugin` | **拒绝。** 卸不掉，Windows / cgo 更差 |
-| 外置 stdio exe（作为插件） | **拒绝。** 无源盲盒，或第二种身体 |
-| 显式配置的 MCP stdio 命令 | **允许但受限。** 仅 MCP 依赖；命令、env 引用、cwd 均经配置校验与运行时治理 |
-| 目录扫描 / 插件市场 | **拒绝。** |
+| WASM | **Reject.** Another runtime world, contrary to "installing a plugin = building a new version" |
+| `.dll` / Go `plugin` | **Reject.** Cannot be unloaded; worse for Windows / cgo |
+| External stdio exe (as a plugin) | **Reject.** An opaque binary with no source, or a second body |
+| Explicitly configured MCP stdio command | **Allowed but restricted.** MCP dependency only; command, env references, and cwd all undergo configuration validation and runtime governance |
+| Directory scan / plugin marketplace | **Reject.** |
 
-有人交东西时只认两种：
+When someone submits something, recognize only two forms:
 
 ```text
-Skill 文本              → Kind A，不编译
-Go 源码 + vivy-plugin.json → 进配方，等 pack 成新 EXE
-其它任何二进制            → 拒收
+Skill text              → Kind A, not compiled
+Go source + vivy-plugin.json → enters the recipe and waits for pack into a new EXE
+Any other binary         → reject
 ```
 
 ---
 
-## 11. 物种只留只读身份
+## 11. The Species Keeps Only Read-Only Identity
 
-「无缝」不再是物种上的三扇门。开发与分发的权威在 Studio（`VIVY-STUDIO.md` §4、§8）。不必把 Node 链进 `vivy.exe`，也不从 `vivy.exe` 打开 Studio。
+"Seamless" is no longer three doors on the species. Development and distribution authority belongs to Studio (`VIVY-STUDIO.md` §4, §8). There is no need to link Node into `vivy.exe`, and Studio is not opened from `vivy.exe`.
 
-### 物种 `inspect`
+### Species `inspect`
 
-只读。版本、代哈希、seam、policy hash、工具清单摘要。  
-拒绝：密钥明文、无关 session 正文、不该暴露的绝对路径。  
-这是 Studio 观察已安装 / 正运行身体的缝，不是演化入口。
+Read-only. Version, generation hash, seam, policy hash, and a tool-manifest summary.  
+Reject: plaintext secrets, unrelated session bodies, and absolute paths that should not be exposed.  
+This is Studio's seam for observing an installed / running body, not an evolution entry point.
 
-### `eval` / `promote` 不在物种上
+### `eval` / `promote` Are Not on the Species
 
-评测由 Studio 拉起候选。发布是人在 Studio 里触发的安装。物种侧已有的 `evals/start` 与 Promotion 写入视为错误的家，冻结产品语义。
+Studio starts candidates for evaluation. Release is an installation triggered by a human in Studio. Existing species-side `evals/start` and Promotion writes are treated as the wrong home, and their product semantics are frozen.
 
-ACP 若以后批准，只是物种过日子控制面的另一张脸，不是第二条演化通道。
+If ACP is approved later, it is only another face of the species' daily-life control plane, not a second evolution channel.
 
 ---
 
-## 12. 控制面对象
+## 12. Control-Plane Objects
 
-**过日子的对象**（Run / Session / Approval）仍在物种 Journal。  
-**换代对象**（Generation / EvalRun / Release / Install）住在 Studio 自己的库。物种不再是这些对象的权威。完整 schema 见 `VIVY-STUDIO.md` §8。
+**Daily-life objects** (Run / Session / Approval) remain in the species Journal.  
+**Generation objects** (Generation / EvalRun / Release / Install) live in Studio's own store. The species is no longer authoritative for these objects. See `VIVY-STUDIO.md` §8 for the complete schema.
 
-下列 Run 形状仍属物种：
+The following Run shape still belongs to the species:
 
 ```text
 kind: Run
@@ -439,153 +439,153 @@ status:
 
 ```
 
-换代对象（Generation / EvalRun / Release / Install）不在这里。见 `VIVY-STUDIO.md` §8。  
-DSH 自己的 session 日志是草稿纸；对人可见的演化记在 Studio 账本，不写进生产 Journal。
+Generation objects (Generation / EvalRun / Release / Install) do not belong here. See `VIVY-STUDIO.md` §8.  
+DSH's own session log is scratch paper; evolution visible to humans is recorded in the Studio ledger, not written to the production Journal.
 
 ---
 
-## 13. 气隙与适应度
+## 13. Air Gap and Fitness
 
-活物种与候选不得共享：SQLite / Journal 文件、workspace root、监听地址、生产密钥。
+The live species and candidates must not share: SQLite / Journal files, workspace root, listen address, or production secrets.
 
-可以共享：仅配置突变时同一份 exe 字节、只读评测套件、对象 schema。
+They may share only the same EXE bytes for configuration-only mutants, the read-only evaluation suite, and the object schema.
 
-没有命名套件，Studio 只是自动装插件。第一套套件应很小、本地：
+Without a named suite, Studio is merely auto-installing plugins. The first suite should be small and local:
 
-- V0/V1 垂直流（会话 → 流式 → 工具 → 审批 → 恢复）
-- 一次 Plan Mode
-- 一次 Skill 或 MCP
-- 挂起审批后的重启恢复
+- V0/V1 vertical workflow (session → stream → tool → approval → recovery)
+- One Plan Mode task
+- One Skill or MCP task
+- Restart recovery after a suspended approval
 
-比较分类失败、审批次数、事件数、Journal 是否还能回放。  
-「更接近 AGI」不是套件 id。加套件是产品决策。
+Compare classified failures, approval count, event count, and whether the Journal can still replay.  
+"Closer to AGI" is not a suite ID. Adding a suite is a product decision.
 
-宏大命题的诚实写法：
+The honest wording for the grand claim:
 
-> 若 AGI 有一部分是中介架构问题，Vivy 是能搜索那种架构、还不丢掉测量的环境。  
-> 若 AGI 几乎全是模型问题，Vivy 仍是换模型不换主权的网关。  
-> 系统应在两种世界里都活。
+> If part of AGI is an intermediary-architecture problem, Vivy is an environment that can search for that architecture without losing measurement.  
+> If AGI is almost entirely a model problem, Vivy is still a gateway that can change models without changing sovereignty.  
+> The system should survive in both worlds.
 
 ---
 
-## 14. 单 EXE 精确含义
+## 14. Exact Meaning of Single EXE
 
-| 是 | 不是 |
+| Is | Is not |
 |---|---|
-| 一个安装器、一个快捷方式 | 身上再挂一串插件进程 |
-| 日常生命就是那一个 `vivy.exe`，能力都在里面 | 把 Node / DSH / WASM 链进热路径 |
-| 内核、L1、本代能力编在同一文件 | 微服务网格 |
-| 新能力只以新 EXE 的形式出现 | 人要先在网关里开实验室才能过日子 |
+| One installer, one shortcut | A string of plugin processes attached to it |
+| Daily life is that one `vivy.exe`, with all capabilities inside | Linking Node / DSH / WASM into the hot path |
+| Kernel, L1, and this generation's capabilities compiled into one file | A microservice mesh |
+| New capabilities appear only as a new EXE | People must open a lab in the gateway before they can live day to day |
 
-日常仍是单 EXE 产品。Studio 是第二个应用，不嵌进 `vivy.exe`。  
-把 DSH 嵌进主二进制，才是破坏单 EXE。
+Daily life remains a single-EXE product. Studio is a second application and is not embedded in `vivy.exe`.  
+Embedding DSH in the main binary is what breaks single EXE.
 
 ---
 
-## 15. 落在现有代码上
+## 15. Applied to Existing Code
 
-不要开第二套运行时。加缝即可。
+Do not open a second runtime. Add seams.
 
-| 已有 | 下一步 |
+| Existing | Next step |
 |---|---|
-| 物种 `inspect`、`vivy-sdk`、S1 投影 | 保留为零件 |
-| 物种侧 Generation / eval / promote / 工作室卡 | **冻结产品语义**（错误的家，见 NG-28） |
-| Studio 应用（尚未存在） | 按 `VIVY-STUDIO.md` ST-1 起：独立进程、账本、开发场地 |
-| `internal/worker` | 仍是同二进制子 run，不是插件通道 |
-| Policy / Hooks / Plan Mode | 准入，哲学不变 |
-| Skill 修订 | 行为包；能力变更走 pack |
-| `mcp_servers` | 最多保留为远程依赖配置，不升级成插件 |
+| Species `inspect`, `vivy-sdk`, S1 projection | Keep as parts |
+| Species-side Generation / eval / promote / Studio card | **Freeze product semantics** (wrong home; see NG-28) |
+| Studio application (not yet present) | Start at ST-1 per `VIVY-STUDIO.md`: independent process, ledger, development venue |
+| `internal/worker` | Remains a same-binary child run, not a plugin channel |
+| Policy / Hooks / Plan Mode | Admission; philosophy unchanged |
+| Skill revisions | Behavior package; capability changes go through pack |
+| `mcp_servers` | Retain at most as remote-dependency configuration; do not upgrade it into a plugin |
 
-Eino 仍是内置 loop，隔离不变。候选代才可以换 loop。不把 Cordis 链进 `vivy.exe`。
-
----
-
-## 16. 不变量
-
-1. 过日子时，人面对的产品同一时刻是一个网关进程。开发时，人面对的是独立的 Studio。
-2. §4.2 的内核不是插件，Studio 不能对活实例热改进它。
-3. 模型可见 ≡ 已记录。密钥不记。换代事实记在 Studio 账本。
-4. worker / 插件 / Studio 都不能放宽物种 policy snapshot。
-5. 能力没有运行时卸载。拿掉能力 = 再 pack 一版 + 在 Studio 发布。worker 仍可杀。
-6. 新身体只在下次启动日常位之后生效。禁止热换。
-7. 生产实例的 workspace 不是 Vivy 源码树。源码树是 Studio 的工程。
-8. DSH 若在，只是 Studio 内部发动机；它不在，已安装物种仍启动。
-9. 两代只通过命名套件上的 EvalRun 比较。评测家长是 Studio。
-10. 一个阶段一个主使命。建 Studio 不能停日常 Operate；Studio 是第一方日常 IDE，但不强制其他已获授权工具迁移执行场地（NG-26）。
+Eino remains the built-in loop, with isolation unchanged. Only a candidate generation may replace the loop. Do not link Cordis into `vivy.exe`.
 
 ---
 
-## 17. 非目标
+## 16. Invariants
 
-- 用 TypeScript 重写物种，或把 Node 放进热路径
-- DSH 成为 `vivy.exe` 的必选依赖
-- 对活内核做同进程自修改
-- 微服务、服务网格、本机 Kubernetes
-- 多租户或托管 Studio（D-016 仍有效，除非另立决策）
-- 从 `vivy.exe` 打开 Studio，或把 Studio 做成网关里的一张卡
-- 插件市场、目录扫描、`dsh-plugin` 式发现
-- WASM、`.dll`、Go `plugin`、stdio 外置插件 exe（MCP 的显式配置依赖例外不属于插件）
-- 把远程 MCP 当成「装插件」
-- 把 Memory / Laputa / AutoDream 绑进本架构
-- 把「到达 AGI」当 sprint 验收
-
----
-
-## 18. 分期（一阶段一使命）
-
-S0 已采纳。S1–S6 物种侧零件 **done**。S7 工作室卡 **产品含义作废**（NG-28）。S8 / S9 在 Studio 完整作者能力得到证明后推进，开发工具不设排他场地。
-
-工位切片与开发环境策略见 `VIVY-STUDIO.md` §3、§10（ST-0..ST-8）。ST-6 是 Studio 完整作者能力的证明事件。
+1. During daily life, the human faces one gateway process at a time. During development, the human faces the independent Studio.
+2. The kernel in §4.2 is not a plugin, and Studio cannot hot-modify it on a live instance.
+3. Model-visible ≡ logged. Secrets are not logged. Generation-change facts are recorded in the Studio ledger.
+4. Workers, plugins, and Studio cannot widen the species policy snapshot.
+5. Capabilities are not unloaded at runtime. Removing a capability = pack another version + release it in Studio. Workers remain killable.
+6. A new body takes effect only after the next start from the daily installation. Hot swapping is forbidden.
+7. The production instance's workspace is not the Vivy source tree. The source tree is a Studio project.
+8. If DSH is present, it is only an engine inside Studio; if absent, the installed species still starts.
+9. Two generations are compared only through an EvalRun on a named suite. Studio is the evaluation parent.
+10. One primary mission per stage. Building Studio cannot stop daily Operate; Studio is the first-party daily IDE, but it does not force other authorized tools to move their execution venue (NG-26).
 
 ---
 
-## 19. 关键决策
+## 17. Non-goals
 
-| ID | 决策 | 理由 |
+- Rewriting the species in TypeScript or putting Node in the hot path
+- Making DSH a required dependency of `vivy.exe`
+- In-process self-modification of the live kernel
+- Microservices, a service mesh, or local Kubernetes
+- Multi-tenant or hosted Studio (D-016 remains valid unless a separate decision is made)
+- Opening Studio from `vivy.exe` or making Studio a card in the gateway
+- A plugin marketplace, directory scanning, or `dsh-plugin`-style discovery
+- WASM, `.dll`, Go `plugin`, or external stdio plugin exes (the explicitly configured MCP dependency exception is not a plugin)
+- Treating remote MCP as "installing a plugin"
+- Binding Memory / Laputa / AutoDream into this architecture
+- Treating "reaching AGI" as a sprint acceptance criterion
+
+---
+
+## 18. Staging (One Mission per Stage)
+
+S0 is adopted. S1–S6 species-side parts are **done**. The S7 Studio card's **product meaning is void** (NG-28). S8 / S9 proceed after Studio's complete authoring capability is proven; development tools have no exclusive venue.
+
+For workstation slices and development-environment strategy, see `VIVY-STUDIO.md` §3, §10 (ST-0..ST-8). ST-6 is the proof event for Studio's complete authoring capability.
+
+---
+
+## 19. Key Decisions
+
+| ID | Decision | Rationale |
 |---|---|---|
-| NG-1 | 物种与 Studio 是两具身体、两个应用 | 环境不能同时是种群 |
-| NG-2 | 物种保持单个 Go EXE | 个人网关、Windows、已有内核 |
-| NG-3 | 进化气隙，下次启动日常位才生效 | 失败突变体不得拆掉日常与账本 |
-| NG-4 | 物种只暴露只读 `inspect`。eval / 发布 / 安装是 Studio 的协议 | 2026-08-15 纠正：不是物种上的三扇门 |
-| NG-5 | DSH 是 Studio 内部第一任发动机，不是信任根，不是物种依赖 | 不联姻预览框架；物种不嵌 Node |
-| NG-6 | 行为是文本；能力是待编译源码；装上只有 Generation | 想 / 源 / 新身体 |
-| NG-7 | 学 DSH 纪律，拒 DSH 身份 | seam、日志、薄 loop；不做同进程插件 OS |
-| NG-8 | 物种控制面仍是唯一过日子写入；Studio 是另一应用，不是 Pod | 不要本机网格，也不要把 Studio 写成物种数据面 |
-| NG-9 | 适应度是命名套件 | 否则 Studio 是自膨胀 |
-| NG-10 | 模型可见 ≡ 已记录，升级 ADR-009 | 否则代与代无法对照 |
-| NG-11 | 拒绝 WASM、dll、Go plugin、stdio 外置插件。MCP stdio 仅作为显式配置依赖，能力插件仍只经 `pack` 链进新 EXE | 装插件 = 造新版本；不要第二种身体 |
-| NG-12 | 不扫描目录；配方里点名源码包，产物用哈希 | 精选目录，不是市场 |
-| NG-13 | 同合同的分流是 Generation，不是新物种 | 保住遗传与评测 |
-| NG-14 | `vivy-sdk` 是独立二进制，源码住仓库根 `sdk/`。日常 `vivy.exe` 不挂 sdk。热路径禁止编译。由 Studio 调 sdk | 住户 EXE 不能假装能编 |
-| NG-15 | 装插件、卸插件、改能力，都等于造新版本并走 Studio 的 eval / 发布 | 没有运行时插件面 |
-| NG-16 | Vivy Studio 是独立应用（工业 IDE）：封好的发动机 + Skill + SDK/工具链；与日常 EXE 分开发行 | 作者打开 Studio；住户只拿网关 |
-| NG-17 | 能力是纯 Go，但是用户插件才用插件治理 | 「我在开发某个插件」只适用于 `plugins/` |
-| NG-18 | 出厂按所是命名并按配方装配；plugin 一词只留给用户层 | 学 DSH 的命名与叠加，不学热加载 |
-| NG-19 | 远程 MCP 是配置依赖，不是插件 | 外打电话 ≠ 往身上长手 |
-| NG-20 | 先把 Studio 做成完整开发 IDE（DSH 进 Studio），再换皮；发布仅人闸 | 第一方开发能力优先于物种侧「门」 |
-| NG-21..28 | 见 `VIVY-STUDIO.md` §11 | 独立应用、账本在 Studio、非排他开发环境、冻结物种卡 |
+| NG-1 | Species and Studio are two bodies and two applications | The environment cannot also be the population |
+| NG-2 | Species remains a single Go EXE | Personal gateway, Windows, existing kernel |
+| NG-3 | Evolution is air-gapped and takes effect at the daily location on next start | Failed mutants must not take down daily life and the ledger |
+| NG-4 | Species exposes read-only `inspect` only. Eval / release / install are Studio protocols | Corrected 2026-08-15: not three doors on the species |
+| NG-5 | DSH is Studio's first internal engine, not the trust root or a species dependency | Do not marry a preview framework; the species does not embed Node |
+| NG-6 | Behavior is text; capability is source awaiting compilation; the installed form is a Generation | Thought / source / new body |
+| NG-7 | Learn DSH discipline, refuse DSH identity | Seam, log, thin loop; no in-process plugin OS |
+| NG-8 | The species control plane remains the only daily-life write path; Studio is another application, not a Pod | No local mesh, and do not write Studio as the species data plane |
+| NG-9 | Fitness is a named suite | Otherwise Studio is self-inflation |
+| NG-10 | Model-visible ≡ logged; upgrade ADR-009 | Otherwise generations cannot be compared |
+| NG-11 | Reject WASM, dll, Go plugin, and external stdio plugins. MCP stdio is only an explicitly configured dependency; capability plugins enter a new EXE only through `pack` | Installing a plugin = building a new version; do not create a second body |
+| NG-12 | Do not scan directories; the recipe names source packages and artifacts are hashed | Curated catalog, not a marketplace |
+| NG-13 | A fork with the same contract is a Generation, not a new species | Preserve lineage and evaluation |
+| NG-14 | `vivy-sdk` is a separate binary, with source under the repository-root `sdk/`. Daily `vivy.exe` does not carry the SDK. Compilation is forbidden on the hot path. Studio invokes the SDK | The resident EXE cannot pretend it can compile |
+| NG-15 | Installing, removing, or changing a plugin always builds a new version and goes through Studio eval / release | No runtime plugin surface |
+| NG-16 | Vivy Studio is an independent application (industrial IDE): sealed engine + Skill + SDK/toolchain, distributed separately from the daily EXE | Authors open Studio; residents receive only the gateway |
+| NG-17 | Capabilities are pure Go, but only user plugins use plugin governance | "I am developing a plugin" applies only to `plugins/` |
+| NG-18 | Built-in units are named by what they are and assembled by recipe; the word plugin is reserved for the user layer | Learn DSH naming and stacking, not hot loading |
+| NG-19 | Remote MCP is a configured dependency, not a plugin | Calling outward is not growing a limb |
+| NG-20 | First make Studio a complete development IDE (DSH inside Studio), then reskin it; release is human-gated only | First-party development capability outranks species-side "doors" |
+| NG-21..28 | See `VIVY-STUDIO.md` §11 | Independent application, ledger in Studio, non-exclusive development venue, frozen species card |
 
 ---
 
-## 20. 已确认
+## 20. Confirmed
 
-1. **2026-08-14 收为方向。** 物种 / 内核 / 装配准绳仍在。V0 ADR 仍有效。
-2. **远程 MCP 留作配置型远程依赖。**
-3. **2026-08-15：`vivy-sdk` 从日常 EXE 拆出。** NG-14。
-4. **2026-08-15 纠正 Studio：** 独立应用；管开发与分发全生命周期；物种不启动它；账本不在物种 SQLite。正本 `VIVY-STUDIO.md`。
-5. **2026-08-23 开发环境策略：** Studio 是第一方日常开发 IDE；已获授权读取工作区的其他工具直接使用自身能力开发，无需迁移进 Studio（NG-26）。
-6. **发布只能人在 Studio 里点。** 不是物种卡上的 promote。
-7. **产品名：** 中文「Vivy Studio」/「工作室」指独立应用；英文 `Studio`。不再指网关里的一张卡。
+1. **2026-08-14 adopted as direction.** The species / kernel / assembly principles remain. The V0 ADR remains valid.
+2. **Remote MCP remains a configured remote dependency.**
+3. **2026-08-15: `vivy-sdk` split out of the daily EXE.** NG-14.
+4. **Studio corrected on 2026-08-15:** independent application; owns the full development and distribution lifecycle; the species does not start it; the ledger is not in the species SQLite. Canonical source: `VIVY-STUDIO.md`.
+5. **Development-environment strategy on 2026-08-23:** Studio is the first-party daily development IDE; other authorized tools that can read the workspace develop directly using their own capabilities and need not move into Studio (NG-26).
+6. **Release can only be triggered by a human in Studio.** It is not `promote` on the species card.
+7. **Product name:** "Vivy Studio" / "Studio" refers to the independent application; English `Studio`. It no longer refers to a card in the gateway.
 
 ---
 
-## 21. 四句合同
+## 21. Four-Sentence Contract
 
-以 `VIVY-STUDIO.md` §12 为准：
+Follow `VIVY-STUDIO.md` §12:
 
-- **网关：** 过日子的唯一身体，Journal 的唯一写入者。
-- **Studio：** 第一方日常开发 IDE，并是分发生命周期的权威应用与安装者。
-- **插件：** 满足契约的源码。只有被 SDK 编进某一代 EXE 之后才存在于世界里。
-- **人：** 唯一发布者。开发者（含 agent）可在 Studio 或其他已获授权工具中直接改 Vivy。
+- **Gateway:** the only daily body and the only writer of the Journal.
+- **Studio:** the first-party daily development IDE and the authoritative application and installer for the distribution lifecycle.
+- **Plugin:** source that satisfies the contract. It exists in the world only after the SDK compiles it into a generation's EXE.
+- **Human:** the only releaser. Developers (including agents) may modify Vivy directly in Studio or another authorized tool.
 
-一个设计若要其中两句同时作废，就不是这份架构。
+If a design makes two of these sentences false at once, it is not this architecture.

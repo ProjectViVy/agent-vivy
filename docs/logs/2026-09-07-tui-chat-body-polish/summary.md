@@ -1,21 +1,21 @@
-# Lane C 聊天体：F5 工具卡 ctrl+o 展开 · F9 reasoning ctrl+r 折叠 · F13 空会话 hero
+# Lane C chat body: F5 tool-card ctrl+o expansion · F9 reasoning ctrl+r collapse · F13 empty-session hero
 
-## 已交付
+## Delivered
 
-全部改动位于共享呈现层 `sdk/tui/view`，`vivy-code.exe`、`vivy tui`（含 `--live`）与打包 TUI face 三条路径同步生效。
+All changes are in the shared presentation layer `sdk/tui/view`; `vivy-code.exe`, `vivy tui` (including `--live`), and the packaged TUI face paths all take effect in sync.
 
-- **F5 工具卡 ctrl+o 展开**：新增会话内 `toolExpanded` 开关（`KeyCtrlO`，gate 存在时不响应），生效条件为 `tui.debug` 配置或 ctrl+o 临时展开；`compactToolLines` 省略标记改为 `… N more lines · ctrl+o expand`。工具卡渲染不进 mdCache，无缓存失效问题；`tui.debug` 配置语义不变。
-- **F9 reasoning ctrl+r 折叠**：新增会话内 `reasoningCollapsed` 开关（`KeyCtrlR`，gate 存在时不响应）；折叠时 reasoning 消息渲染为单行摘要 `reasoning · N 行 · ctrl+r 展开`（保留 ReasoningBar/Reasoning 样式与 chips 逻辑），展开为原状。`messageMarkdownKey` 与缓存 `ensure` 增加 `collapsed` 维度，保证同宽度下切换不读旧渲染。
-- **F13 空会话 hero**：`chatLines` 空分支由 3 行占位升级为 hero（`Vivy™ VIVY CODE` wordmark、「寻找真心之旅」、有值时的 CWD 行、命令与键位提示），窄宽度走既有 `truncate`；非空会话不渲染。
-- 快捷键面板（ctrl+x）新增 `ctrl+o 工具输出`、`ctrl+r reasoning` 两行。
+- **F5 tool-card ctrl+o expansion**: Added the session-scoped `toolExpanded` toggle (`KeyCtrlO`, ignored when a gate exists); it is active through the `tui.debug` configuration or temporary ctrl+o expansion. The `compactToolLines` omission marker is now `… N more lines · ctrl+o expand`. Tool-card rendering does not enter mdCache, so there is no cache-invalidation issue; the meaning of the `tui.debug` configuration is unchanged.
+- **F9 reasoning ctrl+r collapse**: Added the session-scoped `reasoningCollapsed` toggle (`KeyCtrlR`, ignored when a gate exists); when collapsed, reasoning messages render as the one-line summary `reasoning · N lines · ctrl+r expand` (retaining the ReasoningBar/Reasoning styles and chips logic), and expand to their original form. `messageMarkdownKey` and the cache `ensure` gain a `collapsed` dimension, ensuring that a toggle at the same width does not read stale rendering.
+- **F13 empty-session hero**: The empty `chatLines` branch is upgraded from a 3-line placeholder to a hero (`Vivy™ VIVY CODE` wordmark, “Journey to Find Your True Heart”, the CWD line when populated, and command/key hints); narrow widths use the existing `truncate`; non-empty sessions do not render it.
+- The shortcut panel (`ctrl+x`) adds `ctrl+o tool output` and `ctrl+r reasoning` as two lines.
 
-## 明确未做
+## Explicitly not done
 
-- 未改 surface/domain 契约、驱动层、Journal、provider 或 Eino 编排（纯展示层，无 Eino surface 适用）。
-- 未做逐卡定点展开/折叠（ctrl+o/ctrl+r 为全会话级开关）；未持久化开关状态（每次启动回到默认）。
-- 未处理超窄宽度下 hero wordmark 的硬截（padBlock 兜底，化妆级，未在本轮范围内）。
-- 仓库根的两个未跟踪 scratch（`sdk/tui/view/zpreview_test.go`、`tui-composer-shot.png`）属于前 lane，未纳入本交付。
+- Did not change the surface/domain contract, driver layer, Journal, provider, or Eino orchestration (presentation-only; no Eino surface applies).
+- Did not implement per-card targeted expansion/collapse (ctrl+o/ctrl+r are session-wide toggles); toggle state is not persisted (each startup returns to the default).
+- Did not handle hard truncation of the hero wordmark at ultra-narrow widths (`padBlock` fallback, cosmetic-level, outside this round's scope).
+- The two untracked scratch files at the repository root (`sdk/tui/view/zpreview_test.go`, `tui-composer-shot.png`) belong to the previous lane and are not included in this delivery.
 
-## 过程
+## Process
 
-独立 worktree `feat/tui-chat-body-polish`（VC 轨道并行隔离规则）。子 agent 分工：builder 实现 F5/F9/F13 与测试，reviewer diff 审查（SHIP，3 P2：键位标签改中性措辞、测试去除未导出字段断言，均已修；hero 窄宽截断记为未做）。监督者负责集成、测试与 `just ci`。
+Independent worktree `feat/tui-chat-body-polish` (VC track's parallel-isolation rule). Sub-agents split the work: the builder implemented F5/F9/F13 and tests, and the reviewer audited the diff (SHIP; three P2 items: key labels were changed to neutral wording and tests removed assertions on unexported fields; both were fixed, and narrow-width hero truncation was recorded as not done). The supervisor handled integration, tests, and `just ci`.

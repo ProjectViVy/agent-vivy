@@ -1,24 +1,28 @@
 # Verification — WEB-2
 
-日期：2026-09-01 ｜ worktree `agent-vivy-vc0`（分支 `feat/vc1a-bash-tool`）
+Date: 2026-09-01 | worktree `agent-vivy-vc0` (branch `feat/vc1a-bash-tool`)
 
 ```
 go test ./internal/runtime/ -run TestEinoFilesystemBackendWriteFileConfinedFreshNestedDir -race -count=1 -v
-    → PASS（回归用例：workspace-write 沙箱下写 a/b/c/new.txt（CreateParents）
-      成功落盘且读回逐字节一致；read-only 沙箱同请求 → ErrSandboxDenied）
+    → PASS (regression case: writing a/b/c/new.txt (CreateParents) under the
+      workspace-write sandbox succeeds and reads back byte-for-byte identically;
+      the same request under the read-only sandbox → ErrSandboxDenied)
 gofmt -l internal/runtime/filesystem_backend.go internal/runtime/filesystem_backend_test.go
-    → 空
+    → empty
 go test ./internal/runtime/ ./internal/tools/ -race -count=1
-    → ok 96.2s / ok 1.9s（写路径是众多工具/审批用例的底座，全包无回归）
+    → ok 96.2s / ok 1.9s (the write path underpins many tool/approval cases; the full
+      package has no regressions)
 just ci → CI_EXIT=0
 ```
 
-## 修复前对照
+## Before-the-fix comparison
 
-相同回归用例在修复前报
-`sandbox: runtime: resolve parent symlinks: ...`（The system cannot find the
-path specified.）——全新嵌套目录在受限模式一律误拒；测试名即钉死该场景。
+The same regression case reported before the fix:
+`sandbox: runtime: resolve parent symlinks: ...` (The system cannot find the
+path specified.) — completely new nested directories were always falsely rejected in
+restricted mode; the test name pins down this scenario.
 
-## 无浏览器面
+## No browser surface
 
-内核文件工具路径，无 UI/user-visible 面；产品路径验证 = `just ci`。
+This is a kernel file-tool path with no UI/user-visible surface; product-path verification =
+`just ci`.

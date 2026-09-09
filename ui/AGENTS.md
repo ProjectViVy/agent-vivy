@@ -12,17 +12,14 @@
 - The embedded UI is validated by `just ci` and packaged by the normal Vivy
   build; it is the release/smoke path, not the development server.
 
-- `src/lib/rpc.ts` 是唯一 JSON-RPC WebSocket 传输实现。
-- `src/lib/api.ts` 定义后端权威的 wire types 和 typed API（含 `settings/providers*` 注册表 RPC）。
-- `src/lib/store.ts` 是 Session、Run、Review、Settings、Provider 注册表与生命周期状态的唯一来源。
-- 真实功能不得导入 `src/lib/demo-api.ts`。
-- `demo-api.ts` 只服务带“演示 / 本地模拟”标识的 Notebook、Persona、Cron、Skills 和计划页面，并且只能使用 `vivy.demo.*` localStorage key。
-- Provider 密钥默认由运行环境注入（config `env_key`）；「设置 → 模型」的自定义
-  供应商注册表由**后端持久化**（`settings/providers` 系列 RPC → `data/agent-home/
-  settings.yaml`，密钥 0600 写-only 落盘、写入后同步环境变量），UI 不再存
-  localStorage 副本；`settings/update` 选模型时不携带密钥（后端按注册表解析），
-  值绝不写入日志、绝不回传控制面；`vivy.demo.*` 仍禁用密钥字段。
-- UI 修改完成后在仓库根目录运行 `just ci`。用户可见行为还要在
-  `http://127.0.0.1:3015` 实走过一遍，并按根目录 `AGENTS.md` 写
-  `docs/logs/YYYY-MM-DD-slug/`（`summary.md` / `verification.md` /
-  `acceptance.md`）。未修完的缺口记入 `docs/TODO.md` §0.1。
+- `src/lib/rpc.ts` is the sole JSON-RPC WebSocket transport implementation.
+- `src/lib/api.ts` defines the backend-authoritative wire types and typed API (including the `settings/providers*` registry RPCs).
+- `src/lib/store.ts` is the sole source of truth for Session, Run, Review, Settings, Provider registry, and lifecycle state.
+- Real features must not import `src/lib/demo-api.ts`.
+- `demo-api.ts` serves only the Notebook, Persona, Cron, Skills, and planning pages marked as “demo / local mock,” and may use only `vivy.demo.*` localStorage keys.
+- Provider secrets are injected by the runtime by default (config `env_key`); the custom provider registry under “Settings → Models” is **persisted by the backend** (`settings/providers` series RPCs → `data/agent-home/
+  settings.yaml`; secrets are written to disk write-only with mode 0600 and synced to environment variables afterward), and the UI no longer stores a localStorage copy. When `settings/update` selects a model, it does not carry the secret (the backend resolves it through the registry); values are never written to logs or sent back to the control plane; `vivy.demo.*` still disables secret fields.
+- After completing UI changes, run `just ci` from the repository root. User-visible behavior must also be exercised end to end at
+  `http://127.0.0.1:3015`, and the root `AGENTS.md` requires writing
+  `docs/logs/YYYY-MM-DD-slug/` (`summary.md` / `verification.md` /
+  `acceptance.md`). Record unfinished gaps in `docs/TODO.md` §0.1.

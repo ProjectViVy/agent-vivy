@@ -1,113 +1,113 @@
-# UI 迁移计划文档索引
+# UI Migration Plan Document Index
 
-本目录包含 Agent Diva GUI → VIVY UI 全量化迁移的详细规划和执行总结。
+This directory contains detailed plans and execution summaries for the complete Agent Diva GUI → VIVY UI migration.
 
-## 📚 文档列表
+## 📚 Document List
 
-### 1. [执行总结](./UI_MIGRATION_EXECUTION_SUMMARY.md) ⭐ **从这里开始**
-- **内容：** Phase 1 完成情况、后续阶段规划、总体时间表
-- **适合人群：** 项目负责人、PM、所有团队成员
-- **阅读时间：** 10 分钟
+### 1. [Execution Summary](./UI_MIGRATION_EXECUTION_SUMMARY.md) ⭐ **Start Here**
+- **Contents:** Phase 1 completion status, plans for subsequent phases, and overall schedule
+- **Audience:** Project leads, PMs, and all team members
+- **Reading time:** 10 minutes
 
-### 2. [RPC 端点差距分析](./UI_MIGRATION_RPC_GAP_ANALYSIS.md)
-- **内容：** Agent Diva 所需端点与 VIVY 现有端点的对比，识别需要补充的 RPC 方法
-- **适合人群：** Backend Developer
-- **关键发现：** VIVY 现有覆盖率 39%，核心缺口在计划管理（0%）
-- **阅读时间：** 15 分钟
+### 2. [RPC Endpoint Gap Analysis](./UI_MIGRATION_RPC_GAP_ANALYSIS.md)
+- **Contents:** Comparison of the endpoints required by Agent Diva with VIVY's existing endpoints, identifying RPC methods that need to be added
+- **Audience:** Backend Developer
+- **Key finding:** VIVY's existing coverage is 39%; the primary gap is plan management (0%)
+- **Reading time:** 15 minutes
 
-### 3. [国际化迁移计划](./UI_MIGRATION_I18N_PLAN.md)
-- **内容：** 如何将 Agent Diva 的 400+ 翻译键迁移到 VIVY 的 i18n 系统
-- **适合人群：** Frontend Developer、翻译审核人员
-- **工作量估算：** 3.5-4.5 天
-- **阅读时间：** 10 分钟
+### 3. [Internationalization Migration Plan](./UI_MIGRATION_I18N_PLAN.md)
+- **Contents:** How to migrate Agent Diva's 400+ translation keys to VIVY's i18n system
+- **Audience:** Frontend Developer and translation reviewers
+- **Estimated effort:** 3.5-4.5 days
+- **Reading time:** 10 minutes
 
-### 4. [样式系统扩展计划](./UI_MIGRATION_STYLES_PLAN.md)
-- **内容：** 如何将 Agent Diva 的 TailwindCSS + 自定义变量适配到 VIVY 的设计令牌系统
-- **适合人群：** Frontend Developer、UI Designer
-- **工作量估算：** 5.5-7.5 天
-- **阅读时间：** 15 分钟
+### 4. [Styling System Extension Plan](./UI_MIGRATION_STYLES_PLAN.md)
+- **Contents:** How to adapt Agent Diva's TailwindCSS + custom variables to VIVY's design-token system
+- **Audience:** Frontend Developer and UI Designer
+- **Estimated effort:** 5.5-7.5 days
+- **Reading time:** 15 minutes
 
-### 5. [基础设施审查报告](./UI_MIGRATION_INFRASTRUCTURE_REVIEW.md)
-- **内容：** VIVY Go backend 的全面审查结果，包括现有能力、缺口分析、实施路线图
-- **适合人群：** Tech Lead、架构师
-- **阅读时间：** 20 分钟
+### 5. [Infrastructure Review Report](./UI_MIGRATION_INFRASTRUCTURE_REVIEW.md)
+- **Contents:** Comprehensive review of the VIVY Go backend, including existing capabilities, gap analysis, and implementation roadmap
+- **Audience:** Tech Lead and architects
+- **Reading time:** 20 minutes
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 对于 Backend Developer
-1. 阅读 [RPC 端点差距分析](./UI_MIGRATION_RPC_GAP_ANALYSIS.md)
-2. 优先实现高优先级端点（Phase 1A）：
+### For Backend Developers
+1. Read the [RPC Endpoint Gap Analysis](./UI_MIGRATION_RPC_GAP_ANALYSIS.md)
+2. Prioritize implementing the high-priority endpoints (Phase 1A):
    - `plan/get_active`
    - `plan/approve`
    - `plan/reject`
    - `sessions/generate_title`
 
-### 对于 Frontend Developer
-1. 阅读 [执行总结](./UI_MIGRATION_EXECUTION_SUMMARY.md) 了解整体规划
-2. 开始 Phase 1 实施：
-   - 按 [国际化迁移计划](./UI_MIGRATION_I18N_PLAN.md) 扩展 `i18n.ts`
-   - 按 [样式系统扩展计划](./UI_MIGRATION_STYLES_PLAN.md) 扩展 `tokens.css`
+### For Frontend Developers
+1. Read the [Execution Summary](./UI_MIGRATION_EXECUTION_SUMMARY.md) to understand the overall plan
+2. Begin Phase 1 implementation:
+   - Extend `i18n.ts` according to the [Internationalization Migration Plan](./UI_MIGRATION_I18N_PLAN.md)
+   - Extend `tokens.css` according to the [Styling System Extension Plan](./UI_MIGRATION_STYLES_PLAN.md)
 
-### 对于 QA Engineer
-1. 阅读 [执行总结](./UI_MIGRATION_EXECUTION_SUMMARY.md) 的 Phase 8 部分
-2. 准备 Playwright 测试环境
-3. 设计核心路径的 E2E 测试用例
+### For QA Engineers
+1. Read the Phase 8 section of the [Execution Summary](./UI_MIGRATION_EXECUTION_SUMMARY.md)
+2. Prepare the Playwright test environment
+3. Design E2E test cases for the core paths
 
-### 对于 Product Manager
-1. 阅读 [执行总结](./UI_MIGRATION_EXECUTION_SUMMARY.md)
-2. 组织评审会议，确认优先级和时间表
-3. 安排翻译审核人员
+### For Product Managers
+1. Read the [Execution Summary](./UI_MIGRATION_EXECUTION_SUMMARY.md)
+2. Organize a review meeting to confirm priorities and the schedule
+3. Arrange translation reviewers
 
 ---
 
-## 📊 项目状态
+## 📊 Project Status
 
-| 阶段 | 状态 | 完成度 |
+| Phase | Status | Completion |
 |------|------|--------|
-| Phase 1: 基础设施准备 | 🟡 规划完成，待实施 | 0% |
-| Phase 2: 核心聊天系统 | ⬜ 未开始 | 0% |
-| Phase 3: 会话与审批 | ⬜ 未开始 | 0% |
-| Phase 4: 设置面板 | ⬜ 未开始 | 0% |
-| Phase 5: 记忆与高级功能 | ⬜ 未开始 | 0% |
-| Phase 6: 控制台与诊断 | ⬜ 未开始 | 0% |
-| Phase 7: Onboarding 与收尾 | ⬜ 未开始 | 0% |
-| Phase 8: 测试与发布 | ⬜ 未开始 | 0% |
+| Phase 1: Infrastructure Preparation | 🟡 Planning complete, pending implementation | 0% |
+| Phase 2: Core Chat System | ⬜ Not started | 0% |
+| Phase 3: Sessions and Approval | ⬜ Not started | 0% |
+| Phase 4: Settings Panel | ⬜ Not started | 0% |
+| Phase 5: Memory and Advanced Features | ⬜ Not started | 0% |
+| Phase 6: Console and Diagnostics | ⬜ Not started | 0% |
+| Phase 7: Onboarding and Wrap-up | ⬜ Not started | 0% |
+| Phase 8: Testing and Release | ⬜ Not started | 0% |
 
-**总体进度：** 0%（规划阶段完成）
-
----
-
-## 🎯 关键里程碑
-
-- **2026-02-XX：** Phase 1 完成（基础设施实施）
-- **2026-03-XX：** Phase 2 完成（核心聊天系统可用）
-- **2026-04-XX：** Phase 3-4 完成（会话、审批、设置）
-- **2026-05-XX：** Phase 5-7 完成（高级功能、Onboarding）
-- **2026-06-XX：** Phase 8 完成（测试通过，发布候选版本）
+**Overall Progress:** 0% (planning phase complete)
 
 ---
 
-## 💬 沟通渠道
+## 🎯 Key Milestones
 
-- **周会：** 每周一上午 10:00
-- **即时通讯：** Teams #ui-migration 频道
-- **代码审查：** GitHub PR 标签 `ui-migration`
-- **问题追踪：** GitHub Issues 标签 `ui-migration`
-
----
-
-## 📝 更新日志
-
-- **2026-01-XX：** 初始版本，完成 Phase 1 规划
-  - 创建 5 份详细文档
-  - 识别 RPC 端点缺口
-  - 制定国际化和样式迁移策略
-  - 估算总体工作量（12-18 周）
+- **2026-02-XX:** Phase 1 complete (infrastructure implemented)
+- **2026-03-XX:** Phase 2 complete (core chat system usable)
+- **2026-04-XX:** Phases 3-4 complete (sessions, approval, settings)
+- **2026-05-XX:** Phases 5-7 complete (advanced features, Onboarding)
+- **2026-06-XX:** Phase 8 complete (tests passed, release candidate)
 
 ---
 
-**最后更新：** 2026-01-XX  
-**维护者：** UI Migration Team  
-**联系：** team@vivy.example.com
+## 💬 Communication Channels
+
+- **Weekly meeting:** Every Monday at 10:00 AM
+- **Instant messaging:** Teams `#ui-migration` channel
+- **Code review:** GitHub PR label `ui-migration`
+- **Issue tracking:** GitHub Issues label `ui-migration`
+
+---
+
+## 📝 Changelog
+
+- **2026-01-XX:** Initial version; completed Phase 1 planning
+  - Created 5 detailed documents
+  - Identified RPC endpoint gaps
+  - Established internationalization and styling migration strategies
+  - Estimated overall effort (12-18 weeks)
+
+---
+
+**Last Updated:** 2026-01-XX  
+**Maintainer:** UI Migration Team  
+**Contact:** team@vivy.example.com

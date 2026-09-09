@@ -1,9 +1,28 @@
-# Acceptance（人如何确认）
+# Acceptance: how to verify manually
 
-本切片为内核记录侧，无独立 UI 面。可观察行为在 agent 会话的文件工具链路里：
+This slice covers the kernel recording side and has no separate UI surface. The
+observable behavior is in the file-tool path of an agent session:
 
-1. **版本链记录**：让 agent 在会话里 write/patch/multiedit 某文件后，`data/vivy.db` 的 `file_versions` 表出现对应行——首次写某路径产生两行（改动前基线 + 改后内容），后续编辑各追加一行；同内容重复写不追加；单文件超过 20 版后只保留最新 20 版。`file_reads` 表随 read_file 出现 (session, path, read_at) 行。
-2. **stale-read 守卫**：会话中 agent read 过某文件后，若外部（人手改、bash、download）改动了它，agent 再 patch 会被拒绝，工具结果含 "changed on disk after the last read; read it again before editing"；agent 重新 read 后即可正常编辑。
-3. **插件写同样入链**：agent 在会话里调用 lsp_rename 等插件写工具改动文件后，`file_versions` 出现与内核写工具同款的链行（基线 + 改后）；插件写取消/中途失败（未 Close）时文件保持旧内容不变、无链行。
-4. **会话删除级联**：删除一个改过文件的会话，`file_versions` / `file_reads` / `session_compactions` 中该会话的行一并消失（postgres 下此前会因 compactions 外键报错，现已修复）。
-5. **无感面**：未装配 workspace 的部署、无 session 上下文的调用行为与升级前一致；失败的历史写入只产生 Warn 日志，绝不阻塞文件工具本身（best-effort 承诺）。
+1. **Version-chain recording**: have an agent write/patch/multiedit a file in a
+   session, then verify that `data/vivy.db` has corresponding rows in
+   `file_versions`—the first write to a path creates two rows (pre-change
+   baseline + post-change content), later edits append one row each, repeated
+   writes of identical content append nothing, and after more than 20 versions
+   only the newest 20 remain. `file_reads` gains a `(session, path, read_at)` row
+   after `read_file`.
+2. **Stale-read guard**: after the agent reads a file in the session, change it
+   externally (manual edit, bash, or download), then patch it again; the patch is
+   rejected and the tool result contains "changed on disk after the last read;
+   read it again before editing". After the agent reads it again, editing works.
+3. **Plugin writes enter the chain too**: after the agent changes a file through
+   a plugin write tool such as `lsp_rename`, `file_versions` contains the same
+   chain rows as kernel write tools (baseline + post-change). If a plugin write is
+   canceled or fails mid-write (without Close), the file retains its old content
+   and no chain row is recorded.
+4. **Session-delete cascade**: deleting a session that changed a file removes
+   that session's rows from `file_versions` / `file_reads` /
+   `session_compactions` (Postgres previously failed on a compactions foreign key;
+   this is fixed).
+5. **Invisible surface**: deployments without a workspace and calls without
+   session context behave as before; failed historical writes produce only a Warn
+   log and never block the file tool itself (best-effort guarantee).

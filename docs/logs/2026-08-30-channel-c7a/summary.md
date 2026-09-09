@@ -1,59 +1,71 @@
-# 2026-08-30 — plugins/feishu: 飞书/Lark 单聊文本通道（CH-C7a）
+# 2026-08-30 — plugins/feishu: Feishu/Lark direct-message text channel (CH-C7a)
 
-## 变更范围
+## Change scope
 
-新增 `plugins/feishu/`（独立模块 `example.com/vivy/plugins/feishu`）：
-seam-channel 适配器，p2p（单聊）纯文本收 / 发，传输为飞书事件网关的
-**出站 WebSocket 长连接**（manifest `transport: "poll"`，grant
-`channel.poll`），无 webhook、无监听端口。
+Added `plugins/feishu/` (independent module
+`example.com/vivy/plugins/feishu`): a seam-channel adapter for p2p
+(direct-message) plain-text send/receive over the Feishu event gateway's
+**outbound WebSocket long connection** (manifest `transport: "poll"`, grant
+`channel.poll`), with no webhook or listening port.
 
-- `plugin.go` — Start/Stop/Send 骨架（telegram/dingtalk 形状模板）；
-  监督重拨循环（SDK 自动重连关闭，每次重拨换新 client，首连 fail-closed，
-  Stop 后不复活、无 goroutine 泄漏）；晚到事件围栏（stopped latch）；
-  `im.message.receive_v1` 事件归一化（仅 p2p + text + 人类 sender；
-  群聊 / 非文本 / bot 回声 / 空文本全部本地丢弃）；回复走
-  `im.v1.messages`（`receive_id_type=chat_id`），tenant_access_token
-  全程由 SDK 管理。
-- `settings.go` — 严格解码（未知字段 fail-closed）：`app_id_env` /
-  `app_secret_env`（必填且须不同，CH-C6/D2 `*_env` 模式）、
-  `encrypt_key`（普通 settings 值，§14.3，Host 不解码）、`is_lark`
-  （feishu↔lark 域名切换）、`open_base_url`（环回测试 / 专有部署覆盖）。
-  **没有 `verification_token`**——URL challenge 是 webhook 模式的握手，
-  长连接模式不涉及。
-- `vivy-plugin.json` — name `feishu`，seam `channel`，grants
-  `[channel.poll, secret.read]`。
-- `plugin_test.go` — 网络全free（仅环回 httptest）：settings 矩阵、
-  域名解析矩阵、事件归一化矩阵、Start fail-closed 矩阵（t.Setenv 植
-  /清凭据）、Send 全链路（真 SDK client 打环回桩，断言 token 端点与
-  message 端点的 URL / query / body）、API 错误上浮、**真 WS 循环回**
-  （SDK 自身 Frame codec 构帧，走真 dispatcher → PublishInbound →
-  Send → ack 断言 → Stop 后零重拨）、断线重拨、Stop 幂等。
-- `README.md` — zh，镜像 telegram/dingtalk 结构。
+- `plugin.go` — Start/Stop/Send skeleton (telegram/dingtalk-shaped template);
+  supervised redial loop (SDK automatic reconnect disabled, a new client per redial,
+  fail-closed first connection, no resurrection or goroutine leak after Stop); late
+  event fence (stopped latch); `im.message.receive_v1` normalization (p2p +
+  text + human sender only; group chat / non-text / bot echo / empty text all dropped
+  locally); replies use `im.v1.messages`
+  (`receive_id_type=chat_id`), with tenant_access_token managed by the SDK.
+- `settings.go` — strict decode (unknown fields fail-closed):
+  `app_id_env` / `app_secret_env` (required and distinct, CH-C6/D2
+  `*_env` pattern), `encrypt_key` (ordinary settings value, §14.3,
+  not decoded by the Host), `is_lark` (feishu↔lark domain switch), and
+  `open_base_url` (loopback-test / dedicated-deployment override).
+  **No `verification_token`**—URL challenge is a webhook-mode handshake and is
+  not involved in long-connection mode.
+- `vivy-plugin.json` — name `feishu`, seam `channel`, grants
+  `[channel.poll, secret.read]`.
+- `plugin_test.go` — network-free (httptest loopback only): settings matrix,
+  domain-resolution matrix, event-normalization matrix, Start fail-closed matrix
+  (t.Setenv set/clear credentials), full Send path (real SDK client against a
+  loopback stub, asserting token and message endpoint URL/query/body), API errors
+  surfaced, **real WS loopback** (SDK's own Frame codec builds frames, real
+  dispatcher → PublishInbound → Send → ack assertion → zero redial after Stop),
+  disconnect redial, and idempotent Stop.
+- `README.md` — Chinese, mirroring the telegram/dingtalk structure.
 
-## SDK 版本决策（偏离说明）
+## SDK version decision (deviation note)
 
-钉 `github.com/larksuite/oapi-sdk-go/v3 v3.11.0`（v3 系列 WS 客户端重
-写版），**不是** picoclaw go.mod 钉的 v3.9.4。原因：v3.9.4 的 WS
-`Start` 以 `select{}` 永久阻塞、每次成功 Start 泄漏一个永不退出的
-pingLoop goroutine、WS bootstrap 无法注入 http client——与"监督生命
-周期 / 无 goroutine 泄漏 / 环回测试"硬要求冲突。v3.11.0 的 `Start`
-感知 ctx 且会返回、worker 由 WaitGroup 收拢、停跑后 client 进入
-terminal 态（每次重拨必须换新 client，本插件如此实现）。
+Pinned `github.com/larksuite/oapi-sdk-go/v3 v3.11.0` (the rewritten v3-series
+WS client), **not** the v3.9.4 pinned by picoclaw's go.mod. Reason: v3.9.4's WS
+`Start` blocks forever on `select{}`, each successful Start leaks a
+never-exiting pingLoop goroutine, and WS bootstrap cannot inject an HTTP client—all
+conflict with the hard requirements for supervised lifecycle, no goroutine leaks, and
+loopback testing. v3.11.0's `Start` observes ctx and returns, workers are
+joined by WaitGroup, and the client enters a terminal state after stopping (so this
+plugin uses a new client for every redial).
 
-## 明确未做（后切）
+## Explicitly not done (later work)
 
-群触发、富文本 / 互动卡片、媒体、表情回复（reaction）、回复线程与
-话题、webhook 模式、markdown 全套。386 目标不支持（lark SDK 依赖树
-在 386 上编译失败，`math.MaxInt64` 溢出——硬约束，非 bug，README 已
-写明）。
+Group triggers, rich text / interactive cards, media, reaction replies, reply threads
+and topics, webhook mode, and the full markdown set. The 386 target is unsupported
+(the lark SDK dependency tree fails to compile on 386 because `math.MaxInt64`
+overflows—a hard constraint, not a bug, documented in the README).
 
-## 未包含在本切片
+## Not included in this slice
 
-- `docs/TODO.md` §0.1 捕获与提交（commit）由协调方统一处理；本工作树
-  未建分支、未提交。
+- Capture and commit of `docs/TODO.md` §0.1 are handled centrally by the
+  coordinator; this worktree created no branch and made no commit.
 
-## GOAL 持有人落地补记（2026-08-30）
+## GOAL owner landing note (2026-08-30)
 
-- 评审：独立 reviewer **PASS**；SDK 版本偏离（v3.11.0 vs picoclaw v3.9.4）经 SDK 源码核实为必要（旧版 WS `Start` 以 `select{}` 永不返回、pingLoop 不可退出、无 HTTP 注入口）。`just ci` exit 0。
-- 登记项：`supervise` 首连与 Stop 重叠的三条早退路径不保证送达 `firstErr`（经 Host 实际调用序不可达：Host 只 Stop 已完成 Start 的耳；调用方 ctx 取消亦能解锁）——按站立命令记 `docs/TODO.md` §0.1 CH-C7a-N1，不改动已测生命周期代码。
-- 目录名归一为 `2026-08-30-channel-c7a`（原 feishu-channel）。
+- Review: independent reviewer **PASS**; the SDK version deviation (v3.11.0 vs
+  picoclaw v3.9.4) was verified against SDK source as necessary (old WS `Start`
+  never returned from `select{}`, pingLoop could not exit, and there was no
+  HTTP injection point). `just ci` exit 0.
+- Recorded item: three early-return paths where `supervise`'s first connection
+  overlaps Stop do not guarantee delivery of `firstErr` (unreachable in the
+  Host's actual call order: Host Stops only ears whose Start completed; caller ctx
+  cancellation can also unlock it)—recorded under standing order `docs/TODO.md`
+  §0.1 CH-C7a-N1, with tested lifecycle code unchanged.
+- Directory name normalized to `2026-08-30-channel-c7a` (formerly
+  feishu-channel).

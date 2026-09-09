@@ -12,7 +12,7 @@ as separate targets. The unified development loop is exactly the split pair
 from AGENTS.md:
 
 1. **Backend = pure-API binary, no embedded frontend.** The console's
-   「后端」pane compiles and runs the `vivy_headless` build
+   「Backend」 pane compiles and runs the `vivy_headless` build
    (`go build -tags vivy_headless -o <scratch>/vivy-backend.exe ./cmd/vivy`)
    into Studio scratch — the binary serves only the `/rpc` control plane
    (`ui/headless.go`; `/` is a 404). Every managed start recompiles
@@ -29,8 +29,8 @@ from AGENTS.md:
    server stays correct even when the backend lands on a probed port
    (8787 busy → 8790+).
 
-3. **Dual-mode VIVY WEB debugging removed.** The「VIVY WEB」section
-   (内嵌代理 `:3090/vivy-web` of the gateway's embedded UI vs 开发直连
+3. **Dual-mode VIVY WEB debugging removed.** The 「VIVY WEB」 section
+   (embedded proxy `:3090/vivy-web` of the gateway's embedded UI vs direct dev connection
    `:3015`) is deleted, along with:
    - the `/vivy-web/*` same-origin proxy + HTML rewrite in `index.js`,
    - the `hook.js` frontend-debug bridge (console/RPC capture + evaluate),
@@ -39,8 +39,8 @@ from AGENTS.md:
    - the `allowed_origins` block in the generated mock config (nothing is
      cross-origin anymore: the Vite page talks to `/rpc` same-origin through
      its own proxy).
-   The console sections are now 后端 / 前端 / 日志; the 前端 pane has a
-   plain「打开 http://127.0.0.1:3015」button (the dev server *is* the app —
+   The console sections are now Backend / Frontend / Logs; the Frontend pane has a
+   plain 「Open http://127.0.0.1:3015」 button (the dev server *is* the app —
    frontend debugging happens in the normal browser).
 
 ### Files
@@ -50,9 +50,9 @@ from AGENTS.md:
   `/vivy-web` proxy, `hook.js` route, `/vivy-config.json` registration and
   `allowed_origins` removed; frontend child gets `VIVY_BACKEND_ADDR`.
 - `studio/dsh-vivy-console/client.js` — client half: WebPane (VIVY WEB
-  standalone-tab debugging) deleted; three sections 后端/前端/日志;
-  BackendPane shows 形态「纯 API 后端（vivy_headless，无内嵌前端）」;
-  FrontendPane shows the live `/rpc` target + 打开 button.
+  standalone-tab debugging) deleted; three sections Backend/Frontend/Logs;
+  BackendPane shows Form 「Pure API backend (vivy_headless, no embedded frontend)」;
+  FrontendPane shows the live `/rpc` target + Open button.
 - `studio/dsh-vivy-console/hook.js` — **deleted** (no injection point).
 - `studio/dsh-vivy-console/package.json` / `README.md` — scope rewritten;
   `files` entry for `hook.js` removed.

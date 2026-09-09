@@ -1,21 +1,26 @@
-# 验收 — 模型设置页视觉梳理 + 生成参数卡主题化
+# Acceptance — model-settings page visual cleanup + themed generation-parameter card
 
-## 用户怎么看（验收步骤）
+## User view (acceptance steps)
 
-1. 打开 `http://127.0.0.1:3015/settings`，进「模型」Tab。
-2. 「Vivy 模型配置」与「生成参数」两张卡拥有与其他设置卡一致的图标卡头
-   （CPU / 滑杆图标 + primary 底色图标块）。
-3. 左侧供应商列表：选中项为整体 accent 底色（不再有 4px 左边条）；「更多供应商」
-   与「新增自定义供应商」是干净的浅色行，不再有虚线边框效果。
-4. 右侧面板自上而下三条分组清晰：供应商信息 + 编辑铅笔 → API Key → 「XX 模型」
-   标题 + 新增按钮 + 模型列表；已不存在「从官方目录同步」按钮。
-5. 「生成参数」卡：标题旁有「演示」小徽标；温度是一个滑杆，右侧数值实时跟手
-   （0.0–2.0），Max Tokens 是数值输入；点「保存演示参数」出现绿色对勾 +
-   「已保存到本地」；刷新页面后参数保留（vivy.demo.*）。
-6. 切换任意主题（通用 Tab 的主题卡）后，模型 Tab 的两张卡与控件颜色随主题变化。
+1. Open `http://127.0.0.1:3015/settings` and enter the 「Model」 tab.
+2. 「Vivy model configuration」 and 「Generation parameters」 have the same icon card
+   headers as the other settings cards (CPU / slider icons + primary-background icon blocks).
+3. In the left provider list, the selected item uses a full accent background (no 4px left
+   strip); 「More providers」 and 「Add custom provider」 are clean light rows without dashed
+   borders.
+4. The right panel has three clear groups from top to bottom: provider information + edit
+   pencil → API Key → 「XX models」 title + Add button + model list; the 「Sync from official
+   catalog」 button no longer exists.
+5. The 「Generation parameters」 card has a small 「Demo」 badge beside the title; temperature
+   is a slider with a live value on the right (0.0–2.0), Max Tokens is a numeric input;
+   clicking 「Save demo parameters」 shows a green checkmark + 「Saved locally」; after refresh,
+   the parameters persist (`vivy.demo.*`).
+6. After switching to any theme (the theme card in the General tab), the two Model-tab cards
+   and control colors change with the theme.
 
-## 真实结果判定
+## Actual-result criteria
 
-- 任一已删改的视觉元素（左边条、虚线行、同步按钮、卡内琥珀横幅、英文 Temperature
-  标签）重新出现 = 未通过。
-- 滑杆拖动/键盘调整温度后右侧数值不动 = 未通过。
+- Any removed/changed visual element (left strip, dashed row, sync button, in-card amber
+  banner, English Temperature label) reappearing = fail.
+- The right-side value not moving after dragging the slider or adjusting temperature by
+  keyboard = fail.

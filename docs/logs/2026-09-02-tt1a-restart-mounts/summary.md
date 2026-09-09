@@ -3,7 +3,7 @@
 ## What changed
 
 Closes the restart half of the two-tier-tools mount story (TT-2's leftover:
-"跨重启恢复仍需 TT-1"): the live mount registry is memory-only, and restart
+"cross-restart recovery still needs TT-1"): the live mount registry is memory-only, and restart
 recovery used to rebuild `pendingRun` with `nil` mounts — a run suspended
 after `skill_view` mounted hidden tools lost them all across a restart and
 the resumed run could no longer call them.

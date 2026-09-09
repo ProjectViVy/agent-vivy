@@ -10,7 +10,7 @@
 5. Enter `/status`; the overlay reports the active session/run state.
 6. Enter `/sessions`; the existing Crush-style Sessions picker opens. Session
    rows are not rendered in the right rail.
-7. Enter `/new "中文 标题 🙂"`, `/session <id>`, `/rename "新标题"`,
+7. Enter `/new "Chinese title 🙂"`, `/session <id>`, `/rename "New title"`,
    `/permission smart`, `/queue clear`, or `/cancel` and observe the existing
    live driver/controller path. While a run or gate is active, session-state
    mutations fail closed.

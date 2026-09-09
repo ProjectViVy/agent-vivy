@@ -1,42 +1,41 @@
-# VC-1g-1: 消息排队 + 两段式取消
+# VC-1g-1: message queuing + two-stage cancellation
 
-日期：2026-08-31 · 分支：`feat/vc1a-bash-tool`（worktree `agent-vivy-vc0`）
+Date: 2026-08-31 · Branch: `feat/vc1a-bash-tool` (worktree `agent-vivy-vc0`)
 
-## 变更内容
+## Changes
 
-对照 Crush 的 composer 行为（见
-`docs/research/crush-parity-code-agent-research-2026-08-31.md`「消息排队」条目），
-VC-1g 拆为两个交付：本次是 **g1（纯 UI/store，零后端改动）**；g2（图片附件链路）
-另行交付。
+Compared with Crush's composer behavior (see the "message queuing" entry in
+`docs/research/crush-parity-code-agent-research-2026-08-31.md`), VC-1g was split into two deliveries:
+this is **g1 (UI/store only, no backend changes)**; g2 (the image-attachment path) is delivered separately.
 
-### 之前的问题
+### Previous problems
 
-- 运行期间输入框被禁用，发送被静默丢弃：用户在 agent 忙时打好的字要么等着、要么丢。
-- 取消只有一步：点击/快捷取消直接终止运行，没有 Crush 那种「先清队列、再取消」的两段式。
+- The input box was disabled while a run was active and sends were silently discarded: text entered while the agent was busy either waited or was lost.
+- Cancellation had only one step: clicking/shortcut cancellation stopped the run immediately, without Crush's two-stage behavior of "clear the queue, then cancel."
 
-### 现在的行为
+### Current behavior
 
-- **运行期间可继续输入并发送**：textarea 不再因 `running` 禁用；运行中点发送（或
-  Enter）会把消息**入队**而不是丢弃。队列路径跳过 UI 预检（服务端门禁仍然生效），
-  与 Crush 的排队语义一致。
-- **队列 pill**：composer 顶部显示「已排队 N 条」+ 每条消息的 chip（可逐条移除）+
-  「清空队列」。
-- **派发时机**：队列只在 `run.completed` 且 terminal 刷新（消息/上下文/后台/审批/
-  待办）完成后派发下一条；`run.failed` / `run.cancelled` **保留**队列，由用户处置。
-- **两段式取消**：运行中且队列非空时，停止按钮第一次按下 = 清空队列（title 变为
-  「清空队列」），再次按下 = 取消运行；textarea 内 Escape 键同样两段式。
-- **队列生命周期**：会话切换 / 重初始化 / 删除会话时清空（队列属于会话，不跨会话）。
-- 防御性：`startRun` 在忙碌时不再静默 no-op，而是入队（此前调用方语义）。
+- **Continue typing and sending during a run**: the textarea is no longer disabled by `running`; clicking Send (or
+  pressing Enter) during a run **queues** the message instead of discarding it. The queue path skips the UI preflight (the server gate still applies),
+  matching Crush's queue semantics.
+- **Queue pill**: the top of the composer shows "N queued" + a chip for each message (each can be removed individually) +
+  "Clear queue."
+- **Dispatch timing**: the queue dispatches the next item only after `run.completed` and terminal refresh (messages/context/background/approval/
+  pending items) finish; `run.failed` / `run.cancelled` **retain** the queue for the user to handle.
+- **Two-stage cancellation**: when a run is active and the queue is non-empty, the first press of Stop = clear the queue (the title becomes
+  "Clear queue"), and the next press = cancel the run; Escape in the textarea works the same way.
+- **Queue lifecycle**: the queue is cleared when switching sessions, reinitializing, or deleting a session (it belongs to the session and does not cross sessions).
+- Defensive behavior: `startRun` no longer silently no-ops while busy; it queues the message (the caller's previous semantics).
 
-### FSL 合规（Crush 对照）
+### FSL compliance (Crush alignment)
 
-Crush 是 FSL-1.1-MIT。本交付**只做行为/协议对齐，零代码拷贝**：队列数据结构、
-派发逻辑、组件实现均为本项目自写；仅对齐可观察行为（忙时入队、队列 pill、esc
-两段式）。
+Crush is FSL-1.1-MIT. This delivery provides **behavior/protocol alignment only, with zero code copying**:
+the queue data structure, dispatch logic, and component implementation are all original to this project; only observable behavior is aligned
+(queue while busy, queue pill, two-stage Esc behavior).
 
-## 明确未做
+## Explicitly not done
 
-- **g2 图片附件**（剪贴板贴图 / 粘贴路径 / @补全 / 5MB 上限 / SupportsImages 门控 /
-  工具结果携图 workaround）— 需要后端 Message 分片、存储、RPC 参数扩展，单独交付。
-- 队列不做持久化（刷新即失，与 Crush 会话内行为一致）。
-- 队列不做跨会话合并；Escape 仅在 textarea 聚焦时生效（全局快捷键未做）。
+- **g2 image attachments** (clipboard images / paste paths / @ completion / 5MB limit / SupportsImages gating /
+  tool-result image workaround)—requires backend Message chunking, storage, and RPC parameter extensions, so it is delivered separately.
+- The queue is not persisted (a refresh loses it, matching Crush's session-local behavior).
+- The queue is not merged across sessions; Escape works only when the textarea is focused (no global shortcut).

@@ -1,16 +1,16 @@
-# TUI 斜杠命令面板：Crush 式排版 + 中文提示 + 高亮
+# TUI Slash Command Palette: Crush-style Typography + Chinese Prompts + Highlighting
 
-## 已交付
+## Delivered
 
-- `/` 与 Ctrl+P 命令面板改为短 `/name` + 中文标题的一行菜单，不再把完整英文 usage 当标题。
-- 选中行整行底色；仅当前行展开说明和完整语法。
-- 筛选查询在 `/name` 与标题上做子序列高亮（加粗、下划线、次要色）。
-- 有技能/MCP 时按 `系统` / `技能` / `MCP` 分段。
-- 内置命令 Description、`/help` 正文、底栏、会话/模型/文件/确认对话框暂时统一中文。命令名与 Usage 仍是可输入的英文标识。
+- The `/` and Ctrl+P command palette now use a one-line menu with a short `/name` and Chinese title, rather than using full English usage as the title.
+- The selected row has a full-row background; only the current row expands its description and full syntax.
+- The filter query applies subsequence highlighting (bold, underline, secondary color) to `/name` and the title.
+- When skills/MCP are present, entries are grouped into `System` / `Skills` / `MCP` sections.
+- Built-in command descriptions, the `/help` body, footer, and session/model/file/confirmation dialogs are temporarily unified in Chinese. Command names and Usage remain inputtable English identifiers.
 
-## 边界
+## Boundaries
 
-- 没有 i18n 框架，没有英文回切开关。
-- 技能/MCP 服务端自带 description 保持原语言。
-- 侧栏区块标题未在本轮翻译。
-- 没有引入 Crush 的 Tab 切换或 `sahilm/fuzzy`。
+- No i18n framework or English fallback toggle.
+- Descriptions provided by skill/MCP servers retain their original language.
+- Sidebar section titles were not translated in this round.
+- Crush Tab switching and `sahilm/fuzzy` were not introduced.

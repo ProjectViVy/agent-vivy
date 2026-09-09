@@ -1,24 +1,24 @@
-# Verification — VC-3 切片 1
+# Verification — VC-3 slice 1
 
-日期：2026-09-01　分支：`feat/vc1a-bash-tool`（worktree `agent-vivy-vc0`）
+Date: 2026-09-01  Branch: `feat/vc1a-bash-tool` (worktree `agent-vivy-vc0`)
 
-## Plugin module（plugins/lsp）
+## Plugin module (plugins/lsp)
 
 ```
 $ cd plugins/lsp
-$ gofmt -l .                      # （无输出 = 干净）
-$ go vet ./...                    # 通过
+$ gofmt -l .                      # no output = clean
+$ go vet ./...                    # passed
 $ go test -race ./...             # ok  example.com/vivy/plugins/lsp  1.147s
 ```
 
 ## Kernel-side unit tests
 
 ```
-$ go build ./...                              # 通过（全树）
-$ go test ./internal/pluginhost/ ./sdk/...    # ok（pluginhost、sdk/internal；sdk/plugin 无测试文件）
+$ go build ./...                              # passed (entire tree)
+$ go test ./internal/pluginhost/ ./sdk/...    # ok (pluginhost, sdk/internal; sdk/plugin has no test files)
 ```
 
-## 五步产品路径（vivy-plugin-five）
+## Five-step product path (vivy-plugin-five)
 
 ```
 $ go build -o vivy-sdk.exe ./sdk
@@ -34,35 +34,36 @@ $ ./vivy-sdk.exe pack --with lsp
   "tools": [ { "name": "lsp_diagnostics", "readonly": true } ]
 }
 
-$ ./vivy-sdk.exe inspect-artifact dist/gen_253ebf6fe9217736    # 与上一致
+$ ./vivy-sdk.exe inspect-artifact dist/gen_253ebf6fe9217736    # same as above
 ```
 
-- pack 走的正是 D4 独立 module 路径（`-modfile` 合并 pack.mod/pack.sum +
-  overlay Register），lsp 是第一个以此路径打包的插件；live go.mod/go.sum/
-  `internal/generated/plugins/zz_register.go` 未被触碰（git status 仅本切片
-  文件）。
-- 五步成功标准达成：新 EXE + Generation manifest 命名 lsp。
+- pack used the D4 independent-module path (`-modfile` merging pack.mod/pack.sum +
+  overlay Register), and lsp is the first plugin packed through this path; live go.mod/go.sum/
+  `internal/generated/plugins/zz_register.go` were untouched (git status showed only
+  this slice's files).
+- The five-step success criteria were met: new EXE + Generation manifest naming lsp.
 
 ## Kernel gate
 
 ```
-$ just ci        # 见文末结果
+$ just ci        # see the result at the end
 ```
 
-## Smoke 例外（含原因）
+## Smoke exceptions (with reasons)
 
-1. **真实语言服务器冒烟未跑**：本机无 gopls/typescript-language-server/
-   pyright/rust-analyzer（`gopls: command not found`）。替代证据：
-   - `pluginhost` 真实子进程测试（echo/cd 管道与 cwd、Close 杀进程）证明
-     Spawn 实现真实可用；
-   - `plugins/lsp` fake-LSP 端到端测试走真实 jsonrpc 帧协议（io.Pipe +
-     Content-Length 编解码），证明客户端全链路（initialize → didOpen →
-     publish → 格式化 → 连接复用）。
-   安装 gopls 后的人工冒烟步骤已写入 `acceptance.md`。
-2. **:3015 浏览器冒烟不适用**：本切片无 UI 变更。
+1. **The real language-server smoke test was not run**: this machine has no
+   gopls/typescript-language-server/pyright/rust-analyzer (`gopls: command not found`).
+   Substitute evidence:
+   - `pluginhost` real subprocess tests (echo/cd pipes and cwd, Close killing the process)
+     prove that Spawn works with a real process;
+   - `plugins/lsp` fake-LSP end-to-end tests use the real jsonrpc frame protocol (io.Pipe +
+     Content-Length framing), proving the client path (initialize → didOpen → publish →
+     formatting → connection reuse).
+   The manual smoke steps after installing gopls are recorded in `acceptance.md`.
+2. **:3015 browser smoke test not applicable**: this slice has no UI changes.
 
-## 结果
+## Results
 
-- just ci：PASS（gofmt/vet/build、go test ./...、UI typecheck/build、
-  embedded 冒烟；ui-e2e 预存 4 失败归 UI-E2E-STALE 行，与本切片无关，
-  未在本轮重复执行）。
+- just ci: PASS (gofmt/vet/build, go test ./..., UI typecheck/build,
+  embedded smoke; 4 pre-existing ui-e2e failures belong to the UI-E2E-STALE line and
+  are unrelated to this slice, so they were not rerun this round).

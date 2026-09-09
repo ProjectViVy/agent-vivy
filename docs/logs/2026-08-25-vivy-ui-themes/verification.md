@@ -1,57 +1,62 @@
-# 验证记录 — Vivy UI 皮肤功能
+# Verification record — Vivy UI theming
 
-## just ci（仓库根目录）
+## just ci (repository root)
 
-命令：`just ci`（= fmt-check + vet + go test + headless-compile + ui-ci）
+Command: `just ci` (= fmt-check + vet + go test + headless-compile + ui-ci)
 
-结果：**通过（exit 0）**，2026-08-25。
+Result: **passed (exit 0)**, 2026-08-25.
 
 - go: fmt-check / vet / `go test ./...` / `go test -run '^$' -tags vivy_headless`
-  全绿。
-- ui-ci：`pnpm install --frozen-lockfile` + `pnpm typecheck`（tsc 无错）
-  + `pnpm test`（8 个测试文件 30 例全过，含新增
-  `src/hooks/use-theme.test.ts` 8 例）+ `pnpm build`（✓ built in 3.11s）。
+  all green.
+- ui-ci: `pnpm install --frozen-lockfile` + `pnpm typecheck` (tsc clean)
+  + `pnpm test` (all 30 cases in 8 test files passed, including 8 cases in the new
+  `src/hooks/use-theme.test.ts`) + `pnpm build` (✓ built in 3.11s).
 
-## 浏览器实走（smoke-for-user-visible-change）
+## Browser run (smoke-for-user-visible-change)
 
-环境：复用已在运行的 split pair（Vite `http://127.0.0.1:3015` + 控制面
-8787，浏览器为 ZCode 内置浏览器，Vite HMR 加载本次改动）。
+Environment: reused the running split pair (Vite `http://127.0.0.1:3015` +
+control plane 8787; the browser was the built-in ZCode browser, and Vite HMR
+loaded these changes).
 
-路径与结果：
+Path and results:
 
-1. 打开 `http://127.0.0.1:3015/`，进入"设置"→"通用"tab：
-   - 新"主题"卡渲染在"应用信息"之后，5 个主题按钮齐全，
-     "Vivy 蓝"初始 `[pressed]` 且带"已选中"图标。
-   - 迁移预览中旧的假主题卡已消失（剩余：聊天显示 / 缓存 / 关于）。
-   - `DemoNote` 只覆盖迁移预览区域。
-2. 点击"恋粉"：
-   - `<html data-theme="love">`，`html.dark` 计数 0。
-   - 截图确认：浅粉背景/侧栏、白色卡片、粉色选中态，无渲染错误
-     （截图：`vivy-theme-love.png`，临时目录）。
-3. 点击"Miku 青"：
-   - `<html data-theme="miku">`，`html.dark` 计数 1（`dark:` 变体生效）。
-   - 截图确认：深色背景/侧栏/卡片 + 青色强调，文字对比正常
-     （截图：`vivy-theme-miku.png`）。
-4. 刷新页面（持久化 + 反闪烁引导）：
-   - 刷新后 `<html data-theme="miku">`、`.dark` 保持，页面仍为 Miku
-     深色，证明 `vivy.theme` localStorage 与 index.html 引导脚本工作
-     （截图：`vivy-theme-miku-reload.png`）。
-5. 切回"Vivy 蓝"：`data-theme="default"`、`.dark` 移除，恢复默认。
+1. Open `http://127.0.0.1:3015/` and go to the “Settings” → “General” tab:
+   - The new “Theme” card renders after “Application Info”; all 5 theme buttons
+     are present, with “Vivy Blue” initially `[pressed]` and a “Selected” icon.
+   - The old fake theme card is gone from the migration preview (remaining:
+     Chat Display / Cache / About).
+   - `DemoNote` covers only the migration-preview area.
+2. Click “Love”:
+   - `<html data-theme="love">`, `html.dark` count 0.
+   - Screenshot confirmed: light-pink background/sidebar, white cards, pink
+     selected state, and no rendering errors (screenshot:
+     `vivy-theme-love.png`, temporary directory).
+3. Click “Miku Teal”:
+   - `<html data-theme="miku">`, `html.dark` count 1 (`dark:` variant active).
+   - Screenshot confirmed: dark background/sidebar/cards + teal accent, with
+     normal text contrast (screenshot: `vivy-theme-miku.png`).
+4. Refresh the page (persistence + anti-flash bootstrap):
+   - After refresh, `<html data-theme="miku">` and `.dark` remain; the page is
+     still dark Miku, confirming that `vivy.theme` localStorage and the index.html
+     bootstrap script work (screenshot: `vivy-theme-miku-reload.png`).
+5. Switch back to “Vivy Blue”: `data-theme="default"`, `.dark` removed, default restored.
 
-已知说明：本会话自行启动的 `just run` 因缺 `OPENAI_API_KEY` 退出、
-`pnpm dev` 因 3015 已被占用退出——两者均有同端口的既有服务在跑，
-冒烟使用既有 pair 完成，不影响结论。
+Known note: `just run` started by this session exited because `OPENAI_API_KEY`
+was missing, and `pnpm dev` exited because port 3015 was already occupied.
+Existing services were already running on both ports, so the smoke test used the
+existing pair and the conclusion is unaffected.
 
-## 未验证项
+## Unverified items
 
-- 真实 Provider 下的对话流（本次改动不触及 RPC/消息链路）。
-- 嵌入式 UI（:8787）未单独实走：它打包同一 `index.html` + `styles.css`，
-  主题代码路径与 Vite 完全一致，`just ci` 的 `pnpm build` 已覆盖构建。
+- Conversation flow with a real Provider (this change does not touch the RPC/message path).
+- The embedded UI (:8787) was not run separately: it packages the same
+  `index.html` + `styles.css`, the theme code path is identical to Vite, and
+  `just ci`’s `pnpm build` covers the build.
 
-## 补记（2026-08-25，提交前复查）
+## Addendum (2026-08-25, pre-commit review)
 
-本文所述 5 主题中的"恋粉"（`love`）随后被整体移除，皮肤收敛为
-4 套；`use-theme.test.ts` 同步改用 `pink`。该迭代及其验证见
-`docs/logs/2026-08-25-remove-love-theme/`（移除后仓库根 `just ci`
-全绿，exit 0）。
-
+The “Love” theme (`love`) described among the 5 themes in this document was
+subsequently removed, narrowing the theming feature to 4 themes;
+`use-theme.test.ts` was updated to use `pink` as well. See
+`docs/logs/2026-08-25-remove-love-theme/` for that iteration and its verification
+(`just ci` at the repository root was all green after removal, exit 0).

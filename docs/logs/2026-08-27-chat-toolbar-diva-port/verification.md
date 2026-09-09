@@ -2,57 +2,62 @@
 
 Date: 2026-08-27
 
-范围：聊天框上方功能栏移植（Agent-DIVA → Vivy，仅 UI）。改动位于
-`ui/src/components/chat/ChatInput.tsx`、`ui/src/lib/store.ts`、
-`ui/src/routes/_layout.tsx`、`ui/src/i18n/zh.ts`、`ui/src/i18n/en.ts`。
+Scope: chat-input toolbar port (Agent-DIVA → Vivy, UI only). Changes are in
+`ui/src/components/chat/ChatInput.tsx`, `ui/src/lib/store.ts`,
+`ui/src/routes/_layout.tsx`, `ui/src/i18n/zh.ts`, and `ui/src/i18n/en.ts`.
 
-## 门禁：`just ci`（仓库根目录）
+## Gate: `just ci` (repository root)
 
-结果 **EXIT=0**：Go fmt-check / vet / test / headless-compile 全部通过
-（internal/app 3.229s 等，余者 cached）；UI `tsc --noEmit` 通过；
-vitest **15 files / 105 tests passed**（含 i18n 词条平价 `index.test.ts`
-9 例 —— zh/en 结构一致的硬校验，以及 `store.test.ts` 4 例）；
-`vite build` 成功（仅既存 >500 kB chunk 体积提示）。UI 侧无新增
-组件级单测（ui 无 @testing-library 基建，小改动不为此前置搭建自动化，
-以 typecheck + vitest + 真实路径冒烟覆盖）。
+Result **EXIT=0**: Go fmt-check / vet / test / headless-compile all passed
+(internal/app 3.229s, etc.; the rest cached); UI `tsc --noEmit` passed;
+vitest **15 files / 105 tests passed** (including 9 i18n-entry parity cases in
+`index.test.ts`—a hard check that zh/en structures match—and 4 `store.test.ts` cases);
+`vite build` succeeded (only the existing >500 kB chunk-size notice). No component-level
+unit tests were added on the UI side (ui has no @testing-library foundation; automation was
+not introduced for this small change, with coverage from typecheck + vitest + a real-path
+smoke test).
 
-## 真实路径冒烟：http://127.0.0.1:3015（split Vite :3015 + 真实控制面 :8787）
+## Real-path smoke test: http://127.0.0.1:3015 (split Vite :3015 + real control plane :8787)
 
-前置：:3015（PID 9276）与 :8787（PID 22900）已在运行（既有 `just dev`
-拆分对），冒烟直接用当前 Vite dev server（源码即改即生效）。用
-`@playwright/test`（chromium-1234，headless）驱动，先置
-`vivy.ui.welcome.completed=1` 跳过首次向导。随机脚本销毁，未入库。
+Prerequisites: :3015 (PID 9276) and :8787 (PID 22900) were already running (the existing
+split `just dev` pair), so the smoke test used the current Vite dev server directly
+(source changes took effect immediately). It was driven by `@playwright/test`
+(chromium-1234, headless), with `vivy.ui.welcome.completed=1` set first to skip the
+initial wizard. The throwaway script was destroyed and not checked in.
 
-结果 **22/22 PASSED**（`SMOKE RESULT: PASSED`）：
+Result **22/22 PASSED** (`SMOKE RESULT: PASSED`):
 
-- 工具栏 8 项在 DOM 中按 DIVA 顺序齐备：模式触发（智能体模式、
-  附件、思考模式、AutoDream、打开伙伴、权限触发（智能）、历史、
-  审批中心；
-- 「画图」「智能」按钮确认已移除；
-- 模式下拉：打开后菜单项为「智能体模式（直接执行任务）/ 计划模式
-  （先规划再执行）/ 询问模式（只读分析模式）」，选「计划模式」后
-  触发器文字更新为「计划模式」；
-- 思考下拉：菜单项 自动 / 开启 / 关闭；
-- 权限下拉：菜单项「谨慎（所有操作均需确认）/ 智能（低风险自动放行）/
-  信任（仅高风险需确认）」，选「谨慎」后触发器更新；
-- 三个 stub：点附件 → 「附件功能暂未接入」，点 AutoDream →
-  「AutoDream 暂未接入」，点伙伴 → 「桌面伙伴暂未接入」（底部
-  `aria-live` 提示条，约 1.8s 消失）；
-- 历史（时钟）→ 右侧「会话」Sheet 打开；审批中心 → 右侧
-  「审批中心」Sheet 打开；
-- 双语：置 `vivy.language=en` 重载后按钮名称为 Agent mode /
-  Thinking mode / History / Approvals / Smart，`documentElement.lang=en`；
-  恢复 zh 正常。
+- All 8 toolbar items were present in the DOM in DIVA order: mode trigger (Agent mode),
+  attachments, thinking mode, AutoDream, open companion, permission trigger (Smart),
+  History, and Approvals.
+- 「Draw」 and 「Smart」 buttons were confirmed removed.
+- Mode dropdown: after opening, menu items were 「Agent mode (execute tasks directly) /
+  Plan mode (plan first, then execute) / Ask mode (read-only analysis mode)」; selecting
+  「Plan mode」 updated the trigger text to 「Plan mode」.
+- Thinking dropdown: menu items Auto / On / Off.
+- Permission dropdown: menu items 「Cautious (all operations require confirmation) / Smart
+  (automatically allow low-risk operations) / Trusted (confirmation required only for
+  high-risk operations)」; selecting 「Cautious」 updated the trigger.
+- Three stubs: clicking Attachments → 「Attachments not connected yet」, AutoDream →
+  「AutoDream not connected yet」, and companion → 「Desktop companion not connected yet」
+  (a bottom `aria-live` notice bar disappearing after about 1.8s).
+- History (clock) → the right-side 「Sessions」 Sheet opened; Approvals → the right-side
+  「Approvals」 Sheet opened.
+- Bilingual: after setting `vivy.language=en` and reloading, button names were Agent mode /
+  Thinking mode / History / Approvals / Smart, with `documentElement.lang=en`; restoring zh
+  worked normally.
 
-冒烟中发现并修正一处仅测试脚本问题：首跑 i18n 步骤在 reload 后
-未等待聊天区重挂载（2.2s 固定等待早于渲染），断言误报；改为
-`waitFor` textbox 后再断言即通过（产品功能本身无问题，DOM probe
-确认 lang=en 且工具栏按钮英文文案齐全）。
+The smoke test found and corrected one test-script-only issue: the first i18n step did not
+wait for the chat area to remount after reload (the fixed 2.2s wait occurred before
+rendering), causing a false assertion failure. Waiting for the textbox with `waitFor`
+before asserting passed; the product feature itself had no issue, and a DOM probe confirmed
+lang=en and complete English copy on the toolbar buttons.
 
-## 跳过说明
+## Skipped items
 
-- 未单独跑 `go test`（`just ci` 已覆盖；本次无 Go 侧改动）。
-- 未跑 `just ui-e2e`（既有 e2e 两条规格已因过期文案失败，见
-  `docs/TODO.md` §0.1 `UI-E2E-STALE`，与本迭代无关）；本迭代以
-  真实路径 Playwright 冒烟代替。若需纳入回归，可在 UI-E2E-STALE
-  修复后补跑。
+- `go test` was not run separately (`just ci` covered it; this round had no Go-side
+  changes).
+- `just ui-e2e` was not run (two existing e2e specs already fail because of stale copy;
+  see `docs/TODO.md` §0.1 `UI-E2E-STALE`, unrelated to this iteration). This iteration
+  used a real-path Playwright smoke test instead; it can be run as regression coverage
+  after UI-E2E-STALE is fixed.

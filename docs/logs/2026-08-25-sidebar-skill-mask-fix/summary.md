@@ -1,43 +1,51 @@
-# 2026-08-25 侧边栏 Skill 选项"遮罩"BUG 修复 + 进化占位入口
+# 2026-08-25 Sidebar Skill-item “masking” bug fix + Evolution placeholder entry
 
-## 问题
+## Problem
 
-左侧栏存在两个指向同一路由 `/skills` 的导航项：
+The left sidebar had two navigation items pointing to the same `/skills` route:
 
-- 「进化」（Vivy 分组，`nav.evolution`）
-- 「Skill」（工具管理分组，`nav.skill`）
+- Evolution (Vivy group, `nav.evolution`)
+- Skill (Tools Management group, `nav.skill`)
 
-进入 `/skills` 页面时，TanStack Router 同时给两个 `<a>` 打上 `active`，
-「进化」与「Skill」同时高亮（`bg-sidebar-accent`）。用户点击「进化」（另一个
-选项）后，「Skill」选项也被高亮背景覆盖，即「点击其他选项自动遮罩 SKILL 选项」。
+When entering `/skills`, TanStack Router marked both `<a>` elements `active`, so
+Evolution and Skill were highlighted simultaneously (`bg-sidebar-accent`). After
+the user clicked Evolution (the other item), the Skill item was also covered by
+the highlight background—“clicking another item automatically masks the SKILL item.”
 
-根因：`ui/src/components/chat/ConversationSidebar.tsx` 中 `VIVY_ITEMS` 与
-`TOOL_ITEMS` 都登记了 `to: '/skills'`，而路由只有唯一一个 `/skills`
-（SkillsView 技能管理页），必然同时命中高亮判定（`pathname.startsWith(item.to)`）。
+Root cause: both `VIVY_ITEMS` and `TOOL_ITEMS` in
+`ui/src/components/chat/ConversationSidebar.tsx` registered `to: '/skills'`,
+while there is only one `/skills` route (the SkillsView management page), so both
+necessarily matched the highlight check (`pathname.startsWith(item.to)`).
 
-## 变更
+## Changes
 
-- `ui/src/components/chat/ConversationSidebar.tsx`：
-  - 「Skill」保持为 `/skills` 唯一可导航入口（工具管理分组）。
-  - 「进化」以**占位入口**形式加回 Vivy 分组：渲染为非导航 `<button>`（不再
-    是 `<Link>`），带「待实现」`Badge`；点击按应用既有「暂未接入」惯例显示
-    提示（1.8s 自动消失），不会跳转、不会命中高亮。为此组件新增 `pending`
-    标记与 `showNotice` 本地提示（与 `ChatInput` 的未接入按钮同一模式）。
-  - 引入 `Badge` 组件；恢复 `Dna` 图标导入。
-- `ui/src/i18n/zh.ts` / `ui/src/i18n/en.ts`：恢复 `nav.evolution`，新增
-  `nav.evolutionPending`（待实现 / Planned）、`nav.evolutionUnavailable`
-  （进化功能暂未接入 / Evolution is not implemented yet）。
+- `ui/src/components/chat/ConversationSidebar.tsx`:
+  - Keep Skill as the only navigable `/skills` entry (Tools Management group).
+  - Add Evolution back to the Vivy group as a **placeholder entry**: render it
+    as a non-navigation `<button>` (not a `<Link>`) with a Planned `Badge`; on
+    click, show a notice following the app’s existing “not implemented” convention
+    (disappears automatically after 1.8s), without navigation or highlight
+    matching. Add a `pending` flag and a local `showNotice` notice to this
+    component (the same pattern as ChatInput’s unimplemented button).
+  - Import the `Badge` component; restore the `Dna` icon import.
+- `ui/src/i18n/zh.ts` / `ui/src/i18n/en.ts`: restore `nav.evolution`, and add
+  `nav.evolutionPending` (Planned) and `nav.evolutionUnavailable` (Evolution is
+  not implemented yet).
 
-## 设计说明
+## Design rationale
 
-产品侧 Evolution/AutoDream 能力在 `docs/TODO.md` §0.1 仍为 DEFERRED，没有独立
-路由。因此「进化」不做成跳转入口（跳 `/skills` 会重新引入双重高亮，跳不存在
-的路由会 404），而是保留在导航里、用「待实现」标签标明状态，点击给出与
-ChatInput 未接入按钮一致的提示。
+The product-side Evolution/AutoDream capability remains DEFERRED in
+`docs/TODO.md` §0.1 and has no dedicated route. Therefore Evolution is not made
+into a navigation link (linking to `/skills` would reintroduce the double
+highlight, while linking to a nonexistent route would 404). It remains in the
+navigation with a Planned badge, and clicking it gives the same notice as the
+  unimplemented `ChatInput` button.
 
-## 明确未做
+## Explicitly not done
 
-- 移动端抽屉点击「当前已所在路由的导航项」时抽屉不会关闭（`pathname` 未变化，
-  `_layout.tsx` 的 `useEffect([pathname])` 不触发）。独立小边界场景，不在本次
-  报告范围内，未改动。
-- 未新建 `/evolution` 路由或占位页面——Evolution 能力未实现，等实现时再补。
+- On mobile, clicking the navigation item for the current route does not close
+  the drawer (`pathname` does not change, so `_layout.tsx`’s
+  `useEffect([pathname])` does not fire). This independent edge case is outside
+  this report and was not changed.
+- No `/evolution` route or placeholder page was created—Evolution is not
+  implemented; add it when the capability is implemented.

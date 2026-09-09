@@ -1,52 +1,52 @@
-# 综合审查 — verification
+# Comprehensive review — verification
 
-日期：2026-08-31。工作区：worktree `agent-vivy-channel-c2`，分支 `feat/channel-c7c`。
+Date: 2026-08-31. Worktree: `agent-vivy-channel-c2`; branch `feat/channel-c7c`.
 
-## GOAL 运行方式
+## GOAL operating method
 
-协调人（GOAL 持有人）亲跑机械门禁与浏览器冒烟；六条 lane 由独立全新子代理执行（L1/L2/L4/L3/L5/L6，全部 read-only）；修复轮由独立 executor 执行、协调人复门禁。所有 lane 判词 PASS、零 blocker。
+The coordinator (GOAL holder) ran the mechanical gates and browser smoke directly; six lanes were executed by independent fresh subagents (L1/L2/L4/L3/L5/L6, all read-only); an independent executor ran the fix round, followed by the coordinator rerunning the gates. Every lane verdict was PASS, with zero blockers.
 
-## 一、机械门禁清扫（实测记录）
+## 1. Mechanical gate sweep (measured record)
 
-| 门 | 结果 |
+| Gate | Result |
 |---|---|
-| `just ci` | exit 0（修复轮后复跑再证 exit 0；UI 21 文件 / 172 测试） |
-| 五插件 `gofmt -l` / `go vet` / `go test -count=1` / `go test -race` | telegram/dingtalk/feishu/qq/discord 全 0/0/绿/绿 |
-| `go run ./sdk verify` × 5 真插件 | 全 exit 0 |
-| `go run ./sdk verify` × 8 bad-* 夹具 | 全 exit 1（修复轮后新增 bad-channel-listen2、bad-picoclaw-import 亦 exit 1） |
-| `pack --with <p>` × 5 + `go version -m` | 5 候选构建成功、EXE 各链接 telego/dingtalk-stream/larksuite/tencent-connect/bwmarrin |
-| 默认身体 `go list -deps ./cmd/vivy` | telego/dingtalk/larksuite/lark/tencent-connect/botgo/bwmarrin/discordgo/pion 全 0 |
-| `git diff 82ecf14 -- go.mod go.sum` | 空 |
+| `just ci` | exit 0 (rerun after the fix round also confirmed exit 0; UI 21 files / 172 tests) |
+| Five-plugin `gofmt -l` / `go vet` / `go test -count=1` / `go test -race` | telegram/dingtalk/feishu/qq/discord all 0/0/green/green |
+| `go run ./sdk verify` × 5 real plugins | all exit 0 |
+| `go run ./sdk verify` × 8 bad-* fixtures | all exit 1 (the newly added bad-channel-listen2 and bad-picoclaw-import also exit 1 after the fix round) |
+| `pack --with <p>` × 5 + `go version -m` | 5 candidate builds succeeded; each EXE links telego/dingtalk-stream/larksuite/tencent-connect/bwmarrin |
+| Default body `go list -deps ./cmd/vivy` | telego/dingtalk/larksuite/lark/tencent-connect/botgo/bwmarrin/discordgo/pion all 0 |
+| `git diff 82ecf14 -- go.mod go.sum` | empty |
 | `internal/generated/plugins/zz_register.go` | `return nil` |
-| `go test ./internal/storage/... -count=1` | 绿（postgres DSN 门控 SKIP） |
+| `go test ./internal/storage/... -count=1` | green (postgres DSN-gated SKIP) |
 | `pnpm typecheck` / `pnpm test` / `pnpm build` | 0 / 0 / 0 |
-| `just ui-e2e` | 6 passed / **2 failed**——基线分诊：对 82ecf14 临时 worktree 复跑同败（失败集一致：runtime.spec 全流程 + welcome-wizard.spec）→ **e2e 基线腐烂既有问题，非本 EPIC 回归**（§0.1 TEST-3） |
+| `just ui-e2e` | 6 passed / **2 failed** — baseline triage: rerunning in a temporary 82ecf14 worktree failed identically (same set: full runtime.spec flow + welcome-wizard.spec) → **existing broken e2e baseline issue, not an EPIC regression** (§0.1 TEST-3) |
 
-## 二、六 lane（独立子代理，判词与 should-fix 数）
+## 2. Six lanes (independent subagents, verdicts and should-fix counts)
 
-| Lane | 判词 | blocker | should-fix（→处置） |
+| Lane | Verdict | blocker | should-fix (→ disposition) |
 |---|---|---|---|
-| L1 合同符合性 | PASS | 0 | 3（错误分类槽、picoclaw verify 行、per-seam inspect 均为登记/实现缺口）→ 已修/已上板 |
-| L2 内核+安全 | PASS | 0 | 1（deliverCompleted nil 通道）→ 已修+测试 |
-| L3 适配器横切 | PASS | 0 | 2（dingtalk 静默断线失聪→注释纠正+CH-C6-N3；dingtalk/feishu 重启锁存）→ 锁存已修+测试，F1 记板 |
-| L4 SDK/pack | PASS | 0 | 4（listen 绕过、replace 丢弃、双 module 测试、簿记）→ 全部已修 |
-| L5 UI | PASS | 0 | 3（错误态误显空态、向导文案、教程过期）→ 全部已修；另禁语 1 处已修 |
-| L6 文档看板 | PASS | 0 | 4（幽灵分支名、Settings() 合同漂移、UI-CHANNELS-BE 陈行、CN 计数漏网）→ 全部已修 |
+| L1 Contract compliance | PASS | 0 | 3 (error-classification slot, picoclaw verify line, and per-seam inspect are all registration/implementation gaps) → fixed/boarded |
+| L2 Kernel + security | PASS | 0 | 1 (deliverCompleted nil channel) → fixed + test |
+| L3 Adapter cross-cutting | PASS | 0 | 2 (DingTalk silent-disconnect deafness → comment corrected + CH-C6-N3; DingTalk/Feishu restart latches) → latches fixed + test, F1 boarded |
+| L4 SDK/pack | PASS | 0 | 4 (Listen bypass, replace discard, two-module test, bookkeeping) → all fixed |
+| L5 UI | PASS | 0 | 3 (wrong empty state for error, wizard wording, stale tutorial) → all fixed; one additional prohibited-wording item fixed |
+| L6 Documentation board | PASS | 0 | 4 (ghost branch name, Settings() contract drift, stale UI-CHANNELS-BE line, missed CN count) → all fixed |
 
-各 lane 全文（含 L2 攻击面清单、L3 一致性矩阵、L4 失败模式表、L5 删除清单、L6 逐日志核验表）见本目录 `findings.md`。
+See `findings.md` in this directory for the full text of every lane (including the L2 attack-surface list, L3 consistency matrix, L4 failure-mode table, L5 deletion list, and L6 item-by-item log-verification table).
 
-## 三、修复轮复门禁
+## 3. Gate rerun after the fix round
 
-修复 executor 自测（build/vet/test 全量、sdk+channelhost、dingtalk+feishu -race、verify 新夹具、ui typecheck+test）全绿后，协调人复跑 `just ci` → **exit 0**（无 FAIL 行；172 UI 测试）。
+After the fix executor's self-checks (full build/vet/test, sdk+channelhost, DingTalk+Feishu -race, new verify fixtures, UI typecheck+test) were all green, the coordinator reran `just ci` → **exit 0** (no FAIL lines; 172 UI tests).
 
-## 四、合入预演（只读）
+## 4. Merge rehearsal (read-only)
 
-`git merge-tree <merge-base(HEAD,origin/main)> HEAD origin/main` 冲突块数 = **0**。合入清单见 summary.md「合入预演」节。
+`git merge-tree <merge-base(HEAD,origin/main)> HEAD origin/main` conflict blocks = **0**. See the “Merge rehearsal” section of summary.md for the merge checklist.
 
-## 五、诚实声明
+## 5. Plain disclosure
 
-- L2/L4 各有一处探针曾误落在主 checkout（shell cwd 重置所致），均已声明并在 worktree 复跑证实。
-- L5 浏览器冒烟为协调人亲跑两场景（DOM 事实断言），非 lane 子代理执行。
-- e2e 基线分诊用的临时 worktree 已清理（prune 后 worktree 数回到 7）。
-- note 级发现未逐条修复（约 30 条，多为装饰性/理论性/既有同类形），全量在 findings.md。
-- 未 push。
+- L2/L4 each had one probe accidentally land in the main checkout (due to shell cwd reset); both were disclosed and confirmed by rerunning in the worktree.
+- The L5 browser smoke covered two scenarios run directly by the coordinator (DOM fact assertions), not by lane subagents.
+- The temporary worktree used for e2e baseline triage was cleaned up (the worktree count returned to 7 after prune).
+- Note-level findings were not fixed one by one (about 30, mostly cosmetic/theoretical/existing similar forms); the complete set is in findings.md.
+- Not pushed.

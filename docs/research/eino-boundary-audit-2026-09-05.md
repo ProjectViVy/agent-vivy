@@ -1,256 +1,289 @@
-# Vivy 自研与 Eino 原生边界审计
+# Audit of the boundary between Vivy in-house work and native Eino capabilities
 
-- 日期：2026-09-05
-- 性质：当前源码事实记录；不是实施授权
-- 基线：`github.com/cloudwego/eino v0.9.13`、`github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9`、
-  `github.com/mark3labs/mcp-go v1.0.0`，以 `go.mod` 与本机 module cache 为准
-- 决策顺序：Vivy 架构统一性第一，Eino/EinoExt 原生复用第二，自研例外第三
+- Date: 2026-09-05
+- Nature: current source-code fact record; not implementation authorization
+- Baseline: `github.com/cloudwego/eino v0.9.13`, `github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9`,
+  `github.com/mark3labs/mcp-go v1.0.0`, using `go.mod` and the local module cache as the source of truth
+- Decision order: Vivy architectural consistency first, native Eino/EinoExt reuse second, in-house exceptions third
 
-## 1. 结论
+## 1. Conclusion
 
-影响范围是局部重构，不是推倒 Vivy runtime。
+The impact is a localized refactor, not a rewrite of the Vivy runtime.
 
-Vivy 的主循环已经原生使用 Eino `adk.ChatModelAgent`、`adk.Runner`、
-checkpoint/resume、schema/stream，以及 skill、agentsmd、reduction、
-summarization 中间件。当前自研代码的大部分承载 Vivy 的产品权威语义，不能由
-Eino 直接替代：Journal、Policy、HITL、预算、会话、恢复、RPC、sandbox、
-worker 进程隔离和产品事件投影。
+Vivy's main loop already uses native Eino `adk.ChatModelAgent`, `adk.Runner`,
+checkpoint/resume, schema/stream, and the skill, agentsmd, reduction, and
+summarization middleware. Most of the current in-house code carries Vivy's
+product-authority semantics and cannot be directly replaced by Eino: Journal,
+Policy, HITL, budget, sessions, recovery, RPC, sandbox, worker-process
+isolation, and product-event projection.
 
-需要重新评估或清理的候选面约为 **1.3–1.6k 行生产代码及其测试/装配**，
-主要集中在动态工具检索、Sequential Thinking 与未进入生产 middleware 的
-plantask 兼容面。MCP adapter 已于 2026-09-06 按 Eino-native 方案收敛；流式观测
-包装器也已判定保留，不再计入该上界。该数字是审查上界，不等于可直接删除行数。
+Candidate surfaces for reevaluation or cleanup amount to approximately **1.3–1.6k
+lines of production code plus tests/assembly**, concentrated mainly in dynamic
+tool discovery, Sequential Thinking, and the plantask compatibility surface that
+has not entered production middleware. The MCP adapter converged on an
+Eino-native approach on 2026-09-06; the streaming-observation wrapper was also
+judged worth retaining and is no longer included in this upper bound. This number
+is an audit upper bound, not the number of lines that can be deleted directly.
 
-## 2. 当前代码规模与口径
+## 2. Current code size and accounting basis
 
-当前非测试 Go 代码约：
+Current non-test Go code is approximately:
 
-| 区域 | 生产代码量 | 审计解释 |
+| Area | Production code | Audit interpretation |
 |---|---:|---|
-| `internal/runtime` | 17.1k 行 | 同时包含 Eino 接线和 Vivy 产品治理，不可整体按“自研 loop”处理 |
-| `internal/provider` | 0.8k 行 | EinoExt 模型构造外加 Vivy provider catalog/secret/model metadata |
-| `internal/tools` | 4.0k 行 | Vivy 稳定工具合同；经 adapter 交给 Eino |
-| `internal/domain` | 1.1k 行 | Eino 隔离墙外的产品类型 |
-| `internal/storage` | 8.6k 行 | Journal 与产品持久化，非 Eino 职责 |
+| `internal/runtime` | 17.1k lines | Contains both Eino wiring and Vivy product governance; it cannot be treated wholesale as an "in-house loop" |
+| `internal/provider` | 0.8k lines | EinoExt model construction plus Vivy provider catalog/secret/model metadata |
+| `internal/tools` | 4.0k lines | Vivy's stable tool contract; handed to Eino through adapters |
+| `internal/domain` | 1.1k lines | Product types outside the Eino isolation wall |
+| `internal/storage` | 8.6k lines | Journal and product persistence, outside Eino's responsibilities |
 
-因此，不能用 `internal/runtime` 总行数衡量“重复 Eino”的规模。
+Therefore, the total line count of `internal/runtime` cannot be used to measure the size of "duplicated Eino".
 
-## 3. 已正确使用的 Eino 原生能力
+## 3. Native Eino capabilities already used correctly
 
-| 能力 | 当前接线 | 判定 |
+| Capability | Current wiring | Disposition |
 |---|---|---|
-| 主 ReAct 循环 | `engine.go`: `adk.NewChatModelAgent` | 原生，保留 |
-| 执行与恢复 | `adk.NewRunner` + `ResumeWithParams` | 原生，保留 |
-| checkpoint 接口 | `EinoCheckpointAdapter` | 薄适配，保留 |
-| OpenAI / Claude | EinoExt model components | 原生，保留 |
-| Skills | `middlewares/skill.NewMiddleware` | 原生 middleware + Vivy Backend，保留 |
-| AGENTS.md | `middlewares/agentsmd` | 原生 middleware + workspace Backend，保留 |
-| 上下文压缩 | `reduction` + `summarization` | 原生 middleware + Vivy 事件/预算桥，保留 |
-| 消息、工具、流 | Eino schema/components interfaces | 原生协议 + Vivy adapters，保留 |
+| Main ReAct loop | `engine.go`: `adk.NewChatModelAgent` | Native, retain |
+| Execution and recovery | `adk.NewRunner` + `ResumeWithParams` | Native, retain |
+| Checkpoint interface | `EinoCheckpointAdapter` | Thin adapter, retain |
+| OpenAI / Claude | EinoExt model components | Native, retain |
+| Skills | `middlewares/skill.NewMiddleware` | Native middleware + Vivy Backend, retain |
+| AGENTS.md | `middlewares/agentsmd` | Native middleware + workspace Backend, retain |
+| Context compaction | `reduction` + `summarization` | Native middleware + Vivy event/budget bridge, retain |
+| Messages, tools, streams | Eino schema/components interfaces | Native protocols + Vivy adapters, retain |
 
-## 4. Vivy 必须自己拥有的实现
+## 4. Implementations Vivy must own
 
-### 4.1 Journal 与产品事件
+### 4.1 Journal and product events
 
-Eino `AgentEvent` 是运行时事件，不是 Vivy 的耐久产品合同。Vivy 必须自己负责
-persist-before-fanout、run 终态、消息投影、重启恢复、删除栅栏、事件版本、
-token/cost 和 RPC 兼容。主要落点是 `service.go`、`mapper.go`、
-`message_projector.go`、`internal/domain/event.go` 与 storage 实现。
+Eino `AgentEvent` is a runtime event, not Vivy's durable product contract. Vivy
+must own persist-before-fanout, run terminal state, message projection, restart
+recovery, deletion fences, event versions, token/cost, and RPC compatibility. The
+main locations are `service.go`, `mapper.go`, `message_projector.go`,
+`internal/domain/event.go`, and the storage implementation.
 
-判定：**正常自研，禁止外包给 Eino。**
+Disposition: **normal in-house work; do not outsource to Eino.**
 
-### 4.2 Policy、HITL 与工具治理
+### 4.2 Policy, HITL, and tool governance
 
-`tooladapter.go` 在 Eino Tool 接口外执行参数安全校验、Policy profile、Plan Mode、
-审批中断/恢复、hooks、proposal/precondition、脱敏、输出上限和 tool mount 审计。
-Eino 提供 Tool 与 interrupt 原语，但不拥有 Vivy 的治理合同。
+`tooladapter.go` performs parameter safety validation, Policy profiles, Plan Mode,
+approval interruption/recovery, hooks, proposal/precondition checks, redaction,
+output limits, and tool-mount auditing outside the Eino Tool interface. Eino
+provides Tool and interrupt primitives, but does not own Vivy's governance contract.
 
-判定：**正常自研；可以复用 Eino 原语，不能移除治理门。**
+Disposition: **normal in-house work; Eino primitives may be reused, but the governance gate cannot be removed.**
 
-### 4.3 checkpoint 耐久包装
+### 4.3 Checkpoint durability wrapper
 
-Eino 提供 `CheckPointStore`；Vivy 的 `VersionedCheckpointStore` 增加 engine 版本、
-checksum、BlobStore 和不兼容 fail-closed。`EinoCheckpointAdapter` 只负责接口转换。
+Eino provides `CheckPointStore`; Vivy's `VersionedCheckpointStore` adds engine
+version, checksum, BlobStore, and fail-closed handling for incompatibility.
+`EinoCheckpointAdapter` is responsible only for interface conversion.
 
-判定：**正确的薄适配，不是重复 checkpoint。**
+Disposition: **a correct thin adapter, not duplicated checkpoint functionality.**
 
-### 4.4 Journal → Eino 上下文投影
+### 4.4 Journal → Eino context projection
 
-`context.go` 负责把耐久消息、工具调用/结果、图片和项目文件投影成 Eino
-messages，并实施历史窗口与产品预算。`pairToolTurns` 会丢弃截断窗口内不完整的
-调用对；Eino `patchtoolcalls` 则补占位结果，二者语义不同，不能机械替换。
+`context.go` projects durable messages, tool calls/results, images, and project
+files into Eino messages, and enforces the history window and product budget.
+`pairToolTurns` discards incomplete call pairs inside a truncated window; Eino
+`patchtoolcalls` instead adds placeholder results. Their semantics differ, so one
+cannot mechanically replace the other.
 
-判定：**正常自研；prompt template 只能减少格式代码，不能替代投影语义。**
+Disposition: **normal in-house work; a prompt template can reduce formatting code, but cannot replace projection semantics.**
 
-### 4.5 workspace、文件与编码治理
+### 4.5 Workspace, files, and encoding governance
 
-`EinoFilesystemBackend` 同时服务 Eino Backend 接口和 Vivy typed operations。
-workspace containment、symlink 防逃逸、sandbox、原子写入、diff、stale-read、
-file version、LSP diagnostics、图片与有界搜索均是 Vivy 产品/安全语义。
+`EinoFilesystemBackend` serves both the Eino Backend interface and Vivy typed
+operations. Workspace containment, symlink escape prevention, sandboxing, atomic
+writes, diff, stale-read, file versioning, LSP diagnostics, images, and bounded
+search are all Vivy product/security semantics.
 
-判定：**正常自研 Backend；可复用 Eino 工具注册件，但安全主体仍归 Vivy。**
+Disposition: **normal in-house Backend; Eino tool-registration components may be reused, but the security authority remains Vivy.**
 
-### 4.6 同二进制 child worker
+### 4.6 Same-binary child worker
 
-`internal/worker` 的小型模型—工具循环与 Eino `NewAgentTool`/prebuilt agents 有
-表面重叠，但它实现的是独立进程故障域：父进程代理模型、工具、审批、预算和
-PolicySnapshot；child 不拥有 Journal，也不能放宽父权限。Eino prebuilt agents
-是进程内编排，直接替换会形成平行治理轨道。
+The small model–tool loop in `internal/worker` has surface overlap with Eino
+`NewAgentTool`/prebuilt agents, but it implements an independent process failure
+domain: the parent process brokers the model, tools, approvals, budget, and
+PolicySnapshot; the child owns no Journal and cannot relax the parent's
+permissions. Eino prebuilt agents are in-process orchestration, so direct
+replacement would create a parallel governance track.
 
-判定：**经过架构权衡的正常自研，当前不列入删除范围。** 将来若立项轻量
-in-process child，可把 `NewAgentTool` 作为可选后端，不替换现有 worker。
+Disposition: **normal in-house work after architectural tradeoffs; not currently in the deletion scope.** If a lightweight in-process child is approved in the future, `NewAgentTool` can be an optional backend without replacing the existing worker.
 
-### 4.7 RPC、Faces、Channels、Plugins 与 UI
+### 4.7 RPC, Faces, Channels, Plugins, and UI
 
-这些是 Vivy 产品表面和宿主边界，不属于 Eino orchestration 职责。
+These are Vivy product surfaces and host boundaries, outside Eino orchestration responsibilities.
 
-判定：**正常自研。**
+Disposition: **normal in-house work.**
 
-## 5. 需要复审的重叠或概念债务
+## 5. Overlaps or conceptual debt requiring review
 
-### 5.1 MCP transport — 2026-09-06 MCP slice 已完成
+### 5.1 MCP transport — MCP slice complete as of 2026-09-06
 
-`internal/runtime/mcp_backend.go` 不再拥有 JSON-RPC/HTTP/SSE/session/request-id
-协议栈。官方 `client.NewStreamableHttpClient` 提供 Streamable HTTP、modern
-`server/discover`（`mcp.LATEST_PROTOCOL_VERSION` 首选并按官方实现回退 legacy
-initialize）、typed tools/resources/prompts 与 session 生命周期；工具发现与
-schema 转换经 `github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9` 的
-`GetTools` 完成。
-Eino MCP component 的许可证是 Apache-2.0，mcp-go 的许可证是 MIT。
+`internal/runtime/mcp_backend.go` no longer owns a JSON-RPC/HTTP/SSE/session/request-id
+protocol stack. The official `client.NewStreamableHttpClient` provides Streamable
+HTTP, modern `server/discover` (preferring `mcp.LATEST_PROTOCOL_VERSION` and
+falling back to the legacy initialize flow according to the official
+implementation), typed tools/resources/prompts, and session lifecycle; tool
+discovery and schema conversion are handled by `GetTools` from
+`github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9`.
+The Eino MCP component is Apache-2.0 licensed; mcp-go is MIT licensed.
 
-这是一个有意的薄边界：Eino component 当前只覆盖 tools，并且把
-`CallToolResult.IsError` 转为 Go error；Vivy 必须保留 `isError`、resources、
-prompts 和 typed lifecycle 语义，所以这些路径仍走同一 mcp-go client。Eino
-tools 只用于 catalog/schema projection，绝不直接挂载到 model；实际调用仍是
-`mcp_list_tools`/`mcp_call` 与 `PrepareMCPCall` 审批路径。Vivy 继续拥有配置热更、
-provenance、untrusted/fail-closed 投影、8s operation timeout、512KiB raw response
-guard、256KiB content/catalog budget、32 页与重复 cursor bounds、browser-use
-过滤，以及移除/替换/应用 shutdown 的 client close。
+This is an intentional thin boundary: the Eino component currently covers only
+tools and converts `CallToolResult.IsError` to a Go error; Vivy must retain
+`isError`, resources, prompts, and typed lifecycle semantics, so those paths still
+use the same mcp-go client. Eino tools are used only for catalog/schema
+projection and are never mounted directly on the model; actual calls still use
+the `mcp_list_tools`/`mcp_call` and `PrepareMCPCall` approval paths. Vivy continues
+to own configuration hot reload, provenance, untrusted/fail-closed projection,
+the 8s operation timeout, the 512KiB raw-response guard, the 256KiB
+content/catalog budget, 32-page and duplicate-cursor bounds, browser-use
+filtering, and client close on removal/replacement/application shutdown.
 
-明确缺口与未来移除边界：当 Eino MCP component 覆盖 resources/prompts/lifecycle
-并保留 `IsError` 语义后，可移除该 adapter 中对应的 mcp-go typed plumbing；在此
-之前不能用 Eino tool 直接替代 Vivy domain contract。未引入 stdio、OAuth 或
-continuous listening。
+The explicit gap and future removal boundary is as follows: once the Eino MCP
+component covers resources/prompts/lifecycle while retaining `IsError` semantics,
+the corresponding mcp-go typed plumbing can be removed from this adapter; before
+then, an Eino tool cannot directly replace the Vivy domain contract. stdio, OAuth,
+and continuous listening have not been introduced.
 
-影响：**中等、局部；Journal、Policy、HITL、RPC/TUI 与治理架构不变。**
+Impact: **moderate and localized; Journal, Policy, HITL, RPC/TUI, and the governance architecture are unchanged.**
 
-### 5.2 自研 `tool_search` 与可见面 middleware
+### 5.2 In-house `tool_search` and visible-surface middleware
 
-`internal/tools/toolsearch.go`、`toolselection_middleware.go` 和
-`toolselection.go` 合计约 260 行。Eino v0.9.13 已有
-`middlewares/dynamictool/toolsearch`，同样负责初始隐藏、搜索和后续显露动态
-工具。
+`internal/tools/toolsearch.go`, `toolselection_middleware.go`, and
+`toolselection.go` total approximately 260 lines. Eino v0.9.13 already has
+`middlewares/dynamictool/toolsearch`, which likewise handles initial hiding,
+search, and subsequent exposure of dynamic tools.
 
-建议边界：用 Eino 管模型可见性；Vivy adapter 继续执行 allowlist、Skill mount、
-Policy 和实际调用二次校验。先做行为对照，不能只删除执行门。
+Recommended boundary: let Eino manage model visibility; the Vivy adapter continues
+to enforce the allowlist, Skill mount, Policy, and a second validation at actual
+call time. First compare behavior; do not merely delete the execution gate.
 
-影响：**小到中等。**
+Impact: **small to moderate.**
 
 ### 5.3 Sequential Thinking
 
-`SequentialThinkingBackend`（2026-09-06 去掉误导性 `Eino` 前缀）没有 Eino
-import，是约 160 行的内存状态工具，重启即丢失。与 EinoExt Sequential Thinking
-的 capability check / 替换仍待做。
+`SequentialThinkingBackend` (the misleading `Eino` prefix was removed on
+2026-09-06) has no Eino import; it is an approximately 160-line in-memory state
+tool that is lost on restart. The capability check / replacement with EinoExt
+Sequential Thinking remains to be done.
 
-影响：**小。**
+Impact: **small.**
 
-### 5.4 Todo / plantask 的“兼容不等于已采用”
+### 5.4 Todo / plantask: "compatibility does not mean adoption"
 
-`EinoTodoBackend` 实现了 `plantask.Backend`，但生产工具走 Vivy 自己的
-`task_create/get/update/list` typed operations；当前生产装配未调用
-`plantask.New(...)`。既有调研把“实现兼容接口”写成“已使用原生 plantask”，
-表述不准确。
+`EinoTodoBackend` implements `plantask.Backend`, but production tools use Vivy's
+own `task_create/get/update/list` typed operations; the current production
+assembly does not call `plantask.New(...)`. Existing research described
+"implementing a compatible interface" as "using native plantask," which is
+inaccurate.
 
-不能为了原生而直接挂 plantask middleware：middleware 注入的写工具若不经过
-Vivy `toolAdapter`，会旁路 Policy/HITL。候选动作应是删除无消费方的兼容半边，
-或证明原生工具可以完整穿过治理门后再接入。
+Do not attach the plantask middleware merely for the sake of using a native
+component: if middleware-injected write tools do not pass through Vivy's
+`toolAdapter`, they bypass Policy/HITL. Candidate actions are to delete the
+unused compatibility half, or to prove that the native tools can pass through
+the governance gate in full before integrating them.
 
-影响：**小，主要是概念和死兼容代码清理。**
+Impact: **small, mainly conceptual cleanup and removal of dead compatibility code.**
 
-### 5.5 stream observer 与 Eino callbacks — KEEP（2026-09-06）
+### 5.5 stream observer and Eino callbacks — KEEP (2026-09-06)
 
-`model_stream_observer.go` 包装 ChatModel 并用 `schema.Pipe[*schema.Message](8)`
-在生产者 `Recv → persist → Send` 路径上 tee 原始 chunk。这是 Journal 实时
-delta、reasoning/text 顺序、预算、背压、fail-closed 和 interrupt/resume 的
-缝，不是可删的观测层。
+`model_stream_observer.go` wraps ChatModel and uses
+`schema.Pipe[*schema.Message](8)` to tee raw chunks on the producer's
+`Recv → persist → Send` path. This is the seam for Journal real-time delta,
+reasoning/text ordering, budget, backpressure, fail-closed behavior, and
+interrupt/resume; it is not a deletable observation layer.
 
-核对 pinned Eino v0.9.13：`callbacks.OnEndWithStreamOutput`、
-`schema.StreamReader.Copy` / `copyStreamReaders`、
-`compose.genericOnEndWithStreamOutput`。Callback 在 inner `Stream()` 返回
-之后做 sibling `Copy`；handler 可同步运行，但仍不是生产者路径，不能：
+Review of pinned Eino v0.9.13: `callbacks.OnEndWithStreamOutput`,
+`schema.StreamReader.Copy` / `copyStreamReaders`, and
+`compose.genericOnEndWithStreamOutput`. The callback performs a sibling `Copy`
+after inner `Stream()` returns; the handler may run synchronously, but it is still
+not on the producer path and cannot:
 
-1. 把 persist 放进 `Recv → persist → Send`（独立 copy 上的 persist 不在
-   graph Recv 路径上）
-2. 用有界 `Pipe(8)` 把 persist 背压传到 provider `Recv`
-3. 把 persist 错误 fail-close 进 graph 流（独立 copy 失败不会让下游失败）
-4. 在生产者路径上执行 `waitForToolsSettled`
+1. Put persist in `Recv → persist → Send` (persist on the independent copy is not
+   on the graph Recv path)
+2. Propagate persist backpressure to provider `Recv` through a bounded `Pipe(8)`
+3. Fail-close persist errors into the graph stream (failure on the independent
+   copy does not fail downstream)
+4. Execute `waitForToolsSettled` on the producer path
 
-本包装器的 `Begin` 仍必须在把 tee 交给 Eino 之前调用，以免 pump 与 eager
-forwarding 竞态；那是此 wrapper 的实现约束，不是 callback 做不到 Begin。
+This wrapper's `Begin` must still be called before handing the tee to Eino, to
+avoid a pump/eager-forwarding race; that is an implementation constraint of this
+wrapper, not evidence that a callback cannot perform Begin.
 
-因此 **保留包装器**。Vivy 当前未注册 `eino/callbacks` handler。若 Eino 日后
-提供带 fail-closed 的生产者 `Recv` 钩子，再复查。
+Therefore, **retain the wrapper**. Vivy does not currently register an
+`eino/callbacks` handler. Revisit this if Eino later provides a producer `Recv`
+hook with fail-closed behavior.
 
-影响：**已关闭；不是可删除面。** 记录：
-`docs/logs/2026-09-06-eino-boundary-stream-observer-naming/`。
+Impact: **closed; not a deletable surface.** Record:
+`docs/logs/2026-09-06-eino-boundary-stream-observer-naming/`.
 
-### 5.6 `Eino*Backend` 命名债务 — DONE（2026-09-06）
+### 5.6 `Eino*Backend` naming debt — DONE (2026-09-06)
 
-名副其实、确有 Eino interface 消费、**保留 `Eino` 前缀**：
-`EinoCheckpointAdapter`、`EinoFilesystemBackend`、`EinoSkillBackend`；
-`EinoTodoBackend` 实现 `plantask.Backend` 但生产未挂 middleware（见 §5.4）。
+Names that are accurate and do consume Eino interfaces—**retain the `Eino` prefix**:
+`EinoCheckpointAdapter`, `EinoFilesystemBackend`, and `EinoSkillBackend`;
+`EinoTodoBackend` implements `plantask.Backend`, but production does not attach the middleware (see §5.4).
 
-2026-09-06 去掉只实现 Vivy `tools.*Operations` 的误导性前缀：
+On 2026-09-06, the misleading prefix was removed from items that only implement Vivy `tools.*Operations`:
 
-| 原名 | 现名 | 说明 |
+| Former name | Current name | Notes |
 |---|---|---|
 | `EinoCommandBackend` | `CommandBackend` | Vivy sandbox/policy adapter |
 | `EinoHTTPBackend` | `HTTPBackend` | Vivy SSRF/policy adapter |
-| `EinoMCPBackend` | `MCPBackend` | Vivy governance adapter；仅 tools/schema 使用 Eino `GetTools` |
-| `EinoSequentialThinkingBackend` | `SequentialThinkingBackend` | 尚未采用 EinoExt component |
+| `EinoMCPBackend` | `MCPBackend` | Vivy governance adapter; Eino `GetTools` is used only for tools/schema |
+| `EinoSequentialThinkingBackend` | `SequentialThinkingBackend` | EinoExt component not yet adopted |
 | `EinoWebFetchBackend` | `WebFetchBackend` | Vivy bounded fetch adapter |
 | `EinoDownloadBackend` | `DownloadBackend` | Vivy workspace/sandbox adapter |
 
-`MCPBackend` 的名称不再暗示把 Eino 类型泄漏到产品边界；其 Eino-native
-tools/schema projection 与 mcp-go typed lifecycle 边界见 §5.1。其余实现仍是
-Vivy 自有治理壳（SSRF、sandbox、审批等），名称不再作为“已接 Eino”的证据。
+The name `MCPBackend` no longer implies that Eino types leak into the product
+boundary; its Eino-native tools/schema projection and mcp-go typed lifecycle
+boundary are described in §5.1. The remaining implementation is still Vivy's own
+governance shell (SSRF, sandbox, approval, etc.), and the name is no longer
+evidence that Eino has been wired in.
 
-## 6. 对既有调研的修正
+## 6. Corrections to existing research
 
-既有 `eino-reuse-inventory-2026-08-31.md` 的总体判断仍成立：治理、Journal、
-Policy、worker 应由 Vivy 拥有，约六成候选能力可以通过 Eino/上游减量。
+The overall judgment in the existing `eino-reuse-inventory-2026-08-31.md` remains
+valid: Vivy should own governance, Journal, Policy, and worker, while about 60%
+of candidate capabilities can be reduced through Eino/upstream reuse.
 
-需要修正四点：
+Four points need correction:
 
-1. “有等价能力”不等于“当前已使用”：自研 `tool_search` 仍是生产实现。
-2. “实现 Eino Backend”不等于“middleware 已接线”：plantask 当前未注册为生产
-   middleware。
-3. `MCPBackend`（原 `EinoMCPBackend`）是 runtime 内的治理适配器：Eino
-   `GetTools` 负责 tools/schema，mcp-go typed client 负责
-   resources/prompts/lifecycle 与 Vivy 的 `isError` 语义，不是第二套协议栈。
-4. 许可证口径：Eino MCP component 为 Apache-2.0，mcp-go 为 MIT；两者均不应
-   被记录为未知或混用许可证。
+1. "Having an equivalent capability" does not mean "currently used": in-house
+   `tool_search` remains the production implementation.
+2. "Implementing an Eino Backend" does not mean "the middleware is wired":
+   plantask is not currently registered as production middleware.
+3. `MCPBackend` (formerly `EinoMCPBackend`) is a governance adapter inside the
+   runtime: Eino `GetTools` handles tools/schema, while the mcp-go typed client
+   handles resources/prompts/lifecycle and Vivy's `isError` semantics; it is not a
+   second protocol stack.
+4. License accounting: the Eino MCP component is Apache-2.0 and mcp-go is MIT;
+   neither should be recorded as having an unknown license or as using a mixed
+   license.
 
-## 7. 影响范围判定
+## 7. Impact-scope assessment
 
-- 约 **85%** 的 runtime/product 代码：必要自研，保留。
-- 约 **5–8%**：明确值得迁移、减量或清理，集中在 tool_search、Sequential
-  Thinking 替换和 plantask 兼容面；MCP 现为有明确 removal boundary 的薄 adapter。
-- stream observer/callbacks 原列 **2–3% PoC**：2026-09-06 判定保留包装器，
-  不再作为减量候选。
-- child worker 虽然代码较多，但属于产品架构选择，不计入立即删除范围。
+- Approximately **85%** of runtime/product code: necessary in-house work, retain.
+- Approximately **5–8%**: clearly worth migrating, reducing, or cleaning up,
+  concentrated in tool_search, Sequential Thinking replacement, and the plantask
+  compatibility surface; MCP is now a thin adapter with a defined removal boundary.
+- The stream observer/callbacks previously listed as **2–3% PoC**: the wrapper was
+  judged worth retaining on 2026-09-06 and is no longer a reduction candidate.
+- Although the child worker contains a substantial amount of code, it is a product
+  architecture choice and is not included in the immediate deletion scope.
 
-这些百分比是审计量级，不是精确删除承诺。
+These percentages indicate audit scale, not a precise deletion commitment.
 
-## 8. 后续纪律
+## 8. Follow-up discipline
 
-本记录不授权实现。后续逐项执行时必须：
+This record does not authorize implementation. When executing items individually, you must:
 
-1. 先核对 pinned Eino/EinoExt 的实际 API 和行为；
-2. 写明 Vivy 不变式以及原生件能否满足；
-3. 优先替换协议/编排机械层，保留 Vivy 治理壳；
-4. 保持 domain firewall，Eino import 不越过 runtime/provider；
-5. 每项独立测试、独立交付，不做整片 runtime 重写。
+1. First verify the actual API and behavior of pinned Eino/EinoExt;
+2. State Vivy invariants and whether the native component can satisfy them;
+3. Prefer replacing protocol/orchestration mechanics while retaining the Vivy governance shell;
+4. Maintain the domain firewall; Eino imports must not cross beyond runtime/provider;
+5. Test and deliver each item independently; do not rewrite the runtime wholesale.
 
 ## 9. 2026-09-06 superseded note
 

@@ -1,65 +1,75 @@
-# 验证记录（2026-08-27，设置 → 网络工具）
+# Verification record (2026-08-27, Settings → Network Tools)
 
-## 执行的命令与结果
+## Commands run and results
 
-开发在独立 worktree `../agent-vivy-network-tools`（分支 `feat/network-tools`，
-基于 rebase 后的最新 main `0791a3d`），全程未触碰根树（根树当时由设置-语言
-车道占用，符合 `parallel-worktree-isolation`）。
+Development took place in the independent worktree `../agent-vivy-network-tools` (branch
+`feat/network-tools`, based on the latest rebased main `0791a3d`), without touching the root
+tree (which was occupied by the Settings-Language lane at the time, in accordance with
+`parallel-worktree-isolation`).
 
-### Go 单测切片（改动包）
+### Go unit-test slice (changed packages)
 
 ```text
-go test ./internal/config ./internal/app/settings ./internal/runtime ./internal/rpc   # 全绿
-go test -tags vivy_headless ./internal/app                                           # 全绿
+go test ./internal/config ./internal/app/settings ./internal/runtime ./internal/rpc   # all green
+go test -tags vivy_headless ./internal/app                                           # all green
 ```
 
-覆盖新增：config 解析/校验 `network_search.provider`（含未知 provider 拒绝）、
-settings round-trip + 白名单校验、runtime 首选 provider 生效 + 不可用降级 +
-availability 三态（t.Setenv，无真实网络）、app overlay 网络偏好、RPC
-settings/get|update 的 network_search 分区（含错误 provider 拒绝、
-provider 名与 roster 断言、api_key 不回传泄漏检查保留）。
+New coverage: config parsing/validation of `network_search.provider` (including rejection of
+unknown providers), settings round trip + allowlist validation, runtime preferred-provider
+behavior + unavailable-provider fallback + three-state availability (`t.Setenv`, no real
+network), app overlay network preference, and the `network_search` section of RPC
+settings/get|update (including invalid-provider rejection, provider-name and roster
+assertions, and retained api_key non-return/no-leak checks).
 
-### `just ci`（worktree 内，先 `pnpm install --frozen-lockfile` 建依赖）
+### `just ci` (in the worktree, after `pnpm install --frozen-lockfile` set up dependencies)
 
 ```text
 just ci   # fmt-check → vet → go test ./... → headless-compile → ui-ci[typecheck → vitest → vite build]
 ```
 
-**通过，exit code 0**。UI 单测 105 passed（15 files），其中
-`diva-preview-data.test.ts`（2 tests，断言网络分区已移除）、
-`i18n/index.test.ts`（9 tests，zh/en 叶子结构一致，新增 `networkTools`
-词条双语对称）通过；vite 生产构建成功（2202 modules）。
+**Passed, exit code 0**. UI unit tests: 105 passed (15 files), including
+`diva-preview-data.test.ts` (2 tests asserting that the network section was removed) and
+`i18n/index.test.ts` (9 tests asserting matching zh/en leaf structures and bilingual
+symmetry for the new `networkTools` entries); the Vite production build succeeded (2202
+modules).
 
-### e2e 真实路径（`pnpm e2e -- network-tools-setting.spec.ts`）
+### e2e real path (`pnpm e2e -- network-tools-setting.spec.ts`)
 
-webServer 自起 `go run ./cmd/vivy`（E2E_ADDR 127.0.0.1:8799，隔离 mock
-workdir，不触达生产 `data/`）：
+The webServer started `go run ./cmd/vivy` itself (E2E_ADDR 127.0.0.1:8799, isolated mock
+workdir, without touching production `data/`):
 
-- 首跑失败一次：`getByRole('option', { name: 'Wikipedia' })` 严格模式冲突——
-  「自动（…wikipedia 免密钥）」选项文本含 wikipedia 子串，解析到 2 个元素。
-  已修：`exact: true` + 自动项用 `/^自动/`。这是规格选择器问题，不是产品缺陷。
-- 复跑 **通过（1.6s，1 passed）**：深链 `?tab=network` → 分区选中、真实卡片
-  渲染（DuckDuckGo/Wikipedia 免密钥「已配置」、Bing/Google/SearXNG「待配置」
-  + 环境变量名提示）→ 选 Wikipedia → 保存 → 刷新保持 → 恢复自动。
+- First run failed once: strict-mode conflict in `getByRole('option', { name: 'Wikipedia' })`—
+  the 「Automatic (...wikipedia keyless)」 option text contained the wikipedia substring,
+  resolving to 2 elements. Fixed with `exact: true` + `/^自动/` for the automatic item.
+  This was a spec-selector issue, not a product defect.
+- Rerun **passed (1.6s, 1 passed)**: deep link `?tab=network` → section selected, real cards
+  rendered (DuckDuckGo/Wikipedia keyless 「Configured」, Bing/Google/SearXNG 「Needs
+  configuration」 + environment-variable-name hints) → select Wikipedia → save → refresh
+  retains it → restore automatic.
 
-### 浏览器真实路径
+### Browser real path
 
-按根 AGENTS.md「smoke-for-user-visible-change」在
-`http://127.0.0.1:3015` 实走：**本次由 `ui-e2e` 的 Playwright 真实路径承担**
-——webServer 自起 `go run ./cmd/vivy`（E2E_ADDR 127.0.0.1:8799，隔离 mock
-workdir），浏览器经 Vite 代理 WebSocket 直连该真实后端，覆盖与本迭代 UI 完全
-相同的代码路径（real RPC settings/get|update + NetworkToolsCard 渲染）。
+Following the root AGENTS.md 「smoke-for-user-visible-change」 requirement, the flow was
+exercised at `http://127.0.0.1:3015`: **this iteration used the real Playwright path from
+`ui-e2e`**—the webServer started `go run ./cmd/vivy` itself (E2E_ADDR 127.0.0.1:8799,
+isolated mock workdir), and the browser connected to that real backend through the Vite
+proxy over WebSocket, covering exactly the same code path as this iteration's UI (real RPC
+settings/get|update + NetworkToolsCard rendering).
 
-补充说明：worktree 内另起后端 `127.0.0.1:8798`（VIVY_CONFIG=config.dev.yaml）
-验证 `/rpc/bootstrap` 可握手（返回 token）；`/rpc` 为 WebSocket-only，
-HTTP POST 直连被拒（400）属预期（与 UI 无关）。根树的 :8787/:3015 由并行
-车道（chat-toolbar 等）的 dev 服务器占用且不带本次改动，故不以其作为本特性
-smoke 依据。
+Additional note: a separate backend at `127.0.0.1:8798` in the worktree
+(VIVY_CONFIG=config.dev.yaml) verified that `/rpc/bootstrap` handshakes (returns a token);
+`/rpc` is WebSocket-only, and direct HTTP POST was rejected (400) as expected (unrelated
+to the UI). The root tree's :8787/:3015 were occupied by parallel-lane dev servers
+(chat-toolbar, etc.) without this change, so they were not used as the smoke basis for this
+feature.
 
-## 验证结论
+## Verification conclusion
 
-- `just ci` 全绿；网络工具 e2e 真实路径（roster → 选择 → 保存 → 刷新保持 →
-  恢复自动）通过后即满足「后端先行、前端后行的基础版」验收。
-- 未验证项：无真实线上搜索调用（用户明确不要求端到端）；read_only 部署路径
-  由既有 RPC 行为保证（SettingsPath 空 → ReadOnly），未单独 e2e。
-- 无残留在根树：本迭代所有改动只存在于 worktree 分支，合回 main 需授权。
+- `just ci` is all green; the network-tools e2e real path (roster → select → save → refresh
+  retains → restore automatic) passes the acceptance for the 「backend first, frontend
+  second foundation version」.
+- Not verified: no real live search call (the user explicitly did not require end to end);
+  the read_only deployment path is covered by existing RPC behavior (empty SettingsPath →
+  ReadOnly), without a separate e2e.
+- No root-tree remnants: all changes in this iteration exist only in the worktree branch;
+  merging back into main requires authorization.

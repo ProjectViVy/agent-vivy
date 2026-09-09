@@ -1,22 +1,26 @@
-# 验收 — 生成参数演示收进「设置 → 通用 → 高级特性」
+# Acceptance — generation-parameter demo moved into 「Settings → General → Advanced Features」
 
-## 用户怎么看（验收步骤）
+## User view (acceptance steps)
 
-1. 打开 `http://127.0.0.1:3015/settings`，落在「通用」Tab。
-2. 「模型」Tab 只有「Vivy 模型配置」一张卡——此前独立的「生成参数」卡已消失；
-   「通用」Tab 出现「高级特性」卡（滑杆图标卡头）。
-3. 高级特性卡内有「生成参数（演示）」分区 + 模型下拉：下拉列出已选模型
-   （厂商显示名 · 模型 id），默认选中当前运行模型（未配置时选第一个）。
-4. 仅对下拉选中的模型可编辑：温度滑杆（0.0–2.0 实时数值）+ 最大 Tokens 输入；
-   切换模型后载入该模型各自的参数（未保存过的回到默认 0.7 / 4096）。
-5. 点「保存演示参数」出现 primary 对勾 + 「已保存到本地」；刷新后参数保留
-   （`vivy.demo.gen-params` 按 `provider/baseUrl/model` 键独立存），两个模型
-   各自保存互不覆盖。
+1. Open `http://127.0.0.1:3015/settings`, landing on the 「General」 tab.
+2. The 「Model」 tab has only one card, 「Vivy model configuration」—the former standalone
+   「Generation parameters」 card is gone; the 「General」 tab shows an 「Advanced Features」
+   card (slider-icon card header).
+3. The Advanced Features card contains a 「Generation parameters (Demo)」 section + model
+   dropdown: the dropdown lists selected models (provider display name · model id) and
+   defaults to the current runtime model (or the first model when none is configured).
+4. Only the model selected in the dropdown is editable: temperature slider (0.0–2.0 with
+   live value) + Max Tokens input; switching models loads that model's own parameters
+   (unsaved models return to the 0.7 / 4096 defaults).
+5. Click 「Save demo parameters」 and a primary checkmark + 「Saved locally」 appears; after
+   refresh the parameters remain (`vivy.demo.gen-params` stores them independently under
+   `provider/baseUrl/model`), with the two models not overwriting each other.
 
-## 真实结果判定
+## Actual-result criteria
 
-- 「模型」Tab 出现第二张独立「生成参数」卡 = 未通过。
-- 「通用」Tab 没有「高级特性」卡 / 卡内没有模型下拉 = 未通过。
-- 模型下拉不能切换、或切换后参数不随模型变化 = 未通过。
-- 两个模型各自保存后互相覆盖 = 未通过。
-- 滑杆拖动/键盘调整温度后右侧数值不动 = 未通过。
+- A second standalone 「Generation parameters」 card appears in the 「Model」 tab = fail.
+- The 「General」 tab has no 「Advanced Features」 card / the card has no model dropdown = fail.
+- The model dropdown cannot switch, or parameters do not change with the model = fail.
+- Saving each of two models overwrites the other = fail.
+- The value on the right does not move after dragging the slider or adjusting temperature by
+  keyboard = fail.

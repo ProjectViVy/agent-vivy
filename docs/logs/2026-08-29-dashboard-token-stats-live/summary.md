@@ -5,7 +5,7 @@ Status: complete
 
 ## What changed
 
-The dashboard Token 统计 tab now reads real `model.usage` events from the
+The dashboard Token Stats tab now reads real `model.usage` events from the
 Journal instead of `getDemoTokenUsage` fake data. Closes `UI-TOKEN` in
 `docs/TODO.md` §0.1.
 

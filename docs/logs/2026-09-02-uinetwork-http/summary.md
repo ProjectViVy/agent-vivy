@@ -1,40 +1,45 @@
-# UI-NETWORK-HTTP：http_request 工具面进设置文档 + RPC 段 + 设置卡
+# UI-NETWORK-HTTP: http_request tool surface in settings docs + RPC section + settings card
 
-## 交付
+## Deliverables
 
-`http_request`（只读网页抓取）的域名白名单与请求超时从纯 `config.yaml` 字段升级为
-「配置默认值 + 用户工作区 settings.yaml 覆盖层」三层结构，并在设置页网络工具卡
-提供编辑入口。
+The domain allowlist and request timeout for `http_request` (read-only web fetch) move from
+plain `config.yaml` fields to a three-layer structure of "config defaults + user-workspace
+settings.yaml overlay", with an editing entry in the Network tools settings card.
 
-- **config**：`runtime.http_timeout_seconds`（默认 10；runtime 后端钳制 1–120），
-  与既有 `runtime.http_allowed_hosts` 并列。
-- **settings.yaml**：`http` 覆盖层（`HTTPSettings{allowed_hosts *[]string;
-  timeout_seconds int}`）。nil 指针 = 沿用配置；块内 nil hosts = 沿用配置白名单；
-  超时 0 = 沿用配置；显式空列表 = 拒绝全部的只读面。空覆盖层在 load 时归一化为
-  nil（文档回写稳定）。
-- **runtime**：`EinoHTTPBackend` 增加 `SetConfig(allowedHosts, timeoutSeconds)`
-  实时生效缝隙（RWMutex 保护 allowlist/client 读取），构造函数增加 timeoutSeconds
-  参数与 `httpTimeout` 钳制（≤0 → 10s，>120 → 120s）。
-- **RPC**：`settings/get` 增加 `http` 段（有效值 + `config_*` 回退 +
-  `overlay_set`）；`settings/update` 接受 `http{allowed_hosts, timeout_seconds}`
-  （sandbox 同款替换语义：块内省略 hosts = 保留现值，显式空数组 = 拒绝全部）。
-- **live-apply**：`applyLiveHTTPSettings` 在启动时与 OnSettingsChanged 时把
-  settings 覆盖层合并到运行中的后端（照 `applyLiveSandboxSettings` 模式）。
-- **UI**：`NetworkToolsCard` 新增 http_request 工具面区块——域名白名单文本域
-  （换行/逗号分隔，`*.域名` 通配语义提示）、超时数字输入（0 = 沿用配置默认，
-  >120 禁用保存）、覆盖徽标与独立保存回执；`settingsUpdateFrom` 随整文档携带
-  http 段防其他分区保存时误清。
+- **config**: `runtime.http_timeout_seconds` (default 10; runtime backend clamps 1–120),
+  alongside the existing `runtime.http_allowed_hosts`.
+- **settings.yaml**: `http` overlay (`HTTPSettings{allowed_hosts *[]string;
+  timeout_seconds int}`). A nil pointer = use config; nil hosts inside the block = use the
+  config allowlist; timeout 0 = use config; an explicit empty list = deny all on the
+  read-only surface. An empty overlay normalizes to nil on load (stable document rewrite).
+- **runtime**: `EinoHTTPBackend` adds `SetConfig(allowedHosts, timeoutSeconds)` for live
+  application (RWMutex protects allowlist/client reads); the constructor adds a timeoutSeconds
+  argument and `httpTimeout` clamping (≤0 → 10s, >120 → 120s).
+- **RPC**: `settings/get` adds an `http` section (effective value + `config_*` fallback +
+  `overlay_set`); `settings/update` accepts `http{allowed_hosts, timeout_seconds}` with the
+  same replacement semantics as sandbox (omitted hosts inside the block = retain current
+  value; explicit empty array = deny all).
+- **live-apply**: `applyLiveHTTPSettings` merges the settings overlay into the running
+  backend at startup and on OnSettingsChanged (following the `applyLiveSandboxSettings`
+  pattern).
+- **UI**: `NetworkToolsCard` adds an http_request tool-surface block — domain-allowlist
+  textarea (newline/comma-separated, with `*.domain` wildcard semantics), numeric timeout
+  input (0 = use config default, >120 disables Save), override badge, and independent save
+  confirmation; `settingsUpdateFrom` carries the http section with the full document to
+  prevent saves from other sections from accidentally clearing it.
 
-启停（tools_enabled）不在本片范围——已有工具开关覆盖层覆盖，卡片文案只提示
-只读语义。
+Enable/disable (`tools_enabled`) is outside this slice — the existing tool-toggle overlay
+covers it, and the card copy only indicates read-only semantics.
 
-## 明确不做
+## Explicitly not done
 
-- http_request 启用/停用开关（tools_enabled 既有能力，不重复建设）。
-- 请求头、User-Agent 等更细粒度的抓取策略（无需求输入）。
+- An http_request enable/disable switch (`tools_enabled` is existing capability; do not
+  duplicate it).
+- Finer-grained fetch policies such as request headers and User-Agent (no requirements
+  input).
 
-## 相关
+## Related
 
-- TODO：UI-NETWORK-HTTP → DONE（§0.1 翻行 + §10 记录）。
-- 模式先例：sandbox/compaction 覆盖层（指针字段区分「未设」与「设空」）、
-  `applyLiveSandboxSettings`、`NetworkToolsCard`。
+- TODO: UI-NETWORK-HTTP → DONE (moved in §0.1 + §10 record).
+- Pattern precedents: the sandbox/compaction overlay (pointer fields distinguish "unset" from
+  "set empty"), `applyLiveSandboxSettings`, and `NetworkToolsCard`.

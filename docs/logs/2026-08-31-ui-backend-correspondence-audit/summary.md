@@ -1,15 +1,15 @@
-# UI ↔ 后端对应关系审查
+# UI ↔ backend correspondence audit
 
-## 变更
+## Changes
 
-- 新增 `docs/research/ui-backend-correspondence-2026-08-31.md`。
-- 完成非通道 Web UI 与真实 JSON-RPC/runtime/产品契约的双向扫描。
-- 登记后端已有但 UI 错配或遗漏的 10 项发现；对后端尚不存在的演示面明确排除。
+- Added `docs/research/ui-backend-correspondence-2026-08-31.md`.
+- Completed a bidirectional scan of the non-channel Web UI against the real JSON-RPC/runtime/product contract.
+- Recorded 10 findings where the backend exists but the UI is mismatched or incomplete; explicitly excluded demo surfaces that do not yet exist in the backend.
 
-## 范围
+## Scope
 
-覆盖聊天运行链路、Skills、Dashboard、Lifecycle、Review Center/Run Inspector、上下文压缩、主导航，以及 Provider/MCP/Token/Session 等对应性核验。未修改产品代码、通道或 Studio。
+Covered the chat run path, Skills, Dashboard, Lifecycle, Review Center/Run Inspector, context compaction, primary navigation, and correspondence checks for Provider/MCP/Token/Session. Product code, channels, and Studio were not modified.
 
-## 未完成
+## Not completed
 
-本交付是审查报告，不实施报告中的 UI 修复。浏览器 runtime 当前无可用实例，无法完成可视截图 smoke；HTTP split 进程已启动并返回 200。
+This delivery is an audit report and does not implement the UI fixes identified in the report. The browser runtime currently has no usable instance, so a visual screenshot smoke test could not be completed; the HTTP split processes started and returned 200.

@@ -1,14 +1,14 @@
-# 输入框下对称 chrome：shift+h 帮助
+# Symmetric Chrome Below the Input: shift+h Help
 
-## 已交付
+## Delivered
 
-- 空输入时 `shift+h`（终端通常报到大写 `H`）打开帮助，也就是原来的命令/模式面板。
-- 底栏不再显示 `TUI` / `live` / 网关地址。网关地址改到右栏 `host ·`。
-- permission / model / provider 移到输入框正下方左侧；`shift+h 帮助` 与 `ctrl+x 快捷` 在同一行右侧，左右各半宽对齐。
-- `ctrl+x` 仍打开快捷方式浮层；会话列表里 `ctrl+x` 仍是删除。
+- With empty input, `shift+h` (usually reported by the terminal as uppercase `H`) opens Help, which is the former command/mode panel.
+- The footer no longer displays `TUI` / `live` / the gateway address. The gateway address moved to the right column under `host ·`.
+- permission / model / provider moved to the left directly below the input; `shift+h help` and `ctrl+x shortcuts` share the right side of the same row, aligned at half-widths.
+- `ctrl+x` still opens the shortcuts overlay; in the session list, `ctrl+x` still deletes.
 
-## 边界
+## Boundaries
 
-- 正在输入时 `H` 仍是字符，不会抢走草稿。
-- 窄窗口没有右栏时，网关地址仍出现在紧凑顶栏。
-- 审批 diff 打开时 `shift+h` 仍是横向滚动，不打开帮助。
+- While typing, `H` remains a character and does not steal the draft.
+- In a narrow window without a right column, the gateway address still appears in the compact top bar.
+- When the approval diff is open, `shift+h` remains horizontal scrolling and does not open Help.

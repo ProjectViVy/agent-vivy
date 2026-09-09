@@ -1,29 +1,36 @@
 # Acceptance — UI-TRAJ / UI-TRAJECTORY-DEMO
 
-## 人工验收路径
+## Manual acceptance path
 
-1. `just run`（控制面 8787）+ `cd ui; pnpm dev`（Vite 3015），打开
-   `http://127.0.0.1:3015`。
-2. 进入「中控台 → 轨迹」：
-   - 顶部出现「会话」选择器；已有会话时默认选中第一个；
-   - 加载期间显示骨架；失败显示可重试错误条。
-3. 选中一个有过对话的会话：
-   - 时间轴出现三泳道条带，账本出现 Session/User/ASSISTANT/TOOL 行；
-   - 点击 ASSISTANT 行右侧弹出详情（Summary/Usage/Timing），数字与该会话
-     Token 统计口径一致（同一 journal 事实源）；
-   - 工具行点击可见入参/结果详情；错误工具行呈红色。
-4. 切换另一个会话：账本内容随会话切换（不复用上一会话的折叠/搜索状态）。
-5. 全新空库（无会话）：显示「暂无会话；发起一轮对话后即可查看轨迹。」
-6. 有会话但该会话无 run（例如仅创建未对话）：账本显示「暂无轨迹记录」空态。
+1. `just run` (control plane 8787) + `cd ui; pnpm dev` (Vite 3015), open
+   `http://127.0.0.1:3015`.
+2. Enter "Console → Trajectory":
+   - a "Session" selector appears at the top; when sessions exist, the first is selected by
+     default;
+   - a skeleton appears while loading; failures show a retryable error bar.
+3. Select a session that has had a conversation:
+   - the timeline shows three swimlane bands, and the ledger shows Session/User/ASSISTANT/TOOL
+     rows;
+   - clicking the right side of an ASSISTANT row opens details (Summary/Usage/Timing), with
+     numbers using the same Token-statistics convention as the session (the same journal
+     fact source);
+   - clicking a tool row shows input/result details; an errored tool row is red.
+4. Switch to another session: the ledger follows the session (it does not reuse the previous
+   session's folding/search state).
+5. A completely fresh store (no sessions) shows "No sessions; start a conversation to view
+   trajectory."
+6. A session with no run (for example, created but never used for a conversation) shows the
+   "No trajectory records" empty state in the ledger.
 
-## Kernel 侧可观察行为（无 UI 依赖）
+## Kernel-observable behavior (no UI dependency)
 
-- `trajectory/session` RPC：`{"session_id": "<id>"}` 返回
-  `{session_id, turns, records, requests}`；缺 session_id → InvalidParams；
-- 记录 kind 为闭合集合（system/user/message/tool/compacted），
-  文本字段超 8 KiB 截断并带 `[truncated]` 尾标。
+- `trajectory/session` RPC: `{"session_id": "<id>"}` returns
+  `{session_id, turns, records, requests}`; missing session_id → InvalidParams;
+- record kind is a closed set (system/user/message/tool/compacted), and text fields over
+  8 KiB are truncated with a `[truncated]` suffix.
 
-## 边界
+## Boundary
 
-- Token 统计与轨迹投影同源（run_events），两者数字应一致；若不一致，
-  以 journal 为准并在轨迹侧报 bug。
+- Token statistics and trajectory projection share a source (`run_events`), so their numbers
+  should match; if they do not, treat the journal as authoritative and report a bug on the
+  trajectory side.

@@ -10,11 +10,11 @@ Commands run from the repository root on 2026-09-01:
    succeeded.
 4. Browser smoke against the running split dev pair
    (`http://127.0.0.1:3015`, Vite serving this checkout with HMR):
-   - `/dashboard`: `getByRole("tab")` returns exactly `["Token", "轨迹"]`;
-     「活跃运行」/「近期活动」 text count is 0.
-   - `/skills`: tabs are `["已安装技能 (0)", "市场"]`; 「变更请求」 text count
+   - `/dashboard`: `getByRole("tab")` returns exactly `["Token", "Trajectory"]`;
+     "Active runs"/"Recent activity" text count is 0.
+   - `/skills`: tabs are `["Installed skills (0)", "Market"]`; "Change requests" text count
      is 0.
-   - `/` chat: `getByRole("button", { name: "新建会话" })` count is 1 (the
-     bottom-row Plus); `getByRole("button", { name: "更多" })` count is 0.
+   - `/` chat: `getByRole("button", { name: "New session" })` count is 1 (the
+     bottom-row Plus); `getByRole("button", { name: "More" })` count is 0.
      Clicking the bottom Plus created a new session (empty state
-     「开始新的对话」 shown).
+     "Start a new conversation" shown).

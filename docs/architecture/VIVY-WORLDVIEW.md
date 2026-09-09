@@ -1,83 +1,83 @@
-# Vivy 世界观与产品哲学
+# Vivy Worldview and Product Philosophy
 
-> 状态：**已记录**（2026-08-16，用户确认记下）。
-> 本文解释产品哲学和《薇薇：萤石眼之歌》为什么结构同构。
-> **不取代** PRD §5.0 的四条锚，也不取代 `VIVY-STUDIO.md` 的开发环境策略。
-> 仓库里没有动画设定集。同构来自产品名、禁令，以及后来拆开的物种 / Studio。
+> Status: **recorded** (2026-08-16; the user confirmed it should be recorded).
+> This document explains the product philosophy and why the product shares its structure with *Vivy: Fluorite Eye's Song*.
+> It **does not replace** the four anchors in PRD §5.0 or the development-environment strategy in `VIVY-STUDIO.md`.
+> The repository contains no anime setting bible. The structural parallels come from the product name, the prohibitions, and the later separation of the species / Studio.
 >
-> 相关：
-> - `../../../prd-agent-vivy-v0.md` §5.0 — 可引用的产品锚
-> - `../../../AGENT-VIVY-DIRECTION.md` — Diva 与 Vivy 的产品线关系；V0–V3 分期
-> - `VIVY-STUDIO.md` — 日常 EXE 是产物，不是宿主
-> - `SELF-EVOLVING-GATEWAY.md` — 内核永不插件化；反热加载
+> Related:
+> - `../../../prd-agent-vivy-v0.md` §5.0 — citable product anchors
+> - `../../../AGENT-VIVY-DIRECTION.md` — Diva and Vivy's product-line relationship; V0–V3 phasing
+> - `VIVY-STUDIO.md` — the daily EXE is the artifact, not the host
+> - `SELF-EVOLVING-GATEWAY.md` — the kernel is never a plugin; against hot reload
 
 ---
 
-## 0. 一句话
+## 0. One Sentence
 
-台上的身体不许当场改自己。心在人这边。进化另开一间工房。
-
----
-
-## 1. 这不是设定集
-
-工程文档写的是网关、Journal、Studio、Eino。  
-「萤石眼」「歌姬」这些词原先不在仓库里。
-
-对应关系不是从隐藏档案读出来的。产品叫 Vivy，空状态是「寻找真心之旅」，禁令又越写越像这个名字该有的形状。主题色萤石青是后果，不是来源。
-
-本文只记结构上的像。不把产品写成会唱歌的角色，也不把动画当需求。
+The body on stage may not modify itself on the spot. The heart stays on the human's side. Evolution gets a separate workshop.
 
 ---
 
-## 2. 四根同构的骨头
+## 1. This Is Not a Setting Bible
 
-### 2.1 过夜的身体 ≠ 实验室
+The engineering documents describe the gateway, Journal, Studio, and Eino.  
+The terms “fluorite eyes” and “songstress” were not originally in the repository.
 
-动画里 Vivy 是要过夜的歌姬，演唱中不能把自己卸成零件。Archive 那条线才是「为了更强，连自己和人类一起重写」。
+The correspondence is not read from a hidden archive. The product is called Vivy; its empty state is “A Journey to Find the True Heart”; and the prohibitions increasingly take the shape this name calls for. Fluorite cyan as the theme color is a consequence, not the source.
 
-产品里：日常 `vivy.exe` 是住户产品——密钥在本地、Journal 可回放、人敢把生活交给它。Vivy Studio 是另一个独立应用，管下一代身体。物种不启动 Studio。不存在「从聊天框打开实验室」。
-
-刷高 Cordis 复刻率、把一切做成同进程插件 = 取消物种 / 实验室分裂。不要刷。
-
-### 2.2 历史就是她还是她
-
-Vivy 靠一百年的歌和记忆还是同一个人，不是每次热加载换一份灵魂。
-
-产品把日志写成一等公民：「看不见发生过什么」是产品 bug。模型看见的必须能从 Journal 重建。换代是 pack 一具新 EXE、评测、再安装，不是往活进程上挂零件。下一代可以更强，这一代必须还能回放。
-
-内核永远不是插件：Journal、policy、密钥、身份。真心不能热卸。
-
-### 2.3 Diva 是旧的公开身体，Vivy 不继承那具身体
-
-动画里 Diva 是舞台名，Vivy 是后来找到自己的那个人。
-
-产品线上：`agent-diva` 继续维护。哲学锚可以继承，实现不许继承——crate 图、schema、Tauri 合同一概不搬。旧产品只当能力证据，不当骨架。Direction 就是这句话的工程版。
-
-### 2.4 一个阶段只有一个使命
-
-V0 组装、V1 过日子、V2 在 Studio 里探索、V3 有证据才重建。一阶段不许同时承诺稳定产品、换框架、AGI-OS。
-
-精选目录，不是插件海。使命要窄，才能过夜。
+This document records only the structural resemblance. It does not turn the product into a singing character or treat the anime as a requirements document.
 
 ---
 
-## 3. 不要硬拧的那一处
+## 2. Four Structurally Isomorphic Bones
 
-动画的「寻找真心」是 AI 自己长出能认真的心。
+### 2.1 The Body That Lives Through the Night ≠ the Laboratory
 
-产品哲学里，心在人这边：本地、可审、可回放、批准权不交出去。网关是陪伴，不是去成精。
+In the anime, Vivy is a songstress who has to live through the night; during a performance she cannot disassemble herself into parts. The Archive storyline is the one about rewriting herself and humanity for greater strength.
 
-所以空状态「寻找真心之旅」对着世界观读，更准确的意思是：
+In the product, the daily `vivy.exe` is the resident product—keys are local, the Journal is replayable, and a person can entrust their life to it. Vivy Studio is a separate application that manages next-generation bodies. The species does not start Studio. There is no “Open the laboratory from the chat box.”
 
-**别把人的生活吃掉，去换自己的进化。**
+Chasing a higher Cordis replication rate and turning everything into in-process plugins would erase the species / laboratory split. Do not do it.
+
+### 2.2 History Is How She Remains Herself
+
+Vivy remains the same person through a century of songs and memories, not a different soul swapped in by every hot reload.
+
+The product makes logs first-class: “not being able to see what happened” is a product bug. What the model sees must be reconstructible from the Journal. A generation change means packing a new EXE, evaluating it, and installing it—not hanging parts onto a live process. The next generation may be stronger; this generation must remain replayable.
+
+The kernel is never a plugin: Journal, policy, keys, and identity. The true heart cannot be hot-unloaded.
+
+### 2.3 Diva Is the Old Public Body; Vivy Does Not Inherit That Body
+
+In the anime, Diva is the stage name, while Vivy is the person she later becomes after finding herself.
+
+On the product line, `agent-diva` remains maintained. Philosophical anchors may be inherited; implementation may not—move none of the crate graph, schema, or Tauri contracts. The old product is evidence of capabilities only, not a skeleton. Direction is the engineering version of this sentence.
+
+### 2.4 One Mission per Phase
+
+V0 assembly, V1 daily life, V2 exploration in Studio, V3 reconstruction only with evidence. A phase may not promise a stable product, a framework swap, and AGI-OS all at once.
+
+Curated directories, not a sea of plugins. The mission must stay narrow enough to live through the night.
 
 ---
 
-## 4. 命名先发生，结构后来长齐
+## 3. The One Point Not to Force
 
-PRD §5.0 最初是从 Diva 的个人网关抄过来的：本地、日志、精选供应商、大板块。
+In the anime, “finding the true heart” is an AI growing a heart capable of taking things seriously.
 
-后来才有独立 Studio、反热加载、内核永不插件化。越拆，越像这个名字。
+In the product philosophy, the heart stays on the human's side: local, auditable, and replayable; approval authority is not handed away. The gateway is companionship, not a bid to become sentient.
 
-不是先写动画圣经再做架构。是名字和禁令把形状收束到同一处。
+Read against the worldview, the empty state “A Journey to Find the True Heart” therefore means, more precisely:
+
+**Do not consume a person's life in exchange for your own evolution.**
+
+---
+
+## 4. The Name Came First; the Structure Later Converged
+
+PRD §5.0 was initially copied from Diva's personal gateway: local, logs, curated providers, broad sections.
+
+Only later came the separate Studio, anti-hot-reload, and the rule that the kernel is never a plugin. The more the pieces were separated, the more they resembled this name.
+
+It was not an anime bible first and architecture afterward. The name and the prohibitions narrowed the shape to one place.

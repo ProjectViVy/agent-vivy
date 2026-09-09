@@ -1,25 +1,30 @@
-# 验收指引 — 2026-08-27 模型设置页交互重构
+# Acceptance guide — 2026-08-27 model-settings interaction refactor
 
-以用户视角确认（开发环境：`just dev` → `http://127.0.0.1:3015` → 设置 → 模型，
-或直接在 Vivy Studio 会话中硬刷新）：
+Confirm from the user's perspective (development environment: `just dev` →
+`http://127.0.0.1:3015` → Settings → Model, or hard-refresh directly in a Vivy Studio
+session):
 
-1. **底部表单已删除**：Provider / 默认模型 / Base URL 三输入与「保存真实设置」
-   按钮都不在了；页面顶部仍是「已选模型」chips，下面是左（供应商列表）右
-   （模型列表）双栏。
-2. **供应商行编辑按钮**：任意自定义供应商行右侧有一个常驻的小铅笔按钮，点击
-   打开编辑对话框，可改「显示名（别名）」与「Base URL（地址）」以及模型列表/
-   API Key；目录（官方）供应商没有编辑按钮。
-3. **模型列表头部两个新按钮**：
-   - 刷新（从官方同步）：点击后列表区域短暂显示「模型列表已重新载入（静态目录
-     快照）」；
-   - 新增（+）：列表顶部出现内联输入框，输入模型 id 回车或打勾即**立即应用**
-     （成为运行配置 + 加入已选列表）；自定义供应商的模型也会持久化进其注册表，
-     刷新页面后仍在该供应商的列表里。
-4. **API Key 在模型列表上方**：选中自定义供应商时可编辑密钥（密码框，失焦即存
-   注册表、随点模型应用，下方提示"只保存在本机运行数据"）；选中目录厂商时该
-   输入框禁用，提示"目录厂商的密钥由运行环境变量注入"。
-5. **只读部署**：卡片顶部显示只读提示；切换类操作禁用，但注册表编辑/删除与
-   书签整理仍可用。
+1. **Bottom form removed**: the Provider / default model / Base URL three-input form and
+   「Save real settings」 button are gone; the page still has 「Selected models」 chips at
+   the top, with the provider list on the left and model list on the right below.
+2. **Provider-row edit button**: every custom-provider row has a persistent small pencil
+   button on the right; clicking it opens the edit dialog, where 「Display name (alias)」 and
+   「Base URL (address)」 plus model list/API Key can be changed; catalog (official) providers
+   have no edit button.
+3. **Two new model-list-header buttons**:
+   - Refresh (literal label "Sync from official"): after clicking, the list area
+     briefly shows the literal "Model list reloaded (static catalog snapshot)" feedback;
+   - Add (+): an inline input appears at the top of the list; entering a model id and
+     pressing Enter or the checkmark **applies it immediately** (becomes runtime config +
+     enters the selected list); custom-provider models are also persisted in their registry
+     and remain in that provider's list after refresh.
+4. **API Key above the model list**: when a custom provider is selected, the key is editable
+   (password box, saved to the registry on blur and applied with a model click, with the
+   notice "stored only in local runtime data"); for a catalog provider, the input is disabled
+   with the notice "catalog-provider keys are injected by the runtime environment".
+5. **Read-only deployment**: the card displays a read-only notice at the top; switch-like
+   operations are disabled, but registry editing/deletion and bookmark management remain
+   available.
 
-若以上 1–4 与你的三项建议有出入（尤其"从官方同步"的静态快照行为），告诉我，
-我按你的预期调整。
+If items 1–4 differ from your three suggestions (especially the static-snapshot behavior of
+"Sync from official"), report it and I will adjust it to your expectation.

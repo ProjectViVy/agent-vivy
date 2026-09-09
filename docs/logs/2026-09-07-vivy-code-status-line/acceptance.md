@@ -1,18 +1,25 @@
-# Acceptance（人验步骤）
+# Acceptance (human verification steps)
 
-前置：仓库根目录 `just tui`（构建并启动 vivy-code.exe，进入当前项目的
-VIVY CODE 终端）。
+Prerequisite: from the repository root, run `just tui` (build and start
+vivy-code.exe, then enter the VIVY CODE terminal for the current project).
 
-1. **F1 spinner + 计时**：发送一条会触发 agent 运行的消息。状态行（输入框
-   下方）左侧应出现 braille 转圈（⠋⠙⠹… 循环）+ `run` + 秒表逐秒走
-   （如 `⠸ run 23s`，满 1 分钟后变 `1m03s` 样式）。运行结束转圈消失。
-2. **F12 队列数**：运行中再连发一条消息入队。状态行右侧应右对齐出现
-   `queued 1`（随队列数增减）；队列为空时该字样消失。
-3. **F6 滚动指示 + end 回底**：用 PgUp / 滚轮上滚聊天区。状态行右侧出现
-   `↓ <百分比>% · end 回底`，越往上滚百分比越小；按 `End` 键回到底部后
-   该指示消失。贴底时指示始终隐藏。
-4. **回归**：出错时状态行仍以 `err · …` 开头（优先级高于 spinner）；
-   顶部标题栏、右侧 sidebar 的 `queue · N` 行外观不变；窗口缩放时状态行
-   仍为单行、不挤压聊天区高度。
+1. **F1 spinner + elapsed time**: Send a message that triggers an agent run.
+   On the status line (below the input), the left side should show a braille
+   spinner (⠋⠙⠹… cycle) + `run` + a stopwatch advancing by the second (e.g.
+   `⠸ run 23s`; after one minute it becomes the `1m03s` form). The spinner
+   disappears when the run ends.
+2. **F12 queue count**: Send another message while the first is running so it
+   enters the queue. The right side of the status line should be right-aligned
+   as `queued 1` (changing with the queue count); the text disappears when the
+   queue is empty.
+3. **F6 scroll indicator + end to bottom**: Scroll the chat area upward with
+   PgUp / the mouse wheel. The right side of the status line shows
+   `↓ <percentage>% · end to bottom`; the percentage decreases as you scroll up. After
+   pressing the `End` key to return to the bottom, the indicator disappears;
+   it is always hidden at the bottom.
+4. **Regression**: When an error occurs, the status line still starts with
+   `err · …` (higher priority than the spinner); the top title bar and the
+   right sidebar's `queue · N` row look unchanged; when the window is resized,
+   the status line remains one line and does not squeeze the chat area.
 
-全部满足即通过。
+All conditions must be met for acceptance.

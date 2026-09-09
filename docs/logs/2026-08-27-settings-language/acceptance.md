@@ -1,12 +1,16 @@
-# 验收视角（2026-08-27，设置 → 语言）
+# Acceptance perspective (2026-08-27, Settings → Language)
 
-## 用户如何看出它已生效
+## How a user can tell it works
 
-1. 打开应用，进入「设置」→「语言」：页面顶部 Tab 上「语言」不再带灰色「预览」徽标。
-2. 分区内出现两张语言选择卡「简体中文 / English」，点击其中一张：
-   - 分区文案立即切换（例如「语言」标题变为 "Language"、"选择界面语言…" 变为
-     "Pick the interface language…"）；
-   - 选中卡片出现对勾，显示「当前语言 / Current language」。
-3. 刷新页面：语言保持上次选择（保存于浏览器 localStorage `vivy.language`）。
-4. 浏览器语言偏好为中文环境时，首次打开默认仍是简体中文（默认值未改变）。
-5. 其它被切换语言的界面文案（如「模型」分区标题、主题选择卡文案）同步切换。
+1. Open the app and enter 「Settings」 → 「Language」: 「Language」 on the top tab no
+   longer carries a gray 「Preview」 badge.
+2. The section contains two language-selection cards, "Simplified Chinese / English"; click either:
+   - section copy switches immediately (for example, the "Language" title becomes
+     "Language", and the literal "Select interface language…" becomes "Pick the interface language…");
+   - the selected card shows a checkmark and "Current language".
+3. Refresh the page: the last language selection remains (stored in browser localStorage
+   `vivy.language`).
+4. When the browser's language preference is Chinese, first open still defaults to Simplified Chinese
+   (the default has not changed).
+5. Other UI copy affected by the language switch (such as the "Model" section title and
+   theme-selection card copy) switches as well.

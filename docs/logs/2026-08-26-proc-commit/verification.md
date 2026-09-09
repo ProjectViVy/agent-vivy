@@ -1,37 +1,44 @@
-# Verification — PROC-COMMIT 拆分入库
+# Verification — Split PROC-COMMIT into separate deliveries
 
 Date: 2026-08-26
 
-## Gate: `just ci`（拆分前，仓库根，对整棵合并树）
+## Gate: `just ci` (before the split, repository root, against the merged tree)
 
-EXIT=0：
+EXIT=0:
 
-- Go fmt-check / vet / test / headless-compile 通过
-- UI typecheck 通过；单测 **57 passed（12 文件）**（含 `demo-api.evolution.test.ts`
-  6 例、`use-welcome.test.ts` 5 例、`chat-actions.test.ts` 6 例）
-- `vite build` ✓（仅既存 chunk-size 提示）
+- Go fmt-check / vet / test / headless-compile passed
+- UI typecheck passed; **57 tests passed (12 files)** (including 6 cases in
+  `demo-api.evolution.test.ts`, 5 in `use-welcome.test.ts`, and 6 in
+  `chat-actions.test.ts`)
+- `vite build` ✓ (only the existing chunk-size notice)
 
-拆分操作本身不改动任何文件内容（只动 git index 与 TODO.md 登记行），拆分后
-HEAD 树 == 拆分前工作树，故上述结果即最终提交态的门禁结果。
+The split operation itself changed no file contents (only the git index and the
+TODO.md entry line); after the split, the HEAD tree == the pre-split worktree, so
+the result above is also the gate result for the final commit state.
 
-三个交付各自的 `just ci` / `just ui-e2e` / 3015 冒烟记录见：
-`docs/logs/2026-08-25-evolution-page/verification.md`、
-`docs/logs/2026-08-25-welcome-wizard/verification.md`、
-`docs/logs/2026-08-26-chat-message-actions/verification.md`。
+Records of each delivery’s `just ci` / `just ui-e2e` / 3015 smoke test are in:
+`docs/logs/2026-08-25-evolution-page/verification.md`,
+`docs/logs/2026-08-25-welcome-wizard/verification.md`, and
+`docs/logs/2026-08-26-chat-message-actions/verification.md`.
 
-## 拆分正确性核查
+## Split correctness checks
 
-- hunk 归属核对：`i18n/zh.ts`、`en.ts` 6 hunk 与 `runtime.spec.ts` 3 hunk 逐个
-  确认单一主题（无混合 hunk）；en 与 zh hunk 结构一一对应。
-- 跨主题污染 grep 为 0：`demo-api.ts`/`types.ts` diff 无 welcome/chat 词条；
-  `ChatView.tsx`/`MessageBubble.tsx` 无 evolution/welcome 引用；
-  `ConversationSidebar.tsx`/`SettingsView.tsx`/`SkillsView.tsx` 无跨主题改动。
-- 每次提交前 `git diff --cached` 核对 staged 内容只含该主题（hunk 数、stat）。
-- 拆分完成后 `git status` 仅剩 `docs/TODO.md`（PROC-COMMIT 收尾改动），
-  即三个功能提交的合并内容与拆分前工作树逐字节一致。
+- Hunk ownership check: each of the 6 hunks in `i18n/zh.ts`, `en.ts` and the 3
+  hunks in `runtime.spec.ts` was confirmed to belong to one topic (no mixed
+  hunks); en and zh hunk structures correspond one-to-one.
+- Cross-topic contamination grep was 0: the `demo-api.ts`/`types.ts` diff had no
+  Welcome/Chat entries; `ChatView.tsx`/`MessageBubble.tsx` had no
+  Evolution/Welcome references; `ConversationSidebar.tsx`/`SettingsView.tsx`/
+  `SkillsView.tsx` had no cross-topic changes.
+- Before each commit, `git diff --cached` confirmed that staged content contained
+  only that topic (hunk count, stat).
+- After the split, `git status` had only `docs/TODO.md` (the PROC-COMMIT closure
+  change), so the merged contents of the three feature commits were byte-for-byte
+  identical to the pre-split worktree.
 
-## 跳过说明
+## Skip note
 
-- 本操作无用户可见行为变化、无代码改动，不适用浏览器冒烟
-  （smoke 已由三个交付各自的 verification.md 覆盖）。
-- 中间提交态未逐一跑 CI（见 summary.md「Explicitly not done」）。
+- This operation had no user-visible behavior change and no code changes, so
+  browser smoke does not apply (smoke is covered by each delivery’s verification.md).
+- Intermediate commit states were not each run through CI (see summary.md
+  “Explicitly not done”).

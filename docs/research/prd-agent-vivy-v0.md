@@ -2,7 +2,7 @@
 
 > **Status:** Draft v0.1 — first formal PRD for the V0 assembly slice
 > **Owner:** 📋 John (Product Manager)
-> **Audience:** 大湿 (mastwet) and the implementation team
+> **Audience:** mastwet and the implementation team
 > **Output language:** English (per BMM config)
 > **Communication language:** Chinese (per BMM config)
 > **Updated:** 2026-08-06
@@ -113,13 +113,13 @@ Concretely:
 - "Provider breadth" is not a proxy for product quality. Two well-prepared providers are preferable to ten half-prepared ones.
 - Provider secrets are still never persisted (D-010); pre-baked bundles describe **shape and defaults**, not credentials.
 
-#### 5.0.4 Large-modular decomposition (板块即 crate / module)
+#### 5.0.4 Large-modular decomposition (module = crate / module)
 
 AGENT-VIVY favors **deliberately large, self-contained modules** rather than fine-grained micro-modules. Each top-level product capability is a single, named, independently understandable unit.
 
 Concretely:
 
-- A "板块" (capability module / crate / Go package) corresponds to **one user-facing concept or one product subsystem**, not to a single technical layer.
+- A "module" (capability module / crate / Go package) corresponds to **one user-facing concept or one product subsystem**, not to a single technical layer.
 - Modules have explicit, narrow public surfaces and stable internal evolution.
 - Module boundaries are stable enough that contributors can read one module in isolation and understand its purpose, contract, and failure modes.
 - Cross-module coupling is intentional and visible; "everything depends on everything" is rejected.
@@ -417,8 +417,8 @@ Reference-project usage in V0:
 
 | ID | Decision | Rationale (verbatim where possible) |
 |---|---|---|
-| D-001 | AGENT-VIVY is a **new product line**, not a Diva clone, Diva translation, or SystemV continuation. | "目前是DIVA的克隆的这个定位，不同产品线，完全独立" — user direction 2026-08-06 |
-| D-002 | V0 is intentionally narrow; full product capability comes through later capability proposals. | User direction: "先把DIVA的能力拆分出来变成提案，然后在新项目重新实现" |
+| D-001 | AGENT-VIVY is a **new product line**, not a Diva clone, Diva translation, or SystemV continuation. | "The current positioning is a Diva clone, but a different product line, completely independent" — user direction 2026-08-06 |
+| D-002 | V0 is intentionally narrow; full product capability comes through later capability proposals. | User direction: "First split Diva's capabilities into proposals, then reimplement them in the new project" |
 | D-003 | V0 execution engine is **Eino + Vivy-owned application shell**. | From `AGENT-VIVY-ASSEMBLY-OPTIONS.md` §2 C; Eino covers ChatModel/Tool/stream/ReAct/HITL primitives without rebuilding |
 | D-004 | Crush is a **selective reference**, not a wholesale transplant. | Coding-agent-specific subsystems (LSP, filetracker, Bubble Tea UI, MCP breadth) are out of V0 scope |
 | D-005 | Diva is **not a code source** for V0. | Capability evidence only; capability re-entry requires a separate proposal |
@@ -430,15 +430,15 @@ Reference-project usage in V0:
 | D-011 | V0 ships **one OpenAI-compatible provider + one mock provider**. | Provider breadth is deferred to capability proposals |
 | D-012 | V0 ships **one read-only tool + one effectful approval-gated tool**. | Demonstrates both execution paths without scope creep |
 | D-013 | V0 UI is a **new browser-based shell**, not a Tauri command port. | Avoid recreating Diva's 134-command surface |
-| D-014 | AGENT-VIVY inherits Diva's **personal-gateway product philosophy** (single-user, local-first, application-not-service). | "DIVA是纯网关个体应用，所以agent-vivy也要保留这个哲学" — user direction 2026-08-06 |
+| D-014 | AGENT-VIVY inherits Diva's **personal-gateway product philosophy** (single-user, local-first, application-not-service). | "Diva is a pure gateway individual application, so agent-vivy must retain this philosophy too" — user direction 2026-08-06 |
 | D-015 | The gateway philosophy is **a product constraint, not an implementation constraint**. | Implementation is rebuilt from scratch under V0 architecture; the philosophy governs **what the product is**, not how the code is organized |
 | D-016 | Any future capability that pushes AGENT-VIVY toward a multi-tenant SaaS or hosted control plane is out of scope unless a future capability proposal explicitly revisits the philosophy. | Preserves the gateway boundary across capability re-entries |
-| D-017 | **Logs are a first-class product feature.** Persisted events, structured errors, and run/event correlation are user-visible and non-optional. | "日志是问题追溯这块的一等公民" — user direction 2026-08-06; original Diva design preserved as philosophy |
-| D-018 | V0 provider set is **exactly two: OpenAI-compatible + Anthropic**, delivered as pre-prepared YAML bundles. | "provider只做openai和anthropic并且provider yaml预制化" — user direction 2026-08-06; original Diva design preserved as philosophy |
+| D-017 | **Logs are a first-class product feature.** Persisted events, structured errors, and run/event correlation are user-visible and non-optional. | "Logs are first-class citizens for tracing problems" — user direction 2026-08-06; original Diva design preserved as philosophy |
+| D-018 | V0 provider set is **exactly two: OpenAI-compatible + Anthropic**, delivered as pre-prepared YAML bundles. | "Only do OpenAI and Anthropic providers, with provider YAML pre-prepared" — user direction 2026-08-06; original Diva design preserved as philosophy |
 | D-019 | Adding a new provider is a **product decision** through a capability proposal; not a runtime plugin mechanism. | Reinforces D-018 against "anything-goes plugin sprawl" |
-| D-020 | AGENT-VIVY favors **large-modular decomposition**: one capability = one well-bounded module/crate/package. | "大型分体化设计（一个板块就是一个crate）" — user direction 2026-08-06; long-term directional principle, not a V0 split-V0-into-many-modules license (D-006 still binds V0) |
+| D-020 | AGENT-VIVY favors **large-modular decomposition**: one capability = one well-bounded module/crate/package. | "Large modular decomposition (one module is one crate)" — user direction 2026-08-06; long-term directional principle, not a V0 split-V0-into-many-modules license (D-006 still binds V0) |
 | D-021 | The four philosophical anchors (gateway, logs, curated providers, large-modular) are **product constraints**, not implementation constraints. Diva's package graph, Tauri commands, schema, runtime, and code style are not inherited. | Preserves the "philosophy yes, implementation no" boundary established in v0.2 §5.0.5 |
-| D-022 | V0 provider YAML bundles are **adapted from Diva's `providers.yaml` schema**, not invented from scratch. Source: `agent-diva/agent-diva-providers/src/providers.yaml` (verified: 1113 lines, 17 active provider entries plus commented-out `azure` / `copilot`). | "YAML直接从diva那个复制一份过来" — user direction 2026-08-06; copying only the **schema and the two V0 entries** (`openai` and `anthropic`), not Diva's other 15 provider entries |
+| D-022 | V0 provider YAML bundles are **adapted from Diva's `providers.yaml` schema**, not invented from scratch. Source: `agent-diva/agent-diva-providers/src/providers.yaml` (verified: 1113 lines, 17 active provider entries plus commented-out `azure` / `copilot`). | "Copy one directly from Diva's YAML" — user direction 2026-08-06; copying only the **schema and the two V0 entries** (`openai` and `anthropic`), not Diva's other 15 provider entries |
 | D-023 | Only `openai` (OpenAI-compatible) and `anthropic` (Anthropic) entries from Diva's `providers.yaml` are carried into V0. The other Diva entries (`openrouter`, `aihubmix`, `custom`, `deepseek`, `gemini`, `zhipu`, `dashscope`, `moonshot`, `minimax`, `vllm`, `groq`, `xai`, `cherryin`, `302ai`, `ph8`, `burncloud`, `silicon`, `ppio`, `together`, `ocoolai`, `github`, `azure`, `copilot`) are **NOT** carried into V0. Each entry that later wants to enter Vivy must do so via a capability proposal (D-019). | Locks V0 provider set to D-018 and prevents silent copy of Diva's gateway breadth |
 | D-024 | The provider YAML schema fields that V0 copies from Diva are: `name`, `api_type`, `keywords`, `env_key`, `display_name`, `default_model`, `gateway_prefix`, `skip_prefixes`, `env_extras`, `is_gateway`, `is_local`, `detect_by_key_prefix`, `detect_by_base_keyword`, `default_api_base`, `strip_model_prefix`, `supports_prompt_caching`, `models`, `model_overrides`. Vivy does not copy Diva's Rust `agent-diva-providers` source code; only the YAML schema and the two selected entries. | Separates "schema reuse" (allowed) from "code reuse" (not allowed under D-005, D-021) |
 | D-025 | Adapted YAML entries are **re-derived from Diva's source values but rewritten into Vivy's owned schema**. Vivy does not commit a verbatim copy of Diva's YAML text; provenance is recorded in a `provenance` field per entry citing the Diva source path and the entry name. | Preserves the philosophy boundary while honoring the user's "copy schema" intent |
@@ -466,7 +466,7 @@ Reference-project usage in V0:
 | OQ-6 | Memory and context policy beyond simple context replay | 📋 John + user | Memory capability proposal |
 | OQ-7 | Desktop UI / Tauri wrapper — is this in scope at all? | user | Desktop wrapper capability proposal |
 | OQ-8 | Provider YAML bundle format and version policy: schema, model-id declaration, capability tags, default parameter ranges, known limitations, and how the bundle is shipped and updated. | 📋 John + user | Provider bundle spec (separate artifact) |
-| OQ-9 | Large-modular long-term target: when V0's thin shell is replaced, what is the canonical "板块" map (provider, runtime, session, memory, tools, events, ui, etc.) and which are crate-level vs. sub-package-level units? | user + future architect session | Future ADR / architecture direction |
+| OQ-9 | Large-modular long-term target: when V0's thin shell is replaced, what is the canonical "module" map (provider, runtime, session, memory, tools, events, ui, etc.) and which are crate-level vs. sub-package-level units? | user + future architect session | Future ADR / architecture direction |
 
 ## 15. Glossary
 
@@ -479,12 +479,12 @@ Reference-project usage in V0:
 - **V0:** the assembly slice covered by this PRD; the first credible stable Agent under the AGENT-VIVY product line.
 - **Philosophical Anchor:** a product-level constraint inherited from Diva that governs what AGENT-VIVY **is** or how it must **behave**. Anchors are not implementation inheritance. Anchors in V0 are: personal-gateway (§5.0.1), logs as first-class (§5.0.2), curated provider catalog (§5.0.3), large-modular decomposition (§5.0.4).
 - **Provider Bundle:** a pre-prepared YAML configuration document describing one provider's model IDs, capabilities, defaults, and known limitations. V0 ships exactly two bundles: OpenAI-compatible and Anthropic.
-- **板块 (Plate / Module):** a top-level capability unit in AGENT-VIVY's long-term decomposition. One 板块 = one user-facing concept or product subsystem. In V0 the principle is recorded as a directional preference (D-020); in a future architecture (OQ-9) it becomes the canonical module map.
+- **Module (Plate / Module):** a top-level capability unit in AGENT-VIVY's long-term decomposition. One module = one user-facing concept or product subsystem. In V0 the principle is recorded as a directional preference (D-020); in a future architecture (OQ-9) it becomes the canonical module map.
 
 ## 16. Revision Notes
 
 - v0.1 (2026-08-06): Initial draft. Establishes V0 scope, fixes the "not a Diva clone" positioning per user direction, locks in Eino + thin-shell implementation strategy, and reserves capability re-entry to a separate capability-proposal process.
 - v0.2 (2026-08-06): Added §5.0 Product Philosophy recording Diva's "personal gateway application" anchor and explicitly distinguishing it from implementation inheritance. Added D-014 / D-015 / D-016 to the decision log to lock the gateway boundary across all future capability proposals.
-- v0.3 (2026-08-06): Expanded §5.0 into six sub-anchors covering (1) personal gateway, (2) logs as first-class citizens, (3) curated pre-baked provider catalog, (4) large-modular decomposition, (5) philosophy-vs-implementation boundary, (6) explicit exclusions. V0 provider set locked to OpenAI-compatible + Anthropic (D-018). Added D-017 / D-018 / D-019 / D-020 / D-021. Added OQ-8 (provider YAML bundle spec) and OQ-9 (板块 map for future architecture).
+- v0.3 (2026-08-06): Expanded §5.0 into six sub-anchors covering (1) personal gateway, (2) logs as first-class citizens, (3) curated pre-baked provider catalog, (4) large-modular decomposition, (5) philosophy-vs-implementation boundary, (6) explicit exclusions. V0 provider set locked to OpenAI-compatible + Anthropic (D-018). Added D-017 / D-018 / D-019 / D-020 / D-021. Added OQ-8 (provider YAML bundle spec) and OQ-9 (module map for future architecture).
 - v0.4 (2026-08-06): Locked Diva `providers.yaml` as the **schema source** for V0 provider bundles. Verified source: `agent-diva/agent-diva-providers/src/providers.yaml` (1113 lines, 17 active provider entries + 2 commented). Added D-022 (schema adapted from Diva, not invented), D-023 (only `openai` + `anthropic` entries carried into V0; other 15 Diva entries explicitly excluded), D-024 (schema field list reused; Diva Rust source code not copied), D-025 (provenance field per entry). Updated §5.0.3 to reference the adapted-schema provenance rule. OQ-8 narrowed to schema-derivation details and version policy once D-022 lands.
 - v0.5 (2026-08-06): Reviewed `AGENT-VIVY-STORAGE-ARCHITECTURE-ADDENDUM.md`. Accepted the storage-contract framework (Journal / Snapshot / Blob / Lease) and the Eino two-layer checkpoint bridge; deferred the QwenPaw filesystem journal backend to V1+ (D-031). Added D-026..D-033. Key protections: domain code may not depend on SQLite-specific surfaces (D-027); checkpoint bytes never define product history (D-028); approval write ordering has a strict 6-step invariant (D-029); same-ID checkpoint overwrite is forbidden in place (D-030); conformance suite is required before any backend is trusted by domain code (D-032); QwenPaw's license and authorization must be verified before any fsjournal implementation (D-033). The addendum references ADR-002/003/005/006/007 in a `AGENT-VIVY-ARCHITECTURE-V0.md` that is not on disk; those ADRs must be located or written before the addendum can be formally adopted.

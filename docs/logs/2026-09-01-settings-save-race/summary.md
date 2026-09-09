@@ -1,36 +1,46 @@
-# settings.Save 并发写损坏文档（Windows rename access denied）
+# settings.Save concurrent writes corrupted the document (Windows rename access denied)
 
-## 现象
+## Symptom
 
-`just ui-e2e` 的 model-refresh 用例在「新增模型」后偶发红色错误条
-`internal error`，且刚新增的模型从注册表行里消失。错误来自 RPC
-`internalError()`（`internal/rpc/control.go`，-32603，detail 有意丢弃，
-不含内部细节）。
+The `model-refresh` case in `just ui-e2e` intermittently showed a red
+`internal error` bar after adding a model, and the newly added model disappeared
+from the registry row. The error came from RPC `internalError()`
+(`internal/rpc/control.go`, -32603; detail is intentionally discarded and
+contains no internal details).
 
-## 根因
+## Root cause
 
-`internal/app/settings` 的文档读写没有同步：
+Document reads and writes in `internal/app/settings` were not synchronized:
 
-1. `Save` 使用固定 `path+".tmp"` 临时文件 —— 两个并发 Save 交错写同一
-   临时文件，rename 出去的可能是一份损坏文档，后续 `Load` 解析失败。
-2. Windows 上 `os.Rename` 覆盖一个仍被并发读句柄打开的文件会失败
-   `Access is denied`（并发 `Load` 的 `os.ReadFile` 窗口）。
+1. `Save` used a fixed `path+".tmp"` temporary file. Two concurrent Save calls
+   could interleave writes to the same temporary file, so the file moved into
+   place by rename could be corrupted and a subsequent `Load` would fail to
+   parse it.
+2. On Windows, `os.Rename` failed with `Access is denied` when replacing a file
+   that was still open through a concurrent read handle (the `os.ReadFile`
+   window in `Load`).
 
-两条都会让下一次 `Load` 失败，RPC 层只看到 internal error。
+Both paths caused the next `Load` to fail, while the RPC layer saw only
+`internal error`.
 
-## 修复（本目录对应的独立提交）
+## Fix (the standalone commit corresponding to this directory)
 
-`internal/app/settings/settings.go`：
+`internal/app/settings/settings.go`:
 
-- 新增包级 `fileMu sync.Mutex`；`Load` 的 ReadFile 与 `Save` 的
-  写临时文件 + rename 都在锁内，消除读/写句柄交叠。
-- `Save` 改用 `os.CreateTemp(dir, base+".*.tmp")`：每次调用独占临时文件，
-  并发写不再共享暂存区；失败路径都清理临时文件。
-- 语义不变：Save 仍是整文档替换；Load 仍返回完整文档。
-  跨 handler 的 Load→modify→Save（读改写）仍是 last-writer-wins，
-  已开 TODO（未来 `settings.Update(path, fn)` 一类接口再收口）。
+- Added package-level `fileMu sync.Mutex`; `Load`'s ReadFile and `Save`'s
+  temporary-file write plus rename now both run under the lock, eliminating
+  overlapping read/write handles.
+- `Save` now uses `os.CreateTemp(dir, base+".*.tmp")`: each call exclusively owns
+  its temporary file, so concurrent writes no longer share a staging area; all
+  failure paths clean up the temporary file.
+- Semantics are unchanged: Save still replaces the whole document, and Load still
+  returns the complete document. Cross-handler Load→modify→Save remains
+  last-writer-wins and is tracked as a TODO (a future interface such as
+  `settings.Update(path, fn)` will close that gap).
 
-## 明确不做
+## Explicitly not done
 
-- 不做 RPC 层错误细节透传（保持 internalError 不泄细节的契约）。
-- 不在本窗口改读改写语义（见 TODO §0.1 新行）。
+- No RPC-layer error-detail passthrough (preserving the contract that
+  internalError does not disclose details).
+- No change to read-modify-write semantics in this window (see the new TODO row
+  in §0.1).

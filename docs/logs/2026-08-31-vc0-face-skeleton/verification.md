@@ -1,44 +1,43 @@
-# VC-0 验证记录
+# VC-0 verification record
 
-日期：2026-08-31。全部命令在 worktree `agent-vivy-vc0`（分支
-`feat/vc0-face-skeleton`）执行。
+Date: 2026-08-31. All commands ran in worktree `agent-vivy-vc0` (branch
+`feat/vc0-face-skeleton`).
 
-## 内核
+## Kernel
 
-- `go build ./...` — 通过（新 worktree 需先造 gitignored `ui/dist/.keep`
-  才能过 go:embed）。
-- `go test ./...` — 通过：runtime（约 54s，含新增 face 三件套
-  `face_test.go` / `face_service_test.go` / prompt face 用例）、rpc、app、
-  domain 均 ok。
-- `go vet ./...` — 无告警。
+- `go build ./...` — passed (a new worktree first needs a gitignored `ui/dist/.keep`
+  to satisfy go:embed).
+- `go test ./...` — passed: runtime (about 54s, including the three new face tests
+  `face_test.go` / `face_service_test.go` / prompt-face cases), rpc, app,
+  and domain all passed.
+- `go vet ./...` — no warnings.
 
 ## UI
 
-- `pnpm typecheck`（tsc --noEmit）— 通过。
-- `pnpm test` — 22 个文件 177 个用例全过（含新增
-  `src/components/masks/mask-catalog.test.ts`：programmer → code、其余面具
-  不指定 face，共 2 例）。
-- `pnpm build` — 通过。
+- `pnpm typecheck` (tsc --noEmit) — passed.
+- `pnpm test` — 22 files and 177 cases all passed (including the new
+  `src/components/masks/mask-catalog.test.ts`: programmer → code, other masks leave face unspecified, 2 cases).
+- `pnpm build` — passed.
 
-## 真实路径 smoke（http://127.0.0.1:3015）
+## Real-path smoke test (http://127.0.0.1:3015)
 
-8787 已被另一进程占用，本 smoke 用 `VIVY_ADDR=127.0.0.1:8791` 起本 worktree
-后端，`VIVY_BACKEND_ADDR=http://127.0.0.1:8791 pnpm dev` 起 Vite，全部请求
-走 3015 同源代理（与浏览器同一契约）。
+8787 was occupied by another process, so this smoke test started the worktree backend with
+`VIVY_ADDR=127.0.0.1:8791` and Vite with `VIVY_BACKEND_ADDR=http://127.0.0.1:8791 pnpm dev`; all requests
+went through the 3015 same-origin proxy (the same contract used by the browser).
 
-脚本：`.workspace/smoke-face.mjs`（gitignored 草稿，bootstrap → WebSocket
-JSON-RPC）。结果 SMOKE PASS 4/4：
+Script: `.workspace/smoke-face.mjs` (gitignored draft, bootstrap → WebSocket
+JSON-RPC). Result: SMOKE PASS 4/4:
 
-1. `preflight/run` 带 `face:"code"` → 响应 `face:"code"`。
-2. 不带 `face` → 响应 `face:"web"`（服务端显式归一）。
+1. `preflight/run` with `face:"code"` → response `face:"code"`.
+2. Without `face` → response `face:"web"` (explicit server normalization).
 3. `face:"shell"` → RPC -32602 `runtime: invalid face\nface must be web,
-   tui, or code`。
-4. `turn/start` 带 `face:"code"` → Journal `run.started` payload
-   `face:"code"`、`mode:"normal"`；末端 `run.failed`（新 worktree 无
-   provider key，预期，不影响 face 证据）。
+   tui, or code`.
+4. `turn/start` with `face:"code"` → Journal `run.started` payload
+   `face:"code"`, `mode:"normal"`; terminal `run.failed` (the new worktree had no
+   provider key, as expected; this does not affect the face evidence).
 
 ## just ci
 
-`just ci`（fmt-check → vet → test → headless-compile → ui-ci）— 通过，exit 0。
-ui-ci 片段：vitest 22 文件 177 用例全过（含新增 mask-catalog face 用例）、
-`vite build` 通过。
+`just ci` (fmt-check → vet → test → headless-compile → ui-ci) — passed, exit 0.
+UI-ci excerpt: vitest 22 files and 177 cases all passed (including the new mask-catalog face cases),
+`vite build` passed.

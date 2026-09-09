@@ -1,41 +1,41 @@
 # CH-C7c — verification
 
-日期：2026-08-30。工作区：worktree `agent-vivy-channel-c2`（顺序复用），分支 `feat/channel-c7c`，基线 d5f4506（含 C1–C7b）。
+Date: 2026-08-30. Worktree: `agent-vivy-channel-c2` (reused sequentially), branch `feat/channel-c7c`, baseline d5f4506 (includes C1–C7b).
 
-## GOAL 运行方式（子代理分工）
+## GOAL execution model (subagent roles)
 
-- executor（写盘）：plugins/discord 全套 + pion 封禁 + 夹具；评审 note（LogLevel 显式钉死）补修。
-- reviewer（只读独立评审）：**PASS**；discordgo v0.29 源码五项主张逐条核实全真（Open 同步到 READY / reconnect 无视 Close / Close 发合成 DISCONNECT / 具名处理函数类型不被识别 / ChannelMessageSendComplex 纯 REST）。
-- GOAL 持有人：pack 候选证据 + 落地。
+- executor (writes to disk): the complete plugins/discord implementation + pion ban + fixture; the review note (explicitly pin LogLevel) was fixed.
+- reviewer (read-only independent review): **PASS**; all five discordgo v0.29 source claims were checked and confirmed (Open synchronously reaches READY / reconnect ignores Close / Close emits a synthesized DISCONNECT / named handler function types are not recognized / ChannelMessageSendComplex is pure REST).
+- GOAL owner: candidate-pack evidence + landing.
 
-## 命令与结果
+## Commands and results
 
-| 命令 | 结果 |
+| Command | Result |
 |---|---|
-| `gofmt -l`（全树含 plugins/discord 与夹具） | 干净 |
-| 根 `go build ./...` / `go vet ./...` / `go test ./...` | 全 ok |
-| `cd plugins/discord && go vet && go test ./... -count=1` + `go test -race` | ok（0.3s / 1.4s） |
+| `gofmt -l` (full tree including plugins/discord and fixture) | clean |
+| Root `go build ./...` / `go vet ./...` / `go test ./...` | all ok |
+| `cd plugins/discord && go vet && go test ./... -count=1` + `go test -race` | ok (0.3s / 1.4s) |
 | `go run ./sdk verify plugins/discord` | ok |
-| `go run ./sdk verify sdk/internal/testdata/bad-pion-import` | **exit 1 拒绝**：「import of github.com/pion/webrtc/v3 is forbidden: pion/webrtc is banned in plugins (no voice in Vivy channels)」 |
-| `go test ./sdk/... -count=1`（新夹具 + 既有全部） | ok |
-| `go run ./sdk pack --with discord --out <tmp>` + inspect-artifact + `go version -m` | 候选 `gen_4d64767f37cb958e` 链接 discordgo v0.29.0；EXE 内 pion 模块 **0** |
-| `go list -deps ./cmd/vivy \| grep -c discordgo` | 0 |
-| `git diff d5f4506 -- go.mod go.sum` | 空 |
-| 插件树 pion grep | 0（生产代码零引用，仅声明缺席的注释） |
-| `just ci` | **exit 0**（Go 全部包 ok + UI 21 文件 / 172 测试 + vite build） |
+| `go run ./sdk verify sdk/internal/testdata/bad-pion-import` | **exit 1, rejected**: "import of github.com/pion/webrtc/v3 is forbidden: pion/webrtc is banned in plugins (no voice in Vivy channels)" |
+| `go test ./sdk/... -count=1` (new fixture + all existing fixtures) | ok |
+| `go run ./sdk pack --with discord --out <tmp>` + inspect-artifact + `go version -m` | candidate `gen_4d64767f37cb958e` links discordgo v0.29.0; pion modules in the EXE **0** |
+| `go list -deps ./cmd/vivy \\| grep -c discordgo` | 0 |
+| `git diff d5f4506 -- go.mod go.sum` | empty |
+| Plugin-tree pion grep | 0 (production code has zero references; only comments declare its absence) |
+| `just ci` | **exit 0** (all Go packages ok + UI 21 files / 172 tests + vite build) |
 
-## 验收清单（CH-C7c.md §7）
+## Acceptance checklist (`CH-C7c.md` §7)
 
-- 候选 DM/文本频道文本（normalize + 派发 + Send 测试矩阵，回环/fake 全覆盖）✅
-- 依赖图无 pion（物种与候选双验证）✅
-- 空 allow_from 拒绝（Host 回归绿）✅
-- voice.go / pion / TTS / slash 零移植，且 pion 封禁进 verify 全 seam 生效 ✅
+- Candidate DM/text-channel text (normalize + dispatch + Send test matrix, loopback/fake fully covered) ✅
+- No pion in the dependency graph (species and candidate both verified) ✅
+- Empty `allow_from` is rejected (Host regression green) ✅
+- Zero porting of `voice.go` / pion / TTS / slash, and the pion ban is effective across every seam in verify ✅
 
-## 诚实声明
+## Honest declarations
 
-- RESUME 续传缺失（v0.29 未导出 session id/seq）：重拨间隙事件有界丢失——防卡死优先，有意偏离，README 记录。
-- 重启后旧 session 已派发回调落进新生命周期的理论窗口（与姊妹插件同型，有界）。
-- `just ci` 不覆盖 plugins/*（结构性缺口，登记 CH-C7c-N1，建议 plugin-ci 配方）。
-- inspect 封禁理由串对非 webrtc 的 pion 模块也打 "pion/webrtc" 字样（装饰性；测试钉住该子串）。
-- 真实 Discord 冒烟未做（无凭据 + Intent 需开发者面板开通）。
-- 未 push。
+- RESUME continuation is missing (session ID/seq are not exported in v0.29): bounded event loss during redial—the priority is deadlock avoidance, an intentional deviation recorded in the README.
+- There is a theoretical window in which a callback dispatched by an old session after restart lands in the new lifecycle (same shape as the sibling plugins, bounded).
+- `just ci` does not cover `plugins/*` (structural gap, registered as CH-C7c-N1; a `plugin-ci` recipe is recommended).
+- The inspect ban-reason string also says "pion/webrtc" for non-webrtc pion modules (decorative; the test pins that substring).
+- Real Discord smoke testing was not done (no credentials + the Intent must be enabled in the developer dashboard).
+- Not pushed.
