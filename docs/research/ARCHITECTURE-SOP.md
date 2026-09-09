@@ -17,7 +17,7 @@ BMad's `bmad-create-architecture` is a **collaborative, A/P/C-driven, 8-step mic
 - It uses append-only document building with state in `frontmatter.stepsCompleted`.
 - The skill is opinionated: starter evaluation (Step 3) is **skipped** for existing-workspace projects, and decisions (Step 4) are **delta-focused** for codebases that already have a locked stack.
 
-AGENT-VIVY V0 is neither a greenfield project nor an existing-workspace extension. It is a **third case**: a new product line whose "stack" is partly locked by philosophy (PRD §5.0) and partly open by intent (PRD D-006 says single Go module, but the long-term shape is "板块 = one well-bounded unit").
+AGENT-VIVY V0 is neither a greenfield project nor an existing-workspace extension. It is a **third case**: a new product line whose "stack" is partly locked by philosophy (PRD §5.0) and partly open by intent (PRD D-006 says single Go module, but the long-term shape is "module = one well-bounded unit").
 
 This SOP records **how we will run the BMad workflow for AGENT-VIVY V0**, calling out where we follow it as-is, where we adapt, and where we explicitly diverge.
 
@@ -167,7 +167,7 @@ Before Step 1 (Initialization), confirm these artifacts are loaded and recorded 
 
 1. **Read the PRD before Step 1.** Specifically: §5.0 (philosophy), §13 (decision log), §16 (revision notes).
 2. **Read the BMad skill steps in full before executing each.** The skill has CRITICAL rules scattered throughout; partial reads produce incomplete decisions (Pitfall P1 / P5).
-3. **Never skip A/P/C user choice.** The workflow is collaborative by design. Even if the user has given general direction ("你来管"), each A/P/C pause must surface — the user has explicitly authorized autonomous execution, not silent skipping.
+3. **Never skip A/P/C user choice.** The workflow is collaborative by design. Even if the user has given general direction ("you handle it"), each A/P/C pause must surface — the user has explicitly authorized autonomous execution, not silent skipping.
 4. **Apply the anti-clone check at every step.** If a proposed design cites `agent-diva-*`, `agent-diva-deep-governance`, or Diva's Tauri command set, that's a violation of D-005 / D-014..D-021 — flag and revise.
 5. **Cite provenance for every borrowed pattern.** Eino or Crush pattern? Cite the source file. Diva schema field? Cite D-022 and the original `agent-diva-providers/src/providers.yaml` line. Unattributed borrowing is forbidden.
 6. **Frontmatter is the source of truth for workflow state.** Update `stepsCompleted` only after the corresponding step's content has been written and the user has selected C.

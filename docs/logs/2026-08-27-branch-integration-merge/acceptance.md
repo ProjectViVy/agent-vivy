@@ -1,24 +1,32 @@
-# 验收 — 多分支合入 main 集成记录
+# Acceptance — multi-branch merge into main integration record
 
-## 用户怎么看（验收步骤）
+## User view (acceptance steps)
 
-1. 刷新 `http://127.0.0.1:3015/settings`：设置页同时出现「通用（含执行超时
-   上限）」「模型（供应商目录卡）」「工具」「Vivy 功能」「语言」「通道」
-   「网络工具」等真实分区，剩余「自进化 / 沙箱」为迁移预览。
-2. 「通道」tab：完整通道配置 UI（卡片列表、编辑表单、新增向导、教程弹窗），
-   数据存 `vivy.ui.channels`，schema 校验生效。
-3. 「网络工具」tab：真实网络搜索 provider 首选选择 + 可用性 roster
-   （DuckDuckGo/Wikipedia 恒已配置，bing/google/searxng 按环境变量显示）；
-   保存后 `settings/update` 持久化，刷新保持。
-4. 「通用」tab：执行超时上限真实表单（留空=配置默认 30s，0–600 秒），保存
-   后生效于下次启动；生成参数（高级特性，按模型下拉）仍在。
-5. 聊天页切换模型/完成欢迎向导后，网络搜索偏好与执行超时不丢失（整文档
-   覆盖透传）。切换语言后「语言」tab 标签随界面翻译。
-6. `git log main --oneline` 可见四个合并提交；`just ci` 全绿。
+1. Refresh `http://127.0.0.1:3015/settings`: the settings page simultaneously shows
+   real sections for 「General (including the execution timeout ceiling)」, 「Model
+   (provider catalog cards)」, 「Tools」, 「Vivy Features」, 「Language」, 「Channels」,
+   and 「Network Tools」; the remaining 「Self-evolution / Sandbox」 sections are migration
+   previews.
+2. 「Channels」 tab: the complete channel configuration UI (card list, edit form, add
+   wizard, tutorial dialog) is present, data is stored in `vivy.ui.channels`, and schema
+   validation is active.
+3. 「Network Tools」 tab: the real network-search preferred-provider selector and
+   availability roster are present (DuckDuckGo/Wikipedia are always configured;
+   bing/google/searxng appear according to environment variables); after saving,
+   `settings/update` persists the settings and they survive refresh.
+4. 「General」 tab: the real execution-timeout-ceiling form (blank = the configured
+   default of 30s, 0–600 seconds) takes effect at the next startup after saving; the
+   generation parameters (Advanced Features, per-model dropdown) remain.
+5. After switching models on the chat page or completing the welcome wizard, the network
+   search preference and execution timeout are retained (passed through during full-document
+   replacement). After switching languages, the 「Language」 tab label follows the UI language.
+6. `git log main --oneline` shows the four merge commits; `just ci` is all green.
 
-## 真实结果判定
+## Actual-result criteria
 
-- 任一 tab 在设置页重复出现（如两个网络搜索 UI、两个通道 UI）= 未通过。
-- 切换模型后网络搜索首选被清空 = 未通过。
-- `just ci` 非全绿 = 未通过。
-- main 上仍能找到分支残留（未合并的 TODO 或重复实现）= 未通过。
+- Any tab appearing twice on the settings page (for example, two network-search UIs or
+  two channel UIs) = fail.
+- The preferred network-search provider being cleared after switching models = fail.
+- `just ci` not being all green = fail.
+- Branch remnants (unmerged TODOs or duplicate implementations) still being found on
+  main = fail.

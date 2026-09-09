@@ -1,84 +1,84 @@
-# Vivy Channel — 演进架构
+# Vivy Channel — Evolution Architecture
 
-> **Plugin v1 note (2026-09-09):** 本文保留 Channel 产品演进记录；其中
-> `seam:*`、v0 Manifest/Recipe、旧注册表和 ABI 描述均被
-> `VIVY-MODULE-STANDARD.md`、`VIVY-PORT-CATALOG.md`、
-> `VIVY-PLUGIN-SPEC.md` 与 `VIVY-ASSEMBLY.md` 取代，不得形成兼容实现。
+> **Plugin v1 note (2026-09-09):** This document retains the Channel product-evolution record; the
+> `seam:*`, v0 Manifest/Recipe, old registry, and ABI descriptions are superseded by
+> `VIVY-MODULE-STANDARD.md`, `VIVY-PORT-CATALOG.md`,
+> `VIVY-PLUGIN-SPEC.md`, and `VIVY-ASSEMBLY.md` and must not form a compatibility implementation.
 >
-> 状态：伴随已采纳合同的**实现演进正本**（2026-08-30）。
-> 不替代 `VIVY-CHANNEL-PACK.md`。冲突时合同优先。
-> 子 AGENT 领取面：`docs/plans/channel-epic/`。日历：`docs/TODO.md` §0.2。
+> Status: **canonical source for implementation evolution** accompanying the adopted contract (2026-08-30).
+> It does not replace `VIVY-CHANNEL-PACK.md`. The contract wins in case of conflict.
+> Child-AGENT assignment surface: `docs/plans/channel-epic/`. Calendar: `docs/TODO.md` §0.2.
 >
-> 读者：接手超级通道 EPIC 的实现 AGENT。先读合同，再读本文，再领切片 PLAN。
+> Readers: implementation AGENTS taking over the super-channel EPIC. Read the contract first, then this document, then claim a slice PLAN.
 
-相关：`VIVY-CHANNEL-PACK.md`、`VIVY-PLUGIN-SPEC.md`、`VIVY-ASSEMBLY.md`、`SELF-EVOLVING-GATEWAY.md`、D-007 / ADR-015。
+Related: `VIVY-CHANNEL-PACK.md`, `VIVY-PLUGIN-SPEC.md`, `VIVY-ASSEMBLY.md`, `SELF-EVOLVING-GATEWAY.md`, D-007 / ADR-015.
 
 ---
 
-## 0. 一句话
+## 0. One Sentence
 
-> 超级通道是内核里的世界入口。五个聊天适配器是叶子。
-> Eino ADK Runner 是唯一循环。演进是给物种长器官，不是另起一套 bot 运行时。
+> The super-channel is the world ingress in the kernel. The five chat adapters are leaves.
+> Eino ADK Runner is the only loop. Evolution grows organs for the species; it does not start another bot runtime.
 
 ---
 
-## 1. 物种分层树（永远如此）
+## 1. Species Layering Tree (Always This Way)
 
-切片只填叶子和已标明的新包。不许新开一层。
+Slices fill only leaves and explicitly named new packages. Do not add a new layer.
 
 ```text
-vivy.exe 一代身体
-├── L0 内核（永不插件化，永远编进默认身体）
+vivy.exe one-generation body
+├── L0 Kernel (never pluginized, always compiled into the default body)
 │   ├── Journal / Session / Run / Message
 │   ├── Policy / Approval / Sandbox / Secrets
-│   ├── FaceHost（web / tui / headless，另案）
-│   ├── ACP 控制面（另案，转向已有 Run）
-│   ├── pluginhost          Seam 分流：tool vs channel
-│   ├── ChannelHost         本 EPIC 新器官 → 包名 internal/channelhost
-│   │     准入 · 会话映射 · 入账 · 派发 · 出站 · 能力发现 · 后切 Listen/监督
+│   ├── FaceHost (web / tui / headless, separate proposal)
+│   ├── ACP control plane (separate proposal, redirects to existing Run)
+│   ├── pluginhost          Seam split: tool vs channel
+│   ├── ChannelHost         New organ in this EPIC → package internal/channelhost
+│   │     admission · session mapping · accounting · dispatch · outbound · capability discovery · later Listen/supervision
 │   └── runtime.Service / Engine
 │         ChatModelAgent + adk.Runner（pin github.com/cloudwego/eino v0.9.13）
 │
-├── L1 规范信封（第一刀定形，行为后切）
+├── L1 Standard envelope (shape fixed in the first cut, behavior later)
 │   channel, chat_id, sender, message_id, reply_to, topic_id,
-│   parts[], run_id/task_id, 活面槽, delivery
+│   parts[], run_id/task_id, live-surface slots, delivery
 │
-├── L2 ABI（sdk/plugin，作者唯一窗口）
+├── L2 ABI (sdk/plugin, author's only window)
 │   SeamChannel · Channel · ChannelEnv · grants
-│   可选：Typing / Edit / Delete / Reaction / Placeholder / Stream /
+│   Optional: Typing / Edit / Delete / Reaction / Placeholder / Stream /
 │         MediaSender / WebhookHandler / ListenHandler /
 │         HealthChecker / TaskLifecycle / PipeServer
 │
-└── L3 插件器官（配方点名才进这一代；默认 Register() = nil）
-    ├── hello-fs     seam: tool-world   已有
-    ├── telegram     seam: channel      独立 go.mod
-    ├── dingtalk     seam: channel      独立 go.mod
-    ├── feishu       seam: channel      独立 go.mod
-    ├── qq           seam: channel      独立 go.mod
-    ├── discord      seam: channel      独立 go.mod
-    ├── a2a          seam: channel      后切；codec 偷 eino-ext/a2a
-    └── neurolink    seam: channel      后切；Listen 仍是 Host
+└── L3 Plugin organs (enter this generation only when named by the recipe; default Register() = nil)
+    ├── hello-fs     seam: tool-world   existing
+    ├── telegram     seam: channel      independent go.mod
+    ├── dingtalk     seam: channel      independent go.mod
+    ├── feishu       seam: channel      independent go.mod
+    ├── qq           seam: channel      independent go.mod
+    ├── discord      seam: channel      independent go.mod
+    ├── a2a          seam: channel      later; codec borrows eino-ext/a2a
+    └── neurolink    seam: channel      later; Listen remains Host
 ```
 
 ```mermaid
 flowchart TB
-  subgraph L3["L3 插件器官"]
+  subgraph L3["L3 Plugin Organs"]
     TG[telegram]
     DT[dingtalk]
     FS[feishu]
     QQ[qq]
     DC[discord]
-    A2A["a2a 后切"]
-    NL["neurolink 后切"]
+    A2A["a2a later"]
+    NL["neurolink later"]
   end
 
   subgraph L2["L2 sdk/plugin ABI"]
-    CHIF[Channel / ChannelEnv / 信封]
+    CHIF[Channel / ChannelEnv / Envelope]
   end
 
-  subgraph L0["L0 内核"]
+  subgraph L0["L0 Kernel"]
     HOST[internal/channelhost]
-    PH[pluginhost Seam 分流]
+    PH["pluginhost Seam Split"]
     SVC[runtime.Service]
     ENG[Engine adk.Runner]
     JRN[Journal / Message]
@@ -104,69 +104,69 @@ flowchart TB
 
 ---
 
-## 2. 目标包树
+## 2. Target Package Tree
 
 ```text
 sdk/plugin/plugin.go
     SeamChannel, GrantChannelPoll/Webhook/Listen/A2A, GrantSecretRead
     Channel, ChannelEnv, InboundMessage, OutboundMessage, Part
-    可选能力接口（类型在 sdk/plugin，Host 断言）
+    optional capability interfaces (types in sdk/plugin, asserted by Host)
 
 internal/domain/
     Message.Source / Channel / ChatID / ChannelMessageID
     EventChannelInbound
-    不放平台 SDK 类型
+    do not place platform SDK types here
 
 schemas/events/payloads/channel.inbound.json
 
 internal/storage/{sqlite,postgres,conformance}
-    messages 出处列；事件词汇
+    messages source column; event vocabulary
 
 internal/config/
-    channels: 信封；只解码 inspect 已列出的 compiled-in 名字
-    未知名字 → 启动失败，不是忽略
+    channels: envelope; decode only compiled-in names already listed by inspect
+    unknown name → startup failure, not ignored
 
 internal/pluginhost/
-    Adapt 只吃 seam tool / tool-world / provider
-    SeamChannel 跳过，交给 ChannelHost
+    Adapt consumes only seam tool / tool-world / provider
+    SeamChannel is skipped and handed to ChannelHost
 
-internal/channelhost/          # 新包。禁止 import eino*
+internal/channelhost/          # new package; must not import eino*
     host.go           StartAll / StopAll / fail-closed
     session.go        (channel, chat_id[, topic_id]) → Session
-    dispatch.go       inbound → 入账 → Service.Run；终态 → Send
-    capabilities.go   可选接口声明与发现
-    fake/             仅测试；不是产品插件
+    dispatch.go       inbound → accounting → Service.Run; terminal state → Send
+    capabilities.go   optional interface declarations and discovery
+    fake/             tests only; not a product plugin
 
 internal/runtime/service.go
-    被 Host 调用；不 import channelhost（避免环）
-    装配发生在 internal/app
+    called by Host; do not import channelhost (avoid a cycle)
+    assembly happens in internal/app
 
 internal/generated/plugins/zz_register.go
-    提交永远 return nil
+    committed version always returns nil
 
 plugins/<name>/
-    独立 go.mod；只依赖 sdk/plugin + 该平台 SDK
+    independent go.mod; depends only on sdk/plugin + the platform SDK
 ```
 
-**Host 包名拍板：`internal/channelhost`。** 不放进 `internal/runtime`：Host 必须留在 Eino 检疫墙外；作者也不该觉得自己在改引擎。`Service.Run` 仍是唯一循环入口。装配：`internal/app` 调 `Register()`，按 `Seam()` 分流。
+**Host package name is settled: `internal/channelhost`.** It does not belong in `internal/runtime`: Host must remain outside the Eino quarantine wall, and authors should not feel they are modifying the engine. `Service.Run` remains the only loop entry. Assembly: `internal/app` calls `Register()` and routes by `Seam()`.
 
 ---
 
-## 3. 控制流（五个聊天 + 以后 A2A 同一条）
+## 3. Control Flow (Five Chats + Future A2A on the Same Path)
 
 ```text
-平台 wire / A2A JSON-RPC
-        │  插件只做编解码
+platform wire / A2A JSON-RPC
+        │  plugin handles encoding/decoding only
         ▼
-Channel.Start  ──出站 poll/WS──► 平台
+Channel.Start  ──outbound poll/WS──► platform
         │
         │ Env.PublishInbound(InboundMessage)
-        │ 禁止插件调 Service / Engine / Journal / adk.Runner
+        │ plugins must not call Service / Engine / Journal / adk.Runner
         ▼
 ChannelHost
-    1. allow_from 空 → 拒绝 Start（fail-closed；禁止 "*"）
-    2. (channel, chat_id[, topic_id]) → 已有或新建 Session
-       本机 UI Session 与 channel Session 默认不合流
+    1. empty allow_from → reject Start (fail-closed; "*" forbidden)
+    2. (channel, chat_id[, topic_id]) → existing or new Session
+       local UI Session and channel Session do not merge by default
     3. Journal.Append channel.inbound
     4. Messages.Append role=user + Source=channel
     5. Service.Run(sessionID, text)
@@ -176,66 +176,66 @@ runtime.Engine
     adk.Runner.Query / RunHistory
     AgentEvent → Journal (model.* / tool.* / run.*)
         ▼
-ChannelHost 读终态（活面 typing 不进 Journal）
+ChannelHost reads terminal state (live-surface typing does not enter the Journal)
         ▼
 Channel.Send(OutboundMessage)
 ```
 
-Eino 纪律：
+Eino discipline:
 
-- 只有 `internal/runtime` 与 `internal/provider` 可 import `github.com/cloudwego/eino*`（D-007，`importlint_test.go`）。
-- `internal/channelhost`、`sdk/plugin`、五个适配器 **零 Eino import**。
-- 后切 A2A：独立 `plugins/a2a` 的 go.mod 可依赖 `eino-ext/a2a` 的 **models + transport**。禁止 `extension/eino.RegisterServerHandlers(adk.Agent)`。
-- 进程内 `AgentAsTool` / DeepAgent 不是 A2A 协议，本 EPIC 不碰。
+- Only `internal/runtime` and `internal/provider` may import `github.com/cloudwego/eino*` (D-007, `importlint_test.go`).
+- `internal/channelhost`, `sdk/plugin`, and the five adapters have **zero Eino imports**.
+- Later A2A: the independent `plugins/a2a` go.mod may depend on `eino-ext/a2a` **models + transport**. `extension/eino.RegisterServerHandlers(adk.Agent)` is forbidden.
+- In-process `AgentAsTool` / DeepAgent is not the A2A protocol; this EPIC does not touch it.
 
-插件化纪律：
+Pluginization discipline:
 
-- 真卸 = 配方删行再 pack。`enabled: false` 只是停用。
-- `pluginhost.Adapt` 不得把 channel 变成 `tools.Tool`。
-- 默认 `just ci` 的 import 图到不了 telego / discordgo / lark / 钉钉 / botgo。
-- 不新开 `channels/` 目录，不新开 `RegisterChannels()`。
+- True removal = delete the recipe line and pack again. `enabled: false` is only deactivation.
+- `pluginhost.Adapt` must not turn a channel into `tools.Tool`.
+- The default `just ci` import graph must not reach telego / discordgo / lark / DingTalk / botgo.
+- Do not create a new `channels/` directory or a new `RegisterChannels()`.
 
 ---
 
-## 4. 演进阶段树
+## 4. Evolution Stage Tree
 
-原则：先合同槽，后行为；先 Host，后叶子；先假插件 TCK，后真 SDK；每个真插件一次 pack。叶子不得倒逼 Host 认识 `parse_mode`。
+Principle: contract slots first, behavior later; Host first, leaves later; fake-plugin TCK first, real SDK later; one pack per real plugin. Leaves must not force Host to understand `parse_mode`.
 
 ```text
-NOW (C0 合同)
-└── pluginhost 把一切当 tool；Message 无出处；无 ChannelHost
+NOW (C0 Contract)
+└── pluginhost treats everything as a tool; Message has no source; no ChannelHost
 
-阶段 A  遗传物质     CH-C1
-└── Journal 认识世界入口。Eino 循环未动。
+Stage A  Genetic Material     CH-C1
+└── Journal recognizes world ingress. The Eino loop is untouched.
 
-阶段 B  物种窗口     CH-C2
-└── sdk/plugin 长出 channel 缝。默认 Register() 仍空。还不能跑。
+Stage B  Species Window     CH-C2
+└── sdk/plugin grows a channel seam. Default Register() remains empty. It still cannot run.
 
-阶段 C  世界入口     CH-C3
-└── ChannelHost 落地。假插件走通闭环。默认 EXE 仍无真实协议。
-    可选能力接口必须在这一刀全部声明。
+Stage C  World Ingress     CH-C3
+└── ChannelHost lands. The fake plugin completes the loop. The default EXE still has no real protocol.
+    All optional capability interfaces must be declared in this cut.
 
-阶段 D  ABI 样板     CH-C4
-└── plugins/telegram 独立 go.mod。肥 SDK 不进默认身体。
-    正式写适配器：以 picoclaw 为最完整 Go 对照，只读改写、禁止 import。
+Stage D  ABI Template     CH-C4
+└── plugins/telegram has an independent go.mod. The large SDK does not enter the default body.
+    Write the formal adapter: use picoclaw as the most complete Go reference, rewrite read-only, and forbid imports.
 
-阶段 E  可见性       CH-C5
-└── inspect + 设置页只展示 compiled-in。
+Stage E  Visibility       CH-C5
+└── inspect + settings page show only compiled-in items.
 
-阶段 F  国内过夜     CH-C6, C7a, C7b
-└── 只填 L3 叶子。禁止回头改信封主合同。
+Stage F  Domestic Overnight     CH-C6, C7a, C7b
+└── Fill only L3 leaves. Do not go back and change the envelope's main contract.
 
-阶段 G  国际补齐     CH-C7c
-└── discord 文本。本期关门。
+Stage G  International Completion     CH-C7c
+└── Discord text. Close this phase.
 
-阶段 H  后切         CH-C8, C9, CH-C
-└── 子进程崩溃域；A2A/NeuroLink 提案；wecom 绑定面。
-    槽已在 L1/L2；本阶段才长行为。
+Stage H  Later     CH-C8, C9, CH-C
+└── Child-process crash domain; A2A/NeuroLink proposal; WeCom binding surface.
+    The slots are already in L1/L2; behavior grows only in this phase.
 ```
 
 ```mermaid
 flowchart LR
-  C0[C0 合同] --> A[A 账本 C1]
+  C0[C0 Contract] --> A[A Ledger C1]
   A --> B[B SDK seam C2]
   B --> C[C Host TCK C3]
   C --> D[D telegram C4]
@@ -244,45 +244,45 @@ flowchart LR
   C --> F3[F qq C7b]
   C --> G[G discord C7c]
   D --> E[E inspect/UI C5]
-  E --> H[H 后切 C8/C9]
+  E --> H["H later C8/C9"]
 ```
 
 ---
 
-## 5. 能力矩阵（C3 就必须进 Host）
+## 5. Capability Matrix (Must Enter Host in C3)
 
-否则这不是超级通道，只是五个 bot。
+Otherwise this is not a super-channel, only five bots.
 
 ```text
-必选     Channel.Start Stop Send + Env.PublishInbound
-交互     Typing  MessageEditor  Deleter  Reactor  Placeholder  Streamer
-介质     MediaSender
-入站面   WebhookHandler / ListenHandler     ← 套接字仍是 Host
-可靠     HealthChecker + 错误分类
-重量级   TaskLifecycle（A2A）  PipeServer（NeuroLink）
+Required     Channel.Start Stop Send + Env.PublishInbound
+Interaction  Typing  MessageEditor  Deleter  Reactor  Placeholder  Streamer
+Media        MediaSender
+Ingress      WebhookHandler / ListenHandler     ← sockets remain Host-owned
+Reliability  HealthChecker + error classification
+Heavyweight  TaskLifecycle (A2A)  PipeServer (NeuroLink)
 ```
 
-C3 用类型断言，缺了就降级。五个包第一刀只实现必选 + 该平台已稳的文本能力。Stream / 媒体 / 群 / 审批卡片后切，但接口名不得等 C9 才发明。
+C3 uses type assertions and degrades when an interface is missing. The first cut for the five packages implements only the required capabilities plus text capabilities already stable on that platform. Stream / media / groups / approval cards come later, but the interface names must not be invented only in C9.
 
 ---
 
-## 6. 三扇门（不要合成）
+## 6. Three Doors (Do Not Merge)
 
-| 门 | 包/提案 | 本 EPIC |
+| Door | Package/Proposal | This EPIC |
 |---|---|---|
-| 耳朵 ChannelHost | `internal/channelhost` | **做** |
-| 嘴 FaceHost | `VIVY-FACE-PACK.md` | 不做；channel 不得替代 UI |
-| 遥控 ACP | `ACP-REMOTE-CONTROL-PROPOSAL.md` | 不做；ACP 转向已有 Run |
+| Ear ChannelHost | `internal/channelhost` | **Do** |
+| Mouth FaceHost | `VIVY-FACE-PACK.md` | Do not do; channel must not replace the UI |
+| Remote control ACP | `ACP-REMOTE-CONTROL-PROPOSAL.md` | Do not do; ACP redirects to existing Run |
 
-A2A 从耳朵进，不是第四扇门，也不是第二套循环。`taskId` = Vivy `run_id`。
+A2A enters through the ear; it is not a fourth door or a second loop. `taskId` = Vivy `run_id`.
 
 ---
 
-## 7. 权威顺序
+## 7. Authority Order
 
-1. `VIVY-CHANNEL-PACK.md`（合同）
-2. 本文（演进树）
-3. `docs/plans/channel-epic/<ID>.md`（本切片 PLAN）
-4. `docs/TODO.md` §0.2（日历）
+1. `VIVY-CHANNEL-PACK.md` (contract)
+2. This document (evolution tree)
+3. `docs/plans/channel-epic/<ID>.md` (this slice's PLAN)
+4. `docs/TODO.md` §0.2 (calendar)
 
-日历不改合同。PLAN 不发明第二套循环。发现合同漏洞：记 §0.1，不要擅自扩缝。
+The calendar does not change the contract. A PLAN does not invent a second loop. If you find a contract gap, record it in §0.1; do not expand the seam unilaterally.

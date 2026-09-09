@@ -1,4 +1,4 @@
-# Acceptance — VC-2 成本核算 + 模型元数据 (D9)
+# Acceptance — VC-2 Cost accounting + model metadata (D9)
 
 How a human can tell it worked.
 
@@ -9,16 +9,16 @@ How a human can tell it worked.
 2. Have a conversation with a priced model (e.g. a known OpenAI model
    like gpt-4o) so usage events land in the Journal.
 3. Open the token statistics panel (dashboard):
-   - The overview now has a fifth card "预估费用 / Estimated cost" showing
-     a `$` amount computed from the model's reference price.
-   - The "模型分布 / Model distribution" table and the session tables
-     (overview and detail) each have a "费用 / Cost" column.
-   - The detail view shows "缓存 Token / Cached tokens" next to reasoning
-     tokens — for providers that report cache hits this is nonzero.
+   - The overview now has a fifth card "Estimated cost" showing a `$` amount
+     computed from the model's reference price.
+   - The "Model distribution" table and the session tables (overview and detail)
+     each have a "Cost" column.
+   - The detail view shows "Cached tokens" next to reasoning tokens—for providers
+     that report cache hits, this is nonzero.
 4. Point a session at a model with no reference pricing (e.g. a custom
    gateway model id): its cost cells render as "—" with a tooltip
-   "该模型暂无参考定价 — 费用不计入合计" (en: "Price unknown for this
-   model — cost excluded from totals"), and the total only sums the
+   "Price unknown for this model — cost excluded from totals", and the total only
+   sums the
    priced rows. Cost for unpriced models never renders as $0.
 
 ## Image gating on text-only models

@@ -1,8 +1,9 @@
-# Summary — VC-2 成本核算 + 模型元数据 (D9)
+# Summary — VC-2 Cost accounting + model metadata (D9)
 
 Deliverable slice of the VIVY-CODE track (VC-2), decision D9: cost
 accounting with model metadata that stays in sync with the provider/model
-management surface ("逻辑与 web 端同步，不另起数据源") — one reference
+management surface ("logic stays synchronized with the web surface; do not create
+a second data source") — one reference
 table in the provider layer, resolved through the existing catalog, no
 second store.
 

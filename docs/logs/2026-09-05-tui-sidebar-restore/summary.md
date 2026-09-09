@@ -1,11 +1,11 @@
-# 恢复宽屏右栏
+# Restore the Wide-Screen Right Sidebar
 
-## 已交付
+## Delivered
 
-- 右栏显示门槛从宽 120 降到 100，常见 Windows Terminal 尺寸会再出现 Crush 式右侧会话栏，而不是被收成顶栏 compact。
-- `padHorizontal` 过宽行改为截断而不是把右栏挤出终端；聊天列加 `MaxWidth`。
+- The right-pane display threshold was lowered from width 120 to 100, so common Windows Terminal sizes show the Crush-style right session pane again instead of collapsing it into top-bar compact mode.
+- Overly wide rows using `padHorizontal` are truncated instead of pushing the right pane out of the terminal; the chat column adds `MaxWidth`.
 
-## 边界
+## Boundaries
 
-- 高度仍需 ≥30 才显示右栏。更矮的窗口继续用顶栏 compact。
-- 没有改侧栏内容和滚动逻辑。
+- Height must still be ≥30 to show the right pane. Shorter windows continue to use top-bar compact mode.
+- Sidebar content and scrolling logic were not changed.

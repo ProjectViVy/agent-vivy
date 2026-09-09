@@ -1,4 +1,4 @@
-# 超级通道合同：验证记录
+# Super Channel contract: verification record
 
 Date: 2026-08-30
 

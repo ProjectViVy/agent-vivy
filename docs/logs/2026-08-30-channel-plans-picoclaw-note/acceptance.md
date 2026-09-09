@@ -1,3 +1,5 @@
-# PLAN picoclaw 备注 — 验收
+# PLAN picoclaw note — acceptance
 
-领取 C4/C6/C7* 的 AGENT 能在 PLAN 正文看到：picoclaw 是最完整对照；只读改写；禁止 import；Discord 不抄 voice、钉钉走 Stream、QQ 官方 Bot。
+Agents taking C4/C6/C7* can see in the PLAN body: picoclaw is the most complete
+reference; rewrite it read-only; imports are forbidden; Discord does not copy voice,
+DingTalk uses Stream, and QQ uses the official Bot route.

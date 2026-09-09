@@ -1,22 +1,22 @@
 # Eino-native MCP migration
 
-日期：2026-09-06
+Date: 2026-09-06
 
-## 已完成
+## Completed
 
-- 删除 `internal/runtime/mcp_backend.go` 中自研 JSON-RPC、HTTP、SSE、session、request-id 与协议解析；改用 `mark3labs/mcp-go v1.0.0` 官方 `client.NewStreamableHttpClient`，以 `LATEST_PROTOCOL_VERSION` 首选 modern discover，并让官方 client 对旧 server 回退 legacy initialize。
-- 通过 `eino-ext/components/tool/mcp v0.0.9` 的 `GetTools` 完成官方 MCP tools/schema 转换，但只投影到 Vivy 不可信 catalog，不把 Eino tool 直接挂到 model。
-- 保留 `mcp_list_tools`、`mcp_call`、`PrepareMCPCall` 审批门、`MCPServerConfig`、status/catalog/ReplaceServers 与 resources/prompts 产品 contract。
-- 保留 8s operation timeout、512KiB raw response guard、256KiB content/catalog budget、32 页上限、重复 cursor 检测、browser-use 排除、确定性 server order 与 fail-closed projection。
-- bearer header 每次 HTTP request 读取 `AuthEnv`；幂等 list/read/get 在 session terminated 时最多重建并重试一次，tools/call 不重试；首次并发调用共享一次初始化握手。
-- Replace/remove、failed initialize、session replacement 与 App shutdown 均关闭官方 client；被替换 client 的退休清理由 backend 跟踪并由 Close 等待，多 client close 并发，避免 N×5s 串行阻塞。
-- 删除 `internal/tools/mcp.go` 中已无消费者的四个旧 alias/type。
+- Removed in-house JSON-RPC, HTTP, SSE, session, request-id, and protocol parsing from `internal/runtime/mcp_backend.go`; switched to the official `client.NewStreamableHttpClient` from `mark3labs/mcp-go v1.0.0`, using `LATEST_PROTOCOL_VERSION` as the preferred modern discover path and having the official client fall back to legacy initialize for old servers.
+- Completed the official MCP tools/schema conversion through `GetTools` from `eino-ext/components/tool/mcp v0.0.9`, but projected it only into Vivy’s untrusted catalog rather than mounting the Eino tool directly on the model.
+- Retained `mcp_list_tools`, `mcp_call`, the `PrepareMCPCall` approval gate, `MCPServerConfig`, status/catalog/ReplaceServers, and the resources/prompts product contract.
+- Retained the 8s operation timeout, 512KiB raw response guard, 256KiB content/catalog budget, 32-page limit, duplicate-cursor detection, browser-use exclusion, deterministic server order, and fail-closed projection.
+- The bearer header reads `AuthEnv` on every HTTP request; idempotent list/read/get operations rebuild and retry at most once when the session is terminated, while tools/call is not retried; the first concurrent calls share one initialization handshake.
+- Replace/remove, failed initialize, session replacement, and App shutdown all close the official client; the backend tracks retirement cleanup for replaced clients and Close waits for it, while multi-client close runs concurrently to avoid N×5s of serial blocking.
+- Removed the four obsolete alias/type definitions with no remaining consumers from `internal/tools/mcp.go`.
 
-## 明确未做
+## Explicitly Not Done
 
-- 未增加 stdio、OAuth 或 continuous listening。
-- 未改变 settings/RPC/UI/TUI contract、Journal、Policy/HITL 或远程工具治理路径。
-- 未接入 Eino 直接 tool mount；Eino 当前只覆盖 tools，且会将 `CallToolResult.IsError` 转为 Go error，因此 resources/prompts/lifecycle 与 Vivy `isError` 仍使用同一 mcp-go typed client。
-- 未关闭 EINO-BOUNDARY-AUDIT track 的 tool_search、Sequential Thinking、plantask compatibility、stream observer 等其他候选。
+- Did not add stdio, OAuth, or continuous listening.
+- Did not change the settings/RPC/UI/TUI contract, Journal, Policy/HITL, or remote-tool governance path.
+- Did not add a direct Eino tool mount; Eino currently covers only tools and converts `CallToolResult.IsError` to a Go error, so resources/prompts/lifecycle and Vivy `isError` still use the same mcp-go typed client.
+- Did not close the other candidates on the EINO-BOUNDARY-AUDIT track, including tool_search, Sequential Thinking, plantask compatibility, and stream observer.
 
-许可证口径：Eino MCP component 为 Apache-2.0；mcp-go 为 MIT。
+License position: the Eino MCP component is Apache-2.0; mcp-go is MIT.

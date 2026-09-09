@@ -1,4 +1,4 @@
-# Verification · 聊天区真实 PLAN / TODO
+# Verification · Real PLAN / TODO in the chat area
 
 Worktree: `C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy-plan-todo-display`  
 Branch: `feat/plan-todo-display`

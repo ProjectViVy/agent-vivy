@@ -1,22 +1,22 @@
-# 中控台选项卡重排：Token / 轨迹 / 会话
+# Dashboard tab reorder: Token / Trajectory / Sessions
 
-## 变更内容
+## Changes
 
-中控台（`/dashboard`）选项卡按用户要求调整：
+The `/dashboard` tabs were adjusted as requested:
 
-- 默认选中项从「概览」改为「Token」，进入中控台即看 Token 统计。
-- 选项卡从左到右依次为：**Token、轨迹、会话**。
-- 原第一项「概览」改名为「会话」，内容不变（运行状态 + 近期活动）。
-- 页面副标题同步改为「Token 用量、轨迹与会话状态分区展示。」（英文同步）。
+- The default selection changed from `Overview` to `Token`, so entering the dashboard immediately shows Token statistics.
+- The tabs from left to right are **Token, Trajectory, Sessions** (Token, Trajectory, Sessions).
+- The former first tab, `Overview`, was renamed to `Sessions`; its content is unchanged (runtime status + recent activity).
+- The page subtitle was also changed to the literal `Token usage, trajectory, and session status are shown in separate sections.` and the English was synchronized.
 
-## 改动文件
+## Changed files
 
-- `ui/src/components/demo/DashboardDemoView.tsx` — `defaultValue="token"`，TabsTrigger/TabsContent 重排为 token → trajectory → overview。
-- `ui/src/i18n/zh.ts` — `dashboard.overview`：'概览' → '会话'；副标题重排。
-- `ui/src/i18n/en.ts` — `dashboard.overview`：'Overview' → 'Sessions'；副标题重排。
+- `ui/src/components/demo/DashboardDemoView.tsx` — `defaultValue="token"`; TabsTrigger/TabsContent reordered to token → trajectory → overview.
+- `ui/src/i18n/zh.ts` — `dashboard.overview`: '概览' → '会话'; subtitle reordered.
+- `ui/src/i18n/en.ts` — `dashboard.overview`: 'Overview' → 'Sessions'; subtitle reordered.
 
-## 明确未做
+## Explicitly not done
 
-- 「会话」选项卡内容保持原概览内容（运行状态、近期活动），未接入真实会话列表数据。
-- 轨迹面板仍为演示数据（`trajectory-demo-data.ts`），与本次无关。
-- 路由、后端 RPC、数据结构均无变化。
+- The `Sessions` tab retains the original overview content (runtime status and recent activity); it was not connected to real session-list data.
+- The trajectory panel still uses demo data (`trajectory-demo-data.ts`); it is unrelated to this change.
+- There are no changes to routes, backend RPC, or data structures.

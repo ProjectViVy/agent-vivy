@@ -30,7 +30,7 @@ in the runtime so a single execute call can never hang a run for hours.
   (request clamped by ceiling, default fallback, hard-cap clamp) and
   parse/validate tests in `config_test.go` (parse, omitted-keeps-default,
   zero / negative / above-cap rejected, default asserted).
-- **Settings → 通用 (General) makes the ceiling editable from the UI**: the
+- **Settings → General makes the ceiling editable from the UI**: the
   settings document (`data/settings.yaml` in the dev data root) gained
   `execute_max_timeout_seconds` with the same 1–600 bounds, validated in
   `internal/app/settings`. `settings/get` now reports the effective override
@@ -39,8 +39,8 @@ in the runtime so a single execute call can never hang a run for hours.
   On the next startup `applySettingsOverlay` overlays the persisted value
   onto `cfg.Runtime.ExecuteMaxTimeoutSeconds` and logs it. The update echo
   also carries the config fallbacks so the UI keeps its display values
-  consistent right after a save. The SettingsView 通用 tab renders a
-  "执行超时上限" card (0–600, empty = config default); the model tab and the
+  consistent right after a save. The SettingsView General tab renders an
+  "Execute Timeout Ceiling" card (0–600, empty = config default); the model tab and the
   two other `saveSettings` call sites pass the field through so the
   full-document replace never clobbers it.
 

@@ -2,7 +2,7 @@
 
 > **Status:** Living index of the local `.workspace/` reference projects that inform AGENT-VIVY V0 architecture and capability choices.
 > **Updated:** 2026-08-15
-> **Owner:** 📋 John (PM) with user (大湿)
+> **Owner:** 📋 John (PM) with user (mastwet)
 > **Related:** `AGENT-VIVY-DIRECTION.md`, `AGENT-VIVY-ASSEMBLY-OPTIONS.md`, `prd-agent-vivy-v0.md`, `agent-vivy/docs/architecture/VIVY-STUDIO.md`
 
 ---
@@ -90,15 +90,15 @@ These numbers are quick scans, not authoritative totals — they exist only to c
   - `eino/go.mod` — module `github.com/cloudwego/eino`.
   - Public surface inspected: `ChatModelAgent`, `Runner`, `DeepAgent`, `ToolsNodeConfig` all confirmed against `eino/README.md`.
 
-### 3.3 claude-code  (本地副本已清理；上游已核验)
+### 3.3 claude-code  (local copy cleaned; upstream verified)
 
-- **Source:** 上游 `anthropics/claude-code`（2026-08-06 本地副本 README 声称的 `claude-code-best/claude-code` 为镜像；本地 `.workspace/claude-code/` 已于 2026-09-02 前被清理）。
+- **Source:** upstream `anthropics/claude-code` (the local-copy README's 2026-08-06 claim that `claude-code-best/claude-code` is the mirror; local `.workspace/claude-code/` was cleaned before 2026-09-02).
 - **Language / stack:** TypeScript; Bun runtime; VS Code–style architecture.
-- **License:** **专有（2026-09-02 上游 LICENSE.md 全文核验）：** "© Anthropic PBC. All rights reserved. Use is subject to Anthropic's Commercial Terms of Service." GitHub 许可证检测亦为 None。详见 `license-review-2026-09-02.md` §1。
+- **License:** **proprietary (upstream LICENSE.md verified in full on 2026-09-02):** "© Anthropic PBC. All rights reserved. Use is subject to Anthropic's Commercial Terms of Service." GitHub's license detection is also None. See `license-review-2026-09-02.md` §1.
 - **Vivy intent:** **Defer** — interactive coding-agent UX reference only. Not a code source.
-- **May borrow:** UX patterns and vocabulary read from AGENTS.md / CLAUDE.md 层面描述；not source files.
-- **Must NOT borrow:** any source code / prompt 资产 / schema（许可明文禁止）。
-- **Verification:** 2026-09-02 GitHub raw/contents API 取得 LICENSE.md 全文；`repos/anthropics/claude-code` license 字段为 null；本地树清理现场核实。
+- **May borrow:** UX patterns and vocabulary read from AGENTS.md / CLAUDE.md level descriptions; not source files.
+- **Must NOT borrow:** any source code / prompt assets / schema (explicitly prohibited by the license).
+- **Verification:** LICENSE.md full text obtained via the GitHub raw/contents API on 2026-09-02; the `repos/anthropics/claude-code` license field is null; local tree cleanup verified on site.
 
 ### 3.4 codex  (`.workspace/codex/`)
 
@@ -210,14 +210,14 @@ These numbers are quick scans, not authoritative totals — they exist only to c
 - **Must NOT borrow:** its TypeScript/Node.js stack (V0 uses Go + browser UI).
 - **Verification:** LICENSE inspected.
 
-### 3.15 rig  (本地副本已清理；上游已核验)
+### 3.15 rig  (local copy cleaned; upstream verified)
 
-- **Source:** 上游 `0xPlaygrounds/rig`（Playgrounds Analytics 的 Rust LLM 框架；本地 `.workspace/rig/` 已于 2026-09-02 前被清理）。
+- **Source:** upstream `0xPlaygrounds/rig` (Playgrounds Analytics' Rust LLM framework; local `.workspace/rig/` was cleaned before 2026-09-02).
 - **Language / stack:** Rust.
-- **License:** **标准 MIT（2026-09-02 上游 LICENSE 全文核验更正）**：标准 MIT 条款正文，版权行 "Copyright (c) 2024, Playgrounds Analytics Inc."——2026-08-06 曾把这行标准版权声明误读为自定义许可，疑云解除，无 BSL/source-available/附加限制。详见 `license-review-2026-09-02.md` §2。
-- **Vivy intent:** **Drop** — Rust framework; not aligned with V0's Go+Eino choice（许可障碍解除≠架构理由改变）。
-- **May borrow:** vocabulary; 未来 SystemV 探针如需 Rust 组件，rig 现为"许可安全"候选参考。
-- **Verification:** 2026-09-02 raw.githubusercontent `0xPlaygrounds/rig/main/LICENSE` 全文核对。
+- **License:** **standard MIT (upstream LICENSE verified in full and corrected on 2026-09-02):** standard MIT terms, with the copyright line "Copyright (c) 2024, Playgrounds Analytics Inc."—on 2026-08-06 this standard MIT copyright notice was misread as a custom license marker; the concern is resolved, with no BSL/source-available/additional restriction terms. See `license-review-2026-09-02.md` §2.
+- **Vivy intent:** **Drop** — Rust framework; not aligned with V0's Go+Eino choice (the licensing obstacle being removed does not change the architectural rationale).
+- **May borrow:** vocabulary; if a future SystemV probe needs Rust components, rig is now a "license-safe" candidate reference.
+- **Verification:** full text of `raw.githubusercontent` `0xPlaygrounds/rig/main/LICENSE` checked on 2026-09-02.
 
 ### 3.16 zeroclaw  (`.workspace/zeroclaw/`)
 
@@ -290,8 +290,8 @@ Three hard rules apply to every entry above:
 
 | ID | Question | Owner |
 |---|---|---|
-| RI-OQ-1 | claude-code LICENSE: is there a hidden LICENSE in a subdirectory we missed, or upstream LICENSE in the original repo? Should we ask upstream before treating as "no license"? | **RESOLVED 2026-09-02** — 上游 LICENSE.md 为专有（Anthropic PBC all-rights-reserved + Commercial ToS）；见 `license-review-2026-09-02.md` §1 |
-| RI-OQ-2 | rig LICENSE: is the "Copyright (c) 2024, Playgrounds Analytics Inc." a permissive license with restrictions (BSL-style), or a custom source-available license? Need a real read. | **RESOLVED 2026-09-02** — 标准 MIT，此前误读版权行为自定义标记；见 `license-review-2026-09-02.md` §2 |
+| RI-OQ-1 | claude-code LICENSE: is there a hidden LICENSE in a subdirectory we missed, or upstream LICENSE in the original repo? Should we ask upstream before treating as "no license"? | **RESOLVED 2026-09-02** — upstream LICENSE.md is proprietary (Anthropic PBC all-rights-reserved + Commercial ToS); see `license-review-2026-09-02.md` §1 |
+| RI-OQ-2 | rig LICENSE: is the "Copyright (c) 2024, Playgrounds Analytics Inc." a permissive license with restrictions (BSL-style), or a custom source-available license? Need a real read. | **RESOLVED 2026-09-02** — standard MIT; the earlier reading of the copyright behavior as a custom marker was incorrect; see `license-review-2026-09-02.md` §2 |
 | RI-OQ-3 | Are any of the "Defer" projects actually better references than Crush for V0 application-assembly patterns (e.g. OpenHarness)? If yes, swap intent. | user + future architecture session |
 | RI-OQ-4 | Should `.workspace/` itself be versioned in morediva, or `.gitignore`d? Currently neither — it's just sitting on disk. | user |
-| RI-OQ-5 | Should QwenPaw be vendored into `.workspace/qwenpaw` for future reference, or stay as an external source we re-fetch by URL? | **RESOLVED 2026-09-02** — 保持外部（external-by-URL），不 vendor；见 `qwenpaw-vendor-ruling.md` |
+| RI-OQ-5 | Should QwenPaw be vendored into `.workspace/qwenpaw` for future reference, or stay as an external source we re-fetch by URL? | **RESOLVED 2026-09-02** — stay external (external-by-URL), do not vendor; see `qwenpaw-vendor-ruling.md` |

@@ -107,11 +107,11 @@ sandbox mode and approval policy independently.
 
 | UI | preset | sandbox_mode | approval_policy |
 |---|---|---|---|
-| 谨慎 | `cautious` | `read_only` | `ask` |
-| 智能 | `smart` | `workspace_write` | `ask` |
-| 信任 | `trusted` | `danger_full_access` | `auto` |
+| Cautious | `cautious` | `read_only` | `ask` |
+| Smart | `smart` | `workspace_write` | `ask` |
+| Trusted | `trusted` | `danger_full_access` | `auto` |
 
-Settings → 沙箱 writes the default for **new sessions**. The chat selector
+Settings → Sandbox writes the default for **new sessions**. The chat selector
 writes the **current session** via `session/set_permission`. An in-flight run
 keeps the knobs captured at `turn/start`.
 

@@ -1,42 +1,50 @@
-# 2026-08-26 — AGENTS.md 并行 worktree 隔离与按交付提交规则
+# 2026-08-26 — AGENTS.md parallel worktree isolation and per-delivery commit rules
 
 ## What changed
 
-`AGENTS.md`（仓库治理文档）新增两条规定与一节说明，来源是对 agent-diva
-仓库规则（LOCK.md 互斥、原子 commit、worktree 隔离）的对比评估与用户决策：
+`AGENTS.md` (the repository governance document) added two rules and one
+explanatory section, based on a comparison with agent-diva’s repository rules
+(LOCK.md mutex, atomic commits, and worktree isolation) and the user’s decision:
 
-1. **`parallel-worktree-isolation`（硬性要求）** + 新章节
-   "Parallel lanes (worktree isolation, hard requirement)"：
-   共享根工作树最多承载一个活跃写 lane。第二个并发 lane（另一 agent 会话、
-   Studio 会话或人工改动），或根树不干净时启动的新功能，必须在独立
-   `git worktree` + 分支上开发，经分支合并/PR 落回；禁止在另一 lane 活跃时
-   编辑根树，禁止在根树堆叠无关主题。不引入 `LOCK.md` —— 用结构隔离取代
-   协议协调。
-2. **`commit-one-concern-per-deliverable`**：每个完成的交付在完成时提交为
-   一个单一关注点的 commit，只 stage 本交付的明确路径，剔除临时产物，不卷入
-   无关脏改；推送仍需用户明确授权。（agent-diva 的 per-update auto-commit
-   的弱化移植：commit 跟随交付而非每次更新。）
-3. "Not ported from agent-diva on purpose" 段落改写：`LOCK.md` 互斥、根
-   `TODOLIST.md`、`/new-command`、per-update auto-commit、回复前缀仍不移植，
-   并说明并发与提交卫生由上述两条原生规则替代。
+1. **`parallel-worktree-isolation` (hard requirement)** + new section
+   “Parallel lanes (worktree isolation, hard requirement)”: a shared root
+   worktree may carry at most one active write lane. A second concurrent lane
+   (another agent session, Studio session, or human edit), or a new feature
+   started while the root tree is dirty, must be developed in a separate
+   `git worktree` + branch and returned through a branch merge/PR. Editing the
+   root tree while another lane is active and stacking unrelated topics in the
+   root tree are forbidden. `LOCK.md` is not introduced; structural isolation
+   replaces protocol coordination.
+2. **`commit-one-concern-per-deliverable`**: each completed delivery is committed
+   at completion as a single-concern commit; stage only the delivery’s explicit
+   paths, remove temporary artifacts, and do not include unrelated dirty changes.
+   Push still requires explicit user authorization. (A weakened port of agent-diva’s
+   per-update auto-commit: commits follow deliverables rather than every update.)
+3. The “Not ported from agent-diva on purpose” section was rewritten:
+   `LOCK.md` mutex, root `TODOLIST.md`, `/new-command`, per-update auto-commit, and
+   the reply prefix remain unported, with concurrency and commit hygiene delegated
+   to the two native rules above.
 
 ## Scope
 
-- `AGENTS.md`：新增章节 + Rulebook 两条 + not-ported 段改写。
-- `docs/TODO.md` §0.1：新增 `PROC-COMMIT` 条目（见下）。
-- 本迭代日志。
+- `AGENTS.md`: new section + two Rulebook rules + rewritten not-ported section.
+- `docs/TODO.md` §0.1: new `PROC-COMMIT` entry (see below).
+- This iteration log.
 
 ## Decision origin
 
-用户在对比 agent-diva 规则后拍板：worktree 隔离为**硬性要求**（此前已因
-多 lane 共用根树吃亏）；原子 commit 按建议移植弱化版；LOCK.md 锁机制
-暂不引入。
+After comparing the agent-diva rules, the user decided that worktree isolation is
+a **hard requirement** (shared root trees had already caused problems across
+multiple lanes); atomic commits are ported in the recommended weakened form;
+the LOCK.md mechanism is not being introduced for now.
 
 ## Explicitly not done
 
-- 未引入 `LOCK.md` 锁文件（结构性隔离替代；若将来不够再评估）。
-- 未引入 per-update 自动提交与 `[I strictly follow the rules]` 回复前缀。
-- 根树现存的三个已完成但未提交主题（evolution 页 / welcome wizard /
-  chat message actions）本次不拆分、不提交 —— 记入 `docs/TODO.md` §0.1
-  `PROC-COMMIT`，留待按新规则拆分入库或人工确认后合并。
-- 无任何内核 / UI 代码改动。
+- No `LOCK.md` lock file was introduced (structural isolation replaces it; reassess
+  if it proves insufficient in the future).
+- No per-update auto-commit or `[I strictly follow the rules]` reply prefix was introduced.
+- The three completed but uncommitted topics currently in the root tree (Evolution
+  page / Welcome Wizard / Chat Message Actions) were not split or committed in
+  this delivery. They are recorded in `docs/TODO.md` §0.1 `PROC-COMMIT` for
+  splitting under the new rules or merging after human confirmation.
+- No kernel / UI code was changed.

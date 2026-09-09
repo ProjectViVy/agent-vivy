@@ -1,10 +1,10 @@
 # Acceptance — VC-1e
 
-如何向人证明这个交付有效。
+How to prove to a person that this delivery works.
 
-## 1. `vivy init`（人的视角）
+## 1. `vivy init` (human perspective)
 
-在一个已有项目的目录里运行：
+Run it in a directory containing an existing project:
 
 ```text
 $ vivy init
@@ -12,24 +12,24 @@ created C:\path\to\project\AGENTS.md
 record only what is non-obvious: an agent can read the code, but it cannot guess intent.
 ```
 
-- 生成的 `AGENTS.md` 有四个空节（overview / build / conventions / pitfalls），每节带 HTML 注释引导。
-- 目录里已有 `.cursorrules` 或 `.github/copilot-instructions.md` 时，输出会点名这些文件，生成的 AGENTS.md 末尾有"保持同步或引用"一节。
-- 空目录（连 `main.go` 都没有）→ 报错退出，不生成。
-- 已有 AGENTS.md → 报错退出，原文件一字不动。
+- The generated `AGENTS.md` has four empty sections (overview / build / conventions / pitfalls), each with an HTML-comment prompt.
+- If `.cursorrules` or `.github/copilot-instructions.md` already exists in the directory, the output names those files and the generated AGENTS.md ends with a "Keep in sync or reference" section.
+- An empty directory (not even `main.go`) → exits with an error and generates nothing.
+- An existing AGENTS.md → exits with an error and leaves the original file byte-for-byte unchanged.
 
-## 2. AGENTS.md 注入（run 的视角）
+## 2. AGENTS.md injection (run perspective)
 
-1. 把 AGENTS.md 放进某个 run 的 workspace（例如 `vivy init` 后通过 UI/工具放入，或让 run 自己写入）。
-2. 在该 session 发一条消息。
-3. **可观察效果**：模型回答遵循 AGENTS.md 里的指令（如"回答以 VIVY 开头"这类可验证规则）；AGENTS.md 不存在时行为与从前完全一致。
-4. **逐 run 隔离**：另一个 run 的 workspace 没有该文件，就不受影响。
+1. Put AGENTS.md in a run's workspace (for example, add it through the UI/tool after `vivy init`, or let the run write it itself).
+2. Send a message in that session.
+3. **Observable effect**: the model's response follows the instructions in AGENTS.md (for example, a verifiable rule such as "Start the answer with VIVY"); when AGENTS.md is absent, behavior is exactly as before.
+4. **Per-run isolation**: another run whose workspace lacks the file is unaffected.
 
-## 3. 瞬态性（D6 的核心承诺）
+## 3. Transience (D6's core promise)
 
-- 注入内容只出现在模型调用现场：Journal 事件 replay 与消息存储里**永远搜不到** AGENTS.md 的正文（测试 #4/#5 以 marker 断言）。
-- 上下文压缩（compaction）永远不需要处理它——注入发生在压缩层之后，天然不进摘要。
+- Injected content appears only at the model-call site: the AGENTS.md body can **never be found** in Journal event replay or message storage (tests #4/#5 assert this with a marker).
+- Context compaction never needs to process it—the injection happens after the compaction layer and therefore never enters the summary.
 
-## 4. 边界
+## 4. Boundaries
 
-- 无 AGENTS.md 的 run：零注入、零行为差异（测试 #2）。
-- 审批挂起→恢复后：注入内容仍恰好出现一次，不因 checkpoint 往返而重复（测试 #5）。
+- A run without AGENTS.md: zero injection, zero behavior difference (test #2).
+- After approval suspension → resume: injected content still appears exactly once and is not duplicated by the checkpoint round trip (test #5).

@@ -1,18 +1,27 @@
 # Acceptance
 
-人工判定方式（无需读代码）：
+Manual verification (without reading code):
 
-1. `cd ui; pnpm dev`（后端 `just run`），打开 `http://127.0.0.1:3015`。
-2. 设置页顶部一排 tab 全部为本地化文案：通用 / 模型 / 工具 / Vivy 功能 /
-   Language / Channels / 网络工具 / Sandbox / 自进化（后者带「预览」徽标）。
-3. 「自进化」tab：说明、运行频率（每天/每周/手动）、五个动作行（身份文档 /
-   关系文档 / 承诺记录 / 操作规范 / 弃用建议）、确认策略开关 toast 全部随
-   语言切换，无 raw i18n 键、无混排漏翻。
-4. 「通用」tab 内的 Agent-Diva 预览段（聊天显示、缓存与运行状态、关于 Vivy、
-   「压缩配置已毕业」迁移说明）：切到 English 后整段为英文，不再出现中文混排。
-5. 「通用」tab 的执行超时上限卡、应用信息卡、工具配置卡、生命周期卡、
-   Run Inspector 卡标题/描述/按钮/错误提示均随语言切换。
-6. 中文界面下执行超时卡文案与改动前逐字一致（零中文回归）。
+1. Run `cd ui; pnpm dev` (with the backend running via `just run`) and open
+   `http://127.0.0.1:3015`.
+2. Every tab in the top row of the Settings page uses localized copy: General /
+   Models / Tools / Vivy features / Language / Channels / Network tools / Sandbox /
+   Self-evolution (the last one has a "Preview" badge).
+3. On the Self-evolution tab, the description, run frequencies (daily/weekly/
+   manual), five action rows (identity document / relationship document /
+   commitments record / operating guidelines / deprecation proposal), and the
+   confirmation-strategy toggle toast all follow the language switch, with no raw
+   i18n keys or mixed untranslated text.
+4. In the Agent-Diva preview section of the General tab (chat display, cache and
+   runtime status, About Vivy, and the "Compaction configuration has graduated"
+   migration note), the
+   entire section is English after switching to English, with no mixed Chinese.
+5. The execution-timeout card, application-information card, tool-configuration
+   card, lifecycle card, and Run Inspector card on the General tab all switch
+   their titles, descriptions, buttons, and error messages with the language.
+6. In the Chinese interface, the execution-timeout card copy is character-for-
+   character identical to before the change (no Chinese regression).
 
-自动化等价证据：`language-setting.spec.ts`（切换并持久化）+ Playwright 对
-设置页渲染文本的真实断言（见 verification.md）。
+Equivalent automated evidence: `language-setting.spec.ts` (switching and
+persistence) plus Playwright's real assertions against the Settings-page
+rendered text (see verification.md).

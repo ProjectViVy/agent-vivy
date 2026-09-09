@@ -1,29 +1,50 @@
-# CH-C3 — acceptance（人怎么看出它成了）
+# CH-C3 — acceptance (how a person can tell it worked)
 
-日期：2026-08-30。
+Date: 2026-08-30.
 
-## 产品视角：第一只耳朵会动了——虽然还是假的
+## Product view: the first ear moves—although it is fake
 
-- 日常身体**仍然没有耳朵**：默认 `vivy.exe` `Register()=nil`、`channels:` 空缺 → 行为与 C2 前完全一致，零真实协议 HTTP。
-- 变化在：把一只「假耳朵」放进这一代 + 写上配置，消息就能走完整条世界入口回路。
+- The daily body **still has no ears**: default `vivy.exe` `Register()=nil`,
+  no `channels:` entry → behavior is exactly as before C2, with zero real
+  protocol HTTP.
+- The change is that adding a "fake ear" to this generation and configuring it lets a
+  message travel through the complete world-entry loop.
 
-## 人可以亲手验证的点
+## Human-verifiable points
 
-1. **门是绿的**：`just ci` 退出码 0（含 channelhost TCK 8 项、runtime Provenance 回归）。
-2. **回路成立（TCK 即演示）**：fake channel `Start` → `PublishInbound`（sender 在名单）→ Journal 出现 `channel.inbound` 事件（payload 五字段，无 token）→ 会话 `sess_ch_<hash>` 自动建立（标题 `channel/fake/chat-1`）→ 用户行 `Source=channel` 带三字段出处 → Run 被调起 → run 终态后假适配器 `Send` 收到最后一条 assistant 回复（恰好一次；重放终态不重发）。
-3. **fail-closed 三连**：
-   - `allow_from` 空 → 该通道**拒绝 Start**（错误日志，不入账、不建会话、不 Run）；
-   - sender 不在名单 → 丢弃并记审计（不是错误），模型永远看不到；
-   - `channels:` 写了身体里不存在的名字 → **整个启动失败**（对齐 `tools.enabled` 未知名字的既有语义）。
-4. **本机 UI 与 channel 会话不合流**：channel 会话 ID 由 (channel, chat_id, topic) 哈希派生，UI 新建的 `sess_` 随机 ID 永远撞不上；同一 chat 重启后仍映射到同一会话（确定性派生，无映射表）。
-5. **耳朵能被点名也能被拆下**：配置里不写 = 编入但不起；`enabled: false` = inspect 可见但不启动；从这一代删掉插件 = 启动失败提示（配置指向了不存在的名字）。
+1. **The gate is green**: `just ci` exits 0 (including 8 channelhost TCK cases
+   and the runtime Provenance regression).
+2. **The loop holds (the TCK is the demo)**: fake channel `Start` →
+   `PublishInbound` (sender on the allowlist) → the Journal gets a
+   `channel.inbound` event (five payload fields, no token) → session
+   `sess_ch_<hash>` is created automatically (title
+   `channel/fake/chat-1`) → a user row with `Source=channel` and three
+   provenance fields → Run starts → after the terminal state the fake adapter's
+   `Send` receives the last assistant reply exactly once (replaying the
+   terminal state does not resend it).
+3. **Three fail-closed checks**:
+   - Empty `allow_from` → the channel **refuses Start** (error log; no ledger
+     entry, session, or Run);
+   - sender not on the allowlist → dropped and audited (not an error), so the model
+     never sees it;
+   - `channels:` names a plugin absent from the body → **the entire startup
+     fails** (matching the existing unknown-name semantics for `tools.enabled`).
+4. **Local UI and channel sessions do not merge**: channel session IDs are derived by
+   hashing (channel, chat_id, topic), while the random `sess_` ID created by the
+   UI can never collide; the same chat maps to the same session after restart
+   (deterministic derivation, no mapping table).
+5. **An ear can be named and removed**: omitted from config = included but not started;
+   `enabled: false` = visible in inspect but not started; removing the plugin from
+   this generation = startup failure explaining that config points to a missing name.
 
-## 明确不属于本刀的验收（勿在此追讨）
+## Explicitly not part of this slice's acceptance
 
-- 真实 Telegram 收发 → CH-C4；钉钉 → CH-C6。
-- inspect/设置页显示耳朵状态 → CH-C5。
-- 崩溃后不丢回复（持久化出站队列）、`chanin_*` 事件保留策略、Secret 钉死 token_env → 已登记 §0.1，C4 起硬化。
+- Real Telegram send/receive → CH-C4; DingTalk → CH-C6.
+- Showing ear status in inspect/Settings → CH-C5.
+- No lost replies after a crash (durable outbound queue), `chanin_*` event-retention
+  policy, and pinning Secret to token_env → recorded in §0.1 and hardened from C4 onward.
 
-## 回滚
+## Rollback
 
-去掉 app 装配（或 revert 本分支）即让耳朵消失；默认身体行为不变。
+Remove the app assembly (or revert this branch) and the ear disappears; default body
+behavior is unchanged.

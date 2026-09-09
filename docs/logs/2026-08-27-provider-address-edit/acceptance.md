@@ -1,20 +1,24 @@
-# 验收步骤（用户视角）
+# Acceptance steps (user perspective)
 
-前提：打开 `http://127.0.0.1:3015`（不是 8787 嵌入式页面）；若是旧页面先
-**硬刷新**（Ctrl+Shift+R）。
+Prerequisite: open `http://127.0.0.1:3015` (not the embedded 8787 page); if it is an old
+page, **hard refresh** (Ctrl+Shift+R) first.
 
-1. 进入 **设置 → 模型**。左侧点任意目录厂商（例如 OpenAI / DeepSeek），
-   右侧头部会显示厂商名与 **Base URL 地址文本，地址右侧有一个铅笔图标**。
-2. 点该铅笔 → 弹出「新增自定义供应商」对话框，**已预填**该厂商的
-   显示名 / 运行束 / 地址 / 默认模型 / 模型列表。
-3. 把地址改成你自己的网关地址 → **保存** → 左侧「自定义」区出现新条目，
-   右侧自动显示新地址与其模型列表。
-4. 点该新条目下的任一模型 → 该模型立即成为当前运行配置（顶栏同步显示
-   新厂商与模型）。
-5. 再次点右侧头部铅笔 → 此时对话框标题为「编辑自定义供应商」，可改
-   **别名**与**地址**，保存即更新。
-6. 反向验证：若把地址改回目录中已存在的地址再保存 → 被拦截并提示
-   「该 Base URL 已存在……」——这是既有防冲突规则，属预期行为。
+1. Go to **Settings → Model**. Click any catalog provider on the left (for example,
+   OpenAI / DeepSeek); the right header shows the provider name and **Base URL address text,
+   with a pencil icon to the right of the address**.
+2. Click the pencil → the 「Add custom provider」 dialog opens, with the provider's display
+   name / runtime bundle / address / default model / model list **pre-filled**.
+3. Change the address to your own gateway address → **Save** → a new entry appears in the
+   「Custom」 area on the left, and the right side automatically shows the new address and
+   its model list.
+4. Click any model under the new entry → it immediately becomes the current runtime
+   configuration (the top bar synchronizes to the new provider and model).
+5. Click the right-header pencil again → the dialog title is now 「Edit custom provider」;
+   **Alias** and **Address** can be changed, and saving updates them.
+6. Reverse check: change the address back to one already present in the catalog and save →
+   it is blocked with the literal "That Base URL already exists…" message—this is the existing
+   conflict-prevention rule and is expected.
 
-预期结果：任何供应商（含从未添加过自定义条目的首次使用）都能在右侧
-地址文本旁**直接看到并点击**编辑入口，成功修改模型地址。
+Expected result: any provider (including first use before any custom entry has been added)
+has an edit entry **directly visible and clickable** beside the address text on the right,
+and the model address can be changed successfully.

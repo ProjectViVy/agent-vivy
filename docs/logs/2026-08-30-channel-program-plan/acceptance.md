@@ -1,14 +1,14 @@
-# 超级通道节目排期 — 验收
+# Super Channel program plan — acceptance
 
-人打开 `docs/TODO.md` 能直接开工：
+A person can open `docs/TODO.md` and start work directly:
 
-| 句子 | 出处 | 期望 |
+| Sentence | Source | Expected |
 |---|---|---|
-| 下一刀是 CH-C1，不要领 CH-A/B | §0.1 / §0.2.7 | PASS |
-| 本期 19 人日、缓冲关门 2026-09-30 | §0.2.1 / §0.2.2 | PASS |
-| C3 扇出；C4 是 ABI 样板 | §0.2.4 活动图 | PASS |
-| C5 = UI-CHANNELS-BE，不另开 lane | §0.1 UI-CHANNELS-BE | PASS |
-| C8 / C9 / wecom 不进本期日历 | §0.2.1 M-CH5、§0.2.6 | PASS |
-| 并行必须 worktree，不能脏根叠写 | §0.2 假设 / §0.2.3 | PASS |
+| CH-C1 is next; do not take CH-A/B | §0.1 / §0.2.7 | PASS |
+| This iteration is 19 person-days, with a 2026-09-30 buffer close | §0.2.1 / §0.2.2 | PASS |
+| C3 fans out; C4 is the ABI template | §0.2.4 activity graph | PASS |
+| C5 = UI-CHANNELS-BE, with no separate lane | §0.1 UI-CHANNELS-BE | PASS |
+| C8 / C9 / wecom are not on this iteration's calendar | §0.2.1 M-CH5, §0.2.6 | PASS |
+| Parallel work requires worktrees; do not stack writes on a dirty root | §0.2 assumptions / §0.2.3 | PASS |
 
-无用户可见运行时行为。
+There is no user-visible runtime behavior.

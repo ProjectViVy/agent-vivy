@@ -1,7 +1,7 @@
 # Acceptance
 
-1. 空输入按 `shift+tab`，右侧提示在 智能 / 计划 / 只读 间切换。
-2. 思考档为 on 时，模型显示为 `deepseek-v4-flash(high)` 一类金色后缀。
-3. 供应商右侧有上下文百分比，低绿、中金、高红。
-4. 界面默认彩色；用户消息左槽与助手区分明显。
-5. 底栏不再是黑白，也不再出现 TUI/live。
+1. With empty input, press `shift+tab`; the right-side hint cycles between Smart / Plan / Read-only.
+2. When the thinking level is on, the model shows a gold suffix such as `deepseek-v4-flash(high)`.
+3. A context percentage appears to the right of the provider: low is green, medium is gold, and high is red.
+4. The interface is colored by default; user messages are clearly distinguished from the assistant by the left gutter.
+5. The footer is no longer black and white, and TUI/live no longer appears.

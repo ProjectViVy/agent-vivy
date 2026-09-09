@@ -1,8 +1,8 @@
 # Acceptance
 
-1. 配置两个 Streamable HTTP MCP servers 后，`mcp_list_tools` 按 server/name 稳定返回不可信 catalog；browser-use 工具不出现，schema 来自 Eino `GetTools`。
-2. `mcp_call` 仍只能经 Vivy tool adapter 与 `PrepareMCPCall` 审批路径到达远端；远端 `isError` 保留在 `MCPCallResponse`，不会被 Eino 的 Go error 语义覆盖。
-3. resources/list/read 与 prompts/list/get 可在同一 session 工作，保留 title/size/arguments/metadata；非文本 prompt、未知 capability、超限内容均 fail closed。
-4. 替换或移除 settings 中的 server 后，旧 client 最终关闭；应用 shutdown 会关闭全部 MCP clients，且 close 不按 server 串行等待 5 秒。
-5. 修改 `AuthEnv` 对应 token 后无需重启，后续 HTTP request 使用新 bearer；首次并发操作只发送一次 initialize。
-6. 人工验收可先运行本目录 verification 中的 MCP tests 与 `just ci`；再以 mcp-go `examples/everything` 的 HTTP 模式作为本地 server，在 split UI 的 `/mcp` 页面新增并探测它，应显示“已连接 · 6 个工具”。测试与 smoke 都不读写 `data/vivy.db`、`data/demo` 或 `data/workspaces`。
+1. After configuring two Streamable HTTP MCP servers, `mcp_list_tools` stably returns an untrusted catalog ordered by server/name; browser-use tools do not appear, and the schema comes from Eino `GetTools`.
+2. `mcp_call` can still reach the remote side only through the Vivy tool adapter and `PrepareMCPCall` approval path; the remote `isError` is retained in `MCPCallResponse` and is not overridden by Eino’s Go error semantics.
+3. resources/list/read and prompts/list/get work in the same session, retaining title/size/arguments/metadata; non-text prompts, unknown capabilities, and over-limit content all fail closed.
+4. After a server is replaced or removed in settings, the old client eventually closes; application shutdown closes all MCP clients, and close does not wait 5 seconds serially per server.
+5. After changing the token corresponding to `AuthEnv`, no restart is needed; subsequent HTTP request operations use the new bearer, and the first concurrent operations send only one initialize.
+6. For manual acceptance, first run the MCP tests in this directory’s verification and `just ci`; then use mcp-go `examples/everything` in HTTP mode as a local server, add and probe it from the split UI’s `/mcp` page, and verify it displays “Connected · 6 tools”. Tests and smoke runs do not read or write `data/vivy.db`, `data/demo`, or `data/workspaces`.

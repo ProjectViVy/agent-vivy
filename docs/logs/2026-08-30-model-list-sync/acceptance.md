@@ -1,37 +1,46 @@
 # acceptance.md — 2026-08-30 model-list-sync
 
-用户视角：如何确认这个改动可用、正确、没有副作用。
+User perspective: how to confirm this change is usable, correct, and has no side effects.
 
-## 验证路径（真人操作）
+## Verification path (manual)
 
-1. 启动 Vivy（`just dev` 或日常入口），进入 **设置 → 模型**。
-2. 左侧选择或新增一个 **OpenAI 兼容** 供应商（自定义条目已配置 Base URL 与
-   API Key 的最佳）。
-3. 右栏模型列表标题旁可见 **刷新图标按钮**（新增“＋”左侧）；悬停显示
-   「刷新模型列表」。
-4. 点击刷新：
-   - 按钮进入刷新中态（图标旋转、禁用，防重复提交）；
-   - 上游可达且返回 `{data:[{id},…]}` 时，列表出现上游模型 id，标题下提示
-     「已从上游同步 N 个模型」；
-   - 手动「新增」过的模型（上游没有的）在刷新后仍然保留在列表末尾；
-   - 刷新后**切换供应商再切回**、或**刷新页面**，模型列表仍在（已落盘
-     `settings.yaml` 注册表）。
-5. 密钥正确性：已配置的 API Key 刷新后不被清空（「已配置 API Key」提示仍在）；
-   界面任何位置不出现密钥明文（后端按注册表解析、只回 `api_key_set`）。
-6. 失败路径：上游不可达/401 时，列表不变，卡片底部显示脱敏错误（不含 URL 与
-   密钥）；不产生新的空壳条目。
-7. Anthropic 原生供应商（如 Claude）：**不显示**刷新按钮（协议不支持），列表
-   行为与改动前一致。
+1. Start Vivy (`just dev` or the normal entry point) and open **Settings → Model**.
+2. Select or add an **OpenAI-compatible** provider on the left (a custom entry with
+   Base URL and API Key already configured is best).
+3. A **refresh icon button** is visible beside the model-list title in the right pane
+   (to the left of the new "+" button); hovering shows "Refresh model list".
+4. Click Refresh:
+   - The button enters a refreshing state (spinning icon, disabled to prevent duplicate
+     submissions).
+   - When the upstream is reachable and returns `{data:[{id},…]}`, the list shows the
+     upstream model IDs and the text "Synced N models from upstream" appears below the
+     title.
+   - Models manually added with "Add" (not present upstream) remain at the end of the
+     list after refresh.
+   - After refreshing, **switch to another provider and back**, or **refresh the page**;
+     the model list remains (persisted in the `settings.yaml` registry).
+5. Key correctness: a configured API Key is not cleared by refresh (the "API Key
+   configured" hint remains); the plaintext key never appears anywhere in the UI (the
+   backend resolves it through the registry and returns only `api_key_set`).
+6. Failure path: when the upstream is unreachable or returns 401, the list is unchanged,
+   the card shows a redacted error at the bottom (without the URL or key), and no empty
+   shell entry is created.
+7. Native Anthropic providers (such as Claude): **do not show** a Refresh button (the
+   protocol does not support it), and list behavior remains as before.
 
-## 判定标准
+## Acceptance criteria
 
-- 步骤 4 中模型列表能从上游同步并持久化、手动条目不丢；
-- 步骤 5 密钥永远不回传/不清空；
-- 既有「新增模型」「已选模型 chips」「编辑/删除自定义供应商」行为不回归；
-- `just ci` 全绿（见 verification.md 记录项）。
+- In step 4, the model list syncs from upstream and persists, without losing manual
+  entries.
+- In step 5, the key is never returned or cleared.
+- Existing "Add model", selected-model chips, and edit/delete custom-provider behavior
+  do not regress.
+- `just ci` is all green (see the verification.md record).
 
-## 已知边界（按设计）
+## Known boundaries (by design)
 
-- 目录静态厂商标识（OpenAI/Anthropic 等预置条目）刷新会克隆为「自定义」条目后
-  持久化（目录原条目保持不变、显示「自定义」徽标），与「管理供应商」克隆语义一致。
-- 刷新仅支持 OpenAI 兼容端点；Anthropic 原生端点无刷新入口。
+- Refreshing a static catalog provider (preconfigured entries such as OpenAI/Anthropic)
+  clones it into a "Custom" entry before persisting (the catalog entry stays unchanged
+  and shows a "Custom" badge), matching the "Manage providers" clone semantics.
+- Refresh supports only OpenAI-compatible endpoints; native Anthropic endpoints have no
+  Refresh entry point.

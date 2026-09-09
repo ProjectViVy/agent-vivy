@@ -1,4 +1,4 @@
-# PLAN picoclaw 备注 — 验证
+# PLAN picoclaw note — verification
 
 Date: 2026-08-30
 

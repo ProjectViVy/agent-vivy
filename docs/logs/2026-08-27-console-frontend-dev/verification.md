@@ -11,15 +11,15 @@ Date: 2026-08-27
 | Dangling refs | grep `iframe|vc-frame|frameKey|lifecycle` in client.js | ✅ none (only header text + removed CSS) |
 | Profile sync | copy console files → `data/studio-home/profiles/vivy-studio/node_modules/dsh-vivy-console/` | ✅ hashes match for all 6 files |
 | pnpm launcher | `cmd /c pnpm --version` | ✅ 10.33.0 (host spawn `shell:true` resolves `pnpm.cmd`) |
-| Served client bundle | `GET /plugins/dsh-vivy-console/client.js` on running Studio | ✅ 200, len 22083; contains FrontendPane / 「前端」/ 打开独立页面 / 后端·前端 chips; no iframe / vc-frame; no LifecyclePane |
+| Served client bundle | `GET /plugins/dsh-vivy-console/client.js` on running Studio | ✅ 200, len 22083; contains FrontendPane / "Frontend" / "Open standalone page" / backend·frontend chips; no iframe / vc-frame; no LifecyclePane |
 
 ## Pending (next turn, after detached Studio restart)
 
 - Browser smoke at `http://127.0.0.1:3090`:
-  1. 「Vivy 控制台」shows 4 sections: 网关 / 前端 / VIVY WEB / 日志.
-  2. 网关 pane: start mock gateway → running; 前端 pane: start Vite dev
-     (`:3015`) → running; 日志 pane shows one timeline with `[后端]` /
-     `[前端]` tags and source chips filter.
-  3. VIVY WEB pane: 「打开独立页面」opens `/vivy-web/` in a new tab; RPC
+  1. 「Vivy Console」shows 4 sections: Gateway / Frontend / VIVY WEB / Logs.
+  2. Gateway pane: start mock gateway → running; Frontend pane: start Vite dev
+     (`:3015`) → running; Logs pane shows one timeline with `[Backend]` /
+     `[Frontend]` tags and source-chip filtering.
+  3. VIVY WEB pane: 「Open standalone page」opens `/vivy-web/` in a new tab; RPC
      capture relays back to the console tab via `window.opener`.
   4. Old lifecycle routes `GET /vivy-console/api/lifecycle/*` still 404.

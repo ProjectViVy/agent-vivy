@@ -13,10 +13,11 @@ Commands run from the repository root on 2026-09-01:
    (backend `127.0.0.1:8787` held the organism lease; Vite at
    `http://127.0.0.1:3015` serves this checkout's `ui/` source):
    - Opened `http://127.0.0.1:3015/`, sent the message
-     「预检移除冒烟测试」via the chat input.
+     "Preflight removal smoke test" via the chat input.
    - Observed: the send went straight into a run (status `active`,
-     「取消运行」 button, input disabled) — no amber preflight banner, no
-     「预检发现警告」/「预检已阻止本次运行」, no 继续/取消 confirmation step.
+     "Cancel run" button, input disabled) — no amber preflight banner, no
+     "Preflight found warnings"/"Preflight blocked this run", and no
+     Continue/Cancel confirmation step.
    - The assistant reply streamed in and the run completed
      (`stillStreaming: false`, `cancelRunVisible: false`, `preflightBanner: false`).
    - Note: the live backend on :8787 is the pre-change binary (it still

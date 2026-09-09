@@ -1,31 +1,37 @@
-# summary — 从 Vivy Studio 删除 dsh-plugin-subscriptions
+# summary — Remove dsh-plugin-subscriptions from Vivy Studio
 
 ## What changed
 
-把 `dsh-plugin-subscriptions`（用户以 `@studio/dsh-plugin-subscriptions` 指代）
-从 Vivy Studio 中彻底移除。
+Completely remove `dsh-plugin-subscriptions` (referred to by the user as
+`@studio/dsh-plugin-subscriptions`) from Vivy Studio.
 
-| 项 | 状态 |
+| Item | Status |
 |---|---|
-| `studio/dsh-plugin-subscriptions/`（vivy-studio 子模块内钉住的社区插件快照） | 已删除，提交 `5b6cb4e`（vivy-studio 仓） |
-| `studio/README.md` 里的 `dsh-plugin-subscriptions/` 表格行 | 已移除 |
-| `data/studio-home/plugins/subscriptions/`（插件运行时数据：`auth.json` / `models.json` / `proxy.json`） | 已删除（Studio 自己的 scratch，不入库） |
-| `data/studio-home/profiles/vivy-studio/` 的 package.json / bundles / `vivy-source-plugins.json` / `gro.ngilp-hsd-versions.json` / node_modules | 早已干净（先前 Plugin Hub 已卸载，`hub.log`：`卸载成功 v1ki/dsh-plugin-subscriptions`），本次复核无残留 |
-| 运行中的 Studio 应用（`dsh --profile vivy-studio --port 3090`） | 复核 `window.__DSH_BOOT__` 与 `/dsh-plugin-hub/installed`，无 subscriptions 条目，本就未加载该插件 |
+| `studio/dsh-plugin-subscriptions/` (community plugin snapshot pinned inside the vivy-studio submodule) | Removed, commit `5b6cb4e` (vivy-studio repository) |
+| The `dsh-plugin-subscriptions/` table row in `studio/README.md` | Removed |
+| `data/studio-home/plugins/subscriptions/` (plugin runtime data: `auth.json` / `models.json` / `proxy.json`) | Removed (Studio's own scratch, not committed) |
+| `package.json` / bundles / `vivy-source-plugins.json` / `gro.ngilp-hsd-versions.json` / node_modules under `data/studio-home/profiles/vivy-studio/` | Already clean (Plugin Hub had previously uninstalled it; `hub.log`: `Uninstall succeeded v1ki/dsh-plugin-subscriptions`); no residue found in this review |
+| Running Studio app (`dsh --profile vivy-studio --port 3090`) | Rechecked `window.__DSH_BOOT__` and `/dsh-plugin-hub/installed`; no subscriptions entry, and the app had not loaded the plugin |
 
-宿主仓库只动一个 gitlink（`studio` 子模块指针），及本次迭代记录。
+The host repository changed only one gitlink (the `studio` submodule pointer), plus this
+iteration record.
 
-## 为什么
+## Why
 
-用户要求 Studio 里不再存在该插件。插件先前已从 profile 卸载，但源码快照仍钉在
-vivy-studio 子模块里并出现在 `studio/README.md`，运行时数据目录也残留。
-本次补齐这两处，使删除在任何层面都成立：源码树、profile、运行时数据。
+The user required that the plugin no longer exist in Studio. It had already been
+uninstalled from the profile, but the source snapshot remained pinned in the vivy-studio
+submodule and listed in `studio/README.md`, while the runtime data directory also
+remained. This change closes both gaps so removal holds at every layer: source tree,
+profile, and runtime data.
 
-## 明确不做
+## Explicitly not done
 
-- 不改动 `docs/logs/` 里 2026-08-29 / 2026-08-30 的历史记录提及（历史事实，保留）。
-- 不清理 Plugin Hub 的目录缓存（`cache/catalog-plugins-zh.json` 是远程目录镜像，
-  收录的是生态可用插件，不是已安装状态；删插件的语义不包含改目录）。
-- 不重启运行中的 Studio 服务器：应用从未加载该插件（profile 已卸载在先），
-  删除源码快照只影响将来的 vivy-source 安装路径，重启无必要。
-- 不推送任何提交（push 需显式授权）。提交仅落本地。
+- Do not alter historical mentions in `docs/logs/` from 2026-08-29 / 2026-08-30
+  (historical facts are retained).
+- Do not clean the Plugin Hub catalog cache (`cache/catalog-plugins-zh.json` is a
+  remote-catalog mirror containing ecosystem-available plugins, not installation state;
+  plugin removal does not include changing the catalog).
+- Do not restart the running Studio server: the app never loaded this plugin (it was
+  already uninstalled from the profile); deleting the source snapshot affects only
+  future vivy-source installation paths, so a restart is unnecessary.
+- Do not push any commit (push requires explicit authorization). Commits remain local.

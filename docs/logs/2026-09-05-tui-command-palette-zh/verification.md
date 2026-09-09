@@ -1,11 +1,11 @@
 # Verification
 
-## 自动化
+## Automation
 
-- `go test ./sdk/tui/... -count=1`：通过。
-- `just ci`：通过（fmt-check、UI、vet、全仓 Go test、headless compile、plugin/face 模块；`sdk/tui/view` 与 `faces/tui` 均绿）。
+- `go test ./sdk/tui/... -count=1`: passed.
+- `just ci`: passed (fmt-check, UI, vet, full-repository Go test, headless compile, plugin/face modules; `sdk/tui/view` and `faces/tui` both green).
 
-## 真实路径 smoke
+## Real-path smoke
 
-- 排版与中文契约由 `TestCommandPaletteHighlightsMatchesAndHidesUnselectedUsage` 等用例钉死。
-- 未读取或写入 `data/vivy.db`、`data/demo/`、`data/workspaces/`。
+- The typography and Chinese-language contract are pinned down by tests such as `TestCommandPaletteHighlightsMatchesAndHidesUnselectedUsage`.
+- Did not read or write `data/vivy.db`, `data/demo/`, or `data/workspaces/`.

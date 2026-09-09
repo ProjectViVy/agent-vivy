@@ -1,61 +1,61 @@
-# CH-C7b — `plugins/qq` 官方 Bot 文本
+# CH-C7b — `plugins/qq` Official Bot Text
 
-## 1. 身份
+## 1. Identity
 
 | | |
 |---|---|
 | ID | CH-C7b |
-| 阶段 | F |
-| 人日 | 2 |
-| 里程碑 | M-CH3 |
-| 依赖 | CH-C3；建议 C4 已合入 |
-| 分支 | `feat/channel-c7b` |
-| 合同 | §14.3 qq；官方开放平台机器人，不是个人号，不是 OneBot |
+| Stage | F |
+| Person-days | 2 |
+| Milestone | M-CH3 |
+| Dependency | CH-C3; C4 should be merged |
+| Branch | `feat/channel-c7b` |
+| Contract | §14.3 qq; official open-platform bot, not a personal account, not OneBot |
 
-## 2. 目标
+## 2. Goal
 
-独立 `plugins/qq`。官方 Bot WS 能稳收的单聊/频道文本。默认 EXE 无 botgo。
+Independent `plugins/qq`. Private-chat/channel text that the official Bot WS can reliably receive. The default EXE has no botgo.
 
-## 3. 现状
+## 3. Current State
 
-DIVA：不要个人号 / NapCat 外挂。
+DIVA: no personal account / NapCat add-on.
 
-**备注：** 正式写 QQ 适配器前，先读 picoclaw——通道实现里它是**最完整**的 Go 样本。只读改写，禁止 import。对照：`.workspace/picoclaw/pkg/channels/qq` 或 `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\qq`。官方开放平台机器人，不是个人号、不是 OneBot。详见 `00-standing-orders.md`。
+**Note:** Before formally writing the QQ adapter, first read picoclaw—it is the **most complete** Go sample among the channel implementations. Read-only rewrite; imports are prohibited. Reference: `.workspace/picoclaw/pkg/channels/qq` or `C:\Users\Administrator\Desktop\morediva\.workspace\picoclaw\pkg\channels\qq`. It is an official open-platform bot, not a personal account and not OneBot. See `00-standing-orders.md`.
 
-## 4. 目标结构
+## 4. Target Structure
 
-抄 C4。凭据 env：`app_id` / `app_secret`。transport poll（出站 WS）。
+Copy C4. Credential env keys: `app_id` / `app_secret`. transport poll (outbound WS).
 
-## 5. 文件清单
+## 5. File Inventory
 
-**建** `plugins/qq/**`。禁止 OneBot 桥、个人号、把 botgo 写入物种 go.mod。
+**Create** `plugins/qq/**`. No OneBot bridge, personal account, or botgo in a species go.mod.
 
-## 6. 步骤
+## 6. Steps
 
-1. 改写官方 WS；入站 PublishInbound。
-2. 范围以「官方 API 能稳收的文本」为准，不发明 Guild 全家桶。
-3. verify + pack --with qq。
-4. `just ci` 默认路径。
-5. log `docs/logs/YYYY-MM-DD-channel-c7b/`。
+1. Rewrite the official WS; inbound PublishInbound.
+2. Scope is limited to "text reliably received by the official API"; do not invent the full Guild feature set.
+3. verify + pack --with qq.
+4. `just ci` default path.
+5. Log to `docs/logs/YYYY-MM-DD-channel-c7b/`.
 
-## 7. 验收
+## 7. Acceptance
 
-- 候选文本闭环；默认无 botgo。
-- 空 allow_from 拒绝。
-- 代码与文档均声明：非个人号、非 OneBot。
+- Candidate text loop works end to end; the default has no botgo.
+- Empty allow_from is rejected.
+- Both code and documentation state: not a personal account, not OneBot.
 
-## 8. 禁止
+## 8. Prohibitions
 
-- 个人号、OneBot、NapCat、大文件 base64、语音。
-- 第二种身体（外挂 qq.exe）。
+- Personal accounts, OneBot, NapCat, large-file base64, or voice.
+- A second body (external qq.exe).
 
-## 9. 风险与回滚
+## 9. Risks and Rollback
 
-- 官方 API 事件覆盖不齐：缩小范围，不要改 Host。
-- 回滚：配方不点名。
+- Official API event coverage may be incomplete: narrow the scope; do not change the Host.
+- Rollback: do not name it in the recipe.
 
-## 10. 交接
+## 10. Handoff
 
-[CH-C7c.md](CH-C7c.md)。
+[CH-C7c.md](CH-C7c.md).
 
-> **DONE 2026-08-30** — 分支 `feat/channel-c7b`（基于 c7a）。样板要点：botgo 的 ChanManager/token 自启协程不可用（源码核实），自驱 `websocket.ClientImpl` + resume + supervised redial；被动回复靠入站 msg_id（内存窗）；群事件在 botgo v0.2.1 解不出地址，勿尝试。Filing: `docs/logs/2026-08-30-channel-c7b/`。
+> **DONE 2026-08-30** — Branch `feat/channel-c7b` (based on c7a). Template notes: botgo's ChanManager/token self-starting goroutine is unusable (verified in source), so use a self-driven `websocket.ClientImpl` + resume + supervised redial; passive replies rely on inbound msg_id (memory window); group-event addresses cannot be decoded in botgo v0.2.1, so do not attempt it. Filing: `docs/logs/2026-08-30-channel-c7b/`.

@@ -1,178 +1,202 @@
-# plugins/qq — Vivy 的 QQ 耳朵（QQ 开放平台官方机器人，单聊文本，WS 长连接）
+# plugins/qq — Vivy’s QQ ear (official QQ Open Platform bot, one-on-one text, persistent WS)
 
-`qq` 是一个 seam-channel 插件（VIVY-CHANNEL-PACK.md §9），由内核
-ChannelHost 启动和消费，不是模型工具。目录结构和 Start/Stop/Send 骨架
-沿用 `plugins/telegram` 钉下的形状模板，生命周期沿用
-`plugins/dingtalk` / `plugins/feishu` 的监督重拨模式。
+`qq` is a seam-channel plugin (VIVY-CHANNEL-PACK.md §9), started and consumed
+by the kernel’s ChannelHost; it is not a model tool. Its directory structure and
+Start/Stop/Send skeleton follow the shape template established by
+`plugins/telegram`, and its lifecycle follows the supervised redial pattern in
+`plugins/dingtalk` / `plugins/feishu`.
 
-## **本插件只对接 QQ 开放平台官方机器人**
+## **This plugin connects only to official QQ Open Platform bots**
 
-- **不是个人号**：不登录任何个人 QQ 账号，不模拟客户端协议，不需要
-  扫码、密码或设备信息。唯一凭据是在 [q.qq.com](https://q.qq.com)
-  开放平台控制台申请的机器人 **AppID + AppSecret**。
-- **不是 OneBot**：不实现、不兼容 OneBot 11/12 协议，不连接任何
-  OneBot 实现（go-cqhttp、Lagrange、LLOneBot 等），不做正反向 WS
-  服务端/客户端协议。
-- **不是 NapCat**：不依赖、不启动、不连接 NapCat 或任何第三方挂机
-  框架，**不启动第二个进程**——耳朵就是本插件自身，跑在 Vivy 进程
-  里。
-- 传输是**官方事件网关的出站 WebSocket 长连接** + **官方 v2 消息
-  API**（`/v2/users/{openid}/messages`），与官方文档一一对应。
+- **Not a personal account**: it does not log into any personal QQ account,
+  emulate the client protocol, or require QR codes, passwords, or device
+  information. The only credentials are the bot’s **AppID + AppSecret** issued
+  in the Open Platform console at [q.qq.com](https://q.qq.com).
+- **Not OneBot**: it does not implement or support the OneBot 11/12 protocols,
+  connect to any OneBot implementation (go-cqhttp, Lagrange, LLOneBot, and so
+  on), or provide a forward/reverse WS server/client protocol.
+- **Not NapCat**: it does not depend on, start, or connect to NapCat or any
+  third-party keep-alive framework, and **does not start a second process**—the
+  ear is the plugin itself, running in the Vivy process.
+- Transport is the **official event gateway’s persistent outbound WebSocket**
+  plus the **official v2 message API** (`/v2/users/{openid}/messages`), matching
+  the official documentation.
 
-代码与文档同样声明：见 `plugin.go` 包注释（THIS IS NOT A
-PERSONAL-ACCOUNT BOT）。
+The code and documentation make the same declaration; see the `plugin.go` package
+comment (THIS IS NOT A PERSONAL-ACCOUNT BOT).
 
-## 第一刀范围（做什么 / 不做什么）
+## Initial slice scope (what it does / does not do)
 
-**做：**
+**Does:**
 
-- 单聊（`C2C_MESSAGE_CREATE`）**纯文本**收 / 发
-- 传输：**出站 WebSocket**（官方事件网关，manifest `transport: "poll"`
-  + grant `channel.poll`；WS 计入 poll，合同 §14.3），无 webhook、无
-  监听端口
-- 回复走官方被动回复 API：`POST /v2/users/{openid}/messages`，
-  `msg_type=0`（文本）、`msg_id`（被动窗口）、`msg_seq`（同窗口内
-  回复序号 1,2,3…），access_token 由 SDK 经 AppID/AppSecret 自管，
-  插件不碰 token
-- **重复投递去重**：官方文档明确警告相同 `msg_id` 可能重复推送；
-  插件内存侧按 msg_id 做有界去重（TTL 5 分钟，硬上限 1 万条），
-  重复事件不会开出第二个 run
-- 断线**按 gateway 会话 resume 续传**（session id 取自 READY，seq
-  取自已分发事件的序列号），避免重连后重复消费
+- One-on-one chats (`C2C_MESSAGE_CREATE`) **receive/send plain text**
+- Transport: **outbound WebSocket** (the official event gateway, manifest
+  `transport: "poll"`
+  + grant `channel.poll`; WS counts as poll, contract §14.3), with no webhook
+  and no listening port
+- Replies use the official passive-reply API: `POST /v2/users/{openid}/messages`,
+  with `msg_type=0` (text), `msg_id` (passive window), and `msg_seq` (reply
+  sequence 1,2,3… within the same window); the SDK manages access_token from
+  AppID/AppSecret, and the plugin never touches the token
+- **Deduplicate repeated deliveries**: the official documentation explicitly
+  warns that the same `msg_id` may be pushed more than once; the plugin keeps a
+  bounded in-memory deduplication set by msg_id (5-minute TTL, hard limit of
+  10,000 entries), so duplicate events do not start a second run
+- On disconnect, **resume the gateway session** (session ID from READY, seq from
+  the sequence number of the last dispatched event) to avoid consuming events
+  twice after reconnecting
 
-**不做（后切）：**
+**Does not do (later slice):**
 
-- **群聊（`GROUP_AT_MESSAGE_CREATE`）暂不支持**，原因见下节
-- 频道/Guild 全家桶、富媒体、markdown/ark 卡片、语音、按钮、
-  webhook 模式
+- **Group chats (`GROUP_AT_MESSAGE_CREATE`) are not supported yet**; see the
+  next section for why
+- The full channel/Guild feature set, rich media, markdown/ark cards, voice,
+  buttons, or webhook mode
 
-## 为什么这一刀没有群聊
+## Why this slice has no group chats
 
-官方群 @ 事件的群地址字段是 `group_openid`，但本插件钉住的 botgo
-v0.2.1 的事件结构体（`dto.Message`）只解码 `group_id` 字段——真实
-v2 群负载里根本没有 `group_id`，SDK 解出来恒为空（参考实现
-picoclaw 也有同样的问题）。要"稳收群文本并干净回复"就得绕开 SDK
-自己去解析原始 WS 帧，不符合本刀"官方 API 能稳收的文本才做"的
-口径，故群聊显式留在范围外，等 botgo 补齐字段或升版本再评估。
+The group address field in the official group-mention event is `group_openid`,
+but the botgo v0.2.1 event struct pinned by this plugin (`dto.Message`) only
+decodes `group_id`. The real v2 group payload has no `group_id` at all, so the
+SDK always decodes it as empty (the picoclaw reference implementation has the
+same issue). Reliably receiving group text and replying cleanly would require
+bypassing the SDK and parsing raw WS frames, which does not fit this slice’s
+rule—only text that the official API can receive reliably is included. Group
+chats therefore remain explicitly out of scope until botgo adds the field or a
+new version is evaluated.
 
-（注：注册 C2C handler 会带出群/C2C 共用的 intent 位，网关仍可能
-推送群事件帧；SDK 分发层没有注册群 handler，这些帧被静默丢弃。）
+(Note: registering the C2C handler also enables the intent bit shared by group
+and C2C events, so the gateway may still push group event frames; the SDK
+dispatch layer has no group handler registered, so those frames are silently
+dropped.)
 
-## 权限与策略边界
+## Permission and policy boundaries
 
-| 事项 | 归属 |
+| Item | Owner |
 |---|---|
-| `allow_from` 发信人白名单 | **Host（内核）** 强制，插件不做自己的白名单 |
-| 密钥解析 | Host 的 `Secret`；本插件需要 **两把** 凭据（AppID + AppSecret），信封单个 `token_env` 装不下，改由 settings 顶层 `app_id_env` / `app_secret_env` 键声明名字（CH-C6/D2 模式），Host 予以放行 |
-| channel settings | 插件严格解码（未知字段 fail-closed），内核不认识 `settings` 里的键 |
-| 监听端口 | 没有。长连接是纯出站 WebSocket；botgo 自带的 session manager **不被使用**（见下节），由插件自己的、感知 ctx 的监督循环替代（Stop 后绝不复活，无 goroutine 泄漏） |
+| `allow_from` sender allowlist | Enforced by **Host (kernel)**; the plugin has no separate allowlist |
+| Secret resolution | Host’s `Secret`; this plugin needs **two** credentials (AppID + AppSecret), which do not fit in the envelope’s single `token_env`, so their names are declared by the top-level `app_id_env` / `app_secret_env` keys in settings (CH-C6/D2 pattern), with Host approval |
+| channel settings | Strictly decoded by the plugin (unknown fields fail closed); the kernel does not know the keys in `settings` |
+| Listening port | None. The persistent connection is outbound-only; botgo’s built-in session manager is **not used** (see the next section), and the plugin’s own ctx-aware supervision loop takes its place (never revived after Stop, with no goroutine leaks) |
 
-发信人写成 `qq:user_<openid>`（C2C 事件的 `author.id`，即该应用
-视角的用户 openid，与 `author.user_openid` 同值），ChatID 即该
-openid 本身。与配置里的 `allow_from` 条目**精确匹配**（无通配，
-`"*"` 不允许）。注意：openid 是**按应用隔离**的，换机器人 AppID
-后所有 openid 都会变。
+Senders are written as `qq:user_<openid>` (`author.id` in a C2C event, meaning
+the user’s openid from the application’s perspective and equal to
+`author.user_openid`), and ChatID is that openid itself. It must **exactly match**
+an `allow_from` entry in the configuration (no wildcards; `"*"` is not allowed).
+Note that openids are **isolated per application**: changing the bot’s AppID
+changes every openid.
 
-## 被动回复窗口（为什么 Send 可能"失败闭合"）
+## Passive reply window (why Send may “fail closed”)
 
-QQ 开放平台对这类机器人**没有"按会话主动发消息"的常规 API**——
-每条回复必须携带它所回应的那条入站消息的 `msg_id`（被动窗口约 60
-分钟、每条 msg_id 最多回 4 条），同一窗口内的多条回复用递增
-`msg_seq` 去重。因此：
+The QQ Open Platform has **no ordinary API for proactively sending a message
+by conversation** for this type of bot—every reply must carry the `msg_id` of
+the incoming message it answers (the passive window lasts about 60 minutes, with
+at most 4 replies per msg_id), and multiple replies in the same window are
+deduplicated using increasing `msg_seq` values. Therefore:
 
-- 插件按会话在**内存里**记最新一条入站 `msg_id` + 回复序号（最新
-  生效），它绝不进入内核配置、配置信封或日志（D-010）；
-- 对从未发过消息的会话（以及进程重启后的所有会话）`Send`
-  **失败闭合**——对方必须先给机器人发一条消息，Vivy 才能回话。
+- The plugin records the latest incoming `msg_id` and reply sequence **in
+  memory** per conversation (the latest value wins); it never enters kernel
+  configuration, the configuration envelope, or logs (D-010);
+- For a conversation that has never sent a message (and for every conversation
+  after a process restart), `Send` **fails closed**—the other party must send
+  the bot a message before Vivy can reply.
 
-## 生命周期：不用 botgo 的 session manager
+## Lifecycle: do not use botgo’s session manager
 
-botgo 内置的本地 session manager 是一个**无法停止**的后台循环：
-`Start` 永久阻塞在内部重连队列上、不感知 ctx、没有停止手段——即使
-机器人被封禁，它也只是在内层 recover 掉自己的 panic 后**无限静默
-重试**，白白烧掉平台的建连配额。本插件改用 botgo 导出的**协议层
-ws client**（`websocket.ClientImpl`），由插件自己的监督循环驱动——
-一次尝试一个新 client：拨号 → identify/resume → 等 READY（首次
-尝试未过握手不报 started，fail-closed）→ 存活期间挂起等待 → 断线
-后按 resume 状态重拨。机器人被封禁/下架（cannot-identify 关闭码）
-时**停止重拨**——比 botgo 的无限重试更严格也更安全（重拨永远不会
-成功，只会消耗配额），耳朵保持"已启动但失聪"的终态，与兄弟插件
-一致。
+botgo’s built-in local session manager is a **non-stoppable** background loop:
+`Start` blocks forever on its internal reconnect queue, does not observe ctx, and
+has no stop mechanism. Even when the bot is banned, it merely recovers its own
+panic inside the inner loop and **retries silently forever**, wasting the
+platform’s connection quota. This plugin instead uses botgo’s exported
+**protocol-layer ws client** (`websocket.ClientImpl`), driven by the plugin’s
+own supervision loop—one new client per attempt: dial → identify/resume → wait
+for READY (a first attempt that does not complete the handshake does not report
+started; fail closed) → wait while alive → redial after disconnect according to
+resume state. When the bot is banned or delisted (cannot-identify close code),
+it **stops redialing**—stricter and safer than botgo’s infinite retries (redials
+can never succeed and only consume quota). The ear remains in the “started but
+deaf” terminal state, consistent with the sibling plugins.
 
-同理**不使用** `token.StartRefreshAccessToken`：它在一条裸
-goroutine 里连续失败 11 次会 panic 且无人 recover，整个进程退出。
-SDK 的 token source 本身是惰性取+缓存（按过期时间判定），WS 客户端
-在鉴权失败关闭码下也会自行重取，够用且无崩溃风险。Start 仍会先做
-一次同步取 token——凭据被拒时 fail-closed。
+Likewise, **do not use** `token.StartRefreshAccessToken`: after 11 consecutive
+failures in a bare goroutine it panics with no recovery, terminating the entire
+process. The SDK’s token source is lazy and cached (based on expiration time),
+and the WS client fetches a new token itself on an authentication-failure close
+code, which is sufficient without crash risk. Start still performs one
+synchronous token fetch first—fail closed when credentials are rejected.
 
-另外把 SDK 的默认日志器**静音**（`botgo.SetLogger`）：botgo 默认在
-INFO 级打印每个 WS 帧和每个 HTTP 请求/响应体，其中包括 identify
-payload 里的 **access token** 和用户**消息内容**——违反
-`docs/architecture/LOGGING.md` 与 D-010。插件不能引
-`internal/logging`，故仅保留 Error 级到 stderr。
+The SDK’s default logger is also **silenced** (`botgo.SetLogger`): botgo logs
+every WS frame and every HTTP request/response body at INFO by default,
+including the **access token** in the identify payload and the user’s **message
+content**—violating `docs/architecture/LOGGING.md` and D-010. The plugin cannot
+import `internal/logging`, so only Error-level output to stderr is retained.
 
-## sandbox 开关
+## sandbox switch
 
-`settings.sandbox: true` 用 SDK 自带的
-`botgo.NewSandboxOpenAPI`（`https://sandbox.api.sgroup.qq.com`），
-网关地址经同一 client 发现，一并切换。默认 false（生产）。
+`settings.sandbox: true` uses the SDK’s built-in
+`botgo.NewSandboxOpenAPI` (`https://sandbox.api.sgroup.qq.com`); the gateway
+address is discovered through the same client and switches with it. The default
+is false (production).
 
-## 配置示例（信封固定，settings 不透明）
+## Configuration example (fixed envelope, opaque settings)
 
 ```yaml
 channels:
   qq:
     enabled: true
     allow_from: ["qq:user_A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3"]
-    # token_env 可以为空：凭据名字全部由 settings 声明（见下）
-    settings:                    # 内核对这块不透明；由本插件解码
-      app_id_env: QQ_APP_ID              # 必填：AppID 的环境变量名
-      app_secret_env: QQ_APP_SECRET      # 必填：AppSecret 的环境变量名（须与上面不同）
-      # sandbox: false                   # 可选：true = 官方沙箱环境
+    # token_env may be empty: settings declares all credential names (see below)
+    settings:                    # Opaque to the kernel; decoded by this plugin
+      app_id_env: QQ_APP_ID              # Required: environment variable name for AppID
+      app_secret_env: QQ_APP_SECRET      # Required: environment variable name for AppSecret (must differ from the above)
+      # sandbox: false                   # Optional: true = official sandbox environment
 ```
 
-密钥只经环境变量（D-010，值永不出现在配置、日志、事件 payload 中）：
+Secrets travel only through environment variables (D-010; values never appear
+in configuration, logs, or event payloads):
 
 ```text
 export QQ_APP_ID=123456789
 export QQ_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-`settings` 未知字段会被**拒绝**——本代 lib 不认识的键要升版本重新
-pack，不能靠配置硬塞。
+Unknown `settings` fields are **rejected**—a key the current lib does not know
+requires a version bump and a new pack; it cannot be forced in through configuration.
 
-## 消息长度
+## Message length
 
-manifest `max_message_runes: 2000`：v2 文本消息 content 上限为
-7000 字节，2000 rune 在全 CJK 情形下 6000 字节，留了安全余量。
+manifest `max_message_runes: 2000`: v2 text-message content is limited to
+7000 bytes; 2000 runes are 6000 bytes in the all-CJK case, leaving a safety margin.
 
-## 打包与验证
+## Packaging and verification
 
 ```text
-vivy-sdk verify plugins/qq            # 静态规则 + 可链接性
-vivy-sdk pack --with qq --out dist/   # 产出候选 EXE（链接 botgo）
-vivy-sdk inspect-artifact dist/<gen>/ # recipes.plugins 含 qq
+vivy-sdk verify plugins/qq            # Static rules + linkability
+vivy-sdk pack --with qq --out dist/   # Produce candidate EXE (linked with botgo)
+vivy-sdk inspect-artifact dist/<gen>/ # recipes.plugins contains qq
 ```
 
-独立 go.mod（`example.com/vivy/plugins/qq`）是硬要求：默认
-`just ci` 与物种 `go build ./cmd/vivy` 的 import 图到不了
-`github.com/tencent-connect/botgo`——只有 pack 出来的那一代身体里
-有耳朵。
+The standalone go.mod (`example.com/vivy/plugins/qq`) is mandatory: the default
+`just ci` and the species’ `go build ./cmd/vivy` import graphs do not reach
+`github.com/tencent-connect/botgo`—only the generation produced by pack has the
+ear in its body.
 
-## 模块依赖
+## Module dependencies
 
-本模块只允许 import：`agent-vivy/sdk/plugin` + 标准库 +
-`github.com/tencent-connect/botgo`（及其 go.mod 传递依赖
-oauth2/resty/gorilla 等，不直接出现在业务代码 import 之外）。禁止
-import `agent-vivy/internal/...`、eino、picoclaw 或 `.workspace`；
-禁止 `net.Listen`；禁止 `init()` blank import。
+This module may import only `agent-vivy/sdk/plugin` + the standard library +
+`github.com/tencent-connect/botgo` (and its go.mod transitive dependencies such
+as oauth2/resty/gorilla, which do not appear directly in business-code imports).
+Imports of `agent-vivy/internal/...`, eino, picoclaw, or `.workspace` are
+forbidden; `net.Listen` is forbidden; blank `init()` imports are forbidden.
 
-## SDK 版本
+## SDK version
 
-钉的是 `github.com/tencent-connect/botgo v0.2.1`——与参考实现
-picoclaw 同版。三处有意的偏差（均记录在上文）：不用其内置
-session manager（不可停、对封禁机器人无限静默重试）、不用其后台
-token 刷新 goroutine（裸 goroutine 连续失败 panic 且无人 recover）、
-群事件不做（DTO 字段名与官方 v2 负载不符）。
-WS 协议本身（hello/心跳/identify/resume/关闭码）仍由 SDK 的 client
-实现，本插件只做生命周期监督与事件规范化。
+The pinned version is `github.com/tencent-connect/botgo v0.2.1`, the same as the
+picoclaw reference implementation. There are three intentional deviations (all
+recorded above): do not use its built-in session manager (non-stoppable, with
+silent infinite retries for banned bots); do not use its background token-refresh
+goroutine (a bare goroutine panics after consecutive failures with no recovery);
+and do not handle group events (the DTO field name does not match the official
+v2 payload).
+The WS protocol itself (hello/heartbeat/identify/resume/close codes) remains
+implemented by the SDK client; this plugin only supervises the lifecycle and
+normalizes events.

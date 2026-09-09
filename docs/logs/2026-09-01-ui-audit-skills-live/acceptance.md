@@ -1,16 +1,18 @@
 # Acceptance
 
-## 人工验收
+## Manual acceptance
 
-1. 打开 `http://127.0.0.1:3015`，进入 Skills 页：技能目录来自真实后端
-   `skills/list`（安装的 SKILL.md 目录），开/关开关写真实 frontmatter
-   （hash CAS），行为与删除前完全一致——本切片对用户零行为变化。
-2. 代码层面：`ui/src/hooks/` 下不再有 `useSkills.ts`；
-   `grep -rn "useSkills" ui/src` 零命中。
-3. Evolution 页（`/evolution`）不受影响——其 demo 数据路径
-   （`vivy.demo.skills` 等）原样保留，归 UI-EVO 行后续处理。
+1. Open `http://127.0.0.1:3015` and go to the Skills page: the skill catalog
+   comes from the real backend `skills/list` (installed SKILL.md directories),
+   and toggling a skill writes real frontmatter (hash CAS). Behavior is exactly
+   as before the deletion, with no user-visible change in this slice.
+2. At the code level, `ui/src/hooks/` no longer contains `useSkills.ts`;
+   `grep -rn "useSkills" ui/src` returns no matches.
+3. The Evolution page (`/evolution`) is unaffected—its demo-data paths (such as
+   `vivy.demo.skills`) remain unchanged and are handled by the later UI-EVO item.
 
-## 判定标准
+## Acceptance criteria
 
-- `just ci` 绿（UI tsc/eslint/vitest/build 无断裂）。
-- `/skills` 页在浏览器中照常列出/查看/开关技能（与删除前一致）。
+- `just ci` is green (no UI tsc/eslint/vitest/build breakage).
+- The `/skills` page lists, displays, and toggles skills normally in the browser,
+  as it did before the deletion.

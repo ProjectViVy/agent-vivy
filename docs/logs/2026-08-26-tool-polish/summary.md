@@ -48,9 +48,9 @@ to `main` is via merge/PR, not by piling files into the root tree.
      per-provider availability roster (keyless / configured / env var
      name; presence only, never values, D-010). `settings/update` keeps
      whole-document replace semantics.
-   - UI: the Settings → 工具 tab gained a real (non-demo) 网络搜索 card —
-     provider select with auto fallback text, availability badges naming
-     the env var to set, save into the real settings document. All
+   - UI: the Settings → Tools tab gained a real (non-demo) Network Search card —
+     provider select with automatic fallback text, availability badges naming
+     the env var to set, and saving into the real settings document. All
      `saveSettings` call sites (SettingsView model form, WelcomeWizard,
      MaskAndModelSwitcher) now send the full document including the
      network_search preference so no save path wipes it.

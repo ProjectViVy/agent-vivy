@@ -9,7 +9,7 @@
   OpenAI/Anthropic settings. A missing selection returns a typed
   `ErrModelNotConfigured` error instead of manufacturing a reply.
 - Provider key, connection, and unconfigured-model failures now publish the
-  stable user message `无法连接！请检查供应商配置！`; transport and key details
+  stable user message `Unable to connect! Check the provider configuration!`; transport and key details
   remain out of the run payload.
 - Replaced runtime-test provider usage with an isolated deterministic echo model
   under `internal/testsupport`, outside the provider catalog.

@@ -1,23 +1,23 @@
-# Acceptance — 聊天框功能栏伪操作清理与闭环
+# Acceptance — Chat Input Toolbar Fake-Action Cleanup and Closure
 
-## 人工验收指引 (Product/User View)
+## Manual acceptance guide (Product/User View)
 
-1. **环境启动**：
-   - 运行 `just dev` 或在两个终端分别运行 `just run` 与 `cd ui; pnpm dev`。
-   - 在浏览器中打开 `http://127.0.0.1:3015`。
+1. **Start the environment**:
+   - Run `just dev`, or run `just run` and `cd ui; pnpm dev` in two separate terminals.
+   - Open `http://127.0.0.1:3015` in a browser.
 
-2. **输入框顶栏检查**：
-   - 进入任一对话或点击「新建会话」。
-   - 观察聊天输入框顶栏：
-     - **左侧第一项**：执行模式选择器下拉菜单。
-     - **左侧第二项**：附件（回形针图标）。
-     - **中间位置**：原先常驻的 Git 分支图标（AutoDream）已**彻底消失**，界面无任何不可用、无响应或点击弹报错的假按钮。
-     - **权限选择器**：谨慎 / 智能 / 信任 三段切换仍然完整可用。
-     - **右侧**：历史时钟图标与审批中心盾牌图标正常展示。
+2. **Inspect the input top bar**:
+   - Enter any conversation or click “New session”.
+   - Inspect the chat input top bar:
+     - **First item on the left**: execution-mode selector dropdown.
+     - **Second item on the left**: attachment (paperclip icon).
+     - **Center**: the formerly permanent Git branch icon (AutoDream) has **completely disappeared**; the interface has no fake button that is unavailable, unresponsive, or shows an error when clicked.
+     - **Permission selector**: the three-way Cautious / Smart / Trust switch remains fully functional.
+     - **Right**: the history clock icon and approval-center shield icon display normally.
 
-3. **执行模式选择器交互验证**：
-   - 点击执行模式选择器（默认显示「智能体模式」）。
-   - 下拉菜单展开：
-     - 只显示「智能体模式」（直接执行任务）和「计划模式」（先规划再执行）两项。
-     - 不再展示点击报“询问模式暂未接入”的「询问模式」。
-   - 切换到「计划模式」，按钮变为计划模式图标与文字；输入内容回车发送，任务以 `RunModePlan` 提交。
+3. **Verify execution-mode selector interaction**:
+   - Click the execution-mode selector (it displays “Agent mode” by default).
+   - Expand the dropdown:
+     - It shows only “Agent mode” (execute tasks directly) and “Plan mode” (plan first, then execute).
+     - It no longer shows “Question mode”, which previously displayed “question mode is not yet implemented” when clicked.
+   - Switch to “Plan mode”; the button changes to the Plan mode icon and text. Press Enter to send the input, and the task is submitted as `RunModePlan`.

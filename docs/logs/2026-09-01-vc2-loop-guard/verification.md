@@ -1,42 +1,48 @@
-# VC-2 死循环检测 验证记录
+# VC-2 Loop detection: verification record
 
-日期：2026-09-01
+Date: 2026-09-01
 
-## 命令与结果
+## Commands and results
 
-| 命令 | 结果 |
+| Command | Result |
 | --- | --- |
 | `go build ./...` | exit 0 |
 | `go vet ./internal/runtime/` | clean |
-| `go test ./internal/runtime/ ./internal/rpc/ ./internal/storage/...` | 全部 ok（runtime 103s、rpc 33s；exit 0） |
-| `just ci`（完整门禁，含 fmt-check / UI 构建 / Playwright 冒烟） | exit 0 |
+| `go test ./internal/runtime/ ./internal/rpc/ ./internal/storage/...` | All ok (runtime 103s, rpc 33s; exit 0) |
+| `just ci` (full gate, including fmt-check / UI build / Playwright smoke) | exit 0 |
 
-## 新增测试（`internal/runtime/loopdetect_test.go`）
+## New tests (`internal/runtime/loopdetect_test.go`)
 
-- `TestServiceToolLoopDetected`：scripted 模型 8 次同参 echo 调用，第 6 次重复
-  触发 → run.failed，cause_category = `loop_detected`，消息有界（不含引擎
-  内部字样），恰好 1 个终态事件，Journal 留 5 条 tool.finished（触发批随失败
-  丢弃，见 consume 错误分支语义）。
-- `TestServiceToolLoopWithinLimit`：5 次重复 + 收尾消息 → run.completed（上限
-  内不干扰合法重复）。
-- `TestLoopWindowCountsAndEvicts`：窗口 10/上限 5 的计数与淘汰（交替签名不
-  触发、第 12 条同签名触发）、不同工具名不同签名、工具错误结果参与签名。
-- 既有防护回归：`TestServiceMaxToolTurnsBreached`、
-  `TestServiceMaxToolTurnsWithinCap`、
-  `TestServiceBudgetCircuitBreakerStopsToolTree` 全部原样通过（新防护在 6 次
-  重复即停，早于默认轮次/预算上限，不改变其触发路径）。
+- `TestServiceToolLoopDetected`: scripted model makes 8 same-parameter echo
+  calls; the sixth repeat triggers → `run.failed`, `cause_category =
+  loop_detected`, bounded message (no engine internals), exactly 1 terminal event,
+  and 5 `tool.finished` entries remain in Journal (the triggering batch is
+  discarded with the failure; see consume error-branch semantics).
+- `TestServiceToolLoopWithinLimit`: 5 repeats + closing message → `run.completed`
+  (legitimate repetition within the limit is unaffected).
+- `TestLoopWindowCountsAndEvicts`: counts/eviction for window 10/limit 5
+  (alternating signatures do not trigger; the 12th same signature triggers),
+  different tool names produce different signatures, and tool-error results
+  participate in the signature.
+- Existing guard regressions: `TestServiceMaxToolTurnsBreached`,
+  `TestServiceMaxToolTurnsWithinCap`, and
+  `TestServiceBudgetCircuitBreakerStopsToolTree` all pass unchanged (the new
+  guard stops at 6 repeats, before the default turn/budget limits, without
+  changing their trigger paths).
 
-## 契约同步
+## Contract synchronization
 
-- `schemas/events/payloads/run.failed.json`：cause_category 枚举新增
-  `loop_detected`（wire 契约）。
-- `docs/AGENT-VIVY-ARCHITECTURE-V0.md` ADR-004：类别清单补齐
-  （human_timeout 此前就缺，一并修正）。
-- UI 零改动：`ui/src/lib/failure.ts` 对非 `provider_error` 类别直接展示服务端
-  有界消息，`loop_detected` 自动生效。
+- `schemas/events/payloads/run.failed.json`: the cause_category enum adds
+  `loop_detected` (wire contract).
+- `docs/AGENT-VIVY-ARCHITECTURE-V0.md` ADR-004: the category list is completed
+  (`human_timeout` was also missing and was corrected).
+- No UI change: `ui/src/lib/failure.ts` directly displays the bounded server
+  message for non-`provider_error` categories, so `loop_detected` works
+  automatically.
 
-## Smoke 政策
+## Smoke policy
 
-内核防护非浏览器可见路径的直接变更（UI 错误条复用既有 run.failed 渲染）；
-真实模型触发路径需 provider key（TEST-1 后无本地 mock），人工触发步骤记录于
-acceptance.md，自动化由 scripted-model 集成测试覆盖。
+The direct change is a kernel guard on a path not visible in the browser (the UI
+reuses existing `run.failed` error-bar rendering); the real-model trigger needs a
+provider key (no local mock after TEST-1). Manual trigger steps are in
+acceptance.md, and automation is covered by scripted-model integration tests.

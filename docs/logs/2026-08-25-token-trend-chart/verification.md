@@ -10,7 +10,7 @@
 
 Playwright against `http://127.0.0.1:3015/dashboard`:
 
-- 1天: twelve blue stacked columns fill the track
-- 3天: three columns, capped width, not full-width slabs
-- 1周: seven columns fill the track
+- 1 day: twelve blue stacked columns fill the track
+- 3 days: three columns, capped width, not full-width slabs
+- 1 week: seven columns fill the track
 - 390px: no horizontal overflow

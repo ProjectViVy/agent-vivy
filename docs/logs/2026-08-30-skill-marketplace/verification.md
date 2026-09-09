@@ -1,66 +1,78 @@
-# 验证记录
+# Verification record
 
-日期：2026-08-30。全部命令在 worktree
+Date: 2026-08-30. All commands ran in worktree
 `C:\Users\Administrator\Desktop\morediva\diva-go\agent-vivy-skill-market`
-（分支 `feat/skill-marketplace`）内执行。
+(branch `feat/skill-marketplace`).
 
-## 门禁
+## Gate
 
-| 命令 | 结果 |
+| Command | Result |
 |---|---|
-| `go test ./internal/runtime/ ./internal/rpc/ ./internal/config/ ./internal/tools/ ./internal/app/ -count=1` | ok（runtime 42.5s / rpc 17.8s / config 1.6s / tools 0.4s / app 3.9s） |
-| `just ci`（fmt-check、vet、go test ./...、headless-compile、ui-ci） | 首跑 fmt-check 失败（app.go/control.go 两处 gofmt 对齐），`gofmt -w` 后复跑 **EXIT=0 全绿** |
-| `pnpm typecheck` / `pnpm test` / `pnpm build`（ui-ci 内含） | 21 个测试文件 175 用例全过；构建产物正常 |
+| `go test ./internal/runtime/ ./internal/rpc/ ./internal/config/ ./internal/tools/ ./internal/app/ -count=1` | ok (runtime 42.5s / rpc 17.8s / config 1.6s / tools 0.4s / app 3.9s) |
+| `just ci` (fmt-check, vet, go test ./..., headless-compile, ui-ci) | First fmt-check failed (gofmt alignment in app.go/control.go); after `gofmt -w`, rerun **EXIT=0, all green** |
+| `pnpm typecheck` / `pnpm test` / `pnpm build` (included in ui-ci) | All 175 tests in 21 test files passed; build artifact is healthy |
 
-新增测试覆盖（kernel）：
+New test coverage (kernel):
 
-- `internal/runtime/marketplace_test.go`：search 映射/limit 钳制/短查询拒绝、
-  安装落盘 + ListSkills 可见 + 重装冲突、name/slug 不匹配、缺根 SKILL.md、
-  二进制、路径穿越、Vivy 不可承载的 id（先于下载拒绝）、上游错误
-  （`MarketplaceUpstreamError` 携带 upstream detail）、非法 base URL、
-  `VIVY_SKILLS_MARKETPLACE_URL` 覆盖、内置 featured 快照可解析。
-- `internal/runtime/skills_backend_test.go`（追加）：`enabled: false` 从 Eino
-  List/Get 隐藏但控制面可见可看；`SetSkillEnabled` 启停往返、CAS 过期哈希
-  拒绝、重渲染保留正文与 description。
-- `internal/config/config_test.go`：`skills_marketplace_url` 默认值、覆盖
-  解析、非法 URL 校验拒绝。
+- `internal/runtime/marketplace_test.go`: search mapping / limit clamping / short-query
+  rejection, install persistence + ListSkills visibility + reinstall conflict,
+  name/slug mismatch, missing root SKILL.md, binaries, path traversal, an id Vivy
+  cannot carry (rejected before download), upstream errors (`MarketplaceUpstreamError`
+  carries upstream detail), invalid base URL, `VIVY_SKILLS_MARKETPLACE_URL` override,
+  and built-in featured-snapshot parsing.
+- `internal/runtime/skills_backend_test.go` (additional): `enabled: false` is hidden
+  from Eino List/Get but visible in the control plane; SetSkillEnabled enable/disable
+  round trip, stale CAS hash rejection, and rerender preserving body and description.
+- `internal/config/config_test.go`: default `skills_marketplace_url`, override parsing,
+  and invalid-URL rejection.
 
-## 真路径 smoke（split dev，非嵌入 UI）
+## Real-path smoke (split dev, non-embedded UI)
 
-环境：worktree 后端 `go run ./cmd/vivy`（127.0.0.1:18787，runtime.mock: true，
-`skills_root: data/skills`，`skills_marketplace_url: http://127.0.0.1:8899`）；
-Vite `pnpm exec vite --port 3016`（`VIVY_BACKEND_ADDR` 指向 18787）；本地
-Python mock skills.sh（`data/smoke_marketplace.py`，占位 8899 —— 本沙箱
-TLS 出站受限，真实 skills.sh 不可达，market URL 语义与 HTTPS 路径同构）。
-浏览器实测 `http://127.0.0.1:3016/skills`：
+Environment: worktree backend `go run ./cmd/vivy` (127.0.0.1:18787,
+`runtime.mock: true`, `skills_root: data/skills`,
+`skills_marketplace_url: http://127.0.0.1:8899`); Vite `pnpm exec vite --port 3016`
+(`VIVY_BACKEND_ADDR` points to 18787); local Python skills.sh mock
+(`data/smoke_marketplace.py`, placeholder 8899 — outbound TLS is restricted in this
+sandbox, so real skills.sh is unreachable; market-URL semantics mirror the HTTPS path).
+Browser-tested `http://127.0.0.1:3016/skills`:
 
-1. **Demo 横幅已消失**；页签为 已安装技能 (0) / 市场 / 变更请求 (0)。
-2. **capability 门控**：市场页签出现（`initialize` 广播 `skills.marketplace`）。
-3. **featured**：未搜索时展示内置精选排行（find-skills 846.6k 等 100 条，
-   快照日期 2026/8/21），安装数 k/m 格式化正常。
-4. **搜索**：输入 `demo`（防抖后）命中本地 mock 的 `demo-market-skill`
-   （12.3k），显示"共 1 个结果"。
-5. **安装**：点击安装 → 已安装页签变 (1)，按钮翻转为"已安装"态；磁盘
-   `data/skills/demo-market-skill/` 落盘 SKILL.md + references/guide.md；
-   快照中的 README.md 被按预期跳过（skipped）。
-6. **详情**：显示描述、内容哈希（SHA-256）、附属文件数、可点击的
-   references/guide.md、SKILL.md 正文。
-7. **启停**：拨动开关 → 列表与详情徽标翻转为"已停用"（2 处），磁盘
-   SKILL.md frontmatter 变为 `enabled: false`（规范化重渲染，正文保留）。
-8. **变更请求**：空态"暂无待审的 Skill 修订。"（`skills/revisions/list`）。
-9. 首启向导正常弹出并可跳过（与本迭代无关，仅 smoke 路径记录）。
+1. **The Demo banner disappeared**; tabs are Installed skills (0) / Marketplace /
+   Change requests (0).
+2. **Capability gating**: the Marketplace tab appears (`initialize` broadcasts
+   `skills.marketplace`).
+3. **Featured**: with no search, the built-in featured ranking appears (100 entries
+   including find-skills 846.6k, snapshot date 2026/8/21); k/m install counts format
+   correctly.
+4. **Search**: entering `demo` (after debounce) hits the local mock's
+   `demo-market-skill` (12.3k) and displays "1 result".
+5. **Install**: click Install → the Installed tab becomes (1), and the button changes
+   to "Installed"; disk contains SKILL.md + references/guide.md under
+   `data/skills/demo-market-skill/`; the snapshot's README.md is skipped as expected.
+6. **Details**: display description, content hash (SHA-256), attached-file count,
+   clickable references/guide.md, and the SKILL.md body.
+7. **Enable/disable**: toggle the switch → list and details badges change to "Disabled"
+   (two locations); SKILL.md frontmatter becomes `enabled: false` (normalized rerender,
+   body preserved).
+8. **Change requests**: empty state "No pending Skill revisions."
+   (`skills/revisions/list`).
+9. The first-run wizard opens normally and can be skipped (unrelated to this iteration;
+   recorded only as part of the smoke path).
 
-smoke 后已停止后端/Vite/mock 三个进程（端口 18787/3016/8899 释放）。
+The backend/Vite/mock processes were stopped after smoke (ports 18787/3016/8899
+released).
 
-## 覆盖留白（如实记录）
+## Coverage gaps (recorded honestly)
 
-- **待审修订的非空渲染未在浏览器 smoke**：`skill_manage` 暂存修订依赖真实
-  run 中的 HITL 提案；mock 场景不驱动 skill_manage。该链路由单元测试覆盖
-  （PrepareSkillProposal → ListPendingSkillRevisions → RPC 映射），UI 卡片
-  渲染逻辑与空态共用同一路径，未做浏览器级非空验证。
-- **真实 skills.sh 网络路径**：沙箱 TLS 出站受限，search/install 走本地
-  mock；适配层与上游契约（`/api/search`、`/api/download/{owner}/{repo}/{slug}`
-  的 JSON 形状）按 DIVA 实现与 wiremock 单测对齐，公网联通性需在开发机上
-  复核（`just run` 默认 `https://skills.sh`）。
-- e2e（`just ui-e2e`）未跑：`UI-E2E-STALE` 两条既有过期规格仍失败（见
-  `docs/TODO.md` §0.1，非本迭代引入）。
+- **Non-empty rendering of pending revisions was not browser-smoked**:
+  `skill_manage` staged revisions depend on an HITL proposal in a real run, and the
+  mock scenario does not drive skill_manage. Unit tests cover the path
+  (PrepareSkillProposal → ListPendingSkillRevisions → RPC mapping); the UI card shares
+  its rendering path with the empty state, but browser-level non-empty validation was
+  not performed.
+- **Real skills.sh network path**: sandbox outbound TLS is restricted, so search/install
+  used the local mock. The adapter and upstream contract (`/api/search`,
+  `/api/download/{owner}/{repo}/{slug}` JSON shape) match the DIVA implementation and
+  wiremock unit tests; public connectivity needs verification on a development machine
+  (`just run` defaults to `https://skills.sh`).
+- e2e (`just ui-e2e`) was not run: two existing stale specs under `UI-E2E-STALE` still
+  fail (see `docs/TODO.md` §0.1; not introduced by this iteration).

@@ -1,27 +1,27 @@
-# VC-1g-2 验收路径（人工）
+# VC-1g-2 acceptance path (manual)
 
-前置：`just dev`（或 `just run` + `cd ui; pnpm dev`），浏览器开
-`http://127.0.0.1:3015`；settings 里配置一个支持视觉的 provider/model 并填 key。
+Prerequisite: `just dev` (or `just run` + `cd ui; pnpm dev`), with a browser open at
+`http://127.0.0.1:3015`; configure a vision-capable provider/model in Settings and enter its key.
 
-1. **选择文件**：点输入框工具栏的回形针 → 文件选择器只接受
-   png/jpeg/gif/webp → 选中 1–3 张 → 输入框上方出现缩略图。
-2. **移除**：点缩略图右上角 × → 该图消失。
-3. **粘贴贴图**：截屏后在文本框 Ctrl+V → 缩略图出现（文本粘贴不受影响，
-   复制一段文字粘贴仍正常进输入框）。
-4. **门禁提示**：选一张 >5MB 的图片 → 行内提示"图片超过 5MB 上限"；
-   选一个非白名单类型（改扩展名的 .png 实为 gif 之类，或直接选 .txt）→
-   "不支持的图片类型"。凑第 5 张 → "每条消息最多 4 张图片"。
-5. **发送**：输入文字并发送 → 用户气泡内显示缩略图 + 文本；
-   模型回复引用图片内容（视觉模型）→ 说明多模态输入生效。
-6. **持久化**：刷新页面重新进入会话 → 历史用户消息仍带缩略图
-   （服务端 data URL，非本地乐观行）。
-7. **排队携图**：跑一个长任务，运行中再发一条带图消息 → 进队列；
-   本轮完成后自动派发，消息与图正常发出（对照 VC-1g-1 行为）。
-8. **压缩安全**：让会话触发 compaction → 摘要正常生成
-   （transcript 中图片是 `[image attachment: name]` 占位，不含二进制）。
+1. **Select files**: click the paperclip in the input toolbar → the file picker accepts only
+   png/jpeg/gif/webp → select 1–3 images → thumbnails appear above the input box.
+2. **Remove**: click the × in a thumbnail's upper-right corner → the image disappears.
+3. **Paste an image**: take a screenshot and press Ctrl+V in the text box → a thumbnail appears (text pasting is unaffected;
+   copying and pasting text still inserts it into the input box normally).
+4. **Gate notices**: select an image >5MB → inline notice "Image exceeds the 5 MB limit";
+   select a non-allowlisted type (for example, a .png extension whose contents are really a gif, or a .txt file) →
+   "Unsupported image type". Add a 5th image → "Maximum 4 images per message".
+5. **Send**: enter text and send → the user bubble shows thumbnail + text;
+   the model replies using the image content (vision model) → multimodal input is working.
+6. **Persistence**: refresh the page and reopen the session → historical user messages still have thumbnails
+   (server data URL, not a local optimistic row).
+7. **Queue with an image**: run a long task, then send another image-bearing message while it is running → it enters the queue;
+   after the current run completes it is dispatched automatically, and the message/image send normally (compare VC-1g-1 behavior).
+8. **Compaction safety**: trigger compaction in the session → the summary is generated normally
+   (images in the transcript are `[image attachment: name]` placeholders with no binary data).
 
-## 无 key 环境的替代验收
+## Alternative acceptance without a key
 
-步骤 1–4、7 不依赖模型（7 需要 run 在跑，可用 echo 类本地工具拖时间；
-或观察队列 pill 行为即可）。步骤 5 需要视觉 provider；步骤 6 需要一次
-成功落库的带图轮次。
+Steps 1–4 and 7 do not depend on a model (7 requires an active run; a local echo-like tool can keep it busy,
+or the queue pill behavior can be observed). Step 5 requires a vision provider; step 6 requires one
+successful image-bearing run persisted to storage.

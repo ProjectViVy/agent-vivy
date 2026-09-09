@@ -1,8 +1,8 @@
 # Acceptance
 
-1. 启动 `vivy-code` 或 `vivy tui`，让助手回复包含标题、列表、引用、行内代码和围栏代码块的 Markdown。
-2. 主聊天不应再露出 `# Title` / `**bold**` / `- item` / `> quote` 这种生硬源码；应看到 H1 色块、`##` 小节、`•` 列表、`│` 引用和带高亮的代码块。
-3. 用户自己发送的 Markdown 同样排版；身份仍靠左侧蓝色 `┃`。
-4. 思考/推理块保持 `┊` 槽，结构还在，但颜色更闷。
-5. 变窄窗口时行宽不超过视口，流式光标仍跟在当前气泡末尾。
-6. 工具卡片外观与 `tui.debug` 省略行为不变。
+1. Start `vivy-code` or `vivy tui` and have the assistant reply with Markdown containing headings, lists, quotes, inline code, and fenced code blocks.
+2. The main chat should no longer expose raw source such as `# Title` / `**bold**` / `- item` / `> quote`; it should show an H1 color block, a `##` subsection, a `•` list, a `│` quote, and highlighted code blocks.
+3. Markdown sent by the user is formatted the same way; identity is still indicated by the blue left-side `┃`.
+4. Thinking/reasoning blocks retain the `┊` gutter and their structure, but use more subdued colors.
+5. When the window narrows, line width does not exceed the viewport, and the streaming cursor still follows the end of the current bubble.
+6. Tool card appearance and `tui.debug` ellipsis behavior remain unchanged.

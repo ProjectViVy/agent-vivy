@@ -1,55 +1,66 @@
-# 验收：用户怎么确认这次改动生效
+# Acceptance: how a user can confirm this change works
 
-## 前置
+## Prerequisite
 
 ```text
-just run            # 或 just dev（后端 + Vite 双开）
-# 浏览器打开 http://127.0.0.1:3015/skills
+just run            # or just dev (backend + Vite)
+# Open http://127.0.0.1:3015/skills in a browser
 ```
 
-页面顶部**不再有**黄色 "Demo / Local simulation" 横幅。
+The top of the page **no longer has** a yellow "Demo / Local simulation" banner.
 
-## 1. 已安装技能页签（真数据）
+## 1. Installed skills tab (real data)
 
-1. 列表来自 `skills/list`（`skills_root` 目录逐个 SKILL.md）。空目录时显示
-   空态与提示"在市场中安装一个技能，或把含 SKILL.md 的目录放到
-   skills_root 后刷新"。
-2. 手工放一个技能目录（`data/skills/demo-skill/SKILL.md`，frontmatter 含
-   `name: demo-skill` 与 `description`）后点"刷新"，列表出现该技能。
-3. 点开技能：能看到正文（untrusted 数据）、内容哈希、附属文件按钮（点击
-   加载该文件内容）；若正文含 `curl ` 之类短语，会显示琥珀色警告条
-   （服务端注入扫描结果）。
-4. 启停开关：切到"停用"后徽标变为"已停用"；此时让 agent 跑一回合，
-   `skill` 工具目录里不再出现该技能；再切回"已启用"即恢复。若期间文件被
-   其他进程改过，开关报 409 并自动重拉目录。
+1. The list comes from `skills/list` (one SKILL.md per `skills_root` directory). When
+   the directory is empty, the empty state says "Install a skill from the marketplace,
+   or put a directory containing SKILL.md in skills_root and refresh".
+2. Manually place a skill directory (`data/skills/demo-skill/SKILL.md`, with frontmatter
+   containing `name: demo-skill` and `description`), then click "Refresh"; the skill
+   appears in the list.
+3. Open the skill: see the body (untrusted data), content hash, and an attached-file
+   button (click to load that file's contents). If the body contains a phrase such as
+   `curl `, an amber warning bar appears (server-injected scan result).
+4. Enable/disable toggle: switch to "Disabled" and the badge becomes "Disabled"; run
+   the agent once and the skill no longer appears in the `skill` tool catalog; switch
+   back to "Enabled" and it returns. If another process changes the file in the
+   meantime, the toggle reports 409 and reloads the catalog automatically.
 
-## 2. 市场页签（skills.sh 适配）
+## 2. Marketplace tab (skills.sh integration)
 
-1. 页签"市场"只在后端广播 `skills.marketplace` capability 时出现。
-2. 不输入搜索词时显示内置 featured 排行（含快照日期），条目有安装数
-   （如 846.6k）与来源仓库。
-3. 搜索框输入至少 2 个字符（防抖 300ms）得到 skills.sh 搜索结果；结果不足
-   显示空态。
-4. 点"安装"：按钮进入安装中状态；成功后自动刷新已安装列表，新技能出现在
-   "已安装技能"页签，磁盘 `skills_root` 出现同名目录；再次安装同一技能时
-   按钮禁用（已安装）。
-5. 断网或上游故障时市场页显示错误框与"重试"按钮（RPC -32010 → 502
-   语义），不影响已安装页签。
-6. 安装的技能下一回合即可被 agent 使用（Eino skill 中间件每轮从磁盘重列，
-   无需重启）：让 agent 调 `skill` 工具加载刚装的技能验证。
+1. The "Marketplace" tab appears only when the backend broadcasts the
+   `skills.marketplace` capability.
+2. With no search term, show the built-in featured ranking (including snapshot date),
+   with install counts (such as 846.6k) and source repositories.
+3. Enter at least 2 characters in the search box (300ms debounce) to get skills.sh
+   search results; show the empty state when there are too few results.
+4. Click "Install": the button enters an installing state; after success, refresh the
+   installed list automatically, show the new skill in the "Installed skills" tab, and
+   create a same-named directory under `skills_root`; when installing the same skill
+   again, disable the button (already installed).
+5. If the network is offline or the upstream fails, the Marketplace tab shows an error
+   box and a "Retry" button (RPC -32010 → 502 semantics), without affecting the
+   Installed tab.
+6. An installed skill can be used by the agent on the next turn (the Eino skill
+   middleware re-lists from disk each round; no restart required): have the agent call
+   the `skill` tool to load the newly installed skill.
 
-## 3. 变更请求页签（真实暂存修订）
+## 3. Change requests tab (real staged revisions)
 
-1. 在会话里让 agent 调 `skill_manage`（例如"给 demo-skill 加一节说明"），
-   审批流里会出现 diff 预览（暂存未批准状态保持即可，不必批准）。
-2. `/skills` 页"变更请求 (N)"页签显示该待审修订：技能名、动作、目标路径、
-   运行绑定、预览 diff、警告；状态徽标"待审"。
-3. 页签为只读：批准/拒绝仍发生在会话的评审流里。
+1. Have the agent call `skill_manage` in a conversation (for example, "Add a section
+   explaining demo-skill"); the approval flow shows a diff preview (leave it staged and
+   unapproved; approval is not required).
+2. The `/skills` page's "Change requests (N)" tab shows the pending revision: skill
+   name, action, target path, run binding, preview diff, and warning; the status badge
+   is "Pending review".
+3. The tab is read-only: approval/rejection still happens in the conversation's review
+   flow.
 
-## 4. 配置
+## 4. Configuration
 
-- `config.yaml` 可用 `runtime.skills_marketplace_url` 覆盖市场 base URL
-  （默认 `https://skills.sh`；环境变量 `VIVY_SKILLS_MARKETPLACE_URL` 优先）。
-  指向非法 URL 时启动被 config 校验拒绝。
-- `python scripts/fetch_marketplace_featured.py` 可刷新内置 featured 快照并
-  重写 `internal/runtime/marketplace_featured.yaml`（需重新编译生效）。
+- `config.yaml` can override the marketplace base URL with
+  `runtime.skills_marketplace_url` (default `https://skills.sh`; the
+  `VIVY_SKILLS_MARKETPLACE_URL` environment variable takes precedence). Startup is
+  rejected by config validation for an invalid URL.
+- `python scripts/fetch_marketplace_featured.py` refreshes the built-in featured
+  snapshot and rewrites `internal/runtime/marketplace_featured.yaml` (a rebuild is
+  required for it to take effect).

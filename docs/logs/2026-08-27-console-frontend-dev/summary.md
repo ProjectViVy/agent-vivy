@@ -12,22 +12,22 @@ once** and opens VIVY WEB as a **standalone page**:
    process: the Vite dev server (`pnpm dev` in `ui/`, `127.0.0.1:3015`,
    strictPort; its `/rpc` proxy targets the managed gateway). New
    `/vivy-console/api/frontend/{status,start,stop,restart}` routes; the
-   client gains a「前端」section beside「网关」. Stop uses `taskkill /T` on
+   client gains a 「Frontend」 section beside 「Gateway」. Stop uses `taskkill /T` on
    Windows (the shell wrapper is `cmd.exe`, so a plain `kill()` could
    orphan Vite).
 
 2. **Unified log timeline.** `/vivy-console/api/logs` now returns one feed
    of `{src: "backend"|"frontend", text}` lines (gateway
    `gateway.out.log`/`gateway.err.log` + Vite `frontend.out.log`/
-   `frontend.err.log`), plus per-source running/logPath. The「日志」section
-   renders a single timeline with source chips 全部/后端/前端, pause, and
+   `frontend.err.log`), plus per-source running/logPath. The 「Logs」 section
+   renders a single timeline with source chips All/Backend/Frontend, pause, and
    clear.
 
-3. **VIVY WEB as a standalone tab.** The iframe is gone. The「VIVY WEB」
+3. **VIVY WEB as a standalone tab.** The iframe is gone. The 「VIVY WEB」
    section opens the target in its own browser tab via `window.open`
    (`/vivy-web/` proxy facade with debug bridge, or direct Vite `:3015`),
    keeps a handle for evaluate, and drops/rebinds capture with a
-   「断开捕获」button. `hook.js` now relays to **both** `window.parent`
+   「Disconnect capture」 button. `hook.js` now relays to **both** `window.parent`
    (iframe embedding, retained for compatibility) **and** `window.opener`
    (standalone tab), so the debug bridge works in the new-tab layout.
 
@@ -39,7 +39,7 @@ once** and opens VIVY WEB as a **standalone page**:
 - `studio/dsh-vivy-console/client.js` — FrontendPane, WebPane standalone
   tab (no iframe, window.open + opener relay + evaluate + disconnect),
   LogsPane unified timeline with source filter, 4-section ring
-  (网关/前端/VIVY WEB/日志); removed dead `vc-frame` CSS.
+  (Gateway/Frontend/VIVY WEB/Logs); removed dead `vc-frame` CSS.
 - `studio/dsh-vivy-console/hook.js` — `relayTargets()` posts to
   `window.parent` and/or `window.opener`.
 - `studio/dsh-vivy-console/package.json` / `README.md` — scope updated.

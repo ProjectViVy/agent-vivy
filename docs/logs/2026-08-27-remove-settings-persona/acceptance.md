@@ -1,13 +1,18 @@
-# acceptance.md — 删除设置中的「人格」面板
+# acceptance.md — Remove the 「Persona」 panel from Settings
 
-## 验收标准（用户视角）
+## Acceptance criteria (user perspective)
 
-1. 打开「设置」（侧栏 → 设置，或 `http://127.0.0.1:3015/settings`）。
-2. Tab 列表应依次为：通用 / 模型 / 工具 / Vivy 功能 / 通道（预览）…沙箱（预览）——不再出现「人格」。
-3. 不再存在可编辑「助手名称 / 系统提示词」并「保存人格演示」的面板；`?tab=persona` 深链不会显示任何人格内容。
-4. 侧栏「人格」独立页面（七份人格 Markdown 文档）仍可正常打开、编辑。
-5. 模型 / 工具 / Vivy 功能及全部预览分区不受影响。
+1. Open 「Settings」 (sidebar → Settings, or `http://127.0.0.1:3015/settings`).
+2. The tab list should be, in order: General / Model / Tools / Vivy Features / Channels
+   (Preview) … Sandbox (Preview)—「Persona」 no longer appears.
+3. No panel remains for editing 「assistant name / system prompt」 and 「Save persona demo」;
+   the `?tab=persona` deep link shows no Persona content.
+4. The independent sidebar 「Persona」 page (seven persona Markdown documents) still opens
+   and can be edited normally.
+5. Model / Tools / Vivy Features and all preview sections are unaffected.
 
-## 与此前行为的关系
+## Relation to previous behavior
 
-- 原先「设置 → 人格」是本地演示面板（`vivy.demo.persona` localStorage），与侧栏「人格」页（人格文档）是两套功能；本次只删设置中的面板，侧栏人格页保留。
+- Previously, 「Settings → Persona」 was a local demo panel (`vivy.demo.persona` localStorage),
+  separate from the sidebar 「Persona」 page (persona documents); this change removes only
+  the Settings panel and retains the sidebar Persona page.

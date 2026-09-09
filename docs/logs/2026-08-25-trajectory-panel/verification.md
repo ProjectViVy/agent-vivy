@@ -20,8 +20,8 @@
 
 - `git status` in worktree: only this deliverable's paths changed.
 - No audit leftovers in `ui/src`:
-  `grep -ri "audit|审计" ui/src` → 3 benign hits only: 进化页「可审计的进化
-  治理」subtitle (zh/en) and `diva-preview-data.test.ts`'s
+  `grep -ri "audit|审计" ui/src` → 3 benign hits only: the Evolution-page
+  “Auditable Evolution Governance” subtitle (zh/en) and `diva-preview-data.test.ts`’s
   `not.toContain('audit')` assertion.
 - `ui/src/components/audit/` no longer exists; `DIVA_AUDIT_EVENTS` removed.
 - i18n zh/en parity enforced by `src/i18n/index.test.ts` (passes) after
@@ -36,21 +36,23 @@ same `ui/` sources; the always-on :3015 split pair serves the root tree).
 Storage pre-seeded to dismiss the first-run welcome wizard and demo banner. All
 checks passed, `pageerror` count 0:
 
-1. `/dashboard` renders `中控台`, tabs = **概览 / Token / 轨迹**, no 审计 tab.
-2. 轨迹 tab: toolbar present (轨迹工具栏), one timeline (24 spans, 3 lanes),
-   ledger 24 rows, 8 `Request #N` chips, spy spans match record count.
-3. Click row `rec-4` opens the detail panel (tabs 输入/输出/思考); close works.
-4. Click `Request 1` chip opens request details — header `请求 1 · #1 · Step 1`,
-   Summary shows 状态=完成 / Provider=deepseek / Model=deepseek-chat /
-   工具调用=1 / Result text; 摘要/用量/时序 tabs present.
-5. 「实际时长」toggle re-projects spans: first span width 34.4px → 51.4px.
-6. 折叠全部回合 → 摘要行 `…#1 · 已折叠 · 7 条记录` / `#2 · 7` / `#3 · 8`,
-   record rows drop 24 → 2; expand restores 24.
-7. 错误行存在（`data-error`, `bash · pnpm build` → `exit 1 · 产物检查失败`）.
-8. 搜索「build」→ 2 行且全部命中；清空恢复.
-9. 时间轴拖选区间 → 区间外账本行淡化（opacity 0.35, 12 行）；轨道聚焦后
-   Escape 清除选区（0 行淡化）。
-10. 回合标签 `#1/#2/#3` 与会话起始 `Session` 标签渲染正常。
-11. 三泳道标签 Input/Model/Tools 按 7/21/35px 渲染（DOM 断点确认）；
-    zh/en 词典结构对等由 `src/i18n/index.test.ts` 断言兜底（本次未做浏览器内
-    语言切换冒烟）。
+1. `/dashboard` renders `Dashboard`, tabs = **Overview / Token / Trajectory**,
+   with no Audit tab.
+2. Trajectory tab: toolbar present (Trajectory Toolbar), one timeline (24 spans,
+   3 lanes), ledger with 24 rows, 8 `Request #N` chips, and spy spans matching
+   the record count.
+3. Click row `rec-4` to open the detail panel (Input/Output/Thinking tabs); close works.
+4. Click the `Request 1` chip to open request details—header `Request 1 · #1 ·
+   Step 1`; Summary shows Status=Complete / Provider=deepseek / Model=deepseek-chat
+   / Tool Calls=1 / Result text; Summary/Usage/Timing tabs are present.
+5. The “Actual Duration” toggle re-projects spans: first span width 34.4px → 51.4px.
+6. Collapse All Runs → summary rows `…#1 · Collapsed · 7 records` / `#2 · 7` /
+   `#3 · 8`; record rows drop from 24 → 2; expanding restores 24.
+7. An error row exists (`data-error`, `bash · pnpm build` → `exit 1 · Artifact check failed`).
+8. Search “build” → 2 rows, all matching; clearing restores the list.
+9. Drag-select a timeline range → ledger rows outside the range dim (opacity 0.35,
+   12 rows); after focusing the track, Escape clears the selection (0 rows dimmed).
+10. Run labels `#1/#2/#3` and the session-start `Session` label render correctly.
+11. Three-lane labels Input/Model/Tools render at 7/21/35px (confirmed at DOM
+    breakpoints); `src/i18n/index.test.ts` provides the zh/en dictionary-parity
+    assertion (browser language-switch smoke was not run this time).

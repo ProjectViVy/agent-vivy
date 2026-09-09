@@ -1,26 +1,32 @@
-# 移除恋粉（love）主题
+# Remove the Love theme
 
-## 变更内容
+## Changes
 
-用户反馈恋粉主题不好看，整主题移除。皮肤功能保持 4 套：
-Vivy 蓝（默认）、简约粉白、深蓝夜色、Miku 青。
+Following user feedback that the Love theme was unattractive, the entire theme
+was removed. The theming feature keeps 4 themes: Vivy Blue (default), Minimal
+Pink & White, Deep Blue Night, and Miku Teal.
 
-- `ui/src/hooks/use-theme.ts`：`THEME_IDS` 与 `THEMES` 移除 `love` 条目。
-- `ui/src/styles.css`：删除 `[data-theme="love"]` 令牌块。
-- `ui/index.html`：反闪烁内联样式与引导脚本的 `APPEARANCES` 表移除 love。
-- `ui/src/hooks/use-theme.test.ts`：DOM 应用/持久化用例改用 `pink`；
-  存储回退用例改用 `'love'` 作为非法值——显式覆盖"已删除主题的
-  残留 localStorage 回退到默认"路径。
+- `ui/src/hooks/use-theme.ts`: removed the `love` entry from `THEME_IDS` and
+  `THEMES`.
+- `ui/src/styles.css`: removed the `[data-theme="love"]` token block.
+- `ui/index.html`: removed love from the anti-flash inline style and the
+  bootstrap script’s `APPEARANCES` table.
+- `ui/src/hooks/use-theme.test.ts`: DOM application/persistence cases now use
+  `pink`; the storage fallback case uses `'love'` as an invalid value, explicitly
+  covering the path where a deleted theme’s leftover localStorage falls back to
+  the default.
 
-已存 `vivy.theme=love` 的浏览器：TS 侧 `readStoredTheme` 与 index.html
-引导脚本的 id 白名单都会拒绝该值并回落 `default`，无需迁移。
+For browsers with `vivy.theme=love` already stored, the TS-side
+`readStoredTheme` and the index.html bootstrap script’s ID allowlist both reject
+the value and fall back to `default`; no migration is needed.
 
-## 明确不做
+## Explicitly not done
 
-- 不动其余 4 套主题的任何取值。
-- 不补新主题（如需替换位再议）。
+- No values in the other 4 themes were changed.
+- No new theme was added (revisit if a replacement is needed).
 
-## 验证
+## Verification
 
-见 `verification.md`；验收路径见 `acceptance.md`。上一次交付记录：
-`docs/logs/2026-08-25-vivy-ui-themes/`。
+See `verification.md` for verification and `acceptance.md` for the acceptance
+path. The previous delivery is recorded in:
+`docs/logs/2026-08-25-vivy-ui-themes/`.

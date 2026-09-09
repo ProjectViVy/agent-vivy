@@ -1,24 +1,36 @@
-# 2026-08-30 · 超级通道合同（C0）
+# 2026-08-30 — Super Channel contract (C0)
 
-## 目标与背景
+## Goal and background
 
-把 `VIVY-CHANNEL-PACK.md` 从 2026-08-25 的出厂 `channels/` 提案，改成已采纳的超级通道合同。拍板来自同日讨论：
+Turn `VIVY-CHANNEL-PACK.md` from the 2026-08-25 factory `channels/` proposal into the
+adopted Super Channel contract. The decision came from the same day's discussion:
 
-- ChannelHost + 规范信封 + 可选能力矩阵是世界入口，不是五个 bot 的集合。
-- 本批 telegram / discord / 飞书 / 钉钉 / QQ **全部插件化**（`plugins/<name>/`，`seam: channel`）。
-- 不新开 `channels/` 目录，不新开 `RegisterChannels()`；复用 ADR-015 的 `Register()` overlay。
-- A2A / NeuroLink 后切、同信封、同 Host；Face / ACP 仍独立。
-- 空 `allow_from` fail-closed。每个通道插件独立 `go.mod`。
+- ChannelHost + the normalized envelope + the optional-capability matrix are the world
+  entry, not a collection of five bots.
+- telegram / discord / Feishu / DingTalk / QQ in this batch are **all plugins**
+  (`plugins/<name>/`, `seam: channel`).
+- Do not create a new `channels/` directory or `RegisterChannels()`; reuse ADR-015's
+  `Register()` overlay.
+- A2A / NeuroLink come later with the same envelope and Host; Face / ACP remain
+  independent.
+- Empty `allow_from` is fail-closed. Each channel plugin has an independent `go.mod`.
 
-## 变更内容
+## Changes
 
-- `docs/architecture/VIVY-CHANNEL-PACK.md` — 正本重写；状态改为方向已采纳。
-- 交叉引用：`VIVY-ASSEMBLY.md`、`VIVY-PLUGIN-SPEC.md`、`SELF-EVOLVING-GATEWAY.md`、`VIVY-GATEWAY-AND-STUDIO.md`、`VIVY-FACE-PACK.md`、`ACP-REMOTE-CONTROL-PROPOSAL.md`、`docs/research/README.md`、`docs/research/OPEN-ITEMS.md`。
-- `docs/TODO.md` §0.1：`CH-0` DONE；`CH-A`/`CH-B`/`CH-C`/`UI-CHANNELS-BE` 按新合同改注；§10 记一笔。
+- `docs/architecture/VIVY-CHANNEL-PACK.md` — rewrite the source of truth; status is now
+  adopted direction.
+- Cross-references: `VIVY-ASSEMBLY.md`, `VIVY-PLUGIN-SPEC.md`,
+  `SELF-EVOLVING-GATEWAY.md`, `VIVY-GATEWAY-AND-STUDIO.md`, `VIVY-FACE-PACK.md`,
+  `ACP-REMOTE-CONTROL-PROPOSAL.md`, `docs/research/README.md`,
+  `docs/research/OPEN-ITEMS.md`.
+- `docs/TODO.md` §0.1: `CH-0` DONE; annotate `CH-A`/`CH-B`/`CH-C`/`UI-CHANNELS-BE`
+  under the new contract; record one item in §10.
 
-## 明确未做
+## Explicitly not done
 
-- 未改 `sdk/plugin`、`internal/`、`ui/`、事件 schema。
-- 未实现五个通道插件、Host、A2A、NeuroLink。
-- 未改设置页（`UI-CHANNELS-BE` 仍开着；合同要求接后端时改正 allow_from 文案并拿掉 email / neuro-link 可添加项）。
-- 未采纳 Face Pack（`FACE-0` 仍 OPEN）。
+- Do not change `sdk/plugin`, `internal/`, `ui/`, or event schemas.
+- Do not implement the five channel plugins, Host, A2A, or NeuroLink.
+- Do not change the Settings page (`UI-CHANNELS-BE` remains open; the contract requires
+  correcting the allow_from copy and removing email / neuro-link add options when the
+  backend is connected).
+- Do not adopt Face Pack (`FACE-0` remains OPEN).

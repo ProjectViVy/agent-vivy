@@ -1,83 +1,94 @@
-# 聊天框上方功能栏移植（Agent-DIVA → Vivy，仅 UI）
+# Chat-input toolbar port (Agent-DIVA → Vivy, UI only)
 
 Date: 2026-08-27
 Status: complete
 
 ## Outcome
 
-对照 `agent-diva/agent-diva-gui/src/components/ChatView.vue` 的
-`chat-input-toolbar`（真实聊天框上方功能栏），把内容与交互移植到
-Vivy `ui/src/components/chat/ChatInput.tsx`。按用户确认的范围：**完全对齐
-DIVA 排布（替换现有工具栏）+ 依赖后端的按钮保留「暂未接入」提示条**
-（仅 UI，无任何后端改动）。
+Using `chat-input-toolbar` in `agent-diva/agent-diva-gui/src/components/ChatView.vue`
+(the real toolbar above the chat input) as the reference, its content and interactions
+were ported to Vivy's `ui/src/components/chat/ChatInput.tsx`. Within the scope confirmed
+by the user: **fully match the DIVA layout (replacing the existing toolbar) + retain
+「Not connected yet」 notice bars for backend-dependent buttons** (UI only, with no backend
+changes).
 
-## 移植后的工具栏（从左到右）
+## Ported toolbar (left to right)
 
-1. **执行模式选择**（下拉，`side="top"` 向上弹出）：智能体（Zap）/
-   计划（Settings2）/ 询问（Brain），菜单项 = 图标 + 标题 + 说明 + 当前项
-   勾选，选中后触发器图标与文字即时更新（对照 DIVA `modeOptions` +
-   `mode-menu`）。
-2. **附件**（Paperclip）：点击显示「附件功能暂未接入」提示条（stub）。
-3. **思考模式选择**（下拉，`side="bottom"`）：自动（Lightbulb 轮廓）/
-   开启（Lightbulb 实心 `fill="currentColor"`）/ 关闭（LightbulbOff）
-   （对照 DIVA `ThinkingToggle`）。
-4. **AutoDream 触发**（GitBranch）：点击显示「AutoDream 暂未接入」提示条。
-5. **桌面伙伴**（Cat）：点击显示「桌面伙伴暂未接入」提示条。
-6. **权限模式选择**（下拉，向上弹出）：谨慎（Shield）/ 智能（Sparkles）/
-   信任（CheckCircle），菜单项结构同模式下拉（对照 DIVA `permissionOptions`）。
-7. 分隔线（`h-4 w-px bg-border`）。
-8. **右侧群组**（`ml-auto`，对照 DIVA `.chat-corner-actions`）：
-   - **历史**（Clock）：点击打开右侧「会话」抽屉（复用现有
-     `SessionDrawer`，DIVA 中该按钮切换会话侧栏）。
-   - **审批中心**（ShieldCheck）：点击打开审批中心 Sheet；待审批数
-     显示为 DIVA 式**数字角标**（红底白字圆角 pill，替代原红点），
-     `aria-expanded` 反映打开状态。
+1. **Execution-mode selector** (dropdown, opens upward with `side="top"`): Agent (Zap) /
+   Plan (Settings2) / Ask (Brain), with menu items consisting of an icon + title +
+   description + a checkmark on the current item; the trigger icon and text update
+   immediately after selection (matching DIVA `modeOptions` + `mode-menu`).
+2. **Attachments** (Paperclip): clicking displays a 「Attachments not connected yet」 notice
+   bar (stub).
+3. **Thinking-mode selector** (dropdown, `side="bottom"`): Auto (Lightbulb outline) /
+   On (solid Lightbulb, `fill="currentColor"`) / Off (LightbulbOff) (matching DIVA
+   `ThinkingToggle`).
+4. **AutoDream trigger** (GitBranch): clicking displays an 「AutoDream not connected yet」
+   notice bar.
+5. **Desktop companion** (Cat): clicking displays a 「Desktop companion not connected yet」
+   notice bar.
+6. **Permission-mode selector** (dropdown, opens upward): Cautious (Shield) / Smart
+   (Sparkles) / Trusted (CheckCircle), with the same menu-item structure as the mode
+   dropdown (matching DIVA `permissionOptions`).
+7. **Divider** (`h-4 w-px bg-border`).
+8. **Right-side group** (`ml-auto`, matching DIVA `.chat-corner-actions`):
+   - **History** (Clock): clicking opens the right-side 「Sessions」 drawer (reusing the
+     existing `SessionDrawer`; in DIVA this button toggles the session sidebar).
+   - **Approvals** (ShieldCheck): clicking opens the approvals Sheet; the pending count
+     is shown as a DIVA-style **numeric badge** (red background, white text, rounded pill,
+     replacing the original red dot), and `aria-expanded` reflects the open state.
 
 ## Delivered
 
-- `ui/src/components/chat/ChatInput.tsx` — 工具栏整行重写，逐项对应
-  DIVA；三个下拉用 Radix `DropdownMenu`（`ui/components/dropdown-menu`），
-  触发器 `asChild`（`aria-expanded`/`aria-haspopup` 由 Radix 提供）；
-  图标按钮沿用 Vivy 的 `rounded-lg p-1.5 text-muted-foreground
-  hover:bg-accent` 与 `title`/`aria-label`；视觉沿用 Vivy Tailwind token，
-  不引入 DIVA 的 CSS 变量。删除原「画图（Palette）」「智能（Sparkles）」
-  按钮与布尔 agentMode 切换（升级为三态下拉）。textarea 与 footer
-  （上下文环 / 提示条 / 更多 / 语音 / 发送·停止）保持原样。
-- `ui/src/lib/store.ts` — 新增 `sessionDrawerOpen` 状态与
-  `setSessionDrawerOpen`（仿 `reviewCenterOpen` 的既有模式）。
-- `ui/src/routes/_layout.tsx` — 会话 Sheet 由本地 `sessionOpen` 改用 store
-  的 `sessionDrawerOpen`，使 ChatInput 的历史按钮可打开同一抽屉
-  （创建/选择会话后的关闭逻辑同步迁移）。
-- `ui/src/i18n/zh.ts` / `en.ts` — `chatInput` 词条按 zh 权威结构同步：
-  新增 `planMode`/`askMode`/`agentModeDesc`/`planModeDesc`/`askModeDesc`/
+- `ui/src/components/chat/ChatInput.tsx` — rewrote the entire toolbar row item by item to
+  match DIVA; the three dropdowns use Radix `DropdownMenu`
+  (`ui/components/dropdown-menu`), with triggers using `asChild`
+  (`aria-expanded`/`aria-haspopup` supplied by Radix); icon buttons retain Vivy's
+  `rounded-lg p-1.5 text-muted-foreground hover:bg-accent` and `title`/`aria-label`,
+  and the visuals use Vivy Tailwind tokens without introducing DIVA CSS variables.
+  Removed the original 「Draw (Palette)」 and 「Smart (Sparkles)」 buttons and the boolean
+  agentMode toggle (upgraded to a three-state dropdown). The textarea and footer
+  (context ring / notice bar / more / voice / send · stop) remain unchanged.
+- `ui/src/lib/store.ts` — added `sessionDrawerOpen` state and
+  `setSessionDrawerOpen` (following the existing `reviewCenterOpen` pattern).
+- `ui/src/routes/_layout.tsx` — changed the session Sheet from local `sessionOpen` to the
+  store's `sessionDrawerOpen`, allowing ChatInput's History button to open the same drawer
+  (the close logic after creating/selecting a session was migrated as well).
+- `ui/src/i18n/zh.ts` / `en.ts` — synchronized the `chatInput` entries to the zh-authoritative
+  structure: added `planMode`/`askMode`/`agentModeDesc`/`planModeDesc`/`askModeDesc`/
   `thinkingMode`/`thinkingModeAuto`/`thinkingModeOn`/`thinkingModeOff`/
   `autodreamTrigger`/`autodreamUnavailable`/`openMate`/`mateUnavailable`/
-  `permissionCautious`/`permissionSmart`/`permissionTrusted` 及三个
-  `*Desc`；删除失效键 `switchedToNormal`/`switchedToAgent`/`draw`/
+  `permissionCautious`/`permissionSmart`/`permissionTrusted` and three `*Desc` entries;
+  removed obsolete keys `switchedToNormal`/`switchedToAgent`/`draw`/
   `drawUnavailable`/`smart`/`smartStrategy`/`branch`/`branchUnavailable`/
-  `historyHint`。
+  `historyHint`.
 
-## 语义差异（与 Agent-DIVA）
+## Semantic differences (from Agent-DIVA)
 
-- **模式 / 思考 / 权限选择为纯 UI 状态**：不改变发送语义
-  （`ChatView.submit` 仍走 `preflight(sessionId, text, 'normal')` →
-  `startRun`），也不作为隐藏的后端开关；DIVA 中这些值随 send 事件上报，
-  等 Vivy 内核支持对应执行模式后再接入。
-- **附件 / AutoDream / 伙伴 / 语音为 stub**：DIVA 中分别做真实上传、
-  触发 AutoDream、打开桌面伙伴、录音；Vivy 这些能力未接入，按用户确认
-  保留 `showNotice` 提示条，不伪装操作。
-- **历史按钮**：DIVA 切换会话侧栏（含列表选择），Vivy 复用
-  `SessionDrawer`（右上角会话按钮同源），交互闭环且仍是纯 UI。
+- **Mode / thinking / permission selections are UI-only state**: they do not change the
+  send semantics (`ChatView.submit` still goes through
+  `preflight(sessionId, text, 'normal')` → `startRun`) and are not hidden backend
+  switches; in DIVA these values are reported with the send event, and will be connected
+  once the Vivy core supports the corresponding execution modes.
+- **Attachments / AutoDream / companion / voice are stubs**: in DIVA they perform real
+  uploads, trigger AutoDream, open the desktop companion, and record audio respectively;
+  these Vivy capabilities are not connected, so per the user's confirmation they retain
+  `showNotice` notice bars without pretending to perform the actions.
+- **History button**: DIVA toggles the session sidebar (including list selection), while
+  Vivy reuses `SessionDrawer` (the same source as the top-right session button), closing
+  the interaction loop while remaining UI-only.
 
 ## Explicitly not done
 
-- 未新增任何 Go 后端、RPC 或 `api.ts` 传输改动；不触碰 Journal 语义。
-- 未实现附件真实选取/上传预览、AutoDream 触发、桌面伙伴、语音录音
-  （保持「暂未接入」提示条）。
-- 模式/思考/权限选择未做本地持久化（DIVA 将 permissionMode 存
-  localStorage `agent-diva.permissionMode`；本轮为会话内状态，后续如需
-  持久化应落 `vivy.ui.*` key）。
-- footer 行（上下文环、提示条、Plus、Mic、发送/停止）不在本次范围，
-  保持原样（其结构已与 DIVA footer 对应）。
-- 未新增组件级单测（ui 暂无 @testing-library 基建，按小改动不为此
-  前置搭建自动化的原则，以 typecheck + 既有 vitest + 真实路径冒烟覆盖）。
+- No Go backend, RPC, or `api.ts` transport changes were added; Journal semantics were
+  untouched.
+- Real attachment selection/upload preview, AutoDream triggering, desktop companion, and
+  voice recording were not implemented (the 「Not connected yet」 notice bars remain).
+- Mode/thinking/permission selections were not persisted locally (DIVA stores
+  permissionMode in localStorage `agent-diva.permissionMode`; this round keeps them as
+  session state, and any future persistence should use a `vivy.ui.*` key).
+- The footer row (context ring, notice bar, Plus, Mic, send/stop) is outside this round's
+  scope and remains unchanged (its structure already corresponds to the DIVA footer).
+- No component-level unit tests were added (ui has no @testing-library foundation; in line
+  with the principle of not introducing automation infrastructure for a small change,
+  coverage uses typecheck + existing vitest + a real-path smoke test).

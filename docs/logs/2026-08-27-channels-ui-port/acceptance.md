@@ -1,28 +1,36 @@
-# 验收（产品 / 用户视角）
+# Acceptance (product / user perspective)
 
-## 入口
+## Entry point
 
-打开应用 → 左侧导航「设置」→ Tab 列表出现「通道」（位于「语言」之后，无
-「预览」徽标；其余网络 / 压缩 / 自进化 / 沙箱仍带「预览」标记）。
+Open the app → left navigation 「Settings」 → the tab list shows 「Channels」 (after
+「Language」, without a 「Preview」 badge; the remaining Network / Compaction /
+Self-evolution / Sandbox sections still carry the 「Preview」 marker).
 
-## 可验证行为
+## Verifiable behavior
 
-1. **空态引导**：首次进入（或清空 `vivy.ui.channels`）显示「暂无通道配置」
-   空态卡片与「添加通道」按钮。
-2. **添加通道（向导）**：点「添加通道」→ 选择平台（Telegram / Discord /
-   飞书 / 钉钉 / Email / QQ / Neuro-Link 卡片网格，含品牌图标与描述）→
-   凭据步（快速指引面板 + 必填校验：必填空缺时「下一步」禁用；密文字段可
-   显隐切换；高级设置折叠）→ 完成页 → 新通道出现在卡片网格（默认启用）。
-3. **卡片视图操作**：卡片含平台图标、状态徽标（已激活 / 需配置）、启用状态、
-   缺失字段摘要；可直接启用 / 停用、进向导编辑、删除（confirm 后移除）。
-4. **列表视图**：切换「列表视图」→ 左栏通道列表（启用/就绪态），右侧明细：
-   状态卡（就绪状态 / 缺失字段）、启用开关、内联编辑表单（基础 + 高级 +
-   密文显隐）；修改后「保存配置」按钮亮起，保存后回到基线。
-5. **持久化**：保存的通道刷新页面后仍在（`vivy.ui.channels` localStorage）；
-   密文值不会出现在日志或控制面回传中。
-6. **下架通道**：slack / whatsapp 等在配置数据中存在也不显示、不可编辑。
-7. **语言**：切换界面语言（设置 → 语言）后通道分区文案跟随（zh / en）。
+1. **Empty-state guidance**: on first entry (or after clearing `vivy.ui.channels`), an
+   empty-state card 「No channel configurations yet」 and an 「Add channel」 button appear.
+2. **Add channel (wizard)**: click 「Add channel」 → select a platform (Telegram / Discord /
+   Feishu / DingTalk / Email / QQ / Neuro-Link card grid with brand icons and descriptions)
+   → credentials step (quick-guide panel + required-field validation: 「Next」 disabled
+   when required fields are missing; secret fields have a visibility toggle; advanced
+   settings collapse) → completion page → the new channel appears in the card grid
+   (enabled by default).
+3. **Card-view operations**: cards contain the platform icon, status badge (Active /
+   Needs configuration), enabled state, and missing-field summary; they can be enabled /
+   disabled directly, edited through the wizard, and deleted (removed after confirm).
+4. **List view**: switch to 「List view」 → left channel list (enabled/ready state), right
+   details: status card (readiness / missing fields), enabled switch, and inline edit form
+   (basic + advanced + secret visibility); after a change, the 「Save configuration」 button
+   becomes active, and saving returns to the baseline.
+5. **Persistence**: saved channels remain after page refresh (`vivy.ui.channels`
+   localStorage); secret values do not appear in logs or control-plane responses.
+6. **Retired channels**: slack / whatsapp and others do not display or allow editing even
+   when present in configuration data.
+7. **Language**: after switching the UI language (Settings → Language), the channel-section
+   copy follows it (zh / en).
 
-## 判定
+## Criteria
 
-以上 1–7 全部可操作且文案、交互与 Agent-Diva 通道页对齐，即验收通过。
+Acceptance passes when all items 1–7 are operable and the copy and interaction align with
+the Agent-Diva channel page.

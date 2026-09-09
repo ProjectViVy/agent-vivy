@@ -1,23 +1,26 @@
 # Verification
 
-## 门禁
+## Gates
 
-- `just ci` — 通过（exit 0）。UI 侧 tsc / eslint / vitest / vite build
-  全绿；删除 `useSkills.ts` 未产生任何类型或 lint 断裂，证明其零引用
-  判断成立。
+- `just ci` — passed (exit 0). UI tsc / eslint / vitest / vite build are all
+  green; deleting `useSkills.ts` caused no type or lint breakage, confirming the
+  zero-reference finding.
 
-## Smoke 说明
+## Smoke notes
 
-无用户可见行为变化（删除零引用的死 hook，页面组件与路由未动），故未跑
-`just ui-e2e` 浏览器 smoke；`just ci` 的完整 UI 构建 + 测试即本切片的
-充分门禁。`/skills` 页本身的真实 RPC 接线此前已随 UI-E2E 既有 spec 与
-2026-08-31 之前的历史切片落地。
+There is no user-visible behavior change (the zero-reference dead hook was
+deleted, while page components and routes were untouched), so browser smoke via
+`just ui-e2e` was not run; the complete UI build + tests in `just ci` are the
+sufficient gate for this slice. The `/skills` page's real RPC wiring was already
+covered by existing UI-E2E specs and earlier slices before 2026-08-31.
 
-## 复核证据（静态）
+## Static review evidence
 
-- `grep -rn "useSkills" ui/src` → 仅命中定义处，零导入。
-- `ui/src/routes/_layout.skills.tsx` 直渲染 `SkillsView`，不引 hook。
-- `SkillsView.tsx` 全量走 `@/lib/api`（listSkills/getSkill/
-  setSkillEnabled/listSkillRevisions），无 demo-api 导入。
-- demo-api 技能函数的消费方仅剩 `useEvolution.ts` /
-  `EvolutionView.tsx` / `demo-api.evolution.test.ts`（UI-EVO 范围）。
+- `grep -rn "useSkills" ui/src` → only the definition location, with no imports.
+- `ui/src/routes/_layout.skills.tsx` renders `SkillsView` directly and does not
+  use the hook.
+- `SkillsView.tsx` uses `@/lib/api` throughout (`listSkills`/`getSkill`/
+  `setSkillEnabled`/`listSkillRevisions`) and has no demo-api import.
+- The only remaining consumers of the demo-api skill functions are
+  `useEvolution.ts` / `EvolutionView.tsx` / `demo-api.evolution.test.ts` (UI-EVO
+  scope).

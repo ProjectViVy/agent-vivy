@@ -11,7 +11,7 @@ Vivy UI now stays usable from ~360px phone width through desktop window resize.
 - Narrow nav is a left Sheet, not a homemade overlay. Leaving mobile restores the desktop rail.
 - Header keeps mask/model switching on small widths (icon-only) and drops secondary status copy.
 - Shared Dialog / AlertDialog / Sheet cap to the dynamic viewport; Body scrolls, Header/Footer stay put.
-- Notebook, Memory, Skills, Approvals (full page), and Cron use one `MasterDetail`: two panes from `md` up, list-or-detail with 返回列表 below `md`.
+- Notebook, Memory, Skills, Approvals (full page), and Cron use one `MasterDetail`: two panes from `md` up, list-or-detail with Back to List below `md`.
 - Chat preflight actions wrap; composer keeps a bottom safe-area; bubbles and code blocks cannot stretch the page.
 
 ## Unchanged

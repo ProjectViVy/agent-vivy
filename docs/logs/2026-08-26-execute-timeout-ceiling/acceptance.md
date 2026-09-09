@@ -32,17 +32,17 @@ How a human can tell it worked, from the product/operator view.
   new timeout field's range and hard cap, so the next operator does not need
   to read Go source to raise the ceiling.
 
-## The ceiling is editable in Settings → 通用 (General)
+## The ceiling is editable in Settings → General
 
-1. Open the app and go to 设置 → 通用. The 执行超时上限 card shows the
-   current effective value and, as the input placeholder, the config
+1. Open the app and go to Settings → General. The Execute Timeout Ceiling card
+   shows the current effective value and, as the input placeholder, the config
    fallback.
-2. Enter e.g. `120` and click 保存通用设置. The value is written to the
+2. Enter e.g. `120` and click Save General Settings. The value is written to the
    operator settings document; invalid input (fractional, negative, above
    600) is rejected inline with a message and nothing is saved.
 3. Restart Vivy. The startup log now shows
    `settings overlay applied ... execute_max_timeout_seconds=120`, and the
    general tab reflects the new effective value after reconnect. Clearing
    the field (empty) restores the config default on the next save + restart.
-4. Saving from the 模型 (model) tab no longer resets the execute ceiling —
+4. Saving from the Model tab no longer resets the execute ceiling —
    both tabs share one settings document and save all fields.

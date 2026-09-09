@@ -1,26 +1,43 @@
-# CH-C7b — acceptance（人怎么看出它成了）
+# CH-C7b — acceptance (how a person can tell it worked)
 
-日期：2026-08-30。
+Date: 2026-08-30.
 
-## 产品视角：QQ 官方机器人耳朵——只走阳关道
+## Product view: the official QQ bot ear—only the sanctioned route
 
-QQ 开放平台注册的机器人，WS 长连接收单聊文本 → 入账 → Run → 官方 v2 API 被动回复。没有个人号协议逆向，没有 OneBot/NapCat 外挂进程，没有第二种身体。
+A bot registered on the QQ Open Platform receives direct-message text over a WS long
+connection → journals it → Run → replies through the official v2 API's passive-reply
+window. No personal-account protocol reverse engineering, no OneBot/NapCat sidecar
+process, and no second body.
 
-## 人可以亲手验证的点
+## Human-verifiable points
 
-1. **门是绿的**：`just ci` 退出码 0；默认 EXE 依赖图 grep 不到 botgo。
-2. **身份清白**：包注释、settings 注释、README 三处都写着非个人号 / 非 OneBot / 非 NapCat；插件只连 QQ 官方 Gateway 与官方 v2 API。
-3. **打包即得**：`vivy-sdk verify plugins/qq` → ok；`pack --with qq` → 候选 EXE（inspect 列出 qq）；物种 `go.mod` 字节不变。设置页（C5）自动出现 QQ 卡片。
-4. **真实客户端回环**（CI 内，无真实网络）：真 botgo OpenAPI 客户端打到本地桩——被动回复的路径、鉴权头、`msg_id`/`msg_seq` 契约、错误码浮出全部断言。
-5. **fail-closed 家风不变**：空 allow_from 拒 Start；env 未设 Start 即败且原因可见；重启后无被动窗口 msg_id → 回复明确报错而不是乱发。
-6. **密钥纪律**：botgo 默认会把 access token 和消息内容打进日志——插件全局换静默 logger（有测试钉住）；token 只在内存缓存。
+1. **The gate is green**: `just ci` exits 0; botgo does not appear in the
+   default EXE dependency graph.
+2. **Identity is clean**: package comments, settings comments, and README all state
+   non-personal-account / non-OneBot / non-NapCat; the plugin connects only to the
+   official QQ Gateway and official v2 API.
+3. **Packaging is enough**: `vivy-sdk verify plugins/qq` → ok;
+   `pack --with qq` → candidate EXE (inspect lists qq); the product tree's
+   `go.mod` is byte-for-byte unchanged. The C5 Settings page automatically
+   shows a QQ card.
+4. **Real-client loopback** (inside CI, no real network): the real botgo OpenAPI client
+   hits a local stub; the passive-reply path, auth headers,
+   `msg_id`/`msg_seq` contract, and surfaced error codes are all asserted.
+5. **Fail-closed discipline is unchanged**: empty allow_from refuses Start; an unset env
+   fails Start with a visible reason; after restart, a missing passive-window msg_id
+   produces a clear error instead of sending to the wrong place.
+6. **Key discipline**: botgo's default logger writes access tokens and message content
+   at INFO—the plugin globally installs a quiet logger (pinned by tests); the token is
+   cached only in memory.
 
-## 明确不属于本刀的验收（勿在此追讨）
+## Explicitly not part of this slice's acceptance
 
-- 群聊 @回复 → botgo v0.2.1 解不出 `group_openid`（源码核实），等官方 SDK 补齐再提案。
-- 语音 / 大文件 / Guild → 合同禁止。
-- 真实 QQ 开放平台收发 → 发布前人工验收（需机器人凭据；回滚 = 配方不点名 qq）。
+- Group-chat @ replies → botgo v0.2.1 cannot decode `group_openid` (verified in
+  source); wait for the official SDK to fill the gap before proposing it.
+- Voice / large files / Guild → prohibited by the contract.
+- Real QQ Open Platform send/receive → pre-release human acceptance (requires bot
+  credentials; rollback = recipe does not name qq).
 
-## 回滚
+## Rollback
 
-配方不点名 qq 即消失；revert 本分支即无此耳。
+Omit qq from the recipe and it disappears; revert this branch and this ear is gone.

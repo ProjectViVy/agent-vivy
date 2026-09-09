@@ -3,34 +3,41 @@
 A later agent or human working in this repo should be able to verify by eye at
 `http://127.0.0.1:3015/dashboard` (split pair, `just dev`):
 
-1. 中控台页签为 **概览 / Token / 轨迹** —— 不再出现「审计」Tab、审计卡片、
-   顶部审计入口；`ui/src/components/audit/` 不存在。
-2. 轨迹 Tab 内可见三块，与 DeepSeek Harness 轨迹视图同构：
-   - 工具栏：「实际时长」切换、全部回合折叠、全部调用折叠、右侧「搜索」框；
-   - 三泳道时间轴（Input/Model/Tools，44px 标签栏 + 50px 绘图区）：助理条带
-     呈 TTFT/解码渐变分段；在图上按下拖动可框选一段（账本仅高亮区间内记录，
-     区间外淡化）；悬停任一条带显示 KIND · 起止时间 · Total · TTFT · Decoding
-     提示；Escape 清除选区。
-   - 账本：按回合分组的记录行（SYSTEM/USER/CONTEXT/ASSISTANT/TOOL/SUBTOOL/
-     COMPACTED 类型徽标，ASSISTANT 行带 `Request #N` 跳转钮），错误行红色
-     `text → result`；折叠/展开全部回合与调用后，账本变为 `… 已折叠 · N 条
-     记录` 摘要行；搜索关键词可过滤账本并在时间轴淡化未命中条带。
-   - 点击行或 `Request #N` 打开右侧详情：请求级有摘要/用量/时序
-     （Status/Provider/Model/工具调用/重试、Token 明细、TTFT/解码/总时长），
-     记录级有输入/输出/思考。
-3. 语言切换（设置 → 语言）后轨迹面板文案随之中英切换，无裸 i18n key。
-4. `just ci` 是后续改动的门槛；新增轨迹数据/投影纯函数改动应先跑
-   `pnpm test`（`trajectory-utils.test.ts` 覆盖投影、折叠、格式化与数据不变式）。
+1. The Dashboard tabs are **Overview / Token / Trajectory**—there is no Audit
+   Tab, Audit card, or top-level Audit entry; `ui/src/components/audit/` does not exist.
+2. The Trajectory Tab shows three blocks, structurally matching the DeepSeek
+   Harness trajectory view:
+   - Toolbar: an “Actual Duration” toggle, Collapse All Runs, Collapse All Calls,
+     and a “Search” box on the right;
+   - Three-lane timeline (Input/Model/Tools, 44px label bar + 50px plot area):
+     assistant spans use TTFT/Decoding gradient segments; press-drag on the chart
+     selects a range (the ledger highlights only records inside the range and
+     dims those outside it); hovering any span shows a KIND · start/end time ·
+     Total · TTFT · Decoding tooltip; Escape clears the selection.
+   - Ledger: record rows grouped by run (SYSTEM/USER/CONTEXT/ASSISTANT/TOOL/
+     SUBTOOL/COMPACTED type badges, with a `Request #N` jump button on ASSISTANT
+     rows), and error rows in red with `text → result`; after collapsing/expanding
+     all runs and calls, the ledger becomes a `… Collapsed · N records` summary
+     row; search terms filter the ledger and dim unmatched spans on the timeline.
+   - Click a row or `Request #N` to open the right-side detail: request-level
+     summary/usage/timing (Status/Provider/Model/tool calls/retries, Token
+     details, TTFT/Decoding/total duration), and record-level input/output/thinking.
+3. After switching languages (Settings → Language), Trajectory-panel copy switches
+   between Chinese and English with no bare i18n keys.
+4. `just ci` is the gate for follow-up changes; run `pnpm test` first when adding
+   trajectory data/projection pure-function changes (`trajectory-utils.test.ts`
+   covers projection, collapsing, formatting, and data invariants).
 
-## 已知遗留（本次明确不做）
+## Known remaining items (explicitly not done here)
 
-- 轨迹面板为纯演示数据（`vivy.demo` 之外的静态常量），接真实运行轨迹需
-  内核提供日志/回放 RPC，另立任务（见 `docs/TODO.md` §0.1 UI-TRAJ）。
-- 面板右侧详情为固定 320px 宽、不支持拖拽缩放与键盘缩放（DSH 原版支持），
-  后续可按需补充。
+- The Trajectory panel uses demo data only (static constants outside `vivy.demo`);
+  connecting real runtime trajectories requires kernel log/replay RPCs and a
+  separate task (see `docs/TODO.md` §0.1 UI-TRAJ).
+- The right-side detail panel is fixed at 320px and does not support drag or
+  keyboard resizing (the DSH original does); add it later if needed.
 
 ## Leftover findings
 
-- 全新 checkout 的 `just ci` 需先 `pnpm build` 生成 `ui/dist`（Go 侧
-  `ui/embed.go` 的 `go:embed all:dist` 目标），详见
-  `docs/TODO.md` §0.1 UI-CI-BOOTSTRAP。
+- A fresh checkout’s `just ci` must run `pnpm build` first to generate `ui/dist`
+  (the Go-side `ui/embed.go` `go:embed all:dist` target); see
+  `docs/TODO.md` §0.1 UI-CI-BOOTSTRAP.

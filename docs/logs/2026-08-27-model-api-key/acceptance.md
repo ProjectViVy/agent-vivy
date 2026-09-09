@@ -1,30 +1,37 @@
-# 验收指引 — 2026-08-27 模型密钥端到端支持
+# Acceptance guide — 2026-08-27 end-to-end model-key support
 
-以用户视角确认功能生效（开发环境：`just dev`，打开
-`http://127.0.0.1:3015`；或直接在 Vivy Studio 会话中执行）：
+Confirm that the feature works from the user's perspective (development environment:
+`just dev`, open `http://127.0.0.1:3015`; or run directly in a Vivy Studio session):
 
-1. **对话框能填密钥**：进入「设置 → 模型」→ 「＋ 新增自定义供应商」。对话框
-   新增「API Key」字段（密码框），可正常输入；保存后条目建立。
-1'. **主表单区直接可见**：Provider / 默认模型 / Base URL / API Key 四格 2×2
-   排布；选中自定义供应商时 API Key 框回显其注册密钥，目录条目为空——不进
-   对话框也能看到/填写密钥，点「保存真实设置」随三输入组合一并提交（留空 =
-   清除覆盖层）。
-2. **填了就生效（下次启动）**：点该自定义供应商的某个模型 → 该模型立即成为
-   运行配置；检查 `data/agent-home/settings.yaml`，其中含 `api_key: <你填的值>`
-   并权限 0600。重启后端后，请求使用该密钥（不再报 "API key missing"）。
-3. **已配置提示**：设置页保存按钮下方显示「已配置 API Key（值不会回传界面）」。
-4. **值不回传/不打日志**：随时点「设置」查看（`settings/get` 只返回
-   `api_key_set=true`，界面/网络面板/日志中不出现密钥原文）。
-5. **切换回目录模型自动清除覆盖层**：点一个目录模型（如 DeepSeek · deepseek-chat）
-   → settings.yaml 的 `api_key` 变为空 → 重启后回落到运行束 env_key 环境变量
-   密钥。
-6. **编辑/清除密钥**：编辑该自定义供应商，把 API Key 留空保存 → 下次应用该
-   组合时清除密钥（同上回落）。
-7. **顶栏/chip 切换携带密钥**：「已选模型」里点该自定义条目（顶栏下拉或设置页
-   chip）→ 同样写入密钥并生效。
-8. **旧数据兼容**：字段引入前已保存的自定义供应商不丢失，读侧自动补空密钥。
-9. **只读部署**：`read_only` 时切换类操作锁定，但注册表（含密钥字段）与书签
-   整理仍可用。
+1. **The dialog accepts a key**: go to 「Settings → Model」 → 「＋ Add custom provider」.
+   The dialog adds an 「API Key」 field (password box) that accepts input; saving creates
+   the entry.
+1'. **Directly visible in the main form**: Provider / default model / Base URL / API Key
+   are arranged as a 2×2 grid; when a custom provider is selected, the API Key box echoes
+   its registered key while a catalog entry is blank—the key can be seen/entered without
+   opening the dialog, and clicking 「Save real settings」 submits it with the three-input
+   combination (blank = clear the overlay).
+2. **Entering it takes effect (next startup)**: click a model for the custom provider → it
+   immediately becomes the runtime configuration; inspect `data/agent-home/settings.yaml`,
+   which contains the literal `api_key: <your value>` and has permission 0600. After restarting
+   the backend, requests use this key (no more "API key missing").
+3. **Configured notice**: the settings page shows 「API Key configured (the value is not
+   returned to the UI)」 below the save button.
+4. **Value is not returned or logged**: click 「Settings」 at any time to inspect it
+   (`settings/get` returns only `api_key_set=true`; the key's original text does not appear
+   in the UI, network panel, or logs).
+5. **Switching back to a catalog model automatically clears the overlay**: click a catalog
+   model (such as DeepSeek · deepseek-chat) → `api_key` in settings.yaml becomes empty →
+   after restart, it falls back to the runtime bundle's env_key environment-variable key.
+6. **Edit/clear the key**: edit the custom provider, leave API Key blank, and save → the key
+   is cleared the next time that combination is applied (with the same fallback above).
+7. **Top-bar/chip switching carries the key**: click the custom entry in 「Selected models」
+   (the top-bar dropdown or settings-page chip) → the key is likewise written and takes effect.
+8. **Old-data compatibility**: custom providers saved before the field was introduced are
+   not lost; the read side automatically supplies an empty key.
+9. **Read-only deployment**: with `read_only`, switch-like operations are locked, but
+   registry management (including the key field) and bookmark management remain available.
 
-安全性说明（验收时知晓即可）：密钥明文存放于本机 `data/agent-home/settings.yaml`
-（gitignored 运行数据，不同于提交配置与日志），控制面与日志均不出现值。
+Security note (for awareness during acceptance): the key is stored in plaintext on this
+machine at `data/agent-home/settings.yaml` (gitignored runtime data, distinct from committed
+configuration and logs); neither the control plane nor logs contain the value.

@@ -1,40 +1,44 @@
-# 验证记录 — 生成参数演示收进「设置 → 通用 → 高级特性」
+# Verification record — generation-parameter demo moved into 「Settings → General → Advanced Features」
 
-工作分支：`feat/settings-genparams-provider`（worktree 开发，根树保持另一条
-lane 的未提交改动不动）。改动经过一次方向推翻（provider 面板版 → 通用高级特性
-按模型版），交付前 `git reset --soft` 重组为最终单一提交。
+Work branch: `feat/settings-genparams-provider` (developed in a worktree; uncommitted
+changes in another lane's root tree were left untouched). The direction was reversed once
+(provider-panel version → General Advanced Features per-model version), and before delivery
+`git reset --soft` reorganized it into the final single commit.
 
-## 命令与结果
+## Commands and results
 
-| 步骤 | 命令 | 结果 |
+| Step | Command | Result |
 | --- | --- | --- |
-| 全量门禁（先 `pnpm build` 产出真实 `ui/dist` 满足 go:embed） | `just ci` | ✅ 通过（fmt-check / vet / go test / headless-compile / typecheck / vitest / vite build） |
-| 新增单测（演示生成参数按模型独立） | `pnpm test`（ci 内 `demo-api.test.ts` 11 tests） | ✅ 通过 |
-| 浏览器冒烟（内嵌 UI 路径） | `pnpm exec playwright test e2e/genparams-advanced.spec.ts` | ✅ 1 passed |
+| Full gate (first run `pnpm build` to produce real `ui/dist` for go:embed) | `just ci` | ✅ passed (fmt-check / vet / go test / headless-compile / typecheck / vitest / vite build) |
+| New unit tests (demo generation parameters independent per model) | `pnpm test` (11 `demo-api.test.ts` tests inside ci) | ✅ passed |
+| Browser smoke test (embedded UI path) | `pnpm exec playwright test e2e/genparams-advanced.spec.ts` | ✅ 1 passed |
 
-## 浏览器冒烟（Playwright，真实浏览器走通）
+## Browser smoke test (Playwright, exercised in a real browser)
 
-新增 `ui/e2e/genparams-advanced.spec.ts`（随交付提交，作回归规格），对
-`http://127.0.0.1:8799`（e2e 自建后端 + 内嵌本次构建的 `ui/dist`）实走：
+Added `ui/e2e/genparams-advanced.spec.ts` (submitted with the delivery as a regression
+specification), and exercised `http://127.0.0.1:8799` (e2e-created backend + this build's
+embedded `ui/dist`):
 
-1. `/settings` 通用 Tab：出现「高级特性」卡；全页无独立卡片标题级「生成参数」
-   heading。
-2. 预置两个已选模型（gpt-4o-mini / gpt-4o）后，下拉默认选中 gpt-4o-mini：
-   温度 0.7、最大 Tokens 4096、提示「正在编辑 gpt-4o-mini 的生成参数。」。
-3. 保存 8192 →「已保存到本地」；`vivy.demo.gen-params` 键
-   `openai/https://api.openai.com/v1/gpt-4o-mini` 写入。
-4. 下拉切到 gpt-4o → 载入默认 4096，gpt-4o-mini 键不受影响；保存 1024 后两键
-   并存互不覆盖。
-5. 刷新 → 默认仍选中 gpt-4o-mini，读取已保存的 8192；`vivy.demo.gen-params`
-   持久化。
+1. `/settings` General tab: the 「Advanced Features」 card appeared; the full page had no
+   standalone card-level 「Generation parameters」 heading.
+2. After seeding two selected models (gpt-4o-mini / gpt-4o), the dropdown defaulted to
+   gpt-4o-mini: temperature 0.7, Max Tokens 4096, and the notice 「Editing generation
+   parameters for gpt-4o-mini」.
+3. Save 8192 → 「Saved locally」; the `vivy.demo.gen-params` key
+   `openai/https://api.openai.com/v1/gpt-4o-mini` was written.
+4. Switch the dropdown to gpt-4o → default 4096 loaded, with the gpt-4o-mini key
+   unaffected; after saving 1024, both keys coexisted without overwriting each other.
+5. Refresh → gpt-4o-mini remained selected by default and the saved 8192 was read;
+   `vivy.demo.gen-params` persisted.
 
-## 说明
+## Notes
 
-- 根树 :3015/:8787 属于另一条并行 lane（压缩分区并入通用），本分支占用
-  `ui/e2e` 自建 8799 端口冒烟，未干扰根树。
-- `just ci` 在「无真实 `ui/dist`」的新 worktree 首跑会失败
-  （`go:embed all:dist` / embed 测试 503），先 `pnpm build` 后全绿——环境
-  缺口，非代码问题。
-- 既有问题不属本次改动（照录共用看板）：`ui/e2e/runtime.spec.ts:84` 与
-  `welcome-wizard.spec.ts:33` 断言过期文案，见 `docs/TODO.md` §0.1
-  `UI-E2E-STALE`。
+- The root-tree :3015/:8787 belonged to another parallel lane (compaction section merged
+  into General); this branch used the `ui/e2e` self-created port 8799 for smoke testing and
+  did not interfere with the root tree.
+- The first `just ci` run in a new worktree with 「no real `ui/dist`」 fails
+  (`go:embed all:dist` / embed test 503); after `pnpm build`, all checks were green—an
+  environment gap, not a code issue.
+- Existing issues are unrelated to this change (recorded on the shared board): stale copy
+  assertions at `ui/e2e/runtime.spec.ts:84` and `welcome-wizard.spec.ts:33`, see
+  `docs/TODO.md` §0.1 `UI-E2E-STALE`.

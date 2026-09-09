@@ -1,17 +1,21 @@
-# 验收步骤（用户视角）
+# Acceptance steps (user perspective)
 
-前提：`http://127.0.0.1:3015` + 硬刷新（Ctrl+Shift+R）。
+Prerequisite: `http://127.0.0.1:3015` + hard refresh (Ctrl+Shift+R).
 
-1. **设置 → 模型**，左侧点任意目录厂商 → 右侧头部：厂商名 + 地址为两行纯文本；
-   右上角依次是运行束徽标、铅笔（编辑）、刷新（从官方目录同步）、新增(+)，三个
-   图标按钮**同排同尺寸、对齐一致**，不再有大小错落。
-2. 点铅笔 → 对话框标题为**「管理供应商」**（不再是「新增自定义供应商」），说明
-   了"保存后成为自定义供应商、目录原条目保持不变"。
-3. 把地址改成你的网关地址 → 保存 → 左侧「自定义」区出现新条目，右侧显示新地址
-   与其模型列表；点其中任一模型即选用。
-4. 点左侧自定义条目行右侧的铅笔 → 对话框标题为「编辑自定义供应商」——两种入口
-   语义严格区分。
-5. 左侧最底部「＋ 新增自定义供应商」→ 标题仍为「新增自定义供应商」（空表单），
-   与编辑/管理入口区分清晰。
+1. In **Settings → Model**, click any catalog provider on the left → in the right header,
+   the provider name + address are two plain-text rows; the upper-right sequence is the
+   runtime-bundle badge, pencil (Edit), Refresh (Sync from official catalog), and Add (+),
+   with the three icon buttons **on one row, the same size, and aligned**.
+2. Click the pencil → the dialog title is **「Manage provider」** (not 「Add custom provider」),
+   and explains "it becomes a custom provider after saving; the original catalog entry
+   remains unchanged".
+3. Change the address to your gateway address → Save → a new entry appears in the 「Custom」
+   area on the left, while the right shows the new address and its model list; click any model
+   there to select it.
+4. Click the pencil on the right side of a custom-entry row on the left → the dialog title is
+   「Edit custom provider」—the two entry semantics are strictly distinct.
+5. At the very bottom of the left side, 「＋ Add custom provider」 → the title remains 「Add
+   custom provider」 (empty form), clearly distinct from the Edit/Manage entries.
 
-预期结果：编辑类入口不再出现"新增"字样；头部按钮组视觉统一。
+Expected result: edit-type entries no longer contain the word "Add"; the header button group
+is visually uniform.

@@ -1,40 +1,43 @@
-# 验证记录：SKILL-MKT-1
+# Verification record: SKILL-MKT-1
 
-## 聚焦测试（提交前）
+## Focused tests (before submission)
 
 - `go test ./internal/runtime/ -run "TestMarketplace" -count=1` → ok
-  （12 用例含新增 `TestMarketplaceUpgradeMirrorsSnapshot`（升级镜像快照 +
-  hosted 删除 + 根散件保留 + 清单字段 + create 仍 409）、
-  `TestMarketplaceUpgradeUpToDateWritesNothing`（清单字节不变）、
-  `TestMarketplaceUpgradeGuards`（未知 mode/无清单/来源不符）、
-  `TestMarketplaceCheckUpdateStatuses`（四状态 + 非法名拒绝））
+  (12 cases including new `TestMarketplaceUpgradeMirrorsSnapshot` (snapshot mirroring +
+  hosted deletion + root loose-file retention + manifest fields + create still 409),
+  `TestMarketplaceUpgradeUpToDateWritesNothing` (manifest bytes unchanged),
+  `TestMarketplaceUpgradeGuards` (unknown mode/no manifest/source mismatch), and
+  `TestMarketplaceCheckUpdateStatuses` (four statuses + invalid-name rejection))
 - `go test ./internal/rpc/ -run "TestMarketplaceInstallModeAndCheckRoute" -count=1` → ok
-  （mode 校验 InvalidParams、upgrade/create 透传、not marketplace-managed →
-  CodeConflict、check 路由、未配置 marketplace → MethodNotFound）
-- `gofmt -w` + `go build ./...` + `go vet ./internal/{runtime,rpc,tools}/` → 绿
-- `cd ui && pnpm typecheck` → 绿
+  (mode validation InvalidParams, upgrade/create pass-through, not marketplace-managed →
+  CodeConflict, check route, unconfigured marketplace → MethodNotFound)
+- `gofmt -w` + `go build ./...` + `go vet ./internal/{runtime,rpc,tools}/` → green
+- `cd ui && pnpm typecheck` → green
 
-## 产品门禁（just ci + just ui-e2e，后台 tail-check）
+## Product gates (`just ci` + `just ui-e2e`, background tail-check)
 
-- `just ci` → **CI-EXIT:0**（/tmp/ci-skillmkt1.log）
-- `just ui-e2e` → **E2E-EXIT:0，17 passed (28.3s)**（/tmp/uie2e-skillmkt1.log）
+- `just ci` → **CI-EXIT:0** (`/tmp/ci-skillmkt1.log`)
+- `just ui-e2e` → **E2E-EXIT:0, 17 passed (28.3s)** (`/tmp/uie2e-skillmkt1.log`)
 
-## 真实路径冒烟（3015 split Vite，2026-09-02）
+## Real-path smoke (3015 split Vite, 2026-09-02)
 
-- `just run`（8787，CI-EXIT 后启动）+ `cd ui; pnpm dev`（3015），双端口 200。
-- skills.sh 可达（`curl /api/search?q=commit` → 200）。
-- Playwright 驱动（scratch 脚本，跑后即删）：
-  1. `/skills` → 「市场」tab → 精选榜单出现 `find-skills`；
-  2. 点「安装」→ 真实下载 skills.sh 快照并安装成功，行内按钮变「检查更新」；
-  3. 点「检查更新」→ 真实二次下载 + hosted 集合字节级比对 → 「已是最新」徽标
-     出现。
-  - 输出：`STEP install find-skills` → `STEP check-update button visible` →
-    `STEP up-to-date badge visible` → `SMOKE-OK`。
-- 冒烟在 dev home 的 `data/skills/` 留下 find-skills 安装（产品自身路径，非
-  air-gap 禁区三路径）；升级 `upgrade_available` 人工场景依赖上游发版，由
-  httptest 回放覆盖。
+- `just run` (8787, started after CI-EXIT) + `cd ui; pnpm dev` (3015), both ports 200.
+- skills.sh reachable (`curl /api/search?q=commit` → 200).
+- Playwright-driven (scratch script, deleted after the run):
+  1. `/skills` → "Marketplace" tab → featured list shows `find-skills`;
+  2. Click "Install" → real skills.sh snapshot download and successful install; the inline
+     button becomes "Check for updates";
+  3. Click "Check for updates" → real second download + byte-level hosted-set comparison →
+     "Up to date" badge appears.
+  - Output: `STEP install find-skills` → `STEP check-update button visible` →
+    `STEP up-to-date badge visible` → `SMOKE-OK`.
+- Smoke leaves a find-skills installation in `data/skills/` under the dev home (the product's
+  own path, not one of the three air-gap restricted paths); the manual
+  `upgrade_available` scenario depends on an upstream release and is covered by httptest
+  replay.
 
-## 备注
+## Notes
 
-- 判别性：升级路径的 hosted 集合镜像（含删除）与清单守卫均由 httptest 回放
-  断言；上游真实发版的 `upgrade_available` 场景不依赖线上时序。
+- Discriminating coverage: httptest replay asserts hosted-set mirroring (including
+  deletion) and manifest guards; the `upgrade_available` scenario for a real upstream
+  release does not depend on online timing.

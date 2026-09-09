@@ -1,5 +1,5 @@
 # Acceptance
 
-1. 用大约 100×30 或更宽的终端打开 `vivy tui --live`。
-2. 右侧应出现 `VIVY CODE` 栏（会话标题、模型、上下文），而不是只有顶栏 `Vivy™ VIVY CODE ╱╱╱`。
-3. 把窗口缩到 99 列以下时，右栏收起、顶栏出现。
+1. Open `vivy tui --live` in a terminal approximately 100×30 or wider.
+2. The `VIVY CODE` pane should appear on the right (session title, model, context), rather than only the top bar `Vivy™ VIVY CODE ╱╱╱`.
+3. When the window is narrowed below 99 columns, the right pane collapses and the top bar appears.

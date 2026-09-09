@@ -1,17 +1,21 @@
 # Acceptance
 
-## 人工验收
+## Manual acceptance
 
-1. 打开 `http://127.0.0.1:3015`，发起/打开一个有事件的 run，展开聊天侧
-   Run Inspector → "当前运行"：事件列表每行（#seq + 类型）可点击。
-2. 点击任意事件行：行下展开格式化 JSON 详情（缩进、可换行、超出高度
-   内部滚动）；再点收起；同一时间只有一行展开。
-3. 仅用键盘 Tab 到事件行、按 Enter/Space 同样能展开/收起（原生 button）；
-   读屏可从 `aria-expanded` 获知状态。
-4. 事件行不再有悬停 tooltip（title 已移除）；空 payload 事件展开显示
-   `null`。
+1. Open `http://127.0.0.1:3015`, start or open a run with events, and expand
+   Run Inspector on the chat side → "Current run": each event-list row (`#seq` +
+   type) is clickable.
+2. Click any event row: formatted JSON details expand below the row (indented,
+   wrappable, and internally scrollable when too tall); click again to collapse;
+   only one row is expanded at a time.
+3. Reach an event row with Tab and press Enter/Space to expand/collapse it as
+   well (native button); a screen reader can read the state from
+   `aria-expanded`.
+4. Event rows no longer have hover tooltips (`title` was removed); expanding an
+   event with an empty payload displays `null`.
 
-## 判定标准
+## Acceptance criteria
 
-- `just ci` 绿（tsc/eslint/vitest/build）。
-- `just ui-e2e` 全套绿（真实控制面 spec 覆盖 Inspector 所在聊天页）。
+- `just ci` is green (tsc/eslint/vitest/build).
+- The full `just ui-e2e` suite is green (the real-control-plane spec covers the
+  chat page containing Inspector).

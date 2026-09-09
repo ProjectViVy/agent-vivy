@@ -5,7 +5,7 @@ Status: complete
 
 ## What changed
 
-The dashboard Token 统计 “使用趋势” bars now use Vivy `primary` instead of
+The dashboard Token Stats “Usage Trend” bars now use Vivy `primary` instead of
 `chart-1`/`chart-2` (orange/teal in light mode), sit on a muted track, and
 keep a column silhouette:
 

@@ -1,21 +1,21 @@
 # Acceptance
 
-1. **查看会话待办列表**：
-   - 打开 Vivy Web UI (`http://127.0.0.1:3015`)，进入包含待办事项的会话。
-   - 点击顶部待办图标或右侧面板展开 `SessionTodoPanel`，能正常看到分组的待办清单（当前待办与历史待办）。
+1. **View the session todo list**:
+   - Open the Vivy Web UI (`http://127.0.0.1:3015`) and enter a session containing todo items.
+   - Click the todo icon at the top or expand `SessionTodoPanel` in the right panel; the grouped todo list should display normally (current and historical todos).
 
-2. **状态勾选与切换**：
-   - 会话处于空闲状态时（无活跃 Run）：
-     - 点击待办项左侧的未选中 Checkbox，待办状态立即更新为 `completed` 并移入历史列表，字体置灰。
-     - 在历史列表中点击已完成待办的勾选框，可取消勾选，待办状态切回 `pending` 并移回当前列表。
-   - 点击待办项右侧悬停出现的取消按钮（`Ban` 图标），待办状态变更为 `cancelled`，显示删除线。
-   - 对已取消条目点击恢复按钮（`RotateCcw` 图标），待办重新恢复为 `pending`。
+2. **Check and switch status**:
+   - When the session is idle (no active Run):
+     - Click the unchecked Checkbox on the left of a todo item; its status immediately updates to `completed`, moves to the history list, and its text turns gray.
+     - Click the checkbox for a completed todo in the history list to uncheck it; its status returns to `pending` and it moves back to the current list.
+   - Click the cancel button that appears on hover on the right of a todo item (`Ban` icon); its status changes to `cancelled` and it displays a strikethrough.
+   - Click the restore button (`RotateCcw` icon) for a cancelled item; the todo returns to `pending`.
 
-3. **运行期安全锁定 (Safe Execution Guard)**：
-   - 当会话触发新的 Run（生成回答或执行工具）或者处于 busy 状态时：
-     - 面板顶部展示醒目的“执行中锁定”徽章。
-     - 所有待办的 Checkbox 与操作按钮自动置灰禁用（`disabled`），防止在模型推进任务时发生人为并发写冲突。
-     - 若模型本身通过工具调用推进待办，UI 实时刷新反映模型推进后的状态。
+3. **Safe Execution Guard**:
+   - When the session triggers a new Run (generating an answer or executing a tool) or is busy:
+     - The top of the panel displays a prominent “Locked during execution” badge.
+     - All todo Checkboxes and action buttons are automatically grayed out and disabled (`disabled`), preventing human-induced concurrent write conflicts while the model advances the task.
+     - If the model itself advances a todo through a tool call, the UI refreshes in real time to reflect the resulting state.
 
-4. **异常防御与回滚**：
-   - 若模拟网络断开或服务端返回冲突错误，前端乐观更新会被安全回滚至修改前状态，并记录错误提示。
+4. **Error handling and rollback**:
+   - If a simulated network disconnect occurs or the server returns a conflict error, the frontend optimistic update is safely rolled back to the pre-change state and an error message is recorded.

@@ -1,145 +1,145 @@
-# Diva 能力清单（P2-1）— Keep / Adapt / Defer / Drop
+# Diva Capability Inventory (P2-1) — Keep / Adapt / Defer / Drop
 
 > **Date:** 2026-09-02
-> **Closes:** TODO §0.1 行 P2-1（`AGENT-VIVY-ASSEMBLY-OPTIONS.md` §5 的 V0 占位由本文档取代为全量清单）；PRD v0 行 23 的"deferred to a later artifact"即此文档。
-> **Evidence base:** `morediva/agent-diva`（Rust 工作区，17 crates）2026-09-02 现场盘点——README/AGENTS-ARCH.md/LAPUTA.md、各 crate 目录、`agent-diva-providers/src/providers.yaml`（47 个 provider 预设，grep `- name:`）、`agent-diva-gui/src-tauri/src/commands.rs`（grep `#[tauri::command]` = 176+1）。逐条证据在行内标注文件路径；无法核实的条目显式标注"未核实"。
-> **Status 语义：** 每个 tag 是**清单推荐**。凡"Keep 但未交付"的能力，仍必须走 ASSEMBLY-OPTIONS §6 的能力再入流程（提案 → 设计 → 架构决策 → 实现 → 验证）才允许进入 Vivy——tag 不是实施授权。
+> **Closes:** TODO §0.1 row P2-1 (`AGENT-VIVY-ASSEMBLY-OPTIONS.md` §5's V0 placeholder is replaced by this document's full inventory); PRD v0 row 23's "deferred to a later artifact" refers to this document.
+> **Evidence base:** `morediva/agent-diva` (Rust workspace, 17 crates) inventoried on site on 2026-09-02—README/AGENTS-ARCH.md/LAPUTA.md, each crate directory, `agent-diva-providers/src/providers.yaml` (47 provider presets, grep `- name:`), and `agent-diva-gui/src-tauri/src/commands.rs` (grep `#[tauri::command]` = 176+1). Evidence for each item is annotated inline with a file path; entries that cannot be verified are explicitly marked "unverified".
+> **Status semantics:** Each tag is an **inventory recommendation**. Any capability marked "Keep but not delivered" must still go through the capability re-entry process in ASSEMBLY-OPTIONS §6 (proposal → design → architecture decision → implementation → verification) before it may enter Vivy—the tag is not implementation authorization.
 
-## 0. Tag 语义（承 ASSEMBLY-OPTIONS §5/§6 与 PRD 行 23）
+## 0. Tag semantics (per ASSEMBLY-OPTIONS §5/§6 and PRD row 23)
 
-| Tag | 含义 |
+| Tag | Meaning |
 |---|---|
-| Keep | 能力本身属于 Vivy 产品核心；Vivy 已交付或应通过提案再入。 |
-| Adapt | 值得要，但必须换形态/换架构再入（不是照搬 Diva 的做法）。 |
-| Defer | 现在不动；等真实使用场景或前置能力（多数等 MEM-1 / CH 轨道 / SystemV）。 |
-| Drop | 明确不带走：license 风险、无消费者、或被 Vivy 架构取代。 |
+| Keep | The capability itself belongs to Vivy's product core; Vivy has delivered it or it should re-enter through a proposal. |
+| Adapt | Worth having, but it must re-enter in a different form/architecture (not by copying Diva's approach). |
+| Defer | Do not work on it now; wait for a real use case or prerequisite capability (most await MEM-1 / the CH track / SystemV). |
+| Drop | Explicitly do not carry it forward: license risk, no consumer, or superseded by Vivy's architecture. |
 
-**Vivy 现状参照（2026-09-02）**：内核 = session/run/event + eino 执行 + provider 目录 + 工具（fs/bash/grep/multiedit/skill）+ 审批/HITL + compaction + faces/masks + skills 市场 + cron + MCP + token 统计 + browser UI（3015）+ 插件通道（telegram/discord/feishu/qq/dingtalk/lsp）。逐条对照见表。
+**Vivy current-state reference (2026-09-02):** kernel = session/run/event + eino execution + provider catalog + tools (fs/bash/grep/multiedit/skill) + approval/HITL + compaction + faces/masks + skills marketplace + cron + MCP + token statistics + browser UI (3015) + channel plugins (telegram/discord/feishu/qq/dingtalk/lsp). See the table for the item-by-item comparison.
 
-## 1. 会话 / 对话 / 运行
+## 1. Session / conversation / run
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 1.1 | Session CRUD + 自动标题 | `agent-diva-gui/src-tauri/src/lib.rs:369+`（get/update/generate/delete_session 等） | Keep | **已交付**（internal/session + session RPC + UI；标题=会话名） |
-| 1.2 | Agent 循环（context assembly + skill/subagent 流） | `AGENTS-ARCH.MD` CODE MAP；`agent-diva-cli/src/main.rs` | Keep | **已交付**（internal/runtime + eino ADK） |
-| 1.3 | 流式输出 + reasoning + 工具日志 | `agent-diva-cli/src/main.rs` | Keep | **已交付**（run_events 订阅；UI 流式面板） |
-| 1.4 | 事件总线 | `agent-diva-core/src/`（event bus 目录） | Keep | **已交付**（run_events + RPC 订阅） |
-| 1.5 | Token 台账 | `agent-diva-core/src/` token_ledger（未读内部） | Keep | **已交付**（stats/tokens + 轨迹投影 token 用量） |
-| 1.6 | Heartbeat / rate limiter / presence | `agent-diva-core/src/`（目录名核实，行为未读） | Defer | 无当前消费者；多通道在线态等 CH 轨道驱动 |
-| 1.7 | audit / audit_parse / audit_sink | `agent-diva-core/src/`（目录名核实） | Adapt | 需求已被 D-010 红action + 结构化日志覆盖大半；剩余（审计流导出）无消费者 |
-| 1.8 | supervised / quality / experience 模块 | `agent-diva-core/src/`（仅目录名） | Defer | MEM-1 家族邻接；等能力提案 |
-| 1.9 | 重启恢复 / 终态唯一 | `agent-diva-agent/` recovery 语义 | Keep | **已交付**（run 恢复 + TT-2 快照；ASSEMBLY-OPTIONS §8 门禁全过） |
-| 1.10 | 消息编辑 / 回退 / 分叉（截断式重生成） | GUI 命令簇 | Keep（未交付） | **UI-CHAT-ACT 在办**——需内核 Journal 截断/分支 RPC 设计片先行 |
+| 1.1 | Session CRUD + automatic title | `agent-diva-gui/src-tauri/src/lib.rs:369+` (get/update/generate/delete_session, etc.) | Keep | **Delivered** (internal/session + session RPC + UI; title = session name) |
+| 1.2 | Agent loop (context assembly + skill/subagent streams) | `AGENTS-ARCH.MD` CODE MAP; `agent-diva-cli/src/main.rs` | Keep | **Delivered** (internal/runtime + eino ADK) |
+| 1.3 | Streaming output + reasoning + tool logs | `agent-diva-cli/src/main.rs` | Keep | **Delivered** (run_events subscription; streaming UI panel) |
+| 1.4 | Event bus | `agent-diva-core/src/` (event bus directory) | Keep | **Delivered** (run_events + RPC subscription) |
+| 1.5 | Token ledger | `agent-diva-core/src/` token_ledger (internal behavior not read) | Keep | **Delivered** (stats/tokens + token usage in the trajectory projection) |
+| 1.6 | Heartbeat / rate limiter / presence | `agent-diva-core/src/` (directory name verified, behavior not read) | Defer | No current consumer; multi-channel presence and similar needs are driven by the CH track |
+| 1.7 | audit / audit_parse / audit_sink | `agent-diva-core/src/` (directory name verified) | Adapt | Most of the requirement is covered by D-010 redaction + structured logs; the remainder (audit-stream export) has no consumer |
+| 1.8 | supervised / quality / experience modules | `agent-diva-core/src/` (directory names only) | Defer | Adjacent to the MEM-1 family; await a capability proposal |
+| 1.9 | Restart recovery / unique terminal state | `agent-diva-agent/` recovery semantics | Keep | **Delivered** (run recovery + TT-2 snapshots; all ASSEMBLY-OPTIONS §8 gates passed) |
+| 1.10 | Message edit / rewind / fork (truncation-based regeneration) | GUI command cluster | Keep (not delivered) | **UI-CHAT-ACT in progress**—kernel Journal truncation/branch RPC design slice must come first |
 
-## 2. Provider / 模型
+## 2. Provider / model
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 2.1 | 47 个 provider 预设 | `agent-diva-providers/src/providers.yaml`（grep `- name:`） | Adapt | Vivy 用**精选** YAML bundle（D-018）；广度只随真实消费者增长，不整体照搬 |
-| 2.2 | 网关前缀 model 重写 | providers/（AGENTS.md 规则同源） | Keep | **已交付**（仅真聚合网关前缀，出站 model 断言测试在位） |
-| 2.3 | 自定义 OpenAI 兼容端点 | providers/src/ | Keep | **已交付**（provider 目录 + bundle） |
-| 2.4 | 模型目录 / 元数据（含 thinking 标注） | providers/ catalog | Keep | **已交付**（ModelInfo/SupportsImages/SupportsThinking，D9 单一事实源） |
-| 2.5 | 转写（speech-to-text） | providers/src/ 文件列表 | Defer | 无场景；等真实需求 |
-| 2.6 | 重试 / 请求观察者 | providers/src/ | Keep | **已交付**（resolving 模型每调用构造 + 重试面；轨迹可见重试行） |
-| 2.7 | CLI provider 登录/切换 | `agent-diva-cli/src/main.rs` | Defer | Vivy 面 = 设置 UI + config；CLI 形态无行 |
+| 2.1 | 47 provider presets | `agent-diva-providers/src/providers.yaml` (grep `- name:`) | Adapt | Vivy uses a **curated** YAML bundle (D-018); breadth grows only with real consumers, not by copying everything wholesale |
+| 2.2 | Gateway-prefix model rewrite | providers/ (same source as the AGENTS.md rules) | Keep | **Delivered** (only true aggregation gateway prefixes; outbound model assertion tests are in place) |
+| 2.3 | Custom OpenAI-compatible endpoint | providers/src/ | Keep | **Delivered** (provider catalog + bundle) |
+| 2.4 | Model catalog / metadata (including thinking annotations) | providers/ catalog | Keep | **Delivered** (ModelInfo/SupportsImages/SupportsThinking, D9 single source of truth) |
+| 2.5 | Transcription (speech-to-text) | providers/src/ file list | Defer | No use case; wait for real demand |
+| 2.6 | Retry / request observer | providers/src/ | Keep | **Delivered** (construct a resolving model per call + retry surface; the trajectory exposes retry rows) |
+| 2.7 | CLI provider login/switching | `agent-diva-cli/src/main.rs` | Defer | Vivy surface = settings UI + config; no CLI surface |
 
-## 3. 工具
+## 3. Tools
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 3.1 | filesystem / shell / web(grep) 工具 | `agent-diva-tools/src/` | Keep | **已交付**（VC-1 工具族：read/write/edit/multiedit/glob/grep/bash） |
-| 3.2 | attachment / message / read_tool_result | `agent-diva-tools/src/` | Keep | **已交付**（附件 VC-1g-2 链路；read_tool_result 同族） |
-| 3.3 | cron 工具 | `agent-diva-tools/src/` | Keep | **已交付**（内核 cron + UI + at 调度 UI-CRON-P2） |
-| 3.4 | spawn（子代理） | `agent-diva-tools/src/` | Adapt | 子 run（children RPC）已交付；"把子代理暴露为工具"再入需提案（审批语义复杂） |
-| 3.5 | ask_user | `agent-diva-tools/src/` | Keep | **已交付**（HITL-P0 询问流；review/list 含 question） |
-| 3.6 | planning / update_plan / execution_todo | `agent-diva-tools/src/` | Keep | **已交付**（RunMode plan + 会话待办面板 + TodoProgressStrip） |
-| 3.7 | working checkpoint | `agent-diva-tools/src/` | Defer | eino CheckPointStore 桥已在内核（D-028），产品级暴露无消费者 |
-| 3.8 | tool_discovery / skill_view 挂载 | `agent-diva-tools/src/` | Adapt | skill_view 已交付；TT-1 会话级 pin 在办；更广的 discovery 等真实场景 |
-| 3.9 | mcp_sdk 工具 | `agent-diva-tools/src/` | Keep | **已交付**（MCP 管理页 + 工具接线） |
-| 3.10 | memory_* 工具族 | `agent-diva-tools/src/` | Defer | MEM-1（DEFERRED） |
-| 3.11 | actmem（active-memory 写入） | `agent-diva-tools/src/` | Defer | MEM-1 |
-| 3.12 | wtf 工具 | `agent-diva-tools/src/`（用途未核实） | Drop | 用途不明 + 无消费者；若将来弄清再走提案 |
+| 3.1 | filesystem / shell / web(grep) tools | `agent-diva-tools/src/` | Keep | **Delivered** (VC-1 tool family: read/write/edit/multiedit/glob/grep/bash) |
+| 3.2 | attachment / message / read_tool_result | `agent-diva-tools/src/` | Keep | **Delivered** (attachment VC-1g-2 path; read_tool_result is in the same family) |
+| 3.3 | cron tool | `agent-diva-tools/src/` | Keep | **Delivered** (kernel cron + UI + at scheduler UI-CRON-P2) |
+| 3.4 | spawn (subagent) | `agent-diva-tools/src/` | Adapt | Child runs (children RPC) are delivered; exposing a subagent as a tool requires a re-entry proposal (approval semantics are complex) |
+| 3.5 | ask_user | `agent-diva-tools/src/` | Keep | **Delivered** (HITL-P0 question flow; review/list includes question) |
+| 3.6 | planning / update_plan / execution_todo | `agent-diva-tools/src/` | Keep | **Delivered** (RunMode plan + session todo panel + TodoProgressStrip) |
+| 3.7 | working checkpoint | `agent-diva-tools/src/` | Defer | The eino CheckPointStore bridge is already in the kernel (D-028); no product-level consumer |
+| 3.8 | tool_discovery / skill_view mounting | `agent-diva-tools/src/` | Adapt | skill_view is delivered; TT-1 session-level pin is in progress; broader discovery awaits real scenarios |
+| 3.9 | mcp_sdk tools | `agent-diva-tools/src/` | Keep | **Delivered** (MCP management page + tool wiring) |
+| 3.10 | memory_* tool family | `agent-diva-tools/src/` | Defer | MEM-1 (DEFERRED) |
+| 3.11 | actmem (active-memory write) | `agent-diva-tools/src/` | Defer | MEM-1 |
+| 3.12 | wtf tool | `agent-diva-tools/src/` (purpose unverified) | Drop | Purpose unclear + no consumer; if clarified in the future, use a proposal |
 
-## 4. 沙箱 / 权限 / HITL
+## 4. Sandbox / permissions / HITL
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 4.1 | ExecPolicy 规则式审批 + 审批缓存 | `agent-diva-sandbox/src/lib.rs:1-18`、`exec_policy.rs` | Keep | **已交付**（审批中心 HITL-P0 + 权限三段预设 UI-CHAT-TOOLBAR） |
-| 4.2 | Guardian 自动放行 | `agent-diva-sandbox/` | Adapt | Vivy 以预设（谨慎/智能/信任）承担同职责；"自动学习放行"等 SBX 真实需求 |
-| 4.3 | Windows Restricted Token 隔离 | `agent-diva-sandbox/src/lib.rs` | Defer | SBX-*（DEFERRED）； approval 闸门已覆盖当前风险面 |
-| 4.4 | Linux Bubblewrap/Landlock/Seccomp | `agent-diva-sandbox/src/lib.rs` | Defer | 同上（Vivy 当前 Windows-first） |
-| 4.5 | 持久审批中心（decide/cancel/review + 流） | CLI `approvals`；GUI 命令簇 | Keep | **已交付**（审批中心页 + run 级审批事件） |
-| 4.6 | 命令规则 CRUD | GUI 命令簇 | Adapt | 预设已覆盖；逐规则 UI 等真实治理需求 |
+| 4.1 | ExecPolicy rule-based approval + approval cache | `agent-diva-sandbox/src/lib.rs:1-18`, `exec_policy.rs` | Keep | **Delivered** (approval center HITL-P0 + three-tier permission presets UI-CHAT-TOOLBAR) |
+| 4.2 | Guardian automatic allow | `agent-diva-sandbox/` | Adapt | Vivy's presets (cautious/intelligent/trusted) cover the same responsibility; "automatic-learning allow" and similar items are real SBX needs |
+| 4.3 | Windows Restricted Token isolation | `agent-diva-sandbox/src/lib.rs` | Defer | SBX-* (DEFERRED); the approval gate covers the current risk surface |
+| 4.4 | Linux Bubblewrap/Landlock/Seccomp | `agent-diva-sandbox/src/lib.rs` | Defer | Same as above (Vivy is currently Windows-first) |
+| 4.5 | Persistent approval center (decide/cancel/review + stream) | CLI `approvals`; GUI command cluster | Keep | **Delivered** (approval-center page + run-level approval events) |
+| 4.6 | Command-rule CRUD | GUI command cluster | Adapt | Presets cover it; per-rule UI awaits real governance requirements |
 
-## 5. 通道 / 网关
+## 5. Channels / gateway
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 5.1 | 六通道（Telegram/Discord/QQ/DingTalk/Feishu/Email） | `agent-diva-channels/src/*.rs` | Adapt | Vivy 以**插件**形态交付 5 通道（dingtalk/discord/feishu/qq/telegram）+ CH-0 契约 docs；email 与其余归 CH 轨道（拍板：留待办） |
-| 5.2 | 已退役通道（Slack/WhatsApp/Matrix/IRC/Mattermost/Nextcloud） | README cargo features | Drop | 无消费者 |
-| 5.3 | 网关=会话/路由单一事实源 + HTTP 控制面 | README "How it works" | Keep | **已交付**（vivy 控制面 8787 + 消息注入面） |
-| 5.4 | `POST /api/hook/message` 外部注入 | README | Adapt | CH 轨道内（外发/补跑通道等 CH-0 家族） |
-| 5.5 | neuro_link 通道 | `agent-diva-channels/src/neuro_link.rs`（用途未核实） | Drop | 同 wtf：用途不明 |
-| 5.6 | Windows service 包装 | `agent-diva-service/` | Defer | Vivy 以前台进程 + Studio 生命周期覆盖；服务化无行 |
+| 5.1 | Six channels (Telegram/Discord/QQ/DingTalk/Feishu/Email) | `agent-diva-channels/src/*.rs` | Adapt | Vivy delivers 5 channels as **plugins** (dingtalk/discord/feishu/qq/telegram) + CH-0 contract docs; email and the remainder belong to the CH track (decision: backlog) |
+| 5.2 | Retired channels (Slack/WhatsApp/Matrix/IRC/Mattermost/Nextcloud) | README cargo features | Drop | No consumer |
+| 5.3 | Gateway = session/routing single source of truth + HTTP control plane | README "How it works" | Keep | **Delivered** (vivy control plane 8787 + message-injection surface) |
+| 5.4 | `POST /api/hook/message` external injection | README | Adapt | On the CH track (outbound/replay channels and other CH-0 family items) |
+| 5.5 | neuro_link channel | `agent-diva-channels/src/neuro_link.rs` (purpose unverified) | Drop | Same as wtf: purpose unclear |
+| 5.6 | Windows service wrapper | `agent-diva-service/` | Defer | Vivy's foreground process + Studio lifecycle cover it; no path for a service form |
 
-## 6. 记忆 / 人格 / 自演化
+## 6. Memory / persona / self-evolution
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 6.1 | BML 记忆权威（SQLite+FTS5 `.laputa/`） | `agent-diva-laputa/src/lib.rs:1-8` | Defer | MEM-1（DEFERRED） |
-| 6.2 | ACTMEM 工作记忆（ring/capsule） | laputa | Defer | MEM-1 |
-| 6.3 | MEMRULES / 记忆蒸馏 | laputa | Defer | MEM-1 |
-| 6.4 | Laputa 治理层（提案制写权威 + 回滚 + 审计） | `AGENTS-ARCH.MD`（仅 `apply_proposal()` 可写权威） | Adapt | 治理**模式**已被 Studio 生命周期（pack→eval→release→rollback）吸收；记忆域本身等 MEM-1 |
-| 6.5 | 人格 Markdown 工作区 + Frozen Core | laputa | Adapt | Vivy 有 persona 页 + faces 轨道（FACE-TUI-1 F0 paperwork 已落）；冻结快照语义随 FACE 提案 |
-| 6.6 | AutoDream 提案生命周期 | `agent-diva-autodream/src/lib.rs` | Defer | MEM-1；UI AutoDream 维持 stub（拍板） |
-| 6.7 | 进化控技能请求（create/accept/reject） | autodream | Defer | 同上 |
+| 6.1 | BML memory authority (SQLite+FTS5 `.laputa/`) | `agent-diva-laputa/src/lib.rs:1-8` | Defer | MEM-1 (DEFERRED) |
+| 6.2 | ACTMEM working memory (ring/capsule) | laputa | Defer | MEM-1 |
+| 6.3 | MEMRULES / memory distillation | laputa | Defer | MEM-1 |
+| 6.4 | Laputa governance layer (proposal-based writes to authority + rollback + audit) | `AGENTS-ARCH.MD` (only `apply_proposal()` can write to authority) | Adapt | The governance **pattern** has been absorbed by the Studio lifecycle (pack→eval→release→rollback); the memory domain itself awaits MEM-1 |
+| 6.5 | Persona Markdown workspace + Frozen Core | laputa | Adapt | Vivy has a persona page + faces track (FACE-TUI-1 F0 paperwork has landed); frozen-snapshot semantics follow the FACE proposal |
+| 6.6 | AutoDream proposal lifecycle | `agent-diva-autodream/src/lib.rs` | Defer | MEM-1; UI AutoDream remains a stub (decision) |
+| 6.7 | Evolution-controlled skill requests (create/accept/reject) | autodream | Defer | Same as above |
 
-## 7. 技能 / 文件 / 工作区
+## 7. Skills / files / workspace
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 7.1 | SKILL.md 加载（用户+repo 回退） | skills 加载面 | Keep | **已交付**（skills 目录 + enable/disable） |
-| 7.2 | 技能市场（搜索/安装/上传） | skills.sh 面板 | Keep | **已交付**（SKILL-MKT-1 版本比对+原地升级、SKILL-MKT-2 always 注入） |
-| 7.3 | 技能历史/修订 | 技能修订 RPC | Keep | **已交付**（skills/revisions/list） |
-| 7.4 | 文件索引 / FileManager / 上传 | `agent-diva-files/` | Keep | **已交付**（工作区 + 文件面板 + file_versions + 附件） |
-| 7.5 | 工作区检查/切换 | GUI workspace 命令簇 | Keep | **已交付**（WorkspaceManager 多工作区） |
+| 7.1 | SKILL.md loading (user + repo fallback) | skills loading surface | Keep | **Delivered** (skills directory + enable/disable) |
+| 7.2 | Skills marketplace (search/install/upload) | skills.sh panel | Keep | **Delivered** (SKILL-MKT-1 version comparison + in-place upgrade, SKILL-MKT-2 always injection) |
+| 7.3 | Skill history/revisions | Skill-revision RPC | Keep | **Delivered** (skills/revisions/list) |
+| 7.4 | File index / FileManager / upload | `agent-diva-files/` | Keep | **Delivered** (workspace + file panel + file_versions + attachments) |
+| 7.5 | Workspace inspection/switching | GUI workspace command cluster | Keep | **Delivered** (multi-workspace WorkspaceManager) |
 
-## 8. 面具 / 计划 / 定时
+## 8. Masks / plans / scheduling
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 8.1 | 面具（人格预设）CRUD/切换 | CLI `mask`；GUI 命令簇 | Adapt | Vivy 把 masks 升级为真实 run 模式 + Face 契约（VC-0c；FACE 轨道）；Diva 式纯文案预设不照搬 |
-| 8.2 | 计划审批流（get/approve/report） | GUI 命令簇 | Keep | **已交付**（plan 模式 + 审批链） |
-| 8.3 | Cron CRUD + 时区 + 通道投递 | CLI/GUI；runs inside gateway | Keep | **已交付**（cron 页 + at 调度）；"经通道投递"归 CH 轨道 |
+| 8.1 | Masks (persona presets) CRUD/switching | CLI `mask`; GUI command cluster | Adapt | Vivy upgrades masks to real run modes + the Face contract (VC-0c; FACE track); Diva-style text-only presets are not copied |
+| 8.2 | Plan approval flow (get/approve/report) | GUI command cluster | Keep | **Delivered** (plan mode + approval chain) |
+| 8.3 | Cron CRUD + time zones + channel delivery | CLI/GUI; runs inside gateway | Keep | **Delivered** (cron page + at scheduling); "channel delivery" belongs to the CH track |
 
-## 9. GUI / 客户端形态
+## 9. GUI / client form
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 9.1 | Tauri GUI（177 命令） | `#[tauri::command]` grep 176+1 | Drop（形态） | Vivy 以 browser UI（3015 split Vite / 8787 embedded）覆盖同需求；逐能力已散入上表对应行 |
-| 9.2 | 桌面宠物 Mate（VRM/TTS/置顶窗） | lib.rs 命令簇（VRM import、MiniMax/SiliconFlow TTS） | Defer | 无内核能力；等提案（UI-CHAT-TOOLBAR 行已注明） |
-| 9.3 | 语音合成输入 | 同上 | Defer | 同上 |
-| 9.4 | 多语言切换 / splash / GUI 偏好 | 命令簇 | Adapt | Vivy i18n en/zh 已交付；偏好持久化按 UI 需求增长 |
-| 9.5 | 日志尾随 / token 面板（GUI 内） | 命令簇 | Keep | **已交付**（token 统计页 + 轨迹面板 UI-TRAJ） |
-| 9.6 | wipe_local_data | 命令簇 | Adapt | 数据归属是 Vivy 哲学锚点（local-first）；"一键重置"随设置页提案 |
+| 9.1 | Tauri GUI (177 commands) | `#[tauri::command]` grep 176+1 | Drop (form) | Vivy's browser UI (3015 split Vite / 8787 embedded) covers the same needs; individual capabilities are distributed across the corresponding rows above |
+| 9.2 | Desktop pet Mate (VRM/TTS/always-on-top window) | lib.rs command cluster (VRM import, MiniMax/SiliconFlow TTS) | Defer | No kernel capability; await a proposal (noted in the UI-CHAT-TOOLBAR row) |
+| 9.3 | Speech-synthesis input | Same as above | Defer | Same as above |
+| 9.4 | Language switching / splash / GUI preferences | Command cluster | Adapt | Vivy i18n en/zh is delivered; preference persistence grows with UI requirements |
+| 9.5 | Log tailing / token panel (in GUI) | Command cluster | Keep | **Delivered** (token statistics page + trajectory panel UI-TRAJ) |
+| 9.6 | wipe_local_data | Command cluster | Adapt | Data ownership is a Vivy philosophical anchor (local-first); "one-click reset" follows a settings-page proposal |
 
-## 10. CLI / 内核支撑面
+## 10. CLI / kernel support surface
 
-| # | Diva 能力 | Diva 证据 | Tag | Vivy 现状 / 再入去向 |
+| # | Diva capability | Diva evidence | Tag | Vivy status / re-entry destination |
 |---|---|---|---|---|
-| 10.1 | CLI 全家（onboard/chat/tui/status/doctor/…） | `agent-diva-cli/src/main.rs` | Defer | Vivy 当前控制面+UI 双面；CLI 无行。FACE-TUI-1 的 faces/tui 是 TUI 形态的**脸**，不是 Diva 式全功能 CLI |
-| 10.2 | neuron（单轮 LLM 节点基元） | `agent-diva-neuron/src/lib.rs` | Drop | eino compose/graph 已覆盖组合需求 |
-| 10.3 | manager（网关运行时+HTTP 控制面） | `agent-diva-manager/` | Keep（形态异） | Vivy 的 cmd/vivy + internal/rpc 即同职责 |
-| 10.4 | migration 工具 | `agent-diva-migration/` | Drop | 无 Diva 用户数据可迁 |
-| 10.5 | e2e 真 LLM 测试 harness | `agent-diva-e2e/src/lib.rs` | Adapt | Vivy 有 Playwright + Go 全测；"真 provider e2e 门"已用（TEST-1 决策）；更重 harness 无消费者 |
-| 10.6 | 打包（NSIS/MSI/deb） | `scripts/package-*.ps1` | Adapt | Vivy 分发 = embedded UI exe + split build + Docker；安装器随发布提案 |
+| 10.1 | Full CLI suite (onboard/chat/tui/status/doctor/…) | `agent-diva-cli/src/main.rs` | Defer | Vivy currently has control-plane + UI surfaces; there is no CLI surface. FACE-TUI-1's faces/tui is a TUI **face**, not a Diva-style full-featured CLI |
+| 10.2 | neuron (single-turn LLM node primitive) | `agent-diva-neuron/src/lib.rs` | Drop | eino compose/graph already covers composition needs |
+| 10.3 | manager (gateway runtime + HTTP control plane) | `agent-diva-manager/` | Keep (different form) | Vivy's cmd/vivy + internal/rpc has the same responsibility |
+| 10.4 | migration tool | `agent-diva-migration/` | Drop | There is no Diva user data to migrate |
+| 10.5 | e2e real-LLM test harness | `agent-diva-e2e/src/lib.rs` | Adapt | Vivy has full Playwright + Go tests; the "real provider e2e gate" is in use (TEST-1 decision); a heavier harness has no consumer |
+| 10.6 | Packaging (NSIS/MSI/deb) | `scripts/package-*.ps1` | Adapt | Vivy distribution = embedded UI exe + split build + Docker; installer follows a release proposal |
 
-## 11. 统计
+## 11. Statistics
 
-68 行：**Keep 29**（已交付 28 + 待提案 1：1.10 消息编辑/回退/分叉）· **Adapt 15** · **Defer 18** · **Drop 6**。
+68 rows: **Keep 29** (28 delivered + 1 awaiting proposal: 1.10 message edit/rewind/fork) · **Adapt 15** · **Defer 18** · **Drop 6**.
 
-> 注：计数按行（部分行合并多个子工具）。"已交付"判定以 2026-09-02 TODO §10 与 `docs/logs/` 为准。**Defer 重仓区与拍板一致**：MEM-1 家族（6.1-6.3、6.6-6.7、3.10-3.11、1.8）、SBX（4.3-4.4）、CH 轨道余量（5.1 部分、5.4）。Drop 集中在"用途不明"（3.12、5.5）、"被架构取代"（9.1、10.2）与"无迁移对象"（10.4）。
+> Note: counts are by row (some rows combine multiple subtools). The "delivered" determination follows 2026-09-02 TODO §10 and `docs/logs/`. **The concentration of Defer items matches the decision:** the MEM-1 family (6.1-6.3, 6.6-6.7, 3.10-3.11, 1.8), SBX (4.3-4.4), and remaining CH-track items (part of 5.1, 5.4). Drop is concentrated in "purpose unclear" (3.12, 5.5), "superseded by architecture" (9.1, 10.2), and "no migration object" (10.4).
 
-## 12. 再入规则重申（ASSEMBLY-OPTIONS §6）
+## 12. Reiterate re-entry rules (ASSEMBLY-OPTIONS §6)
 
-本清单不改变任何当前 TODO 优先级。任何 Defer→实施、Adapt→实施的转换都必须先产出能力提案（问题陈述 / 工作流 / 验收 / 安全审批模型 / 状态与事件语义 / 持久化恢复 / UI 后果 / 显式 tag 决议），**不得**从 Diva 的 crate 边界、Tauri 命令名、旧 schema 或后端实现出发。
+This inventory does not change any current TODO priority. Any transition from Defer→implementation or Adapt→implementation must first produce a capability proposal (problem statement / workflow / acceptance / safety approval model / state and event semantics / persistence and recovery / UI consequences / explicit tag decision), and **must not** begin from Diva's crate boundaries, Tauri command names, old schema, or backend implementation.
