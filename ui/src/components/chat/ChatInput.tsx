@@ -14,7 +14,7 @@ import {
 import type { AttachmentInput, PermissionPreset, RunMode, SessionContext, ThinkingMode } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { useTranslation } from '@/i18n';
+import { dateTimeLocale, useTranslation } from '@/i18n';
 
 interface ChatInputProps {
   onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
@@ -108,9 +108,9 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   const contextCircumference = 2 * Math.PI * 10;
   const contextColor = wouldCompact || contextPercent >= 80 ? 'text-destructive' : contextPercent >= 60 ? 'text-amber-500' : 'text-primary';
   const contextTitleText = () => {
-    const base = t('chatInput.contextTitle', { percent: contextPercent, used: usedTokens.toLocaleString(), limit: limitTokens.toLocaleString() });
+    const base = t('chatInput.contextTitle', { percent: contextPercent, used: usedTokens.toLocaleString(dateTimeLocale()), limit: limitTokens.toLocaleString(dateTimeLocale()) });
     if (!context) return base;
-    const bytes = ` · ${context.feed_bytes.toLocaleString()} / ${context.limit_bytes.toLocaleString()} B`;
+    const bytes = ` · ${context.feed_bytes.toLocaleString(dateTimeLocale())} / ${context.limit_bytes.toLocaleString(dateTimeLocale())} B`;
     const status = wouldCompact
       ? ` · ${t('chatInput.contextWouldCompact')}`
       : context.has_compaction_summary || context.last_compaction

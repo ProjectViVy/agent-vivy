@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	corei18n "agent-vivy/internal/i18n"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 )
 
 // Kind describes the result of parsing one input line.
@@ -282,15 +285,24 @@ type Spec struct {
 
 // Registry resolves command names and owns the shared built-in catalog.
 type Registry struct {
-	ordered []Spec
-	byName  map[string]Spec
+	ordered    []Spec
+	byName     map[string]Spec
+	translator tuii18n.Translator
 }
 
 // NewRegistry builds a deterministic registry from the supplied specs. Empty
 // names and duplicate names/aliases are rejected so a face cannot silently
 // route one command to two handlers.
 func NewRegistry(specs ...Spec) (Registry, error) {
-	r := Registry{ordered: make([]Spec, 0, len(specs)), byName: make(map[string]Spec)}
+	return newRegistry(tuii18n.New(corei18n.English), specs...)
+}
+
+func newRegistry(translator tuii18n.Translator, specs ...Spec) (Registry, error) {
+	r := Registry{
+		ordered:    make([]Spec, 0, len(specs)),
+		byName:     make(map[string]Spec),
+		translator: translator,
+	}
 	for _, spec := range specs {
 		name := normalizeName(spec.Name)
 		if name == "" {
@@ -313,6 +325,14 @@ func NewRegistry(specs ...Spec) (Registry, error) {
 		r.ordered = append(r.ordered, copySpec)
 	}
 	return r, nil
+}
+
+// Extend returns a new registry with specs appended while preserving the
+// receiver's translator. The receiver and its catalog remain unchanged.
+func (r Registry) Extend(specs ...Spec) (Registry, error) {
+	all := r.Specs()
+	all = append(all, specs...)
+	return newRegistry(r.translator, all...)
 }
 
 func (r *Registry) addName(name string, spec Spec) error {
@@ -385,7 +405,9 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return &UnknownCommandError{Name: invocation.Name}
 	}
 	args := invocation.Args
-	usage := func() error { return fmt.Errorf("usage: %s", spec.Usage) }
+	usage := func() error {
+		return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": spec.Usage}))
+	}
 	count := func(min, max int) error {
 		if len(args) < min || (max >= 0 && len(args) > max) {
 			return usage()
@@ -407,11 +429,11 @@ func (r Registry) Validate(invocation *Invocation) error {
 		switch strings.ToLower(strings.TrimSpace(args[0])) {
 		case "resources":
 			if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-				return fmt.Errorf("usage: /mcp resources <server>")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/mcp resources <server>"}))
 			}
 		case "read":
 			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
-				return fmt.Errorf("usage: /mcp read <server> <uri>")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/mcp read <server> <uri>"}))
 			}
 		default:
 			return count(1, 1)
@@ -441,7 +463,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "cautious", "smart", "trusted":
 			default:
-				return fmt.Errorf("permission must be cautious, smart, or trusted")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.permission", nil))
 			}
 		}
 		return nil
@@ -453,7 +475,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "auto", "on", "off":
 			default:
-				return fmt.Errorf("thinking must be auto, on, or off")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.thinking", nil))
 			}
 		}
 		return nil
@@ -468,12 +490,12 @@ func (r Registry) Validate(invocation *Invocation) error {
 			if err == nil && index > 0 {
 				return nil
 			}
-			return fmt.Errorf("image remove index must be a positive number")
+			return fmt.Errorf("%s", r.translator.T("vivy.tui.live.imageIndex", nil))
 		}
 		if len(args) == 1 && strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
 			return nil
 		}
-		return fmt.Errorf("usage: /image <relative-path> | /image remove <index> | /image clear")
+		return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/image <relative-path> | /image remove <index> | /image clear"}))
 	case "fork":
 		return count(1, 2)
 	case "rewind":
@@ -486,7 +508,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "1d", "3d", "1w", "1m", "6m", "1y":
 			default:
-				return fmt.Errorf("stats period must be 1d, 3d, 1w, 1m, 6m, or 1y")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.live.statsPeriod", nil))
 			}
 		}
 		return nil
@@ -508,7 +530,8 @@ func (r Registry) Help() string {
 // Slash commands remain stable; unavailable server capabilities fail closed.
 func (r Registry) HelpFor(shellSupported bool) string {
 	var b strings.Builder
-	b.WriteString("命令\n")
+	b.WriteString(r.translator.T("vivy.tui.help.heading.commands", nil))
+	b.WriteByte('\n')
 	for _, spec := range r.ordered {
 		usage := spec.Usage
 		if usage == "" {
@@ -520,47 +543,52 @@ func (r Registry) HelpFor(shellSupported bool) string {
 			for _, alias := range spec.Aliases {
 				parts = append(parts, "/"+alias)
 			}
-			aliases = " (" + strings.Join(parts, ", ") + ")"
+			aliases = " " + r.translator.T("vivy.tui.help.aliases", map[string]any{"aliases": strings.Join(parts, ", ")})
 		}
 		fmt.Fprintf(&b, "  %-22s %s%s\n", usage, spec.Description, aliases)
 	}
-	b.WriteString("\n输入前缀\n")
+	b.WriteByte('\n')
+	b.WriteString(r.translator.T("vivy.tui.help.heading.inputPrefixes", nil))
+	b.WriteByte('\n')
 	if shellSupported {
-		b.WriteString("  !<script>              在工作区执行受治理的前台 shell 命令\n")
+		fmt.Fprintf(&b, "  %-22s %s\n", "!<script>", r.translator.T("vivy.tui.help.prefix.shell.description", nil))
 	}
-	b.WriteString("  @path / @\"带空格的路径\"  附加项目文件上下文\n")
-	b.WriteString("  !! / @@                 发送字面量标记\n")
+	fmt.Fprintf(&b, "  %-22s %s\n", r.translator.T("vivy.tui.help.prefix.file.usage", nil), r.translator.T("vivy.tui.help.prefix.file.description", nil))
+	fmt.Fprintf(&b, "  %-22s %s\n", "!! / @@", r.translator.T("vivy.tui.help.prefix.literal.description", nil))
 	return b.String()
 }
 
 // DefaultRegistry is the command catalog shared by the built-in and packed
 // code faces. Effects are dispatched by sdk/tui/view; this package stays
 // unaware of RPC or Bubble Tea.
-func DefaultRegistry() Registry {
-	r, err := NewRegistry(
-		Spec{Name: "help", Aliases: []string{"?", "commands"}, Usage: "/help", Description: "查看命令"},
-		Spec{Name: "status", Usage: "/status", Description: "当前运行状态"},
-		Spec{Name: "sessions", Usage: "/sessions", Description: "打开会话列表"},
-		Spec{Name: "model", Usage: "/model [filter]", Description: "切换模型"},
-		Spec{Name: "new", Usage: "/new [title]", Description: "新建会话"},
-		Spec{Name: "session", Usage: "/session <id>", Description: "切换到指定会话"},
-		Spec{Name: "rename", Usage: "/rename <title>", Description: "重命名当前会话"},
-		Spec{Name: "delete", Usage: "/delete [id]", Description: "删除会话"},
-		Spec{Name: "cancel", Usage: "/cancel", Description: "取消当前运行"},
-		Spec{Name: "queue", Usage: "/queue clear", Description: "清空排队回合"},
-		Spec{Name: "permission", Usage: "/permission [preset]", Description: "设置权限档"},
-		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: "设置思考档"},
-		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: "附加项目图片"},
-		Spec{Name: "compact", Usage: "/compact", Description: "压缩当前上下文"},
-		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: "在消息处分叉会话"},
-		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: "回退会话视图"},
-		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: "查看待办"},
-		Spec{Name: "stats", Usage: "/stats [period]", Description: "查看用量统计"},
-		Spec{Name: "skills", Usage: "/skills [name]", Description: "查看已安装技能"},
-		Spec{Name: "mcp", Usage: "/mcp [server|resources <server>|read <server> <uri>]", Description: "查看 MCP 服务与只读资源"},
-		Spec{Name: "files", Usage: "/files [run_id [path]]", Description: "查看受治理工作区"},
-		Spec{Name: "tools", Usage: "/tools", Description: "查看工具目录"},
-		Spec{Name: "quit", Aliases: []string{"exit", "q"}, Usage: "/quit", Description: "离开终端"},
+func DefaultRegistry(translator tuii18n.Translator) Registry {
+	description := func(name string) string {
+		return translator.T("vivy.tui.command."+name+".description", nil)
+	}
+	r, err := newRegistry(translator,
+		Spec{Name: "help", Aliases: []string{"?", "commands"}, Usage: "/help", Description: description("help")},
+		Spec{Name: "status", Usage: "/status", Description: description("status")},
+		Spec{Name: "sessions", Usage: "/sessions", Description: description("sessions")},
+		Spec{Name: "model", Usage: "/model [filter]", Description: description("model")},
+		Spec{Name: "new", Usage: "/new [title]", Description: description("new")},
+		Spec{Name: "session", Usage: "/session <id>", Description: description("session")},
+		Spec{Name: "rename", Usage: "/rename <title>", Description: description("rename")},
+		Spec{Name: "delete", Usage: "/delete [id]", Description: description("delete")},
+		Spec{Name: "cancel", Usage: "/cancel", Description: description("cancel")},
+		Spec{Name: "queue", Usage: "/queue clear", Description: description("queue")},
+		Spec{Name: "permission", Usage: "/permission [preset]", Description: description("permission")},
+		Spec{Name: "thinking", Usage: "/thinking [auto|on|off]", Description: description("thinking")},
+		Spec{Name: "image", Aliases: []string{"attach"}, Usage: "/image <relative-path>", Description: description("image")},
+		Spec{Name: "compact", Usage: "/compact", Description: description("compact")},
+		Spec{Name: "fork", Usage: "/fork <message_id> [title]", Description: description("fork")},
+		Spec{Name: "rewind", Usage: "/rewind <message_id>", Description: description("rewind")},
+		Spec{Name: "todos", Aliases: []string{"tasks"}, Usage: "/todos", Description: description("todos")},
+		Spec{Name: "stats", Usage: "/stats [period]", Description: description("stats")},
+		Spec{Name: "skills", Usage: "/skills [name]", Description: description("skills")},
+		Spec{Name: "mcp", Usage: "/mcp [server|resources <server>|read <server> <uri>]", Description: description("mcp")},
+		Spec{Name: "files", Usage: "/files [run_id [path]]", Description: description("files")},
+		Spec{Name: "tools", Usage: "/tools", Description: description("tools")},
+		Spec{Name: "quit", Aliases: []string{"exit", "q"}, Usage: "/quit", Description: description("quit")},
 	)
 	if err != nil {
 		// The literal catalog above is package-owned and validated by tests. A

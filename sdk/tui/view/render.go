@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
 
+	"agent-vivy/sdk/tui/internal/textsafe"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -67,16 +68,16 @@ func (m Model) renderDynamicArguments(l layout, p Palette) string {
 	}
 	w := max(1, min(l.width-8, 72))
 	lineWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
-	lines := []string{p.DialogTitle.Render("/" + command.Name + " 参数"), p.Dim.Render(truncate(command.Description, lineWidth)), ""}
+	lines := []string{p.DialogTitle.Render(m.translator.T("vivy.tui.arguments.title", map[string]any{"command": command.Name})), p.Dim.Render(truncate(command.Description, lineWidth)), ""}
 	for i, argument := range command.Arguments {
 		marker := "  "
 		style := p.Idle
 		if i == m.dynamicArgumentCursor {
 			marker, style = "▸ ", p.Active
 		}
-		required := "可选"
+		required := m.translator.T("vivy.tui.arguments.optional", nil)
 		if argument.Required {
-			required = "必填"
+			required = m.translator.T("vivy.tui.arguments.required", nil)
 		}
 		value := ""
 		if i < len(m.dynamicArgumentValues) {
@@ -90,7 +91,7 @@ func (m Model) renderDynamicArguments(l layout, p Palette) string {
 	if m.dynamicArgumentError != "" {
 		lines = append(lines, "", p.PromptWarn.Render(truncate(m.dynamicArgumentError, lineWidth)))
 	}
-	lines = append(lines, "", p.DialogFooter.Render("tab/↑/↓ 字段 · enter 运行 · esc 保留草稿"))
+	lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.arguments.footer", nil)))
 	return p.Dialog.Width(w).Render(strings.Join(lines, "\n"))
 }
 
@@ -98,20 +99,20 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 	rows := m.filteredModels()
 	w := max(1, min(l.width-8, 72))
 	innerWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
-	status := "筛选：" + sanitizeCommandPaletteFilter(m.modelPickerFilter)
+	status := m.translator.T("vivy.tui.filter.value", map[string]any{"filter": sanitizeCommandPaletteFilter(m.modelPickerFilter)})
 	if strings.TrimSpace(m.modelPickerFilter) == "" {
-		status = "筛选：全部"
+		status = m.translator.T("vivy.tui.filter.all", nil)
 	}
 	if m.modelPickerLoading {
-		status += "  · 加载中…"
+		status += m.translator.T("vivy.tui.models.loading", nil)
 	} else if m.modelPickerSelecting {
-		status += "  · 正在应用…"
+		status += m.translator.T("vivy.tui.models.applying", nil)
 	}
-	lines := []string{p.DialogTitle.Render("切换全局模型"), p.DialogFooter.Render(truncate(status, innerWidth)), ""}
+	lines := []string{p.DialogTitle.Render(truncate(m.translator.T("vivy.tui.models.title", nil), innerWidth)), p.DialogFooter.Render(truncate(status, innerWidth)), ""}
 	if m.modelPickerError != "" {
 		lines = append(lines, p.ToolFail.Render(truncate(m.modelPickerError, innerWidth)))
 	} else if !m.modelPickerLoading && len(rows) == 0 {
-		lines = append(lines, p.DialogFooter.Render("没有匹配的已配置模型"))
+		lines = append(lines, p.DialogFooter.Render(truncate(m.translator.T("vivy.tui.models.empty", nil), innerWidth)))
 	} else {
 		windowRows := max(1, l.height-11)
 		cursor := min(max(0, m.modelPickerCursor), max(0, len(rows)-1))
@@ -140,9 +141,14 @@ func (m Model) renderModelDialog(l layout, p Palette) string {
 		}
 	}
 	catalog := m.driver.ModelCatalog()
-	footer := "全局 · 下一空闲回合生效 · ↑↓ 选择 · esc 关闭"
+	footer := m.translator.T("vivy.tui.models.footer", nil)
 	if catalog.ReadOnly || catalog.Frozen {
-		footer = "只读 · ↑↓ 浏览 · 输入筛选 · esc 关闭"
+		footer = m.translator.T("vivy.tui.models.readOnlyFooter", nil)
+		if lipgloss.Width(footer) > innerWidth {
+			footer = m.translator.T("vivy.tui.models.readOnlyFooter.short", nil)
+		}
+	} else if lipgloss.Width(footer) > innerWidth {
+		footer = m.translator.T("vivy.tui.models.footer.short", nil)
 	}
 	lines = append(lines, "", p.DialogFooter.Render(truncate(footer, innerWidth)))
 	return p.Dialog.Width(w).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
@@ -159,18 +165,18 @@ func (m Model) renderFileCompletion(l layout, p Palette) string {
 	query := sanitizeFileCompletionText(m.fileCompletionQuery)
 	status := "@" + query
 	if m.fileCompletionLoading {
-		status += "  loading…"
+		status += m.translator.T("vivy.tui.files.loading", nil)
 	} else if m.fileCompletionTruncated {
-		status += "  partial results"
+		status += m.translator.T("vivy.tui.files.partial", nil)
 	}
-	lines := []string{p.DialogTitle.Render("项目文件"), p.DialogFooter.Render(truncate(status, max(1, w-p.Dialog.GetHorizontalFrameSize())))}
+	lines := []string{p.DialogTitle.Render(m.translator.T("vivy.tui.files.title", nil)), p.DialogFooter.Render(truncate(status, max(1, w-p.Dialog.GetHorizontalFrameSize())))}
 	if !compact {
 		lines = append(lines, "")
 	}
 	if m.fileCompletionError != "" {
 		lines = append(lines, p.ToolFail.Render(truncate(m.fileCompletionError, max(1, w-p.Dialog.GetHorizontalFrameSize()))))
 	} else if !m.fileCompletionLoading && len(rows) == 0 {
-		lines = append(lines, p.DialogFooter.Render("没有匹配的项目文件"))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.files.empty", nil)))
 	} else {
 		windowRows := max(1, l.height-10)
 		if compact {
@@ -196,7 +202,7 @@ func (m Model) renderFileCompletion(l layout, p Palette) string {
 	if !compact {
 		lines = append(lines, "")
 	}
-	footer := "↑/↓ 移动 · enter/tab 选择 · esc 关闭"
+	footer := m.translator.T("vivy.tui.files.footer", nil)
 	if compact {
 		footer = "↑/↓ · enter/tab · esc"
 	}
@@ -222,7 +228,7 @@ func sanitizeFileCompletionText(text string) string {
 }
 
 func isBidiControl(r rune) bool {
-	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+	return textsafe.IsBidiControl(r)
 }
 
 func safeProjectFilePath(path string) string {
@@ -291,7 +297,7 @@ func (m Model) renderCompactHeader(l layout, p Palette) string {
 	logo := p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY CODE") + " "
 	label := session.Title
 	if label == "" {
-		label = "untitled session"
+		label = m.translator.T("vivy.tui.session.untitled", nil)
 	}
 	if meta.Host != "" {
 		label = fmt.Sprintf("%s · %s", label, meta.Host)
@@ -340,7 +346,7 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 	lines := make([]string, 0, 24)
 	title := strings.TrimSpace(snapshot.Session.Title)
 	if title == "" {
-		title = "untitled session"
+		title = m.translator.T("vivy.tui.session.untitled", nil)
 	}
 	titleLines := wrapText(title, max(8, width-2))
 	if len(titleLines) > 2 {
@@ -350,26 +356,26 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 		lines = append(lines, p.Active.Render(" "+line))
 	}
 	if updated := sidebarTime(snapshot.Session.UpdatedAt); updated != "" {
-		lines = append(lines, p.Dim.Render(truncate(" updated · "+updated, width-1)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.updated", map[string]any{"time": updated}), width-1)))
 	}
 	if cwd := strings.TrimSpace(snapshot.CWD); cwd != "" {
-		lines = append(lines, p.Dim.Render(truncate(" cwd · "+cwd, width-1)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.cwd", map[string]any{"path": cwd}), width-1)))
 	}
 	if host := strings.TrimSpace(m.driver.Meta().Host); host != "" {
-		lines = append(lines, p.Active.Render(truncate(" host · "+host, width-1)))
+		lines = append(lines, p.Active.Render(truncate(m.translator.T("vivy.tui.sidebar.host", map[string]any{"host": host}), width-1)))
 	}
 	if snapshot.ReasoningKnown {
-		reasoning := "unsupported"
+		reasoning := m.translator.T("vivy.tui.sidebar.unsupported", nil)
 		if snapshot.ReasoningSupported {
-			reasoning = "supported"
+			reasoning = m.translator.T("vivy.tui.sidebar.supported", nil)
 		}
-		lines = append(lines, p.Dim.Render(truncate(" reasoning · "+reasoning, width-1)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.reasoning", map[string]any{"support": reasoning}), width-1)))
 	}
 	if snapshot.HasContext && snapshot.Context.ThinkingSupported {
-		lines = append(lines, p.Dim.Render(truncate(" draft thinking · "+m.driver.ThinkingMode(), width-1)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.thinking", map[string]any{"mode": m.driver.ThinkingMode()}), width-1)))
 	}
 	if snapshot.HasContext {
-		lines = append(lines, "", p.Dim.Render(" Context"))
+		lines = append(lines, "", p.Dim.Render(m.translator.T("vivy.tui.sidebar.context", nil)))
 		ctx := snapshot.Context
 		switch {
 		case ctx.ModelLimitKnown && ctx.ModelLimitTokens > 0:
@@ -379,7 +385,7 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			if ctx.TokenCountsEstimated {
 				estimated = "~"
 			}
-			line := fmt.Sprintf(" %s%d%% · %s%s / %s tokens", estimated, percentage, estimated, compactNumber(ctx.FeedTokens), compactNumber(ctx.ModelLimitTokens))
+			line := m.translator.T("vivy.tui.sidebar.contextTokens", map[string]any{"estimated": estimated, "percentage": percentage, "tokens": compactNumber(ctx.FeedTokens), "limit": compactNumber(ctx.ModelLimitTokens)})
 			style := contextPercentStyle(ratio, p)
 			if ratio > 0.8 {
 				line = " !" + line
@@ -390,13 +396,13 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			if ctx.TokenCountsEstimated {
 				estimated = "~"
 			}
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %s%s tokens · limit unknown", estimated, compactNumber(ctx.FeedTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.contextUnknown", map[string]any{"estimated": estimated, "tokens": compactNumber(ctx.FeedTokens)}), width-1)))
 		}
 		if ctx.TotalMessages > 0 {
 			if ctx.FeedMessages > 0 && ctx.FeedMessages != ctx.TotalMessages {
-				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %d / %d feed messages", ctx.FeedMessages, ctx.TotalMessages), width-1)))
+				lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.feedMessages", map[string]any{"feed": ctx.FeedMessages, "total": ctx.TotalMessages}), width-1)))
 			} else {
-				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" %d messages", ctx.TotalMessages), width-1)))
+				lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.messages", map[string]any{"count": ctx.TotalMessages}), width-1)))
 			}
 		}
 		if ctx.TriggerTokens > 0 {
@@ -404,44 +410,44 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			if ctx.TokenCountsEstimated {
 				estimated = "~"
 			}
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" compact at %s%s", estimated, compactNumber(ctx.TriggerTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.compactAt", map[string]any{"estimated": estimated, "tokens": compactNumber(ctx.TriggerTokens)}), width-1)))
 		}
 		if ctx.CompactionEnabled {
-			compaction := " compaction on"
+			compaction := m.translator.T("vivy.tui.sidebar.compactionOn", nil)
 			if ctx.WouldCompact {
-				compaction = " compaction needed"
+				compaction = m.translator.T("vivy.tui.sidebar.compactionNeeded", nil)
 			}
 			lines = append(lines, p.Dim.Render(compaction))
 		}
 		if ctx.HasCompactionSummary {
-			lines = append(lines, p.Dim.Render(" summary available"))
+			lines = append(lines, p.Dim.Render(m.translator.T("vivy.tui.sidebar.summary", nil)))
 		}
 	}
 	if snapshot.HasUsage {
-		lines = append(lines, "", p.Dim.Render(" Session Usage"))
+		lines = append(lines, "", p.Dim.Render(m.translator.T("vivy.tui.sidebar.usage", nil)))
 		usage := snapshot.Usage
 		lines = append(lines,
-			p.Dim.Render(truncate(fmt.Sprintf(" total · %s tokens", compactNumber(usage.TotalTokens)), width-1)),
-			p.Dim.Render(truncate(fmt.Sprintf(" input · %s", compactNumber(usage.PromptTokens)), width-1)),
-			p.Dim.Render(truncate(fmt.Sprintf(" output · %s", compactNumber(usage.CompletionTokens)), width-1)),
+			p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.total", map[string]any{"tokens": compactNumber(usage.TotalTokens)}), width-1)),
+			p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.input", map[string]any{"tokens": compactNumber(usage.PromptTokens)}), width-1)),
+			p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.output", map[string]any{"tokens": compactNumber(usage.CompletionTokens)}), width-1)),
 		)
 		if usage.ReasoningTokens > 0 {
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" reasoning · %s", compactNumber(usage.ReasoningTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.reasoningTokens", map[string]any{"tokens": compactNumber(usage.ReasoningTokens)}), width-1)))
 		}
 		if usage.CachedTokens > 0 {
-			lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" cached · %s", compactNumber(usage.CachedTokens)), width-1)))
+			lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.cached", map[string]any{"tokens": compactNumber(usage.CachedTokens)}), width-1)))
 		}
-		lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf(" requests · %d", usage.RequestCount), width-1)))
-		cost := "unknown"
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.requests", map[string]any{"count": usage.RequestCount}), width-1)))
+		cost := m.translator.T("vivy.tui.sidebar.unknown", nil)
 		if usage.CostKnown {
 			cost = fmt.Sprintf("$%.4f", usage.CostUSD)
 		}
-		lines = append(lines, p.Dim.Render(truncate(" est. cost · "+cost, width-1)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.cost", map[string]any{"cost": cost}), width-1)))
 	}
 	if snapshot.ModifiedFilesKnown {
-		lines = append(lines, "", p.Dim.Render(" Modified Files"))
+		lines = append(lines, "", p.Dim.Render(m.translator.T("vivy.tui.sidebar.modifiedFiles", nil)))
 		if len(snapshot.ModifiedFiles) == 0 {
-			lines = append(lines, p.Dim.Render(" None"))
+			lines = append(lines, p.Dim.Render(m.translator.T("vivy.tui.sidebar.none", nil)))
 		}
 		for _, file := range snapshot.ModifiedFiles {
 			path := strings.TrimSpace(safeProjectFilePath(file.Path))
@@ -498,19 +504,19 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			default:
 				continue
 			}
-			lspLines = append(lspLines, style.Render(truncate(" "+language+" · "+state, width-1)))
+			lspLines = append(lspLines, style.Render(truncate(" "+language+" · "+m.stateLabel(state), width-1)))
 		}
-		lines = append(lines, "", p.Dim.Render(" LSP · live"))
+		lines = append(lines, "", p.Dim.Render(m.translator.T("vivy.tui.sidebar.lsp", nil)))
 		if len(lspLines) == 0 {
-			lines = append(lines, p.Dim.Render(" None initialized"))
+			lines = append(lines, p.Dim.Render(m.translator.T("vivy.tui.sidebar.lspEmpty", nil)))
 		} else {
 			lines = append(lines, lspLines...)
 		}
 	}
 	if snapshot.MCPKnown {
-		lines = append(lines, "", p.Dim.Render(" MCP"))
+		lines = append(lines, "", p.Dim.Render(m.translator.T("vivy.tui.sidebar.mcp", nil)))
 		if len(snapshot.MCP) == 0 {
-			lines = append(lines, p.Dim.Render(" None configured"))
+			lines = append(lines, p.Dim.Render(m.translator.T("vivy.tui.sidebar.mcpEmpty", nil)))
 		}
 		for _, server := range snapshot.MCP {
 			name := strings.TrimSpace(sanitizeFileCompletionText(server.Name))
@@ -531,7 +537,7 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 			default:
 				continue
 			}
-			line := " " + name + " · " + state
+			line := " " + name + " · " + m.stateLabel(state)
 			if transport := strings.TrimSpace(sanitizeMCPTransport(server.Transport)); transport != "" {
 				line += " · " + transport
 			}
@@ -542,20 +548,20 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 				}
 			}
 			if server.AuthMissing {
-				lines = append(lines, p.PromptWarn.Render(truncate("   auth missing", width-1)))
+				lines = append(lines, p.PromptWarn.Render(truncate(m.translator.T("vivy.tui.sidebar.authMissing", nil), width-1)))
 			}
 			if missing := sanitizeMCPEnvMissing(server.EnvMissing); missing != "" {
-				lines = append(lines, p.PromptWarn.Render(truncate("   env missing: "+missing, width-1)))
+				lines = append(lines, p.PromptWarn.Render(truncate(m.translator.T("vivy.tui.sidebar.envMissing", map[string]any{"names": missing}), width-1)))
 			}
 			if server.ToolCount >= 0 {
-				lines = append(lines, p.Dim.Render(truncate(fmt.Sprintf("   %d tools", server.ToolCount), width-1)))
+				lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.tools", map[string]any{"count": server.ToolCount}), width-1)))
 			}
 		}
 	}
 	if snapshot.SkillsKnown {
-		lines = append(lines, "", p.Dim.Render(" Skills · enabled"))
+		lines = append(lines, "", p.Dim.Render(m.translator.T("vivy.tui.sidebar.skills", nil)))
 		if len(snapshot.Skills) == 0 {
-			lines = append(lines, p.Dim.Render(" None"))
+			lines = append(lines, p.Dim.Render(m.translator.T("vivy.tui.sidebar.none", nil)))
 		}
 		for _, skill := range snapshot.Skills {
 			name := strings.TrimSpace(sanitizeFileCompletionText(skill.Name))
@@ -570,10 +576,10 @@ func (m Model) sidebarLines(width int, p Palette) []string {
 	}
 	meta := m.driver.Meta()
 	if meta.Busy {
-		lines = append(lines, "", p.Dim.Render(truncate(" run · "+fallback(meta.RunID, "active"), width-1)))
+		lines = append(lines, "", p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.run", map[string]any{"id": fallback(meta.RunID, m.translator.T("vivy.tui.run.active", nil))}), width-1)))
 	}
 	if meta.Queued > 0 {
-		lines = append(lines, p.Dim.Render(truncate(" queue · "+fmt.Sprintf("%d", meta.Queued), width-1)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.sidebar.queue", map[string]any{"count": meta.Queued}), width-1)))
 	}
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
 		lines = append(lines, "", p.PromptWarn.Render(truncate(" ! "+errText, width-1)))
@@ -716,7 +722,7 @@ func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 	for index, message := range messages {
 		segment, ok := m.mdCache.get(message, width)
 		if !ok {
-			segment = renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
+			segment = m.renderMessageWithOptions(message, width, p, debugToolOutput, m.reasoningCollapsed)
 			m.mdCache.put(message, width, segment)
 		}
 		if index < len(messages)-1 {
@@ -796,32 +802,32 @@ func messageStamp(message surface.Message) uint64 {
 // session's history projection is still loading (Meta.Loading), so a session
 // switch never poses as an empty conversation.
 func (m Model) renderHistoryLoading(p Palette, width int) []string {
-	return []string{p.Dim.Render(truncate("正在加载会话历史…", width))}
+	return []string{p.Dim.Render(truncate(m.translator.T("vivy.tui.history.loading", nil), width))}
 }
 
 func (m Model) renderEmptyHero(p Palette, width int) []string {
 	lines := []string{
 		p.Dim.Render(""),
 		p.Logo.Render("Vivy™ ") + p.LogoWord.Render("VIVY CODE"),
-		p.Dim.Render(" 寻找真心之旅"),
+		p.Dim.Render(m.translator.T("vivy.tui.hero.tagline", nil)),
 		"",
 	}
 	if cwd := strings.TrimSpace(m.driver.Sidebar().CWD); cwd != "" {
-		lines = append(lines, p.Dim.Render(truncate("cwd  "+cwd, width)))
+		lines = append(lines, p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.cwd", map[string]any{"path": cwd}), width)))
 	}
 	return append(lines,
-		p.Dim.Render(truncate("/ 命令 · @文件 · !shell · ctrl+p 面板 · ctrl+s 会话 · ctrl+x 快捷方式", width)),
-		p.Dim.Render(truncate("ctrl+o 工具输出 · ctrl+r reasoning", width)),
+		p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.commands", nil), width)),
+		p.Dim.Render(truncate(m.translator.T("vivy.tui.hero.toggles", nil), width)),
 	)
 }
 
-func renderMessage(message surface.Message, width int, p Palette) []string {
-	return renderMessageWithOptions(message, width, p, false, false)
+func (m Model) renderMessage(message surface.Message, width int, p Palette) []string {
+	return m.renderMessageWithOptions(message, width, p, false, false)
 }
 
-func renderMessageWithOptions(message surface.Message, width int, p Palette, debugToolOutput, reasoningCollapsed bool) []string {
+func (m Model) renderMessageWithOptions(message surface.Message, width int, p Palette, debugToolOutput, reasoningCollapsed bool) []string {
 	if message.Tool != nil {
-		return renderToolWithOptions(message.Tool, width, p, debugToolOutput)
+		return m.renderToolWithOptions(message.Tool, width, p, debugToolOutput)
 	}
 	bar := p.AsstBar.Render("┃ ")
 	style := p.Assistant
@@ -843,9 +849,9 @@ func renderMessageWithOptions(message surface.Message, width int, p Palette, deb
 	bodyLines, painted := renderMessageBody(message, contentWidth)
 	if message.Reasoning && reasoningCollapsed {
 		if len(bodyLines) > 0 {
-			bodyLines = []string{fmt.Sprintf("reasoning · %d 行 · ctrl+r 展开", len(bodyLines))}
+			bodyLines = []string{m.translator.T("vivy.tui.reasoning.lines", map[string]any{"count": len(bodyLines)})}
 		} else {
-			bodyLines = []string{"reasoning · ctrl+r 展开"}
+			bodyLines = []string{m.translator.T("vivy.tui.reasoning.collapsed", nil)}
 		}
 		painted = false
 	}
@@ -861,8 +867,8 @@ func renderMessageWithOptions(message surface.Message, width int, p Palette, deb
 			}
 		}
 	}
-	appendChipLines(renderAttachmentChips(message.Attachments))
-	appendChipLines(renderFileContextChips(message.FileContexts))
+	appendChipLines(m.renderAttachmentChips(message.Attachments))
+	appendChipLines(m.renderFileContextChips(message.FileContexts))
 	if len(bodyLines) == 0 {
 		bodyLines = []string{""}
 	}
@@ -911,13 +917,13 @@ func renderMessageBody(message surface.Message, contentWidth int) ([]string, boo
 	return lines, true
 }
 
-func renderTool(tool *surface.ToolCard, width int, p Palette) []string {
-	return renderToolWithOptions(tool, width, p, false)
+func (m Model) renderTool(tool *surface.ToolCard, width int, p Palette) []string {
+	return m.renderToolWithOptions(tool, width, p, false)
 }
 
 const compactToolResultLines = 8
 
-func renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugToolOutput bool) []string {
+func (m Model) renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugToolOutput bool) []string {
 	style := p.Tool
 	icon := "●"
 	switch tool.Status {
@@ -931,10 +937,10 @@ func renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugTo
 	}
 	name := strings.TrimSpace(sanitizeFileCompletionText(tool.ToolName))
 	if name == "" {
-		name = "tool"
+		name = m.translator.T("vivy.tui.common.tool", nil)
 	}
 	status := strings.TrimSpace(sanitizeFileCompletionText(tool.Status))
-	title := fmt.Sprintf("%s %s  %s", icon, name, status)
+	title := fmt.Sprintf("%s %s  %s", icon, name, m.stateLabel(status))
 	body := tool.Preview
 	if tool.Status != "pending" && tool.Result != "" {
 		body = tool.Result
@@ -946,14 +952,14 @@ func renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugTo
 	if available <= frame {
 		lines := wrapText(title, max(1, width))
 		if body != "" {
-			lines = append(lines, compactToolLines(wrapText(body, max(1, width)), debugToolOutput, max(1, width))...)
+			lines = append(lines, m.compactToolLines(wrapText(body, max(1, width)), debugToolOutput, max(1, width))...)
 		}
 		return lines
 	}
 	contentWidth := max(1, min(52, available-frame))
 	innerLines := wrapText(title, contentWidth)
 	if body != "" {
-		innerLines = append(innerLines, compactToolLines(renderToolBodyLines(body, contentWidth, p), debugToolOutput, contentWidth)...)
+		innerLines = append(innerLines, m.compactToolLines(renderToolBodyLines(body, contentWidth, p), debugToolOutput, contentWidth)...)
 	}
 	box := style.Width(contentWidth).MaxWidth(available).Render(strings.Join(innerLines, "\n"))
 	indented := make([]string, 0)
@@ -963,13 +969,13 @@ func renderToolWithOptions(tool *surface.ToolCard, width int, p Palette, debugTo
 	return indented
 }
 
-func compactToolLines(lines []string, debug bool, width int) []string {
+func (m Model) compactToolLines(lines []string, debug bool, width int) []string {
 	if debug || len(lines) <= compactToolResultLines {
 		return lines
 	}
 	omitted := len(lines) - compactToolResultLines
 	compact := append([]string(nil), lines[:compactToolResultLines]...)
-	marker := fmt.Sprintf("… %d more lines · ctrl+o expand", omitted)
+	marker := m.translator.T("vivy.tui.tool.omitted", map[string]any{"count": omitted})
 	return append(compact, wrapText(marker, max(1, width))...)
 }
 
@@ -1092,10 +1098,6 @@ func renderDiffBody(body string, p Palette) string {
 	return strings.Join(lines, "\n")
 }
 
-// composerPlaceholder is the ghost hint shown in an empty, ungated composer.
-// It is display-only: it never enters m.input.
-const composerPlaceholder = "问点什么…  / 命令 · @文件 · !shell"
-
 func (m Model) renderEditor(width int, p Palette) string {
 	inner := max(1, width-p.EditorBox.GetHorizontalFrameSize())
 	gate := m.driver.PendingGate()
@@ -1108,10 +1110,10 @@ func (m Model) renderEditor(width int, p Palette) string {
 		cursor = ""
 	}
 	lines := []string{m.renderComposerChips(inner, p)}
-	if chips := renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
+	if chips := m.renderAttachmentChips(m.driver.PendingAttachments()); chips != "" {
 		lines = append(lines, p.Dim.Render(truncate(chips, inner)))
 	}
-	if chip := pasteGuardChip(m.input); chip != "" {
+	if chip := m.pasteGuardChip(m.input); chip != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate(chip, inner)))
 	}
 	if gate != nil {
@@ -1126,7 +1128,7 @@ func (m Model) renderEditor(width int, p Palette) string {
 		if m.input == "" && !m.sidebarFocused {
 			// Ghost hint for the empty state: dim text after the prompt, no
 			// caret, never stored as a draft.
-			lines = append(lines, truncate(prompt+p.Dim.Render(composerPlaceholder), inner))
+			lines = append(lines, truncate(prompt+p.Dim.Render(m.translator.T("vivy.tui.composer.placeholder", nil)), inner))
 		} else {
 			// The draft always appends at the tail, so the visible window is the
 			// trailing lines and the caret rides at the end of the last one. The
@@ -1170,13 +1172,13 @@ func (m Model) renderComposerChips(width int, p Palette) string {
 		}
 	}
 	if model == "" {
-		model = "model"
+		model = m.translator.T("vivy.tui.common.model", nil)
 	}
 	sep := p.Dim.Render("  ·  ")
-	mode := workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset)
+	mode := workingMode(m.driver.RunMode(), snapshot.Session.PermissionPreset)
 	parts := []string{
-		p.Dim.Render(model) + renderThinkingIntensity(m.driver.ThinkingMode(), p),
-		workingModeStyle(mode, p).Render(mode),
+		p.Dim.Render(model) + m.renderThinkingIntensity(m.driver.ThinkingMode(), p),
+		workingModeStyle(mode, p).Render(m.workingModeLabel(mode)),
 	}
 	if provider := strings.TrimSpace(sanitizeFileCompletionText(snapshot.Provider)); provider != "" {
 		parts = append(parts, p.Dim.Render(provider))
@@ -1207,7 +1209,7 @@ func (m Model) renderInputChrome(width int, p Palette) string {
 // hint, the left hints/spinner/error segment, and the right environment meta.
 func (m Model) renderChromeRow(width int, p Palette, scroll chatScrollInfo) string {
 	left := m.chromeLeft(p)
-	if hint := chromeScrollHint(p, scroll); hint != "" {
+	if hint := m.chromeScrollHint(p, scroll); hint != "" {
 		left = hint + p.HelpDesc.Render("  ") + left
 	}
 	right := m.chromeMeta(left, width, p)
@@ -1220,7 +1222,7 @@ const chatScrollHintLines = 3 // near-bottom margin below which the hint stays h
 // chromeScrollHint describes a paused chat viewport: how to get back to the
 // bottom, or how much history remains below. It stays quiet while following,
 // when there is nothing to scroll, and within a few lines of the bottom.
-func chromeScrollHint(p Palette, info chatScrollInfo) string {
+func (m Model) chromeScrollHint(p Palette, info chatScrollInfo) string {
 	if info.follow || info.maxScroll == 0 {
 		return ""
 	}
@@ -1229,28 +1231,28 @@ func chromeScrollHint(p Palette, info chatScrollInfo) string {
 		return ""
 	}
 	if below > info.viewport {
-		return p.HelpKey.Render("↑ 历史") + p.HelpDesc.Render(fmt.Sprintf(" · 下方还有 %d 行", below))
+		return p.HelpKey.Render(m.translator.T("vivy.tui.scroll.history", nil)) + p.HelpDesc.Render(m.translator.T("vivy.tui.scroll.below", map[string]any{"count": below}))
 	}
-	return p.HelpKey.Render("↓ end") + p.HelpDesc.Render(" 回到底部")
+	return p.HelpKey.Render("↓ end") + p.HelpDesc.Render(m.translator.T("vivy.tui.scroll.bottom", nil))
 }
 
 // chromeLeft builds the left chrome segment with the existing priority:
 // transport error first, then the busy spinner, then the hint keys.
 func (m Model) chromeLeft(p Palette) string {
-	hints := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(" 切换模式") + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(" 帮助") + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(" 快捷")
+	hints := p.HelpKey.Render("shift+tab") + p.HelpDesc.Render(m.translator.T("vivy.tui.chrome.switchMode", nil)) + p.HelpDesc.Render("  ") + p.HelpKey.Render("shift+h") + p.HelpDesc.Render(m.translator.T("vivy.tui.chrome.help", nil)) + p.HelpDesc.Render("  ") + p.HelpKey.Render("ctrl+x") + p.HelpDesc.Render(m.translator.T("vivy.tui.chrome.shortcuts", nil))
 	if gate := m.driver.PendingGate(); gate != nil && !gate.Submitting {
 		if gate.Kind == "question" {
-			hints = p.HelpKey.Render("enter") + p.HelpDesc.Render(" 回答")
+			hints = p.HelpKey.Render("enter") + p.HelpDesc.Render(m.translator.T("vivy.tui.chrome.answer", nil))
 		} else {
-			hints = p.HelpKey.Render("y/n") + p.HelpDesc.Render(" 批准")
+			hints = p.HelpKey.Render("y/n") + p.HelpDesc.Render(m.translator.T("vivy.tui.chrome.approve", nil))
 		}
 	}
 	if m.sidebarFocused {
-		hints = p.HelpKey.Render("esc") + p.HelpDesc.Render(" 离开侧栏")
+		hints = p.HelpKey.Render("esc") + p.HelpDesc.Render(m.translator.T("vivy.tui.chrome.leaveSidebar", nil))
 	}
 	meta := m.driver.Meta()
 	if errText := strings.TrimSpace(meta.Error); errText != "" {
-		return p.ToolFail.Render("err · "+errText) + p.HelpDesc.Render("  ") + hints
+		return p.ToolFail.Render(m.translator.T("vivy.tui.chrome.error", map[string]any{"error": errText})) + p.HelpDesc.Render("  ") + hints
 	}
 	if meta.Busy {
 		return p.Dim.Render(m.busyStatus(meta)) + p.HelpDesc.Render("  ") + hints
@@ -1272,7 +1274,7 @@ func (m Model) chromeMeta(left string, width int, p Palette) string {
 	meta := m.driver.Meta()
 	var parts []string
 	if meta.Queued > 0 {
-		parts = append(parts, p.PromptWarn.Render(fmt.Sprintf("⏸ %d queued", meta.Queued)))
+		parts = append(parts, p.PromptWarn.Render(m.translator.T("vivy.tui.chrome.queued", map[string]any{"count": meta.Queued})))
 	}
 	if host := strings.TrimSpace(meta.Host); host != "" {
 		parts = append(parts, p.Dim.Render(host))
@@ -1334,16 +1336,16 @@ func joinChromeRow(left, right string, width int) string {
 func (m Model) busyStatus(meta surface.Meta) string {
 	frame := spinnerFrames[m.spinFrame%len(spinnerFrames)]
 	if meta.BusySince.IsZero() {
-		return frame + " run"
+		return frame + " " + m.translator.T("vivy.tui.run.label", nil)
 	}
 	elapsed := time.Since(meta.BusySince).Truncate(time.Second)
 	if elapsed < 0 {
 		elapsed = 0
 	}
 	if elapsed >= time.Minute {
-		return fmt.Sprintf("%s run %dm%02ds", frame, int(elapsed.Minutes()), int(elapsed.Seconds())%60)
+		return frame + " " + m.translator.T("vivy.tui.run.elapsed", map[string]any{"duration": fmt.Sprintf("%dm%02ds", int(elapsed.Minutes()), int(elapsed.Seconds())%60)})
 	}
-	return fmt.Sprintf("%s run %ds", frame, int(elapsed.Seconds()))
+	return frame + " " + m.translator.T("vivy.tui.run.elapsed", map[string]any{"duration": fmt.Sprintf("%ds", int(elapsed.Seconds()))})
 }
 
 func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
@@ -1357,26 +1359,26 @@ func (m Model) composerBoxStyle(p Palette) lipgloss.Style {
 	if snapshot.Session.ID == "" {
 		snapshot.Session = m.driver.Active()
 	}
-	return p.EditorBox.BorderForeground(workingModeStyle(workingModeLabel(m.driver.RunMode(), snapshot.Session.PermissionPreset), p).GetForeground())
+	return p.EditorBox.BorderForeground(workingModeStyle(workingMode(m.driver.RunMode(), snapshot.Session.PermissionPreset), p).GetForeground())
 }
 
-func workingModeStyle(label string, p Palette) lipgloss.Style {
-	switch label {
-	case "计划":
+func workingModeStyle(mode string, p Palette) lipgloss.Style {
+	switch mode {
+	case "plan":
 		return p.ModePlan
-	case "只读":
+	case "readOnly":
 		return p.ModeRead
 	default:
 		return p.ModeSmart
 	}
 }
 
-func renderThinkingIntensity(mode string, p Palette) string {
+func (m Model) renderThinkingIntensity(mode string, p Palette) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "on":
-		return p.IntensityHigh.Render("(high)")
+		return p.IntensityHigh.Render(m.translator.T("vivy.tui.intensity.high", nil))
 	case "auto":
-		return p.IntensityAuto.Render("(auto)")
+		return p.IntensityAuto.Render(m.translator.T("vivy.tui.intensity.auto", nil))
 	default:
 		return ""
 	}
@@ -1407,7 +1409,7 @@ func contextPercentStyle(ratio float64, p Palette) lipgloss.Style {
 
 // renderAttachmentChips is metadata-only presentation. In particular, it
 // never renders a data URL or any binary payload into the terminal.
-func renderAttachmentChips(attachments []surface.Attachment) string {
+func (m Model) renderAttachmentChips(attachments []surface.Attachment) string {
 	if len(attachments) == 0 {
 		return ""
 	}
@@ -1418,9 +1420,9 @@ func renderAttachmentChips(attachments []surface.Attachment) string {
 			name = strings.TrimSpace(sanitizeFileCompletionText(attachment.Path))
 		}
 		if name == "" {
-			name = "image"
+			name = m.translator.T("vivy.tui.common.image", nil)
 		}
-		parts = append(parts, "[image: "+name+"]")
+		parts = append(parts, m.translator.T("vivy.tui.attachment.image", map[string]any{"name": name}))
 	}
 	return strings.Join(parts, " ")
 }
@@ -1428,7 +1430,7 @@ func renderAttachmentChips(attachments []surface.Attachment) string {
 // renderFileContextChips renders only bounded metadata returned by the
 // control plane. Context contents are never printed as part of a history
 // bubble or an editor draft.
-func renderFileContextChips(contexts []surface.FileContext) string {
+func (m Model) renderFileContextChips(contexts []surface.FileContext) string {
 	if len(contexts) == 0 {
 		return ""
 	}
@@ -1439,9 +1441,9 @@ func renderFileContextChips(contexts []surface.FileContext) string {
 			name = strings.TrimSpace(sanitizeFileCompletionText(context.Path))
 		}
 		if name == "" {
-			name = "file"
+			name = m.translator.T("vivy.tui.common.file", nil)
 		}
-		parts = append(parts, "[file: "+name+"]")
+		parts = append(parts, m.translator.T("vivy.tui.attachment.file", map[string]any{"name": name}))
 	}
 	return strings.Join(parts, " ")
 }
@@ -1450,27 +1452,27 @@ func (m Model) renderShortcutsDialog(l layout, p Palette) string {
 	w := max(1, min(l.width-8, 56))
 	inner := max(1, w-p.Dialog.GetHorizontalFrameSize())
 	rows := []string{
-		p.DialogTitle.Render("快捷方式"),
+		p.DialogTitle.Render(m.translator.T("vivy.tui.shortcuts.title", nil)),
 		"",
-		p.HelpKey.Render("shift+tab") + p.DialogBody.Render("  切换模式"),
-		p.HelpKey.Render("shift+h") + p.DialogBody.Render("    帮助"),
-		p.HelpKey.Render("/") + p.DialogBody.Render("          命令面板"),
-		p.HelpKey.Render("ctrl+p") + p.DialogBody.Render("     命令面板"),
-		p.HelpKey.Render("ctrl+s") + p.DialogBody.Render("     会话"),
-		p.HelpKey.Render("ctrl+n") + p.DialogBody.Render("     新建会话"),
-		p.HelpKey.Render("ctrl+l") + p.DialogBody.Render("     全局模型"),
-		p.HelpKey.Render("ctrl+y") + p.DialogBody.Render("     权限档"),
-		p.HelpKey.Render("ctrl+t") + p.DialogBody.Render("     思考档"),
-		p.HelpKey.Render("ctrl+o") + p.DialogBody.Render("     工具输出"),
-		p.HelpKey.Render("ctrl+r") + p.DialogBody.Render("     reasoning"),
-		p.HelpKey.Render("enter") + p.DialogBody.Render("      发送"),
-		p.HelpKey.Render("y/n") + p.DialogBody.Render("        批准 / 拒绝"),
-		p.HelpKey.Render("esc") + p.DialogBody.Render("        取消 / 关闭"),
-		p.HelpKey.Render("pgup/pgdn") + p.DialogBody.Render("  滚动聊天"),
-		p.HelpKey.Render("ctrl+→") + p.DialogBody.Render("     侧栏"),
-		p.HelpKey.Render("ctrl+c") + p.DialogBody.Render("     退出"),
+		p.HelpKey.Render("shift+tab") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.switchMode", nil)),
+		p.HelpKey.Render("shift+h") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.help", nil)),
+		p.HelpKey.Render("/") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.slashPalette", nil)),
+		p.HelpKey.Render("ctrl+p") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.palette", nil)),
+		p.HelpKey.Render("ctrl+s") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.sessions", nil)),
+		p.HelpKey.Render("ctrl+n") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.newSession", nil)),
+		p.HelpKey.Render("ctrl+l") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.model", nil)),
+		p.HelpKey.Render("ctrl+y") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.permission", nil)),
+		p.HelpKey.Render("ctrl+t") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.thinking", nil)),
+		p.HelpKey.Render("ctrl+o") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.tools", nil)),
+		p.HelpKey.Render("ctrl+r") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.reasoning", nil)),
+		p.HelpKey.Render("enter") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.send", nil)),
+		p.HelpKey.Render("y/n") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.approval", nil)),
+		p.HelpKey.Render("esc") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.cancel", nil)),
+		p.HelpKey.Render("pgup/pgdn") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.scroll", nil)),
+		p.HelpKey.Render("ctrl+→") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.sidebar", nil)),
+		p.HelpKey.Render("ctrl+c") + p.DialogBody.Render(m.translator.T("vivy.tui.shortcuts.quit", nil)),
 		"",
-		p.DialogFooter.Render("esc / ctrl+x 关闭"),
+		p.DialogFooter.Render(m.translator.T("vivy.tui.shortcuts.footer", nil)),
 	}
 	for i, row := range rows {
 		rows[i] = truncate(row, inner)
@@ -1481,14 +1483,16 @@ func (m Model) renderShortcutsDialog(l layout, p Palette) string {
 func (m Model) renderGateDialog(gate *surface.Gate, l layout, p Palette) string {
 	kind := gate.Kind
 	if kind == "" || kind == "approval" {
-		kind = "permission"
+		kind = m.translator.T("vivy.tui.gate.permission", nil)
+	} else if kind == "question" {
+		kind = m.translator.T("vivy.tui.gate.question", nil)
 	}
 	w := m.gateDialogWidth(gate, l)
 	innerWidth := max(1, w-p.Dialog.GetHorizontalFrameSize())
 	titleText := kind + "  ·  " + sanitizeInline(gate.Title)
 	title := p.DialogTitle.Render(truncate(titleText, innerWidth))
 	lines := []string{title}
-	if meta := renderGateMetadata(gate, innerWidth, p); len(meta) > 0 {
+	if meta := m.renderGateMetadata(gate, innerWidth, p); len(meta) > 0 {
 		lines = append(lines, meta...)
 	}
 	lines = append(lines, "")
@@ -1497,52 +1501,52 @@ func (m Model) renderGateDialog(gate *surface.Gate, l layout, p Palette) string 
 	start := min(max(0, m.gateScroll), max(0, len(bodyLines)-viewport))
 	end := min(len(bodyLines), start+viewport)
 	if len(bodyLines) == 0 {
-		bodyLines = []string{p.DialogBody.Render("No preview supplied.")}
+		bodyLines = []string{p.DialogBody.Render(m.translator.T("vivy.tui.gate.empty", nil))}
 		start, end = 0, 1
 	}
 	lines = append(lines, bodyLines[start:end]...)
 	if len(bodyLines) > viewport {
-		lines = append(lines, p.DialogFooter.Render(fmt.Sprintf("lines %d–%d of %d", start+1, end, len(bodyLines))))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.gate.lines", map[string]any{"start": start + 1, "end": end, "total": len(bodyLines)})))
 	}
 	lines = append(lines, "")
-	helpText := "enter/y approve · esc/n deny"
+	helpText := m.translator.T("vivy.tui.gate.approvalFooter", nil)
 	if isApprovalDiff(gate) {
-		mode := "unified"
+		mode := m.translator.T("vivy.tui.gate.unified", nil)
 		if m.gateUsesSplit(gate, l) {
-			mode = "split"
+			mode = m.translator.T("vivy.tui.gate.split", nil)
 		}
-		helpText = mode + " · t view · f fullscreen · ↑↓/pg scroll · enter/y approve · esc/n deny"
+		helpText = m.translator.T("vivy.tui.gate.diffFooter", map[string]any{"mode": mode})
 	}
 	help := p.DialogFooter.Render(truncate(helpText, innerWidth))
 	if gate.Kind == "question" {
-		help = p.DialogFooter.Render("type answer · enter submit")
+		help = p.DialogFooter.Render(m.translator.T("vivy.tui.gate.questionFooter", nil))
 	}
 	if gate.Submitting {
-		help = p.DialogFooter.Render("submitting…")
+		help = p.DialogFooter.Render(m.translator.T("vivy.tui.gate.submitting", nil))
 	}
 	lines = append(lines, help)
 	inner := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return p.Dialog.Width(w).Render(inner)
 }
 
-func renderGateMetadata(gate *surface.Gate, width int, p Palette) []string {
+func (m Model) renderGateMetadata(gate *surface.Gate, width int, p Palette) []string {
 	var lines []string
 	if action := sanitizeInline(gate.Action); action != "" {
-		lines = append(lines, p.DialogFooter.Render(truncate("action: "+action, width)))
+		lines = append(lines, p.DialogFooter.Render(truncate(m.translator.T("vivy.tui.gate.action", map[string]any{"action": action}), width)))
 	}
-	if target := sanitizeApprovalTarget(gate.Target); target != "" {
-		lines = append(lines, p.DialogFooter.Render(truncate("target: "+target, width)))
+	if target := m.sanitizeApprovalTarget(gate.Target); target != "" {
+		lines = append(lines, p.DialogFooter.Render(truncate(m.translator.T("vivy.tui.gate.target", map[string]any{"target": target}), width)))
 	}
 	if hash := shortPreconditionHash(gate.PreconditionHash); hash != "" {
-		lines = append(lines, p.DialogFooter.Render("base: "+hash))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.gate.base", map[string]any{"hash": hash})))
 	}
 	for i, risk := range gate.Risks {
 		if i == 3 {
-			lines = append(lines, p.ToolFail.Render(fmt.Sprintf("warning: %d more findings", len(gate.Risks)-i)))
+			lines = append(lines, p.ToolFail.Render(m.translator.T("vivy.tui.gate.moreRisks", map[string]any{"count": len(gate.Risks) - i})))
 			break
 		}
 		if risk = sanitizeInline(risk); risk != "" {
-			lines = append(lines, p.ToolFail.Render(truncate("warning: "+risk, width)))
+			lines = append(lines, p.ToolFail.Render(truncate(m.translator.T("vivy.tui.gate.risk", map[string]any{"risk": risk}), width)))
 		}
 	}
 	return lines
@@ -1562,35 +1566,19 @@ func shortPreconditionHash(hash string) string {
 }
 
 func sanitizeInline(text string) string {
-	return strings.TrimSpace(strings.ReplaceAll(sanitizeMultilineText(text), "\n", " "))
+	return textsafe.Inline(text)
 }
 
-func sanitizeApprovalTarget(text string) string {
+func (m Model) sanitizeApprovalTarget(text string) string {
 	target := sanitizeInline(text)
 	if strings.Contains(target, "\\") || strings.Contains(target, ":") || strings.HasPrefix(target, "/") {
-		return "[redacted target]"
+		return m.translator.T("vivy.tui.gate.redactedTarget", nil)
 	}
 	return target
 }
 
-const maxGatePreviewRunes = 64 * 1024
-
 func sanitizeMultilineText(text string) string {
-	text = strings.ReplaceAll(strings.ReplaceAll(ansi.Strip(text), "\r\n", "\n"), "\r", "\n")
-	clean := make([]rune, 0, min(len([]rune(text)), maxGatePreviewRunes))
-	for _, r := range text {
-		if r == '\n' {
-			clean = append(clean, r)
-		} else if r == '\t' {
-			clean = append(clean, ' ', ' ', ' ', ' ')
-		} else if !unicode.IsControl(r) && !isBidiControl(r) {
-			clean = append(clean, r)
-		}
-		if len(clean) >= maxGatePreviewRunes {
-			break
-		}
-	}
-	return string(clean)
+	return textsafe.Multiline(text)
 }
 
 func isUnifiedDiff(preview string) bool {
@@ -1623,15 +1611,15 @@ func (m Model) gateBodyLines(gate *surface.Gate, l layout, p Palette, width int)
 		return wrapText(body, width)
 	}
 	if m.gateUsesSplit(gate, l) {
-		return renderSplitDiffLines(gate.Preview, width, m.gateHorizontal, p)
+		return m.renderSplitDiffLines(gate.Preview, width, m.gateHorizontal, p)
 	}
-	return renderUnifiedDiffLines(gate.Preview, width, m.gateHorizontal, p)
+	return m.renderUnifiedDiffLines(gate.Preview, width, m.gateHorizontal, p)
 }
 
-func renderUnifiedDiffLines(preview string, width, horizontal int, p Palette) []string {
+func (m Model) renderUnifiedDiffLines(preview string, width, horizontal int, p Palette) []string {
 	raw := strings.Split(sanitizeMultilineText(preview), "\n")
 	adds, dels := visibleDiffStats(raw)
-	lines := []string{p.Dim.Render("preview ") + p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}
+	lines := []string{p.Dim.Render(m.translator.T("vivy.tui.gate.preview", nil)) + p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}
 	inHunk := false
 	for _, original := range raw {
 		line := horizontalSlice(original, horizontal, width)
@@ -1655,11 +1643,11 @@ type splitDiffRow struct {
 	oldNo, newNo int
 }
 
-func renderSplitDiffLines(preview string, width, horizontal int, p Palette) []string {
+func (m Model) renderSplitDiffLines(preview string, width, horizontal int, p Palette) []string {
 	raw := strings.Split(sanitizeMultilineText(preview), "\n")
 	adds, dels := visibleDiffStats(raw)
 	rows := parseSplitDiffRows(raw)
-	lines := []string{p.Dim.Render("preview ") + p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}
+	lines := []string{p.Dim.Render(m.translator.T("vivy.tui.gate.preview", nil)) + p.DiffAdd.Render(fmt.Sprintf("+%d", adds)) + " " + p.DiffDel.Render(fmt.Sprintf("-%d", dels))}
 	col := max(1, (width-3)/2)
 	for _, row := range rows {
 		if row.kind == '@' {
@@ -1808,7 +1796,7 @@ func gateMetadataLineCount(gate *surface.Gate) int {
 	if sanitizeInline(gate.Action) != "" {
 		count++
 	}
-	if sanitizeApprovalTarget(gate.Target) != "" {
+	if sanitizeInline(gate.Target) != "" {
 		count++
 	}
 	if shortPreconditionHash(gate.PreconditionHash) != "" {
@@ -1870,17 +1858,18 @@ func (m Model) gateMaxHorizontal() int {
 }
 
 func (m Model) renderSessionsDialog(l layout, p Palette) string {
+	w := max(1, min(l.width-8, 72))
 	rows := m.filteredSessions()
-	title := p.DialogTitle.Render("会话")
-	filter := "筛选：" + m.sessionFilter
+	title := p.DialogTitle.Render(m.translator.T("vivy.tui.sessions.title", nil))
+	filter := m.translator.T("vivy.tui.filter.value", map[string]any{"filter": m.sessionFilter})
 	if m.sessionFilter == "" {
-		filter = "按标题筛选…"
+		filter = m.translator.T("vivy.tui.sessions.prompt", nil)
 	}
 	lines := []string{title, p.DialogFooter.Render(filter)}
 	if m.sessionLoading {
-		lines = append(lines, "", p.DialogFooter.Render("正在加载会话…"))
+		lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.loading", nil)))
 	} else if len(rows) == 0 {
-		lines = append(lines, "", p.DialogFooter.Render("没有匹配的会话"))
+		lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.empty", nil)))
 	} else {
 		lines = append(lines, "")
 		windowRows := max(1, (max(4, l.height-12))/2)
@@ -1899,7 +1888,7 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 			}
 			name := strings.TrimSpace(row.Title)
 			if name == "" {
-				name = "未命名会话"
+				name = m.translator.T("vivy.tui.session.untitled", nil)
 			}
 			lines = append(lines, style.Render(truncate(marker+name, max(8, l.width-14))))
 			lines = append(lines, p.Dim.Render(truncate("   "+row.ID, max(8, l.width-14))))
@@ -1907,7 +1896,7 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 	}
 	lines = append(lines, "")
 	if m.sessionRenaming {
-		lines = append(lines, p.DialogFooter.Render("重命名："+m.sessionRenameInput+"█"), p.DialogFooter.Render("enter 确认 · esc 取消"))
+		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.rename", map[string]any{"name": m.sessionRenameInput})), p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.renameFooter", nil)))
 	} else if m.sessionDeleteID != "" {
 		name := m.sessionDeleteID
 		for _, row := range rows {
@@ -1916,52 +1905,51 @@ func (m Model) renderSessionsDialog(l layout, p Palette) string {
 				break
 			}
 		}
-		lines = append(lines, p.PromptWarn.Render(truncate("删除 "+name+"？", max(8, l.width-14))), p.DialogFooter.Render("y 删除 · n/esc 取消"))
+		lines = append(lines, p.PromptWarn.Render(truncate(m.translator.T("vivy.tui.sessions.delete", map[string]any{"name": name}), max(8, l.width-14))), p.DialogFooter.Render(m.translator.T("vivy.tui.sessions.deleteFooter", nil)))
 	} else {
-		lines = append(lines, p.DialogFooter.Render("↑/↓ 移动 · enter/tab 选择 · ^r 重命名 · ^x 删除"))
+		lines = append(lines, p.DialogFooter.Render(wrapWords(m.translator.T("vivy.tui.sessions.footer", nil), max(1, w-p.Dialog.GetHorizontalPadding()))))
 	}
 	if m.sessionError != "" {
 		lines = append(lines, p.PromptWarn.Render(truncate("! "+m.sessionError, max(8, l.width-14))))
 	}
 	inner := strings.Join(lines, "\n")
-	w := max(1, min(l.width-8, 72))
 	return p.Dialog.Width(w).Render(inner)
 }
 
 func (m Model) renderCommandDialog(l layout, p Palette) string {
 	if m.commandConfirmName != "" {
 		name := "/" + m.commandConfirmName
-		body := "应用这次会话变更？"
+		body := m.translator.T("vivy.tui.confirmation.sessionChange", nil)
 		if m.commandConfirmName == "fork" && len(m.commandConfirmArgs) > 0 {
-			body = fmt.Sprintf("在消息 %s 处分叉？", m.commandConfirmArgs[0])
+			body = m.translator.T("vivy.tui.confirmation.fork", map[string]any{"message": m.commandConfirmArgs[0]})
 		} else if m.commandConfirmName == "rewind" && len(m.commandConfirmArgs) > 0 {
-			body = fmt.Sprintf("回退到消息 %s？", m.commandConfirmArgs[0])
+			body = m.translator.T("vivy.tui.confirmation.rewind", map[string]any{"message": m.commandConfirmArgs[0]})
 		} else if m.commandConfirmName == "compact" {
-			body = "压缩当前会话上下文？"
+			body = m.translator.T("vivy.tui.confirmation.compact", nil)
 		}
 		inner := strings.Join([]string{
-			p.DialogTitle.Render("确认 " + name),
+			p.DialogTitle.Render(m.translator.T("vivy.tui.confirmation.title", map[string]any{"command": name})),
 			"",
 			p.DialogBody.Render(truncate(body, max(8, l.width-14))),
 			"",
-			p.DialogFooter.Render("y 确认 · n/esc 取消"),
+			p.DialogFooter.Render(m.translator.T("vivy.tui.confirmation.footer", nil)),
 		}, "\n")
 		w := max(1, min(l.width-8, 72))
 		return p.Dialog.Width(w).Render(inner)
 	}
 	title := m.commandOverlayTitle
 	if title == "" {
-		title = "命令"
+		title = m.translator.T("vivy.tui.dialog.commands", nil)
 	}
 	body := m.commandOverlay
 	if body == "" {
-		body = "done"
+		body = m.translator.T("vivy.tui.common.done", nil)
 	}
 	lines := []string{p.DialogTitle.Render(title), ""}
 	for _, line := range strings.Split(body, "\n") {
 		lines = append(lines, p.DialogBody.Render(truncate(line, max(8, l.width-14))))
 	}
-	lines = append(lines, "", p.DialogFooter.Render("enter / esc close"))
+	lines = append(lines, "", p.DialogFooter.Render(m.translator.T("vivy.tui.dialog.close", nil)))
 	inner := strings.Join(lines, "\n")
 	w := max(1, min(l.width-8, 72))
 	return p.Dialog.Width(w).Render(inner)
@@ -2134,6 +2122,35 @@ func truncate(s string, width int) string {
 	return ansi.Truncate(s, width, "…")
 }
 
+// wrapWords folds a dialog footer onto whitespace boundaries so keyboard
+// hints survive narrow widths whole instead of being split mid-word by the
+// border style's hard wrap.
+func wrapWords(text string, width int) string {
+	if width <= 0 || lipgloss.Width(text) <= width {
+		return text
+	}
+	var lines []string
+	line := ""
+	for _, word := range strings.Split(text, " ") {
+		if word == "" {
+			continue
+		}
+		switch {
+		case line == "":
+			line = word
+		case lipgloss.Width(line+" "+word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 // middleTruncate shortens s to at most width display cells by keeping a head
 // and a tail joined by an ellipsis. The tail receives the larger budget so a
 // filename at the end of a long path stays visible. s is plain text: sidebar
@@ -2183,13 +2200,13 @@ func tailOfWidth(s string, budget int) string {
 // pasteGuardChip flags a draft that looks like a giant paste: over the char
 // or the line threshold. It is derived from the current draft only, so
 // trimming back under the thresholds clears the chip without bookkeeping.
-func pasteGuardChip(input string) string {
+func (m Model) pasteGuardChip(input string) string {
 	runes := len([]rune(input))
 	lines := strings.Count(input, "\n") + 1
 	if runes <= pasteThresholdChars && lines <= pasteThresholdLines {
 		return ""
 	}
-	return fmt.Sprintf("⚠ 大段粘贴 · %d 行 / %d 字符 · enter 发送前请确认", lines, runes)
+	return m.translator.T("vivy.tui.paste.warning", map[string]any{"lines": lines, "characters": runes})
 }
 
 // editorInputLines splits a composer draft into the lines the editor shows.
@@ -2221,4 +2238,39 @@ func padRight(s string, width int) string {
 		return s + strings.Repeat(" ", width-w)
 	}
 	return s
+}
+
+func (m Model) workingModeLabel(mode string) string {
+	switch mode {
+	case "plan":
+		return m.translator.T("vivy.tui.mode.plan", nil)
+	case "readOnly":
+		return m.translator.T("vivy.tui.mode.readOnly", nil)
+	default:
+		return m.translator.T("vivy.tui.mode.smart", nil)
+	}
+}
+
+// stateLabel translates known host status badges, preserving unknown values.
+func (m Model) stateLabel(state string) string {
+	switch state {
+	case "starting":
+		return m.translator.T("vivy.tui.state.starting", nil)
+	case "initialized":
+		return m.translator.T("vivy.tui.state.initialized", nil)
+	case "configured":
+		return m.translator.T("vivy.tui.state.configured", nil)
+	case "error":
+		return m.translator.T("vivy.tui.state.error", nil)
+	case "pending":
+		return m.translator.T("vivy.tui.state.pending", nil)
+	case "done":
+		return m.translator.T("vivy.tui.state.done", nil)
+	case "denied":
+		return m.translator.T("vivy.tui.state.denied", nil)
+	case "failed":
+		return m.translator.T("vivy.tui.state.failed", nil)
+	default:
+		return state
+	}
 }

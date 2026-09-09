@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { zh } from './zh';
 import { en } from './en';
 
-export const LOCALES = ['zh', 'en'] as const;
+export const LOCALES = ['en', 'zh'] as const;
 export type Locale = (typeof LOCALES)[number];
 
 export type LocaleOption = {
@@ -18,7 +18,7 @@ export type LocaleOption = {
 };
 
 const STORAGE_KEY = 'vivy.language';
-const DEFAULT_LOCALE: Locale = 'zh';
+const DEFAULT_LOCALE: Locale = 'en';
 
 export type Dictionary = typeof zh;
 
@@ -41,19 +41,7 @@ function detectInitialLocale(): Locale {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (isLocale(saved)) return saved;
   } catch {
-    /* storage 不可用（测试/隐私模式）时回退浏览器语言 */
-  }
-  try {
-    const languages = typeof navigator !== 'undefined' && navigator.languages?.length
-      ? navigator.languages
-      : typeof navigator !== 'undefined' ? [navigator.language] : [];
-    for (const tag of languages) {
-      const normalized = tag.toLowerCase();
-      if (normalized.startsWith('zh')) return 'zh';
-      if (normalized.startsWith('en')) return 'en';
-    }
-  } catch {
-    /* 无 navigator 时使用默认语言 */
+    /* storage 不可用（测试/隐私模式）时使用默认语言 */
   }
   return DEFAULT_LOCALE;
 }
@@ -72,9 +60,9 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
-/** 设置全局界面语言：立即应用、持久化并通知所有订阅者。非法值被忽略。 */
-export function setLocale(locale: Locale): void {
-  if (!isLocale(locale) || locale === currentLocale) return;
+/** 应用后端确认的界面语言，刷新本地缓存并通知所有订阅者。 */
+export function hydrateLocale(locale: Locale): void {
+  if (!isLocale(locale)) return;
   currentLocale = locale;
   applyLocaleToDOM(locale);
   try {
@@ -116,7 +104,7 @@ function interpolate(template: string, params?: Record<string, string | number>)
 }
 
 /**
- * 按点号路径查询词条并插值 {{param}}。当前语言缺项时回退 zh，仍缺则返回 key 本身。
+ * 按点号路径查询词条并插值 {{param}}。当前语言缺项时回退默认英语，仍缺则返回 key 本身。
  * 非组件环境（错误消息、工具函数）直接调用；组件内改用 useTranslation().t，
  * 以便语言切换时重渲染。
  */
@@ -128,11 +116,10 @@ export function t(key: string, params?: Record<string, string | number>): string
 export function useTranslation(): {
   t: typeof t;
   locale: Locale;
-  setLocale: typeof setLocale;
   locales: () => LocaleOption[];
 } {
   useSyncExternalStore(subscribe, () => currentLocale, () => DEFAULT_LOCALE);
-  return { t, locale: currentLocale, setLocale, locales: localeOptions };
+  return { t, locale: currentLocale, locales: localeOptions };
 }
 
 /** 仅供测试：重置模块内当前语言，不触碰 DOM 与 localStorage。 */

@@ -1,13 +1,19 @@
 import { CheckCircle2, Languages } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from '@/i18n';
+import { useVivyStore } from '@/lib/store';
 
 /**
- * 设置页的真实语言选择卡：点击立即切换全局界面语言并持久化到当前浏览器。
- * 与 ThemePicker 同构；语言切换由 src/i18n 的模块级 store 广播给所有订阅组件。
+ * 设置页的真实语言选择卡：通过后端保存全局设置，只应用后端确认的语言。
  */
 export function LanguagePicker() {
-  const { t, locale, setLocale, locales } = useTranslation();
+  const { t, locales } = useTranslation();
+  const settings = useVivyStore((state) => state.settings);
+  const phase = useVivyStore((state) => state.settingsPhase);
+  const error = useVivyStore((state) => state.settingsError);
+  const saveLocale = useVivyStore((state) => state.saveLocale);
+  const selectedLocale = settings?.locale;
+  const disabled = !settings || phase === 'loading' || phase === 'processing' || settings.locale_read_only;
 
   return (
     <Card>
@@ -24,24 +30,26 @@ export function LanguagePicker() {
             <button
               key={option.id}
               type="button"
-              aria-pressed={locale === option.id}
-              className={`cursor-pointer rounded-xl border p-4 text-left transition-colors hover:border-primary ${locale === option.id ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : ''}`}
-              onClick={() => setLocale(option.id)}
+              aria-pressed={selectedLocale === option.id}
+              disabled={disabled}
+              className={`cursor-pointer rounded-xl border p-4 text-left transition-colors hover:border-primary disabled:cursor-not-allowed disabled:opacity-60 ${selectedLocale === option.id ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : ''}`}
+              onClick={() => { void saveLocale(option.id).catch(() => undefined); }}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{option.nativeLabel}</span>
                 <span className="flex items-center gap-2">
                   <span className="rounded bg-muted px-2 py-1 text-xs font-semibold">{option.code}</span>
-                  {locale === option.id ? <CheckCircle2 className="h-4 w-4 text-primary" aria-label={t('settings.themeSelected')} /> : null}
+                  {selectedLocale === option.id ? <CheckCircle2 className="h-4 w-4 text-primary" aria-label={t('settings.themeSelected')} /> : null}
                 </span>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {locale === option.id ? t('language.currentLanguage') : option.label}
+                {selectedLocale === option.id ? t('language.currentLanguage') : option.label}
               </p>
             </button>
           ))}
         </div>
         <p className="mt-4 text-xs text-muted-foreground">{t('language.switchHint')}</p>
+        {error ? <p className="mt-4 rounded bg-destructive/10 p-3 text-sm text-destructive" role="alert">{t('settingsModel.errors.saveFailed')}: {error}</p> : null}
       </CardContent>
     </Card>
   );

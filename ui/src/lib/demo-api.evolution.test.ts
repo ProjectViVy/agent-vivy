@@ -1,5 +1,8 @@
+import { hydrateLocale, resetLocaleForTests } from '@/i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
+// Demo records are seeded at module evaluation, so select their fixture locale first.
+hydrateLocale('zh');
+const {
   acceptSkillRequest,
   deleteSkill,
   getAutoDreamRunEvents,
@@ -10,11 +13,13 @@ import {
   listSkills,
   rejectSkillRequest,
   updateSkillDocument,
-} from './demo-api';
+} = await import('./demo-api');
 
 const values = new Map<string, string>();
 
 beforeEach(() => {
+  // Seed the existing Chinese demo fixtures explicitly; do not translate stored data.
+  hydrateLocale('zh');
   values.clear();
   vi.useFakeTimers();
   vi.stubGlobal('localStorage', {
@@ -25,7 +30,7 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { resetLocaleForTests(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 async function settle<T>(promise: Promise<T>): Promise<T> {
   // flush 期间 promise 可能先行 reject，提前挂接避免未处理拒绝告警

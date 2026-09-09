@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getLocale, localeOptions, resetLocaleForTests, setLocale, t } from './index';
+import * as localeStore from './index';
+import { getLocale, hydrateLocale, localeOptions, resetLocaleForTests, t } from './index';
 import { zh } from './zh';
 import { en } from './en';
+import { CHANNEL_PLATFORMS } from '../components/settings/channel-platforms';
+import { CHANNEL_CREDENTIAL_FIELDS } from '../components/settings/channel-schema';
+
+function flatten(value: unknown, prefix = ''): Record<string, string> {
+  if (typeof value === 'string') return { [prefix]: value };
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+    Object.entries(flatten(child, prefix ? `${prefix}.${key}` : key))));
+}
 
 /** 收集词典的全部叶子路径；数组以 <array:长度> 标注，用于校验 en 与 zh 结构/长度一致。 */
 function leafPaths(value: unknown, prefix = ''): string[] {
@@ -22,6 +31,45 @@ afterEach(() => {
 });
 
 describe('i18n dictionary parity', () => {
+  it('has nonempty string leaves, identical keys and named placeholders including arrays', () => {
+    const english = flatten(en);
+    const chinese = flatten(zh);
+    expect(Object.keys(english).sort()).toEqual(Object.keys(chinese).sort());
+    for (const key of Object.keys(english)) {
+      expect(english[key].trim(), `en:${key}`).not.toBe('');
+      expect(chinese[key].trim(), `zh:${key}`).not.toBe('');
+      const names = (text: string) => [...text.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((match) => match[1]).sort();
+      expect(names(english[key]), key).toEqual(names(chinese[key]));
+    }
+  });
+
+  it.each(['en', 'zh'] as const)('resolves representative surfaces without fallback in %s', (locale) => {
+    hydrateLocale(locale);
+    const dictionary = flatten(locale === 'en' ? en : zh);
+    for (const key of ['nav.settings', 'chat.copy', 'approvals.empty', 'cron.title',
+      'trajectory.empty', 'files.empty', 'settingsModel.errors.saveFailed', 'toolsSettings.save',
+      'ui.previousPage', 'channels.tutorialBody', 'dashboard.overview', 'lifecycle.speciesTab']) {
+      expect(dictionary[key], key).toBeTypeOf('string');
+      expect(t(key), key).not.toBe(key);
+    }
+  });
+
+  it('describes backend-shared language persistence', () => {
+    expect(t('language.description')).toContain('workspace');
+    hydrateLocale('zh');
+    expect(t('language.description')).toContain('工作区');
+  });
+
+  it('resolves channel host metadata on access while preserving protocol defaults and brands', () => {
+    hydrateLocale('en');
+    expect(CHANNEL_PLATFORMS.telegram.quickGuideSteps[0]).toContain('Search');
+    expect(CHANNEL_CREDENTIAL_FIELDS.telegram[1].label).toBe('Allowed user IDs');
+    expect(CHANNEL_PLATFORMS.feishu.displayName).toBe('飞书');
+    hydrateLocale('zh');
+    expect(CHANNEL_PLATFORMS.telegram.quickGuideSteps[0]).toContain('搜索');
+    expect(CHANNEL_CREDENTIAL_FIELDS.telegram[1].label).toBe('允许的用户 ID');
+    expect(CHANNEL_CREDENTIAL_FIELDS.dingtalk.find((field) => field.key === 'dm_policy')?.default).toBe('open');
+  });
   it('zh and en share the same leaf keys and array lengths', () => {
     const zhPaths = leafPaths(zh).sort();
     const enPaths = leafPaths(en).sort();
@@ -39,15 +87,29 @@ describe('i18n dictionary parity', () => {
 });
 
 describe('t() lookup', () => {
-  it('defaults to zh', () => {
-    expect(getLocale()).toBe('zh');
-    expect(t('notebook.reports')).toBe('报告');
+  it.each([
+    ['en', 'Every 5 minutes', '5 tools'],
+    ['zh', '每 5 分钟', '5 个工具'],
+  ] as const)('interpolates cron and settings counts in %s', (locale, schedule, tools) => {
+    hydrateLocale(locale);
+    expect(t('cron.scheduleFormat.everyMinutes', { count: 5 })).toBe(schedule);
+    expect(t('toolsSettings.description', { count: 5 })).toContain(tools);
+    expect(t('toolsSettings.activeLabel', { name: 'bash' })).toContain('bash');
+  });
+  it('uses English with no saved or backend value', () => {
+    resetLocaleForTests();
+    expect(getLocale()).toBe('en');
+    expect(t('notebook.reports')).toBe('Reports');
   });
 
-  it('falls back to zh when the current locale lacks a key', () => {
-    setLocale('en');
-    expect(t('notebook.reports')).toBe('Reports');
-    resetLocaleForTests();
+  it('does not detect the locale from browser languages', async () => {
+    vi.stubGlobal('window', { localStorage: { getItem: () => null, setItem: () => undefined } });
+    vi.stubGlobal('navigator', { languages: ['zh-CN'], language: 'zh-CN' });
+    vi.resetModules();
+
+    const freshLocaleStore = await import('./index');
+
+    expect(freshLocaleStore.getLocale()).toBe('en');
   });
 
   it('returns the key itself when no dictionary has it', () => {
@@ -55,13 +117,13 @@ describe('t() lookup', () => {
   });
 
   it('interpolates {{params}}', () => {
-    expect(t('masks.current', { name: '程序员' })).toBe('当前：程序员');
-    expect(t('masks.useMask', { name: '研究员' })).toBe('使用「研究员」');
+    expect(t('masks.current', { name: 'Programmer' })).toBe('Current: Programmer');
+    expect(t('masks.useMask', { name: 'Researcher' })).toBe('Use “Researcher”');
   });
 
   it('indexes array leaves by dotted path', () => {
-    expect(t('demo.tokens.timeline.months.0')).toBe('1月');
-    expect(t('demo.tokens.timeline.months.11')).toBe('12月');
+    expect(t('demo.tokens.timeline.months.0')).toBe('Jan');
+    expect(t('demo.tokens.timeline.months.11')).toBe('Dec');
   });
 });
 
@@ -88,8 +150,13 @@ describe('locale switching', () => {
     });
   });
 
-  it('setLocale persists to localStorage and updates the DOM lang', () => {
-    setLocale('en');
+  it('backend hydration replaces a stale browser cache', () => {
+    storage['vivy.language'] = 'zh';
+    expect(localeStore).toHaveProperty('hydrateLocale');
+    const hydrateLocale = (localeStore as typeof localeStore & {
+      hydrateLocale: (locale: 'en' | 'zh') => void;
+    }).hydrateLocale;
+    hydrateLocale('en');
     expect(getLocale()).toBe('en');
     expect(storage['vivy.language']).toBe('en');
     expect((document.documentElement as { lang: string }).lang).toBe('en');
@@ -97,9 +164,13 @@ describe('locale switching', () => {
   });
 
   it('locale option labels follow the current language while nativeLabel stays constant', () => {
-    setLocale('zh');
+    expect(localeStore).toHaveProperty('hydrateLocale');
+    const hydrateLocale = (localeStore as typeof localeStore & {
+      hydrateLocale: (locale: 'en' | 'zh') => void;
+    }).hydrateLocale;
+    hydrateLocale('zh');
     const zhLabel = localeOptions().find((option) => option.id === 'zh')!.label;
-    setLocale('en');
+    hydrateLocale('en');
     const enLabel = localeOptions().find((option) => option.id === 'zh')!.label;
     expect(enLabel).not.toBe(zhLabel);
     expect(localeOptions().find((option) => option.id === 'zh')!.nativeLabel).toBe('简体中文');

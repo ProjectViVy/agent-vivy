@@ -5,7 +5,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	corei18n "agent-vivy/internal/i18n"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 )
+
+var _ func(tuii18n.Translator) Registry = DefaultRegistry
 
 func TestParsePlainTextPreservesInput(t *testing.T) {
 	for _, input := range []string{"hello  world", "  leading", "emoji 🙂 中文", "a\\b"} {
@@ -149,7 +154,7 @@ func TestParseSyntaxErrors(t *testing.T) {
 }
 
 func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
-	r := DefaultRegistry()
+	r := DefaultRegistry(tuii18n.New(corei18n.English))
 	for _, name := range []string{"/help", "/?", "/commands", "/HELP", "/q", "/exit"} {
 		got, err := r.Parse(name)
 		if err != nil || !got.IsCommand() {
@@ -167,7 +172,7 @@ func TestRegistryResolvesAliasesAndRejectsUnknownLocally(t *testing.T) {
 }
 
 func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
-	r := DefaultRegistry()
+	r := DefaultRegistry(tuii18n.New(corei18n.English))
 	for _, input := range []string{"/thinking", "/thinking on", "/image photo.png", "/image remove 1", "/image clear", "/compact", "/fork msg-1", "/fork msg-1 \"new title\"", "/rewind msg-1", "/tasks", "/stats 1w", "/skills writer", "/mcp docs", "/mcp resources docs", "/mcp read docs \"docs://guide\"", "/files run-1 path.txt", "/tools"} {
 		parsed, err := r.Parse(input)
 		if err != nil {
@@ -189,12 +194,142 @@ func TestRegistryValidatesAdvancedCommandArguments(t *testing.T) {
 }
 
 func TestHelpHidesUnavailableShellCapability(t *testing.T) {
-	r := DefaultRegistry()
+	r := DefaultRegistry(tuii18n.New(corei18n.English))
 	if strings.Contains(r.HelpFor(false), "!<script>") {
 		t.Fatal("help advertised shell without an initialized capability")
 	}
 	if !strings.Contains(r.HelpFor(true), "!<script>") {
 		t.Fatal("help hid shell despite shell.start capability")
+	}
+}
+
+func TestDefaultRegistryLocalizesDescriptionsAndHelp(t *testing.T) {
+	tests := []struct {
+		name               string
+		locale             corei18n.Locale
+		descriptions       map[string]string
+		commandsHeading    string
+		prefixesHeading    string
+		shellDescription   string
+		fileDescription    string
+		literalDescription string
+		aliases            string
+	}{
+		{
+			name:               "English",
+			locale:             corei18n.English,
+			descriptions:       map[string]string{"help": "View commands", "mcp": "View MCP servers and read-only resources", "quit": "Leave terminal"},
+			commandsHeading:    "Commands",
+			prefixesHeading:    "Input prefixes",
+			shellDescription:   "Run a governed foreground shell command in the workspace",
+			fileDescription:    "Attach project file context",
+			literalDescription: "Send literal markers",
+			aliases:            "(aliases: /?, /commands)",
+		},
+		{
+			name:               "Chinese",
+			locale:             corei18n.Chinese,
+			descriptions:       map[string]string{"help": "查看命令", "mcp": "查看 MCP 服务与只读资源", "quit": "离开终端"},
+			commandsHeading:    "命令",
+			prefixesHeading:    "输入前缀",
+			shellDescription:   "在工作区执行受治理的前台 shell 命令",
+			fileDescription:    "附加项目文件上下文",
+			literalDescription: "发送字面量标记",
+			aliases:            "（别名：/?, /commands）",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := DefaultRegistry(tuii18n.New(tt.locale))
+			for name, description := range tt.descriptions {
+				spec, ok := r.Lookup(name)
+				if !ok || spec.Description != description {
+					t.Errorf("%s spec = %+v, %t; want description %q", name, spec, ok, description)
+				}
+			}
+			help := r.HelpFor(true)
+			for _, want := range []string{tt.commandsHeading, tt.prefixesHeading, tt.shellDescription, tt.fileDescription, tt.literalDescription, tt.aliases} {
+				if !strings.Contains(help, want) {
+					t.Errorf("localized help missing %q:\n%s", want, help)
+				}
+			}
+		})
+	}
+}
+
+func TestDefaultRegistryMapsAllLocalizedDescriptionKeys(t *testing.T) {
+	type commandDescription struct {
+		name    string
+		english string
+		chinese string
+	}
+	commands := []commandDescription{
+		{name: "help", english: "View commands", chinese: "查看命令"},
+		{name: "status", english: "View current run status", chinese: "当前运行状态"},
+		{name: "sessions", english: "Open session list", chinese: "打开会话列表"},
+		{name: "model", english: "Switch model", chinese: "切换模型"},
+		{name: "new", english: "Create a session", chinese: "新建会话"},
+		{name: "session", english: "Switch to a session", chinese: "切换到指定会话"},
+		{name: "rename", english: "Rename current session", chinese: "重命名当前会话"},
+		{name: "delete", english: "Delete a session", chinese: "删除会话"},
+		{name: "cancel", english: "Cancel current run", chinese: "取消当前运行"},
+		{name: "queue", english: "Clear queued turns", chinese: "清空排队回合"},
+		{name: "permission", english: "Set permission preset", chinese: "设置权限档"},
+		{name: "thinking", english: "Set thinking mode", chinese: "设置思考档"},
+		{name: "image", english: "Attach a project image", chinese: "附加项目图片"},
+		{name: "compact", english: "Compact current context", chinese: "压缩当前上下文"},
+		{name: "fork", english: "Fork session at a message", chinese: "在消息处分叉会话"},
+		{name: "rewind", english: "Rewind session view", chinese: "回退会话视图"},
+		{name: "todos", english: "View todos", chinese: "查看待办"},
+		{name: "stats", english: "View usage statistics", chinese: "查看用量统计"},
+		{name: "skills", english: "View installed skills", chinese: "查看已安装技能"},
+		{name: "mcp", english: "View MCP servers and read-only resources", chinese: "查看 MCP 服务与只读资源"},
+		{name: "files", english: "View governed workspace", chinese: "查看受治理工作区"},
+		{name: "tools", english: "View tool catalog", chinese: "查看工具目录"},
+		{name: "quit", english: "Leave terminal", chinese: "离开终端"},
+	}
+	locales := []struct {
+		name   string
+		locale corei18n.Locale
+		want   func(command commandDescription) string
+	}{
+		{name: "English", locale: corei18n.English, want: func(command commandDescription) string { return command.english }},
+		{name: "Chinese", locale: corei18n.Chinese, want: func(command commandDescription) string { return command.chinese }},
+	}
+	for _, tt := range locales {
+		t.Run(tt.name, func(t *testing.T) {
+			translator := tuii18n.New(tt.locale)
+			registry := DefaultRegistry(translator)
+			if got := len(registry.Specs()); got != len(commands) {
+				t.Fatalf("registry has %d commands, want %d", got, len(commands))
+			}
+			for _, command := range commands {
+				want := tt.want(command)
+				key := "vivy.tui.command." + command.name + ".description"
+				if got := translator.T(key, nil); got != want {
+					t.Errorf("T(%q) = %q, want %q", key, got, want)
+				}
+				spec, ok := registry.Lookup(command.name)
+				if !ok || spec.Description != want {
+					t.Errorf("Lookup(%q) = %+v, %t; want description %q", command.name, spec, ok, want)
+				}
+			}
+		})
+	}
+}
+
+func TestRegistryExtendPreservesLocalization(t *testing.T) {
+	r := DefaultRegistry(tuii18n.New(corei18n.Chinese))
+	extended, err := r.Extend(Spec{Name: "review", Description: "Review changes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	help := extended.Help()
+	if !strings.HasPrefix(help, "命令\n") || !strings.Contains(help, "/review") {
+		t.Fatalf("extended help lost catalog or command:\n%s", help)
+	}
+	if _, ok := r.Lookup("review"); ok {
+		t.Fatal("Extend mutated the original registry")
 	}
 }
 

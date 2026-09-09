@@ -14,6 +14,7 @@ import (
 
 	"agent-vivy/sdk/plugin"
 	"agent-vivy/sdk/tui/live"
+	"agent-vivy/sdk/tui/surface"
 	"agent-vivy/sdk/tui/view"
 )
 
@@ -22,7 +23,10 @@ const Kind = "tui"
 // New returns the canonical first-party TUI face.
 func New(opts plugin.FaceOptions) plugin.Face { return &terminalFace{opts: opts} }
 
-type terminalFace struct{ opts plugin.FaceOptions }
+type terminalFace struct {
+	opts    plugin.FaceOptions
+	runView func(surface.Driver, io.Writer, ...view.Options) error
+}
 
 func (*terminalFace) Kind() string { return Kind }
 
@@ -40,7 +44,11 @@ func (f *terminalFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.Face
 		return plugin.FaceResult{Status: "failed"}, err
 	}
 	defer controller.Close()
-	if err := view.RunWithOutput(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput}); err != nil {
+	runView := f.runView
+	if runView == nil {
+		runView = view.RunWithOutput
+	}
+	if err := runView(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput, Locale: controller.Locale()}); err != nil {
 		controller.Shutdown()
 		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: %w", err)
 	}

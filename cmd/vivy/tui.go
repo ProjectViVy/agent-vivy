@@ -13,6 +13,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/tui"
 	"agent-vivy/sdk/tui/live"
+	"agent-vivy/sdk/tui/surface"
 	"agent-vivy/sdk/tui/view"
 )
 
@@ -93,18 +94,24 @@ func runTUI(args []string) int {
 	}
 	defer client.Close()
 
-	controller, err := live.New(ctx, client, live.Options{Host: addr, Title: title})
-	if err != nil {
+	if err := runRemoteTUI(ctx, client, live.Options{Host: addr, Title: title}, debugToolOutput, view.Run); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	return 0
+}
+
+func runRemoteTUI(ctx context.Context, transport live.Transport, opts live.Options, debugToolOutput bool, runView func(surface.Driver, ...view.Options) error) error {
+	controller, err := live.New(ctx, transport, opts)
+	if err != nil {
+		return err
 	}
 	defer controller.Close()
-	if err := view.Run(controller, view.Options{DebugToolOutput: debugToolOutput}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+	if err := runView(controller, view.Options{DebugToolOutput: debugToolOutput, Locale: controller.Locale()}); err != nil {
+		return err
 	}
 	controller.Shutdown()
-	return 0
+	return nil
 }
 
 func remoteTUIDebug() (bool, error) {

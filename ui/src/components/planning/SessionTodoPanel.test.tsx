@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { resetLocaleForTests } from '@/i18n';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SessionTodoPanel, TodoRow } from './SessionTodoPanel';
 import type { Todo } from '@/lib/api';
 
+beforeEach(() => resetLocaleForTests());
+
 describe('SessionTodoPanel', () => {
   it('renders initial empty state', () => {
     const html = renderToStaticMarkup(<SessionTodoPanel />);
-    expect(html).toContain('这个会话还没有待办');
+    expect(html).toContain('This session has no to-dos yet');
   });
 });
 
@@ -32,7 +35,7 @@ describe('TodoRow component', () => {
     expect(html).toContain('Deploy backend with Docker');
     expect(html).toContain('role="checkbox"');
     expect(html).toContain('data-state="unchecked"');
-    expect(html).toContain('aria-label="标记为已取消"');
+    expect(html).toContain('aria-label="Mark as cancelled"');
   });
 
   it('renders completed todo with checked state', () => {
@@ -49,7 +52,7 @@ describe('TodoRow component', () => {
       <TodoRow todo={cancelledTodo} disabled={false} onToggleStatus={vi.fn()} />,
     );
     expect(html).toContain('line-through');
-    expect(html).toContain('aria-label="恢复为待办"');
+    expect(html).toContain('aria-label="Restore to pending"');
   });
 
   it('disables checkbox when session is running', () => {
@@ -57,7 +60,7 @@ describe('TodoRow component', () => {
       <TodoRow todo={pendingTodo} disabled={true} onToggleStatus={vi.fn()} />,
     );
     expect(html).toContain('disabled=""');
-    expect(html).toContain('会话运行中，待办状态已锁定');
+    expect(html).toContain('Todo status cannot be changed while session is running');
   });
 
   it('renders spinning loader when task is in_progress while session is running', () => {

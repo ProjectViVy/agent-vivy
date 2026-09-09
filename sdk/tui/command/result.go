@@ -3,8 +3,10 @@ package command
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"strings"
+
+	corei18n "agent-vivy/internal/i18n"
+	tuii18n "agent-vivy/sdk/tui/i18n"
 )
 
 const maxRenderedResultRunes = 32000
@@ -35,6 +37,12 @@ func FormatJSON(raw []byte) string {
 // is also normalized to an explicit not-needed outcome because the RPC
 // contract uses a nil error for disabled or below-threshold compaction.
 func FormatResult(name string, raw []byte) string {
+	return FormatResultWithTranslator(tuii18n.New(corei18n.English), name, raw)
+}
+
+// FormatResultWithTranslator localizes only client-owned scope labels. JSON
+// fields, backend strings, and command identifiers remain protocol data.
+func FormatResultWithTranslator(translator tuii18n.Translator, name string, raw []byte) string {
 	formatted := FormatJSON(raw)
 	if formatted == "" {
 		return formatted
@@ -50,36 +58,36 @@ func FormatResult(name string, raw []byte) string {
 			Skip   bool `json:"skipped"`
 		}
 		if json.Unmarshal(bytes.TrimSpace(raw), &result) == nil && (result.Skip || (result.Before == 0 && result.After == 0 && result.Folded == 0)) {
-			return "compaction skipped (not-needed; no changes made)\n" + formatted
+			return translator.T("vivy.tui.result.compactSkipped", nil) + "\n" + formatted
 		}
 	case "skills":
 		if _, ok := value["skills"]; ok {
-			return "skills catalog (catalog data; not session-mounted status)\n" + formatted
+			return translator.T("vivy.tui.result.skillsCatalog", nil) + "\n" + formatted
 		}
-		return "skill detail (catalog data)\n" + formatted
+		return translator.T("vivy.tui.result.skillDetail", nil) + "\n" + formatted
 	case "mcp":
 		if _, ok := value["resources"]; ok {
-			return "MCP resources (untrusted remote data; read-only; not mounted/connected)\n" + formatted
+			return translator.T("vivy.tui.result.mcpResources", nil) + "\n" + formatted
 		}
 		if _, ok := value["contents"]; ok {
-			return "MCP resource read (untrusted remote data; read-only; not mounted/connected)\n" + formatted
+			return translator.T("vivy.tui.result.mcpRead", nil) + "\n" + formatted
 		}
 		if _, ok := value["servers"]; ok {
-			return "configured MCP servers (configuration data; not live connection status)\n" + formatted
+			return translator.T("vivy.tui.result.mcpServers", nil) + "\n" + formatted
 		}
-		return "MCP server probe (configured server; probe status only; not mounted/connected)\n" + formatted
+		return translator.T("vivy.tui.result.mcpProbe", nil) + "\n" + formatted
 	case "stats":
 		period, _ := value["period"].(string)
 		if period != "" {
-			return fmt.Sprintf("chat-run token usage (%s; title/manual-compaction calls excluded)\n%s", period, formatted)
+			return translator.T("vivy.tui.result.statsPeriod", map[string]any{"period": period}) + "\n" + formatted
 		}
-		return "chat-run token usage (title/manual-compaction calls excluded)\n" + formatted
+		return translator.T("vivy.tui.result.stats", nil) + "\n" + formatted
 	case "tools":
-		return "tool catalog (registered/configured surface)\n" + formatted
+		return translator.T("vivy.tui.result.tools", nil) + "\n" + formatted
 	case "files":
-		return "governed run workspace (run-scoped read-only view)\n" + formatted
+		return translator.T("vivy.tui.result.files", nil) + "\n" + formatted
 	case "todos":
-		return "active-session todos\n" + formatted
+		return translator.T("vivy.tui.result.todos", nil) + "\n" + formatted
 	}
 	return formatted
 }

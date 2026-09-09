@@ -1,9 +1,14 @@
+import { hydrateLocale, resetLocaleForTests } from '@/i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { formatTokenCost, formatTokenCount, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } from './demo-api';
+// Demo records are seeded at module evaluation, so select their fixture locale first.
+hydrateLocale('zh');
+const { formatTokenCost, formatTokenCount, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } = await import('./demo-api');
 
 const values = new Map<string, string>();
 
 beforeEach(() => {
+  // Seed the existing Chinese demo fixtures explicitly; do not translate stored data.
+  hydrateLocale('zh');
   values.clear();
   vi.useFakeTimers();
   vi.stubGlobal('localStorage', {
@@ -16,7 +21,7 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { resetLocaleForTests(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 async function settle<T>(promise: Promise<T>): Promise<T> {
   await vi.runAllTimersAsync();

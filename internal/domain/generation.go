@@ -1,5 +1,11 @@
 package domain
 
+// GenerationSettings are immutable presentation defaults recorded in a
+// Generation recipe.
+type GenerationSettings struct {
+	Locale string `json:"locale,omitempty"`
+}
+
 // AssemblyRecipe is the named pack bill for one generation. First-party
 // units keep their real names; only the user layer is called plugins.
 type AssemblyRecipe struct {
@@ -11,7 +17,8 @@ type AssemblyRecipe struct {
 	// Face names the seam-face organ compiled into this generation
 	// (VIVY-FACE-PACK.md §6), e.g. "headless". Empty keeps the built-in
 	// launcher (`vivy run` kernel headless loop).
-	Face string `json:"face,omitempty"`
+	Face     string             `json:"face,omitempty"`
+	Settings GenerationSettings `json:"settings,omitempty"`
 }
 
 type GenerationPhase string
