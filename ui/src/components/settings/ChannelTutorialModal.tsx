@@ -23,38 +23,12 @@ function difficultyStars(difficulty: ChannelPlatformInfo['difficulty']): string 
   return '★'.repeat(difficulty) + '☆'.repeat(3 - difficulty);
 }
 
-function placeholderContent(platform: ChannelPlatformInfo, publicIPText: string): string {
-  return [
-    '## 平台概览',
-    '',
-    `- **接入方式**: ${platform.accessMethod}`,
-    `- **需要公网 IP**: ${publicIPText}`,
-    `- **配置难度**: ${difficultyStars(platform.difficulty)}`,
-    '',
-    '## 前置条件',
-    '',
-    '- 准备相关平台的开发者账号',
-    '- 确保网络环境正常',
-    '',
-    '## 平台端申请步骤',
-    '',
-    '请参考相关平台的官方文档完成应用创建和凭证获取。',
-    '',
-    '## Agent Vivy 配置',
-    '',
-    '1. 在上方表单中填写凭证信息',
-    '2. 点击「下一步」进入完成页',
-    '3. 保存后即可启用该通道',
-    '',
-    '## 验证与测试',
-    '',
-    '- 启用通道后观察运行日志输出',
-    '- 发送测试消息验证连接',
-    '',
-    '## 常见问题',
-    '',
-    '如有问题，请查看项目文档或提交 Issue。',
-  ].join('\n');
+function placeholderContent(platform: ChannelPlatformInfo, publicIPText: string, t: ReturnType<typeof useTranslation>['t']): string {
+  return t('channels.tutorialBody', {
+    accessMethod: platform.accessMethod,
+    publicIP: publicIPText,
+    difficulty: difficultyStars(platform.difficulty),
+  });
 }
 
 function ChannelTutorialModal({
@@ -71,7 +45,7 @@ function ChannelTutorialModal({
   const { t } = useTranslation();
   const platform = platformName && isKnownChannel(platformName) ? CHANNEL_PLATFORMS[platformName] : null;
   const publicIPText = platform?.requiresPublicIP ? t('channels.tutorialPublicIPYes') : t('channels.tutorialPublicIPNo');
-  const content = platform ? placeholderContent(platform, publicIPText) : '';
+  const content = platform ? placeholderContent(platform, publicIPText, t) : '';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

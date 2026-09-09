@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
+	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -1120,6 +1122,212 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	}
 }
 
+func TestSettingsGetExposesBackendAuthoritativeLocale(t *testing.T) {
+	env, settingsPath := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.GenerationLocale = i18n.English
+		deps.DeveloperLocale = i18n.English
+		deps.SealedGeneration = false
+	})
+	if _, err := settings.Save(settingsPath, settings.Settings{Locale: "zh"}); err != nil {
+		t.Fatalf("seed locale: %v", err)
+	}
+
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.Locale != "zh" || get.GenerationLocale != "en" || get.WorkspaceLocale != "zh" || get.localeSettingsResult.ReadOnly {
+		t.Fatalf("locale view = %+v; want effective zh, generation en, workspace zh, writable", get.localeSettingsResult)
+	}
+	raw, err := json.Marshal(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Locale           string `json:"locale"`
+		GenerationLocale string `json:"generation_locale"`
+		WorkspaceLocale  string `json:"workspace_locale"`
+		ReadOnly         bool   `json:"locale_read_only"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire.Locale != "zh" || wire.GenerationLocale != "en" || wire.WorkspaceLocale != "zh" || wire.ReadOnly {
+		t.Fatalf("settings/get locale wire = %s", raw)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/update", map[string]any{"provider": "openai"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	updated := result.(settingsResult)
+	if updated.Locale != "zh" || updated.GenerationLocale != "en" || updated.WorkspaceLocale != "zh" || updated.localeSettingsResult.ReadOnly {
+		t.Fatalf("settings/update locale view = %+v; want persisted effective zh", updated.localeSettingsResult)
+	}
+}
+
+func TestSettingsGetPropagatesDocumentErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, string)
+	}{
+		{
+			name: "malformed yaml",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("locale: [\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "invalid locale",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("locale: ja\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "read error",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, path := newSettingsHandlerEnv(t, nil)
+			tt.prepare(t, path)
+			result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+			if result != nil || rpcErr == nil || rpcErr.Code != InternalError {
+				t.Fatalf("settings/get = result %#v, error %v; want nil InternalError", result, rpcErr)
+			}
+		})
+	}
+}
+
+func TestSettingsGetMissingDocumentReturnsEmptyOverlay(t *testing.T) {
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.GenerationLocale = i18n.English
+	})
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatalf("missing settings document: %v", rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.Locale != "en" || get.WorkspaceLocale != "" {
+		t.Fatalf("missing settings overlay = %+v; want generation locale en and empty workspace override", get.localeSettingsResult)
+	}
+}
+
+func TestToolsListPropagatesSettingsDocumentError(t *testing.T) {
+	env, path := newSettingsHandlerEnv(t, nil)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("locale: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, rpcErr := callControl(t, env.handler, "tools/list", nil)
+	if result != nil || rpcErr == nil || rpcErr.Code != InternalError {
+		t.Fatalf("tools/list = result %#v, error %v; want nil InternalError", result, rpcErr)
+	}
+}
+
+func TestSettingsLocaleUpdatesOnlyLocaleAndAllowsFrozenProvider(t *testing.T) {
+	probe := &settingsApplierProbe{}
+	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
+		deps.GenerationLocale = i18n.English
+		deps.DeveloperLocale = i18n.Chinese
+		deps.SealedGeneration = true
+		deps.Frozen = true
+	})
+	toolsEnabled := []string{"echo_info"}
+	mcpServers := []settings.MCPServer{{Name: "docs", Endpoint: "https://docs.example.com/mcp"}}
+	channelEnabled := true
+	allowedSenders := []string{"alice"}
+	initial := settings.Settings{
+		Provider:     settings.ProviderOpenAI,
+		DefaultModel: "gpt-4o",
+		Providers: []settings.ProviderEntry{{
+			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: settings.ProviderOpenAI,
+			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
+		}},
+		MCPServers:   &mcpServers,
+		ToolsEnabled: &toolsEnabled,
+		Channels: []settings.ChannelOverlay{{
+			Name: "telegram", Enabled: &channelEnabled, AllowFrom: &allowedSenders,
+		}},
+	}
+	if _, err := settings.Save(settingsPath, initial); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	for _, locale := range []string{"zh", "en"} {
+		result, rpcErr := callControl(t, env.handler, "settings/locale", map[string]any{"locale": locale})
+		if rpcErr != nil {
+			t.Fatalf("update locale %s: %v", locale, rpcErr)
+		}
+		view := result.(localeSettingsResult)
+		if view.Locale != locale || view.WorkspaceLocale != locale || view.GenerationLocale != "en" || view.ReadOnly {
+			t.Fatalf("locale update %s view = %+v", locale, view)
+		}
+		loaded, err := settings.Load(settingsPath)
+		if err != nil {
+			t.Fatalf("load locale %s: %v", locale, err)
+		}
+		want := initial
+		want.Locale = locale
+		if !reflect.DeepEqual(loaded, want) {
+			t.Fatalf("locale update %s changed unrelated settings:\n got: %+v\nwant: %+v", locale, loaded, want)
+		}
+	}
+	if probe.n != 2 {
+		t.Fatalf("OnSettingsChanged calls = %d, want 2", probe.n)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/locale", map[string]any{"locale": "ja"}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("invalid locale error = %v, want InvalidParams", rpcErr)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Locale != "en" || probe.n != 2 {
+		t.Fatalf("rejected locale changed state: locale=%q callbacks=%d", loaded.Locale, probe.n)
+	}
+}
+
+func TestSettingsLocaleIsReadOnlyWithoutSettingsPath(t *testing.T) {
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.GenerationLocale = i18n.English
+		deps.DeveloperLocale = i18n.Chinese
+	})
+	result, rpcErr := callControl(t, env.handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	get := result.(settingsResult)
+	if get.Locale != "zh" || get.WorkspaceLocale != "" || !get.localeSettingsResult.ReadOnly {
+		t.Fatalf("read-only locale view = %+v; want developer zh with no workspace override", get.localeSettingsResult)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/locale", map[string]any{"locale": "en"}); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("locale update without settings path = %v, want conflict", rpcErr)
+	}
+}
+
 func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	env := newControlTestEnv(t)
 	result, rpcErr := callControl(t, env.handler, "initialize", nil)
@@ -1130,7 +1338,7 @@ func TestSettingsCapabilitiesAdvertised(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") {
+	if !containsFold(string(raw), "settings.get") || !containsFold(string(raw), "settings.update") || !containsFold(string(raw), "settings.locale") {
 		t.Fatalf("settings capabilities not advertised: %s", raw)
 	}
 	for _, method := range []string{

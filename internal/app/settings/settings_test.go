@@ -1,14 +1,17 @@
 package settings
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestLoadMissingFileReturnsZero(t *testing.T) {
@@ -932,6 +935,138 @@ func TestUpdateConcurrentUpsertsAllSurvive(t *testing.T) {
 	}
 }
 
+// TestUpdateCrossProcessPreservesIndependentChanges catches a missing
+// cross-process lock around Update's load -> callback -> write transaction.
+// The first helper changes locale while the second changes model settings;
+// both helpers are deliberately overlapped so a last-writer-wins
+// implementation loses the locale.
+func TestUpdateCrossProcessPreservesIndependentChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if _, err := Save(path, Settings{}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	dir := t.TempDir()
+	locale := startSettingsUpdateHelper(t, path, "locale", dir)
+	waitForSettingsMarker(t, filepath.Join(dir, "locale.entered"), 5*time.Second)
+
+	provider := startSettingsUpdateHelper(t, path, "provider", dir)
+	waitForSettingsMarker(t, filepath.Join(dir, "provider.started"), 5*time.Second)
+	providerEnteredEarly := settingsMarkerAppears(filepath.Join(dir, "provider.entered"), 500*time.Millisecond)
+
+	writeSettingsMarker(t, filepath.Join(dir, "locale.release"))
+	waitForSettingsUpdateHelper(t, locale)
+	if !providerEnteredEarly {
+		waitForSettingsMarker(t, filepath.Join(dir, "provider.entered"), 5*time.Second)
+	}
+	writeSettingsMarker(t, filepath.Join(dir, "provider.release"))
+	waitForSettingsUpdateHelper(t, provider)
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load final document: %v", err)
+	}
+	if loaded.Locale != "zh" || loaded.Provider != ProviderOpenAI || loaded.DefaultModel != "gpt-4o" {
+		t.Fatalf("cross-process updates did not both survive: %+v", loaded)
+	}
+}
+
+// TestSettingsUpdateCrossProcessHelper is executed in child test processes
+// by TestUpdateCrossProcessPreservesIndependentChanges.
+func TestSettingsUpdateCrossProcessHelper(t *testing.T) {
+	path := os.Getenv("VIVY_SETTINGS_HELPER_PATH")
+	if path == "" {
+		return
+	}
+	role := os.Getenv("VIVY_SETTINGS_HELPER_ROLE")
+	dir := os.Getenv("VIVY_SETTINGS_HELPER_DIR")
+	if role != "locale" && role != "provider" {
+		t.Fatalf("unknown helper role %q", role)
+	}
+	writeSettingsMarker(t, filepath.Join(dir, role+".started"))
+	_, err := Update(path, func(s Settings) (Settings, error) {
+		if err := os.WriteFile(filepath.Join(dir, role+".entered"), nil, 0o600); err != nil {
+			return Settings{}, err
+		}
+		if !settingsMarkerAppears(filepath.Join(dir, role+".release"), 10*time.Second) {
+			return Settings{}, fmt.Errorf("timed out waiting to release %s update", role)
+		}
+		if role == "locale" {
+			s.Locale = "zh"
+		} else {
+			s.Provider = ProviderOpenAI
+			s.DefaultModel = "gpt-4o"
+		}
+		return s, nil
+	})
+	if err != nil {
+		t.Fatalf("%s update: %v", role, err)
+	}
+}
+
+type settingsUpdateHelper struct {
+	cmd    *exec.Cmd
+	output *bytes.Buffer
+}
+
+func startSettingsUpdateHelper(t *testing.T, path, role, dir string) *settingsUpdateHelper {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSettingsUpdateCrossProcessHelper$")
+	cmd.Env = append(os.Environ(),
+		"VIVY_SETTINGS_HELPER_PATH="+path,
+		"VIVY_SETTINGS_HELPER_ROLE="+role,
+		"VIVY_SETTINGS_HELPER_DIR="+dir,
+	)
+	output := &bytes.Buffer{}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start %s helper: %v", role, err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+	return &settingsUpdateHelper{cmd: cmd, output: output}
+}
+
+func waitForSettingsUpdateHelper(t *testing.T, helper *settingsUpdateHelper) {
+	t.Helper()
+	if err := helper.cmd.Wait(); err != nil {
+		t.Fatalf("settings update helper failed: %v\n%s", err, helper.output.String())
+	}
+}
+
+func writeSettingsMarker(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write marker %s: %v", filepath.Base(path), err)
+	}
+}
+
+func waitForSettingsMarker(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	if !settingsMarkerAppears(path, timeout) {
+		t.Fatalf("timed out waiting for marker %s", filepath.Base(path))
+	}
+}
+
+func settingsMarkerAppears(path string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // A fn error aborts the transaction and passes through verbatim: nothing is
 // written and the caller can carry its own domain error across the boundary.
 func TestUpdateFnErrorAbortsWrite(t *testing.T) {
@@ -1004,5 +1139,83 @@ func TestUpdateReturnsPersistedDocument(t *testing.T) {
 	}
 	if len(saved.Providers) != 1 || saved.Providers[0].ID != entry.ID {
 		t.Fatalf("entry not applied: %+v", saved.Providers)
+	}
+}
+
+func TestLocaleMissingFieldRemainsCompatible(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("provider: openai\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load settings without locale: %v", err)
+	}
+	if loaded.Locale != "" {
+		t.Fatalf("missing locale = %q, want empty override", loaded.Locale)
+	}
+}
+
+func TestLocaleRoundTripAndValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if (Settings{Locale: "zh"}).IsZero() {
+		t.Fatal("locale override was treated as an empty settings document")
+	}
+	saved, err := Save(path, Settings{Locale: "zh"})
+	if err != nil {
+		t.Fatalf("save zh locale: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load zh locale: %v", err)
+	}
+	if saved.Locale != "zh" || loaded.Locale != "zh" {
+		t.Fatalf("locale round trip = saved %q, loaded %q; want zh", saved.Locale, loaded.Locale)
+	}
+	if _, err := Save(path, Settings{Locale: "ja"}); err == nil {
+		t.Fatal("unsupported locale ja was accepted")
+	}
+}
+
+func TestUpdateLocalePreservesUnrelatedSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	toolsEnabled := []string{"echo_info"}
+	mcpServers := []MCPServer{{Name: "docs", Endpoint: "https://docs.example.com/mcp"}}
+	channelEnabled := true
+	allowedSenders := []string{"alice"}
+	initial := Settings{
+		Provider:     ProviderOpenAI,
+		DefaultModel: "gpt-4o",
+		Providers: []ProviderEntry{{
+			ID: "custom-openai", DisplayName: "Custom OpenAI", Bundle: ProviderOpenAI,
+			BaseURL: "https://gateway.example.com/v1", DefaultModel: "gpt-4o", Models: []string{"gpt-4o"},
+		}},
+		MCPServers:   &mcpServers,
+		ToolsEnabled: &toolsEnabled,
+		Channels: []ChannelOverlay{{
+			Name: "telegram", Enabled: &channelEnabled, AllowFrom: &allowedSenders,
+		}},
+	}
+	if _, err := Save(path, initial); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+	saved, err := Update(path, func(s Settings) (Settings, error) {
+		s.Locale = "zh"
+		return s, nil
+	})
+	if err != nil || saved.Locale != "zh" {
+		t.Fatalf("saved = %+v, %v", saved, err)
+	}
+	want := initial
+	want.Locale = "zh"
+	if !reflect.DeepEqual(saved, want) {
+		t.Fatalf("locale update changed unrelated settings:\n got: %+v\nwant: %+v", saved, want)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load updated settings: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, want) {
+		t.Fatalf("persisted locale update changed unrelated settings:\n got: %+v\nwant: %+v", loaded, want)
 	}
 }

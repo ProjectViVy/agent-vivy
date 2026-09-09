@@ -1,6 +1,7 @@
 package view
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,8 +11,448 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	corei18n "agent-vivy/internal/i18n"
+	"agent-vivy/sdk/tui/command"
 	"agent-vivy/sdk/tui/surface"
 )
+
+func TestLocaleViewChromeAndDialogs(t *testing.T) {
+	// Ignoring Options.Locale or falling back to fixed copy must fail these
+	// independently authored expectations. Each case gets fresh model caches.
+	cases := []struct {
+		name   string
+		render func(*Model, *testDriver) string
+		en, zh []string
+	}{
+		{"composer", func(m *Model, d *testDriver) string {
+			return m.renderEditor(120, m.palette)
+		}, []string{"Smart", "Ask something", "provider-原样", "model-原样"}, []string{"智能", "问点什么", "provider-原样", "model-原样"}},
+		{"mode cycle", func(m *Model, d *testDriver) string {
+			var out []string
+			for i := 0; i < 3; i++ {
+				out = append(out, m.renderEditor(120, m.palette))
+				*m = paletteKey(t, *m, tea.KeyMsg{Type: tea.KeyShiftTab})
+			}
+			return strings.Join(out, "\n")
+		}, []string{"Smart", "Plan", "Read-only"}, []string{"智能", "计划", "只读"}},
+		{"shortcuts", func(m *Model, d *testDriver) string {
+			return m.renderShortcutsDialog(m.layout(), m.palette)
+		}, []string{"Shortcuts", "Switch mode", "ctrl+s", "Sessions"}, []string{"快捷方式", "切换模式", "ctrl+s", "会话"}},
+		{"help", func(m *Model, d *testDriver) string {
+			*m, _ = m.dispatchCommand(&command.Invocation{Name: "help"})
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"Commands", "/help", "View commands", "Input prefixes"}, []string{"命令", "/help", "查看命令", "输入前缀"}},
+		{"palette", func(m *Model, d *testDriver) string {
+			m.commandPaletteFilter = "help"
+			return m.renderCommandPalette(m.layout(), m.palette)
+		}, []string{"Help", "Filter: help", "/help", "View commands", "enter fill"}, []string{"帮助", "筛选：help", "/help", "查看命令", "enter 填入"}},
+		{"palette loading", func(m *Model, d *testDriver) string {
+			m.commandCatalogLoading = true
+			return m.renderCommandPalette(m.layout(), m.palette)
+		}, []string{"Refreshing dynamic commands"}, []string{"正在刷新动态命令"}},
+		{"palette empty", func(m *Model, d *testDriver) string {
+			m.commandPaletteFilter = "zzzz-no-command"
+			m.commandCatalogError = "server 原样 error"
+			return m.renderCommandPalette(m.layout(), m.palette)
+		}, []string{"No matching commands", "Dynamic refresh failed", "server 原样 error"}, []string{"没有匹配的命令", "动态刷新失败", "server 原样 error"}},
+		{"sessions", func(m *Model, d *testDriver) string {
+			m.sessionRows = d.sessions
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Sessions", "Filter by title", "session-原样", "^r rename"}, []string{"会话", "按标题筛选", "session-原样", "^r 重命名"}},
+		{"sessions loading", func(m *Model, d *testDriver) string {
+			m.sessionLoading = true
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Loading sessions"}, []string{"正在加载会话"}},
+		{"sessions empty", func(m *Model, d *testDriver) string {
+			m.sessionFilter = "no-match"
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Filter: no-match", "No matching sessions"}, []string{"筛选：no-match", "没有匹配的会话"}},
+		{"rename", func(m *Model, d *testDriver) string {
+			m.sessionRenaming = true
+			m.sessionRenameInput = "rename-原样"
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Rename: rename-原样", "enter confirm"}, []string{"重命名：rename-原样", "enter 确认"}},
+		{"delete", func(m *Model, d *testDriver) string {
+			m.sessionRows = d.sessions
+			m.sessionDeleteID = "s1"
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Delete session-原样?", "y delete"}, []string{"删除 session-原样？", "y 删除"}},
+		{"fork confirmation", func(m *Model, d *testDriver) string {
+			*m, _ = m.confirmCommand("fork", []string{"msg-原样"})
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"Confirm /fork", "Fork at message msg-原样?", "n/esc cancel"}, []string{"确认 /fork", "在消息 msg-原样 处分叉？", "n/esc 取消"}},
+		{"rewind confirmation", func(m *Model, d *testDriver) string {
+			*m, _ = m.confirmCommand("rewind", []string{"msg-原样"})
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"Rewind to message msg-原样?"}, []string{"回退到消息 msg-原样？"}},
+		{"compact confirmation", func(m *Model, d *testDriver) string {
+			*m, _ = m.confirmCommand("compact", nil)
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"Compact current session context?"}, []string{"压缩当前会话上下文？"}},
+		{"history loading", func(m *Model, d *testDriver) string {
+			d.meta.Loading = true
+			return strings.Join(m.chatLines(120, m.palette), "\n")
+		}, []string{"Loading session history"}, []string{"正在加载会话历史"}},
+		{"empty hero", func(m *Model, d *testDriver) string {
+			return strings.Join(m.chatLines(120, m.palette), "\n")
+		}, []string{"A journey to find a true heart", "/ commands", "ctrl+s sessions"}, []string{"寻找真心之旅", "/ 命令", "ctrl+s 会话"}},
+		{"scroll bottom", func(m *Model, d *testDriver) string {
+			return m.renderChromeRow(200, m.palette, chatScrollInfo{offset: 2, maxScroll: 12, viewport: 10})
+		}, []string{"↓ end", "Back to bottom"}, []string{"↓ end", "回到底部"}},
+		{"scroll history", func(m *Model, d *testDriver) string {
+			return m.renderChromeRow(200, m.palette, chatScrollInfo{maxScroll: 79, viewport: 10})
+		}, []string{"History", "79 lines below"}, []string{"历史", "下方还有 79 行"}},
+		{"paste guard", func(m *Model, d *testDriver) string {
+			m.input = strings.Repeat("界", 2001)
+			return m.renderEditor(160, m.palette)
+		}, []string{"Large paste", "lines: 1 / chars: 2001", "enter"}, []string{"大段粘贴", "1 行 / 2001 字符", "enter"}},
+		{"models empty", func(m *Model, d *testDriver) string {
+			return m.renderModelDialog(m.layout(), m.palette)
+		}, []string{"Switch global model", "No matching configured models"}, []string{"切换全局模型", "没有匹配的已配置模型"}},
+		{"files empty", func(m *Model, d *testDriver) string {
+			return m.renderFileCompletion(m.layout(), m.palette)
+		}, []string{"Project files", "No matching project files"}, []string{"项目文件", "没有匹配的项目文件"}},
+		{"files loading", func(m *Model, d *testDriver) string {
+			m.fileCompletionQuery = "src/file.go"
+			m.fileCompletionLoading = true
+			return m.renderFileCompletion(m.layout(), m.palette)
+		}, []string{"@src/file.go", "loading…"}, []string{"@src/file.go", "加载中…"}},
+		{"files partial", func(m *Model, d *testDriver) string {
+			m.fileCompletionTruncated = true
+			return m.renderFileCompletion(m.layout(), m.palette)
+		}, []string{"partial results"}, []string{"部分结果"}},
+		{"arguments", func(m *Model, d *testDriver) string {
+			m.dynamicArgumentCommand = &surface.DynamicCommand{Name: "review", Description: "description-原样", Arguments: []surface.DynamicCommandArgument{{Name: "focus", Required: true}, {Name: "hint"}}}
+			m.dynamicArgumentValues = []string{"", ""}
+			*m, _ = m.handleDynamicArgumentKey(tea.KeyMsg{Type: tea.KeyEnter})
+			return m.renderDynamicArguments(m.layout(), m.palette)
+		}, []string{"/review arguments", "description-原样", "focus (required)", "hint (optional)", "focus is required"}, []string{"/review 参数", "description-原样", "focus (必填)", "hint (可选)", "focus 为必填"}},
+		{"busy and queued", func(m *Model, d *testDriver) string {
+			d.busy = true
+			d.meta.Queued = 3
+			return m.renderInputChrome(200, m.palette)
+		}, []string{"run", "3 queued"}, []string{"运行", "3 排队中"}},
+		{"question", func(m *Model, d *testDriver) string {
+			return m.renderGateDialog(&surface.Gate{Kind: "question", Title: "question-原样", Body: "body-原样"}, m.layout(), m.palette)
+		}, []string{"question", "type answer · enter submit", "body-原样"}, []string{"问题", "输入回答 · enter 提交", "body-原样"}},
+		{"submitting", func(m *Model, d *testDriver) string {
+			return m.renderGateDialog(&surface.Gate{Kind: "approval", Submitting: true, Body: "body-原样"}, m.layout(), m.palette)
+		}, []string{"submitting…"}, []string{"提交中…"}},
+		{"gate", func(m *Model, d *testDriver) string {
+			return m.renderGateDialog(&surface.Gate{Kind: "approval", Title: "gate-原样", Body: "body-原样", Action: "write_file", Target: "file-原样.go"}, m.layout(), m.palette)
+		}, []string{"permission", "gate-原样", "body-原样", "action: write_file", "target: file-原样.go", "enter/y approve"}, []string{"权限", "gate-原样", "body-原样", "操作：write_file", "目标：file-原样.go", "enter/y 批准"}},
+		{"shell unavailable", func(m *Model, d *testDriver) string {
+			m.input = "!echo hello"
+			*m, _ = m.submitInput()
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"! shell commands are unavailable"}, []string{"! shell 命令不可用"}},
+		{"file prompt required", func(m *Model, d *testDriver) string {
+			m.input = "@README.md"
+			*m, _ = m.submitInput()
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"@file references require a prompt"}, []string{"@file 引用需要提示文本"}},
+		{"redacted target", func(m *Model, d *testDriver) string {
+			return m.renderGateDialog(&surface.Gate{Kind: "approval", Target: "/secret/path", Body: "preview"}, m.layout(), m.palette)
+		}, []string{"[redacted target]"}, []string{"[目标已隐藏]"}},
+		{"sidebar empty states", func(m *Model, d *testDriver) string {
+			d.sidebar.ModifiedFilesKnown = true
+			d.sidebar.LSPKnown = true
+			d.sidebar.MCPKnown = true
+			d.sidebar.SkillsKnown = true
+			return strings.Join(m.sidebarLines(120, m.palette), "\n")
+		}, []string{"Modified Files", "None initialized", "None configured", "Skills · enabled"}, []string{"已修改文件", "尚未初始化", "尚未配置", "技能 · 已启用"}},
+		{"status", func(m *Model, d *testDriver) string {
+			d.meta.Queued = 3
+			d.meta.Error = "server-原样"
+			return m.statusText()
+		}, []string{"session: session-原样", "id: s1", "queue: 3", "permission: smart", "server-原样"}, []string{"会话：session-原样", "标识：s1", "队列：3", "权限档：smart", "server-原样"}},
+		{"reasoning collapsed", func(m *Model, d *testDriver) string {
+			d.messages = map[string][]surface.Message{"s1": {{ID: "r1", Role: surface.RoleAssistant, Reasoning: true, Content: "private thought"}}}
+			m.reasoningCollapsed = true
+			return strings.Join(m.chatLines(120, m.palette), "\n")
+		}, []string{"reasoning", "ctrl+r expand"}, []string{"思考过程", "ctrl+r 展开"}},
+		{"tool omission", func(m *Model, d *testDriver) string {
+			d.messages = map[string][]surface.Message{"s1": {{ID: "t1", Tool: &surface.ToolCard{ToolName: "tool-原样", Status: "done", Result: strings.Repeat("data\n", 20)}}}}
+			return strings.Join(m.chatLines(120, m.palette), "\n")
+		}, []string{"tool-原样", "more lines", "ctrl+o expand"}, []string{"tool-原样", "还有", "ctrl+o 展开"}},
+		{"server error", func(m *Model, d *testDriver) string {
+			*m = m.showCommandError(errors.New("server 原样 error"))
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"Command error", "server 原样 error"}, []string{"命令错误", "server 原样 error"}},
+		{"local error", func(m *Model, d *testDriver) string {
+			*m, _ = m.dispatchCommand(&command.Invocation{Name: "unknown-原样"})
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"unknown command /unknown-原样"}, []string{"未知命令 /unknown-原样"}},
+		{"content and attachments", func(m *Model, d *testDriver) string {
+			d.messages = map[string][]surface.Message{"s1": {
+				{ID: "u1", Role: surface.RoleUser, Content: "user-原样", Attachments: []surface.Attachment{{Name: "photo-原样.png"}}},
+				{ID: "a1", Role: surface.RoleAssistant, Content: "model-output-原样", FileContexts: []surface.FileContext{{Name: "file-原样.go"}}},
+				{ID: "t1", Tool: &surface.ToolCard{ToolName: "tool-原样", Status: "done", Result: "tool-output-原样"}},
+			}}
+			return strings.Join(m.chatLines(120, m.palette), "\n")
+		}, []string{"user-原样", "model-output-原样", "tool-output-原样", "[image: photo-原样.png]", "[file: file-原样.go]"}, []string{"user-原样", "model-output-原样", "tool-output-原样", "[图片：photo-原样.png]", "[文件：file-原样.go]"}},
+	}
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		for _, tc := range cases {
+			t.Run(string(locale)+"/"+tc.name, func(t *testing.T) {
+				d := &testDriver{
+					sessions: []surface.Session{{ID: "s1", Title: "session-原样", PermissionPreset: "smart"}},
+					active:   "s1",
+					sidebar:  surface.Sidebar{Provider: "provider-原样", Model: "model-原样"},
+				}
+				m := New(d, Options{Locale: locale})
+				got := ansi.Strip(tc.render(&m, d))
+				wants := tc.en
+				if locale == corei18n.Chinese {
+					wants = tc.zh
+				}
+				for _, want := range wants {
+					if !strings.Contains(got, want) {
+						t.Errorf("missing %q:\n%s", want, got)
+					}
+				}
+				if strings.Contains(got, "vivy.tui.") || strings.Contains(got, "{{") {
+					t.Errorf("unresolved translation:\n%s", got)
+				}
+			})
+		}
+	}
+}
+
+func TestLocaleChromeWidths(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			m := New(&testDriver{}, Options{Locale: locale})
+			for _, width := range []int{8, 12, 20, 40, 80, 120} {
+				for _, content := range []string{m.renderEditor(width, m.palette), m.renderInputChrome(width, m.palette)} {
+					for _, line := range strings.Split(content, "\n") {
+						if got := lipgloss.Width(line); got > width {
+							t.Errorf("width %d overflowed to %d: %q", width, got, line)
+						}
+					}
+				}
+			}
+			m.width, m.height = 32, 10
+			m.commandPaletteOpen = true
+			got := ansi.Strip(m.View())
+			want := "Help"
+			if locale == corei18n.Chinese {
+				want = "帮助"
+			}
+			for _, text := range []string{want, "/help", "enter", "esc"} {
+				if !strings.Contains(got, text) {
+					t.Errorf("compact palette missing %q:\n%s", text, got)
+				}
+			}
+			if len(strings.Split(got, "\n")) != 10 {
+				t.Errorf("compact palette height changed:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestLocaleModelDialogNarrowAndWide(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		for _, size := range []struct {
+			width, height, outer, inner int
+		}{{30, 10, 24, 16}, {120, 36, 74, 66}} {
+			for _, mode := range []string{"writable", "read-only", "frozen"} {
+				t.Run(fmt.Sprintf("%s/%d/%s", locale, size.width, mode), func(t *testing.T) {
+					d := modelPickerFixture()
+					d.catalog.Options = nil
+					d.catalog.ReadOnly = mode == "read-only"
+					d.catalog.Frozen = mode == "frozen"
+					m := New(d, Options{Locale: locale})
+					m.width, m.height = size.width, size.height
+					m.modelPickerOpen = true
+					raw := m.renderModelDialog(m.layout(), m.palette)
+					wants := []string{"Switch global", "No matching", "↑↓ select", "esc"}
+					if locale == corei18n.Chinese {
+						wants = []string{"切换全局模型", "没有匹配", "↑↓ 选择", "esc"}
+					}
+					if mode != "writable" {
+						wants[2] = "↑↓ browse"
+						if locale == corei18n.Chinese {
+							wants[2] = "↑↓ 浏览"
+						}
+					}
+					if size.width == 120 {
+						wants[0], wants[1] = "Switch global model", "No matching configured models"
+						wants = append(wants, "esc close")
+						if locale == corei18n.Chinese {
+							wants[0], wants[1] = "切换全局模型", "没有匹配的已配置模型"
+							wants[4] = "esc 关闭"
+						}
+						context := "Global · next idle turn"
+						if mode != "writable" {
+							context = "Read-only"
+						}
+						if locale == corei18n.Chinese {
+							context = "全局 · 下一空闲回合生效"
+							if mode != "writable" {
+								context = "只读"
+							}
+						}
+						wants = append(wants, context)
+					}
+					assertLocaleDialogVisible(t, m, raw, size.outer, wants)
+					// Inspect pre-overlay rows: clipping must not make an oversized
+					// title/empty state look like a correctly bounded dialog.
+					rows := strings.Split(ansi.Strip(raw), "\n")
+					if len(rows) != 10 {
+						t.Errorf("empty dialog wrapped to %d rows, want 10:\n%s", len(rows), raw)
+					}
+					for _, row := range rows[1 : len(rows)-1] {
+						body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(row, "│"), "│"))
+						if got := lipgloss.Width(body); got > size.inner {
+							t.Errorf("body width %d exceeds inner budget %d: %q", got, size.inner, body)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestLocaleDialogAndStateNarrowAndWide(t *testing.T) {
+	cases := []struct {
+		name   string
+		dialog bool
+		render func(*Model, *testDriver) string
+		en, zh []string
+	}{
+		{"sessions", true, func(m *Model, d *testDriver) string {
+			m.sessionsOpen, m.sessionRows = true, d.sessions
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Sessions", "Filter by title", "会话-A", "↑/↓ move", "enter/tab select", "^r rename", "^x", "delete"}, []string{"会话", "按标题筛选", "会话-A", "↑/↓ 移动", "enter/tab 选择", "^r 重命名", "^x", "删除"}},
+		{"confirmation", true, func(m *Model, d *testDriver) string {
+			*m, _ = m.confirmCommand("fork", []string{"msg-1"})
+			return m.renderCommandDialog(m.layout(), m.palette)
+		}, []string{"Confirm /fork", "Fork at message msg-1?", "y confirm", "n/esc cancel"}, []string{"确认 /fork", "在消息 msg-1 处分叉？", "y 确认", "n/esc 取消"}},
+		{"loading dialog", true, func(m *Model, d *testDriver) string {
+			m.sessionsOpen, m.sessionLoading = true, true
+			return m.renderSessionsDialog(m.layout(), m.palette)
+		}, []string{"Sessions", "Loading sessions", "↑/↓ move", "enter/tab select", "^r rename", "^x", "delete"}, []string{"会话", "正在加载会话", "↑/↓ 移动", "enter/tab 选择", "^r 重命名", "^x", "删除"}},
+		{"loading state", false, func(m *Model, d *testDriver) string {
+			d.meta.Loading = true
+			return strings.Join(m.chatLines(m.layout().mainW(), m.palette), "\n")
+		}, []string{"Loading session history"}, []string{"正在加载会话历史"}},
+		{"paste warning", false, func(m *Model, d *testDriver) string {
+			m.input = strings.Repeat("界", 2001)
+			return m.renderEditor(m.layout().mainW(), m.palette)
+		}, []string{"Large paste", "lines: 1 / chars: 2001", "check enter"}, []string{"大段粘贴", "1 行 / 2001 字符", "enter"}},
+		{"parked scroll", false, func(m *Model, d *testDriver) string {
+			d.messages = map[string][]surface.Message{"s1": {}}
+			for i := 0; i < 60; i++ {
+				d.messages["s1"] = append(d.messages["s1"], surface.Message{ID: fmt.Sprint(i), Role: surface.RoleUser, Content: fmt.Sprintf("history line %d", i)})
+			}
+			m.chatFollow, m.chatScroll = false, m.chatMaxScroll()-10
+			l := m.layout()
+			_, scroll := m.renderChat(l.mainW(), l.mainH(), m.palette)
+			return m.renderChromeRow(l.mainW(), m.palette, scroll)
+		}, []string{"↓ end", "Back to bottom", "shift+tab", "Switch mode"}, []string{"↓ end", "回到底部", "shift+tab", "切换模式"}},
+	}
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		for _, size := range []struct{ width, height, dialogWidth, mainWidth int }{{60, 24, 54, 58}, {120, 36, 74, 85}} {
+			for _, tc := range cases {
+				t.Run(fmt.Sprintf("%s/%d/%s", locale, size.width, tc.name), func(t *testing.T) {
+					d := &testDriver{active: "s1", sessions: []surface.Session{{ID: "s1", Title: "会话-A"}}}
+					m := New(d, Options{Locale: locale})
+					m.width, m.height = size.width, size.height
+					raw := tc.render(&m, d)
+					wants := tc.en
+					if locale == corei18n.Chinese {
+						wants = tc.zh
+					}
+					if tc.dialog {
+						assertLocaleDialogVisible(t, m, raw, size.dialogWidth, wants)
+						return
+					}
+					assertLocaleCellWidths(t, raw, size.mainWidth)
+					assertLocaleCopy(t, raw, wants)
+					frame := m.View()
+					assertLocaleCellWidths(t, frame, size.width)
+					assertLocaleCopy(t, frame, wants)
+					assertLocaleCopy(t, frame, []string{"╭", "╮", "╰", "╯"})
+					if tc.name != "parked scroll" {
+						help := "Help"
+						if locale == corei18n.Chinese {
+							help = "帮助"
+						}
+						assertLocaleCopy(t, frame, []string{"shift+h", help})
+					}
+					if tc.name == "paste warning" {
+						assertLocaleCopy(t, raw, []string{"╭", "╮", "╰", "╯"})
+						if m.input != strings.Repeat("界", 2001) {
+							t.Error("rendering changed the pasted draft")
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func assertLocaleCopy(t *testing.T, content string, wants []string) {
+	t.Helper()
+	plain := ansi.Strip(content)
+	for _, want := range wants {
+		if !strings.Contains(plain, want) {
+			t.Errorf("missing %q:\n%s", want, plain)
+		}
+	}
+}
+
+func assertLocaleCellWidths(t *testing.T, content string, width int) {
+	t.Helper()
+	for _, row := range strings.Split(content, "\n") {
+		if got := lipgloss.Width(row); got > width {
+			t.Errorf("row width %d exceeds %d cells: %q", got, width, row)
+		}
+	}
+}
+
+func assertLocaleDialogVisible(t *testing.T, m Model, raw string, outerWidth int, wants []string) {
+	t.Helper()
+	assertLocaleCellWidths(t, raw, outerWidth)
+	assertLocaleCopy(t, raw, wants)
+	assertLocaleCopy(t, raw, []string{"╭", "╮", "╰", "╯"})
+	rows := strings.Split(ansi.Strip(raw), "\n")
+	if len(rows) > m.height {
+		t.Errorf("raw dialog height %d exceeds frame height %d", len(rows), m.height)
+	}
+	frame := m.View()
+	assertLocaleCellWidths(t, frame, m.width)
+	assertLocaleCopy(t, frame, wants)
+	// Every raw border/body row must survive overlay placement unchanged.
+	// A final width/height assertion alone would pass even if placeOverlay
+	// clipped the footer or the bottom border out of the frame.
+	for _, row := range rows {
+		if got := lipgloss.Width(row); got != outerWidth {
+			t.Errorf("dialog row width = %d, want %d: %q", got, outerWidth, row)
+		}
+		assertLocaleCopy(t, frame, []string{strings.TrimSpace(row)})
+	}
+}
+
+func TestLocaleDefaultAndIndependentViews(t *testing.T) {
+	d := &testDriver{}
+	en := New(d)
+	zh := New(d, Options{Locale: corei18n.Chinese})
+	fallback := New(d, Options{Locale: corei18n.Locale("unsupported")})
+	for _, m := range []Model{en, zh, fallback, en} {
+		want := "Ask something"
+		if m.translator.Locale() == corei18n.Chinese {
+			want = "问点什么"
+		}
+		if got := ansi.Strip(m.renderEditor(100, m.palette)); !strings.Contains(got, want) {
+			t.Fatalf("locale isolation/default missing %q: %s", want, got)
+		}
+	}
+	if en.translator.Locale() != corei18n.English {
+		t.Fatalf("default locale = %q, want en", en.translator.Locale())
+	}
+}
 
 func TestWideLayoutKeepsSidebarWhenMarkdownIsWide(t *testing.T) {
 	driver := &testDriver{
@@ -67,7 +508,7 @@ func TestWrapTextPreservesStreamingTextAndWrapsCJK(t *testing.T) {
 }
 
 func TestRenderMessageTrimsTrailingMarkdownNewline(t *testing.T) {
-	lines := renderMessage(surface.Message{Role: surface.RoleAssistant, Content: "line\n"}, 40, DefaultPalette())
+	lines := (Model{}).renderMessage(surface.Message{Role: surface.RoleAssistant, Content: "line\n"}, 40, DefaultPalette())
 	if len(lines) != 1 || !strings.Contains(ansi.Strip(lines[0]), "line") {
 		t.Fatalf("rendered lines = %#v, want a single trimmed markdown line", lines)
 	}
@@ -101,7 +542,7 @@ func TestRenderToolSanitizesAndFitsEveryViewport(t *testing.T) {
 		Result:   "@@ -1 +1 @@\n-old\tvalue\n+new 👨‍👩‍👧‍👦 value\x1b]2;BODY-PWN\a\u202evisual\u2066",
 	}
 	for _, width := range []int{1, 3, 4, 7, 8, 9, 20, 56, 80} {
-		for _, line := range renderTool(tool, width, DefaultPalette()) {
+		for _, line := range (Model{}).renderTool(tool, width, DefaultPalette()) {
 			if got := lipgloss.Width(line); got > max(1, width) {
 				t.Fatalf("width %d rendered line width %d: %q", width, got, line)
 			}
@@ -119,7 +560,7 @@ func TestRenderToolSanitizesAndFitsEveryViewport(t *testing.T) {
 func TestRenderToolCompactsResultUnlessDebugEnabled(t *testing.T) {
 	tool := &surface.ToolCard{ToolName: "list_dir", Status: "done", Result: strings.Repeat("entry\n", 20)}
 
-	compact := strings.Join(renderToolWithOptions(tool, 80, DefaultPalette(), false), "\n")
+	compact := strings.Join((Model{}).renderToolWithOptions(tool, 80, DefaultPalette(), false), "\n")
 	if !strings.Contains(compact, "more lines · ctrl+o expand") {
 		t.Fatalf("compact tool result has no omission marker: %s", ansi.Strip(compact))
 	}
@@ -127,7 +568,7 @@ func TestRenderToolCompactsResultUnlessDebugEnabled(t *testing.T) {
 		t.Fatalf("compact tool result rendered every line: %s", ansi.Strip(compact))
 	}
 
-	debug := strings.Join(renderToolWithOptions(tool, 80, DefaultPalette(), true), "\n")
+	debug := strings.Join((Model{}).renderToolWithOptions(tool, 80, DefaultPalette(), true), "\n")
 	if strings.Contains(debug, "more lines") {
 		t.Fatalf("debug tool result was compacted: %s", ansi.Strip(debug))
 	}
@@ -139,7 +580,7 @@ func TestRenderToolCompactsResultUnlessDebugEnabled(t *testing.T) {
 func TestRenderMessageFitsNarrowViewportAndDropsBidiControls(t *testing.T) {
 	message := surface.Message{Role: surface.RoleAssistant, Content: "你e\u0301👨‍👩‍👧‍👦\u202eabc\u2066", Streaming: true}
 	for width := 1; width <= 12; width++ {
-		lines := renderMessage(message, width, DefaultPalette())
+		lines := (Model{}).renderMessage(message, width, DefaultPalette())
 		if len(lines) == 0 {
 			t.Fatalf("width %d rendered no message lines", width)
 		}
@@ -347,7 +788,7 @@ func TestToolDiffDistinguishesHeadersFromContent(t *testing.T) {
 }
 
 func TestApprovalTargetKeepsNestedWorkspaceRelativePath(t *testing.T) {
-	if got := sanitizeApprovalTarget("src/nested/main.go"); got != "src/nested/main.go" {
+	if got := (Model{}).sanitizeApprovalTarget("src/nested/main.go"); got != "src/nested/main.go" {
 		t.Fatalf("workspace-relative target = %q", got)
 	}
 }
@@ -1014,7 +1455,7 @@ func TestChatMouseWheelIsFocusedAndOverlaySafe(t *testing.T) {
 }
 
 func TestImageHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
-	lines := renderMessage(surface.Message{
+	lines := (Model{}).renderMessage(surface.Message{
 		Role:        surface.RoleUser,
 		Content:     "look",
 		Attachments: []surface.Attachment{{Name: "photo.png", MimeType: "image/png", Size: 42}},
@@ -1029,7 +1470,7 @@ func TestImageHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
 }
 
 func TestFileContextHistoryRenderingUsesMetadataOnlyChips(t *testing.T) {
-	lines := renderMessage(surface.Message{
+	lines := (Model{}).renderMessage(surface.Message{
 		Role:         surface.RoleUser,
 		Content:      "inspect",
 		FileContexts: []surface.FileContext{{Path: "README.md", Name: "README.md", Size: 42}},

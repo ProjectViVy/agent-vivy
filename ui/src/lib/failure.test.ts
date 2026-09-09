@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { resetLocaleForTests } from '@/i18n';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { classifyFailure, classifyFailureMessage, runFailedMessage } from './failure';
+
+beforeEach(() => resetLocaleForTests());
 
 describe('classifyFailure', () => {
   it('maps bootstrap / proxy / fetch failures to the control-plane recovery path', () => {
@@ -7,7 +10,7 @@ describe('classifyFailure', () => {
     expect(classifyFailure(new Error('connect ECONNREFUSED 127.0.0.1:8787')).kind).toBe('control_plane');
     expect(classifyFailureMessage('无法连接 Vivy control plane：/rpc/bootstrap 返回了非 JSON 响应').action).toBe('retry');
     expect(classifyFailureMessage('Vivy control plane disconnected').titleKey).toBe('errors.controlPlaneTitle');
-    expect(classifyFailureMessage('Failed to fetch').detail).toContain('控制面');
+    expect(classifyFailureMessage('Failed to fetch').detail).toContain('The control plane did not respond.');
   });
 
   it('maps missing provider keys to model settings, not the raw engine dump', () => {
@@ -33,7 +36,7 @@ describe('classifyFailure', () => {
     expect(failure.kind).toBe('provider');
     expect(failure.titleKey).toBe('errors.providerTitle');
     expect(failure.hintKey).toBe('errors.providerHint');
-    expect(failure.detail).toBe('无法连接！请检查供应商配置！');
+    expect(failure.detail).toBe('Unable to connect! Check your provider configuration!');
   });
 
   it('does not mistake the provider wording for a control-plane outage', () => {
@@ -44,7 +47,7 @@ describe('classifyFailure', () => {
 
 describe('runFailedMessage', () => {
   it('reads the structured run.failed payload and ignores empty values', () => {
-    expect(runFailedMessage({ cause_category: 'provider_error', message: '  key missing  ' })).toBe('无法连接！请检查供应商配置！');
+    expect(runFailedMessage({ cause_category: 'provider_error', message: '  key missing  ' })).toBe('Unable to connect! Check your provider configuration!');
     expect(runFailedMessage({ cause_category: 'internal_error' })).toBeNull();
     expect(runFailedMessage(undefined)).toBeNull();
   });

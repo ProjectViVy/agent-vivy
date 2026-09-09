@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 // 通道平台图标映射（移植自 Agent-Diva agent-diva-gui
 // src/components/settings/channel-icons.ts + assets/icons/channels/*.vue）。
 // 5 个品牌图标为原 SVG path 数据转 React 组件。只保留本代可编译的
@@ -67,9 +69,9 @@ export const PLATFORM_DISPLAY_NAMES: Record<string, string> = {
  * 平台描述映射（用于向导提示）。
  */
 export const PLATFORM_DESCRIPTIONS: Record<string, string> = {
-  telegram: '全球流行的即时通讯平台，支持机器人 API',
-  discord: '游戏和社区交流平台，支持丰富的机器人生态',
-  feishu: '企业协作办公平台，支持扫码快速配置',
-  dingtalk: '阿里巴巴旗下企业通讯平台',
-  qq: '腾讯 QQ 开放平台机器人',
+  get telegram() { return t('channelDescriptions.telegram'); },
+  get discord() { return t('channelDescriptions.discord'); },
+  get feishu() { return t('channelDescriptions.feishu'); },
+  get dingtalk() { return t('channelDescriptions.dingtalk'); },
+  get qq() { return t('channelDescriptions.qq'); },
 };

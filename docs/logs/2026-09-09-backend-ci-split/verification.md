@@ -8,21 +8,27 @@
 - `cd ui && pnpm install --frozen-lockfile && pnpm build` — passed; Vite built
   the production assets required by `go:embed`.
 - `cd ui && ./node_modules/.bin/tsc --noEmit` — passed.
+- `cd ui && ./node_modules/.bin/vitest run` — passed: 31 files and 274 tests.
+- `node scripts/check-i18n-completeness.js` — passed: English and Chinese each
+  contain 1,388 keys and 138 placeholders; runtime-copy audit clean.
+- `node --test scripts/check-i18n-cross-face.test.js` — passed: 8 tests.
+- `node scripts/check-i18n-cross-face.js` — passed: 13 shared semantic units.
 - A Python/YAML contract check confirmed that `backend` and `ui` have no
   dependency on one another, `aggregate` requires both, and the workflow
   invokes `just backend-ci` and `just ui-ci` respectively.
 - `git diff --check` — passed.
 
-## Known red baseline
+## I18N baseline transition
 
-- `cd ui && ./node_modules/.bin/vitest run` — failed as expected on the stacked
-  base: 16 failed and 197 passed assertions. The failures are stale Chinese
-  text expectations against the already-English implementation and remain
-  owned by the active I18N lane.
+- Before PR #5 merged, `cd ui && ./node_modules/.bin/vitest run` reproduced the
+  expected baseline: 16 failed and 197 passed assertions caused by stale
+  Chinese text expectations.
+- After PR #5 and its main-CI follow-up merged, this branch was updated to
+  current `main` and the UI/I18N checks were rerun as recorded below.
 
 ## Full CI
 
 `just ci` could not be executed in this Linux workspace because `just`, Go,
-and PowerShell are unavailable. The stacked pull request's Windows Actions
-run is the authoritative full-path verification. Its independent backend job
-must complete even while the known UI assertions remain red.
+and PowerShell are unavailable. The pull request's Windows Actions run is the
+authoritative full-path verification and must show the independent backend
+and UI results before the aggregate status is accepted.

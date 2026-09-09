@@ -9,11 +9,16 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
+	"agent-vivy/internal/generated/presentation"
+	corei18n "agent-vivy/internal/i18n"
 	"agent-vivy/sdk/tui/stream"
 	"agent-vivy/sdk/tui/surface"
+	"agent-vivy/sdk/tui/view"
 )
 
 func TestMapHistoryMergesDurableShellToolPair(t *testing.T) {
@@ -33,6 +38,7 @@ func TestNewInitializesCapabilitiesOnce(t *testing.T) {
 		"initialize": func(json.RawMessage) (any, error) {
 			return map[string]any{"capabilities": []string{"shell.start"}}, nil
 		},
+		"settings/get": baseScript()["settings/get"],
 	}}
 	controller, err := New(context.Background(), env, Options{})
 	if err != nil {
@@ -191,6 +197,9 @@ func (e *fakeEnv) callContext(method string) context.Context {
 
 func baseScript() map[string]func(json.RawMessage) (any, error) {
 	return map[string]func(json.RawMessage) (any, error){
+		"settings/get": func(json.RawMessage) (any, error) {
+			return map[string]any{"locale": "en", "generation_locale": "en", "workspace_locale": "", "locale_read_only": false}, nil
+		},
 		"initialize": func(json.RawMessage) (any, error) {
 			return map[string]string{"protocol_version": "1"}, nil
 		},
@@ -220,6 +229,364 @@ func baseScript() map[string]func(json.RawMessage) (any, error) {
 		"question/respond": func(json.RawMessage) (any, error) {
 			return map[string]any{"ok": true}, nil
 		},
+	}
+}
+
+// Missing hydration must fail both the startup order and the first localized
+// validation; Generation/workspace metadata must not override effective locale.
+func TestSettingsLocaleHydration(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			env := &fakeEnv{script: baseScript()}
+			env.script["settings/get"] = func(json.RawMessage) (any, error) {
+				return map[string]any{"locale": locale, "generation_locale": "zh", "workspace_locale": "en", "locale_read_only": true}, nil
+			}
+			controller, err := New(context.Background(), env, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer controller.Close()
+			if controller.Locale() != locale || strings.Join(env.calls, ",") != "initialize,settings/get" {
+				t.Fatalf("locale=%q calls=%v", controller.Locale(), env.calls)
+			}
+			if controller.Meta().Error != "" {
+				t.Fatalf("unexpected startup warning: %s", controller.Meta().Error)
+			}
+		})
+	}
+}
+
+func TestLocaleShortErrorKeepsUnicodeAndExistingBound(t *testing.T) {
+	got := shortErr(errors.New(strings.Repeat("错", 90)))
+	if !utf8.ValidString(got) || got != strings.Repeat("错", 77)+"…" {
+		t.Fatalf("truncated error = %q", got)
+	}
+	if got := shortErr(errors.New(strings.Repeat("x", 90))); got != strings.Repeat("x", 77)+"…" {
+		t.Fatalf("ASCII bound changed: %q", got)
+	}
+}
+
+func TestSettingsLocaleInitializationFailureIsFatal(t *testing.T) {
+	env := &fakeEnv{script: baseScript()}
+	env.script["initialize"] = func(json.RawMessage) (any, error) { return nil, errors.New("initialize refused") }
+	controller, err := New(context.Background(), env, Options{})
+	if err == nil || controller != nil || env.saw("settings/get") {
+		t.Fatalf("controller=%v err=%v calls=%v", controller, err, env.calls)
+	}
+}
+
+func TestControllerLocaleWarningRecoveryPreservesOtherErrors(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			controller := localeController(t, locale)
+			controller.activeID = "sess"
+			controller.applySidebar(liveSidebarMsg{SessionID: "sess", Err: errors.New("BACKEND 原文")})
+			prefix := "session sidebar: "
+			if locale == corei18n.Chinese {
+				prefix = "会话侧栏："
+			}
+			if controller.Meta().Error != prefix+"BACKEND 原文" {
+				t.Fatalf("warning=%q", controller.Meta().Error)
+			}
+			controller.applySidebar(liveSidebarMsg{SessionID: "sess"})
+			if controller.Meta().Error != "" {
+				t.Fatalf("recovery did not clear localized warning: %q", controller.Meta().Error)
+			}
+			controller.Handle(surface.ErrMsg{Err: errors.New("unrelated 原文")})
+			controller.applySidebar(liveSidebarMsg{SessionID: "sess"})
+			if controller.Meta().Error != "unrelated 原文" {
+				t.Fatal("sidebar recovery erased another error")
+			}
+		})
+	}
+}
+
+func TestControllerLocaleUntrustedMCPErrorUsesExistingViewSanitizer(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			controller := localeController(t, locale)
+			raw := "no active session 原文\x1b]0;injected-title\x07"
+			sidebar := mapSidebarView(sidebarView{
+				Session: sessionView{ID: "sess"}, MCPKnown: true,
+				MCP: []sidebarMCPView{{Name: "docs", State: "error", Error: raw}},
+			})
+			controller.Handle(liveBootMsg{Sessions: []surface.Session{{ID: "sess"}}, ActiveID: "sess", Sidebar: sidebar})
+			if controller.Sidebar().MCP[0].Error != raw {
+				t.Fatal("controller translated backend error data")
+			}
+			model := view.New(controller, view.Options{Locale: controller.Locale()})
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: 160, Height: 60})
+			rendered := updated.View()
+			if !strings.Contains(rendered, "no active session 原文") || strings.Contains(rendered, "injected-title") {
+				t.Fatalf("error was translated or terminal control survived: %s", rendered)
+			}
+		})
+	}
+}
+
+func TestControllerLocaleRPCValidation(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			controller := localeController(t, locale)
+			env := controller.client.transport.(*fakeEnv)
+			env.script["session/create"] = func(json.RawMessage) (any, error) { return map[string]any{}, nil }
+			_, err := controller.client.createSession(context.Background(), "")
+			want := "tui: session/create returned no id"
+			if locale == corei18n.Chinese {
+				want = "tui: session/create 未返回 id"
+			}
+			if err == nil || err.Error() != want {
+				t.Fatalf("error=%v want=%q", err, want)
+			}
+		})
+	}
+}
+
+// This must fail if the startup warning bypasses display sanitization or is
+// shortened before a complete OSC sequence can be removed.
+func TestSettingsWarningSanitizesControllerViewPath(t *testing.T) {
+	for _, controls := range []string{
+		"\x1b]0;injected-title\x07",
+		"\x1b]0;injected-title\x1b\\",
+		"\x1b]0;injected-title" + strings.Repeat("x", 100) + "\x07",
+		"\x1b[31m\x1b[0m\x00\x07\u202e",
+	} {
+		t.Run(fmt.Sprintf("%q", controls), func(t *testing.T) {
+			const readable = "BACKEND 原文 {{error}} remains"
+			rawText := "BACKEND 原文 {{error}}" + controls + " remains"
+			backendErr := errors.New(rawText)
+			env := &fakeEnv{script: baseScript()}
+			env.script["settings/get"] = func(json.RawMessage) (any, error) { return nil, backendErr }
+			env.script["session/context"] = func(json.RawMessage) (any, error) { return map[string]any{}, nil }
+			controller, err := New(context.Background(), env, Options{})
+			if err != nil {
+				t.Fatalf("settings warning became fatal: %v", err)
+			}
+			defer controller.Close()
+			if controller.Locale() != presentation.DefaultLocale {
+				t.Fatalf("locale=%q want embedded fallback=%q", controller.Locale(), presentation.DefaultLocale)
+			}
+			prefix := "settings: "
+			if presentation.DefaultLocale == corei18n.Chinese {
+				prefix = "设置："
+			}
+			want := prefix + readable
+			if got := controller.Meta().Error; got != want {
+				t.Fatalf("startup display=%q want=%q", got, want)
+			}
+			// Exercise the actual boot RPC projection and the real view update,
+			// not a fabricated successful boot message.
+			model := view.New(controller, view.Options{Locale: controller.Locale()})
+			boot := mustMsg[liveBootMsg](t, controller.bootCmd())
+			if boot.Err != nil || boot.SidebarErr != nil || boot.CommandErr != nil {
+				t.Fatalf("boot=%+v", boot)
+			}
+			updated, _ := model.Update(boot)
+			updated, _ = updated.Update(tea.WindowSizeMsg{Width: 160, Height: 60})
+			if controller.Active().ID != "sess_1" || controller.Meta().Error != want {
+				t.Fatalf("successful boot lost warning: %+v", controller.Meta())
+			}
+			rendered := updated.View()
+			if !strings.Contains(ansi.Strip(rendered), readable) ||
+				strings.Contains(rendered, "injected-title") ||
+				strings.ContainsAny(rendered, "\x00\x07\u202e") ||
+				strings.Contains(rendered, "\x1b]") {
+				t.Fatalf("unsafe or changed rendered warning: %q", rendered)
+			}
+			_, rpcErr := controller.client.effectiveLocale(context.Background())
+			if rpcErr != backendErr || backendErr.Error() != rawText {
+				t.Fatalf("underlying backend error changed: %v", rpcErr)
+			}
+		})
+	}
+}
+
+func TestSettingsLocaleFailureSurvivesSuccessfulBoot(t *testing.T) {
+	for _, failure := range []string{"transport", "missing", "unsupported", "malformed", "wrong-type"} {
+		t.Run(failure, func(t *testing.T) {
+			env := &fakeEnv{script: baseScript()}
+			env.script["settings/get"] = func(json.RawMessage) (any, error) {
+				switch failure {
+				case "transport":
+					return nil, errors.New("BACKEND 原文 {{error}}")
+				case "missing":
+					return map[string]any{"generation_locale": "zh"}, nil
+				case "unsupported":
+					return map[string]string{"locale": "fr"}, nil
+				case "wrong-type":
+					return map[string]int{"locale": 7}, nil
+				default:
+					return "not a settings object", nil
+				}
+			}
+			controller, err := New(context.Background(), env, Options{})
+			if err != nil {
+				t.Fatalf("settings failure became fatal: %v", err)
+			}
+			defer controller.Close()
+			warning := controller.Meta().Error
+			if controller.Locale() != presentation.DefaultLocale || warning == "" {
+				t.Fatalf("locale=%q warning=%q", controller.Locale(), warning)
+			}
+			if failure == "transport" && !strings.Contains(warning, "BACKEND 原文 {{error}}") {
+				t.Fatalf("backend error was translated: %q", warning)
+			}
+			controller.Handle(liveBootMsg{Sessions: []surface.Session{{ID: "sess"}}, ActiveID: "sess"})
+			if controller.Meta().Error != warning || controller.Active().ID != "sess" {
+				t.Fatalf("boot erased warning or failed: %+v", controller.Meta())
+			}
+		})
+	}
+}
+
+func TestControllerCommandLocaleValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		en   string
+		zh   string
+	}{
+		{"session", nil, "usage: /session <id>", "用法：/session <id>"},
+		{"rename", []string{"title"}, "no active session", "没有活动会话"},
+		{"permission", []string{"bad"}, "permission must be cautious, smart, or trusted", "权限档必须为 cautious、smart 或 trusted"},
+		{"thinking", []string{"bad"}, "thinking must be auto, on, or off", "思考档必须为 auto、on 或 off"},
+		{"image", []string{"remove", "0"}, "image remove index must be a positive number", "图片移除序号必须为正整数"},
+		{"compact", nil, "no active session", "没有活动会话"},
+		{"fork", []string{"message-id"}, "no active session", "没有活动会话"},
+		{"rewind", []string{"message-id"}, "no active session", "没有活动会话"},
+		{"mcp", []string{"read"}, "usage: /mcp read <server> <uri>", "用法：/mcp read <server> <uri>"},
+		{"skills", []string{"one", "two"}, "usage: /skills [name]", "用法：/skills [name]"},
+		{"tools", []string{"extra"}, "usage: /tools", "用法：/tools"},
+		{"files", nil, "a run_id is required; workspace files are scoped to a run", "需要 run_id；工作区文件属于单次运行"},
+		{"mystery", nil, "unknown command /mystery", "未知命令 /mystery"},
+	}
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		for _, tt := range tests {
+			t.Run(string(locale)+"/"+tt.name, func(t *testing.T) {
+				controller := localeController(t, locale)
+				msg := mustMsg[surface.CommandResultMsg](t, controller.ExecuteCommand(tt.name, tt.args))
+				want := tt.en
+				if locale == corei18n.Chinese {
+					want = tt.zh
+				}
+				if msg.Err == nil || msg.Err.Error() != want || msg.Name != tt.name {
+					t.Fatalf("command=%+v want=%q", msg, want)
+				}
+			})
+		}
+	}
+}
+
+func localeController(t *testing.T, locale corei18n.Locale) *Live {
+	t.Helper()
+	env := &fakeEnv{script: baseScript()}
+	env.script["settings/get"] = func(json.RawMessage) (any, error) {
+		return map[string]any{"locale": locale, "generation_locale": "en", "workspace_locale": locale, "locale_read_only": false}, nil
+	}
+	controller, err := New(context.Background(), env, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(controller.Close)
+	return controller
+}
+
+func TestControllerLocaleDirectValidationAndRawErrors(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			controller := localeController(t, locale)
+			checks := []struct {
+				err error
+				en  string
+				zh  string
+			}{
+				{controller.SetRunMode("bad"), "run mode must be normal or plan", "运行模式必须为 normal 或 plan"},
+				{controller.SetThinkingMode("bad"), "thinking must be auto, on, or off", "思考档必须为 auto、on 或 off"},
+				{controller.SetThinkingMode("on"), "extended thinking is unavailable for the active model", "当前模型不支持扩展思考"},
+				{mustMsg[surface.CommandResultMsg](t, controller.SendWithContext("", []string{"原文.md"})).Err, "@file references require a prompt", "@file 引用需要提示文本"},
+				{mustMsg[surface.ErrMsg](t, controller.ExecuteShell("echo 原文")).Err, "governed shell is unavailable", "受治理的 shell 不可用"},
+				{mustMsg[surface.CommandResultMsg](t, controller.sendShell("")).Err, "shell script is required", "需要 shell 脚本"},
+			}
+			for _, check := range checks {
+				want := check.en
+				if locale == corei18n.Chinese {
+					want = check.zh
+				}
+				if check.err == nil || check.err.Error() != want {
+					t.Errorf("error=%v want=%q", check.err, want)
+				}
+			}
+			// A server error deliberately resembles a client error. Do not map it
+			// through a catalog or interpolate its braces.
+			rawErr := errors.New("no active session 原文 {{command}}")
+			env := controller.client.transport.(*fakeEnv)
+			env.script["tools/list"] = func(json.RawMessage) (any, error) { return nil, rawErr }
+			msg := mustMsg[surface.CommandResultMsg](t, controller.ExecuteCommand("tools", nil))
+			if msg.Err != rawErr || msg.Err.Error() != "no active session 原文 {{command}}" {
+				t.Fatalf("raw error changed: %v", msg.Err)
+			}
+			controller.Handle(surface.ErrMsg{Err: rawErr})
+			if controller.Meta().Error != rawErr.Error() {
+				t.Fatalf("visible error changed: %q", controller.Meta().Error)
+			}
+		})
+	}
+}
+
+func TestControllerCommandLocaleResultFramingPreservesData(t *testing.T) {
+	tests := []struct{ name, method, raw, en, zh string }{
+		{"compact", "context/compact", `{"before_tokens":0,"after_tokens":0,"folded_messages":0}`, "compaction skipped", "已跳过压缩"},
+		{"skills", "skills/list", `{"skills":[{"name":"原文 {{name}}"}]}`, "skills catalog", "技能目录"},
+		{"mcp", "settings/mcp", `{"servers":[{"name":"原文 {{name}}"}]}`, "configured MCP servers", "已配置的 MCP 服务"},
+		{"tools", "tools/list", `{"tools":[{"name":"原文 {{name}}"}]}`, "tool catalog", "工具目录"},
+	}
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		for _, tt := range tests {
+			t.Run(string(locale)+"/"+tt.name, func(t *testing.T) {
+				controller := localeController(t, locale)
+				controller.activeID = "session-id"
+				env := controller.client.transport.(*fakeEnv)
+				env.script[tt.method] = func(json.RawMessage) (any, error) { return json.RawMessage(tt.raw), nil }
+				msg := mustMsg[surface.CommandResultMsg](t, controller.ExecuteCommand(tt.name, nil))
+				want := tt.en
+				if locale == corei18n.Chinese {
+					want = tt.zh
+				}
+				parts := strings.SplitN(msg.Output, "\n", 2)
+				if msg.Err != nil || len(parts) != 2 || !strings.HasPrefix(parts[0], want) {
+					t.Fatalf("result=%+v want framing=%q", msg, want)
+				}
+				var got, original any
+				if err := json.Unmarshal([]byte(parts[1]), &got); err != nil {
+					t.Fatal(err)
+				}
+				_ = json.Unmarshal([]byte(tt.raw), &original)
+				gotJSON, _ := json.Marshal(got)
+				originalJSON, _ := json.Marshal(original)
+				if string(gotJSON) != string(originalJSON) {
+					t.Fatalf("data changed: %s", gotJSON)
+				}
+			})
+		}
+	}
+}
+
+func TestControllerLocaleImageOutputInterpolatesCounts(t *testing.T) {
+	for _, locale := range []corei18n.Locale{corei18n.English, corei18n.Chinese} {
+		t.Run(string(locale), func(t *testing.T) {
+			controller := localeController(t, locale)
+			controller.activeID = "sess"
+			controller.drafts["sess"] = []surface.Attachment{{Name: "原文.png"}, {Name: "second.png"}}
+			removed := mustMsg[surface.CommandResultMsg](t, controller.ExecuteCommand("image", []string{"remove", "1"}))
+			cleared := mustMsg[surface.CommandResultMsg](t, controller.ExecuteCommand("image", []string{"clear"}))
+			wantRemoved, wantCleared := "removed pending image attachment 1", "cleared 1 pending image attachment(s)"
+			if locale == corei18n.Chinese {
+				wantRemoved, wantCleared = "已移除待发送图片附件 1", "已清除 1 个待发送图片附件"
+			}
+			if removed.Err != nil || cleared.Err != nil || removed.Output != wantRemoved || cleared.Output != wantCleared || len(controller.PendingAttachments()) != 0 {
+				t.Fatalf("removed=%+v cleared=%+v pending=%v", removed, cleared, controller.PendingAttachments())
+			}
+		})
 	}
 }
 

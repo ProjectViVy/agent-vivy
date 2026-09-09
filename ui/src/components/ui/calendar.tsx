@@ -3,6 +3,8 @@
 import * as React from "react";
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { DayButton, DayPicker, getDefaultClassNames } from "react-day-picker";
+import { enUS, zhCN } from "date-fns/locale";
+import { dateTimeLocale, useTranslation } from "@/i18n";
 
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -14,15 +16,18 @@ function Calendar({
   captionLayout = "label",
   buttonVariant = "ghost",
   formatters,
+  labels,
   components,
   ...props
 }: React.ComponentProps<typeof DayPicker> & {
   buttonVariant?: React.ComponentProps<typeof Button>["variant"];
 }) {
+  const { t, locale } = useTranslation();
   const defaultClassNames = getDefaultClassNames();
 
   return (
     <DayPicker
+      locale={locale === 'zh' ? zhCN : enUS}
       showOutsideDays={showOutsideDays}
       className={cn(
         "bg-background group/calendar p-3 [--cell-size:2rem] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
@@ -32,8 +37,28 @@ function Calendar({
       )}
       captionLayout={captionLayout}
       formatters={{
-        formatMonthDropdown: (date) => date.toLocaleString("default", { month: "short" }),
+        formatMonthDropdown: (date) => date.toLocaleString(dateTimeLocale(), { month: "short" }),
         ...formatters,
+      }}
+      labels={{
+        labelNav: () => t('calendar.navigation'),
+        labelNext: () => t('calendar.nextMonth'),
+        labelPrevious: () => t('calendar.previousMonth'),
+        labelMonthDropdown: () => t('calendar.chooseMonth'),
+        labelYearDropdown: () => t('calendar.chooseYear'),
+        labelWeekNumber: (week) => t('calendar.week', { week }),
+        labelWeekNumberHeader: () => t('calendar.weekNumber'),
+        labelDayButton: (date, modifiers) => {
+          let label = date.toLocaleDateString(dateTimeLocale(), { dateStyle: 'full' });
+          if (modifiers.today) label = t('calendar.today', { date: label });
+          if (modifiers.selected) label = t('calendar.selected', { date: label });
+          return label;
+        },
+        labelGridcell: (date, modifiers) => {
+          const label = date.toLocaleDateString(dateTimeLocale(), { dateStyle: 'full' });
+          return modifiers?.today ? t('calendar.today', { date: label }) : label;
+        },
+        ...labels,
       }}
       classNames={{
         root: cn("w-fit", defaultClassNames.root),

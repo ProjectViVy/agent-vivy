@@ -104,8 +104,17 @@ func Run(ctx context.Context, cfg config.Config, projectDir string, out, errOut 
 		prepared.Config,
 		tuiface.New,
 		plugin.FaceOptions{DebugToolOutput: prepared.Config.TUI.Debug, Out: out, Err: errOut},
+		codeAppOptions(prepared)...,
+	)
+}
+
+// The canonical TUI face hydrates settings/get and forwards controller.Locale()
+// to the view. Keep its settings authority at the shared root, not the private
+// instance's Journal directory.
+func codeAppOptions(prepared Prepared) []app.AppOption {
+	return []app.AppOption{
 		app.WithSettingsPath(prepared.SharedSettingsPath),
 		app.WithCodeProjectRoot(prepared.Config.Runtime.WorkspaceRoot),
 		app.WithInstructionRoot(prepared.Config.Runtime.WorkspaceRoot),
-	)
+	}
 }

@@ -38,8 +38,17 @@ plugin-ci:
 ui-build:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
-ui-ci:
+ui-core:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
+
+# Uses the locked TypeScript parser installed by ui-core.
+i18n-check: ui-core
+    node scripts/check-i18n-completeness.js
+    node --test scripts/check-i18n-cross-face.test.js
+    node scripts/check-i18n-cross-face.js
+
+# Complete standalone UI gate, including cross-face I18N conformance.
+ui-ci: i18n-check
 
 headless-compile:
     & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui

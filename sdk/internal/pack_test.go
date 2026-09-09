@@ -9,6 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/generated/presentation"
+	"agent-vivy/internal/i18n"
 )
 
 func TestPackRequiresWith(t *testing.T) {
@@ -21,6 +25,55 @@ func TestPackRejectsFailedVerify(t *testing.T) {
 	_, err := Pack(packOptions{With: []string{filepath.Join("testdata", "bad-seam-journal")}})
 	if err == nil || !strings.Contains(err.Error(), "verify") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPackRejectsInvalidDeveloperLocale(t *testing.T) {
+	t.Setenv(i18n.DefaultLocaleEnv, "fr")
+	if _, err := Pack(packOptions{With: []string{"hello-fs"}, Out: t.TempDir()}); err == nil ||
+		!strings.Contains(err.Error(), "unsupported locale") {
+		t.Fatalf("Pack invalid locale error = %v", err)
+	}
+}
+
+func TestCommittedPresentationSettingsUseUnsealedEnglish(t *testing.T) {
+	if presentation.DefaultLocale != i18n.English {
+		t.Fatalf("DefaultLocale = %q, want %q", presentation.DefaultLocale, i18n.English)
+	}
+	if presentation.SealedGeneration {
+		t.Fatal("committed development body must be unsealed")
+	}
+}
+
+func TestPackResolvedLocaleMatchesRecipeAndOverlay(t *testing.T) {
+	t.Setenv(i18n.DefaultLocaleEnv, "zh")
+	root := t.TempDir()
+	tmp := t.TempDir()
+	locale, err := i18n.DeveloperDefault(filepath.Join(root, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacements := make(map[string]string)
+	recipe := domain.AssemblyRecipe{}
+	if err := embedPresentationSettings(replacements, root, tmp, locale, &recipe); err != nil {
+		t.Fatal(err)
+	}
+	if recipe.Settings.Locale != "zh" {
+		t.Fatalf("recipe locale = %q, want zh", recipe.Settings.Locale)
+	}
+	live := filepath.Join(root, "internal", "generated", "presentation", "zz_settings.go")
+	overlay, ok := replacements[live]
+	if !ok {
+		t.Fatalf("presentation settings replacement missing: %+v", replacements)
+	}
+	raw, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	if !strings.Contains(src, `const DefaultLocale i18n.Locale = "zh"`) ||
+		!strings.Contains(src, "const SealedGeneration = true") {
+		t.Fatalf("generated presentation settings do not seal zh:\n%s", src)
 	}
 }
 
@@ -55,6 +108,7 @@ func TestStandaloneModulePath(t *testing.T) {
 // lives in its own go.mod. The real `go build` with the double overlay
 // (zz_register.go + root go.mod) is the acceptance.
 func TestPackFakeChannelStandaloneModule(t *testing.T) {
+	t.Setenv(i18n.DefaultLocaleEnv, "zh")
 	root, err := findModuleRoot(".")
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +145,9 @@ func TestPackFakeChannelStandaloneModule(t *testing.T) {
 	if len(art.Recipe.Plugins) != 1 || art.Recipe.Plugins[0] != "fake-channel" {
 		t.Fatalf("recipe = %+v", art.Recipe)
 	}
+	if art.Recipe.Settings.Locale != "zh" {
+		t.Fatalf("recipe locale = %q, want zh", art.Recipe.Settings.Locale)
+	}
 	if len(art.Tools) != 0 {
 		t.Fatalf("channel plugin must not contribute tools: %+v", art.Tools)
 	}
@@ -123,6 +180,7 @@ func TestPackFakeChannelStandaloneModule(t *testing.T) {
 }
 
 func TestPackHelloFSWritesArtifactAndLeavesLiveRegister(t *testing.T) {
+	t.Setenv(i18n.DefaultLocaleEnv, "en")
 	root, err := findModuleRoot(".")
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +207,9 @@ func TestPackHelloFSWritesArtifactAndLeavesLiveRegister(t *testing.T) {
 	}
 	if len(art.Recipe.Plugins) != 1 || art.Recipe.Plugins[0] != "hello-fs" {
 		t.Fatalf("recipe = %+v", art.Recipe)
+	}
+	if art.Recipe.Settings.Locale != "en" {
+		t.Fatalf("recipe locale = %q, want en", art.Recipe.Settings.Locale)
 	}
 	if len(art.Plugins) != 1 {
 		t.Fatalf("plugins = %+v, want exactly one entry", art.Plugins)
@@ -183,6 +244,9 @@ func TestPackHelloFSWritesArtifactAndLeavesLiveRegister(t *testing.T) {
 	}
 	if inspected.ID != art.ID || inspected.ArtifactSHA256 != art.ArtifactSHA256 {
 		t.Fatalf("inspect-artifact = %+v", inspected)
+	}
+	if inspected.Recipe.Settings.Locale != art.Recipe.Settings.Locale {
+		t.Fatalf("generation.json locale = %q, want %q", inspected.Recipe.Settings.Locale, art.Recipe.Settings.Locale)
 	}
 }
 
