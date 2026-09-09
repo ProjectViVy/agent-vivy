@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
 
+	"agent-vivy/sdk/tui/internal/textsafe"
 	"agent-vivy/sdk/tui/surface"
 )
 
@@ -227,7 +228,7 @@ func sanitizeFileCompletionText(text string) string {
 }
 
 func isBidiControl(r rune) bool {
-	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+	return textsafe.IsBidiControl(r)
 }
 
 func safeProjectFilePath(path string) string {
@@ -1565,7 +1566,7 @@ func shortPreconditionHash(hash string) string {
 }
 
 func sanitizeInline(text string) string {
-	return strings.TrimSpace(strings.ReplaceAll(sanitizeMultilineText(text), "\n", " "))
+	return textsafe.Inline(text)
 }
 
 func (m Model) sanitizeApprovalTarget(text string) string {
@@ -1576,24 +1577,8 @@ func (m Model) sanitizeApprovalTarget(text string) string {
 	return target
 }
 
-const maxGatePreviewRunes = 64 * 1024
-
 func sanitizeMultilineText(text string) string {
-	text = strings.ReplaceAll(strings.ReplaceAll(ansi.Strip(text), "\r\n", "\n"), "\r", "\n")
-	clean := make([]rune, 0, min(len([]rune(text)), maxGatePreviewRunes))
-	for _, r := range text {
-		if r == '\n' {
-			clean = append(clean, r)
-		} else if r == '\t' {
-			clean = append(clean, ' ', ' ', ' ', ' ')
-		} else if !unicode.IsControl(r) && !isBidiControl(r) {
-			clean = append(clean, r)
-		}
-		if len(clean) >= maxGatePreviewRunes {
-			break
-		}
-	}
-	return string(clean)
+	return textsafe.Multiline(text)
 }
 
 func isUnifiedDiff(preview string) bool {

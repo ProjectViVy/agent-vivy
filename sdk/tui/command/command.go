@@ -405,7 +405,9 @@ func (r Registry) Validate(invocation *Invocation) error {
 		return &UnknownCommandError{Name: invocation.Name}
 	}
 	args := invocation.Args
-	usage := func() error { return fmt.Errorf("usage: %s", spec.Usage) }
+	usage := func() error {
+		return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": spec.Usage}))
+	}
 	count := func(min, max int) error {
 		if len(args) < min || (max >= 0 && len(args) > max) {
 			return usage()
@@ -427,11 +429,11 @@ func (r Registry) Validate(invocation *Invocation) error {
 		switch strings.ToLower(strings.TrimSpace(args[0])) {
 		case "resources":
 			if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-				return fmt.Errorf("usage: /mcp resources <server>")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/mcp resources <server>"}))
 			}
 		case "read":
 			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
-				return fmt.Errorf("usage: /mcp read <server> <uri>")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/mcp read <server> <uri>"}))
 			}
 		default:
 			return count(1, 1)
@@ -461,7 +463,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "cautious", "smart", "trusted":
 			default:
-				return fmt.Errorf("permission must be cautious, smart, or trusted")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.permission", nil))
 			}
 		}
 		return nil
@@ -473,7 +475,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "auto", "on", "off":
 			default:
-				return fmt.Errorf("thinking must be auto, on, or off")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.error.thinking", nil))
 			}
 		}
 		return nil
@@ -488,12 +490,12 @@ func (r Registry) Validate(invocation *Invocation) error {
 			if err == nil && index > 0 {
 				return nil
 			}
-			return fmt.Errorf("image remove index must be a positive number")
+			return fmt.Errorf("%s", r.translator.T("vivy.tui.live.imageIndex", nil))
 		}
 		if len(args) == 1 && strings.EqualFold(strings.TrimSpace(args[0]), "clear") {
 			return nil
 		}
-		return fmt.Errorf("usage: /image <relative-path> | /image remove <index> | /image clear")
+		return fmt.Errorf("%s", r.translator.T("vivy.tui.error.usage", map[string]any{"usage": "/image <relative-path> | /image remove <index> | /image clear"}))
 	case "fork":
 		return count(1, 2)
 	case "rewind":
@@ -506,7 +508,7 @@ func (r Registry) Validate(invocation *Invocation) error {
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "1d", "3d", "1w", "1m", "6m", "1y":
 			default:
-				return fmt.Errorf("stats period must be 1d, 3d, 1w, 1m, 6m, or 1y")
+				return fmt.Errorf("%s", r.translator.T("vivy.tui.live.statsPeriod", nil))
 			}
 		}
 		return nil
