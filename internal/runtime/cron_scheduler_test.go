@@ -175,8 +175,8 @@ func TestCronAtJobDisablesAfterRun(t *testing.T) {
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
 		// Leave enough startup margin that a loaded Windows scheduler cannot
 		// classify this fresh job as an offline, already-missed one-shot.
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 500}
-		j.State.NextRunAtMs = now + 500
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 5_000}
+		j.State.NextRunAtMs = now + 5_000
 	})
 
 	svc.StartCronScheduler(ctx, CronSchedulerOptions{MaxSleep: 20 * time.Millisecond, TerminalPoll: 10 * time.Millisecond})
@@ -197,8 +197,8 @@ func TestCronAtJobDeletesAfterSuccessfulRun(t *testing.T) {
 	job := createTestJob(t, backend, func(j *domain.CronJob) {
 		// See TestCronAtJobDisablesAfterRun: the recovery contract intentionally
 		// disables truly past one-shots, so this wiring test needs startup margin.
-		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 500}
-		j.State.NextRunAtMs = now + 500
+		j.Schedule = domain.CronSchedule{Kind: domain.CronScheduleAt, AtMs: now + 5_000}
+		j.State.NextRunAtMs = now + 5_000
 		j.DeleteAfterRun = true
 	})
 

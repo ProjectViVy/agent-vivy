@@ -12,14 +12,14 @@
   preserves one stable required-check name for branch protection.
 - Kept the embedded-asset requirement explicit: the backend job builds
   `ui/dist` but does not run UI typechecks or tests.
-- Stabilized two cron scheduler write-back tests exposed by the new Windows
-  backend gate. Their first fires remain immediate, while the unused next
-  recurrences stay observable under loaded-runner SQLite contention.
+- Stabilized four cron scheduler timing fixtures exposed by the new Windows
+  backend gate. Recurring write-backs stay observable, and one-shot jobs keep
+  enough startup margin not to be misclassified as offline missed jobs.
 
 ## Scope boundaries
 
 - No UI source, UI tests, translations, or other active I18N files changed.
-- No Go product code or plugin compiler fixtures changed; two Go test timing
+- No Go product code or plugin compiler fixtures changed; four Go test timing
   fixtures changed without altering runtime behavior.
 - Branch protection was not changed by this delivery.
 - This lane started from `chore/plugin-v1-preflight` without modifying that
