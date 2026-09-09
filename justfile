@@ -33,14 +33,22 @@ fmt-check:
 plugin-ci:
     powershell -NoProfile -Command '$fail = 0; foreach ($root in @(''plugins'', ''faces'')) { if (-not (Test-Path $root)) { continue }; $mods = Get-ChildItem $root -Directory | Where-Object { Test-Path (Join-Path $_.FullName ''go.mod'') }; foreach ($m in $mods) { Write-Output (''== plugin-ci: '' + $root + ''/'' + $m.Name); Push-Location $m.FullName; & ''{{go}}'' vet ./...; if ($LASTEXITCODE) { $fail = 1 }; & ''{{go}}'' test ./...; if ($LASTEXITCODE) { $fail = 1 }; Pop-Location } }; exit $fail'
 
-ui-ci:
+# Build the assets required by go:embed without coupling backend checks to the
+# UI typecheck/test gate. CI jobs intentionally use separate installations.
+ui-build:
+    Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
+
+ui-core:
     Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
-# Uses the locked TypeScript parser installed by ui-ci.
-i18n-check: ui-ci
+# Uses the locked TypeScript parser installed by ui-core.
+i18n-check: ui-core
     node scripts/check-i18n-completeness.js
     node --test scripts/check-i18n-cross-face.test.js
     node scripts/check-i18n-cross-face.js
+
+# Complete standalone UI gate, including cross-face I18N conformance.
+ui-ci: i18n-check
 
 headless-compile:
     & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
@@ -54,7 +62,11 @@ build-split:
 # cannot compile on a fresh checkout until the Vite build creates ui/dist,
 # and a committed ui/dist/.keep is not an option because pnpm's
 # emptyOutDir wipes it on every build.
-ci: fmt-check ui-ci i18n-check vet test headless-compile plugin-ci
+ci: fmt-check ui-ci vet test headless-compile plugin-ci
+
+# Independent backend gate for Actions. It builds ui/dist for go:embed but
+# leaves UI typechecking and tests to ui-ci so both lanes always report.
+backend-ci: fmt-check ui-build vet test headless-compile plugin-ci
 
 ui-e2e:
     Set-Location ui; pnpm build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm e2e
