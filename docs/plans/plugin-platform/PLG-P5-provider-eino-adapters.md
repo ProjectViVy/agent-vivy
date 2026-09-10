@@ -21,7 +21,7 @@ EinoExt Claude v0.1.25, existing config/RPC/UI model settings, `just ci`.
 
 ## Global Constraints
 
-- State: `IN PROGRESS · manually scheduled 2026-09-10`; depends on P2. P7 Task 2 consumes its ModelHost, so P5
+- State: `DONE · 2026-09-10`; depends on P2. P7 Task 2 consumes its ModelHost, so P5
   is a required P7 and SCX Gate B input even when SCX uses the default model
   Provider.
 - There is no `std/model-provider@v1`.
@@ -175,13 +175,13 @@ type Profile struct {
 - Consumes: supported first-party Profiles and fake adapter boundaries.
 - Produces: seven-artifact proof without live-network unit tests.
 
-- [ ] Cover missing Profile, duplicate Profile, unsupported family,
+- [x] Cover missing Profile, duplicate Profile, unsupported family,
   unconfigured Secret, adapter failure, timeout, cancellation, streaming error,
   raw model ID, Secret redaction, Inspect provenance, and shutdown.
-- [ ] Build/inspect default and minimal Generations.
-- [ ] Run `just ci` and the repository's authorized provider smoke path with
+- [x] Build/inspect default and minimal Generations.
+- [x] Run `just ci` and the repository's authorized provider smoke path with
   fake/local endpoints only.
-- [ ] Commit `test(provider): prove profile and modelhost conformance`.
+- [x] Commit `test(provider): prove profile and modelhost conformance`.
 
 ## Phase exit and rollback
 

@@ -1,8 +1,8 @@
 # Plugin v1 Provider and Eino Capability Matrix
 
-> Decision date: 2026-09-10  
+> Decision date: 2026-09-10
 > Repository pins: Eino `v0.9.13`, EinoExt OpenAI `v0.1.13`, EinoExt
-> Claude `v0.1.25`  
+> Claude `v0.1.25`
 > Scope: PLG-P5, `std/provider-profile@v1`, and the internal ModelHost
 
 ## Decision rule
@@ -57,4 +57,3 @@ Profile are display candidates only. P5 exposes capability status so a
 5. Secret values are resolved at call time, never stored in Profile,
    Generation Manifest, status, error, or log output.
 6. No public executable model-provider Port is introduced.
-

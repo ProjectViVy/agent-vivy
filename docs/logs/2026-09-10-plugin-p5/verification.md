@@ -33,3 +33,17 @@ Decisions and exact boundaries are recorded in
 The local Go commands use `GOFLAGS=-buildvcs=false` because this linked
 worktree cannot be VCS-stamped by nested build tests. Task 6 records the full
 gate evidence and the repository-level limitation separately.
+
+## Phase exit gates
+
+| Command | Result |
+|---|---|
+| `go test ./sdk/internal -run '^TestV1PackAndInspectProveRecipeRemoval$' -count=1` | Passed. Default and minimal Generations packed and their binary-bound manifests inspected; physical removal assertion passed. |
+| `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, `pnpm build` | Passed: 31 files, 280 tests, TypeScript, production build. Existing chunk-size warning only. |
+| i18n completeness and cross-face scripts | Passed: 1,388 keys / 138 placeholders per locale and 13 shared semantic units. |
+| `go vet ./...` | Passed. |
+| `go test ./... -count=1` | Passed. |
+| headless compile gate | Passed for `cmd/vivy`, `cmd/vivy-code`, and `ui`. |
+| independent `faces/*` and `plugins/*` module vet/tests | Passed for headless, tui, dingtalk, discord, feishu, lsp, qq, and telegram. |
+| fake/local Provider conformance smoke | Passed. Local HTTP adapters cover failure, timeout, cancellation, stream startup error, raw model ID, and Secret redaction without live credentials. |
+| `just ci` | Runner limitation: `just` is not installed (`exit 127`). The commands represented by the recipe were executed directly above; its PowerShell recipes are not runnable on this Linux host. |

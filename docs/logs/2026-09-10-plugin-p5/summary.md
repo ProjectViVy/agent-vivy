@@ -13,3 +13,9 @@ Anthropic Bedrock, Anthropic Vertex, and unpinned native vendor protocols remain
 
 P3, P4, P6, P7, P8, and P9 are outside this delivery.
 
+The delivered runtime has one ModelHost, declarative first-party `openai` and
+`anthropic` Profiles in the default Generation, exact raw model-ID forwarding,
+and a Secret-free capability projection shared by RPC and UI. Profiles move
+through `COMPILED`, `UNCONFIGURED`, `READY`, or `UNAVAILABLE`; missing pinned
+families remain `DEFERRED-INDEFINITE` and cannot be selected by either client
+or server paths.
