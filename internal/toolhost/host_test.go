@@ -44,7 +44,7 @@ func TestHostRejectsDuplicateStaticToolIDs(t *testing.T) {
 func TestHostInvokesStaticProviderWithOwningHost(t *testing.T) {
 	seen := ""
 	host, err := New(Config{Static: []StaticBinding{{
-		OwnerID: "acme.echo-provider",
+		OwnerID:  "acme.echo-provider",
 		Provider: testToolProvider{def: porttool.Definition{ID: "acme.echo"}, result: "ok", seen: &seen},
 		Host:     testModuleHost{id: "acme.echo-provider"},
 	}}})
