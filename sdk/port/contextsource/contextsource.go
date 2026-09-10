@@ -17,15 +17,15 @@ type Request struct {
 }
 
 type Candidate struct {
-	SourceID    string
-	ContentID   string
-	MediaType   string
-	Content     string
-	SizeHint    int
-	Confidence  float64
-	Version     string
-	UpdatedAt   int64
-	Metadata    map[string]string
+	SourceID   string
+	ContentID  string
+	MediaType  string
+	Content    string
+	SizeHint   int
+	Confidence float64
+	Version    string
+	UpdatedAt  int64
+	Metadata   map[string]string
 }
 
 func NewCandidate(candidate Candidate) Candidate {
