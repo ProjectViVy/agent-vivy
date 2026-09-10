@@ -19,7 +19,7 @@ import (
 const (
 	defaultSourceTimeout = 750 * time.Millisecond
 	defaultMaxSkillBytes = 512 << 10
-	defaultMaxSkills      = 256
+	defaultMaxSkills     = 256
 )
 
 var (
@@ -124,8 +124,14 @@ func (host *Host) List(ctx context.Context, request Request) ([]Summary, error) 
 	if err != nil {
 		return nil, err
 	}
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	out := make([]Summary, 0, len(entries))
-	for _, entry := range entries {
+	for _, key := range keys {
+		entry := entries[key]
 		if !entry.summary.Available {
 			continue
 		}
@@ -151,7 +157,8 @@ func (host *Host) Get(ctx context.Context, request Request, id string) (Resolved
 	}
 
 	skill, err := host.getFromSource(ctx, entry.source, skillsource.Request{
-		SessionID: request.SessionID, WorkspaceID: request.WorkspaceID,
+		SessionID:   request.SessionID,
+		WorkspaceID: request.WorkspaceID,
 	}, entry.summary.ID)
 	if err != nil {
 		host.appendFailure(Failure{SourceID: entry.source.ID(), Cause: err})
@@ -197,7 +204,8 @@ func (host *Host) catalog(ctx context.Context, request Request) (map[string]cata
 	count := 0
 	for _, source := range host.sources {
 		items, err := host.listSource(ctx, source, skillsource.Request{
-			SessionID: request.SessionID, WorkspaceID: request.WorkspaceID,
+			SessionID:   request.SessionID,
+			WorkspaceID: request.WorkspaceID,
 		})
 		if err != nil {
 			failures = append(failures, Failure{SourceID: source.ID(), Cause: err})
