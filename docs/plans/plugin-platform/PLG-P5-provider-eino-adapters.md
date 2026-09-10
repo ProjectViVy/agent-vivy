@@ -43,14 +43,14 @@ EinoExt Claude v0.1.25, existing config/RPC/UI model settings, `just ci`.
 - Consumes: exact `go.mod` pins and module-cache source.
 - Produces: profile family -> package/API -> decision evidence.
 
-- [ ] Verify `openai.NewChatModel` in EinoExt OpenAI v0.1.13 and
+- [x] Verify `openai.NewChatModel` in EinoExt OpenAI v0.1.13 and
   `claude.NewChatModel`/`claude.WithThinking` in EinoExt Claude v0.1.25.
-- [ ] Inventory each requested provider family against the pinned source; do
+- [x] Inventory each requested provider family against the pinned source; do
   not use current online/latest docs as evidence.
-- [ ] Record `ADAPT` only when the API satisfies Vivy invariants.
-- [ ] Record every missing family/OAuth path as `DEFERRED-INDEFINITE` with no
+- [x] Record `ADAPT` only when the API satisfies Vivy invariants.
+- [x] Record every missing family/OAuth path as `DEFERRED-INDEFINITE` with no
   implementation placeholder.
-- [ ] Commit `docs(provider): pin plugin v1 adapter decisions`.
+- [x] Commit `docs(provider): pin plugin v1 adapter decisions`.
 
 ### Task 2: Define declarative Provider Profiles
 
@@ -78,13 +78,13 @@ type Profile struct {
 }
 ```
 
-- [ ] Write `TestProfileContainsNoExecutableProvider`; expected RED is any
+- [x] Write `TestProfileContainsNoExecutableProvider`; expected RED is any
   callback, factory, Eino model, or arbitrary code field.
-- [ ] Write tests for duplicate IDs, unsupported family, prefixed raw model ID,
+- [x] Write tests for duplicate IDs, unsupported family, prefixed raw model ID,
   inline Secret, invalid option schema, and unavailable adapter.
-- [ ] Implement pure data and ModelHost validation without Eino imports.
-- [ ] Run `go test ./sdk/port/providerprofile ./internal/modelhost`.
-- [ ] Commit `feat(provider): define declarative provider profiles`.
+- [x] Implement pure data and ModelHost validation without Eino imports.
+- [x] Run `go test ./sdk/port/providerprofile ./internal/modelhost`.
+- [x] Commit `feat(provider): define declarative provider profiles`.
 
 ### Task 3: Put existing adapters behind one ModelHost
 
@@ -104,15 +104,15 @@ type Profile struct {
 - Consumes: validated Profile and scoped credential resolution.
 - Produces: one internal model interface adapted to Eino within the quarantine.
 
-- [ ] Write `TestEveryModelCallUsesModelHost`; expected RED identifies direct
+- [x] Write `TestEveryModelCallUsesModelHost`; expected RED identifies direct
   provider factories outside the Host.
-- [ ] Preserve existing OpenAI-compatible and Claude behavior, streaming,
+- [x] Preserve existing OpenAI-compatible and Claude behavior, streaming,
   thinking options, cancellation, and error chains.
-- [ ] Assert native endpoints receive the configured raw model ID with no
+- [x] Assert native endpoints receive the configured raw model ID with no
   automatic `provider/` prefix.
-- [ ] Keep Eino imports in `internal/provider` and `internal/runtime` only.
-- [ ] Run `go test ./internal/modelhost ./internal/provider ./internal/runtime -run Model`.
-- [ ] Commit `refactor(provider): route models through modelhost`.
+- [x] Keep Eino imports in `internal/provider` and `internal/runtime` only.
+- [x] Run `go test ./internal/modelhost ./internal/provider ./internal/runtime -run Model`.
+- [x] Commit `refactor(provider): route models through modelhost`.
 
 ### Task 4: Register first-party Profiles in the default Generation
 
@@ -130,13 +130,13 @@ type Profile struct {
 - Produces: default-on Profile definitions whose instances remain unconfigured
   without Secret/config values.
 
-- [ ] Write baseline parity tests for profile IDs, model selection, endpoint,
+- [x] Write baseline parity tests for profile IDs, model selection, endpoint,
   and missing-credential errors.
-- [ ] Register only families with verified pinned adapters.
-- [ ] Do not activate or network-probe a Profile during Describe, Construct, or
+- [x] Register only families with verified pinned adapters.
+- [x] Do not activate or network-probe a Profile during Describe, Construct, or
   status inspection.
-- [ ] Run `go test ./internal/modules/defaults ./internal/config ./internal/app -run Provider`.
-- [ ] Commit `feat(provider): register default provider profiles`.
+- [x] Run `go test ./internal/modules/defaults ./internal/config ./internal/app -run Provider`.
+- [x] Commit `feat(provider): register default provider profiles`.
 
 ### Task 5: Project Profile and deferred status
 
@@ -154,12 +154,12 @@ type Profile struct {
 - Produces: UI/RPC truth for compiled, unconfigured, ready, unavailable, and
   deferred capabilities.
 
-- [ ] Write UI tests proving a `DEFERRED-INDEFINITE` family cannot be selected
+- [x] Write UI tests proving a `DEFERRED-INDEFINITE` family cannot be selected
   as executable and no fake endpoint is generated.
-- [ ] Preserve existing configuration forms for supported profiles.
-- [ ] Keep Secret values out of RPC output.
-- [ ] Run focused Go and UI tests.
-- [ ] Commit `feat(provider): project profile capability status`.
+- [x] Preserve existing configuration forms for supported profiles.
+- [x] Keep Secret values out of RPC output.
+- [x] Run focused Go and UI tests.
+- [x] Commit `feat(provider): project profile capability status`.
 
 ### Task 6: Complete Provider conformance
 

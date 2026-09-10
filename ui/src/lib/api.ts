@@ -107,6 +107,7 @@ export interface Settings extends LocaleSettings {
   config_provider: string;
   config_model: string;
   api_key_set?: boolean;
+  provider_profiles?: ProviderProfileStatus[];
   network_search?: NetworkSearchSettingsView;
   execute_max_timeout_seconds?: number;
   config_execute_max_timeout_seconds?: number;
@@ -313,6 +314,15 @@ export interface ProviderEntry {
   api_key_set: boolean;
 }
 
+export type ProviderCapabilityState = 'COMPILED' | 'UNCONFIGURED' | 'READY' | 'UNAVAILABLE' | 'DEFERRED-INDEFINITE';
+export interface ProviderProfileStatus {
+  id: string;
+  adapter_family: string;
+  endpoint_class: 'native' | 'gateway' | 'local';
+  model_ids: string[];
+  state: ProviderCapabilityState;
+}
+
 /** settings/providers/upsert 载荷：api_key 写-only（空串=清除该条目密钥）。 */
 export interface ProviderEntryInput {
   id?: string;
@@ -326,6 +336,8 @@ export interface ProviderEntryInput {
 
 export interface ProvidersView {
   entries: ProviderEntry[];
+  bundles?: ProviderEntry[];
+  profiles?: ProviderProfileStatus[];
   active_provider: string;
   active_model: string;
   active_base_url: string;

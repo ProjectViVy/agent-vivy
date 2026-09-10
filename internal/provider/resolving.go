@@ -94,12 +94,15 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	}
 	ref, err := m.catalog.ForProfile(profile)
 	if err != nil {
+		m.host.MarkUnavailable(live.Provider)
 		return nil, err
 	}
 	cm, err := ref.Model(ctx, ModelSpec{ID: live.Model, APIKey: live.APIKey, BaseURL: live.BaseURL})
 	if err != nil {
+		m.host.MarkUnavailable(live.Provider)
 		return nil, err
 	}
+	m.host.MarkAvailable(live.Provider)
 	m.cached = cm
 	m.cacheKey = key
 	return cm, nil
