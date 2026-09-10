@@ -13,6 +13,7 @@ import (
 
 var (
 	ErrDuplicateToolID = errors.New("duplicate tool id")
+	ErrProtectedToolID = errors.New("protected tool id collision")
 	ErrUnknownToolID   = errors.New("unknown tool id")
 	ErrInvalidTool     = errors.New("invalid tool binding")
 )
@@ -24,7 +25,8 @@ type StaticBinding struct {
 }
 
 type Config struct {
-	Static []StaticBinding
+	Static       []StaticBinding
+	ProtectedIDs []string
 }
 
 type Request struct {
@@ -33,12 +35,22 @@ type Request struct {
 }
 
 type Host struct {
-	static  map[string]StaticBinding
-	visible []porttool.Definition
+	static    map[string]StaticBinding
+	visible   []porttool.Definition
+	protected map[string]struct{}
 }
 
 func New(cfg Config) (*Host, error) {
-	h := &Host{static: make(map[string]StaticBinding, len(cfg.Static))}
+	h := &Host{
+		static:    make(map[string]StaticBinding, len(cfg.Static)),
+		protected: make(map[string]struct{}, len(cfg.ProtectedIDs)),
+	}
+	for _, id := range cfg.ProtectedIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			h.protected[id] = struct{}{}
+		}
+	}
 	for _, binding := range cfg.Static {
 		if binding.Provider == nil || binding.Host == nil {
 			return nil, ErrInvalidTool
@@ -49,6 +61,9 @@ func New(cfg Config) (*Host, error) {
 			return nil, ErrInvalidTool
 		}
 		if _, exists := h.static[definition.ID]; exists {
+			if h.IsProtected(definition.ID) {
+				return nil, fmt.Errorf("%w: %s", ErrProtectedToolID, definition.ID)
+			}
 			return nil, fmt.Errorf("%w: %s", ErrDuplicateToolID, definition.ID)
 		}
 		h.static[definition.ID] = binding
@@ -58,6 +73,11 @@ func New(cfg Config) (*Host, error) {
 		return h.visible[i].ID < h.visible[j].ID
 	})
 	return h, nil
+}
+
+func (h *Host) IsProtected(id string) bool {
+	_, ok := h.protected[strings.TrimSpace(id)]
+	return ok
 }
 
 func (h *Host) ListVisible() []porttool.Definition {
