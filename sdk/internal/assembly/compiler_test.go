@@ -327,7 +327,7 @@ func TestCompileRejectsCoreAuthorityAndDuplicateProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: P1P2PortEvidence()}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence()}
 	_, err = compiler.Compile(context.Background(), Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{"fixture/core"}})
 	if err == nil || !strings.Contains(err.Error(), "core Port core/tool-host@v1 may only be provided") {
 		t.Fatalf("core authority error = %v", err)

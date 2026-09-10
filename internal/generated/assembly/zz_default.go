@@ -10,6 +10,7 @@ import (
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
 	"agent-vivy/sdk/port/face"
+	"agent-vivy/sdk/port/providerprofile"
 	"agent-vivy/sdk/port/tool"
 	"agent-vivy/sdk/port/toolworld"
 	dingtalk "example.com/vivy/plugins/dingtalk"
@@ -28,6 +29,7 @@ type RuntimeAssembly struct {
 	Worlds                     []toolworld.Provider
 	Channels                   []channel.ChannelProvider
 	Face                       face.FaceProvider
+	ProviderProfiles           []providerprofile.Provider
 	DiagnosticObservers        []toolworld.DiagnosticObserver
 	DiagnosticObserverWorldIDs []string
 	LanguageServerStatuses     []toolworld.LanguageServerStatusProvider
@@ -39,9 +41,10 @@ type RuntimeAssembly struct {
 
 func BuildDefault() RuntimeAssembly {
 	return RuntimeAssembly{
-		Tools:    append([]tool.ToolProvider{}, defaults.ProtectedToolProviders()...),
-		Worlds:   []toolworld.Provider{defaults.NewMCPProvider()},
-		Channels: []channel.ChannelProvider{dingtalk.NewProvider(), discord.NewProvider(), feishu.NewProvider(), qq.NewProvider(), telegram.NewProvider()},
+		Tools:            append([]tool.ToolProvider{}, defaults.ProtectedToolProviders()...),
+		Worlds:           []toolworld.Provider{defaults.NewMCPProvider()},
+		ProviderProfiles: append([]providerprofile.Provider{}, defaults.ProviderProfiles()...),
+		Channels:         []channel.ChannelProvider{dingtalk.NewProvider(), discord.NewProvider(), feishu.NewProvider(), qq.NewProvider(), telegram.NewProvider()},
 		ToolWorldGrants: map[string][]module.GrantBinding{
 			"mcp": {},
 		},
@@ -53,12 +56,13 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 		},
 		Manifest: generation.Manifest{
-			Modules:       []string{"vivy/channel-host", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/kernel", "vivy/mcp-host", "vivy/protected-tools", "vivy/qq", "vivy/telegram", "vivy/tool-host"},
-			Channels:      []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
-			Tools:         []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
-			ToolWorlds:    []string{"mcp"},
-			Face:          "kernel-headless",
-			NetworkStates: map[string]generation.CapabilityState{"channels": generation.Unconfigured, "mcp": generation.Unconfigured},
+			Modules:          []string{"vivy/channel-host", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/kernel", "vivy/mcp-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/telegram", "vivy/tool-host"},
+			Channels:         []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
+			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
+			ToolWorlds:       []string{"mcp"},
+			ProviderProfiles: []string{"openai", "anthropic"},
+			Face:             "kernel-headless",
+			NetworkStates:    map[string]generation.CapabilityState{"channels": generation.Unconfigured, "mcp": generation.Unconfigured},
 		},
 	}
 }
@@ -67,7 +71,7 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 	if assembly.owners != nil {
 		return errors.New("runtime assembly already started")
 	}
-	owners := make([]module.Instance, 0, 11)
+	owners := make([]module.Instance, 0, 12)
 	owner0, err := defaults.NewChannelHost().Construct(ctx, hosts.ForModule("vivy/channel-host"))
 	if err != nil {
 		return errors.Join(err, closeOwners(ctx, owners))
@@ -98,31 +102,36 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 		return errors.Join(err, closeOwners(ctx, owners))
 	}
 	owners = append(owners, owner5)
-	owner6, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
+	owner6, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
 	if err != nil {
 		return errors.Join(err, closeOwners(ctx, owners))
 	}
 	owners = append(owners, owner6)
-	owner7, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
+	owner7, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
 	if err != nil {
 		return errors.Join(err, closeOwners(ctx, owners))
 	}
 	owners = append(owners, owner7)
-	owner8, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
+	owner8, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
 	if err != nil {
 		return errors.Join(err, closeOwners(ctx, owners))
 	}
 	owners = append(owners, owner8)
-	owner9, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
+	owner9, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
 	if err != nil {
 		return errors.Join(err, closeOwners(ctx, owners))
 	}
 	owners = append(owners, owner9)
-	owner10, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	owner10, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
 	if err != nil {
 		return errors.Join(err, closeOwners(ctx, owners))
 	}
 	owners = append(owners, owner10)
+	owner11, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	if err != nil {
+		return errors.Join(err, closeOwners(ctx, owners))
+	}
+	owners = append(owners, owner11)
 	for index, owner := range owners {
 		if err := owner.Start(ctx); err != nil {
 			return errors.Join(err, rollbackStart(ctx, owners, index+1))

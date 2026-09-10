@@ -6,12 +6,13 @@ import (
 	"agent-vivy/sdk/module"
 )
 
-func NewKernel() module.Module         { return ownerModule{id: "vivy/kernel"} }
-func NewToolHost() module.Module       { return ownerModule{id: "vivy/tool-host"} }
-func NewProtectedTools() module.Module { return ownerModule{id: "vivy/protected-tools"} }
-func NewMCPHost() module.Module        { return ownerModule{id: "vivy/mcp-host"} }
-func NewChannelHost() module.Module    { return ownerModule{id: "vivy/channel-host"} }
-func NewFaceHost() module.Module       { return ownerModule{id: "vivy/face-host"} }
+func NewKernel() module.Module           { return ownerModule{id: "vivy/kernel"} }
+func NewToolHost() module.Module         { return ownerModule{id: "vivy/tool-host"} }
+func NewProtectedTools() module.Module   { return ownerModule{id: "vivy/protected-tools"} }
+func NewMCPHost() module.Module          { return ownerModule{id: "vivy/mcp-host"} }
+func NewChannelHost() module.Module      { return ownerModule{id: "vivy/channel-host"} }
+func NewFaceHost() module.Module         { return ownerModule{id: "vivy/face-host"} }
+func NewProviderProfiles() module.Module { return ownerModule{id: "vivy/provider-profiles"} }
 
 type ownerModule struct{ id string }
 

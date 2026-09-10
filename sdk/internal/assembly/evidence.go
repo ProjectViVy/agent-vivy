@@ -2,10 +2,10 @@ package assembly
 
 import "agent-vivy/sdk/port"
 
-// P1P2PortEvidence is the build-owned evidence ledger for the four Ports
-// completed by PLG-P2. Unlisted public Ports remain SPECIFIED and cannot be
-// selected by the compiler.
-func P1P2PortEvidence() map[string]port.SupportEvidence {
+// SupportedPortEvidence is the build-owned evidence ledger for Ports that
+// completed their phase gates. Unlisted public Ports remain SPECIFIED and
+// cannot be selected by the compiler.
+func SupportedPortEvidence() map[string]port.SupportEvidence {
 	return map[string]port.SupportEvidence{
 		"std/tool@v1": completedEvidence(map[port.EvidenceKind]string{
 			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-tool-v1",
@@ -42,6 +42,15 @@ func P1P2PortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceFailureModel:      "internal/app/facehost_test.go#TestRunFaceWithoutOrganFails",
 			port.EvidenceConformanceSuite:  "sdk/internal/assembly/p1_p2_conformance_test.go#TestP1P2PortConformanceSuite",
 			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackAndInspectEveryShippedRecipe",
+		}),
+		"std/provider-profile@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-provider-profile-v1",
+			port.EvidenceSDKContract:       "sdk/port/providerprofile/providerprofile.go#Provider",
+			port.EvidenceHostConsumer:      "internal/modelhost/profile.go#Host",
+			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#ProviderProfiles",
+			port.EvidenceFailureModel:      "internal/modelhost/profile_test.go#TestResolveExecutableRejectsDeferredAdapter",
+			port.EvidenceConformanceSuite:  "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies",
+			port.EvidenceInspectProjection: "sdk/generation/manifest.go#Manifest.ProviderProfiles",
 		}),
 	}
 }

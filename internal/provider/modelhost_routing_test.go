@@ -38,6 +38,17 @@ func TestEveryModelCallUsesModelHost(t *testing.T) {
 	}
 }
 
+func TestUncompiledProfileFailsBeforeCredentialState(t *testing.T) {
+	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
+	model := NewResolvingChatModel(routedHost(t), NewCatalog(bundle), staticSpecSource{live: LiveSpec{
+		Provider: bundle.Name, Model: "gpt-4o", Ready: false,
+	}})
+	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+	if !errors.Is(err, modelhost.ErrProfileNotFound) {
+		t.Fatalf("Generate() error = %v, want ErrProfileNotFound before credential evaluation", err)
+	}
+}
+
 func TestModelHostRejectsProfileAdapterMismatch(t *testing.T) {
 	bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
 	profile := ProfileFromBundle(bundle)

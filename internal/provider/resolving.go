@@ -76,10 +76,14 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 		return nil, fmt.Errorf("provider: %w", modelhost.ErrHostRequired)
 	}
 	live := m.src.Live()
+	if live.Provider == "" {
+		return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
+	}
+	profile, err := m.host.ResolveExecutable(live.Provider)
+	if err != nil {
+		return nil, err
+	}
 	if !live.Ready {
-		if live.Provider == "" {
-			return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
-		}
 		return nil, &KeyMissingError{Provider: live.Provider}
 	}
 	key := live.Provider + "\x00" + live.Model + "\x00" + live.BaseURL + "\x00" + live.APIKey
@@ -87,10 +91,6 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	defer m.mu.Unlock()
 	if m.cached != nil && m.cacheKey == key {
 		return m.cached, nil
-	}
-	profile, err := m.host.ResolveExecutable(live.Provider)
-	if err != nil {
-		return nil, err
 	}
 	ref, err := m.catalog.ForProfile(profile)
 	if err != nil {

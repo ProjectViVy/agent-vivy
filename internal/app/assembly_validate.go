@@ -53,6 +53,21 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 		return fmt.Errorf("app: generated Channel identities %v do not match sealed manifest %v", channelIDs, assembly.Manifest.Channels)
 	}
 
+	profileIDs := make([]string, 0, len(assembly.ProviderProfiles))
+	for _, provider := range assembly.ProviderProfiles {
+		if provider == nil {
+			return fmt.Errorf("app: nil generated Provider Profile")
+		}
+		profile := provider.Definition()
+		if err := profile.Validate(); err != nil {
+			return fmt.Errorf("app: generated Provider Profile %q is invalid: %w", profile.ID, err)
+		}
+		profileIDs = append(profileIDs, profile.ID)
+	}
+	if !slices.Equal(profileIDs, assembly.Manifest.ProviderProfiles) {
+		return fmt.Errorf("app: generated Provider Profile identities %v do not match sealed manifest %v", profileIDs, assembly.Manifest.ProviderProfiles)
+	}
+
 	if assembly.Manifest.Face == "kernel-headless" {
 		if assembly.Face != nil {
 			return fmt.Errorf("app: generated Face %q is not sealed as compiled", assembly.Face.Definition().ID)

@@ -47,7 +47,7 @@ const DefaultDir = "data/dev-home"
 // FileName is the settings document name inside DefaultDir.
 const FileName = "settings.yaml"
 
-// Valid provider bundle names V0 can activate.
+// Stable Provider Profile IDs compiled into the default Generation.
 const (
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
