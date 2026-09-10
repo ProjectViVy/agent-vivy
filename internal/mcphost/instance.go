@@ -11,14 +11,14 @@ import (
 type instance struct {
 	config InstanceConfig
 
-	openMu sync.Mutex
-	mu     sync.Mutex
-	session Session
-	state   InstanceState
-	tools   []ToolDefinition
-	failures int
+	openMu      sync.Mutex
+	mu          sync.Mutex
+	session     Session
+	state       InstanceState
+	tools       []ToolDefinition
+	failures    int
 	circuitOpen bool
-	closed bool
+	closed      bool
 }
 
 func newInstance(config InstanceConfig, state InstanceState) *instance {
