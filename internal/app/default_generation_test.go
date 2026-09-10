@@ -102,8 +102,12 @@ func TestDefaultGeneratedToolProvidersBindRuntimeImplementations(t *testing.T) {
 	if !ok {
 		t.Fatal("generated ask_user provider is not registered")
 	}
-	if _, ok := implementation.(generatedTool); !ok {
-		t.Fatalf("ask_user implementation = %T, want generated Tool binding", implementation)
+	governed, ok := implementation.(interface{ GovernedToolID() string })
+	if !ok {
+		t.Fatalf("ask_user implementation = %T, want ToolHost-governed binding", implementation)
+	}
+	if governed.GovernedToolID() != "ask_user" {
+		t.Fatalf("ask_user governed id = %q, want ask_user", governed.GovernedToolID())
 	}
 }
 
