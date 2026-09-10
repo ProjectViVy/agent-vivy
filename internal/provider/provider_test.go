@@ -195,7 +195,7 @@ type staticSpec struct{ live LiveSpec }
 func (s staticSpec) Live() LiveSpec { return s.live }
 
 func TestResolvingChatModelRejectsUnconfigured(t *testing.T) {
-	cm := NewResolvingChatModel(NewCatalog(), staticSpec{live: LiveSpec{}})
+	cm := NewResolvingChatModel(routedHost(t), NewCatalog(), staticSpec{live: LiveSpec{}})
 	_, err := cm.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}})
 	if !errors.Is(err, ErrModelNotConfigured) {
 		t.Fatalf("error = %v, want ErrModelNotConfigured", err)
