@@ -56,8 +56,8 @@ func (iterator *memoryIterator) Next() bool {
 	return iterator.index < len(iterator.entries)
 }
 func (iterator *memoryIterator) Value() storage.Entry { return iterator.entries[iterator.index] }
-func (*memoryIterator) Err() error                   { return nil }
-func (*memoryIterator) Close() error                 { return nil }
+func (*memoryIterator) Err() error                    { return nil }
+func (*memoryIterator) Close() error                  { return nil }
 
 type memorySnapshots struct {
 	mu       sync.Mutex
