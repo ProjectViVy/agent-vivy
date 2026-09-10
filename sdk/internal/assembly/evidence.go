@@ -2,9 +2,10 @@ package assembly
 
 import "agent-vivy/sdk/port"
 
-// P1P2PortEvidence is the build-owned evidence ledger for the four Ports
-// completed by PLG-P2. Unlisted public Ports remain SPECIFIED and cannot be
-// selected by the compiler.
+// P1P2PortEvidence is retained as the compatibility entry point for the
+// build-owned support ledger. PLG-P3 extends the completed set with governed
+// middleware, observer, and status Ports. Unlisted public Ports remain
+// SPECIFIED and cannot be selected by the compiler.
 func P1P2PortEvidence() map[string]port.SupportEvidence {
 	return map[string]port.SupportEvidence{
 		"std/tool@v1": completedEvidence(map[port.EvidenceKind]string{
@@ -42,6 +43,42 @@ func P1P2PortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceFailureModel:      "internal/app/facehost_test.go#TestRunFaceWithoutOrganFails",
 			port.EvidenceConformanceSuite:  "sdk/internal/assembly/p1_p2_conformance_test.go#TestP1P2PortConformanceSuite",
 			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackAndInspectEveryShippedRecipe",
+		}),
+		"std/middleware/pre-tool@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-middleware-pre-tool-v1",
+			port.EvidenceSDKContract:       "sdk/port/pretool/pretool.go#Provider",
+			port.EvidenceHostConsumer:      "internal/toolhost/middleware.go#ApplyMiddleware",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.Evaluate",
+			port.EvidenceFailureModel:      "internal/toolhost/middleware_test.go#TestMiddlewarePanicAndInvalidDecisionFailClosed",
+			port.EvidenceConformanceSuite:  "internal/runtime/pretool_bridge_test.go#TestToolAdapterRechecksPolicyAfterPublicMiddlewareRewrite",
+			port.EvidenceInspectProjection: "internal/toolhost/host.go#ListVisible",
+		}),
+		"std/observer/run@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-observer-run-v1",
+			port.EvidenceSDKContract:       "sdk/port/observer/observer.go#RunProvider",
+			port.EvidenceHostConsumer:      "internal/observerhost/host.go#DeliverRun",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.ObserveRun",
+			port.EvidenceFailureModel:      "internal/observerhost/host_test.go#TestRunObserverCanReceiveDuplicateStableEventID",
+			port.EvidenceConformanceSuite:  "internal/observerhost/host_test.go#TestRunObserverSeesOnlyCommittedEvents",
+			port.EvidenceInspectProjection: "sdk/port/observer/observer.go#EventID",
+		}),
+		"std/observer/diagnostic@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-observer-diagnostic-v1",
+			port.EvidenceSDKContract:       "sdk/port/observer/observer.go#DiagnosticProvider",
+			port.EvidenceHostConsumer:      "internal/observerhost/host.go#EmitDiagnostic",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.ObserveDiagnostic",
+			port.EvidenceFailureModel:      "internal/observerhost/host_test.go#TestDiagnosticOverloadIncrementsDropCounterWithoutBlocking",
+			port.EvidenceConformanceSuite:  "sdk/port/observer/observer_test.go#TestDiagnosticBoundsMessageAndFields",
+			port.EvidenceInspectProjection: "internal/observerhost/host.go#DiagnosticDrops",
+		}),
+		"std/status-source@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-status-source-v1",
+			port.EvidenceSDKContract:       "sdk/port/status/status.go#Provider",
+			port.EvidenceHostConsumer:      "internal/statushost/host.go#Read",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.Status",
+			port.EvidenceFailureModel:      "internal/statushost/host_test.go#TestStatusTimeoutProjectsUnavailable",
+			port.EvidenceConformanceSuite:  "internal/statushost/host_test.go#TestStatusReadDoesNotStartOrProbeProvider",
+			port.EvidenceInspectProjection: "internal/statushost/host.go#Result",
 		}),
 	}
 }
