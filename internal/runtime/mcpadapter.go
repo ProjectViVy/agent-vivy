@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -136,4 +135,3 @@ func cloneStringMap(values map[string]string) map[string]string {
 
 var _ mcphost.SessionFactory = (*MCPHostSessionFactory)(nil)
 var _ mcphost.Session = (*mcpHostSession)(nil)
-var _ = errors.Is
