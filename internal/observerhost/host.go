@@ -24,9 +24,9 @@ const (
 )
 
 var (
-	ErrInvalidConfig      = errors.New("observerhost: invalid configuration")
-	ErrDuplicateProvider  = errors.New("observerhost: duplicate provider")
-	ErrCursorCorrupt      = errors.New("observerhost: corrupt cursor")
+	ErrInvalidConfig     = errors.New("observerhost: invalid configuration")
+	ErrDuplicateProvider = errors.New("observerhost: duplicate provider")
+	ErrCursorCorrupt     = errors.New("observerhost: corrupt cursor")
 )
 
 type Config struct {
@@ -44,7 +44,7 @@ type Host struct {
 	runProviders    []observer.RunProvider
 	deliveryTimeout time.Duration
 
-	wake chan struct{}
+	wake    chan struct{}
 	mu      sync.Mutex
 	pending map[domain.RunID]struct{}
 
