@@ -3,6 +3,7 @@ package skillhost
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,11 +12,11 @@ import (
 )
 
 type fixtureSkillSource struct {
-	id      string
+	id        string
 	summaries []skillsource.Summary
-	skills  map[string]skillsource.Skill
-	block   bool
-	err     error
+	skills    map[string]skillsource.Skill
+	block     bool
+	err       error
 }
 
 func (source *fixtureSkillSource) ID() string { return source.id }
@@ -131,12 +132,14 @@ func TestHostSkillTextDoesNotAuthorizeDeclaredTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := host.Get(context.Background(), Request{}, "danger")
-	if err != nil {
+	if _, err := host.Get(context.Background(), Request{}, "danger"); err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Authority != nil {
-		t.Fatalf("skill text gained authority: %#v", resolved.Authority)
+	typeOfResolved := reflect.TypeOf(ResolvedSkill{})
+	for _, forbidden := range []string{"Authority", "Grant", "Host", "Tool", "Network", "Secret"} {
+		if _, ok := typeOfResolved.FieldByName(forbidden); ok {
+			t.Fatalf("ResolvedSkill exposes authority field %s", forbidden)
+		}
 	}
 }
 
@@ -150,8 +153,9 @@ func TestHostSourceTimeoutIsIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 0 || len(host.Failures()) != 1 || !errors.Is(host.Failures()[0].Cause, context.DeadlineExceeded) {
-		t.Fatalf("timeout items=%#v failures=%#v", items, host.Failures())
+	failures := host.Failures()
+	if len(items) != 0 || len(failures) != 1 || !errors.Is(failures[0].Cause, context.DeadlineExceeded) {
+		t.Fatalf("timeout items=%#v failures=%#v", items, failures)
 	}
 }
 
