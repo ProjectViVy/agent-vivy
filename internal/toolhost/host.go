@@ -13,19 +13,25 @@ import (
 	"sync"
 	"time"
 
+	"agent-vivy/sdk/port/pretool"
 	porttool "agent-vivy/sdk/port/tool"
 	"agent-vivy/sdk/port/toolworld"
 )
 
-const defaultDiscoveryTimeout = 2 * time.Second
+const (
+	defaultDiscoveryTimeout  = 2 * time.Second
+	defaultMiddlewareTimeout = 500 * time.Millisecond
+)
 
 var (
-	ErrDuplicateToolID  = errors.New("duplicate tool id")
-	ErrProtectedToolID  = errors.New("protected tool id collision")
-	ErrDuplicateWorldID = errors.New("duplicate tool world id")
-	ErrUnknownToolID    = errors.New("unknown tool id")
-	ErrInvalidTool      = errors.New("invalid tool binding")
-	ErrInvalidWorld     = errors.New("invalid tool world binding")
+	ErrDuplicateToolID       = errors.New("duplicate tool id")
+	ErrProtectedToolID       = errors.New("protected tool id collision")
+	ErrDuplicateWorldID      = errors.New("duplicate tool world id")
+	ErrDuplicateMiddlewareID = errors.New("duplicate middleware id")
+	ErrUnknownToolID         = errors.New("unknown tool id")
+	ErrInvalidTool           = errors.New("invalid tool binding")
+	ErrInvalidWorld          = errors.New("invalid tool world binding")
+	ErrInvalidMiddleware     = errors.New("invalid middleware binding")
 )
 
 type Trust uint8
@@ -57,10 +63,12 @@ func (binding WorldBinding) host(ctx context.Context) toolworld.Host {
 }
 
 type Config struct {
-	Static           []StaticBinding
-	Worlds           []WorldBinding
-	ProtectedIDs     []string
-	DiscoveryTimeout time.Duration
+	Static            []StaticBinding
+	Worlds            []WorldBinding
+	ProtectedIDs      []string
+	DiscoveryTimeout  time.Duration
+	Middleware        []pretool.Provider
+	MiddlewareTimeout time.Duration
 }
 
 type Request struct {
@@ -84,27 +92,34 @@ type dynamicBinding struct {
 }
 
 type Host struct {
-	static           map[string]StaticBinding
-	staticEntries    map[string]Entry
-	protected        map[string]struct{}
-	worlds           []WorldBinding
-	discoveryTimeout time.Duration
+	static            map[string]StaticBinding
+	staticEntries     map[string]Entry
+	protected         map[string]struct{}
+	worlds            []WorldBinding
+	discoveryTimeout  time.Duration
+	middleware        []pretool.Provider
+	middlewareTimeout time.Duration
 
 	mu      sync.RWMutex
 	dynamic map[string]dynamicBinding
 }
 
 func New(cfg Config) (*Host, error) {
-	timeout := cfg.DiscoveryTimeout
-	if timeout <= 0 {
-		timeout = defaultDiscoveryTimeout
+	discoveryTimeout := cfg.DiscoveryTimeout
+	if discoveryTimeout <= 0 {
+		discoveryTimeout = defaultDiscoveryTimeout
+	}
+	middlewareTimeout := cfg.MiddlewareTimeout
+	if middlewareTimeout <= 0 {
+		middlewareTimeout = defaultMiddlewareTimeout
 	}
 	h := &Host{
-		static:           make(map[string]StaticBinding, len(cfg.Static)),
-		staticEntries:    make(map[string]Entry, len(cfg.Static)),
-		protected:        make(map[string]struct{}, len(cfg.ProtectedIDs)),
-		discoveryTimeout: timeout,
-		dynamic:          make(map[string]dynamicBinding),
+		static:            make(map[string]StaticBinding, len(cfg.Static)),
+		staticEntries:     make(map[string]Entry, len(cfg.Static)),
+		protected:         make(map[string]struct{}, len(cfg.ProtectedIDs)),
+		discoveryTimeout:  discoveryTimeout,
+		middlewareTimeout: middlewareTimeout,
+		dynamic:           make(map[string]dynamicBinding),
 	}
 	for _, id := range cfg.ProtectedIDs {
 		id = strings.TrimSpace(id)
@@ -155,6 +170,22 @@ func New(cfg Config) (*Host, error) {
 	sort.SliceStable(h.worlds, func(i, j int) bool {
 		return strings.TrimSpace(h.worlds[i].Provider.Definition().ID) < strings.TrimSpace(h.worlds[j].Provider.Definition().ID)
 	})
+
+	middlewareIDs := make(map[string]struct{}, len(cfg.Middleware))
+	for _, provider := range cfg.Middleware {
+		if provider == nil {
+			return nil, ErrInvalidMiddleware
+		}
+		id := strings.TrimSpace(provider.ID())
+		if id == "" {
+			return nil, ErrInvalidMiddleware
+		}
+		if _, exists := middlewareIDs[id]; exists {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateMiddlewareID, id)
+		}
+		middlewareIDs[id] = struct{}{}
+		h.middleware = append(h.middleware, provider)
+	}
 	return h, nil
 }
 
