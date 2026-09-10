@@ -14,20 +14,20 @@ import (
 
 type testWorldHost struct{ id string }
 
-func (h testWorldHost) ModuleID() string { return h.id }
-func (h testWorldHost) Workspace() string { return "" }
-func (h testWorldHost) OpenRead(string) (io.ReadCloser, error) { return nil, toolworld.ErrDenied }
+func (h testWorldHost) ModuleID() string                         { return h.id }
+func (h testWorldHost) Workspace() string                        { return "" }
+func (h testWorldHost) OpenRead(string) (io.ReadCloser, error)   { return nil, toolworld.ErrDenied }
 func (h testWorldHost) OpenWrite(string) (io.WriteCloser, error) { return nil, toolworld.ErrDenied }
 func (h testWorldHost) Spawn(context.Context, toolworld.SpawnSpec) (toolworld.Proc, error) {
 	return nil, toolworld.ErrDenied
 }
 
 type testWorldProvider struct {
-	id          string
-	discoveries [][]toolworld.ToolDefinition
-	discoveriesN int
+	id            string
+	discoveries   [][]toolworld.ToolDefinition
+	discoveriesN  int
 	waitForCancel bool
-	invoked     string
+	invoked       string
 }
 
 func (p *testWorldProvider) Definition() toolworld.Definition { return toolworld.Definition{ID: p.id} }
@@ -70,7 +70,7 @@ func TestHostDiscoveryHonorsTimeout(t *testing.T) {
 	world := &testWorldProvider{id: "fixture.slow", waitForCancel: true}
 	host, err := New(Config{
 		DiscoveryTimeout: time.Millisecond,
-		Worlds: []WorldBinding{{OwnerID: "fixture.slow", Provider: world, Host: testWorldHost{id: "fixture.slow"}}},
+		Worlds:           []WorldBinding{{OwnerID: "fixture.slow", Provider: world, Host: testWorldHost{id: "fixture.slow"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
