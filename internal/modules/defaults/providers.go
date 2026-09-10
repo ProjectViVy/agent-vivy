@@ -26,6 +26,23 @@ func (p protectedToolProvider) Invoke(ctx context.Context, host tool.Host, args 
 	return tool.Result{Text: text}, err
 }
 
+// vivyProtectedToolProvider is intentionally package-private. Third-party
+// providers cannot satisfy this marker from another package, so reserved
+// Tool identities remain distinguishable from public providers even when a
+// minimal Assembly omits the built-in owner.
+func (protectedToolProvider) vivyProtectedToolProvider() {}
+
+type protectedToolProviderMarker interface {
+	vivyProtectedToolProvider()
+}
+
+// IsProtectedToolProvider reports whether provider is one of Vivy's trusted
+// built-in protected Tool providers. Identity alone is not proof of trust.
+func IsProtectedToolProvider(provider tool.ToolProvider) bool {
+	_, ok := provider.(protectedToolProviderMarker)
+	return ok
+}
+
 func NewMCPProvider() toolworld.Provider { return mcpProvider{} }
 
 type mcpProvider struct{}
