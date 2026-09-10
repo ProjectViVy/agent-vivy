@@ -16,25 +16,25 @@ import (
 )
 
 const (
-	defaultOperationTimeout       = 8 * time.Second
-	defaultMaxSafeRetries         = 1
+	defaultOperationTimeout        = 8 * time.Second
+	defaultMaxSafeRetries          = 1
 	defaultCircuitFailureThreshold = 3
-	defaultMaxSchemaBytes         = 256 << 10
-	defaultMaxContentBytes        = 512 << 10
+	defaultMaxSchemaBytes          = 256 << 10
+	defaultMaxContentBytes         = 512 << 10
 )
 
 var (
-	ErrInvalidConfig       = errors.New("mcphost: invalid configuration")
-	ErrDuplicateInstance   = errors.New("mcphost: duplicate instance")
-	ErrUnknownInstance     = errors.New("mcphost: unknown instance")
-	ErrInstanceUnconfigured = errors.New("mcphost: instance is unconfigured")
-	ErrInstanceUnavailable = errors.New("mcphost: instance is unavailable")
-	ErrCircuitOpen         = errors.New("mcphost: instance circuit is open")
-	ErrDuplicateRemoteTool = errors.New("mcphost: duplicate remote tool")
+	ErrInvalidConfig          = errors.New("mcphost: invalid configuration")
+	ErrDuplicateInstance      = errors.New("mcphost: duplicate instance")
+	ErrUnknownInstance        = errors.New("mcphost: unknown instance")
+	ErrInstanceUnconfigured   = errors.New("mcphost: instance is unconfigured")
+	ErrInstanceUnavailable    = errors.New("mcphost: instance is unavailable")
+	ErrCircuitOpen            = errors.New("mcphost: instance circuit is open")
+	ErrDuplicateRemoteTool    = errors.New("mcphost: duplicate remote tool")
 	ErrProjectedToolCollision = errors.New("mcphost: projected tool collision")
-	ErrUnknownTool         = errors.New("mcphost: unknown tool")
-	ErrInvalidTool         = errors.New("mcphost: invalid remote tool")
-	ErrContentTooLarge     = errors.New("mcphost: content exceeds bound")
+	ErrUnknownTool            = errors.New("mcphost: unknown tool")
+	ErrInvalidTool            = errors.New("mcphost: invalid remote tool")
+	ErrContentTooLarge        = errors.New("mcphost: content exceeds bound")
 )
 
 var safeSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -195,9 +195,14 @@ func New(config Config) (*Host, error) {
 	}
 
 	host := &Host{
-		factory: config.Factory, operationTimeout: timeout, maxSafeRetries: maxRetries,
-		circuitThreshold: threshold, maxSchemaBytes: maxSchema, maxContentBytes: maxContent,
-		instances: make(map[string]*instance), toolIndex: make(map[string]toolBinding),
+		factory:          config.Factory,
+		operationTimeout: timeout,
+		maxSafeRetries:   maxRetries,
+		circuitThreshold: threshold,
+		maxSchemaBytes:   maxSchema,
+		maxContentBytes:  maxContent,
+		instances:        make(map[string]*instance),
+		toolIndex:        make(map[string]toolBinding),
 	}
 	for _, raw := range config.Instances {
 		instanceConfig := raw.clone()
@@ -236,9 +241,13 @@ func (host *Host) Status() []Status {
 	for _, instance := range instances {
 		instance.mu.Lock()
 		out = append(out, Status{
-			ID: instance.config.ID, State: instance.state, ToolCount: len(instance.tools),
-			ConsecutiveFailures: instance.failures, CircuitOpen: instance.circuitOpen,
-			ResourceBridge: instance.config.ResourceBridge, DeferredReason: instance.config.DeferredReason,
+			ID:                  instance.config.ID,
+			State:               instance.state,
+			ToolCount:           len(instance.tools),
+			ConsecutiveFailures: instance.failures,
+			CircuitOpen:         instance.circuitOpen,
+			ResourceBridge:      instance.config.ResourceBridge,
+			DeferredReason:      instance.config.DeferredReason,
 		})
 		instance.mu.Unlock()
 	}
@@ -384,7 +393,7 @@ func (host *Host) Close() error {
 	host.mu.Unlock()
 	var failures []error
 	for _, instance := range instances {
-		if err := instance.closeSession(); err != nil {
+		if err := instance.closeForever(); err != nil {
 			failures = append(failures, err)
 		}
 	}
@@ -455,9 +464,12 @@ func (host *Host) projectTools(instance *instance, remote []RemoteTool) ([]ToolD
 		}
 		seenProjected[id] = struct{}{}
 		out = append(out, ToolDefinition{
-			ID: id, InstanceID: instance.config.ID, RemoteName: name,
-			Description: strings.TrimSpace(tool.Description), Schema: append(json.RawMessage(nil), tool.Schema...),
-			SchemaHash: schemaHash(tool.Schema),
+			ID:          id,
+			InstanceID:  instance.config.ID,
+			RemoteName:  name,
+			Description: strings.TrimSpace(tool.Description),
+			Schema:      append(json.RawMessage(nil), tool.Schema...),
+			SchemaHash:  schemaHash(tool.Schema),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
