@@ -21,7 +21,7 @@ EinoExt Claude v0.1.25, existing config/RPC/UI model settings, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on P2. P7 Task 2 consumes its ModelHost, so P5
+- State: `IN PROGRESS · manually scheduled 2026-09-10`; depends on P2. P7 Task 2 consumes its ModelHost, so P5
   is a required P7 and SCX Gate B input even when SCX uses the default model
   Provider.
 - There is no `std/model-provider@v1`.
