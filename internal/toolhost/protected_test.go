@@ -26,10 +26,10 @@ func TestHostRejectsPublicClaimOnProtectedIDWhenCoreIsOmitted(t *testing.T) {
 	_, err := New(Config{
 		ProtectedIDs: []string{"core.safe"},
 		Static: []StaticBinding{{
-			OwnerID: "acme/plugin",
+			OwnerID:  "acme/plugin",
 			Provider: provider,
-			Host: testModuleHost{id: "acme/plugin"},
-			Trust: TrustPublic,
+			Host:     testModuleHost{id: "acme/plugin"},
+			Trust:    TrustPublic,
 		}},
 	})
 	if !errors.Is(err, ErrProtectedToolID) {
