@@ -3,7 +3,6 @@ package mcphost
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -45,9 +44,9 @@ func TestMCPToolBridgeEntersSoleToolHost(t *testing.T) {
 	}
 	middleware := &bridgeMiddleware{}
 	governed, err := toolhost.New(toolhost.Config{
-		Worlds: []toolhost.WorldBinding{{OwnerID: "vivy/mcp-host", Provider: NewToolWorld(mcpHost), Host: bridgeWorldHost{}}},
+		Worlds:       []toolhost.WorldBinding{{OwnerID: "vivy/mcp-host", Provider: NewToolWorld(mcpHost), Host: bridgeWorldHost{}}},
 		ProtectedIDs: []string{"bash"},
-		Middleware: []pretool.Provider{middleware},
+		Middleware:   []pretool.Provider{middleware},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +80,7 @@ func TestMCPToolBridgeEntersSoleToolHost(t *testing.T) {
 func TestMCPResourceRequiresExplicitContextBridge(t *testing.T) {
 	withoutSession := &fakeSession{
 		resources: []RemoteResource{{URI: "docs://guide", Name: "guide", MediaType: "text/plain"}},
-		read: ResourceContent{URI: "docs://guide", MediaType: "text/plain", Text: "guide body"},
+		read:      ResourceContent{URI: "docs://guide", MediaType: "text/plain", Text: "guide body"},
 	}
 	withoutFactory := &fakeFactory{sessions: []*fakeSession{withoutSession}}
 	without, err := New(Config{Factory: withoutFactory, Instances: []InstanceConfig{{ID: "docs", Command: "fixture", ResourceBridge: false}}})
@@ -102,7 +101,7 @@ func TestMCPResourceRequiresExplicitContextBridge(t *testing.T) {
 
 	withSession := &fakeSession{
 		resources: []RemoteResource{{URI: "docs://guide", Name: "guide", MediaType: "text/plain"}},
-		read: ResourceContent{URI: "docs://guide", MediaType: "text/plain", Text: "guide body"},
+		read:      ResourceContent{URI: "docs://guide", MediaType: "text/plain", Text: "guide body"},
 	}
 	withFactory := &fakeFactory{sessions: []*fakeSession{withSession}}
 	with, err := New(Config{Factory: withFactory, Instances: []InstanceConfig{{ID: "docs", Command: "fixture", ResourceBridge: true}}})
@@ -125,7 +124,7 @@ func TestMCPResourceRequiresExplicitContextBridge(t *testing.T) {
 func TestMCPBinaryResourceDoesNotBecomeContext(t *testing.T) {
 	session := &fakeSession{
 		resources: []RemoteResource{{URI: "blob://image", Name: "image", MediaType: "image/png"}},
-		read: ResourceContent{URI: "blob://image", MediaType: "image/png", Blob: []byte("base64-data")},
+		read:      ResourceContent{URI: "blob://image", MediaType: "image/png", Blob: []byte("base64-data")},
 	}
 	factory := &fakeFactory{sessions: []*fakeSession{session}}
 	host, err := New(Config{Factory: factory, Instances: []InstanceConfig{{ID: "media", Command: "fixture", ResourceBridge: true}}})
@@ -146,8 +145,5 @@ func TestMCPPromptAutomaticSkillConversionHasNoBridge(t *testing.T) {
 	source := NewResourceSource(&Host{})
 	if _, ok := any(source).(interface{ ListPrompts(context.Context) error }); ok {
 		t.Fatal("MCP resource bridge unexpectedly exposes prompts")
-	}
-	if errors.Is(nil, ErrUnknownTool) {
-		t.Fatal("unreachable")
 	}
 }
