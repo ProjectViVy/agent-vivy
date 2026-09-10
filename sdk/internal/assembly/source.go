@@ -40,6 +40,10 @@ type GoBinding struct {
 	ProviderCollection           bool
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
+	PreToolProvider              bool
+	RunObserverProvider          bool
+	DiagnosticObserverV1Provider bool
+	StatusProvider               bool
 }
 
 // SourceCatalog is the sole authority that binds a Module ID to source bytes
