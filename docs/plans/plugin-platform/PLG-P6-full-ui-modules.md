@@ -31,10 +31,10 @@ RPC, Playwright/Vitest, `just ci`.
   Generation; runtime remote-code loading remains forbidden.
 - All browser input is untrusted by the backend.
 
-### Cross-cutting I18N proposal (not yet scheduled)
+### Accepted cross-cutting I18N contract
 
-Before this phase claims a stable UI SDK, it should adopt the plugin I18N
-proposal from the research and architecture documents:
+This phase MUST implement the accepted plugin I18N contract from the four
+normative architecture documents:
 
 - Use one translation-unit schema for Web and TUI, while letting each plugin
   own an explicitly declared catalog.
@@ -44,11 +44,11 @@ proposal from the research and architecture documents:
 - Expose host localization as a key-and-arguments API to full-code UI Modules;
   descriptor-based UI should send keys and arguments instead of rendered
   English or Chinese strings.
-- Resolve active locale, plugin default locale, then a safe diagnostic/key
-  fallback. Keep catalog hashes in Generation provenance and do not discover
-  or download catalogs at runtime.
-- Add Web/TUI conformance tests and plugin-catalog fixtures to the phase only
-  after the proposal is accepted and the phase is scheduled.
+- Resolve base messages as active locale, English, then a bounded visible
+  diagnostic. Resolve `short`/`long` as active form, active base, English form,
+  English base, then the diagnostic; missing arguments remain visible.
+- Consume P1's sealed catalog projection and add shared Web/TUI conformance.
+  Do not discover, download, or persist plugin locale state at runtime.
 
 ---
 

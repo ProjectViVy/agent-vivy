@@ -76,7 +76,7 @@ func RunHeadless(ctx context.Context, cfg config.Config, opts HeadlessOptions) (
 	if err != nil {
 		return HeadlessResult{}, err
 	}
-	defer func() { _ = a.backend.Close() }()
+	defer func() { _ = a.Close() }()
 
 	sessionID, err := resolveHeadlessSession(ctx, a.backend, opts)
 	if err != nil {

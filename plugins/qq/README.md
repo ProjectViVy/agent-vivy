@@ -182,7 +182,7 @@ ear in its body.
 
 ## Module dependencies
 
-This module may import only `agent-vivy/sdk/plugin` + the standard library +
+This module may import only `agent-vivy/sdk/module`, its focused `sdk/port` + the standard library +
 `github.com/tencent-connect/botgo` (and its go.mod transitive dependencies such
 as oauth2/resty/gorilla, which do not appear directly in business-code imports).
 Imports of `agent-vivy/internal/...`, eino, picoclaw, or `.workspace` are
@@ -197,6 +197,7 @@ silent infinite retries for banned bots); do not use its background token-refres
 goroutine (a bare goroutine panics after consecutive failures with no recovery);
 and do not handle group events (the DTO field name does not match the official
 v2 payload).
-The WS protocol itself (hello/heartbeat/identify/resume/close codes) remains
-implemented by the SDK client; this plugin only supervises the lifecycle and
-normalizes events.
+The plugin implements the narrow WS protocol slice
+(hello/heartbeat/identify/resume/close codes) so both HTTP and websocket dials
+are routed through the Host's granted network boundary. Botgo remains the
+pinned DTO/event contract.

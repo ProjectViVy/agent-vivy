@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"agent-vivy/sdk/plugin"
+	faceport "agent-vivy/sdk/port/face"
 )
 
 // The organ is tested against a fake FaceEnv: the RPC vocabulary is the
@@ -23,6 +23,8 @@ type fakeEnv struct {
 	handler            func(method string, params json.RawMessage)
 	deliverOnSubscribe bool
 }
+
+func (*fakeEnv) ModuleID() string { return "vivy/headless" }
 
 func (e *fakeEnv) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	e.mu.Lock()
@@ -96,14 +98,14 @@ func (e *fakeEnv) deliverVersion(typ string, payload string, payloadVersion int)
 	handler("run/event", raw)
 }
 
-func newFace(t *testing.T, prompt string, continueNewest bool) (plugin.Face, *bytes.Buffer, *bytes.Buffer) {
+func newFace(t *testing.T, prompt string, continueNewest bool) (faceport.Runner, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	out := &bytes.Buffer{}
 	errw := &bytes.Buffer{}
-	return New(plugin.FaceOptions{Prompt: prompt, ContinueNewest: continueNewest, Out: out, Err: errw}), out, errw
+	return newRunner(faceport.Options{Prompt: prompt, ContinueNewest: continueNewest, Out: out, Err: errw}), out, errw
 }
 
-func runFace(t *testing.T, f plugin.Face, env plugin.FaceEnv) plugin.FaceResult {
+func runFace(t *testing.T, f faceport.Runner, env faceport.Host) faceport.Result {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -118,7 +120,7 @@ func TestCompletedRunStreamsAndReturnsStatus(t *testing.T) {
 	f, out, _ := newFace(t, "say hi", false)
 	env := &fakeEnv{}
 
-	done := make(chan plugin.FaceResult, 1)
+	done := make(chan faceport.Result, 1)
 	go func() {
 		done <- runFace(t, f, env)
 	}()
@@ -168,7 +170,7 @@ func TestCompletedRunStreamsAndReturnsStatus(t *testing.T) {
 func TestUnstreamedCompletedPrintsContent(t *testing.T) {
 	f, out, _ := newFace(t, "say hi", false)
 	env := &fakeEnv{}
-	done := make(chan plugin.FaceResult, 1)
+	done := make(chan faceport.Result, 1)
 	go func() { done <- runFace(t, f, env) }()
 	waitHandler(t, env)
 	env.deliverVersion("model.completed", `{"content":"plain"}`, 1)
@@ -182,7 +184,7 @@ func TestUnstreamedCompletedPrintsContent(t *testing.T) {
 func TestApprovalBlockCancelsAndReturnsCancelled(t *testing.T) {
 	f, _, errw := newFace(t, "needs approval", false)
 	env := &fakeEnv{}
-	done := make(chan plugin.FaceResult, 1)
+	done := make(chan faceport.Result, 1)
 	go func() { done <- runFace(t, f, env) }()
 	waitHandler(t, env)
 
@@ -211,7 +213,7 @@ func TestApprovalBlockCancelsAndReturnsCancelled(t *testing.T) {
 func TestQuestionBlockCancelsLoudly(t *testing.T) {
 	f, _, errw := newFace(t, "ask me", false)
 	env := &fakeEnv{}
-	done := make(chan plugin.FaceResult, 1)
+	done := make(chan faceport.Result, 1)
 	go func() { done <- runFace(t, f, env) }()
 	waitHandler(t, env)
 	env.deliver("user.question_required", `{"prompt":"which flavor?"}`)
@@ -227,7 +229,7 @@ func TestQuestionBlockCancelsLoudly(t *testing.T) {
 func TestContinueNewestPicksExistingSession(t *testing.T) {
 	f, _, _ := newFace(t, "again", true)
 	env := &fakeEnv{}
-	done := make(chan plugin.FaceResult, 1)
+	done := make(chan faceport.Result, 1)
 	go func() { done <- runFace(t, f, env) }()
 	waitHandler(t, env)
 	env.deliver("run.completed", `{}`)
@@ -247,7 +249,7 @@ func TestContinueNewestPicksExistingSession(t *testing.T) {
 func TestFailedRunReportsFailed(t *testing.T) {
 	f, _, errw := newFace(t, "break", false)
 	env := &fakeEnv{}
-	done := make(chan plugin.FaceResult, 1)
+	done := make(chan faceport.Result, 1)
 	go func() { done <- runFace(t, f, env) }()
 	waitHandler(t, env)
 	env.deliver("run.failed", `{"cause_category":"provider","message":"boom"}`)

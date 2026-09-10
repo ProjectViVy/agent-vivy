@@ -16,7 +16,7 @@ import (
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/logging"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/face"
 	tuiface "agent-vivy/sdk/tui/face"
 )
 

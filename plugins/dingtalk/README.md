@@ -88,7 +88,7 @@ produced by pack has the ear in its body.
 
 ## Module dependencies
 
-This module may import only `agent-vivy/sdk/plugin` + the standard library +
+This module may import only `agent-vivy/sdk/module`, its focused `sdk/port` + the standard library +
 `github.com/open-dingtalk/dingtalk-stream-sdk-go`. Imports of
 `agent-vivy/internal/...`, eino, picoclaw, or `.workspace` are forbidden;
 `net.Listen` is forbidden; blank `init()` imports are forbidden.

@@ -20,18 +20,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"agent-vivy/sdk/plugin"
+	faceport "agent-vivy/sdk/port/face"
 )
 
 // FaceKind is the presentation family this organ serves.
 const FaceKind = "headless"
 
-func New(opts plugin.FaceOptions) plugin.Face {
+func newRunner(opts faceport.Options) faceport.Runner {
 	return &face{opts: opts}
 }
 
 type face struct {
-	opts           plugin.FaceOptions
+	opts           faceport.Options
 	streamed       atomic.Bool
 	protocolFailed atomic.Bool
 	stateMu        sync.Mutex
@@ -46,10 +46,10 @@ func (f *face) Kind() string { return FaceKind }
 // Run drives one prompt to its terminal event. The subscription replays
 // journal events from seq 0, so events emitted between turn/start and
 // run/subscribe are still delivered exactly once, in seq order.
-func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, error) {
+func (f *face) Run(ctx context.Context, env faceport.Host) (faceport.Result, error) {
 	prompt := strings.TrimSpace(f.opts.Prompt)
 	if prompt == "" {
-		return plugin.FaceResult{}, fmt.Errorf("headless: prompt is empty")
+		return faceport.Result{}, fmt.Errorf("headless: prompt is empty")
 	}
 	f.stateMu.Lock()
 	f.resetCompletionLocked()
@@ -58,11 +58,11 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 	f.protocolFailed.Store(false)
 	f.stateMu.Unlock()
 	if _, err := env.Call(ctx, "initialize", nil); err != nil {
-		return plugin.FaceResult{}, fmt.Errorf("headless: initialize: %w", err)
+		return faceport.Result{}, fmt.Errorf("headless: initialize: %w", err)
 	}
 	sessionID, err := f.resolveSession(ctx, env)
 	if err != nil {
-		return plugin.FaceResult{}, err
+		return faceport.Result{}, err
 	}
 	turn, err := env.Call(ctx, "turn/start", map[string]any{
 		"session_id": sessionID,
@@ -70,13 +70,13 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 		"face":       FaceKind,
 	})
 	if err != nil {
-		return plugin.FaceResult{}, fmt.Errorf("headless: turn/start: %w", err)
+		return faceport.Result{}, fmt.Errorf("headless: turn/start: %w", err)
 	}
 	var start struct {
 		RunID string `json:"run_id"`
 	}
 	if err := json.Unmarshal(turn, &start); err != nil || start.RunID == "" {
-		return plugin.FaceResult{}, fmt.Errorf("headless: turn/start returned %s", turn)
+		return faceport.Result{}, fmt.Errorf("headless: turn/start returned %s", turn)
 	}
 	terminal := make(chan string, 1)
 	// FaceHost drops notifications delivered before OnEvent is registered.
@@ -89,7 +89,7 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 	})
 	sub, err := env.Call(ctx, "run/subscribe", map[string]any{"run_id": start.RunID})
 	if err != nil {
-		return plugin.FaceResult{}, fmt.Errorf("headless: run/subscribe: %w", err)
+		return faceport.Result{}, fmt.Errorf("headless: run/subscribe: %w", err)
 	}
 	var stream struct {
 		SubscriptionID string `json:"subscription_id"`
@@ -98,16 +98,16 @@ func (f *face) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, 
 
 	select {
 	case status := <-terminal:
-		return plugin.FaceResult{Status: status}, nil
+		return faceport.Result{Status: status}, nil
 	case <-ctx.Done():
-		return plugin.FaceResult{}, fmt.Errorf("headless: %w", ctx.Err())
+		return faceport.Result{}, fmt.Errorf("headless: %w", ctx.Err())
 	}
 }
 
 // resolveSession picks the session the prompt lands in — the newest one
 // with --continue, or a fresh one titled by the prompt (the same Journal
 // the web face lists, so the turn shows up there too).
-func (f *face) resolveSession(ctx context.Context, env plugin.FaceEnv) (string, error) {
+func (f *face) resolveSession(ctx context.Context, env faceport.Host) (string, error) {
 	if f.opts.ContinueNewest {
 		raw, err := env.Call(ctx, "session/list", nil)
 		if err != nil {
@@ -158,7 +158,7 @@ type wireEvent struct {
 // onEvent renders the stream and reports the terminal. It runs on the
 // notification goroutine; writers are direct like the kernel headless
 // sink, the terminal channel dedupes, and the §14④ cancel fires once.
-func (f *face) onEvent(params json.RawMessage, runID string, env plugin.FaceEnv, terminal chan<- string) {
+func (f *face) onEvent(params json.RawMessage, runID string, env faceport.Host, terminal chan<- string) {
 	var wire wireEvent
 	if err := json.Unmarshal(params, &wire); err != nil || wire.Event.RunID != runID {
 		return
@@ -336,7 +336,7 @@ func (f *face) failProtocolLocked(err error) {
 
 // cancelLoudly renders the blocking notice and cancels the run once —
 // the durable cancelled terminal then arrives through the subscription.
-func (f *face) cancelLoudly(env plugin.FaceEnv, runID string, terminal chan<- string, notice func() string) {
+func (f *face) cancelLoudly(env faceport.Host, runID string, terminal chan<- string, notice func() string) {
 	f.cancel.Do(func() {
 		_, _ = fmt.Fprint(f.opts.Err, notice())
 		go func() {

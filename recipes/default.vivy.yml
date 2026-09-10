@@ -1,0 +1,40 @@
+apiVersion: vivy.generation/v1
+profile: default
+modules:
+  - vivy/kernel
+  - vivy/tool-host
+  - vivy/protected-tools
+  - vivy/mcp-host
+  - vivy/channel-host
+  - vivy/face-host
+  - vivy/dingtalk
+  - vivy/discord
+  - vivy/feishu
+  - vivy/qq
+  - vivy/telegram
+grantApprovals:
+  - {module: vivy/dingtalk, name: channel.poll}
+  - {module: vivy/dingtalk, name: secret.read}
+  - module: vivy/dingtalk
+    name: net.client
+    constraints: {hosts: [api.dingtalk.com, wss-open-connection.dingtalk.com], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/discord, name: channel.poll}
+  - {module: vivy/discord, name: secret.read}
+  - module: vivy/discord
+    name: net.client
+    constraints: {hosts: [discord.com, gateway.discord.gg], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/feishu, name: channel.poll}
+  - {module: vivy/feishu, name: secret.read}
+  - module: vivy/feishu
+    name: net.client
+    constraints: {hosts: [open.feishu.cn, msg-frontier.feishu.cn, open.larksuite.com, msg-frontier.larksuite.com], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/qq, name: channel.poll}
+  - {module: vivy/qq, name: secret.read}
+  - module: vivy/qq
+    name: net.client
+    constraints: {hosts: [bots.qq.com, api.sgroup.qq.com, sandbox.api.sgroup.qq.com, wss.api.sgroup.qq.com], schemes: [https, wss], ports: ["443"]}
+  - {module: vivy/telegram, name: channel.poll}
+  - {module: vivy/telegram, name: secret.read}
+  - module: vivy/telegram
+    name: net.client
+    constraints: {hosts: [api.telegram.org], schemes: [https], ports: ["443"]}

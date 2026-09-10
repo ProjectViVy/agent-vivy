@@ -10,7 +10,7 @@ import (
 	controlrpc "agent-vivy/internal/rpc"
 
 	"agent-vivy/internal/config"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/face"
 )
 
 // RunFace composes a gateway-less app, dials the in-process control plane,
@@ -39,7 +39,7 @@ func RunFaceWithAppOptions(ctx context.Context, cfg config.Config, ctor plugin.F
 	if err != nil {
 		return plugin.FaceResult{}, err
 	}
-	defer func() { _ = a.backend.Close() }()
+	defer func() { _ = a.Close() }()
 
 	env := &faceEnv{ctx: ctx}
 	peer, err := a.DialControl(ctx, env)
@@ -49,6 +49,42 @@ func RunFaceWithAppOptions(ctx context.Context, cfg config.Config, ctor plugin.F
 	defer peer.Close()
 	env.peer = peer
 	return ctor(opts).Run(ctx, env)
+}
+
+// RunFaceProviderWithAppOptions runs a generated std/face@v1 Provider.
+func RunFaceProviderWithAppOptions(ctx context.Context, cfg config.Config, provider plugin.FaceProvider, opts plugin.Options, appOpts ...AppOption) (plugin.Result, error) {
+	if provider == nil {
+		return plugin.Result{}, errors.New("app: no face provider compiled into this generation")
+	}
+	if opts.Out == nil || opts.Err == nil {
+		return plugin.Result{}, errors.New("app: face requires output and error writers")
+	}
+	appOpts = append(appOpts, WithoutEars(), WithoutGateway())
+	a, err := New(ctx, cfg, appOpts...)
+	if err != nil {
+		return plugin.Result{}, err
+	}
+	defer func() { _ = a.Close() }()
+	env := &faceEnv{ctx: ctx}
+	peer, err := a.DialControl(ctx, env)
+	if err != nil {
+		return plugin.Result{}, err
+	}
+	defer peer.Close()
+	env.peer = peer
+	return RunFaceProvider(ctx, provider, env, opts)
+}
+
+// runFaceProvider is the focused std/face@v1 Host consumer. Keeping the
+// Provider/Instance handoff separate from app construction makes the Port
+// contract directly conformance-testable while production still supplies the
+// authenticated in-process control-plane Host above.
+func RunFaceProvider(ctx context.Context, provider plugin.FaceProvider, host plugin.Host, opts plugin.Options) (plugin.Result, error) {
+	instance, err := provider.Construct(ctx, host)
+	if err != nil {
+		return plugin.Result{}, err
+	}
+	return instance.Run(ctx, opts)
 }
 
 // faceEnv adapts the control-plane peer to plugin.FaceEnv. OnEvent
@@ -64,6 +100,8 @@ type faceEnv struct {
 	mu      sync.Mutex
 	handler func(method string, params json.RawMessage)
 }
+
+func (*faceEnv) ModuleID() string { return "vivy/face-host" }
 
 func (e *faceEnv) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if e.peer == nil {

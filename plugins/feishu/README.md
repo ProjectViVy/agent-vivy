@@ -111,7 +111,7 @@ pack has the ear in its body.
 
 ## Module dependencies
 
-This module may import only `agent-vivy/sdk/plugin` + the standard library +
+This module may import only `agent-vivy/sdk/module`, its focused `sdk/port` + the standard library +
 `github.com/larksuite/oapi-sdk-go/v3`. Imports of
 `agent-vivy/internal/...`, eino, picoclaw, or `.workspace` are forbidden;
 `net.Listen` is forbidden; blank `init()` imports are forbidden.

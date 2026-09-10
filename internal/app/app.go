@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"agent-vivy/internal/app/settings"
@@ -25,11 +26,10 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
-	genplugins "agent-vivy/internal/generated/plugins"
+	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/generated/presentation"
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/logging"
-	"agent-vivy/internal/pluginhost"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
@@ -39,7 +39,7 @@ import (
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
-	"agent-vivy/sdk/plugin"
+	"agent-vivy/sdk/module"
 	"agent-vivy/ui"
 )
 
@@ -64,6 +64,9 @@ type App struct {
 	httpServer *http.Server
 	rpcToken   string
 	mcpBackend *runtime.MCPBackend
+	assembly   *genassembly.RuntimeAssembly
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 // AppOption tweaks one composition of the process. The zero value is the
@@ -144,20 +147,49 @@ type fanoutSink struct {
 	primary, extra runtime.EventSink
 }
 
+type assemblyHost string
+
+func (host assemblyHost) ModuleID() string { return string(host) }
+
+type assemblyHosts struct{}
+
+func (assemblyHosts) ForModule(id string) module.Host { return assemblyHost(id) }
+
 func (f fanoutSink) Publish(ev domain.RunEvent) {
 	f.primary.Publish(ev)
 	f.extra.Publish(ev)
 }
 
-// New builds the app from a validated config. It returns an error only
-// for construction failures; an invalid config must be rejected earlier
-// by config.Load / config.Validate.
+// New builds the app from the default generated Assembly.
 func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error) {
-	logger := slog.Default()
+	return NewWithAssembly(ctx, cfg, genassembly.BuildDefault(), opts...)
+}
 
+// NewWithAssembly is the application composition boundary. It returns an
+// error only for construction failures; an invalid config must be rejected
+// earlier by config.Load / config.Validate.
+func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (*App, error) {
+	logger := slog.Default()
 	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
 		opt(&ao)
+	}
+	// Providers are not discovered, exposed, or constructed until every
+	// generated Module has crossed Start and Ready. The deferred close above
+	// rolls this back on every later composition failure.
+	if err := runtimeAssembly.Start(ctx, assemblyHosts{}); err != nil {
+		return nil, fmt.Errorf("app: start generated assembly: %w", err)
+	}
+	assemblyOwned := true
+	defer func() {
+		if assemblyOwned {
+			shutdownCtx := context.WithoutCancel(ctx)
+			_ = closeToolWorlds(shutdownCtx, runtimeAssembly.Worlds)
+			_ = runtimeAssembly.Close(shutdownCtx)
+		}
+	}()
+	if err := validateRuntimeAssembly(runtimeAssembly); err != nil {
+		return nil, err
 	}
 	developerLocale, err := developerPresentationLocale(ao.instructionRoot, presentation.SealedGeneration)
 	if err != nil {
@@ -174,8 +206,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// settings.yaml / frozen ENV per call. The compiled plugin set is
 	// registered first so the channels overlay can only name channels this
 	// generation actually carries.
-	genPlugins := genplugins.Register()
-	cfg = applySettingsOverlayAt(ctx, logger, cfg, liveSettingsPath, compiledChannelNames(genPlugins))
+	cfg = applySettingsOverlayAt(ctx, logger, cfg, liveSettingsPath, compiledChannelNames(runtimeAssembly.Channels))
 	var originPolicy controlrpc.OriginPolicy
 	if ao.gateway {
 		policy, policyErr := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
@@ -319,34 +350,44 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	if fileBackend != nil {
 		downloadOps = runtime.NewDownloadBackend(fileBackend, sandboxManager)
 	}
-	mcpBackend := runtime.NewMCPBackendWithOptions(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil, runtime.MCPBackendOptions{
-		ProcessRoot: cfg.Runtime.WorkspaceRoot,
-		Logger:      logger,
-	})
+	var mcpBackend *runtime.MCPBackend
+	if assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp") {
+		mcpBackend = runtime.NewMCPBackendWithOptions(mcpRuntimeConfigs(cfg.Runtime.MCPServers), nil, runtime.MCPBackendOptions{
+			ProcessRoot: cfg.Runtime.WorkspaceRoot,
+			Logger:      logger,
+		})
+	}
 	mcpOwned := true
 	defer func() {
-		if mcpOwned {
+		if mcpOwned && mcpBackend != nil {
 			_ = mcpBackend.Close()
 		}
 	}()
-	mcpOps = mcpBackend
+	if mcpBackend != nil {
+		mcpOps = mcpBackend
+	}
 	sequentialOps = runtime.NewSequentialThinkingBackend()
 	commandOps = runtime.NewCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
-	var lookup pluginhost.WorkspaceLookup
+	var worldLookup worldWorkspaceLookup
 	if workspaceManager != nil {
-		lookup = func(ctx context.Context) (string, error) {
-			ws, err := workspaceManager.Ensure(ctx, tools.RunIDFromContext(ctx))
-			if err != nil {
-				return "", err
-			}
-			return ws.Path, nil
+		worldLookup = func(ctx context.Context) (string, error) {
+			workspace, err := workspaceManager.Ensure(ctx, tools.RunIDFromContext(ctx))
+			return workspace.Path, err
 		}
 	}
-	// Post-write diagnostics backfill (VC-3): mutation tool results pick up
-	// lint/type findings from tool-world plugins implementing the observer
-	// capability; without observers the bridge reports nothing.
-	if fileBackend != nil {
-		fileBackend.SetWriteDiagnostics(pluginhost.NewDiagnosticBridge(genPlugins, lookup))
+	if fileBackend != nil && len(runtimeAssembly.DiagnosticObservers) > 0 {
+		fileBackend.SetWriteDiagnostics(generatedWriteDiagnostics{
+			observers: runtimeAssembly.DiagnosticObservers,
+			worldIDs:  runtimeAssembly.DiagnosticObserverWorldIDs,
+			grants:    runtimeAssembly.ToolWorldGrants,
+			lookup:    worldLookup,
+			recorder:  fileRecorder,
+		})
+	}
+	worldTools, err := bindToolWorlds(ctx, runtimeAssembly.Worlds, runtimeAssembly.ToolWorldGrants, worldLookup, fileRecorder)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
 	}
 	// The builtin registry is built once and re-resolved per engine build:
 	// Resolve filters by the active name list (settings tools_enabled
@@ -355,22 +396,36 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// (the manager needs the registered tool set; the ref defers the bind).
 	agentOps := &agentToolRef{}
 	builtinRegistry := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps)
+	builtinRegistry = builtinRegistry.WithAdditional(worldTools...)
+	builtinRegistry, err = bindGeneratedTools(runtimeAssembly.Tools, builtinRegistry)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	// resolveActiveTools builds the live active surface plus its hidden
 	// complement. It backs startup and every engine rebuild, so a
 	// Settings-side active/hidden change lands without a process restart.
-	// Plugin tools stay appended to the active surface (unchanged V0
-	// behavior); only builtins participate in the active/hidden split.
+	// Generated ToolWorld tools stay appended to the active surface; only
+	// builtins participate in the active/hidden split.
 	resolveActiveTools := func() ([]tools.Tool, []tools.Tool, error) {
 		enabled := cfg.Tools.Enabled
 		if s, err := settings.Load(liveSettingsPath); err == nil && s.ToolsEnabled != nil {
 			enabled = append([]string(nil), *s.ToolsEnabled...)
 		}
 		enabled = config.NormalizeLegacyToolSearch(enabled)
+		filtered := enabled[:0]
+		for _, name := range enabled {
+			if _, compiled := builtinRegistry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call") {
+				continue
+			}
+			filtered = append(filtered, name)
+		}
+		enabled = filtered
 		resolved, err := builtinRegistry.Resolve(enabled)
 		if err != nil {
 			return nil, nil, err
 		}
-		return append(resolved, pluginhost.Adapt(genPlugins, lookup, fileRecorder)...), builtinRegistry.Except(enabled), nil
+		return resolved, builtinRegistry.Except(enabled), nil
 	}
 	ts, hidden, err := resolveActiveTools()
 	if err != nil {
@@ -426,12 +481,12 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	// *runtime.Service — so plugins cannot reach the runtime and the
 	// channelhost layer stays free of internal/runtime imports. The
 	// channels envelope may only name compiled-in channel plugins, and
-	// every channel-seam plugin must carry the plugin.Channel ABI (FR-10).
+	// every generated Channel Provider must carry the focused v1 Channel ABI (FR-10).
 	// The headless face composes with no ears (WithoutEars).
 	var svc *runtime.Service
 	var channelHost *channelhost.Host
 	if ao.channels {
-		channelPlugins, err := partitionChannels(genPlugins, cfg.Channels)
+		channelPlugins, err := bindChannels(runtimeAssembly.Channels, runtimeAssembly.ChannelGrants, cfg.Channels)
 		if err != nil {
 			_ = backend.Close()
 			return nil, err
@@ -599,7 +654,7 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 			return info
 		},
 		MCP:             mcpBackend,
-		LanguageServers: buildLanguageServerStatusSource(genPlugins, backend, workspaceManager),
+		LanguageServers: buildLanguageServerStatusSource(runtimeAssembly.LanguageServerStatuses, backend, workspaceManager),
 		WorkspaceFiles: func() controlrpc.WorkspaceFiles {
 			if workspaceManager == nil {
 				return nil
@@ -630,7 +685,9 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 				logger.Warn("mcp overlay reload skipped", "err", err)
 				return
 			}
-			mcpBackend.ReplaceServers(liveMCPConfigs(cfg, s))
+			if mcpBackend != nil {
+				mcpBackend.ReplaceServers(liveMCPConfigs(cfg, s))
+			}
 			// Tools live-apply: an active/hidden change rebuilds the engine
 			// so the next run binds the new surface (immediately when idle,
 			// otherwise at the next idle run start).
@@ -668,7 +725,6 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
 	}
-
 	// Start the channel ears before the server listens (C3). Unconfigured
 	// and disabled channels are skipped; empty allow_from refuses Start
 	// for that channel. A wiring failure here aborts startup. The headless
@@ -691,8 +747,10 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		control:    controlHandler,
 		rpcToken:   rpcToken,
 		mcpBackend: mcpBackend,
+		assembly:   &runtimeAssembly,
 	}
 	mcpOwned = false
+	assemblyOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
 	// §3). A gateway-less generation reaches the identical control plane
@@ -732,6 +790,43 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return app, nil
+}
+
+// Close shuts down a gateway-less composition and is safe to call more than
+// once. Resident gateway processes use Run, whose shutdown additionally owns
+// the HTTP listener ordering.
+func (a *App) Close() error {
+	if a == nil {
+		return nil
+	}
+	a.closeOnce.Do(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if a.channels != nil {
+			a.channels.StopAll(shutdownCtx)
+		}
+		if a.service != nil {
+			a.service.StopInteractionSweeper()
+			a.service.StopCronScheduler()
+			a.service.CancelAll()
+		}
+		if a.worker != nil {
+			a.closeErr = errors.Join(a.closeErr, a.worker.Close(shutdownCtx))
+		}
+		if a.service != nil && !a.service.WaitIdle(shutdownCtx) {
+			a.closeErr = errors.Join(a.closeErr, shutdownCtx.Err())
+		}
+		if a.mcpBackend != nil {
+			a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())
+		}
+		if a.assembly != nil {
+			a.closeErr = errors.Join(a.closeErr, closeToolWorlds(shutdownCtx, a.assembly.Worlds), a.assembly.Close(shutdownCtx))
+		}
+		if a.backend != nil {
+			a.closeErr = errors.Join(a.closeErr, a.backend.Close())
+		}
+	})
+	return a.closeErr
 }
 
 func policyEngine(cfg config.Config) *runtime.PolicyEngine {
@@ -890,19 +985,6 @@ func mergedChannels(logger *slog.Logger, base config.Channels, overlays []settin
 		out[overlay.Name] = envelope
 	}
 	return out
-}
-
-// compiledChannelNames lists the channel-seam plugin names compiled into
-// this generation.
-func compiledChannelNames(plugins []plugin.Plugin) []string {
-	var names []string
-	for _, p := range plugins {
-		if p == nil || p.Seam() != plugin.SeamChannel {
-			continue
-		}
-		names = append(names, p.Name())
-	}
-	return names
 }
 
 // mergedToolsEnabled returns the effective active tool names: the settings
@@ -1164,11 +1246,21 @@ func (a *App) Run(ctx context.Context) error {
 			a.logger.Warn("MCP client shutdown timed out", "err", shutdownCtx.Err())
 		}
 	}
+	var assemblyCloseErr error
+	if a.assembly != nil {
+		assemblyCloseErr = closeToolWorlds(shutdownCtx, a.assembly.Worlds)
+	}
+	if a.assembly != nil {
+		assemblyCloseErr = errors.Join(assemblyCloseErr, a.assembly.Close(shutdownCtx))
+	}
 	if httpCloseErr != nil {
 		return fmt.Errorf("shutdown http server: %w", httpCloseErr)
 	}
 	if mcpCloseErr != nil {
 		return fmt.Errorf("close MCP clients: %w", mcpCloseErr)
+	}
+	if assemblyCloseErr != nil {
+		return fmt.Errorf("close generated assembly: %w", assemblyCloseErr)
 	}
 	if err := a.backend.Close(); err != nil {
 		return fmt.Errorf("close storage: %w", err)

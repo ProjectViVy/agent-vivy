@@ -321,29 +321,18 @@ func (r *JobRegistry) spawn(ctx context.Context, spec JobSpec) (*job, error) {
 	// A grandchild holding the pipes must not block finalization forever
 	// after the process itself is gone.
 	cmd.WaitDelay = 2 * time.Second
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("command: stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("command: stderr pipe: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("command: start: %w", err)
-	}
 	j := &job{
 		display: spec.Display, started: time.Now(), status: JobRunning, exitCode: -1,
 		stdout: newJobStream(maxJobOutputBytes), stderr: newJobStream(maxJobOutputBytes),
 		cmd: cmd, done: make(chan struct{}),
 	}
-	readers := &sync.WaitGroup{}
-	readers.Add(2)
-	go func() { defer readers.Done(); _, _ = io.Copy(j.stdout, stdout) }()
-	go func() { defer readers.Done(); _, _ = io.Copy(j.stderr, stderr) }()
+	cmd.Stdout = j.stdout
+	cmd.Stderr = j.stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("command: start: %w", err)
+	}
 	go func() {
 		waitErr := cmd.Wait()
-		readers.Wait()
 		j.finish(waitErr, ctx.Err())
 		close(j.done)
 	}()

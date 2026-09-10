@@ -30,16 +30,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkdispatcher "github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // ChannelName is the platform name carried by every inbound envelope and
@@ -96,13 +98,12 @@ type wsClient interface {
 	Close()
 }
 
-// Plugin is the feishu channel adapter. It implements both plugin.Plugin
-// (so Register() can carry it) and plugin.Channel (so the kernel
-// ChannelHost can start it); the compile-time assertions below pin that.
+// Plugin is the transport implementation bound by the v1 ChannelProvider.
 type Plugin struct {
 	// mu guards the mutable fields below. Events arrive on SDK goroutines
 	// while Stop may run on any other goroutine.
-	mu sync.Mutex
+	mu   sync.Mutex
+	host plugin.ChannelEnv
 	// creds and domain are the resolved Start inputs; set once by Start.
 	creds wsCreds
 	// domain is the platform base URL (feishu/lark/open_base_url).
@@ -137,13 +138,7 @@ type Plugin struct {
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
 // Plugin.
-var (
-	_ plugin.Plugin  = (*Plugin)(nil)
-	_ plugin.Channel = (*Plugin)(nil)
-)
-
-// New is the pack-generated entry point (Register calls feishu.New()).
-func New() plugin.Plugin {
+func newAdapter() *Plugin {
 	p := &Plugin{}
 	p.newWS = func(onEvent eventFunc, creds wsCreds, domain string) wsClient {
 		// The dispatcher is built per client; its verification token stays
@@ -163,31 +158,32 @@ func New() plugin.Plugin {
 			// client per attempt.
 			larkws.WithAutoReconnect(false),
 		}
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		if host != nil {
+			dialer := *websocket.DefaultDialer
+			dialer.Proxy = nil
+			dialer.NetDialContext = func(context.Context, string, string) (net.Conn, error) { return nil, plugin.ErrDenied }
+			dialer.NetDialTLSContext = host.DialTLS
+			opts = append(opts, larkws.WithHttpClient(host.HTTP()), larkws.WithWebSocketDialer(&dialer))
+		}
 		return larkws.NewClient(creds.AppID, creds.AppSecret, opts...)
 	}
 	p.newAPI = func(creds wsCreds, domain string) *lark.Client {
 		// The SDK manages the tenant_access_token from app id + app secret;
 		// this adapter never touches tokens.
-		return lark.NewClient(creds.AppID, creds.AppSecret, lark.WithOpenBaseUrl(domain))
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		opts := []lark.ClientOptionFunc{lark.WithOpenBaseUrl(domain)}
+		if host != nil {
+			opts = append(opts, lark.WithHttpClient(host.HTTP()))
+		}
+		return lark.NewClient(creds.AppID, creds.AppSecret, opts...)
 	}
 	return p
 }
-
-// Name implements plugin.Plugin.
-func (p *Plugin) Name() string { return ChannelName }
-
-// Seam implements plugin.Plugin: the channel seam, never the tool table.
-func (p *Plugin) Seam() plugin.Seam { return plugin.SeamChannel }
-
-// Grants implements plugin.Plugin. channel.poll covers the outbound
-// websocket long connection; secret.read covers the app id and app secret
-// resolution.
-func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}
-}
-
-// Tools implements plugin.Plugin: channel plugins carry no tools.
-func (p *Plugin) Tools() []plugin.Tool { return nil }
 
 // Start implements plugin.Channel. Fail-closed order: settings must decode
 // and declare both env_key names, both credentials must resolve through
@@ -230,6 +226,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	}
 
 	p.mu.Lock()
+	p.host = env
 	p.creds = wsCreds{AppID: appID, AppSecret: appSecret, EncryptKey: settings.EncryptKey}
 	p.domain = domainFor(settings)
 	p.onEvent = p.messageHandler(env)
@@ -490,7 +487,7 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	p.stopped = true
 	cancel, done, current := p.cancel, p.done, p.current
-	p.cancel, p.done, p.current, p.api = nil, nil, nil, nil
+	p.cancel, p.done, p.current, p.api, p.host = nil, nil, nil, nil, nil
 	p.mu.Unlock()
 	if cancel != nil {
 		cancel()

@@ -24,7 +24,8 @@ ChannelHost/FaceHost/Runtime, `vivy-sdk`, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; schedule with P1 as one clean-break landing unit.
+- State: `COMPLETE · 2026-09-10` with P1 by human-owner decision; implemented
+  and verified in the same clean-break worktree.
 - Preserve user-visible behavior, config keys, Channel envelopes, RPC, Run,
   Journal, approval, and error semantics.
 - Do not physically reorganize working implementation directories in this
@@ -48,16 +49,16 @@ ChannelHost/FaceHost/Runtime, `vivy-sdk`, `just ci`.
 - Produces: a behavior inventory and Inspect golden that later tasks cannot
   change accidentally.
 
-- [ ] Write `TestDefaultGenerationBaselineInventory` with exact first-party
+- [x] Write `TestDefaultGenerationBaselineInventory` with exact first-party
   Channels, protected Tools, ToolWorld providers, default Face posture, and
   inactive network state; observe RED because no v1 Manifest exposes them.
-- [ ] Write a real smoke asserting an unconfigured default start opens no
+- [x] Write a real smoke asserting an unconfigured default start opens no
   Channel or MCP connection.
-- [ ] Capture expected public IDs and state only; never snapshot Secret or raw
+- [x] Capture expected public IDs and state only; never snapshot Secret or raw
   Journal data.
-- [ ] Run `go test ./internal/app -run DefaultGenerationBaselineInventory` and
+- [x] Run `go test ./internal/app -run DefaultGenerationBaselineInventory` and
   record the pre-cut failure.
-- [ ] Commit `test(app): freeze default generation behavior`.
+- [x] Commit `test(app): freeze default generation behavior`.
 
 ### Task 2: Define focused Tool, ToolWorld, Channel, and Face SDK contracts
 
@@ -97,13 +98,13 @@ type FaceProvider interface {
 }
 ```
 
-- [ ] Write compile-time interface tests that fail for missing typed methods and
+- [x] Write compile-time interface tests that fail for missing typed methods and
   prove no interface mentions another Port.
-- [ ] Preserve Channel message envelopes and Face RPC client semantics in their
+- [x] Preserve Channel message envelopes and Face RPC client semantics in their
   focused packages.
-- [ ] Keep Host interfaces capability-scoped; do not copy raw Env access.
-- [ ] Run `go test ./sdk/port/tool/... ./sdk/port/toolworld/... ./sdk/port/channel/... ./sdk/port/face/...`.
-- [ ] Commit `feat(sdk): split first v1 port contracts`.
+- [x] Keep Host interfaces capability-scoped; do not copy raw Env access.
+- [x] Run `go test ./sdk/port/tool/... ./sdk/port/toolworld/... ./sdk/port/channel/... ./sdk/port/face/...`.
+- [x] Commit `feat(sdk): split first v1 port contracts`.
 
 ### Task 3: Describe the default internal body
 
@@ -121,17 +122,17 @@ type FaceProvider interface {
 - Consumes: internal constructors already composed by `internal/app.New`.
 - Produces: T1 Source Catalog entries and explicit product Recipes.
 
-- [ ] Write `TestDefaultCatalogHasOneRequiredInternalProvider` for each required
+- [x] Write `TestDefaultCatalogHasOneRequiredInternalProvider` for each required
   `core/*` Port; expected RED is an empty v1 default catalog.
-- [ ] Describe existing implementations without moving code or changing
+- [x] Describe existing implementations without moving code or changing
   constructors.
-- [ ] Make default Recipe include all established first-party feature Providers
+- [x] Make default Recipe include all established first-party feature Providers
   and public Port Consumers.
-- [ ] Make minimal Recipe omit optional organs and prove required edges remain.
-- [ ] Make Headless select zero Face and each Interactive recipe select exactly
+- [x] Make minimal Recipe omit optional organs and prove required edges remain.
+- [x] Make Headless select zero Face and each Interactive recipe select exactly
   one Face.
-- [ ] Run `go test ./internal/modules/defaults`.
-- [ ] Commit `feat(assembly): describe the default vivy body`.
+- [x] Run `go test ./internal/modules/defaults`.
+- [x] Commit `feat(assembly): describe the default vivy body`.
 
 ### Task 4: Convert existing public source modules directly to v1
 
@@ -150,16 +151,16 @@ type FaceProvider interface {
 - Produces: native v1 Modules for dingtalk, discord, feishu, qq, telegram,
   hello-fs, lsp, headless, and tui source trees.
 
-- [ ] For each Module, write a failing Descriptor/interface conformance test
+- [x] For each Module, write a failing Descriptor/interface conformance test
   before changing imports.
-- [ ] Replace old constructors with typed Port Providers; do not wrap a v0
+- [x] Replace old constructors with typed Port Providers; do not wrap a v0
   `Plugin` or infer a Seam.
-- [ ] Preserve Channel settings, message bounds, transports, and lifecycle.
-- [ ] Map LSP directly to ToolWorld, Diagnostic Observer, and Status Source
+- [x] Preserve Channel settings, message bounds, transports, and lifecycle.
+- [x] Map LSP directly to ToolWorld, Diagnostic Observer, and Status Source
   contracts; do not retain optional interface type assertions.
-- [ ] Run each standalone module's own `go test ./...` from its module root.
-- [ ] Run `vivy-sdk verify` against each converted source.
-- [ ] Commit one coherent batch per Port family, never a mixed behavior change.
+- [x] Run each standalone module's own `go test ./...` from its module root.
+- [x] Run `vivy-sdk verify` against each converted source.
+- [x] Commit one coherent batch per Port family, never a mixed behavior change.
 
 ### Task 5: Replace hand-maintained registration with generated Assembly
 
@@ -190,15 +191,15 @@ type RuntimeAssembly struct {
 }
 ```
 
-- [ ] Write `TestAppUsesGeneratedRuntimeAssembly`; expected RED is direct calls
+- [x] Write `TestAppUsesGeneratedRuntimeAssembly`; expected RED is direct calls
   to legacy `plugins.Register()` and `face.Register()`.
-- [ ] Generate typed imports and constructor calls from the default Recipe.
-- [ ] Make App composition accept only `RuntimeAssembly`; remove legacy slices
+- [x] Generate typed imports and constructor calls from the default Recipe.
+- [x] Make App composition accept only `RuntimeAssembly`; remove legacy slices
   and Seam partitioning.
-- [ ] Verify every inbound Channel still reaches the existing ChannelHost and
+- [x] Verify every inbound Channel still reaches the existing ChannelHost and
   `Service.Run`.
-- [ ] Run `go test ./internal/app ./internal/channelhost`.
-- [ ] Commit `refactor(app): consume the generated v1 assembly`.
+- [x] Run `go test ./internal/app ./internal/channelhost`.
+- [x] Commit `refactor(app): consume the generated v1 assembly`.
 
 ### Task 6: Delete the v0 API and registry
 
@@ -215,12 +216,12 @@ type RuntimeAssembly struct {
 - Consumes: complete v1 source conversion and generated Assembly.
 - Produces: a repository with no old public API or runtime registration path.
 
-- [ ] Add a source audit test that fails while any v0 API symbol, v0
+- [x] Add a source audit test that fails while any v0 API symbol, v0
   `apiVersion`, or legacy register package remains outside historical docs.
-- [ ] Delete the legacy packages and tests rather than forwarding them.
-- [ ] Run `rg -n "vivy\.plugin/v0|type Seam|type Plugin interface|plugin\.Plugin" --glob '!docs/**' .`; expected: no matches.
-- [ ] Run `go test ./...` and every standalone plugin/face module test.
-- [ ] Commit `refactor(plugin): remove the unreleased v0 api`.
+- [x] Delete the legacy packages and tests rather than forwarding them.
+- [x] Run `rg -n "vivy\.plugin/v0|type Seam|type Plugin interface|plugin\.Plugin" --glob '!docs/**' .`; expected: no matches.
+- [x] Run `go test ./...` and every standalone plugin/face module test.
+- [x] Commit `refactor(plugin): remove the unreleased v0 api`.
 
 ### Task 7: Prove default parity and physical removal
 
@@ -235,16 +236,16 @@ type RuntimeAssembly struct {
 - Consumes: default and minimal generated Assemblies.
 - Produces: Gate B evidence that behavior remains while omitted code is absent.
 
-- [ ] Make the baseline inventory test pass against the embedded v1 Manifest.
-- [ ] Build default and minimal artifacts and inspect both.
-- [ ] Assert an omitted external Module has no import, constructor, asset, Port
+- [x] Make the baseline inventory test pass against the embedded v1 Manifest.
+- [x] Build default and minimal artifacts and inspect both.
+- [x] Assert an omitted external Module has no import, constructor, asset, Port
   edge, or Grant in the minimal artifact.
-- [ ] Run `vivy-sdk pack --recipe recipes/default.vivy.yml --output dist/default-v1`
+- [x] Run `vivy-sdk pack --recipe recipes/default.vivy.yml --output dist/default-v1`
   and `vivy-sdk inspect-artifact dist/default-v1`.
-- [ ] Start the default artifact without credentials and verify no network
+- [x] Start the default artifact without credentials and verify no network
   instance activates.
-- [ ] Run `just ci`.
-- [ ] Commit `test(assembly): prove default parity and module removal`.
+- [x] Run `just ci`.
+- [x] Commit `test(assembly): prove default parity and module removal`.
 
 ## Phase exit and rollback
 

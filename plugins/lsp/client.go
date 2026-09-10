@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 // server is one language-server connection: a child process spawned
@@ -44,7 +44,7 @@ type server struct {
 	deadOnce sync.Once
 }
 
-func startServer(ctx context.Context, env plugin.Env, lang language, root string) (*server, error) {
+func startServer(ctx context.Context, env plugin.Host, lang language, root string) (*server, error) {
 	proc, err := env.Spawn(ctx, plugin.SpawnSpec{Command: lang.Command, Args: lang.Args})
 	if err != nil {
 		return nil, fmt.Errorf("lsp: start %s: %w", lang.Command, err)
