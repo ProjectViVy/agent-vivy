@@ -42,6 +42,8 @@ func Catalog(repoRoot string) ([]Record, error) {
 		record("vivy/mcp-host", "NewMCPHost", source, port("core/mcp-host@v1", "vivy.mcp-host"), port("std/tool-world@v1", "mcp")),
 		record("vivy/channel-host", "NewChannelHost", source, port("core/channel-host@v1", "vivy.channel-host")),
 		record("vivy/face-host", "NewFaceHost", source, port("core/face-host@v1", "vivy.face-host")),
+		record("vivy/observer-host", "NewObserverHost", source, port("core/observer-host@v1", "vivy.observer-host")),
+		record("vivy/status-host", "NewStatusHost", source, port("core/status-host@v1", "vivy.status-host")),
 	}
 	for i := range records {
 		switch records[i].Descriptor.Module.ID {
