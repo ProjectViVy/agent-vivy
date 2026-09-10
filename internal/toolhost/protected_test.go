@@ -12,12 +12,28 @@ func TestHostRejectsCollisionWithProtectedToolID(t *testing.T) {
 	_, err := New(Config{
 		ProtectedIDs: []string{"core.safe"},
 		Static: []StaticBinding{
-			{OwnerID: "vivy/core", Provider: provider, Host: testModuleHost{id: "vivy/core"}},
-			{OwnerID: "acme/plugin", Provider: provider, Host: testModuleHost{id: "acme/plugin"}},
+			{OwnerID: "vivy/core", Provider: provider, Host: testModuleHost{id: "vivy/core"}, Trust: TrustCore},
+			{OwnerID: "acme/plugin", Provider: provider, Host: testModuleHost{id: "acme/plugin"}, Trust: TrustPublic},
 		},
 	})
 	if !errors.Is(err, ErrProtectedToolID) {
 		t.Fatalf("New protected collision error = %v, want ErrProtectedToolID", err)
+	}
+}
+
+func TestHostRejectsPublicClaimOnProtectedIDWhenCoreIsOmitted(t *testing.T) {
+	provider := testToolProvider{def: porttool.Definition{ID: "core.safe"}}
+	_, err := New(Config{
+		ProtectedIDs: []string{"core.safe"},
+		Static: []StaticBinding{{
+			OwnerID: "acme/plugin",
+			Provider: provider,
+			Host: testModuleHost{id: "acme/plugin"},
+			Trust: TrustPublic,
+		}},
+	})
+	if !errors.Is(err, ErrProtectedToolID) {
+		t.Fatalf("New public protected claim error = %v, want ErrProtectedToolID", err)
 	}
 }
 
@@ -26,7 +42,7 @@ func TestHostReportsProtectedIdentity(t *testing.T) {
 	host, err := New(Config{
 		ProtectedIDs: []string{"core.safe"},
 		Static: []StaticBinding{
-			{OwnerID: "vivy/core", Provider: provider, Host: testModuleHost{id: "vivy/core"}},
+			{OwnerID: "vivy/core", Provider: provider, Host: testModuleHost{id: "vivy/core"}, Trust: TrustCore},
 		},
 	})
 	if err != nil {
