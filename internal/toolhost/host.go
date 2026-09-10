@@ -38,6 +38,14 @@ type WorldBinding struct {
 	OwnerID  string
 	Provider toolworld.Provider
 	Host     toolworld.Host
+	HostFor  func(context.Context) toolworld.Host
+}
+
+func (binding WorldBinding) host(ctx context.Context) toolworld.Host {
+	if binding.HostFor != nil {
+		return binding.HostFor(ctx)
+	}
+	return binding.Host
 }
 
 type Config struct {
@@ -63,7 +71,7 @@ type Entry struct {
 type dynamicBinding struct {
 	entry    Entry
 	provider toolworld.Provider
-	host     toolworld.Host
+	hostFor  func(context.Context) toolworld.Host
 	remoteID string
 }
 
@@ -120,7 +128,7 @@ func New(cfg Config) (*Host, error) {
 
 	worldIDs := make(map[string]struct{}, len(cfg.Worlds))
 	for _, binding := range cfg.Worlds {
-		if binding.Provider == nil || binding.Host == nil {
+		if binding.Provider == nil || (binding.Host == nil && binding.HostFor == nil) {
 			return nil, ErrInvalidWorld
 		}
 		worldID := strings.TrimSpace(binding.Provider.Definition().ID)
@@ -213,7 +221,12 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 	for _, world := range h.worlds {
 		worldID := strings.TrimSpace(world.Provider.Definition().ID)
 		discoveryCtx, cancel := context.WithTimeout(ctx, h.discoveryTimeout)
-		definitions, err := world.Provider.Discover(discoveryCtx, world.Host)
+		worldHost := world.host(discoveryCtx)
+		if worldHost == nil {
+			cancel()
+			return nil, fmt.Errorf("%w: %s has no host", ErrInvalidWorld, worldID)
+		}
+		definitions, err := world.Provider.Discover(discoveryCtx, worldHost)
 		cancel()
 		if err != nil {
 			return nil, fmt.Errorf("discover tool world %s: %w", worldID, err)
@@ -245,7 +258,7 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 					Dynamic:    true,
 				},
 				provider: world.Provider,
-				host:     world.Host,
+				hostFor:  world.host,
 				remoteID: id,
 			}
 		}
@@ -267,6 +280,10 @@ func (h *Host) Invoke(ctx context.Context, req Request) (porttool.Result, error)
 	if !ok {
 		return porttool.Result{}, fmt.Errorf("%w: %s", ErrUnknownToolID, req.ID)
 	}
-	result, err := binding.provider.Invoke(ctx, binding.host, binding.remoteID, req.Args)
+	worldHost := binding.hostFor(ctx)
+	if worldHost == nil {
+		return porttool.Result{}, fmt.Errorf("%w: %s has no host", ErrInvalidWorld, binding.entry.WorldID)
+	}
+	result, err := binding.provider.Invoke(ctx, worldHost, binding.remoteID, req.Args)
 	return porttool.Result{Text: result.Text}, err
 }
