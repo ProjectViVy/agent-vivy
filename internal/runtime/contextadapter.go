@@ -6,6 +6,7 @@ import (
 
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/sdk/port/contextsource"
 
 	"github.com/cloudwego/eino/schema"
 )
@@ -36,7 +37,7 @@ func hostedFileContextParts(files []domain.FileContext) []schema.MessageInputPar
 		return nil
 	}
 	source := contexthost.NewFileSnapshotSource("vivy.project-files", files)
-	host, err := contexthost.New(contexthost.Config{Sources: []contextsourceProvider{source}})
+	host, err := contexthost.New(contexthost.Config{Sources: []contextsource.Provider{source}})
 	if err != nil {
 		return nil
 	}
@@ -52,11 +53,4 @@ func hostedFileContextParts(files []domain.FileContext) []schema.MessageInputPar
 		})
 	}
 	return parts
-}
-
-// contextsourceProvider keeps the runtime adapter's dependency surface small
-// while remaining assignment-compatible with contextsource.Provider.
-type contextsourceProvider interface {
-	ID() string
-	Query(context.Context, contextsource.Request) (contextsource.Page, error)
 }
