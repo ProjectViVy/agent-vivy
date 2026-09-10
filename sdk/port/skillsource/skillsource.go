@@ -14,21 +14,21 @@ type Request struct {
 }
 
 type Summary struct {
-	ID            string
-	Name          string
-	Description   string
-	Version       string
-	SourceHash    string
-	Available     bool
+	ID             string
+	Name           string
+	Description    string
+	Version        string
+	SourceHash     string
+	Available      bool
 	DisabledReason string
-	Dependencies  []string
-	Always        bool
-	UserInvocable bool
-	DeclaredTools []string
-	Context       string
-	Agent         string
-	Model         string
-	Metadata      map[string]string
+	Dependencies   []string
+	Always         bool
+	UserInvocable  bool
+	DeclaredTools  []string
+	Context        string
+	Agent          string
+	Model          string
+	Metadata       map[string]string
 }
 
 type Skill struct {
