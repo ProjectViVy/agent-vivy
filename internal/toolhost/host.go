@@ -28,10 +28,18 @@ var (
 	ErrInvalidWorld     = errors.New("invalid tool world binding")
 )
 
+type Trust uint8
+
+const (
+	TrustPublic Trust = iota
+	TrustCore
+)
+
 type StaticBinding struct {
 	OwnerID  string
 	Provider porttool.ToolProvider
 	Host     porttool.Host
+	Trust    Trust
 }
 
 type WorldBinding struct {
@@ -111,6 +119,9 @@ func New(cfg Config) (*Host, error) {
 		definition := normalizedToolDefinition(binding.Provider.Definition())
 		if definition.ID == "" {
 			return nil, ErrInvalidTool
+		}
+		if h.IsProtected(definition.ID) && binding.Trust != TrustCore {
+			return nil, fmt.Errorf("%w: %s", ErrProtectedToolID, definition.ID)
 		}
 		if _, exists := h.static[definition.ID]; exists {
 			if h.IsProtected(definition.ID) {
@@ -236,10 +247,10 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 			if id == "" {
 				return nil, fmt.Errorf("%w: %s returned an empty tool id", ErrInvalidWorld, worldID)
 			}
+			if h.IsProtected(id) {
+				return nil, fmt.Errorf("%w: %s", ErrProtectedToolID, id)
+			}
 			if _, exists := seen[id]; exists {
-				if h.IsProtected(id) {
-					return nil, fmt.Errorf("%w: %s", ErrProtectedToolID, id)
-				}
 				return nil, fmt.Errorf("%w: %s", ErrDuplicateToolID, id)
 			}
 			seen[id] = struct{}{}
