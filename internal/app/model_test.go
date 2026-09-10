@@ -154,3 +154,23 @@ func TestResolverCannotReadyUncompiledProfile(t *testing.T) {
 		t.Fatalf("uncompiled Profile became ready: %+v", resolved)
 	}
 }
+
+func TestResolverProjectsReadyProfileIdentityWithoutConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	path := settings.Path(dir)
+	if _, err := settings.Save(path, settings.Settings{
+		Provider: settings.ProviderOpenAI, DefaultModel: "gpt-4o", ApiKey: "secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	host := testModelHost(t)
+	resolver := newModelResolver(config.Default(), path, testCatalog(t), host)
+	current := resolver.Current()
+	statuses := host.Statuses(current.Provider, current.Ready)
+	if len(statuses) != 2 || statuses[1].ID != "openai" || statuses[1].State != modelhost.ProfileReady {
+		t.Fatalf("resolver Profile statuses = %#v", statuses)
+	}
+	if statuses[1].AdapterFamily != provider.AdapterFamilyOpenAICompatible || statuses[1].EndpointClass == "" {
+		t.Fatalf("resolver Profile provenance = %#v", statuses[1])
+	}
+}
