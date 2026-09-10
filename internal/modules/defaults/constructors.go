@@ -12,6 +12,8 @@ func NewProtectedTools() module.Module { return ownerModule{id: "vivy/protected-
 func NewMCPHost() module.Module        { return ownerModule{id: "vivy/mcp-host"} }
 func NewChannelHost() module.Module    { return ownerModule{id: "vivy/channel-host"} }
 func NewFaceHost() module.Module       { return ownerModule{id: "vivy/face-host"} }
+func NewObserverHost() module.Module   { return ownerModule{id: "vivy/observer-host"} }
+func NewStatusHost() module.Module     { return ownerModule{id: "vivy/status-host"} }
 
 type ownerModule struct{ id string }
 
