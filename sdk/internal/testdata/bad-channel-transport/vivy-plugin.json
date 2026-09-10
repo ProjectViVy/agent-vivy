@@ -1,9 +1,0 @@
-{
-  "apiVersion": "vivy.plugin/v0",
-  "name": "bad-channel-transport",
-  "version": "0.1.0",
-  "seam": "channel",
-  "module": ".",
-  "grants": ["channel.poll", "secret.read"],
-  "channel": { "transport": "webhook" }
-}

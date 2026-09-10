@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 func TestJSONRPCRoundTrip(t *testing.T) {
@@ -160,6 +160,7 @@ type fakeEnv struct {
 }
 
 func (f *fakeEnv) Workspace() string { return f.root }
+func (f *fakeEnv) ModuleID() string  { return "vivy/lsp" }
 
 func (f *fakeEnv) OpenRead(p string) (io.ReadCloser, error) {
 	body, ok := f.files[p]

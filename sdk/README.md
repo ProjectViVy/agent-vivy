@@ -9,13 +9,13 @@ source snapshots or a Go toolchain and will be large.
 go build -o vivy-sdk.exe ./sdk
 
 vivy-sdk verify plugins/hello-fs
-vivy-sdk pack --with hello-fs --out dist/hello-fs
-vivy-sdk inspect-artifact dist/hello-fs
+vivy-sdk pack --recipe recipes/default.vivy.yml --output dist/default-v1
+vivy-sdk inspect-artifact dist/default-v1
 ```
 
 | Path | Who may import it |
 |---|---|
-| `sdk/plugin` | User plugins only (`agent-vivy/sdk/plugin`) |
+| `sdk/module`, `sdk/port/*` | Module lifecycle and focused public Port contracts |
 | `sdk/tui` | Shared presentation and durable-stream state for terminal face modules; no kernel authority |
 | `sdk/internal` | This binary only |
 | `sdk/main.go` | The `vivy-sdk` entry |

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,7 +26,7 @@ import (
 	"github.com/tencent-connect/botgo/openapi/options"
 	"golang.org/x/oauth2"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // Synthetic test credentials. No real QQ open-platform app is involved
@@ -82,10 +83,13 @@ func botgoSandbox(appID string, ts oauth2.TokenSource) qqAPI {
 type fakeEnv struct {
 	settings json.RawMessage
 	logger   *slog.Logger
+	client   *http.Client
 
 	mu        sync.Mutex
 	published []plugin.InboundMessage
 }
+
+func (e *fakeEnv) ModuleID() string { return "vivy/qq" }
 
 func (e *fakeEnv) Secret(envKey string) (string, error) {
 	v, ok := os.LookupEnv(envKey)
@@ -95,7 +99,16 @@ func (e *fakeEnv) Secret(envKey string) (string, error) {
 	return v, nil
 }
 
-func (e *fakeEnv) HTTP() *http.Client { return &http.Client{} }
+func (e *fakeEnv) HTTP() *http.Client {
+	if e.client != nil {
+		return e.client
+	}
+	return &http.Client{}
+}
+func (e *fakeEnv) DialTLS(ctx context.Context, network, address string) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, address)
+}
 
 func (e *fakeEnv) Settings() json.RawMessage {
 	if len(e.settings) == 0 {
@@ -121,6 +134,38 @@ func (e *fakeEnv) snapshot() []plugin.InboundMessage {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]plugin.InboundMessage(nil), e.published...)
+}
+
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn testRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func TestGovernedTokenSourceRedactsEchoedSecret(t *testing.T) {
+	const secret = "qq-secret-must-not-leak"
+	env := &fakeEnv{client: &http.Client{Transport: testRoundTripper(func(*http.Request) (*http.Response, error) {
+		body := `{"code":401,"message":"invalid ` + secret + `"}`
+		return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}}
+	source := newGovernedQQTokenSource(context.Background(), env, "app-id", secret)
+	_, err := source.Token()
+	if err == nil || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("Token() error = %v, want redacted endpoint failure", err)
+	}
+}
+
+func TestGovernedTokenSourceHonorsLifetimeCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	env := &fakeEnv{client: &http.Client{Transport: testRoundTripper(func(request *http.Request) (*http.Response, error) {
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})}}
+	_, err := newGovernedQQTokenSource(ctx, env, "app-id", "secret").Token()
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Token() error = %v, want context.Canceled", err)
+	}
 }
 
 // fakeTokenSource stands in for the SDK's QQBot token source: it counts
@@ -413,8 +458,8 @@ func newHarness(t *testing.T, settings string) *harness {
 		api: &fakeAPI{wsURL: stubGateway},
 		ts:  &fakeTokenSource{},
 	}
-	h.p = New().(*Plugin)
-	h.p.newTokenSource = func(appID, appSecret string) oauth2.TokenSource { return h.ts }
+	h.p = newAdapter()
+	h.p.newTokenSource = func(context.Context, string, string) oauth2.TokenSource { return h.ts }
 	h.p.newAPI = func(appID string, ts oauth2.TokenSource, sandbox bool) qqAPI {
 		h.sand = sandbox
 		return h.api
@@ -808,7 +853,7 @@ func TestRememberSeen(t *testing.T) {
 	// platform clock granularity (ties would make "oldest" ambiguous).
 	dedupTTL, dedupMaxEntries = 20*time.Millisecond, 1
 
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.seen = make(map[string]time.Time)
 
 	if !p.rememberSeen("a") {

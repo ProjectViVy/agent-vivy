@@ -1,0 +1,7 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/hello-fs, version: 0.1.0}
+source: {ref: repo:plugins/hello-fs, sha256: 40439b91831bda45ff7fe7fab1ccfbb5a89c8a613d37bedb6878e35e8fdab41e}
+provides: [{port: std/tool-world@v1, id: vivy.hello-fs}]
+requires: [{port: core/tool-host@v1, provider: vivy/tool-host}]
+requestedGrants: [fs.read]
+lifecycle: {scope: generation}

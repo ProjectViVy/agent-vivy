@@ -20,7 +20,7 @@ import (
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/tools"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/face"
 )
 
 // The gateway-less assembly (VIVY-FACE-PACK §7, F1) drives the same control

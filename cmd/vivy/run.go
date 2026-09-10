@@ -13,9 +13,9 @@ import (
 
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/generated/face"
+	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/logging"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/face"
 )
 
 // runUsage is the `vivy run` help text.
@@ -96,7 +96,7 @@ func runRun(args []string) int {
 	// A generation packed --face serves run through its organ (face-pack
 	// §6); the committed body has none and keeps the built-in kernel
 	// headless loop. Exit codes mirror the terminal either way.
-	if ctor := face.Register(); ctor != nil {
+	if provider := genassembly.BuildDefault().Face; provider != nil {
 		faceOpts := plugin.FaceOptions{
 			Prompt:          prompt,
 			ContinueNewest:  continueNewest,
@@ -111,10 +111,10 @@ func runRun(args []string) int {
 			return 1
 		}
 		appOpts = append(appOpts, app.WithInstructionRoot(instructionRoot))
-		if ctor(faceOpts).Kind() == "tui" {
+		if provider.Definition().Kind == "tui" {
 			appOpts = append(appOpts, app.WithCodeProjectRoot(instructionRoot))
 		}
-		result, err := app.RunFaceWithAppOptions(ctx, cfg, ctor, faceOpts, appOpts...)
+		result, err := app.RunFaceProviderWithAppOptions(ctx, cfg, provider, faceOpts, appOpts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "vivy run: %v\n", err)
 			return 1

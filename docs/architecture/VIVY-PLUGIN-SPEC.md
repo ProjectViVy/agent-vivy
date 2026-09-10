@@ -74,6 +74,10 @@ requires:
   - port: core/action-host@v1
 requestedGrants:
   - net.client
+i18n:
+  catalog: i18n/catalog.json
+  default_locale: en
+  locales: [en, zh]
 lifecycle:
   scope: generation
 ```
@@ -209,45 +213,72 @@ Backend authorization is unaffected. The server rechecks identity, schema,
 Policy, Grant, approval, and instance state. UI code cannot grant itself
 backend authority by hiding, replacing, or forging a view.
 
-### 7.1 Proposed plugin I18N extension (non-normative)
+### 7.1 Plugin localization contract
 
-The following is a proposed follow-up contract for plugin localization. It is
-not part of the current v1 verification requirements until it is accepted and
-scheduled in the platform plan.
-
-A Module that contributes localized UI may declare an owned catalog in its
-descriptor:
+A backend-only Module with no human-readable key MAY omit localization. A
+Module that provides UI or refers to a `label_key` MUST declare one catalog:
 
 ```yaml
 i18n:
   catalog: i18n/catalog.json
   default_locale: en
-  locales: [en, zh]
+  locales: [en, zh, ja]
 ```
 
-The proposed rules are:
+`catalog` is source-relative and confined; URLs, absolute paths, traversal,
+symlink escape, runtime discovery, and download are forbidden.
+`default_locale` MUST be `en`. The normalized, duplicate-free `locales` set
+MUST include `en` and MAY package future locales, although only `en` and `zh`
+are currently selectable.
 
-- Core VIVY messages use `vivy.*` keys. Plugin messages use
-  `plugin.<module-id>.*` keys, and a plugin may not override another owner's
-  keys.
-- A catalog entry defines a stable key, locale messages, placeholders, and
-  description/context. Optional `short` and `long` forms are presentation
-  variants of the same translation unit.
-- The host exposes one key-and-arguments localization surface to Web and TUI.
-  Full-code UI Modules may use that surface directly; descriptor-based plugin
-  UI carries a key and arguments instead of a pre-rendered string.
-- Catalogs are explicit Recipe/package inputs. They are schema-checked for
-  valid locale data, namespace ownership, duplicate keys, and placeholder
-  parity. Their hashes are included in Generation provenance.
-- Locale resolution tries the active locale, the plugin default locale, and a
-  safe key/diagnostic fallback in that order. The host owns the fallback
-  policy; plugin code does not silently replace core messages.
-- Localization is not a new permission boundary. The existing v1 rule that
-  full-code UI Modules are trusted remains unchanged.
+The catalog is strict JSON:
 
-This proposal intentionally separates shared translation units from catalog
-ownership: Web and TUI consume the same semantic units, while each plugin can
-ship and evolve its own vocabulary without modifying a central VIVY file.
+```json
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.example/search-tools.results.count": {
+      "description": "Number of search results",
+      "placeholders": ["count"],
+      "messages": {
+        "en": "{{count}} results",
+        "zh": "{{count}} 个结果",
+        "ja": "{{count}} 件の結果"
+      },
+      "short": {
+        "en": "{{count}} results",
+        "zh": "{{count}} 项"
+      }
+    }
+  }
+}
+```
+
+Every unit requires a stable fully qualified key, non-empty `description`, an
+explicit sorted `placeholders` set, and non-empty English `messages`. `short`
+and `long` are optional forms. Messages are plain UTF-8 and use named
+`{{name}}` placeholders; every present locale and form MUST have exact parity
+with the declaration. Unknown semantic fields, duplicate JSON keys,
+positional interpolation, HTML interpretation, and executable expressions are
+errors.
+
+Core owns `vivy.*`; Module `<module-id>` owns literal
+`plugin.<module-id>.*`. No slash transformation is performed. Cross-owner,
+core, or ambiguous normalized keys fail compilation. Descriptor UI uses
+`label_key` plus `label_args`; full-code UI calls the same Host surface.
+
+Base-message resolution is active locale, English, then a bounded visible
+diagnostic containing the key. `short` or `long` resolution is requested form
+in the active locale, active-locale base, English form, English base, then the
+same diagnostic. Missing arguments remain visibly unexpanded and produce a
+bounded diagnostic. Plugins neither own fallback nor persist locale state.
+
+The compiler enforces 1 MiB raw bytes, 4,096 units, 8 KiB UTF-8 bytes per
+message/form, and 32 placeholders per unit. English absence or incompleteness
+fails. Complete English and Chinese produces `COMPLETE`; English-complete but
+missing or partial Chinese produces `INCOMPLETE_LOCALE`; partial packaged
+future locales produce locale-level `INCOMPLETE`. A backend-only omission is
+`NOT_APPLICABLE`. Documentation or Descriptor claims cannot promote evidence.
 
 ## 8. Runtime and lifecycle
 
@@ -285,7 +316,8 @@ These commands are target contracts until their implementation phase reaches
 already implements v1.
 
 `verify` checks Descriptor schema, typed Port declarations, import firewall,
-source identity, Grant requests, UI build metadata, and focused conformance.
+source identity, Grant requests, catalog schema, confinement, namespace,
+placeholder parity and limits, UI build metadata, and focused conformance.
 
 `pack` compiles the complete Recipe graph, creates typed generated wiring,
 builds backend and UI contributions, runs Generation conformance, embeds the
@@ -293,7 +325,9 @@ immutable Manifest, and emits no artifact on failure.
 
 `inspect-artifact` displays Module/Port graph, Trust assignment, effective
 Grants, source and artifact hashes, lifecycle order, Middleware/UI composition,
-default and deferred capability status, and compiler version.
+default and deferred capability status, compiler version, and catalog schema,
+path, canonical digest, default and packaged locales, completeness, and
+evidence identifiers.
 
 ## 10. Failure rules
 
@@ -310,6 +344,8 @@ The following fail before a formal Generation is emitted:
 - unpinned external source;
 - UI root conflict or ambiguous extension order;
 - invalid schema or lifecycle scope;
+- missing required catalog, invalid catalog path/schema/namespace,
+  placeholder drift, missing English, duplicate JSON key, or resource limit;
 - missing Conformance evidence for a claimed `SUPPORTED` Port;
 - Eino-scoped capability with neither a verified upstream adapter nor an
   explicit `DEFERRED-INDEFINITE` result.
@@ -339,5 +375,6 @@ Module passes its focused Conformance Suite, the complete Recipe passes
 Generation conformance, Inspect proves provenance and authority, failure-path
 tests pass, `just ci` is green, and the iteration log records human acceptance.
 
-Until the v1 foundation exists, the correct result of a plugin implementation
-request is to follow the approved phase plan, not to fall back to v0.
+Localization completion also requires deterministic catalog hashing and
+Manifest evidence. No runtime or v0 fallback may substitute for a failed
+catalog contract.

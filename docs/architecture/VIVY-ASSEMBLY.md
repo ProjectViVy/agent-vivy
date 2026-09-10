@@ -50,7 +50,9 @@ assigns T1 or T2 Trust. A Module Descriptor cannot assign its own Trust.
 
 The Descriptor provides pure-data identity, version, source hash, provided and
 required Ports, optional dependencies, conflicts, requested Grants, and
-lifecycle scope.
+lifecycle scope. When localization is required, it also selects one
+source-confined `vivy.i18n/v1` catalog with explicit default and packaged
+locales.
 
 ### Port Catalog
 
@@ -124,12 +126,16 @@ but it MUST preserve these facts and deterministic semantics.
 - normalize paths, identifiers, ordering, and structured Grant constraints;
 - reject duplicate keys, unsupported fields that change semantics, and all v0
   inputs;
+- strictly parse selected catalogs, reject duplicate JSON keys, normalize
+  locale tags, enforce resource limits, and serialize canonical catalog JSON;
 - produce the same canonical bytes for semantically identical input.
 
 ### G1 — Resolve identity and Trust
 
 - resolve every source through the Source Catalog;
 - verify exact source and tree hashes;
+- confine catalog paths to the resolved Module source and enforce literal
+  `plugin.<module-id>.*` ownership;
 - assign T1 or T2 independently of the Descriptor;
 - reject missing, ambiguous, floating, or self-promoted sources.
 
@@ -158,6 +164,8 @@ but it MUST preserve these facts and deterministic semantics.
 - write typed Assembly wiring to generated files;
 - compile selected backend Modules only;
 - build selected UI roots and extensions only;
+- prove English completeness, per-locale and per-form placeholder parity, and
+  deterministic Web/TUI projection of the same selected catalog units;
 - run focused Port and complete Generation conformance;
 - verify startup rollback and cleanup order;
 - emit no formal artifact when any proof fails.
@@ -167,6 +175,7 @@ Generated files carry a generated-code marker and MUST NOT be hand edited.
 ### G5 — Seal
 
 - calculate all component and artifact hashes;
+- calculate `SHA-256(canonical_catalog_json)` for every selected catalog;
 - calculate the content-addressed Generation ID;
 - embed the immutable Manifest and Inspect schema;
 - emit the executable/UI artifact and a machine-readable build report;
@@ -184,6 +193,7 @@ specification version
 + SDK version
 + backend and frontend dependency lock results
 + UI artifact hashes
++ catalog schema, canonical digest, and packaged locale set
 + Assembly Compiler version
 ```
 
@@ -205,6 +215,8 @@ Every artifact embeds an immutable Manifest containing:
 - lifecycle start/stop order;
 - pre-tool Middleware order;
 - UI root, extension order, replacement relationships, and asset hashes;
+- catalog schema version, confined path, canonical digest, default and
+  packaged locales, per-locale completeness, and evidence identifiers;
 - default, inactive, unavailable, unsupported, and deferred capability facts;
 - Eino/EinoExt packages and APIs used by scoped internal adapters;
 - focused and Generation conformance results.
@@ -259,6 +271,8 @@ Assembly Compiler still governs their presence and deterministic composition:
 - `std/ui-extension@v1` follows Recipe order;
 - `before`, `after`, and `replaces` references must resolve;
 - source, lockfile, and build output hashes enter provenance;
+- selected catalog units feed one PresentationHost localization projection for
+  Web and TUI with no independent fallback or persisted locale state;
 - no runtime remote-code download is part of the Module system.
 
 There is no UI Grant or UI authorization step. Backend RPC, Policy, approval,
@@ -272,7 +286,8 @@ Generation. Removal is proven when:
 - the Recipe no longer names the Module;
 - generated wiring has no import or constructor for it;
 - backend and UI artifacts contain no selected source or asset;
-- the Manifest has no Module, Port edge, or Grant record for it;
+- the Manifest has no Module, Port edge, Grant, catalog, generated projection,
+  asset, or localization evidence record for it;
 - default and focused conformance pass.
 
 Rollback switches to a previously sealed Generation artifact. It does not
@@ -312,7 +327,8 @@ The Assembly platform is complete only when:
 - all six compiler gates have executable proof;
 - the default Generation preserves established product behavior;
 - a minimal Generation proves real code removal;
-- graph, Trust, Grant, UI, lifecycle, and provenance failures are deterministic;
+- graph, Trust, Grant, UI, localization, lifecycle, and provenance failures are
+  deterministic;
 - Inspect reports the sealed truth;
 - rollback uses whole Generation artifacts;
 - no runtime discovery or v0 path remains;

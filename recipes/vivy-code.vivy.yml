@@ -1,0 +1,7 @@
+apiVersion: vivy.generation/v1
+profile: vivy-code
+modules: [vivy/kernel, vivy/tool-host, vivy/protected-tools, vivy/mcp-host, vivy/face-host, vivy/tui]
+exclusive:
+  std/face@v1: vivy/tui
+grantApprovals:
+  - {module: vivy/tui, name: rpc.client}

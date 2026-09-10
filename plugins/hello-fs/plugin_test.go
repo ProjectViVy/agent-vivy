@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"agent-vivy/sdk/plugin"
+	"agent-vivy/sdk/module"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 type memEnv struct {
@@ -15,6 +16,7 @@ type memEnv struct {
 }
 
 func (m memEnv) Workspace() string { return "workspace" }
+func (m memEnv) ModuleID() string  { return "vivy/hello-fs" }
 
 func (m memEnv) OpenRead(path string) (io.ReadCloser, error) {
 	body, ok := m.files[path]
@@ -33,25 +35,26 @@ func (m memEnv) Spawn(context.Context, plugin.SpawnSpec) (plugin.Proc, error) {
 }
 
 func TestHelloStatReadsThroughEnv(t *testing.T) {
-	p := New()
-	if p.Name() != "hello-fs" || p.Seam() != plugin.SeamToolWorld {
-		t.Fatalf("identity = %s %s", p.Name(), p.Seam())
+	var described module.Module = New()
+	if described.Descriptor().Module.ID != "vivy/hello-fs" {
+		t.Fatalf("descriptor = %#v", described.Descriptor())
 	}
-	tools := p.Tools()
-	if len(tools) != 1 || tools[0].Name() != "hello_stat" {
-		t.Fatalf("tools = %#v", tools)
+	p := NewProvider()
+	tools, err := p.Discover(context.Background(), memEnv{})
+	if err != nil || len(tools) != 1 || tools[0].ID != "hello_stat" {
+		t.Fatalf("tools = %#v, %v", tools, err)
 	}
-	got, err := tools[0].Run(context.Background(), memEnv{files: map[string]string{"note.txt": "hi"}}, []byte(`{"path":"note.txt"}`))
+	got, err := p.Invoke(context.Background(), memEnv{files: map[string]string{"note.txt": "hi"}}, tools[0].ID, []byte(`{"path":"note.txt"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "note.txt 2" {
+	if got.Text != "note.txt 2" {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestHelloStatRejectsAbsolutePath(t *testing.T) {
-	_, err := statTool{}.Run(context.Background(), memEnv{}, []byte(`{"path":"/etc/passwd"}`))
+	_, err := NewProvider().Invoke(context.Background(), memEnv{}, "hello_stat", []byte(`{"path":"/etc/passwd"}`))
 	if !errors.Is(err, plugin.ErrInvalidArgs) {
 		t.Fatalf("err = %v", err)
 	}

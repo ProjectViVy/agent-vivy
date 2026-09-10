@@ -53,8 +53,8 @@ and `just ci`.
 | Phase | Tracker | Deliverable | State | Depends on | SCX relation |
 |---|---|---|---|---|---|
 | PLG-P0 | — | Normative contract and executable plan | `COMPLETE` | Approved decisions | Defines Gate A |
-| PLG-P1 | [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) | v1 SDK and Assembly Compiler foundation | `UNSCHEDULED` | P0 + accepted I18N descriptor contract | Gate A foundation |
-| PLG-P2 | [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) | Default Generation zero-behavior parity | `UNSCHEDULED` | P1 | Gate B critical path |
+| PLG-P1 | [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) | v1 SDK and Assembly Compiler foundation | `COMPLETE · 2026-09-10` | P0 + I18N contract accepted 2026-09-09 | Gate A foundation |
+| PLG-P2 | [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) | Default Generation zero-behavior parity | `COMPLETE · 2026-09-10` | P1 | Gate B critical path |
 | PLG-P3 | [#8](https://github.com/ProjectViVy/agent-vivy/issues/8) | Unified Tool governance and protected Tools | `UNSCHEDULED` | P2 | Gate B critical path |
 | PLG-P4 | [#9](https://github.com/ProjectViVy/agent-vivy/issues/9) | Context, Skill, and MCP Hosts/Sources | `UNSCHEDULED` | P3 | Gate B critical path |
 | PLG-P5 | [#10](https://github.com/ProjectViVy/agent-vivy/issues/10) | Declarative Provider Profile and Eino adapters | `UNSCHEDULED` | P2 | Gate B and P7 critical path |
@@ -63,9 +63,10 @@ and `just ci`.
 | PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `UNSCHEDULED` | P1–P7 as identified | Direct SCX integration |
 | PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `UNSCHEDULED` | P1–P8 | Gate C critical path |
 
-Only a human changes an `UNSCHEDULED` phase to scheduled. Dependency order is
-an execution constraint, not a calendar commitment. P0 is complete as a
-documentation-only contract freeze; it starts no implementation lane.
+Only a human changes an `UNSCHEDULED` phase to scheduled. PLG-P1 and PLG-P2
+were scheduled together by the human owner on 2026-09-09 and completed in one
+isolated clean-break worktree on 2026-09-10. They remain one landing unit.
+Dependency order is an execution constraint, not a calendar commitment.
 
 ## Critical path
 
@@ -87,62 +88,26 @@ its evidence is therefore a Gate B input. P6 may execute in parallel after P2
 in an isolated worktree and does not block SCX core semantics unless an SCX
 release explicitly selects a custom UI Module.
 
-## Cross-cutting proposal: extensible I18N for plugin frontends
+## Cross-cutting plugin I18N contract
 
-This is a design proposal for the plugin platform, not a scheduled
-implementation phase. Its descriptor, catalog-hash, fallback, and Generation
-identity semantics must be accepted before P1 starts strict descriptor parsing
-or provenance hashing. Its Web/TUI host API and conformance details must also
-be accepted before P6 defines a stable UI plugin SDK. If the contract is still
-moving, P1 remains `UNSCHEDULED`; compiler code must not guess the final I18N
-shape.
+The plugin I18N contract was approved on 2026-09-09 and is normative in the
+four architecture contracts. PLG-P1 implements strict descriptor/catalog
+parsing, source confinement, namespace ownership, placeholder and resource
+validation, canonical hashing, evidence, and Manifest projection. PLG-P6
+later implements the shared PresentationHost `t(key, args, form)` resolver for
+Web and TUI. PLG-P9 owns release-wide conformance, removal, and rollback proof.
 
-### Recorded I18N Task 8 authority ruling (2026-09-09)
+The contract keeps exactly 14 public Ports. Localization is a Host surface,
+not a Port or Grant. Core owns `vivy.*`; Module `<module-id>` owns the literal
+`plugin.<module-id>.*` namespace. English is the v1 default and required
+fallback; incomplete Chinese may compile only with visible
+`INCOMPLETE_LOCALE` evidence. Catalog canonical digests are sealed Generation
+inputs, while runtime locale selection is not.
 
-Task 8 (plugin-owned catalog validation and provenance) is deliberately
-deferred. The current SDK still implements the rejected `vivy.plugin/v0`
-experiment: its directory/name identity and separate plugin/face artifact
-entries are not the normative v1 Module ID or selected-Module provenance
-schema. PLG-P1 remains `UNSCHEDULED`; its v1 Descriptor, Assembly Compiler,
-and sealed artifact implementation must exist before catalog ownership and
-provenance can be attached to an approved schema. No v0 extension, fallback
-identity, or artifact mapping is authorized by the core I18N work.
-
-Resumption requires the manually scheduled v1 foundation and explicit
-acceptance/scheduling of this extension, including catalog schema,
-Module-ID namespace ownership, selected-input hashing, and conformance tests.
-P1/P2 landing constraints still apply, and P6 runtime UI work is not scheduled
-by this ruling. The metadata below remains a non-normative proposal, not an
-implemented SDK, pack, or plugin runtime UI capability. This deferral does not
-reduce the complete Web/TUI English-and-Chinese localization requirement.
-
-### Proposed boundary
-
-The host/plugin boundary should use shared translation units with independently
-owned catalogs:
-
-- Core VIVY keys live under `vivy.*`; plugin keys live under
-  `plugin.<module-id>.*` and cannot collide with keys owned by another module.
-- A plugin declares an optional catalog path, default locale, and supported
-  locales in its Module descriptor. The catalog is an explicit Recipe/package
-  input and its hash participates in Generation provenance.
-- Web and TUI receive the same host localization API and resolve the same key
-  with the same arguments. Plugin descriptors carry `label_key` and
-  `label_args`, not pre-rendered locale-specific text.
-- Catalog validation covers the schema, namespace ownership, duplicate keys,
-  placeholder parity, and fallback behavior. Locale resolution falls back
-  from the active locale to the plugin default and then to a safe diagnostic
-  key.
-- Full-code UI Modules may call the host API but remain trusted code; I18N
-  does not change the existing UI trust model. User text, model output, tool
-  output, and generated plugin content remain data rather than host-localized
-  strings.
-
-The detailed proposal is recorded in
-`docs/research/pluggable-frontend-research-2026-08-30.md` and
-`docs/architecture/VIVY-PLUGIN-SPEC.md` §7.1. Acceptance should add the
-catalog schema, host API, and Web/TUI conformance tests to the appropriate P6
-tasks.
+The approved decision record is
+`docs/superpowers/specs/2026-09-09-plugin-i18n-contract-freeze-design.md`.
+The normative sources remain `VIVY-MODULE-STANDARD.md`,
+`VIVY-PORT-CATALOG.md`, `VIVY-PLUGIN-SPEC.md`, and `VIVY-ASSEMBLY.md`.
 
 ## Phase documents
 

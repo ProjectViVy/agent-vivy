@@ -9,7 +9,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 type statusPlugin struct {
@@ -17,10 +17,6 @@ type statusPlugin struct {
 	block  <-chan struct{}
 }
 
-func (*statusPlugin) Name() string           { return "status" }
-func (*statusPlugin) Seam() plugin.Seam      { return plugin.SeamToolWorld }
-func (*statusPlugin) Grants() []plugin.Grant { return nil }
-func (*statusPlugin) Tools() []plugin.Tool   { return nil }
 func (p *statusPlugin) LanguageServerStatuses(_ context.Context, root string) []plugin.LanguageServerStatus {
 	if p.block != nil {
 		<-p.block
@@ -68,7 +64,7 @@ func TestLanguageServerStatusSourceScopesExistingSessionWorkspaces(t *testing.T)
 		workspaceB.Path:    {{Language: "python", State: "initialized"}},
 		workspaceANew.Path: {{Language: "rust", State: "initialized"}},
 	}}
-	source := buildLanguageServerStatusSource([]plugin.Plugin{provider}, backend, manager)
+	source := buildLanguageServerStatusSource([]plugin.LanguageServerStatusProvider{provider}, backend, manager)
 	if source == nil {
 		t.Fatal("packed status provider was not wired")
 	}
@@ -106,7 +102,7 @@ func TestLanguageServerStatusSourceTimesOutBlockingProvider(t *testing.T) {
 	}
 	block := make(chan struct{})
 	provider := &statusPlugin{block: block}
-	source := buildLanguageServerStatusSource([]plugin.Plugin{provider}, backend, manager)
+	source := buildLanguageServerStatusSource([]plugin.LanguageServerStatusProvider{provider}, backend, manager)
 	started := time.Now()
 	snapshot, err := source(ctx, "session")
 	close(block)

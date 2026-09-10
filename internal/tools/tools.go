@@ -155,6 +155,23 @@ type Registry struct {
 	order []string
 }
 
+var assemblyControlledToolNames = []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"}
+
+// AssemblyControlledToolNames returns the built-in identities whose presence
+// is authoritative in the generated std/tool@v1 Provider inventory.
+func AssemblyControlledToolNames() []string {
+	return append([]string(nil), assemblyControlledToolNames...)
+}
+
+func IsAssemblyControlledTool(name string) bool {
+	for _, controlled := range assemblyControlledToolNames {
+		if name == controlled {
+			return true
+		}
+	}
+	return false
+}
+
 // NewRegistry builds a registry from the given tools; duplicate names are
 // a programmer error and panic.
 func NewRegistry(ts ...Tool) *Registry {
@@ -178,6 +195,52 @@ func (r *Registry) Specs() []domain.ToolSpec {
 		out = append(out, r.byName[name].Spec())
 	}
 	return out
+}
+
+// Lookup returns one registered implementation without changing registry
+// order. The app composition root uses it to bind generated Tool providers.
+func (r *Registry) Lookup(name string) (Tool, bool) {
+	tool, ok := r.byName[name]
+	return tool, ok
+}
+
+// WithOverrides returns a registry with selected implementations replaced
+// while preserving the original deterministic order.
+func (r *Registry) WithOverrides(overrides map[string]Tool) *Registry {
+	all := make([]Tool, 0, len(r.order))
+	for _, name := range r.order {
+		if replacement := overrides[name]; replacement != nil {
+			all = append(all, replacement)
+		} else {
+			all = append(all, r.byName[name])
+		}
+	}
+	return NewRegistry(all...)
+}
+
+func (r *Registry) WithAdditional(additional ...Tool) *Registry {
+	all := make([]Tool, 0, len(r.order)+len(additional))
+	for _, name := range r.order {
+		all = append(all, r.byName[name])
+	}
+	all = append(all, additional...)
+	return NewRegistry(all...)
+}
+
+// Without returns a registry with the named identities removed while
+// preserving the relative order of every remaining tool.
+func (r *Registry) Without(names ...string) *Registry {
+	omit := make(map[string]bool, len(names))
+	for _, name := range names {
+		omit[name] = true
+	}
+	all := make([]Tool, 0, len(r.order))
+	for _, name := range r.order {
+		if !omit[name] {
+			all = append(all, r.byName[name])
+		}
+	}
+	return NewRegistry(all...)
 }
 
 // Builtin returns the registry of shipped non-filesystem tools. It preserves

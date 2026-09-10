@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +18,7 @@ import (
 
 	"github.com/mymmrac/telego"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // stubToken matches telego's token format regexp but is synthetic: the
@@ -39,6 +41,9 @@ type fakeEnv struct {
 	failedPublishes int // observable count of failed publishes
 }
 
+func (e *fakeEnv) ModuleID() string     { return "vivy/telegram" }
+func (e *fakeEnv) Logger() *slog.Logger { return nil }
+
 func (e *fakeEnv) Secret(envKey string) (string, error) {
 	if e.tokenEnv == "" {
 		return "", errors.New("no token_env declared")
@@ -54,6 +59,10 @@ func (e *fakeEnv) Secret(envKey string) (string, error) {
 }
 
 func (e *fakeEnv) HTTP() *http.Client { return e.client }
+func (e *fakeEnv) DialTLS(ctx context.Context, network, address string) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, address)
+}
 
 func (e *fakeEnv) Settings() json.RawMessage {
 	if len(e.settings) == 0 {
@@ -218,7 +227,7 @@ func envForStub(settings string) *fakeEnv {
 // startForTest runs Start and registers a Stop cleanup.
 func startForTest(t *testing.T, env *fakeEnv) *Plugin {
 	t.Helper()
-	p := New().(*Plugin)
+	p := newAdapter()
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -366,7 +375,7 @@ func TestStartFailsClosed(t *testing.T) {
 	}
 	for name, env := range cases {
 		env.client = &http.Client{Timeout: 2 * time.Second}
-		p := New().(*Plugin)
+		p := newAdapter()
 		err := p.Start(context.Background(), env)
 		if err == nil {
 			t.Fatalf("%s: Start must fail closed", name)
@@ -415,7 +424,7 @@ func TestStartStopFullLoop(t *testing.T) {
 	if err := p.Stop(ctx); err != nil {
 		t.Fatalf("second stop: %v", err)
 	}
-	if err := (New().(*Plugin)).Stop(context.Background()); err != nil {
+	if err := (newAdapter()).Stop(context.Background()); err != nil {
 		t.Fatalf("stop without start: %v", err)
 	}
 
@@ -435,7 +444,7 @@ func TestSendPlainText(t *testing.T) {
 	env := envForStub(stubSettings(stub))
 
 	// Send before Start fails closed on the missing bot handle.
-	if _, err := (New().(*Plugin)).Send(context.Background(), plugin.OutboundMessage{ChatID: "1", Parts: []plugin.Part{{Kind: plugin.PartText, Text: "x"}}}); err == nil {
+	if _, err := (newAdapter()).Send(context.Background(), plugin.OutboundMessage{ChatID: "1", Parts: []plugin.Part{{Kind: plugin.PartText, Text: "x"}}}); err == nil {
 		t.Fatal("Send before Start must fail")
 	}
 
@@ -484,7 +493,7 @@ func TestSendPlainText(t *testing.T) {
 func TestSendIsIdempotentAfterStop(t *testing.T) {
 	stub := newTelegramStub(t)
 	env := envForStub(stubSettings(stub))
-	p := New().(*Plugin)
+	p := newAdapter()
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -504,7 +513,7 @@ func TestSendSurfacesAPIError(t *testing.T) {
 	stub := newTelegramStub(t)
 	env := envForStub(stubSettings(stub))
 
-	p := New().(*Plugin)
+	p := newAdapter()
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}

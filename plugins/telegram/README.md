@@ -49,7 +49,7 @@ channels:
     settings:                    # Opaque to the kernel; decoded by this plugin
       token_env: TELEGRAM_BOT_TOKEN   # Must match the envelope token_env
       # base_url: "http://127.0.0.1:8081"   # Optional: local Bot API sidecar
-      # proxy: "http://127.0.0.1:7890"       # Optional: HTTP proxy
+      # proxy is intentionally unsupported: all traffic uses the Host client
 ```
 
 Secrets travel only through environment variables:
@@ -74,7 +74,7 @@ the ear in its body.
 
 ## Module dependencies
 
-This module may import only `agent-vivy/sdk/plugin` + the standard library +
+This module may import only `agent-vivy/sdk/module`, its focused `sdk/port` + the standard library +
 `github.com/mymmrac/telego`. Imports of `agent-vivy/internal/...`, eino,
 picoclaw, or `.workspace` are forbidden; `net.Listen` is forbidden; blank
 `init()` imports are forbidden.

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 // serverKey scopes one connection: per language per workspace root. Two
@@ -19,24 +19,24 @@ type serverKey struct {
 
 // statuses returns only live, initialized servers for one exact workspace.
 // Inspection is side-effect free: it never starts or probes a process.
-func (m *manager) statuses(root string) []plugin.LanguageServerStatus {
+func (m *manager) statuses(root string) []LanguageServerStatus {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	statuses := make([]plugin.LanguageServerStatus, 0)
+	statuses := make([]LanguageServerStatus, 0)
 	for key := range m.starting {
 		if key.root == root {
-			statuses = append(statuses, plugin.LanguageServerStatus{Language: key.lang, State: "starting"})
+			statuses = append(statuses, LanguageServerStatus{Language: key.lang, State: "starting"})
 		}
 	}
 	for key, server := range m.servers {
 		if key.root != root || server.exited() {
 			continue
 		}
-		statuses = append(statuses, plugin.LanguageServerStatus{Language: key.lang, State: "initialized"})
+		statuses = append(statuses, LanguageServerStatus{Language: key.lang, State: "initialized"})
 	}
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Language < statuses[j].Language })
 	return statuses
@@ -49,6 +49,9 @@ type manager struct {
 	mu       sync.Mutex
 	servers  map[serverKey]*server
 	starting map[serverKey]*serverStart
+	stop     chan struct{}
+	stopOnce sync.Once
+	reaper   sync.Once
 }
 
 type serverStart struct {
@@ -58,12 +61,13 @@ type serverStart struct {
 }
 
 func newManager() *manager {
-	return &manager{servers: map[serverKey]*server{}, starting: map[serverKey]*serverStart{}}
+	return &manager{servers: map[serverKey]*server{}, starting: map[serverKey]*serverStart{}, stop: make(chan struct{})}
 }
 
 // get returns a healthy connection for the key, spawning and initializing
 // one on first use and replacing one whose process died.
-func (m *manager) get(ctx context.Context, env plugin.Env, lang language, root string) (*server, error) {
+func (m *manager) get(ctx context.Context, env plugin.Host, lang language, root string) (*server, error) {
+	m.startReaper()
 	key := serverKey{lang: lang.Name, root: root}
 	m.mu.Lock()
 	if s, ok := m.servers[key]; ok {
@@ -110,13 +114,34 @@ const (
 // minute, for the lifetime of the process. The plugin contract has no
 // Stop hook, so the reaper is the shutdown story for idle servers.
 func (m *manager) startReaper() {
-	go func() {
-		ticker := time.NewTicker(reapInterval)
-		defer ticker.Stop()
-		for range ticker.C {
-			m.reap(idleMax)
+	m.reaper.Do(func() {
+		go func() {
+			ticker := time.NewTicker(reapInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					m.reap(idleMax)
+				case <-m.stop:
+					return
+				}
+			}
+		}()
+	})
+}
+
+func (m *manager) close() error {
+	m.stopOnce.Do(func() { close(m.stop) })
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var first error
+	for key, server := range m.servers {
+		if err := server.Close(); err != nil && first == nil {
+			first = err
 		}
-	}()
+		delete(m.servers, key)
+	}
+	return first
 }
 
 func (m *manager) reap(maxIdle time.Duration) {
