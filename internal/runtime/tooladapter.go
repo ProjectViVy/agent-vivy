@@ -143,11 +143,19 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			}
 		}
 	}
+
+	middlewareApprovalClasses := []string(nil)
+	args, evaluation, middlewareApprovalClasses, err = a.applyGovernedMiddleware(ctx, spec, args, profile, evaluation)
+	if err != nil {
+		return "", err
+	}
+	middlewareRequiresApproval := len(middlewareApprovalClasses) != 0
+
 	// Per-call tiering: a classifier-aware tool (bash) can deny outright or
 	// run safe read-only invocations without an interrupt under the 'auto'
-	// approval policy. The check runs on the final arguments, after hooks,
-	// and regardless of the profile decision so the deny table holds even
-	// under full-auto profiles.
+	// approval policy. The check runs on the final arguments, after hooks and
+	// public Middleware, and regardless of the profile decision so the deny
+	// table holds even under full-auto profiles.
 	if classifier, ok := a.t.(tools.InvocationClassifier); ok {
 		class, findings, err := classifier.ClassifyInvocation(args)
 		if err != nil {
@@ -160,7 +168,7 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			}
 			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, reason)
 		}
-		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto {
+		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto && !middlewareRequiresApproval {
 			emitGovernanceEvent(ctx, GovernanceEvent{
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
@@ -175,27 +183,41 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	if evaluation.Decision == domain.PolicyPrompt {
-		approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
-		if approvalEval.AutoApprove {
-			return a.run(ctx, string(args))
-		}
-		if !approvalEval.ShouldAsk {
-			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, approvalEval.Reason)
-		}
-		wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
-		if !wasInterrupted {
-			// First execution: pause the run so the service can surface
-			// tool.approval_required over a durable checkpoint (D-029).
-			return "", einotool.Interrupt(ctx, "approval required for "+spec.Name)
-		}
-		isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
-		if !isTarget {
-			// A sibling interrupt resumed first; keep waiting.
-			return "", einotool.Interrupt(ctx, "still waiting for approval of "+spec.Name)
-		}
-		if hasData && decision == domain.ApprovalDenied {
-			return spec.Name + " was denied by the user and did not run; continue without it.", nil
+	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval {
+		if middlewareRequiresApproval {
+			wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
+			if !wasInterrupted {
+				return "", einotool.Interrupt(ctx, "middleware approval required for "+spec.Name)
+			}
+			isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
+			if !isTarget || !hasData {
+				return "", einotool.Interrupt(ctx, "still waiting for middleware approval of "+spec.Name)
+			}
+			if decision == domain.ApprovalDenied {
+				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+			}
+		} else {
+			approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			if approvalEval.AutoApprove {
+				return a.run(ctx, string(args))
+			}
+			if !approvalEval.ShouldAsk {
+				return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, approvalEval.Reason)
+			}
+			wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
+			if !wasInterrupted {
+				// First execution: pause the run so the service can surface
+				// tool.approval_required over a durable checkpoint (D-029).
+				return "", einotool.Interrupt(ctx, "approval required for "+spec.Name)
+			}
+			isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
+			if !isTarget {
+				// A sibling interrupt resumed first; keep waiting.
+				return "", einotool.Interrupt(ctx, "still waiting for approval of "+spec.Name)
+			}
+			if hasData && decision == domain.ApprovalDenied {
+				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+			}
 		}
 	}
 	return a.run(ctx, string(args))
