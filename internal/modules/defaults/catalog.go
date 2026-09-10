@@ -42,6 +42,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		record("vivy/mcp-host", "NewMCPHost", source, port("core/mcp-host@v1", "vivy.mcp-host"), port("std/tool-world@v1", "mcp")),
 		record("vivy/channel-host", "NewChannelHost", source, port("core/channel-host@v1", "vivy.channel-host")),
 		record("vivy/face-host", "NewFaceHost", source, port("core/face-host@v1", "vivy.face-host")),
+		record("vivy/provider-profiles", "NewProviderProfiles", source, port("std/provider-profile@v1", "openai"), port("std/provider-profile@v1", "anthropic")),
 	}
 	for i := range records {
 		switch records[i].Descriptor.Module.ID {
@@ -50,9 +51,15 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.ProviderCollection = true
 		case "vivy/mcp-host":
 			records[i].Binding.ProviderConstructor = "NewMCPProvider"
+		case "vivy/provider-profiles":
+			records[i].Binding.ProviderConstructor = "ProviderProfiles"
+			records[i].Binding.ProviderCollection = true
 		}
 		if records[i].Descriptor.Module.ID == "vivy/protected-tools" || records[i].Descriptor.Module.ID == "vivy/mcp-host" {
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+		}
+		if records[i].Descriptor.Module.ID == "vivy/provider-profiles" {
+			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/chat-model-host@v1"}, Provider: "vivy/kernel"}}
 		}
 		if err := records[i].Descriptor.Validate(); err != nil {
 			return nil, err

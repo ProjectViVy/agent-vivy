@@ -186,7 +186,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	evidence := assemblyv1.P1P2PortEvidence()
+	evidence := assemblyv1.SupportedPortEvidence()
 	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence}).Compile(ctx, recipe)
 	if err != nil {
 		return Artifact{}, err

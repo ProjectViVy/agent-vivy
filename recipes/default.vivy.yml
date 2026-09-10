@@ -7,6 +7,7 @@ modules:
   - vivy/mcp-host
   - vivy/channel-host
   - vivy/face-host
+  - vivy/provider-profiles
   - vivy/dingtalk
   - vivy/discord
   - vivy/feishu

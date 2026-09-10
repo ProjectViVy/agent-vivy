@@ -243,10 +243,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
 	}
 	catalog := provider.NewCatalog(openaiBundle, anthropicBundle)
-	modelHost, err := modelhost.New([]providerprofile.Profile{
-		provider.ProfileFromBundle(openaiBundle),
-		provider.ProfileFromBundle(anthropicBundle),
-	}, modelhost.Capabilities{
+	compiledProfiles := make([]providerprofile.Profile, 0, len(runtimeAssembly.ProviderProfiles))
+	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
+		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
+	}
+	modelHost, err := modelhost.New(compiledProfiles, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
 	})
