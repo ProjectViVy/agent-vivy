@@ -26,8 +26,9 @@ type Settings struct {
 	// BaseURL optionally overrides the Telegram Bot API server (a local
 	// bot-api sidecar). Empty means the official api.telegram.org.
 	BaseURL string `json:"base_url"`
-	// Proxy optionally routes the Bot API HTTP client through an HTTP
-	// proxy, e.g. "http://127.0.0.1:7890". Empty means direct dialing.
+	// Proxy is retained for strict backward-compatible decoding, but any
+	// non-empty value is rejected: a plugin-created proxy transport would
+	// bypass the Host's net.client authority.
 	Proxy string `json:"proxy"`
 }
 

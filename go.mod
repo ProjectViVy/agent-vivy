@@ -102,11 +102,14 @@ require (
 )
 
 require (
+	example.com/vivy/faces/headless v0.0.0
+	example.com/vivy/faces/tui v0.0.0
 	example.com/vivy/plugins/dingtalk v0.0.0
 	example.com/vivy/plugins/discord v0.0.0
 	example.com/vivy/plugins/feishu v0.0.0
 	example.com/vivy/plugins/qq v0.0.0
 	example.com/vivy/plugins/telegram v0.0.0
+	example.com/vivy/plugins/lsp v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0
@@ -172,3 +175,9 @@ replace example.com/vivy/plugins/discord => ./plugins/discord
 replace example.com/vivy/plugins/feishu => ./plugins/feishu
 
 replace example.com/vivy/plugins/qq => ./plugins/qq
+
+replace example.com/vivy/plugins/lsp => ./plugins/lsp
+
+replace example.com/vivy/faces/headless => ./faces/headless
+
+replace example.com/vivy/faces/tui => ./faces/tui

@@ -15,6 +15,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/worker"
+	"agent-vivy/sdk/generation"
 )
 
 // configPath is the conventional location; absent file falls back to the
@@ -22,6 +23,15 @@ import (
 const configPath = "config.yaml"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--inspect-generation" {
+		raw, err := generation.EmbeddedManifest()
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_, _ = os.Stdout.Write(raw)
+		return
+	}
 	// The worker protocol owns stdout. Keep this branch before the normal
 	// logger is installed so startup diagnostics can never corrupt JSONL.
 	if len(os.Args) > 1 && os.Args[1] == "worker" {

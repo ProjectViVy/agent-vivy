@@ -2,11 +2,13 @@ package channelhost
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -14,7 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"agent-vivy/internal/config"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // hostEnv is the world a channel adapter may touch: the per-plugin
@@ -36,6 +38,8 @@ type hostEnv struct {
 	// neither grants no secret at all.
 	tokenEnv string
 }
+
+func (e *hostEnv) ModuleID() string { return "vivy/" + e.seam.Name() }
 
 // envFor builds the ChannelEnv handed to one adapter's Start.
 func (h *Host) envFor(ch plugin.Channel) plugin.ChannelEnv {
@@ -148,6 +152,11 @@ func auditSettingsEnvNames(channel string, envelope config.ChannelEnvelope, logg
 // the host, never to the adapter.
 func (e *hostEnv) HTTP() *http.Client {
 	return e.client
+}
+
+func (e *hostEnv) DialTLS(ctx context.Context, network, address string) (net.Conn, error) {
+	dialer := tls.Dialer{NetDialer: &net.Dialer{}}
+	return dialer.DialContext(ctx, network, address)
 }
 
 // Settings serializes the opaque settings block of the channel's config

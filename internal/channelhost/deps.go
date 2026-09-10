@@ -1,5 +1,5 @@
-// Package channelhost is the kernel owner of seam-channel plugins. It
-// starts and stops channel adapters over the sdk/plugin ABI, maps each
+// Package channelhost is the kernel owner of Channel Modules. It starts and
+// stops adapters over the focused v1 Channel Port and maps each
 // (channel, chat[, topic]) to a deterministic session, journals inbound
 // turns as channel.inbound events, and delivers the assistant reply of
 // the opened run back to the originating chat.
@@ -19,7 +19,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // RunFunc opens one run for an inbound turn. The app injects it from
@@ -28,7 +28,7 @@ import (
 type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error)
 
 // Deps wires the host. Journal, Messages and Sessions are the organism's
-// durable stores; Channels is the seam-channel partition of Register();
+// durable stores; Channels is the generated Assembly's Channel set;
 // Config is the kernel-owned channels envelope.
 type Deps struct {
 	Journal  storage.Journal

@@ -22,10 +22,10 @@ compiler instead of maintaining separate verify/pack logic.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; only a human may schedule it.
-- Do not schedule P1 until the cross-cutting I18N descriptor, catalog-hash,
-  fallback, and Generation identity contract is accepted. Strict parsing and
-  provenance hashing cannot safely be built against a moving descriptor.
+- State: `COMPLETE · 2026-09-10` by human-owner decision; landed together with
+  P2 as one clean-break implementation unit.
+- The I18N descriptor, catalog-hash, fallback, and Generation identity
+  contract was accepted on 2026-09-09 and is a required compiler input.
 - P1 and P2 are one clean-break landing unit. P1 commits may exist on the
   feature branch, but main MUST NOT receive a half-cut state that still exposes
   v0 without the P2 default-body cutover.
@@ -41,6 +41,8 @@ compiler instead of maintaining separate verify/pack logic.
 
 - Create: `sdk/module/descriptor.go`
 - Create: `sdk/module/descriptor_test.go`
+- Create: `sdk/module/i18n.go`
+- Create: `sdk/module/i18n_test.go`
 - Create: `sdk/module/lifecycle.go`
 - Create: `sdk/port/catalog.go`
 - Create: `sdk/port/catalog_test.go`
@@ -50,7 +52,7 @@ compiler instead of maintaining separate verify/pack logic.
 **Interfaces:**
 
 - Consumes: the canonical Descriptor and 14 public Port names.
-- Produces: `module.Descriptor`, `module.PortRef`, `module.Requirement`,
+- Produces: `module.Descriptor`, `module.I18N`, `module.PortRef`, `module.Requirement`,
   `module.Grant`, `module.Lifecycle`, `port.Definition`, and the evidence-owned
   support states consumed by the compiler and Inspect.
 
@@ -66,6 +68,7 @@ type Descriptor struct {
     Optional        []Requirement
     Conflicts       []Conflict
     RequestedGrants []Grant
+    I18N            *I18N
     Lifecycle       Lifecycle
 }
 
@@ -77,23 +80,23 @@ type Definition struct {
 }
 ```
 
-- [ ] Write `TestDescriptorValidateRejectsV0` expecting failure containing
+- [x] Write `TestDescriptorValidateRejectsV0` expecting failure containing
   `unsupported apiVersion vivy.plugin/v0`; run it and observe RED because the
   v1 validator does not exist.
-- [ ] Write tests for empty IDs, unnamespaced IDs, invalid semver, malformed
+- [x] Write tests for empty IDs, unnamespaced IDs, invalid semver, malformed
   SHA-256, duplicate Port references, and side-effect-free parsing.
-- [ ] Implement the minimal immutable data types and validation.
-- [ ] Write `TestCatalogContainsExactlyApprovedPublicPorts` with the 14 exact
+- [x] Implement the minimal immutable data types and validation.
+- [x] Write `TestCatalogContainsExactlyApprovedPublicPorts` with the 14 exact
   names from the normative catalog.
-- [ ] Implement the typed catalog constants and reject unknown Ports.
-- [ ] Write `TestDescriptorCannotClaimSupport` and table tests proving a
+- [x] Implement the typed catalog constants and reject unknown Ports.
+- [x] Write `TestDescriptorCannotClaimSupport` and table tests proving a
   `SPECIFIED` Port cannot be selected without build-owned evidence. A Module
   descriptor or README cannot set its support state.
-- [ ] Define the support-state and evidence-reference primitives now; later
+- [x] Define the support-state and evidence-reference primitives now; later
   phases populate them as each Port's seven artifacts land, and P9 performs the
   release-wide audit rather than introducing this rule after selection exists.
-- [ ] Run `go test ./sdk/module ./sdk/port` and expect PASS.
-- [ ] Commit `feat(sdk): define v1 module and port contracts`.
+- [x] Run `go test ./sdk/module ./sdk/port` and expect PASS.
+- [x] Commit `feat(sdk): define v1 module and port contracts`.
 
 ### Task 2: Replace Manifest parsing with v1-only canonical parsing
 
@@ -112,19 +115,25 @@ type Definition struct {
 - Produces: `loadDescriptor(path) (module.Descriptor, []byte, error)`, where the
   byte slice is canonical semantic input for hashing.
 
-- [ ] Write `TestLoadDescriptorRejectsEveryLegacyFixture` over each existing
+- [x] Write `TestLoadDescriptorRejectsEveryLegacyFixture` over each existing
   `vivy-plugin.json`; expected RED is that current parsing accepts v0.
-- [ ] Write canonicalization tests proving map order and formatting do not
+- [x] Write canonicalization tests proving map order and formatting do not
   change canonical bytes.
-- [ ] Implement strict `vivy.module/v1` decoding with duplicate-key and unknown
+- [x] Implement strict `vivy.module/v1` decoding with duplicate-key and unknown
   semantic-field rejection.
-- [ ] Replace old Seam fixtures with v1 Descriptor success/failure fixtures;
+- [x] Strictly decode the selected `vivy.i18n/v1` catalog; enforce path
+  confinement, literal owner namespace, English completeness, locale/form
+  placeholder parity, and all normative resource limits.
+- [x] Emit deterministic `COMPLETE`, `INCOMPLETE_LOCALE`, per-locale
+  `INCOMPLETE`, or `NOT_APPLICABLE` evidence; invalid catalog input emits no
+  formal artifact.
+- [x] Replace old Seam fixtures with v1 Descriptor success/failure fixtures;
   retain one v0 fixture solely to prove hard rejection.
-- [ ] Load the preflight `plugin-v1` fixture index in the real Go tests; keep
+- [x] Load the preflight `plugin-v1` fixture index in the real Go tests; keep
   its case IDs and stable diagnostic substrings usable across compiler tasks.
-- [ ] Remove `apiVersionV0`, Seam validation, and Seam-specific branches.
-- [ ] Run `go test ./sdk/internal -run 'Descriptor|Manifest|Verify'`.
-- [ ] Commit `feat(sdk): accept only v1 module descriptors`.
+- [x] Remove `apiVersionV0`, Seam validation, and Seam-specific branches.
+- [x] Run `go test ./sdk/internal -run 'Descriptor|Manifest|Verify'`.
+- [x] Commit `feat(sdk): accept only v1 module descriptors`.
 
 ### Task 3: Compile identity, Trust, and the dependency graph
 
@@ -155,19 +164,19 @@ type Compiler struct {
 func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, error)
 ```
 
-- [ ] Write failing tests for duplicate Module, missing Provider, duplicate
+- [x] Write failing tests for duplicate Module, missing Provider, duplicate
   exclusive Provider, unused Provider, unresolved order edge, conflict, and
   dependency cycle.
-- [ ] Run the matching cases from `sdk/internal/testdata/plugin-v1/` through
+- [x] Run the matching cases from `sdk/internal/testdata/plugin-v1/` through
   the real compiler rather than duplicating their data in Go source.
-- [ ] Write `TestDescriptorCannotAssignTrust`; expected RED is the absence of a
+- [x] Write `TestDescriptorCannotAssignTrust`; expected RED is the absence of a
   Source Catalog authority.
-- [ ] Implement source resolution and T1/T2 assignment independent of Module
+- [x] Implement source resolution and T1/T2 assignment independent of Module
   data.
-- [ ] Implement deterministic graph validation and topological lifecycle order.
-- [ ] Ensure diagnostic sorting is stable across repeated runs.
-- [ ] Run `go test ./sdk/internal/assembly -run 'Source|Graph|Compile'`.
-- [ ] Commit `feat(sdk): compile module dependency graphs`.
+- [x] Implement deterministic graph validation and topological lifecycle order.
+- [x] Ensure diagnostic sorting is stable across repeated runs.
+- [x] Run `go test ./sdk/internal/assembly -run 'Source|Graph|Compile'`.
+- [x] Commit `feat(sdk): compile module dependency graphs`.
 
 ### Task 4: Calculate effective Grants
 
@@ -190,14 +199,14 @@ type EffectiveGrant struct {
 }
 ```
 
-- [ ] Write a table-driven RED test for all 12 approved Grants, unknown Grant,
+- [x] Write a table-driven RED test for all 12 approved Grants, unknown Grant,
   unauthorized `proc.spawn`, constrained `net.client`, and implicit default
   denial.
-- [ ] Run the `unapproved-grant` acceptance fixture through this calculation.
-- [ ] Implement the four-way intersection exactly once in the compiler.
-- [ ] Reject Secret values and environment-derived material in constraints.
-- [ ] Run `go test ./sdk/internal/assembly -run Grant`.
-- [ ] Commit `feat(sdk): enforce generation grants`.
+- [x] Run the `unapproved-grant` acceptance fixture through this calculation.
+- [x] Implement the four-way intersection exactly once in the compiler.
+- [x] Reject Secret values and environment-derived material in constraints.
+- [x] Run `go test ./sdk/internal/assembly -run Grant`.
+- [x] Commit `feat(sdk): enforce generation grants`.
 
 ### Task 5: Generate typed wiring and seal provenance
 
@@ -217,17 +226,22 @@ type EffectiveGrant struct {
 - Produces: generated typed binder source and an immutable
   `GenerationManifest` with content-addressed `GenerationID`.
 
-- [ ] Write a golden RED test showing two semantically identical Recipes must
+- [x] Write a golden RED test showing two semantically identical Recipes must
   produce byte-identical binder and Manifest output.
-- [ ] Write a RED test proving a source hash, UI hash, Port version, or compiler
+- [x] Write a RED test proving a source hash, UI hash, Port version, or compiler
   version change changes Generation ID.
-- [ ] Implement stable generated imports, typed constructor calls, and reverse
+- [x] Prove canonical catalog formatting is identity-neutral while a
+  translation, placeholder declaration, schema, or packaged-locale change
+  changes its SHA-256 digest and Generation ID.
+- [x] Implement stable generated imports, typed constructor calls, and reverse
   cleanup ownership without reflection or `[]any`.
-- [ ] Remove random/time-based Generation identity from the new compiler path.
-- [ ] Make Inspect distinguish not compiled, unconfigured, inactive, ready,
+- [x] Remove random/time-based Generation identity from the new compiler path.
+- [x] Make Inspect distinguish not compiled, unconfigured, inactive, ready,
   unavailable, specified, and deferred.
-- [ ] Run `go test ./sdk/internal/assembly ./sdk/internal`.
-- [ ] Commit `feat(sdk): generate and seal v1 assemblies`.
+- [x] Project catalog schema, path, digest, default and packaged locales,
+  per-locale completeness, and evidence identifiers into Manifest and Inspect.
+- [x] Run `go test ./sdk/internal/assembly ./sdk/internal`.
+- [x] Commit `feat(sdk): generate and seal v1 assemblies`.
 
 ### Task 6: Make the CLI one compiler front end
 
@@ -245,13 +259,13 @@ type EffectiveGrant struct {
 - Consumes: the sole `assembly.Compiler`.
 - Produces: v1-only `verify`, `pack`, and `inspect-artifact` commands.
 
-- [ ] Write CLI tests proving all three commands use the same validation and
+- [x] Write CLI tests proving all three commands use the same validation and
   v0 fails before graph construction.
-- [ ] Remove legacy command wording and Seam output.
-- [ ] Verify failed compilation emits no formal Generation directory.
-- [ ] Run `go test ./sdk/...`.
-- [ ] Run `just ci`.
-- [ ] Commit `feat(sdk): cut vivy-sdk over to assembly v1`.
+- [x] Remove legacy command wording and Seam output.
+- [x] Verify failed compilation emits no formal Generation directory.
+- [x] Run `go test ./sdk/...`.
+- [x] Run `just ci`.
+- [x] Commit `feat(sdk): cut vivy-sdk over to assembly v1`.
 
 ## Phase exit and rollback
 

@@ -185,7 +185,7 @@ the ear in its body.
 
 ## Module dependencies
 
-This module may import only `agent-vivy/sdk/plugin` + the standard library +
+This module may import only `agent-vivy/sdk/module`, its focused `sdk/port` + the standard library +
 `github.com/bwmarrin/discordgo` (its go.mod transitive dependencies
 gorilla/websocket and x/crypto do not appear directly in business-code imports).
 Imports of `agent-vivy/internal/...`, eino, **the pion suite**, picoclaw, or

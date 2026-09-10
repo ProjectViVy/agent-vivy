@@ -1,10 +1,10 @@
 package channelhost
 
-import "agent-vivy/sdk/plugin"
+import plugin "agent-vivy/sdk/port/channel"
 
 // Capabilities is the discovered optional surface of one channel plugin
 // (VIVY-CHANNEL-PACK.md §8 matrix). The host reports it via inspect:
-// compiled-in is what Register() holds, advertised is Discover's result,
+// compiled-in is what the generated Assembly holds, advertised is Discover's result,
 // enabled is what the channels envelope configures.
 type Capabilities struct {
 	// Typing maps plugin.Typing ("交互": typing indicator).
@@ -37,7 +37,7 @@ type Capabilities struct {
 }
 
 // Discover reports the optional capability interfaces a channel plugin
-// implements, via type assertions against the sdk/plugin catalog. A
+// implements, via type assertions against the focused v1 Channel Port. A
 // plugin implementing none of them (the v1 text-only cut) yields the zero
 // value.
 func Discover(ch plugin.Channel) Capabilities {

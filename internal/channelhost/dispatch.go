@@ -11,7 +11,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // channelInboundPayload is the channel.inbound event payload. Its JSON

@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"agent-vivy/internal/config"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // grantStub is a channel stub with selectable grants, used to test the
@@ -23,9 +23,7 @@ type grantStub struct {
 }
 
 func (s grantStub) Name() string                                   { return s.name }
-func (s grantStub) Seam() plugin.Seam                              { return plugin.SeamChannel }
 func (s grantStub) Grants() []plugin.Grant                         { return s.grants }
-func (s grantStub) Tools() []plugin.Tool                           { return nil }
 func (s grantStub) Start(context.Context, plugin.ChannelEnv) error { return nil }
 func (s grantStub) Stop(context.Context) error                     { return nil }
 func (s grantStub) Send(context.Context, plugin.OutboundMessage) ([]string, error) {

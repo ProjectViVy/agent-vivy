@@ -8,7 +8,7 @@ import (
 	"context"
 	"sync"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // Channel is the test double. Start runs the injectable Publish func
@@ -29,19 +29,13 @@ type Channel struct {
 // New returns a ready-to-start fake channel.
 func New() *Channel { return &Channel{} }
 
-// Name implements plugin.Plugin.
+// Name returns the configured channel key.
 func (c *Channel) Name() string { return "fake" }
 
-// Seam implements plugin.Plugin: the channel seam, never the tool table.
-func (c *Channel) Seam() plugin.Seam { return plugin.SeamChannel }
-
-// Grants implements plugin.Plugin.
+// Grants declares the capabilities exercised by the fake.
 func (c *Channel) Grants() []plugin.Grant {
 	return []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}
 }
-
-// Tools implements plugin.Plugin: channel plugins carry no tools.
-func (c *Channel) Tools() []plugin.Tool { return nil }
 
 // Start implements plugin.Channel. The default publish sends one hello
 // text from sender "alice" in chat "chat-1".

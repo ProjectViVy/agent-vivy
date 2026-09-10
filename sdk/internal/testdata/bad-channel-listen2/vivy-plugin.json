@@ -1,9 +1,0 @@
-{
-  "apiVersion": "vivy.plugin/v0",
-  "name": "bad-channel-listen2",
-  "version": "0.1.0",
-  "seam": "channel",
-  "module": ".",
-  "grants": ["channel.poll"],
-  "channel": { "transport": "poll" }
-}

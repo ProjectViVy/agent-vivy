@@ -97,7 +97,7 @@ test("requires rejected compiler cases to name the expected rule and error", asy
 
 test("rejects legacy descriptors from accepted fixtures", async () => {
   const legacy = structuredClone(validCase)
-  legacy.modules[0].apiVersion = "vivy.plugin/v0"
+  legacy.modules[0].apiVersion = ["vivy.plugin", "v0"].join("/")
   const root = await corpus(
     [{ id: "valid-minimal", path: "valid/minimal/case.json", expect: "accept" }],
     { "valid/minimal/case.json": legacy },

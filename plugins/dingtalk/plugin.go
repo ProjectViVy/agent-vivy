@@ -39,9 +39,8 @@ import (
 	"time"
 
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
-	"github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // ChannelName is the platform name carried by every inbound envelope and
@@ -67,10 +66,10 @@ var streamRedialDelay = 3 * time.Second
 // webhookMaxBodyBytes bounds one sessionWebhook reply body read.
 const webhookMaxBodyBytes = 64 << 10
 
-// streamClient is the slice of the DingTalk Stream SDK this adapter
-// drives. It exists so tests can stand in for the real websocket client
-// (CH-C6/D1); the production factory returns the SDK's
-// *client.StreamClient with its own auto-reconnect disabled.
+// streamClient is the focused DingTalk Stream surface this adapter drives.
+// It exists so tests can stand in for the real websocket client (CH-C6/D1);
+// production uses a minimal protocol client whose HTTP and websocket paths
+// are both injected by ChannelEnv.
 type streamClient interface {
 	// RegisterChatBotCallbackRouter wires the chatbot callback handler.
 	RegisterChatBotCallbackRouter(handler chatbot.IChatBotMessageHandler)
@@ -88,13 +87,12 @@ type streamCreds struct {
 	ClientSecret string
 }
 
-// Plugin is the dingtalk channel adapter. It implements both plugin.Plugin
-// (so Register() can carry it) and plugin.Channel (so the kernel
-// ChannelHost can start it); the compile-time assertions below pin that.
+// Plugin is the transport implementation bound by the v1 ChannelProvider.
 type Plugin struct {
 	// mu guards the mutable fields below. Callbacks arrive on SDK
 	// goroutines while Stop may run on any other goroutine.
-	mu sync.Mutex
+	mu   sync.Mutex
+	host plugin.ChannelEnv
 	// webhooks maps conversation id → latest sessionWebhook URL. This is
 	// the only reply path DingTalk gives a robot message; it is runtime
 	// state only (never persisted, never logged, empty after restart).
@@ -125,47 +123,16 @@ type Plugin struct {
 	logger *slog.Logger
 }
 
-// Compile-time assertions: a seam-channel plugin IS a Channel and a
-// Plugin.
-var (
-	_ plugin.Plugin  = (*Plugin)(nil)
-	_ plugin.Channel = (*Plugin)(nil)
-)
-
-// New is the pack-generated entry point (Register calls dingtalk.New()).
-func New() plugin.Plugin {
+func newAdapter() *Plugin {
 	p := &Plugin{webhooks: make(map[string]string)}
 	p.newClient = func(creds streamCreds, openAPIHost string) streamClient {
-		opts := []client.ClientOption{
-			// Auto-reconnect stays off: the SDK's reconnect loop redials
-			// forever on a background context and would outlive Stop.
-			// p.supervise is the context-aware replacement.
-			client.WithAppCredential(client.NewAppCredentialConfig(creds.ClientID, creds.ClientSecret)),
-			client.WithAutoReconnect(false),
-		}
-		if openAPIHost != "" {
-			opts = append(opts, client.WithOpenApiHost(openAPIHost))
-		}
-		return client.NewStreamClient(opts...)
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		return newGovernedStreamClient(host, creds, openAPIHost)
 	}
 	return p
 }
-
-// Name implements plugin.Plugin.
-func (p *Plugin) Name() string { return ChannelName }
-
-// Seam implements plugin.Plugin: the channel seam, never the tool table.
-func (p *Plugin) Seam() plugin.Seam { return plugin.SeamChannel }
-
-// Grants implements plugin.Plugin. channel.poll covers the outbound
-// stream websocket; secret.read covers the app key and app secret
-// resolution.
-func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}
-}
-
-// Tools implements plugin.Plugin: channel plugins carry no tools.
-func (p *Plugin) Tools() []plugin.Tool { return nil }
 
 // Start implements plugin.Channel. Fail-closed order: settings must decode
 // and declare both env_key names, both credentials must resolve through
@@ -205,20 +172,24 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	if err != nil {
 		return fmt.Errorf("dingtalk: resolve client secret through env %q: %w", settings.ClientSecretEnv, err)
 	}
+	p.mu.Lock()
+	p.host = env
+	p.mu.Unlock()
 
 	stream := p.newClient(streamCreds{ClientID: clientID, ClientSecret: clientSecret}, settings.OpenAPIHost)
+	runCtx, cancel := context.WithCancel(ctx)
 	// The callback is registered before the first dial so no message can
 	// arrive between connect and register.
 	stream.RegisterChatBotCallbackRouter(p.onChatBotMessage(env))
-	// The SDK's Start performs the gateway ticket exchange (which is what
+	// Start performs the gateway ticket exchange (which is what
 	// rejects bad credentials) and the websocket handshake, then returns;
 	// its read loop runs on SDK goroutines. Any failure here — auth,
 	// gateway unreachable, handshake refused — fails Start closed.
-	if err := stream.Start(ctx); err != nil {
+	if err := stream.Start(runCtx); err != nil {
+		cancel()
 		return fmt.Errorf("dingtalk: connect stream: %w", err)
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	p.mu.Lock()
 	p.http = env.HTTP()
@@ -236,12 +207,11 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 }
 
 // supervise keeps the stream client connected until the context is
-// cancelled. The SDK's auto-reconnect is disabled on purpose (it redials
-// forever on a background context and would outlive Stop); this loop is
-// the context-aware replacement: while the client holds a connection,
+// cancelled. The protocol client's auto-reconnect is deliberately absent;
+// this loop is the context-aware owner: while the client holds a connection,
 // Start is a cheap no-op, so the tick only re-runs the gateway exchange
 // and handshake once the connection is actually gone. That happens on
-// graceful gateway disconnect frames (the SDK's OnDisconnect path closes
+// graceful gateway disconnect frames (the protocol reader closes
 // the conn, so the next tick redials) — but NOT on silent network death
 // (NAT timeout, read stall): the SDK never notices, Start keeps being a
 // no-op, and the ear stays deaf until process restart (CH-C6-N3). Failed
@@ -353,13 +323,16 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	p.stopped = true
 	stream, cancel, done := p.stream, p.cancel, p.done
-	p.stream, p.cancel, p.done = nil, nil, nil
+	p.stream, p.cancel, p.done, p.host = nil, nil, nil, nil
 	p.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	if stream != nil {
 		stream.Close()
+		if waiter, ok := stream.(interface{ Wait(context.Context) error }); ok {
+			_ = waiter.Wait(ctx)
+		}
 	}
 	if done != nil {
 		select {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 // backfillWait bounds the per-file diagnostics wait during backfill; it is
@@ -21,7 +21,7 @@ const maxBackfillLines = 30
 // lsp_diagnostics call. Files without a configured language server and
 // servers that stay quiet are skipped — silence means nothing to report,
 // never success.
-func (p *Plugin) ObserveWrite(ctx context.Context, env plugin.Env, paths []string) []string {
+func (p *Plugin) ObserveWrite(ctx context.Context, env plugin.Host, paths []string) []string {
 	root := env.Workspace()
 	if root == "" {
 		return nil

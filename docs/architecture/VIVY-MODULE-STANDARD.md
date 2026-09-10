@@ -92,6 +92,10 @@ conflicts:
   - module: example/legacy-search
 requestedGrants:
   - net.client
+i18n:
+  catalog: i18n/catalog.json
+  default_locale: en
+  locales: [en, zh, ja]
 lifecycle:
   scope: generation
 ```
@@ -99,7 +103,22 @@ lifecycle:
 The Descriptor MUST contain only identity, dependency, capability, conflict,
 Grant request, and lifecycle facts. It MUST NOT execute initialization, read
 environment variables, resolve Secrets, open files, start processes, access
-the network, or mutate a registry.
+the network, or mutate a registry. A backend-only Module with no
+human-readable keys MAY omit `i18n`; a Module that provides UI content or
+refers to a `label_key` MUST declare exactly one catalog.
+
+The catalog path is relative to and confined within the selected Module
+source. It MUST NOT be absolute, remote, runtime-discovered, or escape through
+traversal or a symlink. `default_locale` MUST be `en` in v1. `locales` is a
+normalized, duplicate-free packaged set containing `en`; future locales may
+be packaged even though only `en` and `zh` are currently active. Public plugin
+development requires English and Chinese as the baseline, while an
+English-complete third-party catalog with missing or partial Chinese may
+compile with build-owned `INCOMPLETE_LOCALE` evidence.
+
+Core owns `vivy.*`. A Module with ID `<module-id>` owns the literal namespace
+`plugin.<module-id>.*`; slash-to-dot or other lossy rewriting is forbidden.
+Catalog parsing, validation, and hashing have no runtime side effects.
 
 ### 3.1 Identity
 
@@ -328,6 +347,8 @@ Every Module or Port change must answer:
 8. Which conformance test proves it is real?
 9. Does it preserve the single `Service.Run` / Journal / Policy path?
 10. Which pinned Eino/EinoExt API was checked when the work touches its scope?
+11. If the Module exposes UI or a `label_key`, is its catalog present,
+    source-confined, and owned by the literal `plugin.<module-id>.*` namespace?
 
 An unanswered question is a specification failure, not an implementation
 detail.

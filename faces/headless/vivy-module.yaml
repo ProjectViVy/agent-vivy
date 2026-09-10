@@ -1,0 +1,7 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/headless, version: 0.1.0}
+source: {ref: repo:faces/headless, sha256: 0c1a976e1753e628d4da679c3eae6c755d6dba49d437264295177a1267f0a7fc}
+provides: [{port: std/face@v1, id: vivy.headless}]
+requires: [{port: core/face-host@v1, provider: vivy/face-host}]
+requestedGrants: [rpc.client]
+lifecycle: {scope: generation}

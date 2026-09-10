@@ -19,7 +19,7 @@ import (
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // recordingJournal wraps the backend journal and records every commit so
