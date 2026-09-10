@@ -16,10 +16,12 @@ import (
 
 type bridgeWorldHost struct{}
 
-func (bridgeWorldHost) ModuleID() string { return "vivy/mcp-host" }
-func (bridgeWorldHost) Workspace() string { return "" }
+func (bridgeWorldHost) ModuleID() string                       { return "vivy/mcp-host" }
+func (bridgeWorldHost) Workspace() string                      { return "" }
 func (bridgeWorldHost) OpenRead(string) (io.ReadCloser, error) { return nil, toolworld.ErrDenied }
-func (bridgeWorldHost) OpenWrite(string) (io.WriteCloser, error) { return nil, toolworld.ErrDenied }
+func (bridgeWorldHost) OpenWrite(string) (io.WriteCloser, error) {
+	return nil, toolworld.ErrDenied
+}
 func (bridgeWorldHost) Spawn(context.Context, toolworld.SpawnSpec) (toolworld.Proc, error) {
 	return nil, toolworld.ErrDenied
 }
