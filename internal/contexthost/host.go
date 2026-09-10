@@ -15,14 +15,14 @@ import (
 )
 
 const (
-	defaultSourceTimeout    = 750 * time.Millisecond
+	defaultSourceTimeout     = 750 * time.Millisecond
 	defaultMaxCandidateBytes = 1 << 20
 	defaultMaxTotalBytes     = 4 << 20
 	defaultMaxCandidates     = 64
 )
 
 var (
-	ErrInvalidSource = errors.New("contexthost: invalid source")
+	ErrInvalidSource   = errors.New("contexthost: invalid source")
 	ErrDuplicateSource = errors.New("contexthost: duplicate source")
 )
 
@@ -40,12 +40,12 @@ type Config struct {
 }
 
 type Request struct {
-	Query       string
-	SessionID   string
-	WorkspaceID string
-	TokenBudget int
+	Query          string
+	SessionID      string
+	WorkspaceID    string
+	TokenBudget    int
 	PerSourceLimit int
-	Cursors     map[string]string
+	Cursors        map[string]string
 }
 
 type Candidate struct {
@@ -60,15 +60,15 @@ type Failure struct {
 }
 
 type Result struct {
-	Candidates      []Candidate
-	Failures        []Failure
-	NextCursors     map[string]string
-	Tokens          int
-	Bytes           int
-	DroppedInvalid  int
+	Candidates       []Candidate
+	Failures         []Failure
+	NextCursors      map[string]string
+	Tokens           int
+	Bytes            int
+	DroppedInvalid   int
 	DroppedDuplicate int
-	DroppedOversize int
-	DroppedBudget   int
+	DroppedOversize  int
+	DroppedBudget    int
 }
 
 type Host struct {
@@ -180,14 +180,11 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 		}
 	}
 
+	// Stable sort preserves Recipe source order and each Source's own order
+	// when confidence is equal. Sources cannot smuggle a second ordering
+	// mechanism into the Host.
 	sort.SliceStable(collected, func(i, j int) bool {
-		if collected[i].Confidence != collected[j].Confidence {
-			return collected[i].Confidence > collected[j].Confidence
-		}
-		if collected[i].SourceID != collected[j].SourceID {
-			return collected[i].SourceID < collected[j].SourceID
-		}
-		return collected[i].ContentID < collected[j].ContentID
+		return collected[i].Confidence > collected[j].Confidence
 	})
 
 	seenContent := make(map[string]struct{}, len(collected))
