@@ -82,6 +82,8 @@ type ConformanceResult struct {
   prevents `SUPPORTED` and no phase bypassed the P1 selection rule.
 - [ ] Prevent Module or README claims from changing computed state.
 - [ ] Include evidence IDs without embedding local absolute paths or Secrets.
+- [ ] Audit catalog completeness states from compiler evidence; Descriptor or
+  documentation claims cannot promote `INCOMPLETE_LOCALE` to `COMPLETE`.
 - [ ] Run `go test ./sdk/internal -run SupportState`.
 - [ ] Commit `feat(inspect): derive capability support from evidence`.
 
@@ -103,6 +105,8 @@ type ConformanceResult struct {
   conflict, unused Provider, protected Tool override, UI root conflict,
   Middleware timeout, startup rollback, bad hash, v0 input, and unsupported
   Eino-scoped capability.
+- [ ] Cover catalog duplicate keys, unknown fields, ownership, placeholder
+  drift, missing English, confinement/symlink escape, and every resource limit.
 - [ ] Assert every invalid case emits no formal artifact.
 - [ ] Assert errors name Module, Port/edge, and violated rule with redaction.
 - [ ] Repeat valid builds and assert identical canonical Manifest and
@@ -129,7 +133,8 @@ type ConformanceResult struct {
 - [ ] Start default with no credentials and prove network instances remain
   unconfigured/inactive.
 - [ ] Verify each omitted Module has no import, constructor, asset, Port edge,
-  Grant, or Inspect record in the minimal artifact.
+  Grant, catalog, generated localization projection, or Inspect record in the
+  minimal artifact.
 - [ ] Run both executable smoke paths required by the selected Recipes.
 - [ ] Commit `test(release): prove default parity and minimal removal`.
 
@@ -152,6 +157,8 @@ type ConformanceResult struct {
 - [ ] Write a RED test that installs candidate B, detects failed acceptance,
   and restores sealed artifact A on the next launch.
 - [ ] Assert artifact A's embedded identity and Manifest are unchanged.
+- [ ] Assert rollback restores catalog digests and packaged-locale identity
+  together with the whole sealed Generation.
 - [ ] Assert durable data follows existing compatibility contracts and no
   plugin-specific rollback writer touches Journal truth.
 - [ ] Perform the real lifecycle rollback and record artifact IDs.
@@ -201,6 +208,8 @@ type ConformanceResult struct {
 - [ ] Run every focused Port suite.
 - [ ] Run `vivy-sdk verify` on all selected public Modules.
 - [ ] Pack and inspect default, minimal, full-UI, and SCX candidate Generations.
+- [ ] Prove canonical catalog formatting is identity-neutral and semantic
+  catalog changes deterministically change Generation identity.
 - [ ] Run `just ci`.
 - [ ] Run the split browser smoke at `http://127.0.0.1:3015` for user-visible
   UI behavior.

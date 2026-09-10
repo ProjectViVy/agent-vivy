@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // outboundDeliveryTimeout bounds one outbound assistant delivery. Send

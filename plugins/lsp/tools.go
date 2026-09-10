@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 // filePos is the shared argument shape of the position-based tools. Line
@@ -21,7 +21,7 @@ type filePos struct {
 
 // syncOpen validates position args, syncs the file from disk into the
 // server, and returns the connection plus the LSP position.
-func syncOpen(ctx context.Context, env plugin.Env, t *manager, raw json.RawMessage) (*server, string, filePos, error) {
+func syncOpen(ctx context.Context, env plugin.Host, t *manager, raw json.RawMessage) (*server, string, filePos, error) {
 	var in filePos
 	if err := json.Unmarshal(raw, &in); err != nil || !workspaceRel(in.Path) {
 		return nil, "", in, plugin.ErrInvalidArgs
@@ -48,7 +48,7 @@ func syncOpen(ctx context.Context, env plugin.Env, t *manager, raw json.RawMessa
 }
 
 // syncFile reads the saved file and pushes it into the server buffer.
-func syncFile(ctx context.Context, srv *server, env plugin.Env, lang language, root, rel string) error {
+func syncFile(ctx context.Context, srv *server, env plugin.Host, lang language, root, rel string) error {
 	rc, err := env.OpenRead(rel)
 	if err != nil {
 		return fmt.Errorf("lsp: read %s: %w", rel, err)
@@ -73,7 +73,7 @@ func (definitionTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path of the file"},"line":{"type":"integer","description":"1-based line of the symbol"},"column":{"type":"integer","description":"1-based column of the symbol"}},"required":["path","line","column"]}`)
 }
 
-func (t definitionTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (string, error) {
+func (t definitionTool) Run(ctx context.Context, env plugin.Host, args json.RawMessage) (string, error) {
 	srv, uri, pos, err := syncOpen(ctx, env, t.mgr, args)
 	if err != nil {
 		return "", err
@@ -100,7 +100,7 @@ func (referencesTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path of the file"},"line":{"type":"integer","description":"1-based line of the symbol"},"column":{"type":"integer","description":"1-based column of the symbol"},"include_declaration":{"type":"boolean","description":"Also report the declaration itself (default false)"}},"required":["path","line","column"]}`)
 }
 
-func (t referencesTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (string, error) {
+func (t referencesTool) Run(ctx context.Context, env plugin.Host, args json.RawMessage) (string, error) {
 	// syncOpen ignores the extra include_declaration key; decode it
 	// separately.
 	var extra struct {
@@ -134,7 +134,7 @@ func (symbolsTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path of the file"}},"required":["path"]}`)
 }
 
-func (t symbolsTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (string, error) {
+func (t symbolsTool) Run(ctx context.Context, env plugin.Host, args json.RawMessage) (string, error) {
 	var in struct {
 		Path string `json:"path"`
 	}
@@ -184,7 +184,7 @@ func (renameTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path of the file containing the symbol"},"line":{"type":"integer","description":"1-based line of the symbol"},"column":{"type":"integer","description":"1-based column of the symbol"},"new_name":{"type":"string","description":"New name for the symbol"}},"required":["path","line","column","new_name"]}`)
 }
 
-func (t renameTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (string, error) {
+func (t renameTool) Run(ctx context.Context, env plugin.Host, args json.RawMessage) (string, error) {
 	var in struct {
 		filePos
 		NewName string `json:"new_name"`

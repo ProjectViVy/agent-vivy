@@ -10,13 +10,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"agent-vivy/sdk/plugin"
+	faceport "agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/tui/live"
 	"agent-vivy/sdk/tui/surface"
 	"agent-vivy/sdk/tui/view"
 )
 
 type testEnv struct{ called bool }
+
+func (*testEnv) ModuleID() string { return "vivy/tui" }
 
 func (e *testEnv) Call(context.Context, string, any) (json.RawMessage, error) {
 	e.called = true
@@ -26,7 +28,7 @@ func (e *testEnv) Call(context.Context, string, any) (json.RawMessage, error) {
 func (*testEnv) OnEvent(func(string, json.RawMessage)) {}
 
 func TestKind(t *testing.T) {
-	if got := New(plugin.FaceOptions{}).Kind(); got != Kind {
+	if got := New(faceport.Options{}).Kind(); got != Kind {
 		t.Fatalf("kind = %q", got)
 	}
 }
@@ -38,7 +40,7 @@ func TestRejectsNonTerminalBeforeInitialize(t *testing.T) {
 	}
 	defer out.Close()
 	env := &testEnv{}
-	_, err = New(plugin.FaceOptions{Out: out, Err: io.Discard}).Run(context.Background(), env)
+	_, err = New(faceport.Options{Out: out, Err: io.Discard}).Run(context.Background(), env)
 	if err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Fatalf("expected terminal error, got %v", err)
 	}
@@ -51,6 +53,8 @@ type localeEnv struct {
 	calls  []string
 	locale string
 }
+
+func (*localeEnv) ModuleID() string { return "vivy/tui" }
 
 func (e *localeEnv) Call(_ context.Context, method string, _ any) (json.RawMessage, error) {
 	e.calls = append(e.calls, method)
@@ -67,7 +71,7 @@ func TestFaceSettingsLocaleReachesView(t *testing.T) {
 		t.Run(locale, func(t *testing.T) {
 			env := &localeEnv{locale: locale}
 			rendered := false
-			f := &terminalFace{opts: plugin.FaceOptions{Out: io.Discard, Err: io.Discard, DebugToolOutput: true}}
+			f := &terminalFace{opts: faceport.Options{Out: io.Discard, Err: io.Discard, DebugToolOutput: true}}
 			f.runView = func(driver surface.Driver, _ io.Writer, options ...view.Options) error {
 				rendered = true
 				if string(driver.(*live.Live).Locale()) != locale || len(options) != 1 || string(options[0].Locale) != locale || !options[0].DebugToolOutput {

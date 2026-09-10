@@ -1,7 +1,7 @@
 // Package lsp is the VC-3 language-server plugin (D4) and the first
 // standalone Vivy plugin module. It spawns language servers through
 // Env.Spawn (granted proc.spawn) and exposes their intelligence as
-// model tools. The only import window is agent-vivy/sdk/plugin.
+// model tools through the focused ToolWorld Port.
 package lsp
 
 import (
@@ -14,7 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-vivy/sdk/plugin"
+	"agent-vivy/sdk/module"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 // Plugin owns the manager for the process lifetime; connections persist
@@ -23,21 +24,39 @@ type Plugin struct {
 	mgr *manager
 }
 
-func New() plugin.Plugin {
-	p := &Plugin{mgr: newManager()}
-	p.mgr.startReaper()
-	return p
+var (
+	_ plugin.Provider                     = (*Plugin)(nil)
+	_ plugin.DiagnosticObserver           = (*Plugin)(nil)
+	_ plugin.LanguageServerStatusProvider = (*Plugin)(nil)
+)
+
+type vivyModule struct{}
+
+func New() module.Module { return vivyModule{} }
+func (vivyModule) Construct(context.Context, module.Host) (module.Instance, error) {
+	return moduleInstance{}, nil
 }
 
-func (p *Plugin) Name() string      { return "lsp" }
-func (p *Plugin) Seam() plugin.Seam { return plugin.SeamToolWorld }
+type moduleInstance struct{}
 
-func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantFSRead, plugin.GrantFSWrite, plugin.GrantProcSpawn}
+func (moduleInstance) Start(context.Context) error { return nil }
+func (moduleInstance) Ready(context.Context) error { return nil }
+func (moduleInstance) Stop(context.Context) error  { return nil }
+func (moduleInstance) Close(context.Context) error { return nil }
+
+func NewProvider() *Plugin {
+	return &Plugin{mgr: newManager()}
 }
 
-func (p *Plugin) Tools() []plugin.Tool {
-	return []plugin.Tool{
+type worldTool interface {
+	Name() string
+	Effect() plugin.Effect
+	Schema() json.RawMessage
+	Run(context.Context, plugin.Host, json.RawMessage) (string, error)
+}
+
+func (p *Plugin) tools() []worldTool {
+	return []worldTool{
 		diagnosticsTool{mgr: p.mgr},
 		definitionTool{mgr: p.mgr},
 		referencesTool{mgr: p.mgr},
@@ -45,11 +64,34 @@ func (p *Plugin) Tools() []plugin.Tool {
 		renameTool{mgr: p.mgr},
 	}
 }
+func (*Plugin) Definition() plugin.Definition {
+	return plugin.Definition{ID: "vivy.lsp", Description: "Language server tools"}
+}
+func (p *Plugin) Discover(context.Context, plugin.Host) ([]plugin.ToolDefinition, error) {
+	defs := make([]plugin.ToolDefinition, 0, 5)
+	for _, t := range p.tools() {
+		defs = append(defs, plugin.ToolDefinition{ID: toolID(t.Name()), Description: t.Name(), Effect: t.Effect(), Schema: t.Schema()})
+	}
+	return defs, nil
+}
+func (p *Plugin) Invoke(ctx context.Context, env plugin.Host, id string, args json.RawMessage) (plugin.Result, error) {
+	for _, t := range p.tools() {
+		if toolID(t.Name()) == id {
+			text, err := t.Run(ctx, env, args)
+			return plugin.Result{Text: text}, err
+		}
+	}
+	return plugin.Result{}, plugin.ErrInvalidArgs
+}
+func (p *Plugin) Close(context.Context) error { return p.mgr.close() }
+func toolID(name string) string               { return name }
 
-// LanguageServerStatuses implements plugin.LanguageServerStatusProvider.
+type LanguageServerStatus = plugin.LanguageServerStatus
+
+// LanguageServerStatuses implements LanguageServerStatusProvider.
 // It reports cached process truth for the exact run workspace without
 // starting a server merely because a UI requested status.
-func (p *Plugin) LanguageServerStatuses(_ context.Context, workspace string) []plugin.LanguageServerStatus {
+func (p *Plugin) LanguageServerStatuses(_ context.Context, workspace string) []LanguageServerStatus {
 	return p.mgr.statuses(workspace)
 }
 
@@ -68,7 +110,7 @@ func (diagnosticsTool) Schema() json.RawMessage {
 // Run opens the file from disk (saved content only), syncs it into the
 // language server for its language, and waits for a fresh
 // publishDiagnostics round.
-func (t diagnosticsTool) Run(ctx context.Context, env plugin.Env, args json.RawMessage) (string, error) {
+func (t diagnosticsTool) Run(ctx context.Context, env plugin.Host, args json.RawMessage) (string, error) {
 	var in struct {
 		Path   string `json:"path"`
 		WaitMS int    `json:"wait_ms"`
@@ -111,7 +153,7 @@ func (t diagnosticsTool) Run(ctx context.Context, env plugin.Env, args json.RawM
 	return formatDiagnostics(root, uri, srv.diagnosticsFor(uri), timedOut), nil
 }
 
-func readFile(env plugin.Env, rel string) ([]byte, error) {
+func readFile(env plugin.Host, rel string) ([]byte, error) {
 	rc, err := env.OpenRead(rel)
 	if err != nil {
 		return nil, err

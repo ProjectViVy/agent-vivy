@@ -14,7 +14,7 @@
       },
       "provides": [{ "port": "std/tool@v1", "id": "fixture.process" }],
       "requires": [],
-      "requestedGrants": [{ "name": "proc.spawn" }],
+      "requestedGrants": ["proc.spawn"],
       "lifecycle": { "scope": "generation" }
     }
   ]

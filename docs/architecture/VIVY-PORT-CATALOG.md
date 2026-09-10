@@ -261,6 +261,18 @@ Backend boundaries remain authoritative. A UI can hide or replace an approval
 view; it cannot forge server approval, read raw Secrets, write the Journal,
 execute a Tool, or start a Run without the server-side path.
 
+PresentationHost exposes one read-only localization surface to selected Web
+and TUI composition:
+
+```text
+t(key, args, form) -> localized plain UTF-8 text
+```
+
+`form` is empty, `short`, or `long`. Both Faces consume the same selected
+catalog units and the fallback contract in `VIVY-PLUGIN-SPEC.md`; this creates
+no fifteenth public Port, Grant, route, registry, permission prompt, runtime
+discovery mechanism, or backend authority.
+
 ## 12. Control Action
 
 ### `std/control-action@v1`
@@ -320,6 +332,7 @@ The following are not public Ports:
 - Credential backend;
 - raw Eino Graph, Lambda, callback, or schema type;
 - runtime Module loader;
+- localization discovery or registration outside selected Module catalogs;
 - Kernel Service replacement;
 - untyped global event listener;
 - Tool executor that bypasses ToolHost.

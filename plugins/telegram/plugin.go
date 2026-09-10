@@ -20,12 +20,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"github.com/mymmrac/telego"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // ChannelName is the platform name carried by every inbound envelope and
@@ -42,9 +41,7 @@ const senderPrefix = ChannelName + ":"
 // enough for Stop to shed the open request quickly.
 const pollTimeoutSeconds = 30
 
-// Plugin is the telegram channel adapter. It implements both plugin.Plugin
-// (so Register() can carry it) and plugin.Channel (so the kernel
-// ChannelHost can start it); the compile-time assertion below pins that.
+// Plugin is the transport implementation bound by the v1 ChannelProvider.
 //
 // After Start returns, bot/cancel/done are set once and never mutated, so
 // Send and Stop may run on any goroutine without a lock (CH-C3-N2).
@@ -58,32 +55,13 @@ type Plugin struct {
 	done chan struct{}
 }
 
-// Compile-time assertion: a seam-channel plugin IS a Channel.
-var _ plugin.Channel = (*Plugin)(nil)
-
 // MaxMessageRunes implements plugin.RunesLimiter (CH-C4-N1): the Host
 // splits assistant replies at this bound before Send, so an over-limit
 // reply arrives as several messages instead of one rejected sendMessage.
 // Keep in sync with channel.max_message_runes in vivy-plugin.json.
 func (p *Plugin) MaxMessageRunes() int { return 4096 }
 
-// New is the pack-generated entry point (Register calls telegram.New()).
-func New() plugin.Plugin { return &Plugin{} }
-
-// Name implements plugin.Plugin.
-func (p *Plugin) Name() string { return ChannelName }
-
-// Seam implements plugin.Plugin: the channel seam, never the tool table.
-func (p *Plugin) Seam() plugin.Seam { return plugin.SeamChannel }
-
-// Grants implements plugin.Plugin. channel.poll is the only exception to
-// the "no long-running background service" rule: outbound long polling.
-func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}
-}
-
-// Tools implements plugin.Plugin: channel plugins carry no tools.
-func (p *Plugin) Tools() []plugin.Tool { return nil }
+func newAdapter() *Plugin { return &Plugin{} }
 
 // Start implements plugin.Channel. Fail-closed order: settings must decode
 // and declare token_env, the token must resolve through the Host-pinned
@@ -104,20 +82,15 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 		return errors.New("telegram: settings.token_env is required " +
 			"(channels.telegram.settings.token_env must name the bot token variable)")
 	}
-	var proxyURL *url.URL
 	if settings.Proxy != "" {
-		u, err := url.Parse(settings.Proxy)
-		if err != nil {
-			return fmt.Errorf("telegram: invalid proxy URL %q: %w", settings.Proxy, err)
-		}
-		proxyURL = u
+		return errors.New("telegram: proxy is unsupported by the governed channel transport")
 	}
 	token, err := env.Secret(settings.TokenEnv)
 	if err != nil {
 		return fmt.Errorf("telegram: resolve bot token through env %q: %w", settings.TokenEnv, err)
 	}
 
-	bot, err := telego.NewBot(token, p.botOptions(env, settings, proxyURL)...)
+	bot, err := telego.NewBot(token, p.botOptions(env, settings)...)
 	if err != nil {
 		// The token value must never reach the error (D-010); telego's
 		// error messages carry only validation outcomes.
@@ -155,19 +128,10 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 // Host client's overall Timeout is deliberately not inherited because one
 // long-poll getUpdates request legitimately stays open for
 // pollTimeoutSeconds plus latency — the poll timeout itself is the
-// deadline. proxyURL may be nil (direct dialing).
-func (p *Plugin) botOptions(env plugin.ChannelEnv, s Settings, proxyURL *url.URL) []telego.BotOption {
-	var transport http.RoundTripper = env.HTTP().Transport // nil = http.DefaultTransport
-	if proxyURL != nil {
-		proxy := http.ProxyURL(proxyURL)
-		if base, ok := env.HTTP().Transport.(*http.Transport); ok && base != nil {
-			clone := base.Clone()
-			clone.Proxy = proxy
-			transport = clone
-		} else {
-			transport = &http.Transport{Proxy: proxy}
-		}
-	}
+// deadline. Proxy configuration fails closed in Start because replacing
+// this transport would bypass the Host's sealed destination policy.
+func (p *Plugin) botOptions(env plugin.ChannelEnv, s Settings) []telego.BotOption {
+	transport := env.HTTP().Transport // nil = http.DefaultTransport
 	client := &http.Client{Transport: transport}
 	opts := []telego.BotOption{
 		telego.WithHTTPClient(client),

@@ -101,25 +101,14 @@ func (b *CommandBackend) Execute(ctx context.Context, runID domain.RunID, reques
 	cmd := exec.CommandContext(execCtx, path, args...)
 	cmd.Dir = cwd
 	cmd.Env = env
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return tools.CommandResult{}, fmt.Errorf("command: stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return tools.CommandResult{}, fmt.Errorf("command: stderr pipe: %w", err)
-	}
+	var out, errOut boundedCommandOutput
+	out.limit, errOut.limit = b.maxOutputBytes, b.maxOutputBytes
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
 	if err := cmd.Start(); err != nil {
 		return tools.CommandResult{}, fmt.Errorf("command: start: %w", err)
 	}
-	var out, errOut boundedCommandOutput
-	out.limit, errOut.limit = b.maxOutputBytes, b.maxOutputBytes
-	var readers sync.WaitGroup
-	readers.Add(2)
-	go func() { defer readers.Done(); _, _ = io.Copy(&out, stdout) }()
-	go func() { defer readers.Done(); _, _ = io.Copy(&errOut, stderr) }()
 	waitErr := cmd.Wait()
-	readers.Wait()
 	result := tools.CommandResult{Command: strings.Join(append([]string{command}, args...), " "), Cwd: cwd, Stdout: out.String(), Stderr: errOut.String(), StdoutTrunc: out.truncated, StderrTrunc: errOut.truncated, DurationMS: time.Since(started).Milliseconds(), Untrusted: true}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()

@@ -31,7 +31,7 @@ import (
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 func TestSessionHistoryRepairsDurableAssistantProjection(t *testing.T) {

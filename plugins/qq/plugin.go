@@ -28,8 +28,8 @@
 // plugins/dingtalk and plugins/feishu). botgo's built-in session manager
 // is NOT used: its local manager blocks forever in an internal reconnect
 // loop that is not context-aware and has no stop — it would keep the ear
-// alive (and redialing) after Stop. This adapter drives botgo's exported
-// websocket protocol client directly, one fresh client per supervised
+// alive (and redialing) after Stop. This adapter drives the documented
+// websocket protocol through a Host-governed client, one fresh client per supervised
 // attempt, so a stopped ear never resurrects and no goroutine leaks.
 //
 // Policy boundaries:
@@ -59,11 +59,9 @@ import (
 	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/openapi/options"
 	"github.com/tencent-connect/botgo/sessions/manager"
-	"github.com/tencent-connect/botgo/token"
-	"github.com/tencent-connect/botgo/websocket"
 	"golang.org/x/oauth2"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // ChannelName is the platform name carried by every inbound envelope and
@@ -97,10 +95,9 @@ var (
 	dedupMaxEntries = 10000
 )
 
-// wsClient is the slice of botgo's websocket protocol client this adapter
-// drives (websocket.ClientImpl, registered by the SDK's own init). It
-// exists so tests can stand in for the real gateway client; the production
-// factory returns the SDK's client built over one dto.Session.
+// wsClient is the websocket protocol slice this adapter drives. It exists so
+// tests can stand in for the real gateway client; production builds a
+// Host-governed client over one botgo dto.Session.
 //
 // Attempt semantics (botgo client): Connect dials the gateway URL,
 // Identify (fresh session) or Resume (carried session id) authenticates,
@@ -117,13 +114,10 @@ type wsClient interface {
 	Close()
 }
 
-// qqAPI is the slice of botgo's OpenAPI client this adapter drives. It
-// exists so Start (gateway discovery) and Send (C2C reply) can be tested
-// against a loopback stub: botgo's base domain is a package constant, not
-// a per-client option. The production factory returns the SDK's client
-// (botgo.NewOpenAPI / botgo.NewSandboxOpenAPI), which manages the access
-// token through the shared oauth2.TokenSource — this adapter never
-// touches tokens itself.
+// qqAPI is the OpenAPI slice this adapter drives. It exists so Start
+// (gateway discovery) and Send (C2C reply) can be tested against a loopback
+// stub. Production routes it through ChannelEnv.HTTP and shares the
+// Host-governed oauth2.TokenSource.
 type qqAPI interface {
 	// WS fetches the websocket gateway URL and session limits.
 	WS(ctx context.Context, params map[string]string, body string) (*dto.WebsocketAP, error)
@@ -143,13 +137,12 @@ type chatState struct {
 	seq   uint32 // next msg_seq to hand out for that msg_id (starts at 1)
 }
 
-// Plugin is the qq channel adapter. It implements both plugin.Plugin (so
-// Register() can carry it) and plugin.Channel (so the kernel ChannelHost
-// can start it); the compile-time assertions below pin that.
+// Plugin is the transport implementation bound by the v1 ChannelProvider.
 type Plugin struct {
 	// mu guards the mutable fields below. Events arrive on SDK goroutines
 	// while Send may run on Host goroutines and Stop on any other.
-	mu sync.Mutex
+	mu   sync.Mutex
+	host plugin.ChannelEnv
 	// chats maps ChatID (the C2C user openid) to the passive-reply window.
 	chats map[string]*chatState
 	// seen is the duplicate-event fence: msg_id → first-seen time.
@@ -178,7 +171,7 @@ type Plugin struct {
 	newAPI func(appID string, ts oauth2.TokenSource, sandbox bool) qqAPI
 	// newTokenSource is the access-token source factory; New pins the
 	// production constructor and tests swap it. Never mutated after New.
-	newTokenSource func(appID, appSecret string) oauth2.TokenSource
+	newTokenSource func(context.Context, string, string) oauth2.TokenSource
 	// ws is the live websocket client of the running supervisor attempt;
 	// Stop closes it. Nil before Start, between redials, and after Stop.
 	ws wsClient
@@ -217,36 +210,23 @@ type Plugin struct {
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
 // Plugin.
-var (
-	_ plugin.Plugin  = (*Plugin)(nil)
-	_ plugin.Channel = (*Plugin)(nil)
-)
-
-// New is the pack-generated entry point (Register calls qq.New()).
-func New() plugin.Plugin {
+func newAdapter() *Plugin {
 	p := &Plugin{}
-	p.newTokenSource = func(appID, appSecret string) oauth2.TokenSource {
-		// The SDK fetches and caches the access token lazily through this
-		// source (single-flight, expiry-checked); Start makes the first
-		// call eagerly so a rejected credential fails closed.
-		return token.NewQQBotTokenSource(&token.QQBotCredentials{AppID: appID, AppSecret: appSecret})
+	p.newTokenSource = func(ctx context.Context, appID, appSecret string) oauth2.TokenSource {
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		return newGovernedQQTokenSource(ctx, host, appID, appSecret)
 	}
 	p.newAPI = func(appID string, ts oauth2.TokenSource, sandbox bool) qqAPI {
-		if sandbox {
-			return botgo.NewSandboxOpenAPI(appID, ts)
-		}
-		return botgo.NewOpenAPI(appID, ts)
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		return newGovernedQQAPI(host, appID, ts, sandbox)
 	}
 	p.newWS = func(onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler,
 		gatewayURL string, ts oauth2.TokenSource, resumeID string, resumeSeq uint32) wsClient {
-		// Register the event handlers on the SDK's dispatcher. The
-		// registry is a package global (botgo's design): one QQ adapter
-		// instance per process, and the latest Start's closures win — a
-		// restarted channel re-registers its own handlers. Registering the
-		// C2C handler requests the group/C2C intent bit; group frames may
-		// still arrive on it and are dropped by the SDK dispatch (no
-		// group handler is registered — see the package comment).
-		intent := event.RegisterHandlers(onReady, onC2C)
+		intent := dto.EventToIntent(dto.EventC2CMessageCreate)
 		session := dto.Session{
 			ID:          resumeID,
 			URL:         gatewayURL,
@@ -255,7 +235,10 @@ func New() plugin.Plugin {
 			LastSeq:     resumeSeq,
 			Shards:      dto.ShardConfig{ShardID: 0, ShardCount: 1},
 		}
-		return websocket.ClientImpl.New(session)
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		return newGovernedQQWebSocket(host, session, onC2C, onReady)
 	}
 	// Mute the SDK's default console logger before anything dials: it
 	// prints websocket frames and request bodies at INFO level, including
@@ -264,22 +247,6 @@ func New() plugin.Plugin {
 	botgo.SetLogger(quietLogger{})
 	return p
 }
-
-// Name implements plugin.Plugin.
-func (p *Plugin) Name() string { return ChannelName }
-
-// Seam implements plugin.Plugin: the channel seam, never the tool table.
-func (p *Plugin) Seam() plugin.Seam { return plugin.SeamChannel }
-
-// Grants implements plugin.Plugin. channel.poll covers the outbound
-// websocket long connection; secret.read covers the app id and app secret
-// resolution.
-func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}
-}
-
-// Tools implements plugin.Plugin: channel plugins carry no tools.
-func (p *Plugin) Tools() []plugin.Tool { return nil }
 
 // Start implements plugin.Channel. Fail-closed order: settings must decode
 // and declare both env_key names, both credentials must resolve through
@@ -324,12 +291,15 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	if err != nil {
 		return fmt.Errorf("qq: resolve app secret through env %q: %w", settings.AppSecretEnv, err)
 	}
+	p.mu.Lock()
+	p.host = env
+	p.mu.Unlock()
 
 	// The token source is built over the credential pair (values live only
 	// in memory, D-010). The first Token() call hits the official token
 	// endpoint; a rejected pair fails Start closed here, before any ws
 	// attempt burns session-start quota.
-	ts := p.newTokenSource(appID, appSecret)
+	ts := p.newTokenSource(ctx, appID, appSecret)
 	if _, err := ts.Token(); err != nil {
 		return fmt.Errorf("qq: resolve access token: %w", err)
 	}
@@ -822,7 +792,7 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	p.stopped = true
 	cancel, done := p.cancel, p.done
 	p.cancel, p.done = nil, nil
-	p.ws, p.api = nil, nil
+	p.ws, p.api, p.host = nil, nil, nil
 	p.currentSession, p.readyCh, p.runCtx = nil, nil, nil
 	p.mu.Unlock()
 	if cancel != nil {

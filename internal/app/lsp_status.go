@@ -11,7 +11,7 @@ import (
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 const (
@@ -35,16 +35,9 @@ type lspProviderCallKey struct {
 // buildLanguageServerStatusSource keeps plugin-private process state behind a
 // bounded session-to-latest-primary-workspace ownership boundary. It never
 // creates a workspace and returns nil when the generation has no owner.
-func buildLanguageServerStatusSource(plugins []plugin.Plugin, runs storage.RunStore, workspaces *runtime.WorkspaceManager) controlrpc.LanguageServerStatusSource {
-	providers := make([]plugin.LanguageServerStatusProvider, 0)
-	for _, candidate := range plugins {
-		provider, ok := candidate.(plugin.LanguageServerStatusProvider)
-		if ok && candidate.Seam() == plugin.SeamToolWorld {
-			providers = append(providers, provider)
-			if len(providers) == maxLSPStatusProviders {
-				break
-			}
-		}
+func buildLanguageServerStatusSource(providers []plugin.LanguageServerStatusProvider, runs storage.RunStore, workspaces *runtime.WorkspaceManager) controlrpc.LanguageServerStatusSource {
+	if len(providers) > maxLSPStatusProviders {
+		providers = providers[:maxLSPStatusProviders]
 	}
 	latest, ok := runs.(storage.LatestPrimaryRunStore)
 	if len(providers) == 0 || !ok || workspaces == nil {

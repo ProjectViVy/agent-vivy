@@ -1,0 +1,3 @@
+apiVersion: vivy.generation/v1
+profile: minimal
+modules: [vivy/kernel, vivy/tool-host]

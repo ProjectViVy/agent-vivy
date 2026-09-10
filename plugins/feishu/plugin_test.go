@@ -3,12 +3,14 @@ package feishu
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +25,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // Synthetic test credentials. No real Feishu/Lark app is involved anywhere;
@@ -65,6 +67,9 @@ type fakeEnv struct {
 	published []plugin.InboundMessage
 }
 
+func (e *fakeEnv) ModuleID() string     { return "vivy/feishu" }
+func (e *fakeEnv) Logger() *slog.Logger { return nil }
+
 func (e *fakeEnv) Secret(envKey string) (string, error) {
 	v, ok := os.LookupEnv(envKey)
 	if !ok || v == "" {
@@ -74,6 +79,10 @@ func (e *fakeEnv) Secret(envKey string) (string, error) {
 }
 
 func (e *fakeEnv) HTTP() *http.Client { return e.client }
+func (e *fakeEnv) DialTLS(ctx context.Context, network, address string) (net.Conn, error) {
+	dialer := tls.Dialer{NetDialer: &net.Dialer{}, Config: &tls.Config{InsecureSkipVerify: true}} // test loopback only
+	return dialer.DialContext(ctx, network, address)
+}
 
 func (e *fakeEnv) Settings() json.RawMessage {
 	if len(e.settings) == 0 {
@@ -104,7 +113,9 @@ func envFor(t *testing.T, settings string) *fakeEnv {
 	return &fakeEnv{
 		appID:    setCredentials(t),
 		settings: json.RawMessage(settings),
-		client:   &http.Client{},
+		client: &http.Client{Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // test loopback only
+		}},
 	}
 }
 
@@ -258,7 +269,7 @@ func startWithFake(t *testing.T, env *fakeEnv, ws *fakeWS) (*Plugin, *wsFactoryS
 		ws.setOnEvent(onEvent)
 		return ws
 	}}
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newWS = spy.build
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
@@ -481,7 +492,7 @@ func TestStartFailsClosed(t *testing.T) {
 			env := &fakeEnv{settings: json.RawMessage(tc.settings), client: &http.Client{}}
 			ws := newFakeWS(tc.startErr)
 			spy := &wsFactorySpy{f: func(eventFunc, wsCreds, string) wsClient { return ws }}
-			p := New().(*Plugin)
+			p := newAdapter()
 			p.newWS = spy.build
 			ctx := context.Background()
 			if tc.deadCtx {
@@ -522,7 +533,7 @@ func TestStartPassesResolvedCredentials(t *testing.T) {
 	apiSpy := &apiFactorySpy{f: func(creds wsCreds, domain string) *lark.Client {
 		return lark.NewClient(creds.AppID, creds.AppSecret, lark.WithOpenBaseUrl(domain))
 	}}
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newWS = wsSpy.build
 	p.newAPI = apiSpy.build
 	if err := p.Start(context.Background(), env); err != nil {
@@ -608,7 +619,7 @@ func TestStartStopFullLoop(t *testing.T) {
 	if err := p.Stop(ctx); err != nil {
 		t.Fatalf("second stop: %v", err)
 	}
-	if err := (New().(*Plugin)).Stop(context.Background()); err != nil {
+	if err := (newAdapter()).Stop(context.Background()); err != nil {
 		t.Fatalf("stop without start: %v", err)
 	}
 	if _, starts, closed := ws.state(); !closed || starts != 1 {
@@ -697,7 +708,7 @@ func TestStartAfterStopStartsFresh(t *testing.T) {
 // TestSendNotStartedFailsClosed: Send before Start, and an empty chat id,
 // fail closed without touching the network.
 func TestSendNotStartedFailsClosed(t *testing.T) {
-	p := New().(*Plugin)
+	p := newAdapter()
 	if _, err := p.Send(context.Background(), plugin.OutboundMessage{
 		ChatID: "oc_chat_1",
 		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "x"}},
@@ -904,7 +915,7 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"code": 0,
 			"msg":  "ok",
-			"data": map[string]string{"URL": "ws://" + r.Host + "/ws"},
+			"data": map[string]string{"URL": "wss://" + r.Host + "/ws"},
 		})
 	})
 
@@ -1052,7 +1063,7 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		})
 	})
 
-	stub.server = httptest.NewServer(mux)
+	stub.server = httptest.NewTLSServer(mux)
 	t.Cleanup(stub.server.Close)
 	return stub
 }
@@ -1089,8 +1100,9 @@ func (s *larkStub) endpointCount() int {
 func TestWSLoopbackLifecycle(t *testing.T) {
 	stub := newLarkStub(t, stubOptions{})
 	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+	env.client = stub.server.Client()
 
-	p := New().(*Plugin) // production factories: the real SDK clients
+	p := newAdapter() // production factories: the real SDK clients
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -1164,7 +1176,7 @@ func TestRedialAfterDrop(t *testing.T) {
 		return c
 	}}
 	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`"}`)
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newWS = spy.build
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
@@ -1316,7 +1328,7 @@ func TestStopDuringFirstConnectReturns(t *testing.T) {
 		ws.setOnEvent(onEvent)
 		return mutedReadyWS{ws}
 	}}
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newWS = spy.build
 	startErr := make(chan error, 1)
 	go func() {

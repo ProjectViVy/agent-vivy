@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -22,7 +23,7 @@ import (
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/payload"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // fakeEnv is an in-memory plugin.ChannelEnv: the same surface the kernel
@@ -40,6 +41,8 @@ type fakeEnv struct {
 	published []plugin.InboundMessage
 }
 
+func (e *fakeEnv) ModuleID() string { return "vivy/dingtalk" }
+
 func (e *fakeEnv) Secret(envKey string) (string, error) {
 	v, ok := e.secrets[envKey]
 	if !ok || v == "" {
@@ -49,6 +52,10 @@ func (e *fakeEnv) Secret(envKey string) (string, error) {
 }
 
 func (e *fakeEnv) HTTP() *http.Client { return e.client }
+func (e *fakeEnv) DialTLS(ctx context.Context, network, address string) (net.Conn, error) {
+	dialer := tls.Dialer{NetDialer: &net.Dialer{}, Config: &tls.Config{InsecureSkipVerify: true}} // test loopback only
+	return dialer.DialContext(ctx, network, address)
+}
 
 func (e *fakeEnv) Settings() json.RawMessage {
 	if len(e.settings) == 0 {
@@ -159,7 +166,7 @@ func envFor(t *testing.T, settings string) *fakeEnv {
 func startWithFake(t *testing.T, env *fakeEnv, stream *fakeStream) (*Plugin, *factorySpy) {
 	t.Helper()
 	spy := &factorySpy{f: func(streamCreds, string) streamClient { return stream }}
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newClient = spy.build
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
@@ -397,7 +404,7 @@ func TestStartFailsClosed(t *testing.T) {
 	for name, tc := range cases {
 		stream := newFakeStream(tc.startErr)
 		spy := &factorySpy{f: func(streamCreds, string) streamClient { return stream }}
-		p := New().(*Plugin)
+		p := newAdapter()
 		p.newClient = spy.build
 		err := p.Start(context.Background(), tc.env)
 		if err == nil {
@@ -489,7 +496,7 @@ func TestStartStopFullLoop(t *testing.T) {
 	if err := p.Stop(ctx); err != nil {
 		t.Fatalf("second stop: %v", err)
 	}
-	if err := (New().(*Plugin)).Stop(context.Background()); err != nil {
+	if err := (newAdapter()).Stop(context.Background()); err != nil {
 		t.Fatalf("stop without start: %v", err)
 	}
 	if _, starts, closed := stream.state(); !closed || starts != 1 {
@@ -777,7 +784,7 @@ func newStreamStub(t *testing.T) *streamStub {
 		stub.tickets.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"endpoint": "ws://" + r.Host + "/ws",
+			"endpoint": "wss://" + r.Host + "/ws",
 			"ticket":   "ticket-1",
 		})
 	})
@@ -855,7 +862,7 @@ func newStreamStub(t *testing.T) *streamStub {
 			}
 		}
 	})
-	stub.server = httptest.NewServer(mux)
+	stub.server = httptest.NewTLSServer(mux)
 	t.Cleanup(stub.server.Close)
 	return stub
 }
@@ -946,8 +953,9 @@ func readWSFrame(conn net.Conn) (opcode byte, body []byte, err error) {
 func TestStreamLoopbackLifecycle(t *testing.T) {
 	stub := newStreamStub(t)
 	env := envFor(t, fmt.Sprintf(`{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value","open_api_host":%q}`, stub.server.URL))
+	env.client = stub.server.Client()
 
-	p := New().(*Plugin) // production factory: the real SDK client
+	p := newAdapter() // production factory: the real SDK client
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -1077,7 +1085,7 @@ func TestSuperviseRedialFailuresLogged(t *testing.T) {
 	// reconnects (drained plan = success).
 	scripted := &scriptedStream{fakeStream: stream, plan: []bool{false, true, true}}
 	spy := &factorySpy{f: func(streamCreds, string) streamClient { return scripted }}
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newClient = spy.build
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
@@ -1103,7 +1111,7 @@ func TestSuperviseSilentWithoutLogFace(t *testing.T) {
 	stream := newFakeStream(nil)
 	scripted := &scriptedStream{fakeStream: stream, plan: []bool{false, true}}
 	spy := &factorySpy{f: func(streamCreds, string) streamClient { return scripted }}
-	p := New().(*Plugin)
+	p := newAdapter()
 	p.newClient = spy.build
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)

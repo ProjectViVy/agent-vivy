@@ -1,0 +1,7 @@
+{
+  "channels": ["dingtalk", "discord", "feishu", "qq", "telegram"],
+  "protectedTools": ["ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"],
+  "toolWorldProviders": ["mcp"],
+  "defaultFace": "kernel-headless",
+  "networkState": {"channels": "UNCONFIGURED", "mcp": "UNCONFIGURED"}
+}

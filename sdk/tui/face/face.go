@@ -12,7 +12,7 @@ import (
 	"os"
 	"sync"
 
-	"agent-vivy/sdk/plugin"
+	faceport "agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/tui/live"
 	"agent-vivy/sdk/tui/surface"
 	"agent-vivy/sdk/tui/view"
@@ -21,18 +21,18 @@ import (
 const Kind = "tui"
 
 // New returns the canonical first-party TUI face.
-func New(opts plugin.FaceOptions) plugin.Face { return &terminalFace{opts: opts} }
+func New(opts faceport.Options) faceport.Runner { return &terminalFace{opts: opts} }
 
 type terminalFace struct {
-	opts    plugin.FaceOptions
+	opts    faceport.Options
 	runView func(surface.Driver, io.Writer, ...view.Options) error
 }
 
 func (*terminalFace) Kind() string { return Kind }
 
-func (f *terminalFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.FaceResult, error) {
+func (f *terminalFace) Run(ctx context.Context, env faceport.Host) (faceport.Result, error) {
 	if !looksTerminal(f.opts.Out) {
-		return plugin.FaceResult{Status: "failed"}, errors.New("tui: an interactive terminal is required")
+		return faceport.Result{Status: "failed"}, errors.New("tui: an interactive terminal is required")
 	}
 	controller, err := live.New(ctx, newFaceTransport(env), live.Options{
 		Host:           "local project",
@@ -41,7 +41,7 @@ func (f *terminalFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.Face
 		ContinueNewest: f.opts.ContinueNewest,
 	})
 	if err != nil {
-		return plugin.FaceResult{Status: "failed"}, err
+		return faceport.Result{Status: "failed"}, err
 	}
 	defer controller.Close()
 	runView := f.runView
@@ -50,20 +50,20 @@ func (f *terminalFace) Run(ctx context.Context, env plugin.FaceEnv) (plugin.Face
 	}
 	if err := runView(controller, f.opts.Out, view.Options{DebugToolOutput: f.opts.DebugToolOutput, Locale: controller.Locale()}); err != nil {
 		controller.Shutdown()
-		return plugin.FaceResult{Status: "failed"}, fmt.Errorf("tui: %w", err)
+		return faceport.Result{Status: "failed"}, fmt.Errorf("tui: %w", err)
 	}
 	controller.Shutdown()
-	return plugin.FaceResult{Status: "completed"}, nil
+	return faceport.Result{Status: "completed"}, nil
 }
 
 type faceTransport struct {
-	env plugin.FaceEnv
+	env faceport.Host
 
 	mu     sync.RWMutex
 	notify func(string, json.RawMessage)
 }
 
-func newFaceTransport(env plugin.FaceEnv) *faceTransport {
+func newFaceTransport(env faceport.Host) *faceTransport {
 	transport := &faceTransport{env: env}
 	if env != nil {
 		env.OnEvent(transport.dispatch)

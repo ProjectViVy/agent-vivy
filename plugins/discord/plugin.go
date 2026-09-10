@@ -79,13 +79,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gorilla/websocket"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // ChannelName is the platform name carried by every inbound envelope and
@@ -136,15 +138,13 @@ type session interface {
 	ChannelMessageSend(channelID string, content string, options ...discordgo.RequestOption) (*discordgo.Message, error)
 }
 
-// Plugin is the discord channel adapter. It implements both
-// plugin.Plugin (so Register() can carry it) and plugin.Channel (so the
-// kernel ChannelHost can start it); the compile-time assertions below
-// pin that.
+// Plugin is the transport implementation bound by the v1 ChannelProvider.
 type Plugin struct {
 	// mu guards the mutable fields below. Events arrive on discordgo
 	// goroutines while Send may run on Host goroutines and Stop on any
 	// other.
-	mu sync.Mutex
+	mu   sync.Mutex
+	host plugin.ChannelEnv
 	// token is the resolved bot token (memory only, D-010); set once by
 	// Start, read by the session factory on every attempt.
 	token string
@@ -186,13 +186,7 @@ type Plugin struct {
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
 // Plugin.
-var (
-	_ plugin.Plugin  = (*Plugin)(nil)
-	_ plugin.Channel = (*Plugin)(nil)
-)
-
-// New is the pack-generated entry point (Register calls discord.New()).
-func New() plugin.Plugin {
+func newAdapter() *Plugin {
 	p := &Plugin{}
 	p.newSession = func(token string, onMessage messageHandlerFunc, onDisconnect disconnectHandlerFunc) (session, error) {
 		// The "Bot " scheme prefix is what discordgo sends as the
@@ -202,6 +196,18 @@ func New() plugin.Plugin {
 		if err != nil {
 			return nil, err
 		}
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		if host == nil {
+			return nil, errors.New("discord: network host is not bound")
+		}
+		s.Client = host.HTTP()
+		dialer := *websocket.DefaultDialer
+		dialer.Proxy = nil
+		dialer.NetDialContext = func(context.Context, string, string) (net.Conn, error) { return nil, plugin.ErrDenied }
+		dialer.NetDialTLSContext = host.DialTLS
+		s.Dialer = &dialer
 		// discordgo's own reconnect loop is disabled on purpose: v0.29.0's
 		// reconnect() redials forever with backoff and does not consult
 		// Close, so a stopped ear would resurrect itself. p.supervise is
@@ -235,21 +241,6 @@ func New() plugin.Plugin {
 	return p
 }
 
-// Name implements plugin.Plugin.
-func (p *Plugin) Name() string { return ChannelName }
-
-// Seam implements plugin.Plugin: the channel seam, never the tool table.
-func (p *Plugin) Seam() plugin.Seam { return plugin.SeamChannel }
-
-// Grants implements plugin.Plugin. channel.poll covers the outbound
-// gateway websocket; secret.read covers the bot token resolution.
-func (p *Plugin) Grants() []plugin.Grant {
-	return []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}
-}
-
-// Tools implements plugin.Plugin: channel plugins carry no tools.
-func (p *Plugin) Tools() []plugin.Tool { return nil }
-
 // Start implements plugin.Channel. Fail-closed order: settings must
 // decode and declare token_env, the token must resolve through the
 // Host-pinned Secret, and the first gateway handshake must be accepted
@@ -276,6 +267,9 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	if err != nil {
 		return fmt.Errorf("discord: resolve bot token through env %q: %w", settings.TokenEnv, err)
 	}
+	p.mu.Lock()
+	p.host = env
+	p.mu.Unlock()
 
 	// The send client is built up front and is never Opened: discordgo's
 	// ChannelMessageSend is plain REST (token + HTTP client + rate
@@ -544,7 +538,7 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	p.stopped = true
 	cancel, done := p.cancel, p.done
 	p.cancel, p.done = nil, nil
-	p.current, p.sender = nil, nil
+	p.current, p.sender, p.host = nil, nil, nil
 	p.runCtx = nil
 	p.mu.Unlock()
 	if cancel != nil {

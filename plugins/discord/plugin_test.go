@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -14,7 +16,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/channel"
 )
 
 // Synthetic test credentials. No real Discord bot, gateway or REST
@@ -54,6 +56,9 @@ type fakeEnv struct {
 	published []plugin.InboundMessage
 }
 
+func (e *fakeEnv) ModuleID() string     { return "vivy/discord" }
+func (e *fakeEnv) Logger() *slog.Logger { return nil }
+
 func (e *fakeEnv) Secret(envKey string) (string, error) {
 	v, ok := os.LookupEnv(envKey)
 	if !ok || v == "" {
@@ -63,6 +68,10 @@ func (e *fakeEnv) Secret(envKey string) (string, error) {
 }
 
 func (e *fakeEnv) HTTP() *http.Client { return &http.Client{} }
+func (e *fakeEnv) DialTLS(ctx context.Context, network, address string) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, address)
+}
 
 func (e *fakeEnv) Settings() json.RawMessage {
 	if len(e.settings) == 0 {
@@ -228,7 +237,7 @@ func newHarness(t *testing.T, settings string) *harness {
 	h := &harness{
 		env: &fakeEnv{settings: json.RawMessage(settings)},
 	}
-	h.p = New().(*Plugin)
+	h.p = newAdapter()
 	h.spy = &sessionFactorySpy{failAt: -1}
 	h.p.newSession = h.spy.build
 	return h
@@ -462,7 +471,8 @@ func TestStartSuccessWiring(t *testing.T) {
 // and the Bot-scheme token. discordgo.New only wires structs — no
 // network.
 func TestProductionSessionFactory(t *testing.T) {
-	p := New().(*Plugin)
+	p := newAdapter()
+	p.host = &fakeEnv{}
 	onMessage := func(*discordgo.Session, *discordgo.MessageCreate) {}
 	onDisconnect := func(*discordgo.Session, *discordgo.Disconnect) {}
 	s, err := p.newSession(stubTokenValue, onMessage, onDisconnect)

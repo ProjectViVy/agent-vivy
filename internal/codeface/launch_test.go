@@ -13,7 +13,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage/sqlite"
-	"agent-vivy/sdk/plugin"
+	plugin "agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/tui/live"
 )
 
