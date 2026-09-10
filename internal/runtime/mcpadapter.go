@@ -35,6 +35,23 @@ func (factory *MCPHostSessionFactory) Open(ctx context.Context, config mcphost.I
 	return &mcpHostSession{backend: backend, server: config.ID}, nil
 }
 
+// existingMCPBackendSessionFactory lets MCPHost share the already-composed
+// control-plane MCP backend. The Host owns activation/retry/circuit policy,
+// while the backend continues to own the pinned mcp-go/EinoExt transport.
+type existingMCPBackendSessionFactory struct {
+	backend *MCPBackend
+}
+
+func (factory existingMCPBackendSessionFactory) Open(ctx context.Context, config mcphost.InstanceConfig) (mcphost.Session, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if factory.backend == nil {
+		return nil, mcphost.ErrInstanceUnavailable
+	}
+	return &mcpHostSession{backend: factory.backend, server: config.ID}, nil
+}
+
 type mcpHostSession struct {
 	backend *MCPBackend
 	server  string
@@ -119,7 +136,7 @@ func (session *mcpHostSession) Close() error {
 	if session.backend == nil {
 		return nil
 	}
-	return session.backend.Close()
+	return session.backend.closeServer(session.server)
 }
 
 func cloneStringMap(values map[string]string) map[string]string {
@@ -134,4 +151,5 @@ func cloneStringMap(values map[string]string) map[string]string {
 }
 
 var _ mcphost.SessionFactory = (*MCPHostSessionFactory)(nil)
+var _ mcphost.SessionFactory = existingMCPBackendSessionFactory{}
 var _ mcphost.Session = (*mcpHostSession)(nil)
