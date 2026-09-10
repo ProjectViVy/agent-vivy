@@ -20,7 +20,7 @@ type ResourceSource struct {
 }
 
 func NewResourceSource(host *Host) *ResourceSource { return &ResourceSource{host: host} }
-func (*ResourceSource) ID() string                  { return mcpResourceSourceID }
+func (*ResourceSource) ID() string                 { return mcpResourceSourceID }
 
 func (source *ResourceSource) Query(ctx context.Context, request contextsource.Request) (contextsource.Page, error) {
 	if source == nil || source.host == nil {
@@ -77,13 +77,13 @@ func (source *ResourceSource) Query(ctx context.Context, request contextsource.R
 			}
 			sum := sha256.Sum256([]byte(status.ID + "\x00" + resource.URI + "\x00" + content.Text))
 			out = append(out, contextsource.NewCandidate(contextsource.Candidate{
-				SourceID: mcpResourceSourceID,
-				ContentID: status.ID + ":" + resource.URI,
-				MediaType: mediaType,
-				Content: content.Text,
-				SizeHint: len(content.Text),
+				SourceID:   mcpResourceSourceID,
+				ContentID:  status.ID + ":" + resource.URI,
+				MediaType:  mediaType,
+				Content:    content.Text,
+				SizeHint:   len(content.Text),
 				Confidence: 0.5,
-				Version: hex.EncodeToString(sum[:]),
+				Version:    hex.EncodeToString(sum[:]),
 				Metadata: map[string]string{
 					"instance": status.ID,
 					"uri":      resource.URI,
