@@ -176,9 +176,10 @@ func TestDuplicateRemoteNameFailsClosed(t *testing.T) {
 }
 
 func TestDiscoveryTimeoutMarksUnavailable(t *testing.T) {
-	session := &fakeSession{block: true}
-	factory := &fakeFactory{sessions: []*fakeSession{session}}
-	host, err := New(Config{Factory: factory, OperationTimeout: time.Millisecond, Instances: []InstanceConfig{{ID: "slow", Command: "fixture"}}})
+	first := &fakeSession{block: true}
+	second := &fakeSession{block: true}
+	factory := &fakeFactory{sessions: []*fakeSession{first, second}}
+	host, err := New(Config{Factory: factory, OperationTimeout: time.Millisecond, MaxSafeRetries: 1, Instances: []InstanceConfig{{ID: "slow", Command: "fixture"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
