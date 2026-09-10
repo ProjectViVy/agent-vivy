@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/internal/toolhost"
 	"agent-vivy/internal/tools"
 	toolport "agent-vivy/sdk/port/tool"
@@ -62,8 +64,14 @@ func (provider legacyToolProvider) Invoke(ctx context.Context, _ toolport.Host, 
 
 func schemaFromToolSpec(spec domain.ToolSpec) json.RawMessage {
 	properties := make(map[string]map[string]any, len(spec.Params))
+	names := make([]string, 0, len(spec.Params))
+	for name := range spec.Params {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	required := make([]string, 0, len(spec.Params))
-	for name, param := range spec.Params {
+	for _, name := range names {
+		param := spec.Params[name]
 		property := map[string]any{}
 		paramType := strings.TrimSpace(param.Type)
 		if paramType == "" {
@@ -95,8 +103,8 @@ type governedTool struct {
 	spec domain.ToolSpec
 }
 
-func (tool governedTool) GovernedToolID() string  { return tool.id }
-func (tool governedTool) Spec() domain.ToolSpec   { return tool.spec }
+func (tool governedTool) GovernedToolID() string { return tool.id }
+func (tool governedTool) Spec() domain.ToolSpec  { return tool.spec }
 func (tool governedTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
 	result, err := tool.host.Invoke(ctx, toolhost.Request{ID: tool.id, Args: args})
 	return result.Text, err
@@ -195,6 +203,7 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			OwnerID:  "vivy/legacy/" + spec.Name,
 			Provider: legacyToolProvider{tool: implementation},
 			Host:     legacyToolHost("vivy/legacy/" + spec.Name),
+			Trust:    toolhost.TrustPublic,
 		})
 		specByID[spec.Name] = spec
 		behaviorByID[spec.Name] = implementation
@@ -228,7 +237,11 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			spec = implementation.Spec()
 			behaviorByID[id] = implementation
 		}
-		static = append(static, toolhost.StaticBinding{OwnerID: id, Provider: provider, Host: host})
+		trust := toolhost.TrustPublic
+		if defaults.IsProtectedToolProvider(provider) {
+			trust = toolhost.TrustCore
+		}
+		static = append(static, toolhost.StaticBinding{OwnerID: id, Provider: provider, Host: host, Trust: trust})
 		specByID[id] = spec
 		generatedOrder = append(generatedOrder, id)
 	}
