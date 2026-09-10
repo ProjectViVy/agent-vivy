@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/modelhost"
 )
 
 // ErrModelNotConfigured is returned when no provider has been selected. It
@@ -37,11 +38,12 @@ type SpecSource interface {
 
 // NewResolvingChatModel returns a ChatModel that constructs the underlying
 // provider model on each Generate/Stream from src. catalog must not be nil.
-func NewResolvingChatModel(catalog *Catalog, src SpecSource) model.ToolCallingChatModel {
-	return &resolvingChatModel{catalog: catalog, src: src}
+func NewResolvingChatModel(host *modelhost.Host, catalog *Catalog, src SpecSource) model.ToolCallingChatModel {
+	return &resolvingChatModel{host: host, catalog: catalog, src: src}
 }
 
 type resolvingChatModel struct {
+	host     *modelhost.Host
 	catalog  *Catalog
 	src      SpecSource
 	mu       sync.Mutex
@@ -70,6 +72,9 @@ func (m *resolvingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCall
 }
 
 func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatModel, error) {
+	if m.host == nil {
+		return nil, fmt.Errorf("provider: %w", modelhost.ErrHostRequired)
+	}
 	live := m.src.Live()
 	if !live.Ready {
 		if live.Provider == "" {
@@ -83,7 +88,11 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	if m.cached != nil && m.cacheKey == key {
 		return m.cached, nil
 	}
-	ref, err := m.catalog.For(live.Provider)
+	profile, err := m.host.ResolveExecutable(live.Provider)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := m.catalog.ForProfile(profile)
 	if err != nil {
 		return nil, err
 	}

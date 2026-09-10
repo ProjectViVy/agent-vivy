@@ -19,6 +19,7 @@ const (
 )
 
 var (
+	ErrHostRequired       = errors.New("ModelHost is required")
 	ErrProfileNotFound    = errors.New("provider Profile is not compiled")
 	ErrAdapterUnavailable = errors.New("provider adapter is unavailable")
 )
