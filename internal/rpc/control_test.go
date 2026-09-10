@@ -24,6 +24,7 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -1947,6 +1948,49 @@ func TestProviderRegistryRPC(t *testing.T) {
 		"id": "custom-1", "display_name": "A", "bundle": "openai", "base_url": "https://a.example.com/v1",
 	}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("expected conflict on read-only upsert, got %v", rpcErr)
+	}
+}
+
+func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testing.T) {
+	profiles := func() []modelhost.ProfileStatus {
+		return []modelhost.ProfileStatus{
+			{ID: "openai", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"gpt-4o"}, State: modelhost.ProfileReady},
+			{ID: "future", AdapterFamily: "native-future", EndpointClass: "native", ModelIDs: []string{"future-1"}, State: modelhost.ProfileDeferredIndefinite},
+		}
+	}
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ProviderProfileStatuses = profiles
+		deps.ProviderBundles = []provider.Bundle{
+			{Name: "openai", Models: []string{"gpt-4o"}},
+			{Name: "future", Models: []string{"future-1"}},
+		}
+	})
+
+	result, rpcErr := callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+	if len(view.Profiles) != 2 || view.Profiles[1].State != modelhost.ProfileDeferredIndefinite {
+		t.Fatalf("profile status view = %#v", view.Profiles)
+	}
+	body, err := json.Marshal(view.Profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "secret") || strings.Contains(string(body), "options_schema") {
+		t.Fatalf("profile status leaked configuration detail: %s", body)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "future", "model": "future-1", "base_url": "https://fake.invalid/v1",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("deferred model selection error = %v, want InvalidParams", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "future", "default_model": "future-1", "base_url": "https://fake.invalid/v1",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("deferred settings update error = %v, want InvalidParams", rpcErr)
 	}
 }
 

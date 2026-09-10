@@ -3,6 +3,8 @@ package modelhost
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,5 +69,46 @@ func TestProfilesReturnsDefensiveDeclarativeCopy(t *testing.T) {
 	}
 	if resolved.ModelIDs[0] != "model-1" || resolved.SecretRefs[0] != "TEST_API_KEY" || string(resolved.OptionsSchema) != `{"type":"object"}` {
 		t.Fatalf("host profile was mutated through returned copy: %#v", resolved)
+	}
+}
+
+func TestProfileStatusesProjectCompiledRuntimeTruthWithoutSecrets(t *testing.T) {
+	host, err := New([]providerprofile.Profile{
+		testProfile("active", "openai-compatible"),
+		testProfile("compiled", "openai-compatible"),
+		testProfile("broken", "openai-compatible"),
+		testProfile("future", "native-future"),
+	}, Capabilities{
+		"openai-compatible": CapabilitySupported,
+		"native-future":     CapabilityDeferredIndefinite,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	host.MarkUnavailable("broken")
+
+	statuses := host.Statuses("active", true)
+	got := make(map[string]ProfileState, len(statuses))
+	for _, status := range statuses {
+		got[status.ID] = status.State
+	}
+	want := map[string]ProfileState{
+		"active":   ProfileReady,
+		"compiled": ProfileCompiled,
+		"broken":   ProfileUnavailable,
+		"future":   ProfileDeferredIndefinite,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Statuses() states = %#v, want %#v", got, want)
+	}
+
+	unconfigured := host.Statuses("active", false)
+	if unconfigured[0].ID != "active" || unconfigured[0].State != ProfileUnconfigured {
+		t.Fatalf("active unconfigured status = %#v", unconfigured[0])
+	}
+	if fields := reflect.VisibleFields(reflect.TypeOf(ProfileStatus{})); slices.ContainsFunc(fields, func(field reflect.StructField) bool {
+		return field.Name == "SecretRefs" || field.Name == "OptionsSchema"
+	}) {
+		t.Fatalf("ProfileStatus exposes secret or configuration schema fields: %#v", fields)
 	}
 }

@@ -1,4 +1,12 @@
-import { FOLDED_PROVIDER_NAMES, PROVIDER_CATALOG, type ProviderCatalogEntry, type ProviderRuntimeBundle } from './provider-catalog';
+import {
+  FOLDED_PROVIDER_NAMES,
+  PROVIDER_CATALOG,
+  projectProviderEntry,
+  type ProjectedProviderCatalogEntry,
+  type ProviderCatalogEntry,
+  type ProviderProfileStatus,
+  type ProviderRuntimeBundle,
+} from './provider-catalog';
 import type { ProviderEntry } from '@/lib/api';
 
 /**
@@ -88,14 +96,15 @@ export function hasBaseUrlConflict(
 }
 
 /** 面板/选择器用的合并条目：目录条目 + 注册表条目（后者带 custom 标记）。 */
-export type MergedProviderEntry = ProviderCatalogEntry & {
+export type MergedProviderEntry = ProjectedProviderCatalogEntry & {
   custom: boolean;
   registryId?: string;
   apiKeySet: boolean;
 };
 
-function toMerged(custom: ProviderEntry): MergedProviderEntry {
+function toMerged(custom: ProviderEntry, profiles: readonly ProviderProfileStatus[]): MergedProviderEntry {
   return {
+    ...projectProviderEntry({
     // 用注册表 id 作目录 name，避免与静态目录 name 撞车（key/检索/命中都稳定）。
     name: custom.id,
     displayName: custom.display_name,
@@ -103,6 +112,7 @@ function toMerged(custom: ProviderEntry): MergedProviderEntry {
     baseUrl: custom.base_url,
     defaultModel: custom.default_model,
     models: [...custom.models],
+    }, profiles),
     custom: true,
     registryId: custom.id,
     apiKeySet: custom.api_key_set,
@@ -110,10 +120,13 @@ function toMerged(custom: ProviderEntry): MergedProviderEntry {
 }
 
 /** 目录在前、注册表在后；目录厂商密钥落地条（catalog-*）不出现在自定义列表。 */
-export function allProviderEntries(providers: readonly ProviderEntry[]): MergedProviderEntry[] {
+export function allProviderEntries(
+  providers: readonly ProviderEntry[],
+  profiles: readonly ProviderProfileStatus[] = [],
+): MergedProviderEntry[] {
   return [
-    ...PROVIDER_CATALOG.map((entry) => ({ ...entry, custom: false, apiKeySet: false })),
-    ...providers.filter(isValidCustomProvider).filter((entry) => !isCatalogOverlayEntry(entry)).map(toMerged),
+    ...PROVIDER_CATALOG.map((entry) => ({ ...projectProviderEntry(entry, profiles), custom: false, apiKeySet: false })),
+    ...providers.filter(isValidCustomProvider).filter((entry) => !isCatalogOverlayEntry(entry)).map((entry) => toMerged(entry, profiles)),
   ];
 }
 
@@ -131,16 +144,17 @@ export function matchMergedProviderEntry(
   providers: readonly ProviderEntry[],
   bundle: string,
   baseUrl: string,
+  profiles: readonly ProviderProfileStatus[] = [],
 ): MergedProviderEntry | undefined {
   const base = baseUrl.trim();
   if (base) {
     const catalog = PROVIDER_CATALOG.find((entry) => entry.bundle === bundle && entry.baseUrl === base);
-    if (catalog) return { ...catalog, custom: false, apiKeySet: false };
+    if (catalog) return { ...projectProviderEntry(catalog, profiles), custom: false, apiKeySet: false };
     const custom = providers.find((entry) => entry.bundle === bundle && entry.base_url === base);
-    return custom ? toMerged(custom) : undefined;
+    return custom ? toMerged(custom, profiles) : undefined;
   }
   const catalog = PROVIDER_CATALOG.find((entry) => entry.name === bundle && entry.bundle === bundle);
-  return catalog ? { ...catalog, custom: false, apiKeySet: false } : undefined;
+  return catalog ? { ...projectProviderEntry(catalog, profiles), custom: false, apiKeySet: false } : undefined;
 }
 
 /** 按 id 查注册表条目（编辑对话框预填/面板回显用）。 */

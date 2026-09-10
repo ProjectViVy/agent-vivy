@@ -23,5 +23,13 @@ Decisions and exact boundaries are recorded in
 
 ## Implementation gates
 
-To be completed as the phase tasks land.
+| Task | Command | Result |
+|---|---|---|
+| Declarative Profiles | `go test ./sdk/port/providerprofile ./internal/modelhost` | Passed. Pure-data validation, duplicate/unsupported/deferred cases, and defensive copies covered. |
+| ModelHost routing | `go test ./internal/modelhost ./internal/provider ./internal/runtime -run Model` | Passed. Host-required routing and raw gateway model IDs covered. |
+| Default Generation | focused defaults/config/app/assembly tests | Passed. Generated manifest and runtime profile inventory agree. |
+| Capability projection | focused ModelHost/RPC/provider/app tests plus `provider-catalog` and `custom-providers` UI tests | Passed. Five states project without Secrets; deferred/unavailable selection is rejected in UI helpers and RPC. |
 
+The local Go commands use `GOFLAGS=-buildvcs=false` because this linked
+worktree cannot be VCS-stamped by nested build tests. Task 6 records the full
+gate evidence and the repository-level limitation separately.

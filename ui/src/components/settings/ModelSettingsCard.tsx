@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import {
   isFoldedProvider,
+  isProviderExecutable,
+  providerSelection,
   type ProviderCatalogEntry,
   type ProviderRuntimeBundle,
 } from './provider-catalog';
@@ -72,6 +74,7 @@ function ProviderRow({
   disabled,
   currentBadge,
   customBadge,
+  capabilityBadge,
   actions,
   onSelect,
 }: {
@@ -81,6 +84,7 @@ function ProviderRow({
   disabled: boolean;
   currentBadge: string;
   customBadge?: string;
+  capabilityBadge?: string;
   /** 自定义行的编辑/删除等行内动作；存在时行根改为外层分组容器（避免 button 内嵌 button）。 */
   actions?: ReactNode;
   onSelect: () => void;
@@ -106,6 +110,11 @@ function ProviderRow({
       {customBadge ? (
         <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
           {customBadge}
+        </span>
+      ) : null}
+      {capabilityBadge ? (
+        <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-700 dark:text-amber-300">
+          {capabilityBadge}
         </span>
       ) : null}
       {isCurrent ? (
@@ -327,13 +336,18 @@ export function ModelSettingsCard() {
 
   useEffect(() => { void load(); void loadProviders(); }, [load, loadProviders]);
 
-  const allMerged = useMemo(() => allProviderEntries(providers), [providers]);
+  const allMerged = useMemo(
+    () => allProviderEntries(providers, settings?.provider_profiles),
+    [providers, settings?.provider_profiles],
+  );
   const searching = searchTerm.trim().length > 0;
   const { visible, custom, more } = useMemo(
     () => splitMergedByFold(searching ? searchMergedProviders(allMerged, searchTerm) : allMerged, searching),
     [searching, searchTerm, allMerged],
   );
-  const savedEntry = settings ? matchMergedProviderEntry(providers, settings.provider, settings.base_url) : undefined;
+  const savedEntry = settings
+    ? matchMergedProviderEntry(providers, settings.provider, settings.base_url, settings.provider_profiles)
+    : undefined;
   const selectedEntry = (selectedName ? allMerged.find((entry) => entry.name === selectedName) : undefined) ?? savedEntry;
   const selectedRegistry = selectedEntry?.custom && selectedEntry.registryId
     ? providerEntryById(providers, selectedEntry.registryId) ?? null
@@ -356,14 +370,16 @@ export function ModelSettingsCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
   }, [selectedEntry?.name, providers]);
 
-  const locked = settings?.read_only || phase === 'processing';
+  const locked = !!settings?.read_only || phase === 'processing';
 
   /** 所选供应商的模型（含「新增」手加）：立即选用并保存；密钥由后端按注册表解析，不回传。 */
-  const applyModelNow = async (entry: ProviderCatalogEntry, model: string) => {
-    if (locked) return;
+  const applyModelNow = async (entry: MergedProviderEntry, model: string) => {
+    if (locked || !entry.executable) return;
+    const selection = providerSelection(entry, model);
+    if (!selection) return;
     addSavedModel({ provider: entry.bundle, baseUrl: entry.baseUrl, model });
     try {
-      await save({ provider: entry.bundle, default_model: model, base_url: entry.baseUrl });
+      await save(selection);
     } catch {
       // settingsError 已由 store 记录并渲染；已加入快捷列表保留。
     }
@@ -371,7 +387,7 @@ export function ModelSettingsCard() {
 
   /** 已选模型 chip：与顶栏快捷切换同语义——立即选用并保存（密钥后端解析）。 */
   const applySavedNow = async (entry: SavedModelEntry) => {
-    if (locked) return;
+    if (locked || !isProviderExecutable(entry.provider, settings?.provider_profiles)) return;
     try {
       await save({ provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
     } catch {
@@ -567,6 +583,7 @@ export function ModelSettingsCard() {
       disabled={locked}
       currentBadge={t('settingsModel.currentBadge')}
       customBadge={entry.custom ? t('settingsModel.customBadge') : undefined}
+      capabilityBadge={!entry.executable ? entry.capabilityState : undefined}
       onSelect={() => setSelectedName(entry.name)}
       actions={entry.custom ? (
         <>
@@ -614,7 +631,7 @@ export function ModelSettingsCard() {
                   >
                     <button
                       type="button"
-                      disabled={locked}
+                      disabled={locked || !isProviderExecutable(entry.provider, settings?.provider_profiles)}
                       onClick={() => void applySavedNow(entry)}
                       className="min-w-0 cursor-pointer truncate rounded-full py-1 pl-2.5 pr-1 text-xs transition-colors hover:bg-accent/60 disabled:pointer-events-none disabled:opacity-50"
                     >
@@ -804,7 +821,7 @@ export function ModelSettingsCard() {
                           <button
                             key={model}
                             type="button"
-                            disabled={locked}
+                            disabled={locked || !selectedEntry.executable}
                             onClick={() => void applyModelNow(selectedEntry, model)}
                             aria-pressed={isCurrent}
                             title={isSaved && !isCurrent ? t('settingsModel.added') : undefined}

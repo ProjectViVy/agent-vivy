@@ -27,6 +27,7 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -104,6 +105,10 @@ type ControlDeps struct {
 	// ProviderBundles is the redacted pre-baked model catalog loaded by the
 	// composition root. It stays separate from editable registry entries.
 	ProviderBundles []provider.Bundle
+	// ProviderProfileStatuses projects the compiled Generation's ModelHost
+	// state without Secret references or executable factories. Nil preserves
+	// compatibility for control-plane compositions without a ModelHost.
+	ProviderProfileStatuses func() []modelhost.ProfileStatus
 	// RuntimeBaseURL is the non-secret endpoint selected by the startup
 	// resolver. It supplies active identity for frozen environment overrides;
 	// writable selections use the persisted document after each commit.
@@ -3283,6 +3288,8 @@ type settingsResult struct {
 	// APIKeySet reports whether an api_key overlay is stored. The value
 	// itself is never returned.
 	APIKeySet bool `json:"api_key_set"`
+	// ProviderProfiles is the Secret-free compiled capability projection.
+	ProviderProfiles []providerProfileStatusResult `json:"provider_profiles"`
 	// ExecuteMaxTimeoutSeconds is the effective execute/commandline ceiling;
 	// 0 means the config value applies. Editable in Settings → General.
 	ExecuteMaxTimeoutSeconds int `json:"execute_max_timeout_seconds"`
@@ -3407,14 +3414,15 @@ func settingsActiveKey(s settings.Settings, provider, baseURL string) bool {
 
 func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out := settingsResult{
-		Provider:       "",
-		DefaultModel:   "",
-		BaseURL:        "",
-		APIKeySet:      false,
-		Frozen:         h.deps.Frozen,
-		ReadOnly:       h.deps.SettingsPath == "" || h.deps.Frozen,
-		ConfigProvider: "",
-		ConfigModel:    "",
+		Provider:         "",
+		DefaultModel:     "",
+		BaseURL:          "",
+		APIKeySet:        false,
+		Frozen:           h.deps.Frozen,
+		ReadOnly:         h.deps.SettingsPath == "" || h.deps.Frozen,
+		ConfigProvider:   "",
+		ConfigModel:      "",
+		ProviderProfiles: h.providerProfileStatuses(),
 	}
 	savedSearchProvider := ""
 	var savedSandbox settings.SandboxSettings
@@ -3683,6 +3691,11 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		return nil
 	}
 	selectionChanged := current.Provider != params.Provider || current.DefaultModel != params.DefaultModel || current.BaseURL != params.BaseURL
+	if selectionChanged {
+		if profileErr := h.profileSelectionError(strings.TrimSpace(params.Provider)); profileErr != nil {
+			return nil, profileErr
+		}
+	}
 	var changeErr error
 	if selectionChanged && h.deps.Service != nil {
 		// settings/update predates the narrow terminal picker route and remains
@@ -3728,6 +3741,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		ReadOnly:                       h.deps.Frozen,
 		ConfigProvider:                 h.deps.ConfigProvider,
 		ConfigModel:                    h.deps.ConfigModel,
+		ProviderProfiles:               h.providerProfileStatuses(),
 		ConfigExecuteMaxTimeoutSeconds: h.deps.ConfigExecuteMaxTimeoutSeconds,
 		NetworkSearch:                  networkSearchView(saved.NetworkSearch.Provider, h.deps.ConfigNetworkSearchProvider),
 		Sandbox:                        h.sandboxView(saved.Sandbox),
@@ -3850,6 +3864,51 @@ type providerEntryResult struct {
 	APIKeySet    bool     `json:"api_key_set"`
 }
 
+type providerProfileStatusResult struct {
+	ID            string                 `json:"id"`
+	AdapterFamily string                 `json:"adapter_family"`
+	EndpointClass string                 `json:"endpoint_class"`
+	ModelIDs      []string               `json:"model_ids"`
+	State         modelhost.ProfileState `json:"state"`
+}
+
+func (h *controlHandler) providerProfileStatuses() []providerProfileStatusResult {
+	if h.deps.ProviderProfileStatuses == nil {
+		return []providerProfileStatusResult{}
+	}
+	statuses := h.deps.ProviderProfileStatuses()
+	out := make([]providerProfileStatusResult, 0, len(statuses))
+	for _, status := range statuses {
+		models := append([]string(nil), status.ModelIDs...)
+		if models == nil {
+			models = []string{}
+		}
+		out = append(out, providerProfileStatusResult{
+			ID: status.ID, AdapterFamily: status.AdapterFamily,
+			EndpointClass: string(status.EndpointClass), ModelIDs: models, State: status.State,
+		})
+	}
+	return out
+}
+
+func (h *controlHandler) profileSelectionError(id string) *Error {
+	if id == "" || h.deps.ProviderProfileStatuses == nil {
+		return nil
+	}
+	for _, status := range h.deps.ProviderProfileStatuses() {
+		if status.ID != id {
+			continue
+		}
+		switch status.State {
+		case modelhost.ProfileCompiled, modelhost.ProfileUnconfigured, modelhost.ProfileReady:
+			return nil
+		default:
+			return &Error{Code: InvalidParams, Message: fmt.Sprintf("provider Profile %q is %s and cannot execute", id, status.State)}
+		}
+	}
+	return &Error{Code: InvalidParams, Message: fmt.Sprintf("provider Profile %q is not compiled", id)}
+}
+
 func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
 	// The wire contract is models: [] for an empty list — never null — so the
 	// UI validator keeps an entry with no models yet visible (a custom
@@ -3872,15 +3931,16 @@ func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
 // providersResult is the full registry view: entries (redacted), the active
 // selection, and the config defaults the UI falls back to.
 type providersResult struct {
-	Entries        []providerEntryResult `json:"entries"`
-	Bundles        []providerEntryResult `json:"bundles"`
-	ActiveProvider string                `json:"active_provider"`
-	ActiveModel    string                `json:"active_model"`
-	ActiveBaseURL  string                `json:"active_base_url"`
-	ReadOnly       bool                  `json:"read_only"`
-	Frozen         bool                  `json:"frozen"`
-	ConfigProvider string                `json:"config_provider"`
-	ConfigModel    string                `json:"config_model"`
+	Entries        []providerEntryResult         `json:"entries"`
+	Bundles        []providerEntryResult         `json:"bundles"`
+	Profiles       []providerProfileStatusResult `json:"profiles"`
+	ActiveProvider string                        `json:"active_provider"`
+	ActiveModel    string                        `json:"active_model"`
+	ActiveBaseURL  string                        `json:"active_base_url"`
+	ReadOnly       bool                          `json:"read_only"`
+	Frozen         bool                          `json:"frozen"`
+	ConfigProvider string                        `json:"config_provider"`
+	ConfigModel    string                        `json:"config_model"`
 }
 
 func (h *controlHandler) providersView(s settings.Settings) providersResult {
@@ -3909,6 +3969,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	return providersResult{
 		Entries:        entries,
 		Bundles:        bundles,
+		Profiles:       h.providerProfileStatuses(),
 		ActiveProvider: activeProvider,
 		ActiveModel:    activeModel,
 		ActiveBaseURL:  activeBaseURL,
@@ -3995,6 +4056,9 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	params.BaseURL = strings.TrimSpace(params.BaseURL)
 	if params.Provider == "" || params.Model == "" {
 		return nil, &Error{Code: InvalidParams, Message: "provider and model are required"}
+	}
+	if profileErr := h.profileSelectionError(params.Provider); profileErr != nil {
+		return nil, profileErr
 	}
 	h.modelChangeMu.Lock()
 	defer h.modelChangeMu.Unlock()

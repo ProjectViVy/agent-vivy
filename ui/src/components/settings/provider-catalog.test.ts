@@ -5,6 +5,8 @@ import {
   findProvider,
   isFoldedProvider,
   matchProviderEntry,
+  projectProviderEntry,
+  providerSelection,
   searchProviders,
   splitByFold,
 } from './provider-catalog';
@@ -96,5 +98,39 @@ describe('matchProviderEntry', () => {
     expect(matchProviderEntry('openai', 'https://my-gateway.example.com/v1')).toBeUndefined();
     expect(matchProviderEntry('', '')).toBeUndefined();
     expect(matchProviderEntry('deepseek', '')).toBeUndefined();
+  });
+});
+
+describe('Provider Profile capability projection', () => {
+  const openai = findProvider('openai')!;
+
+  it('DEFERRED-INDEFINITE cannot be selected and never fabricates an endpoint', () => {
+    const profiles = [{
+      id: 'openai', adapter_family: 'openai-compatible', endpoint_class: 'native' as const,
+      model_ids: ['gpt-4o'], state: 'DEFERRED-INDEFINITE' as const,
+    }];
+    const projected = projectProviderEntry(openai, profiles);
+    expect(projected.executable).toBe(false);
+    expect(providerSelection(projected, 'gpt-4o')).toBeUndefined();
+  });
+
+  it.each(['COMPILED', 'UNCONFIGURED', 'READY'] as const)('%s profiles preserve existing configuration forms', (state) => {
+    const projected = projectProviderEntry(openai, [{
+      id: 'openai', adapter_family: 'openai-compatible', endpoint_class: 'native',
+      model_ids: ['gpt-4o'], state,
+    }]);
+    expect(projected.executable).toBe(true);
+    expect(providerSelection(projected, 'gpt-4o')).toEqual({
+      provider: 'openai', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o',
+    });
+  });
+
+  it('UNAVAILABLE is visible but not executable', () => {
+    const projected = projectProviderEntry(openai, [{
+      id: 'openai', adapter_family: 'openai-compatible', endpoint_class: 'native',
+      model_ids: ['gpt-4o'], state: 'UNAVAILABLE',
+    }]);
+    expect(projected.capabilityState).toBe('UNAVAILABLE');
+    expect(projected.executable).toBe(false);
   });
 });

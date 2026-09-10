@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROVIDER_CATALOG } from './provider-catalog';
+import type { ProviderProfileStatus } from './provider-catalog';
 import {
   allProviderEntries,
   catalogOverlayId,
@@ -101,6 +102,16 @@ describe('合并视图（目录 + 注册表）', () => {
     expect(entries[PROVIDER_CATALOG.length].apiKeySet).toBe(true);
     expect(entries.slice(0, PROVIDER_CATALOG.length).every((entry) => entry.custom === false)).toBe(true);
     expect(entries.slice(0, PROVIDER_CATALOG.length).every((entry) => entry.apiKeySet === false)).toBe(true);
+  });
+
+  it('按 Profile 状态投影目录与自定义端点，deferred 条目不可执行', () => {
+    const profiles: ProviderProfileStatus[] = [
+      { id: 'openai', adapter_family: 'openai-compatible', endpoint_class: 'gateway', model_ids: [], state: 'DEFERRED-INDEFINITE' },
+      { id: 'anthropic', adapter_family: 'anthropic', endpoint_class: 'native', model_ids: [], state: 'COMPILED' },
+    ];
+    const entries = allProviderEntries([ENTRY], profiles);
+    expect(entries.filter((entry) => entry.bundle === 'openai').every((entry) => !entry.executable)).toBe(true);
+    expect(entries.filter((entry) => entry.bundle === 'anthropic').every((entry) => entry.executable)).toBe(true);
   });
 
   it('坏 wire 条目被过滤，不进入合并视图', () => {
