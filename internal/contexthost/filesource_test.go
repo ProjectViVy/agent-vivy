@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/sdk/port/contextsource"
 )
 
 func TestFileSnapshotSourceRejectsWorkspaceEscape(t *testing.T) {
 	source := NewFileSnapshotSource("vivy.project-files", []domain.FileContext{{
 		Path: "../secret.txt", Name: "secret.txt", Size: 6, Content: []byte("secret"),
 	}})
-	page, err := source.Query(context.Background(), fileSourceRequest())
+	page, err := source.Query(context.Background(), contextsource.Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +26,7 @@ func TestFileSnapshotSourcePreservesSnapshotOrder(t *testing.T) {
 		{Path: "b.txt", Name: "b.txt", Size: 1, Content: []byte("b")},
 		{Path: "a.txt", Name: "a.txt", Size: 1, Content: []byte("a")},
 	})
-	page, err := source.Query(context.Background(), fileSourceRequest())
+	page, err := source.Query(context.Background(), contextsource.Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
