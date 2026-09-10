@@ -57,49 +57,50 @@ func assemblyHasToolWorld(providers []toolworldport.Provider, id string) bool {
 	return false
 }
 
-type generatedWorldTool struct {
+const generatedWorldStagePrefix = "__vivy_toolworld_stage__/"
+
+type generatedWorldStage struct {
+	ctx      context.Context
 	provider toolworldport.Provider
-	def      toolworldport.ToolDefinition
 	grants   map[module.Grant][]string
 	lookup   worldWorkspaceLookup
 	recorder tools.FileVersionRecorder
 }
 
-func (tool generatedWorldTool) Spec() domain.ToolSpec {
-	return domain.ToolSpec{Name: tool.def.ID, Description: tool.def.Description,
-		Readonly: tool.def.Effect == toolworldport.EffectRead,
-		Keywords: []string{tool.provider.Definition().ID, tool.def.ID}, Params: schemaParams(tool.def.Schema)}
+func (stage generatedWorldStage) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name:        generatedWorldStagePrefix + stage.provider.Definition().ID,
+		Description: "internal ToolWorld composition stage",
+		Readonly:    true,
+	}
 }
 
-func (tool generatedWorldTool) InvokableRun(ctx context.Context, args json.RawMessage) (string, error) {
-	host := generatedWorldHost{moduleID: tool.provider.Definition().ID, grants: tool.grants, lookup: tool.lookup, recorder: tool.recorder, ctx: ctx}
-	result, err := tool.provider.Invoke(ctx, host, tool.def.ID, args)
-	return result.Text, err
+func (stage generatedWorldStage) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	return "", errors.New("app: ToolWorld staging entry is not executable")
 }
 
 func bindToolWorlds(ctx context.Context, providers []toolworldport.Provider, grants map[string][]module.GrantBinding, lookup worldWorkspaceLookup, recorder tools.FileVersionRecorder) ([]tools.Tool, error) {
-	var out []tools.Tool
-	seen := make(map[string]bool)
+	out := make([]tools.Tool, 0, len(providers))
+	seen := make(map[string]bool, len(providers))
 	for _, provider := range providers {
 		if provider == nil || provider.Definition().ID == "" {
 			return nil, fmt.Errorf("app: generated ToolWorld provider has no identity")
 		}
-		if provider.Definition().ID == "mcp" {
+		worldID := provider.Definition().ID
+		if seen[worldID] {
+			return nil, fmt.Errorf("app: duplicate ToolWorld provider %s", worldID)
+		}
+		seen[worldID] = true
+		if worldID == "mcp" {
 			continue
 		}
-		allowed := worldGrantMap(grants[provider.Definition().ID])
-		host := generatedWorldHost{moduleID: provider.Definition().ID, grants: allowed, lookup: lookup, recorder: recorder, ctx: ctx}
-		definitions, err := provider.Discover(ctx, host)
-		if err != nil {
-			return nil, fmt.Errorf("app: discover ToolWorld %s: %w", provider.Definition().ID, err)
-		}
-		for _, definition := range definitions {
-			if definition.ID == "" || seen[definition.ID] {
-				return nil, fmt.Errorf("app: duplicate or empty ToolWorld tool id %q", definition.ID)
-			}
-			seen[definition.ID] = true
-			out = append(out, generatedWorldTool{provider: provider, def: definition, grants: allowed, lookup: lookup, recorder: recorder})
-		}
+		out = append(out, generatedWorldStage{
+			ctx:      ctx,
+			provider: provider,
+			grants:   worldGrantMap(grants[worldID]),
+			lookup:   lookup,
+			recorder: recorder,
+		})
 	}
 	return out, nil
 }
