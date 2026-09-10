@@ -15,7 +15,7 @@ type StatusSource struct {
 }
 
 func NewStatusSource(host *Host) *StatusSource { return &StatusSource{host: host} }
-func (*StatusSource) ID() string                { return "mcp" }
+func (*StatusSource) ID() string               { return "mcp" }
 
 func (source *StatusSource) Status(context.Context, statusport.Request) (statusport.Snapshot, error) {
 	if source == nil || source.host == nil {
@@ -27,8 +27,8 @@ func (source *StatusSource) Status(context.Context, statusport.Request) (statusp
 		fields := map[string]string{
 			"tool_count":            strconv.Itoa(status.ToolCount),
 			"consecutive_failures": strconv.Itoa(status.ConsecutiveFailures),
-			"circuit_open":         strconv.FormatBool(status.CircuitOpen),
-			"resource_bridge":      strconv.FormatBool(status.ResourceBridge),
+			"circuit_open":          strconv.FormatBool(status.CircuitOpen),
+			"resource_bridge":       strconv.FormatBool(status.ResourceBridge),
 		}
 		if status.DeferredReason != "" {
 			fields["deferred_reason"] = status.DeferredReason
