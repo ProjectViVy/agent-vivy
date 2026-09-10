@@ -134,6 +134,17 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 			return nil, err
 		}
 	}
+	// The application keeps the mutable EinoSkillBackend for protected
+	// skill-management operations. At the model boundary, immediately replace
+	// that mixed read/write backend with the read-only SkillHost adapter so
+	// Eino List/Get and always-skill injection cannot bypass SkillHost.
+	if local, ok := cfg.SkillBackend.(*EinoSkillBackend); ok {
+		hosted, err := NewHostedSkillBackend(local)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: host skill backend: %w", err)
+		}
+		cfg.SkillBackend = hosted
+	}
 	// The static node contains only the fixed-visible core plus hidden tools.
 	// Every other active tool is attached to Eino's official dynamic search
 	// middleware below; placing it in both lists would create duplicate names
