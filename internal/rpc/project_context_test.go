@@ -39,6 +39,8 @@ func TestResolveProjectContextsRejectsUnsafeSensitiveAndBinaryInputs(t *testing.
 		{name: "ads", path: `README.md:secret`, cause: errProjectContextAbsolute, want: "project-relative"},
 		{name: "unc", path: `\\server\share\README.md`, cause: errProjectContextAbsolute, want: "project-relative"},
 		{name: "nul", path: "README.md\x00", cause: errProjectContextNUL, want: "invalid"},
+		{name: "newline", path: "README\n.md", cause: errProjectContextPathControl, want: "invalid"},
+		{name: "tab", path: "README\t.md", cause: errProjectContextPathControl, want: "invalid"},
 		{name: "sensitive", path: ".env", cause: errProjectContextSensitive, want: "sensitive"},
 		{name: "naked password", path: "password", cause: errProjectContextSensitive, want: "sensitive"},
 		{name: "naked token", path: "token", cause: errProjectContextSensitive, want: "sensitive"},
@@ -84,6 +86,39 @@ func TestResolveProjectContextsKeepsEmptyBodyNonNil(t *testing.T) {
 	got, err := resolveProjectContexts(root, []string{"empty.txt"})
 	if err != nil || len(got) != 1 || got[0].Content == nil || got[0].Size != 0 {
 		t.Fatalf("empty context = %+v/%v", got, err)
+	}
+}
+
+func TestResolveProjectContextsHonorsLiveRequestContext(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := resolveProjectContextsWithContext(ctx, root, []string{"README.md"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled resolve = %v, want context.Canceled", err)
+	}
+}
+
+func TestTurnStartUsesLiveContextForProjectFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := newControlTestEnv(t, func(deps *ControlDeps) { deps.ProjectRoot = root })
+	params, err := json.Marshal(map[string]any{
+		"session_id": "missing-session", "text": "inspect", "context_paths": []string{"README.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, rpcErr := env.handler.Handle(ctx, nil, Request{Method: "turn/start", Params: params})
+	if rpcErr == nil || rpcErr.Code != InvalidParams || !strings.Contains(rpcErr.Message, "context canceled") {
+		t.Fatalf("canceled turn/start = %v, want live-context InvalidParams", rpcErr)
 	}
 }
 

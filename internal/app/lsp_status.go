@@ -3,80 +3,75 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
-	"sync"
+	"strings"
 	"time"
 
 	"agent-vivy/internal/domain"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/statushost"
 	"agent-vivy/internal/storage"
+	statusport "agent-vivy/sdk/port/status"
 	plugin "agent-vivy/sdk/port/toolworld"
 )
 
 const (
 	maxLSPStatusProviders     = 8
 	maxLSPStatusesPerProvider = 32
-	maxLSPStatusInflight      = 64
 	lspStatusTimeout          = 250 * time.Millisecond
 )
 
-type lspProviderCall struct {
-	done     chan struct{}
-	statuses []plugin.LanguageServerStatus
-	ok       bool
+type lspStatusAdapter struct {
+	id       string
+	provider plugin.LanguageServerStatusProvider
 }
 
-type lspProviderCallKey struct {
-	provider int
-	root     string
-}
+func (adapter lspStatusAdapter) ID() string { return adapter.id }
 
-// buildLanguageServerStatusSource keeps plugin-private process state behind a
-// bounded session-to-latest-primary-workspace ownership boundary. It never
-// creates a workspace and returns nil when the generation has no owner.
-func buildLanguageServerStatusSource(providers []plugin.LanguageServerStatusProvider, runs storage.RunStore, workspaces *runtime.WorkspaceManager) controlrpc.LanguageServerStatusSource {
-	if len(providers) > maxLSPStatusProviders {
-		providers = providers[:maxLSPStatusProviders]
+func (adapter lspStatusAdapter) Status(ctx context.Context, request statusport.Request) (statusport.Snapshot, error) {
+	statuses := adapter.provider.LanguageServerStatuses(ctx, request.Scope)
+	items := make([]statusport.Item, 0, len(statuses))
+	for _, status := range statuses {
+		if status.Language == "" || (status.State != "starting" && status.State != "initialized") {
+			continue
+		}
+		items = append(items, statusport.Item{ID: status.Language, State: status.State})
 	}
+	return statusport.NewSnapshot("", "", items), nil
+}
+
+// buildLanguageServerStatusSource adapts the legacy ToolWorld LSP status
+// capability into the sole read-only StatusHost. The session lookup only uses
+// an already-existing primary workspace; no status read can create, start,
+// probe, revive, or reconfigure a language server.
+func buildLanguageServerStatusSource(providers []plugin.LanguageServerStatusProvider, runs storage.RunStore, workspaces *runtime.WorkspaceManager) controlrpc.LanguageServerStatusSource {
 	latest, ok := runs.(storage.LatestPrimaryRunStore)
 	if len(providers) == 0 || !ok || workspaces == nil {
 		return nil
 	}
-
-	var callsMu sync.Mutex
-	inflight := make(map[lspProviderCallKey]*lspProviderCall)
-	startCall := func(ctx context.Context, index int, root string) *lspProviderCall {
-		key := lspProviderCallKey{provider: index, root: root}
-		callsMu.Lock()
-		if call := inflight[key]; call != nil {
-			callsMu.Unlock()
-			return call
+	if len(providers) > maxLSPStatusProviders {
+		providers = providers[:maxLSPStatusProviders]
+	}
+	statusProviders := make([]statusport.Provider, 0, len(providers))
+	for index, provider := range providers {
+		if provider == nil {
+			continue
 		}
-		if len(inflight) >= maxLSPStatusInflight {
-			callsMu.Unlock()
-			return nil
-		}
-		call := &lspProviderCall{done: make(chan struct{})}
-		inflight[key] = call
-		callsMu.Unlock()
-		go func() {
-			defer func() {
-				if recover() != nil {
-					call.ok = false
-				}
-				close(call.done)
-				callsMu.Lock()
-				delete(inflight, key)
-				callsMu.Unlock()
-			}()
-			call.statuses = providers[index].LanguageServerStatuses(ctx, root)
-			if len(call.statuses) > maxLSPStatusesPerProvider {
-				call.statuses = call.statuses[:maxLSPStatusesPerProvider]
-			}
-			call.ok = true
-		}()
-		return call
+		statusProviders = append(statusProviders, lspStatusAdapter{
+			id:       fmt.Sprintf("lsp.%02d", index),
+			provider: provider,
+		})
+	}
+	host, err := statushost.New(statushost.Config{
+		Providers:           statusProviders,
+		Timeout:             lspStatusTimeout,
+		MaxProviders:        maxLSPStatusProviders,
+		MaxItemsPerProvider: maxLSPStatusesPerProvider,
+	})
+	if err != nil || len(statusProviders) == 0 {
+		return nil
 	}
 
 	return func(ctx context.Context, sessionID domain.SessionID) (controlrpc.LanguageServerSnapshot, error) {
@@ -97,30 +92,21 @@ func buildLanguageServerStatusSource(providers []plugin.LanguageServerStatusProv
 
 		statusCtx, cancel := context.WithTimeout(ctx, lspStatusTimeout)
 		defer cancel()
-		calls := make([]*lspProviderCall, len(providers))
-		for index := range providers {
-			calls[index] = startCall(statusCtx, index, workspace.Path)
-			if calls[index] == nil {
+		results := host.Read(statusCtx, statusport.Request{InstanceID: string(sessionID), Scope: workspace.Path})
+		states := make(map[string]string)
+		for _, result := range results {
+			if !result.Snapshot.Available {
 				return controlrpc.LanguageServerSnapshot{}, nil
 			}
-		}
-		states := make(map[string]string)
-		for _, call := range calls {
-			select {
-			case <-call.done:
-				if !call.ok {
-					return controlrpc.LanguageServerSnapshot{}, nil
+			prefix := result.Namespace + "/"
+			for _, item := range result.Snapshot.Items {
+				language := strings.TrimPrefix(item.ID, prefix)
+				if language == "" || (item.State != "starting" && item.State != "initialized") {
+					continue
 				}
-				for _, status := range call.statuses {
-					if status.Language == "" || (status.State != "starting" && status.State != "initialized") {
-						continue
-					}
-					if previous := states[status.Language]; previous != "initialized" || status.State == "initialized" {
-						states[status.Language] = status.State
-					}
+				if previous := states[language]; previous != "initialized" || item.State == "initialized" {
+					states[language] = item.State
 				}
-			case <-statusCtx.Done():
-				return controlrpc.LanguageServerSnapshot{}, nil
 			}
 		}
 		out := make([]controlrpc.LanguageServerStatus, 0, len(states))

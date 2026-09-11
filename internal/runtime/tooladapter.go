@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,8 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	jsonschema "github.com/eino-contrib/jsonschema"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
@@ -46,6 +49,14 @@ func newToolAdapter(t tools.Tool, maxResultBytes int, policy *PolicyEngine, hook
 func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 	spec := a.t.Spec()
 	info := &schema.ToolInfo{Name: spec.Name, Desc: spec.Description}
+	if len(spec.Schema) > 0 {
+		fullSchema, err := decodeToolJSONSchema(spec.Schema)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: tool %q schema: %w", spec.Name, err)
+		}
+		info.ParamsOneOf = schema.NewParamsOneOfByJSONSchema(fullSchema)
+		return info, nil
+	}
 	// Real gateways need the argument schema to fill correct parameter
 	// names; without it the model guesses and calls fail (AS-2 walkthrough).
 	if len(spec.Params) > 0 {
@@ -74,6 +85,181 @@ func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 		info.ParamsOneOf = schema.NewParamsOneOfByParams(params)
 	}
 	return info, nil
+}
+
+// decodeToolJSONSchema uses Eino's official JSON Schema type while filling its
+// Extras facility for keywords the pinned type does not model. Without this
+// boundary adapter, json.Unmarshal silently drops extension/vocabulary
+// keywords such as unevaluatedProperties before the model sees the schema.
+func decodeToolJSONSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
+	var target jsonschema.Schema
+	if err := json.Unmarshal(raw, &target); err != nil {
+		return nil, err
+	}
+	if err := preserveToolSchemaExtras(raw, &target); err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func preserveToolSchemaExtras(raw json.RawMessage, target *jsonschema.Schema) error {
+	if target == nil || bytes.Equal(bytes.TrimSpace(raw), []byte("true")) || bytes.Equal(bytes.TrimSpace(raw), []byte("false")) {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	known := map[string]struct{}{
+		"$schema": {}, "$id": {}, "$anchor": {}, "$ref": {}, "$dynamicRef": {}, "$defs": {}, "$comment": {},
+		"allOf": {}, "anyOf": {}, "oneOf": {}, "not": {}, "if": {}, "then": {}, "else": {}, "dependentSchemas": {},
+		"prefixItems": {}, "items": {}, "contains": {}, "properties": {}, "patternProperties": {}, "additionalProperties": {}, "propertyNames": {},
+		"type": {}, "enum": {}, "const": {}, "multipleOf": {}, "maximum": {}, "exclusiveMaximum": {}, "minimum": {}, "exclusiveMinimum": {},
+		"maxLength": {}, "minLength": {}, "pattern": {}, "maxItems": {}, "minItems": {}, "uniqueItems": {}, "maxContains": {}, "minContains": {},
+		"maxProperties": {}, "minProperties": {}, "required": {}, "dependentRequired": {}, "format": {}, "contentEncoding": {}, "contentMediaType": {}, "contentSchema": {},
+		"title": {}, "description": {}, "default": {}, "deprecated": {}, "readOnly": {}, "writeOnly": {}, "examples": {},
+	}
+	var extras map[string]any
+	for key, value := range fields {
+		if _, ok := known[key]; !ok {
+			if extras == nil {
+				extras = make(map[string]any)
+			}
+			extras[key] = json.RawMessage(append([]byte(nil), value...))
+		}
+	}
+	if extras != nil {
+		target.Extras = extras
+	}
+	for _, key := range []string{"enum", "const", "default", "examples"} {
+		if value, ok := fields[key]; ok {
+			decoded, err := decodeJSONWithNumbers(value)
+			if err != nil {
+				return err
+			}
+			switch key {
+			case "enum":
+				target.Enum, _ = decoded.([]any)
+			case "const":
+				target.Const = decoded
+			case "default":
+				target.Default = decoded
+			case "examples":
+				target.Examples, _ = decoded.([]any)
+			}
+		}
+	}
+	for key, value := range fields {
+		switch key {
+		case "$defs":
+			var children map[string]json.RawMessage
+			if err := json.Unmarshal(value, &children); err != nil {
+				return err
+			}
+			if target.Definitions == nil {
+				target.Definitions = jsonschema.Definitions{}
+			}
+			for name, child := range children {
+				decoded, err := decodeToolJSONSchema(child)
+				if err != nil {
+					return err
+				}
+				target.Definitions[name] = decoded
+			}
+		case "properties":
+			var children map[string]json.RawMessage
+			if err := json.Unmarshal(value, &children); err != nil {
+				return err
+			}
+			if target.Properties == nil {
+				target.Properties = orderedmap.New[string, *jsonschema.Schema]()
+			}
+			for name, child := range children {
+				decoded, err := decodeToolJSONSchema(child)
+				if err != nil {
+					return err
+				}
+				target.Properties.Set(name, decoded)
+			}
+		case "allOf", "anyOf", "oneOf", "prefixItems":
+			var children []json.RawMessage
+			if err := json.Unmarshal(value, &children); err != nil {
+				return err
+			}
+			decoded := make([]*jsonschema.Schema, 0, len(children))
+			for _, child := range children {
+				item, err := decodeToolJSONSchema(child)
+				if err != nil {
+					return err
+				}
+				decoded = append(decoded, item)
+			}
+			switch key {
+			case "allOf":
+				target.AllOf = decoded
+			case "anyOf":
+				target.AnyOf = decoded
+			case "oneOf":
+				target.OneOf = decoded
+			case "prefixItems":
+				target.PrefixItems = decoded
+			}
+		case "dependentSchemas", "patternProperties":
+			var children map[string]json.RawMessage
+			if err := json.Unmarshal(value, &children); err != nil {
+				return err
+			}
+			decoded := make(map[string]*jsonschema.Schema, len(children))
+			for name, child := range children {
+				item, err := decodeToolJSONSchema(child)
+				if err != nil {
+					return err
+				}
+				decoded[name] = item
+			}
+			if key == "dependentSchemas" {
+				target.DependentSchemas = decoded
+			} else {
+				target.PatternProperties = decoded
+			}
+		case "items", "contains", "additionalProperties", "propertyNames", "contentSchema", "not", "if", "then", "else":
+			decoded, err := decodeToolJSONSchema(value)
+			if err != nil {
+				return err
+			}
+			switch key {
+			case "items":
+				target.Items = decoded
+			case "contains":
+				target.Contains = decoded
+			case "additionalProperties":
+				target.AdditionalProperties = decoded
+			case "propertyNames":
+				target.PropertyNames = decoded
+			case "contentSchema":
+				target.ContentSchema = decoded
+			case "not":
+				target.Not = decoded
+			case "if":
+				target.If = decoded
+			case "then":
+				target.Then = decoded
+			case "else":
+				target.Else = decoded
+			}
+		}
+	}
+	return nil
+}
+
+func decodeJSONWithNumbers(raw json.RawMessage) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
@@ -143,11 +329,19 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			}
 		}
 	}
+
+	middlewareApprovalClasses := []string(nil)
+	args, evaluation, middlewareApprovalClasses, err = a.applyGovernedMiddleware(ctx, spec, args, profile, evaluation)
+	if err != nil {
+		return "", err
+	}
+	middlewareRequiresApproval := len(middlewareApprovalClasses) != 0
+
 	// Per-call tiering: a classifier-aware tool (bash) can deny outright or
 	// run safe read-only invocations without an interrupt under the 'auto'
-	// approval policy. The check runs on the final arguments, after hooks,
-	// and regardless of the profile decision so the deny table holds even
-	// under full-auto profiles.
+	// approval policy. The check runs on the final arguments, after hooks and
+	// public Middleware, and regardless of the profile decision so the deny
+	// table holds even under full-auto profiles.
 	if classifier, ok := a.t.(tools.InvocationClassifier); ok {
 		class, findings, err := classifier.ClassifyInvocation(args)
 		if err != nil {
@@ -160,7 +354,7 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			}
 			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, reason)
 		}
-		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto {
+		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto && !middlewareRequiresApproval {
 			emitGovernanceEvent(ctx, GovernanceEvent{
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
 				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
@@ -175,27 +369,41 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		}
 		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
 	}
-	if evaluation.Decision == domain.PolicyPrompt {
-		approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
-		if approvalEval.AutoApprove {
-			return a.run(ctx, string(args))
-		}
-		if !approvalEval.ShouldAsk {
-			return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, approvalEval.Reason)
-		}
-		wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
-		if !wasInterrupted {
-			// First execution: pause the run so the service can surface
-			// tool.approval_required over a durable checkpoint (D-029).
-			return "", einotool.Interrupt(ctx, "approval required for "+spec.Name)
-		}
-		isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
-		if !isTarget {
-			// A sibling interrupt resumed first; keep waiting.
-			return "", einotool.Interrupt(ctx, "still waiting for approval of "+spec.Name)
-		}
-		if hasData && decision == domain.ApprovalDenied {
-			return spec.Name + " was denied by the user and did not run; continue without it.", nil
+	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval {
+		if middlewareRequiresApproval {
+			wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
+			if !wasInterrupted {
+				return "", einotool.Interrupt(ctx, "middleware approval required for "+spec.Name)
+			}
+			isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
+			if !isTarget || !hasData {
+				return "", einotool.Interrupt(ctx, "still waiting for middleware approval of "+spec.Name)
+			}
+			if decision == domain.ApprovalDenied {
+				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+			}
+		} else {
+			approvalEval := a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+			if approvalEval.AutoApprove {
+				return a.run(ctx, string(args))
+			}
+			if !approvalEval.ShouldAsk {
+				return "", fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, approvalEval.Reason)
+			}
+			wasInterrupted, _, _ := einotool.GetInterruptState[any](ctx)
+			if !wasInterrupted {
+				// First execution: pause the run so the service can surface
+				// tool.approval_required over a durable checkpoint (D-029).
+				return "", einotool.Interrupt(ctx, "approval required for "+spec.Name)
+			}
+			isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
+			if !isTarget {
+				// A sibling interrupt resumed first; keep waiting.
+				return "", einotool.Interrupt(ctx, "still waiting for approval of "+spec.Name)
+			}
+			if hasData && decision == domain.ApprovalDenied {
+				return spec.Name + " was denied by the user and did not run; continue without it.", nil
+			}
 		}
 	}
 	return a.run(ctx, string(args))
@@ -227,6 +435,7 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
+	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))
 	mountsBefore := tools.MountedToolsFromContext(ctx).Mounted()
 	result, err := a.t.InvokableRun(toolCtx, json.RawMessage(argumentsInJSON))
 	if a.hooks != nil {

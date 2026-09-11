@@ -107,6 +107,7 @@ export interface Settings extends LocaleSettings {
   config_provider: string;
   config_model: string;
   api_key_set?: boolean;
+  provider_profiles?: ProviderProfileStatus[];
   network_search?: NetworkSearchSettingsView;
   execute_max_timeout_seconds?: number;
   config_execute_max_timeout_seconds?: number;
@@ -315,6 +316,15 @@ export interface ProviderEntry {
   api_key_set: boolean;
 }
 
+export type ProviderCapabilityState = 'COMPILED' | 'UNCONFIGURED' | 'READY' | 'UNAVAILABLE' | 'DEFERRED-INDEFINITE';
+export interface ProviderProfileStatus {
+  id: string;
+  adapter_family: string;
+  endpoint_class: 'native' | 'gateway' | 'local';
+  model_ids: string[];
+  state: ProviderCapabilityState;
+}
+
 /** settings/providers/upsert 载荷：api_key 写-only（空串=清除该条目密钥）。 */
 export interface ProviderEntryInput {
   id?: string;
@@ -328,6 +338,8 @@ export interface ProviderEntryInput {
 
 export interface ProvidersView {
   entries: ProviderEntry[];
+  bundles?: ProviderEntry[];
+  profiles?: ProviderProfileStatus[];
   active_provider: string;
   active_model: string;
   active_base_url: string;
@@ -353,6 +365,8 @@ export interface ProviderRefreshInput {
 /** 从上游 GET /models 同步模型列表并持久化到注册表；返回脱敏后的保存条目。 */
 export const refreshProviderModels = (input: ProviderRefreshInput) => request<ProviderEntry>('settings/providers/refresh', input);
 
+export type McpState = 'not-compiled' | 'unconfigured' | 'inactive' | 'ready' | 'unavailable' | 'deferred';
+/** @deprecated Use McpState/state. Kept only for older control-plane peers. */
 export type McpStatus = 'idle' | 'ok' | 'error';
 export type McpTransport = 'http' | 'stdio';
 export interface McpServer {
@@ -365,10 +379,13 @@ export interface McpServer {
   cwd?: string;
   auth_env?: string;
   auth_env_set: boolean;
+  resource_bridge?: boolean;
+  deferred_reason?: string;
   env_missing?: string[];
   enabled: boolean;
   tool_count: number;
-  status: McpStatus;
+  state?: McpState;
+  status?: McpStatus;
   error?: string;
 }
 export interface McpServerInput {
@@ -380,6 +397,8 @@ export interface McpServerInput {
   env_from?: Record<string, string>;
   cwd?: string;
   auth_env?: string;
+  resource_bridge?: boolean;
+  deferred_reason?: string;
   enabled?: boolean;
 }
 export interface McpServersView {

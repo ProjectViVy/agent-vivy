@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -34,6 +35,13 @@ var (
 // snapshots before they become durable message state. It does not touch the
 // host filesystem: path containment and reading belong to the RPC resolver.
 func normalizeFileContexts(in []domain.FileContext) ([]domain.FileContext, error) {
+	return normalizeFileContextsContext(context.Background(), in)
+}
+
+func normalizeFileContextsContext(ctx context.Context, in []domain.FileContext) ([]domain.FileContext, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -43,6 +51,9 @@ func normalizeFileContexts(in []domain.FileContext) ([]domain.FileContext, error
 	out := make([]domain.FileContext, 0, len(in))
 	total := 0
 	for _, item := range in {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !validFileContextPath(item.Path) {
 			return nil, errFileContextPath
 		}
@@ -59,7 +70,10 @@ func normalizeFileContexts(in []domain.FileContext) ([]domain.FileContext, error
 		if !validTextSnapshot(item.Content) {
 			return nil, errFileContextBinary
 		}
-		name := strings.TrimSpace(item.Name)
+		if item.Name != "" && !validDisplayName(item.Name) {
+			return nil, fmt.Errorf("runtime: invalid file context name")
+		}
+		name := item.Name
 		if name == "" {
 			name = filepath.Base(filepath.FromSlash(item.Path))
 		}
@@ -77,8 +91,13 @@ func normalizeFileContexts(in []domain.FileContext) ([]domain.FileContext, error
 }
 
 func validFileContextPath(raw string) bool {
-	if raw == "" || strings.IndexByte(raw, 0) >= 0 || strings.Contains(raw, ":") {
+	if raw == "" || !utf8.ValidString(raw) || strings.IndexByte(raw, 0) >= 0 || strings.Contains(raw, ":") {
 		return false
+	}
+	for _, r := range raw {
+		if unicode.IsControl(r) || isFileContextBidiControl(r) {
+			return false
+		}
 	}
 	if filepath.IsAbs(raw) || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) {
 		return false
@@ -91,6 +110,10 @@ func validFileContextPath(raw string) bool {
 	}
 	clean := filepath.Clean(filepath.FromSlash(normalized))
 	return clean != "." && !filepath.IsAbs(clean) && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
+func isFileContextBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }
 
 // Keep the runtime boundary fail-closed even when an in-process caller skips

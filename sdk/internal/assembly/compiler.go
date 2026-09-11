@@ -125,6 +125,25 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			if provided.Port == "std/tool@v1" && record.Trust == TrustT2 && protectedToolIDs[provided.ID] {
 				diagnostics = append(diagnostics, fmt.Sprintf("T2 module %s cannot claim protected Tool id %s", record.Descriptor.Module.ID, provided.ID))
 			}
+			if provided.Port == "std/tool-world@v1" && provided.ID == "mcp" {
+				if !record.Binding.MCPHostProvider {
+					diagnostics = append(diagnostics, fmt.Sprintf("MCP ToolWorld mcp requires typed MCPHostProvider binding on %s", record.Descriptor.Module.ID))
+				}
+				if !descriptorProvides(record.Descriptor, "core/mcp-host@v1") {
+					diagnostics = append(diagnostics, fmt.Sprintf("MCP ToolWorld mcp requires core/mcp-host@v1 from %s", record.Descriptor.Module.ID))
+				}
+			}
+		}
+	}
+	for _, record := range selected {
+		if !record.Binding.MCPHostProvider {
+			continue
+		}
+		if !descriptorProvides(record.Descriptor, "std/tool-world@v1") || !descriptorProvidesRef(record.Descriptor, module.PortRef{Port: "std/tool-world@v1", ID: "mcp"}) {
+			diagnostics = append(diagnostics, fmt.Sprintf("typed MCPHostProvider %s must bind std/tool-world@v1 id mcp", record.Descriptor.Module.ID))
+		}
+		if !descriptorProvides(record.Descriptor, "core/mcp-host@v1") {
+			diagnostics = append(diagnostics, fmt.Sprintf("typed MCPHostProvider %s requires core/mcp-host@v1", record.Descriptor.Module.ID))
 		}
 	}
 	for portName, records := range providers {
@@ -461,6 +480,10 @@ var internalPortOwners = map[string]string{
 	"core/sandbox-backend@v1":     "vivy/kernel",
 	"core/tool-host@v1":           "vivy/tool-host",
 	"core/mcp-host@v1":            "vivy/mcp-host",
+	"core/context-host@v1":        "vivy/context-host",
+	"core/skill-host@v1":          "vivy/skill-host",
+	"core/observer-host@v1":       "vivy/observer-host",
+	"core/status-host@v1":         "vivy/status-host",
 	"core/channel-host@v1":        "vivy/channel-host",
 	"core/face-host@v1":           "vivy/face-host",
 }

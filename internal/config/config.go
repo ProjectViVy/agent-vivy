@@ -45,6 +45,49 @@ func ValidEnvKey(name string) bool { return envKeyPattern.MatchString(name) }
 // running generation.
 var channelNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// mcpNamespacePattern is intentionally stricter than generic config slugs.
+// The literal server name is embedded in model-visible MCP Tool IDs; unsafe
+// values must be rejected, never trimmed or rewritten into another identity.
+var mcpNamespacePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
+// ValidateMCPServerEndpoint accepts only a credential-free absolute HTTP(S)
+// URL. MCP endpoints are projected into browser-facing configuration, so
+// userinfo and credential-shaped query keys are rejected at the persistence
+// boundary instead of being redacted after a secret has already crossed it.
+func ValidateMCPServerEndpoint(endpoint string) error {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return errors.New("must be an absolute HTTP(S) URL")
+	}
+	if parsed.User != nil {
+		return errors.New("must not include URL credentials")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return errors.New("must not include credential-like query parameters")
+	}
+	for key := range query {
+		if mcpCredentialLikeQueryKey(key) {
+			return errors.New("must not include credential-like query parameters")
+		}
+	}
+	return nil
+}
+
+func mcpCredentialLikeQueryKey(key string) bool {
+	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(strings.TrimSpace(key)))
+	if normalized == "" {
+		return false
+	}
+	for _, part := range strings.Split(normalized, "_") {
+		switch part {
+		case "token", "secret", "password", "passwd", "credential", "authorization", "apikey", "key":
+			return true
+		}
+	}
+	return normalized == "access_token" || normalized == "api_key"
+}
+
 // defaultMaxToolTurns bounds tool-call turns per run when config omits
 // runtime.max_tool_turns (MA-4): well above a healthy turn count, well
 // below eino's 20 default, so a runaway loop fails fast and classified.
@@ -169,11 +212,11 @@ type Postgres struct {
 }
 
 type Providers struct {
-	// Active is the pre-baked bundle to activate: "openai" or "anthropic"
-	// (D-018, D-023).
+	// Active selects a Provider Profile compiled into this Generation. The
+	// default Generation carries "openai" and "anthropic" (D-018, D-023).
 	Active string `yaml:"active"`
-	// BundleDir is the directory holding the pre-baked bundle YAML files
-	// (openai.yaml, anthropic.yaml; A2 fixtures).
+	// BundleDir holds the T1 adapter metadata paired with compiled Profiles
+	// (openai.yaml, anthropic.yaml; A2 fixtures). It cannot add a Profile.
 	BundleDir string   `yaml:"bundle_dir"`
 	OpenAI    Provider `yaml:"openai"`
 	Anthropic Provider `yaml:"anthropic"`
@@ -354,6 +397,16 @@ type MCPServer struct {
 	// Cwd is relative to runtime.workspace_root for stdio servers.
 	Cwd     string `yaml:"cwd,omitempty"`
 	AuthEnv string `yaml:"auth_env,omitempty"`
+	// ResourceBridge opts this server into the explicit MCP resources ->
+	// ContextHost projection. Prompts remain control-plane-only.
+	ResourceBridge bool `yaml:"resource_bridge,omitempty"`
+	// DeferredReason keeps an explicitly deferred instance visible without
+	// attempting to activate it. The reason is an operator diagnostic, never a
+	// secret value.
+	DeferredReason string `yaml:"deferred_reason,omitempty"`
+	// Enabled defaults to true when omitted. Settings overlays may carry an
+	// explicit false through startup.
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 // SandboxConfig controls the file-effect policy boundary (D-021). It
@@ -589,7 +642,7 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "mcp_call", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent"},
+			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent"},
 			NetworkSearch: NetworkSearchConfig{Provider: ""},
 			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
@@ -765,11 +818,18 @@ func (c *Config) Validate() error {
 	seenMCPNames := make(map[string]int, len(c.Runtime.MCPServers))
 	for i := range c.Runtime.MCPServers {
 		server := &c.Runtime.MCPServers[i]
+		if !mcpNamespacePattern.MatchString(server.Name) {
+			return fmt.Errorf("runtime.mcp_servers[%d].name %q is not a safe namespace identifier", i, server.Name)
+		}
 		server.Name = strings.TrimSpace(server.Name)
 		server.Endpoint = strings.TrimSpace(server.Endpoint)
 		server.Command = strings.TrimSpace(server.Command)
 		server.Cwd = strings.TrimSpace(server.Cwd)
 		server.AuthEnv = strings.TrimSpace(server.AuthEnv)
+		server.DeferredReason = strings.TrimSpace(server.DeferredReason)
+		if err := validateMCPDeferredReason(server.DeferredReason); err != nil {
+			return fmt.Errorf("runtime.mcp_servers[%d].deferred_reason: %w", i, err)
+		}
 		if server.Name == "" {
 			return fmt.Errorf("runtime.mcp_servers[%d].name must not be empty", i)
 		}
@@ -782,9 +842,8 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("runtime.mcp_servers[%d] must set exactly one of endpoint or command", i)
 		}
 		if server.Endpoint != "" {
-			parsed, err := url.Parse(server.Endpoint)
-			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-				return fmt.Errorf("runtime.mcp_servers[%d].endpoint must be an absolute HTTP(S) URL", i)
+			if err := ValidateMCPServerEndpoint(server.Endpoint); err != nil {
+				return fmt.Errorf("runtime.mcp_servers[%d].endpoint: %w", i, err)
 			}
 			if server.Cwd != "" || len(server.Args) > 0 || len(server.EnvFrom) > 0 {
 				return fmt.Errorf("runtime.mcp_servers[%d] stdio fields require command", i)
@@ -966,6 +1025,16 @@ func (c *Config) Validate() error {
 		return errors.New("logging.retention_days must not be negative")
 	}
 
+	return nil
+}
+
+func validateMCPDeferredReason(reason string) error {
+	if strings.ContainsAny(reason, "\r\n\x00") {
+		return errors.New("must be a single-line diagnostic")
+	}
+	if len([]rune(reason)) > 256 {
+		return errors.New("must not exceed 256 characters")
+	}
 	return nil
 }
 

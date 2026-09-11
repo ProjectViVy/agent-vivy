@@ -77,7 +77,7 @@ func TestSessionSidebarUsesAuthoritativeOwners(t *testing.T) {
 	if len(snapshot.ModifiedFiles) != 1 || snapshot.ModifiedFiles[0].Path != "main.go" {
 		t.Fatalf("modified files = %+v", snapshot.ModifiedFiles)
 	}
-	if !snapshot.MCPKnown || len(snapshot.MCP) != 1 || snapshot.MCP[0].Name != "docs" || snapshot.MCP[0].State != "configured" {
+	if !snapshot.MCPKnown || len(snapshot.MCP) != 1 || snapshot.MCP[0].Name != "docs" || snapshot.MCP[0].State != string(runtime.MCPStateInactive) {
 		t.Fatalf("mcp truth = %+v", snapshot.MCP)
 	}
 	if !snapshot.SkillsKnown || len(snapshot.Skills) != 1 || snapshot.Skills[0].Name != "enabled-skill" || snapshot.Skills[0].Origin != "user" {
@@ -99,9 +99,9 @@ func (s *sidebarStatusCatalog) ServerStatuses() []runtime.MCPServerStatus {
 
 func TestSessionSidebarProjectsMCPStatusPriorityAndWireUnknowns(t *testing.T) {
 	statusCatalog := &sidebarStatusCatalog{statuses: []runtime.MCPServerStatus{
-		{Name: "initialized", Transport: "http", Initialized: true, Error: "stale handshake", AuthMissing: true, ToolCount: 0},
-		{Name: "failed", Transport: "stdio", Error: "connection refused", AuthMissing: true, EnvMissing: []string{"MCP_TOKEN"}, ToolCount: -1},
-		{Name: "configured", AuthMissing: true, ToolCount: -1},
+		{Name: "initialized", Transport: "http", State: runtime.MCPStateReady, Initialized: true, Error: "stale handshake", AuthMissing: true, ToolCount: 0},
+		{Name: "failed", Transport: "stdio", State: runtime.MCPStateUnavailable, Error: "connection refused", AuthMissing: true, EnvMissing: []string{"MCP_TOKEN"}, ToolCount: -1},
+		{Name: "configured", State: runtime.MCPStateInactive, AuthMissing: true, ToolCount: -1},
 	}}
 	env := newControlTestEnv(t, func(deps *ControlDeps) {
 		deps.MCP = statusCatalog
@@ -119,13 +119,13 @@ func TestSessionSidebarProjectsMCPStatusPriorityAndWireUnknowns(t *testing.T) {
 	if len(snapshot.MCP) != 3 {
 		t.Fatalf("mcp status projection = %+v", snapshot.MCP)
 	}
-	if snapshot.MCP[0].State != "initialized" || snapshot.MCP[0].Transport != "http" || snapshot.MCP[0].Error != "stale handshake" || !snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount == nil || *snapshot.MCP[0].ToolCount != 0 {
+	if snapshot.MCP[0].State != string(runtime.MCPStateReady) || snapshot.MCP[0].Transport != "http" || snapshot.MCP[0].Error != "stale handshake" || !snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount == nil || *snapshot.MCP[0].ToolCount != 0 {
 		t.Fatalf("initialized status priority/count = %+v", snapshot.MCP[0])
 	}
-	if snapshot.MCP[1].State != "error" || snapshot.MCP[1].Transport != "stdio" || snapshot.MCP[1].Error != "connection refused" || !snapshot.MCP[1].AuthMissing || len(snapshot.MCP[1].EnvMissing) != 1 || snapshot.MCP[1].EnvMissing[0] != "MCP_TOKEN" || snapshot.MCP[1].ToolCount != nil {
+	if snapshot.MCP[1].State != string(runtime.MCPStateUnavailable) || snapshot.MCP[1].Transport != "stdio" || snapshot.MCP[1].Error != "connection refused" || !snapshot.MCP[1].AuthMissing || len(snapshot.MCP[1].EnvMissing) != 1 || snapshot.MCP[1].EnvMissing[0] != "MCP_TOKEN" || snapshot.MCP[1].ToolCount != nil {
 		t.Fatalf("error status/unknown count = %+v", snapshot.MCP[1])
 	}
-	if snapshot.MCP[2].State != "configured" || !snapshot.MCP[2].AuthMissing || snapshot.MCP[2].ToolCount != nil {
+	if snapshot.MCP[2].State != string(runtime.MCPStateInactive) || !snapshot.MCP[2].AuthMissing || snapshot.MCP[2].ToolCount != nil {
 		t.Fatalf("configured status/fallback fields = %+v", snapshot.MCP[2])
 	}
 }
@@ -145,7 +145,7 @@ func TestSessionSidebarCatalogOnlyMCPRemainsConfigured(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	snapshot := result.(sidebarResult)
-	if len(snapshot.MCP) != 1 || snapshot.MCP[0].State != "configured" || snapshot.MCP[0].Error != "" || snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount != nil {
+	if len(snapshot.MCP) != 1 || snapshot.MCP[0].State != string(runtime.MCPStateInactive) || snapshot.MCP[0].Error != "" || snapshot.MCP[0].AuthMissing || snapshot.MCP[0].ToolCount != nil {
 		t.Fatalf("catalog-only MCP = %+v", snapshot.MCP)
 	}
 }

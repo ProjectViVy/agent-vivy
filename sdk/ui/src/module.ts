@@ -928,6 +928,7 @@ export interface FaceProviderRefreshInput {
 }
 
 export type FaceMcpStatus = "idle" | "ok" | "error";
+export type FaceMcpState = "not-compiled" | "unconfigured" | "inactive" | "ready" | "unavailable" | "deferred";
 export type FaceMcpTransport = "http" | "stdio";
 
 export interface FaceMcpServer {
@@ -940,10 +941,14 @@ export interface FaceMcpServer {
   readonly cwd?: string;
   readonly auth_env?: string;
   readonly auth_env_set: boolean;
+  readonly resource_bridge?: boolean;
+  readonly deferred_reason?: string;
   readonly env_missing?: readonly string[];
   readonly enabled: boolean;
   readonly tool_count: number;
-  readonly status: FaceMcpStatus;
+  readonly state?: FaceMcpState;
+  /** @deprecated Use state. Kept for older control-plane peers. */
+  readonly status?: FaceMcpStatus;
   readonly error?: string;
 }
 
@@ -956,6 +961,8 @@ export interface FaceMcpServerInput {
   readonly env_from?: Record<string, string>;
   readonly cwd?: string;
   readonly auth_env?: string;
+  readonly resource_bridge?: boolean;
+  readonly deferred_reason?: string;
   readonly enabled?: boolean;
 }
 
