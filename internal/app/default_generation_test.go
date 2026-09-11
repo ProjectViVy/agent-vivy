@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"slices"
 	"testing"
 
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
+	"agent-vivy/sdk/port/contextsource"
+	"agent-vivy/sdk/port/skillsource"
 )
 
 type defaultGenerationInventory struct {
@@ -102,8 +105,55 @@ func TestDefaultGeneratedToolProvidersBindRuntimeImplementations(t *testing.T) {
 	if !ok {
 		t.Fatal("generated ask_user provider is not registered")
 	}
-	if _, ok := implementation.(generatedTool); !ok {
-		t.Fatalf("ask_user implementation = %T, want generated Tool binding", implementation)
+	governed, ok := implementation.(interface{ GovernedToolID() string })
+	if !ok {
+		t.Fatalf("ask_user implementation = %T, want ToolHost-governed binding", implementation)
+	}
+	if governed.GovernedToolID() != "ask_user" {
+		t.Fatalf("ask_user governed id = %q, want ask_user", governed.GovernedToolID())
+	}
+}
+
+func TestDefaultGenerationComposesContextSkillAndMCPHosts(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	for _, moduleID := range []string{"vivy/context-host", "vivy/context-source", "vivy/skill-host", "vivy/skill-source", "vivy/mcp-host"} {
+		if !slices.Contains(assembly.Manifest.Modules, moduleID) {
+			t.Fatalf("default Generation omitted %s: %v", moduleID, assembly.Manifest.Modules)
+		}
+	}
+	if got, ok := assembly.ContextSourceProviders().([]contextsource.Provider); !ok || len(got) != 1 || got[0].ID() != "vivy.project-context" {
+		t.Fatalf("default ContextSource inventory = %#v (typed=%v)", got, ok)
+	}
+	if got, ok := assembly.SkillSourceProviders().([]skillsource.Provider); !ok || len(got) != 1 || got[0].ID() != "vivy.default-skills" {
+		t.Fatalf("default SkillSource inventory = %#v (typed=%v)", got, ok)
+	}
+	if len(assembly.Worlds) != 1 || assembly.Worlds[0].Definition().ID != "mcp" {
+		t.Fatalf("default MCP ToolWorld inventory = %#v", assembly.Worlds)
+	}
+	if err := validateRuntimeAssembly(assembly); err != nil {
+		t.Fatalf("generated P4 inventory validation failed: %v", err)
+	}
+	if err := assembly.Start(context.Background(), assemblyHosts{}); err != nil {
+		t.Fatalf("default Assembly did not start all compiled Hosts: %v", err)
+	}
+	if err := assembly.Start(context.Background(), assemblyHosts{}); err == nil {
+		t.Fatal("default Assembly allowed a second Start")
+	}
+	if err := assembly.Close(context.Background()); err != nil {
+		t.Fatalf("default Assembly cleanup failed: %v", err)
+	}
+	if err := assembly.Close(context.Background()); err != nil {
+		t.Fatalf("default Assembly cleanup was not idempotent: %v", err)
+	}
+}
+
+func TestValidateRuntimeAssemblyRejectsTypedSourcesWithoutHosts(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	assembly.Manifest.Modules = slices.DeleteFunc(assembly.Manifest.Modules, func(id string) bool {
+		return id == "vivy/context-host" || id == "vivy/skill-host" || id == "vivy/mcp-host"
+	})
+	if err := validateRuntimeAssembly(assembly); err == nil {
+		t.Fatal("validateRuntimeAssembly accepted typed Sources/ToolWorld without their Hosts")
 	}
 }
 

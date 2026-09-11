@@ -255,20 +255,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		}
 		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, Evidence: []string{string(compiled.State)}})
 	}
-	capabilityStates := map[string]assemblyv1.CapabilityState{
-		"channels": assemblyv1.CapabilityNotCompiled,
-		"mcp":      assemblyv1.CapabilityNotCompiled,
-	}
-	for _, resolved := range plan.Modules {
-		for _, provided := range resolved.Descriptor.Provides {
-			if provided.Port == "std/channel@v1" {
-				capabilityStates["channels"] = assemblyv1.CapabilityUnconfigured
-			}
-			if provided.Port == "std/tool-world@v1" && provided.ID == "mcp" {
-				capabilityStates["mcp"] = assemblyv1.CapabilityUnconfigured
-			}
-		}
-	}
+	capabilityStates := capabilityStatesForPlan(plan)
 	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p1", SDKVersion: "v1", CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts, Catalogs: catalogs, CapabilityStates: capabilityStates})
 	if err != nil {
 		return Artifact{}, err
@@ -316,6 +303,28 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	}
 	published = true
 	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, "vivy"), Manifest: manifest}, nil
+}
+
+// capabilityStatesForPlan derives compiled-capability signals from the
+// build-owned typed bindings, not from a Module's public Port claims alone.
+// In particular, a public mcp ToolWorld is not a compiled MCPHost unless its
+// Source Catalog record carries the authoritative MCPHostProvider binding.
+func capabilityStatesForPlan(plan assemblyv1.AssemblyPlan) map[string]assemblyv1.CapabilityState {
+	states := map[string]assemblyv1.CapabilityState{
+		"channels": assemblyv1.CapabilityNotCompiled,
+		"mcp":      assemblyv1.CapabilityNotCompiled,
+	}
+	for _, resolved := range plan.Modules {
+		for _, provided := range resolved.Descriptor.Provides {
+			if provided.Port == "std/channel@v1" {
+				states["channels"] = assemblyv1.CapabilityUnconfigured
+			}
+			if provided.Port == "std/tool-world@v1" && provided.ID == "mcp" && resolved.Binding.MCPHostProvider {
+				states["mcp"] = assemblyv1.CapabilityUnconfigured
+			}
+		}
+	}
+	return states
 }
 
 func prepareBuildModfile(repoRoot, temporaryRoot string, sources []string) (string, error) {
@@ -526,7 +535,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 	}
 	records := make([]assemblyv1.SourceRecord, 0, len(internal)+len(sources)+8)
 	for _, r := range internal {
-		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection}})
+		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
 	}
 	known := []struct {
 		dir, importPath, pkg                string

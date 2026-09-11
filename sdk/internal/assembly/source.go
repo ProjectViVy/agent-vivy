@@ -1,16 +1,9 @@
 package assembly
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 
+	"agent-vivy/internal/sourcehash"
 	"agent-vivy/sdk/module"
 )
 
@@ -40,6 +33,15 @@ type GoBinding struct {
 	ProviderCollection           bool
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
+	PreToolProvider              bool
+	RunObserverProvider          bool
+	DiagnosticObserverV1Provider bool
+	StatusProvider               bool
+	// Typed P4 bindings keep Source/Host composition explicit in generated
+	// Assembly. They are build metadata, never Module-controlled redirects.
+	ContextSourceProvider bool
+	SkillSourceProvider   bool
+	MCPHostProvider       bool
 }
 
 // SourceCatalog is the sole authority that binds a Module ID to source bytes
@@ -85,49 +87,7 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 // own declared digest is normalized so the source can carry its content
 // address without introducing a circular hash dependency.
 func HashSourceTree(root, declaredDigest string) (string, error) {
-	var paths []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("source tree contains symbolic link %s", path)
-		}
-		if entry.Type().IsRegular() {
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return relErr
-			}
-			if filepath.ToSlash(rel) == "generated/assembly/zz_default.go" {
-				return nil
-			}
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	sort.Strings(paths)
-	h := sha256.New()
-	for _, path := range paths {
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return "", err
-		}
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return "", err
-		}
-		if declaredDigest != "" {
-			body = []byte(strings.ReplaceAll(string(body), declaredDigest, strings.Repeat("0", sha256.Size*2)))
-		}
-		_, _ = io.WriteString(h, filepath.ToSlash(rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(body)
-		_, _ = h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return sourcehash.Tree(root, declaredDigest)
 }
 
 func (catalog SourceCatalog) Resolve(moduleID string) (SourceRecord, error) {

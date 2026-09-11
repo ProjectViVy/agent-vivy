@@ -20,31 +20,57 @@ import (
 	"unicode"
 
 	"agent-vivy/internal/commandpolicy"
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/mcphost"
 	"agent-vivy/internal/tools"
 
-	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
-	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/mark3labs/mcp-go/client"
 	mcptransport "github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 const (
-	defaultMCPTimeout   = 8 * time.Second
-	maxMCPResponseBytes = 512 << 10
-	maxMCPContentBytes  = 256 << 10
-	maxMCPResourcePages = 32
+	defaultMCPTimeout     = 8 * time.Second
+	defaultMCPHostRetries = 1
+	maxMCPResponseBytes   = 512 << 10
+	maxMCPContentBytes    = 256 << 10
+	maxMCPResourcePages   = 32
 )
 
 type MCPServerConfig struct {
-	Name     string
-	Endpoint string
-	Command  string
-	Args     []string
-	EnvFrom  map[string]string
-	Cwd      string
-	AuthEnv  string
+	Name           string
+	Endpoint       string
+	Command        string
+	Args           []string
+	EnvFrom        map[string]string
+	Cwd            string
+	AuthEnv        string
+	ResourceBridge bool
+	DeferredReason string
+	// Enabled is optional at this runtime boundary so existing callers that
+	// construct a config literal keep the safe default (enabled). Settings
+	// resolves nil to true before writes; the pointer remains useful for
+	// disabled saved entries that must stay visible in status projections.
+	Enabled *bool
+}
+
+// MCPServerState is the snapshot vocabulary shared by MCPHost and the RPC/UI
+// projection. The values intentionally use the stable wire spelling rather
+// than the uppercase assembly manifest spelling.
+type MCPServerState string
+
+const (
+	MCPStateNotCompiled  MCPServerState = "not-compiled"
+	MCPStateUnconfigured MCPServerState = "unconfigured"
+	MCPStateInactive     MCPServerState = "inactive"
+	MCPStateReady        MCPServerState = "ready"
+	MCPStateUnavailable  MCPServerState = "unavailable"
+	MCPStateDeferred     MCPServerState = "deferred"
+)
+
+func MCPServerConfigEnabled(config MCPServerConfig) bool {
+	return config.Enabled == nil || *config.Enabled
 }
 
 // MCPBackendOptions supplies the local-process policy used by stdio MCP
@@ -55,23 +81,34 @@ type MCPBackendOptions struct {
 	Logger      *slog.Logger
 }
 
-// MCPBackend is the Vivy governance adapter around one official MCP
-// client per configured server. Eino's MCP component is intentionally used
-// only for tool discovery/schema conversion; the resulting Eino tools are
-// projected into Vivy's untrusted catalog and are never mounted into the
-// model. Calls continue through mcp_call and PrepareMCPCall.
+// MCPBackend is the configuration/control facade for MCPHost. It retains only
+// logical server settings and secret-free status records; every live
+// mcp-go client and child process is created, initialized, replaced, and
+// closed by MCPHost through the runtime adapter. Eino's MCP component is used
+// there only for tool discovery/schema conversion; resulting tools enter the
+// sole ToolHost governance path and are never mounted directly by this type.
 type MCPBackend struct {
-	client           *http.Client
-	processRoot      string
-	logger           *slog.Logger
+	client      *http.Client
+	processRoot string
+	logger      *slog.Logger
+	// servers is a logical configuration/status catalog only. It never owns a
+	// live mcp-go client or child process; MCPHost owns those resources through
+	// the session factory below.
 	servers          map[string]*mcpServer
 	mu               sync.RWMutex
-	retired          sync.WaitGroup
-	closeDone        chan struct{}
-	closeErr         error
 	maxResponseBytes int
 	timeout          time.Duration
 	closed           bool
+	// The facade serializes legacy catalog reads so concurrent control-plane
+	// callers do not turn an otherwise identical discovery into a Host
+	// generation race. MCPHost still retains its strict stale-discovery guard
+	// for direct dynamic-world consumers.
+	discoveryMu sync.Mutex
+
+	bridgeMu          sync.Mutex
+	bridgeHost        *mcphost.Host
+	bridgeWorld       *mcphost.ToolWorld
+	bridgeContextHost *contexthost.Host
 }
 
 // mcpStatusRecord belongs to one logical server configuration. A session
@@ -79,15 +116,19 @@ type MCPBackend struct {
 // one, so delayed work from a retired configuration cannot contaminate the
 // status of a same-named replacement.
 type mcpStatusRecord struct {
-	mu        sync.Mutex
-	initError string
-	toolCount int
+	mu          sync.Mutex
+	initError   string
+	initialized bool
+	toolCount   int
+	closeOnce   sync.Once
+	closeDone   chan struct{}
 }
 
 type mcpServer struct {
-	config MCPServerConfig
-	cli    *client.Client
-	status *mcpStatusRecord
+	config     MCPServerConfig
+	cli        *client.Client
+	rawSchemas *rawMCPToolSchemas
+	status     *mcpStatusRecord
 
 	processCtx    context.Context
 	processCancel context.CancelFunc
@@ -100,13 +141,103 @@ type mcpServer struct {
 	dead    bool
 	deadErr error
 
-	refs    int
-	closing bool
-	closed  bool
-
 	closeOnce sync.Once
 	closeDone chan struct{}
 	closeErr  error
+}
+
+// rawMCPToolSchemas provides request-local collectors for the inputSchema
+// bytes in one tools/list response. A server-scoped name cache is unsafe:
+// omitted schemas would inherit an older contract and concurrent list calls
+// for the same remote name could cross-contaminate one another.
+type rawMCPToolSchemas struct{}
+
+type rawMCPToolSchemaCapture struct {
+	mu      sync.RWMutex
+	byName  map[string]json.RawMessage
+	present map[string]bool
+}
+
+type rawMCPToolSchemaCaptureKey struct{}
+
+func newRawMCPToolSchemas() *rawMCPToolSchemas { return &rawMCPToolSchemas{} }
+
+func withRawMCPToolSchemaCapture(ctx context.Context) (context.Context, *rawMCPToolSchemaCapture) {
+	capture := &rawMCPToolSchemaCapture{
+		byName:  make(map[string]json.RawMessage),
+		present: make(map[string]bool),
+	}
+	return context.WithValue(ctx, rawMCPToolSchemaCaptureKey{}, capture), capture
+}
+
+func rawMCPToolSchemaCaptureFromContext(ctx context.Context) *rawMCPToolSchemaCapture {
+	if ctx == nil {
+		return nil
+	}
+	capture, _ := ctx.Value(rawMCPToolSchemaCaptureKey{}).(*rawMCPToolSchemaCapture)
+	return capture
+}
+
+func (schemas *rawMCPToolSchemas) capture(ctx context.Context, response *mcptransport.JSONRPCResponse) {
+	if schemas == nil {
+		return
+	}
+	if capture := rawMCPToolSchemaCaptureFromContext(ctx); capture != nil {
+		capture.capture(response)
+	}
+}
+
+func (capture *rawMCPToolSchemaCapture) capture(response *mcptransport.JSONRPCResponse) {
+	if capture == nil || response == nil || len(response.Result) == 0 {
+		return
+	}
+	var result struct {
+		Tools []struct {
+			Name        string          `json:"name"`
+			InputSchema json.RawMessage `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if json.Unmarshal(response.Result, &result) != nil {
+		return
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	for _, tool := range result.Tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		capture.present[name] = true
+		capture.byName[name] = append(json.RawMessage(nil), tool.InputSchema...)
+	}
+}
+
+func (capture *rawMCPToolSchemaCapture) get(name string) (json.RawMessage, bool) {
+	if capture == nil {
+		return nil, false
+	}
+	capture.mu.RLock()
+	defer capture.mu.RUnlock()
+	if !capture.present[name] {
+		return nil, false
+	}
+	return append(json.RawMessage(nil), capture.byName[name]...), true
+}
+
+// capturingMCPTransport preserves only the untrusted tools/list schema
+// document. All lifecycle, retry, notification and execution behavior stays
+// in the pinned mcp-go transport.
+type capturingMCPTransport struct {
+	mcptransport.Interface
+	rawSchemas *rawMCPToolSchemas
+}
+
+func (transport *capturingMCPTransport) SendRequest(ctx context.Context, request mcptransport.JSONRPCRequest) (*mcptransport.JSONRPCResponse, error) {
+	response, err := transport.Interface.SendRequest(ctx, request)
+	if err == nil && request.Method == string(mcp.MethodToolsList) {
+		transport.rawSchemas.capture(ctx, response)
+	}
+	return response, err
 }
 
 // MCPServerStatus is a secret-free snapshot of one configured server's
@@ -118,21 +249,21 @@ type mcpServer struct {
 // size, negative when the server was never listed. A dead stdio process is
 // represented through Error and never restarted by an MCP operation.
 type MCPServerStatus struct {
-	Name        string
-	Transport   string
-	Initialized bool
-	Error       string
-	AuthMissing bool
-	EnvMissing  []string
-	ToolCount   int
+	Name           string
+	Transport      string
+	State          MCPServerState
+	Initialized    bool
+	Error          string
+	AuthMissing    bool
+	EnvMissing     []string
+	ToolCount      int
+	ResourceBridge bool
+	DeferredReason string
 }
 
 var _ tools.MCPOperations = (*MCPBackend)(nil)
 var _ tools.MCPResourceOperations = (*MCPBackend)(nil)
 var _ tools.MCPPromptOperations = (*MCPBackend)(nil)
-var _ interface {
-	PrepareMCPCall(context.Context, domain.RunID, tools.MCPCallRequest) (domain.ToolProposal, error)
-} = (*MCPBackend)(nil)
 
 // NewMCPBackend builds a backend without opening any network connection.
 // Each server is started and initialized lazily on its first operation.
@@ -147,9 +278,9 @@ func NewMCPBackendWithOptions(configs []MCPServerConfig, httpClient *http.Client
 	backend := &MCPBackend{
 		maxResponseBytes: maxMCPResponseBytes,
 		timeout:          defaultMCPTimeout,
-		closeDone:        make(chan struct{}),
 		processRoot:      strings.TrimSpace(options.ProcessRoot),
 		logger:           options.Logger,
+		servers:          make(map[string]*mcpServer),
 	}
 	if backend.logger == nil {
 		backend.logger = slog.Default()
@@ -163,12 +294,19 @@ func NewMCPBackendWithOptions(configs []MCPServerConfig, httpClient *http.Client
 }
 
 func normalizeMCPServerConfig(config MCPServerConfig) MCPServerConfig {
-	config.Name = strings.TrimSpace(config.Name)
+	if !safeMCPServerName(config.Name) {
+		return config
+	}
 	config.Endpoint = strings.TrimSpace(config.Endpoint)
 	config.Command = strings.TrimSpace(config.Command)
 	config.Cwd = strings.TrimSpace(config.Cwd)
 	config.AuthEnv = strings.TrimSpace(config.AuthEnv)
+	config.DeferredReason = strings.TrimSpace(config.DeferredReason)
 	config.Args = append([]string(nil), config.Args...)
+	if config.Enabled != nil {
+		enabled := *config.Enabled
+		config.Enabled = &enabled
+	}
 	if config.EnvFrom != nil {
 		envFrom := make(map[string]string, len(config.EnvFrom))
 		for child, host := range config.EnvFrom {
@@ -178,6 +316,31 @@ func normalizeMCPServerConfig(config MCPServerConfig) MCPServerConfig {
 	}
 	return config
 }
+
+// safeMCPServerName mirrors the MCP namespace contract at the runtime
+// boundary. Names are identities, so unsafe input must be rejected before any
+// trimming or map lookup can alias it to a configured server.
+func safeMCPServerName(name string) bool {
+	if len(name) == 0 || len(name) > 128 {
+		return false
+	}
+	if !isASCIIMCPNameLetter(name[0]) && !isASCIIMCPNameDigit(name[0]) {
+		return false
+	}
+	for i := 1; i < len(name); i++ {
+		value := name[i]
+		if !isASCIIMCPNameLetter(value) && !isASCIIMCPNameDigit(value) && value != '_' && value != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIIMCPNameLetter(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func isASCIIMCPNameDigit(value byte) bool { return value >= '0' && value <= '9' }
 
 func sameMCPServerConfig(left, right MCPServerConfig) bool {
 	return reflect.DeepEqual(left, right)
@@ -198,14 +361,14 @@ func (config MCPServerConfig) isStdio() bool {
 	return strings.TrimSpace(config.Command) != ""
 }
 
-// ReplaceServers swaps the live catalog. Entries whose transport/config is
-// unchanged are retained; removed or replaced entries are closed after any
-// in-flight operation releases its reference.
+// ReplaceServers swaps the live configuration catalog. Transport sessions are
+// deliberately not stored here: the MCPHost session factory creates and owns
+// each live client/process, and Host.ReplaceInstances retires and closes it.
 func (b *MCPBackend) ReplaceServers(configs []MCPServerConfig) {
 	normalized := make(map[string]MCPServerConfig, len(configs))
 	for _, config := range configs {
 		config = normalizeMCPServerConfig(config)
-		if config.Name == "" || !hasMCPTransport(config) {
+		if !safeMCPServerName(config.Name) {
 			continue
 		}
 		normalized[config.Name] = config
@@ -223,27 +386,44 @@ func (b *MCPBackend) ReplaceServers(configs []MCPServerConfig) {
 			next[name] = previous
 			continue
 		}
-		entry, err := b.newServer(config)
-		if err != nil {
-			// Config validation normally catches malformed endpoints. Keep the
-			// runtime fail-closed if a direct caller bypasses that boundary.
-			continue
-		}
-		next[name] = entry
+		next[name] = newMCPStatusServer(config)
 	}
-	removed := make([]*mcpServer, 0)
-	for name, previous := range old {
-		if next[name] != previous {
-			removed = append(removed, previous)
-		}
-	}
-	// Add while holding the backend lock and before publishing the replacement.
-	// Close takes the same lock before waiting, so it cannot race a late Add.
-	b.retired.Add(len(removed))
 	b.servers = next
 	b.mu.Unlock()
 
-	b.startRetiredCleanup(removed)
+	b.replaceMCPBridge()
+}
+
+func newMCPStatusServer(config MCPServerConfig) *mcpServer {
+	status := &mcpStatusRecord{toolCount: -1, closeDone: make(chan struct{})}
+	return &mcpServer{
+		config: config,
+		status: status,
+		// The logical status entry exposes the same close signal as the
+		// host-owned transport that represents it. This preserves the
+		// configuration facade's observable cleanup boundary without making
+		// the facade a transport owner.
+		closeDone: status.closeDone,
+	}
+}
+
+// statusForConfig returns the status record only when the Host's immutable
+// instance configuration still names this exact backend generation. A Host
+// operation may be opening a retired configuration while ReplaceServers has
+// already published a same-named replacement; binding by ID in that window
+// would let the retired transport mark the replacement ready.
+func (b *MCPBackend) statusForConfig(config MCPServerConfig) *mcpServer {
+	if b == nil {
+		return nil
+	}
+	config = normalizeMCPServerConfig(config)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	entry := b.servers[config.Name]
+	if entry == nil || !sameMCPServerConfig(entry.config, config) {
+		return nil
+	}
+	return entry
 }
 
 // ConfiguredServers returns a deterministic snapshot of the live catalog.
@@ -266,11 +446,23 @@ func (b *MCPBackend) ServerStatuses() []MCPServerStatus {
 	for name, entry := range b.servers {
 		entry.status.mu.Lock()
 		status := MCPServerStatus{
-			Name:        name,
-			Transport:   mcpServerTransport(entry.config),
-			Initialized: entry.isReady(),
-			Error:       entry.status.initError,
-			ToolCount:   entry.status.toolCount,
+			Name:           name,
+			Transport:      mcpServerTransport(entry.config),
+			Initialized:    entry.status.initialized,
+			Error:          entry.status.initError,
+			ToolCount:      entry.status.toolCount,
+			State:          MCPStateInactive,
+			ResourceBridge: entry.config.ResourceBridge,
+			DeferredReason: entry.config.DeferredReason,
+		}
+		if !MCPServerConfigEnabled(entry.config) {
+			status.State = MCPStateInactive
+		} else if entry.config.DeferredReason != "" {
+			status.State = MCPStateDeferred
+		} else if !hasMCPTransport(entry.config) {
+			status.State = MCPStateUnconfigured
+		} else if status.Initialized {
+			status.State = MCPStateReady
 		}
 		if entry.config.isStdio() {
 			status.EnvMissing = missingMCPEnvChildren(entry.config.EnvFrom)
@@ -281,6 +473,10 @@ func (b *MCPBackend) ServerStatuses() []MCPServerStatus {
 		entry.status.mu.Unlock()
 		if entry.config.AuthEnv != "" && os.Getenv(entry.config.AuthEnv) == "" {
 			status.AuthMissing = true
+		}
+		if MCPServerConfigEnabled(entry.config) && status.State != MCPStateUnconfigured && status.State != MCPStateDeferred &&
+			(status.Error != "" || status.AuthMissing || len(status.EnvMissing) > 0) {
+			status.State = MCPStateUnavailable
 		}
 		out = append(out, status)
 	}
@@ -295,11 +491,16 @@ func (b *MCPBackend) ServerStatuses() []MCPServerStatus {
 func (b *MCPBackend) noteInitResult(entry *mcpServer, err error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if b.closed || b.servers[entry.config.Name] != entry {
+	if entry == nil || b.closed {
+		return
+	}
+	current := b.servers[entry.config.Name]
+	if current == nil || current.status != entry.status {
 		return
 	}
 	entry.status.mu.Lock()
 	defer entry.status.mu.Unlock()
+	entry.status.initialized = err == nil
 	if err == nil {
 		entry.status.initError = ""
 		return
@@ -308,11 +509,16 @@ func (b *MCPBackend) noteInitResult(entry *mcpServer, err error) {
 }
 
 // noteToolCount records the projected catalog size after a successful listing.
-// It is called with the concrete entry held by runMCP, not only its name.
+// Host-owned session adapters pass their concrete transport entry; the
+// status-pointer check rejects writes from a retired configuration.
 func (b *MCPBackend) noteToolCount(entry *mcpServer, count int) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if b.closed || b.servers[entry.config.Name] != entry {
+	if entry == nil || b.closed {
+		return
+	}
+	current := b.servers[entry.config.Name]
+	if current == nil || current.status != entry.status {
 		return
 	}
 	entry.status.mu.Lock()
@@ -328,7 +534,7 @@ func (b *MCPBackend) SanitizeMCPError(name string, err error) string {
 		return ""
 	}
 	b.mu.RLock()
-	entry := b.servers[strings.TrimSpace(name)]
+	entry := b.servers[name]
 	b.mu.RUnlock()
 	if entry == nil {
 		return boundedMCPStatusError(err.Error())
@@ -394,109 +600,42 @@ func isMCPStatusBidiControl(r rune) bool {
 	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }
 
-// Close shuts down every live MCP client. It is idempotent and safe to call
-// while a request is in flight; the final client close is deferred until its
-// operation reference is released.
+// Close closes the MCPHost authority and marks this configuration/control
+// facade closed. Host owns all live transport/session cleanup; the facade
+// never performs a second client/process close.
 func (b *MCPBackend) Close() error {
 	b.mu.Lock()
 	if b.closed {
-		done := b.closeDone
 		b.mu.Unlock()
-		<-done
-		b.mu.RLock()
-		err := b.closeErr
-		b.mu.RUnlock()
-		return err
-	}
-	b.closed = true
-	old := b.servers
-	b.servers = make(map[string]*mcpServer)
-	b.mu.Unlock()
-
-	err := closeMCPServers(mapValues(old))
-	// ReplaceServers may already have retired clients whose asynchronous close
-	// is still in flight. Wait for those too before declaring shutdown complete.
-	b.retired.Wait()
-	b.mu.Lock()
-	b.closeErr = err
-	close(b.closeDone)
-	b.mu.Unlock()
-	return err
-}
-
-func mapValues(values map[string]*mcpServer) []*mcpServer {
-	entries := make([]*mcpServer, 0, len(values))
-	for _, entry := range values {
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
-// closeMCPServers closes transports concurrently. Streamable HTTP's legacy
-// Close can wait up to five seconds for its DELETE; serial shutdown would turn
-// N configured servers into an N*5s settings/shutdown stall.
-func closeMCPServers(entries []*mcpServer) error {
-	if len(entries) == 0 {
 		return nil
 	}
-	errs := make(chan error, len(entries))
-	var wg sync.WaitGroup
-	for _, entry := range entries {
-		if entry == nil {
-			continue
-		}
-		wg.Add(1)
-		go func(entry *mcpServer) {
-			defer wg.Done()
-			if err := entry.markClosing(); err != nil {
-				errs <- err
-				return
-			}
-			if err := entry.waitClosed(); err != nil {
-				errs <- err
-			}
-		}(entry)
+	b.closed = true
+	b.servers = make(map[string]*mcpServer)
+	b.mu.Unlock()
+	return b.closeMCPBridge()
+}
+
+func (b *MCPBackend) ensureOpen() error {
+	if b == nil {
+		return errors.New("mcp: backend is closed")
 	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		return err
+	b.mu.RLock()
+	closed := b.closed
+	b.mu.RUnlock()
+	if closed {
+		return errors.New("mcp: backend is closed")
 	}
 	return nil
 }
 
-func (b *MCPBackend) startRetiredCleanup(entries []*mcpServer) {
-	if len(entries) == 0 {
-		return
-	}
-	for _, entry := range entries {
-		if entry == nil {
-			b.retired.Done()
-			continue
-		}
-		go func(entry *mcpServer) {
-			defer b.retired.Done()
-			_ = closeMCPServers([]*mcpServer{entry})
-		}(entry)
-	}
-}
-
 func (b *MCPBackend) ListTools(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResponse, error) {
+	if err := b.ensureOpen(); err != nil {
+		return tools.MCPListResponse{}, err
+	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	server = strings.TrimSpace(server)
 	if server != "" {
-		result, err := runMCP(ctx, b, server, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPTool, error) {
-			mcpTools, err := einomcp.GetTools(ctx, &einomcp.Config{Cli: boundedMCPClient{MCPClient: entry.cli}})
-			if err != nil {
-				return nil, err
-			}
-			result, err := projectEinoTools(ctx, mcpTools, server)
-			if err == nil {
-				b.noteToolCount(entry, len(result))
-			}
-			return result, err
-		})
+		result, err := b.listToolsFromHost(ctx, server)
 		if err != nil {
 			return tools.MCPListResponse{}, err
 		}
@@ -506,17 +645,7 @@ func (b *MCPBackend) ListTools(ctx context.Context, _ domain.RunID, server strin
 	all := make([]tools.MCPTool, 0)
 	used := 0
 	for _, name := range b.serverNames() {
-		result, err := runMCP(ctx, b, name, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPTool, error) {
-			mcpTools, err := einomcp.GetTools(ctx, &einomcp.Config{Cli: boundedMCPClient{MCPClient: entry.cli}})
-			if err != nil {
-				return nil, err
-			}
-			result, err := projectEinoTools(ctx, mcpTools, name)
-			if err == nil {
-				b.noteToolCount(entry, len(result))
-			}
-			return result, err
-		})
+		result, err := b.listToolsFromHost(ctx, name)
 		if err != nil {
 			return tools.MCPListResponse{}, err
 		}
@@ -532,39 +661,20 @@ func (b *MCPBackend) ListTools(ctx context.Context, _ domain.RunID, server strin
 	return tools.MCPListResponse{Tools: all, Untrusted: true}, nil
 }
 
-func projectEinoTools(ctx context.Context, mcpTools []einotool.BaseTool, server string) ([]tools.MCPTool, error) {
-	out := make([]tools.MCPTool, 0, len(mcpTools))
-	used := 0
-	for _, remote := range mcpTools {
-		if remote == nil {
-			continue
-		}
-		info, err := remote.Info(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("mcp %s: tool info: %w", server, err)
-		}
-		if info == nil || strings.TrimSpace(info.Name) == "" || tools.IsBrowserUseName(info.Name) {
-			continue
-		}
-		var inputSchema json.RawMessage
-		if info.ParamsOneOf != nil {
-			schema, err := info.ParamsOneOf.ToJSONSchema()
-			if err != nil {
-				return nil, fmt.Errorf("mcp %s/%s: tool schema: %w", server, info.Name, err)
-			}
-			inputSchema, err = json.Marshal(schema)
-			if err != nil {
-				return nil, fmt.Errorf("mcp %s/%s: marshal tool schema: %w", server, info.Name, err)
-			}
-			inputSchema = boundedRaw(inputSchema, maxMCPContentBytes)
-		}
-		projected := tools.MCPTool{Server: server, Name: info.Name, Description: info.Desc, InputSchema: inputSchema}
-		size := mcpToolProjectedSize(projected)
-		if size > maxMCPContentBytes-used {
-			break
-		}
-		out = append(out, projected)
-		used += size
+func (b *MCPBackend) listToolsFromHost(ctx context.Context, server string) ([]tools.MCPTool, error) {
+	b.discoveryMu.Lock()
+	defer b.discoveryMu.Unlock()
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return nil, err
+	}
+	definitions, err := host.DiscoverTools(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tools.MCPTool, 0, len(definitions))
+	for _, definition := range definitions {
+		out = append(out, tools.MCPTool{Server: server, Name: definition.RemoteName, Description: definition.Description, InputSchema: append(json.RawMessage(nil), definition.Schema...)})
 	}
 	return out, nil
 }
@@ -576,11 +686,13 @@ func mcpToolProjectedSize(tool tools.MCPTool) int {
 // ListResources performs read-only resources/list. An empty server fans out
 // in deterministic catalog order and applies one shared content budget.
 func (b *MCPBackend) ListResources(ctx context.Context, _ domain.RunID, server string) (tools.MCPListResourcesResponse, error) {
+	if err := b.ensureOpen(); err != nil {
+		return tools.MCPListResourcesResponse{}, err
+	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	server = strings.TrimSpace(server)
 	if server != "" {
-		resources, err := b.listResourcesServer(ctx, server, maxMCPContentBytes)
+		resources, err := b.hostListResources(ctx, server)
 		if err != nil {
 			return tools.MCPListResourcesResponse{}, err
 		}
@@ -593,12 +705,15 @@ func (b *MCPBackend) ListResources(ctx context.Context, _ domain.RunID, server s
 		if used >= maxMCPContentBytes {
 			break
 		}
-		resources, err := b.listResourcesServer(ctx, name, maxMCPContentBytes-used)
+		resources, err := b.hostListResources(ctx, name)
 		if err != nil {
 			return tools.MCPListResourcesResponse{}, err
 		}
-		all = append(all, resources...)
 		for _, resource := range resources {
+			if size := mcpResourceProjectedSize(resource); size > maxMCPContentBytes-used {
+				break
+			}
+			all = append(all, resource)
 			used += mcpResourceProjectedSize(resource)
 		}
 	}
@@ -608,9 +723,11 @@ func (b *MCPBackend) ListResources(ctx context.Context, _ domain.RunID, server s
 // ListPrompts returns bounded, untrusted prompt metadata. Servers without the
 // prompts capability fail closed to an empty catalog.
 func (b *MCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server string) (tools.MCPListPromptsResponse, error) {
+	if err := b.ensureOpen(); err != nil {
+		return tools.MCPListPromptsResponse{}, err
+	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	server = strings.TrimSpace(server)
 	if server != "" {
 		prompts, err := b.listPromptsServer(ctx, server)
 		return tools.MCPListPromptsResponse{Prompts: prompts, Untrusted: true}, err
@@ -636,107 +753,120 @@ func (b *MCPBackend) ListPrompts(ctx context.Context, _ domain.RunID, server str
 }
 
 func (b *MCPBackend) listPromptsServer(ctx context.Context, server string) ([]tools.MCPPrompt, error) {
-	return runMCP(ctx, b, server, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPPrompt, error) {
-		if !entry.promptCapable() {
-			return []tools.MCPPrompt{}, nil
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return nil, err
+	}
+	prompts, err := host.ListPrompts(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tools.MCPPrompt, 0, len(prompts))
+	for _, prompt := range prompts {
+		item := tools.MCPPrompt{Server: server, Name: prompt.Name, Title: prompt.Title, Description: prompt.Description}
+		for _, argument := range prompt.Arguments {
+			item.Arguments = append(item.Arguments, tools.MCPPromptArgument{Name: argument.Name, Title: argument.Title, Description: argument.Description, Required: argument.Required})
 		}
-		return listPromptsPages(ctx, entry.cli, server)
-	})
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 // GetPrompt fetches one prompt and flattens user text into bounded, untrusted
 // model input. Non-text content is rejected rather than guessed.
 func (b *MCPBackend) GetPrompt(ctx context.Context, _ domain.RunID, request tools.MCPGetPromptRequest) (tools.MCPGetPromptResponse, error) {
+	if err := b.ensureOpen(); err != nil {
+		return tools.MCPGetPromptResponse{}, err
+	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	request.Server = strings.TrimSpace(request.Server)
 	if strings.TrimSpace(request.Name) == "" {
 		return tools.MCPGetPromptResponse{}, errors.New("mcp: prompt name is required")
 	}
-	result, err := runMCP(ctx, b, request.Server, true, func(ctx context.Context, entry *mcpServer) (tools.MCPGetPromptResponse, error) {
-		payload, err := entry.cli.GetPrompt(ctx, mcp.GetPromptRequest{Params: mcp.GetPromptParams{Name: request.Name, Arguments: request.Arguments}})
-		if err != nil {
-			return tools.MCPGetPromptResponse{}, err
-		}
-		return projectPrompt(request.Server, request.Name, payload)
-	})
+	host, err := b.ensureMCPBridge()
 	if err != nil {
 		return tools.MCPGetPromptResponse{}, err
 	}
-	return result, nil
+	prompt, err := host.GetPrompt(ctx, request.Server, request.Name, request.Arguments)
+	if err != nil {
+		return tools.MCPGetPromptResponse{}, err
+	}
+	return tools.MCPGetPromptResponse{Server: request.Server, Name: prompt.Name, Description: prompt.Description, Text: prompt.Text, Untrusted: true}, nil
 }
 
 func (b *MCPBackend) listResourcesServer(ctx context.Context, server string, limit int) ([]tools.MCPResource, error) {
-	return runMCP(ctx, b, server, true, func(ctx context.Context, entry *mcpServer) ([]tools.MCPResource, error) {
-		return listResourcePages(ctx, entry.cli, server, limit)
-	})
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return nil, err
+	}
+	resources, err := host.ListResources(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return projectHostResources(server, resources, limit), nil
 }
 
 // ReadResource performs resources/read. The URI is returned verbatim and
 // content remains untrusted text/base64; it is never mounted or written.
 func (b *MCPBackend) ReadResource(ctx context.Context, _ domain.RunID, request tools.MCPReadResourceRequest) (tools.MCPReadResourceResponse, error) {
+	if err := b.ensureOpen(); err != nil {
+		return tools.MCPReadResourceResponse{}, err
+	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	request.Server = strings.TrimSpace(request.Server)
 	if strings.TrimSpace(request.URI) == "" {
 		return tools.MCPReadResourceResponse{}, errors.New("mcp: resource URI is required")
 	}
 	if len(request.URI) > maxMCPContentBytes {
 		return tools.MCPReadResourceResponse{}, fmt.Errorf("mcp: resource URI exceeds size limit (%d bytes)", maxMCPContentBytes)
 	}
-	result, err := runMCP(ctx, b, request.Server, true, func(ctx context.Context, entry *mcpServer) (tools.MCPReadResourceResponse, error) {
-		payload, err := entry.cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: request.URI}})
-		if err != nil {
-			return tools.MCPReadResourceResponse{}, err
-		}
-		return projectReadResource(request.Server, request.URI, payload)
-	})
+	host, err := b.ensureMCPBridge()
 	if err != nil {
 		return tools.MCPReadResourceResponse{}, err
 	}
-	return result, nil
-}
-
-// CallTool deliberately has no session-retry. A remote side effect may have
-// happened before a transport error was observed. IsError is preserved in
-// Vivy's response instead of being converted to a Go error.
-func (b *MCPBackend) CallTool(ctx context.Context, _ domain.RunID, request tools.MCPCallRequest) (tools.MCPCallResponse, error) {
-	ctx, cancel := b.operationContext(ctx)
-	defer cancel()
-	request.Server = strings.TrimSpace(request.Server)
-	request.Tool = strings.TrimSpace(request.Tool)
-	result, err := runMCP(ctx, b, request.Server, false, func(ctx context.Context, entry *mcpServer) (tools.MCPCallResponse, error) {
-		payload, err := entry.cli.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: request.Tool, Arguments: request.Arguments}})
-		if err != nil {
-			return tools.MCPCallResponse{}, err
-		}
-		return projectCallResult(request.Server, request.Tool, payload)
-	})
+	content, err := host.ReadResource(ctx, request.Server, request.URI)
 	if err != nil {
-		return tools.MCPCallResponse{}, err
+		return tools.MCPReadResourceResponse{}, err
+	}
+	result := tools.MCPReadResourceResponse{Server: request.Server, URI: request.URI, Untrusted: true}
+	if content.Text != "" {
+		text := content.Text
+		result.Contents = append(result.Contents, tools.MCPResourceContent{URI: content.URI, MIME: content.MediaType, Text: &text})
+	}
+	if len(content.Blob) > 0 {
+		blob := string(content.Blob)
+		result.Contents = append(result.Contents, tools.MCPResourceContent{URI: content.URI, MIME: content.MediaType, Blob: &blob})
 	}
 	return result, nil
-}
-
-func (b *MCPBackend) PrepareMCPCall(_ context.Context, _ domain.RunID, request tools.MCPCallRequest) (domain.ToolProposal, error) {
-	request.Server = strings.TrimSpace(request.Server)
-	request.Tool = strings.TrimSpace(request.Tool)
-	if _, err := b.lookupServer(request.Server); err != nil {
-		return domain.ToolProposal{}, err
-	}
-	payload, _ := json.Marshal(request)
-	preview := string(payload)
-	if len(preview) > 4096 {
-		preview = preview[:4096] + "..."
-	}
-	return domain.ToolProposal{Action: tools.MCPCallName, Target: request.Server + "/" + request.Tool, Preview: preview, RiskFindings: []string{"remote MCP side effect is unknown"}, Data: payload}, nil
 }
 
 func (b *MCPBackend) newServer(config MCPServerConfig) (*mcpServer, error) {
+	return b.newServerWithStatus(config, nil)
+}
+
+// newServerWithStatus constructs one transport session for MCPHost. The
+// returned value is owned by that Host session; the optional status record is
+// only a secret-free projection and never a transport owner.
+func (b *MCPBackend) newServerWithStatus(config MCPServerConfig, record *mcpServer) (*mcpServer, error) {
 	config = normalizeMCPServerConfig(config)
+	status := (*mcpStatusRecord)(nil)
+	if record != nil {
+		status = record.status
+	}
+	if status == nil {
+		status = &mcpStatusRecord{toolCount: -1, closeDone: make(chan struct{})}
+	}
+	if !hasMCPTransport(config) {
+		return &mcpServer{
+			config:    config,
+			status:    status,
+			closeDone: make(chan struct{}),
+		}, nil
+	}
 	var cli *client.Client
 	var processCtx context.Context
 	var processCancel context.CancelFunc
+	rawSchemas := newRawMCPToolSchemas()
 	if config.isStdio() {
 		processCtx, processCancel = context.WithCancel(context.Background())
 		stdio := mcptransport.NewStdioWithOptions(config.Command, nil, config.Args,
@@ -744,10 +874,9 @@ func (b *MCPBackend) newServer(config MCPServerConfig) (*mcpServer, error) {
 		)
 		// NewStdioWithOptions only constructs the official transport. Start is
 		// deliberately deferred to initialize so the backend remains lazy.
-		cli = client.NewClient(stdio)
+		cli = client.NewClient(&capturingMCPTransport{Interface: stdio, rawSchemas: rawSchemas})
 	} else {
-		var err error
-		cli, err = client.NewStreamableHttpClient(config.Endpoint,
+		streamable, transportErr := mcptransport.NewStreamableHTTP(config.Endpoint,
 			mcptransport.WithHTTPBasicClient(b.client),
 			mcptransport.WithHTTPHeaderFunc(func(context.Context) map[string]string {
 				if config.AuthEnv == "" {
@@ -759,14 +888,20 @@ func (b *MCPBackend) newServer(config MCPServerConfig) (*mcpServer, error) {
 				return nil
 			}),
 		)
-		if err != nil {
-			return nil, fmt.Errorf("mcp %s: create streamable HTTP client: %w", config.Name, err)
+		if transportErr != nil {
+			return nil, fmt.Errorf("mcp %s: create streamable HTTP client: %w", config.Name, transportErr)
 		}
+		options := make([]client.ClientOption, 0, 1)
+		if streamable.GetSessionId() != "" {
+			options = append(options, client.WithSession())
+		}
+		cli = client.NewClient(&capturingMCPTransport{Interface: streamable, rawSchemas: rawSchemas}, options...)
 	}
 	return &mcpServer{
 		config:        config,
 		cli:           cli,
-		status:        &mcpStatusRecord{toolCount: -1},
+		rawSchemas:    rawSchemas,
+		status:        status,
 		processCtx:    processCtx,
 		processCancel: processCancel,
 		closeDone:     make(chan struct{}),
@@ -989,7 +1124,9 @@ const (
 )
 
 func (b *MCPBackend) lookupServer(name string) (*mcpServer, error) {
-	name = strings.TrimSpace(name)
+	if !safeMCPServerName(name) {
+		return nil, fmt.Errorf("mcp: server %q is not a safe namespace identifier", name)
+	}
 	b.mu.RLock()
 	entry := b.servers[name]
 	closed := b.closed
@@ -997,25 +1134,42 @@ func (b *MCPBackend) lookupServer(name string) (*mcpServer, error) {
 	if closed {
 		return nil, errors.New("mcp: backend is closed")
 	}
-	if entry == nil || !hasMCPTransport(entry.config) {
+	if entry == nil {
+		return nil, fmt.Errorf("mcp: server %q is not configured", name)
+	}
+	if !MCPServerConfigEnabled(entry.config) {
+		return nil, fmt.Errorf("mcp: server %q is inactive", name)
+	}
+	if entry.config.DeferredReason != "" {
+		return nil, fmt.Errorf("mcp: server %q is deferred", name)
+	}
+	if !hasMCPTransport(entry.config) {
 		return nil, fmt.Errorf("mcp: server %q is not configured", name)
 	}
 	return entry, nil
 }
 
 func (b *MCPBackend) acquireServer(name string) (*mcpServer, error) {
-	name = strings.TrimSpace(name)
+	if !safeMCPServerName(name) {
+		return nil, fmt.Errorf("mcp: server %q is not a safe namespace identifier", name)
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	if b.closed {
 		return nil, errors.New("mcp: backend is closed")
 	}
 	entry := b.servers[name]
-	if entry == nil || !hasMCPTransport(entry.config) {
+	if entry == nil {
 		return nil, fmt.Errorf("mcp: server %q is not configured", name)
 	}
-	if !entry.acquire() {
-		return nil, fmt.Errorf("mcp: server %q is being replaced", name)
+	if !MCPServerConfigEnabled(entry.config) {
+		return nil, fmt.Errorf("mcp: server %q is inactive", name)
+	}
+	if entry.config.DeferredReason != "" {
+		return nil, fmt.Errorf("mcp: server %q is deferred", name)
+	}
+	if !hasMCPTransport(entry.config) {
+		return nil, fmt.Errorf("mcp: server %q is not configured", name)
 	}
 	return entry, nil
 }
@@ -1038,89 +1192,20 @@ func (b *MCPBackend) operationContext(ctx context.Context) (context.Context, con
 	return context.WithTimeout(ctx, b.timeout)
 }
 
-// replaceSession creates a fresh official client after a server reports that
-// its stateful HTTP session was terminated. It never re-adds a server removed
-// by a concurrent settings update.
-func (b *MCPBackend) replaceSession(name string, expected *mcpServer) {
-	b.mu.RLock()
-	current := b.servers[name]
-	closed := b.closed
-	b.mu.RUnlock()
-	if closed || current != expected || expected.config.isStdio() {
-		return
-	}
-	entry, err := b.newServer(expected.config)
-	if err != nil {
-		return
-	}
-	entry.status = expected.status
-	b.mu.Lock()
-	if b.closed || b.servers[name] != expected {
-		b.mu.Unlock()
-		_ = entry.markClosing()
-		return
-	}
-	b.retired.Add(1)
-	b.servers[name] = entry
-	b.mu.Unlock()
-	b.startRetiredCleanup([]*mcpServer{expected})
-}
-
-func (s *mcpServer) acquire() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closing || s.closed {
-		return false
-	}
-	s.refs++
-	return true
-}
-
-func (s *mcpServer) release() {
-	s.mu.Lock()
-	if s.refs > 0 {
-		s.refs--
-	}
-	closeNow := s.refs == 0 && s.closing && !s.closed
-	if closeNow {
-		s.closed = true
-	}
-	s.mu.Unlock()
-	if closeNow {
-		// The retired/current cleanup worker is already waiting on closeDone;
-		// complete the close here so no lifecycle goroutine escapes tracking.
-		_ = s.closeClient()
-	}
-}
-
-func (s *mcpServer) markClosing() error {
-	s.mu.Lock()
-	s.closing = true
-	closeNow := s.refs == 0 && !s.closed
-	if closeNow {
-		s.closed = true
-	}
-	s.mu.Unlock()
-	if closeNow {
-		return s.closeClient()
-	}
-	return nil
-}
-
-func (s *mcpServer) waitClosed() error {
-	<-s.closeDone
-	s.mu.Lock()
-	err := s.closeErr
-	s.mu.Unlock()
-	return err
-}
+// acquire/release remain inert source-compatibility shims for older internal
+// tests. They do not guard or close a transport: MCPHost owns that lifecycle.
+func (*mcpServer) acquire() bool { return true }
+func (*mcpServer) release()      {}
 
 func (s *mcpServer) closeClient() error {
 	s.closeOnce.Do(func() {
 		if s.processCancel != nil {
 			s.processCancel()
 		}
-		err := s.cli.Close()
+		var err error
+		if s.cli != nil {
+			err = s.cli.Close()
+		}
 		if s.processCancel != nil && isExpectedMCPStdioCloseError(err) {
 			// CommandContext intentionally terminates a local child during
 			// shutdown. mcp-go reports that expected termination as an
@@ -1131,13 +1216,22 @@ func (s *mcpServer) closeClient() error {
 		s.mu.Lock()
 		s.closeErr = err
 		s.mu.Unlock()
-		close(s.closeDone)
+		if s.status != nil {
+			s.status.closeOnce.Do(func() { close(s.status.closeDone) })
+		}
+		if s.status == nil || s.closeDone != s.status.closeDone {
+			close(s.closeDone)
+		}
 	})
-	return s.waitClosed()
+	<-s.closeDone
+	s.mu.Lock()
+	err := s.closeErr
+	s.mu.Unlock()
+	return err
 }
 
 func isExpectedMCPStdioCloseError(err error) bool {
-	if err == nil || errors.Is(err, os.ErrProcessDone) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, os.ErrProcessDone) {
 		return true
 	}
 	var exitErr *exec.ExitError
@@ -1150,13 +1244,6 @@ func isExpectedMCPStdioCloseError(err error) bool {
 	// backend failure and must not make Close flaky.
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "canceling cmd") || strings.Contains(message, "terminateprocess")
-}
-
-func (s *mcpServer) isReady() bool {
-	s.mu.Lock()
-	ready := s.ready
-	s.mu.Unlock()
-	return ready
 }
 
 func (s *mcpServer) markDead(err error) error {
@@ -1182,6 +1269,13 @@ func (s *mcpServer) deadError() error {
 	return err
 }
 
+func (s *mcpServer) initializeError() error {
+	s.mu.Lock()
+	err := s.initErr
+	s.mu.Unlock()
+	return err
+}
+
 func (s *mcpServer) promptCapable() bool {
 	s.mu.Lock()
 	capable := s.ready && s.caps.Prompts != nil
@@ -1195,6 +1289,9 @@ func (s *mcpServer) initialize(ctx context.Context) error {
 	// is fail-closed and is never silently restarted by an MCP operation.
 	s.initMu.Lock()
 	defer s.initMu.Unlock()
+	if s.cli == nil {
+		return s.cacheInitializeError(fmt.Errorf("mcp %s: no transport configured", s.config.Name))
+	}
 	s.mu.Lock()
 	if s.ready || s.initErr != nil || s.dead {
 		err := s.initErr
@@ -1257,38 +1354,88 @@ func isStdioTransportClosed(err error) bool {
 		strings.Contains(message, "file already closed")
 }
 
-func runMCP[T any](ctx context.Context, b *MCPBackend, name string, retry bool, op func(context.Context, *mcpServer) (T, error)) (T, error) {
-	var zero T
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		entry, err := b.acquireServer(name)
-		if err != nil {
-			return zero, err
-		}
-		initErr := entry.initialize(ctx)
-		b.noteInitResult(entry, initErr)
-		err = initErr
-		var result T
-		if err == nil {
-			result, err = op(ctx, entry)
-		}
-		if err != nil && entry.config.isStdio() && isStdioTransportClosed(err) {
-			err = entry.markDead(err)
-			b.noteInitResult(entry, err)
-		}
-		entry.release()
-		if err == nil {
-			return result, nil
-		}
-		if initErr != nil || isSessionTerminated(err) {
-			b.replaceSession(name, entry)
-		}
-		lastErr = mapMCPError(err)
-		if !retry || !isSessionTerminated(err) || attempt == 1 {
-			return zero, lastErr
-		}
+type hostMCPTool struct {
+	name        string
+	description string
+	schema      json.RawMessage
+}
+
+func (b *MCPBackend) hostListTools(ctx context.Context, server string) ([]hostMCPTool, error) {
+	b.discoveryMu.Lock()
+	defer b.discoveryMu.Unlock()
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return nil, err
 	}
-	return zero, lastErr
+	definitions, err := host.DiscoverTools(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]hostMCPTool, 0, len(definitions))
+	for _, definition := range definitions {
+		out = append(out, hostMCPTool{name: definition.RemoteName, description: definition.Description, schema: append(json.RawMessage(nil), definition.Schema...)})
+	}
+	return out, nil
+}
+
+func (b *MCPBackend) hostCallTool(ctx context.Context, server, toolName string, arguments map[string]any) (tools.MCPCallResponse, error) {
+	if arguments == nil {
+		return b.hostCallToolRaw(ctx, server, toolName, nil)
+	}
+	raw, err := json.Marshal(arguments)
+	if err != nil {
+		return tools.MCPCallResponse{}, err
+	}
+	return b.hostCallToolRaw(ctx, server, toolName, raw)
+}
+
+func (b *MCPBackend) hostCallToolRaw(ctx context.Context, server, toolName string, arguments json.RawMessage) (tools.MCPCallResponse, error) {
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return tools.MCPCallResponse{}, err
+	}
+	result, err := host.CallRemoteTool(ctx, server, toolName, arguments)
+	if err != nil {
+		return tools.MCPCallResponse{}, err
+	}
+	var response tools.MCPCallResponse
+	if err := json.Unmarshal([]byte(result.Text), &response); err != nil {
+		return tools.MCPCallResponse{}, fmt.Errorf("mcp %s/%s: invalid projected result: %w", server, toolName, err)
+	}
+	return response, nil
+}
+
+func (b *MCPBackend) hostListResources(ctx context.Context, server string) ([]tools.MCPResource, error) {
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return nil, err
+	}
+	resources, err := host.ListResources(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return projectHostResources(server, resources, maxMCPContentBytes), nil
+}
+
+func (b *MCPBackend) hostReadResource(ctx context.Context, server, uri string) (tools.MCPReadResourceResponse, error) {
+	host, err := b.ensureMCPBridge()
+	if err != nil {
+		return tools.MCPReadResourceResponse{}, err
+	}
+	content, err := host.ReadResource(ctx, server, uri)
+	if err != nil {
+		return tools.MCPReadResourceResponse{}, err
+	}
+	result := tools.MCPReadResourceResponse{Server: server, URI: uri, Untrusted: true}
+	if content.Text != "" {
+		text := content.Text
+		result.Contents = append(result.Contents, tools.MCPResourceContent{URI: content.URI, MIME: content.MediaType, Text: &text})
+	}
+	if len(content.Blob) > 0 {
+		blob := string(content.Blob)
+		result.Contents = append(result.Contents, tools.MCPResourceContent{URI: content.URI, MIME: content.MediaType, Blob: &blob})
+	}
+	return result, nil
 }
 
 func mapMCPError(err error) error {
@@ -1513,6 +1660,28 @@ func listPromptsPages(ctx context.Context, cli client.MCPClient, server string) 
 		cursor = result.NextCursor
 	}
 	return nil, fmt.Errorf("mcp %s: prompts/list exceeded %d pages", server, maxMCPResourcePages)
+}
+
+func projectHostResources(server string, resources []mcphost.RemoteResource, limit int) []tools.MCPResource {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]tools.MCPResource, 0, len(resources))
+	used := 0
+	for _, resource := range resources {
+		projected := tools.MCPResource{
+			Server: server, URI: resource.URI, Name: resource.Name, Title: resource.Title,
+			Description: resource.Description, MIME: resource.MediaType, Size: resource.Size,
+			Annotations: append(json.RawMessage(nil), resource.Annotations...), Meta: append(json.RawMessage(nil), resource.Meta...),
+		}
+		size := mcpResourceProjectedSize(projected)
+		if size > limit-used {
+			break
+		}
+		out = append(out, projected)
+		used += size
+	}
+	return out
 }
 
 func projectPrompt(server, name string, payload *mcp.GetPromptResult) (tools.MCPGetPromptResponse, error) {

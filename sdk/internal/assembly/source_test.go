@@ -89,6 +89,52 @@ func TestHashSourceTreeRejectsSymbolicLinks(t *testing.T) {
 	}
 }
 
+func TestHashSourceTreeNormalizesTextLineEndings(t *testing.T) {
+	lfRoot := t.TempDir()
+	crlfRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(lfRoot, "module.go"), []byte("package fixture\n\nvar value = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(crlfRoot, "module.go"), []byte("package fixture\r\n\r\nvar value = 1\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lfDigest, err := HashSourceTree(lfRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlfDigest, err := HashSourceTree(crlfRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crlfDigest != lfDigest {
+		t.Fatalf("CRLF digest = %s, want canonical LF digest %s", crlfDigest, lfDigest)
+	}
+}
+
+func TestHashSourceTreePreservesBinaryLineEndings(t *testing.T) {
+	lfRoot := t.TempDir()
+	crlfRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(lfRoot, "asset.bin"), []byte{0, 0xff, '\n'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(crlfRoot, "asset.bin"), []byte{0, 0xff, '\r', '\n'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lfDigest, err := HashSourceTree(lfRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlfDigest, err := HashSourceTree(crlfRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crlfDigest == lfDigest {
+		t.Fatalf("binary CRLF digest = %s, want a distinct byte-exact digest", crlfDigest)
+	}
+}
+
 func testDescriptor(id string) module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,

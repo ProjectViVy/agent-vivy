@@ -1,5 +1,9 @@
 # MCP panel connected to the real backend (2026-08-30)
 
+> Historical snapshot (2026-08-30), superseded by PLG-P4 closure on
+> 2026-09-11. The direct `mcp_call` references below describe the then-current
+> surface; current model calls use MCPHost → ToolWorld → ToolHost.
+
 ## Changes
 
 Turn `/mcp` from the `vivy.demo.mcp` local mock into a real management surface. Add /

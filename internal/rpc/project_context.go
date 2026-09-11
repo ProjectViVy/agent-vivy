@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -77,21 +78,22 @@ func (e *projectContextPathError) Unwrap() error {
 }
 
 var (
-	errProjectContextRoot       = errors.New("project root is not configured")
-	errProjectContextEmpty      = errors.New("path is empty")
-	errProjectContextNUL        = errors.New("path contains NUL")
-	errProjectContextAbsolute   = errors.New("path must be project-relative")
-	errProjectContextTraversal  = errors.New("path traversal is not allowed")
-	errProjectContextSensitive  = errors.New("path is sensitive")
-	errProjectContextMissing    = errors.New("file cannot be opened")
-	errProjectContextDirectory  = errors.New("path is not a regular file")
-	errProjectContextSymlink    = errors.New("symlink paths are not allowed")
-	errProjectContextTooLarge   = errors.New("file exceeds the size limit")
-	errProjectContextBinary     = errors.New("file content is not UTF-8 text")
-	errProjectContextListPrefix = errors.New("invalid project context prefix")
+	errProjectContextRoot        = errors.New("project root is not configured")
+	errProjectContextEmpty       = errors.New("path is empty")
+	errProjectContextNUL         = errors.New("path contains NUL")
+	errProjectContextPathControl = errors.New("path contains a control character")
+	errProjectContextAbsolute    = errors.New("path must be project-relative")
+	errProjectContextTraversal   = errors.New("path traversal is not allowed")
+	errProjectContextSensitive   = errors.New("path is sensitive")
+	errProjectContextMissing     = errors.New("file cannot be opened")
+	errProjectContextDirectory   = errors.New("path is not a regular file")
+	errProjectContextSymlink     = errors.New("symlink paths are not allowed")
+	errProjectContextTooLarge    = errors.New("file exceeds the size limit")
+	errProjectContextBinary      = errors.New("file content is not UTF-8 text")
+	errProjectContextListPrefix  = errors.New("invalid project context prefix")
 )
 
-func (h *controlHandler) resolveProjectContext(request Request) (any, *Error) {
+func (h *controlHandler) resolveProjectContext(ctx context.Context, request Request) (any, *Error) {
 	var params projectContextPathsParams
 	if rpcErr := decodeParams(request, &params); rpcErr != nil {
 		return nil, rpcErr
@@ -99,7 +101,7 @@ func (h *controlHandler) resolveProjectContext(request Request) (any, *Error) {
 	if len(params.Paths) == 0 {
 		return nil, &Error{Code: InvalidParams, Message: "paths is required"}
 	}
-	resolved, err := resolveProjectContexts(h.deps.ProjectRoot, params.Paths)
+	resolved, err := resolveProjectContextsWithContext(ctx, h.deps.ProjectRoot, params.Paths)
 	if err != nil {
 		return nil, &Error{Code: InvalidParams, Message: err.Error()}
 	}
@@ -159,6 +161,13 @@ func projectContextDomainValues(items []projectContext) []domain.FileContext {
 // evaluation, then uses os.Root.Open for the race-resistant containment
 // boundary. No caller-supplied path or body is echoed in errors/metadata.
 func resolveProjectContexts(root string, paths []string) ([]projectContext, error) {
+	return resolveProjectContextsWithContext(context.Background(), root, paths)
+}
+
+func resolveProjectContextsWithContext(ctx context.Context, root string, paths []string) ([]projectContext, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(root) == "" {
 		return nil, &projectContextPathError{index: -1, public: "project file context is unavailable", cause: errProjectContextRoot}
 	}
@@ -177,6 +186,9 @@ func resolveProjectContexts(root string, paths []string) ([]projectContext, erro
 	out := make([]projectContext, 0, len(paths))
 	total := 0
 	for index, raw := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		clean, err := cleanProjectContextPath(raw)
 		if err != nil {
 			return nil, &projectContextPathError{index: index, public: publicProjectContextPathError(err), cause: err}
@@ -230,6 +242,9 @@ func resolveProjectContexts(root string, paths []string) ([]projectContext, erro
 			return nil, &projectContextPathError{index: index, public: "file exceeds the 1 MiB limit", cause: errProjectContextTooLarge}
 		}
 		data, readErr := io.ReadAll(io.LimitReader(file, maxProjectContextBytes+1))
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		closeErr := file.Close()
 		if readErr != nil {
 			return nil, &projectContextPathError{index: index, public: "file cannot be opened", cause: fmt.Errorf("read project context: %w", readErr)}
@@ -310,6 +325,14 @@ func cleanProjectContextPath(raw string) (string, error) {
 	if strings.IndexByte(raw, 0) >= 0 {
 		return "", errProjectContextNUL
 	}
+	if !utf8.ValidString(raw) {
+		return "", errProjectContextPathControl
+	}
+	for _, r := range raw {
+		if unicode.IsControl(r) || isProjectContextBidiControl(r) {
+			return "", errProjectContextPathControl
+		}
+	}
 	if filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" || strings.Contains(raw, ":") || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) {
 		return "", errProjectContextAbsolute
 	}
@@ -332,6 +355,8 @@ func publicProjectContextPathError(err error) string {
 	case errors.Is(err, errProjectContextEmpty):
 		return "path is required"
 	case errors.Is(err, errProjectContextNUL):
+		return "path contains an invalid character"
+	case errors.Is(err, errProjectContextPathControl):
 		return "path contains an invalid character"
 	case errors.Is(err, errProjectContextAbsolute):
 		return "path must be project-relative"
