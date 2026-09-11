@@ -228,8 +228,8 @@ func TestApplySettingsOverlayMCPServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = applySettingsOverlay(context.Background(), logger, cfg, nil)
-	if len(got.Runtime.MCPServers) != 2 || got.Runtime.MCPServers[0].Name != "docs" || got.Runtime.MCPServers[1].Command != "node" || got.Runtime.MCPServers[1].Cwd != "tools" {
-		t.Fatalf("overlay mcp = %+v, want enabled docs only", got.Runtime.MCPServers)
+	if len(got.Runtime.MCPServers) != 3 || got.Runtime.MCPServers[0].Name != "docs" || got.Runtime.MCPServers[1].Command != "node" || got.Runtime.MCPServers[1].Cwd != "tools" || got.Runtime.MCPServers[2].Enabled == nil || *got.Runtime.MCPServers[2].Enabled {
+		t.Fatalf("overlay mcp = %+v, want disabled entries preserved as inactive", got.Runtime.MCPServers)
 	}
 
 	empty := []settings.MCPServer{}

@@ -2,10 +2,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
-	"sort"
-	"strings"
-	"unicode/utf8"
 
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
 
@@ -26,7 +22,7 @@ type localSkillSource struct {
 func (source *localSkillSource) ID() string { return localSkillSourceID }
 
 func (source *localSkillSource) List(ctx context.Context, _ skillsource.Request) ([]skillsource.Summary, error) {
-	items, err := source.backend.loadSkills(ctx)
+	items, err := source.backend.loadSkillsAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -85,12 +81,17 @@ var _ einoskill.Backend = (*HostedSkillBackend)(nil)
 var _ AlwaysSkillsSource = (*HostedSkillBackend)(nil)
 
 func NewHostedSkillBackend(local *EinoSkillBackend, additional ...skillsource.Provider) (*HostedSkillBackend, error) {
+	return newHostedSkillBackend(local, skillhost.Config{}, additional...)
+}
+
+func newHostedSkillBackend(local *EinoSkillBackend, hostConfig skillhost.Config, additional ...skillsource.Provider) (*HostedSkillBackend, error) {
 	sources := make([]skillsource.Provider, 0, len(additional)+1)
 	if local != nil {
 		sources = append(sources, &localSkillSource{backend: local})
 	}
 	sources = append(sources, additional...)
-	host, err := skillhost.New(skillhost.Config{Sources: sources})
+	hostConfig.Sources = sources
+	host, err := skillhost.New(hostConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +107,11 @@ func (backend *HostedSkillBackend) List(ctx context.Context) ([]einoskill.FrontM
 	out := make([]einoskill.FrontMatter, 0, len(items))
 	for _, item := range items {
 		out = append(out, einoskill.FrontMatter{
-			Name:        item.Name,
+			// Eino's pinned Backend contract has only a Name lookup key.
+			// Emit the stable Host ID as that key; Get below resolves the
+			// exact hosted record and can retain the display name in the
+			// returned projection.
+			Name:        item.ID,
 			Description: item.Description,
 			Context:     einoskill.ContextMode(item.Context),
 			Agent:       item.Agent,
@@ -144,45 +149,20 @@ func (backend *HostedSkillBackend) Get(ctx context.Context, name string) (einosk
 // AlwaysSkills keeps the existing always-injection semantics while making
 // both catalog selection and body resolution traverse SkillHost.
 func (backend *HostedSkillBackend) AlwaysSkills(ctx context.Context) (string, error) {
-	items, err := backend.host.List(ctx, hostedSkillRequest(ctx))
-	if err != nil {
-		return "", err
-	}
-	items = skillhost.StableSummaries(items)
-	selected := make([]skillhost.Summary, 0)
-	for _, item := range items {
-		if item.Always {
-			selected = append(selected, item)
-		}
-	}
-	sort.SliceStable(selected, func(i, j int) bool { return selected[i].ID < selected[j].ID })
-
-	remaining := alwaysTotalMaxChars
-	sections := make([]string, 0, len(selected))
-	for _, item := range selected {
-		if remaining == 0 {
-			break
-		}
-		resolved, err := backend.host.Get(ctx, hostedSkillRequest(ctx), item.ID)
-		if err != nil {
-			return "", err
-		}
-		if utf8.RuneCountInString(resolved.Content) > alwaysFileMaxChars {
-			continue
-		}
-		included := truncateRunes(resolved.Content, remaining)
-		if strings.TrimSpace(included) == "" {
-			continue
-		}
-		remaining -= utf8.RuneCountInString(included)
-		sections = append(sections, fmt.Sprintf("### Skill: %s\n\n%s", resolved.Name, included))
-	}
-	return strings.Join(sections, "\n\n---\n\n"), nil
+	return backend.host.Always(ctx, hostedSkillRequest(ctx))
 }
 
 func hostedSkillRequest(ctx context.Context) skillhost.Request {
+	sessionID := contextSessionID(ctx)
+	if sessionID == "" {
+		sessionID = tools.SessionIDFromContext(ctx)
+	}
+	workspaceID := contextWorkspaceID(ctx)
+	if workspaceID == "" {
+		workspaceID = tools.WorkspaceIDFromContext(ctx)
+	}
 	return skillhost.Request{
-		SessionID:   string(tools.SessionIDFromContext(ctx)),
-		WorkspaceID: string(tools.RunIDFromContext(ctx)),
+		SessionID:   string(sessionID),
+		WorkspaceID: workspaceID,
 	}
 }

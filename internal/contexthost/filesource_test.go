@@ -21,6 +21,19 @@ func TestFileSnapshotSourceRejectsWorkspaceEscape(t *testing.T) {
 	}
 }
 
+func TestFileSnapshotSourceRejectsPathControlsBeforeNormalization(t *testing.T) {
+	source := NewFileSnapshotSource("vivy.project-files", []domain.FileContext{{
+		Path: " \nmain.go ", Name: "main.go", Size: 1, Content: []byte("x"),
+	}})
+	page, err := source.Query(context.Background(), contextsource.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Candidates) != 0 {
+		t.Fatalf("path control was normalized into a candidate: %#v", page.Candidates)
+	}
+}
+
 func TestFileSnapshotSourcePreservesSnapshotOrder(t *testing.T) {
 	source := NewFileSnapshotSource("vivy.project-files", []domain.FileContext{
 		{Path: "b.txt", Name: "b.txt", Size: 1, Content: []byte("b")},

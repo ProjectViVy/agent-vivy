@@ -36,7 +36,7 @@ func (source *ResourceSource) Query(ctx context.Context, request contextsource.R
 		if len(out) >= limit {
 			break
 		}
-		if !status.ResourceBridge || status.State == StateUnconfigured || status.State == StateDeferred || status.CircuitOpen {
+		if !status.Enabled || !status.ResourceBridge || status.State == StateUnconfigured || status.State == StateDeferred || status.CircuitOpen {
 			continue
 		}
 		resources, err := source.host.ListResources(ctx, status.ID)

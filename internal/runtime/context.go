@@ -1,12 +1,13 @@
 package runtime
 
 import (
-	"encoding/base64"
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/cloudwego/eino/schema"
 
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
 )
 
@@ -32,6 +33,29 @@ type ContextStats struct {
 	Bytes                   int
 }
 
+// contextProjectionBudget tracks the bytes that the final Eino message list
+// will actually consume. File ContextHost queries use the remaining budget
+// before projection, so a source cannot be approved under a disconnected
+// limit and rejected by the same run afterward.
+type contextProjectionBudget struct {
+	limit int
+	used  int
+}
+
+func (budget *contextProjectionBudget) remaining() int {
+	if budget == nil || budget.limit <= 0 || budget.used >= budget.limit {
+		return 0
+	}
+	return budget.limit - budget.used
+}
+
+func (budget *contextProjectionBudget) add(message *schema.Message) {
+	if budget == nil || message == nil {
+		return
+	}
+	budget.used += projectedContextBytes([]*schema.Message{message})
+}
+
 // ErrContextBudgetExceeded means the fixed preamble and current user request
 // cannot fit within the configured budget. The service classifies it as a
 // bounded, user-visible run failure rather than silently expanding context.
@@ -44,11 +68,19 @@ const contextMessageOverhead = 16
 // retained from newest to oldest until the message and byte budgets are
 // reached. Tool-call / tool-result pairs stay in the feed (ADR-010).
 func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
+	return buildRunContextWithContext(context.Background(), nil, policy, preamble, stored, currentUserText)
+}
+
+func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
 	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 {
 		return nil, ContextStats{}, fmt.Errorf("%w: policy values must not be negative", ErrContextBudgetExceeded)
 	}
 
-	transcript := feedableMessages(stored)
+	normalizedStored, err := normalizeStoredFileContexts(ctx, stored)
+	if err != nil {
+		return nil, ContextStats{}, err
+	}
+	transcript := feedableMessages(normalizedStored)
 	// Run persists the current user message before drive starts. Keep the
 	// helper correct for direct callers too, without duplicating that row.
 	if len(transcript) == 0 || transcript[len(transcript)-1].Role != domain.RoleUser ||
@@ -88,13 +120,46 @@ func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Mess
 	selected = pairToolTurns(selected)
 	stats.IncludedHistoryMessages = len(selected)
 	stats.DroppedHistoryMessages = len(history) - stats.IncludedHistoryMessages
-	stats.Bytes = usedBytes
 
 	msgs := make([]*schema.Message, 0, len(selected)+2)
-	msgs = append(msgs, schema.SystemMessage(preamble))
-	msgs = append(msgs, projectFeed(selected)...)
-	msgs = append(msgs, userFeedMessage(current))
+	projectionBudget := &contextProjectionBudget{limit: policy.MaxBytes}
+	preambleMessage := schema.SystemMessage(preamble)
+	msgs = append(msgs, preambleMessage)
+	projectionBudget.add(preambleMessage)
+	feed, err := projectFeedWithContextBudget(ctx, contextHost, selected, projectionBudget)
+	if err != nil {
+		return nil, stats, err
+	}
+	msgs = append(msgs, feed...)
+	currentMessage, err := userFeedMessageWithContextBudget(ctx, contextHost, current, projectionBudget)
+	if err != nil {
+		return nil, stats, err
+	}
+	msgs = append(msgs, currentMessage)
+	stats.Bytes = projectionBudget.used
+	if policy.MaxBytes > 0 && stats.Bytes > policy.MaxBytes {
+		return nil, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, stats.Bytes, policy.MaxBytes)
+	}
 	return msgs, stats, nil
+}
+
+func normalizeStoredFileContexts(ctx context.Context, stored []domain.Message) ([]domain.Message, error) {
+	if len(stored) == 0 {
+		return nil, nil
+	}
+	out := make([]domain.Message, len(stored))
+	copy(out, stored)
+	for index := range out {
+		if len(out[index].FileContexts) == 0 {
+			continue
+		}
+		normalized, err := normalizeFileContextsContext(ctx, out[index].FileContexts)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: stored file context %d: %w", index+1, err)
+		}
+		out[index].FileContexts = normalized
+	}
+	return out, nil
 }
 
 func feedableMessages(stored []domain.Message) []domain.Message {
@@ -173,8 +238,66 @@ func projectFeed(msgs []domain.Message) []*schema.Message {
 	return out
 }
 
+func projectFeedWithContext(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message) ([]*schema.Message, error) {
+	return projectFeedWithContextBudget(ctx, contextHost, msgs, nil)
+}
+
+func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message, budget *contextProjectionBudget) ([]*schema.Message, error) {
+	out := make([]*schema.Message, 0, len(msgs))
+	for i := 0; i < len(msgs); {
+		msg := msgs[i]
+		if msg.Role == domain.RoleUser {
+			projected, err := userFeedMessageWithContextBudget(ctx, contextHost, msg, budget)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, projected)
+			i++
+			continue
+		}
+		switch {
+		case msg.Role == domain.RoleTool:
+			projected := schema.ToolMessage(msg.Content, msg.ToolCallID)
+			out = append(out, projected)
+			budget.add(projected)
+			i++
+		case msg.Role == domain.RoleAssistant && msg.ToolCallID != "":
+			var calls []schema.ToolCall
+			for i < len(msgs) && msgs[i].Role == domain.RoleAssistant && msgs[i].ToolCallID != "" {
+				calls = append(calls, schema.ToolCall{ID: msgs[i].ToolCallID, Function: schema.FunctionCall{Name: msgs[i].ToolName, Arguments: string(msgs[i].ToolArgs)}})
+				i++
+			}
+			projected := schema.AssistantMessage("", calls)
+			out = append(out, projected)
+			budget.add(projected)
+		default:
+			projected := schema.AssistantMessage(msg.Content, nil)
+			out = append(out, projected)
+			budget.add(projected)
+			i++
+		}
+	}
+	return out, nil
+}
+
 func messageCost(content, role string) int {
 	return len(content) + len(role) + contextMessageOverhead
+}
+
+func projectedContextBytes(msgs []*schema.Message) int {
+	total := 0
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		total += messageCost(msg.Content, string(msg.Role))
+		for _, part := range msg.UserInputMultiContent {
+			if part.Type == schema.ChatMessagePartTypeText {
+				total += len(part.Text)
+			}
+		}
+	}
+	return total
 }
 
 func messageCostForMessage(msg domain.Message) int {
@@ -183,32 +306,4 @@ func messageCostForMessage(msg domain.Message) int {
 		cost += len(file.Path) + len(file.Name) + len(file.Content) + contextMessageOverhead
 	}
 	return cost
-}
-
-// userFeedMessage projects a stored user row into the schema message the
-// engine consumes. Rows with image attachments (VC-1g-2) or project file
-// snapshots become multimodal user messages following eino's canonical
-// UserInputMultiContent shape. File snapshots are routed through ContextHost
-// before becoming text parts. Attachment bytes deliberately do not count
-// toward the text byte budget: images are billed by models as vision tokens,
-// not text bytes.
-func userFeedMessage(msg domain.Message) *schema.Message {
-	if len(msg.Attachments) == 0 && len(msg.FileContexts) == 0 {
-		return schema.UserMessage(msg.Content)
-	}
-	parts := make([]schema.MessageInputPart, 0, len(msg.Attachments)+len(msg.FileContexts)+1)
-	if msg.Content != "" {
-		parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: msg.Content})
-	}
-	parts = append(parts, hostedFileContextParts(msg.FileContexts)...)
-	for _, attachment := range msg.Attachments {
-		data := base64.StdEncoding.EncodeToString(attachment.Data)
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeImageURL,
-			Image: &schema.MessageInputImage{
-				MessagePartCommon: schema.MessagePartCommon{Base64Data: &data, MIMEType: attachment.MimeType},
-			},
-		})
-	}
-	return &schema.Message{Role: schema.User, UserInputMultiContent: parts}
 }

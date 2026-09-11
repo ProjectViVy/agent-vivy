@@ -44,6 +44,11 @@ type GoBinding struct {
 	RunObserverProvider          bool
 	DiagnosticObserverV1Provider bool
 	StatusProvider               bool
+	// Typed P4 bindings keep Source/Host composition explicit in generated
+	// Assembly. They are build metadata, never Module-controlled redirects.
+	ContextSourceProvider bool
+	SkillSourceProvider   bool
+	MCPHostProvider       bool
 }
 
 // SourceCatalog is the sole authority that binds a Module ID to source bytes

@@ -639,8 +639,9 @@ func TestSaveAndLoadMCPServers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
 	enabled := BoolPtr(false)
 	list := []MCPServer{
-		{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "MCP_DOCS_TOKEN"},
+		{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "MCP_DOCS_TOKEN", ResourceBridge: true},
 		{Name: "idle", Endpoint: "http://127.0.0.1:9123/mcp", Enabled: enabled},
+		{Name: "deferred", Endpoint: "https://deferred.example.com/mcp", DeferredReason: "oauth is not configured"},
 	}
 	saved, err := Save(path, Settings{MCPServers: &list})
 	if err != nil {
@@ -650,11 +651,14 @@ func TestSaveAndLoadMCPServers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded.MCPServers == nil || len(*loaded.MCPServers) != 2 {
+	if loaded.MCPServers == nil || len(*loaded.MCPServers) != 3 {
 		t.Fatalf("mcp overlay not persisted: %+v", loaded)
 	}
 	if !MCPServerEnabled((*loaded.MCPServers)[0]) || MCPServerEnabled((*loaded.MCPServers)[1]) {
 		t.Fatalf("enabled defaults not round-tripped: %+v", *loaded.MCPServers)
+	}
+	if !(*loaded.MCPServers)[0].ResourceBridge || (*loaded.MCPServers)[2].DeferredReason != "oauth is not configured" {
+		t.Fatalf("MCP state fields not round-tripped: %+v", *loaded.MCPServers)
 	}
 	if !reflect.DeepEqual(loaded.MCPServers, saved.MCPServers) {
 		t.Fatalf("round trip mismatch: saved %+v loaded %+v", saved.MCPServers, loaded.MCPServers)
@@ -690,16 +694,30 @@ func TestEmptyMCPOverlayRoundTripStaysExplicit(t *testing.T) {
 	}
 }
 
+func TestLoadMCPOverlayRejectsUnknownYAMLFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("mcp_servers:\n  - name: docs\n    endpoint: https://docs.example.com/mcp\n    unknown_field: nope\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown MCP settings field was accepted")
+	}
+}
+
 func TestValidateMCPServers(t *testing.T) {
 	ok := []MCPServer{{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "MCP_DOCS_TOKEN"}}
 	if err := (Settings{MCPServers: &ok}).Validate(); err != nil {
 		t.Fatalf("valid mcp overlay rejected: %v", err)
 	}
 	for name, bad := range map[string][]MCPServer{
-		"missing name":     {{Endpoint: "https://docs.example.com/mcp"}},
-		"missing endpoint": {{Name: "docs"}},
-		"bad url":          {{Name: "docs", Endpoint: "ftp://docs.example.com/mcp"}},
-		"bad auth env":     {{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "not-an-env"}},
+		"missing name":                {{Endpoint: "https://docs.example.com/mcp"}},
+		"missing endpoint":            {{Name: "docs"}},
+		"bad url":                     {{Name: "docs", Endpoint: "ftp://docs.example.com/mcp"}},
+		"endpoint userinfo":           {{Name: "docs", Endpoint: "https://user:password@example.com/mcp"}},
+		"endpoint api key query":      {{Name: "docs", Endpoint: "https://docs.example.com/mcp?api_key=secret"}},
+		"endpoint access token query": {{Name: "docs", Endpoint: "https://docs.example.com/mcp?access_token=secret"}},
+		"endpoint token suffix query": {{Name: "docs", Endpoint: "https://docs.example.com/mcp?oauth_token=secret"}},
+		"bad auth env":                {{Name: "docs", Endpoint: "https://docs.example.com/mcp", AuthEnv: "not-an-env"}},
 		"duplicate name": {
 			{Name: "docs", Endpoint: "https://a.example.com/mcp"},
 			{Name: "Docs", Endpoint: "https://b.example.com/mcp"},
@@ -707,6 +725,12 @@ func TestValidateMCPServers(t *testing.T) {
 	} {
 		if err := (Settings{MCPServers: &bad}).Validate(); err == nil {
 			t.Fatalf("expected error for %s", name)
+		}
+	}
+	for _, name := range []string{"docs.v2", "docs server", " docs", "docs ", "docs/server", "docs$prod", "écho"} {
+		server := []MCPServer{{Name: name, Endpoint: "https://docs.example.com/mcp"}}
+		if err := (Settings{MCPServers: &server}).Validate(); err == nil {
+			t.Errorf("unsafe MCP namespace %q was accepted", name)
 		}
 	}
 }
@@ -767,6 +791,26 @@ func TestUpsertAndDeleteMCPServer(t *testing.T) {
 	}
 	if _, ok := deleted.DeleteMCPServer("missing"); ok {
 		t.Fatal("missing delete must report not found")
+	}
+}
+
+func TestMCPServerMutationsRejectUnsafeNamesBeforeTrim(t *testing.T) {
+	for _, name := range []string{" docs", "docs ", " docs "} {
+		t.Run(name, func(t *testing.T) {
+			base := Settings{}
+			got := base.UpsertMCPServer(MCPServer{Name: name, Endpoint: "https://docs.example.com/mcp"})
+			if got.MCPServers != nil {
+				t.Fatalf("unsafe upsert %q mutated settings: %+v", name, got.MCPServers)
+			}
+
+			valid := base.UpsertMCPServer(MCPServer{Name: "docs", Endpoint: "https://docs.example.com/mcp"})
+			if _, ok := valid.DeleteMCPServer(name); ok {
+				t.Fatalf("unsafe delete %q aliased the valid server", name)
+			}
+			if valid.MCPServers == nil || len(*valid.MCPServers) != 1 || (*valid.MCPServers)[0].Name != "docs" {
+				t.Fatalf("unsafe delete %q changed valid settings: %+v", name, valid.MCPServers)
+			}
+		})
 	}
 }
 

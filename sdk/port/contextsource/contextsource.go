@@ -5,7 +5,6 @@ package contextsource
 
 import (
 	"context"
-	"strings"
 )
 
 type Request struct {
@@ -29,17 +28,13 @@ type Candidate struct {
 }
 
 func NewCandidate(candidate Candidate) Candidate {
-	candidate.SourceID = strings.TrimSpace(candidate.SourceID)
-	candidate.ContentID = strings.TrimSpace(candidate.ContentID)
-	candidate.MediaType = strings.TrimSpace(candidate.MediaType)
-	candidate.Version = strings.TrimSpace(candidate.Version)
 	if candidate.SizeHint <= 0 {
 		candidate.SizeHint = len(candidate.Content)
 	}
 	if candidate.Metadata != nil {
 		metadata := make(map[string]string, len(candidate.Metadata))
 		for key, value := range candidate.Metadata {
-			metadata[strings.TrimSpace(key)] = value
+			metadata[key] = value
 		}
 		candidate.Metadata = metadata
 	}
@@ -56,7 +51,7 @@ type Page struct {
 }
 
 func NewPage(candidates []Candidate, nextCursor string) Page {
-	out := Page{Candidates: make([]Candidate, 0, len(candidates)), NextCursor: strings.TrimSpace(nextCursor)}
+	out := Page{Candidates: make([]Candidate, 0, len(candidates)), NextCursor: nextCursor}
 	for _, candidate := range candidates {
 		out.Candidates = append(out.Candidates, candidate.Clone())
 	}

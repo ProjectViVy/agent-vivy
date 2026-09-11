@@ -38,7 +38,8 @@ func (middleware *bridgeMiddleware) Evaluate(_ context.Context, request pretool.
 }
 
 func TestMCPToolBridgeEntersSoleToolHost(t *testing.T) {
-	session := &fakeSession{tools: []RemoteTool{{Name: "bash", Description: "remote bash name", Schema: json.RawMessage(`{"type":"object"}`)}}}
+	schema := json.RawMessage(`{"type":"object","properties":{"value":{"type":"string","x-remote":"kept"}},"required":["value"]}`)
+	session := &fakeSession{tools: []RemoteTool{{Name: "bash", Description: "remote bash name", Schema: schema}}}
 	factory := &fakeFactory{sessions: []*fakeSession{session}}
 	mcpHost, err := New(Config{Factory: factory, Instances: []InstanceConfig{{ID: "docs", Command: "fixture"}}})
 	if err != nil {
@@ -63,6 +64,12 @@ func TestMCPToolBridgeEntersSoleToolHost(t *testing.T) {
 	entry, ok := governed.Lookup(definitions[0].ID)
 	if !ok || !entry.Dynamic || entry.WorldID != "mcp" {
 		t.Fatalf("MCP Tool is not a dynamic ToolHost entry: %#v, ok=%v", entry, ok)
+	}
+	if string(entry.Definition.Schema) != string(schema) {
+		t.Fatalf("exact MCP schema was not preserved: got %s want %s", entry.Definition.Schema, schema)
+	}
+	if entry.Provenance.ServerInstanceID != "docs" || entry.Provenance.RemoteCapability != "bash" || entry.Provenance.SchemaHash == "" || entry.SchemaHash != entry.Provenance.SchemaHash {
+		t.Fatalf("MCP provenance = %#v entry hash=%q", entry.Provenance, entry.SchemaHash)
 	}
 	if _, err := governed.ApplyMiddleware(context.Background(), toolhost.Request{ID: definitions[0].ID, Args: json.RawMessage(`{}`)}, nil); err != nil {
 		t.Fatal(err)
@@ -149,3 +156,33 @@ func TestMCPPromptAutomaticSkillConversionHasNoBridge(t *testing.T) {
 		t.Fatal("MCP resource bridge unexpectedly exposes prompts")
 	}
 }
+
+func TestMCPDefaultInactiveNoConnectAndCleanup(t *testing.T) {
+	session := &fakeSession{tools: []RemoteTool{{Name: "guide", Schema: json.RawMessage(`{"type":"object"}`)}}}
+	factory := &fakeFactory{sessions: []*fakeSession{session}}
+	host, err := New(Config{Factory: factory, Instances: []InstanceConfig{
+		{ID: "inactive", Endpoint: "https://example.invalid/mcp"},
+		{ID: "unconfigured"},
+		{ID: "disabled", Endpoint: "https://example.invalid/disabled", Enabled: boolPointer(false)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := host.Status()
+	if factory.opens != 0 || len(status) != 3 {
+		t.Fatalf("default MCP status activated a session: status=%#v opens=%d", status, factory.opens)
+	}
+	for _, item := range status {
+		if item.State != StateInactive && item.State != StateUnconfigured {
+			t.Fatalf("unexpected default state: %#v", item)
+		}
+	}
+	if err := host.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if session.closes != 0 {
+		t.Fatalf("inactive cleanup closed a session that was never opened: %d", session.closes)
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }

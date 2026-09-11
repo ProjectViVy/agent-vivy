@@ -1,5 +1,9 @@
 # Acceptance
 
+> Historical acceptance snapshot (2026-08-30), superseded by PLG-P4 closure
+> on 2026-09-11. The `mcp_call` references below describe the then-current
+> surface and are not current model-visible API claims.
+
 Open `http://127.0.0.1:3015/mcp` on the split pair (`just dev`).
 
 1. The page has no "Demo / local simulation" banner; the empty state is "No MCP

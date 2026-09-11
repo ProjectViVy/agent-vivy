@@ -26,6 +26,7 @@ type testWorldProvider struct {
 	id            string
 	discoveries   [][]toolworld.ToolDefinition
 	discoveriesN  int
+	discoverErr   error
 	waitForCancel bool
 	invoked       string
 }
@@ -35,6 +36,9 @@ func (p *testWorldProvider) Discover(ctx context.Context, _ toolworld.Host) ([]t
 	if p.waitForCancel {
 		<-ctx.Done()
 		return nil, ctx.Err()
+	}
+	if p.discoverErr != nil {
+		return nil, p.discoverErr
 	}
 	if len(p.discoveries) == 0 {
 		return nil, nil
@@ -105,6 +109,48 @@ func TestHostInvalidatesDynamicSchemaHashOnRediscovery(t *testing.T) {
 	}
 	if first.SchemaHash == second.SchemaHash {
 		t.Fatalf("schema hash did not change: %q", first.SchemaHash)
+	}
+}
+
+func TestHostFailedDiscoveryClearsPreviousDynamicBindings(t *testing.T) {
+	world := &testWorldProvider{
+		id:          "fixture.world",
+		discoveries: [][]toolworld.ToolDefinition{{{ID: "remote.echo"}}},
+	}
+	host, err := New(Config{Worlds: []WorldBinding{{OwnerID: "fixture.world", Provider: world, Host: testWorldHost{id: "fixture.world"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.Discover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := host.Lookup("remote.echo"); !ok {
+		t.Fatal("remote.echo missing after initial discovery")
+	}
+
+	world.discoverErr = errors.New("remote discovery failed")
+	if _, err := host.Discover(context.Background()); !errors.Is(err, world.discoverErr) {
+		t.Fatalf("failed discovery error = %v, want %v", err, world.discoverErr)
+	}
+	if _, ok := host.Lookup("remote.echo"); ok {
+		t.Fatal("failed discovery left stale dynamic binding")
+	}
+	if _, err := host.Invoke(context.Background(), Request{ID: "remote.echo"}); !errors.Is(err, ErrUnknownToolID) {
+		t.Fatalf("stale dynamic invoke error = %v, want ErrUnknownToolID", err)
+	}
+}
+
+func TestToolSchemaHashPreservesLargeJSONNumbers(t *testing.T) {
+	first := hashDefinition(porttool.Definition{
+		ID:     "large-number",
+		Schema: json.RawMessage(`{"type":"number","minimum":9007199254740992}`),
+	})
+	second := hashDefinition(porttool.Definition{
+		ID:     "large-number",
+		Schema: json.RawMessage(`{"type":"number","minimum":9007199254740993}`),
+	})
+	if first == second {
+		t.Fatalf("large JSON numbers collapsed to one ToolHost schema hash: %q", first)
 	}
 }
 

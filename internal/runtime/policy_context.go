@@ -8,6 +8,7 @@ import (
 
 type runIDContextKey struct{}
 type sessionIDContextKey struct{}
+type workspaceIDContextKey struct{}
 type policyProfileContextKey struct{}
 type policySnapshotContextKey struct{}
 type sandboxModeContextKey struct{}
@@ -35,6 +36,19 @@ func withSessionID(ctx context.Context, sessionID domain.SessionID) context.Cont
 func contextSessionID(ctx context.Context) domain.SessionID {
 	sessionID, _ := ctx.Value(sessionIDContextKey{}).(domain.SessionID)
 	return sessionID
+}
+
+// withWorkspaceID carries the allocator-issued workspace identity through
+// the live Engine context. It is intentionally distinct from RunID: a
+// workspace may be shared by a code-face run or have a stable allocator ID
+// that is not the durable run identifier.
+func withWorkspaceID(ctx context.Context, workspaceID string) context.Context {
+	return context.WithValue(ctx, workspaceIDContextKey{}, workspaceID)
+}
+
+func contextWorkspaceID(ctx context.Context) string {
+	workspaceID, _ := ctx.Value(workspaceIDContextKey{}).(string)
+	return workspaceID
 }
 
 func withPolicyProfile(ctx context.Context, profile domain.PolicyProfile) context.Context {

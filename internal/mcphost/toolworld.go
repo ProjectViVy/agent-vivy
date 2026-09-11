@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
-	"strings"
 
 	"agent-vivy/sdk/port/toolworld"
 )
@@ -31,7 +30,7 @@ func (world *ToolWorld) Discover(ctx context.Context, _ toolworld.Host) ([]toolw
 	out := make([]toolworld.ToolDefinition, 0)
 	var failures []error
 	for _, status := range statuses {
-		if status.State == StateUnconfigured || status.State == StateDeferred || status.CircuitOpen {
+		if !status.Enabled || status.State == StateUnconfigured || status.State == StateDeferred || status.CircuitOpen {
 			continue
 		}
 		items, err := world.host.DiscoverTools(ctx, status.ID)
@@ -45,8 +44,18 @@ func (world *ToolWorld) Discover(ctx context.Context, _ toolworld.Host) ([]toolw
 		for _, item := range items {
 			out = append(out, toolworld.ToolDefinition{
 				ID: item.ID, Description: item.Description,
-				Effect: toolworld.EffectWrite,
-				Schema: append(json.RawMessage(nil), item.Schema...),
+				Effect:     toolworld.EffectWrite,
+				Schema:     append(json.RawMessage(nil), item.Schema...),
+				SchemaHash: item.SchemaHash, InstanceHash: item.InstanceHash, RemoteHash: item.RemoteHash,
+				Provenance: toolworld.Provenance{
+					ServerInstanceID: item.InstanceID,
+					RemoteCapability: item.RemoteName,
+					SchemaHash:       item.SchemaHash,
+					InstanceHash:     item.InstanceHash,
+					RemoteHash:       item.RemoteHash,
+				},
+				ServerInstanceID: item.InstanceID,
+				RemoteCapability: item.RemoteName,
 			})
 		}
 	}
@@ -61,7 +70,7 @@ func (world *ToolWorld) Invoke(ctx context.Context, _ toolworld.Host, id string,
 	if world == nil || world.host == nil {
 		return toolworld.Result{}, ErrInstanceUnavailable
 	}
-	result, err := world.host.CallTool(ctx, strings.TrimSpace(id), args)
+	result, err := world.host.CallTool(ctx, id, args)
 	if err != nil {
 		return toolworld.Result{}, err
 	}

@@ -33,3 +33,11 @@ func TestSummaryContainsNoContent(t *testing.T) {
 		t.Fatal("skill Summary must not expose content")
 	}
 }
+
+func TestSkillClonePreservesLiteralIdentityForHostValidation(t *testing.T) {
+	skill := Skill{ID: " review ", Name: "review", Version: " v1 ", SourceHash: "hash"}
+	clone := skill.Clone()
+	if clone.ID != skill.ID || clone.Version != skill.Version {
+		t.Fatalf("Clone normalized stable identity/version: %#v", clone)
+	}
+}

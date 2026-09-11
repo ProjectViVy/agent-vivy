@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/storage"
@@ -210,6 +211,7 @@ var ErrModelChangeBusy = errors.New("runtime: model cannot change while runs are
 
 type pendingRun struct {
 	sessionID     domain.SessionID
+	workspaceID   string
 	mapper        *eventMapper
 	selectedTools []string
 	// mounted is the run's skill-mount registry captured at suspend time.
@@ -492,7 +494,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return "", err
 	}
-	fileContexts, err := normalizeFileContexts(options.FileContexts)
+	fileContexts, err := normalizeFileContextsContext(ctx, options.FileContexts)
 	if err != nil {
 		return "", err
 	}
@@ -518,10 +520,13 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	runID := newRunID()
+	workspaceID := ""
 	if s.deps.Workspaces != nil {
-		if _, err := s.deps.Workspaces.Ensure(ctx, runID); err != nil {
+		workspace, err := s.deps.Workspaces.Ensure(ctx, runID)
+		if err != nil {
 			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
 		}
+		workspaceID = workspace.ID
 	}
 	now := time.Now().UnixMilli()
 
@@ -589,7 +594,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face)
+		s.drive(runCtx, m, sessionID, userText, mode, profile, snapshot, sandboxMode, approvalPolicy, face, workspaceID)
 	}()
 	return runID, nil
 }
@@ -876,11 +881,14 @@ func (s *Service) recover(ctx context.Context) error {
 			s.failUnrecoverable(ctx, run.ID, "worker_lost_after_restart")
 			continue
 		}
+		workspaceID := ""
 		if s.deps.Workspaces != nil {
-			if _, err := s.deps.Workspaces.Ensure(ctx, run.ID); err != nil {
+			workspace, err := s.deps.Workspaces.Ensure(ctx, run.ID)
+			if err != nil {
 				s.failUnrecoverable(ctx, run.ID, "workspace isolation unavailable")
 				continue
 			}
+			workspaceID = workspace.ID
 		}
 		approval, hasApproval := pendingByRun[run.ID]
 		question, hasQuestion := pendingQuestionsByRun[run.ID]
@@ -905,7 +913,7 @@ func (s *Service) recover(ctx context.Context) error {
 		case hasApproval && !s.checkpointReadable(ctx, run.ID):
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasApproval:
-			s.rebuildPending(ctx, run, approval)
+			s.rebuildPending(ctx, run, approval, workspaceID)
 		case hasQuestion && question.ExpiresAt <= now:
 			if err := s.expireQuestion(ctx, question, "user response timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire question failed", "question", question.ID, "err", err)
@@ -914,7 +922,7 @@ func (s *Service) recover(ctx context.Context) error {
 		case hasQuestion && !s.checkpointReadable(ctx, run.ID):
 			s.failUnrecoverable(ctx, run.ID, "checkpoint not readable")
 		case hasQuestion:
-			s.rebuildPendingQuestion(ctx, run, question)
+			s.rebuildPendingQuestion(ctx, run, question, workspaceID)
 		default:
 			s.deleteShellState(shellStateRefForRun(run.ID))
 			s.failUnrecoverable(ctx, run.ID, "no pending approval")
@@ -1164,7 +1172,7 @@ func (s *Service) checkpointReadable(ctx context.Context, runID domain.RunID) bo
 // next decision resumes it: a fresh mapper seeded with the interrupted
 // tool call (its name recovered from the journal's approval event) and a
 // pending registration. The run row stays active; no event is emitted.
-func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval domain.Approval) {
+func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval domain.Approval, workspaceID string) {
 	ledger := s.recoverBudgetLedger(ctx, run.ID)
 	if ledger == nil {
 		return
@@ -1183,7 +1191,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		name: toolName,
 	})
 	s.mu.Lock()
-	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
+	s.pending[run.ID] = pendingRun{sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools, mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger}
 	s.runSessions[run.ID] = run.SessionID
 	s.ledgers[run.ID] = ledger
 	s.snapshots[run.ID] = snapshot
@@ -1195,7 +1203,7 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 // rebuildPendingQuestion restores a durable ask_user suspension after a
 // restart. The question remains distinct from approval and resumes with the
 // answer supplied to AnswerQuestion.
-func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, question domain.Question) {
+func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, question domain.Question, workspaceID string) {
 	ledger := s.recoverBudgetLedger(ctx, run.ID)
 	if ledger == nil {
 		return
@@ -1216,7 +1224,7 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
 	s.mu.Lock()
 	s.pending[run.ID] = pendingRun{
-		sessionID: run.SessionID, mapper: m, selectedTools: selectedTools,
+		sessionID: run.SessionID, workspaceID: workspaceID, mapper: m, selectedTools: selectedTools,
 		mode: mode, profile: profile, snapshot: snapshot, sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, questionID: question.ID, mounted: s.recoveredMounts(ctx, run.ID), ledger: ledger,
 	}
 	s.runSessions[run.ID] = run.SessionID
@@ -1493,14 +1501,14 @@ func (s *Service) failUnrecoverable(ctx context.Context, runID domain.RunID, rea
 	slog.Info("restart recovery: run failed definitively", "run", string(runID), "reason", reason)
 }
 
-func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face) {
+func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.SessionID, userText string, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, workspaceID string) {
 	// The checkpoint id is derived from the run id so Run and Resume
 	// always agree without a second assignment (spike §2.1: without
 	// WithCheckPointID an interrupt persists no checkpoint).
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
-	msgs, selection, _, err := s.runMessages(ctx, sessionID, userText, eng, face)
+	msgs, selection, _, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -1509,7 +1517,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 		return
 	}
 	ledger := s.ledgerForRun(m.runID)
-	runCtx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID)
+	runCtx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(ctx, selection.Names()), face), mode), profile), snapshot), m.runID), sessionID), workspaceID)
 	// Per-run mount registry: skill_view records declared tools here so the
 	// mount projection can advertise them and the adapter can admit them
 	// for the remainder of this run. TT-1 session pin: the fresh registry is
@@ -1522,6 +1530,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	runCtx = tools.WithMountedTools(runCtx, mounts)
 	runCtx = withSessionSandbox(runCtx, sandboxMode, approvalPolicy)
 	runCtx = tools.WithSessionID(runCtx, sessionID)
+	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
 	runCtx = withGovernanceEventSink(runCtx, s.governanceSink(m, sessionID, ledger))
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger)
 	iter := eng.RunHistory(runCtx, msgs, adk.WithCheckPointID(checkpointIDFor(m.runID)))
@@ -1562,6 +1571,10 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 // message with a warning — the run proceeds rather than failing on a
 // bookkeeping read.
 func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face) ([]*schema.Message, tools.Selection, ContextStats, error) {
+	return s.runMessagesForRun(ctx, sessionID, userText, eng, face, "")
+}
+
+func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.Message, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
 	// The per-run preamble leads the feed (MA-2): it carries the facts the
 	// static Instruction cannot (date, whether active tools exist, and the
@@ -1583,12 +1596,41 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		return nil, selection, ContextStats{}, err
 	}
 	folded, _ := s.foldSessionHistory(ctx, sessionID, stored)
-	msgs, stats, err := buildRunContext(ContextPolicy{
+	msgs, stats, err := buildRunContextWithContext(ctx, eng.cfg.ContextHost, ContextPolicy{
 		MaxBytes:           eng.cfg.MaxContextBytes,
 		MaxHistoryMessages: eng.cfg.MaxHistoryMessages,
 	}, preamble, folded, userText)
 	if err != nil {
 		return nil, selection, stats, err
+	}
+	if eng.cfg.ContextHost != nil && len(msgs) > 0 {
+		request := contexthost.Request{Query: userText, SessionID: string(sessionID), WorkspaceID: workspaceID}
+		if eng.cfg.MaxContextBytes > 0 {
+			used := projectedContextBytes(msgs)
+			if used < eng.cfg.MaxContextBytes {
+				request.ByteBudget = eng.cfg.MaxContextBytes - used
+				// Keep the Host's token bound coupled to the same final
+				// runtime budget. Byte framing remains authoritative.
+				request.TokenBudget = request.ByteBudget
+				request.CandidateBytes = contextCandidateBytes
+			}
+		}
+		if request.ByteBudget != 0 || eng.cfg.MaxContextBytes == 0 {
+			contextResult, contextErr := eng.cfg.ContextHost.Query(ctx, request)
+			if contextErr != nil {
+				if ctx.Err() != nil {
+					return nil, selection, stats, ctx.Err()
+				}
+				slog.Warn("context host query failed; continuing without remote context", "session", string(sessionID), "err", contextErr)
+			} else if ctx.Err() != nil {
+				return nil, selection, stats, ctx.Err()
+			} else if parts := contextCandidatesToUserParts(contextResult.Candidates); len(parts) > 0 {
+				appendContextParts(msgs[len(msgs)-1], parts)
+			}
+		}
+	}
+	if eng.cfg.MaxContextBytes > 0 && projectedContextBytes(msgs) > eng.cfg.MaxContextBytes {
+		return nil, selection, stats, fmt.Errorf("%w: final model input requires %d bytes; budget is %d", ErrContextBudgetExceeded, projectedContextBytes(msgs), eng.cfg.MaxContextBytes)
 	}
 	if stats.DroppedHistoryMessages > 0 {
 		slog.Warn("run context history bounded",
@@ -1599,6 +1641,22 @@ func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, u
 		)
 	}
 	return msgs, selection, stats, nil
+}
+
+func appendContextParts(message *schema.Message, parts []schema.MessageInputPart) {
+	if message == nil || len(parts) == 0 {
+		return
+	}
+	if len(message.UserInputMultiContent) == 0 {
+		if message.Content != "" {
+			message.UserInputMultiContent = append(message.UserInputMultiContent, schema.MessageInputPart{
+				Type: schema.ChatMessagePartTypeText,
+				Text: message.Content,
+			})
+		}
+		message.Content = ""
+	}
+	message.UserInputMultiContent = append(message.UserInputMultiContent, parts...)
 }
 
 // foldSessionHistory replaces the stored rows covered by the latest durable
@@ -1870,7 +1928,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
-		sessionID: sessionID, mapper: m, selectedTools: append([]string(nil), selectedTools...),
+		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m, selectedTools: append([]string(nil), selectedTools...),
 		mounted: tools.MountedToolsFromContext(ctx),
 		mode:    mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
 		sandboxMode: sandboxMode(ctx), approvalPolicy: approvalPolicy(ctx), face: runFace(ctx), ledger: ledger,
@@ -1956,7 +2014,7 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 	ledger := s.ledgerForRun(runID)
 	s.mu.Lock()
 	s.pending[runID] = pendingRun{
-		sessionID: sessionID, mapper: m,
+		sessionID: sessionID, workspaceID: contextWorkspaceID(ctx), mapper: m,
 		selectedTools: append([]string(nil), selectedTools...),
 		mounted:       tools.MountedToolsFromContext(ctx),
 		mode:          mode, profile: policyProfile(ctx), snapshot: policySnapshot(ctx),
@@ -2083,7 +2141,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID)
 	}()
 	return nil
@@ -2304,7 +2362,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.resumeRun(p.sessionID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
+		s.resumeRun(p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger,
 			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "")
 	}()
 	return nil
@@ -2370,7 +2428,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
 	// A deferred settings-save engine rebuild applies here too, while the
 	// resumed run is not yet registered.
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
@@ -2382,7 +2440,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 		// call so reconstructed tool.started/finished keep the call id.
 		m.registerOpenCall(openToolCall{id: toolCallID, name: toolName})
 	}
-	ctx := withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID)
+	ctx := withWorkspaceID(withSessionID(withRunID(withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(context.Background(), selectedTools), face), mode), profile), snapshot), runID), sessionID), workspaceID)
 	ctx = withSessionSandbox(ctx, sandboxMode, approvalPolicy)
 	ctx = tools.WithSessionID(ctx, sessionID)
 	// Restore the skill mounts captured at suspend time so tools mounted
@@ -2395,6 +2453,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selecte
 	}
 	ctx = tools.WithMountedTools(ctx, mounts)
 	ctx = tools.WithProposalData(ctx, proposalData)
+	ctx = tools.WithWorkspaceID(ctx, workspaceID)
 	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
 	if approvalID != "" {
 		ctx = tools.WithProposalStaleReporter(ctx, func(reason string) {

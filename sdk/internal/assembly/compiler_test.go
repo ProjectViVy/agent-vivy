@@ -354,3 +354,50 @@ func TestCompileMatchesRequirementProviderIdentity(t *testing.T) {
 		t.Fatalf("requirement identity error = %v", err)
 	}
 }
+
+func TestCompileRequiresTypedMCPHostProviderAndCoreOwner(t *testing.T) {
+	toolHost := testDescriptor("vivy/tool-host")
+	toolHost.Source.Ref = "internal:vivy/tool-host"
+	toolHost.Provides = []module.PortRef{{Port: "core/tool-host@v1", ID: "vivy.tool-host"}}
+
+	compile := func(t *testing.T, mcp module.Descriptor, binding GoBinding) error {
+		t.Helper()
+		catalog, err := NewSourceCatalog([]SourceRecord{
+			{Descriptor: toolHost, Trust: TrustT1},
+			{Descriptor: mcp, Trust: TrustT1, Binding: binding},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
+		_, err = compiler.Compile(context.Background(), Recipe{
+			APIVersion: RecipeAPIVersionV1,
+			Modules:    []string{toolHost.Module.ID, mcp.Module.ID},
+		})
+		return err
+	}
+
+	withoutCore := testDescriptor("vivy/mcp-host")
+	withoutCore.Source.Ref = "internal:vivy/mcp-host"
+	withoutCore.Provides = []module.PortRef{{Port: "std/tool-world@v1", ID: "mcp"}}
+	withoutCore.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: toolHost.Module.ID}}
+	if err := compile(t, withoutCore, GoBinding{MCPHostProvider: true}); err == nil || !strings.Contains(err.Error(), "core/mcp-host@v1") {
+		t.Fatalf("MCP world without core Host error = %v, want core/mcp-host@v1 rejection", err)
+	}
+
+	withoutTypedBinding := testDescriptor("vivy/mcp-host")
+	withoutTypedBinding.Source.Ref = "internal:vivy/mcp-host"
+	withoutTypedBinding.Provides = []module.PortRef{
+		{Port: "core/mcp-host@v1", ID: "vivy.mcp-host"},
+		{Port: "std/tool-world@v1", ID: "mcp"},
+	}
+	withoutTypedBinding.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: toolHost.Module.ID}}
+	if err := compile(t, withoutTypedBinding, GoBinding{}); err == nil || !strings.Contains(err.Error(), "typed MCPHostProvider") {
+		t.Fatalf("MCP world without typed binding error = %v, want typed MCPHostProvider rejection", err)
+	}
+
+	valid := withoutTypedBinding
+	if err := compile(t, valid, GoBinding{MCPHostProvider: true}); err != nil {
+		t.Fatalf("typed MCPHostProvider graph rejected: %v", err)
+	}
+}

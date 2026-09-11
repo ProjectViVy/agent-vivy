@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/contextsource"
@@ -19,6 +22,14 @@ const (
 	defaultMaxCandidateBytes = 1 << 20
 	defaultMaxTotalBytes     = 4 << 20
 	defaultMaxCandidates     = 64
+	maxSourceIDBytes         = 256
+	maxContentIDBytes        = 512
+	maxMediaTypeBytes        = 128
+	maxVersionBytes          = 256
+	maxMetadataEntries       = 32
+	maxMetadataKeyBytes      = 128
+	maxMetadataValueBytes    = 1024
+	maxMetadataTotalBytes    = 8 << 10
 )
 
 var (
@@ -40,10 +51,18 @@ type Config struct {
 }
 
 type Request struct {
-	Query          string
-	SessionID      string
-	WorkspaceID    string
-	TokenBudget    int
+	Query       string
+	SessionID   string
+	WorkspaceID string
+	TokenBudget int
+	// ByteBudget is the final model-facing budget available to the result.
+	// Zero means that the caller has no additional byte budget. The runtime
+	// supplies CandidateBytes when framing overhead must be accounted for.
+	ByteBudget int
+	// CandidateBytes returns the bytes the caller will actually add to its
+	// model input for one candidate, including provenance framing. When it is
+	// nil, the redacted candidate body length is used.
+	CandidateBytes func(Candidate) int
 	PerSourceLimit int
 	Cursors        map[string]string
 }
@@ -113,18 +132,9 @@ func New(cfg Config) (*Host, error) {
 		}
 	}
 
-	seen := make(map[string]struct{}, len(cfg.Sources))
-	sources := make([]contextsource.Provider, 0, len(cfg.Sources))
-	for _, source := range cfg.Sources {
-		if source == nil || strings.TrimSpace(source.ID()) == "" {
-			return nil, ErrInvalidSource
-		}
-		id := strings.TrimSpace(source.ID())
-		if _, duplicate := seen[id]; duplicate {
-			return nil, fmt.Errorf("%w: %s", ErrDuplicateSource, id)
-		}
-		seen[id] = struct{}{}
-		sources = append(sources, source)
+	sources, err := validateSources(cfg.Sources)
+	if err != nil {
+		return nil, err
 	}
 	return &Host{
 		sources:           sources,
@@ -138,15 +148,78 @@ func New(cfg Config) (*Host, error) {
 }
 
 func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
+	if host == nil {
+		return Result{}, ErrInvalidSource
+	}
+	return host.query(ctx, request, host.sources)
+}
+
+// QuerySources runs only the supplied ephemeral Sources through this Host's
+// authorization, validation, redaction, ranking, and budgets. Runtime uses
+// it for per-turn first-party snapshots so they share the exact Host path
+// without re-querying configured remote Sources for every history row.
+func (host *Host) QuerySources(ctx context.Context, request Request, sources ...contextsource.Provider) (Result, error) {
+	if host == nil {
+		return Result{}, ErrInvalidSource
+	}
+	validated, err := validateSources(sources)
+	if err != nil {
+		return Result{}, err
+	}
+	return host.query(ctx, request, validated)
+}
+
+func validateSources(input []contextsource.Provider) ([]contextsource.Provider, error) {
+	seen := make(map[string]struct{}, len(input))
+	sources := make([]contextsource.Provider, 0, len(input))
+	for _, source := range input {
+		if source == nil {
+			return nil, ErrInvalidSource
+		}
+		id := source.ID()
+		if !validBoundedIdentifier(id, maxSourceIDBytes, false) {
+			return nil, fmt.Errorf("%w: source id", ErrInvalidSource)
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateSource, id)
+		}
+		seen[id] = struct{}{}
+		sources = append(sources, source)
+	}
+	return sources, nil
+}
+
+func (host *Host) query(ctx context.Context, request Request, sources []contextsource.Provider) (Result, error) {
+	if request.ByteBudget < 0 || request.TokenBudget < 0 {
+		return Result{}, errors.New("contexthost: request budgets must not be negative")
+	}
 	result := Result{NextCursors: make(map[string]string)}
+	if err := ctx.Err(); err != nil {
+		result.Failures = append(result.Failures, Failure{Cause: err})
+		return result, nil
+	}
 	collected := make([]Candidate, 0)
-	for _, source := range host.sources {
-		sourceID := strings.TrimSpace(source.ID())
+	for _, source := range sources {
+		sourceID := source.ID()
+		if err := ctx.Err(); err != nil {
+			result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+			result.Candidates = nil
+			return result, nil
+		}
 		if host.authorize != nil {
 			if err := host.authorize(ctx, sourceID, request); err != nil {
 				result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+				if ctx.Err() != nil {
+					result.Candidates = nil
+					return result, nil
+				}
 				continue
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+			result.Candidates = nil
+			return result, nil
 		}
 		cursor := ""
 		if request.Cursors != nil {
@@ -157,16 +230,37 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 			SessionID:   request.SessionID,
 			WorkspaceID: request.WorkspaceID,
 			Cursor:      cursor,
-			Limit:       request.PerSourceLimit,
+			Limit:       host.sourcePageLimit(request.PerSourceLimit),
 		})
 		if err != nil {
 			result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+			if ctx.Err() != nil {
+				result.Candidates = nil
+				return result, nil
+			}
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+			result.Candidates = nil
+			return result, nil
 		}
 		if page.NextCursor != "" {
 			result.NextCursors[sourceID] = page.NextCursor
 		}
-		for _, raw := range page.Candidates {
+		pageLimit := host.sourcePageLimit(request.PerSourceLimit)
+		if len(page.Candidates) > pageLimit {
+			result.DroppedBudget += len(page.Candidates) - pageLimit
+		}
+		for index, raw := range page.Candidates {
+			if index >= pageLimit {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+				result.Candidates = nil
+				return result, nil
+			}
 			candidate, ok := host.normalizeCandidate(sourceID, raw)
 			if !ok {
 				result.DroppedInvalid++
@@ -179,6 +273,11 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 			collected = append(collected, candidate)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		result.Failures = append(result.Failures, Failure{Cause: err})
+		result.Candidates = nil
+		return result, nil
+	}
 
 	// Stable sort preserves Recipe source order and each Source's own order
 	// when confidence is equal. Sources cannot smuggle a second ordering
@@ -189,7 +288,19 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 
 	seenContent := make(map[string]struct{}, len(collected))
 	for _, candidate := range collected {
+		if err := ctx.Err(); err != nil {
+			result.Failures = append(result.Failures, Failure{Cause: err})
+			result.Candidates = nil
+			result.Bytes = 0
+			result.Tokens = 0
+			return result, nil
+		}
 		dedupKey := contentHash(candidate.MediaType, candidate.Content)
+		if candidate.Content == "" {
+			// Empty snapshots carry identity even though their body has no
+			// content hash. Two distinct files must remain explicit parts.
+			dedupKey = candidate.SourceID + "\x00" + candidate.ContentID
+		}
 		if _, duplicate := seenContent[dedupKey]; duplicate {
 			result.DroppedDuplicate++
 			continue
@@ -199,7 +310,19 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 			result.DroppedBudget++
 			continue
 		}
-		if result.Bytes+len(candidate.Content) > host.maxTotalBytes {
+		candidateBytes := len(candidate.Content)
+		if request.CandidateBytes != nil {
+			candidateBytes = request.CandidateBytes(candidate)
+		}
+		if candidateBytes < 0 {
+			result.DroppedInvalid++
+			continue
+		}
+		if result.Bytes+candidateBytes > host.maxTotalBytes {
+			result.DroppedBudget++
+			continue
+		}
+		if request.ByteBudget > 0 && result.Bytes+candidateBytes > request.ByteBudget {
 			result.DroppedBudget++
 			continue
 		}
@@ -208,13 +331,24 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 			continue
 		}
 		result.Candidates = append(result.Candidates, candidate)
-		result.Bytes += len(candidate.Content)
+		result.Bytes += candidateBytes
 		result.Tokens += candidate.Tokens
 	}
 	return result, nil
 }
 
+func (host *Host) sourcePageLimit(requestLimit int) int {
+	limit := host.maxCandidates
+	if requestLimit > 0 && requestLimit < limit {
+		limit = requestLimit
+	}
+	return limit
+}
+
 func (host *Host) querySource(ctx context.Context, source contextsource.Provider, request contextsource.Request) (contextsource.Page, error) {
+	if err := ctx.Err(); err != nil {
+		return contextsource.Page{}, err
+	}
 	callCtx, cancel := context.WithTimeout(ctx, host.sourceTimeout)
 	defer cancel()
 	outcomes := make(chan sourceOutcome, 1)
@@ -224,7 +358,13 @@ func (host *Host) querySource(ctx context.Context, source contextsource.Provider
 			if recovered := recover(); recovered != nil {
 				outcome.err = fmt.Errorf("context source panic: %v", recovered)
 			}
-			outcomes <- outcome
+			// The buffered, non-blocking handoff prevents a provider that
+			// ignores cancellation and returns after the timeout from leaking
+			// this worker while trying to report its late result.
+			select {
+			case outcomes <- outcome:
+			default:
+			}
 		}()
 		outcome.page, outcome.err = source.Query(callCtx, request)
 	}()
@@ -232,6 +372,12 @@ func (host *Host) querySource(ctx context.Context, source contextsource.Provider
 	case <-callCtx.Done():
 		return contextsource.Page{}, callCtx.Err()
 	case outcome := <-outcomes:
+		if err := ctx.Err(); err != nil {
+			return contextsource.Page{}, err
+		}
+		if err := callCtx.Err(); err != nil {
+			return contextsource.Page{}, err
+		}
 		return outcome.page, outcome.err
 	}
 }
@@ -241,13 +387,29 @@ func (host *Host) normalizeCandidate(sourceID string, raw contextsource.Candidat
 	if candidate.SourceID == "" {
 		candidate.SourceID = sourceID
 	}
-	if candidate.SourceID != sourceID || candidate.ContentID == "" || candidate.Content == "" {
+	if candidate.SourceID != sourceID || !validBoundedIdentifier(candidate.SourceID, maxSourceIDBytes, false) || !validBoundedIdentifier(candidate.ContentID, maxContentIDBytes, false) {
 		return Candidate{}, false
 	}
-	if candidate.Confidence < 0 || candidate.Confidence > 1 {
+	if !validBoundedIdentifier(candidate.MediaType, maxMediaTypeBytes, true) || !validBoundedIdentifier(candidate.Version, maxVersionBytes, true) {
+		return Candidate{}, false
+	}
+	if !utf8.ValidString(candidate.Content) || !validMetadata(candidate.Metadata) {
+		return Candidate{}, false
+	}
+	if math.IsNaN(candidate.Confidence) || math.IsInf(candidate.Confidence, 0) || candidate.Confidence < 0 || candidate.Confidence > 1 {
 		return Candidate{}, false
 	}
 	candidate.Content = tools.RedactSensitive(candidate.Content)
+	if candidate.Metadata != nil {
+		redacted := make(map[string]string, len(candidate.Metadata))
+		for key, value := range candidate.Metadata {
+			redacted[key] = tools.RedactSensitive(value)
+		}
+		candidate.Metadata = redacted
+	}
+	if !validMetadata(candidate.Metadata) {
+		return Candidate{}, false
+	}
 	candidate.SizeHint = len(candidate.Content)
 	projected := Candidate{Candidate: candidate}
 	projected.Tokens = host.estimate(candidate.Content)
@@ -256,6 +418,57 @@ func (host *Host) normalizeCandidate(sourceID string, raw contextsource.Candidat
 	}
 	projected.ProvenanceID = provenanceID(candidate)
 	return projected, true
+}
+
+func validBoundedIdentifier(value string, maxBytes int, allowEmpty bool) bool {
+	if value == "" {
+		return allowEmpty
+	}
+	if len(value) > maxBytes || !utf8.ValidString(value) {
+		return false
+	}
+	if strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || isBidiControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func validMetadata(metadata map[string]string) bool {
+	if len(metadata) > maxMetadataEntries {
+		return false
+	}
+	total := 0
+	for key, value := range metadata {
+		if !validBoundedIdentifier(key, maxMetadataKeyBytes, false) || !validMetadataValue(value) {
+			return false
+		}
+		total += len(key) + len(value)
+		if total > maxMetadataTotalBytes {
+			return false
+		}
+	}
+	return true
+}
+
+func validMetadataValue(value string) bool {
+	if len(value) > maxMetadataValueBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || isBidiControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }
 
 func provenanceID(candidate contextsource.Candidate) string {

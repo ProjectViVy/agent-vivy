@@ -88,6 +88,17 @@ func TestHostRejectsInvalidFrontmatter(t *testing.T) {
 	}
 }
 
+func TestHostRejectsLiteralIdentityWhitespace(t *testing.T) {
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{{ID: " bad", Name: "bad", Version: "v1", SourceHash: "a", Available: true}}}
+	host, err := New(Config{Sources: []skillsource.Provider{source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.List(context.Background(), Request{}); !errors.Is(err, ErrInvalidSkill) {
+		t.Fatalf("literal whitespace identity error = %v, want ErrInvalidSkill", err)
+	}
+}
+
 func TestHostRejectsSkillBudgetOverflow(t *testing.T) {
 	skill := skillsource.Skill{ID: "large", Name: "large", Version: "v1", SourceHash: "a", Available: true, Content: "12345"}
 	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{"large": skill}}
@@ -173,4 +184,131 @@ func TestHostRedactsSecretLikeContent(t *testing.T) {
 	if strings.Contains(resolved.Content, "sk-test-") {
 		t.Fatalf("secret-like content was not redacted: %q", resolved.Content)
 	}
+}
+
+func TestHostPreservesStableIDWhenNameDiffers(t *testing.T) {
+	skill := skillsource.Skill{ID: "source.review.v2", Name: "review", Version: "v1", SourceHash: "source", Available: true, Content: "stable"}
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{skill.ID: skill}}
+	host, err := New(Config{Sources: []skillsource.Provider{source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := host.List(context.Background(), Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != skill.ID || items[0].Name != skill.Name || items[0].ProvenanceID == "" {
+		t.Fatalf("stable identity was not preserved: %#v", items)
+	}
+	resolved, err := host.Get(context.Background(), Request{}, skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ID != skill.ID || resolved.Name != skill.Name || resolved.Content != skill.Content {
+		t.Fatalf("stable ID lookup resolved the wrong skill: %#v", resolved)
+	}
+	if resolved.ProvenanceID != mustResolvedProvenance("source", skill, resolved.ContentHash) {
+		t.Fatalf("resolved provenance does not bind stable identity: %q", resolved.ProvenanceID)
+	}
+}
+
+func TestHostRepeatedContentHasStableProvenance(t *testing.T) {
+	skill := skillsource.Skill{ID: "stable", Name: "display", Version: "v1", SourceHash: "source", Available: true, Content: "same body"}
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{skill.ID: skill}}
+	host, err := New(Config{Sources: []skillsource.Provider{source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := host.Get(context.Background(), Request{}, skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := host.Get(context.Background(), Request{}, skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ContentHash == "" || first.ContentHash != second.ContentHash || first.ProvenanceID != second.ProvenanceID {
+		t.Fatalf("repeated content was not deterministic: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestHostRejectsAmbiguousSkillName(t *testing.T) {
+	one := skillsource.Skill{ID: "review-one", Name: "review", Version: "v1", SourceHash: "one", Available: true, Content: "one"}
+	two := skillsource.Skill{ID: "review-two", Name: "review", Version: "v1", SourceHash: "two", Available: true, Content: "two"}
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{one.Summary(), two.Summary()}, skills: map[string]skillsource.Skill{one.ID: one, two.ID: two}}
+	host, err := New(Config{Sources: []skillsource.Provider{source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.Get(context.Background(), Request{}, "review"); !errors.Is(err, ErrAmbiguousSkillName) {
+		t.Fatalf("ambiguous name error = %v, want ErrAmbiguousSkillName", err)
+	}
+	if _, err := host.Get(context.Background(), Request{}, one.ID); err != nil {
+		t.Fatalf("exact ID lookup should remain available: %v", err)
+	}
+}
+
+func TestHostOwnsActivationScopeAndAuthorization(t *testing.T) {
+	first := skillsource.Skill{ID: "allowed", Name: "allowed", Version: "v1", SourceHash: "a", Available: true, Content: "allowed"}
+	second := skillsource.Skill{ID: "denied", Name: "denied", Version: "v1", SourceHash: "b", Available: true, Content: "denied"}
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{first.Summary(), second.Summary()}, skills: map[string]skillsource.Skill{first.ID: first, second.ID: second}}
+	host, err := New(Config{
+		Sources:   []skillsource.Provider{source},
+		ActiveIDs: []string{first.ID, second.ID},
+		Authorize: func(_ context.Context, id string, _ Request) error {
+			if id == second.ID {
+				return ErrSkillDenied
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := host.List(context.Background(), Request{ActiveIDs: []string{first.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != first.ID {
+		t.Fatalf("activation scope was not enforced: %#v", items)
+	}
+	if _, err := host.Get(context.Background(), Request{ActiveIDs: []string{second.ID}}, second.ID); !errors.Is(err, ErrSkillDenied) {
+		t.Fatalf("authorization denial = %v, want ErrSkillDenied", err)
+	}
+	if _, err := host.Get(context.Background(), Request{ActiveIDs: []string{second.ID}}, first.ID); !errors.Is(err, ErrSkillInactive) {
+		t.Fatalf("activation-scope denial = %v, want ErrSkillInactive", err)
+	}
+}
+
+func TestHostChecksRedactedContentAgainstSkillBudget(t *testing.T) {
+	skill := skillsource.Skill{ID: "redact", Name: "redact", Version: "v1", SourceHash: "source", Available: true, Content: "token:x"}
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{skill.ID: skill}}
+	host, err := New(Config{Sources: []skillsource.Provider{source}, MaxSkillBytes: len(skill.Content)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.Get(context.Background(), Request{}, skill.ID); !errors.Is(err, ErrSkillTooLarge) {
+		t.Fatalf("redaction expansion error = %v, want ErrSkillTooLarge", err)
+	}
+}
+
+func TestHostAlwaysBudgetIncludesProjectedBytes(t *testing.T) {
+	one := skillsource.Skill{ID: "one", Name: "one", Version: "v1", SourceHash: "one", Available: true, Always: true, Content: "token:x"}
+	two := skillsource.Skill{ID: "two", Name: "two", Version: "v1", SourceHash: "two", Available: true, Always: true, Content: "second"}
+	source := &fixtureSkillSource{id: "source", summaries: []skillsource.Summary{one.Summary(), two.Summary()}, skills: map[string]skillsource.Skill{one.ID: one, two.ID: two}}
+	host, err := New(Config{Sources: []skillsource.Provider{source}, MaxSkillBytes: 128, MaxAlwaysSkillBytes: 64, MaxAlwaysTotalBytes: 48})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := host.Always(context.Background(), Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(content) > 48 || strings.Contains(content, "token:x") {
+		t.Fatalf("always projection escaped Host byte budget/redaction: len=%d content=%q", len(content), content)
+	}
+}
+
+func mustResolvedProvenance(sourceID string, skill skillsource.Skill, contentHash string) string {
+	return resolvedProvenance(sourceID, skill, contentHash)
 }

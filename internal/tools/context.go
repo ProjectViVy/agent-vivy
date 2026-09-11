@@ -10,6 +10,7 @@ import (
 type runIDContextKey struct{}
 type proposalDataContextKey struct{}
 type sessionIDContextKey struct{}
+type workspaceIDContextKey struct{}
 
 // WithRunID binds the durable run identity for tools that need a run-scoped
 // capability such as the isolated filesystem. The runtime owns the source of
@@ -70,4 +71,16 @@ func WithSessionID(ctx context.Context, sessionID domain.SessionID) context.Cont
 func SessionIDFromContext(ctx context.Context) domain.SessionID {
 	sessionID, _ := ctx.Value(sessionIDContextKey{}).(domain.SessionID)
 	return sessionID
+}
+
+// WithWorkspaceID binds the allocator-issued workspace identity. It is kept
+// separate from RunID so Sources and workspace-backed tools cannot infer a
+// filesystem identity from a durable run identifier.
+func WithWorkspaceID(ctx context.Context, workspaceID string) context.Context {
+	return context.WithValue(ctx, workspaceIDContextKey{}, workspaceID)
+}
+
+func WorkspaceIDFromContext(ctx context.Context) string {
+	workspaceID, _ := ctx.Value(workspaceIDContextKey{}).(string)
+	return workspaceID
 }

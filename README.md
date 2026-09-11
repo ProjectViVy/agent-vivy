@@ -128,7 +128,6 @@ in the 2026-09-09 Task 9 environment.
 cmd/vivy/          species entrypoint (daily gateway + worker + fullscreen `tui` command)
 cmd/vivy-code/     independent VIVY CODE binary; shared config, private Journal per launch
 sdk/               vivy-sdk binary (verify/pack); invoked by Studio, not by vivy.exe
-sdk/plugin/        author import window
 sdk/tui/           canonical fullscreen TUI view, controller, protocol projection, and tests
 internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)

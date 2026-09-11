@@ -116,7 +116,7 @@ explicitly uses DSH as a benchmark (`SELF-EVOLVING-GATEWAY.md:87-112`).
 | Filesystem | read/write/edit/read_image + str_replace_editor + glob/grep (`docs/tool-catalog.md:16-28`) | read_file/search_files/write_file/patch (`config.example.yaml:74-76`) | Comparable; DSH additionally has read_image/str_replace |
 | Shell | bash / pwsh / persistent PTY bash + background jobs (`docs/tool-catalog.md:21-28`) | execute/commandline (allowlist, workspace-scoped, no shell syntax, `internal/runtime/command_backend.go`) | **DSH is stronger**: persistent terminals, background jobs, and both shells |
 | Web | web_search/web_fetch (multi-provider seam, `docs/subsystems/web.md`) | network_search (5 providers, read-only); http_request (GET/HEAD allowlist, `internal/tools/http_request.go:39-48`) | Comparable; Vivy is more conservative (read-only) |
-| MCP | MCP client bridge, with tools scoped by server (`packages/mcp/mcp-client/README.md`) | mcp_list_tools/mcp_call (approval gate, `internal/tools/mcp.go`) | Comparable; Vivy treats it as a "configuration dependency," not a plugin (NG-19) |
+| MCP | MCP client bridge, with tools scoped by server (`packages/mcp/mcp-client/README.md`) | `mcp_list_tools` control-plane catalog plus MCPHost → ToolWorld → ToolHost dynamic tools | Comparable; Vivy treats MCP as a configuration dependency, not a native plugin (NG-19); the former model-visible `mcp_call` path was retired in P4 |
 | Terminal/PTY | terminal_open/list/read/send/signal/close (`docs/tool-catalog.md:28`) | **None** | **DSH has it; Vivy does not** |
 | LSP | lsp (goToDefinition/references/impl/hover, `docs/subsystems/lsp.md`) | **Not in the species** (only in the Studio toolchain, `VIVY-STUDIO.md:187`) | **DSH has it; Vivy does not** (on the species side) |
 | Tasks/todos | todo_write (`packages/todo/tool-todo`) | task_create/get/update/list (`internal/tools/todo.go`) | Comparable |
@@ -322,10 +322,10 @@ trace · subagent/subagent_fork · interrupt_agent/list_agents/send_message ·
 report · job_kill/list/output · todo_write · web_search/web_fetch ·
 mcp__<server>__<raw>
 
-### agent-vivy (24, `config.example.yaml:66-90`)
+### agent-vivy (23, `config.example.yaml:66-90`)
 
 echo_info · write_note · list_notes · read_note · ask_user · read_file ·
-search_files · write_file · patch · http_request · mcp_list_tools · mcp_call ·
+search_files · write_file · patch · http_request · mcp_list_tools ·
 sequential_thinking · execute · commandline · skills_list · skill_view ·
 skill_manage · task_create · task_get · task_update · task_list ·
 network_search · tool_search

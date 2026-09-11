@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -46,6 +47,8 @@ func TestNormalizeFileContextsRejectsBypassInputs(t *testing.T) {
 		{name: "naked keys", item: domain.FileContext{Path: "keys", Content: []byte("x"), Size: 1}, want: errFileContextSensitive},
 		{name: "binary", item: domain.FileContext{Path: "main.go", Content: []byte{0, 1}, Size: 2}, want: errFileContextBinary},
 		{name: "wrong size", item: domain.FileContext{Path: "main.go", Content: []byte("x"), Size: 2}, want: errFileContextTooLarge},
+		{name: "newline path", item: domain.FileContext{Path: "main\n.go", Content: []byte("x"), Size: 1}, want: errFileContextPath},
+		{name: "tab path", item: domain.FileContext{Path: "main\t.go", Content: []byte("x"), Size: 1}, want: errFileContextPath},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,5 +57,14 @@ func TestNormalizeFileContextsRejectsBypassInputs(t *testing.T) {
 				t.Fatalf("normalize = %v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeFileContextsHonorsLiveCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := normalizeFileContextsContext(ctx, []domain.FileContext{{Path: "main.go", Content: []byte("x"), Size: 1}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled normalization = %v, want context.Canceled", err)
 	}
 }

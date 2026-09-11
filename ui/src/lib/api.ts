@@ -351,6 +351,8 @@ export interface ProviderRefreshInput {
 /** 从上游 GET /models 同步模型列表并持久化到注册表；返回脱敏后的保存条目。 */
 export const refreshProviderModels = (input: ProviderRefreshInput) => request<ProviderEntry>('settings/providers/refresh', input);
 
+export type McpState = 'not-compiled' | 'unconfigured' | 'inactive' | 'ready' | 'unavailable' | 'deferred';
+/** @deprecated Use McpState/state. Kept only for older control-plane peers. */
 export type McpStatus = 'idle' | 'ok' | 'error';
 export type McpTransport = 'http' | 'stdio';
 export interface McpServer {
@@ -363,10 +365,13 @@ export interface McpServer {
   cwd?: string;
   auth_env?: string;
   auth_env_set: boolean;
+  resource_bridge?: boolean;
+  deferred_reason?: string;
   env_missing?: string[];
   enabled: boolean;
   tool_count: number;
-  status: McpStatus;
+  state?: McpState;
+  status?: McpStatus;
   error?: string;
 }
 export interface McpServerInput {
@@ -378,6 +383,8 @@ export interface McpServerInput {
   env_from?: Record<string, string>;
   cwd?: string;
   auth_env?: string;
+  resource_bridge?: boolean;
+  deferred_reason?: string;
   enabled?: boolean;
 }
 export interface McpServersView {

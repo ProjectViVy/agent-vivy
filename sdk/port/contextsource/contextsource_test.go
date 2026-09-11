@@ -38,3 +38,17 @@ func TestPageCopiesCandidates(t *testing.T) {
 		t.Fatalf("page mutated through caller slice: %#v", page)
 	}
 }
+
+func TestCandidateConstructorPreservesLiteralValidationInputs(t *testing.T) {
+	candidate := NewCandidate(Candidate{
+		SourceID:  " docs ",
+		ContentID: " guide ",
+		Metadata:  map[string]string{" key ": "value"},
+	})
+	if candidate.SourceID != " docs " || candidate.ContentID != " guide " {
+		t.Fatalf("constructor normalized identifiers: %#v", candidate)
+	}
+	if _, ok := candidate.Metadata[" key "]; !ok {
+		t.Fatalf("constructor normalized metadata keys: %#v", candidate.Metadata)
+	}
+}

@@ -173,17 +173,20 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 		result.MCPKnown = true
 		if source, ok := h.deps.MCP.(MCPStatusProvider); ok {
 			for _, server := range source.ServerStatuses() {
-				state := "configured"
-				if len(server.EnvMissing) > 0 || (!server.Initialized && strings.TrimSpace(server.Error) != "") {
-					state = "error"
-				} else if server.Initialized {
-					state = "initialized"
+				state := string(server.State)
+				if state == "" {
+					state = string(runtime.MCPStateInactive)
+					if len(server.EnvMissing) > 0 || (!server.Initialized && strings.TrimSpace(server.Error) != "") {
+						state = string(runtime.MCPStateUnavailable)
+					} else if server.Initialized {
+						state = string(runtime.MCPStateReady)
+					}
 				}
 				item := sidebarMCPResult{
 					Name:        server.Name,
 					Transport:   server.Transport,
 					State:       state,
-					Error:       server.Error,
+					Error:       sanitizeMCPReason(server.Error),
 					AuthMissing: server.AuthMissing,
 					EnvMissing:  append([]string(nil), server.EnvMissing...),
 				}
@@ -199,7 +202,15 @@ func (h *controlHandler) sessionSidebar(ctx context.Context, request Request) (a
 				if strings.TrimSpace(server.Command) != "" {
 					transport = "stdio"
 				}
-				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, Transport: transport, State: "configured"})
+				state := runtime.MCPStateInactive
+				if server.Enabled != nil && !*server.Enabled {
+					state = runtime.MCPStateInactive
+				} else if strings.TrimSpace(server.DeferredReason) != "" {
+					state = runtime.MCPStateDeferred
+				} else if strings.TrimSpace(server.Endpoint) == "" && strings.TrimSpace(server.Command) == "" {
+					state = runtime.MCPStateUnconfigured
+				}
+				result.MCP = append(result.MCP, sidebarMCPResult{Name: server.Name, Transport: transport, State: string(state), Error: sanitizeMCPReason(server.DeferredReason)})
 			}
 			sort.Slice(result.MCP, func(i, j int) bool { return result.MCP[i].Name < result.MCP[j].Name })
 		}
