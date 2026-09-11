@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"agent-vivy/internal/modules/defaults"
@@ -31,6 +33,13 @@ type Artifact struct {
 	Binary    string                        `json:"binary"`
 	Manifest  assemblyv1.GenerationManifest `json:"manifest"`
 }
+
+const zeroDigest = "0000000000000000000000000000000000000000000000000000000000000000"
+
+var uiArtifactAssetValuePattern = regexp.MustCompile(`(:\s*")[0-9a-f]{64}(")`)
+var uiArtifactHashedFilenamePattern = regexp.MustCompile(`-[A-Za-z0-9_-]{8}(\.[^./]+)$`)
+var uiExactDependencyPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+var uiDependencyNamePattern = regexp.MustCompile(`^(?:@[^/\s]+/)?[^/\s]+$`)
 
 func Verify(dir string) (VerifyReport, error) {
 	descriptor, _, err := loadDescriptor(dir)
@@ -91,7 +100,7 @@ func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, er
 		return "", nil, nil
 	}
 	known := make(map[string]bool)
-	for _, rel := range []string{"plugins/dingtalk", "plugins/discord", "plugins/feishu", "plugins/qq", "plugins/telegram", "plugins/hello-fs", "plugins/lsp", "faces/headless", "faces/tui"} {
+	for _, rel := range []string{"plugins/dingtalk", "plugins/discord", "plugins/feishu", "plugins/qq", "plugins/telegram", "plugins/hello-fs", "plugins/lsp", "faces/headless", "faces/tui", "sdk/internal/testdata/full-ui-module"} {
 		abs, _ := filepath.Abs(filepath.Join(repoRoot, rel))
 		known[abs] = true
 	}
@@ -224,17 +233,9 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	canonical, err := assemblyv1.CanonicalRecipe(recipe)
-	if err != nil {
-		return Artifact{}, err
-	}
 	dependencyLocks, err := resolveDependencyLocks(repoRoot, modfile)
 	if err != nil {
 		return Artifact{}, err
-	}
-	uiArtifacts := map[string]string{}
-	if digest, hashErr := assemblyv1.HashSourceTree(filepath.Join(repoRoot, "ui", "dist"), ""); hashErr == nil {
-		uiArtifacts["ui/dist"] = digest
 	}
 	var catalogs []assemblyv1.CatalogManifest
 	for _, resolved := range plan.Modules {
@@ -253,16 +254,78 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		for locale, state := range compiled.Completeness {
 			completeness[locale] = string(state)
 		}
-		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, Evidence: []string{string(compiled.State)}})
+		var projection struct {
+			Units map[string]assemblyv1.CatalogUnit `json:"units"`
+		}
+		if err := json.Unmarshal(compiled.Canonical, &projection); err != nil {
+			return Artifact{}, fmt.Errorf("sdk: decode i18n catalog projection for %s: %w", resolved.Descriptor.Module.ID, err)
+		}
+		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, Evidence: []string{string(compiled.State)}, Units: projection.Units})
 	}
-	capabilityStates := capabilityStatesForPlan(plan)
-	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p1", SDKVersion: "v1", CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts, Catalogs: catalogs, CapabilityStates: capabilityStates})
-	if err != nil {
+	uiInput := assemblyv1.UIAssemblyInput{SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: catalogs}
+	if recipe.UI != nil {
+		uiInput = *recipe.UI
+		uiInput.Catalogs = catalogs
+	}
+	if err := applyRecipeUIOrder(&uiInput, recipe.Order); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: configure UI Assembly order: %w", err)
+	}
+	if err := bindUIContentHashes(&uiInput, plan, catalog); err != nil {
 		return Artifact{}, err
+	}
+	if err := bindUIBuildDependencies(&uiInput, repoRoot, plan, catalog); err != nil {
+		return Artifact{}, err
+	}
+	// Asset hashes are outputs of the frontend compiler. Generate once with a
+	// masked value so the compiler can run, hash the resulting dist, then bind
+	// that digest into the emitted manifest and bundle. The canonical digest
+	// intentionally masks these self-referential manifest values.
+	setUIAssetHashes(&uiInput, zeroDigest)
+	uiAssembly, err := assemblyv1.GenerateUIAssembly(uiInput)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("sdk: generate UI Assembly: %w", err)
 	}
 	if _, err := os.Stat(o.Output); err == nil {
 		return Artifact{}, fmt.Errorf("sdk: output already exists: %s", o.Output)
 	} else if !os.IsNotExist(err) {
+		return Artifact{}, err
+	}
+	uiBuild, err := buildWebUI(ctx, repoRoot, uiInput, plan, catalog, uiAssembly.Source)
+	if err != nil {
+		return Artifact{}, err
+	}
+	defer os.RemoveAll(uiBuild.Root)
+	if err := rewriteUIArtifactAssetHashes(uiBuild.Dist, uiBuild.Digest); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: bind authoritative UI artifact hash: %w", err)
+	}
+	if finalDigest, digestErr := hashUIArtifactTree(uiBuild.Dist); digestErr != nil {
+		return Artifact{}, fmt.Errorf("sdk: verify authoritative UI artifact hash: %w", digestErr)
+	} else if finalDigest != uiBuild.Digest {
+		return Artifact{}, fmt.Errorf("sdk: UI artifact hash changed while binding provenance: first %s, final %s", uiBuild.Digest, finalDigest)
+	}
+	setUIAssetHashes(&uiInput, uiBuild.Digest)
+	uiAssembly, err = assemblyv1.GenerateUIAssembly(uiInput)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("sdk: generate authoritative UI Assembly: %w", err)
+	}
+	// Seal the canonical Recipe only after the build-owned UI hashes have been
+	// bound. This prevents a caller-supplied per-provider asset claim from
+	// changing Generation identity without changing the selected output.
+	recipe.UI = &uiInput
+	canonical, err := assemblyv1.CanonicalRecipe(recipe)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if err := overlaySelectedUIDist(overlayFile, filepath.Join(repoRoot, "ui", "dist"), uiBuild.Dist); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: bind selected UI to executable embed: %w", err)
+	}
+	uiArtifacts := map[string]string{"ui/dist": uiBuild.Digest}
+	for id, digest := range uiAssembly.Manifest.AssetHashes {
+		uiArtifacts["ui/provider/"+id] = digest
+	}
+	capabilityStates := capabilityStatesForPlan(plan)
+	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p1", SDKVersion: "v1", CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts, UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates})
+	if err != nil {
 		return Artifact{}, err
 	}
 	parent := filepath.Dir(o.Output)
@@ -282,8 +345,17 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err := os.WriteFile(filepath.Join(stage, "zz_assembly.go"), binder, 0o644); err != nil {
 		return Artifact{}, err
 	}
+	if err := os.WriteFile(filepath.Join(stage, "ui-assembly.ts"), uiAssembly.Source, 0o644); err != nil {
+		return Artifact{}, err
+	}
 	if err := os.WriteFile(filepath.Join(stage, "generation.json"), manifestRaw, 0o644); err != nil {
 		return Artifact{}, err
+	}
+	// Keep the exact Vite-emitted UI tree beside the executable so inspection
+	// recomputes the same sealed asset identity. The generated Assembly source
+	// is a compiler input, never a substitute for this final artifact.
+	if err := copySourceTree(uiBuild.Dist, filepath.Join(stage, "ui", "dist")); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: stage final UI artifact: %w", err)
 	}
 	binary := filepath.Join(stage, "vivy")
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
@@ -303,6 +375,839 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	}
 	published = true
 	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, "vivy"), Manifest: manifest}, nil
+}
+
+type builtWebUI struct {
+	Root   string
+	Dist   string
+	Digest string
+}
+
+// buildWebUI compiles the checked-in Web UI against the generated Assembly in
+// an isolated source/output boundary. It never writes ui/src/generated or the
+// repository's ui/dist, and it only uses the already-installed local Vite
+// toolchain.
+func buildWebUI(ctx context.Context, repoRoot string, input assemblyv1.UIAssemblyInput, plan assemblyv1.AssemblyPlan, sources assemblyv1.SourceCatalog, generated []byte) (builtWebUI, error) {
+	uiRoot := filepath.Join(repoRoot, "ui")
+	viteEntry := filepath.Join(uiRoot, "node_modules", "vite", "bin", "vite.js")
+	if _, err := os.Stat(viteEntry); err != nil {
+		return builtWebUI{}, fmt.Errorf("sdk: build Web UI: checked-in Vite tool is unavailable at %s: %w", viteEntry, err)
+	}
+	buildRoot, err := os.MkdirTemp("", "vivy-ui-build-")
+	if err != nil {
+		return builtWebUI{}, fmt.Errorf("sdk: create isolated Web UI build boundary: %w", err)
+	}
+	cleanup := func(cause error) (builtWebUI, error) {
+		_ = os.RemoveAll(buildRoot)
+		return builtWebUI{}, cause
+	}
+	if err := stageUIBuildSources(buildRoot, input, plan, sources); err != nil {
+		return cleanup(err)
+	}
+	if err := os.Symlink(filepath.Join(uiRoot, "node_modules"), filepath.Join(buildRoot, "node_modules")); err != nil {
+		return cleanup(fmt.Errorf("sdk: link checked-in Web UI dependencies into isolated build boundary: %w", err))
+	}
+	assemblyEntry := filepath.Join(buildRoot, "assembly.ts")
+	if err := os.WriteFile(assemblyEntry, generated, 0o600); err != nil {
+		return cleanup(fmt.Errorf("sdk: write generated Web UI Assembly entry: %w", err))
+	}
+	dist := filepath.Join(buildRoot, "dist")
+	cmd := exec.CommandContext(ctx, "node", viteEntry, "build", "--outDir", dist)
+	cmd.Dir = uiRoot
+	cmd.Env = append(os.Environ(), "VIVY_UI_ASSEMBLY_ENTRY="+assemblyEntry)
+	output, buildErr := cmd.CombinedOutput()
+	if buildErr != nil {
+		if ctx.Err() != nil {
+			return cleanup(fmt.Errorf("sdk: build Web UI with generated Assembly: %w", ctx.Err()))
+		}
+		return cleanup(fmt.Errorf("sdk: build Web UI with generated Assembly: %w: %s", buildErr, strings.TrimSpace(string(output))))
+	}
+	if err := ctx.Err(); err != nil {
+		return cleanup(fmt.Errorf("sdk: build Web UI with generated Assembly: %w", err))
+	}
+	if info, statErr := os.Stat(dist); statErr != nil || !info.IsDir() {
+		if statErr == nil {
+			statErr = errors.New("output is not a directory")
+		}
+		return cleanup(fmt.Errorf("sdk: build Web UI did not emit dist: %w", statErr))
+	}
+	digest, err := hashUIArtifactTree(dist)
+	if err != nil {
+		return cleanup(fmt.Errorf("sdk: hash final Web UI artifact: %w", err))
+	}
+	return builtWebUI{Root: buildRoot, Dist: dist, Digest: digest}, nil
+}
+
+// overlaySelectedUIDist makes the Go embed pattern resolve the exact Vite
+// output produced for this Pack invocation. The repository dist is only a
+// build placeholder; mapping every old file to an empty backing path removes
+// it, while mapping every selected file (including new hashed asset names)
+// makes the packed executable carry the selected Generation UI.
+func overlaySelectedUIDist(overlayFile, repositoryDist, selectedDist string) error {
+	raw, err := os.ReadFile(overlayFile)
+	if err != nil {
+		return err
+	}
+	var overlay struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(raw, &overlay); err != nil {
+		return fmt.Errorf("decode Go overlay: %w", err)
+	}
+	if overlay.Replace == nil {
+		overlay.Replace = make(map[string]string)
+	}
+	mapTree := func(root string, replacement func(string, string) (string, string, error)) error {
+		return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+				return fmt.Errorf("UI dist contains non-regular entry %s", path)
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("invalid UI dist relative path %q", rel)
+			}
+			diskPath, backingPath, err := replacement(rel, path)
+			if err != nil {
+				return err
+			}
+			overlay.Replace[diskPath] = backingPath
+			return nil
+		})
+	}
+	if err := mapTree(repositoryDist, func(rel, _ string) (string, string, error) {
+		return filepath.Join(repositoryDist, rel), "", nil
+	}); err != nil {
+		return fmt.Errorf("hide repository UI dist: %w", err)
+	}
+	if err := mapTree(selectedDist, func(rel, path string) (string, string, error) {
+		return filepath.Join(repositoryDist, rel), path, nil
+	}); err != nil {
+		return fmt.Errorf("map selected UI dist: %w", err)
+	}
+	encoded, err := json.Marshal(struct {
+		Replace map[string]string
+	}{Replace: overlay.Replace})
+	if err != nil {
+		return fmt.Errorf("encode Go overlay: %w", err)
+	}
+	return os.WriteFile(overlayFile, encoded, 0o600)
+}
+
+// bindUIContentHashes replaces Recipe-provided UI provenance with hashes
+// derived from the selected, sealed Module source. A stale claim cannot make
+// it into the generated Assembly: SourceHash is the Module's verified source
+// digest and DependencyLockHash is the digest of the supported lock files in
+// that same source tree.
+func bindUIContentHashes(input *assemblyv1.UIAssemblyInput, plan assemblyv1.AssemblyPlan, sources assemblyv1.SourceCatalog) error {
+	if input == nil {
+		return nil
+	}
+	bind := func(contribution *assemblyv1.UIModule) error {
+		if contribution == nil || !uiModuleInputPresent(*contribution) {
+			return nil
+		}
+		moduleID := strings.TrimSpace(contribution.ModuleID)
+		if moduleID == "" {
+			moduleID = strings.TrimSpace(contribution.ID)
+		}
+		root, err := resolveUISourceRoot(*contribution, plan, sources)
+		if err != nil {
+			return err
+		}
+		record, err := sources.Resolve(moduleID)
+		if err != nil {
+			// ModuleID is optional in the Recipe adapter. When a contribution
+			// identifies only its Provider ID, recover the owning Module from
+			// the already-compiled Port edge rather than treating the Provider
+			// ID as an arbitrary source lookup key.
+			for _, resolved := range plan.Modules {
+				if descriptorProvidesUI(resolved.Descriptor, contribution.Port, contribution.ID) {
+					moduleID = resolved.Descriptor.Module.ID
+					record, err = sources.Resolve(moduleID)
+					break
+				}
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("sdk: resolve UI source %s: %w", contribution.ID, err)
+		}
+		contribution.ModuleID = moduleID
+		sourceHash := strings.TrimSpace(record.Descriptor.Source.SHA256)
+		if sourceHash == "" {
+			sourceHash, err = assemblyv1.HashSourceTree(root, "")
+			if err != nil {
+				return fmt.Errorf("sdk: hash UI source %s: %w", contribution.ID, err)
+			}
+		}
+		if claimed, claimErr := claimedUIHash("source", contribution.SourceHash, contribution.SourceSHA256, []string{moduleID, contribution.ID}, input.SourceHashes); claimErr != nil {
+			return fmt.Errorf("sdk: UI provider %s: %w", contribution.ID, claimErr)
+		} else if claimed != "" && claimed != sourceHash {
+			return fmt.Errorf("sdk: UI provider %s source hash mismatch: got %s, want %s", contribution.ID, claimed, sourceHash)
+		}
+		lockHash, err := hashUIDependencyLocks(root)
+		if err != nil {
+			return fmt.Errorf("sdk: UI provider %s: %w", contribution.ID, err)
+		}
+		if claimed, claimErr := claimedUIHash("dependency lock", contribution.LockHash, contribution.DependencyLockHash, []string{moduleID, contribution.ID}, input.DependencyLockHashes, input.LockHashes); claimErr != nil {
+			return fmt.Errorf("sdk: UI provider %s: %w", contribution.ID, claimErr)
+		} else if claimed != "" && claimed != lockHash {
+			return fmt.Errorf("sdk: UI provider %s dependency lock hash mismatch: got %s, want %s", contribution.ID, claimed, lockHash)
+		}
+		contribution.SourceHash = sourceHash
+		contribution.SourceSHA256 = ""
+		contribution.DependencyLockHash = lockHash
+		contribution.LockHash = ""
+		return nil
+	}
+	for index := range input.Roots {
+		if err := bind(&input.Roots[index]); err != nil {
+			return err
+		}
+	}
+	if uiModuleInputPresent(input.Root) {
+		if err := bind(&input.Root); err != nil {
+			return err
+		}
+	}
+	for index := range input.Extensions {
+		if err := bind(&input.Extensions[index]); err != nil {
+			return err
+		}
+	}
+	// Hash maps are adapter aliases. Once each selected contribution carries
+	// its authoritative field, retaining arbitrary omitted entries would still
+	// perturb the canonical Recipe without affecting the built composition.
+	input.SourceHashes = nil
+	input.DependencyLockHashes = nil
+	input.LockHashes = nil
+	return nil
+}
+
+// bindUIBuildDependencies turns package.json declarations into build-owned
+// exact dependency pins. Pack intentionally reuses the repository's
+// pre-installed Vite toolchain instead of running a package manager or
+// reaching the network, so every selected Module dependency must be both an
+// exact version and present at the version the compiler will resolve. The
+// selected Module's lockfile is hashed separately by bindUIContentHashes and
+// remains part of the sealed provenance.
+func bindUIBuildDependencies(input *assemblyv1.UIAssemblyInput, repoRoot string, plan assemblyv1.AssemblyPlan, sources assemblyv1.SourceCatalog) error {
+	if input == nil {
+		return nil
+	}
+	bind := func(contribution *assemblyv1.UIModule) error {
+		if contribution == nil || !uiModuleInputPresent(*contribution) {
+			return nil
+		}
+		root, err := resolveUISourceRoot(*contribution, plan, sources)
+		if err != nil {
+			return err
+		}
+		declared := make(map[string]string, len(contribution.Dependencies)+len(contribution.PackageDependencies))
+		merge := func(values map[string]string, source string) error {
+			for name, version := range values {
+				name = strings.TrimSpace(name)
+				version = strings.TrimSpace(version)
+				if name == "" || version == "" {
+					return fmt.Errorf("sdk: UI provider %s has an empty %s dependency pin", contribution.ID, source)
+				}
+				if previous, exists := declared[name]; exists && previous != version {
+					return fmt.Errorf("sdk: UI provider %s has conflicting dependency pins for %s", contribution.ID, name)
+				}
+				declared[name] = version
+			}
+			return nil
+		}
+		if err := merge(contribution.Dependencies, "dependencies"); err != nil {
+			return err
+		}
+		if err := merge(contribution.PackageDependencies, "packageDependencies"); err != nil {
+			return err
+		}
+		manifestDependencies, err := readUIBuildDependencies(root)
+		if err != nil {
+			return fmt.Errorf("sdk: read UI provider %s package metadata: %w", contribution.ID, err)
+		}
+		for name, version := range manifestDependencies {
+			if previous, exists := declared[name]; exists && previous != version {
+				return fmt.Errorf("sdk: UI provider %s dependency pin for %s disagrees with package.json", contribution.ID, name)
+			}
+			declared[name] = version
+		}
+		for name, version := range declared {
+			if !uiExactDependencyPattern.MatchString(version) {
+				return fmt.Errorf("sdk: UI provider %s has floating package dependency %s@%s", contribution.ID, name, version)
+			}
+			if err := verifyUIHostDependency(repoRoot, name, version); err != nil {
+				return fmt.Errorf("sdk: UI provider %s: %w", contribution.ID, err)
+			}
+		}
+		if len(declared) == 0 {
+			contribution.PackageDependencies = nil
+		} else {
+			contribution.PackageDependencies = declared
+		}
+		contribution.Dependencies = nil
+		return nil
+	}
+	for index := range input.Roots {
+		if err := bind(&input.Roots[index]); err != nil {
+			return err
+		}
+	}
+	if uiModuleInputPresent(input.Root) {
+		if err := bind(&input.Root); err != nil {
+			return err
+		}
+	}
+	for index := range input.Extensions {
+		if err := bind(&input.Extensions[index]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type uiPackageManifest struct {
+	Dependencies         map[string]string `json:"dependencies"`
+	DevDependencies      map[string]string `json:"devDependencies"`
+	OptionalDependencies map[string]string `json:"optionalDependencies"`
+}
+
+func readUIBuildDependencies(root string) (map[string]string, error) {
+	paths := make([]string, 0, 2)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if entry.Name() == "node_modules" || entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() == "package.json" && entry.Type().IsRegular() {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	dependencies := make(map[string]string)
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var manifest uiPackageManifest
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			return nil, fmt.Errorf("decode %s: %w", filepath.ToSlash(path), err)
+		}
+		for _, group := range []map[string]string{manifest.Dependencies, manifest.DevDependencies, manifest.OptionalDependencies} {
+			for name, version := range group {
+				if previous, exists := dependencies[name]; exists && strings.TrimSpace(previous) != strings.TrimSpace(version) {
+					return nil, fmt.Errorf("conflicting package.json pins for %s", name)
+				}
+				dependencies[name] = strings.TrimSpace(version)
+			}
+		}
+	}
+	return dependencies, nil
+}
+
+func verifyUIHostDependency(repoRoot, name, version string) error {
+	invalidName := !uiDependencyNamePattern.MatchString(name) || strings.ContainsAny(name, "\\\x00\r\n\t")
+	for _, component := range strings.Split(name, "/") {
+		if component == "." || component == ".." {
+			invalidName = true
+		}
+	}
+	if invalidName {
+		return fmt.Errorf("invalid package dependency name %q", name)
+	}
+	if !uiExactDependencyPattern.MatchString(version) {
+		return fmt.Errorf("floating package dependency %s@%s", name, version)
+	}
+	packageJSON := filepath.Join(repoRoot, "ui", "node_modules", filepath.FromSlash(name), "package.json")
+	if name == "@vivy/ui-sdk" {
+		// Vite's alias intentionally resolves the SDK from the checked-in source;
+		// inspect that same package metadata rather than trusting node_modules.
+		packageJSON = filepath.Join(repoRoot, "sdk", "ui", "package.json")
+	}
+	body, err := os.ReadFile(packageJSON)
+	if err != nil {
+		return fmt.Errorf("pinned package %s@%s is not installed in the compiler toolchain: %w", name, version, err)
+	}
+	var manifest struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return fmt.Errorf("decode installed package %s: %w", name, err)
+	}
+	if manifest.Name != "" && manifest.Name != name {
+		return fmt.Errorf("installed package metadata for %s names %s", name, manifest.Name)
+	}
+	if manifest.Version != version {
+		return fmt.Errorf("installed package %s is %s, want pinned %s", name, manifest.Version, version)
+	}
+	return nil
+}
+
+func claimedUIHash(label, first, second string, keys []string, maps ...map[string]string) (string, error) {
+	claimed, err := chooseUIHashAlias(label, first, second)
+	if err != nil {
+		return "", err
+	}
+	mapClaim, err := lookupUIHashAliases(label, keys, maps...)
+	if err != nil {
+		return "", err
+	}
+	if claimed != "" && mapClaim != "" && claimed != mapClaim {
+		return "", fmt.Errorf("conflicting %s hash aliases", label)
+	}
+	if claimed != "" {
+		return claimed, nil
+	}
+	return mapClaim, nil
+}
+
+func lookupUIHashAliases(label string, keys []string, values ...map[string]string) (string, error) {
+	claims := make([]string, 0, len(keys)*len(values))
+	for _, valuesMap := range values {
+		for _, key := range keys {
+			if value := strings.TrimSpace(valuesMap[key]); value != "" {
+				claims = append(claims, value)
+			}
+		}
+	}
+	if len(claims) == 0 {
+		return "", nil
+	}
+	first := claims[0]
+	for _, claim := range claims[1:] {
+		if claim != first {
+			return "", fmt.Errorf("conflicting %s hash aliases", label)
+		}
+	}
+	return first, nil
+}
+
+func chooseUIHashAlias(label, first, second string) (string, error) {
+	first = strings.TrimSpace(first)
+	second = strings.TrimSpace(second)
+	if first != "" && second != "" && first != second {
+		return "", fmt.Errorf("conflicting %s hash aliases", label)
+	}
+	return firstNonEmptyString(first, second), nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+var uiDependencyLockNames = map[string]struct{}{
+	"npm-shrinkwrap.json": {},
+	"package-lock.json":   {},
+	"pnpm-lock.yaml":      {},
+	"yarn.lock":           {},
+}
+
+func isUIDependencyLockFile(relative string) bool {
+	_, ok := uiDependencyLockNames[filepath.Base(relative)]
+	return ok
+}
+
+func hashUIDependencyLocks(root string) (string, error) {
+	var paths []string
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if entry.Name() == "node_modules" || entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("source tree contains symbolic link %s", path)
+		}
+		if entry.Type().IsRegular() {
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+			if isUIDependencyLockFile(rel) {
+				paths = append(paths, path)
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	if len(paths) == 0 {
+		return "", errors.New("no supported dependency lock file is present")
+	}
+	sort.Strings(paths)
+	h := sha256.New()
+	for _, path := range paths {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return "", err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		_, _ = io.WriteString(h, filepath.ToSlash(rel))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(body)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func setUIAssetHashes(input *assemblyv1.UIAssemblyInput, digest string) {
+	if input == nil {
+		return
+	}
+	set := func(contribution *assemblyv1.UIModule) {
+		if contribution == nil || !uiModuleInputPresent(*contribution) {
+			return
+		}
+		contribution.AssetHash = digest
+		contribution.FinalAssetHash = ""
+	}
+	for index := range input.Roots {
+		set(&input.Roots[index])
+	}
+	if uiModuleInputPresent(input.Root) {
+		set(&input.Root)
+	}
+	for index := range input.Extensions {
+		set(&input.Extensions[index])
+	}
+	input.AssetHashes = nil
+	input.FinalAssetHashes = nil
+}
+
+// hashUIArtifactTree computes the final UI artifact identity while masking the
+// per-provider asset values that are embedded in UI_ASSEMBLY_MANIFEST itself.
+// This removes the otherwise circular dependency between a bundle's hash and
+// the provenance value embedded in that same bundle.
+func hashUIArtifactTree(root string) (string, error) {
+	var paths []string
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("UI artifact contains symbolic link %s", path)
+		}
+		if entry.Type().IsRegular() {
+			paths = append(paths, path)
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	sort.Strings(paths)
+	references := make(map[string]string, len(paths)*2)
+	for _, path := range paths {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return "", err
+		}
+		rawPath := filepath.ToSlash(rel)
+		canonicalPath := uiArtifactHashedFilenamePattern.ReplaceAllString(rawPath, "-"+zeroDigest[:8]+"$1")
+		if rawPath != canonicalPath {
+			references[rawPath] = canonicalPath
+			references[filepath.Base(rawPath)] = filepath.Base(canonicalPath)
+		}
+	}
+	h := sha256.New()
+	for _, path := range paths {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return "", err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		body = maskUIArtifactReferences(body, references)
+		body = maskUIArtifactAssetHashes(body)
+		canonicalPath := filepath.ToSlash(rel)
+		canonicalPath = uiArtifactHashedFilenamePattern.ReplaceAllString(canonicalPath, "-"+zeroDigest[:8]+"$1")
+		_, _ = io.WriteString(h, canonicalPath)
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(body)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func maskUIArtifactReferences(body []byte, references map[string]string) []byte {
+	keys := make([]string, 0, len(references))
+	for raw := range references {
+		keys = append(keys, raw)
+	}
+	// Replace longer paths first. A basename can be contained in its full
+	// asset path; sorting makes canonicalization deterministic and prevents a
+	// shorter replacement from changing a later match's input.
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	for _, raw := range keys {
+		body = bytes.ReplaceAll(body, []byte(raw), []byte(references[raw]))
+	}
+	return body
+}
+
+func maskUIArtifactAssetHashes(body []byte) []byte {
+	return rewriteUIArtifactAssetHashesInBody(body, zeroDigest)
+}
+
+func rewriteUIArtifactAssetHashes(root, digest string) error {
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(digest) {
+		return fmt.Errorf("invalid UI artifact digest")
+	}
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return fmt.Errorf("UI artifact contains non-regular entry %s", path)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rewritten := rewriteUIArtifactAssetHashesInBody(body, digest)
+		if !bytes.Equal(body, rewritten) {
+			if err := os.WriteFile(path, rewritten, 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func rewriteUIArtifactAssetHashesInBody(body []byte, digest string) []byte {
+	key := []byte(`assetHashes`)
+	keyStart := bytes.Index(body, key)
+	if keyStart < 0 {
+		return body
+	}
+	openOffset := bytes.IndexByte(body[keyStart+len(key):], '{')
+	if openOffset < 0 {
+		return body
+	}
+	open := keyStart + len(key) + openOffset
+	depth := 0
+	inString, escaped := false, false
+	close := -1
+	for index := open; index < len(body); index++ {
+		char := body[index]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if char == '\\' {
+				escaped = true
+			} else if char == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				close = index
+			}
+		}
+		if close >= 0 {
+			break
+		}
+	}
+	if close < 0 {
+		return body
+	}
+	masked := append([]byte(nil), body...)
+	section := masked[open : close+1]
+	replaced := uiArtifactAssetValuePattern.ReplaceAll(section, []byte("${1}"+digest+"${2}"))
+	result := make([]byte, 0, len(masked))
+	result = append(result, masked[:open]...)
+	result = append(result, replaced...)
+	result = append(result, masked[close+1:]...)
+	return result
+}
+
+func stageUIBuildSources(destination string, input assemblyv1.UIAssemblyInput, plan assemblyv1.AssemblyPlan, sources assemblyv1.SourceCatalog) error {
+	contributions := make([]assemblyv1.UIModule, 0, len(input.Roots)+len(input.Extensions)+1)
+	contributions = append(contributions, input.Roots...)
+	if uiModuleInputPresent(input.Root) {
+		contributions = append(contributions, input.Root)
+	}
+	contributions = append(contributions, input.Extensions...)
+	for _, contribution := range contributions {
+		root, err := resolveUISourceRoot(contribution, plan, sources)
+		if err != nil {
+			return err
+		}
+		if err := copyUISourceTree(root, destination); err != nil {
+			return fmt.Errorf("sdk: stage selected UI source %s: %w", contribution.ID, err)
+		}
+	}
+	return nil
+}
+
+func resolveUISourceRoot(contribution assemblyv1.UIModule, plan assemblyv1.AssemblyPlan, sources assemblyv1.SourceCatalog) (string, error) {
+	moduleID := strings.TrimSpace(contribution.ModuleID)
+	if moduleID == "" {
+		moduleID = strings.TrimSpace(contribution.ID)
+	}
+	if record, err := sources.Resolve(moduleID); err == nil && record.Root != "" {
+		return record.Root, nil
+	}
+	for _, resolved := range plan.Modules {
+		if resolved.Descriptor.Module.ID == moduleID || descriptorProvidesUI(resolved.Descriptor, contribution.Port, contribution.ID) {
+			record, err := sources.Resolve(resolved.Descriptor.Module.ID)
+			if err == nil && record.Root != "" {
+				return record.Root, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("sdk: selected UI provider %s has no source root in the sealed Source Catalog", contribution.ID)
+}
+
+func descriptorProvidesUI(descriptor module.Descriptor, port, id string) bool {
+	for _, provided := range descriptor.Provides {
+		if (port == "" || provided.Port == port) && (id == "" || provided.ID == id) && (provided.Port == assemblyv1.UIRootPort || provided.Port == assemblyv1.UIExtensionPort) {
+			return true
+		}
+	}
+	return false
+}
+
+func copyUISourceTree(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(destination, 0o700)
+		}
+		if entry.IsDir() {
+			if entry.Name() == "node_modules" || entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(filepath.Join(destination, rel), 0o700)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic link %s is not allowed", path)
+		}
+		if !entry.Type().IsRegular() || (!uiSourceFile(filepath.ToSlash(rel)) && !isUIDependencyLockFile(filepath.ToSlash(rel))) {
+			return nil
+		}
+		target := filepath.Join(destination, rel)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if existing, readErr := os.ReadFile(target); readErr == nil {
+			if !bytes.Equal(existing, body) {
+				return fmt.Errorf("conflicting selected UI source path %s", filepath.ToSlash(rel))
+			}
+			return nil
+		} else if !os.IsNotExist(readErr) {
+			return readErr
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(target, body, 0o600)
+	})
+}
+
+func uiSourceFile(relative string) bool {
+	base := filepath.Base(relative)
+	switch base {
+	case "go.mod", "go.sum", "vivy-module.yaml":
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(relative)) {
+	case ".go", ".yaml", ".yml", ".toml", ".md":
+		return false
+	default:
+		return true
+	}
+}
+
+func uiModuleInputPresent(module assemblyv1.UIModule) bool {
+	return module.ID != "" || module.ProviderID != "" || module.ModuleID != "" || module.Port != "" ||
+		module.Entry != "" || module.ImportPath != "" || module.Export != "" || module.ExportName != "" ||
+		module.SourceHash != "" || module.SourceSHA256 != "" || module.LockHash != "" || module.DependencyLockHash != "" ||
+		module.AssetHash != "" || module.FinalAssetHash != "" || len(module.Dependencies) > 0 || len(module.PackageDependencies) > 0 ||
+		len(module.Before) > 0 || len(module.After) > 0 || len(module.Replaces) > 0
+}
+
+// applyRecipeUIOrder bridges the canonical ordered-Port Recipe field to the
+// UI composition adapter. UIAssemblyInput keeps a nested field so callers can
+// use the generator directly, but Pack must honor the same top-level order
+// sequence used by the Assembly Compiler for std/ui-extension@v1.
+func applyRecipeUIOrder(input *assemblyv1.UIAssemblyInput, recipeOrder map[string][]string) error {
+	order, exists := recipeOrder[assemblyv1.UIExtensionPort]
+	if !exists {
+		return nil
+	}
+	if input.ExtensionOrder != nil && !equalStringSlices(input.ExtensionOrder, order) {
+		return errors.New("Recipe order disagrees with UI ExtensionOrder")
+	}
+	if input.Order != nil && !equalStringSlices(input.Order, order) {
+		return errors.New("Recipe order disagrees with UI Order alias")
+	}
+	input.ExtensionOrder = append([]string(nil), order...)
+	return nil
+}
+
+func equalStringSlices(first, second []string) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	for index := range first {
+		if first[index] != second[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // capabilityStatesForPlan derives compiled-capability signals from the
@@ -524,6 +1429,15 @@ func InspectArtifact(dir string) (Artifact, error) {
 	}
 	if embedded.GenerationID != manifest.GenerationID || !bytes.Equal(embeddedRaw, raw) {
 		return Artifact{}, fmt.Errorf("Generation Manifest is not bound to executable")
+	}
+	if expected := manifest.UIArtifacts["ui/dist"]; expected != "" {
+		actual, hashErr := hashUIArtifactTree(filepath.Join(dir, "ui", "dist"))
+		if hashErr != nil {
+			return Artifact{}, fmt.Errorf("inspect final UI artifact: %w", hashErr)
+		}
+		if actual != expected {
+			return Artifact{}, fmt.Errorf("UI artifact hash mismatch: got %s, want %s", actual, expected)
+		}
 	}
 	return Artifact{Directory: dir, Binary: binary, Manifest: manifest}, nil
 }

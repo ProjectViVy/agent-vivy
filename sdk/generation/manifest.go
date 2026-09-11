@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+
+	assemblyv1 "agent-vivy/sdk/internal/assembly"
 )
 
 var (
@@ -22,6 +24,18 @@ func EmbeddedManifest() ([]byte, error) {
 		return nil, errors.New("no sealed Generation Manifest is embedded")
 	}
 	return decodeEmbedded([]byte(EmbeddedManifestBase64))
+}
+
+// InspectManifestProvenance validates a linker-embedded Generation Manifest
+// before a runtime surface projects any identity. The returned UI hash is only
+// the final emitted dist-tree identity; generated Assembly source is not an
+// artifact fallback.
+func InspectManifestProvenance(raw []byte) (generationID, uiArtifactHash string, err error) {
+	manifest, err := assemblyv1.InspectManifest(raw)
+	if err != nil {
+		return "", "", err
+	}
+	return manifest.GenerationID, manifest.UIArtifacts["ui/dist"], nil
 }
 
 // FrameEmbeddedManifest makes a linker value self-delimiting so inspection
@@ -86,6 +100,7 @@ type Manifest struct {
 	Modules          []string
 	Channels         []string
 	Tools            []string
+	Actions          []string
 	ToolWorlds       []string
 	ProviderProfiles []string
 	ContextSources   []string

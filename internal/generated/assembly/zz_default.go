@@ -10,6 +10,7 @@ import (
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
 	"agent-vivy/sdk/port/contextsource"
+	"agent-vivy/sdk/port/controlaction"
 	"agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/port/providerprofile"
 	"agent-vivy/sdk/port/skillsource"
@@ -30,6 +31,7 @@ type RuntimeAssembly struct {
 	Tools                      []tool.ToolProvider
 	Worlds                     []toolworld.Provider
 	Channels                   []channel.ChannelProvider
+	ActionSets                 []controlaction.ProviderSet
 	Face                       face.FaceProvider
 	ProviderProfiles           []providerprofile.Provider
 	ContextSources             []contextsource.Provider
@@ -39,6 +41,7 @@ type RuntimeAssembly struct {
 	LanguageServerStatuses     []toolworld.LanguageServerStatusProvider
 	ToolWorldGrants            map[string][]module.GrantBinding
 	ChannelGrants              map[string][]module.GrantBinding
+	GenerationID               string
 	Manifest                   generation.Manifest
 	owners                     []module.Instance
 }
@@ -65,6 +68,7 @@ func BuildDefault() RuntimeAssembly {
 			Modules:          []string{"vivy/channel-host", "vivy/context-host", "vivy/context-source", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/kernel", "vivy/mcp-host", "vivy/observer-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/telegram", "vivy/tool-host"},
 			Channels:         []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
 			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
+			Actions:          []string{},
 			ToolWorlds:       []string{"mcp"},
 			ProviderProfiles: []string{"openai", "anthropic"},
 			ContextSources:   []string{"vivy.project-context"},

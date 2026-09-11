@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"regexp"
@@ -20,6 +22,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
@@ -45,6 +48,13 @@ const (
 	// CodeBadGateway reports a failed marketplace upstream call (skills.sh)
 	// so the UI can offer a retry instead of reading it as a server bug.
 	CodeBadGateway = -32010
+	// ModuleActionMethod is the sole RPC entry point for Module-owned Control
+	// Actions. Providers cannot add methods or routes to this vocabulary.
+	ModuleActionMethod = "module.action.invoke"
+
+	maxModuleActionInputBytes = 1 << 20
+	maxModuleActionDepth      = 32
+	maxModuleActionIdentifier = 256
 )
 
 type ControlDeps struct {
@@ -211,9 +221,19 @@ type ControlDeps struct {
 	// startup overlay). tools/list reports it as the fallback when no
 	// tools_enabled overlay was ever written.
 	ConfigToolsEnabled []string
+	// ActionHost is the one kernel-owned consumer for std/control-action@v1.
+	// It is constructed from sealed Generation inventory; this handler never
+	// accepts Provider registration or browser authority claims.
+	ActionHost *actionhost.Host
 	// ModelLists discovers the upstream OpenAI-compatible /models catalog for
 	// settings/providers/refresh. Nil uses the package default 15s client.
 	ModelLists *provider.ModelListClient
+}
+
+type moduleActionParams struct {
+	ModuleID string          `json:"module_id"`
+	ActionID string          `json:"action_id"`
+	Input    json.RawMessage `json:"input"`
 }
 
 // MCPCatalog is the live MCP backend surface the control plane manages.
@@ -658,6 +678,283 @@ type backgroundResult struct {
 	WorkspaceID string           `json:"workspace_id,omitempty"`
 }
 
+func (h *controlHandler) invokeModuleAction(ctx context.Context, peer *Peer, request Request) (any, *Error) {
+	if h.deps.ActionHost == nil || len(h.deps.ActionHost.Definitions()) == 0 {
+		return nil, &Error{Code: MethodNotFound, Message: "module action capability is not configured"}
+	}
+	params, rpcErr := parseModuleActionParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	ctx = peer.authenticatedContext(ctx)
+	caller, ok := authenticatedCaller(ctx, peer)
+	if !ok {
+		return nil, &Error{Code: CodeConflict, Message: "action caller is not authenticated"}
+	}
+	result, err := h.deps.ActionHost.Invoke(ctx, caller, params.ModuleID, params.ActionID, append(json.RawMessage(nil), params.Input...))
+	if err != nil {
+		return nil, moduleActionRPCError(err)
+	}
+	// ActionHost has already schema-validated and bounded the result. Keep a
+	// defensive transport check here so a future Host implementation cannot
+	// turn this one RPC into an unbounded or non-JSON response.
+	if len(bytes.TrimSpace(result)) == 0 || len(result) > maxModuleActionInputBytes || !json.Valid(result) {
+		return nil, &Error{Code: InternalError, Message: "module action failed"}
+	}
+	return json.RawMessage(append([]byte(nil), result...)), nil
+}
+
+func authenticatedCaller(ctx context.Context, peer *Peer) (actionhost.Caller, bool) {
+	if peer != nil {
+		if caller, ok := peer.AuthenticatedCaller(); ok {
+			return caller, true
+		}
+	}
+	return AuthenticatedCallerFromContext(ctx)
+}
+
+func parseModuleActionParams(request Request) (moduleActionParams, *Error) {
+	var params moduleActionParams
+	if len(request.Params) == 0 || string(request.Params) == "null" {
+		return params, &Error{Code: InvalidParams, Message: "module_id, action_id, and input are required"}
+	}
+	if err := rejectDuplicateObjectKeys(request.Params); err != nil {
+		return params, &Error{Code: InvalidParams, Message: "module.action.invoke params are invalid"}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(request.Params))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&params); err != nil {
+		return params, &Error{Code: InvalidParams, Message: "module.action.invoke params are invalid"}
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return params, &Error{Code: InvalidParams, Message: "module.action.invoke params are invalid"}
+	}
+	params.ModuleID = strings.TrimSpace(params.ModuleID)
+	params.ActionID = strings.TrimSpace(params.ActionID)
+	if params.ModuleID == "" || params.ActionID == "" || len(params.ModuleID) > maxModuleActionIdentifier || len(params.ActionID) > maxModuleActionIdentifier || containsRPCControl(params.ModuleID) || containsRPCControl(params.ActionID) {
+		return params, &Error{Code: InvalidParams, Message: "module_id and action_id are invalid"}
+	}
+	if len(params.Input) == 0 || len(params.Input) > maxModuleActionInputBytes || !json.Valid(params.Input) {
+		return params, &Error{Code: InvalidParams, Message: "action input is invalid"}
+	}
+	if depth := moduleActionJSONDepth(params.Input); depth < 0 || depth > maxModuleActionDepth {
+		return params, &Error{Code: InvalidParams, Message: "action input is too deeply nested"}
+	}
+	return params, nil
+}
+
+func rejectDuplicateObjectKeys(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	first, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := first.(json.Delim)
+	if !ok || delimiter != '{' {
+		return errors.New("params must be an object")
+	}
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		name, ok := key.(string)
+		if !ok {
+			return errors.New("object key is not a string")
+		}
+		if _, exists := seen[name]; exists {
+			return errors.New("duplicate object key")
+		}
+		switch name {
+		case "module_id", "action_id", "input":
+		default:
+			// encoding/json accepts case-insensitive field names even with
+			// DisallowUnknownFields. Keep this wire shape exact so a claim such
+			// as Module_ID cannot be smuggled in as a compatibility alias.
+			return errors.New("unknown object key")
+		}
+		seen[name] = struct{}{}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return err
+		}
+	}
+	last, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delimiter, ok := last.(json.Delim); !ok || delimiter != '}' {
+		return errors.New("params object is not closed")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("multiple JSON values")
+	}
+	return nil
+}
+
+func moduleActionJSONDepth(raw []byte) int {
+	depth, maxDepth := 0, 0
+	inString, escaped := false, false
+	for _, char := range raw {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if char == '\\' {
+				escaped = true
+				continue
+			}
+			if char == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		case '}', ']':
+			depth--
+			if depth < 0 {
+				return -1
+			}
+		}
+	}
+	if inString || depth != 0 {
+		return -1
+	}
+	return maxDepth
+}
+
+func containsRPCControl(value string) bool {
+	return strings.IndexFunc(value, unicode.IsControl) >= 0
+}
+
+func moduleActionRPCError(err error) *Error {
+	switch {
+	case errors.Is(err, actionhost.ErrInvalidInput):
+		return &Error{Code: InvalidParams, Message: "action input is invalid"}
+	case errors.Is(err, actionhost.ErrActionNotFound), errors.Is(err, actionhost.ErrOwnerMismatch), errors.Is(err, actionhost.ErrGenerationUnavailable), errors.Is(err, actionhost.ErrInstanceUnavailable):
+		// Do not disclose whether a guessed Module, action, or instance exists.
+		return &Error{Code: CodeNotFound, Message: "module action is unavailable"}
+	case errors.Is(err, actionhost.ErrUnauthenticated):
+		return &Error{Code: CodeConflict, Message: "action caller is not authenticated"}
+	case errors.Is(err, actionhost.ErrGrantDenied), errors.Is(err, actionhost.ErrApprovalRequired), errors.Is(err, actionhost.ErrAuthorizationUnavailable), errors.Is(err, actionhost.ErrHostClosed), errors.Is(err, actionhost.ErrConcurrencyLimit):
+		return &Error{Code: CodeConflict, Message: "module action is not authorized"}
+	case errors.Is(err, actionhost.ErrActionTimeout), errors.Is(err, context.DeadlineExceeded):
+		return &Error{Code: CodeConflict, Message: "module action timed out"}
+	case errors.Is(err, context.Canceled):
+		return &Error{Code: CodeConflict, Message: "module action cancelled"}
+	default:
+		// Provider errors, Secret leaks, audit failures, and panic values are
+		// intentionally collapsed to one bounded message. Their concrete
+		// strings never cross the RPC boundary.
+		return &Error{Code: InternalError, Message: "module action failed"}
+	}
+}
+
+// bindPeerSessionResult upgrades a transport-attested Peer only after a
+// session operation has returned a server-owned session record. It accepts
+// both the direct session/create shape and the nested session/get shape.
+func bindPeerSessionResult(peer *Peer, result any) {
+	if peer == nil || result == nil {
+		return
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+	var direct struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(raw, &direct) == nil && strings.TrimSpace(direct.ID) != "" {
+		peer.bindSession(direct.ID)
+		return
+	}
+	var nested struct {
+		Session struct {
+			ID string `json:"id"`
+		} `json:"session"`
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(raw, &nested) == nil {
+		if nested.Session.ID != "" {
+			peer.bindSession(nested.Session.ID)
+		} else if nested.SessionID != "" {
+			peer.bindSession(nested.SessionID)
+		}
+	}
+}
+
+// bindPeerSessionRequest is used by projections whose response does not carry
+// the session record. The request's ID is accepted only after a fresh
+// server-side SessionStore lookup succeeds.
+func (h *controlHandler) bindPeerSessionRequest(ctx context.Context, peer *Peer, request Request) {
+	if h == nil || peer == nil || h.deps.Sessions == nil {
+		return
+	}
+	var params struct {
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(request.Params, &params) != nil || strings.TrimSpace(params.SessionID) == "" {
+		return
+	}
+	sessionID := strings.TrimSpace(params.SessionID)
+	if _, err := h.deps.Sessions.GetSession(ctx, domain.SessionID(sessionID)); err == nil {
+		peer.bindSession(sessionID)
+	}
+}
+
+// bindPeerRunResult upgrades a Peer with a server-returned run/session pair.
+// For run/subscribe the response intentionally contains no session id, so the
+// handler resolves it from the durable RunStore before binding. A failed or
+// unknown lookup leaves the Peer unchanged and therefore keeps action bridges
+// fail-closed.
+func (h *controlHandler) bindPeerRunResult(ctx context.Context, peer *Peer, result any) {
+	if peer == nil || result == nil {
+		return
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+	var response struct {
+		RunID string `json:"run_id"`
+		ID    string `json:"id"`
+	}
+	if json.Unmarshal(raw, &response) != nil {
+		return
+	}
+	runID := strings.TrimSpace(response.RunID)
+	if runID == "" {
+		runID = strings.TrimSpace(response.ID)
+	}
+	if runID == "" {
+		return
+	}
+	// Always resolve the pair from the durable RunStore. A session_id echoed
+	// by an RPC response or copied from request.Params is not sufficient
+	// provenance for an ActionHost bridge: the browser can choose both fields.
+	// If the authoritative lookup is unavailable or fails, leave the Peer
+	// unchanged so the bridge remains fail-closed.
+	if h == nil || h.deps.Runs == nil {
+		return
+	}
+	run, lookupErr := h.deps.Runs.GetRun(ctx, domain.RunID(runID))
+	if lookupErr != nil || strings.TrimSpace(string(run.SessionID)) == "" {
+		return
+	}
+	peer.bindRun(string(run.SessionID), runID)
+}
+
 func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request) (any, *Error) {
 	switch request.Method {
 	case "initialize", "capabilities":
@@ -695,28 +992,59 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.Service != nil && h.deps.Service.ShellAvailable() {
 			capabilities = append(capabilities, "shell", "shell.start")
 		}
+		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
+			capabilities = append(capabilities, ModuleActionMethod)
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
 		}, nil
 	case "session/create":
-		return h.createSession(ctx, request)
+		result, rpcErr := h.createSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
 	case "session/set_permission":
-		return h.setSessionPermission(ctx, request)
+		result, rpcErr := h.setSessionPermission(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "session/list":
 		return h.listSessions(ctx)
 	case "session/get":
-		return h.getSession(ctx, request)
+		result, rpcErr := h.getSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
 	case "session/rename":
-		return h.renameSession(ctx, request)
+		result, rpcErr := h.renameSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
 	case "session/delete":
 		return h.deleteSession(ctx, request)
 	case "session/messages":
-		return h.listMessages(ctx, request)
+		result, rpcErr := h.listMessages(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "session/context":
-		return h.sessionContext(ctx, request)
+		result, rpcErr := h.sessionContext(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "session/sidebar":
-		return h.sessionSidebar(ctx, request)
+		result, rpcErr := h.sessionSidebar(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "attachments/resolve", "attachment/resolve":
 		return h.resolveAttachments(request)
 	case "project-context/resolve":
@@ -726,13 +1054,29 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "context/compact":
 		return h.compactContext(ctx, request)
 	case "session/rewind":
-		return h.rewindSession(ctx, request)
+		result, rpcErr := h.rewindSession(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "session/fork":
-		return h.forkSession(ctx, request)
+		result, rpcErr := h.forkSession(ctx, request)
+		if rpcErr == nil {
+			bindPeerSessionResult(peer, result)
+		}
+		return result, rpcErr
 	case "session/edit":
-		return h.editSession(ctx, request)
+		result, rpcErr := h.editSession(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerRunResult(ctx, peer, result)
+		}
+		return result, rpcErr
 	case "session/todos":
-		return h.listTodos(ctx, request)
+		result, rpcErr := h.listTodos(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
 	case "session/todo/update":
 		return h.updateTodo(ctx, request)
 	case "session/compactions":
@@ -752,15 +1096,31 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "cron/stop":
 		return h.stopCron(request)
 	case "turn/start":
-		return h.startTurn(ctx, request)
+		result, rpcErr := h.startTurn(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerRunResult(ctx, peer, result)
+		}
+		return result, rpcErr
 	case "shell/start":
-		return h.startShell(ctx, request)
+		result, rpcErr := h.startShell(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerRunResult(ctx, peer, result)
+		}
+		return result, rpcErr
 	case "turn/interrupt", "run/cancel":
 		return h.cancelRun(request)
 	case "run/get":
-		return h.getRun(ctx, request)
+		result, rpcErr := h.getRun(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerRunResult(ctx, peer, result)
+		}
+		return result, rpcErr
 	case "run/subscribe":
-		return h.subscribe(ctx, peer, request)
+		result, rpcErr := h.subscribe(ctx, peer, request)
+		if rpcErr == nil {
+			h.bindPeerRunResult(ctx, peer, result)
+		}
+		return result, rpcErr
 	case "run/unsubscribe":
 		return h.unsubscribe(request)
 	case "run/log":
@@ -791,7 +1151,11 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "background/list":
 		return h.listBackground(ctx)
 	case "background/attach":
-		return h.attachBackground(ctx, request)
+		result, rpcErr := h.attachBackground(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerRunResult(ctx, peer, result)
+		}
+		return result, rpcErr
 	case "child/start":
 		return h.startChild(ctx, request)
 	case "child/get":
@@ -882,7 +1246,15 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.installMarketplace(ctx, request)
 	case "skills/marketplace/check":
 		return h.checkMarketplaceUpdate(ctx, request)
+	case ModuleActionMethod:
+		return h.invokeModuleAction(ctx, peer, request)
 	default:
+		// No plugin owns an RPC namespace. Keep malformed action-like methods
+		// on the fixed protocol error surface rather than echoing an arbitrary
+		// plugin-provided method string.
+		if strings.HasPrefix(request.Method, "module.action.") || strings.HasPrefix(request.Method, "plugin.") {
+			return nil, &Error{Code: MethodNotFound, Message: "method not found"}
+		}
 		return nil, &Error{Code: MethodNotFound, Message: "method not found: " + request.Method}
 	}
 }

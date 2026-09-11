@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	generationv1 "agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
 )
@@ -98,6 +99,421 @@ func TestCapabilityStatesRequireTypedMCPHostBinding(t *testing.T) {
 	states = capabilityStatesForPlan(plan)
 	if got := states["mcp"]; got != assemblyv1.CapabilityUnconfigured {
 		t.Fatalf("typed MCP host capability = %q, want UNCONFIGURED", got)
+	}
+}
+
+func TestPackAndInspectSealUIAssemblyIdentity(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, sourceHash, lockHash := writePackUIFixture(t, repoRoot)
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "recipe.yml")
+	writeRecipe := func(assetHash string) {
+		t.Helper()
+		body := fmt.Sprintf(`apiVersion: vivy.generation/v1
+profile: minimal
+modules: [vivy/kernel, vivy/tool-host, example/pack-ui]
+sources:
+  example/pack-ui: {ref: file:pack-ui, sha256: %s}
+exclusive:
+  std/ui-root@v1: example/pack-ui
+order:
+  std/ui-extension@v1: [example/pack-ui]
+ui:
+  sdkVersion: %s
+  root:
+    id: example.pack-ui-root
+    moduleId: example/pack-ui
+    port: std/ui-root@v1
+    entry: ./root.tsx
+    export: root
+    sourceHash: %s
+    dependencyLockHash: %s
+    assetHash: %s
+
+  extensions:
+    - id: example.pack-ui-extension
+      moduleId: example/pack-ui
+      port: std/ui-extension@v1
+      entry: ./extension.tsx
+      export: extension
+      sourceHash: %s
+      dependencyLockHash: %s
+      assetHash: %s
+`, sourceHash, assemblyv1.UIAssemblySDKVersion,
+			sourceHash, lockHash, assetHash,
+			sourceHash, lockHash, strings.Repeat("f", 64))
+		if err := os.WriteFile(recipePath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeRecipe(strings.Repeat("c", 64))
+	first, err := Pack(context.Background(), packOptions{
+		Recipe:  recipePath,
+		Output:  filepath.Join(root, "first"),
+		Sources: []string{source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRecipe(strings.Repeat("d", 64))
+	second, err := Pack(context.Background(), packOptions{
+		Recipe:  recipePath,
+		Output:  filepath.Join(root, "second"),
+		Sources: []string{source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Manifest.GenerationID != second.Manifest.GenerationID {
+		t.Fatal("changing a caller-supplied UI asset claim changed the production Generation identity")
+	}
+	inspected, err := InspectArtifact(first.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Manifest.UI == nil || inspected.Manifest.UI.Root != "example.pack-ui-root" {
+		t.Fatalf("InspectArtifact() did not expose sealed UI root: %#v", inspected.Manifest.UI)
+	}
+	if got := inspected.Manifest.UI.AssetHashes["example.pack-ui-root"]; got == "" || got == strings.Repeat("c", 64) || got != inspected.Manifest.UI.AssetHashes["example.pack-ui-extension"] {
+		t.Fatalf("InspectArtifact() UI asset hashes = %#v, want the authoritative final artifact digest", inspected.Manifest.UI.AssetHashes)
+	}
+	if _, exists := inspected.Manifest.UIArtifacts["ui/assembly.ts"]; exists {
+		t.Fatal("InspectArtifact() labeled generated Assembly source as a final UI artifact")
+	}
+}
+
+func TestPackBuildsSelectedUIIntoFinalArtifact(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, sourceHash, lockHash := writePackUIFixture(t, repoRoot)
+	recipe := filepath.Join(t.TempDir(), "recipe.yml")
+	recipeBody := fmt.Sprintf(`apiVersion: vivy.generation/v1
+profile: minimal
+modules: [vivy/kernel, vivy/tool-host, example/pack-ui]
+sources:
+  example/pack-ui: {ref: file:pack-ui, sha256: %s}
+exclusive:
+  std/ui-root@v1: example/pack-ui
+order:
+  std/ui-extension@v1: [example/pack-ui]
+ui:
+  sdkVersion: %s
+  root:
+    id: example.pack-ui-root
+    moduleId: example/pack-ui
+    port: std/ui-root@v1
+    entry: ./root.tsx
+    export: root
+    sourceHash: %s
+    dependencyLockHash: %s
+    assetHash: %s
+  extensions:
+    - id: example.pack-ui-extension
+      moduleId: example/pack-ui
+      port: std/ui-extension@v1
+      entry: ./extension.tsx
+      export: extension
+      sourceHash: %s
+      dependencyLockHash: %s
+      assetHash: %s
+`, sourceHash, assemblyv1.UIAssemblySDKVersion,
+		sourceHash, lockHash, strings.Repeat("c", 64),
+		sourceHash, lockHash, strings.Repeat("f", 64))
+	if err := os.WriteFile(recipe, []byte(recipeBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := Pack(context.Background(), packOptions{
+		Recipe:  recipe,
+		Output:  filepath.Join(t.TempDir(), "artifact"),
+		Sources: []string{source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(artifact.Directory, "ui", "dist")); err != nil {
+		t.Fatalf("Pack() did not publish final UI artifact: %v", err)
+	}
+	var emitted []string
+	err = filepath.WalkDir(filepath.Join(artifact.Directory, "ui", "dist"), func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		emitted = append(emitted, string(body))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := strings.Join(emitted, "\n")
+	for _, marker := range []string{"PACK_SELECTED_ROOT_MARKER", "PACK_SELECTED_EXTENSION_MARKER", "plugin.example/pack-ui.marker"} {
+		if !strings.Contains(bundle, marker) {
+			t.Fatalf("final UI bundle omitted selected %s; Pack must compile generated Assembly, not copy the repository dist", marker)
+		}
+	}
+	binary, err := os.ReadFile(artifact.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"PACK_SELECTED_ROOT_MARKER", "PACK_SELECTED_EXTENSION_MARKER", "plugin.example/pack-ui.marker"} {
+		if !bytes.Contains(binary, []byte(marker)) {
+			t.Fatalf("packed executable omitted selected UI marker %s; embedded Handler would serve the repository UI", marker)
+		}
+	}
+	if inspected, inspectErr := InspectArtifact(artifact.Directory); inspectErr != nil {
+		t.Fatal(inspectErr)
+	} else if digest := inspected.Manifest.UIArtifacts["ui/dist"]; digest == "" {
+		t.Fatal("sealed manifest omitted final UI artifact hash")
+	} else if !strings.Contains(bundle, digest) {
+		t.Fatalf("selected UI bundle omitted authoritative artifact digest %s", digest)
+	}
+}
+
+func TestPackRejectsUIContentHashDrift(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, sourceHash, lockHash := writePackUIFixture(t, repoRoot)
+	base := fmt.Sprintf(`apiVersion: vivy.generation/v1
+profile: minimal
+modules: [vivy/kernel, vivy/tool-host, example/pack-ui]
+sources:
+  example/pack-ui: {ref: file:pack-ui, sha256: %s}
+exclusive:
+  std/ui-root@v1: example/pack-ui
+order:
+  std/ui-extension@v1: [example/pack-ui]
+ui:
+  sdkVersion: %s
+  root:
+    id: example.pack-ui-root
+    moduleId: example/pack-ui
+    port: std/ui-root@v1
+    entry: ./root.tsx
+    export: root
+    sourceHash: %s
+    dependencyLockHash: %s
+    assetHash: %s
+  extensions:
+    - id: example.pack-ui-extension
+      moduleId: example/pack-ui
+      port: std/ui-extension@v1
+      entry: ./extension.tsx
+      export: extension
+      sourceHash: %s
+      dependencyLockHash: %s
+      assetHash: %s
+`, sourceHash, assemblyv1.UIAssemblySDKVersion, sourceHash, lockHash, strings.Repeat("0", 64), sourceHash, lockHash, strings.Repeat("0", 64))
+	for _, test := range []struct {
+		name        string
+		needle      string
+		replacement string
+		want        string
+	}{
+		{name: "source", needle: "sourceHash: " + sourceHash, replacement: "sourceHash: " + strings.Repeat("1", 64), want: "source hash mismatch"},
+		{name: "lock", needle: "dependencyLockHash: " + lockHash, replacement: "dependencyLockHash: " + strings.Repeat("2", 64), want: "dependency lock hash mismatch"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recipe := filepath.Join(t.TempDir(), "recipe.yml")
+			body := strings.Replace(base, test.needle, test.replacement, 1)
+			if err := os.WriteFile(recipe, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Pack(context.Background(), packOptions{Recipe: recipe, Output: filepath.Join(t.TempDir(), "artifact"), Sources: []string{source}})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Pack() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestUIArtifactAssetHashBindingHandlesCompactObjectKeys(t *testing.T) {
+	const digest = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	body := []byte(`const manifest={assetHashes:{root:"0000000000000000000000000000000000000000000000000000000000000000"}}`)
+	rewritten := rewriteUIArtifactAssetHashesInBody(body, digest)
+	if !bytes.Contains(rewritten, []byte(`root:"`+digest+`"`)) {
+		t.Fatalf("rewritten compact assetHashes = %s", rewritten)
+	}
+	masked := maskUIArtifactAssetHashes(rewritten)
+	if !bytes.Contains(masked, []byte(`root:"`+zeroDigest+`"`)) {
+		t.Fatalf("masked compact assetHashes = %s", masked)
+	}
+}
+
+func writePackUIFixture(t *testing.T, repoRoot string) (string, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "i18n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	goMod := fmt.Sprintf("module example.com/pack-ui\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repoRoot))
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plugin := `package packui
+
+import (
+	"context"
+	"agent-vivy/sdk/module"
+)
+
+type owner struct{}
+type instance struct{}
+
+func New() module.Module { return owner{} }
+func NewProvider() struct{} { return struct{}{} }
+func (owner) Descriptor() module.Descriptor { return module.Descriptor{} }
+func (owner) Construct(context.Context, module.Host) (module.Instance, error) { return instance{}, nil }
+func (instance) Start(context.Context) error { return nil }
+func (instance) Ready(context.Context) error { return nil }
+func (instance) Stop(context.Context) error { return nil }
+func (instance) Close(context.Context) error { return nil }
+`
+	if err := os.WriteFile(filepath.Join(root, "plugin.go"), []byte(plugin), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "root.tsx"), []byte(`import { defineUIRoot } from '@vivy/ui-sdk';
+
+export const root = defineUIRoot({
+  id: 'example.pack-ui-root',
+  render: () => <div>PACK_SELECTED_ROOT_MARKER</div>,
+});
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "extension.tsx"), []byte(`import { defineUIExtension } from '@vivy/ui-sdk';
+
+export const extension = defineUIExtension({
+  id: 'example.pack-ui-extension',
+  install: (host) => {
+    host.composition.navigation.register('pack-ui-marker', {
+      label: 'PACK_SELECTED_EXTENSION_MARKER',
+      to: '/pack-ui',
+    });
+  },
+});
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n\nimporters: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := `{"apiVersion":"vivy.i18n/v1","units":{"plugin.example/pack-ui.marker":{"description":"Pack marker","placeholders":[],"messages":{"en":"PACK_CATALOG_MARKER"}}}}`
+	if err := os.WriteFile(filepath.Join(root, "i18n", "catalog.json"), []byte(catalog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const placeholder = "0000000000000000000000000000000000000000000000000000000000000000"
+	descriptor := fmt.Sprintf(`apiVersion: vivy.module/v1
+module: {id: example/pack-ui, version: 1.0.0}
+source: {ref: file:pack-ui, sha256: %s}
+provides:
+  - {port: std/ui-root@v1, id: example.pack-ui-root}
+  - {port: std/ui-extension@v1, id: example.pack-ui-extension}
+i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en]}
+lifecycle: {scope: generation}
+`, placeholder)
+	if err := os.WriteFile(filepath.Join(root, "vivy-module.yaml"), []byte(descriptor), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := assemblyv1.HashSourceTree(root, placeholder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "vivy-module.yaml"), []byte(strings.Replace(descriptor, placeholder, digest, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockHash, err := hashUIDependencyLocks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, digest, lockHash
+}
+
+func TestInspectArtifactValidatesFinalUIArtifactHash(t *testing.T) {
+	root := t.TempDir()
+	artifactDir := filepath.Join(root, "artifact")
+	if err := os.MkdirAll(filepath.Join(artifactDir, "ui", "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactDir, "ui", "dist", "index.html"), []byte("final UI asset"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sealed, raw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{
+		SpecificationVersion: "vivy.assembly/v1",
+		CompilerVersion:      "fixture-compiler",
+		SDKVersion:           "fixture-sdk",
+		CanonicalRecipe:      []byte(`{"apiVersion":"vivy.generation/v1","modules":[]}`),
+		UIArtifacts: map[string]string{
+			"ui/dist":        strings.Repeat("a", 64),
+			"ui/assembly.ts": strings.Repeat("s", 64),
+		},
+	})
+	if err != nil || sealed.GenerationID == "" {
+		t.Fatalf("seal fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactDir, "generation.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactDir, "vivy"), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectArtifact(artifactDir); err == nil || !strings.Contains(err.Error(), "UI artifact hash") {
+		t.Fatalf("InspectArtifact() error = %v, want final UI artifact hash rejection", err)
+	}
+}
+
+func TestPackRejectsUIAssemblySDKPinDrift(t *testing.T) {
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "recipe.yml")
+	body := `apiVersion: vivy.generation/v1
+profile: minimal
+modules: [vivy/kernel, vivy/tool-host]
+ui:
+  sdkVersion: 1.0.1
+`
+	if err := os.WriteFile(recipePath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Pack(context.Background(), packOptions{
+		Recipe: recipePath,
+		Output: filepath.Join(root, "drift"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "pinned UI SDK") {
+		t.Fatalf("Pack() error = %v, want pinned UI SDK rejection", err)
+	}
+}
+
+func TestPackBridgesCanonicalUIExtensionOrder(t *testing.T) {
+	input := assemblyv1.UIAssemblyInput{ExtensionOrder: []string{"fixture/extension-a"}}
+	if err := applyRecipeUIOrder(&input, map[string][]string{
+		assemblyv1.UIExtensionPort: {"fixture/extension-a"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !equalStringSlices(input.ExtensionOrder, []string{"fixture/extension-a"}) {
+		t.Fatalf("UI ExtensionOrder = %v, want canonical Recipe order", input.ExtensionOrder)
+	}
+}
+
+func TestPackRejectsConflictingCanonicalUIExtensionOrder(t *testing.T) {
+	input := assemblyv1.UIAssemblyInput{ExtensionOrder: []string{"fixture/extension-a"}}
+	err := applyRecipeUIOrder(&input, map[string][]string{
+		assemblyv1.UIExtensionPort: {"fixture/extension-b"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "disagrees") {
+		t.Fatalf("applyRecipeUIOrder() error = %v, want disagreement", err)
 	}
 }
 

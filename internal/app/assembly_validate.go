@@ -3,11 +3,13 @@ package app
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/sdk/module"
+	actionport "agent-vivy/sdk/port/controlaction"
 )
 
 func assemblyHasModule(moduleIDs []string, wanted string) bool {
@@ -149,6 +151,68 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 	if err := validateGrantKeys("ToolWorld", assembly.ToolWorldGrants, assembly.Manifest.ToolWorlds, false); err != nil {
 		return err
 	}
+
+	// Control Action providers are compiler-owned in the same way as Tools:
+	// the generated ProviderSet and sealed action inventory must agree before
+	// any untrusted Definition callback is handed to ActionHost. This keeps a
+	// mutable/raw Assembly value from widening the action or module surface.
+	manifestModules := make(map[string]struct{}, len(assembly.Manifest.Modules))
+	for _, moduleID := range assembly.Manifest.Modules {
+		manifestModules[moduleID] = struct{}{}
+	}
+	actualActions := make([]string, 0)
+	seenActions := make(map[string]struct{})
+	for _, set := range assembly.ActionSets {
+		if set.ModuleID == "" {
+			return fmt.Errorf("app: generated Control Action set has no module identity")
+		}
+		if _, ok := manifestModules[set.ModuleID]; !ok {
+			return fmt.Errorf("app: generated Control Action set %q has no sealed module", set.ModuleID)
+		}
+		if len(set.AllowedIDs) == 0 || len(set.Providers) == 0 {
+			return fmt.Errorf("app: generated Control Action set %q is incomplete", set.ModuleID)
+		}
+		allowed := make(map[string]struct{}, len(set.AllowedIDs))
+		for _, actionID := range set.AllowedIDs {
+			if actionID == "" {
+				return fmt.Errorf("app: generated Control Action set %q has an empty action identity", set.ModuleID)
+			}
+			if _, duplicate := allowed[actionID]; duplicate {
+				return fmt.Errorf("app: generated Control Action set %q repeats action %q", set.ModuleID, actionID)
+			}
+			allowed[actionID] = struct{}{}
+			if _, duplicate := seenActions[actionID]; duplicate {
+				return fmt.Errorf("app: generated Control Action identity %q is duplicated", actionID)
+			}
+			seenActions[actionID] = struct{}{}
+			actualActions = append(actualActions, actionID)
+		}
+		for _, provider := range set.Providers {
+			if provider == nil {
+				return fmt.Errorf("app: generated nil Control Action provider in %q", set.ModuleID)
+			}
+			definition, err := actionDefinition(provider)
+			if err != nil {
+				return fmt.Errorf("app: generated Control Action provider in %q is invalid", set.ModuleID)
+			}
+			owner := definition.Owner
+			if owner == "" {
+				owner = definition.ModuleID
+			}
+			if owner != set.ModuleID {
+				return fmt.Errorf("app: generated Control Action %q owner %q does not match set %q", definition.ID, owner, set.ModuleID)
+			}
+			if _, ok := allowed[definition.ID]; !ok {
+				return fmt.Errorf("app: generated Control Action %q is outside set %q allow-list", definition.ID, set.ModuleID)
+			}
+		}
+	}
+	expectedActions := append([]string(nil), assembly.Manifest.Actions...)
+	sort.Strings(actualActions)
+	sort.Strings(expectedActions)
+	if !slices.Equal(actualActions, expectedActions) {
+		return fmt.Errorf("app: generated Control Action identities %v do not match sealed manifest %v", actualActions, expectedActions)
+	}
 	if len(assembly.DiagnosticObservers) != len(assembly.DiagnosticObserverWorldIDs) {
 		return fmt.Errorf("app: generated diagnostic observer identities do not match providers")
 	}
@@ -167,6 +231,16 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 		}
 	}
 	return validateGrantKeys("Channel", assembly.ChannelGrants, assembly.Manifest.Channels, true)
+}
+
+func actionDefinition(provider actionport.Provider) (definition actionport.Definition, err error) {
+	defer func() {
+		if recover() != nil {
+			definition = actionport.Definition{}
+			err = fmt.Errorf("provider Definition panicked")
+		}
+	}()
+	return provider.Definition(), nil
 }
 
 func validateGrantKeys(kind string, grants map[string][]module.GrantBinding, ids []string, channel bool) error {

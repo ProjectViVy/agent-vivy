@@ -32,13 +32,15 @@
 | `std/observer/run@v1` | `0..n` | ObserverHost | `SPECIFIED` |
 | `std/observer/diagnostic@v1` | `0..n` | ObserverHost | `SPECIFIED` |
 | `std/status-source@v1` | `0..n` | StatusHost | `SPECIFIED` |
-| `std/ui-extension@v1` | `0..n`, ordered | PresentationHost | `SPECIFIED` |
-| `std/ui-root@v1` | `0..1` | PresentationHost | `SPECIFIED` |
-| `std/control-action@v1` | `0..n` | ActionHost | `SPECIFIED` |
+| `std/ui-extension@v1` | `0..n`, ordered | PresentationHost | `SUPPORTED` |
+| `std/ui-root@v1` | `0..1` | PresentationHost | `SUPPORTED` |
+| `std/control-action@v1` | `0..n` | ActionHost | `SUPPORTED` |
 
-The state is intentionally `SPECIFIED`: this documentation delivery adds no
-functional implementation. No v1 Port may be advertised as shipped until its
-later implementation phase supplies the full evidence set.
+The three P6 rows are `SUPPORTED` by the seven-artifact implementation
+evidence recorded in `sdk/internal/assembly/evidence.go` and the P6 Task 7
+report. This is a capability status, not a release claim: PLG-P9 remains the
+separate owner of release-wide conformance, rollback, and final `just ci`
+acceptance.
 
 ## 3. Tool and ToolWorld
 

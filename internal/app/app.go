@@ -11,6 +11,8 @@ package app
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
@@ -42,7 +45,9 @@ import (
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
+	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
+	actionport "agent-vivy/sdk/port/controlaction"
 	"agent-vivy/sdk/port/providerprofile"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 	"agent-vivy/ui"
@@ -59,12 +64,13 @@ type App struct {
 	cfg    config.Config
 	logger *slog.Logger
 
-	service   *runtime.Service
-	channels  *channelhost.Host
-	backend   storage.Engine
-	worker    *workerManager
-	resolver  *ModelResolver
-	modelHost *modelhost.Host
+	service    *runtime.Service
+	channels   *channelhost.Host
+	actionHost *actionhost.Host
+	backend    storage.Engine
+	worker     *workerManager
+	resolver   *ModelResolver
+	modelHost  *modelhost.Host
 
 	control    controlrpc.Handler
 	httpServer *http.Server
@@ -666,6 +672,122 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if !liveProfile.Valid() {
 		liveProfile = domain.PolicyProfileDefault
 	}
+
+	// The action host is enabled only when the compiler emitted action
+	// ProviderSets and the process can prove the exact sealed Generation. An
+	// empty or unverifiable inventory is a disabled capability, never an
+	// implicit default-allow host.
+	rpcToken := controlrpc.NewSessionToken()
+	generationID := runtimeGenerationID(runtimeAssembly)
+	var actionHost *actionhost.Host
+	actionHostOwned := false
+	if len(runtimeAssembly.ActionSets) > 0 && generationID != "" {
+		allowedTools := make(map[string]struct{}, len(ts))
+		for _, candidate := range ts {
+			if candidate != nil {
+				allowedTools[candidate.Spec().Name] = struct{}{}
+			}
+		}
+		authenticateAction := func(ctx context.Context, caller actionhost.Caller) (actionhost.Identity, error) {
+			if caller.Opaque() == "" || subtle.ConstantTimeCompare([]byte(caller.Opaque()), []byte(rpcToken)) != 1 {
+				return actionhost.Identity{}, actionport.ErrUnauthenticated
+			}
+			// The HTTP/RPC authentication middleware must attach this identity;
+			// a browser-supplied session or face field is never accepted here.
+			identity, ok := actionhost.IdentityFromContext(ctx)
+			if !ok {
+				return actionhost.Identity{}, actionport.ErrUnauthenticated
+			}
+			return identity, nil
+		}
+		authorizeAction := func(_ context.Context, _ actionhost.Identity, definition actionport.Definition, input json.RawMessage) error {
+			if policy == nil {
+				return actionport.ErrAuthorizationUnavailable
+			}
+			spec := actionToolSpec(definition)
+			evaluation, evalErr := policy.Evaluate(liveProfile, spec, input)
+			if evalErr != nil {
+				return actionport.ErrAuthorizationUnavailable
+			}
+			if evaluation.Decision != domain.PolicyAllow {
+				if evaluation.Decision == domain.PolicyPrompt || definition.RequiresApproval || definition.ApprovalRequired {
+					return actionport.ErrApprovalRequired
+				}
+				return runtime.ErrPolicyDenied
+			}
+			// This composition has no action-specific approval row/continuation
+			// route. Requiring one is safer than treating a provider claim as an
+			// approval; ordinary full-auto policy remains an explicit authority.
+			if definition.RequiresApproval || definition.ApprovalRequired {
+				return actionport.ErrApprovalRequired
+			}
+			return nil
+		}
+		authorizeBridge := func(ctx context.Context, identity actionhost.Identity, request actionhost.BridgeRequest) error {
+			if identity.SessionID == "" {
+				return actionport.ErrUnauthenticated
+			}
+			if request.Kind == actionhost.BridgeRun {
+				if request.Run.SessionID != identity.SessionID {
+					return actionport.ErrUnauthenticated
+				}
+			} else if request.Kind != actionhost.BridgeTool {
+				return actionport.ErrAuthorizationUnavailable
+			}
+			return authorizeAction(ctx, identity, request.Action, request.Input)
+		}
+		actionHost, err = actionhost.New(actionhost.Deps{
+			ProviderSets:        runtimeAssembly.ActionSets,
+			GenerationAvailable: true,
+			GenerationID:        generationID,
+			Audit:               actionhost.JournalAuditSink{Journal: backend, Logger: logger},
+			Authenticate:        authenticateAction,
+			Authorize:           authorizeAction,
+			AuthorizeBridge:     authorizeBridge,
+			AllowedTools:        allowedTools,
+			StartRun: func(ctx context.Context, request actionport.RunRequest) (actionport.RunResult, error) {
+				if svc == nil {
+					return actionport.RunResult{}, actionport.ErrRunDenied
+				}
+				identity, ok := actionhost.IdentityFromContext(ctx)
+				if !ok || identity.SessionID == "" || strings.TrimSpace(request.SessionID) != identity.SessionID {
+					return actionport.RunResult{}, actionport.ErrUnauthenticated
+				}
+				id, runErr := svc.Run(ctx, domain.SessionID(identity.SessionID), request.Text)
+				if runErr != nil {
+					return actionport.RunResult{}, actionport.ErrRunDenied
+				}
+				return actionport.RunResult{ID: string(id), Status: "accepted"}, nil
+			},
+			InvokeTool: func(ctx context.Context, id string, input json.RawMessage) (json.RawMessage, error) {
+				if svc == nil {
+					return nil, actionport.ErrToolDenied
+				}
+				identity, ok := actionhost.IdentityFromContext(ctx)
+				if !ok || identity.SessionID == "" || identity.RunID == "" {
+					return nil, actionport.ErrUnauthenticated
+				}
+				result, invokeErr := svc.InvokeActionTool(ctx, domain.SessionID(identity.SessionID), domain.RunID(identity.RunID), id, input)
+				if invokeErr != nil {
+					return nil, actionport.ErrToolDenied
+				}
+				return json.Marshal(result)
+			},
+		})
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("app: build action host: %w", err)
+		}
+		actionHostOwned = true
+	} else if len(runtimeAssembly.ActionSets) > 0 {
+		logger.Warn("control actions disabled: sealed Generation identity unavailable")
+	}
+	defer func() {
+		if actionHostOwned {
+			_ = actionHost.CloseContext(context.Background())
+		}
+	}()
+
 	liveSnap, err := policy.Snapshot(liveProfile)
 	if err != nil {
 		_ = backend.Close()
@@ -704,6 +826,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
+		ActionHost:     actionHost,
 		Marketplace:    marketplace,
 		SkillRevisions: backend,
 		Compactions:    backend,
@@ -887,8 +1010,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build rpc control plane: %w", err)
 	}
-	rpcToken := controlrpc.NewSessionToken()
-
 	// Restart recovery before the server listens (E2, FR-8): every
 	// non-terminal run either re-registers on its pending approval or
 	// closes with a definitive run.failed. A listing failure means the
@@ -913,6 +1034,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		logger:     logger,
 		service:    svc,
 		channels:   channelHost,
+		actionHost: actionHost,
 		backend:    backend,
 		worker:     workerManager,
 		resolver:   resolver,
@@ -923,6 +1045,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		assembly:   &runtimeAssembly,
 	}
 	mcpOwned = false
+	actionHostOwned = false
 	assemblyOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
@@ -975,6 +1098,9 @@ func (a *App) Close() error {
 	a.closeOnce.Do(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
+		if a.actionHost != nil {
+			a.closeErr = errors.Join(a.closeErr, a.actionHost.Close())
+		}
 		if a.channels != nil {
 			a.channels.StopAll(shutdownCtx)
 		}
@@ -1002,6 +1128,16 @@ func (a *App) Close() error {
 	return a.closeErr
 }
 
+// ActionHost returns the process-owned typed Control Action host. Callers
+// still need an authenticated Caller; this method does not expose provider
+// registration or any arbitrary RPC route.
+func (a *App) ActionHost() *actionhost.Host {
+	if a == nil {
+		return nil
+	}
+	return a.actionHost
+}
+
 func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 	definitions := make(map[domain.PolicyProfile]runtime.PolicyDefinition, len(cfg.Governance.Profiles))
 	for name, profile := range cfg.Governance.Profiles {
@@ -1023,6 +1159,33 @@ func policyEngine(cfg config.Config) *runtime.PolicyEngine {
 		panic(fmt.Sprintf("app: invalid governance policy: %v", err))
 	}
 	return engine
+}
+
+func actionToolSpec(definition actionport.Definition) domain.ToolSpec {
+	return domain.ToolSpec{
+		Name:        definition.ID,
+		Description: definition.Description,
+		Readonly:    definition.Effect == actionport.EffectRead,
+	}
+}
+
+// runtimeGenerationID accepts an explicitly injected identity in tests and
+// generated compositions, then falls back to the linker-embedded sealed
+// manifest used by packed binaries. It intentionally never invents an ID
+// from mutable runtime state.
+func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
+	if id := strings.TrimSpace(runtimeAssembly.GenerationID); id != "" {
+		return id
+	}
+	raw, err := generation.EmbeddedManifest()
+	if err != nil {
+		return ""
+	}
+	id, _, err := generation.InspectManifestProvenance(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(id)
 }
 
 // applySettingsEnv applies the non-secret base URL and the active bundle

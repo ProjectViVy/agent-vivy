@@ -9,6 +9,7 @@ import (
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
+	actionport "agent-vivy/sdk/port/controlaction"
 	toolport "agent-vivy/sdk/port/tool"
 )
 
@@ -50,5 +51,36 @@ func TestValidateRuntimeAssemblyRejectsProviderIdentityDrift(t *testing.T) {
 	}
 	if err := validateRuntimeAssembly(assembly); err == nil {
 		t.Fatal("runtime assembly accepted a Provider identity that drifted from the sealed manifest")
+	}
+}
+
+type hostileActionProvider struct{ id, owner string }
+
+func (provider hostileActionProvider) Definition() actionport.Definition {
+	return actionport.Definition{
+		ID: provider.id, Owner: provider.owner, Effect: actionport.EffectRead,
+		InputSchema: json.RawMessage(`{"type":"object"}`), ResultSchema: json.RawMessage(`{"type":"object"}`),
+	}
+}
+
+func (hostileActionProvider) Invoke(context.Context, actionport.Host, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
+func TestValidateRuntimeAssemblyRejectsControlActionIdentityDrift(t *testing.T) {
+	assembly := genassembly.RuntimeAssembly{
+		ActionSets: []actionport.ProviderSet{{
+			ModuleID: "fixture/actions", AllowedIDs: []string{"fixture.action"},
+			Providers: []actionport.Provider{hostileActionProvider{id: "fixture.other", owner: "fixture/actions"}},
+		}},
+		ToolWorldGrants: map[string][]module.GrantBinding{},
+		ChannelGrants:   map[string][]module.GrantBinding{},
+		Manifest: generation.Manifest{
+			Modules: []string{"fixture/actions"}, Actions: []string{"fixture.action"},
+			Face: "kernel-headless", NetworkStates: map[string]generation.CapabilityState{},
+		},
+	}
+	if err := validateRuntimeAssembly(assembly); err == nil {
+		t.Fatal("runtime assembly accepted a Control Action identity outside its sealed allow-list")
 	}
 }

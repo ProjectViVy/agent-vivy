@@ -210,7 +210,7 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
     ...(http ? { http } : {}),
   };
 }
-export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
+export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; ui_artifact_sha256?: string; recipe: Recipe; policy_profile: string; policy_hash: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
 export interface Recipe { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] }
 export type GenerationPhase = 'built' | 'eval_pending' | 'evaluated' | 'promoted' | 'released' | 'rejected';
 export interface Generation { id: string; parent_id?: string; artifact_sha256: string; source_ref?: string; recipe: Recipe; phase: GenerationPhase; created_at: number }
@@ -219,6 +219,8 @@ export interface EvalRun { id: string; candidate_id: string; baseline_id?: strin
 export interface Promotion { id: string; from_id: string; to_id: string; eval_id?: string; actor: string; phase: string; applies_at: string; created_at: number }
 export interface Approval { id: string; run_id: string; tool_call_id: string; decision?: string; expires_at: number }
 export interface Question { id: string; run_id: string; tool_call_id: string; prompt: string; status: string; expires_at: number }
+export interface ApprovalResponse { approval_id: string; decision: 'approved' | 'denied' }
+export interface QuestionResponse { question_id: string; answer: string }
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); this.name = 'ApiError'; }
@@ -270,9 +272,9 @@ export const listChildren = (parentRunId: string, tree = true) => request<{ chil
 export const waitChild = (runId: string) => request<ChildRun>('child/wait', { run_id: runId });
 export const cancelChild = (runId: string) => request<ChildRun>('child/cancel', { run_id: runId });
 export const listApprovals = () => request<{ approvals: Approval[] }>('approval/list');
-export const respondApproval = (approvalId: string, decision: 'approved' | 'denied', reason?: string) => request('approval/respond', { approval_id: approvalId, decision, reason });
+export const respondApproval = (approvalId: string, decision: 'approved' | 'denied', reason?: string) => request<ApprovalResponse>('approval/respond', { approval_id: approvalId, decision, reason });
 export const listQuestions = () => request<{ questions: Question[] }>('question/list');
-export const respondQuestion = (questionId: string, answer: string) => request('question/respond', { question_id: questionId, answer });
+export const respondQuestion = (questionId: string, answer: string) => request<QuestionResponse>('question/respond', { question_id: questionId, answer });
 export const listReviews = (params: { kind?: ReviewKind; status?: ReviewStatus; session_id?: string; limit?: number } = {}) => request<{ reviews: ReviewItem[] }>('review/list', params);
 export const getReview = (reviewId: string) => request<ReviewItem>('review/get', { review_id: reviewId });
 export const respondReview = (reviewId: string, response: { action: 'approve' | 'deny' | 'answer' | 'cancel'; reason?: string; answer?: string }) => request<{ review_id: string; status: string }>('review/respond', { review_id: reviewId, ...response });
