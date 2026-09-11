@@ -1,0 +1,10 @@
+{
+  "name": "@vivy/full-ui-module",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vivy/ui-sdk": "1.0.0",
+    "react": "19.2.8"
+  }
+}

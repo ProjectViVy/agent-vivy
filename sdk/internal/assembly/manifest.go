@@ -37,14 +37,30 @@ func CapabilityStates() []CapabilityState {
 }
 
 type CatalogManifest struct {
-	Module        string            `json:"module"`
-	SchemaVersion string            `json:"schemaVersion"`
-	Path          string            `json:"path"`
-	Digest        string            `json:"digest"`
-	DefaultLocale string            `json:"defaultLocale"`
-	Locales       []string          `json:"locales"`
-	Completeness  map[string]string `json:"completeness,omitempty"`
-	Evidence      []string          `json:"evidence,omitempty"`
+	Module string `json:"module"`
+	// APIVersion and Units are the compiler-owned catalog projection consumed
+	// by the generated Web/TUI hosts. The metadata fields remain available to
+	// Inspect and the digest binds this exact canonical projection.
+	APIVersion    string                 `json:"apiVersion,omitempty"`
+	SchemaVersion string                 `json:"schemaVersion"`
+	Path          string                 `json:"path"`
+	Digest        string                 `json:"digest"`
+	DefaultLocale string                 `json:"defaultLocale"`
+	Locales       []string               `json:"locales"`
+	Completeness  map[string]string      `json:"completeness,omitempty"`
+	Evidence      []string               `json:"evidence,omitempty"`
+	Units         map[string]CatalogUnit `json:"units,omitempty"`
+}
+
+// CatalogUnit is the shared Web/TUI translation-unit shape. It deliberately
+// contains no runtime loading metadata: generation embeds the validated
+// projection and PresentationHost only reads these values.
+type CatalogUnit struct {
+	Description  string            `json:"description"`
+	Placeholders []string          `json:"placeholders"`
+	Messages     map[string]string `json:"messages"`
+	Short        map[string]string `json:"short,omitempty"`
+	Long         map[string]string `json:"long,omitempty"`
 }
 
 type SealInputs struct {
@@ -54,8 +70,13 @@ type SealInputs struct {
 	CanonicalRecipe      []byte
 	DependencyLocks      map[string]string
 	UIArtifacts          map[string]string
-	Catalogs             []CatalogManifest
-	CapabilityStates     map[string]CapabilityState
+	// UI is the generated full-code UI projection. Keeping it in the sealed
+	// manifest (rather than only returning it from GenerateUIAssembly) binds
+	// root selection, extension order, replacement relationships, SDK pin, and
+	// all UI content identities to the Generation ID consumed by Inspect.
+	UI               *UIAssemblyManifest
+	Catalogs         []CatalogManifest
+	CapabilityStates map[string]CapabilityState
 }
 
 type ManifestModule struct {
@@ -80,6 +101,7 @@ type GenerationManifest struct {
 	OrderedContributions map[string][]string        `json:"orderedContributions"`
 	DependencyLocks      map[string]string          `json:"dependencyLocks"`
 	UIArtifacts          map[string]string          `json:"uiArtifacts"`
+	UI                   *UIAssemblyManifest        `json:"ui,omitempty"`
 	Catalogs             []CatalogManifest          `json:"catalogs"`
 	CapabilityStates     map[string]CapabilityState `json:"capabilityStates,omitempty"`
 }
@@ -91,6 +113,7 @@ func CanonicalRecipe(recipe Recipe) ([]byte, error) {
 	canonical.Exclusive = cloneStringMap(recipe.Exclusive)
 	canonical.Order = cloneStringSliceMap(recipe.Order)
 	canonical.GrantApprovals = append([]GrantApproval(nil), recipe.GrantApprovals...)
+	canonical.UI = cloneUIAssemblyInput(recipe.UI)
 	for index := range canonical.GrantApprovals {
 		constraints, err := canonicalConstraints(canonical.GrantApprovals[index].Constraints)
 		if err != nil {
@@ -128,8 +151,30 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		OrderedContributions: cloneStringSliceMap(plan.OrderedContributions),
 		DependencyLocks:      cloneStringMap(inputs.DependencyLocks),
 		UIArtifacts:          cloneStringMap(inputs.UIArtifacts),
-		Catalogs:             append([]CatalogManifest(nil), inputs.Catalogs...),
+		UI:                   cloneUIAssemblyManifest(inputs.UI),
+		Catalogs:             cloneCatalogManifests(inputs.Catalogs),
 		CapabilityStates:     cloneStringMap(inputs.CapabilityStates),
+	}
+	manifest.Catalogs = canonicalizeCatalogManifests(manifest.Catalogs)
+	if manifest.UI != nil {
+		manifest.UI.Catalogs = canonicalizeCatalogManifests(manifest.UI.Catalogs)
+	}
+	if manifest.UI != nil {
+		if len(manifest.Catalogs) == 0 && len(manifest.UI.Catalogs) > 0 {
+			manifest.Catalogs = cloneCatalogManifests(manifest.UI.Catalogs)
+		} else if len(manifest.Catalogs) != len(manifest.UI.Catalogs) {
+			return GenerationManifest{}, nil, fmt.Errorf("Generation Manifest catalog projection differs from UI Assembly")
+		} else if len(manifest.UI.Catalogs) > 0 {
+			leftCatalogs, leftErr := normalizeCatalogManifests(manifest.Catalogs)
+			rightCatalogs, rightErr := normalizeCatalogManifests(manifest.UI.Catalogs)
+			left, marshalLeftErr := json.Marshal(leftCatalogs)
+			right, marshalRightErr := json.Marshal(rightCatalogs)
+			if leftErr != nil || rightErr != nil || marshalLeftErr != nil || marshalRightErr != nil || !bytes.Equal(left, right) {
+				return GenerationManifest{}, nil, fmt.Errorf("Generation Manifest catalog projection differs from UI Assembly")
+			}
+			manifest.Catalogs = leftCatalogs
+			manifest.UI.Catalogs = rightCatalogs
+		}
 	}
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
 		return GenerationManifest{}, nil, err
@@ -149,13 +194,6 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		right := manifest.PortEdges[j]
 		return left.Port.Port+"\x00"+left.Provider+"\x00"+left.Consumer < right.Port.Port+"\x00"+right.Provider+"\x00"+right.Consumer
 	})
-	for index := range manifest.Catalogs {
-		manifest.Catalogs[index].Locales = canonicalStrings(manifest.Catalogs[index].Locales)
-		manifest.Catalogs[index].Evidence = canonicalStrings(manifest.Catalogs[index].Evidence)
-		manifest.Catalogs[index].Completeness = cloneStringMap(manifest.Catalogs[index].Completeness)
-	}
-	sort.Slice(manifest.Catalogs, func(i, j int) bool { return manifest.Catalogs[i].Module < manifest.Catalogs[j].Module })
-
 	identityBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return GenerationManifest{}, nil, err
@@ -167,6 +205,23 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		return GenerationManifest{}, nil, err
 	}
 	return manifest, canonicalBytes, nil
+}
+
+// canonicalizeCatalogManifests makes the projection stable before it is used
+// in either the Generation Manifest or its UI mirror. It intentionally does
+// not rewrite the digest-bound translation body; body validation remains the
+// compiler-owned responsibility of normalizeCatalogManifests.
+func canonicalizeCatalogManifests(source []CatalogManifest) []CatalogManifest {
+	cloned := cloneCatalogManifests(source)
+	for index := range cloned {
+		cloned[index].Locales = canonicalStrings(cloned[index].Locales)
+		cloned[index].Evidence = canonicalStrings(cloned[index].Evidence)
+		cloned[index].Completeness = cloneStringMap(cloned[index].Completeness)
+	}
+	sort.SliceStable(cloned, func(left, right int) bool {
+		return cloned[left].Module < cloned[right].Module
+	})
+	return cloned
 }
 
 // InspectManifest parses a sealed manifest and recomputes its content address
@@ -184,6 +239,9 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
 		return GenerationManifest{}, err
 	}
+	if err := validateInspectedCatalogs(manifest); err != nil {
+		return GenerationManifest{}, err
+	}
 	want := manifest.GenerationID
 	manifest.GenerationID = ""
 	identityBytes, err := json.Marshal(manifest)
@@ -197,6 +255,33 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	}
 	manifest.GenerationID = want
 	return manifest, nil
+}
+
+// validateInspectedCatalogs protects the trust boundary used by studio
+// Inspect and embedded-manifest provenance. A syntactically valid JSON object
+// is not enough: every catalog body must still be the compiler-validated,
+// namespace-confined projection whose digest is sealed in the manifest.
+func validateInspectedCatalogs(manifest GenerationManifest) error {
+	if len(manifest.Catalogs) > 0 {
+		if _, err := normalizeCatalogManifests(manifest.Catalogs); err != nil {
+			return fmt.Errorf("inspect Generation Manifest catalogs: %w", err)
+		}
+	}
+	if manifest.UI == nil || len(manifest.UI.Catalogs) == 0 {
+		return nil
+	}
+	if _, err := normalizeCatalogManifests(manifest.UI.Catalogs); err != nil {
+		return fmt.Errorf("inspect UI Assembly catalogs: %w", err)
+	}
+	if len(manifest.Catalogs) == 0 {
+		return fmt.Errorf("inspect Generation Manifest catalogs: UI catalog projection is not embedded in Generation Manifest")
+	}
+	left, leftErr := json.Marshal(manifest.Catalogs)
+	right, rightErr := json.Marshal(manifest.UI.Catalogs)
+	if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
+		return fmt.Errorf("inspect Generation Manifest catalogs: UI and Generation projections differ")
+	}
+	return nil
 }
 
 func validateCapabilityStates(states map[string]CapabilityState) error {
@@ -288,6 +373,74 @@ func cloneStringSliceMap(source map[string][]string) map[string][]string {
 	cloned := make(map[string][]string, len(source))
 	for key, value := range source {
 		cloned[key] = append([]string(nil), value...)
+	}
+	return cloned
+}
+
+func cloneCatalogUnits(source map[string]CatalogUnit) map[string]CatalogUnit {
+	if source == nil {
+		return nil
+	}
+	cloned := make(map[string]CatalogUnit, len(source))
+	for key, unit := range source {
+		cloned[key] = CatalogUnit{
+			Description:  unit.Description,
+			Placeholders: cloneStringSlice(unit.Placeholders),
+			Messages:     cloneStringMap(unit.Messages),
+			Short:        cloneStringMap(unit.Short),
+			Long:         cloneStringMap(unit.Long),
+		}
+	}
+	return cloned
+}
+
+func cloneStringSlice(source []string) []string {
+	if source == nil {
+		return nil
+	}
+	return append([]string{}, source...)
+}
+
+func cloneCatalogManifest(source CatalogManifest) CatalogManifest {
+	return CatalogManifest{
+		Module:        source.Module,
+		APIVersion:    source.APIVersion,
+		SchemaVersion: source.SchemaVersion,
+		Path:          source.Path,
+		Digest:        source.Digest,
+		DefaultLocale: source.DefaultLocale,
+		Locales:       append([]string(nil), source.Locales...),
+		Completeness:  cloneStringMap(source.Completeness),
+		Evidence:      append([]string(nil), source.Evidence...),
+		Units:         cloneCatalogUnits(source.Units),
+	}
+}
+
+func cloneUIAssemblyManifest(source *UIAssemblyManifest) *UIAssemblyManifest {
+	if source == nil {
+		return nil
+	}
+	cloned := &UIAssemblyManifest{
+		Root:                 source.Root,
+		Extensions:           append([]string(nil), source.Extensions...),
+		Replacements:         cloneStringSliceMap(source.Replacements),
+		SourceHashes:         cloneStringMap(source.SourceHashes),
+		DependencyLockHashes: cloneStringMap(source.DependencyLockHashes),
+		SDKPackage:           source.SDKPackage,
+		SDKVersion:           source.SDKVersion,
+		AssetHashes:          cloneStringMap(source.AssetHashes),
+		Catalogs:             cloneCatalogManifests(source.Catalogs),
+	}
+	return cloned
+}
+
+func cloneCatalogManifests(source []CatalogManifest) []CatalogManifest {
+	if source == nil {
+		return nil
+	}
+	cloned := make([]CatalogManifest, len(source))
+	for index, catalog := range source {
+		cloned[index] = cloneCatalogManifest(catalog)
 	}
 	return cloned
 }

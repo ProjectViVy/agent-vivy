@@ -22,6 +22,7 @@ type Recipe struct {
 	Exclusive      map[string]string        `json:"exclusive,omitempty" yaml:"exclusive,omitempty"`
 	Order          map[string][]string      `json:"order,omitempty" yaml:"order,omitempty"`
 	GrantApprovals []GrantApproval          `json:"grantApprovals,omitempty" yaml:"grantApprovals,omitempty"`
+	UI             *UIAssemblyInput         `json:"ui,omitempty" yaml:"ui,omitempty"`
 }
 
 type ResolvedModule struct {
@@ -232,6 +233,8 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			}
 		}
 	}
+	markSelectedUIProviders(recipe.UI, selected, providers, used, &diagnostics)
+	markSelectedControlActionProviders(selected, providers, used)
 
 	for portName, records := range providers {
 		if strings.HasPrefix(portName, "core/") {
@@ -340,6 +343,85 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		return left < right
 	})
 	return AssemblyPlan{Modules: resolved, PortEdges: edges, LifecycleOrder: lifecycleOrder, OrderedContributions: ordered}, nil
+}
+
+// markSelectedUIProviders binds the compiler's explicit UI recipe projection
+// to the frontend PresentationHost. Unlike backend Ports, the UI consumer is
+// not a Go Module in the generated lifecycle graph, so its selection is
+// recorded as a used provider without inventing a synthetic runtime edge.
+func markSelectedUIProviders(input *UIAssemblyInput, selected map[string]SourceRecord, providers map[string][]SourceRecord, used map[string]struct{}, diagnostics *[]string) {
+	if input == nil {
+		return
+	}
+	contributions := make([]UIModule, 0, len(input.Roots)+len(input.Extensions)+1)
+	contributions = append(contributions, input.Roots...)
+	if uiModulePresent(input.Root) {
+		contributions = append(contributions, input.Root)
+	}
+	contributions = append(contributions, input.Extensions...)
+	for _, contribution := range contributions {
+		moduleID := strings.TrimSpace(contribution.ModuleID)
+		if moduleID == "" {
+			moduleID = strings.TrimSpace(contribution.ID)
+		}
+		record, exists := selected[moduleID]
+		if !exists {
+			for _, candidate := range selected {
+				if candidate.Descriptor.Module.ID == moduleID || descriptorProvidesRef(candidate.Descriptor, module.PortRef{Port: contribution.Port, ID: contribution.ID}) {
+					record = candidate
+					exists = true
+					break
+				}
+			}
+		}
+		if !exists {
+			*diagnostics = append(*diagnostics, fmt.Sprintf("UI Assembly provider %s is not selected in Recipe modules", contribution.ID))
+			continue
+		}
+		portName := strings.TrimSpace(contribution.Port)
+		if portName == "" {
+			portName = UIRootPort
+			for _, provided := range record.Descriptor.Provides {
+				if provided.ID == contribution.ID && (provided.Port == UIExtensionPort || provided.Port == UIRootPort) {
+					portName = provided.Port
+					break
+				}
+			}
+		}
+		matched := false
+		for _, provided := range providers[portName] {
+			if provided.Descriptor.Module.ID == record.Descriptor.Module.ID && (contribution.ID == "" || descriptorProvidesRef(provided.Descriptor, module.PortRef{Port: portName, ID: contribution.ID})) {
+				used[providerKey(record.Descriptor.Module.ID, portName)] = struct{}{}
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			*diagnostics = append(*diagnostics, fmt.Sprintf("UI Assembly provider %s is not provided by selected module %s", contribution.ID, record.Descriptor.Module.ID))
+		}
+	}
+}
+
+// markSelectedControlActionProviders binds the compiler's implicit backend
+// ActionHost consumer. Control Actions are invoked through the one kernel RPC
+// and therefore have no hand-authored Module requirement edge; the selected
+// provider still must be marked used so ordinary unused-provider diagnostics
+// cannot be bypassed or accidentally reject a valid action set.
+func markSelectedControlActionProviders(selected map[string]SourceRecord, providers map[string][]SourceRecord, used map[string]struct{}) {
+	const controlActionPort = "std/control-action@v1"
+	for _, record := range selected {
+		for _, provided := range record.Descriptor.Provides {
+			if provided.Port != controlActionPort {
+				continue
+			}
+			for _, candidate := range providers[controlActionPort] {
+				if candidate.Descriptor.Module.ID == record.Descriptor.Module.ID && candidate.Descriptor.Module.ID != "" {
+					used[providerKey(record.Descriptor.Module.ID, controlActionPort)] = struct{}{}
+					break
+				}
+			}
+		}
+	}
 }
 
 func (c Compiler) allowedGrants(descriptor module.Descriptor) []module.Grant {

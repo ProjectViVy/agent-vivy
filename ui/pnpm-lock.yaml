@@ -104,6 +104,9 @@ importers:
       '@tanstack/router-plugin':
         specifier: ^1.167.28
         version: 1.168.35(@tanstack/react-router@1.170.32(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(esbuild@0.28.2)(rollup@4.62.5)(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0))
+      '@vivy/ui-sdk':
+        specifier: file:../sdk/ui
+        version: file:../sdk/ui(react@19.2.8)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1639,6 +1642,11 @@ packages:
 
   '@vitest/utils@3.2.7':
     resolution: {integrity: sha512-x6BDOd7dyo3PFLY3I9/HJ25X/6OurhGXk2/B9gOZNPF7XDVjeBK4k01lQE5uvDpbuheErh91qYuE1E2OEjK3Rw==}
+
+  '@vivy/ui-sdk@file:../sdk/ui':
+    resolution: {directory: ../sdk/ui, type: directory}
+    peerDependencies:
+      react: ^19.0.0
 
   ansis@4.3.1:
     resolution: {integrity: sha512-BJ8/l4R5LRE7hW9WdSuGYrLSHi2ynxeFpDFbH0K/CgNeY/tyhk+vO6TYxXC5r5CpUhNVX310xzPsN/H9lCdfOA==}
@@ -4014,6 +4022,10 @@ snapshots:
       '@vitest/pretty-format': 3.2.7
       loupe: 3.2.1
       tinyrainbow: 2.0.0
+
+  '@vivy/ui-sdk@file:../sdk/ui(react@19.2.8)':
+    dependencies:
+      react: 19.2.8
 
   ansis@4.3.1: {}
 

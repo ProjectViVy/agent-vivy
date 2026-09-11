@@ -106,6 +106,44 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceConformanceSuite:  "internal/skillhost/conformance_test.go#TestSkillSourceConformance",
 			port.EvidenceInspectProjection: "internal/app/assembly_validate.go#validateRuntimeAssembly",
 		}),
+		UIExtensionPort: completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-ui-extension-v1",
+			port.EvidenceSDKContract:       "sdk/ui/src/module.ts#UIExtension",
+			port.EvidenceHostConsumer:      "ui/src/plugins/presentation-host.tsx#PresentationHost",
+			port.EvidenceRealProvider:      "ui/src/generated/assembly.ts#generatedUIExtensions",
+			port.EvidenceFailureModel:      "ui/src/plugins/conformance.test.tsx#rolls back a runtime install failure",
+			port.EvidenceConformanceSuite:  "ui/src/plugins/conformance.test.tsx#full UI module conformance",
+			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackBuildsSelectedUIIntoFinalArtifact",
+		}),
+		UIRootPort: completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-ui-root-v1",
+			port.EvidenceSDKContract:       "sdk/ui/src/module.ts#UIRoot",
+			port.EvidenceHostConsumer:      "ui/src/plugins/presentation-host.tsx#PresentationHost",
+			port.EvidenceRealProvider:      "ui/src/generated/assembly.ts#generatedUIRoot",
+			port.EvidenceFailureModel:      "ui/src/plugins/conformance.test.tsx#rolls back a runtime install failure",
+			port.EvidenceConformanceSuite:  "ui/src/plugins/conformance.test.tsx#builds and presents default, extension, replacement-root, and minimal generations",
+			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackBuildsSelectedUIIntoFinalArtifact",
+		}),
+		"std/control-action@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-control-action-v1",
+			port.EvidenceSDKContract:       "sdk/port/controlaction/action.go#Provider",
+			port.EvidenceHostConsumer:      "internal/actionhost/host.go#Host",
+			port.EvidenceRealProvider:      "sdk/internal/testdata/full-ui-module/module.go#NewProvider",
+			port.EvidenceFailureModel:      "internal/rpc/module_action_test.go#TestModuleActionRPCRejectsSpoofedModuleIDAndForgedAuthorityClaims",
+			port.EvidenceConformanceSuite:  "internal/rpc/module_action_test.go#TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult",
+			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackBuildsSelectedUIIntoFinalArtifact",
+		}),
+	}
+}
+
+// P6UIPortEvidence retains the P6-focused view for its conformance tests while
+// deriving every record from the single supported-Port evidence ledger.
+func P6UIPortEvidence() map[string]port.SupportEvidence {
+	evidence := SupportedPortEvidence()
+	return map[string]port.SupportEvidence{
+		UIExtensionPort:         evidence[UIExtensionPort],
+		UIRootPort:              evidence[UIRootPort],
+		"std/control-action@v1": evidence["std/control-action@v1"],
 	}
 }
 

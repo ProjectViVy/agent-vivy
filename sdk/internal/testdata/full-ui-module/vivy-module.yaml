@@ -1,0 +1,10 @@
+apiVersion: vivy.module/v1
+module: {id: fixture/full-ui, version: 1.0.0}
+source: {ref: file:full-ui-module, sha256: c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc}
+provides:
+  - {port: std/ui-root@v1, id: fixture.full-ui.root}
+  - {port: std/ui-extension@v1, id: fixture.full-ui.extension}
+  - {port: std/control-action@v1, id: fixture.full-ui.echo}
+requestedGrants: [rpc.client]
+i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en]}
+lifecycle: {scope: generation}
