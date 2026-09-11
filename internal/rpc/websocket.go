@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
+
+	"agent-vivy/internal/actionhost"
 )
 
 type WebSocketServer struct {
@@ -42,7 +44,16 @@ func (s WebSocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	peer := NewPeer(NewWebSocketTransport(conn), s.Handler, s.Options)
+	// The handshake token is the authenticated connection credential. Bind it
+	// to Peer-owned request context after validation; it never comes from
+	// browser JSON. The identity is a transport-attested Face identity and is
+	// intentionally independent of session/action fields supplied by callers.
+	options := s.Options
+	options.Caller = actionhost.NewCaller(s.Token)
+	if options.Identity.ID == "" {
+		options.Identity = actionhost.Identity{ID: "face/connection", Face: "web"}
+	}
+	peer := NewPeer(NewWebSocketTransport(conn), s.Handler, options)
 	_ = peer.Serve(r.Context())
 }
 

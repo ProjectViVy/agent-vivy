@@ -1,0 +1,25 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@vivy/ui-sdk':
+        specifier: 1.0.0
+        version: file:../../../../ui
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+
+packages:
+
+  react@19.2.8:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
+
+snapshots:
+
+  react@19.2.8: {}

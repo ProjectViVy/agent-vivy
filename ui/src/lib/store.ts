@@ -289,7 +289,16 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         const capabilities = await api.initialize();
         await api.recoverBackgroundRuns().catch(() => undefined);
         const settingsOperation = beginSettingsRead();
-        const [sessions, background, settings, providers] = await Promise.all([api.listSessions(), api.listBackgroundRuns(), api.getSettings().catch(() => null), api.listProviders().catch(() => null)]);
+        const [sessions, background, settings, providers, species] = await Promise.all([
+          api.listSessions(),
+          api.listBackgroundRuns(),
+          api.getSettings().catch(() => null),
+          api.listProviders().catch(() => null),
+          // Runtime identity is diagnostic metadata. An older/control-plane
+          // endpoint that cannot provide it must not prevent the Face from
+          // starting; the host then reports the identity as unavailable.
+          Promise.resolve(api.inspectSpecies()).catch(() => null),
+        ]);
         // 合并会话列表：去重合并用户在 initialize 等待期内可能已创建/更新的会话
         const inFlightSessions = get().sessions;
         const serverSessionIds = new Set(sessions.sessions.map((item) => item.id));
@@ -325,6 +334,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
           backgroundPhase: background.runs.length ? 'ready' : 'empty',
           providers: providers?.entries ?? [],
           providersPhase: providers ? 'ready' : 'error',
+          species: species ?? null,
         });
         if (settings) applyAuthoritativeSettings(settings, settingsOperation);
         else if (settingsOperationCurrent(settingsOperation)) set({ settingsPhase: 'error' });
@@ -352,6 +362,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       sessionsPhase: 'idle',
       sessionsError: null,
       activeSessionId: null,
+      species: null,
       messages: [],
       messagesPhase: 'idle',
       messagesError: null,

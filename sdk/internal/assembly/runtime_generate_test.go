@@ -48,6 +48,37 @@ func TestGenerateRuntimeAssemblyComposesMultipleToolProviderSets(t *testing.T) {
 	}
 }
 
+func TestGenerateRuntimeAssemblyBindsTypedActionInventory(t *testing.T) {
+	descriptor := testDescriptor("fixture/actions")
+	descriptor.Provides = []module.PortRef{{Port: "std/control-action@v1", ID: "fixture.action"}}
+	plan := AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: descriptor,
+		Binding: GoBinding{
+			ImportPath:          "example.com/fixture/actions",
+			Package:             "actions",
+			ProviderConstructor: "NewProvider",
+		},
+		EffectiveGrants: []EffectiveGrant{{Name: module.GrantSecretRead, Constraints: map[string][]string{"names": {"ACTIONS_TOKEN"}}}},
+	}}}
+
+	generated, err := GenerateRuntimeAssembly(plan, "assembly")
+	if err != nil {
+		t.Fatalf("GenerateRuntimeAssembly() error = %v", err)
+	}
+	source := string(generated)
+	for _, want := range []string{
+		`"agent-vivy/sdk/port/controlaction"`,
+		"ActionSets                 []controlaction.ProviderSet",
+		"ActionSets:      []controlaction.ProviderSet{controlaction.ProviderSet{",
+		`controlaction.ProviderSet{ModuleID: "fixture/actions", AllowedIDs: []string{"fixture.action"}, Providers: []controlaction.Provider{actions.NewProvider()}`,
+		`EffectiveGrants: []module.GrantBinding{{Name: module.Grant("secret.read"), Constraints: map[string][]string{"names": {"ACTIONS_TOKEN"}}}}`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("generated runtime assembly missing %q:\n%s", want, source)
+		}
+	}
+}
+
 func TestGenerateRuntimeAssemblyReusesExplicitAuxiliaryToolWorldProvider(t *testing.T) {
 	descriptor := testDescriptor("fixture/lsp")
 	descriptor.Provides = []module.PortRef{{Port: "std/tool-world@v1", ID: "fixture.lsp"}}
