@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+
+	"agent-vivy/internal/actionhost"
 )
 
 const ProtocolVersion = "vivy.rpc.v1"
@@ -70,6 +73,17 @@ type Transport interface {
 type Options struct {
 	MaxFrameBytes  int
 	OutgoingBuffer int
+	// Caller is the opaque credential bound to an already-authenticated
+	// connection. It is copied into each request context by Peer and is never
+	// read from browser JSON. WebSocketServer supplies it after validating its
+	// handshake token; other transports may supply their own authenticated
+	// connection handle.
+	Caller actionhost.Caller
+	// AuthenticatedCaller is a source-compatible descriptive alias for Caller.
+	AuthenticatedCaller actionhost.Caller
+	// Identity is an optional server-attested Face identity associated with the
+	// connection. It is intentionally not a request parameter.
+	Identity actionhost.Identity
 }
 
 func (o Options) normalized() Options {
@@ -96,6 +110,8 @@ type Peer struct {
 	transport Transport
 	handler   Handler
 	options   Options
+	caller    actionhost.Caller
+	identity  actionhost.Identity
 
 	out  chan []byte
 	done chan struct{}
@@ -109,10 +125,16 @@ type Peer struct {
 
 func NewPeer(transport Transport, handler Handler, options Options) *Peer {
 	options = options.normalized()
+	caller := options.Caller
+	if caller.Opaque() == "" {
+		caller = options.AuthenticatedCaller
+	}
 	return &Peer{
 		transport: transport,
 		handler:   handler,
 		options:   options,
+		caller:    caller,
+		identity:  options.Identity,
 		out:       make(chan []byte, options.OutgoingBuffer),
 		done:      make(chan struct{}),
 		pending:   make(map[string]chan responseFrame),
@@ -211,6 +233,7 @@ func (p *Peer) dispatch(ctx context.Context, frame []byte) {
 func (p *Peer) handleRequest(ctx context.Context, request Request) {
 	var result any
 	var rpcErr *Error
+	ctx = p.authenticatedContext(ctx)
 	if p.handler == nil {
 		rpcErr = &Error{Code: MethodNotFound, Message: "method not found"}
 	} else {
@@ -235,6 +258,113 @@ func (p *Peer) handleRequest(ctx context.Context, request Request) {
 		return
 	}
 	p.runAfterResponse(request.ID)
+}
+
+// authenticatedCallerKey is intentionally private to the RPC transport. A
+// caller is admitted by the connection adapter (for example, the WebSocket
+// handshake), then carried in this context into the control handler. Browser
+// request fields can never populate this value.
+type authenticatedCallerKey struct{}
+
+// WithAuthenticatedCaller binds an already-authenticated transport caller to
+// a request context. It does not authenticate the value; ActionHost performs
+// the server-owned token/session check before executing an action.
+func WithAuthenticatedCaller(ctx context.Context, caller actionhost.Caller) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if caller.Opaque() == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, authenticatedCallerKey{}, caller)
+}
+
+// AuthenticatedCallerFromContext returns the transport-bound caller carried
+// by an RPC request context. The boolean is false for an unauthenticated or
+// absent caller.
+func AuthenticatedCallerFromContext(ctx context.Context) (actionhost.Caller, bool) {
+	if ctx == nil {
+		return actionhost.Caller{}, false
+	}
+	caller, ok := ctx.Value(authenticatedCallerKey{}).(actionhost.Caller)
+	return caller, ok && caller.Opaque() != ""
+}
+
+// WithCaller and CallerFromContext are concise aliases used by transport
+// adapters that already use caller terminology.
+func WithCaller(ctx context.Context, caller actionhost.Caller) context.Context {
+	return WithAuthenticatedCaller(ctx, caller)
+}
+
+func CallerFromContext(ctx context.Context) (actionhost.Caller, bool) {
+	return AuthenticatedCallerFromContext(ctx)
+}
+
+// AuthenticatedCaller returns the connection-bound caller for this Peer. It
+// is a transport handle, not an identity or permission result.
+func (p *Peer) AuthenticatedCaller() (actionhost.Caller, bool) {
+	if p == nil || p.caller.Opaque() == "" {
+		return actionhost.Caller{}, false
+	}
+	return p.caller, true
+}
+
+func (p *Peer) authenticatedContext(ctx context.Context) context.Context {
+	if p == nil {
+		return ctx
+	}
+	p.mu.Lock()
+	identity := p.identity
+	p.mu.Unlock()
+	if p.caller.Opaque() != "" {
+		ctx = WithAuthenticatedCaller(ctx, p.caller)
+	}
+	if identity.ID != "" {
+		ctx = actionhost.WithIdentity(ctx, identity)
+	}
+	return ctx
+}
+
+// bindSession records a session selected by a server-validated control
+// operation. Browser JSON never calls this method directly; control handlers
+// invoke it only after the session was created or loaded through the trusted
+// SessionStore. A connection without a transport-attested base identity stays
+// fail-closed and cannot acquire action authority.
+func (p *Peer) bindSession(sessionID string) {
+	if p == nil {
+		return
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	p.mu.Lock()
+	if p.identity.ID != "" {
+		p.identity.SessionID = sessionID
+		p.identity.RunID = ""
+	}
+	p.mu.Unlock()
+}
+
+// bindRun records a run returned by a server-owned runtime operation. The
+// session/run pair is taken from the operation's durable result, not from an
+// action request, so ActionHost receives a connection-bound identity for
+// bridge calls without trusting browser-supplied identity fields.
+func (p *Peer) bindRun(sessionID, runID string) {
+	if p == nil {
+		return
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	runID = strings.TrimSpace(runID)
+	if sessionID == "" || runID == "" {
+		return
+	}
+	p.mu.Lock()
+	if p.identity.ID != "" {
+		p.identity.SessionID = sessionID
+		p.identity.RunID = runID
+	}
+	p.mu.Unlock()
 }
 
 // AfterResponse schedules work after a request response enters the bounded

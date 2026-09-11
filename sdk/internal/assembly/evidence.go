@@ -46,6 +46,42 @@ func P1P2PortEvidence() map[string]port.SupportEvidence {
 	}
 }
 
+// P6UIPortEvidence is the build-owned evidence ledger for the full-code Web
+// UI Ports completed by P6 Task 7. It is kept separate from P1P2PortEvidence so
+// the earlier four-Port conformance gate remains an exact record of its own
+// promotion boundary.
+func P6UIPortEvidence() map[string]port.SupportEvidence {
+	return map[string]port.SupportEvidence{
+		UIExtensionPort: completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-ui-extension-v1",
+			port.EvidenceSDKContract:       "sdk/ui/src/module.ts#UIExtension",
+			port.EvidenceHostConsumer:      "ui/src/plugins/presentation-host.tsx#PresentationHost",
+			port.EvidenceRealProvider:      "ui/src/generated/assembly.ts#generatedUIExtensions",
+			port.EvidenceFailureModel:      "ui/src/plugins/conformance.test.tsx#rolls back a runtime install failure",
+			port.EvidenceConformanceSuite:  "ui/src/plugins/conformance.test.tsx#full UI module conformance",
+			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackBuildsSelectedUIIntoFinalArtifact",
+		}),
+		UIRootPort: completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-ui-root-v1",
+			port.EvidenceSDKContract:       "sdk/ui/src/module.ts#UIRoot",
+			port.EvidenceHostConsumer:      "ui/src/plugins/presentation-host.tsx#PresentationHost",
+			port.EvidenceRealProvider:      "ui/src/generated/assembly.ts#generatedUIRoot",
+			port.EvidenceFailureModel:      "ui/src/plugins/conformance.test.tsx#rolls back a runtime install failure",
+			port.EvidenceConformanceSuite:  "ui/src/plugins/conformance.test.tsx#builds and presents default, extension, replacement-root, and minimal generations",
+			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackBuildsSelectedUIIntoFinalArtifact",
+		}),
+		"std/control-action@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-control-action-v1",
+			port.EvidenceSDKContract:       "sdk/port/controlaction/action.go#Provider",
+			port.EvidenceHostConsumer:      "internal/actionhost/host.go#Host",
+			port.EvidenceRealProvider:      "sdk/internal/testdata/full-ui-module/module.go#NewProvider",
+			port.EvidenceFailureModel:      "internal/rpc/module_action_test.go#TestModuleActionRPCRejectsSpoofedModuleIDAndForgedAuthorityClaims",
+			port.EvidenceConformanceSuite:  "internal/rpc/module_action_test.go#TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult",
+			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestPackBuildsSelectedUIIntoFinalArtifact",
+		}),
+	}
+}
+
 func completedEvidence(ids map[port.EvidenceKind]string) port.SupportEvidence {
 	refs := make([]port.EvidenceReference, 0, len(port.RequiredEvidenceKinds()))
 	for _, kind := range port.RequiredEvidenceKinds() {

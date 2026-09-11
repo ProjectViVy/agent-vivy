@@ -2,12 +2,15 @@ package studio
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"agent-vivy/internal/buildinfo"
 	"agent-vivy/internal/domain"
+	"agent-vivy/sdk/generation"
 )
 
 func testLive() LiveView {
@@ -23,6 +26,9 @@ func testLive() LiveView {
 }
 
 func TestInspectBuiltinWithoutStore(t *testing.T) {
+	previousManifest := generation.EmbeddedManifestBase64
+	generation.EmbeddedManifestBase64 = ""
+	t.Cleanup(func() { generation.EmbeddedManifestBase64 = previousManifest })
 	rep, err := (*Service)(nil).Inspect(context.Background(), testLive())
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +43,91 @@ func TestInspectBuiltinWithoutStore(t *testing.T) {
 		t.Fatalf("recipe/grants = %+v", rep)
 	}
 	assertNoSecretsOrPaths(t, rep)
+}
+
+func TestInspectProjectsSealedUIArtifactHash(t *testing.T) {
+	previousManifest := generation.EmbeddedManifestBase64
+	generation.EmbeddedManifestBase64 = generation.FrameEmbeddedManifest(testSealedManifest(t, map[string]string{
+		"ui/dist":        strings.Repeat("d", 64),
+		"ui/assembly.ts": strings.Repeat("s", 64),
+	}))
+	t.Cleanup(func() { generation.EmbeddedManifestBase64 = previousManifest })
+
+	rep, err := (*Service)(nil).Inspect(context.Background(), testLive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.GenerationID == BuiltinGenerationID || rep.UIArtifactSHA256 != strings.Repeat("d", 64) {
+		t.Fatalf("sealed provenance = generation %q, ui artifact %q", rep.GenerationID, rep.UIArtifactSHA256)
+	}
+}
+
+func TestInspectRejectsUnsealedManifestAndNeverLabelsAssemblySourceAsArtifact(t *testing.T) {
+	previousManifest := generation.EmbeddedManifestBase64
+	t.Cleanup(func() { generation.EmbeddedManifestBase64 = previousManifest })
+
+	generation.EmbeddedManifestBase64 = generation.FrameEmbeddedManifest([]byte(`{"generationId":"fixture-generation","uiArtifacts":{"ui/dist":"asset-hash"}}`))
+	rep, err := (*Service)(nil).Inspect(context.Background(), testLive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.GenerationID != BuiltinGenerationID || rep.UIArtifactSHA256 != "" {
+		t.Fatalf("unsealed manifest was projected: %+v", rep)
+	}
+
+	generation.EmbeddedManifestBase64 = generation.FrameEmbeddedManifest(testSealedManifest(t, map[string]string{
+		"ui/assembly.ts": strings.Repeat("s", 64),
+	}))
+	rep, err = (*Service)(nil).Inspect(context.Background(), testLive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.UIArtifactSHA256 != "" {
+		t.Fatalf("source hash was mislabeled as UI artifact: %q", rep.UIArtifactSHA256)
+	}
+}
+
+func testSealedManifest(t *testing.T, uiArtifacts map[string]string) []byte {
+	t.Helper()
+	type manifest struct {
+		GenerationID         string              `json:"generationId"`
+		SpecificationVersion string              `json:"specificationVersion"`
+		CompilerVersion      string              `json:"compilerVersion"`
+		SDKVersion           string              `json:"sdkVersion"`
+		RecipeDigest         string              `json:"recipeDigest"`
+		Modules              []any               `json:"modules"`
+		PortEdges            []any               `json:"portEdges"`
+		LifecycleOrder       []string            `json:"lifecycleOrder"`
+		OrderedContributions map[string][]string `json:"orderedContributions"`
+		DependencyLocks      map[string]string   `json:"dependencyLocks"`
+		UIArtifacts          map[string]string   `json:"uiArtifacts"`
+		UI                   any                 `json:"ui,omitempty"`
+		Catalogs             []any               `json:"catalogs"`
+		CapabilityStates     map[string]string   `json:"capabilityStates,omitempty"`
+	}
+	recipe := []byte(`{"apiVersion":"vivy.generation/v1","modules":[]}`)
+	recipeDigest := sha256.Sum256(recipe)
+	sealed := manifest{
+		SpecificationVersion: "vivy.assembly/v1",
+		CompilerVersion:      "fixture-compiler",
+		SDKVersion:           "fixture-sdk",
+		RecipeDigest:         hex.EncodeToString(recipeDigest[:]),
+		UIArtifacts:          uiArtifacts,
+	}
+	identityBytes, err := json.Marshal(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := sha256.Sum256(identityBytes)
+	sealed.GenerationID = hex.EncodeToString(identity[:])
+	raw, err := json.Marshal(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sealed.GenerationID == "" {
+		t.Fatal("sealed manifest has no generation identity")
+	}
+	return raw
 }
 
 func TestInspectAfterPromoteUsesCandidate(t *testing.T) {

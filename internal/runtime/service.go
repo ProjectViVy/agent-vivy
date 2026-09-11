@@ -181,6 +181,10 @@ type Service struct {
 	// snapshots pin the policy authority for active child workers. This is
 	// process state only; durable run.started remains the restart truth.
 	snapshots map[domain.RunID]domain.PolicySnapshot
+	// runTools pins the compiler/runtime-selected ToolHost surface for each
+	// live run. Action bridges must use this exact set rather than resolving
+	// the process-wide registry again.
+	runTools map[domain.RunID]map[string]struct{}
 	// pendingEngine holds a settings-save engine rebuild that was deferred
 	// because runs were in flight; it is applied at the next idle run
 	// start (ScheduleEngineReload).
@@ -276,6 +280,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		shellStates:     make(map[string]shellState),
 		ledgers:         make(map[domain.RunID]*BudgetLedger),
 		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
+		runTools:        make(map[domain.RunID]map[string]struct{}),
 		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
 }
@@ -579,11 +584,16 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	// only handles that end it early.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	runCtx = domain.WithThinkingMode(runCtx, thinking)
+	selectedToolSet := make(map[string]struct{})
+	for _, name := range s.engine.SelectTools().Names() {
+		selectedToolSet[name] = struct{}{}
+	}
 	s.mu.Lock()
 	s.active[runID] = cancel
 	s.runSessions[runID] = sessionID
 	s.ledgers[runID] = ledger
 	s.snapshots[runID] = snapshot
+	s.runTools[runID] = selectedToolSet
 	s.mu.Unlock()
 
 	s.wg.Add(1)
@@ -1064,6 +1074,7 @@ func (s *Service) UnregisterWorkerAuthority(runID domain.RunID) {
 	s.mu.Lock()
 	delete(s.snapshots, runID)
 	delete(s.ledgers, runID)
+	delete(s.runTools, runID)
 	s.mu.Unlock()
 }
 
@@ -2371,6 +2382,15 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 // resumeRun feeds the decision back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
 func (s *Service) resumeRun(sessionID domain.SessionID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string) {
+	s.mu.Lock()
+	if s.runTools[runID] == nil {
+		selected := make(map[string]struct{}, len(selectedTools))
+		for _, name := range selectedTools {
+			selected[name] = struct{}{}
+		}
+		s.runTools[runID] = selected
+	}
+	s.mu.Unlock()
 	// A deferred settings-save engine rebuild applies here too, while the
 	// resumed run is not yet registered.
 	if err := s.applyPendingEngineReload(context.Background(), nil); err != nil {
@@ -2623,6 +2643,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	}
 	delete(s.ledgers, terminal.RunID)
 	delete(s.snapshots, terminal.RunID)
+	delete(s.runTools, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
@@ -2642,6 +2663,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	}
 	delete(s.ledgers, runID)
 	delete(s.snapshots, runID)
+	delete(s.runTools, runID)
 	delete(s.runSessions, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)

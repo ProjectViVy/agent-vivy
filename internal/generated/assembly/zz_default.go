@@ -9,6 +9,7 @@ import (
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
+	"agent-vivy/sdk/port/controlaction"
 	"agent-vivy/sdk/port/face"
 	"agent-vivy/sdk/port/tool"
 	"agent-vivy/sdk/port/toolworld"
@@ -27,12 +28,14 @@ type RuntimeAssembly struct {
 	Tools                      []tool.ToolProvider
 	Worlds                     []toolworld.Provider
 	Channels                   []channel.ChannelProvider
+	ActionSets                 []controlaction.ProviderSet
 	Face                       face.FaceProvider
 	DiagnosticObservers        []toolworld.DiagnosticObserver
 	DiagnosticObserverWorldIDs []string
 	LanguageServerStatuses     []toolworld.LanguageServerStatusProvider
 	ToolWorldGrants            map[string][]module.GrantBinding
 	ChannelGrants              map[string][]module.GrantBinding
+	GenerationID               string
 	Manifest                   generation.Manifest
 	owners                     []module.Instance
 }
@@ -56,6 +59,7 @@ func BuildDefault() RuntimeAssembly {
 			Modules:       []string{"vivy/channel-host", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/kernel", "vivy/mcp-host", "vivy/protected-tools", "vivy/qq", "vivy/telegram", "vivy/tool-host"},
 			Channels:      []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
 			Tools:         []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
+			Actions:       []string{},
 			ToolWorlds:    []string{"mcp"},
 			Face:          "kernel-headless",
 			NetworkStates: map[string]generation.CapabilityState{"channels": generation.Unconfigured, "mcp": generation.Unconfigured},

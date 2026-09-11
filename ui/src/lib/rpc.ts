@@ -46,6 +46,10 @@ export class RpcClient {
     socket.onmessage = (message) => this.receive(message.data);
     socket.onclose = () => {
       clientPromise = null;
+      // A closed socket no longer represents the negotiated capability set.
+      // Clear the synchronous snapshot before notifying listeners so a host
+      // rebuilt from the close event cannot inherit stale permissions.
+      capabilitiesSnapshot = emptyCapabilities();
       const error = new RpcClientError(-32098, t('errors.disconnected'));
       for (const waiter of this.pending.values()) waiter.reject(error);
       this.pending.clear();
@@ -101,6 +105,10 @@ export class RpcClient {
     const capabilities = await provisional.call<RpcCapabilities>('initialize', { protocol_version: bootstrap.protocol_version });
     provisional.capabilities.protocol_version = capabilities.protocol_version;
     provisional.capabilities.capabilities = capabilities.capabilities ?? [];
+    capabilitiesSnapshot = {
+      protocol_version: provisional.capabilities.protocol_version,
+      capabilities: [...provisional.capabilities.capabilities],
+    };
     return provisional;
   }
 
@@ -147,6 +155,19 @@ export class RpcClient {
 }
 
 let clientPromise: Promise<RpcClient> | null = null;
+function emptyCapabilities(): RpcCapabilities {
+  return { protocol_version: '', capabilities: [] };
+}
+
+let capabilitiesSnapshot: RpcCapabilities = emptyCapabilities();
+
+/** Last negotiated capabilities, available synchronously to the initialized Face host. */
+export function getRpcCapabilitiesSnapshot(): RpcCapabilities {
+  return {
+    protocol_version: capabilitiesSnapshot.protocol_version,
+    capabilities: [...capabilitiesSnapshot.capabilities],
+  };
+}
 
 export function getRpcClient(): Promise<RpcClient> {
   if (!clientPromise) clientPromise = RpcClient.connect().catch((error) => { clientPromise = null; throw error; });
@@ -156,5 +177,6 @@ export function getRpcClient(): Promise<RpcClient> {
 export function resetRpcClient(): void {
   const current = clientPromise;
   clientPromise = null;
+  capabilitiesSnapshot = emptyCapabilities();
   current?.then((client) => client.close()).catch(() => undefined);
 }

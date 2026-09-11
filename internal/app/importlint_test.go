@@ -125,7 +125,7 @@ func TestNoReferenceMaterialDependencies(t *testing.T) {
 // User plugins and the public SDK window may not import the kernel.
 func TestPluginWindowCannotImportInternal(t *testing.T) {
 	var violations []string
-	walkGoSources(t, repoRoot(t), []string{"sdk/plugin", "plugins"}, func(rel string, src []byte) {
+	walkGoSources(t, repoRoot(t), []string{"sdk/module", "sdk/port", "plugins"}, func(rel string, src []byte) {
 		for _, p := range importPaths(t, rel, src) {
 			if strings.HasPrefix(p, "agent-vivy/internal/") {
 				violations = append(violations, rel+" imports "+p)

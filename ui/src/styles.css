@@ -211,6 +211,44 @@
   }
 }
 
+/* Full-code UI Module diagnostics are deliberately scoped to host-owned
+   elements. Module CSS remains unrestricted; these rules do not isolate it. */
+[data-vivy-presentation-tree] {
+  display: contents;
+}
+
+.vivy-presentation-diagnostic {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  overflow: auto;
+  padding: 2rem;
+  color: var(--color-destructive);
+  background: var(--color-background);
+  font-family: var(--font-sans);
+}
+
+.vivy-presentation-diagnostic h2 {
+  margin: 0 0 0.75rem;
+  color: var(--color-foreground);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.vivy-presentation-diagnostic p {
+  margin: 0.5rem 0;
+}
+
+.vivy-presentation-diagnostic-provenance {
+  max-width: 100%;
+  margin-top: 1rem;
+  overflow: auto;
+  padding: 0.75rem;
+  color: var(--color-muted-foreground);
+  background: var(--color-muted);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
 /* 欢迎向导背景装饰：漂浮光点（跟随主题 primary 令牌） */
 @keyframes welcome-float {
   0%,
