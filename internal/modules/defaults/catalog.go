@@ -3,15 +3,10 @@
 package defaults
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
 	"path/filepath"
-	"sort"
 
+	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
 )
@@ -29,7 +24,7 @@ type Record struct {
 }
 
 func Catalog(repoRoot string) ([]Record, error) {
-	digest, err := hashTree(filepath.Join(repoRoot, "internal"))
+	digest, err := sourcehash.Tree(filepath.Join(repoRoot, "internal"), "")
 	if err != nil {
 		return nil, fmt.Errorf("default Source Catalog: %w", err)
 	}
@@ -88,48 +83,3 @@ func record(id, constructor string, source module.Source, provides ...module.Por
 	return Record{Descriptor: module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: id, Version: "1.0.0"}, Source: source, Provides: provides, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}, Binding: Binding{ImportPath: "agent-vivy/internal/modules/defaults", Package: "defaults", Constructor: constructor}}
 }
 func port(name, id string) module.PortRef { return module.PortRef{Port: name, ID: id} }
-func hashTree(root string) (string, error) {
-	var paths []string
-	if err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if filepath.ToSlash(rel) == "generated/assembly/zz_default.go" {
-			return nil
-		}
-		if e.Type().IsRegular() {
-			paths = append(paths, path)
-		}
-		return nil
-	}); err != nil {
-		return "", err
-	}
-	sort.Strings(paths)
-	h := sha256.New()
-	for _, p := range paths {
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return "", err
-		}
-		_, _ = io.WriteString(h, filepath.ToSlash(rel))
-		_, _ = h.Write([]byte{0})
-		f, err := os.Open(p)
-		if err != nil {
-			return "", err
-		}
-		_, copyErr := io.Copy(h, f)
-		closeErr := f.Close()
-		if copyErr != nil {
-			return "", copyErr
-		}
-		if closeErr != nil {
-			return "", closeErr
-		}
-		_, _ = h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}

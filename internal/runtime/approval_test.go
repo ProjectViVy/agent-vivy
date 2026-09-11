@@ -281,6 +281,7 @@ func TestServiceApprovalResumePersistsChunkBeforeProviderEOF(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := waitForPendingApproval(t, backend, runID)
+	waitForApprovalEvent(t, backend, runID)
 	if err := svc.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err != nil {
 		t.Fatal(err)
 	}
