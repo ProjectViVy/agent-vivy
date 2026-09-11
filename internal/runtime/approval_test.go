@@ -165,6 +165,10 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		t.Fatal("approval must expire in the future")
 	}
 
+	// The approval row is deliberately persisted before its journal event.
+	// Wait for the durable suspension barrier before asserting event order.
+	waitForApprovalEvent(t, backend, runID)
+
 	// Journal so far: run.started, tool.requested, then the single
 	// tool.approval_required commit (D-029 order).
 	pre := replayAll(t, backend, runID)

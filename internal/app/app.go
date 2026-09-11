@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +42,7 @@ import (
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
 	"agent-vivy/sdk/module"
+	toolworldport "agent-vivy/sdk/port/toolworld"
 	"agent-vivy/ui"
 )
 
@@ -165,14 +168,18 @@ func New(ctx context.Context, cfg config.Config, opts ...AppOption) (*App, error
 	return NewWithAssembly(ctx, cfg, genassembly.BuildDefault(), opts...)
 }
 
-// NewWithAssembly is the application composition boundary. It returns an
-// error only for construction failures; an invalid config must be rejected
-// earlier by config.Load / config.Validate.
+// NewWithAssembly is the application composition boundary. General config
+// syntax and policy errors are rejected by config.Load / config.Validate;
+// generation-specific capability mismatches are rejected here before any
+// runtime construction begins.
 func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly genassembly.RuntimeAssembly, opts ...AppOption) (*App, error) {
 	logger := slog.Default()
 	ao := appOptions{channels: true, gateway: true}
 	for _, opt := range opts {
 		opt(&ao)
+	}
+	if err := validateRuntimeAssemblyConfig(runtimeAssembly, cfg); err != nil {
+		return nil, err
 	}
 	// Providers are not discovered, exposed, or constructed until every
 	// generated Module has crossed Start and Ready. The deferred close above
@@ -207,6 +214,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	// registered first so the channels overlay can only name channels this
 	// generation actually carries.
 	cfg = applySettingsOverlayAt(ctx, logger, cfg, liveSettingsPath, compiledChannelNames(runtimeAssembly.Channels))
+	if err := validateRuntimeAssemblyConfig(runtimeAssembly, cfg); err != nil {
+		return nil, err
+	}
 	var originPolicy controlrpc.OriginPolicy
 	if ao.gateway {
 		policy, policyErr := controlrpc.NewOriginPolicy(cfg.Server.AllowedOrigins)
@@ -365,6 +375,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}()
 	if mcpBackend != nil {
 		mcpOps = mcpBackend
+		// Replace the generated no-op MCP provider with the runtime bridge
+		// before ToolWorld staging. The resulting provider is still discovered
+		// by the sole ToolHost below; the compatibility MCP backend remains
+		// control-plane-only.
+		providers := append([]toolworldport.Provider(nil), runtimeAssembly.Worlds...)
+		for index, provider := range providers {
+			if provider != nil && provider.Definition().ID == "mcp" {
+				providers[index] = mcpBackend.MCPToolWorldProvider()
+			}
+		}
+		runtimeAssembly.Worlds = providers
 	}
 	sequentialOps = runtime.NewSequentialThinkingBackend()
 	commandOps = runtime.NewCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
@@ -384,48 +405,109 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			recorder:  fileRecorder,
 		})
 	}
-	worldTools, err := bindToolWorlds(ctx, runtimeAssembly.Worlds, runtimeAssembly.ToolWorldGrants, worldLookup, fileRecorder)
-	if err != nil {
-		_ = backend.Close()
-		return nil, err
-	}
 	// The builtin registry is built once and re-resolved per engine build:
 	// Resolve filters by the active name list (settings tools_enabled
 	// overlay when written, config default otherwise).
 	// The agent tool's ops are armed after the worker manager exists
 	// (the manager needs the registered tool set; the ref defers the bind).
 	agentOps := &agentToolRef{}
-	builtinRegistry := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps)
-	builtinRegistry = builtinRegistry.WithAdditional(worldTools...)
-	builtinRegistry, err = bindGeneratedTools(runtimeAssembly.Tools, builtinRegistry)
-	if err != nil {
+	var builtinRegistry *tools.Registry
+	var registryMu sync.RWMutex
+	var liveApplyMu sync.Mutex
+	rebuildToolRegistry := func(providers []toolworldport.Provider) error {
+		staged, stageErr := bindToolWorlds(ctx, providers, runtimeAssembly.ToolWorldGrants, worldLookup, fileRecorder)
+		if stageErr != nil {
+			return stageErr
+		}
+		next := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps)
+		next = next.WithAdditional(staged...)
+		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
+		if stageErr != nil {
+			return stageErr
+		}
+		registryMu.Lock()
+		builtinRegistry = next
+		registryMu.Unlock()
+		return nil
+	}
+	if err := rebuildToolRegistry(runtimeAssembly.Worlds); err != nil {
 		_ = backend.Close()
 		return nil, err
 	}
+	appliedMCPConfigs := []runtime.MCPServerConfig(nil)
+	if mcpBackend != nil {
+		appliedMCPConfigs = mcpBackend.ConfiguredServers()
+	}
+	registryMu.Lock()
+	appliedMCPConfigs = append([]runtime.MCPServerConfig(nil), appliedMCPConfigs...)
+	registryMu.Unlock()
 	// resolveActiveTools builds the live active surface plus its hidden
 	// complement. It backs startup and every engine rebuild, so a
 	// Settings-side active/hidden change lands without a process restart.
 	// Generated ToolWorld tools stay appended to the active surface; only
 	// builtins participate in the active/hidden split.
 	resolveActiveTools := func() ([]tools.Tool, []tools.Tool, error) {
+		registryMu.RLock()
+		registry := builtinRegistry
+		registryMu.RUnlock()
+		if registry == nil {
+			return nil, nil, errors.New("app: tool registry is unavailable")
+		}
 		enabled := cfg.Tools.Enabled
 		if s, err := settings.Load(liveSettingsPath); err == nil && s.ToolsEnabled != nil {
 			enabled = append([]string(nil), *s.ToolsEnabled...)
 		}
 		enabled = config.NormalizeLegacyToolSearch(enabled)
-		filtered := enabled[:0]
+		// MCP capabilities are discovered from the live server, so a
+		// settings/config selection may name a capability that disappears
+		// when the server is replaced. Preserve the selected server intent,
+		// drop retired projections, and include the replacement's current
+		// projections before strict registry resolution. Static tool names
+		// remain strict: an unknown non-MCP name is still an error.
+		selectedMCPInstances := make(map[string]struct{})
 		for _, name := range enabled {
-			if _, compiled := builtinRegistry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call") {
+			if instance, ok := mcpProjectedToolInstance(name); ok {
+				selectedMCPInstances[instance] = struct{}{}
+			}
+		}
+		filtered := make([]string, 0, len(enabled))
+		for _, name := range enabled {
+			if _, compiled := registry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call") {
 				continue
+			}
+			if _, compiled := registry.Lookup(name); !compiled {
+				if _, selected := mcpProjectedToolInstance(name); selected {
+					continue
+				}
 			}
 			filtered = append(filtered, name)
 		}
 		enabled = filtered
-		resolved, err := builtinRegistry.Resolve(enabled)
+		if len(selectedMCPInstances) > 0 {
+			selected := make(map[string]struct{}, len(enabled))
+			for _, name := range enabled {
+				selected[name] = struct{}{}
+			}
+			for _, spec := range registry.Specs() {
+				instance, ok := mcpProjectedToolInstance(spec.Name)
+				if !ok {
+					continue
+				}
+				if _, wanted := selectedMCPInstances[instance]; !wanted {
+					continue
+				}
+				if _, already := selected[spec.Name]; already {
+					continue
+				}
+				enabled = append(enabled, spec.Name)
+				selected[spec.Name] = struct{}{}
+			}
+		}
+		resolved, err := registry.Resolve(enabled)
 		if err != nil {
 			return nil, nil, err
 		}
-		return resolved, builtinRegistry.Except(enabled), nil
+		return resolved, registry.Except(enabled), nil
 	}
 	ts, hidden, err := resolveActiveTools()
 	if err != nil {
@@ -463,6 +545,16 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, err
 	}
 	engineCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
+	engineCfg.ContextHost, err = contextHostForAssembly(runtimeAssembly, mcpBackend)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	engineCfg.SkillSources, err = generatedSkillSources(runtimeAssembly)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
 	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
@@ -592,6 +684,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		},
 	})
 	fileVersions, _ := backend.(storage.ModifiedFileStore)
+	mcpCompiled := assemblyHasToolWorld(runtimeAssembly.Worlds, "mcp")
+	contextCompiled := assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/context-host")
 	controlHandler, err := controlrpc.NewControlHandler(controlrpc.ControlDeps{
 		Sessions: backend, Messages: backend, Runs: backend, Journal: backend,
 		Approvals: backend, Questions: backend, Reviews: backend, Todos: backend, Skills: skillOps, Bus: bus, Service: svc,
@@ -654,6 +748,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return info
 		},
 		MCP:             mcpBackend,
+		MCPCompiled:     &mcpCompiled,
+		ContextCompiled: &contextCompiled,
 		LanguageServers: buildLanguageServerStatusSource(runtimeAssembly.LanguageServerStatuses, backend, workspaceManager),
 		WorkspaceFiles: func() controlrpc.WorkspaceFiles {
 			if workspaceManager == nil {
@@ -666,7 +762,18 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// implicitly become an attachment project root.
 		ProjectRoot: ao.projectRoot,
 		Frozen:      resolver.Frozen(),
+		ToolCatalogLive: func() []domain.ToolSpec {
+			registryMu.RLock()
+			registry := builtinRegistry
+			registryMu.RUnlock()
+			if registry == nil {
+				return nil
+			}
+			return registry.Specs()
+		},
 		OnSettingsChanged: func() {
+			liveApplyMu.Lock()
+			defer liveApplyMu.Unlock()
 			resolver.Invalidate()
 			live := resolver.Current()
 			name := live.Provider
@@ -685,16 +792,50 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				logger.Warn("mcp overlay reload skipped", "err", err)
 				return
 			}
+			mcpChanged := false
 			if mcpBackend != nil {
-				mcpBackend.ReplaceServers(liveMCPConfigs(cfg, s))
+				nextMCPConfigs := liveMCPConfigs(cfg, s)
+				registryMu.RLock()
+				previousMCPConfigs := append([]runtime.MCPServerConfig(nil), appliedMCPConfigs...)
+				registryMu.RUnlock()
+				mcpChanged = !sameMCPRuntimeConfigs(nextMCPConfigs, previousMCPConfigs)
+				if mcpChanged {
+					mcpBackend.ReplaceServers(nextMCPConfigs)
+					currentMCPConfigs := mcpBackend.ConfiguredServers()
+					registryMu.Lock()
+					appliedMCPConfigs = append([]runtime.MCPServerConfig(nil), currentMCPConfigs...)
+					registryMu.Unlock()
+					if rebuildErr := rebuildToolRegistry(runtimeAssembly.Worlds); rebuildErr != nil {
+						// A removed or replaced MCP instance must not remain in
+						// the model catalog when discovery of its replacement
+						// fails. Keep other generated worlds live, but fail closed
+						// for MCP until the next successful settings rebuild.
+						logger.Warn("MCP tool registry rebuild failed", "err", rebuildErr)
+						withoutMCP := make([]toolworldport.Provider, 0, len(runtimeAssembly.Worlds))
+						for _, provider := range runtimeAssembly.Worlds {
+							if provider != nil && provider.Definition().ID == "mcp" {
+								continue
+							}
+							withoutMCP = append(withoutMCP, provider)
+						}
+						if fallbackErr := rebuildToolRegistry(withoutMCP); fallbackErr != nil {
+							logger.Warn("MCP tool registry fail-closed rebuild failed", "err", fallbackErr)
+						}
+					}
+				}
 			}
 			// Tools live-apply: an active/hidden change rebuilds the engine
 			// so the next run binds the new surface (immediately when idle,
 			// otherwise at the next idle run start).
 			mergedTools := mergedToolsEnabled(cfg, s)
-			toolsChanged := !sameStrings(mergedTools, appliedToolsEnabled)
+			registryMu.RLock()
+			previousToolsEnabled := append([]string(nil), appliedToolsEnabled...)
+			registryMu.RUnlock()
+			toolsChanged := !sameStrings(mergedTools, previousToolsEnabled)
 			if toolsChanged {
+				registryMu.Lock()
 				appliedToolsEnabled = mergedTools
+				registryMu.Unlock()
 			}
 			// Compaction live-apply: rebuild the engine (reduction +
 			// summarization middleware) only when the effective policy
@@ -702,8 +843,20 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			// at the next idle run start.
 			window := svc.GetModelInfo(context.Background()).ContextWindow
 			cmp := compactionPolicyFor(cfg, s.Compaction, window)
-			if toolsChanged || !sameCompactionPolicy(svc.CompactionPolicy(), &cmp) {
+			compactionChanged := !sameCompactionPolicy(svc.CompactionPolicy(), &cmp)
+			if toolsChanged || mcpChanged || compactionChanged {
 				reloadCfg := buildEngineConfig(cfg, skillBackend, agentsMDBackend, checkpoints, policy, hooks, &cmp, summaryModel, fileBackend)
+				var reloadErr error
+				reloadCfg.ContextHost, reloadErr = contextHostForAssembly(runtimeAssembly, mcpBackend)
+				if reloadErr != nil {
+					logger.Warn("MCP context bridge reload skipped", "err", reloadErr)
+					reloadCfg.ContextHost = nil
+				}
+				reloadCfg.SkillSources, reloadErr = generatedSkillSources(runtimeAssembly)
+				if reloadErr != nil {
+					logger.Warn("generated SkillSource reload skipped", "err", reloadErr)
+					reloadCfg.SkillSources = nil
+				}
 				reloadCfg.AgentsMDFiles = agentsMDFiles
 				if err := svc.ScheduleEngineReload(reloadCfg); err != nil {
 					logger.Warn("engine reload failed", "err", err)
@@ -1010,21 +1163,43 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-// enabledMCPFromSettings returns the enabled MCP servers from the overlay,
-// or nil when the overlay has never been written (config default stands).
+func sameMCPRuntimeConfigs(left, right []runtime.MCPServerConfig) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	leftByName := make(map[string]runtime.MCPServerConfig, len(left))
+	rightByName := make(map[string]runtime.MCPServerConfig, len(right))
+	for _, config := range left {
+		leftByName[config.Name] = config
+	}
+	for _, config := range right {
+		rightByName[config.Name] = config
+	}
+	return reflect.DeepEqual(leftByName, rightByName)
+}
+
+func mcpProjectedToolInstance(name string) (string, bool) {
+	parts := strings.SplitN(name, ".", 3)
+	if len(parts) != 3 || parts[0] != "mcp" || parts[1] == "" || parts[2] == "" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// enabledMCPFromSettings returns the MCP servers from the overlay, preserving
+// disabled entries as inactive runtime instances. A nil overlay means the
+// config-file catalog remains authoritative.
 func enabledMCPFromSettings(s settings.Settings) []config.MCPServer {
 	if s.MCPServers == nil {
 		return nil
 	}
 	out := make([]config.MCPServer, 0, len(*s.MCPServers))
 	for _, server := range *s.MCPServers {
-		if !settings.MCPServerEnabled(server) {
-			continue
-		}
 		out = append(out, config.MCPServer{
 			Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
 			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
-			Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+			Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
+			DeferredReason: server.DeferredReason, Enabled: cloneBoolPtr(server.Enabled),
 		})
 	}
 	return out
@@ -1036,10 +1211,19 @@ func mcpRuntimeConfigs(servers []config.MCPServer) []runtime.MCPServerConfig {
 		out = append(out, runtime.MCPServerConfig{
 			Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
 			Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFrom(server.EnvFrom),
-			Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+			Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
+			DeferredReason: server.DeferredReason, Enabled: cloneBoolPtr(server.Enabled),
 		})
 	}
 	return out
+}
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func cloneMCPEnvFrom(value map[string]string) map[string]string {

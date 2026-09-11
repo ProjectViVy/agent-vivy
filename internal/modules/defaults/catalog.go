@@ -19,6 +19,9 @@ import (
 type Binding struct {
 	ImportPath, Package, Constructor, ProviderConstructor string
 	ProviderCollection                                    bool
+	ContextSourceProvider                                 bool
+	SkillSourceProvider                                   bool
+	MCPHostProvider                                       bool
 }
 type Record struct {
 	Descriptor module.Descriptor
@@ -40,6 +43,10 @@ func Catalog(repoRoot string) ([]Record, error) {
 		record("vivy/tool-host", "NewToolHost", source, port("core/tool-host@v1", "vivy.tool-host")),
 		record("vivy/protected-tools", "NewProtectedTools", source, protectedPorts...),
 		record("vivy/mcp-host", "NewMCPHost", source, port("core/mcp-host@v1", "vivy.mcp-host"), port("std/tool-world@v1", "mcp")),
+		record("vivy/context-host", "NewContextHost", source, port("core/context-host@v1", "vivy.context-host")),
+		record("vivy/context-source", "NewContextSource", source, port("std/context-source@v1", "vivy.project-context")),
+		record("vivy/skill-host", "NewSkillHost", source, port("core/skill-host@v1", "vivy.skill-host")),
+		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
 		record("vivy/channel-host", "NewChannelHost", source, port("core/channel-host@v1", "vivy.channel-host")),
 		record("vivy/face-host", "NewFaceHost", source, port("core/face-host@v1", "vivy.face-host")),
 		record("vivy/observer-host", "NewObserverHost", source, port("core/observer-host@v1", "vivy.observer-host")),
@@ -52,9 +59,23 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.ProviderCollection = true
 		case "vivy/mcp-host":
 			records[i].Binding.ProviderConstructor = "NewMCPProvider"
+			records[i].Binding.MCPHostProvider = true
+		case "vivy/context-source":
+			records[i].Binding.ProviderConstructor = "ContextSourceProviders"
+			records[i].Binding.ProviderCollection = true
+			records[i].Binding.ContextSourceProvider = true
+		case "vivy/skill-source":
+			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
+			records[i].Binding.ProviderCollection = true
+			records[i].Binding.SkillSourceProvider = true
 		}
-		if records[i].Descriptor.Module.ID == "vivy/protected-tools" || records[i].Descriptor.Module.ID == "vivy/mcp-host" {
+		switch records[i].Descriptor.Module.ID {
+		case "vivy/protected-tools", "vivy/mcp-host":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+		case "vivy/context-source":
+			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"}}
+		case "vivy/skill-source":
+			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/skill-host@v1"}, Provider: "vivy/skill-host"}}
 		}
 		if err := records[i].Descriptor.Validate(); err != nil {
 			return nil, err

@@ -25,10 +25,11 @@ func (source *StatusSource) Status(context.Context, statusport.Request) (statusp
 	items := make([]statusport.Item, 0, len(statuses))
 	for _, status := range statuses {
 		fields := map[string]string{
-			"tool_count":            strconv.Itoa(status.ToolCount),
+			"enabled":              strconv.FormatBool(status.Enabled),
+			"tool_count":           strconv.Itoa(status.ToolCount),
 			"consecutive_failures": strconv.Itoa(status.ConsecutiveFailures),
-			"circuit_open":          strconv.FormatBool(status.CircuitOpen),
-			"resource_bridge":       strconv.FormatBool(status.ResourceBridge),
+			"circuit_open":         strconv.FormatBool(status.CircuitOpen),
+			"resource_bridge":      strconv.FormatBool(status.ResourceBridge),
 		}
 		if status.DeferredReason != "" {
 			fields["deferred_reason"] = status.DeferredReason

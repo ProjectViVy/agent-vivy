@@ -24,18 +24,27 @@ func (tool fixtureLegacyTool) InvokableRun(context.Context, json.RawMessage) (st
 }
 
 type fixtureWorldProvider struct {
+	id          string
 	discoveries int
 	invocations int
 }
 
-func (*fixtureWorldProvider) Definition() toolworldport.Definition {
-	return toolworldport.Definition{ID: "fixture.world"}
+func (provider *fixtureWorldProvider) Definition() toolworldport.Definition {
+	id := provider.id
+	if id == "" {
+		id = "fixture.world"
+	}
+	return toolworldport.Definition{ID: id}
 }
 
 func (provider *fixtureWorldProvider) Discover(context.Context, toolworldport.Host) ([]toolworldport.ToolDefinition, error) {
 	provider.discoveries++
+	id := "remote.echo"
+	if provider.id == "mcp" {
+		id = "mcp.docs.echo"
+	}
 	return []toolworldport.ToolDefinition{{
-		ID:          "remote.echo",
+		ID:          id,
 		Description: "fixture dynamic tool",
 		Effect:      toolworldport.EffectRead,
 		Schema:      json.RawMessage(`{"type":"object"}`),
@@ -48,6 +57,27 @@ func (provider *fixtureWorldProvider) Invoke(context.Context, toolworldport.Host
 }
 
 func (*fixtureWorldProvider) Close(context.Context) error { return nil }
+
+func TestProductionMCPWorldIsComposedThroughToolHost(t *testing.T) {
+	world := &fixtureWorldProvider{id: "mcp"}
+	staged, err := bindToolWorlds(context.Background(), []toolworldport.Provider{world}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(staged) != 1 {
+		t.Fatalf("MCP world was skipped during production composition: %d staged entries", len(staged))
+	}
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.Lookup("mcp.docs.echo"); !ok {
+		t.Fatalf("MCP dynamic tool did not enter the ToolHost catalog: %#v", registry.Specs())
+	}
+	if _, ok := registry.Lookup("mcp_call"); ok {
+		t.Fatal("legacy mcp_call remained model-visible alongside the governed MCP ToolWorld")
+	}
+}
 
 type governedRuntimeTool interface {
 	tools.Tool

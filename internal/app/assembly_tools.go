@@ -11,6 +11,7 @@ import (
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/internal/toolhost"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/port/pretool"
 	toolport "agent-vivy/sdk/port/tool"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 )
@@ -63,6 +64,9 @@ func (provider legacyToolProvider) Invoke(ctx context.Context, _ toolport.Host, 
 }
 
 func schemaFromToolSpec(spec domain.ToolSpec) json.RawMessage {
+	if len(spec.Schema) > 0 {
+		return append(json.RawMessage(nil), spec.Schema...)
+	}
 	properties := make(map[string]map[string]any, len(spec.Params))
 	names := make([]string, 0, len(spec.Params))
 	for name := range spec.Params {
@@ -158,7 +162,7 @@ func newGovernedRuntimeTool(host *toolhost.Host, id string, spec domain.ToolSpec
 	}
 }
 
-func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry) (*tools.Registry, error) {
+func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry, middleware ...pretool.Provider) (*tools.Registry, error) {
 	if registry == nil {
 		return nil, fmt.Errorf("app: ToolHost requires a registry projection")
 	}
@@ -231,6 +235,7 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			Description: definition.Description,
 			Readonly:    definition.Effect != toolport.EffectWrite,
 			Params:      schemaParams(definition.Schema),
+			Schema:      append(json.RawMessage(nil), definition.Schema...),
 		}
 		if ok && implementation != nil {
 			host.implementation = implementation
@@ -250,6 +255,7 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 		Static:       static,
 		Worlds:       worlds,
 		ProtectedIDs: tools.AssemblyControlledToolNames(),
+		Middleware:   append([]pretool.Provider(nil), middleware...),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("app: build ToolHost: %w", err)
@@ -270,6 +276,7 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			Readonly:    definition.Effect != toolport.EffectWrite,
 			Keywords:    []string{entry.WorldID, definition.ID},
 			Params:      schemaParams(definition.Schema),
+			Schema:      append(json.RawMessage(nil), definition.Schema...),
 		}
 		dynamicOrder = append(dynamicOrder, definition.ID)
 	}
@@ -291,6 +298,6 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 
 // BindGeneratedTools exposes the internal ToolHost binding boundary to the
 // SDK conformance suite. Product composition uses the same implementation.
-func BindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry) (*tools.Registry, error) {
-	return bindGeneratedTools(providers, registry)
+func BindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Registry, middleware ...pretool.Provider) (*tools.Registry, error) {
+	return bindGeneratedTools(providers, registry, middleware...)
 }

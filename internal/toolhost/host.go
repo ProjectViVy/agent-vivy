@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"agent-vivy/internal/tools"
+
 	"agent-vivy/sdk/port/pretool"
 	porttool "agent-vivy/sdk/port/tool"
 	"agent-vivy/sdk/port/toolworld"
@@ -32,6 +34,7 @@ var (
 	ErrInvalidTool           = errors.New("invalid tool binding")
 	ErrInvalidWorld          = errors.New("invalid tool world binding")
 	ErrInvalidMiddleware     = errors.New("invalid middleware binding")
+	ErrStaleDiscovery        = errors.New("stale tool discovery")
 )
 
 type Trust uint8
@@ -79,6 +82,7 @@ type Request struct {
 type Entry struct {
 	Definition porttool.Definition
 	SchemaHash string
+	Provenance toolworld.Provenance
 	OwnerID    string
 	WorldID    string
 	Dynamic    bool
@@ -100,8 +104,9 @@ type Host struct {
 	middleware        []pretool.Provider
 	middlewareTimeout time.Duration
 
-	mu      sync.RWMutex
-	dynamic map[string]dynamicBinding
+	mu                  sync.RWMutex
+	dynamic             map[string]dynamicBinding
+	discoveryGeneration uint64
 }
 
 func New(cfg Config) (*Host, error) {
@@ -199,8 +204,10 @@ func normalizedToolDefinition(definition porttool.Definition) porttool.Definitio
 func hashDefinition(definition porttool.Definition) string {
 	schema := bytes.TrimSpace(definition.Schema)
 	if len(schema) != 0 {
+		decoder := json.NewDecoder(bytes.NewReader(schema))
+		decoder.UseNumber()
 		var value any
-		if json.Unmarshal(schema, &value) == nil {
+		if decoder.Decode(&value) == nil {
 			if canonical, err := json.Marshal(value); err == nil {
 				schema = canonical
 			}
@@ -214,6 +221,16 @@ func hashDefinition(definition porttool.Definition) string {
 	_, _ = digest.Write([]byte(definition.Effect))
 	_, _ = digest.Write([]byte{0})
 	_, _ = digest.Write(schema)
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+func identityHash(kind string, parts ...string) string {
+	digest := sha256.New()
+	_, _ = digest.Write([]byte(kind))
+	for _, part := range parts {
+		_, _ = digest.Write([]byte{0})
+		_, _ = digest.Write([]byte(part))
+	}
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
@@ -255,6 +272,16 @@ func (h *Host) ListVisible() []porttool.Definition {
 }
 
 func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
+	h.mu.Lock()
+	h.discoveryGeneration++
+	generation := h.discoveryGeneration
+	// A new projection generation invalidates every prior dynamic binding
+	// before any remote response can arrive. This makes a failed discovery
+	// fail closed and prevents an older concurrent response from resurrecting
+	// a retired schema.
+	h.dynamic = make(map[string]dynamicBinding)
+	h.mu.Unlock()
+
 	next := make(map[string]dynamicBinding)
 	seen := make(map[string]struct{}, len(h.staticEntries))
 	for id := range h.staticEntries {
@@ -266,22 +293,40 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 		worldHost := world.host(discoveryCtx)
 		if worldHost == nil {
 			cancel()
+			if !h.discoveryCurrent(generation) {
+				return nil, ErrStaleDiscovery
+			}
 			return nil, fmt.Errorf("%w: %s has no host", ErrInvalidWorld, worldID)
 		}
 		definitions, err := world.Provider.Discover(discoveryCtx, worldHost)
 		cancel()
 		if err != nil {
+			if !h.discoveryCurrent(generation) {
+				return nil, ErrStaleDiscovery
+			}
 			return nil, fmt.Errorf("discover tool world %s: %w", worldID, err)
+		}
+		if !h.discoveryCurrent(generation) {
+			return nil, ErrStaleDiscovery
 		}
 		for _, remote := range definitions {
 			id := strings.TrimSpace(remote.ID)
 			if id == "" {
+				if !h.discoveryCurrent(generation) {
+					return nil, ErrStaleDiscovery
+				}
 				return nil, fmt.Errorf("%w: %s returned an empty tool id", ErrInvalidWorld, worldID)
 			}
 			if h.IsProtected(id) {
+				if !h.discoveryCurrent(generation) {
+					return nil, ErrStaleDiscovery
+				}
 				return nil, fmt.Errorf("%w: %s", ErrProtectedToolID, id)
 			}
 			if _, exists := seen[id]; exists {
+				if !h.discoveryCurrent(generation) {
+					return nil, ErrStaleDiscovery
+				}
 				return nil, fmt.Errorf("%w: %s", ErrDuplicateToolID, id)
 			}
 			seen[id] = struct{}{}
@@ -291,10 +336,47 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 				Effect:      porttool.Effect(remote.Effect),
 				Schema:      remote.Schema,
 			})
+			if len(definition.Schema) > 0 {
+				if err := tools.ValidateSchema(definition.Schema); err != nil {
+					if !h.discoveryCurrent(generation) {
+						return nil, ErrStaleDiscovery
+					}
+					return nil, fmt.Errorf("%w: %s schema: %v", ErrInvalidWorld, id, err)
+				}
+			}
+			provenance := remote.Provenance
+			if provenance.ServerInstanceID == "" {
+				provenance.ServerInstanceID = remote.ServerInstanceID
+			}
+			if provenance.RemoteCapability == "" {
+				provenance.RemoteCapability = remote.RemoteCapability
+			}
+			if provenance.SchemaHash == "" {
+				provenance.SchemaHash = remote.SchemaHash
+			}
+			if provenance.InstanceHash == "" {
+				provenance.InstanceHash = remote.InstanceHash
+			}
+			if provenance.RemoteHash == "" {
+				provenance.RemoteHash = remote.RemoteHash
+			}
+			if provenance.SchemaHash == "" {
+				provenance.SchemaHash = hashDefinition(definition)
+			}
+			provenance.ServerInstanceID = strings.TrimSpace(provenance.ServerInstanceID)
+			provenance.RemoteCapability = strings.TrimSpace(provenance.RemoteCapability)
+			provenance.SchemaHash = strings.TrimSpace(provenance.SchemaHash)
+			if provenance.InstanceHash == "" && provenance.ServerInstanceID != "" {
+				provenance.InstanceHash = identityHash("mcp-instance", provenance.ServerInstanceID)
+			}
+			if provenance.RemoteHash == "" && provenance.ServerInstanceID != "" && provenance.RemoteCapability != "" {
+				provenance.RemoteHash = identityHash("mcp-remote", provenance.ServerInstanceID, provenance.RemoteCapability)
+			}
 			next[id] = dynamicBinding{
 				entry: Entry{
 					Definition: definition,
-					SchemaHash: hashDefinition(definition),
+					SchemaHash: provenance.SchemaHash,
+					Provenance: provenance,
 					OwnerID:    strings.TrimSpace(world.OwnerID),
 					WorldID:    worldID,
 					Dynamic:    true,
@@ -306,9 +388,20 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 		}
 	}
 	h.mu.Lock()
+	if h.discoveryGeneration != generation {
+		h.mu.Unlock()
+		return nil, ErrStaleDiscovery
+	}
 	h.dynamic = next
 	h.mu.Unlock()
 	return h.ListVisible(), nil
+}
+
+func (h *Host) discoveryCurrent(generation uint64) bool {
+	h.mu.RLock()
+	current := h.discoveryGeneration == generation
+	h.mu.RUnlock()
+	return current
 }
 
 func (h *Host) Invoke(ctx context.Context, req Request) (porttool.Result, error) {

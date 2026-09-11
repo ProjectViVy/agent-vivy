@@ -5,7 +5,6 @@ package skillsource
 
 import (
 	"context"
-	"strings"
 )
 
 type Request struct {
@@ -51,19 +50,15 @@ type Skill struct {
 }
 
 func (skill Skill) Clone() Skill {
-	skill.ID = strings.TrimSpace(skill.ID)
-	skill.Name = strings.TrimSpace(skill.Name)
-	skill.Version = strings.TrimSpace(skill.Version)
-	skill.SourceHash = strings.TrimSpace(skill.SourceHash)
-	skill.Context = strings.TrimSpace(skill.Context)
-	skill.Agent = strings.TrimSpace(skill.Agent)
-	skill.Model = strings.TrimSpace(skill.Model)
+	// Preserve literal identity/version inputs. SkillHost validates them and
+	// must be able to reject whitespace or aliasing rather than silently
+	// changing a Provider's stable record.
 	skill.Dependencies = append([]string(nil), skill.Dependencies...)
 	skill.DeclaredTools = append([]string(nil), skill.DeclaredTools...)
 	if skill.Metadata != nil {
 		metadata := make(map[string]string, len(skill.Metadata))
 		for key, value := range skill.Metadata {
-			metadata[strings.TrimSpace(key)] = value
+			metadata[key] = value
 		}
 		skill.Metadata = metadata
 	}

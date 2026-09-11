@@ -3,9 +3,10 @@ package assembly
 import "agent-vivy/sdk/port"
 
 // P1P2PortEvidence is retained as the compatibility entry point for the
-// build-owned support ledger. PLG-P3 extends the completed set with governed
-// middleware, observer, and status Ports. Unlisted public Ports remain
-// SPECIFIED and cannot be selected by the compiler.
+// build-owned support ledger. The completed P4 source Hosts are included in
+// the same map so older SDK callers keep one deterministic evidence lookup.
+// Unlisted public Ports remain SPECIFIED and cannot be selected by the
+// compiler.
 func P1P2PortEvidence() map[string]port.SupportEvidence {
 	return map[string]port.SupportEvidence{
 		"std/tool@v1": completedEvidence(map[port.EvidenceKind]string{
@@ -79,6 +80,24 @@ func P1P2PortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceFailureModel:      "internal/statushost/host_test.go#TestStatusTimeoutProjectsUnavailable",
 			port.EvidenceConformanceSuite:  "internal/statushost/host_test.go#TestStatusReadDoesNotStartOrProbeProvider",
 			port.EvidenceInspectProjection: "internal/statushost/host.go#Result",
+		}),
+		"std/context-source@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-context-source-v1",
+			port.EvidenceSDKContract:       "sdk/port/contextsource/contextsource.go#Provider",
+			port.EvidenceHostConsumer:      "internal/contexthost/host.go#Host.QuerySources",
+			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#ContextSourceProviders",
+			port.EvidenceFailureModel:      "internal/contexthost/conformance_test.go#TestContextSourceConformance",
+			port.EvidenceConformanceSuite:  "internal/contexthost/conformance_test.go#TestContextSourceConformance",
+			port.EvidenceInspectProjection: "internal/app/assembly_validate.go#validateRuntimeAssembly",
+		}),
+		"std/skill-source@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-skill-source-v1",
+			port.EvidenceSDKContract:       "sdk/port/skillsource/skillsource.go#Provider",
+			port.EvidenceHostConsumer:      "internal/skillhost/host.go#Host.Get",
+			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#SkillSourceProviders",
+			port.EvidenceFailureModel:      "internal/skillhost/conformance_test.go#TestSkillSourceConformanceTimeoutAndUnavailable",
+			port.EvidenceConformanceSuite:  "internal/skillhost/conformance_test.go#TestSkillSourceConformance",
+			port.EvidenceInspectProjection: "internal/app/assembly_validate.go#validateRuntimeAssembly",
 		}),
 	}
 }

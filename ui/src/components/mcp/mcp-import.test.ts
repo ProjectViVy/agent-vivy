@@ -28,6 +28,20 @@ describe('parseMcpImport', () => {
     expect(parsed.warnings).toEqual([]);
   });
 
+  it('preserves explicit resource bridging and deferred diagnostics', () => {
+    const parsed = parseMcpImport({
+      docs: {
+        endpoint: 'https://docs.example.com/mcp',
+        resource_bridge: true,
+        deferred_reason: 'awaiting OAuth approval',
+      },
+    });
+    expect(parsed.servers).toEqual([{
+      name: 'docs', transport: 'http', endpoint: 'https://docs.example.com/mcp',
+      auth_env: undefined, resource_bridge: true, deferred_reason: 'awaiting OAuth approval', enabled: true,
+    }]);
+  });
+
   it('preserves argv bytes and converts legacy env values to same-name refs with a warning', () => {
     const parsed = parseMcpImport({
       local: { command: 'node', args: ['', '  keep spaces  '], env: { TOKEN: 'secret-value' } },

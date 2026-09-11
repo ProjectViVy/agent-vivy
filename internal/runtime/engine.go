@@ -14,8 +14,11 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/skillhost"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/port/skillsource"
 )
 
 const officialToolSearchName = "tool_search"
@@ -28,6 +31,9 @@ type SummaryModel = model.BaseModel[*schema.Message]
 
 // EngineConfig carries the tunables the app layer reads from config.
 type EngineConfig struct {
+	// ContextHost is the composed, bounded source surface. It is optional so
+	// direct runtime tests and builds without an explicit bridge stay inert.
+	ContextHost *contexthost.Host
 	// StreamBuffer sizes the downstream event fan-out channel (C4).
 	StreamBuffer int
 	// MaxEventPayloadBytes caps a single event payload (C4).
@@ -65,6 +71,17 @@ type EngineConfig struct {
 	// skill_manage) as the only Skill surface. Mutation stays on
 	// skill_manage.
 	SkillBackend einoskill.Backend
+	// SkillSources are additional read-only Sources composed by SkillHost
+	// alongside the mutable first-party backend. They receive the live
+	// session/workspace identity from the Engine run context.
+	SkillSources []skillsource.Provider
+	// Optional host-owned Skill activation and authorization policy. Source
+	// metadata never supplies these decisions.
+	SkillActiveIDs        []string
+	SkillAuthorize        skillhost.AuthorizeFunc
+	SkillMaxBytes         int
+	SkillAlwaysSkillBytes int
+	SkillAlwaysTotalBytes int
 	// Compaction enables the Eino-native context compression middlewares
 	// (reduction + summarization). Nil keeps the legacy byte-truncation-only
 	// feed behavior.
@@ -139,9 +156,29 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	// that mixed read/write backend with the read-only SkillHost adapter so
 	// Eino List/Get and always-skill injection cannot bypass SkillHost.
 	if local, ok := cfg.SkillBackend.(*EinoSkillBackend); ok {
-		hosted, err := NewHostedSkillBackend(local)
+		hosted, err := newHostedSkillBackend(local, skillhost.Config{
+			ActiveIDs: cfg.SkillActiveIDs, Authorize: cfg.SkillAuthorize,
+			MaxSkillBytes:       cfg.SkillMaxBytes,
+			MaxAlwaysSkillBytes: cfg.SkillAlwaysSkillBytes,
+			MaxAlwaysTotalBytes: cfg.SkillAlwaysTotalBytes,
+		}, cfg.SkillSources...)
 		if err != nil {
 			return nil, fmt.Errorf("runtime: host skill backend: %w", err)
+		}
+		cfg.SkillBackend = hosted
+	} else if len(cfg.SkillSources) > 0 {
+		// A Generation may compile read-only Skill Sources even when the
+		// mutable local Skill store is disabled. Keep those providers behind
+		// the same SkillHost/Eino adapter instead of silently dropping the
+		// typed Assembly contribution.
+		hosted, err := newHostedSkillBackend(nil, skillhost.Config{
+			ActiveIDs: cfg.SkillActiveIDs, Authorize: cfg.SkillAuthorize,
+			MaxSkillBytes:       cfg.SkillMaxBytes,
+			MaxAlwaysSkillBytes: cfg.SkillAlwaysSkillBytes,
+			MaxAlwaysTotalBytes: cfg.SkillAlwaysTotalBytes,
+		}, cfg.SkillSources...)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: host generated skill sources: %w", err)
 		}
 		cfg.SkillBackend = hosted
 	}

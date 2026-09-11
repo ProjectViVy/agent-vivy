@@ -91,9 +91,6 @@ func bindToolWorlds(ctx context.Context, providers []toolworldport.Provider, gra
 			return nil, fmt.Errorf("app: duplicate ToolWorld provider %s", worldID)
 		}
 		seen[worldID] = true
-		if worldID == "mcp" {
-			continue
-		}
 		out = append(out, generatedWorldStage{
 			ctx:      ctx,
 			provider: provider,
