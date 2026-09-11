@@ -20,7 +20,7 @@ func TestGeneratedToolWorldInvokesThroughGrantedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := hellofs.NewProvider()
-	worldTools, err := bindToolWorlds(
+	staged, err := bindToolWorlds(
 		context.Background(),
 		[]toolworld.Provider{provider},
 		map[string][]module.GrantBinding{"vivy.hello-fs": {{Name: module.GrantFSRead}}},
@@ -30,10 +30,18 @@ func TestGeneratedToolWorldInvokesThroughGrantedHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(worldTools) != 1 || worldTools[0].Spec().Name != "hello_stat" {
-		t.Fatalf("generated ToolWorld tools = %#v", worldTools)
+	if len(staged) != 1 {
+		t.Fatalf("staged ToolWorld providers = %d, want 1", len(staged))
 	}
-	got, err := worldTools[0].InvokableRun(context.Background(), []byte(`{"path":"note.txt"}`))
+	registry, err := bindGeneratedTools(nil, tools.NewRegistry(staged...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worldTool, ok := registry.Lookup("hello_stat")
+	if !ok {
+		t.Fatal("ToolHost did not expose hello_stat")
+	}
+	got, err := worldTool.InvokableRun(context.Background(), []byte(`{"path":"note.txt"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

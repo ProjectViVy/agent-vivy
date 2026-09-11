@@ -82,7 +82,7 @@ Legend: ✅ aligned / 🟡 partially aligned / ❌ missing / ➖ not recommended
 | `fetch` / `web_search` | `http_request` / `network_search` | ✅ (stricter) | — |
 | `agentic_fetch` / `sourcegraph` | None | ➖ optional | VC-4 |
 | `lsp_*` ×8 + diagnostic feedback after editing | None | ❌ core to coding quality | VC-3 |
-| 2 MCP resources / direct `mcp_{server}_{tool}` tools | `mcp_list_tools` / `mcp_call` (approval + proposal, indirect call) | 🟡 | VC-4 |
+| 2 MCP resources / direct `mcp_{server}_{tool}` tools | `mcp_list_tools` catalog plus MCPHost → ToolWorld → ToolHost dynamic tools (former `mcp_call` indirect path retired in P4) | 🟡 | VC-4 |
 | `agent` (task subagent, child session + cost rollup) | Underlying child run exists, no model-visible tool | ❌ | VC-2 |
 | `crush_info` / `crush_logs` | Partial `tool_search`; no self-diagnostic tool | 🟡 low priority | VC-4 |
 

@@ -189,8 +189,7 @@ tools:
     - http_request  # GET/HEAD only; host allowlist and credential policy apply
     - web_fetch     # keyless public-page fetch (markdown/text/html); private/local addresses denied, output is untrusted and size-capped
     - download      # streams a public URL into the run workspace; always approval-gated, 100MB hard cap
-    - mcp_list_tools
-    - mcp_call       # always approval-gated with server/tool provenance
+    - mcp_list_tools # read-only catalog; discovered MCP tools enter ToolHost through the MCP ToolWorld
     - sequential_thinking
     - execute        # workspace-only, allowlisted process, always approval-gated
     - commandline    # argv-oriented alias with the same policy

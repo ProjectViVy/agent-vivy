@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -105,11 +106,104 @@ func mustMCPHelperWorkingDirectory() string {
 	return workingDirectory
 }
 
+func TestMCPBackendRejectsUnsafeNamesBeforeTrim(t *testing.T) {
+	rawName := " docs "
+	backend := NewMCPBackend([]MCPServerConfig{{Name: rawName, Endpoint: "https://docs.example.com/mcp"}}, nil)
+	t.Cleanup(func() { _ = backend.Close() })
+
+	if normalized := normalizeMCPServerConfig(MCPServerConfig{Name: rawName}); normalized.Name != rawName {
+		t.Fatalf("normalization aliased unsafe name: got %q, want %q", normalized.Name, rawName)
+	}
+	if configured := backend.ConfiguredServers(); len(configured) != 0 {
+		t.Fatalf("unsafe server entered live catalog: %+v", configured)
+	}
+	if _, err := backend.lookupServer(rawName); err == nil {
+		t.Fatal("unsafe lookup name unexpectedly resolved")
+	}
+}
+
+func TestMCPBackendStatusSnapshotKeepsUnconfiguredDisabledAndDeferredEntries(t *testing.T) {
+	disabled := false
+	backend := NewMCPBackend([]MCPServerConfig{
+		{Name: "unconfigured"},
+		{Name: "disabled", Endpoint: "https://disabled.example.invalid/mcp", AuthEnv: "MCP_DISABLED_AUTH", Enabled: &disabled},
+		{Name: "deferred", Endpoint: "https://deferred.example.invalid/mcp", DeferredReason: "OAuth is not configured"},
+	}, nil)
+	t.Cleanup(func() { _ = backend.Close() })
+
+	statuses := backend.ServerStatuses()
+	if len(statuses) != 3 {
+		t.Fatalf("status snapshot = %#v, want all saved entries", statuses)
+	}
+	states := make(map[string]MCPServerState, len(statuses))
+	for _, status := range statuses {
+		states[status.Name] = status.State
+		if status.Initialized {
+			t.Fatalf("status read initialized %q", status.Name)
+		}
+	}
+	want := map[string]MCPServerState{
+		"unconfigured": MCPStateUnconfigured,
+		"disabled":     MCPStateInactive,
+		"deferred":     MCPStateDeferred,
+	}
+	if !reflect.DeepEqual(states, want) {
+		t.Fatalf("status states = %#v, want %#v", states, want)
+	}
+	if configured := backend.ConfiguredServers(); len(configured) != 3 {
+		t.Fatalf("configured snapshot = %#v, want unconfigured entry retained", configured)
+	}
+}
+
+func TestMCPBackendDeferredAndDisabledOperationsNeverActivate(t *testing.T) {
+	server := newTestMCPServer(t, func(request testMCPRequest) testMCPResponse {
+		if request.Method == "initialize" {
+			return testMCPResponse{Result: initializeResult(map[string]any{
+				"resources": map[string]any{}, "prompts": map[string]any{}, "tools": map[string]any{},
+			})}
+		}
+		return testMCPResponse{Result: map[string]any{}}
+	})
+	disabled := false
+	backend := NewMCPBackend([]MCPServerConfig{
+		{Name: "deferred", Endpoint: server.http.URL, DeferredReason: "OAuth is not configured"},
+		{Name: "disabled", Endpoint: server.http.URL, Enabled: &disabled},
+	}, server.http.Client())
+	t.Cleanup(func() { _ = backend.Close() })
+
+	for _, name := range []string{"deferred", "disabled"} {
+		t.Run(name, func(t *testing.T) {
+			entry, err := backend.acquireServer(name)
+			if err == nil {
+				entry.release()
+				t.Fatal("acquire unexpectedly activated inactive MCP instance")
+			}
+			if _, err := backend.ListTools(context.Background(), "", name); err == nil {
+				t.Fatal("ListTools unexpectedly activated inactive MCP instance")
+			}
+			if _, err := backend.ListResources(context.Background(), "", name); err == nil {
+				t.Fatal("ListResources unexpectedly activated inactive MCP instance")
+			}
+			if _, err := backend.ListPrompts(context.Background(), "", name); err == nil {
+				t.Fatal("ListPrompts unexpectedly activated inactive MCP instance")
+			}
+			if _, err := backend.GetPrompt(context.Background(), "", tools.MCPGetPromptRequest{Server: name, Name: "review"}); err == nil {
+				t.Fatal("GetPrompt unexpectedly activated inactive MCP instance")
+			}
+		})
+	}
+	_, methods, _ := server.counts()
+	if len(methods) != 0 {
+		t.Fatalf("inactive MCP operations sent remote requests: %v", methods)
+	}
+}
+
 type testMCPRequest struct {
-	Method  string
-	ID      json.RawMessage
-	Params  map[string]any
-	Headers http.Header
+	Method    string
+	ID        json.RawMessage
+	Params    map[string]any
+	RawParams json.RawMessage
+	Headers   http.Header
 }
 
 type testMCPResponse struct {
@@ -155,15 +249,22 @@ func (s *testMCPServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var envelope struct {
-		Method string          `json:"method"`
-		ID     json.RawMessage `json:"id"`
-		Params map[string]any  `json:"params"`
+		Method    string          `json:"method"`
+		ID        json.RawMessage `json:"id"`
+		RawParams json.RawMessage `json:"params"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	req := testMCPRequest{Method: envelope.Method, ID: envelope.ID, Params: envelope.Params, Headers: r.Header.Clone()}
+	var params map[string]any
+	if len(envelope.RawParams) > 0 {
+		if err := json.Unmarshal(envelope.RawParams, &params); err != nil {
+			http.Error(w, "bad params", http.StatusBadRequest)
+			return
+		}
+	}
+	req := testMCPRequest{Method: envelope.Method, ID: envelope.ID, Params: params, RawParams: envelope.RawParams, Headers: r.Header.Clone()}
 	s.mu.Lock()
 	s.methods = append(s.methods, req.Method)
 	s.auth = append(s.auth, req.Headers.Get("Authorization"))
@@ -286,7 +387,7 @@ func TestMCPBackendStreamableHTTPAndEinoProjection(t *testing.T) {
 	if len(statuses) != 1 || !statuses[0].Initialized || statuses[0].Error != "" || statuses[0].ToolCount != 1 {
 		t.Fatalf("MCP status after listing = %+v", statuses)
 	}
-	called, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "local", Tool: "echo", Arguments: map[string]any{"text": "hi"}})
+	called, err := backend.hostCallTool(context.Background(), "local", "echo", map[string]any{"text": "hi"})
 	if err != nil {
 		t.Fatalf("call tool: %v", err)
 	}
@@ -527,7 +628,7 @@ func TestMCPBackendSessionRetryAndCallNoRetry(t *testing.T) {
 	if got := listCalls.Load(); got != 2 {
 		t.Fatalf("list calls = %d, want one failed + one retry", got)
 	}
-	if _, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "retry", Tool: "echo"}); err == nil {
+	if _, err := backend.hostCallTool(context.Background(), "retry", "echo", nil); err == nil {
 		t.Fatal("tools/call session failure must be returned")
 	}
 	if got := callCalls.Load(); got != 1 {
@@ -739,12 +840,12 @@ func TestMCPBackendBoundsPagesContentAndRepeatedCursor(t *testing.T) {
 		return testMCPResponse{NoBody: true}
 	})
 	bounded := large.backend(t, "large")
-	called, err := bounded.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "large", Tool: "big"})
+	called, err := bounded.hostCallTool(context.Background(), "large", "big", nil)
 	if err != nil || len(called.Content) != 1 || len(called.Content[0].Text) != maxMCPContentBytes-len(called.Content[0].Type) {
 		t.Fatalf("bounded call=%#v err=%v", called, err)
 	}
 	bounded.maxResponseBytes = 128
-	if _, err := bounded.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "large", Tool: "big"}); err == nil || !strings.Contains(err.Error(), "size limit") {
+	if _, err := bounded.hostCallTool(context.Background(), "large", "big", nil); err == nil || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("raw response bound error=%v", err)
 	}
 }
@@ -855,7 +956,7 @@ func TestMCPBackendMapsErrorsFiltersBrowserUseAndSortsServers(t *testing.T) {
 	if err != nil || len(listed.Tools) != 2 || listed.Tools[0].Server != "a" || listed.Tools[1].Server != "z" || listed.Tools[0].Name != "zeta" {
 		t.Fatalf("sorted/filter catalog=%#v err=%v", listed, err)
 	}
-	_, err = backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "a", Tool: "zeta"})
+	_, err = backend.hostCallTool(context.Background(), "a", "zeta", nil)
 	var remote *tools.MCPRemoteError
 	if !errors.As(err, &remote) || remote.Code != -32602 {
 		t.Fatalf("remote error=%T %v", err, err)
@@ -885,7 +986,7 @@ func TestMCPBackendStdioLazyProjectionAndCall(t *testing.T) {
 	if count, _ := os.ReadFile(marker); string(count) != "1" {
 		t.Fatalf("stdio spawn count=%q, want 1", count)
 	}
-	called, err := backend.CallTool(context.Background(), "", tools.MCPCallRequest{Server: "local", Tool: "echo", Arguments: map[string]any{"text": "hi"}})
+	called, err := backend.hostCallTool(context.Background(), "local", "echo", map[string]any{"text": "hi"})
 	if err != nil || len(called.Content) != 1 || called.Content[0].Text != "stdio output" {
 		t.Fatalf("stdio call=%#v err=%v", called, err)
 	}

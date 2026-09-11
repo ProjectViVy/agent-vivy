@@ -134,9 +134,11 @@ This is an intentional thin boundary: the Eino component currently covers only
 tools and converts `CallToolResult.IsError` to a Go error; Vivy must retain
 `isError`, resources, prompts, and typed lifecycle semantics, so those paths still
 use the same mcp-go client. Eino tools are used only for catalog/schema
-projection and are never mounted directly on the model; actual calls still use
-the `mcp_list_tools`/`mcp_call` and `PrepareMCPCall` approval paths. Vivy continues
-to own configuration hot reload, provenance, untrusted/fail-closed projection,
+projection and are never mounted directly on the model; `mcp_list_tools` remains
+a read-only control-plane catalog, while remote calls use MCPHost's ToolWorld
+through the standard ToolHost governance path. The former model-visible
+`mcp_call`/`PrepareMCPCall` approval path is a historical pre-P4 detail, not a
+current model surface. Vivy continues to own configuration hot reload, provenance, untrusted/fail-closed projection,
 the 8s operation timeout, the 512KiB raw-response guard, the 256KiB
 content/catalog budget, 32-page and duplicate-cursor bounds, browser-use
 filtering, and client close on removal/replacement/application shutdown.

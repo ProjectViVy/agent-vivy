@@ -2,17 +2,46 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 
+	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
+	"agent-vivy/sdk/port/contextsource"
 )
+
+type runtimeContextFixtureSource struct{}
+
+func (runtimeContextFixtureSource) ID() string { return "fixture.docs" }
+func (runtimeContextFixtureSource) Query(context.Context, contextsource.Request) (contextsource.Page, error) {
+	return contextsource.NewPage([]contextsource.Candidate{{
+		SourceID: "fixture.docs", ContentID: "guide", MediaType: "text/plain", Content: "generic source body", Confidence: 0.8,
+	}}, ""), nil
+}
+
+type workspaceRecordingSource struct {
+	workspaceID chan string
+}
+
+func (source workspaceRecordingSource) ID() string { return "fixture.workspace" }
+func (source workspaceRecordingSource) Query(_ context.Context, request contextsource.Request) (contextsource.Page, error) {
+	source.workspaceID <- request.WorkspaceID
+	return contextsource.NewPage(nil, ""), nil
+}
+
+type fixedWorkspaceAllocator struct{}
+
+func (fixedWorkspaceAllocator) Ensure(context.Context, domain.RunID) (Workspace, error) {
+	return Workspace{ID: "workspace-actual", Path: "/workspace/actual"}, nil
+}
 
 func TestBuildRunContextKeepsCurrentAndRecentHistory(t *testing.T) {
 	stored := []domain.Message{
@@ -155,6 +184,90 @@ func TestServiceContextBudgetFailureIsTerminal(t *testing.T) {
 	}
 }
 
+func TestServiceRunProjectsGenericContextHostIntoModelInput(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatalf("resolve tools: %v", err)
+	}
+	contextHost, err := contexthost.New(contexthost.Config{Sources: []contextsource.Provider{runtimeContextFixtureSource{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("ok", nil))}
+	eng, err := NewEngine(ctx, recorder, ts, EngineConfig{
+		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Truncations: backend,
+	})
+	runID, err := svc.Run(ctx, "sess-context-host", "find docs")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	input := recorder.lastInput()
+	found := false
+	for _, message := range input {
+		for _, part := range message.UserInputMultiContent {
+			if strings.Contains(part.Text, "generic source body") && strings.Contains(part.Text, "fixture.docs/guide") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("generic ContextHost candidate did not reach model input: %+v", input)
+	}
+}
+
+func TestServiceRunPassesEnsuredWorkspaceIdentityToContextHost(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID := make(chan string, 1)
+	contextHost, err := contexthost.New(contexthost.Config{Sources: []contextsource.Provider{workspaceRecordingSource{workspaceID: workspaceID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(ctx, &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("ok", nil))}, ts, EngineConfig{
+		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(eng, "test", "test-model", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Sink: newTestSink(), Workspaces: fixedWorkspaceAllocator{},
+	})
+	runID, err := svc.Run(ctx, "sess-workspace", "workspace")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	select {
+	case got := <-workspaceID:
+		if got != "workspace-actual" {
+			t.Fatalf("ContextHost workspace id = %q, want ensured identity", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ContextHost did not receive a workspace request")
+	}
+}
+
 func TestBuildRunContextProjectsImageAttachments(t *testing.T) {
 	stored := []domain.Message{
 		{Role: domain.RoleUser, Content: "earlier", Attachments: []domain.Attachment{
@@ -223,5 +336,22 @@ func TestBuildRunContextProjectsFileContextSnapshotsAsText(t *testing.T) {
 	}
 	if stats.Bytes < len(body) {
 		t.Fatalf("file snapshot omitted from context budget: %+v", stats)
+	}
+}
+
+func TestBuildRunContextRejectsFileProjectionBeyondFinalBudget(t *testing.T) {
+	body := []byte("package main\n")
+	stored := []domain.Message{{
+		Role: domain.RoleUser, Content: "inspect",
+		FileContexts: []domain.FileContext{{Path: "main.go", Name: "main.go", Size: int64(len(body)), Content: body}},
+	}}
+	full, _, err := buildRunContext(ContextPolicy{}, "preamble", stored, "inspect")
+	if err != nil {
+		t.Fatalf("unbounded context: %v", err)
+	}
+	budget := projectedContextBytes(full) - 1
+	_, _, err = buildRunContextWithContext(context.Background(), nil, ContextPolicy{MaxBytes: budget}, "preamble", stored, "inspect")
+	if !errors.Is(err, ErrContextBudgetExceeded) {
+		t.Fatalf("file projection error = %v, want final context budget rejection", err)
 	}
 }
