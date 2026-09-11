@@ -7,6 +7,7 @@ import (
 
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
+	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 )
 
@@ -35,11 +36,12 @@ type ModelResolver struct {
 	cfg     config.Config
 	path    string
 	catalog *provider.Catalog
+	host    *modelhost.Host
 	frozen  *ResolvedModel
 }
 
-func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog) *ModelResolver {
-	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog}
+func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog, host *modelhost.Host) *ModelResolver {
+	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog, host: host}
 	if frozen, ok := freezeFromEnv(cfg, catalog); ok {
 		r.frozen = &frozen
 	}
@@ -105,7 +107,13 @@ func (r *ModelResolver) Current() ResolvedModel {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.currentLocked()
+	current := r.currentLocked()
+	if current.Provider != "" && r.host != nil {
+		if _, err := r.host.ResolveExecutable(current.Provider); err != nil {
+			current.Ready = false
+		}
+	}
+	return current
 }
 
 func (r *ModelResolver) currentLocked() ResolvedModel {

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-func TestP1P2EvidenceReferencesRepositoryFiles(t *testing.T) {
-	for portID, evidence := range P1P2PortEvidence() {
+func TestSupportedPortEvidenceReferencesRepositoryFiles(t *testing.T) {
+	for portID, evidence := range SupportedPortEvidence() {
 		for _, reference := range evidence.References {
 			path, _, ok := strings.Cut(reference.ID, "#")
 			if !ok || path == "" {

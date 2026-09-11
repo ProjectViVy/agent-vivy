@@ -7,6 +7,9 @@
 // 选择条目时映射为 (bundle, baseUrl, defaultModel) 三元组，模型 id 始终为
 // 原始 id（不携带网关前缀）。
 
+import type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
+export type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
+
 export type ProviderRuntimeBundle = 'openai' | 'anthropic';
 
 export type ProviderCatalogEntry = {
@@ -22,6 +25,45 @@ export type ProviderCatalogEntry = {
   /** 静态模型列表（原始模型 id） */
   models: string[];
 };
+
+export type ProjectedProviderCatalogEntry = ProviderCatalogEntry & {
+  capabilityState?: ProviderCapabilityState;
+  executable: boolean;
+};
+
+const EXECUTABLE_STATES: ReadonlySet<ProviderCapabilityState> = new Set([
+  'COMPILED', 'UNCONFIGURED', 'READY',
+]);
+
+export function isProviderExecutable(
+  bundle: string,
+  profiles: readonly ProviderProfileStatus[] | undefined,
+): boolean {
+  if (!profiles?.length) return true;
+  const profile = profiles.find((candidate) => candidate.id === bundle);
+  return !!profile && EXECUTABLE_STATES.has(profile.state);
+}
+
+/** Overlay a vendor row with the capability of its compiled runtime bundle. */
+export function projectProviderEntry(
+  entry: ProviderCatalogEntry,
+  profiles: readonly ProviderProfileStatus[],
+): ProjectedProviderCatalogEntry {
+  const profile = profiles.find((candidate) => candidate.id === entry.bundle);
+  // Preserve compatibility while an older backend has no Profile status
+  // field; current Generations always provide the authoritative list.
+  return {
+    ...entry,
+    capabilityState: profile?.state,
+    executable: isProviderExecutable(entry.bundle, profiles),
+  };
+}
+
+/** Build the settings selection only for an executable Profile. */
+export function providerSelection(entry: ProjectedProviderCatalogEntry, model: string) {
+  if (!entry.executable) return undefined;
+  return { provider: entry.bundle, base_url: entry.baseUrl, default_model: model };
+}
 
 export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
   { name: 'openrouter', displayName: 'OpenRouter', bundle: 'openai', baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'anthropic/claude-sonnet-4', models: [

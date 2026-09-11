@@ -46,7 +46,7 @@ func main() {
 	must(err)
 	records := make([]assemblyv1.SourceRecord, 0, len(internal)+5)
 	for _, r := range internal {
-		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(root, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection}})
+		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(root, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
 	}
 	externals := []extern{{dingtalk.New().Descriptor(), "plugins/dingtalk", "example.com/vivy/plugins/dingtalk", "dingtalk"}, {discord.New().Descriptor(), "plugins/discord", "example.com/vivy/plugins/discord", "discord"}, {feishu.New().Descriptor(), "plugins/feishu", "example.com/vivy/plugins/feishu", "feishu"}, {qq.New().Descriptor(), "plugins/qq", "example.com/vivy/plugins/qq", "qq"}, {telegram.New().Descriptor(), "plugins/telegram", "example.com/vivy/plugins/telegram", "telegram"}}
 	for _, e := range externals {
@@ -54,7 +54,7 @@ func main() {
 	}
 	catalog, err := assemblyv1.NewSourceCatalog(records)
 	must(err)
-	evidence := assemblyv1.P1P2PortEvidence()
+	evidence := assemblyv1.SupportedPortEvidence()
 	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence}).Compile(context.Background(), recipe)
 	must(err)
 	generated, err := assemblyv1.GenerateRuntimeAssembly(plan, "assembly")

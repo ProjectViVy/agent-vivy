@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 
+	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 )
@@ -49,6 +51,9 @@ type ArgError struct {
 // Individual tools may apply narrower domain validation afterwards, but an
 // invalid shape never reaches a side effect.
 func ValidateArgs(spec domain.ToolSpec, args json.RawMessage) error {
+	if len(bytes.TrimSpace(spec.Schema)) > 0 {
+		return validateJSONSchema(spec.Schema, args)
+	}
 	trimmed := bytes.TrimSpace(args)
 	if len(trimmed) == 0 && len(spec.Params) == 0 {
 		return nil
@@ -88,6 +93,41 @@ func ValidateArgs(spec domain.ToolSpec, args json.RawMessage) error {
 		}
 	}
 	return nil
+}
+
+// ValidateSchema compiles one provider JSON Schema without validating an
+// instance. Callers use it at registration/discovery boundaries so malformed
+// remote contracts fail closed before they enter the model-visible catalog.
+func ValidateSchema(rawSchema json.RawMessage) error {
+	_, err := compileJSONSchema(rawSchema)
+	return err
+}
+
+func validateJSONSchema(rawSchema, rawInstance json.RawMessage) error {
+	compiled, err := compileJSONSchema(rawSchema)
+	if err != nil {
+		return &ArgError{Field: "schema", Reason: "is invalid JSON Schema"}
+	}
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(bytes.TrimSpace(rawInstance)))
+	if err != nil {
+		return &ArgError{Field: "args", Reason: fmt.Sprintf("must be valid JSON: %v", err)}
+	}
+	if err := compiled.Validate(instance); err != nil {
+		return &ArgError{Field: "args", Reason: fmt.Sprintf("does not satisfy the JSON Schema: %v", err)}
+	}
+	return nil
+}
+
+func compileJSONSchema(rawSchema json.RawMessage) (*jsonschema.Schema, error) {
+	schemaDocument, err := jsonschema.UnmarshalJSON(bytes.NewReader(rawSchema))
+	if err != nil {
+		return nil, err
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("vivy-tool-schema.json", schemaDocument); err != nil {
+		return nil, err
+	}
+	return compiler.Compile("vivy-tool-schema.json")
 }
 
 func validateParamJSON(value json.RawMessage, paramType string) error {
@@ -282,7 +322,7 @@ func BuiltinWithHTTP(notes storage.NoteStore, files FileOperations, skills Skill
 	return BuiltinWithMCP(notes, files, skills, todos, search, httpOps, nil)
 }
 
-// BuiltinWithMCP adds the MCP catalog and approval-gated call surface.
+// BuiltinWithMCP adds the MCP catalog listing surface.
 func BuiltinWithMCP(notes storage.NoteStore, files FileOperations, skills SkillOperations, todos TodoOperations, search SearchOperations, httpOps HTTPOperations, mcpOps MCPOperations) *Registry {
 	return BuiltinWithSequential(notes, files, skills, todos, search, httpOps, mcpOps, nil)
 }
@@ -332,7 +372,9 @@ func builtinWithWeb(notes storage.NoteStore, files FileOperations, skills SkillO
 		registered = append(registered, NewAgent(agentOps))
 	}
 	if mcpOps != nil {
-		registered = append(registered, NewMCPListTools(mcpOps), NewMCPCall(mcpOps))
+		// MCP tools are projected through the generated MCP ToolWorld and the
+		// sole ToolHost. Keep only the catalog listing for the control plane.
+		registered = append(registered, NewMCPListTools(mcpOps))
 	}
 	if sequential != nil {
 		registered = append(registered, NewSequentialThinking(sequential))

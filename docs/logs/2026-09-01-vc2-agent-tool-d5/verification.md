@@ -1,5 +1,9 @@
 # Verification record
 
+> Historical verification snapshot (2026-09-01). The retained `mcp_call`
+> wording describes the then-current read-only filtering test; it is not a
+> current model-visible API claim after PLG-P4 closure on 2026-09-11.
+
 Date: 2026-09-01 | Environment: Windows (worktree `agent-vivy-vc0`, branch
 `feat/vc1a-bash-tool`)
 

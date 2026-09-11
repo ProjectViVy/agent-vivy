@@ -12,6 +12,7 @@ import { useVivyStore } from '@/lib/store';
 import { savedModelVendorLabel, useSavedModels, type SavedModelEntry } from './saved-models';
 import type { ProviderEntry } from './custom-providers';
 import { useTranslation } from '@/i18n';
+import { isProviderExecutable } from './provider-catalog';
 
 /** 模型运行三元组键（provider/baseUrl/model），与顶栏/模型配置卡同口径。 */
 function modelKey(entry: Pick<SavedModelEntry, 'provider' | 'baseUrl' | 'model'>): string {
@@ -41,7 +42,7 @@ export function GenerationParamsCard() {
         : null;
     if (current) merged.set(modelKey(current), current);
     for (const entry of savedModels) merged.set(modelKey(entry), entry);
-    return [...merged.values()];
+    return [...merged.values()].filter((entry) => isProviderExecutable(entry.provider, settings?.provider_profiles));
   }, [savedModels, settings]);
 
   const [selectedKey, setSelectedKey] = useState('');

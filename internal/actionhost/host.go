@@ -1074,19 +1074,19 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 		// Provider completed before the deadline.
 	case <-requestCtx.Done():
 		host.untrackInvocation(token)
-		outcome, public := contextPublicError(host, ctx, requestCtx)
+		outcome, public := contextPublicError(host, ctx, requestCtx, invocationCtx)
 		return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, outcome, public, started)
 	case <-invocationCtx.Done():
 		host.untrackInvocation(token)
 		if host.isClosed() {
 			return nil, host.completionAudit(context.WithoutCancel(ctx), &registered, &identity, actionID, input, nil, AuditOutcomeCancelled, action.ErrHostClosed, started)
 		}
-		outcome, public := contextPublicError(host, ctx, requestCtx)
+		outcome, public := contextPublicError(host, ctx, requestCtx, invocationCtx)
 		return nil, host.completionAudit(context.WithoutCancel(ctx), &registered, &identity, actionID, input, nil, outcome, public, started)
 	}
 	host.untrackInvocation(token)
 	if err := invocationCtx.Err(); err != nil {
-		outcome, public := contextPublicError(host, ctx, requestCtx)
+		outcome, public := contextPublicError(host, ctx, requestCtx, invocationCtx)
 		return nil, host.completionAudit(context.WithoutCancel(ctx), &registered, &identity, actionID, input, nil, outcome, public, started)
 	}
 	if host.isClosed() {
@@ -1105,11 +1105,13 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 		if errors.Is(providerOut.err, action.ErrGrantDenied) {
 			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeDenied, action.ErrGrantDenied, started)
 		}
-		if errors.Is(providerOut.err, context.Canceled) && invocationCtx.Err() != nil {
-			return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeCancelled, context.Canceled, started)
-		}
-		if errors.Is(providerOut.err, context.DeadlineExceeded) && invocationCtx.Err() != nil {
-			return nil, host.completionAudit(context.WithoutCancel(ctx), &registered, &identity, actionID, input, nil, AuditOutcomeTimedOut, action.ErrActionTimeout, started)
+		if (errors.Is(providerOut.err, context.Canceled) || errors.Is(providerOut.err, context.DeadlineExceeded)) && invocationCtx.Err() != nil {
+			outcome, public := contextPublicError(host, ctx, requestCtx, invocationCtx)
+			auditCtx := ctx
+			if outcome == AuditOutcomeTimedOut {
+				auditCtx = context.WithoutCancel(ctx)
+			}
+			return nil, host.completionAudit(auditCtx, &registered, &identity, actionID, input, nil, outcome, public, started)
 		}
 		return nil, host.completionAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeFailed, action.ErrProviderFailed, started)
 	}
@@ -1248,7 +1250,7 @@ func (host *Host) release() {
 	}
 }
 
-func contextPublicError(host *Host, callerCtx, requestCtx context.Context) (AuditOutcome, error) {
+func contextPublicError(host *Host, callerCtx, requestCtx, invocationCtx context.Context) (AuditOutcome, error) {
 	if host.isClosed() {
 		return AuditOutcomeCancelled, action.ErrHostClosed
 	}
@@ -1256,6 +1258,9 @@ func contextPublicError(host *Host, callerCtx, requestCtx context.Context) (Audi
 		return AuditOutcomeCancelled, context.Canceled
 	}
 	if requestCtx != nil && errors.Is(requestCtx.Err(), context.DeadlineExceeded) {
+		return AuditOutcomeTimedOut, action.ErrActionTimeout
+	}
+	if invocationCtx != nil && errors.Is(invocationCtx.Err(), context.DeadlineExceeded) {
 		return AuditOutcomeTimedOut, action.ErrActionTimeout
 	}
 	return AuditOutcomeCancelled, context.Canceled

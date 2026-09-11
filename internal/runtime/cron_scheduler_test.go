@@ -60,6 +60,19 @@ func waitCronState(t *testing.T, store storage.CronStore, id string, want func(d
 	return domain.CronJob{}
 }
 
+func waitCronRunCleared(t *testing.T, svc *Service, jobID string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, running := svc.ActiveCronRun(jobID); !running {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot, _ := svc.ActiveCronRun(jobID)
+	t.Fatalf("cron job %s active run was not cleared; last = %+v", jobID, snapshot)
+}
+
 func createTestJob(t *testing.T, store storage.CronStore, mutate func(*domain.CronJob)) domain.CronJob {
 	t.Helper()
 	job := domain.CronJob{
@@ -143,9 +156,7 @@ func TestCronTriggerManualConflictAndDisabledJob(t *testing.T) {
 	if settled.State.LastRunAtMs < started {
 		t.Fatalf("last_run_at_ms before trigger: %+v", settled)
 	}
-	if _, running := svc.ActiveCronRun(job.ID); running {
-		t.Fatal("active run not cleared after settle")
-	}
+	waitCronRunCleared(t, svc, job.ID)
 }
 
 func TestCronStopCancelsActiveRun(t *testing.T) {

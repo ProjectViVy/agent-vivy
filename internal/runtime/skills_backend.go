@@ -353,6 +353,29 @@ func (b *EinoSkillBackend) loadSkills(ctx context.Context) ([]loadedSkill, error
 	return out, nil
 }
 
+// loadSkillsAll preserves every first-party overlay entry for the read-only
+// Skill Source adapter. The mutable/CAS backend keeps its historical
+// closer-first behavior in loadSkills, while SkillHost must see duplicates
+// so it can reject or resolve conflicts under host policy rather than letting
+// a source silently claim ownership.
+func (b *EinoSkillBackend) loadSkillsAll(ctx context.Context) ([]loadedSkill, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(b.root, 0o700); err != nil {
+		return nil, fmt.Errorf("skills: create root: %w", err)
+	}
+	var out []loadedSkill
+	for _, root := range b.scanRoots() {
+		items, err := b.loadRoot(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	return out, nil
+}
+
 func (b *EinoSkillBackend) loadRoot(ctx context.Context, root skillRoot) ([]loadedSkill, error) {
 	entries, err := os.ReadDir(root.path)
 	if err != nil {

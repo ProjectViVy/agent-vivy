@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -82,6 +83,51 @@ func TestToolAdapterValidatesSchemaBeforeInvocation(t *testing.T) {
 	}
 	if tool.calls != 0 {
 		t.Fatalf("invalid argument calls = %d, want zero", tool.calls)
+	}
+}
+
+type rawSchemaTool struct{ schema json.RawMessage }
+
+func (tool rawSchemaTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{Name: "raw_schema", Readonly: true, Schema: append(json.RawMessage(nil), tool.schema...)}
+}
+
+func (rawSchemaTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	return "ok", nil
+}
+
+func TestToolAdapterInfoPreservesUnsupportedJSONSchemaKeywords(t *testing.T) {
+	const raw = `{
+		"$schema":"https://json-schema.org/draft/2020-12/schema",
+		"type":"object",
+		"properties":{"value":{"type":"integer","minimum":9007199254740993}},
+		"required":["value"],
+		"unevaluatedProperties":false
+	}`
+	info, err := newToolAdapter(rawSchemaTool{schema: json.RawMessage(raw)}, 0, nil, nil, nil).Info(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ParamsOneOf == nil {
+		t.Fatal("raw schema tool lost ParamsOneOf")
+	}
+	schema, err := info.ParamsOneOf.ToJSONSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotValue, wantValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(raw), &wantValue); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("Eino model schema lost fields\n got: %s\nwant: %s", got, raw)
 	}
 }
 

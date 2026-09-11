@@ -220,7 +220,7 @@ type Provider interface {
 - [x] Assert it changes global UI and calls its Action through the one RPC.
 - [x] Assert a forged approval still fails server-side.
 - [x] Assert no permission dialog or UI Grant appears in Inspect.
-- [ ] Run the split development pair and Playwright test at
+- [x] Run the split development pair and Playwright test at
   `http://127.0.0.1:3015`.
 - [x] Commit `test(ui): prove unrestricted ui module composition`.
 
@@ -240,14 +240,13 @@ type Provider interface {
 - [x] Cover duplicate/missing Provider, order conflict, build failure, runtime
   install failure, cleanup, hash provenance, Action failure, and omission.
 - [x] Build/inspect all four fixture Generations.
-- [ ] Run UI unit, typecheck, build, Playwright smoke, and `just ci`.
+- [x] Run UI unit, typecheck, build, Playwright smoke, and `just ci`.
 - [x] Commit `test(ui): prove full ui module conformance`.
 
 The focused unit/typecheck and hermetic Go fixture checks are complete. The
-split-pair Playwright smoke and repository `just ci` remain deferred in this
-runner because the required development pair/`just` tool are unavailable;
-those are release-conformance inputs for PLG-P9 and are not claimed by this
-P6 implementation status.
+split-pair Playwright smoke and repository `just ci` also passed on Windows
+during PR #20 integration on 2026-09-11. PLG-P9 remains a separate,
+unscheduled release-conformance phase.
 
 Final review corrections are complete: Pack embeds the selected Vite output,
 source/lock/dependency/output provenance is compiler-bound, WebSocket action

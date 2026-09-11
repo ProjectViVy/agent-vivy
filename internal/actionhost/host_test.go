@@ -357,6 +357,17 @@ func TestActionHostTimeoutAndCancellation(t *testing.T) {
 	if !errors.Is(err, ErrActionTimeout) {
 		t.Fatalf("timeout error = %v, want ErrActionTimeout", err)
 	}
+	definition.Timeout = time.Millisecond
+	deps = readyDeps(providerFunc{definition: definition, invoke: provider.invoke})
+	deps.Timeout = time.Second
+	host, err = New(deps)
+	if err != nil {
+		t.Fatalf("New(action timeout) error = %v", err)
+	}
+	_, err = host.Invoke(context.Background(), readyCaller(), testModule, definition.ID, json.RawMessage(`{"value":"x"}`))
+	if !errors.Is(err, ErrActionTimeout) {
+		t.Fatalf("action timeout error = %v, want ErrActionTimeout", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = host.Invoke(ctx, readyCaller(), testModule, definition.ID, json.RawMessage(`{"value":"x"}`))

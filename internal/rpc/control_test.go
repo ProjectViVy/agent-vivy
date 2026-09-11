@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"agent-vivy/internal/eval"
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -1367,6 +1370,7 @@ type mcpCatalogStub struct {
 	promptErr     error
 	promptRequest tools.MCPGetPromptRequest
 	replaced      []runtime.MCPServerConfig
+	listCalls     int
 }
 
 type mcpStatusCatalogStub struct {
@@ -1388,6 +1392,7 @@ func (s *mcpCatalogStub) GetPrompt(_ context.Context, _ domain.RunID, request to
 }
 
 func (s *mcpCatalogStub) ListTools(context.Context, domain.RunID, string) (tools.MCPListResponse, error) {
+	s.listCalls++
 	return s.listed, s.listErr
 }
 
@@ -1497,6 +1502,76 @@ func TestToolsCatalogListAndSetActive(t *testing.T) {
 	}
 }
 
+func TestToolsCatalogLiveSnapshotStaysWholeDuringConcurrentRefresh(t *testing.T) {
+	var snapshots atomic.Value
+	first := []domain.ToolSpec{{Name: "mcp.docs.first", Description: "first", Readonly: true}}
+	second := []domain.ToolSpec{{Name: "mcp.docs.second", Description: "second", Readonly: false}}
+	snapshots.Store(first)
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.ConfigToolsEnabled = []string{"mcp.docs.first"}
+		deps.ToolCatalogLive = func() []domain.ToolSpec {
+			catalog := snapshots.Load().([]domain.ToolSpec)
+			return append([]domain.ToolSpec(nil), catalog...)
+		}
+	})
+
+	var failures atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		for index := 0; index < 500; index++ {
+			if index%2 == 0 {
+				snapshots.Store(first)
+			} else {
+				snapshots.Store(second)
+			}
+		}
+		close(done)
+	}()
+	for index := 0; index < 500; index++ {
+		listed, rpcErr := callControl(t, env.handler, "tools/list", nil)
+		if rpcErr != nil {
+			failures.Add(1)
+			continue
+		}
+		view, ok := listed.(toolsCatalogView)
+		if !ok || len(view.Tools) != 1 || (view.Tools[0].Name != "mcp.docs.first" && view.Tools[0].Name != "mcp.docs.second") {
+			failures.Add(1)
+		}
+	}
+	<-done
+	if failures.Load() != 0 {
+		t.Fatalf("live catalog refresh failures=%d", failures.Load())
+	}
+}
+
+func TestToolsCatalogDropsStaleMCPSelectionWithoutCurrentProjection(t *testing.T) {
+	catalog := []domain.ToolSpec{{Name: tools.EchoInfoName, Description: "echo", Readonly: true}}
+	settingsPath := filepath.Join(t.TempDir(), "settings.yaml")
+	env := newControlTestEnv(t, func(deps *ControlDeps) {
+		deps.ConfigToolsEnabled = []string{"mcp.docs.retired", tools.EchoInfoName}
+		deps.SettingsPath = settingsPath
+		deps.ToolCatalogLive = func() []domain.ToolSpec {
+			// The failed live MCP rebuild has fail-closed the current catalog;
+			// no projection for docs exists in this snapshot.
+			return append([]domain.ToolSpec(nil), catalog...)
+		}
+	})
+	if _, err := settings.Save(settingsPath, settings.Settings{ToolsEnabled: &[]string{"mcp.docs.retired", tools.EchoInfoName}}); err != nil {
+		t.Fatal(err)
+	}
+	listed, rpcErr := callControl(t, env.handler, "tools/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := listed.(toolsCatalogView)
+	if slices.Contains(view.Active, "mcp.docs.retired") || slices.Contains(view.ConfigEnabled, "mcp.docs.retired") {
+		t.Fatalf("stale MCP selection leaked into list view: %+v", view)
+	}
+	if len(view.Active) != 1 || view.Active[0] != tools.EchoInfoName || len(view.ConfigEnabled) != 1 || view.ConfigEnabled[0] != tools.EchoInfoName {
+		t.Fatalf("non-MCP selection was not preserved: %+v", view)
+	}
+}
+
 func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rpc.db"))
@@ -1554,6 +1629,13 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	if changes != 1 {
 		t.Fatalf("OnSettingsChanged calls = %d, want 1", changes)
 	}
+	for _, unsafeName := range []string{" docs", "docs ", " docs "} {
+		if _, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
+			"name": unsafeName, "endpoint": "https://alias.example.com/mcp",
+		}); rpcErr == nil || rpcErr.Code != InvalidParams {
+			t.Fatalf("unsafe MCP name %q upsert error = %v, want invalid params", unsafeName, rpcErr)
+		}
+	}
 
 	stdio, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
 		"name": "local", "transport": "stdio", "command": "node",
@@ -1575,6 +1657,17 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 		"name": "bad", "endpoint": "ftp://example.com/mcp",
 	}); rpcErr == nil || rpcErr.Code != InvalidParams {
 		t.Fatalf("expected invalid endpoint, got %v", rpcErr)
+	}
+	for _, endpoint := range []string{
+		"https://user:password@example.com/mcp",
+		"https://example.com/mcp?api_key=secret",
+		"https://example.com/mcp?access_token=secret",
+	} {
+		if _, rpcErr := callControl(t, handler, "settings/mcp/upsert", map[string]any{
+			"name": "bad", "endpoint": endpoint,
+		}); rpcErr == nil || rpcErr.Code != InvalidParams || strings.Contains(rpcErr.Message, "secret") || strings.Contains(rpcErr.Message, "password") {
+			t.Fatalf("credential-bearing endpoint %q validation = %v", endpoint, rpcErr)
+		}
 	}
 
 	ro, err := NewControlHandler(ControlDeps{
@@ -1736,6 +1829,105 @@ func TestMCPSettingsProjectsStdioTransportAndMissingChildEnv(t *testing.T) {
 	encoded, _ := json.Marshal(entry)
 	if strings.Contains(string(encoded), "resolved-secret-value") {
 		t.Fatalf("browser-facing MCP result leaked resolved env value: %s", encoded)
+	}
+}
+
+func TestMCPSettingsProjectsCompleteSnapshotStatesWithoutActivation(t *testing.T) {
+	base := &mcpCatalogStub{}
+	catalog := &mcpStatusCatalogStub{
+		mcpCatalogStub: base,
+		statuses: []runtime.MCPServerStatus{
+			{Name: "ready", Transport: "http", State: runtime.MCPStateReady, Initialized: true, ToolCount: 2},
+			{Name: "unavailable", Transport: "http", State: runtime.MCPStateUnavailable, Error: "remote unavailable", ToolCount: -1},
+			{Name: "deferred", Transport: "http", State: runtime.MCPStateDeferred, DeferredReason: "oauth is disabled", ToolCount: -1},
+			{Name: "inactive", Transport: "http", State: runtime.MCPStateInactive, Error: "auth is missing", AuthMissing: true, ToolCount: -1},
+			{Name: "disabled-deferred", Transport: "http", State: runtime.MCPStateDeferred, DeferredReason: "oauth is disabled", ToolCount: -1},
+		},
+	}
+	compiled := true
+	env, settingsPath := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.MCP = catalog
+		deps.MCPCompiled = &compiled
+	})
+	list := []settings.MCPServer{
+		{Name: "ready", Endpoint: "https://ready.example.com/mcp"},
+		{Name: "unavailable", Endpoint: "https://unavailable.example.com/mcp"},
+		{Name: "deferred", Endpoint: "https://deferred.example.com/mcp", DeferredReason: "oauth is disabled"},
+		{Name: "inactive", Endpoint: "https://inactive.example.com/mcp", Enabled: settings.BoolPtr(false)},
+		{Name: "disabled-deferred", Endpoint: "https://disabled-deferred.example.com/mcp", DeferredReason: "oauth is disabled", Enabled: settings.BoolPtr(false)},
+	}
+	if _, err := settings.Save(settingsPath, settings.Settings{MCPServers: &list}); err != nil {
+		t.Fatal(err)
+	}
+	result, rpcErr := callControl(t, env.handler, "settings/mcp", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(mcpListResult)
+	states := make(map[string]string, len(view.Servers))
+	for _, server := range view.Servers {
+		states[server.Name] = server.State
+	}
+	want := map[string]string{
+		"ready":             string(runtime.MCPStateReady),
+		"unavailable":       string(runtime.MCPStateUnavailable),
+		"deferred":          string(runtime.MCPStateDeferred),
+		"inactive":          string(runtime.MCPStateInactive),
+		"disabled-deferred": string(runtime.MCPStateInactive),
+	}
+	if !reflect.DeepEqual(states, want) {
+		t.Fatalf("MCP states = %#v, want %#v", states, want)
+	}
+	for _, server := range view.Servers {
+		if server.Name == "deferred" && server.DeferredReason != "oauth is disabled" {
+			t.Fatalf("deferred reason was not projected: %+v", server)
+		}
+	}
+	if base.listCalls != 0 {
+		t.Fatalf("snapshot listing activated MCP %d times", base.listCalls)
+	}
+	deferredResult, rpcErr := callControl(t, env.handler, "settings/mcp/probe", map[string]any{"name": "deferred"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if view := deferredResult.(mcpServerResult); view.State != string(runtime.MCPStateDeferred) {
+		t.Fatalf("deferred probe state = %+v", view)
+	}
+	disabledDeferredResult, rpcErr := callControl(t, env.handler, "settings/mcp/probe", map[string]any{"name": "disabled-deferred"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if view := disabledDeferredResult.(mcpServerResult); view.State != string(runtime.MCPStateInactive) {
+		t.Fatalf("disabled deferred probe state = %+v", view)
+	}
+	if base.listCalls != 0 {
+		t.Fatalf("deferred/disabled probe activated MCP %d times", base.listCalls)
+	}
+	if got := toMCPServerResult(settings.MCPServer{Name: "empty"}).State; got != string(runtime.MCPStateUnconfigured) {
+		t.Fatalf("unconfigured state = %q", got)
+	}
+
+	compiled = false
+	notCompiled, rpcErr := callControl(t, env.handler, "settings/mcp", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	for _, server := range notCompiled.(mcpListResult).Servers {
+		if server.State != string(runtime.MCPStateNotCompiled) {
+			t.Fatalf("not-compiled state for %q = %q", server.Name, server.State)
+		}
+	}
+}
+
+func TestMCPSettingsRejectsResourceBridgeWhenContextHostNotCompiled(t *testing.T) {
+	compiled := false
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ContextCompiled = &compiled
+	})
+	if _, rpcErr := callControl(t, env.handler, "settings/mcp/upsert", map[string]any{
+		"name": "docs", "transport": "http", "endpoint": "https://docs.example.com/mcp", "resource_bridge": true,
+	}); rpcErr == nil || !strings.Contains(rpcErr.Message, "compiled ContextHost") {
+		t.Fatalf("resource bridge write error = %v, want compiled ContextHost rejection", rpcErr)
 	}
 }
 
@@ -1947,6 +2139,49 @@ func TestProviderRegistryRPC(t *testing.T) {
 		"id": "custom-1", "display_name": "A", "bundle": "openai", "base_url": "https://a.example.com/v1",
 	}); rpcErr == nil || rpcErr.Code != CodeConflict {
 		t.Fatalf("expected conflict on read-only upsert, got %v", rpcErr)
+	}
+}
+
+func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testing.T) {
+	profiles := func() []modelhost.ProfileStatus {
+		return []modelhost.ProfileStatus{
+			{ID: "openai", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"gpt-4o"}, State: modelhost.ProfileReady},
+			{ID: "future", AdapterFamily: "native-future", EndpointClass: "native", ModelIDs: []string{"future-1"}, State: modelhost.ProfileDeferredIndefinite},
+		}
+	}
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ProviderProfileStatuses = profiles
+		deps.ProviderBundles = []provider.Bundle{
+			{Name: "openai", Models: []string{"gpt-4o"}},
+			{Name: "future", Models: []string{"future-1"}},
+		}
+	})
+
+	result, rpcErr := callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+	if len(view.Profiles) != 2 || view.Profiles[1].State != modelhost.ProfileDeferredIndefinite {
+		t.Fatalf("profile status view = %#v", view.Profiles)
+	}
+	body, err := json.Marshal(view.Profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "secret") || strings.Contains(string(body), "options_schema") {
+		t.Fatalf("profile status leaked configuration detail: %s", body)
+	}
+
+	if _, rpcErr := callControl(t, env.handler, "settings/model/select", map[string]any{
+		"provider": "future", "model": "future-1", "base_url": "https://fake.invalid/v1",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("deferred model selection error = %v, want InvalidParams", rpcErr)
+	}
+	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
+		"provider": "future", "default_model": "future-1", "base_url": "https://fake.invalid/v1",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("deferred settings update error = %v, want InvalidParams", rpcErr)
 	}
 }
 

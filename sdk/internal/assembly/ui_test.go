@@ -509,21 +509,7 @@ export const extensionB: UIExtension = { id: "fixture/extension-b", install: () 
 			t.Fatal(err)
 		}
 	}
-	config := `{
-  "compilerOptions": {
-    "module": "ESNext",
-    "target": "ES2022",
-    "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
-    "allowImportingTsExtensions": true,
-    "strict": true,
-    "noEmit": true,
-    "baseUrl": ".",
-    "paths": {"@vivy/ui-sdk": ["` + filepath.ToSlash(filepath.Join(repositoryRoot, "sdk/ui/src")) + `"]}
-  },
-  "include": ["./assembly.ts", "./root.tsx", "./extension-a.tsx", "./extension-b.tsx"]
-}
-`
+	config := task7TypeScriptConfig(repositoryRoot, []string{"./assembly.ts", "./root.tsx", "./extension-a.tsx", "./extension-b.tsx"})
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -750,11 +736,13 @@ func task7TypeScriptConfig(repositoryRoot string, include []string) string {
     "strict": true,
     "noEmit": true,
     "baseUrl": ".",
+    "typeRoots": ["%s"],
+    "types": ["react"],
     "paths": {"@vivy/ui-sdk": ["%s"]}
   },
   "include": %s
 }
-`, filepath.ToSlash(filepath.Join(repositoryRoot, "sdk/ui/src")), mustJSON(include))
+`, filepath.ToSlash(filepath.Join(repositoryRoot, "ui/node_modules/@types")), filepath.ToSlash(filepath.Join(repositoryRoot, "sdk/ui/src")), mustJSON(include))
 }
 
 func mustJSON(value any) string {
