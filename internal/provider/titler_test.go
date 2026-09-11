@@ -108,11 +108,11 @@ func (s fixedSpecSource) Live() LiveSpec { return s.live }
 
 func TestTitleCandidatesOrder(t *testing.T) {
 	main := &titleFakeModel{}
-	onlyMain := TitleCandidates(nil, fixedSpecSource{}, main, "ignored-without-catalog")
+	onlyMain := TitleCandidates(nil, nil, fixedSpecSource{}, main, "ignored-without-catalog")
 	if len(onlyMain) != 1 || onlyMain[0] != model.ToolCallingChatModel(main) {
 		t.Fatalf("only-main chain = %d candidates", len(onlyMain))
 	}
-	withSmall := TitleCandidates(NewCatalog(), fixedSpecSource{}, main, " gpt-4o-mini ")
+	withSmall := TitleCandidates(routedHost(t), NewCatalog(), fixedSpecSource{}, main, " gpt-4o-mini ")
 	if len(withSmall) != 2 {
 		t.Fatalf("small chain = %d candidates, want small then main", len(withSmall))
 	}

@@ -400,6 +400,8 @@ var internalPortOwners = map[string]string{
 	"core/mcp-host@v1":            "vivy/mcp-host",
 	"core/context-host@v1":        "vivy/context-host",
 	"core/skill-host@v1":          "vivy/skill-host",
+	"core/observer-host@v1":       "vivy/observer-host",
+	"core/status-host@v1":         "vivy/status-host",
 	"core/channel-host@v1":        "vivy/channel-host",
 	"core/face-host@v1":           "vivy/face-host",
 }

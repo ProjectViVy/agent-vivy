@@ -83,12 +83,13 @@ const (
 )
 
 type Manifest struct {
-	Modules        []string
-	Channels       []string
-	Tools          []string
-	ToolWorlds     []string
-	ContextSources []string
-	SkillSources   []string
-	Face           string
-	NetworkStates  map[string]CapabilityState
+	Modules          []string
+	Channels         []string
+	Tools            []string
+	ToolWorlds       []string
+	ProviderProfiles []string
+	ContextSources   []string
+	SkillSources     []string
+	Face             string
+	NetworkStates    map[string]CapabilityState
 }

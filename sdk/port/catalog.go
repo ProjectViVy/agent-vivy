@@ -41,7 +41,7 @@ func PublicCatalog() Catalog {
 			module.GrantChannelPoll, module.GrantChannelWebhook, module.GrantChannelListen,
 			module.GrantChannelA2A, module.GrantSecretRead, module.GrantNetClient),
 		public("std/face@v1", CardinalityExclusive, "core/face-host@v1", false, module.GrantRPCClient),
-		public("std/provider-profile@v1", CardinalityMany, "core/model-host@v1", false),
+		public("std/provider-profile@v1", CardinalityMany, "core/chat-model-host@v1", false),
 		public("std/context-source@v1", CardinalityMany, "core/context-host@v1", false,
 			module.GrantFSRead, module.GrantSecretRead, module.GrantRPCClient, module.GrantNetClient),
 		public("std/skill-source@v1", CardinalityMany, "core/skill-host@v1", false,

@@ -6,18 +6,19 @@ import (
 	"agent-vivy/sdk/module"
 )
 
-func NewKernel() module.Module         { return ownerModule{id: "vivy/kernel"} }
-func NewToolHost() module.Module       { return ownerModule{id: "vivy/tool-host"} }
-func NewProtectedTools() module.Module { return ownerModule{id: "vivy/protected-tools"} }
-func NewMCPHost() module.Module        { return ownerModule{id: "vivy/mcp-host"} }
-func NewContextHost() module.Module    { return ownerModule{id: "vivy/context-host"} }
-func NewContextSource() module.Module  { return ownerModule{id: "vivy/context-source"} }
-func NewSkillHost() module.Module      { return ownerModule{id: "vivy/skill-host"} }
-func NewSkillSource() module.Module    { return ownerModule{id: "vivy/skill-source"} }
-func NewChannelHost() module.Module    { return ownerModule{id: "vivy/channel-host"} }
-func NewFaceHost() module.Module       { return ownerModule{id: "vivy/face-host"} }
-func NewObserverHost() module.Module   { return ownerModule{id: "vivy/observer-host"} }
-func NewStatusHost() module.Module     { return ownerModule{id: "vivy/status-host"} }
+func NewKernel() module.Module           { return ownerModule{id: "vivy/kernel"} }
+func NewToolHost() module.Module         { return ownerModule{id: "vivy/tool-host"} }
+func NewProtectedTools() module.Module   { return ownerModule{id: "vivy/protected-tools"} }
+func NewMCPHost() module.Module          { return ownerModule{id: "vivy/mcp-host"} }
+func NewContextHost() module.Module      { return ownerModule{id: "vivy/context-host"} }
+func NewContextSource() module.Module    { return ownerModule{id: "vivy/context-source"} }
+func NewSkillHost() module.Module        { return ownerModule{id: "vivy/skill-host"} }
+func NewSkillSource() module.Module      { return ownerModule{id: "vivy/skill-source"} }
+func NewChannelHost() module.Module      { return ownerModule{id: "vivy/channel-host"} }
+func NewFaceHost() module.Module         { return ownerModule{id: "vivy/face-host"} }
+func NewObserverHost() module.Module     { return ownerModule{id: "vivy/observer-host"} }
+func NewStatusHost() module.Module       { return ownerModule{id: "vivy/status-host"} }
+func NewProviderProfiles() module.Module { return ownerModule{id: "vivy/provider-profiles"} }
 
 type ownerModule struct{ id string }
 

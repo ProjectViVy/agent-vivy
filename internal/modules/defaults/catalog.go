@@ -44,6 +44,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
 		record("vivy/channel-host", "NewChannelHost", source, port("core/channel-host@v1", "vivy.channel-host")),
 		record("vivy/face-host", "NewFaceHost", source, port("core/face-host@v1", "vivy.face-host")),
+		record("vivy/provider-profiles", "NewProviderProfiles", source, port("std/provider-profile@v1", "openai"), port("std/provider-profile@v1", "anthropic")),
 		record("vivy/observer-host", "NewObserverHost", source, port("core/observer-host@v1", "vivy.observer-host")),
 		record("vivy/status-host", "NewStatusHost", source, port("core/status-host@v1", "vivy.status-host")),
 	}
@@ -55,6 +56,9 @@ func Catalog(repoRoot string) ([]Record, error) {
 		case "vivy/mcp-host":
 			records[i].Binding.ProviderConstructor = "NewMCPProvider"
 			records[i].Binding.MCPHostProvider = true
+		case "vivy/provider-profiles":
+			records[i].Binding.ProviderConstructor = "ProviderProfiles"
+			records[i].Binding.ProviderCollection = true
 		case "vivy/context-source":
 			records[i].Binding.ProviderConstructor = "ContextSourceProviders"
 			records[i].Binding.ProviderCollection = true
@@ -71,6 +75,9 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"}}
 		case "vivy/skill-source":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/skill-host@v1"}, Provider: "vivy/skill-host"}}
+		}
+		if records[i].Descriptor.Module.ID == "vivy/provider-profiles" {
+			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/chat-model-host@v1"}, Provider: "vivy/kernel"}}
 		}
 		if err := records[i].Descriptor.Validate(); err != nil {
 			return nil, err
