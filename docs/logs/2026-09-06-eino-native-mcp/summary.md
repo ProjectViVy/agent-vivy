@@ -1,5 +1,10 @@
 # Eino-native MCP migration
 
+> Historical snapshot (2026-09-06), superseded by PLG-P4 closure on
+> 2026-09-11. The retained `mcp_call`/`PrepareMCPCall` statements below record
+> the pre-P4 model surface; current remote calls use MCPHost → ToolWorld →
+> ToolHost and the former direct tool is not model-visible.
+
 Date: 2026-09-06
 
 ## Completed

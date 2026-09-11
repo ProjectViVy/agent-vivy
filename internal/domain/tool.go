@@ -33,6 +33,10 @@ type ToolSpec struct {
 	Description string
 	Readonly    bool
 	Params      map[string]ToolParam
+	// Schema carries the exact provider JSON Schema when a tool originates
+	// outside the legacy Vivy manifest. Params remains the compatibility
+	// projection used by older tools and prompts.
+	Schema json.RawMessage
 	// Keywords are deterministic request-routing hints owned by Vivy. They
 	// are not sent to the provider as a second schema; the runtime uses them
 	// to select the smallest tool set for one run.

@@ -12,6 +12,10 @@ function asEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : true;
 }
 
+function asBoolean(value: unknown): boolean {
+  return value === true;
+}
+
 function asArgs(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
   if (typeof value === 'string') return value.split(/\r?\n/);
@@ -51,6 +55,8 @@ export function parseMcpImport(config: unknown): ParsedMcpImport {
     const endpoint = asString(record.endpoint) || asString(record.url);
     const transport = asString(record.transport).toLowerCase();
     const looksStdio = transport === 'stdio' || (command !== '' && endpoint === '');
+    const resourceBridge = asBoolean(record.resource_bridge ?? record.resourceBridge);
+    const deferredReason = asString(record.deferred_reason ?? record.deferredReason) || undefined;
     if (looksStdio) {
       servers.push({
         name,
@@ -59,6 +65,8 @@ export function parseMcpImport(config: unknown): ParsedMcpImport {
         args: asArgs(record.args ?? record.argv),
         env_from: asEnvFrom(record.env_from ?? record.envFrom) ?? legacyEnvRefs(record.env, name, warnings),
         cwd: asString(record.cwd) || undefined,
+        ...(resourceBridge ? { resource_bridge: true } : {}),
+        ...(deferredReason ? { deferred_reason: deferredReason } : {}),
         enabled: asEnabled(record.enabled),
       });
       return;
@@ -69,6 +77,8 @@ export function parseMcpImport(config: unknown): ParsedMcpImport {
       transport: 'http',
       endpoint,
       auth_env: asString(record.auth_env) || asString(record.authEnv) || undefined,
+      ...(resourceBridge ? { resource_bridge: true } : {}),
+      ...(deferredReason ? { deferred_reason: deferredReason } : {}),
       enabled: asEnabled(record.enabled),
     });
   };
@@ -115,6 +125,8 @@ export function exportMcpConfig(servers: McpServer[]): { mcp_servers: Record<str
           }
         : { endpoint: server.endpoint }),
       ...(server.transport === 'http' && server.auth_env ? { auth_env: server.auth_env } : {}),
+      ...(server.resource_bridge ? { resource_bridge: true } : {}),
+      ...(server.deferred_reason ? { deferred_reason: server.deferred_reason } : {}),
       enabled: server.enabled,
     }])),
   };

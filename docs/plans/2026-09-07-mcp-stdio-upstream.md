@@ -1,5 +1,10 @@
 # MCP Transport Upgrade Proposal: stdio Integration and Upstream OAuth (Eino/EinoExt Upstream First)
 
+> Historical planning snapshot (2026-09-07): the inventory below predates the
+> PLG-P4 model-surface closure on 2026-09-11. References to `mcp_call` and
+> `PrepareMCPCall` describe the then-existing path and are not current claims;
+> remote model calls now traverse MCPHost → ToolWorld → ToolHost.
+
 - Date: 2026-09-07
 - Positioning: Proposal, decision record, and acceptance basis for slice 1. The stdio slice landed on 2026-09-08; OAuth remains a separate follow-up slice.
 - User decisions (2026-09-07):

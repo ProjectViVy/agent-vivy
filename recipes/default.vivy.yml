@@ -5,6 +5,12 @@ modules:
   - vivy/tool-host
   - vivy/protected-tools
   - vivy/mcp-host
+  - vivy/context-host
+  - vivy/context-source
+  - vivy/skill-host
+  - vivy/skill-source
+  - vivy/observer-host
+  - vivy/status-host
   - vivy/channel-host
   - vivy/face-host
   - vivy/provider-profiles

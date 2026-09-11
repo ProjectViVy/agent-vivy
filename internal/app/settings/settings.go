@@ -71,6 +71,18 @@ var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // plugin-name slug config.yaml requires for its channels.<name> keys.
 var channelNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// mcpNamespacePattern is intentionally strict because the literal server
+// name becomes part of a model-visible projected Tool ID. Unsafe or
+// ambiguous values are rejected rather than trimmed or rewritten.
+var mcpNamespacePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
+// IsSafeMCPServerName reports whether name is a literal, unambiguous MCP
+// server identity. Callers must validate the raw value before trimming or
+// applying case-insensitive lookup.
+func IsSafeMCPServerName(name string) bool {
+	return mcpNamespacePattern.MatchString(name)
+}
+
 // maxExecuteTimeoutSeconds mirrors config.maxExecuteTimeoutSeconds and the
 // runtime hard cap (10m): a settings override above it would be silently
 // clamped, so it is rejected here up front.
@@ -250,6 +262,13 @@ type MCPServer struct {
 	EnvFrom  map[string]string `yaml:"env_from,omitempty"`
 	Cwd      string            `yaml:"cwd,omitempty"`
 	AuthEnv  string            `yaml:"auth_env,omitempty"`
+	// ResourceBridge opts this server into the explicit MCP resources ->
+	// ContextHost projection. Prompts remain control-plane-only.
+	ResourceBridge bool `yaml:"resource_bridge,omitempty"`
+	// DeferredReason keeps an explicitly deferred instance visible without
+	// attempting to activate it. The reason is a bounded, non-secret
+	// diagnostic string.
+	DeferredReason string `yaml:"deferred_reason,omitempty"`
 	// Enabled defaults to true when omitted. A pointer distinguishes
 	// "unset" from an explicit false (YAML bool zero is false).
 	Enabled *bool `yaml:"enabled,omitempty"`
@@ -263,6 +282,14 @@ func MCPServerEnabled(server MCPServer) bool {
 
 // BoolPtr returns a pointer to v for YAML/JSON optional booleans.
 func BoolPtr(v bool) *bool { return &v }
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
 
 // StringPtr returns a pointer to v for YAML/JSON optional strings. An
 // explicit empty string stays distinct from an absent field.
@@ -331,6 +358,7 @@ func load(path string) (Settings, error) {
 	}
 	var s Settings
 	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
 	if err := dec.Decode(&s); err != nil {
 		return Settings{}, fmt.Errorf("settings: parse %s: %w", path, err)
 	}
@@ -565,20 +593,27 @@ func validateMCPServers(servers *[]MCPServer) error {
 	}
 	seen := make(map[string]int, len(*servers))
 	for i, server := range *servers {
+		if !IsSafeMCPServerName(server.Name) {
+			return fmt.Errorf("settings: mcp_servers[%d].name %q is not a safe namespace identifier", i, server.Name)
+		}
 		name := strings.TrimSpace(server.Name)
 		endpoint := strings.TrimSpace(server.Endpoint)
 		command := strings.TrimSpace(server.Command)
 		cwd := strings.TrimSpace(server.Cwd)
 		authEnv := strings.TrimSpace(server.AuthEnv)
+		deferredReason := strings.TrimSpace(server.DeferredReason)
 		if name == "" {
 			return fmt.Errorf("settings: mcp_servers[%d].name must not be empty", i)
+		}
+		if err := validateMCPDeferredReason(deferredReason); err != nil {
+			return fmt.Errorf("settings: mcp_servers[%d].deferred_reason: %w", i, err)
 		}
 		if (endpoint == "") == (command == "") {
 			return fmt.Errorf("settings: mcp_servers[%d] must set exactly one of endpoint or command", i)
 		}
 		if endpoint != "" {
-			if !apiBasePattern.MatchString(endpoint) {
-				return fmt.Errorf("settings: mcp_servers[%d].endpoint %q must be an http(s) absolute URL", i, endpoint)
+			if err := config.ValidateMCPServerEndpoint(endpoint); err != nil || !apiBasePattern.MatchString(endpoint) {
+				return fmt.Errorf("settings: mcp_servers[%d].endpoint: must be a credential-free absolute HTTP(S) URL", i)
 			}
 			if cwd != "" || len(server.Args) > 0 || len(server.EnvFrom) > 0 {
 				return fmt.Errorf("settings: mcp_servers[%d] stdio fields require command", i)
@@ -619,6 +654,7 @@ func validateMCPServers(servers *[]MCPServer) error {
 		(*servers)[i].Args = append([]string(nil), server.Args...)
 		(*servers)[i].Cwd = cwd
 		(*servers)[i].AuthEnv = authEnv
+		(*servers)[i].DeferredReason = deferredReason
 		if server.EnvFrom != nil {
 			envFrom := make(map[string]string, len(server.EnvFrom))
 			for child, host := range server.EnvFrom {
@@ -626,6 +662,16 @@ func validateMCPServers(servers *[]MCPServer) error {
 			}
 			(*servers)[i].EnvFrom = envFrom
 		}
+	}
+	return nil
+}
+
+func validateMCPDeferredReason(reason string) error {
+	if strings.ContainsAny(reason, "\r\n\x00") {
+		return errors.New("must be a single-line diagnostic")
+	}
+	if len([]rune(reason)) > 256 {
+		return errors.New("must not exceed 256 characters")
 	}
 	return nil
 }
@@ -778,6 +824,7 @@ func (s Settings) MCPServersOrEmpty() []MCPServer {
 	for i, server := range *s.MCPServers {
 		out[i] = server
 		out[i].Args = append([]string(nil), server.Args...)
+		out[i].Enabled = cloneBoolPtr(server.Enabled)
 		if server.EnvFrom != nil {
 			out[i].EnvFrom = make(map[string]string, len(server.EnvFrom))
 			for child, host := range server.EnvFrom {
@@ -789,13 +836,18 @@ func (s Settings) MCPServersOrEmpty() []MCPServer {
 }
 
 // UpsertMCPServer inserts or replaces one MCP server by case-insensitive
-// name. A nil overlay becomes an explicit list. Validation happens in Save.
+// name. Unsafe names are rejected literally before any normalization. A nil
+// overlay becomes an explicit list. Validation happens in Save.
 func (s Settings) UpsertMCPServer(entry MCPServer) Settings {
-	entry.Name = strings.TrimSpace(entry.Name)
+	if !IsSafeMCPServerName(entry.Name) {
+		return s
+	}
 	entry.Endpoint = strings.TrimSpace(entry.Endpoint)
 	entry.Command = strings.TrimSpace(entry.Command)
 	entry.Cwd = strings.TrimSpace(entry.Cwd)
 	entry.AuthEnv = strings.TrimSpace(entry.AuthEnv)
+	entry.DeferredReason = strings.TrimSpace(entry.DeferredReason)
+	entry.Enabled = cloneBoolPtr(entry.Enabled)
 	entry.Args = append([]string(nil), entry.Args...)
 	if entry.EnvFrom != nil {
 		envFrom := make(map[string]string, len(entry.EnvFrom))
@@ -819,12 +871,16 @@ func (s Settings) UpsertMCPServer(entry MCPServer) Settings {
 	return s
 }
 
-// DeleteMCPServer removes one MCP server by case-insensitive name. The
-// overlay becomes an explicit (possibly empty) list so a delete is not
-// confused with "use config default". ok is false when the name is absent.
+// DeleteMCPServer removes one MCP server by case-insensitive name. Unsafe
+// names are rejected literally before lookup. The overlay becomes an
+// explicit (possibly empty) list so a delete is not confused with "use config
+// default". ok is false when the name is absent.
 func (s Settings) DeleteMCPServer(name string) (Settings, bool) {
+	if !IsSafeMCPServerName(name) {
+		return s, false
+	}
 	current := s.MCPServersOrEmpty()
-	key := strings.ToLower(strings.TrimSpace(name))
+	key := strings.ToLower(name)
 	next := make([]MCPServer, 0, len(current))
 	found := false
 	for _, existing := range current {

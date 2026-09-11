@@ -153,6 +153,14 @@ type ControlDeps struct {
 	// MCP is the live Streamable HTTP catalog. Writes replace it immediately.
 	// Nil disables settings/mcp* methods.
 	MCP MCPCatalog
+	// MCPCompiled is the generated assembly's typed compiled-capability seam.
+	// A nil pointer preserves the historical catalog-only embedding contract;
+	// the production composition root always supplies the generator signal.
+	MCPCompiled *bool
+	// ContextCompiled is the generated assembly's typed ContextHost signal.
+	// Resource bridges are rejected when the selected Generation omitted that
+	// Host; a settings write must not recreate a sealed runtime capability.
+	ContextCompiled *bool
 	// LanguageServers returns secret-free live process state scoped to one
 	// already-authorized session. Nil means this generation has no status
 	// owner; an empty successful snapshot means known idle.
@@ -194,6 +202,11 @@ type ControlDeps struct {
 	// hidden — for the Settings tool surface. Nil disables the tools/* RPC
 	// family.
 	ToolCatalog []domain.ToolSpec
+	// ToolCatalogLive supplies the current composition snapshot. It is used
+	// when MCP settings replace the dynamic registry after startup; callers
+	// must return a detached slice so tools/list and tools/set never observe a
+	// partially rebuilt catalog.
+	ToolCatalogLive func() []domain.ToolSpec
 	// ConfigToolsEnabled is the effective config default active set (post
 	// startup overlay). tools/list reports it as the fallback when no
 	// tools_enabled overlay was ever written.
@@ -707,7 +720,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "attachments/resolve", "attachment/resolve":
 		return h.resolveAttachments(request)
 	case "project-context/resolve":
-		return h.resolveProjectContext(request)
+		return h.resolveProjectContext(ctx, request)
 	case "project-context/list":
 		return h.listProjectContext(request)
 	case "context/compact":
@@ -2423,7 +2436,7 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	}
 	var fileContexts []domain.FileContext
 	if len(params.ContextPaths) > 0 {
-		resolved, err := resolveProjectContexts(h.deps.ProjectRoot, params.ContextPaths)
+		resolved, err := resolveProjectContextsWithContext(ctx, h.deps.ProjectRoot, params.ContextPaths)
 		if err != nil {
 			return nil, &Error{Code: InvalidParams, Message: err.Error()}
 		}
@@ -3785,17 +3798,70 @@ func (h *controlHandler) activeToolsFromOverlay() ([]string, bool, *Error) {
 	return append([]string(nil), *s.ToolsEnabled...), true, nil
 }
 
+func (h *controlHandler) toolCatalog() []domain.ToolSpec {
+	if h.deps.ToolCatalogLive != nil {
+		return append([]domain.ToolSpec(nil), h.deps.ToolCatalogLive()...)
+	}
+	return append([]domain.ToolSpec(nil), h.deps.ToolCatalog...)
+}
+
+// reconcileMCPToolSelection maps an MCP selection across a live catalog
+// replacement. MCP projections are generated from the instance name and the
+// current remote capability set, so a persisted selection can contain names
+// that no longer exist after replacing that instance. Preserve the selection
+// for the replacement by selecting its current projected tools, and drop a
+// retired instance only when no replacement is present. Non-MCP names are
+// intentionally left untouched; their normal registered-name validation is
+// unchanged.
+func reconcileMCPToolSelection(selection []string, catalog []domain.ToolSpec) []string {
+	registered := make(map[string]struct{}, len(catalog))
+	byInstance := make(map[string][]string)
+	for _, spec := range catalog {
+		registered[spec.Name] = struct{}{}
+		parts := strings.SplitN(spec.Name, ".", 3)
+		if len(parts) == 3 && parts[0] == "mcp" && parts[1] != "" {
+			byInstance[parts[1]] = append(byInstance[parts[1]], spec.Name)
+		}
+	}
+	result := make([]string, 0, len(selection))
+	seen := make(map[string]struct{}, len(selection))
+	appendName := func(name string) {
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	for _, name := range selection {
+		if _, ok := registered[name]; ok {
+			appendName(name)
+			continue
+		}
+		parts := strings.SplitN(name, ".", 3)
+		if len(parts) == 3 && parts[0] == "mcp" && parts[1] != "" {
+			for _, replacement := range byInstance[parts[1]] {
+				appendName(replacement)
+			}
+			continue
+		}
+		appendName(name)
+	}
+	return result
+}
+
 func (h *controlHandler) listTools() (any, *Error) {
 	active, written, rpcErr := h.activeToolsFromOverlay()
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	catalog := h.toolCatalog()
+	active = reconcileMCPToolSelection(active, catalog)
 	activeSet := make(map[string]struct{}, len(active))
 	for _, name := range active {
 		activeSet[name] = struct{}{}
 	}
-	entries := make([]toolsCatalogEntry, 0, len(h.deps.ToolCatalog))
-	for _, spec := range h.deps.ToolCatalog {
+	entries := make([]toolsCatalogEntry, 0, len(catalog))
+	for _, spec := range catalog {
 		_, isActive := activeSet[spec.Name]
 		entries = append(entries, toolsCatalogEntry{
 			Name: spec.Name, Description: spec.Description, Readonly: spec.Readonly, Active: isActive,
@@ -3804,7 +3870,7 @@ func (h *controlHandler) listTools() (any, *Error) {
 	return toolsCatalogView{
 		Tools:          entries,
 		Active:         active,
-		ConfigEnabled:  append([]string(nil), h.deps.ConfigToolsEnabled...),
+		ConfigEnabled:  reconcileMCPToolSelection(h.deps.ConfigToolsEnabled, catalog),
 		OverlayWritten: written,
 	}, nil
 }
@@ -3817,7 +3883,8 @@ func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
-	if len(h.deps.ToolCatalog) == 0 {
+	catalog := h.toolCatalog()
+	if len(catalog) == 0 {
 		return nil, &Error{Code: MethodNotFound, Message: "tool catalog is not configured"}
 	}
 	var params struct {
@@ -3826,8 +3893,16 @@ func (h *controlHandler) setActiveTools(request Request) (any, *Error) {
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	registered := make(map[string]struct{}, len(h.deps.ToolCatalog))
-	for _, spec := range h.deps.ToolCatalog {
+	seenRequested := make(map[string]struct{}, len(params.Tools))
+	for _, name := range params.Tools {
+		if _, duplicate := seenRequested[name]; duplicate {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("duplicate tool %q", name)}
+		}
+		seenRequested[name] = struct{}{}
+	}
+	params.Tools = reconcileMCPToolSelection(params.Tools, catalog)
+	registered := make(map[string]struct{}, len(catalog))
+	for _, spec := range catalog {
 		registered[spec.Name] = struct{}{}
 	}
 	next := make([]string, 0, len(params.Tools))
@@ -4624,20 +4699,26 @@ func (h *controlHandler) updateChannel(ctx context.Context, request Request) (an
 }
 
 type mcpServerResult struct {
-	Name       string            `json:"name"`
-	Transport  string            `json:"transport"`
-	Endpoint   string            `json:"endpoint,omitempty"`
-	Command    string            `json:"command,omitempty"`
-	Args       []string          `json:"args,omitempty"`
-	EnvFrom    map[string]string `json:"env_from,omitempty"`
-	Cwd        string            `json:"cwd,omitempty"`
-	AuthEnv    string            `json:"auth_env,omitempty"`
-	AuthEnvSet bool              `json:"auth_env_set"`
-	Enabled    bool              `json:"enabled"`
-	EnvMissing []string          `json:"env_missing,omitempty"`
-	ToolCount  int               `json:"tool_count"`
-	Status     string            `json:"status"`
-	Error      string            `json:"error,omitempty"`
+	Name           string            `json:"name"`
+	Transport      string            `json:"transport"`
+	Endpoint       string            `json:"endpoint,omitempty"`
+	Command        string            `json:"command,omitempty"`
+	Args           []string          `json:"args,omitempty"`
+	EnvFrom        map[string]string `json:"env_from,omitempty"`
+	Cwd            string            `json:"cwd,omitempty"`
+	AuthEnv        string            `json:"auth_env,omitempty"`
+	ResourceBridge bool              `json:"resource_bridge"`
+	AuthEnvSet     bool              `json:"auth_env_set"`
+	Enabled        bool              `json:"enabled"`
+	EnvMissing     []string          `json:"env_missing,omitempty"`
+	ToolCount      int               `json:"tool_count"`
+	State          string            `json:"state"`
+	DeferredReason string            `json:"deferred_reason,omitempty"`
+	// Status is retained as a compatibility alias for older clients. New
+	// consumers must use state, whose values cover the complete capability
+	// vocabulary.
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
 }
 
 type mcpListResult struct {
@@ -4647,18 +4728,45 @@ type mcpListResult struct {
 
 func toMCPServerResult(server settings.MCPServer) mcpServerResult {
 	return mcpServerResult{
-		Name:       server.Name,
-		Transport:  mcpServerTransport(server),
-		Endpoint:   server.Endpoint,
-		Command:    server.Command,
-		Args:       append([]string(nil), server.Args...),
-		EnvFrom:    cloneMCPEnvFromRPC(server.EnvFrom),
-		Cwd:        server.Cwd,
-		AuthEnv:    server.AuthEnv,
-		AuthEnvSet: server.AuthEnv != "" && os.Getenv(server.AuthEnv) != "",
-		Enabled:    settings.MCPServerEnabled(server),
-		Status:     "idle",
+		Name:           server.Name,
+		Transport:      mcpServerTransport(server),
+		Endpoint:       publicMCPServerEndpoint(server.Endpoint),
+		Command:        server.Command,
+		Args:           append([]string(nil), server.Args...),
+		EnvFrom:        cloneMCPEnvFromRPC(server.EnvFrom),
+		Cwd:            server.Cwd,
+		AuthEnv:        server.AuthEnv,
+		ResourceBridge: server.ResourceBridge,
+		AuthEnvSet:     server.AuthEnv != "" && os.Getenv(server.AuthEnv) != "",
+		Enabled:        settings.MCPServerEnabled(server),
+		State:          mcpStateForSettingsServer(server),
+		DeferredReason: sanitizeMCPReason(server.DeferredReason),
+		Status:         "idle",
 	}
+}
+
+func mcpStateForSettingsServer(server settings.MCPServer) string {
+	if !settings.MCPServerEnabled(server) {
+		return string(runtime.MCPStateInactive)
+	}
+	if strings.TrimSpace(server.Endpoint) == "" && strings.TrimSpace(server.Command) == "" {
+		return string(runtime.MCPStateUnconfigured)
+	}
+	if strings.TrimSpace(server.DeferredReason) != "" {
+		return string(runtime.MCPStateDeferred)
+	}
+	return string(runtime.MCPStateInactive)
+}
+
+// publicMCPServerEndpoint is a defense-in-depth browser boundary. Normal
+// config/settings writes reject credential-bearing endpoints; a catalog-only
+// embedding may still hand the RPC layer an unvalidated config, so invalid
+// endpoints are omitted rather than echoed into a browser response.
+func publicMCPServerEndpoint(endpoint string) string {
+	if strings.TrimSpace(endpoint) == "" || config.ValidateMCPServerEndpoint(endpoint) != nil {
+		return ""
+	}
+	return endpoint
 }
 
 func mcpServerTransport(server settings.MCPServer) string {
@@ -4679,18 +4787,37 @@ func cloneMCPEnvFromRPC(value map[string]string) map[string]string {
 	return out
 }
 
+func cloneBoolPtrRPC(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
 func (h *controlHandler) mcpView(s settings.Settings) mcpListResult {
 	servers := s.MCPServersOrEmpty()
 	statuses := h.mcpStatusMap()
 	out := make([]mcpServerResult, 0, len(servers))
 	for _, server := range servers {
 		result := toMCPServerResult(server)
-		if status, ok := statuses[strings.ToLower(server.Name)]; ok {
+		if !h.mcpCompiled() {
+			result.State = string(runtime.MCPStateNotCompiled)
+		} else if status, ok := statuses[strings.ToLower(server.Name)]; ok {
 			applyMCPStatus(&result, status)
 		}
+		result.Status = legacyMCPStatus(result.State)
 		out = append(out, result)
 	}
 	return mcpListResult{Servers: out, ReadOnly: h.deps.SettingsPath == ""}
+}
+
+func (h *controlHandler) mcpCompiled() bool {
+	return h.deps.MCPCompiled == nil || *h.deps.MCPCompiled
+}
+
+func (h *controlHandler) contextCompiled() bool {
+	return h.deps.ContextCompiled == nil || *h.deps.ContextCompiled
 }
 
 func (h *controlHandler) mcpStatusMap() map[string]runtime.MCPServerStatus {
@@ -4712,18 +4839,61 @@ func applyMCPStatus(result *mcpServerResult, status runtime.MCPServerStatus) {
 	if status.Transport != "" {
 		result.Transport = status.Transport
 	}
+	if status.State != "" {
+		result.State = string(status.State)
+	}
+	if !result.Enabled {
+		// A disabled saved entry remains visible, but transport diagnostics must
+		// not turn its snapshot into an unavailable/active state.
+		result.State = string(runtime.MCPStateInactive)
+	}
+	if status.DeferredReason != "" {
+		result.DeferredReason = sanitizeMCPReason(status.DeferredReason)
+	}
 	result.EnvMissing = append([]string(nil), status.EnvMissing...)
 	result.AuthEnvSet = result.AuthEnv != "" && !status.AuthMissing
 	if status.ToolCount >= 0 {
 		result.ToolCount = status.ToolCount
 	}
-	if status.Initialized {
-		result.Status = "ok"
-	}
 	if status.Error != "" || len(status.EnvMissing) > 0 {
-		result.Status = "error"
-		result.Error = status.Error
+		result.Error = sanitizeMCPReason(status.Error)
+		if result.Enabled && (result.State == "" || result.State == string(runtime.MCPStateInactive) || result.State == string(runtime.MCPStateReady)) {
+			result.State = string(runtime.MCPStateUnavailable)
+		}
+	} else if status.Initialized && result.State != string(runtime.MCPStateUnconfigured) && result.State != string(runtime.MCPStateDeferred) && result.State != string(runtime.MCPStateInactive) {
+		result.State = string(runtime.MCPStateReady)
+	} else if status.Initialized && status.State == "" && result.State == string(runtime.MCPStateInactive) {
+		// Legacy status providers predate the explicit state field. Their
+		// Initialized bit still carries the ready transition.
+		result.State = string(runtime.MCPStateReady)
 	}
+	result.Status = legacyMCPStatus(result.State)
+}
+
+func legacyMCPStatus(state string) string {
+	switch state {
+	case string(runtime.MCPStateReady):
+		return "ok"
+	case string(runtime.MCPStateUnavailable):
+		return "error"
+	default:
+		return "idle"
+	}
+}
+
+func sanitizeMCPReason(value string) string {
+	value = tools.RedactSensitive(value)
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
+			return -1
+		}
+		return r
+	}, value)
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) > 160 {
+		runes = runes[:160]
+	}
+	return string(runes)
 }
 
 func (h *controlHandler) listMCP(ctx context.Context) (any, *Error) {
@@ -4743,7 +4913,8 @@ func (h *controlHandler) listMCP(ctx context.Context) (any, *Error) {
 			servers = append(servers, settings.MCPServer{
 				Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
 				Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFromRPC(server.EnvFrom),
-				Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+				Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
+				DeferredReason: server.DeferredReason, Enabled: cloneBoolPtrRPC(server.Enabled),
 			})
 		}
 	}
@@ -4755,28 +4926,35 @@ func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
 	}
 	var params struct {
-		Name      string            `json:"name"`
-		Transport string            `json:"transport"`
-		Endpoint  string            `json:"endpoint"`
-		Command   string            `json:"command"`
-		Args      []string          `json:"args"`
-		EnvFrom   map[string]string `json:"env_from"`
-		Cwd       string            `json:"cwd"`
-		AuthEnv   string            `json:"auth_env"`
-		Enabled   *bool             `json:"enabled"`
+		Name           string            `json:"name"`
+		Transport      string            `json:"transport"`
+		Endpoint       string            `json:"endpoint"`
+		Command        string            `json:"command"`
+		Args           []string          `json:"args"`
+		EnvFrom        map[string]string `json:"env_from"`
+		Cwd            string            `json:"cwd"`
+		AuthEnv        string            `json:"auth_env"`
+		ResourceBridge bool              `json:"resource_bridge"`
+		DeferredReason string            `json:"deferred_reason"`
+		Enabled        *bool             `json:"enabled"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
+	if !settings.IsSafeMCPServerName(params.Name) {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("name %q is not a safe MCP server name", params.Name)}
+	}
 	entry := settings.MCPServer{
-		Name:     strings.TrimSpace(params.Name),
-		Endpoint: strings.TrimSpace(params.Endpoint),
-		Command:  strings.TrimSpace(params.Command),
-		Args:     append([]string(nil), params.Args...),
-		EnvFrom:  cloneMCPEnvFromRPC(params.EnvFrom),
-		Cwd:      strings.TrimSpace(params.Cwd),
-		AuthEnv:  strings.TrimSpace(params.AuthEnv),
-		Enabled:  params.Enabled,
+		Name:           params.Name,
+		Endpoint:       strings.TrimSpace(params.Endpoint),
+		Command:        strings.TrimSpace(params.Command),
+		Args:           append([]string(nil), params.Args...),
+		EnvFrom:        cloneMCPEnvFromRPC(params.EnvFrom),
+		Cwd:            strings.TrimSpace(params.Cwd),
+		AuthEnv:        strings.TrimSpace(params.AuthEnv),
+		ResourceBridge: params.ResourceBridge,
+		DeferredReason: sanitizeMCPReason(params.DeferredReason),
+		Enabled:        params.Enabled,
 	}
 	transport := strings.ToLower(strings.TrimSpace(params.Transport))
 	if transport != "" && transport != "http" && transport != "stdio" {
@@ -4787,6 +4965,14 @@ func (h *controlHandler) upsertMCP(ctx context.Context, request Request) (any, *
 	}
 	if transport == "http" && entry.Endpoint == "" {
 		return nil, &Error{Code: InvalidParams, Message: "http transport requires endpoint"}
+	}
+	if entry.ResourceBridge && !h.contextCompiled() {
+		return nil, &Error{Code: InvalidParams, Message: "MCP Resource bridge requires compiled ContextHost"}
+	}
+	if entry.Endpoint != "" {
+		if err := config.ValidateMCPServerEndpoint(entry.Endpoint); err != nil {
+			return nil, &Error{Code: InvalidParams, Message: "endpoint must be a credential-free absolute HTTP(S) URL"}
+		}
 	}
 	saved, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
 		return cur.UpsertMCPServer(entry), nil
@@ -4820,6 +5006,9 @@ func (h *controlHandler) deleteMCP(ctx context.Context, request Request) (any, *
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
+	if !settings.IsSafeMCPServerName(params.Name) {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("name %q is not a safe MCP server name", params.Name)}
+	}
 	if _, rpcErr := h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
 		next, ok := cur.DeleteMCPServer(params.Name)
 		if !ok {
@@ -4831,7 +5020,7 @@ func (h *controlHandler) deleteMCP(ctx context.Context, request Request) (any, *
 	}
 	h.notifySettingsChanged()
 	_ = ctx
-	return map[string]any{"deleted": true, "name": strings.TrimSpace(params.Name)}, nil
+	return map[string]any{"deleted": true, "name": params.Name}, nil
 }
 
 func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *Error) {
@@ -4844,10 +5033,10 @@ func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *E
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
 	}
-	name := strings.TrimSpace(params.Name)
-	if name == "" {
-		return nil, &Error{Code: InvalidParams, Message: "name is required"}
+	if !settings.IsSafeMCPServerName(params.Name) {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("name %q is not a safe MCP server name", params.Name)}
 	}
+	name := params.Name
 	found, rpcErr := h.configuredMCPServer(name)
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -4857,16 +5046,24 @@ func (h *controlHandler) probeMCP(ctx context.Context, request Request) (any, *E
 		applyMCPStatus(&result, status)
 	}
 	if !result.Enabled {
-		result.Status = "idle"
+		result.State = string(runtime.MCPStateInactive)
+		result.Status = legacyMCPStatus(result.State)
+		return result, nil
+	}
+	if strings.TrimSpace(found.DeferredReason) != "" || result.State == string(runtime.MCPStateDeferred) {
+		result.State = string(runtime.MCPStateDeferred)
+		result.Status = legacyMCPStatus(result.State)
 		return result, nil
 	}
 	listed, err := h.deps.MCP.ListTools(ctx, "", found.Name)
 	if err != nil {
-		result.Status = "error"
-		result.Error = mcpBackendErrorFor(h.deps.MCP, found.Name, err).Message
+		result.State = string(runtime.MCPStateUnavailable)
+		result.Status = legacyMCPStatus(result.State)
+		result.Error = sanitizeMCPReason(mcpBackendErrorFor(h.deps.MCP, found.Name, err).Message)
 		return result, nil
 	}
-	result.Status = "ok"
+	result.State = string(runtime.MCPStateReady)
+	result.Status = legacyMCPStatus(result.State)
 	result.ToolCount = len(listed.Tools)
 	return result, nil
 }
@@ -4899,6 +5096,9 @@ func (h *controlHandler) listMCPResources(ctx context.Context, request Request) 
 	}
 	if !settings.MCPServerEnabled(server) {
 		return nil, &Error{Code: CodeConflict, Message: "mcp server is disabled"}
+	}
+	if strings.TrimSpace(server.DeferredReason) != "" {
+		return nil, &Error{Code: CodeConflict, Message: "mcp server is deferred"}
 	}
 	result, err := resourceOps.ListResources(ctx, "", server.Name)
 	if err != nil {
@@ -4934,6 +5134,9 @@ func (h *controlHandler) readMCPResource(ctx context.Context, request Request) (
 	if !settings.MCPServerEnabled(server) {
 		return nil, &Error{Code: CodeConflict, Message: "mcp server is disabled"}
 	}
+	if strings.TrimSpace(server.DeferredReason) != "" {
+		return nil, &Error{Code: CodeConflict, Message: "mcp server is deferred"}
+	}
 	params.Server = server.Name
 	result, err := resourceOps.ReadResource(ctx, "", params)
 	if err != nil {
@@ -4965,7 +5168,8 @@ func (h *controlHandler) configuredMCPServer(name string) (settings.MCPServer, *
 			return settings.MCPServer{
 				Name: server.Name, Endpoint: server.Endpoint, Command: server.Command,
 				Args: append([]string(nil), server.Args...), EnvFrom: cloneMCPEnvFromRPC(server.EnvFrom),
-				Cwd: server.Cwd, AuthEnv: server.AuthEnv,
+				Cwd: server.Cwd, AuthEnv: server.AuthEnv, ResourceBridge: server.ResourceBridge,
+				DeferredReason: server.DeferredReason, Enabled: cloneBoolPtrRPC(server.Enabled),
 			}, nil
 		}
 	}

@@ -23,10 +23,31 @@ const (
 )
 
 type Definition struct{ ID, Description string }
+
+// Provenance is stable identity carried with a dynamic capability. It is
+// deliberately data-only: a remote server never receives authority from this
+// metadata, but projections can still attribute a tool to its exact MCP
+// instance and capability contract.
+type Provenance struct {
+	ServerInstanceID string
+	RemoteCapability string
+	SchemaHash       string
+	InstanceHash     string
+	RemoteHash       string
+}
+
 type ToolDefinition struct {
 	ID, Description string
 	Effect          Effect
 	Schema          json.RawMessage
+	SchemaHash      string
+	InstanceHash    string
+	RemoteHash      string
+	Provenance      Provenance
+	// These aliases keep the individual identity fields available to simple
+	// consumers while Provenance remains the canonical grouped projection.
+	ServerInstanceID string
+	RemoteCapability string
 }
 type Result struct{ Text string }
 

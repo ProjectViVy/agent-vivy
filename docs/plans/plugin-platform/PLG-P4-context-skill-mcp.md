@@ -22,7 +22,8 @@ v0.0.9, current MCP transport dependencies, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on P3.
+- State: `COMPLETE · 2026-09-11` (manually scheduled by the human owner on
+  2026-09-10); depends on P3 implementation.
 - Context and Skill Sources never write the final Prompt or Eino Message.
 - MCP Server instances are T3 and never enter the native Module graph.
 - Existing configured/unconfigured semantics and current upstream-backed MCP
@@ -44,14 +45,14 @@ v0.0.9, current MCP transport dependencies, `just ci`.
 - Consumes: `go.mod`, pinned module source, and current runtime adapters.
 - Produces: API-by-API `ADAPT` or `DEFERRED-INDEFINITE` evidence.
 
-- [ ] Verify and cite `skill.NewMiddleware`, `skill.Backend`, `agentsmd.New`,
+- [x] Verify and cite `skill.NewMiddleware`, `skill.Backend`, `agentsmd.New`,
   Eino Tool types, and EinoExt `mcp.GetTools` in the exact pinned versions.
-- [ ] Inspect pinned MCP OAuth support rather than relying on latest upstream
+- [x] Inspect pinned MCP OAuth support rather than relying on latest upstream
   documentation.
-- [ ] Record missing OAuth or transport capabilities as indefinite deferrals;
+- [x] Record missing OAuth or transport capabilities as indefinite deferrals;
   add no placeholder implementation task.
-- [ ] Confirm all adapter imports remain under `internal/runtime`.
-- [ ] Commit `docs(eino): verify plugin v1 source adapters`.
+- [x] Confirm all adapter imports remain under `internal/runtime`.
+- [x] Commit `docs(eino): verify plugin v1 source adapters`.
 
 ### Task 2: Define Context Source and ContextHost
 
@@ -84,16 +85,16 @@ type Candidate struct {
 }
 ```
 
-- [ ] Write `TestSourceCannotInjectSystemMessage`; expected RED is the absence
+- [x] Write `TestSourceCannotInjectSystemMessage`; expected RED is the absence
   of a Vivy-only candidate boundary.
-- [ ] Write tests for workspace escape, duplicate content, source timeout,
+- [x] Write tests for workspace escape, duplicate content, source timeout,
   result-size overflow, token budget, Secret redaction, and stable provenance.
-- [ ] Implement ContextHost without Eino imports.
-- [ ] Adapt final candidates to Eino schema only in `contextadapter.go`.
-- [ ] Register current project/file Context behavior as first-party default
+- [x] Implement ContextHost without Eino imports.
+- [x] Adapt final candidates to Eino schema only in `contextadapter.go`.
+- [x] Register current project/file Context behavior as first-party default
   Sources with no behavior change.
-- [ ] Run `go test ./internal/contexthost ./internal/runtime ./internal/rpc -run Context`.
-- [ ] Commit `refactor(context): host typed context sources`.
+- [x] Run `go test ./internal/contexthost ./internal/runtime ./internal/rpc -run Context`.
+- [x] Commit `refactor(context): host typed context sources`.
 
 ### Task 3: Define Skill Source and SkillHost
 
@@ -115,17 +116,17 @@ type Candidate struct {
 - Produces: validated, conflict-resolved, budgeted Skill selections adapted to
   pinned Eino `skill.Backend` and `skill.NewMiddleware`.
 
-- [ ] Write `TestSkillTextReceivesNoImplicitGrant`; expected RED proves content
+- [x] Write `TestSkillTextReceivesNoImplicitGrant`; expected RED proves content
   alone cannot authorize Tool/filesystem/network/Secret use.
-- [ ] Write tests for duplicate Skill ID, hash change, disabled content,
+- [x] Write tests for duplicate Skill ID, hash change, disabled content,
   read-only source, invalid frontmatter, budget overflow, and provenance.
-- [ ] Implement SkillHost without Eino types and preserve existing revision and
+- [x] Implement SkillHost without Eino types and preserve existing revision and
   CAS behavior.
-- [ ] Adapt the Host behind the current Eino Skill backend interface only in
+- [x] Adapt the Host behind the current Eino Skill backend interface only in
   `internal/runtime`.
-- [ ] Keep `skills_list` and `skill_view` as protected internal Tools.
-- [ ] Run `go test ./internal/skillhost ./internal/runtime -run Skill`.
-- [ ] Commit `refactor(skill): host versioned skill sources`.
+- [x] Keep `skills_list` and `skill_view` as protected internal Tools.
+- [x] Run `go test ./internal/skillhost ./internal/runtime -run Skill`.
+- [x] Commit `refactor(skill): host versioned skill sources`.
 
 ### Task 4: Separate MCPHost transport/governance from Eino conversion
 
@@ -146,18 +147,18 @@ type Candidate struct {
 - Produces: namespaced dynamic ToolWorld entries and explicit Resource bridge
   candidates with server instance ID and schema hash.
 
-- [ ] Write `TestMCPServerNeverBecomesNativeModule`; expected RED is any path
+- [x] Write `TestMCPServerNeverBecomesNativeModule`; expected RED is any path
   that can add a T3 server to the native Module graph.
-- [ ] Write tests for unconfigured no-connect, lazy activation, process death,
+- [x] Write tests for unconfigured no-connect, lazy activation, process death,
   timeout, retry bound, duplicate remote name, schema change, and cleanup.
-- [ ] Move transport/session lifecycle behind MCPHost while preserving current
+- [x] Move transport/session lifecycle behind MCPHost while preserving current
   configuration and process governance.
-- [ ] Keep EinoExt `mcp.GetTools` conversion in `internal/runtime/mcpadapter.go`.
-- [ ] Prohibit MCP Prompt automatic conversion to Skill.
-- [ ] Mark unsupported pinned OAuth behavior unavailable/deferred rather than
+- [x] Keep EinoExt `mcp.GetTools` conversion in `internal/runtime/mcpadapter.go`.
+- [x] Prohibit MCP Prompt automatic conversion to Skill.
+- [x] Mark unsupported pinned OAuth behavior unavailable/deferred rather than
   implementing it locally.
-- [ ] Run `go test ./internal/mcphost ./internal/runtime -run MCP`.
-- [ ] Commit `refactor(mcp): separate host governance and eino adapter`.
+- [x] Run `go test ./internal/mcphost ./internal/runtime -run MCP`.
+- [x] Commit `refactor(mcp): separate host governance and eino adapter`.
 
 ### Task 5: Bridge MCP tools and resources through standard Hosts
 
@@ -173,15 +174,15 @@ type Candidate struct {
 - Consumes: MCP tool definitions and resource results.
 - Produces: ToolWorld discovery entries and opt-in Context candidates.
 
-- [ ] Write a RED end-to-end test proving an MCP Tool must traverse ToolHost
+- [x] Write a RED end-to-end test proving an MCP Tool must traverse ToolHost
   schema, Policy, Middleware, approval, bound, and Journal stages.
-- [ ] Write a RED test proving an MCP Resource appears only after an explicit
+- [x] Write a RED test proving an MCP Resource appears only after an explicit
   Context bridge configuration.
-- [ ] Attach stable server instance, remote capability, and schema hashes to
+- [x] Attach stable server instance, remote capability, and schema hashes to
   every projection.
-- [ ] Reject reserved protected Tool IDs and ambiguous namespaces.
-- [ ] Run `go test ./internal/mcphost ./internal/toolhost ./internal/contexthost`.
-- [ ] Commit `feat(mcp): bridge tools and resources through hosts`.
+- [x] Reject reserved protected Tool IDs and ambiguous namespaces.
+- [x] Run `go test ./internal/mcphost ./internal/toolhost ./internal/contexthost`.
+- [x] Commit `feat(mcp): bridge tools and resources through hosts`.
 
 ### Task 6: Project configuration and status without activation
 
@@ -200,13 +201,14 @@ type Candidate struct {
 - Produces: distinct not-compiled, unconfigured, inactive, ready, unavailable,
   and deferred states.
 
-- [ ] Write config parse/validation tests before adding any changed field.
-- [ ] Write browser RED coverage showing a status read cannot connect or revive
+- [x] Write config parse/validation tests before adding any changed field.
+- [x] Write browser RED coverage showing a status read cannot connect or revive
   an MCP process.
-- [ ] Preserve Secret references and redact missing-env details appropriately.
-- [ ] Use the existing RPC authority; do not add arbitrary Module routes.
-- [ ] Run focused Go/UI tests and the real split-browser path.
-- [ ] Commit `feat(mcp): project governed instance states`.
+- [x] Preserve Secret references and redact missing-env details appropriately.
+- [x] Use the existing RPC authority; do not add arbitrary Module routes.
+- [x] Run focused Go/UI tests.
+- [ ] Run the real split-browser path (attempted; Chromium is unavailable in this environment).
+- [x] Commit `feat(mcp): project governed instance states`.
 
 ### Task 7: Complete Source/MCP conformance
 
@@ -222,20 +224,26 @@ type Candidate struct {
 - Consumes: default first-party Sources and MCPHost.
 - Produces: Gate B proof for SCX consumers.
 
-- [ ] Test missing/duplicate Provider, timeout, cancellation, unavailable
+- [x] Test missing/duplicate Provider, timeout, cancellation, unavailable
   instance, cleanup, redaction, provenance, and default inactive state for each
   Port.
-- [ ] Inspect the default Generation and verify all three Hosts are compiled.
-- [ ] Inspect a minimal Generation and verify omitted Sources and Hosts have no
+- [x] Inspect the default Generation and verify all three Hosts are compiled.
+- [x] Inspect a minimal Generation and verify omitted Sources and Hosts have no
   code or Manifest edges.
 - [ ] Run `just ci` and required MCP real-path smoke without live-network unit
   dependencies.
-- [ ] Commit `test(plugin): prove context skill and mcp conformance`.
+- [x] Commit `test(plugin): prove context skill and mcp conformance`.
 
 ## Phase exit and rollback
 
 Exit requires one Host per capability, pinned upstream adapter evidence, no
 Prompt/Tool/Run bypass, explicit MCP Resource bridging, and default inactive
-network state. Record build-owned seven-artifact evidence before Context or
-Skill Source Ports become selectable; missing upstream capabilities remain
-deferred. Rollback selects the prior Generation.
+network state. These requirements are complete and recorded in the P4
+summary/verification/acceptance logs. The equivalent full regular Go suite,
+full vet, focused race suites, UI tests/typecheck/build, generator
+reproducibility, and diff/gofmt evidence pass. `just` is unavailable here;
+Chromium is unavailable for the split-browser smoke; live-network MCP smoke
+was intentionally not run; and the full app race remains blocked by the
+pre-existing pinned Eino Claude stream race. None of those unavailable gates
+is claimed as passed. Missing upstream capabilities remain deferred. Rollback
+selects the prior Generation.

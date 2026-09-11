@@ -1,0 +1,13 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/governance-reference, version: 0.1.0}
+source: {ref: repo:plugins/governance, sha256: c9e802d1a97aa3d005a3eb0ca82dc86bea4c3dbed865ea89c573e588524ee883}
+provides:
+  - {port: std/middleware/pre-tool@v1, id: vivy.governance.pre-tool}
+  - {port: std/observer/run@v1, id: vivy.governance.run}
+  - {port: std/observer/diagnostic@v1, id: vivy.governance.diagnostic}
+  - {port: std/status-source@v1, id: vivy.governance.status}
+requires:
+  - {port: core/tool-host@v1, provider: vivy/tool-host}
+  - {port: core/observer-host@v1, provider: vivy/observer-host}
+  - {port: core/status-host@v1, provider: vivy/status-host}
+lifecycle: {scope: generation}
