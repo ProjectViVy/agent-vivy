@@ -5,14 +5,77 @@ import (
 	"slices"
 	"strings"
 
+	"agent-vivy/internal/config"
 	genassembly "agent-vivy/internal/generated/assembly"
 	"agent-vivy/sdk/module"
 )
+
+func assemblyHasModule(moduleIDs []string, wanted string) bool {
+	return slices.Contains(moduleIDs, wanted)
+}
+
+// validateRuntimeAssemblyConfig rejects configuration that names a runtime
+// capability absent from the sealed Assembly. This check complements the
+// generated-provider identity checks: config cannot turn an omitted Host back
+// into a live feature through a settings overlay or MCP Resource bridge.
+func validateRuntimeAssemblyConfig(assembly genassembly.RuntimeAssembly, cfg config.Config) error {
+	mcpCompiled := assemblyHasModule(assembly.Manifest.Modules, "vivy/mcp-host")
+	contextCompiled := assemblyHasModule(assembly.Manifest.Modules, "vivy/context-host")
+	for _, server := range cfg.Runtime.MCPServers {
+		if !mcpCompiled {
+			return fmt.Errorf("app: configured MCP server %q requires compiled MCPHost", server.Name)
+		}
+		if server.ResourceBridge && !contextCompiled {
+			return fmt.Errorf("app: MCP Resource bridge for %q requires compiled ContextHost", server.Name)
+		}
+	}
+	return nil
+}
 
 // validateRuntimeAssembly proves that runtime Provider values still expose the
 // identities sealed by the compiler. A constructor cannot redirect a compiled
 // slot to another provider (including a protected kernel tool).
 func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
+	compiledModules := make(map[string]bool, len(assembly.Manifest.Modules))
+	for _, moduleID := range assembly.Manifest.Modules {
+		compiledModules[moduleID] = true
+	}
+	contextSources, err := generatedContextSources(assembly)
+	if err != nil {
+		return fmt.Errorf("app: generated ContextSource inventory: %w", err)
+	}
+	contextIDs := make([]string, 0, len(contextSources))
+	for _, source := range contextSources {
+		if source == nil || source.ID() == "" {
+			return fmt.Errorf("app: generated ContextSource provider has no identity")
+		}
+		contextIDs = append(contextIDs, source.ID())
+	}
+	if !slices.Equal(contextIDs, assembly.Manifest.ContextSources) {
+		return fmt.Errorf("app: generated ContextSource identities %v do not match sealed manifest %v", contextIDs, assembly.Manifest.ContextSources)
+	}
+	if len(contextIDs) > 0 && !compiledModules["vivy/context-host"] {
+		return fmt.Errorf("app: generated ContextSources are present without compiled ContextHost")
+	}
+
+	skillSources, err := generatedSkillSources(assembly)
+	if err != nil {
+		return fmt.Errorf("app: generated SkillSource inventory: %w", err)
+	}
+	skillIDs := make([]string, 0, len(skillSources))
+	for _, source := range skillSources {
+		if source == nil || source.ID() == "" {
+			return fmt.Errorf("app: generated SkillSource provider has no identity")
+		}
+		skillIDs = append(skillIDs, source.ID())
+	}
+	if !slices.Equal(skillIDs, assembly.Manifest.SkillSources) {
+		return fmt.Errorf("app: generated SkillSource identities %v do not match sealed manifest %v", skillIDs, assembly.Manifest.SkillSources)
+	}
+	if len(skillIDs) > 0 && !compiledModules["vivy/skill-host"] {
+		return fmt.Errorf("app: generated SkillSources are present without compiled SkillHost")
+	}
+
 	toolIDs := make([]string, 0, len(assembly.Tools))
 	for _, provider := range assembly.Tools {
 		if provider == nil {
@@ -36,6 +99,9 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 	}
 	if !slices.Equal(worldIDs, assembly.Manifest.ToolWorlds) {
 		return fmt.Errorf("app: generated ToolWorld identities %v do not match sealed manifest %v", worldIDs, assembly.Manifest.ToolWorlds)
+	}
+	if slices.Contains(worldIDs, "mcp") && !compiledModules["vivy/mcp-host"] {
+		return fmt.Errorf("app: generated MCP ToolWorld is present without compiled MCPHost")
 	}
 
 	channelIDs := make([]string, 0, len(assembly.Channels))

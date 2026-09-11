@@ -52,7 +52,67 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceConformanceSuite:  "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies",
 			port.EvidenceInspectProjection: "sdk/generation/manifest.go#Manifest.ProviderProfiles",
 		}),
+		"std/middleware/pre-tool@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-middleware-pre-tool-v1",
+			port.EvidenceSDKContract:       "sdk/port/pretool/pretool.go#Provider",
+			port.EvidenceHostConsumer:      "internal/toolhost/middleware.go#ApplyMiddleware",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.Evaluate",
+			port.EvidenceFailureModel:      "internal/toolhost/middleware_test.go#TestMiddlewarePanicAndInvalidDecisionFailClosed",
+			port.EvidenceConformanceSuite:  "internal/runtime/pretool_bridge_test.go#TestToolAdapterRechecksPolicyAfterPublicMiddlewareRewrite",
+			port.EvidenceInspectProjection: "internal/toolhost/host.go#ListVisible",
+		}),
+		"std/observer/run@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-observer-run-v1",
+			port.EvidenceSDKContract:       "sdk/port/observer/observer.go#RunProvider",
+			port.EvidenceHostConsumer:      "internal/observerhost/host.go#DeliverRun",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.ObserveRun",
+			port.EvidenceFailureModel:      "internal/observerhost/host_test.go#TestRunObserverCanReceiveDuplicateStableEventID",
+			port.EvidenceConformanceSuite:  "internal/observerhost/host_test.go#TestRunObserverSeesOnlyCommittedEvents",
+			port.EvidenceInspectProjection: "sdk/port/observer/observer.go#EventID",
+		}),
+		"std/observer/diagnostic@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-observer-diagnostic-v1",
+			port.EvidenceSDKContract:       "sdk/port/observer/observer.go#DiagnosticProvider",
+			port.EvidenceHostConsumer:      "internal/observerhost/host.go#EmitDiagnostic",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.ObserveDiagnostic",
+			port.EvidenceFailureModel:      "internal/observerhost/host_test.go#TestDiagnosticOverloadIncrementsDropCounterWithoutBlocking",
+			port.EvidenceConformanceSuite:  "sdk/port/observer/observer_test.go#TestDiagnosticBoundsMessageAndFields",
+			port.EvidenceInspectProjection: "internal/observerhost/host.go#DiagnosticDrops",
+		}),
+		"std/status-source@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-status-source-v1",
+			port.EvidenceSDKContract:       "sdk/port/status/status.go#Provider",
+			port.EvidenceHostConsumer:      "internal/statushost/host.go#Read",
+			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.Status",
+			port.EvidenceFailureModel:      "internal/statushost/host_test.go#TestStatusTimeoutProjectsUnavailable",
+			port.EvidenceConformanceSuite:  "internal/statushost/host_test.go#TestStatusReadDoesNotStartOrProbeProvider",
+			port.EvidenceInspectProjection: "internal/statushost/host.go#Result",
+		}),
+		"std/context-source@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-context-source-v1",
+			port.EvidenceSDKContract:       "sdk/port/contextsource/contextsource.go#Provider",
+			port.EvidenceHostConsumer:      "internal/contexthost/host.go#Host.QuerySources",
+			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#ContextSourceProviders",
+			port.EvidenceFailureModel:      "internal/contexthost/conformance_test.go#TestContextSourceConformance",
+			port.EvidenceConformanceSuite:  "internal/contexthost/conformance_test.go#TestContextSourceConformance",
+			port.EvidenceInspectProjection: "internal/app/assembly_validate.go#validateRuntimeAssembly",
+		}),
+		"std/skill-source@v1": completedEvidence(map[port.EvidenceKind]string{
+			port.EvidencePortDefinition:    "sdk/port/catalog.go#std-skill-source-v1",
+			port.EvidenceSDKContract:       "sdk/port/skillsource/skillsource.go#Provider",
+			port.EvidenceHostConsumer:      "internal/skillhost/host.go#Host.Get",
+			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#SkillSourceProviders",
+			port.EvidenceFailureModel:      "internal/skillhost/conformance_test.go#TestSkillSourceConformanceTimeoutAndUnavailable",
+			port.EvidenceConformanceSuite:  "internal/skillhost/conformance_test.go#TestSkillSourceConformance",
+			port.EvidenceInspectProjection: "internal/app/assembly_validate.go#validateRuntimeAssembly",
+		}),
 	}
+}
+
+// P1P2PortEvidence retains the original entry point for repository callers
+// while all completed phases share one support ledger.
+func P1P2PortEvidence() map[string]port.SupportEvidence {
+	return SupportedPortEvidence()
 }
 
 func completedEvidence(ids map[port.EvidenceKind]string) port.SupportEvidence {

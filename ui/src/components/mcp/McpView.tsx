@@ -28,10 +28,12 @@ type McpForm = {
   args: string[];
   cwd: string;
   auth_env: string;
+  resource_bridge: boolean;
+  deferred_reason: string;
 };
 type EnvRow = { child: string; host: string };
 
-const emptyForm: McpForm = { name: '', transport: 'http', endpoint: '', command: '', args: [], cwd: '', auth_env: '' };
+const emptyForm: McpForm = { name: '', transport: 'http', endpoint: '', command: '', args: [], cwd: '', auth_env: '', resource_bridge: false, deferred_reason: '' };
 
 function serverInput(server: api.McpServer, enabled = server.enabled): api.McpServerInput {
   return {
@@ -43,6 +45,8 @@ function serverInput(server: api.McpServer, enabled = server.enabled): api.McpSe
     env_from: server.env_from,
     cwd: server.cwd,
     auth_env: server.auth_env,
+    resource_bridge: server.resource_bridge ?? false,
+    deferred_reason: server.deferred_reason,
     enabled,
   };
 }
@@ -75,6 +79,20 @@ function McpPageSkeleton() {
 function mergeServer(list: api.McpServer[], next: api.McpServer) {
   const others = list.filter((server) => server.name.toLowerCase() !== next.name.toLowerCase());
   return [...others, next].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function legacyState(server: api.McpServer): api.McpState {
+  if (!server.enabled) return 'inactive';
+  if (server.state) return server.state;
+  if (server.status === 'ok') return 'ready';
+  if (server.status === 'error') return 'unavailable';
+  return 'inactive';
+}
+
+function boundedReason(value: string | undefined): string {
+  if (!value) return '';
+  const clean = value.replace(/[\u0000-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim();
+  return clean.length > 160 ? `${clean.slice(0, 160)}…` : clean;
 }
 
 export function McpView() {
@@ -137,6 +155,8 @@ export function McpView() {
       args: server.args ? [...server.args] : [],
       cwd: server.cwd ?? '',
       auth_env: server.auth_env ?? '',
+      resource_bridge: server.resource_bridge ?? false,
+      deferred_reason: server.deferred_reason ?? '',
     });
     setEnvRows(Object.entries(server.env_from ?? {}).map(([child, host]) => ({ child, host })));
     setFormError(''); setFormOpen(true);
@@ -163,6 +183,8 @@ export function McpView() {
         env_from: formData.transport === 'stdio' && Object.keys(env_from).length ? env_from : undefined,
         cwd: formData.transport === 'stdio' ? formData.cwd.trim() || undefined : undefined,
         auth_env: formData.transport === 'http' ? formData.auth_env.trim() || undefined : undefined,
+        resource_bridge: formData.resource_bridge,
+        deferred_reason: formData.deferred_reason.trim() || undefined,
         enabled: editingName ? servers.find((server) => server.name === editingName)?.enabled : true,
       });
       if (editingName && editingName.toLowerCase() !== saved.name.toLowerCase()) {
@@ -346,6 +368,11 @@ export function McpView() {
             <div className="space-y-1">
               {visibleServers.map((server) => (
                 <div key={server.name} className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-3 transition-colors hover:bg-muted/60">
+                  {(() => {
+                    const state = legacyState(server);
+                    const reason = boundedReason(server.deferred_reason || server.error);
+                    return (
+                      <>
                   <Switch
                     checked={server.enabled}
                     disabled={locked || busyId === `toggle:${server.name}`}
@@ -356,16 +383,15 @@ export function McpView() {
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{server.name}</span>
                       <Badge variant="outline" className="shrink-0 font-normal">{server.transport === 'stdio' ? 'STDIO' : 'HTTP'}</Badge>
-                      {server.status === 'ok' ? <Badge variant="outline" className="shrink-0 font-normal">{t('mcp.statusOk')}</Badge> : null}
-                      {server.status === 'error' ? <Badge variant="destructive" className="shrink-0 font-normal">{t('mcp.statusError')}</Badge> : null}
+                      <Badge variant={state === 'unavailable' ? 'destructive' : 'outline'} className="shrink-0 font-normal">{t(`mcp.states.${state}`)}</Badge>
                     </div>
                     <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                       {server.transport === 'stdio' ? <Terminal className="h-3.5 w-3.5 shrink-0" /> : <Globe className="h-3.5 w-3.5 shrink-0" />}
                       <span className="truncate">{server.transport === 'stdio' ? server.command : server.endpoint}</span>
-                      {server.status === 'ok' ? <span className="shrink-0">· {t('mcp.toolCount', { count: server.tool_count })}</span> : null}
+                      {state === 'ready' ? <span className="shrink-0">· {t('mcp.toolCount', { count: server.tool_count })}</span> : null}
                     </span>
                     {server.env_missing?.length ? <p className="mt-1 truncate text-xs text-destructive">{t('mcp.envMissing', { names: server.env_missing.join(', ') })}</p> : null}
-                    {server.status === 'error' && server.error ? <p className="mt-1 truncate text-xs text-destructive">{server.error}</p> : null}
+                    {reason ? <p className="mt-1 truncate text-xs text-destructive">{reason}</p> : null}
                   </div>
                   <Button variant="ghost" size="icon" aria-label={t('mcp.probeAria', { name: server.name })} title={t('mcp.probeTitle')} disabled={Boolean(busyId) || !server.enabled} onClick={() => void handleProbe(server)}>
                     {busyId === `probe:${server.name}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -376,6 +402,9 @@ export function McpView() {
                   <Button variant="ghost" size="icon" aria-label={t('mcp.deleteAria', { name: server.name })} title={t('mcp.deleteTitle')} className="text-destructive hover:text-destructive" disabled={locked} onClick={() => setDeleting(server)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
@@ -465,6 +494,13 @@ export function McpView() {
                   <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">{t('mcp.stdioWarning')}</p>
                 </>
               )}
+              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                <div>
+                  <Label htmlFor="mcp-resource-bridge">{t('mcp.resourceBridgeLabel')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('mcp.resourceBridgeHint')}</p>
+                </div>
+                <Switch id="mcp-resource-bridge" checked={formData.resource_bridge} onCheckedChange={(checked) => setFormData((current) => ({ ...current, resource_bridge: checked }))} />
+              </div>
               {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
             </DialogBody>
             <DialogFooter>

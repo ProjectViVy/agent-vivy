@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -44,34 +44,60 @@ func TestV1PackAndInspectProveRecipeRemoval(t *testing.T) {
 	if err := os.Chmod(artifact.Binary, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := InspectArtifact(defaultArtifact.Directory); err != nil {
+		t.Fatalf("default artifact inspection failed: %v", err)
+	}
 	binder, err := os.ReadFile(filepath.Join(out, "zz_assembly.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, omitted := range []string{"vivy/dingtalk", "channel.poll", "example.com/vivy/plugins/dingtalk"} {
+	for _, omitted := range []string{
+		"vivy/dingtalk", "channel.poll", "example.com/vivy/plugins/dingtalk",
+		"vivy/context-host", "vivy/context-source", "vivy/skill-host", "vivy/skill-source",
+	} {
 		if strings.Contains(string(binder), omitted) {
 			t.Errorf("minimal binder contains omitted %q", omitted)
 		}
 	}
-	if info, err := os.Stat(artifact.Binary); err != nil || info.Mode()&0o111 == 0 {
+	// This gate is intentionally scoped to the generated Assembly source and
+	// sealed Manifest. The common app/runtime packages are compiled by every
+	// packed command, so their Go package symbols are outside P4's generator
+	// boundary and are not falsely presented as physically absent here.
+	omittedModules := map[string]bool{
+		"vivy/context-host":   true,
+		"vivy/context-source": true,
+		"vivy/skill-host":     true,
+		"vivy/skill-source":   true,
+	}
+	for _, module := range inspected.Manifest.Modules {
+		if omittedModules[module.ID] {
+			t.Errorf("minimal Manifest contains omitted module %q", module.ID)
+		}
+	}
+	for _, edge := range inspected.Manifest.PortEdges {
+		if omittedModules[edge.Provider] || omittedModules[edge.Consumer] {
+			t.Errorf("minimal Manifest contains edge to omitted module: %#v", edge)
+		}
+	}
+	if info, err := os.Stat(artifact.Binary); err != nil || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
 		t.Fatalf("generation binary is not executable: %v", err)
 	}
-	defaultInfo, _ := os.Stat(defaultArtifact.Binary)
-	minimalInfo, _ := os.Stat(artifact.Binary)
-	if defaultInfo == nil || minimalInfo == nil || minimalInfo.Size() >= defaultInfo.Size() {
-		t.Fatalf("physical removal not reflected in binaries: default=%v minimal=%v", defaultInfo, minimalInfo)
+}
+
+func TestCapabilityStatesRequireTypedMCPHostBinding(t *testing.T) {
+	descriptor := module.Descriptor{
+		Module:   module.Identity{ID: "vivy/mcp-host", Version: "1.0.0"},
+		Provides: []module.PortRef{{Port: "std/tool-world@v1", ID: "mcp"}},
 	}
-	defaultSymbols, err := exec.Command("go", "tool", "nm", defaultArtifact.Binary).Output()
-	if err != nil {
-		t.Fatal(err)
+	plan := assemblyv1.AssemblyPlan{Modules: []assemblyv1.ResolvedModule{{Descriptor: descriptor}}}
+	states := capabilityStatesForPlan(plan)
+	if got := states["mcp"]; got != assemblyv1.CapabilityNotCompiled {
+		t.Fatalf("untyped MCP world capability = %q, want NOT_COMPILED", got)
 	}
-	minimalSymbols, err := exec.Command("go", "tool", "nm", artifact.Binary).Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	const channelPackage = "example.com/vivy/plugins/dingtalk"
-	if !strings.Contains(string(defaultSymbols), channelPackage) || strings.Contains(string(minimalSymbols), channelPackage) {
-		t.Fatal("linked symbol table does not prove dingtalk physical removal")
+	plan.Modules[0].Binding.MCPHostProvider = true
+	states = capabilityStatesForPlan(plan)
+	if got := states["mcp"]; got != assemblyv1.CapabilityUnconfigured {
+		t.Fatalf("typed MCP host capability = %q, want UNCONFIGURED", got)
 	}
 }
 

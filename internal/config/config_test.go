@@ -134,12 +134,23 @@ func TestMCPServerTransportValidation(t *testing.T) {
 		{"absolute cwd", MCPServer{Name: "bad", Command: "node", Cwd: absoluteCwd}},
 		{"env value is secret", MCPServer{Name: "bad", Command: "node", EnvFrom: map[string]string{"TOKEN": "literal-token"}}},
 		{"stdio auth env", MCPServer{Name: "bad", Command: "node", AuthEnv: "MCP_TOKEN"}},
+		{"endpoint userinfo", MCPServer{Name: "bad", Endpoint: "https://user:password@example.com/mcp"}},
+		{"endpoint api key query", MCPServer{Name: "bad", Endpoint: "https://example.com/mcp?api_key=secret"}},
+		{"endpoint access token query", MCPServer{Name: "bad", Endpoint: "https://example.com/mcp?access_token=secret"}},
+		{"endpoint token suffix query", MCPServer{Name: "bad", Endpoint: "https://example.com/mcp?oauth_token=secret"}},
 	}
 	for _, test := range invalid {
 		cfg := Default()
 		cfg.Runtime.MCPServers = []MCPServer{test.server}
 		if err := cfg.Validate(); err == nil {
 			t.Errorf("%s: want validation error", test.name)
+		}
+	}
+	for _, name := range []string{"docs.v2", "docs server", " docs", "docs ", "docs/server", "docs$prod", "écho"} {
+		cfg := Default()
+		cfg.Runtime.MCPServers = []MCPServer{{Name: name, Endpoint: "https://docs.example.com/mcp"}}
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("unsafe MCP namespace %q was accepted", name)
 		}
 	}
 
@@ -150,6 +161,32 @@ func TestMCPServerTransportValidation(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicates") {
 		t.Fatalf("duplicate MCP names error=%v", err)
+	}
+}
+
+func TestMCPServerStateFieldsValidateAndStaySecretFree(t *testing.T) {
+	disabled := false
+	cfg := Default()
+	cfg.Runtime.MCPServers = []MCPServer{{
+		Name:           "docs",
+		Endpoint:       "https://docs.example.com/mcp",
+		ResourceBridge: true,
+		DeferredReason: "OAuth is not configured",
+		Enabled:        &disabled,
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("MCP state fields rejected: %v", err)
+	}
+	server := cfg.Runtime.MCPServers[0]
+	if !server.ResourceBridge || server.DeferredReason != "OAuth is not configured" || server.Enabled == nil || *server.Enabled {
+		t.Fatalf("MCP state fields changed after validation: %+v", server)
+	}
+	for _, reason := range []string{"line\nbreak", "nul\x00value", strings.Repeat("x", 257)} {
+		invalid := Default()
+		invalid.Runtime.MCPServers = []MCPServer{{Name: "docs", Endpoint: "https://docs.example.com/mcp", DeferredReason: reason}}
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("deferred reason %q was accepted", reason)
+		}
 	}
 }
 

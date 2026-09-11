@@ -88,6 +88,8 @@ type Manifest struct {
 	Tools            []string
 	ToolWorlds       []string
 	ProviderProfiles []string
+	ContextSources   []string
+	SkillSources     []string
 	Face             string
 	NetworkStates    map[string]CapabilityState
 }

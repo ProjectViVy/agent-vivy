@@ -1,5 +1,9 @@
 # MCP stdio slice 1
 
+> Historical snapshot (2026-09-08), superseded by PLG-P4 closure on
+> 2026-09-11. The existing `mcp_call` wording below is retained as history;
+> current remote model calls use MCPHost → ToolWorld → ToolHost.
+
 Date: 2026-09-08
 
 ## Delivered
