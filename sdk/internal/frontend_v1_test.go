@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -78,7 +79,7 @@ func TestV1PackAndInspectProveRecipeRemoval(t *testing.T) {
 			t.Errorf("minimal Manifest contains edge to omitted module: %#v", edge)
 		}
 	}
-	if info, err := os.Stat(artifact.Binary); err != nil || info.Mode()&0o111 == 0 {
+	if info, err := os.Stat(artifact.Binary); err != nil || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
 		t.Fatalf("generation binary is not executable: %v", err)
 	}
 }
