@@ -97,6 +97,7 @@ func TestGenerateRuntimeAssemblyComposesTypedP4Sources(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(generated)
+	compactSource := strings.Join(strings.Fields(source), " ")
 	for _, want := range []string{
 		`"agent-vivy/sdk/port/contextsource"`,
 		`"agent-vivy/sdk/port/skillsource"`,
@@ -105,7 +106,7 @@ func TestGenerateRuntimeAssemblyComposesTypedP4Sources(t *testing.T) {
 		`ContextSources: []string{"fixture.context"}`,
 		`SkillSources:   []string{"fixture.skills"}`,
 	} {
-		if !strings.Contains(source, want) {
+		if !strings.Contains(compactSource, strings.Join(strings.Fields(want), " ")) {
 			t.Fatalf("typed P4 source output missing %q:\n%s", want, source)
 		}
 	}

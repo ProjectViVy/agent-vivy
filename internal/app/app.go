@@ -32,6 +32,7 @@ import (
 	"agent-vivy/internal/generated/presentation"
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/logging"
+	"agent-vivy/internal/modelhost"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
@@ -42,6 +43,7 @@ import (
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
 	"agent-vivy/sdk/module"
+	"agent-vivy/sdk/port/providerprofile"
 	toolworldport "agent-vivy/sdk/port/toolworld"
 	"agent-vivy/ui"
 )
@@ -57,11 +59,12 @@ type App struct {
 	cfg    config.Config
 	logger *slog.Logger
 
-	service  *runtime.Service
-	channels *channelhost.Host
-	backend  storage.Engine
-	worker   *workerManager
-	resolver *ModelResolver
+	service   *runtime.Service
+	channels  *channelhost.Host
+	backend   storage.Engine
+	worker    *workerManager
+	resolver  *ModelResolver
+	modelHost *modelhost.Host
 
 	control    controlrpc.Handler
 	httpServer *http.Server
@@ -250,7 +253,19 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: load anthropic bundle: %w", err)
 	}
 	catalog := provider.NewCatalog(openaiBundle, anthropicBundle)
-	resolver := newModelResolver(cfg, liveSettingsPath, catalog)
+	compiledProfiles := make([]providerprofile.Profile, 0, len(runtimeAssembly.ProviderProfiles))
+	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
+		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
+	}
+	modelHost, err := modelhost.New(compiledProfiles, modelhost.Capabilities{
+		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
+		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
+	})
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
+	}
+	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost)
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -260,14 +275,14 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if modelID == "" {
 		modelID = defaultModelFor(cfg, providerName)
 	}
-	chatModel := provider.NewResolvingChatModel(catalog, resolver)
+	chatModel := provider.NewResolvingChatModel(modelHost, catalog, resolver)
 	// CMP-2: optional cheaper compaction summary model, pinned to the
 	// active provider's live spec (D9 single data source). Nil keeps the
 	// main model as the summarizer. The value crosses into the engine as
 	// the opaque runtime.SummaryModel seam (D-007: no direct eino import).
 	var summaryModel runtime.SummaryModel
 	if id := cfg.Runtime.Compaction.SummaryModel; id != "" {
-		summaryModel = provider.NewOverrideModel(catalog, resolver, id)
+		summaryModel = provider.NewOverrideModel(modelHost, catalog, resolver, id)
 	}
 
 	var workspaces runtime.WorkspaceAllocator
@@ -624,7 +639,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Truncations:          backend,
 		Crons:                backend,
 		Channels:             channelHost,
-		Titles:               provider.NewChainTitler(provider.TitleCandidates(catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
+		Titles:               provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -701,15 +716,19 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			PolicyHash:    liveSnap.Hash,
 			Tools:         liveTools,
 		},
-		Eval:                           evalRunner,
-		Children:                       workerManager,
-		SettingsPath:                   liveSettingsPath,
-		GenerationLocale:               presentation.DefaultLocale,
-		DeveloperLocale:                developerLocale,
-		SealedGeneration:               presentation.SealedGeneration,
-		ConfigProvider:                 configProvider,
-		ConfigModel:                    configModel,
-		ProviderBundles:                []provider.Bundle{openaiBundle, anthropicBundle},
+		Eval:             evalRunner,
+		Children:         workerManager,
+		SettingsPath:     liveSettingsPath,
+		GenerationLocale: presentation.DefaultLocale,
+		DeveloperLocale:  developerLocale,
+		SealedGeneration: presentation.SealedGeneration,
+		ConfigProvider:   configProvider,
+		ConfigModel:      configModel,
+		ProviderBundles:  []provider.Bundle{openaiBundle, anthropicBundle},
+		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
+			current := resolver.Current()
+			return modelHost.Statuses(current.Provider, current.Ready)
+		},
 		RuntimeBaseURL:                 cur.BaseURL,
 		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
 		ConfigExecuteMaxTimeoutSeconds: cfg.Runtime.ExecuteMaxTimeoutSeconds,
@@ -897,6 +916,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		backend:    backend,
 		worker:     workerManager,
 		resolver:   resolver,
+		modelHost:  modelHost,
 		control:    controlHandler,
 		rpcToken:   rpcToken,
 		mcpBackend: mcpBackend,

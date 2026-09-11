@@ -212,11 +212,11 @@ type Postgres struct {
 }
 
 type Providers struct {
-	// Active is the pre-baked bundle to activate: "openai" or "anthropic"
-	// (D-018, D-023).
+	// Active selects a Provider Profile compiled into this Generation. The
+	// default Generation carries "openai" and "anthropic" (D-018, D-023).
 	Active string `yaml:"active"`
-	// BundleDir is the directory holding the pre-baked bundle YAML files
-	// (openai.yaml, anthropic.yaml; A2 fixtures).
+	// BundleDir holds the T1 adapter metadata paired with compiled Profiles
+	// (openai.yaml, anthropic.yaml; A2 fixtures). It cannot add a Profile.
 	BundleDir string   `yaml:"bundle_dir"`
 	OpenAI    Provider `yaml:"openai"`
 	Anthropic Provider `yaml:"anthropic"`

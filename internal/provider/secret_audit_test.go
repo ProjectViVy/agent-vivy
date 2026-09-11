@@ -8,9 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+
+	"agent-vivy/internal/modelhost"
 )
 
 func repoRoot(t *testing.T) string {
@@ -115,5 +118,14 @@ func TestKeyMissingErrorCarriesNoValue(t *testing.T) {
 	}
 	if strings.Contains(msg, canary) {
 		t.Fatal("message leaked a key value")
+	}
+}
+
+func TestProviderProfileStatusWireSourceCannotCarrySecrets(t *testing.T) {
+	typeOfStatus := reflect.TypeOf(modelhost.ProfileStatus{})
+	for _, forbidden := range []string{"SecretRefs", "OptionsSchema", "APIKey", "Credential"} {
+		if _, exists := typeOfStatus.FieldByName(forbidden); exists {
+			t.Fatalf("ProfileStatus exposes forbidden field %q", forbidden)
+		}
 	}
 }

@@ -22,6 +22,7 @@ type defaultGenerationInventory struct {
 	ToolWorldProviders []string          `json:"toolWorldProviders"`
 	DefaultFace        string            `json:"defaultFace"`
 	NetworkState       map[string]string `json:"networkState"`
+	ProviderProfiles   []string          `json:"providerProfiles"`
 }
 
 func TestDefaultGenerationLeavesUnconfiguredNetworkInactive(t *testing.T) {
@@ -74,7 +75,8 @@ func TestDefaultGenerationBaselineInventory(t *testing.T) {
 	got := defaultGenerationInventory{
 		Channels: manifest.Channels, ProtectedTools: manifest.Tools,
 		ToolWorldProviders: manifest.ToolWorlds, DefaultFace: manifest.Face,
-		NetworkState: map[string]string{"channels": string(manifest.NetworkStates["channels"]), "mcp": string(manifest.NetworkStates["mcp"])},
+		NetworkState:     map[string]string{"channels": string(manifest.NetworkStates["channels"]), "mcp": string(manifest.NetworkStates["mcp"])},
+		ProviderProfiles: manifest.ProviderProfiles,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v, want %#v", got, want)
@@ -92,6 +94,18 @@ func TestDefaultGenerationBaselineInventory(t *testing.T) {
 	}
 	if !reflect.DeepEqual(worldIDs, manifest.ToolWorlds) {
 		t.Fatalf("tool-world providers = %v, manifest worlds = %v", worldIDs, manifest.ToolWorlds)
+	}
+}
+
+func TestDefaultGenerationProviderProfilesAreGeneratedAuthority(t *testing.T) {
+	assembly := genassembly.BuildDefault()
+	if len(assembly.ProviderProfiles) != 2 {
+		t.Fatalf("generated Provider Profiles = %d, want 2", len(assembly.ProviderProfiles))
+	}
+	for index, provider := range assembly.ProviderProfiles {
+		if got, want := provider.Definition().ID, assembly.Manifest.ProviderProfiles[index]; got != want {
+			t.Fatalf("Provider Profile %d id = %q, manifest = %q", index, got, want)
+		}
 	}
 }
 
@@ -114,9 +128,9 @@ func TestDefaultGeneratedToolProvidersBindRuntimeImplementations(t *testing.T) {
 	}
 }
 
-func TestDefaultGenerationComposesContextSkillAndMCPHosts(t *testing.T) {
+func TestDefaultGenerationComposesEstablishedOptionalHosts(t *testing.T) {
 	assembly := genassembly.BuildDefault()
-	for _, moduleID := range []string{"vivy/context-host", "vivy/context-source", "vivy/skill-host", "vivy/skill-source", "vivy/mcp-host"} {
+	for _, moduleID := range []string{"vivy/context-host", "vivy/context-source", "vivy/skill-host", "vivy/skill-source", "vivy/mcp-host", "vivy/observer-host", "vivy/status-host"} {
 		if !slices.Contains(assembly.Manifest.Modules, moduleID) {
 			t.Fatalf("default Generation omitted %s: %v", moduleID, assembly.Manifest.Modules)
 		}

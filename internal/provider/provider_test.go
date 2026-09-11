@@ -3,12 +3,18 @@ package provider
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"agent-vivy/internal/modelhost"
 )
 
 const fixturesDir = "../../fixtures/provider"
@@ -195,10 +201,84 @@ type staticSpec struct{ live LiveSpec }
 func (s staticSpec) Live() LiveSpec { return s.live }
 
 func TestResolvingChatModelRejectsUnconfigured(t *testing.T) {
-	cm := NewResolvingChatModel(NewCatalog(), staticSpec{live: LiveSpec{}})
+	cm := NewResolvingChatModel(routedHost(t), NewCatalog(), staticSpec{live: LiveSpec{}})
 	_, err := cm.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}})
 	if !errors.Is(err, ErrModelNotConfigured) {
 		t.Fatalf("error = %v, want ErrModelNotConfigured", err)
+	}
+}
+
+func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *testing.T) {
+	t.Run("adapter failure becomes unavailable", func(t *testing.T) {
+		bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
+		profile := ProfileFromBundle(bundle)
+		profile.AdapterFamily = AdapterFamilyAnthropic
+		host := routedHost(t, profile)
+		chatModel := NewResolvingChatModel(host, NewCatalog(bundle), staticSpec{live: LiveSpec{
+			Provider: bundle.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+		}})
+		if _, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); !errors.Is(err, ErrAdapterFamilyMismatch) {
+			t.Fatalf("adapter failure = %v, want ErrAdapterFamilyMismatch", err)
+		}
+		if got := host.Statuses("openai", true)[0].State; got != modelhost.ProfileUnavailable {
+			t.Fatalf("status after adapter failure = %s, want UNAVAILABLE", got)
+		}
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+		chatModel, closeServer := blockingResolvingModel(t)
+		defer closeServer()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		_, err := chatModel.Generate(ctx, []*schema.Message{schema.UserMessage("hi")})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("timeout error = %v, want DeadlineExceeded", err)
+		}
+	})
+
+	t.Run("cancellation", func(t *testing.T) {
+		chatModel, closeServer := blockingResolvingModel(t)
+		defer closeServer()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := chatModel.Generate(ctx, []*schema.Message{schema.UserMessage("hi")})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation error = %v, want Canceled", err)
+		}
+	})
+
+	t.Run("streaming upstream error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			http.Error(writer, "stream failed", http.StatusBadRequest)
+		}))
+		defer server.Close()
+		bundle := newOpenAITestBundle(server.URL)
+		chatModel := NewResolvingChatModel(routedHost(t, ProfileFromBundle(bundle)), NewCatalog(bundle), staticSpec{live: LiveSpec{
+			Provider: bundle.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
+		}})
+		if stream, err := chatModel.Stream(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err == nil {
+			if stream != nil {
+				stream.Close()
+			}
+			t.Fatal("streaming upstream failure returned nil")
+		}
+	})
+}
+
+func blockingResolvingModel(t *testing.T) (model.ToolCallingChatModel, func()) {
+	t.Helper()
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		<-release
+	}))
+	bundle := newOpenAITestBundle(server.URL)
+	resolved := NewResolvingChatModel(routedHost(t, ProfileFromBundle(bundle)), NewCatalog(bundle), staticSpec{live: LiveSpec{
+		Provider: bundle.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
+	}})
+	return resolved, func() {
+		close(release)
+		server.CloseClientConnections()
+		server.Close()
 	}
 }
 

@@ -32,7 +32,7 @@ func thinkingBody(t *testing.T, mode domain.ThinkingMode, modelID string) map[st
 	bundle := newClaudeTestBundle(srv.URL)
 	catalog := NewCatalog(bundle)
 	live := LiveSpec{Provider: bundle.Name, Model: modelID, APIKey: "spec-key", BaseURL: srv.URL, Ready: true}
-	cm := NewResolvingChatModel(catalog, staticSpecSource{live: live})
+	cm := NewResolvingChatModel(routedHost(t, ProfileFromBundle(bundle)), catalog, staticSpecSource{live: live})
 	ctx := domain.WithThinkingMode(context.Background(), mode)
 	if _, err := cm.Generate(ctx, []*schema.Message{schema.UserMessage("hi")}); err != nil {
 		t.Fatalf("generate: %v", err)
@@ -102,7 +102,7 @@ func TestResolvingModelWithToolsInjectsThinking(t *testing.T) {
 
 	bundle := newClaudeTestBundle(srv.URL)
 	live := LiveSpec{Provider: bundle.Name, Model: "claude-sonnet-4-5", APIKey: "spec-key", BaseURL: srv.URL, Ready: true}
-	cm := NewResolvingChatModel(NewCatalog(bundle), staticSpecSource{live: live})
+	cm := NewResolvingChatModel(routedHost(t, ProfileFromBundle(bundle)), NewCatalog(bundle), staticSpecSource{live: live})
 	bound, err := cm.WithTools([]*schema.ToolInfo{{Name: "echo"}})
 	if err != nil {
 		t.Fatalf("with tools: %v", err)
