@@ -117,9 +117,8 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 				diagnostics = append(diagnostics, fmt.Sprintf("T2 provider id %s for %s is outside module namespace %s", provided.ID, provided.Port, record.Descriptor.Module.ID))
 			}
 			if strings.HasPrefix(provided.Port, "core/") {
-				want, known := internalPortOwners[provided.Port]
-				if record.Trust != TrustT1 || !known || record.Descriptor.Module.ID != want {
-					diagnostics = append(diagnostics, fmt.Sprintf("core Port %s may only be provided by build-owned T1 module %s", provided.Port, want))
+				if err := validateInternalProvider(provided, record.Descriptor.Module.ID, record.Trust); err != nil {
+					diagnostics = append(diagnostics, err.Error())
 				}
 			}
 			if provided.Port == "std/tool@v1" && record.Trust == TrustT2 && protectedToolIDs[provided.ID] {
@@ -469,23 +468,6 @@ func descriptorProvidesRef(descriptor module.Descriptor, ref module.PortRef) boo
 		}
 	}
 	return false
-}
-
-var internalPortOwners = map[string]string{
-	"core/loop-driver@v1":         "vivy/kernel",
-	"core/chat-model-host@v1":     "vivy/kernel",
-	"core/storage-engine@v1":      "vivy/kernel",
-	"core/checkpoint-store@v1":    "vivy/kernel",
-	"core/credential-resolver@v1": "vivy/kernel",
-	"core/sandbox-backend@v1":     "vivy/kernel",
-	"core/tool-host@v1":           "vivy/tool-host",
-	"core/mcp-host@v1":            "vivy/mcp-host",
-	"core/context-host@v1":        "vivy/context-host",
-	"core/skill-host@v1":          "vivy/skill-host",
-	"core/observer-host@v1":       "vivy/observer-host",
-	"core/status-host@v1":         "vivy/status-host",
-	"core/channel-host@v1":        "vivy/channel-host",
-	"core/face-host@v1":           "vivy/face-host",
 }
 
 var protectedToolIDs = map[string]bool{
