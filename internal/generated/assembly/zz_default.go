@@ -5,7 +5,13 @@ import (
 	"context"
 	"errors"
 
+	checkpoint "agent-vivy/internal/modules/checkpoint"
+	credential "agent-vivy/internal/modules/credential"
 	defaults "agent-vivy/internal/modules/defaults"
+	loop "agent-vivy/internal/modules/loop"
+	model "agent-vivy/internal/modules/model"
+	sandbox "agent-vivy/internal/modules/sandbox"
+	storage "agent-vivy/internal/modules/storage"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
@@ -43,7 +49,7 @@ type RuntimeAssembly struct {
 	ChannelGrants              map[string][]module.GrantBinding
 	GenerationID               string
 	Manifest                   generation.Manifest
-	owners                     []module.Instance
+	generation                 *module.Generation
 }
 
 func BuildDefault() RuntimeAssembly {
@@ -65,7 +71,7 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 		},
 		Manifest: generation.Manifest{
-			Modules:          []string{"vivy/channel-host", "vivy/context-host", "vivy/context-source", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/kernel", "vivy/mcp-host", "vivy/observer-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/telegram", "vivy/tool-host"},
+			Modules:          []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"},
 			Channels:         []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
 			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
 			Actions:          []string{},
@@ -83,141 +89,145 @@ func (assembly *RuntimeAssembly) ContextSourceProviders() any { return assembly.
 func (assembly *RuntimeAssembly) SkillSourceProviders() any   { return assembly.SkillSources }
 
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
-	if assembly.owners != nil {
+	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")
 	}
-	owners := make([]module.Instance, 0, 18)
-	owner0, err := defaults.NewChannelHost().Construct(ctx, hosts.ForModule("vivy/channel-host"))
+	owners := make([]module.Instance, 0, 25)
+	owner0, err := defaults.NewActionHost().Construct(ctx, hosts.ForModule("vivy/action-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner0)
-	owner1, err := defaults.NewContextHost().Construct(ctx, hosts.ForModule("vivy/context-host"))
+	owner1, err := defaults.NewChannelHost().Construct(ctx, hosts.ForModule("vivy/channel-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner1)
-	owner2, err := defaults.NewContextSource().Construct(ctx, hosts.ForModule("vivy/context-source"))
+	owner2, err := checkpoint.NewModule().Construct(ctx, hosts.ForModule("vivy/checkpoint"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner2)
-	owner3, err := dingtalk.New().Construct(ctx, hosts.ForModule("vivy/dingtalk"))
+	owner3, err := defaults.NewContextHost().Construct(ctx, hosts.ForModule("vivy/context-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner3)
-	owner4, err := discord.New().Construct(ctx, hosts.ForModule("vivy/discord"))
+	owner4, err := defaults.NewContextSource().Construct(ctx, hosts.ForModule("vivy/context-source"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner4)
-	owner5, err := defaults.NewFaceHost().Construct(ctx, hosts.ForModule("vivy/face-host"))
+	owner5, err := credential.NewModule().Construct(ctx, hosts.ForModule("vivy/credential"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner5)
-	owner6, err := feishu.New().Construct(ctx, hosts.ForModule("vivy/feishu"))
+	owner6, err := dingtalk.New().Construct(ctx, hosts.ForModule("vivy/dingtalk"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner6)
-	owner7, err := defaults.NewKernel().Construct(ctx, hosts.ForModule("vivy/kernel"))
+	owner7, err := discord.New().Construct(ctx, hosts.ForModule("vivy/discord"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner7)
-	owner8, err := defaults.NewObserverHost().Construct(ctx, hosts.ForModule("vivy/observer-host"))
+	owner8, err := defaults.NewFaceHost().Construct(ctx, hosts.ForModule("vivy/face-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner8)
-	owner9, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
+	owner9, err := feishu.New().Construct(ctx, hosts.ForModule("vivy/feishu"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner9)
-	owner10, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
+	owner10, err := loop.NewModule().Construct(ctx, hosts.ForModule("vivy/loop"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner10)
-	owner11, err := defaults.NewSkillHost().Construct(ctx, hosts.ForModule("vivy/skill-host"))
+	owner11, err := model.NewModule().Construct(ctx, hosts.ForModule("vivy/model"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner11)
-	owner12, err := defaults.NewSkillSource().Construct(ctx, hosts.ForModule("vivy/skill-source"))
+	owner12, err := defaults.NewObserverHost().Construct(ctx, hosts.ForModule("vivy/observer-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner12)
-	owner13, err := defaults.NewStatusHost().Construct(ctx, hosts.ForModule("vivy/status-host"))
+	owner13, err := defaults.NewPresentationHost().Construct(ctx, hosts.ForModule("vivy/presentation-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner13)
-	owner14, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
+	owner14, err := defaults.NewProviderProfiles().Construct(ctx, hosts.ForModule("vivy/provider-profiles"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner14)
-	owner15, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
+	owner15, err := qq.New().Construct(ctx, hosts.ForModule("vivy/qq"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner15)
-	owner16, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
+	owner16, err := sandbox.NewModule().Construct(ctx, hosts.ForModule("vivy/sandbox"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner16)
-	owner17, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	owner17, err := defaults.NewSkillHost().Construct(ctx, hosts.ForModule("vivy/skill-host"))
 	if err != nil {
-		return errors.Join(err, closeOwners(ctx, owners))
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner17)
-	for index, owner := range owners {
-		if err := owner.Start(ctx); err != nil {
-			return errors.Join(err, rollbackStart(ctx, owners, index+1))
-		}
-		if err := owner.Ready(ctx); err != nil {
-			return errors.Join(err, rollbackStart(ctx, owners, index+1))
-		}
+	owner18, err := defaults.NewSkillSource().Construct(ctx, hosts.ForModule("vivy/skill-source"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
-	assembly.owners = owners
+	owners = append(owners, owner18)
+	owner19, err := defaults.NewStatusHost().Construct(ctx, hosts.ForModule("vivy/status-host"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner19)
+	owner20, err := storage.NewModule().Construct(ctx, hosts.ForModule("vivy/storage"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner20)
+	owner21, err := telegram.New().Construct(ctx, hosts.ForModule("vivy/telegram"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner21)
+	owner22, err := defaults.NewToolHost().Construct(ctx, hosts.ForModule("vivy/tool-host"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner22)
+	owner23, err := defaults.NewMCPHost().Construct(ctx, hosts.ForModule("vivy/mcp-host"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner23)
+	owner24, err := defaults.NewProtectedTools().Construct(ctx, hosts.ForModule("vivy/protected-tools"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner24)
+	generation, err := module.StartGeneration(ctx, owners)
+	if err != nil {
+		return err
+	}
+	assembly.generation = generation
 	return nil
 }
 
 func (assembly *RuntimeAssembly) Close(ctx context.Context) error {
-	owners := assembly.owners
-	assembly.owners = nil
-	return stopAndCloseOwners(ctx, owners)
-}
-
-func rollbackStart(ctx context.Context, owners []module.Instance, started int) error {
-	var failures []error
-	for index := started - 1; index >= 0; index-- {
-		failures = append(failures, owners[index].Stop(ctx))
-	}
-	for index := len(owners) - 1; index >= 0; index-- {
-		failures = append(failures, owners[index].Close(ctx))
-	}
-	return errors.Join(failures...)
-}
-
-func stopAndCloseOwners(ctx context.Context, owners []module.Instance) error {
-	var failures []error
-	for index := len(owners) - 1; index >= 0; index-- {
-		failures = append(failures, owners[index].Stop(ctx), owners[index].Close(ctx))
-	}
-	return errors.Join(failures...)
-}
-
-func closeOwners(ctx context.Context, owners []module.Instance) error {
-	var failures []error
-	for index := len(owners) - 1; index >= 0; index-- {
-		failures = append(failures, owners[index].Close(ctx))
-	}
-	return errors.Join(failures...)
+	generation := assembly.generation
+	assembly.generation = nil
+	return generation.Close(ctx)
 }

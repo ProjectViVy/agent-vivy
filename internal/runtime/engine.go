@@ -132,6 +132,25 @@ type Engine struct {
 	toolByName  map[string]tools.Tool
 }
 
+// EngineFactory pins the production LoopDriver to the Eino v0.9.13 APIs used
+// by NewEngine: adk.NewChatModelAgent, adk.NewRunner, Runner.Run/Query, and
+// Runner.ResumeWithParams. The model value stays inside this quarantined
+// package; internal/modules/loop sees only Vivy runtime types.
+type EngineFactory struct {
+	model model.ToolCallingChatModel
+}
+
+func NewEngineFactory(m model.ToolCallingChatModel) *EngineFactory {
+	return &EngineFactory{model: m}
+}
+
+func (factory *EngineFactory) Build(ctx context.Context, ts []tools.Tool, cfg EngineConfig) (*Engine, error) {
+	if factory == nil {
+		return nil, errors.New("runtime: nil engine factory")
+	}
+	return NewEngine(ctx, factory.model, ts, cfg)
+}
+
 // NewEngine builds the ChatModelAgent and Runner over an Eino
 // tool-calling chat model and the resolved tool set. Domain models cross
 // the boundary via WrapModel at wiring time; native eino-ext components

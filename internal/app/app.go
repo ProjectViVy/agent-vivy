@@ -36,12 +36,16 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/modelhost"
+	checkpointmodule "agent-vivy/internal/modules/checkpoint"
+	credentialmodule "agent-vivy/internal/modules/credential"
+	loopmodule "agent-vivy/internal/modules/loop"
+	modelmodule "agent-vivy/internal/modules/model"
+	sandboxmodule "agent-vivy/internal/modules/sandbox"
+	storagemodule "agent-vivy/internal/modules/storage"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
-	"agent-vivy/internal/storage/postgres"
-	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
@@ -240,7 +244,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: create data dir: %w", err)
 	}
 
-	backend, err := openEngine(ctx, cfg)
+	backend, err := storagemodule.Open(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +267,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
-	modelHost, err := modelhost.New(compiledProfiles, modelhost.Capabilities{
+	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
+		compiledProfiles,
+		cfg.Channels,
+		cfg.Providers.OpenAI.EnvKey,
+		cfg.Providers.Anthropic.EnvKey,
+	))
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
+	}
+	modelProvider, err := modelmodule.Compose(compiledProfiles, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
 	})
@@ -271,7 +285,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
 	}
-	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost)
+	modelHost := modelProvider.Host()
+	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost, credentialResolver)
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -282,6 +297,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		modelID = defaultModelFor(cfg, providerName)
 	}
 	chatModel := provider.NewResolvingChatModel(modelHost, catalog, resolver)
+	loopDriver, err := loopmodule.Compose(runtime.NewEngineFactory(chatModel))
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: construct LoopDriver: %w", err)
+	}
 	// CMP-2: optional cheaper compaction summary model, pinned to the
 	// active provider's live spec (D9 single data source). Nil keeps the
 	// main model as the summarizer. The value crosses into the engine as
@@ -307,46 +327,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var commandOps tools.CommandOperations
 	var workspaceManager *runtime.WorkspaceManager
 	var sandboxManager *runtime.SandboxManager
+	var sandboxProvider *sandboxmodule.Provider
 	if cfg.Runtime.WorkspaceRoot != "" {
-		var manager *runtime.WorkspaceManager
-		var err error
-		if cfg.Runtime.World == "local" {
-			manager, err = runtime.NewLocalWorkspaceManager(cfg.Runtime.WorkspaceRoot)
-		} else {
-			manager, err = runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
-		}
+		sandboxProvider, err = sandboxmodule.Compose(cfg)
 		if err != nil {
 			_ = backend.Close()
-			return nil, fmt.Errorf("app: build workspace isolation: %w", err)
+			return nil, fmt.Errorf("app: compose Sandbox Backend: %w", err)
 		}
-		workspaces = manager
-		workspaceManager = manager
-
-		// Create SandboxManager with config (D-021)
-		sandboxMode := domain.SandboxMode(cfg.Runtime.Sandbox.DefaultMode)
-		if !sandboxMode.Valid() {
-			sandboxMode = domain.SandboxModeWorkspaceWrite
-		}
-		sandboxRoot := cfg.Runtime.Sandbox.WorkspaceRoot
-		if sandboxRoot == "" {
-			sandboxRoot = cfg.Runtime.WorkspaceRoot
-		}
-		netPolicy := &domain.NetworkPolicy{
-			AllowedDomains: cfg.Runtime.Sandbox.Network.AllowedDomains,
-			DenyPrivateIPs: cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
-		}
-		sandboxManager, err = runtime.NewSandboxManager(
-			sandboxMode,
-			sandboxRoot,
-			cfg.Runtime.ExecuteAllowedCommands,
-			netPolicy,
-		)
-		if err != nil {
-			_ = backend.Close()
-			return nil, fmt.Errorf("app: build sandbox manager: %w", err)
-		}
-
-		fileBackend = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
+		workspaceManager = sandboxProvider.Workspaces()
+		sandboxManager = sandboxProvider.Sandbox()
+		workspaces = workspaceManager
+		fileBackend = sandboxProvider.Filesystem()
 		fileOps = fileBackend
 		fileRecorder = runtime.NewFileVersionRecorder(backend, nil)
 		fileBackend.SetFileVersionRecorder(fileRecorder)
@@ -409,7 +400,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		runtimeAssembly.Worlds = providers
 	}
 	sequentialOps = runtime.NewSequentialThinkingBackend()
-	commandOps = runtime.NewCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	if sandboxProvider != nil {
+		commandOps = sandboxProvider.Commands()
+	}
 	var worldLookup worldWorkspaceLookup
 	if workspaceManager != nil {
 		worldLookup = func(ctx context.Context) (string, error) {
@@ -543,11 +536,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, errors.New("app: eino engine version unavailable; checkpoint store cannot be anchored")
 	}
-	checkpoints, err := runtime.NewVersionedCheckpointStore(backend.Blobs(), engineVersion)
+	checkpointProvider, err := checkpointmodule.Compose(backend.Blobs(), engineVersion)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
 	}
+	checkpoints := checkpointProvider.Store()
 	policy := policyEngine(cfg)
 	userHooks := scriptHooksForConfig(cfg, func(format string, args ...any) {
 		logger.Warn("hook registered but not approved", "detail", fmt.Sprintf(format, args...))
@@ -578,7 +572,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
-	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
+	eng, err := loopDriver.Build(ctx, ts, engineCfg)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build engine: %w", err)
@@ -614,9 +608,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				}
 				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
 			},
-			Channels: channelPlugins,
-			Config:   cfg.Channels,
-			Logger:   logger,
+			Channels:    channelPlugins,
+			Config:      cfg.Channels,
+			Logger:      logger,
+			Credentials: credentialResolver,
 		})
 	}
 	runHooks := []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}}
@@ -652,7 +647,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				return nil, fmt.Errorf("app: resolve live tools: %w", err)
 			}
 			ec.HiddenTools = hidden
-			return runtime.NewEngine(ctx, chatModel, live, ec)
+			return loopDriver.Build(ctx, live, ec)
 		},
 	})
 	svc.SetCatalog(catalog)
@@ -1486,36 +1481,6 @@ func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config
 		}
 	}
 	backend.SetConfig(hosts, timeout)
-}
-
-func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) {
-	switch cfg.Storage.Backend {
-	case "postgres":
-		dsn := os.Getenv(cfg.Storage.Postgres.DSNEnv)
-		if dsn == "" {
-			return nil, fmt.Errorf("app: %s is empty; postgres DSN is read from the environment (D-010)", cfg.Storage.Postgres.DSNEnv)
-		}
-		backend, err := postgres.Open(ctx, dsn)
-		if err != nil {
-			return nil, fmt.Errorf("app: open postgres storage: %w", err)
-		}
-		return backend, nil
-	default:
-		if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return nil, fmt.Errorf("app: create storage dir: %w", err)
-			}
-		}
-		backend, err := sqlite.Open(ctx, cfg.Storage.SQLite.Path)
-		if err != nil {
-			return nil, fmt.Errorf("app: open storage: %w", err)
-		}
-		if err := backend.TakeOrganismLease(ctx); err != nil {
-			_ = backend.Close()
-			return nil, fmt.Errorf("app: occupy shared workspace: %w", err)
-		}
-		return backend, nil
-	}
 }
 
 func defaultModelFor(cfg config.Config, providerName string) string {

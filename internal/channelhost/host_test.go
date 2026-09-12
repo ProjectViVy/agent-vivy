@@ -17,6 +17,7 @@ import (
 	"agent-vivy/internal/channelhost/fake"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
+	credentialmodule "agent-vivy/internal/modules/credential"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	plugin "agent-vivy/sdk/port/channel"
@@ -967,15 +968,19 @@ func TestInspectNotesForSkips(t *testing.T) {
 func TestInspectTokenEnvSet(t *testing.T) {
 	backend := openBackend(t)
 	ch := fake.New()
+	envelope := config.ChannelEnvelope{Enabled: false, TokenEnv: "VIVY_TEST_CHANNEL_TOKEN_INSPECT"}
+	credentials, err := credentialmodule.Compose(credentialmodule.CompileScopes(nil, config.Channels{"fake": envelope}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Channels: []plugin.Channel{ch},
-		Config: config.Channels{
-			"fake": {Enabled: false, TokenEnv: "VIVY_TEST_CHANNEL_TOKEN_INSPECT"},
-		},
-		Logger: testLogger(),
+		Journal:     backend,
+		Messages:    backend,
+		Sessions:    backend,
+		Channels:    []plugin.Channel{ch},
+		Config:      config.Channels{"fake": envelope},
+		Credentials: credentials,
+		Logger:      testLogger(),
 	})
 	t.Setenv("VIVY_TEST_CHANNEL_TOKEN_INSPECT", "")
 

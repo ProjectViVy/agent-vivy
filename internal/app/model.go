@@ -8,6 +8,7 @@ import (
 	"agent-vivy/internal/app/settings"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/modelhost"
+	credentialmodule "agent-vivy/internal/modules/credential"
 	"agent-vivy/internal/provider"
 )
 
@@ -32,23 +33,32 @@ type ResolvedModel struct {
 // otherwise ~/.vivy/settings.yaml. Empty means the process has no model
 // yet (wizard required). It never writes environment variables.
 type ModelResolver struct {
-	mu      sync.Mutex
-	cfg     config.Config
-	path    string
-	catalog *provider.Catalog
-	host    *modelhost.Host
-	frozen  *ResolvedModel
+	mu          sync.Mutex
+	cfg         config.Config
+	path        string
+	catalog     *provider.Catalog
+	host        *modelhost.Host
+	credentials *credentialmodule.Resolver
+	frozen      *ResolvedModel
 }
 
-func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog, host *modelhost.Host) *ModelResolver {
-	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog, host: host}
-	if frozen, ok := freezeFromEnv(cfg, catalog); ok {
+func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog, host *modelhost.Host, supplied ...*credentialmodule.Resolver) *ModelResolver {
+	var credentials *credentialmodule.Resolver
+	if len(supplied) > 0 {
+		credentials = supplied[0]
+	} else {
+		credentials, _ = credentialmodule.Compose(map[string][]string{"vivy/model": {
+			cfg.Providers.OpenAI.EnvKey, cfg.Providers.Anthropic.EnvKey,
+		}})
+	}
+	r := &ModelResolver{cfg: cfg, path: path, catalog: catalog, host: host, credentials: credentials}
+	if frozen, ok := freezeFromEnv(cfg, catalog, credentials); ok {
 		r.frozen = &frozen
 	}
 	return r
 }
 
-func freezeFromEnv(cfg config.Config, catalog *provider.Catalog) (ResolvedModel, bool) {
+func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *credentialmodule.Resolver) (ResolvedModel, bool) {
 	type candidate struct {
 		name   string
 		envKey string
@@ -62,7 +72,7 @@ func freezeFromEnv(cfg config.Config, catalog *provider.Catalog) (ResolvedModel,
 		if c.envKey == "" {
 			continue
 		}
-		if strings.TrimSpace(os.Getenv(c.envKey)) != "" {
+		if credentials != nil && credentials.IsSet("vivy/model", c.envKey) {
 			hits = append(hits, c)
 		}
 	}
@@ -78,7 +88,11 @@ func freezeFromEnv(cfg config.Config, catalog *provider.Catalog) (ResolvedModel,
 			}
 		}
 	}
-	key := strings.TrimSpace(os.Getenv(chosen.envKey))
+	key, err := credentials.Resolve("vivy/model", chosen.envKey)
+	if err != nil {
+		return ResolvedModel{}, false
+	}
+	key = strings.TrimSpace(key)
 	base := strings.TrimSpace(os.Getenv(provider.APIBaseEnvVar))
 	modelID := strings.TrimSpace(os.Getenv(envModelOverride))
 	if modelID == "" {

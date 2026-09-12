@@ -1,6 +1,7 @@
-// Package port owns the closed v1 public Port catalog and build-evidence
-// support states. Modules may reference catalog entries but cannot extend or
-// promote the catalog at runtime.
+// Package port owns the v1 public Port catalog and build-evidence support
+// states. Closed core Port definitions live in internal/moduleport; public
+// Modules may reference core consumers but cannot enumerate or implement them
+// through this package.
 package port
 
 import "agent-vivy/sdk/module"
@@ -8,8 +9,7 @@ import "agent-vivy/sdk/module"
 type Visibility string
 
 const (
-	VisibilityPublic   Visibility = "public"
-	VisibilityInternal Visibility = "internal"
+	VisibilityPublic Visibility = "public"
 )
 
 type Cardinality string

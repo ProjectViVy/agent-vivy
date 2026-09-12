@@ -59,7 +59,7 @@ and `just ci`.
 | PLG-P4 | [#9](https://github.com/ProjectViVy/agent-vivy/issues/9) | Context, Skill, and MCP Hosts/Sources | `COMPLETE · 2026-09-11` | P3 | Gate B critical path |
 | PLG-P5 | [#10](https://github.com/ProjectViVy/agent-vivy/issues/10) | Declarative Provider Profile and Eino adapters | `DONE · 2026-09-10` | P2 | Gate B and P7 critical path |
 | PLG-P6 | [#11](https://github.com/ProjectViVy/agent-vivy/issues/11) | Full-code UI Modules and Control Actions | `IMPLEMENTATION COMPLETE · 2026-09-11` | P2 | Not on core SCX path; P9 release conformance remains separate |
-| PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `UNSCHEDULED` | P2, P3, P4, P5 | Gate B hardening |
+| PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `DONE · 2026-09-12` | P2, P3, P4, P5 | Gate B hardening |
 | PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `UNSCHEDULED` | P1–P7 as identified | Direct SCX integration |
 | PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `UNSCHEDULED` | P1–P8 | Gate C critical path |
 
@@ -75,9 +75,12 @@ UI/Action proof and focused fixture checks are recorded in the P6 Task 7
 report. PLG-P3's implementation landed with PR #18 and was explicitly selected
 for closure by the human owner on 2026-09-12; its missing whole-envelope proof
 and approval binding/redaction corrections are recorded in
-`docs/logs/2026-09-12-plugin-v1-p3-closure/`. The separate PLG-P9
-release-conformance phase remains `UNSCHEDULED`. Dependency order is an
-execution constraint, not a calendar commitment.
+`docs/logs/2026-09-12-plugin-v1-p3-closure/`. PLG-P7 was explicitly scheduled
+by the human owner and completed on 2026-09-12; its internal Port, lifecycle,
+authority, full-CI, and pack/Inspect evidence is recorded in
+`docs/logs/2026-09-12-plugin-p7-internal-moduleization/`. The separate PLG-P8
+integration and PLG-P9 release-conformance phases remain `UNSCHEDULED`.
+Dependency order is an execution constraint, not a calendar commitment.
 
 ## Critical path
 
