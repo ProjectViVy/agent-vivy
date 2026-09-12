@@ -40,6 +40,7 @@ import (
 	credentialmodule "agent-vivy/internal/modules/credential"
 	loopmodule "agent-vivy/internal/modules/loop"
 	modelmodule "agent-vivy/internal/modules/model"
+	sandboxmodule "agent-vivy/internal/modules/sandbox"
 	storagemodule "agent-vivy/internal/modules/storage"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
@@ -321,46 +322,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var commandOps tools.CommandOperations
 	var workspaceManager *runtime.WorkspaceManager
 	var sandboxManager *runtime.SandboxManager
+	var sandboxProvider *sandboxmodule.Provider
 	if cfg.Runtime.WorkspaceRoot != "" {
-		var manager *runtime.WorkspaceManager
-		var err error
-		if cfg.Runtime.World == "local" {
-			manager, err = runtime.NewLocalWorkspaceManager(cfg.Runtime.WorkspaceRoot)
-		} else {
-			manager, err = runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
-		}
+		sandboxProvider, err = sandboxmodule.Compose(cfg)
 		if err != nil {
 			_ = backend.Close()
-			return nil, fmt.Errorf("app: build workspace isolation: %w", err)
+			return nil, fmt.Errorf("app: compose Sandbox Backend: %w", err)
 		}
-		workspaces = manager
-		workspaceManager = manager
-
-		// Create SandboxManager with config (D-021)
-		sandboxMode := domain.SandboxMode(cfg.Runtime.Sandbox.DefaultMode)
-		if !sandboxMode.Valid() {
-			sandboxMode = domain.SandboxModeWorkspaceWrite
-		}
-		sandboxRoot := cfg.Runtime.Sandbox.WorkspaceRoot
-		if sandboxRoot == "" {
-			sandboxRoot = cfg.Runtime.WorkspaceRoot
-		}
-		netPolicy := &domain.NetworkPolicy{
-			AllowedDomains: cfg.Runtime.Sandbox.Network.AllowedDomains,
-			DenyPrivateIPs: cfg.Runtime.Sandbox.Network.DenyPrivateIPs,
-		}
-		sandboxManager, err = runtime.NewSandboxManager(
-			sandboxMode,
-			sandboxRoot,
-			cfg.Runtime.ExecuteAllowedCommands,
-			netPolicy,
-		)
-		if err != nil {
-			_ = backend.Close()
-			return nil, fmt.Errorf("app: build sandbox manager: %w", err)
-		}
-
-		fileBackend = runtime.NewEinoFilesystemBackend(manager, sandboxManager)
+		workspaceManager = sandboxProvider.Workspaces()
+		sandboxManager = sandboxProvider.Sandbox()
+		workspaces = workspaceManager
+		fileBackend = sandboxProvider.Filesystem()
 		fileOps = fileBackend
 		fileRecorder = runtime.NewFileVersionRecorder(backend, nil)
 		fileBackend.SetFileVersionRecorder(fileRecorder)
@@ -423,7 +395,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		runtimeAssembly.Worlds = providers
 	}
 	sequentialOps = runtime.NewSequentialThinkingBackend()
-	commandOps = runtime.NewCommandBackend(workspaceManager, sandboxManager, cfg.Runtime.ExecuteAllowedCommands, time.Duration(cfg.Runtime.ExecuteMaxTimeoutSeconds)*time.Second)
+	if sandboxProvider != nil {
+		commandOps = sandboxProvider.Commands()
+	}
 	var worldLookup worldWorkspaceLookup
 	if workspaceManager != nil {
 		worldLookup = func(ctx context.Context) (string, error) {
