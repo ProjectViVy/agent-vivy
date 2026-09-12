@@ -36,14 +36,14 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/modelhost"
+	checkpointmodule "agent-vivy/internal/modules/checkpoint"
 	loopmodule "agent-vivy/internal/modules/loop"
 	modelmodule "agent-vivy/internal/modules/model"
+	storagemodule "agent-vivy/internal/modules/storage"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
-	"agent-vivy/internal/storage/postgres"
-	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/studio"
 	"agent-vivy/internal/tools"
 	"agent-vivy/internal/worker"
@@ -242,7 +242,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: create data dir: %w", err)
 	}
 
-	backend, err := openEngine(ctx, cfg)
+	backend, err := storagemodule.Open(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -551,11 +551,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, errors.New("app: eino engine version unavailable; checkpoint store cannot be anchored")
 	}
-	checkpoints, err := runtime.NewVersionedCheckpointStore(backend.Blobs(), engineVersion)
+	checkpointProvider, err := checkpointmodule.Compose(backend.Blobs(), engineVersion)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build checkpoint store: %w", err)
 	}
+	checkpoints := checkpointProvider.Store()
 	policy := policyEngine(cfg)
 	userHooks := scriptHooksForConfig(cfg, func(format string, args ...any) {
 		logger.Warn("hook registered but not approved", "detail", fmt.Sprintf(format, args...))
@@ -1494,36 +1495,6 @@ func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config
 		}
 	}
 	backend.SetConfig(hosts, timeout)
-}
-
-func openEngine(ctx context.Context, cfg config.Config) (storage.Engine, error) {
-	switch cfg.Storage.Backend {
-	case "postgres":
-		dsn := os.Getenv(cfg.Storage.Postgres.DSNEnv)
-		if dsn == "" {
-			return nil, fmt.Errorf("app: %s is empty; postgres DSN is read from the environment (D-010)", cfg.Storage.Postgres.DSNEnv)
-		}
-		backend, err := postgres.Open(ctx, dsn)
-		if err != nil {
-			return nil, fmt.Errorf("app: open postgres storage: %w", err)
-		}
-		return backend, nil
-	default:
-		if dir := filepath.Dir(cfg.Storage.SQLite.Path); dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return nil, fmt.Errorf("app: create storage dir: %w", err)
-			}
-		}
-		backend, err := sqlite.Open(ctx, cfg.Storage.SQLite.Path)
-		if err != nil {
-			return nil, fmt.Errorf("app: open storage: %w", err)
-		}
-		if err := backend.TakeOrganismLease(ctx); err != nil {
-			_ = backend.Close()
-			return nil, fmt.Errorf("app: occupy shared workspace: %w", err)
-		}
-		return backend, nil
-	}
 }
 
 func defaultModelFor(cfg config.Config, providerName string) string {
