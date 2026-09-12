@@ -1,3 +1,3 @@
 apiVersion: vivy.generation/v1
 profile: minimal
-modules: [vivy/kernel, vivy/tool-host]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox]

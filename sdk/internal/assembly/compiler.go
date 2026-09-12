@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"agent-vivy/internal/moduleport"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 )
@@ -134,6 +135,9 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			}
 		}
 	}
+	if _, productionCatalog := c.Sources.records["vivy/storage"]; productionCatalog {
+		diagnostics = append(diagnostics, validateClosedInternalSelection(selected, providers)...)
+	}
 	for _, record := range selected {
 		if !record.Binding.MCPHostProvider {
 			continue
@@ -191,6 +195,16 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 	used := make(map[string]struct{})
 	for _, consumerID := range sortedRecordIDs(selected) {
 		record := selected[consumerID]
+		for _, provided := range record.Descriptor.Provides {
+			for _, hostRef := range moduleport.Catalog().RequiredHosts(provided) {
+				definition, ok := moduleport.Catalog().Lookup(hostRef)
+				if ok {
+					if _, selectedHost := selected[definition.Owner]; selectedHost {
+						graph.addEdge(definition.Owner, consumerID)
+					}
+				}
+			}
+		}
 		for _, requirement := range record.Descriptor.Requires {
 			c.compileRequirement(requirement, consumerID, selected, graph, &edges, used, &diagnostics)
 		}
@@ -342,6 +356,37 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		return left < right
 	})
 	return AssemblyPlan{Modules: resolved, PortEdges: edges, LifecycleOrder: lifecycleOrder, OrderedContributions: ordered}, nil
+}
+
+func validateClosedInternalSelection(selected map[string]SourceRecord, providers map[string][]SourceRecord) []string {
+	var diagnostics []string
+	registry := moduleport.Catalog()
+	for _, definition := range registry.Definitions() {
+		count := len(providers[definition.Ref.Port])
+		switch definition.Cardinality {
+		case moduleport.CardinalityExactlyOne:
+			if count != 1 {
+				diagnostics = append(diagnostics, fmt.Sprintf("closed internal Port %s requires exactly one Provider; selected %d", definition.Ref.Port, count))
+			}
+		case moduleport.CardinalityAtMostOne:
+			if count > 1 {
+				diagnostics = append(diagnostics, fmt.Sprintf("closed internal Port %s allows at most one Provider; selected %d", definition.Ref.Port, count))
+			}
+		}
+	}
+	for _, record := range selected {
+		for _, provided := range record.Descriptor.Provides {
+			if strings.HasPrefix(provided.Port, "core/") {
+				continue
+			}
+			for _, host := range registry.RequiredHosts(provided) {
+				if len(providers[host.Port]) != 1 {
+					diagnostics = append(diagnostics, fmt.Sprintf("selected Provider %s for %s requires conditional Host %s", record.Descriptor.Module.ID, provided.Port, host.Port))
+				}
+			}
+		}
+	}
+	return diagnostics
 }
 
 // markSelectedUIProviders binds the compiler's explicit UI recipe projection
