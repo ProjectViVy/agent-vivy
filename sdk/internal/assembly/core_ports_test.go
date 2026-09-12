@@ -34,3 +34,30 @@ func TestCanonicalCoreOwnerCanProvideActionHost(t *testing.T) {
 		t.Fatalf("canonical action Host rejected: %v", err)
 	}
 }
+
+func TestSelectedPublicProviderRequiresConditionalCoreHost(t *testing.T) {
+	publicPorts := []string{
+		"std/context-source@v1", "std/skill-source@v1", "std/observer/run@v1",
+		"std/observer/diagnostic@v1", "std/status-source@v1", "std/ui-extension@v1",
+		"std/ui-root@v1", "std/control-action@v1",
+	}
+	for _, publicPort := range publicPorts {
+		t.Run(publicPort, func(t *testing.T) {
+			selected := map[string]SourceRecord{
+				"fixture/provider": {Descriptor: withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: publicPort, ID: "fixture.provider"})},
+			}
+			providers := map[string][]SourceRecord{}
+			for _, portName := range []string{
+				"core/loop-driver@v1", "core/chat-model-host@v1", "core/tool-host@v1",
+				"core/storage-engine@v1", "core/checkpoint-store@v1",
+				"core/credential-resolver@v1", "core/sandbox-backend@v1",
+			} {
+				providers[portName] = []SourceRecord{{}}
+			}
+			diagnostics := validateClosedInternalSelection(selected, providers)
+			if len(diagnostics) != 1 || !strings.Contains(diagnostics[0], "requires conditional Host core/") {
+				t.Fatalf("diagnostics = %v", diagnostics)
+			}
+		})
+	}
+}

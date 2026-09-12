@@ -1,7 +1,12 @@
 apiVersion: vivy.generation/v1
 profile: default
 modules:
-  - vivy/kernel
+  - vivy/loop
+  - vivy/model
+  - vivy/storage
+  - vivy/checkpoint
+  - vivy/credential
+  - vivy/sandbox
   - vivy/tool-host
   - vivy/protected-tools
   - vivy/mcp-host
@@ -11,6 +16,8 @@ modules:
   - vivy/skill-source
   - vivy/observer-host
   - vivy/status-host
+  - vivy/presentation-host
+  - vivy/action-host
   - vivy/channel-host
   - vivy/face-host
   - vivy/provider-profiles
