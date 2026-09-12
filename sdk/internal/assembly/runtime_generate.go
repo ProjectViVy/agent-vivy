@@ -77,7 +77,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	if hasSkillSources {
 		source.WriteString("\tSkillSources []skillsource.Provider\n")
 	}
-	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\towners []module.Instance\n}\n\nfunc BuildDefault() RuntimeAssembly {\n")
+	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\nfunc BuildDefault() RuntimeAssembly {\n")
 	var moduleIDs, channelNames, toolIDs, actionIDs, worldIDs, providerProfileIDs, contextSourceIDs, skillSourceIDs []string
 	faceName := "kernel-headless"
 	for _, resolved := range modules {
@@ -382,7 +382,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	for _, resolved := range modules {
 		modulesByID[resolved.Descriptor.Module.ID] = resolved
 	}
-	source.WriteString("\nfunc (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {\n\tif assembly.owners != nil {\n\t\treturn errors.New(\"runtime assembly already started\")\n\t}\n\towners := make([]module.Instance, 0, ")
+	source.WriteString("\nfunc (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {\n\tif assembly.generation != nil {\n\t\treturn errors.New(\"runtime assembly already started\")\n\t}\n\towners := make([]module.Instance, 0, ")
 	source.WriteString(strconv.Itoa(len(plan.LifecycleOrder)))
 	source.WriteString(")\n")
 	for index, id := range plan.LifecycleOrder {
@@ -394,10 +394,10 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 			return nil, fmt.Errorf("missing lifecycle constructor for %s", id)
 		}
 		fmt.Fprintf(&source, "\towner%d, err := %s.%s().Construct(ctx, hosts.ForModule(%q))\n", index, aliases[id], resolved.Binding.Constructor, id)
-		source.WriteString("\tif err != nil {\n\t\treturn errors.Join(err, closeOwners(ctx, owners))\n\t}\n")
+		source.WriteString("\tif err != nil {\n\t\treturn errors.Join(err, module.CloseConstructed(ctx, owners))\n\t}\n")
 		fmt.Fprintf(&source, "\towners = append(owners, owner%d)\n", index)
 	}
-	source.WriteString("\tfor index, owner := range owners {\n\t\tif err := owner.Start(ctx); err != nil {\n\t\t\treturn errors.Join(err, rollbackStart(ctx, owners, index+1))\n\t\t}\n\t\tif err := owner.Ready(ctx); err != nil {\n\t\t\treturn errors.Join(err, rollbackStart(ctx, owners, index+1))\n\t\t}\n\t}\n\tassembly.owners = owners\n\treturn nil\n}\n\nfunc (assembly *RuntimeAssembly) Close(ctx context.Context) error {\n\towners := assembly.owners\n\tassembly.owners = nil\n\treturn stopAndCloseOwners(ctx, owners)\n}\n\nfunc rollbackStart(ctx context.Context, owners []module.Instance, started int) error {\n\tvar failures []error\n\tfor index := started - 1; index >= 0; index-- {\n\t\tfailures = append(failures, owners[index].Stop(ctx))\n\t}\n\tfor index := len(owners) - 1; index >= 0; index-- {\n\t\tfailures = append(failures, owners[index].Close(ctx))\n\t}\n\treturn errors.Join(failures...)\n}\n\nfunc stopAndCloseOwners(ctx context.Context, owners []module.Instance) error {\n\tvar failures []error\n\tfor index := len(owners) - 1; index >= 0; index-- {\n\t\tfailures = append(failures, owners[index].Stop(ctx), owners[index].Close(ctx))\n\t}\n\treturn errors.Join(failures...)\n}\n\nfunc closeOwners(ctx context.Context, owners []module.Instance) error {\n\tvar failures []error\n\tfor index := len(owners) - 1; index >= 0; index-- {\n\t\tfailures = append(failures, owners[index].Close(ctx))\n\t}\n\treturn errors.Join(failures...)\n}\n")
+	source.WriteString("\tgeneration, err := module.StartGeneration(ctx, owners)\n\tif err != nil {\n\t\treturn err\n\t}\n\tassembly.generation = generation\n\treturn nil\n}\n\nfunc (assembly *RuntimeAssembly) Close(ctx context.Context) error {\n\tgeneration := assembly.generation\n\tassembly.generation = nil\n\treturn generation.Close(ctx)\n}\n")
 	formatted, err := format.Source([]byte(source.String()))
 	if err != nil {
 		return nil, fmt.Errorf("format generated runtime assembly: %w", err)

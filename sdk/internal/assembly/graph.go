@@ -4,7 +4,29 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"agent-vivy/internal/moduleport"
+	"agent-vivy/sdk/module"
 )
+
+var kernelHostOwners = map[string]string{
+	"core/channel-host@v1": "vivy/channel-host",
+	"core/face-host@v1":    "vivy/face-host",
+}
+
+func validateInternalProvider(ref module.PortRef, moduleID string, trust Trust) error {
+	if owner, ok := kernelHostOwners[ref.Port]; ok {
+		if trust != TrustT1 || moduleID != owner {
+			return fmt.Errorf("core Port %s may only be provided by build-owned T1 module %s", ref.Port, owner)
+		}
+		return nil
+	}
+	source := moduleport.SourcePublic
+	if trust == TrustT1 {
+		source = moduleport.SourceInternal
+	}
+	return moduleport.Catalog().ValidateProvider(ref, moduleID, source)
+}
 
 type dependencyGraph struct {
 	nodes map[string]struct{}

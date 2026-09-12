@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -234,10 +233,8 @@ func (h *Host) Inspect() []ChannelStatus {
 			status.AllowFrom = envelope.AllowFrom
 			status.TokenEnv = envelope.TokenEnv
 		}
-		if status.TokenEnv != "" {
-			if value, ok := os.LookupEnv(status.TokenEnv); ok && value != "" {
-				status.TokenEnvSet = true
-			}
+		if status.TokenEnv != "" && h.deps.Credentials != nil {
+			status.TokenEnvSet = h.deps.Credentials.IsSet("vivy/"+name, status.TokenEnv)
 		}
 		statuses = append(statuses, status)
 	}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"agent-vivy/internal/moduleport"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 )
@@ -117,9 +118,8 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 				diagnostics = append(diagnostics, fmt.Sprintf("T2 provider id %s for %s is outside module namespace %s", provided.ID, provided.Port, record.Descriptor.Module.ID))
 			}
 			if strings.HasPrefix(provided.Port, "core/") {
-				want, known := internalPortOwners[provided.Port]
-				if record.Trust != TrustT1 || !known || record.Descriptor.Module.ID != want {
-					diagnostics = append(diagnostics, fmt.Sprintf("core Port %s may only be provided by build-owned T1 module %s", provided.Port, want))
+				if err := validateInternalProvider(provided, record.Descriptor.Module.ID, record.Trust); err != nil {
+					diagnostics = append(diagnostics, err.Error())
 				}
 			}
 			if provided.Port == "std/tool@v1" && record.Trust == TrustT2 && protectedToolIDs[provided.ID] {
@@ -134,6 +134,9 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 				}
 			}
 		}
+	}
+	if _, productionCatalog := c.Sources.records["vivy/storage"]; productionCatalog {
+		diagnostics = append(diagnostics, validateClosedInternalSelection(selected, providers)...)
 	}
 	for _, record := range selected {
 		if !record.Binding.MCPHostProvider {
@@ -192,6 +195,16 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 	used := make(map[string]struct{})
 	for _, consumerID := range sortedRecordIDs(selected) {
 		record := selected[consumerID]
+		for _, provided := range record.Descriptor.Provides {
+			for _, hostRef := range moduleport.Catalog().RequiredHosts(provided) {
+				definition, ok := moduleport.Catalog().Lookup(hostRef)
+				if ok {
+					if _, selectedHost := selected[definition.Owner]; selectedHost {
+						graph.addEdge(definition.Owner, consumerID)
+					}
+				}
+			}
+		}
 		for _, requirement := range record.Descriptor.Requires {
 			c.compileRequirement(requirement, consumerID, selected, graph, &edges, used, &diagnostics)
 		}
@@ -345,6 +358,37 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 	return AssemblyPlan{Modules: resolved, PortEdges: edges, LifecycleOrder: lifecycleOrder, OrderedContributions: ordered}, nil
 }
 
+func validateClosedInternalSelection(selected map[string]SourceRecord, providers map[string][]SourceRecord) []string {
+	var diagnostics []string
+	registry := moduleport.Catalog()
+	for _, definition := range registry.Definitions() {
+		count := len(providers[definition.Ref.Port])
+		switch definition.Cardinality {
+		case moduleport.CardinalityExactlyOne:
+			if count != 1 {
+				diagnostics = append(diagnostics, fmt.Sprintf("closed internal Port %s requires exactly one Provider; selected %d", definition.Ref.Port, count))
+			}
+		case moduleport.CardinalityAtMostOne:
+			if count > 1 {
+				diagnostics = append(diagnostics, fmt.Sprintf("closed internal Port %s allows at most one Provider; selected %d", definition.Ref.Port, count))
+			}
+		}
+	}
+	for _, record := range selected {
+		for _, provided := range record.Descriptor.Provides {
+			if strings.HasPrefix(provided.Port, "core/") {
+				continue
+			}
+			for _, host := range registry.RequiredHosts(provided) {
+				if len(providers[host.Port]) != 1 {
+					diagnostics = append(diagnostics, fmt.Sprintf("selected Provider %s for %s requires conditional Host %s", record.Descriptor.Module.ID, provided.Port, host.Port))
+				}
+			}
+		}
+	}
+	return diagnostics
+}
+
 // markSelectedUIProviders binds the compiler's explicit UI recipe projection
 // to the frontend PresentationHost. Unlike backend Ports, the UI consumer is
 // not a Go Module in the generated lifecycle graph, so its selection is
@@ -469,23 +513,6 @@ func descriptorProvidesRef(descriptor module.Descriptor, ref module.PortRef) boo
 		}
 	}
 	return false
-}
-
-var internalPortOwners = map[string]string{
-	"core/loop-driver@v1":         "vivy/kernel",
-	"core/chat-model-host@v1":     "vivy/kernel",
-	"core/storage-engine@v1":      "vivy/kernel",
-	"core/checkpoint-store@v1":    "vivy/kernel",
-	"core/credential-resolver@v1": "vivy/kernel",
-	"core/sandbox-backend@v1":     "vivy/kernel",
-	"core/tool-host@v1":           "vivy/tool-host",
-	"core/mcp-host@v1":            "vivy/mcp-host",
-	"core/context-host@v1":        "vivy/context-host",
-	"core/skill-host@v1":          "vivy/skill-host",
-	"core/observer-host@v1":       "vivy/observer-host",
-	"core/status-host@v1":         "vivy/status-host",
-	"core/channel-host@v1":        "vivy/channel-host",
-	"core/face-host@v1":           "vivy/face-host",
 }
 
 var protectedToolIDs = map[string]bool{

@@ -27,6 +27,7 @@ import (
 	"agent-vivy/internal/events"
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/modelhost"
+	credentialmodule "agent-vivy/internal/modules/credential"
 	"agent-vivy/internal/provider"
 	"agent-vivy/internal/runtime"
 	"agent-vivy/internal/storage"
@@ -3244,6 +3245,11 @@ func TestChannelInspectRPC(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = backend.Close() })
 	fakeCh := fake.New()
+	envelope := config.ChannelEnvelope{Enabled: false, AllowFrom: []string{"alice"}, TokenEnv: "VIVY_TEST_FAKE_CHANNEL_TOKEN"}
+	credentials, err := credentialmodule.Compose(credentialmodule.CompileScopes(nil, config.Channels{"fake": envelope}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	host := channelhost.New(channelhost.Deps{
 		Journal:  backend,
 		Messages: backend,
@@ -3251,15 +3257,16 @@ func TestChannelInspectRPC(t *testing.T) {
 		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
 			return "run-chan-inspect", nil
 		},
-		Channels: []plugin.Channel{fakeCh},
-		Config:   config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}, TokenEnv: "VIVY_TEST_FAKE_CHANNEL_TOKEN"}},
+		Channels:    []plugin.Channel{fakeCh},
+		Config:      config.Channels{"fake": envelope},
+		Credentials: credentials,
 	})
 	if err := host.StartAll(ctx); err != nil {
 		t.Fatalf("start all: %v", err)
 	}
 	envCh, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
 		deps.Channels = host
-		deps.ConfigChannels = config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}, TokenEnv: "VIVY_TEST_FAKE_CHANNEL_TOKEN"}}
+		deps.ConfigChannels = config.Channels{"fake": envelope}
 	})
 	inspected, rpcErr := callControl(t, envCh.handler, "channel/inspect", nil)
 	if rpcErr != nil {

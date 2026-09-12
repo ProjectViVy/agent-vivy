@@ -24,6 +24,26 @@ func TestDefaultCatalogHasOneRequiredInternalProvider(t *testing.T) {
 	}
 }
 
+func TestDefaultCatalogUsesCanonicalInternalOwners(t *testing.T) {
+	records, err := Catalog(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"core/loop-driver@v1": "vivy/loop", "core/chat-model-host@v1": "vivy/model",
+		"core/tool-host@v1": "vivy/tool-host", "core/storage-engine@v1": "vivy/storage",
+		"core/checkpoint-store@v1": "vivy/checkpoint", "core/credential-resolver@v1": "vivy/credential",
+		"core/sandbox-backend@v1": "vivy/sandbox",
+	}
+	for _, record := range records {
+		for _, provided := range record.Descriptor.Provides {
+			if owner, ok := want[provided.Port]; ok && owner != record.Descriptor.Module.ID {
+				t.Errorf("%s owner = %s, want %s", provided.Port, record.Descriptor.Module.ID, owner)
+			}
+		}
+	}
+}
+
 func TestDefaultCatalogBindsP4HostsAndSources(t *testing.T) {
 	records, err := Catalog(filepath.Join("..", "..", ".."))
 	if err != nil {
