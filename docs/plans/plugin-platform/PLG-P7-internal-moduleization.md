@@ -22,8 +22,9 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on P2–P5. In particular, Task 2 consumes the
-  P5 ModelHost, so P5 is not optional for phase completion.
+- State: `DONE · 2026-09-12`; scheduled by the human owner on 2026-09-12 and
+  completed against the integrated P2–P5 foundation. Task 2 consumes the P5
+  ModelHost as required.
 - Migrate one internal Port per focused commit; physical directory moves occur
   only after semantic wiring is green.
 - Public Recipes cannot provide, override, or configure `core/*` authority.
@@ -46,12 +47,12 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 - Produces: non-public typed references, cardinalities, and conditional-required
   relationships.
 
-- [ ] Write `TestPublicSourceCannotProvideCorePort`; expected RED is any graph
+- [x] Write `TestPublicSourceCannotProvideCorePort`; expected RED is any graph
   path that accepts a T2 Provider for `core/*`.
-- [ ] Write exact cardinality and conditional-Host tests.
-- [ ] Implement internal definitions outside public SDK import paths.
-- [ ] Run `go test ./internal/moduleport ./sdk/internal/assembly -run Core`.
-- [ ] Commit `feat(assembly): define closed internal ports`.
+- [x] Write exact cardinality and conditional-Host tests.
+- [x] Implement internal definitions outside public SDK import paths.
+- [x] Run `go test ./internal/moduleport ./sdk/internal/assembly -run Core`.
+- [x] Commit `feat(assembly): define closed internal ports`.
 
 ### Task 2: Extract LoopDriver and ModelHost composition
 
@@ -71,12 +72,12 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 - Produces: exactly one `core/loop-driver@v1` and one
   `core/chat-model-host@v1` Provider.
 
-- [ ] Write parity tests for streaming, tool calls, cancellation, budgets,
+- [x] Write parity tests for streaming, tool calls, cancellation, budgets,
   checkpoint/resume, and exactly-one terminal event.
-- [ ] Record actual pinned Eino ADK/model APIs used.
-- [ ] Extract constructors without adding a second Engine or model broker.
-- [ ] Run `go test ./internal/modules/loop ./internal/modules/model ./internal/runtime ./internal/app`.
-- [ ] Commit `refactor(runtime): compose loop and model modules`.
+- [x] Record actual pinned Eino ADK/model APIs used.
+- [x] Extract constructors without adding a second Engine or model broker.
+- [x] Run `go test ./internal/modules/loop ./internal/modules/model ./internal/runtime ./internal/app`.
+- [x] Commit `refactor(runtime): compose loop and model modules`.
 
 ### Task 3: Extract Storage Engine and Checkpoint Store
 
@@ -97,14 +98,14 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 - Produces: one `core/storage-engine@v1` and one
   `core/checkpoint-store@v1` Provider without moving Journal authority.
 
-- [ ] Write contract tests for transaction boundaries,
+- [x] Write contract tests for transaction boundaries,
   durability-before-visibility, checksum, engine version, generation flip,
   recovery failure, and cleanup.
-- [ ] Ensure a Storage Provider cannot redefine event schema or terminal
+- [x] Ensure a Storage Provider cannot redefine event schema or terminal
   uniqueness.
-- [ ] Keep Eino checkpoint adaptation inside `internal/runtime`.
-- [ ] Run SQLite and Postgres package tests plus runtime recovery tests.
-- [ ] Commit `refactor(storage): compose storage and checkpoint modules`.
+- [x] Keep Eino checkpoint adaptation inside `internal/runtime`.
+- [x] Run SQLite and Postgres package tests plus runtime recovery tests.
+- [x] Commit `refactor(storage): compose storage and checkpoint modules`.
 
 ### Task 4: Extract Credential Resolver
 
@@ -121,11 +122,11 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 - Consumes: env-key references and existing redaction authority.
 - Produces: exactly one `core/credential-resolver@v1` scoped resolver.
 
-- [ ] Write RED tests for enumeration, cross-Module access, Manifest leak,
+- [x] Write RED tests for enumeration, cross-Module access, Manifest leak,
   Journal leak, error leak, and missing Secret.
-- [ ] Extract resolution while keeping Secret authority internal-only.
-- [ ] Run provider, ChannelHost, app, and secret audit tests.
-- [ ] Commit `refactor(secret): compose credential resolver module`.
+- [x] Extract resolution while keeping Secret authority internal-only.
+- [x] Run provider, ChannelHost, app, and secret audit tests.
+- [x] Commit `refactor(secret): compose credential resolver module`.
 
 ### Task 5: Extract Sandbox Backend
 
@@ -143,12 +144,12 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 - Consumes: workspace identity, command Policy, approval, and scoped Grants.
 - Produces: exactly one `core/sandbox-backend@v1` implementation.
 
-- [ ] Write parity tests for path containment, command classification, approval
+- [x] Write parity tests for path containment, command classification, approval
   hash, cancellation, process tree cleanup, and audit projection.
-- [ ] Ensure the backend cannot replace final Policy or approval authority.
-- [ ] Keep protected Tools on the same ToolHost envelope.
-- [ ] Run sandbox, filesystem, shell, and command-policy tests.
-- [ ] Commit `refactor(sandbox): compose governed sandbox backend`.
+- [x] Ensure the backend cannot replace final Policy or approval authority.
+- [x] Keep protected Tools on the same ToolHost envelope.
+- [x] Run sandbox, filesystem, shell, and command-policy tests.
+- [x] Commit `refactor(sandbox): compose governed sandbox backend`.
 
 ### Task 6: Register optional internal Hosts conditionally
 
@@ -166,12 +167,12 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
   PresentationHost, and ActionHost implementations.
 - Produces: default-on T1 Module entries and conditional Host graph rules.
 
-- [ ] Write a table test proving each selected public Provider requires its
+- [x] Write a table test proving each selected public Provider requires its
   Host and each omitted capability disappears from minimal Assembly.
-- [ ] Register default Hosts without activating unconfigured instances.
-- [ ] Reject a Provider/Host mismatch at G2.
-- [ ] Run `go test ./internal/modules/... ./sdk/internal/assembly -run Host`.
-- [ ] Commit `feat(assembly): register optional internal hosts`.
+- [x] Register default Hosts without activating unconfigured instances.
+- [x] Reject a Provider/Host mismatch at G2.
+- [x] Run `go test ./internal/modules/... ./sdk/internal/assembly -run Host`.
+- [x] Commit `feat(assembly): register optional internal hosts`.
 
 ### Task 7: Prove lifecycle transaction and no authority drift
 
@@ -187,14 +188,14 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 - Consumes: complete internal Assembly lifecycle.
 - Produces: Gate B hardening evidence.
 
-- [ ] Inject required startup failure after several owners and assert reverse
+- [x] Inject required startup failure after several owners and assert reverse
   Stop/Close, idempotence, deadlines, and preserved cause chains.
-- [ ] Assert no Module can create a second Service, Journal, Policy evaluator,
+- [x] Assert no Module can create a second Service, Journal, Policy evaluator,
   RPC server, ChannelHost, FaceHost, or ToolHost.
-- [ ] Assert Eino import quarantine with an automated source test.
-- [ ] Run `go test ./internal/modules/... ./internal/app ./internal/runtime`.
-- [ ] Run `just ci`.
-- [ ] Commit `test(assembly): prove internal module authority`.
+- [x] Assert Eino import quarantine with an automated source test.
+- [x] Run `go test ./internal/modules/... ./internal/app ./internal/runtime`.
+- [x] Run `just ci`.
+- [x] Commit `test(assembly): prove internal module authority`.
 
 ## Phase exit and rollback
 
