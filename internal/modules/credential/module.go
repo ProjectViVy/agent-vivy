@@ -71,12 +71,18 @@ func (resolver *Resolver) IsSet(moduleID, ref string) bool {
 	return err == nil
 }
 
-// CompileScopes projects declarative Provider Profiles and Channel envelopes
-// into per-Module allowlists. It copies names only; no value is read here.
-func CompileScopes(profiles []providerprofile.Profile, channels config.Channels) map[string][]string {
+// CompileScopes projects declarative Provider Profiles, configured model
+// references, and Channel envelopes into per-Module allowlists. It copies
+// names only; no value is read here.
+func CompileScopes(profiles []providerprofile.Profile, channels config.Channels, modelRefs ...string) map[string][]string {
 	scopes := map[string][]string{"vivy/model": {}}
 	for _, profile := range profiles {
 		scopes["vivy/model"] = append(scopes["vivy/model"], profile.SecretRefs...)
+	}
+	for _, ref := range modelRefs {
+		if ref != "" {
+			scopes["vivy/model"] = append(scopes["vivy/model"], ref)
+		}
 	}
 	for name, envelope := range channels {
 		moduleID := "vivy/" + name

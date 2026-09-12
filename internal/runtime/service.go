@@ -1874,12 +1874,26 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(proposalErr)
 		return
 	}
+	argumentsHash, hashErr := toolApprovalArgumentsHash(details.ToolName, proposalData)
+	if hashErr != nil {
+		fail(hashErr)
+		return
+	}
+	if details.ArgumentsHash != "" && details.ArgumentsHash != argumentsHash {
+		fail(errors.New("tool approval interrupt arguments hash mismatch"))
+		return
+	}
 	proposal, proposalErr := s.engine.PrepareProposal(ctx, details.ToolName, proposalData)
 	if proposalErr != nil {
 		fail(proposalErr)
 		return
 	}
 	proposal = boundToolProposalReview(proposal, m.maxPayload)
+	boundProposalData, bindErr := bindToolApprovalProposal(proposal.Data, argumentsHash)
+	if bindErr != nil {
+		fail(bindErr)
+		return
+	}
 	approval := domain.Approval{
 		ID:               newPrefixedID("apr_"),
 		RunID:            runID,
@@ -1894,7 +1908,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		PreconditionHash: proposal.PreconditionHash,
 		Preview:          proposal.Preview,
 		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
-		ProposalData:     append([]byte(nil), proposal.Data...),
+		ProposalData:     boundProposalData,
 		SandboxMode:      string(sandboxMode(ctx)),
 		ApprovalPolicy:   string(approvalPolicy(ctx)),
 	}
@@ -1907,7 +1921,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		ApprovalID:       approval.ID,
 		ToolCallID:       details.ToolCallID,
 		ToolName:         details.ToolName,
-		Args:             details.Args,
+		Args:             redactedApprovalArguments(details.Args),
 		ExpiresAt:        expiresAt,
 		SelectedTools:    append([]string(nil), selectedTools...),
 		Mode:             string(mode),
@@ -1929,9 +1943,12 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	if ctx.Err() != nil {
-		// Cancelled while suspending: close as cancelled. The approval
-		// row stays pending in the store; a later decision finds no
-		// pending run and stands as a no-op resume.
+		// Cancelled while suspending: close the durable approval before the
+		// terminal so a headless or concurrent cancel cannot leave a stale
+		// review item after the run is already closed.
+		if err := s.cancelApproval(persistCtx, approval, "run cancelled while suspending"); err != nil {
+			slog.Warn("cancel approval while suspending failed", "approval", approval.ID, "err", err)
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
 		return
 	}
@@ -2472,7 +2489,21 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 		mounts = tools.NewMountedTools()
 	}
 	ctx = tools.WithMountedTools(ctx, mounts)
+	approvedArgumentsHash := ""
+	if approvalID != "" {
+		var unbindErr error
+		proposalData, approvedArgumentsHash, unbindErr = unbindToolApprovalProposal(proposalData)
+		if unbindErr != nil {
+			slog.Warn("resume rejected invalid tool approval binding", "run", string(runID), "approval", approvalID, "err", unbindErr)
+			s.emitTerminal(ctx, m, m.build(domain.EventRunFailed, payloadRunFailed{
+				CauseCategory: causeInternalError,
+				Message:       "The approved tool request could not be verified and did not run.",
+			}))
+			return
+		}
+	}
 	ctx = tools.WithProposalData(ctx, proposalData)
+	ctx = withApprovedToolArgumentsHash(ctx, approvedArgumentsHash)
 	ctx = tools.WithWorkspaceID(ctx, workspaceID)
 	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
 	if approvalID != "" {

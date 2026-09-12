@@ -36,10 +36,12 @@ const defaultProviderStallThreshold = 15 * time.Second
 type interruptDetails struct {
 	// ResumeTarget is the root-cause interrupt id: the key ResumeWithParams
 	// targets (docs/eino-capability-verify.md §2.4).
-	ResumeTarget string
-	ToolCallID   string
-	ToolName     string
-	Args         map[string]any
+	ResumeTarget  string
+	ToolCallID    string
+	ToolName      string
+	Args          map[string]any
+	ArgumentsHash string
+	Message       string
 }
 
 // eventMapper converts Eino AgentEvents into Vivy domain.RunEvents
@@ -481,6 +483,14 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 				d.ToolName = seg.ID
 			}
 		}
+		if toolName, args, argumentsHash, message, ok := decodeToolApprovalInterrupt(c.Info); ok && (d.ToolName == "" || d.ToolName == toolName) {
+			if d.ToolName == "" {
+				d.ToolName = toolName
+			}
+			d.Args = args
+			d.ArgumentsHash = argumentsHash
+			d.Message = message
+		}
 		break
 	}
 	var matched *openToolCall
@@ -497,7 +507,9 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 		if d.ToolName == "" {
 			d.ToolName = matched.name
 		}
-		d.Args = matched.args
+		if d.Args == nil {
+			d.Args = matched.args
+		}
 	}
 	if d.Args == nil {
 		d.Args = map[string]any{}
@@ -740,8 +752,8 @@ func boundApprovalEventPayload(payload payloadToolApprovalRequired, budget int) 
 	if len(encoded) <= budget {
 		return payload
 	}
-	// Exact arguments remain in the suspended approval record; the durable
-	// event needs only a safe review summary and identity for resumption.
+	// Exact arguments remain in protected checkpoint state; the durable event
+	// needs only a safe review projection and identity for resumption.
 	payload.Args = map[string]any{"summary": "[approval arguments omitted: event size limit]"}
 	encoded, _ = json.Marshal(payload)
 	if len(encoded) <= budget {

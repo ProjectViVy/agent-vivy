@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agent-vivy/sdk/port/providerprofile"
 )
 
 func TestCredentialResolverIsScopedAndNonEnumerable(t *testing.T) {
@@ -47,6 +49,25 @@ func TestCredentialResolverMissingAndErrorsNeverLeakValues(t *testing.T) {
 		if strings.Contains(err.Error(), secret) {
 			t.Fatalf("error leaked secret: %v", err)
 		}
+	}
+}
+
+func TestCompileScopesIncludesConfiguredModelReferences(t *testing.T) {
+	const customRef = "VIVY_CUSTOM_OPENAI_KEY"
+	const secret = "custom-provider-secret"
+	t.Setenv(customRef, secret)
+
+	scopes := CompileScopes([]providerprofile.Profile{{
+		ID:         "openai",
+		SecretRefs: []string{"OPENAI_API_KEY"},
+	}}, nil, "", customRef)
+	resolver, err := Compose(scopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolver.Resolve("vivy/model", customRef)
+	if err != nil || got != secret {
+		t.Fatalf("configured model reference Resolve() = %q, %v", got, err)
 	}
 }
 

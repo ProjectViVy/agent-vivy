@@ -267,7 +267,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
-	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(compiledProfiles, cfg.Channels))
+	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
+		compiledProfiles,
+		cfg.Channels,
+		cfg.Providers.OpenAI.EnvKey,
+		cfg.Providers.Anthropic.EnvKey,
+	))
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
