@@ -36,6 +36,8 @@ import (
 	"agent-vivy/internal/i18n"
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/modelhost"
+	loopmodule "agent-vivy/internal/modules/loop"
+	modelmodule "agent-vivy/internal/modules/model"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
@@ -263,7 +265,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
-	modelHost, err := modelhost.New(compiledProfiles, modelhost.Capabilities{
+	modelProvider, err := modelmodule.Compose(compiledProfiles, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
 	})
@@ -271,6 +273,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
 	}
+	modelHost := modelProvider.Host()
 	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost)
 	cur := resolver.Current()
 	providerName := cur.Provider
@@ -282,6 +285,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		modelID = defaultModelFor(cfg, providerName)
 	}
 	chatModel := provider.NewResolvingChatModel(modelHost, catalog, resolver)
+	loopDriver, err := loopmodule.Compose(runtime.NewEngineFactory(chatModel))
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: construct LoopDriver: %w", err)
+	}
 	// CMP-2: optional cheaper compaction summary model, pinned to the
 	// active provider's live spec (D9 single data source). Nil keeps the
 	// main model as the summarizer. The value crosses into the engine as
@@ -578,7 +586,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
-	eng, err := runtime.NewEngine(ctx, chatModel, ts, engineCfg)
+	eng, err := loopDriver.Build(ctx, ts, engineCfg)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: build engine: %w", err)
@@ -652,7 +660,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				return nil, fmt.Errorf("app: resolve live tools: %w", err)
 			}
 			ec.HiddenTools = hidden
-			return runtime.NewEngine(ctx, chatModel, live, ec)
+			return loopDriver.Build(ctx, live, ec)
 		},
 	})
 	svc.SetCatalog(catalog)
