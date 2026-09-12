@@ -184,9 +184,27 @@ func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
 	}
 }
 
+func TestToolAdapterRedactsProviderErrorAndPreservesCause(t *testing.T) {
+	adapter := newToolAdapter(secretErrorTool{}, 0, nil, nil, nil)
+	_, err := adapter.InvokableRun(context.Background(), `{}`)
+	if err == nil {
+		t.Fatal("secret error tool returned nil error")
+	}
+	if strings.Contains(err.Error(), "sk-live-abcdefghijkl") || !strings.Contains(err.Error(), "REDACTED_SECRET") {
+		t.Fatalf("tool error leaked Secret material: %v", err)
+	}
+	if !errors.Is(err, errSecretToolFailure) {
+		t.Fatalf("tool error lost cause chain: %v", err)
+	}
+}
+
 type longResultTool struct{}
 
 type secretResultTool struct{}
+
+type secretErrorTool struct{}
+
+var errSecretToolFailure = errors.New("provider failed with token sk-live-abcdefghijkl")
 
 func (secretResultTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{Name: "secret_result", Description: "test tool", Readonly: true}
@@ -194,6 +212,14 @@ func (secretResultTool) Spec() domain.ToolSpec {
 
 func (secretResultTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
 	return "sk-live-abcdefghijkl alice@example.com", nil
+}
+
+func (secretErrorTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{Name: "secret_error", Description: "test tool", Readonly: true}
+}
+
+func (secretErrorTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	return "", errSecretToolFailure
 }
 
 func (longResultTool) Spec() domain.ToolSpec {

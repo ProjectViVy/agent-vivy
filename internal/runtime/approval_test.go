@@ -493,6 +493,51 @@ func TestServiceCancelPendingRun(t *testing.T) {
 	}
 }
 
+type cancelOnApprovalPublishSink struct {
+	service  *Service
+	delegate *testSink
+	once     sync.Once
+}
+
+func (sink *cancelOnApprovalPublishSink) Publish(event domain.RunEvent) {
+	sink.delegate.Publish(event)
+	if event.Type == domain.EventToolApprovalRequired {
+		sink.once.Do(func() { sink.service.Cancel(event.RunID) })
+	}
+}
+
+func TestServiceCancelDuringApprovalPublishClosesDurableApproval(t *testing.T) {
+	svc, backend, sink := newApprovalService(t, 5*time.Minute)
+	svc.deps.Sink = &cancelOnApprovalPublishSink{service: svc, delegate: sink}
+
+	runID, err := svc.Run(context.Background(), "sess-1", "note something")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCancelled)
+
+	approvals, err := backend.ListPendingApprovals(context.Background())
+	if err != nil {
+		t.Fatalf("list pending approvals: %v", err)
+	}
+	for _, approval := range approvals {
+		if approval.RunID == runID {
+			t.Fatalf("cancel during approval publication left approval %s pending", approval.ID)
+		}
+	}
+
+	events := replayAll(t, backend, runID)
+	if indexOfType(events, domain.EventToolApprovalRequired) < 0 {
+		t.Fatal("missing tool.approval_required event")
+	}
+	if indexOfType(events, domain.EventToolApprovalCancelled) < 0 {
+		t.Fatal("missing tool.approval_cancelled event")
+	}
+	if n := countTerminal(events); n != 1 {
+		t.Fatalf("terminal events = %d, want exactly 1", n)
+	}
+}
+
 func TestMapperInterruptDetails(t *testing.T) {
 	m := newEventMapper("run-test", 0)
 	if _, err := m.onEvent(&adk.AgentEvent{

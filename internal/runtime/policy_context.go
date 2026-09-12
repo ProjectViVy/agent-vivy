@@ -13,6 +13,7 @@ type policyProfileContextKey struct{}
 type policySnapshotContextKey struct{}
 type sandboxModeContextKey struct{}
 type approvalPolicyContextKey struct{}
+type approvedToolArgumentsHashContextKey struct{}
 
 // directShellContextKey marks the runtime-owned direct shell lifecycle. It
 // is deliberately process-local context metadata: the marker tells the
@@ -97,6 +98,15 @@ func approvalPolicy(ctx context.Context) domain.ApprovalPolicy {
 		return policy
 	}
 	return domain.ApprovalPolicyAsk
+}
+
+func withApprovedToolArgumentsHash(ctx context.Context, hash string) context.Context {
+	return context.WithValue(ctx, approvedToolArgumentsHashContextKey{}, hash)
+}
+
+func approvedToolArgumentsHash(ctx context.Context) string {
+	hash, _ := ctx.Value(approvedToolArgumentsHashContextKey{}).(string)
+	return hash
 }
 
 func withSessionSandbox(ctx context.Context, mode domain.SandboxMode, policy domain.ApprovalPolicy) context.Context {

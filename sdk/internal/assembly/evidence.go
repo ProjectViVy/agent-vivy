@@ -13,7 +13,7 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceHostConsumer:      "internal/app/assembly_tools.go#bindGeneratedTools",
 			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#ProtectedToolProviders",
 			port.EvidenceFailureModel:      "internal/app/default_generation_test.go#TestGeneratedToolInventoryIsAuthoritative",
-			port.EvidenceConformanceSuite:  "sdk/internal/assembly/p1_p2_conformance_test.go#TestP1P2PortConformanceSuite",
+			port.EvidenceConformanceSuite:  "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses",
 			port.EvidenceInspectProjection: "sdk/internal/frontend_v1_test.go#TestV1PackAndInspectProveRecipeRemoval",
 		}),
 		"std/tool-world@v1": completedEvidence(map[port.EvidenceKind]string{
@@ -58,7 +58,7 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceHostConsumer:      "internal/toolhost/middleware.go#ApplyMiddleware",
 			port.EvidenceRealProvider:      "plugins/governance/provider.go#Provider.Evaluate",
 			port.EvidenceFailureModel:      "internal/toolhost/middleware_test.go#TestMiddlewarePanicAndInvalidDecisionFailClosed",
-			port.EvidenceConformanceSuite:  "internal/runtime/pretool_bridge_test.go#TestToolAdapterRechecksPolicyAfterPublicMiddlewareRewrite",
+			port.EvidenceConformanceSuite:  "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses",
 			port.EvidenceInspectProjection: "internal/toolhost/host.go#ListVisible",
 		}),
 		"std/observer/run@v1": completedEvidence(map[port.EvidenceKind]string{
