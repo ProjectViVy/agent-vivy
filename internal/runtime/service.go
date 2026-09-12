@@ -1943,9 +1943,12 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	if ctx.Err() != nil {
-		// Cancelled while suspending: close as cancelled. The approval
-		// row stays pending in the store; a later decision finds no
-		// pending run and stands as a no-op resume.
+		// Cancelled while suspending: close the durable approval before the
+		// terminal so a headless or concurrent cancel cannot leave a stale
+		// review item after the run is already closed.
+		if err := s.cancelApproval(persistCtx, approval, "run cancelled while suspending"); err != nil {
+			slog.Warn("cancel approval while suspending failed", "approval", approval.ID, "err", err)
+		}
 		s.emitTerminal(ctx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: reasonUserRequested}))
 		return
 	}
