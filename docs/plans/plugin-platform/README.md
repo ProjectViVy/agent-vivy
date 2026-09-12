@@ -55,7 +55,7 @@ and `just ci`.
 | PLG-P0 | — | Normative contract and executable plan | `COMPLETE` | Approved decisions | Defines Gate A |
 | PLG-P1 | [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) | v1 SDK and Assembly Compiler foundation | `COMPLETE · 2026-09-10` | P0 + I18N contract accepted 2026-09-09 | Gate A foundation |
 | PLG-P2 | [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) | Default Generation zero-behavior parity | `COMPLETE · 2026-09-10` | P1 | Gate B critical path |
-| PLG-P3 | [#8](https://github.com/ProjectViVy/agent-vivy/issues/8) | Unified Tool governance and protected Tools | `UNSCHEDULED` | P2 | Gate B critical path |
+| PLG-P3 | [#8](https://github.com/ProjectViVy/agent-vivy/issues/8) | Unified Tool governance and protected Tools | `COMPLETE · 2026-09-12` | P2 | Gate B critical path |
 | PLG-P4 | [#9](https://github.com/ProjectViVy/agent-vivy/issues/9) | Context, Skill, and MCP Hosts/Sources | `COMPLETE · 2026-09-11` | P3 | Gate B critical path |
 | PLG-P5 | [#10](https://github.com/ProjectViVy/agent-vivy/issues/10) | Declarative Provider Profile and Eino adapters | `DONE · 2026-09-10` | P2 | Gate B and P7 critical path |
 | PLG-P6 | [#11](https://github.com/ProjectViVy/agent-vivy/issues/11) | Full-code UI Modules and Control Actions | `IMPLEMENTATION COMPLETE · 2026-09-11` | P2 | Not on core SCX path; P9 release conformance remains separate |
@@ -72,8 +72,12 @@ recorded in `docs/logs/2026-09-10-plugin-v1-p4/`. PLG-P5 is complete and
 integrated. PLG-P6 was scheduled by the human owner on 2026-09-10 and its
 capability implementation is complete as of 2026-09-11. The seven-artifact
 UI/Action proof and focused fixture checks are recorded in the P6 Task 7
-report; the separate PLG-P9 release-conformance phase remains `UNSCHEDULED`.
-Dependency order is an execution constraint, not a calendar commitment.
+report. PLG-P3's implementation landed with PR #18 and was explicitly selected
+for closure by the human owner on 2026-09-12; its missing whole-envelope proof
+and approval binding/redaction corrections are recorded in
+`docs/logs/2026-09-12-plugin-v1-p3-closure/`. The separate PLG-P9
+release-conformance phase remains `UNSCHEDULED`. Dependency order is an
+execution constraint, not a calendar commitment.
 
 ## Critical path
 
