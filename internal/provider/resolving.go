@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -86,7 +87,8 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	if !live.Ready {
 		return nil, &KeyMissingError{Provider: live.Provider}
 	}
-	key := live.Provider + "\x00" + live.Model + "\x00" + live.BaseURL + "\x00" + live.APIKey
+	secretHash := sha256.Sum256([]byte(live.APIKey))
+	key := fmt.Sprintf("%s\x00%s\x00%s\x00%x", live.Provider, live.Model, live.BaseURL, secretHash)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cached != nil && m.cacheKey == key {

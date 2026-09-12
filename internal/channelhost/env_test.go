@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"agent-vivy/internal/config"
+	credentialmodule "agent-vivy/internal/modules/credential"
 	plugin "agent-vivy/sdk/port/channel"
 )
 
@@ -57,10 +58,15 @@ func TestChannelEnvLoggerFace(t *testing.T) {
 
 func envHostWithEnvelope(t *testing.T, name string, envelope config.ChannelEnvelope) (*Host, plugin.ChannelEnv) {
 	t.Helper()
+	credentials, err := credentialmodule.Compose(credentialmodule.CompileScopes(nil, config.Channels{name: envelope}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	host := New(Deps{
-		Config:   config.Channels{name: envelope},
-		Channels: []plugin.Channel{grantStub{name: name, grants: []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}}},
-		Logger:   testLogger(),
+		Config:      config.Channels{name: envelope},
+		Channels:    []plugin.Channel{grantStub{name: name, grants: []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}}},
+		Logger:      testLogger(),
+		Credentials: credentials,
 	})
 	return host, host.envFor(grantStub{name: name, grants: []plugin.Grant{plugin.GrantChannelPoll, plugin.GrantSecretRead}})
 }
