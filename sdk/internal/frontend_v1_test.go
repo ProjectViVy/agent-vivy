@@ -114,7 +114,7 @@ func TestPackAndInspectSealUIAssemblyIdentity(t *testing.T) {
 		t.Helper()
 		body := fmt.Sprintf(`apiVersion: vivy.generation/v1
 profile: minimal
-modules: [vivy/kernel, vivy/tool-host, example/pack-ui]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/presentation-host, example/pack-ui]
 sources:
   example/pack-ui: {ref: file:pack-ui, sha256: %s}
 exclusive:
@@ -194,7 +194,7 @@ func TestPackBuildsSelectedUIIntoFinalArtifact(t *testing.T) {
 	recipe := filepath.Join(t.TempDir(), "recipe.yml")
 	recipeBody := fmt.Sprintf(`apiVersion: vivy.generation/v1
 profile: minimal
-modules: [vivy/kernel, vivy/tool-host, example/pack-ui]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/presentation-host, example/pack-ui]
 sources:
   example/pack-ui: {ref: file:pack-ui, sha256: %s}
 exclusive:
@@ -288,7 +288,7 @@ func TestPackRejectsUIContentHashDrift(t *testing.T) {
 	source, sourceHash, lockHash := writePackUIFixture(t, repoRoot)
 	base := fmt.Sprintf(`apiVersion: vivy.generation/v1
 profile: minimal
-modules: [vivy/kernel, vivy/tool-host, example/pack-ui]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/presentation-host, example/pack-ui]
 sources:
   example/pack-ui: {ref: file:pack-ui, sha256: %s}
 exclusive:
@@ -479,7 +479,7 @@ func TestPackRejectsUIAssemblySDKPinDrift(t *testing.T) {
 	recipePath := filepath.Join(root, "recipe.yml")
 	body := `apiVersion: vivy.generation/v1
 profile: minimal
-modules: [vivy/kernel, vivy/tool-host]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox]
 ui:
   sdkVersion: 1.0.1
 `
@@ -656,8 +656,8 @@ func TestPackSelectedToolWorlds(t *testing.T) {
 	tests := []struct {
 		name, recipe string
 	}{
-		{"hello-fs", "apiVersion: vivy.generation/v1\nmodules: [vivy/kernel, vivy/tool-host, vivy/hello-fs]\ngrantApprovals:\n  - {module: vivy/hello-fs, name: fs.read}\n"},
-		{"lsp", "apiVersion: vivy.generation/v1\nmodules: [vivy/kernel, vivy/tool-host, vivy/lsp]\ngrantApprovals:\n  - {module: vivy/lsp, name: fs.read}\n  - {module: vivy/lsp, name: fs.write}\n  - module: vivy/lsp\n    name: proc.spawn\n    constraints: {commands: [gopls, typescript-language-server, pyright-langserver, rust-analyzer]}\n    evidence: [build:plugins/lsp/plugin_test.go]\n"},
+		{"hello-fs", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/hello-fs]\ngrantApprovals:\n  - {module: vivy/hello-fs, name: fs.read}\n"},
+		{"lsp", "apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/lsp]\ngrantApprovals:\n  - {module: vivy/lsp, name: fs.read}\n  - {module: vivy/lsp, name: fs.write}\n  - module: vivy/lsp\n    name: proc.spawn\n    constraints: {commands: [gopls, typescript-language-server, pyright-langserver, rust-analyzer]}\n    evidence: [build:plugins/lsp/plugin_test.go]\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -726,7 +726,7 @@ func (provider) Invoke(context.Context, toolport.Host, json.RawMessage) (toolpor
 		t.Fatal(err)
 	}
 	recipe := filepath.Join(t.TempDir(), "recipe.yml")
-	recipeBody := fmt.Sprintf("apiVersion: vivy.generation/v1\nmodules: [vivy/kernel, vivy/tool-host, acme/greet]\nsources:\n  acme/greet: {ref: file:test, sha256: %s}\n", digest)
+	recipeBody := fmt.Sprintf("apiVersion: vivy.generation/v1\nmodules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, acme/greet]\nsources:\n  acme/greet: {ref: file:test, sha256: %s}\n", digest)
 	if err := os.WriteFile(recipe, []byte(recipeBody), 0o600); err != nil {
 		t.Fatal(err)
 	}

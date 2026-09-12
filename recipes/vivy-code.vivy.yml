@@ -1,6 +1,6 @@
 apiVersion: vivy.generation/v1
 profile: vivy-code
-modules: [vivy/kernel, vivy/tool-host, vivy/protected-tools, vivy/mcp-host, vivy/face-host, vivy/tui]
+modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/protected-tools, vivy/mcp-host, vivy/face-host, vivy/tui]
 exclusive:
   std/face@v1: vivy/tui
 grantApprovals:
