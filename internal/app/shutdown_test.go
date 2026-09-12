@@ -72,4 +72,7 @@ func TestAppShutdownBounded(t *testing.T) {
 	if _, err := a.mcpBackend.ListTools(ctx, "", "missing"); err == nil || !strings.Contains(err.Error(), "backend is closed") {
 		t.Fatalf("MCP backend remained usable after app shutdown: %v", err)
 	}
+	if err := a.assembly.Close(ctx); err != nil {
+		t.Fatalf("second generated Assembly close was not idempotent: %v", err)
+	}
 }
