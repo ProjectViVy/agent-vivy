@@ -27,6 +27,11 @@ import (
 // and the runtime package is never imported here.
 type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error)
 
+type CredentialResolver interface {
+	Resolve(moduleID, ref string) (string, error)
+	IsSet(moduleID, ref string) bool
+}
+
 // Deps wires the host. Journal, Messages and Sessions are the organism's
 // durable stores; Channels is the generated Assembly's Channel set;
 // Config is the kernel-owned channels envelope.
@@ -36,9 +41,10 @@ type Deps struct {
 	Sessions storage.SessionStore
 	// Run starts one run per accepted inbound turn. Nil Deps.Run makes
 	// StartAll fail closed.
-	Run      RunFunc
-	Channels []plugin.Channel
-	Config   config.Channels
+	Run         RunFunc
+	Channels    []plugin.Channel
+	Config      config.Channels
+	Credentials CredentialResolver
 	// Logger receives structured host logs. Inbound content is never
 	// logged; sender ids and chat ids are identifiers, not content.
 	Logger *slog.Logger

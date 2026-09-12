@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -71,9 +70,12 @@ func (e *hostEnv) Secret(envKey string) (string, error) {
 	if !e.declaresEnvKey(envKey) {
 		return "", fmt.Errorf("channelhost: env_key %q is neither the channel envelope token_env nor a settings-declared *_env name", envKey)
 	}
-	value := os.Getenv(envKey)
-	if value == "" {
-		return "", errors.New("channelhost: environment variable for env_key is empty or unset")
+	if e.host.deps.Credentials == nil {
+		return "", errors.New("channelhost: credential resolver is unavailable")
+	}
+	value, err := e.host.deps.Credentials.Resolve(e.ModuleID(), envKey)
+	if err != nil {
+		return "", fmt.Errorf("channelhost: resolve env_key %q: %w", envKey, err)
 	}
 	return value, nil
 }

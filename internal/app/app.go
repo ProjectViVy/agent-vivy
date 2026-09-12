@@ -37,6 +37,7 @@ import (
 	"agent-vivy/internal/logging"
 	"agent-vivy/internal/modelhost"
 	checkpointmodule "agent-vivy/internal/modules/checkpoint"
+	credentialmodule "agent-vivy/internal/modules/credential"
 	loopmodule "agent-vivy/internal/modules/loop"
 	modelmodule "agent-vivy/internal/modules/model"
 	storagemodule "agent-vivy/internal/modules/storage"
@@ -265,6 +266,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
+	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(compiledProfiles, cfg.Channels))
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
+	}
 	modelProvider, err := modelmodule.Compose(compiledProfiles, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
@@ -274,7 +280,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)
 	}
 	modelHost := modelProvider.Host()
-	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost)
+	resolver := newModelResolver(cfg, liveSettingsPath, catalog, modelHost, credentialResolver)
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -623,9 +629,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				}
 				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
 			},
-			Channels: channelPlugins,
-			Config:   cfg.Channels,
-			Logger:   logger,
+			Channels:    channelPlugins,
+			Config:      cfg.Channels,
+			Logger:      logger,
+			Credentials: credentialResolver,
 		})
 	}
 	runHooks := []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}}
