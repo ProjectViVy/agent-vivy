@@ -23,17 +23,17 @@ Assembly, Eino v0.9.13 adapters, SCX tests, `just ci`.
 
 ## Global Constraints
 
-- Implementation state: `GATE A PASSED — GATE B BLOCKED ON SCX STAGE MAP AND SELECTED-SLICE CONTRACT FIT`.
-  The human owner scheduled
-  PLG-P8 on 2026-09-13. Work is isolated on `feat/plugin-v1-p8`. The 2026-09-12
+- Implementation state: `GATES A/B/C PASSED FOR BOUNDED FIXTURES A-C AND THE SELECTED SCX CANDIDATE`.
+  The human owner scheduled PLG-P8 on 2026-09-13 and explicitly authorized all
+  remaining P8 Gates. Work completed across `feat/plugin-v1-p8` and
+  `feat/plugin-v1-p8-gates-b-c`. The 2026-09-12
   architecture direction is recorded in [SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md);
   [integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md) records
-  owners and evidence gaps. The original stage plan remains unrecovered, and
-  the current inline Context candidate and broadcast Run Observer are not
-  sufficient for exact-version resource resolution or scoped memory export;
-  retain stable Gate IDs rather than inventing stage names or support claims.
-- Before SCX execution, the human-maintained SCX plan must link its real stage
-  IDs to Gates A/B/C.
+  owners and evidence. The original stage plan remains unrecovered; stable Gate
+  IDs and fixtures A-C are used without inventing stage names or broader support
+  claims.
+- Final Gate B/C evidence is filed in
+  [`docs/logs/2026-09-13-plugin-p8-gates-b-c/`](../../logs/2026-09-13-plugin-p8-gates-b-c/).
 - SCX never imports a concrete plugin/Source implementation or public Module
   code from Runtime composition.
 - SCX cannot own final Prompt, Journal, Policy, approval, or Tool execution.
@@ -119,15 +119,15 @@ Gate A requires:
 - Consumes: v1 ContextHost/SkillHost/ToolHost and closed internal backends.
 - Produces: SCX capability Modules with no composition-root ownership.
 
-- [ ] Write a failing Host-level contract test for one SCX slice before its
+- [x] Write a failing Host-level contract test for one SCX slice before its
   implementation.
-- [ ] Implement the slice as the classified Source, Host policy, internal
+- [x] Implement the slice as the classified Source, Host policy, internal
   backend, Tool, Status Source, UI Module, or Control Action.
-- [ ] Prove workspace/session/tenant identity propagates across every request.
-- [ ] Prove cancellation, token budget, provenance, and result bounds.
-- [ ] Keep Eino conversion in `internal/runtime`; cite the exact pinned API or
+- [x] Prove workspace/session/tenant identity propagates across every request.
+- [x] Prove cancellation, token budget, provenance, and result bounds.
+- [x] Keep Eino conversion in `internal/runtime`; cite the exact pinned API or
   defer the affected capability indefinitely.
-- [ ] Commit one SCX capability slice per independently reviewable behavior.
+- [x] Commit one SCX capability slice per independently reviewable behavior.
 
 ### Task 4: Pass SCX-PLUGIN-GATE-B — default Generation equivalence
 
@@ -155,12 +155,12 @@ Gate B requires:
 - default and minimal Recipe behavior is tested;
 - failure marks the relevant instance unavailable without silent fallback.
 
-- [ ] Add a default-Generation SCX trace test from source query through final
+- [x] Add a default-Generation SCX trace test from source query through final
   Runtime projection.
-- [ ] Add failure tests for slow Source, invalid provenance, missing internal
+- [x] Add failure tests for slow Source, invalid provenance, missing internal
   Host, duplicate Provider, unavailable MCP, and token overflow.
-- [ ] Build and inspect default/minimal Generations.
-- [ ] Mark Gate B passed only when `just ci` and the real SCX path are green.
+- [x] Build and inspect default/minimal Generations.
+- [x] Mark Gate B passed only when `just ci` and the selected SCX path are green.
 
 ### Task 5: Pass SCX-PLUGIN-GATE-C — release and rollback
 
@@ -185,9 +185,9 @@ Gate C requires:
 - Secret and raw private context are absent from diagnostics;
 - default, minimal, unavailable, and rollback scenarios pass.
 
-- [ ] Execute the P9 release matrix with the SCX candidate.
-- [ ] Record artifact IDs and redacted evidence.
-- [ ] Mark Gate C passed only after rollback is actually exercised.
+- [x] Execute the P9 release matrix with the SCX candidate.
+- [x] Record artifact IDs and redacted evidence.
+- [x] Mark Gate C passed only after rollback is actually exercised.
 
 ## SCX critical and non-critical PLUGINS scope
 
@@ -211,33 +211,31 @@ Not on the SCX core critical path:
 
 ## Phase exit and rollback
 
-Exit requires all three Gates to contain executable evidence and the persisted
-SCX plan to cite them by real stage ID. A failed Gate blocks the dependent SCX
-transition but does not expand PLUGINS scope. Rollback restores the prior sealed
-Generation and retains durable Kernel truth.
+Exit requires all three Gates to contain executable evidence. Original SCX
+stage IDs remain unrecovered, so the owner-authorized bounded execution is
+recorded against stable Gates A/B/C without inventing stage names. Rollback
+restores the prior sealed Generation and retains durable Kernel truth.
 
 ## 2026-09-12 design alignment
 
 SCX covers changing context pipelines, not only memory or compaction. The design
-uses resource references, per-model-call Context Views, and committed events.
+uses resource references, per-run prepared Context Views, and committed events.
 Summaries, original-fragment retrieval and hybrid strategies remain replaceable.
 Personality, emotion, RAG, files, subagent outputs and multimodal/embodied references
 retain their own semantics under shared scope, provenance, version and budget rules.
 
-Task 1 starts from the linked integration map; its existence does not complete
-classification or Gate A. Task 2 must verify the current representation limits
-and Host boundaries before claiming interface freeze. Exact-version resources
-remain contract-blocked until a typed resolution seam is selected and tested.
-Request-time preparation is a ContextHost responsibility; no new public
-execution-changing hook Port is approved. Reliable return flows may reuse Run
-Observers only after Host-owned subscription and allowed-field projection are
-defined; controls use ActionHost.
+Tasks 1-2 froze the Host boundaries. Gate B then added a typed exact-version
+resolution seam to the existing Context Source Port and Host-owned subscription,
+allowed-field projection, durable cursor, retry, and optional receipt semantics
+to the existing Run Observer Port. Request-time preparation remains a
+ContextHost responsibility; no new public execution-changing hook Port was
+added. Controls continue to use ActionHost.
 
-Tasks 3-4 initially use the three plaintext scenarios in design section 11:
+Tasks 3-4 use the three plaintext scenarios in design section 11:
 personality/emotion, predetermined file retrieval, and memory return/deduplication.
-Turn these into bounded local fake-provider tests only when implementation is
-scheduled. They do not establish retrieval quality or live integration support.
+They are bounded local fake/reference-provider tests and do not establish
+retrieval quality or live integration support.
 Keep existing default/minimal and failure gates. No new hardware/simulation platform
 is required; device adaptation/testing follows the original SCX plan when recovered.
-Task 5 still requires actual selected-release conformance and rollback evidence;
-external memory writes are not undone by switching a Generation.
+Task 5 exercised selected-release conformance and actual rollback. External
+memory writes are not undone by switching a Generation.

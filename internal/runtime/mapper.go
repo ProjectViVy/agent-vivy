@@ -55,6 +55,11 @@ type eventMapper struct {
 	runProvider    string
 	runModel       string
 	summaryModel   string
+	tenantID       string
+	workspaceID    string
+	sessionID      string
+	contextViewID  string
+	lastSummary    string
 
 	// pendingText accumulates the in-flight assistant turn so v2
 	// model.completed can commit the exact bounded delta sequence even when
@@ -100,6 +105,16 @@ func (m *eventMapper) setUsageRoutes(provider, model, summaryModel string) {
 	m.runProvider = strings.TrimSpace(provider)
 	m.runModel = strings.TrimSpace(model)
 	m.summaryModel = strings.TrimSpace(summaryModel)
+}
+
+func (m *eventMapper) setRunScope(tenantID, workspaceID, sessionID string) {
+	m.tenantID = clampEscapedText(strings.TrimSpace(tenantID), 256)
+	m.workspaceID = clampEscapedText(strings.TrimSpace(workspaceID), 512)
+	m.sessionID = clampEscapedText(strings.TrimSpace(sessionID), 512)
+}
+
+func (m *eventMapper) setContextViewID(viewID string) {
+	m.contextViewID = clampEscapedText(strings.TrimSpace(viewID), 256)
 }
 
 // onEvent maps one engine event. A non-nil error means the run cannot
@@ -428,6 +443,7 @@ func (m *eventMapper) onTurnEnd() []domain.RunEvent {
 }
 
 func (m *eventMapper) completedEvent(content string) domain.RunEvent {
+	m.lastSummary = clampEscapedText(tools.RedactSensitive(content), 8<<10)
 	sum := sha256.Sum256([]byte(content))
 	re := m.build(domain.EventModelCompleted, payloadModelCompletedV2{
 		ContentSHA256: fmt.Sprintf("%x", sum[:]),
@@ -688,6 +704,29 @@ func clampText(s string, budget int) string {
 }
 
 func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
+	payloadVersion := 1
+	switch terminal := payload.(type) {
+	case payloadRunCompleted:
+		payloadVersion = 2
+		terminal.Outcome = "completed"
+		terminal.Summary = m.lastSummary
+		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
+		payload = terminal
+	case payloadRunFailed:
+		payloadVersion = 2
+		terminal.Outcome = "failed"
+		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
+		payload = terminal
+	case payloadRunCancelled:
+		payloadVersion = 2
+		terminal.Outcome = "cancelled"
+		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
+		payload = terminal
+	case payloadModelRequest:
+		if terminal.ContextView != "" {
+			payloadVersion = 2
+		}
+	}
 	if finished, ok := payload.(payloadToolFinished); ok && m.maxPayload > 0 {
 		payload = boundToolFinishedEventPayload(finished, m.maxPayload)
 	}
@@ -706,7 +745,7 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		RunID:          m.runID,
 		Type:           t,
 		CreatedAt:      time.Now().UnixMilli(),
-		PayloadVersion: 1,
+		PayloadVersion: payloadVersion,
 		Payload:        b,
 	}
 }

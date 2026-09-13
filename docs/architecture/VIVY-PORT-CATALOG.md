@@ -26,21 +26,21 @@
 | `std/channel@v1` | `0..n` | ChannelHost | `SPECIFIED` |
 | `std/face@v1` | `0..1` | FaceHost | `SPECIFIED` |
 | `std/provider-profile@v1` | `0..n` | ModelHost | `SPECIFIED` |
-| `std/context-source@v1` | `0..n` | ContextHost | `SPECIFIED` |
+| `std/context-source@v1` | `0..n` | ContextHost | `SUPPORTED` |
 | `std/skill-source@v1` | `0..n` | SkillHost | `SPECIFIED` |
 | `std/middleware/pre-tool@v1` | `0..n`, ordered | ToolHost | `SPECIFIED` |
-| `std/observer/run@v1` | `0..n` | ObserverHost | `SPECIFIED` |
+| `std/observer/run@v1` | `0..n` | ObserverHost | `SUPPORTED` |
 | `std/observer/diagnostic@v1` | `0..n` | ObserverHost | `SPECIFIED` |
 | `std/status-source@v1` | `0..n` | StatusHost | `SPECIFIED` |
 | `std/ui-extension@v1` | `0..n`, ordered | PresentationHost | `SUPPORTED` |
 | `std/ui-root@v1` | `0..1` | PresentationHost | `SUPPORTED` |
 | `std/control-action@v1` | `0..n` | ActionHost | `SUPPORTED` |
 
-The three P6 rows are `SUPPORTED` by the seven-artifact implementation
-evidence recorded in `sdk/internal/assembly/evidence.go` and the P6 Task 7
-report. This is a capability status, not a release claim: PLG-P9 remains the
-separate owner of release-wide conformance, rollback, and final `just ci`
-acceptance.
+The three P6 rows and the two SCX-critical rows are `SUPPORTED` by the
+seven-artifact implementation evidence recorded in
+`sdk/internal/assembly/evidence.go`. This is a capability status, not a blanket
+integration claim: release-wide conformance and rollback remain separately
+gated for each selected Generation.
 
 ## 3. Tool and ToolWorld
 
@@ -151,9 +151,15 @@ custom parallel provider stack.
 ### `std/context-source@v1`
 
 Provides bounded content candidates with stable source identity, content type,
-timestamps, confidence metadata, pagination, and size estimates. ContextHost
-owns authorization, query fan-out, deduplication, ranking, token budgets,
-redaction, provenance, and final Runtime projection.
+timestamps, confidence metadata, pagination, size estimates, Host treatment,
+expiry, and optional typed resource references. An exact-version reference is
+resolved only by the same Source under the request tenant/workspace/session
+scope. If the requested version is no longer retained, the Source returns
+`ErrVersionUnavailable`; it must never return newer bytes under the old version.
+ContextHost owns authorization, query fan-out, resolution, expiry, required /
+reserved / competitive treatment, deduplication, ranking, token budgets,
+redaction, provenance, immutable per-ContextHost-query View identity, and final Runtime
+projection.
 
 A Context Source cannot write the final Prompt, inject a System Message, call
 a Model, start a Run, or expose Eino types.
@@ -217,8 +223,12 @@ Middleware fails the Tool call closed. Advisory work belongs in an Observer.
 ### `std/observer/run@v1`
 
 Receives ordered, redacted projections after the source Journal event commits.
-Delivery is at least once; Providers deduplicate by stable event ID and persist
-their Host-managed cursor. Observer failure cannot roll back a completed Run.
+The generated Assembly seals each Provider's event subscription and allowed
+top-level payload fields; Providers cannot widen either at runtime. Delivery is
+at least once with a stable event ID. A receipt-aware Provider returns the same
+receipt for a duplicate event; pending, failed, or ambiguous delivery retains
+the Host-managed cursor for retry. Observer failure cannot roll back a completed
+Run, and reconnect resumes the durable cursor.
 
 ### `std/observer/diagnostic@v1`
 
@@ -345,7 +355,7 @@ Opening one requires a new architecture decision and a catalog version change.
 
 [SCX architecture](SCX-ARCHITECTURE-DESIGN.md) and its
 [integration map](SCX-PLUGIN-INTEGRATION.md) describe the changing context pipeline:
-resource references, per-call Context Views, and committed-event feedback.
+resource references, per-ContextHost-query Context Views, and committed-event feedback.
 They add no selectable Port, Grant, support status, runtime code-loading path or
 exception to this contract. ContextHost/Runtime own preparation and projection;
 ObserverHost owns event projections; ActionHost owns typed management. Reliable
