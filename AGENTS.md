@@ -5,6 +5,15 @@ VIVY CODE terminal (`vivy-code.exe`), and the first-party Studio overlay.
 Canonical product rules: `docs/architecture/VIVY-STUDIO.md` and
 `docs/architecture/VIVY-FACE-PACK.md`.
 
+## Engineering Principles
+
+- **More through less:** Build small, composable primitives that let users create capabilities beyond those we anticipate.
+- **Fast by design:** Keep hot paths lean, avoid unnecessary work, and measure performance.
+- **Elegance throughout:** Make contracts, ownership, and failure behavior clear and consistent.
+- **Minimal complexity:** Use the least code and dependencies needed for correct, readable behavior.
+
+Prefer composition over special cases. Avoid speculative abstractions, code golf, and unrelated rewrites.
+
 ## Architecture decision order (mandatory)
 
 Vivy implementation decisions follow this order. A lower priority must not
