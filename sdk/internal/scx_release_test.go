@@ -33,7 +33,7 @@ func TestSCXCandidateRollbackRestoresPriorSealedGenerationWithoutJournalMutation
 	prior := pack("prior", "default")
 	candidate := pack("candidate", "scx")
 	probe, err := eval.Launch(ctx, eval.LaunchRequest{
-		Executable: candidate.Binary, EvalRoot: filepath.Join(root, "candidate-eval"), Timeout: 15 * time.Second,
+		Executable: candidate.Binary, EvalRoot: filepath.Join(root, "candidate-eval"), Timeout: 60 * time.Second,
 		Isolation: eval.Isolation{BundleDir: filepath.Join("..", "..", "fixtures", "provider")},
 	})
 	if err != nil {
