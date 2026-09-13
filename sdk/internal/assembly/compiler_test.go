@@ -56,13 +56,13 @@ func TestCompilePluginV1GraphFixtures(t *testing.T) {
 
 func TestCompileEmbedsEffectiveGrants(t *testing.T) {
 	provider := withProvides(testDescriptor("fixture/network"), module.PortRef{Port: "std/tool@v1", ID: "fixture.network"})
+	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 	provider.RequestedGrants = []module.Grant{module.GrantNetClient}
-	consumer := testDescriptor("fixture/host")
-	consumer.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "std/tool@v1"}, Provider: "fixture/network"}}
-	compiler := fixtureCompiler(t, []module.Descriptor{provider, consumer})
+	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
+	compiler := fixtureCompiler(t, []module.Descriptor{provider, host})
 	recipe := Recipe{
 		APIVersion: RecipeAPIVersionV1,
-		Modules:    []string{"fixture/network", "fixture/host"},
+		Modules:    []string{"fixture/network", "vivy/tool-host"},
 		GrantApprovals: []GrantApproval{{
 			Module: "fixture/network",
 			Name:   module.GrantNetClient,
@@ -102,17 +102,17 @@ func TestCompileRequiresAuthoritativeT2SourcePin(t *testing.T) {
 	}
 	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
 	provider.Source = module.Source{Ref: "git:fixture/provider@abc123", SHA256: digest}
-	consumer := testDescriptor("fixture/consumer")
-	consumer.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "std/tool@v1"}, Provider: provider.Module.ID}}
+	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
 	catalog, err := NewSourceCatalog([]SourceRecord{
 		{Descriptor: provider, Trust: TrustT2, Root: root, Ref: provider.Source.Ref},
-		{Descriptor: consumer, Trust: TrustT1},
+		{Descriptor: host, Trust: TrustT1},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
-	base := Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{provider.Module.ID, consumer.Module.ID}}
+	base := Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{provider.Module.ID, host.Module.ID}}
 	if _, err := compiler.Compile(context.Background(), base); err == nil || !strings.Contains(err.Error(), "missing authoritative source pin") {
 		t.Fatalf("missing pin error = %v", err)
 	}
@@ -215,17 +215,17 @@ func TestCompileRequiresCompleteOrderForOrderedPort(t *testing.T) {
 
 func TestCompileIsDeterministicAndUsesCatalogTrust(t *testing.T) {
 	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
-	consumer := testDescriptor("fixture/consumer")
-	consumer.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "std/tool@v1"}, Provider: "fixture/provider"}}
+	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
 	catalog, err := NewSourceCatalog([]SourceRecord{
 		{Descriptor: provider, Trust: TrustT2},
-		{Descriptor: consumer, Trust: TrustT1},
+		{Descriptor: host, Trust: TrustT1},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
-	recipe := Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{"fixture/consumer", "fixture/provider"}}
+	recipe := Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{"vivy/tool-host", "fixture/provider"}}
 
 	first, err := compiler.Compile(context.Background(), recipe)
 	if err != nil {
@@ -239,9 +239,9 @@ func TestCompileIsDeterministicAndUsesCatalogTrust(t *testing.T) {
 		t.Fatalf("repeated Compile() differs\nfirst: %#v\nsecond: %#v", first, second)
 	}
 	if got := first.Modules[0].Trust; got != TrustT1 {
-		t.Fatalf("consumer trust = %q, want Source Catalog assignment %q", got, TrustT1)
+		t.Fatalf("Host trust = %q, want Source Catalog assignment %q", got, TrustT1)
 	}
-	if got := first.LifecycleOrder; !reflect.DeepEqual(got, []string{"fixture/provider", "fixture/consumer"}) {
+	if got := first.LifecycleOrder; !reflect.DeepEqual(got, []string{"vivy/tool-host", "fixture/provider"}) {
 		t.Fatalf("lifecycle order = %v", got)
 	}
 }
@@ -318,6 +318,13 @@ func withAfter(descriptor module.Descriptor, moduleID string) module.Descriptor 
 
 func withConflict(descriptor module.Descriptor, moduleID string) module.Descriptor {
 	descriptor.Conflicts = []module.Conflict{{Module: moduleID}}
+	return descriptor
+}
+
+func testCoreHostDescriptor(id, portName string) module.Descriptor {
+	descriptor := testDescriptor(id)
+	descriptor.Source.Ref = "internal:" + id
+	descriptor.Provides = []module.PortRef{{Port: portName, ID: strings.ReplaceAll(id, "/", ".")}}
 	return descriptor
 }
 

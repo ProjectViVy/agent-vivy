@@ -23,11 +23,15 @@ Assembly, Eino v0.9.13 adapters, SCX tests, `just ci`.
 
 ## Global Constraints
 
-- Implementation state: `UNSCHEDULED`. The 2026-09-12 architecture direction is
-  recorded in [SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md);
+- Implementation state: `GATE A PASSED — GATE B BLOCKED ON SCX STAGE MAP AND SELECTED-SLICE CONTRACT FIT`.
+  The human owner scheduled
+  PLG-P8 on 2026-09-13. Work is isolated on `feat/plugin-v1-p8`. The 2026-09-12
+  architecture direction is recorded in [SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md);
   [integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md) records
-  owners and evidence gaps. The original stage plan remains unrecovered;
-  retain stable Gate IDs rather than inventing stage names.
+  owners and evidence gaps. The original stage plan remains unrecovered, and
+  the current inline Context candidate and broadcast Run Observer are not
+  sufficient for exact-version resource resolution or scoped memory export;
+  retain stable Gate IDs rather than inventing stage names or support claims.
 - Before SCX execution, the human-maintained SCX plan must link its real stage
   IDs to Gates A/B/C.
 - SCX never imports a concrete plugin/Source implementation or public Module
@@ -62,12 +66,12 @@ Use this mandatory classification:
 | Displays SCX state | Status Source and/or full UI Module |
 | Mutates SCX configuration | typed Control Action |
 
-- [ ] For every SCX item, record Provider, Consumer, authority, data scope,
+- [x] For every SCX item, record Provider, Consumer, authority, data scope,
   lifecycle, failure mode, and conformance owner.
-- [ ] Reject rows labeled only “SCX service” or “plugin” without a Port and
+- [x] Reject rows labeled only “SCX service” or “plugin” without a Port and
   authority mapping.
-- [ ] Identify which rows consume Gate A, B, or C.
-- [ ] Commit `docs(scx): map context work to plugin v1 ports`.
+- [x] Identify which rows consume Gate A, B, or C.
+- [x] Commit `docs(scx): map context work to plugin v1 ports`.
 
 ### Task 2: Pass SCX-PLUGIN-GATE-A — contract freeze
 
@@ -94,13 +98,13 @@ Gate A requires:
 - generated graph diagnostics available;
 - no SCX direct-import exception.
 
-- [ ] Add a gate test/build check that compiles the SCX-facing interfaces with
+- [x] Add a gate test/build check that compiles the SCX-facing interfaces with
   fake Providers and no Runtime implementation import.
-- [ ] Verify an invalid direct Provider dependency fails source/architecture
+- [x] Verify an invalid direct Provider dependency fails source/architecture
   checks.
-- [ ] Record the exact P1, P2, P3, and P4 evidence commits and Port versions in
+- [x] Record the exact P1, P2, P3, and P4 evidence commits and Port versions in
   the SCX integration document.
-- [ ] Mark Gate A passed only after evidence exists; documentation approval
+- [x] Mark Gate A passed only after evidence exists; documentation approval
   alone is insufficient.
 
 ### Task 3: Implement SCX Providers/Consumers without authority drift
@@ -221,10 +225,13 @@ Personality, emotion, RAG, files, subagent outputs and multimodal/embodied refer
 retain their own semantics under shared scope, provenance, version and budget rules.
 
 Task 1 starts from the linked integration map; its existence does not complete
-classification or Gate A. Task 2 must verify resource/version representation and
-Host boundaries before claiming interface freeze. Request-time preparation is a
-ContextHost responsibility; no new public execution-changing hook Port is approved.
-Reliable return flows reuse Run Observers; controls use ActionHost.
+classification or Gate A. Task 2 must verify the current representation limits
+and Host boundaries before claiming interface freeze. Exact-version resources
+remain contract-blocked until a typed resolution seam is selected and tested.
+Request-time preparation is a ContextHost responsibility; no new public
+execution-changing hook Port is approved. Reliable return flows may reuse Run
+Observers only after Host-owned subscription and allowed-field projection are
+defined; controls use ActionHost.
 
 Tasks 3-4 initially use the three plaintext scenarios in design section 11:
 personality/emotion, predetermined file retrieval, and memory return/deduplication.
