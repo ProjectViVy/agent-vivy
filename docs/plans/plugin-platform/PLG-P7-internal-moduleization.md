@@ -22,7 +22,7 @@ Eino v0.9.13 quarantine, generated Assembly, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on P2–P5. In particular, Task 2 consumes the
+- State: `OWNER-REPORTED COMPLETE · 2026-09-12`; exact implementation evidence is not reverified in this documentation update; depends on P2–P5. In particular, Task 2 consumes the
   P5 ModelHost, so P5 is not optional for phase completion.
 - Migrate one internal Port per focused commit; physical directory moves occur
   only after semantic wiring is green.
@@ -202,3 +202,10 @@ Exit requires every required internal Port to have exactly one Provider, every
 conditional Host to follow its Providers, parity tests to remain green, and L0
 authority to remain in place. Rollback selects the prior Generation or reverts
 the focused internal-Port commit; it never opens a `core/*` Port publicly.
+
+## SCX alignment (2026-09-12)
+
+SCX reuses existing task/worker ownership for expensive derivation and subagent analysis, existing storage for view association, and ObserverHost for feedback. Do not create a second scheduler, Journal or event bus. Runtime-state updates take effect at the next model-call boundary; frozen Module composition stays unchanged.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.

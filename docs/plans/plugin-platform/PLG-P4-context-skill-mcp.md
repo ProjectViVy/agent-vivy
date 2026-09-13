@@ -247,3 +247,10 @@ was intentionally not run; and the full app race remains blocked by the
 pre-existing pinned Eino Claude stream race. None of those unavailable gates
 is claimed as passed. Missing upstream capabilities remain deferred. Rollback
 selects the prior Generation.
+
+## SCX alignment (2026-09-12)
+
+Treat current text candidates and file snapshots as the baseline. SCX reference/representation additions require an explicit SDK fit review; MediaType alone does not prove multimodal projection. ContextHost selects per-call candidates under scope, version, expiry and budget rules; Runtime alone creates model input. Preserve SkillHost and MCPHost ownership.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.

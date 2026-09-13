@@ -55,11 +55,11 @@ and `just ci`.
 | PLG-P0 | — | Normative contract and executable plan | `COMPLETE` | Approved decisions | Defines Gate A |
 | PLG-P1 | [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) | v1 SDK and Assembly Compiler foundation | `COMPLETE · 2026-09-10` | P0 + I18N contract accepted 2026-09-09 | Gate A foundation |
 | PLG-P2 | [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) | Default Generation zero-behavior parity | `COMPLETE · 2026-09-10` | P1 | Gate B critical path |
-| PLG-P3 | [#8](https://github.com/ProjectViVy/agent-vivy/issues/8) | Unified Tool governance and protected Tools | `UNSCHEDULED` | P2 | Gate B critical path |
+| PLG-P3 | [#8](https://github.com/ProjectViVy/agent-vivy/issues/8) | Unified Tool governance and protected Tools | `OWNER-REPORTED COMPLETE · 2026-09-12` | P2 | Gate B critical path |
 | PLG-P4 | [#9](https://github.com/ProjectViVy/agent-vivy/issues/9) | Context, Skill, and MCP Hosts/Sources | `COMPLETE · 2026-09-11` | P3 | Gate B critical path |
 | PLG-P5 | [#10](https://github.com/ProjectViVy/agent-vivy/issues/10) | Declarative Provider Profile and Eino adapters | `DONE · 2026-09-10` | P2 | Gate B and P7 critical path |
 | PLG-P6 | [#11](https://github.com/ProjectViVy/agent-vivy/issues/11) | Full-code UI Modules and Control Actions | `IMPLEMENTATION COMPLETE · 2026-09-11` | P2 | Not on core SCX path; P9 release conformance remains separate |
-| PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `UNSCHEDULED` | P2, P3, P4, P5 | Gate B hardening |
+| PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `OWNER-REPORTED COMPLETE · 2026-09-12` | P2, P3, P4, P5 | Gate B hardening |
 | PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `UNSCHEDULED` | P1–P7 as identified | Direct SCX integration |
 | PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `UNSCHEDULED` | P1–P8 | Gate C critical path |
 
@@ -138,3 +138,17 @@ behavior parity, a minimal Generation proves real removal, all SCX gates pass,
 Inspect reports sealed provenance, whole-Generation rollback is demonstrated,
 the v0 API and path no longer exist, and `just ci` plus required real-path
 smokes are green.
+
+## SCX design baseline (2026-09-12)
+
+The owner reports P3 and P7 complete; this update does not independently certify
+their evidence. P8/P9 scheduling and gate acceptance remain separate.
+[SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md) records today's
+agreed direction, with exact interfaces still under review.
+[SCX integration](../../architecture/SCX-PLUGIN-INTEGRATION.md) maps candidate
+sources, resource resolution, Context Views, hooks, memory return and controls to
+existing authority owners. It also records the missing original stage mapping.
+
+Initial validation is limited to three local reference scenarios with fake
+providers. Multimodal/embodied extensibility is considered in the contract; this
+cycle does not create an additional hardware or simulation test platform.

@@ -2,13 +2,13 @@
 
 Date: 2026-09-12
 Project: ProjectViVy/agent-vivy
-Status: consolidated design for review; not an implementation or release approval
+Status: architecture direction recorded from owner decisions; interface details remain under review; implementation and release are not scheduled by this document
 
 ## 1. Purpose and provenance
 
 SCX must accommodate changing context pipelines: conversation continuity, retrieval, files, multimodal resources, subagent analysis, external memory systems, personality, emotion, and future embodied observations. Its architecture must remain economical to implement and operate.
 
-This document consolidates the current conversation. It does not reconstruct the missing original SCX specification or invent an expansion of the SCX acronym. The original stage plan has not been recovered. Its real-device adaptation and testing sequence remains authoritative when recovered; this document neither replaces it nor invents stage identifiers.
+This document consolidates the current conversation. It does not reconstruct the missing original SCX specification or invent an expansion of the SCX acronym. The original stage plan has not been recovered. The current authority mapping and evidence ledger are in [SCX-PLUGIN-INTEGRATION.md](SCX-PLUGIN-INTEGRATION.md). The original plan’s real-device adaptation and testing sequence remains authoritative when recovered; this document neither replaces it nor invents stage identifiers.
 
 The user reports P3 and P7 complete. This statement is planning input, not a fresh verification of merged commits or gate evidence. No code, external integration, hardware test, or automated test was executed for this document.
 
@@ -149,14 +149,16 @@ Used for candidate queries, resource reads, state preparation, checks, and expli
 
 ### Event channel
 
-Used for committed experiences, terminal outcomes, invalidation and receipts. Observation listeners cannot short-circuit execution. Reliable external delivery uses stable event IDs, a durable consumer position or delivery record, and idempotent handling. Process-local notification alone is not reliable delivery.
+Used for committed experiences, terminal outcomes, invalidation and receipts. Observation listeners cannot short-circuit execution. Reliable external delivery reuses `std/observer/run@v1` and ObserverHost: stable event IDs, ordered redacted committed projections, a Host-managed persistent cursor, and receiver deduplication. Remote completion receipts are a separate integration concern; do not create a second event bus or expose the raw Journal. Process-local notification alone is not reliable delivery.
 
-### Proposed initial public hook phases
+### Proposed initial lifecycle phases
 
 | Phase | Use | Semantics |
 | --- | --- | --- |
 | Before model-call preparation completes | Prepare candidates/state and check necessary conditions | Bounded request; Host-controlled application |
 | After Run terminal outcome commits | Deliver authorized completion/failure/cancellation evidence | Event consumption; reliability declared per subscriber |
+
+Preparation stays internal until a cataloged extension is reviewed; terminal observation reuses `std/observer/run@v1`. These phases do not add public Ports.
 
 Other stages discussed previously—input commit, tool-result commit, view finalization, correction/deletion and feedback—remain lifecycle design considerations. They are not all new public hooks in the first implementation. Management commands and their receipts still require correct semantics even when no generic public hook is exposed.
 
@@ -319,12 +321,12 @@ The existing public Context Source has a text-oriented candidate payload; the in
 | --- | --- | --- |
 | Public Port revision vs internal adaptation | Reuse current Ports wherever their semantics are sufficient | Inspect current SDK/Host code and consumer compatibility |
 | View-record persistence location | Reuse existing storage contracts, avoid a second Journal | Confirm append/recovery and request-attempt association |
-| Reliable subscriber progress | One minimal persisted cursor/receipt mechanism | Confirm current task/storage facilities; no parallel delivery framework |
+| Reliable subscriber progress | Reuse the ObserverHost-managed persistent cursor; track remote receipts separately | Verify adapter receipt wiring; no parallel delivery framework |
 | Initial hook surface | Two public phases; typed request and event channels | Check actual Runtime call boundaries and cancellation behavior |
 | Original SCX stage mapping | Preserve original plan | Recover authoritative stage document; do not invent IDs |
 | laputa-garden adapter | Capability mapping | Inspect its actual contract when integration is scheduled |
 
-These are specific implementation inputs, not reasons to request a new round of product direction. The design can be reviewed now; detailed code planning should resolve the repository-dependent choices.
+The existing Port Catalog already specifies reliable Run Observers and Host-managed cursors. Inspect that implementation before proposing any persistence addition. These are specific implementation inputs, not reasons to request a new round of product direction. The design can be reviewed now; detailed code planning should resolve the repository-dependent choices.
 
 ## 14. Reference rationale
 
@@ -339,4 +341,4 @@ The design is Vivy-owned. External references inform bounded decisions rather th
 
 ## 15. Review outcome sought
 
-Review the ownership model, two extension channels, per-call Context View, and bounded local fixture scope. Approval of this document should establish the design baseline; it does not itself schedule all SCX work, change public interfaces, pass gates, or authorize release.
+The ownership model, two extension channels, per-call Context View, and bounded local fixture scope form the recorded architecture direction. Exact interfaces and implementation fit remain under review. This record does not schedule all SCX work, change public interfaces, pass gates, or authorize release.
