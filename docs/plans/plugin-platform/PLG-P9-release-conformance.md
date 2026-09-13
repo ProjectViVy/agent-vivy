@@ -233,3 +233,14 @@ Apply release evidence to the selected SCX scope. Initial design fixtures cover 
 
 See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
 This note records design dependencies; it does not reopen completed work or schedule implementation.
+
+### Selected P8 Gate C matrix (2026-09-13)
+
+The owner explicitly authorized all remaining P8 Gates. The bounded subset of
+P9 needed by P8 Gate C is therefore executed without scheduling or claiming
+completion of the full PLG-P9 phase: selected SCX/default/minimal pack and
+Inspect, seven-artifact evidence for the two selected public Ports,
+deterministic rebuild, physical removal, redaction/outage cases, and actual
+Studio rollback to the prior sealed Generation without tenant Journal mutation.
+Full-UI, browser, channel, live MCP, and every-Port release closure remain in
+unscheduled PLG-P9 and are not implied by the SCX candidate result.
