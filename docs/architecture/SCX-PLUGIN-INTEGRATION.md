@@ -54,7 +54,7 @@ the frozen graph. Notifications cannot veto; checks cannot grant new authority.
 | Transition | Required evidence | Current record |
 | --- | --- | --- |
 | Original SCX stage -> Gate mapping | Recovered owner-maintained stage IDs | Unresolved after repository history and branch search; no IDs invented; blocks Gate B slice selection, not Gate A evidence assembly |
-| Gate A | Exact P1-P4 evidence commits and versions; fake-provider compile and forbidden-dependency checks | **PASSED 2026-09-13**; initial tests in `271d7c367cc19966bc67d01724d36365e8c07dc8`, with sole-consumer/compiler and source-firewall hardening in `9d2adff0df61bc13147f6eee73e3909a3f557617` |
+| Gate A | Exact P1-P4 evidence commits and versions; fake-provider compile and forbidden-dependency checks | **PASSED 2026-09-13**; tests, sole-consumer/compiler enforcement, and source-firewall hardening delivered in `3848d39eb7e9ca156611608eba0d6bd3509f1edc` |
 | Gate B | P2-P7 evidence including required P5; actual selected SCX path, default/minimal behavior and failure cases | Not executed; waits for the recovered stage mapping and contract fit for the selected slice |
 | Gate C | P9 artifacts, supported Port evidence, deterministic rebuild and exercised rollback | Not executed |
 | Eino capability decision | Repository-pinned API inspection for each scoped implementation | Pinned v0.9.13 projection and Retriever APIs are classified below; any selected adapter is reassessed before Gate B code |
