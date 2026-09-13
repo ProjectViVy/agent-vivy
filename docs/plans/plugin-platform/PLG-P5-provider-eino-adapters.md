@@ -189,3 +189,10 @@ Exit requires no public executable Provider, exact pinned API evidence,
 preserved raw model IDs, Secret-safe status, and one ModelHost. Rollback selects
 the prior Generation. A deferred family remains absent rather than falling back
 to custom code.
+
+## SCX alignment (2026-09-12)
+
+SCX final representation and cost checks depend on the selected model adapter capabilities. Do not infer image/audio/video support from candidate metadata. Record the exact pinned Eino/EinoExt API for any selected adaptation; unsupported capabilities remain deferred. This adds no provider family or new model Port.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.

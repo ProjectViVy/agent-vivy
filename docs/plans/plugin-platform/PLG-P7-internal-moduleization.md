@@ -203,3 +203,10 @@ Exit requires every required internal Port to have exactly one Provider, every
 conditional Host to follow its Providers, parity tests to remain green, and L0
 authority to remain in place. Rollback selects the prior Generation or reverts
 the focused internal-Port commit; it never opens a `core/*` Port publicly.
+
+## SCX alignment (2026-09-12)
+
+SCX reuses existing task/worker ownership for expensive derivation and subagent analysis, existing storage for view association, and ObserverHost for feedback. Do not create a second scheduler, Journal or event bus. Runtime-state updates take effect at the next model-call boundary; frozen Module composition stays unchanged.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.

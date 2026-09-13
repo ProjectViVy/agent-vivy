@@ -228,3 +228,10 @@ import outside quarantine. Update the Tool, ToolWorld, Middleware, Observer,
 and Status evidence records for every artifact this phase supplies; support
 state remains compiler/conformance-owned. Rollback uses the prior sealed
 Generation; it never restores v0.
+
+## SCX alignment (2026-09-12)
+
+Run Observers are the SCX experience-return path: reuse committed redacted projections, Host-managed cursors and receiver deduplication. Diagnostic observers are not reliable delivery. Keep pre-tool Middleware the sole currently cataloged public execution-changing middleware; SCX preparation does not extend its authority.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.
