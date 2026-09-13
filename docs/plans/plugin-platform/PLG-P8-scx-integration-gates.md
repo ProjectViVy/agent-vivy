@@ -23,9 +23,11 @@ Assembly, Eino v0.9.13 adapters, SCX tests, `just ci`.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; the repository has no persisted `SCX` or `M-SCX*`
-  document as of 2026-09-09, so this file uses stable Gate IDs instead of
-  inventing stage names.
+- Implementation state: `UNSCHEDULED`. The 2026-09-12 architecture direction is
+  recorded in [SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md);
+  [integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md) records
+  owners and evidence gaps. The original stage plan remains unrecovered;
+  retain stable Gate IDs rather than inventing stage names.
 - Before SCX execution, the human-maintained SCX plan must link its real stage
   IDs to Gates A/B/C.
 - SCX never imports a concrete plugin/Source implementation or public Module
@@ -39,7 +41,7 @@ Assembly, Eino v0.9.13 adapters, SCX tests, `just ci`.
 **Files:**
 
 - Modify: the persisted SCX program index when it exists
-- Create: `docs/architecture/SCX-PLUGIN-INTEGRATION.md`
+- Update: `docs/architecture/SCX-PLUGIN-INTEGRATION.md` (initial mapping now exists; evidence and exact contracts remain open)
 - Modify: `docs/TODO.md`
 
 **Interfaces:**
@@ -209,3 +211,26 @@ Exit requires all three Gates to contain executable evidence and the persisted
 SCX plan to cite them by real stage ID. A failed Gate blocks the dependent SCX
 transition but does not expand PLUGINS scope. Rollback restores the prior sealed
 Generation and retains durable Kernel truth.
+
+## 2026-09-12 design alignment
+
+SCX covers changing context pipelines, not only memory or compaction. The design
+uses resource references, per-model-call Context Views, and committed events.
+Summaries, original-fragment retrieval and hybrid strategies remain replaceable.
+Personality, emotion, RAG, files, subagent outputs and multimodal/embodied references
+retain their own semantics under shared scope, provenance, version and budget rules.
+
+Task 1 starts from the linked integration map; its existence does not complete
+classification or Gate A. Task 2 must verify resource/version representation and
+Host boundaries before claiming interface freeze. Request-time preparation is a
+ContextHost responsibility; no new public execution-changing hook Port is approved.
+Reliable return flows reuse Run Observers; controls use ActionHost.
+
+Tasks 3-4 initially use the three plaintext scenarios in design section 11:
+personality/emotion, predetermined file retrieval, and memory return/deduplication.
+Turn these into bounded local fake-provider tests only when implementation is
+scheduled. They do not establish retrieval quality or live integration support.
+Keep existing default/minimal and failure gates. No new hardware/simulation platform
+is required; device adaptation/testing follows the original SCX plan when recovered.
+Task 5 still requires actual selected-release conformance and rollback evidence;
+external memory writes are not undone by switching a Generation.

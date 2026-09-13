@@ -378,3 +378,14 @@ tests pass, `just ci` is green, and the iteration log records human acceptance.
 Localization completion also requires deterministic catalog hashing and
 Manifest evidence. No runtime or v0 fallback may substitute for a failed
 catalog contract.
+
+## SCX architecture direction (2026-09-12)
+
+[SCX architecture](SCX-ARCHITECTURE-DESIGN.md) and its
+[integration map](SCX-PLUGIN-INTEGRATION.md) describe the changing context pipeline:
+resource references, per-call Context Views, and committed-event feedback.
+They add no selectable Port, Grant, support status, runtime code-loading path or
+exception to this contract. ContextHost/Runtime own preparation and projection;
+ObserverHost owns event projections; ActionHost owns typed management. Reliable
+Run observation must not be confused with ephemeral diagnostics. Rich media,
+external memory and future device support require their own scoped evidence.

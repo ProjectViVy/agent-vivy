@@ -340,3 +340,14 @@ The following are not public Ports:
 - Tool executor that bypasses ToolHost.
 
 Opening one requires a new architecture decision and a catalog version change.
+
+## SCX architecture direction (2026-09-12)
+
+[SCX architecture](SCX-ARCHITECTURE-DESIGN.md) and its
+[integration map](SCX-PLUGIN-INTEGRATION.md) describe the changing context pipeline:
+resource references, per-call Context Views, and committed-event feedback.
+They add no selectable Port, Grant, support status, runtime code-loading path or
+exception to this contract. ContextHost/Runtime own preparation and projection;
+ObserverHost owns event projections; ActionHost owns typed management. Reliable
+Run observation must not be confused with ephemeral diagnostics. Rich media,
+external memory and future device support require their own scoped evidence.

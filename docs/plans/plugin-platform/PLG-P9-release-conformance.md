@@ -226,3 +226,10 @@ Exit requires evidence-derived support states, full failure matrix, default
 parity, minimal removal, exercised rollback, truthful Skill instructions,
 `just ci`, real-path smokes, iteration logs, and PLG-1 closure. Any failed gate
 keeps PLG-1 open without restoring v0.
+
+## SCX alignment (2026-09-12)
+
+Apply release evidence to the selected SCX scope. Initial design fixtures cover personality/emotion, predetermined file retrieval and memory return; they are not executed proof or live integration evidence. No additional hardware/simulator gate is introduced. Original device validation stays with its unrecovered original plan. Generation rollback does not undo external memory writes; record compatibility and pending receipts separately.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.
