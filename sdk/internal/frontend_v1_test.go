@@ -466,11 +466,20 @@ func TestInspectArtifactValidatesFinalUIArtifactHash(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(artifactDir, "generation.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(artifactDir, "vivy"), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, artifactBinaryName(runtime.GOOS)), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InspectArtifact(artifactDir); err == nil || !strings.Contains(err.Error(), "UI artifact hash") {
 		t.Fatalf("InspectArtifact() error = %v, want final UI artifact hash rejection", err)
+	}
+}
+
+func TestArtifactBinaryNameUsesNativeExecutableSuffix(t *testing.T) {
+	if got := artifactBinaryName("windows"); got != "vivy.exe" {
+		t.Fatalf("Windows artifact name = %q, want vivy.exe", got)
+	}
+	if got := artifactBinaryName("linux"); got != "vivy" {
+		t.Fatalf("Linux artifact name = %q, want vivy", got)
 	}
 }
 

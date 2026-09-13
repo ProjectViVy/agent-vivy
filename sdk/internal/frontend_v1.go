@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -363,7 +364,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err := copySourceTree(uiBuild.Dist, filepath.Join(stage, "ui", "dist")); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: stage final UI artifact: %w", err)
 	}
-	binary := filepath.Join(stage, "vivy")
+	binaryName := artifactBinaryName(runtime.GOOS)
+	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
 	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-ldflags", "-X=agent-vivy/sdk/generation.EmbeddedManifestBase64="+embedded, "-o", binary, "./cmd/vivy")
 	cmd.Dir = repoRoot
@@ -380,7 +382,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("publish generation: %w", err)
 	}
 	published = true
-	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, "vivy"), Manifest: manifest}, nil
+	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, binaryName), Manifest: manifest}, nil
 }
 
 type builtWebUI struct {
@@ -1417,7 +1419,7 @@ func InspectArtifact(dir string) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	binary := filepath.Join(dir, "vivy")
+	binary := filepath.Join(dir, artifactBinaryName(runtime.GOOS))
 	if _, err := os.Stat(binary); err != nil {
 		return Artifact{}, err
 	}
@@ -1446,6 +1448,13 @@ func InspectArtifact(dir string) (Artifact, error) {
 		}
 	}
 	return Artifact{Directory: dir, Binary: binary, Manifest: manifest}, nil
+}
+
+func artifactBinaryName(goos string) string {
+	if goos == "windows" {
+		return "vivy.exe"
+	}
+	return "vivy"
 }
 
 func sourceRecords(repoRoot string, sources []string, pins map[string]module.Source) ([]assemblyv1.SourceRecord, error) {
