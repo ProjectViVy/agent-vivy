@@ -206,9 +206,15 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			}
 		}
 		for _, requirement := range record.Descriptor.Requires {
+			if err := c.validatePublicPortConsumer(requirement, consumerID, record.Trust); err != nil {
+				diagnostics = append(diagnostics, err.Error())
+			}
 			c.compileRequirement(requirement, consumerID, selected, graph, &edges, used, &diagnostics)
 		}
 		for _, requirement := range record.Descriptor.Optional {
+			if err := c.validatePublicPortConsumer(requirement, consumerID, record.Trust); err != nil {
+				diagnostics = append(diagnostics, err.Error())
+			}
 			if _, exists := selected[requirement.Provider]; requirement.Provider != "" && exists {
 				c.compileRequirement(requirement, consumerID, selected, graph, &edges, used, &diagnostics)
 			}
@@ -356,6 +362,21 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		return left < right
 	})
 	return AssemblyPlan{Modules: resolved, PortEdges: edges, LifecycleOrder: lifecycleOrder, OrderedContributions: ordered}, nil
+}
+
+func (c Compiler) validatePublicPortConsumer(requirement module.Requirement, consumerID string, trust Trust) error {
+	definition, public := c.Ports.Lookup(requirement.PortRef)
+	if !public {
+		return nil
+	}
+	host, known := moduleport.Catalog().Lookup(definition.Consumer)
+	if !known {
+		return fmt.Errorf("public Port %s has unknown sole consumer %s", requirement.Port, definition.Consumer.Port)
+	}
+	if consumerID != host.Owner || trust != TrustT1 {
+		return fmt.Errorf("public Port %s may only be consumed by build-owned T1 module %s", requirement.Port, host.Owner)
+	}
+	return nil
 }
 
 func validateClosedInternalSelection(selected map[string]SourceRecord, providers map[string][]SourceRecord) []string {
