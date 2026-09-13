@@ -1,23 +1,23 @@
 {
   "id": "valid-ordered-tool",
   "expect": "accept",
-  "rule": "A selected consumer may depend on one selected provider for a public multi-provider port.",
+  "rule": "A selected public provider binds only to its build-owned sole Host.",
   "recipe": {
     "apiVersion": "vivy.generation/v1",
-    "modules": ["fixture/tool-host", "fixture/tool-clock"]
+    "modules": ["vivy/tool-host", "fixture/tool-clock"]
   },
   "modules": [
     {
       "apiVersion": "vivy.module/v1",
-      "module": { "id": "fixture/tool-host", "version": "1.0.0" },
+      "module": { "id": "vivy/tool-host", "version": "1.0.0" },
       "source": {
-        "ref": "internal:fixture/tool-host",
+        "ref": "internal:vivy/tool-host",
         "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
       },
-      "provides": [],
-      "requires": [{ "port": "std/tool@v1", "provider": "fixture/tool-clock" }],
+      "provides": [{ "port": "core/tool-host@v1", "id": "vivy.tool-host" }],
+      "requires": [],
       "requestedGrants": [],
-      "lifecycle": { "scope": "generation", "after": ["fixture/tool-clock"] }
+      "lifecycle": { "scope": "generation" }
     },
     {
       "apiVersion": "vivy.module/v1",
@@ -27,7 +27,7 @@
         "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
       },
       "provides": [{ "port": "std/tool@v1", "id": "fixture.clock" }],
-      "requires": [],
+      "requires": [{ "port": "core/tool-host@v1", "provider": "vivy/tool-host" }],
       "requestedGrants": [],
       "lifecycle": { "scope": "generation" }
     }
