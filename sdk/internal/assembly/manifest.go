@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"agent-vivy/sdk/module"
 )
@@ -74,9 +76,22 @@ type SealInputs struct {
 	// manifest (rather than only returning it from GenerateUIAssembly) binds
 	// root selection, extension order, replacement relationships, SDK pin, and
 	// all UI content identities to the Generation ID consumed by Inspect.
-	UI               *UIAssemblyManifest
-	Catalogs         []CatalogManifest
-	CapabilityStates map[string]CapabilityState
+	UI                    *UIAssemblyManifest
+	Catalogs              []CatalogManifest
+	CapabilityStates      map[string]CapabilityState
+	ContextSourcePolicies []ContextSourcePolicy
+	RunObserverPolicies   []RunObserverPolicy
+}
+
+type ContextSourcePolicy struct {
+	ProviderID string `json:"providerId"`
+	Required   bool   `json:"required"`
+}
+
+type RunObserverPolicy struct {
+	ProviderID           string   `json:"providerId"`
+	EventTypes           []string `json:"eventTypes"`
+	AllowedPayloadFields []string `json:"allowedPayloadFields"`
 }
 
 type ManifestModule struct {
@@ -90,20 +105,22 @@ type ManifestModule struct {
 }
 
 type GenerationManifest struct {
-	GenerationID         string                     `json:"generationId"`
-	SpecificationVersion string                     `json:"specificationVersion"`
-	CompilerVersion      string                     `json:"compilerVersion"`
-	SDKVersion           string                     `json:"sdkVersion"`
-	RecipeDigest         string                     `json:"recipeDigest"`
-	Modules              []ManifestModule           `json:"modules"`
-	PortEdges            []PortEdge                 `json:"portEdges"`
-	LifecycleOrder       []string                   `json:"lifecycleOrder"`
-	OrderedContributions map[string][]string        `json:"orderedContributions"`
-	DependencyLocks      map[string]string          `json:"dependencyLocks"`
-	UIArtifacts          map[string]string          `json:"uiArtifacts"`
-	UI                   *UIAssemblyManifest        `json:"ui,omitempty"`
-	Catalogs             []CatalogManifest          `json:"catalogs"`
-	CapabilityStates     map[string]CapabilityState `json:"capabilityStates,omitempty"`
+	GenerationID          string                     `json:"generationId"`
+	SpecificationVersion  string                     `json:"specificationVersion"`
+	CompilerVersion       string                     `json:"compilerVersion"`
+	SDKVersion            string                     `json:"sdkVersion"`
+	RecipeDigest          string                     `json:"recipeDigest"`
+	Modules               []ManifestModule           `json:"modules"`
+	PortEdges             []PortEdge                 `json:"portEdges"`
+	LifecycleOrder        []string                   `json:"lifecycleOrder"`
+	OrderedContributions  map[string][]string        `json:"orderedContributions"`
+	DependencyLocks       map[string]string          `json:"dependencyLocks"`
+	UIArtifacts           map[string]string          `json:"uiArtifacts"`
+	UI                    *UIAssemblyManifest        `json:"ui,omitempty"`
+	Catalogs              []CatalogManifest          `json:"catalogs"`
+	CapabilityStates      map[string]CapabilityState `json:"capabilityStates,omitempty"`
+	ContextSourcePolicies []ContextSourcePolicy      `json:"contextSourcePolicies,omitempty"`
+	RunObserverPolicies   []RunObserverPolicy        `json:"runObserverPolicies,omitempty"`
 }
 
 func CanonicalRecipe(recipe Recipe) ([]byte, error) {
@@ -142,18 +159,20 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 	}
 	recipeDigest := sha256.Sum256(inputs.CanonicalRecipe)
 	manifest := GenerationManifest{
-		SpecificationVersion: inputs.SpecificationVersion,
-		CompilerVersion:      inputs.CompilerVersion,
-		SDKVersion:           inputs.SDKVersion,
-		RecipeDigest:         hex.EncodeToString(recipeDigest[:]),
-		PortEdges:            append([]PortEdge(nil), plan.PortEdges...),
-		LifecycleOrder:       append([]string(nil), plan.LifecycleOrder...),
-		OrderedContributions: cloneStringSliceMap(plan.OrderedContributions),
-		DependencyLocks:      cloneStringMap(inputs.DependencyLocks),
-		UIArtifacts:          cloneStringMap(inputs.UIArtifacts),
-		UI:                   cloneUIAssemblyManifest(inputs.UI),
-		Catalogs:             cloneCatalogManifests(inputs.Catalogs),
-		CapabilityStates:     cloneStringMap(inputs.CapabilityStates),
+		SpecificationVersion:  inputs.SpecificationVersion,
+		CompilerVersion:       inputs.CompilerVersion,
+		SDKVersion:            inputs.SDKVersion,
+		RecipeDigest:          hex.EncodeToString(recipeDigest[:]),
+		PortEdges:             append([]PortEdge(nil), plan.PortEdges...),
+		LifecycleOrder:        append([]string(nil), plan.LifecycleOrder...),
+		OrderedContributions:  cloneStringSliceMap(plan.OrderedContributions),
+		DependencyLocks:       cloneStringMap(inputs.DependencyLocks),
+		UIArtifacts:           cloneStringMap(inputs.UIArtifacts),
+		UI:                    cloneUIAssemblyManifest(inputs.UI),
+		Catalogs:              cloneCatalogManifests(inputs.Catalogs),
+		CapabilityStates:      cloneStringMap(inputs.CapabilityStates),
+		ContextSourcePolicies: cloneContextSourcePolicies(inputs.ContextSourcePolicies),
+		RunObserverPolicies:   cloneRunObserverPolicies(inputs.RunObserverPolicies),
 	}
 	manifest.Catalogs = canonicalizeCatalogManifests(manifest.Catalogs)
 	if manifest.UI != nil {
@@ -177,6 +196,9 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		}
 	}
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
+		return GenerationManifest{}, nil, err
+	}
+	if err := validateRuntimePolicies(manifest.ContextSourcePolicies, manifest.RunObserverPolicies); err != nil {
 		return GenerationManifest{}, nil, err
 	}
 	for _, resolved := range plan.Modules {
@@ -237,6 +259,9 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 		return GenerationManifest{}, fmt.Errorf("inspect Generation Manifest: %w", err)
 	}
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
+		return GenerationManifest{}, err
+	}
+	if err := validateRuntimePolicies(manifest.ContextSourcePolicies, manifest.RunObserverPolicies); err != nil {
 		return GenerationManifest{}, err
 	}
 	if err := validateInspectedCatalogs(manifest); err != nil {
@@ -375,6 +400,60 @@ func cloneStringSliceMap(source map[string][]string) map[string][]string {
 		cloned[key] = append([]string(nil), value...)
 	}
 	return cloned
+}
+
+func cloneContextSourcePolicies(source []ContextSourcePolicy) []ContextSourcePolicy {
+	cloned := append([]ContextSourcePolicy(nil), source...)
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].ProviderID < cloned[j].ProviderID })
+	return cloned
+}
+
+func cloneRunObserverPolicies(source []RunObserverPolicy) []RunObserverPolicy {
+	if source == nil {
+		return nil
+	}
+	cloned := make([]RunObserverPolicy, len(source))
+	for index, policy := range source {
+		cloned[index] = RunObserverPolicy{
+			ProviderID:           policy.ProviderID,
+			EventTypes:           canonicalStrings(policy.EventTypes),
+			AllowedPayloadFields: canonicalStrings(policy.AllowedPayloadFields),
+		}
+	}
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].ProviderID < cloned[j].ProviderID })
+	return cloned
+}
+
+func validateRuntimePolicies(contextPolicies []ContextSourcePolicy, observerPolicies []RunObserverPolicy) error {
+	seen := map[string]struct{}{}
+	for _, policy := range contextPolicies {
+		id := strings.TrimSpace(policy.ProviderID)
+		if id == "" || id != policy.ProviderID {
+			return errors.New("Generation Manifest has invalid Context Source policy")
+		}
+		if _, duplicate := seen["context\x00"+id]; duplicate {
+			return fmt.Errorf("Generation Manifest repeats Context Source policy %s", id)
+		}
+		seen["context\x00"+id] = struct{}{}
+	}
+	for _, policy := range observerPolicies {
+		id := strings.TrimSpace(policy.ProviderID)
+		if id == "" || id != policy.ProviderID || len(policy.EventTypes) == 0 {
+			return errors.New("Generation Manifest has invalid Run Observer policy")
+		}
+		if _, duplicate := seen["observer\x00"+id]; duplicate {
+			return fmt.Errorf("Generation Manifest repeats Run Observer policy %s", id)
+		}
+		seen["observer\x00"+id] = struct{}{}
+		for _, values := range [][]string{policy.EventTypes, policy.AllowedPayloadFields} {
+			for _, value := range values {
+				if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value {
+					return errors.New("Generation Manifest has invalid Run Observer policy value")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func cloneCatalogUnits(source map[string]CatalogUnit) map[string]CatalogUnit {

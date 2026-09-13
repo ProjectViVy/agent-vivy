@@ -42,6 +42,7 @@ import (
 	modelmodule "agent-vivy/internal/modules/model"
 	sandboxmodule "agent-vivy/internal/modules/sandbox"
 	storagemodule "agent-vivy/internal/modules/storage"
+	"agent-vivy/internal/observerhost"
 	"agent-vivy/internal/provider"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
@@ -68,13 +69,14 @@ type App struct {
 	cfg    config.Config
 	logger *slog.Logger
 
-	service    *runtime.Service
-	channels   *channelhost.Host
-	actionHost *actionhost.Host
-	backend    storage.Engine
-	worker     *workerManager
-	resolver   *ModelResolver
-	modelHost  *modelhost.Host
+	service      *runtime.Service
+	channels     *channelhost.Host
+	actionHost   *actionhost.Host
+	observerHost *observerhost.Host
+	backend      storage.Engine
+	worker       *workerManager
+	resolver     *ModelResolver
+	modelHost    *modelhost.Host
 
 	control    controlrpc.Handler
 	httpServer *http.Server
@@ -618,6 +620,20 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if channelHost != nil {
 		runHooks = append(runHooks, channelHost)
 	}
+	runObserverHost, err := observerHostForAssembly(ctx, runtimeAssembly, backend)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
+	observerHostOwned := runObserverHost != nil
+	if runObserverHost != nil {
+		runHooks = append(runHooks, runObserverHost)
+	}
+	defer func() {
+		if observerHostOwned && runObserverHost != nil {
+			runObserverHost.Close()
+		}
+	}()
 	svc = runtime.NewService(eng, providerName, modelID, runtime.ServiceDeps{
 		Journal:            backend,
 		Runs:               backend,
@@ -1025,22 +1041,31 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 
 	app := &App{
-		cfg:        cfg,
-		logger:     logger,
-		service:    svc,
-		channels:   channelHost,
-		actionHost: actionHost,
-		backend:    backend,
-		worker:     workerManager,
-		resolver:   resolver,
-		modelHost:  modelHost,
-		control:    controlHandler,
-		rpcToken:   rpcToken,
-		mcpBackend: mcpBackend,
-		assembly:   &runtimeAssembly,
+		cfg:          cfg,
+		logger:       logger,
+		service:      svc,
+		channels:     channelHost,
+		actionHost:   actionHost,
+		observerHost: runObserverHost,
+		backend:      backend,
+		worker:       workerManager,
+		resolver:     resolver,
+		modelHost:    modelHost,
+		control:      controlHandler,
+		rpcToken:     rpcToken,
+		mcpBackend:   mcpBackend,
+		assembly:     &runtimeAssembly,
+	}
+	if runObserverHost != nil {
+		// Start only after every fallible composition and recovery step has
+		// succeeded. Hooks invoked during Recover queue durable Run IDs, and
+		// Start immediately wakes that backlog without racing error cleanup
+		// that closes the storage backend.
+		runObserverHost.Start(ctx)
 	}
 	mcpOwned = false
 	actionHostOwned = false
+	observerHostOwned = false
 	assemblyOwned = false
 	// The gateway is faces/web's effect: the mux, the embedded UI shell and
 	// the loopback listener exist only in the gateway assembly (face-pack
@@ -1109,6 +1134,9 @@ func (a *App) Close() error {
 		}
 		if a.service != nil && !a.service.WaitIdle(shutdownCtx) {
 			a.closeErr = errors.Join(a.closeErr, shutdownCtx.Err())
+		}
+		if a.observerHost != nil {
+			a.observerHost.Close()
 		}
 		if a.mcpBackend != nil {
 			a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())

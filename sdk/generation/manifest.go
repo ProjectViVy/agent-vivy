@@ -97,14 +97,31 @@ const (
 )
 
 type Manifest struct {
-	Modules          []string
-	Channels         []string
-	Tools            []string
-	Actions          []string
-	ToolWorlds       []string
-	ProviderProfiles []string
-	ContextSources   []string
-	SkillSources     []string
-	Face             string
-	NetworkStates    map[string]CapabilityState
+	Modules               []string
+	Channels              []string
+	Tools                 []string
+	Actions               []string
+	ToolWorlds            []string
+	ProviderProfiles      []string
+	ContextSources        []string
+	ContextSourcePolicies []ContextSourcePolicy
+	SkillSources          []string
+	RunObservers          []string
+	RunObserverPolicies   []RunObserverPolicy
+	Face                  string
+	NetworkStates         map[string]CapabilityState
+}
+
+// RunObserverPolicy is the sealed, Host-owned export projection for one
+// provider. It is generated from the Port contract, never supplied by the
+// provider at runtime.
+type RunObserverPolicy struct {
+	ProviderID           string
+	EventTypes           []string
+	AllowedPayloadFields []string
+}
+
+type ContextSourcePolicy struct {
+	ProviderID string
+	Required   bool
 }

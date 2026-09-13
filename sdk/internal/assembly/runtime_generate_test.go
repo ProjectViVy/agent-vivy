@@ -79,6 +79,32 @@ func TestGenerateRuntimeAssemblyBindsTypedActionInventory(t *testing.T) {
 	}
 }
 
+func TestGenerateRuntimeAssemblyBindsRunObserversThroughObserverHost(t *testing.T) {
+	descriptor := testDescriptor("fixture/memory")
+	descriptor.Provides = []module.PortRef{{Port: "std/observer/run@v1", ID: "fixture.memory"}}
+	generated, err := GenerateRuntimeAssembly(AssemblyPlan{Modules: []ResolvedModule{{
+		Descriptor: descriptor,
+		Binding:    GoBinding{ImportPath: "example.com/fixture/memory", Package: "memory", ProviderConstructor: "NewProvider", RunObserverProvider: true},
+	}}}, "assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	compactSource := strings.Join(strings.Fields(source), " ")
+	for _, want := range []string{
+		`"agent-vivy/sdk/port/observer"`,
+		"RunObservers []observer.RunProvider",
+		"RunObservers: append([]observer.RunProvider{}, memory.NewProvider())",
+		`RunObservers: []string{"fixture.memory"}`,
+		`RunObserverPolicies: []generation.RunObserverPolicy{{ProviderID: "fixture.memory", EventTypes: []string{"run.cancelled", "run.completed", "run.failed"}, AllowedPayloadFields: []string{"cause_category", "message", "outcome", "reason", "result", "session_id", "summary", "tenant_id", "view", "workspace_id"}}}`,
+		"func (assembly *RuntimeAssembly) RunObserverProviders() any",
+	} {
+		if !strings.Contains(compactSource, strings.Join(strings.Fields(want), " ")) {
+			t.Fatalf("generated runtime assembly missing %q:\n%s", want, source)
+		}
+	}
+}
+
 func TestGenerateRuntimeAssemblyReusesExplicitAuxiliaryToolWorldProvider(t *testing.T) {
 	descriptor := testDescriptor("fixture/lsp")
 	descriptor.Provides = []module.PortRef{{Port: "std/tool-world@v1", ID: "fixture.lsp"}}
@@ -119,7 +145,7 @@ func TestGenerateRuntimeAssemblyComposesTypedP4Sources(t *testing.T) {
 	skillDescriptor := testDescriptor("fixture/skill-source")
 	skillDescriptor.Provides = []module.PortRef{{Port: "std/skill-source@v1", ID: "fixture.skills"}}
 	plan := AssemblyPlan{Modules: []ResolvedModule{
-		{Descriptor: contextDescriptor, Binding: GoBinding{ImportPath: "example.com/fixture/context", Package: "contextfixture", ProviderConstructor: "Providers", ProviderCollection: true, ContextSourceProvider: true}},
+		{Descriptor: contextDescriptor, Binding: GoBinding{ImportPath: "example.com/fixture/context", Package: "contextfixture", ProviderConstructor: "Providers", ProviderCollection: true, ContextSourceProvider: true, ContextSourceRequired: true}},
 		{Descriptor: skillDescriptor, Binding: GoBinding{ImportPath: "example.com/fixture/skill", Package: "skillfixture", ProviderConstructor: "Providers", ProviderCollection: true, SkillSourceProvider: true}},
 	}}
 
@@ -135,6 +161,7 @@ func TestGenerateRuntimeAssemblyComposesTypedP4Sources(t *testing.T) {
 		`ContextSources:  append([]contextsource.Provider{}, contextfixture.Providers()...)`,
 		`SkillSources:    append([]skillsource.Provider{}, skillfixture.Providers()...)`,
 		`ContextSources: []string{"fixture.context"}`,
+		`ContextSourcePolicies: []generation.ContextSourcePolicy{{ProviderID: "fixture.context", Required: true}}`,
 		`SkillSources:   []string{"fixture.skills"}`,
 	} {
 		if !strings.Contains(compactSource, strings.Join(strings.Fields(want), " ")) {
@@ -154,7 +181,7 @@ func TestGenerateRuntimeAssemblyMinimalOmitsP4SourceImportsAndFields(t *testing.
 		t.Fatal(err)
 	}
 	source := string(generated)
-	for _, omitted := range []string{"sdk/port/contextsource", "sdk/port/skillsource", "ContextSources []", "SkillSources []", "ContextSources:", "SkillSources:", "ContextSourceProviders", "SkillSourceProviders", "NewContextHost", "NewContextSource", "NewSkillHost", "NewSkillSource", "NewMCPHost"} {
+	for _, omitted := range []string{"sdk/port/contextsource", "sdk/port/skillsource", "sdk/port/observer", "ContextSources []", "SkillSources []", "RunObservers []", "ContextSources:", "SkillSources:", "RunObservers:", "ContextSourceProviders", "SkillSourceProviders", "RunObserverProviders", "RunObserverPolicies", "NewContextHost", "NewContextSource", "NewSkillHost", "NewSkillSource", "NewMCPHost"} {
 		if strings.Contains(source, omitted) {
 			t.Fatalf("minimal runtime assembly contains omitted P4 surface %q:\n%s", omitted, source)
 		}

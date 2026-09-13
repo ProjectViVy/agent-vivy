@@ -40,6 +40,9 @@ type GoBinding struct {
 	// Typed P4 bindings keep Source/Host composition explicit in generated
 	// Assembly. They are build metadata, never Module-controlled redirects.
 	ContextSourceProvider bool
+	// ContextSourceRequired is build-owned availability policy. It is sealed
+	// into the Generation and cannot be selected by Provider code.
+	ContextSourceRequired bool
 	SkillSourceProvider   bool
 	MCPHostProvider       bool
 }

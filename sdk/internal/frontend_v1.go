@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -100,7 +101,7 @@ func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, er
 		return "", nil, nil
 	}
 	known := make(map[string]bool)
-	for _, rel := range []string{"plugins/dingtalk", "plugins/discord", "plugins/feishu", "plugins/qq", "plugins/telegram", "plugins/hello-fs", "plugins/lsp", "faces/headless", "faces/tui", "sdk/internal/testdata/full-ui-module"} {
+	for _, rel := range []string{"plugins/dingtalk", "plugins/discord", "plugins/feishu", "plugins/qq", "plugins/telegram", "plugins/hello-fs", "plugins/lsp", "plugins/scx-reference", "faces/headless", "faces/tui", "sdk/internal/testdata/full-ui-module"} {
 		abs, _ := filepath.Abs(filepath.Join(repoRoot, rel))
 		known[abs] = true
 	}
@@ -324,7 +325,13 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		uiArtifacts["ui/provider/"+id] = digest
 	}
 	capabilityStates := capabilityStatesForPlan(plan)
-	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p1", SDKVersion: "v1", CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts, UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates})
+	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
+		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p8", SDKVersion: "v1",
+		CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts,
+		UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates,
+		ContextSourcePolicies: assemblyv1.ContextSourcePoliciesForPlan(plan),
+		RunObserverPolicies:   assemblyv1.RunObserverPoliciesForPlan(plan),
+	})
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -357,7 +364,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err := copySourceTree(uiBuild.Dist, filepath.Join(stage, "ui", "dist")); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: stage final UI artifact: %w", err)
 	}
-	binary := filepath.Join(stage, "vivy")
+	binaryName := artifactBinaryName(runtime.GOOS)
+	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
 	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-ldflags", "-X=agent-vivy/sdk/generation.EmbeddedManifestBase64="+embedded, "-o", binary, "./cmd/vivy")
 	cmd.Dir = repoRoot
@@ -374,7 +382,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("publish generation: %w", err)
 	}
 	published = true
-	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, "vivy"), Manifest: manifest}, nil
+	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, binaryName), Manifest: manifest}, nil
 }
 
 type builtWebUI struct {
@@ -1411,7 +1419,7 @@ func InspectArtifact(dir string) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	binary := filepath.Join(dir, "vivy")
+	binary := filepath.Join(dir, artifactBinaryName(runtime.GOOS))
 	if _, err := os.Stat(binary); err != nil {
 		return Artifact{}, err
 	}
@@ -1442,6 +1450,13 @@ func InspectArtifact(dir string) (Artifact, error) {
 	return Artifact{Directory: dir, Binary: binary, Manifest: manifest}, nil
 }
 
+func artifactBinaryName(goos string) string {
+	if goos == "windows" {
+		return "vivy.exe"
+	}
+	return "vivy"
+}
+
 func sourceRecords(repoRoot string, sources []string, pins map[string]module.Source) ([]assemblyv1.SourceRecord, error) {
 	internal, err := defaults.Catalog(repoRoot)
 	if err != nil {
@@ -1462,6 +1477,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		{dir: "plugins/telegram", importPath: "example.com/vivy/plugins/telegram", pkg: "telegram"},
 		{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
 		{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
+		{dir: "plugins/scx-reference", importPath: "example.com/vivy/plugins/scxreference", pkg: "scxreference"},
 		{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
 		{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
 	}
@@ -1478,7 +1494,10 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		if err := verifySource(dir, d); err != nil {
 			return nil, fmt.Errorf("sdk: source %s: %w", dir, err)
 		}
-		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT1, Root: dir, Ref: "repo:" + k.dir, Binding: assemblyv1.GoBinding{ImportPath: k.importPath, Package: k.pkg, Constructor: "New", ProviderConstructor: "NewProvider", DiagnosticObserver: k.diagnostics, LanguageServerStatusProvider: k.languageServerStatuses}})
+		binding := assemblyv1.GoBinding{ImportPath: k.importPath, Package: k.pkg, Constructor: "New", ProviderConstructor: "NewProvider", DiagnosticObserver: k.diagnostics, LanguageServerStatusProvider: k.languageServerStatuses}
+		binding.RunObserverProvider = descriptorProvidesPort(d, "std/observer/run@v1")
+		binding.ContextSourceRequired = k.dir == "plugins/scx-reference"
+		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT1, Root: dir, Ref: "repo:" + k.dir, Binding: binding})
 		seen[dir] = true
 	}
 	for _, dir := range sources {
@@ -1504,9 +1523,20 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		if err != nil {
 			return nil, fmt.Errorf("sdk: source %s: %w", dir, err)
 		}
-		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT2, Root: abs, Ref: pin.Ref, Binding: assemblyv1.GoBinding{ImportPath: importPath, Package: packageName, Constructor: "New", ProviderConstructor: "NewProvider"}})
+		binding := assemblyv1.GoBinding{ImportPath: importPath, Package: packageName, Constructor: "New", ProviderConstructor: "NewProvider"}
+		binding.RunObserverProvider = descriptorProvidesPort(d, "std/observer/run@v1")
+		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT2, Root: abs, Ref: pin.Ref, Binding: binding})
 	}
 	return records, nil
+}
+
+func descriptorProvidesPort(descriptor module.Descriptor, portName string) bool {
+	for _, provided := range descriptor.Provides {
+		if provided.Port == portName {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceGoBinding(dir string) (string, string, error) {

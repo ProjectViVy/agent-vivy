@@ -466,11 +466,20 @@ func TestInspectArtifactValidatesFinalUIArtifactHash(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(artifactDir, "generation.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(artifactDir, "vivy"), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, artifactBinaryName(runtime.GOOS)), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InspectArtifact(artifactDir); err == nil || !strings.Contains(err.Error(), "UI artifact hash") {
 		t.Fatalf("InspectArtifact() error = %v, want final UI artifact hash rejection", err)
+	}
+}
+
+func TestArtifactBinaryNameUsesNativeExecutableSuffix(t *testing.T) {
+	if got := artifactBinaryName("windows"); got != "vivy.exe" {
+		t.Fatalf("Windows artifact name = %q, want vivy.exe", got)
+	}
+	if got := artifactBinaryName("linux"); got != "vivy" {
+		t.Fatalf("Linux artifact name = %q, want vivy", got)
 	}
 }
 
@@ -541,6 +550,7 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 		{"minimal", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityNotCompiled)},
 		{"headless", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"vivy-code", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
+		{"scx", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 	}
 	for _, test := range tests {
 		name := test.name
@@ -564,6 +574,76 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 				t.Fatalf("mcp capability = %s, want %s", got, test.mcp)
 			}
 		})
+	}
+}
+
+func TestPackAndInspectSCXCandidateIsDeterministicAndRemovable(t *testing.T) {
+	root := t.TempDir()
+	pack := func(name, recipe string) Artifact {
+		t.Helper()
+		artifact, err := Pack(context.Background(), packOptions{
+			Recipe: filepath.Join("..", "..", "recipes", recipe+".vivy.yml"),
+			Output: filepath.Join(root, name),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspected, err := InspectArtifact(artifact.Directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inspected
+	}
+
+	first := pack("scx-first", "scx")
+	second := pack("scx-second", "scx")
+	if first.Manifest.GenerationID != second.Manifest.GenerationID {
+		t.Fatalf("SCX deterministic rebuild drifted: %s != %s", first.Manifest.GenerationID, second.Manifest.GenerationID)
+	}
+
+	const fixtureID = "scx/reference-fixtures"
+	var fixture *assemblyv1.ManifestModule
+	for index := range first.Manifest.Modules {
+		if first.Manifest.Modules[index].ID == fixtureID {
+			fixture = &first.Manifest.Modules[index]
+			break
+		}
+	}
+	if fixture == nil {
+		t.Fatal("SCX candidate Manifest omits reference fixture module")
+	}
+	if fixture.Version != "0.1.0" || fixture.Source.Ref != "repo:plugins/scx-reference" || fixture.Source.SHA256 == "" {
+		t.Fatalf("SCX source identity is not sealed: %#v", fixture)
+	}
+	if len(first.Manifest.ContextSourcePolicies) != 1 || first.Manifest.ContextSourcePolicies[0].ProviderID != "scx.reference" || !first.Manifest.ContextSourcePolicies[0].Required {
+		t.Fatalf("SCX required Source policy is not sealed: %#v", first.Manifest.ContextSourcePolicies)
+	}
+	if len(first.Manifest.RunObserverPolicies) != 1 || first.Manifest.RunObserverPolicies[0].ProviderID != "scx.reference" {
+		t.Fatalf("SCX Observer policy is not sealed: %#v", first.Manifest.RunObserverPolicies)
+	}
+	edges := map[string]bool{}
+	for _, edge := range first.Manifest.PortEdges {
+		if edge.Provider == fixtureID || edge.Consumer == fixtureID {
+			edges[edge.Port.Port+":"+edge.Provider+":"+edge.Consumer] = true
+		}
+	}
+	for _, required := range []string{
+		"core/context-host@v1:vivy/context-host:" + fixtureID,
+		"core/observer-host@v1:vivy/observer-host:" + fixtureID,
+		"std/context-source@v1:" + fixtureID + ":vivy/context-host",
+		"std/observer/run@v1:" + fixtureID + ":vivy/observer-host",
+	} {
+		if !edges[required] {
+			t.Errorf("SCX candidate Manifest omits edge %q", required)
+		}
+	}
+	for _, recipe := range []string{"default", "minimal"} {
+		artifact := pack(recipe, recipe)
+		for _, selected := range artifact.Manifest.Modules {
+			if selected.ID == fixtureID {
+				t.Fatalf("%s Generation retained removed SCX module", recipe)
+			}
+		}
 	}
 }
 

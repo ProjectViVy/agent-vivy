@@ -8,6 +8,40 @@ import (
 	"strings"
 )
 
+func ContextSourcePoliciesForPlan(plan AssemblyPlan) []ContextSourcePolicy {
+	var policies []ContextSourcePolicy
+	for _, resolved := range plan.Modules {
+		if !resolved.Binding.ContextSourceRequired {
+			continue
+		}
+		for _, provided := range resolved.Descriptor.Provides {
+			if provided.Port == "std/context-source@v1" {
+				policies = append(policies, ContextSourcePolicy{ProviderID: provided.ID, Required: true})
+			}
+		}
+	}
+	return cloneContextSourcePolicies(policies)
+}
+
+func RunObserverPoliciesForPlan(plan AssemblyPlan) []RunObserverPolicy {
+	var policies []RunObserverPolicy
+	for _, resolved := range plan.Modules {
+		for _, provided := range resolved.Descriptor.Provides {
+			if provided.Port == "std/observer/run@v1" {
+				policies = append(policies, RunObserverPolicy{
+					ProviderID: provided.ID,
+					EventTypes: []string{"run.completed", "run.failed", "run.cancelled"},
+					AllowedPayloadFields: []string{
+						"outcome", "result", "view", "summary", "cause_category", "message", "reason",
+						"tenant_id", "workspace_id", "session_id",
+					},
+				})
+			}
+		}
+	}
+	return cloneRunObserverPolicies(policies)
+}
+
 // GenerateRuntimeAssembly emits the application-facing Provider inventory
 // from the same compiled plan used for the lifecycle binder and manifest.
 func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, error) {
@@ -15,6 +49,8 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 		return nil, fmt.Errorf("invalid generated package name %q", packageName)
 	}
 	modules := append([]ResolvedModule(nil), plan.Modules...)
+	contextSourcePolicies := ContextSourcePoliciesForPlan(plan)
+	runObserverPolicies := RunObserverPoliciesForPlan(plan)
 	sort.Slice(modules, func(i, j int) bool { return modules[i].Descriptor.Module.ID < modules[j].Descriptor.Module.ID })
 	aliases := map[string]string{}
 	used := map[string]bool{}
@@ -38,7 +74,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	hasContextSources, hasSkillSources := false, false
+	hasContextSources, hasSkillSources, hasRunObservers := false, false, false
 	hasMCPHostProvider := false
 	for _, resolved := range modules {
 		for _, provided := range resolved.Descriptor.Provides {
@@ -53,8 +89,12 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 			}
 			hasContextSources = hasContextSources || provided.Port == "std/context-source@v1" || resolved.Binding.ContextSourceProvider
 			hasSkillSources = hasSkillSources || provided.Port == "std/skill-source@v1" || resolved.Binding.SkillSourceProvider
+			hasRunObservers = hasRunObservers || provided.Port == "std/observer/run@v1" || resolved.Binding.RunObserverProvider
 			if (provided.Port == "std/context-source@v1" || provided.Port == "std/skill-source@v1") && resolved.Binding.ProviderConstructor == "" {
 				return nil, fmt.Errorf("missing typed Source Provider constructor for %s", resolved.Descriptor.Module.ID)
+			}
+			if provided.Port == "std/observer/run@v1" && (!resolved.Binding.RunObserverProvider || resolved.Binding.ProviderConstructor == "") {
+				return nil, fmt.Errorf("missing typed Run Observer Provider binding for %s", resolved.Descriptor.Module.ID)
 			}
 		}
 	}
@@ -65,6 +105,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	}
 	if hasSkillSources {
 		source.WriteString("\t\"agent-vivy/sdk/port/skillsource\"\n")
+	}
+	if hasRunObservers {
+		source.WriteString("\t\"agent-vivy/sdk/port/observer\"\n")
 	}
 	for _, path := range paths {
 		fmt.Fprintf(&source, "\t%s %q\n", imports[path], path)
@@ -77,8 +120,11 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	if hasSkillSources {
 		source.WriteString("\tSkillSources []skillsource.Provider\n")
 	}
+	if hasRunObservers {
+		source.WriteString("\tRunObservers []observer.RunProvider\n")
+	}
 	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\nfunc BuildDefault() RuntimeAssembly {\n")
-	var moduleIDs, channelNames, toolIDs, actionIDs, worldIDs, providerProfileIDs, contextSourceIDs, skillSourceIDs []string
+	var moduleIDs, channelNames, toolIDs, actionIDs, worldIDs, providerProfileIDs, contextSourceIDs, skillSourceIDs, runObserverIDs []string
 	faceName := "kernel-headless"
 	for _, resolved := range modules {
 		moduleIDs = append(moduleIDs, resolved.Descriptor.Module.ID)
@@ -94,6 +140,8 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 				contextSourceIDs = append(contextSourceIDs, provided.ID)
 			case "std/skill-source@v1":
 				skillSourceIDs = append(skillSourceIDs, provided.ID)
+			case "std/observer/run@v1":
+				runObserverIDs = append(runObserverIDs, provided.ID)
 			case "std/channel@v1":
 				channelNames = append(channelNames, strings.TrimPrefix(provided.ID, "vivy."))
 			case "std/face@v1":
@@ -135,7 +183,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	var toolsExpr, profilesExpr []providerExpression
 	var actionExpr []string
 	var worldsExpr, channelsExpr []string
-	var contextSourcesExpr, skillSourcesExpr []providerExpression
+	var contextSourcesExpr, skillSourcesExpr, runObserversExpr []providerExpression
 	grantExpr := func(grants []EffectiveGrant) string {
 		var out strings.Builder
 		out.WriteString("[]module.GrantBinding{")
@@ -164,7 +212,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 		if ctor == "" {
 			continue
 		}
-		hasTool, hasWorld, hasChannel, hasAction, hasProfile, hasContextSource, hasSkillSource := false, false, false, false, false, false, false
+		hasTool, hasWorld, hasChannel, hasAction, hasProfile, hasContextSource, hasSkillSource, hasRunObserver := false, false, false, false, false, false, false, false
 		for _, p := range resolved.Descriptor.Provides {
 			hasTool = hasTool || p.Port == "std/tool@v1"
 			hasWorld = hasWorld || p.Port == "std/tool-world@v1"
@@ -173,6 +221,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 			hasProfile = hasProfile || p.Port == "std/provider-profile@v1"
 			hasContextSource = hasContextSource || p.Port == "std/context-source@v1" || resolved.Binding.ContextSourceProvider
 			hasSkillSource = hasSkillSource || p.Port == "std/skill-source@v1" || resolved.Binding.SkillSourceProvider
+			hasRunObserver = hasRunObserver || p.Port == "std/observer/run@v1" || resolved.Binding.RunObserverProvider
 		}
 		call := alias + "." + ctor + "()"
 		if value := providerValues[resolved.Descriptor.Module.ID]; value != "" {
@@ -214,6 +263,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 		if hasSkillSource {
 			skillSourcesExpr = append(skillSourcesExpr, providerExpression{call: call, collection: resolved.Binding.ProviderCollection})
 		}
+		if hasRunObserver {
+			runObserversExpr = append(runObserversExpr, providerExpression{call: call, collection: resolved.Binding.ProviderCollection})
+		}
 	}
 	if len(toolsExpr) > 0 {
 		tools := "[]tool.ToolProvider{}"
@@ -249,6 +301,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	}
 	if hasSkillSources {
 		writeProviders("SkillSources", "skillsource.Provider", skillSourcesExpr)
+	}
+	if hasRunObservers {
+		writeProviders("RunObservers", "observer.RunProvider", runObserversExpr)
 	}
 	var observerExpr, observerWorldIDs, statusExpr []string
 	for _, resolved := range modules {
@@ -353,9 +408,32 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	writeStrings("ProviderProfiles", providerProfileIDs)
 	if hasContextSources {
 		writeStrings("ContextSources", contextSourceIDs)
+		if len(contextSourcePolicies) > 0 {
+			source.WriteString("\t\t\tContextSourcePolicies: []generation.ContextSourcePolicy{")
+			for _, policy := range contextSourcePolicies {
+				fmt.Fprintf(&source, "{ProviderID: %q, Required: %t},", policy.ProviderID, policy.Required)
+			}
+			source.WriteString("},\n")
+		}
 	}
 	if hasSkillSources {
 		writeStrings("SkillSources", skillSourceIDs)
+	}
+	if hasRunObservers {
+		writeStrings("RunObservers", runObserverIDs)
+		source.WriteString("\t\t\tRunObserverPolicies: []generation.RunObserverPolicy{")
+		for _, policy := range runObserverPolicies {
+			fmt.Fprintf(&source, "{ProviderID: %q, EventTypes: []string{", policy.ProviderID)
+			for _, eventType := range policy.EventTypes {
+				fmt.Fprintf(&source, "%q,", eventType)
+			}
+			source.WriteString("}, AllowedPayloadFields: []string{")
+			for _, field := range policy.AllowedPayloadFields {
+				fmt.Fprintf(&source, "%q,", field)
+			}
+			source.WriteString("}},")
+		}
+		source.WriteString("},\n")
 	}
 	fmt.Fprintf(&source, "\t\t\tFace: %q,\n", faceName)
 	channelState := "generation.NotCompiled"
@@ -376,6 +454,9 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string) ([]byte, err
 	}
 	if hasSkillSources {
 		source.WriteString("func (assembly *RuntimeAssembly) SkillSourceProviders() any { return assembly.SkillSources }\n")
+	}
+	if hasRunObservers {
+		source.WriteString("func (assembly *RuntimeAssembly) RunObserverProviders() any { return assembly.RunObservers }\n")
 	}
 
 	modulesByID := make(map[string]ResolvedModule, len(modules))

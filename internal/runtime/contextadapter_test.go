@@ -42,6 +42,19 @@ func TestContextCandidateAdapterUsesOnlyApprovedContent(t *testing.T) {
 	}
 }
 
+func TestContextCandidateAdapterProjectsResolvedVersionProvenance(t *testing.T) {
+	candidate := contexthost.Candidate{}
+	candidate.SourceID = "fixture.files"
+	candidate.ContentID = "plan.txt"
+	candidate.Version = "f1"
+	candidate.Content = "approved snapshot"
+	candidate.ProvenanceID = "proof-f1"
+	parts := contextCandidatesToUserParts([]contexthost.Candidate{candidate})
+	if len(parts) != 1 || parts[0].Text != "\n\n[context: fixture.files/plan.txt version=f1 provenance=proof-f1]\napproved snapshot" {
+		t.Fatalf("versioned candidate parts = %#v", parts)
+	}
+}
+
 func TestHostedFileContextPartsRejectStoredInvalidSnapshotWithLiveContext(t *testing.T) {
 	_, err := hostedFileContextPartsWithContext(context.Background(), nil, []domain.FileContext{{
 		Path: ".env", Name: ".env", Size: 6, Content: []byte("TOKEN=x"),

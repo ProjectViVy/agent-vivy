@@ -1,9 +1,11 @@
 package observerhost
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -21,28 +23,47 @@ import (
 const (
 	defaultDeliveryTimeout  = 2 * time.Second
 	defaultDiagnosticBuffer = 64
+	defaultRetryDelay       = time.Second
 )
 
 var (
-	ErrInvalidConfig     = errors.New("observerhost: invalid configuration")
-	ErrDuplicateProvider = errors.New("observerhost: duplicate provider")
-	ErrCursorCorrupt     = errors.New("observerhost: corrupt cursor")
+	ErrInvalidConfig       = errors.New("observerhost: invalid configuration")
+	ErrDuplicateProvider   = errors.New("observerhost: duplicate provider")
+	ErrCursorCorrupt       = errors.New("observerhost: corrupt cursor")
+	ErrInvalidSubscription = errors.New("observerhost: invalid run subscription")
+	ErrDeliveryPending     = errors.New("observerhost: delivery pending")
+	ErrDeliveryFailed      = errors.New("observerhost: delivery failed")
+	ErrInvalidReceipt      = errors.New("observerhost: invalid delivery receipt")
 )
 
+// RunSubscription is build-owned policy. Providers cannot subscribe
+// themselves or receive fields outside this projection.
+type RunSubscription struct {
+	Provider             observer.RunProvider
+	EventTypes           []string
+	AllowedPayloadFields []string
+}
+
 type Config struct {
-	Journal             storage.Journal
-	Cursors             storage.SnapshotStore
-	RunProviders        []observer.RunProvider
+	Journal          storage.Journal
+	Cursors          storage.SnapshotStore
+	RunSubscriptions []RunSubscription
+	// RecoverRunIDs are terminal runs discovered from durable Run state at
+	// composition startup. Replaying from each provider cursor makes recovery
+	// idempotent and closes the commit-to-hook crash window.
+	RecoverRunIDs       []domain.RunID
 	DiagnosticProviders []observer.DiagnosticProvider
 	DeliveryTimeout     time.Duration
+	RetryDelay          time.Duration
 	DiagnosticBuffer    int
 }
 
 type Host struct {
-	journal         storage.Journal
-	cursors         storage.SnapshotStore
-	runProviders    []observer.RunProvider
-	deliveryTimeout time.Duration
+	journal          storage.Journal
+	cursors          storage.SnapshotStore
+	runSubscriptions []RunSubscription
+	deliveryTimeout  time.Duration
+	retryDelay       time.Duration
 
 	wake    chan struct{}
 	mu      sync.Mutex
@@ -59,12 +80,16 @@ type Host struct {
 }
 
 func New(cfg Config) (*Host, error) {
-	if len(cfg.RunProviders) > 0 && (cfg.Journal == nil || cfg.Cursors == nil) {
+	if len(cfg.RunSubscriptions) > 0 && (cfg.Journal == nil || cfg.Cursors == nil) {
 		return nil, fmt.Errorf("%w: run observers require Journal and cursor store", ErrInvalidConfig)
 	}
 	deliveryTimeout := cfg.DeliveryTimeout
 	if deliveryTimeout <= 0 {
 		deliveryTimeout = defaultDeliveryTimeout
+	}
+	retryDelay := cfg.RetryDelay
+	if retryDelay <= 0 {
+		retryDelay = defaultRetryDelay
 	}
 	buffer := cfg.DiagnosticBuffer
 	if buffer <= 0 {
@@ -74,6 +99,7 @@ func New(cfg Config) (*Host, error) {
 		journal:         cfg.Journal,
 		cursors:         cfg.Cursors,
 		deliveryTimeout: deliveryTimeout,
+		retryDelay:      retryDelay,
 		wake:            make(chan struct{}, 1),
 		pending:         make(map[domain.RunID]struct{}),
 		diagnostics:     make(map[string]chan observer.Diagnostic),
@@ -81,7 +107,8 @@ func New(cfg Config) (*Host, error) {
 		drops:           make(map[string]*atomic.Uint64),
 	}
 	seen := map[string]struct{}{}
-	for _, provider := range cfg.RunProviders {
+	for _, subscription := range cfg.RunSubscriptions {
+		provider := subscription.Provider
 		if provider == nil || strings.TrimSpace(provider.ID()) == "" {
 			return nil, ErrInvalidConfig
 		}
@@ -90,7 +117,16 @@ func New(cfg Config) (*Host, error) {
 			return nil, fmt.Errorf("%w: run %s", ErrDuplicateProvider, id)
 		}
 		seen["run\x00"+id] = struct{}{}
-		h.runProviders = append(h.runProviders, provider)
+		normalized, err := normalizeSubscription(subscription)
+		if err != nil {
+			return nil, err
+		}
+		h.runSubscriptions = append(h.runSubscriptions, normalized)
+	}
+	for _, runID := range cfg.RecoverRunIDs {
+		if runID != "" {
+			h.pending[runID] = struct{}{}
+		}
 	}
 	for _, provider := range cfg.DiagnosticProviders {
 		if provider == nil || strings.TrimSpace(provider.ID()) == "" {
@@ -113,9 +149,15 @@ func (h *Host) Start(parent context.Context) {
 	h.startOnce.Do(func() {
 		ctx, cancel := context.WithCancel(parent)
 		h.cancel = cancel
-		if len(h.runProviders) > 0 {
+		if len(h.runSubscriptions) > 0 {
 			h.wg.Add(1)
 			go h.runLoop(ctx)
+			if len(h.pending) > 0 {
+				select {
+				case h.wake <- struct{}{}:
+				default:
+				}
+			}
 		}
 		for id, provider := range h.diagByID {
 			queue := h.diagnostics[id]
@@ -137,7 +179,7 @@ func (h *Host) Close() {
 // OnRunEvent implements runtime.RunHook. The event body is intentionally not
 // trusted here; the worker replays the durable Journal record by RunID.
 func (h *Host) OnRunEvent(_ context.Context, event domain.RunEvent) {
-	if event.RunID == "" || len(h.runProviders) == 0 {
+	if event.RunID == "" || len(h.runSubscriptions) == 0 {
 		return
 	}
 	h.mu.Lock()
@@ -161,10 +203,33 @@ func (h *Host) runLoop(ctx context.Context) {
 				if !ok {
 					break
 				}
-				_ = h.DeliverRun(ctx, runID)
+				if err := h.DeliverRun(ctx, runID); err != nil {
+					h.scheduleRetry(ctx, runID)
+				}
 			}
 		}
 	}
+}
+
+func (h *Host) scheduleRetry(ctx context.Context, runID domain.RunID) {
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		timer := time.NewTimer(h.retryDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		h.mu.Lock()
+		h.pending[runID] = struct{}{}
+		h.mu.Unlock()
+		select {
+		case h.wake <- struct{}{}:
+		default:
+		}
+	}()
 }
 
 func (h *Host) takePending() (domain.RunID, bool) {
@@ -185,15 +250,16 @@ func (h *Host) DeliverRun(ctx context.Context, runID domain.RunID) error {
 		return nil
 	}
 	var failures []error
-	for _, provider := range h.runProviders {
-		if err := h.deliverProvider(ctx, provider, runID); err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", provider.ID(), err))
+	for _, subscription := range h.runSubscriptions {
+		if err := h.deliverProvider(ctx, subscription, runID); err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", subscription.Provider.ID(), err))
 		}
 	}
 	return errors.Join(failures...)
 }
 
-func (h *Host) deliverProvider(ctx context.Context, provider observer.RunProvider, runID domain.RunID) error {
+func (h *Host) deliverProvider(ctx context.Context, subscription RunSubscription, runID domain.RunID) error {
+	provider := subscription.Provider
 	key := cursorKey(provider.ID(), runID)
 	cursorBytes, version, err := h.cursors.Get(ctx, key)
 	if err != nil {
@@ -211,20 +277,39 @@ func (h *Host) deliverProvider(ctx context.Context, provider observer.RunProvide
 	if err != nil {
 		return err
 	}
-	defer iterator.Close()
+	// Snapshot the committed replay before writing cursor state. Some storage
+	// engines deliberately expose a single database connection, so holding a
+	// streaming read open while Snapshot.Put starts a transaction would
+	// deadlock. Stable event IDs make replaying this bounded run slice safe.
+	entries := make([]domain.RunEvent, 0)
 	for iterator.Next() {
-		entry := iterator.Value().Event
-		projection := observer.NewRunEvent(
-			observer.NewEventID(string(entry.RunID), int64(entry.Seq)),
-			string(entry.Type),
-			entry.CreatedAt,
-			[]byte(tools.RedactSensitive(string(entry.Payload))),
-		)
-		deliveryCtx, cancel := context.WithTimeout(ctx, h.deliveryTimeout)
-		err = provider.ObserveRun(deliveryCtx, projection)
-		cancel()
-		if err != nil {
-			return err
+		entries = append(entries, iterator.Value().Event)
+	}
+	if err := iterator.Err(); err != nil {
+		_ = iterator.Close()
+		return err
+	}
+	if err := iterator.Close(); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if subscriptionAllows(subscription, string(entry.Type)) {
+			payload, projectErr := projectPayload(entry.Payload, subscription.AllowedPayloadFields)
+			if projectErr != nil {
+				return projectErr
+			}
+			projection := observer.NewRunEvent(
+				observer.NewEventID(string(entry.RunID), int64(entry.Seq)),
+				string(entry.Type),
+				entry.CreatedAt,
+				payload,
+			)
+			deliveryCtx, cancel := context.WithTimeout(ctx, h.deliveryTimeout)
+			err = deliverEvent(deliveryCtx, provider, projection)
+			cancel()
+			if err != nil {
+				return err
+			}
 		}
 		if err := h.cursors.Put(ctx, key, []byte(strconv.FormatInt(int64(entry.Seq), 10)), version); err != nil {
 			return err
@@ -232,11 +317,150 @@ func (h *Host) deliverProvider(ctx context.Context, provider observer.RunProvide
 		version++
 		cursor = entry.Seq
 	}
-	if err := iterator.Err(); err != nil {
-		return err
-	}
 	_ = cursor
 	return nil
+}
+
+func normalizeSubscription(input RunSubscription) (RunSubscription, error) {
+	if input.Provider == nil || len(input.EventTypes) == 0 {
+		return RunSubscription{}, ErrInvalidSubscription
+	}
+	out := RunSubscription{Provider: input.Provider}
+	seenTypes := map[string]struct{}{}
+	for _, value := range input.EventTypes {
+		value = strings.TrimSpace(value)
+		if !domain.EventType(value).Valid() {
+			return RunSubscription{}, fmt.Errorf("%w: event type", ErrInvalidSubscription)
+		}
+		if _, duplicate := seenTypes[value]; duplicate {
+			return RunSubscription{}, fmt.Errorf("%w: duplicate event type", ErrInvalidSubscription)
+		}
+		seenTypes[value] = struct{}{}
+		out.EventTypes = append(out.EventTypes, value)
+	}
+	seenFields := map[string]struct{}{}
+	for _, value := range input.AllowedPayloadFields {
+		value = strings.TrimSpace(value)
+		if !validProjectionField(value) {
+			return RunSubscription{}, fmt.Errorf("%w: payload field", ErrInvalidSubscription)
+		}
+		if _, duplicate := seenFields[value]; duplicate {
+			return RunSubscription{}, fmt.Errorf("%w: duplicate payload field", ErrInvalidSubscription)
+		}
+		seenFields[value] = struct{}{}
+		out.AllowedPayloadFields = append(out.AllowedPayloadFields, value)
+	}
+	return out, nil
+}
+
+func validProjectionField(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, r := range value {
+		if !(r == '_' || r >= 'a' && r <= 'z' || index > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func subscriptionAllows(subscription RunSubscription, eventType string) bool {
+	for _, allowed := range subscription.EventTypes {
+		if allowed == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func projectPayload(raw []byte, allowed []string) ([]byte, error) {
+	if len(allowed) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+	var source map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return nil, fmt.Errorf("observerhost: project payload: %w", err)
+	}
+	projected := make(map[string]json.RawMessage, len(allowed))
+	for _, field := range allowed {
+		if value, ok := source[field]; ok {
+			redacted, err := redactJSONValue(value)
+			if err != nil {
+				return nil, fmt.Errorf("observerhost: redact payload field %s: %w", field, err)
+			}
+			projected[field] = redacted
+		}
+	}
+	encoded, err := json.Marshal(projected)
+	if err != nil {
+		return nil, fmt.Errorf("observerhost: encode projection: %w", err)
+	}
+	return encoded, nil
+}
+
+func redactJSONValue(raw json.RawMessage) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	value = redactJSONStrings(value)
+	return json.Marshal(value)
+}
+
+func redactJSONStrings(value any) any {
+	switch typed := value.(type) {
+	case string:
+		return tools.RedactSensitive(typed)
+	case map[string]any:
+		for key, child := range typed {
+			if sensitiveJSONField(key) {
+				typed[key] = "[REDACTED]"
+				continue
+			}
+			typed[key] = redactJSONStrings(child)
+		}
+	case []any:
+		for index, child := range typed {
+			typed[index] = redactJSONStrings(child)
+		}
+	}
+	return value
+}
+
+func sensitiveJSONField(key string) bool {
+	key = strings.ToLower(key)
+	for _, marker := range []string{"token", "secret", "password", "passwd", "api_key", "apikey", "authorization", "credential"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func deliverEvent(ctx context.Context, provider observer.RunProvider, event observer.RunEvent) error {
+	if receiptProvider, ok := provider.(observer.ReceiptRunProvider); ok {
+		receipt, err := receiptProvider.ObserveRunWithReceipt(ctx, event)
+		if err != nil {
+			return err
+		}
+		if receipt.EventID != event.ID || receipt.ReceiptID == "" {
+			return ErrInvalidReceipt
+		}
+		switch receipt.State {
+		case observer.DeliveryAccepted, observer.DeliveryCompleted:
+			return nil
+		case observer.DeliveryPending:
+			return ErrDeliveryPending
+		case observer.DeliveryFailed:
+			return ErrDeliveryFailed
+		default:
+			return ErrInvalidReceipt
+		}
+	}
+	return provider.ObserveRun(ctx, event)
 }
 
 func cursorKey(providerID string, runID domain.RunID) string {

@@ -117,6 +117,9 @@ func TestGenerationIDChangesForEveryIdentityInput(t *testing.T) {
 		{name: "catalog digest", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
 			inputs.Catalogs[0].Digest = "catalog-b"
 		}},
+		{name: "run observer policy", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
+			inputs.RunObserverPolicies = []RunObserverPolicy{{ProviderID: "fixture.memory", EventTypes: []string{"run.completed"}, AllowedPayloadFields: []string{"summary"}}}
+		}},
 	}
 
 	for _, test := range tests {

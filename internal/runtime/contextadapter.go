@@ -22,7 +22,7 @@ func contextCandidatesToUserParts(candidates []contexthost.Candidate) []schema.M
 		if !validContextProjectionCandidate(candidate) {
 			continue
 		}
-		label := fmt.Sprintf("\n\n[context: %s/%s provenance=%s]\n", candidate.SourceID, candidate.ContentID, candidate.ProvenanceID)
+		label := contextCandidateLabel(candidate)
 		parts = append(parts, schema.MessageInputPart{
 			Type: schema.ChatMessagePartTypeText,
 			Text: label + candidate.Content,
@@ -32,7 +32,14 @@ func contextCandidatesToUserParts(candidates []contexthost.Candidate) []schema.M
 }
 
 func contextCandidateBytes(candidate contexthost.Candidate) int {
-	return len(fmt.Sprintf("\n\n[context: %s/%s provenance=%s]\n", candidate.SourceID, candidate.ContentID, candidate.ProvenanceID)) + len(candidate.Content)
+	return len(contextCandidateLabel(candidate)) + len(candidate.Content)
+}
+
+func contextCandidateLabel(candidate contexthost.Candidate) string {
+	if candidate.Version == "" {
+		return fmt.Sprintf("\n\n[context: %s/%s provenance=%s]\n", candidate.SourceID, candidate.ContentID, candidate.ProvenanceID)
+	}
+	return fmt.Sprintf("\n\n[context: %s/%s version=%s provenance=%s]\n", candidate.SourceID, candidate.ContentID, candidate.Version, candidate.ProvenanceID)
 }
 
 func validContextProjectionCandidate(candidate contexthost.Candidate) bool {
