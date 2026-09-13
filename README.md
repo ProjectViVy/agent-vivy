@@ -18,6 +18,13 @@ be transferred into Studio (`docs/architecture/VIVY-STUDIO.md`).
 Do not add a “open Studio” door to `vivy.exe`. The species-side Studio
 card is not Studio.
 
+## SCX architecture direction
+
+The [SCX design](docs/architecture/SCX-ARCHITECTURE-DESIGN.md) covers extensible
+context views, memory, retrieval, multimodal references and lifecycle hooks.
+The [integration map](docs/architecture/SCX-PLUGIN-INTEGRATION.md) tracks Host
+ownership and gate evidence. This is design direction, not a shipped capability.
+
 ## Requirements
 
 - Go 1.26+ (installed at `C:\Program Files\Go\bin` on this machine; if `go`

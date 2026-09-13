@@ -145,3 +145,17 @@ behavior parity, a minimal Generation proves real removal, all SCX gates pass,
 Inspect reports sealed provenance, whole-Generation rollback is demonstrated,
 the v0 API and path no longer exist, and `just ci` plus required real-path
 smokes are green.
+
+## SCX design baseline (2026-09-12)
+
+The owner reports P3 and P7 complete; this update does not independently certify
+their evidence. P8/P9 scheduling and gate acceptance remain separate.
+[SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md) records today's
+agreed direction, with exact interfaces still under review.
+[SCX integration](../../architecture/SCX-PLUGIN-INTEGRATION.md) maps candidate
+sources, resource resolution, Context Views, hooks, memory return and controls to
+existing authority owners. It also records the missing original stage mapping.
+
+Initial validation is limited to three local reference scenarios with fake
+providers. Multimodal/embodied extensibility is considered in the contract; this
+cycle does not create an additional hardware or simulation test platform.
