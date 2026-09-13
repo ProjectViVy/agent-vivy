@@ -8,7 +8,7 @@ Date: 2026-09-13
   — PASS.
 - Sole-consumer hardening, including the dormant optional dependency case, was
   exercised first as a failing regression and then passed in
-  `9d2adff0df61bc13147f6eee73e3909a3f557617`.
+  `3848d39eb7e9ca156611608eba0d6bd3509f1edc`.
 - `git diff --check` — PASS.
 
 ## Complete repository gate
