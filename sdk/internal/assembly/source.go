@@ -21,6 +21,10 @@ type SourceRecord struct {
 	Binding    GoBinding
 	Root       string
 	Ref        string
+	// RootlessFixture admits a T2 record without a verified source root for
+	// compiler test fixtures only. Production catalogs must never set it: a
+	// real T2 Module always enters through a hashed, pinned Root.
+	RootlessFixture bool
 }
 
 // GoBinding is build metadata owned by the Source Catalog. It is not part of
@@ -40,6 +44,9 @@ type GoBinding struct {
 	// Typed P4 bindings keep Source/Host composition explicit in generated
 	// Assembly. They are build metadata, never Module-controlled redirects.
 	ContextSourceProvider bool
+	// ContextSourceRequired is build-owned availability policy. It is sealed
+	// into the Generation and cannot be selected by Provider code.
+	ContextSourceRequired bool
 	SkillSourceProvider   bool
 	MCPHostProvider       bool
 }

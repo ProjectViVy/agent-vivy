@@ -20,7 +20,8 @@ React/Vitest/Playwright where UI is included, `just ci`, Git iteration logs.
 
 ## Global Constraints
 
-- State: `UNSCHEDULED`; depends on every phase included in the release scope.
+- State: `COMPLETE · HUMAN-SCHEDULED · 2026-09-14`; depends on every phase
+  included in the release scope.
 - A Port without all seven artifacts remains `SPECIFIED` or
   `DEFERRED-INDEFINITE`; release does not promote it optimistically.
 - No live-network dependency in deterministic unit tests.
@@ -47,20 +48,21 @@ React/Vitest/Playwright where UI is included, `just ci`, Git iteration logs.
 type ConformanceResult struct {
     Port       module.PortRef
     ProviderID string
+    SourceSHA256 string
     Suite      string
     Passed     bool
     EvidenceID string
 }
 ```
 
-- [ ] Write `TestUnsupportedPortCannotClaimSupported`; expected RED is a
+- [x] Write `TestUnsupportedPortCannotClaimSupported`; expected RED is a
   Descriptor-only capability appearing as supported.
-- [ ] Encode common checks for registration, missing/duplicate Provider,
+- [x] Encode common checks for registration, missing/duplicate Provider,
   version, cycle, Grant, timeout, cancellation, startup, unavailable state,
   cleanup, redaction, provenance, default behavior, and a real failure.
-- [ ] Keep Port-specific semantic suites beside their Host packages.
-- [ ] Run `go test ./sdk/conformance ./sdk/internal/conformance`.
-- [ ] Commit `feat(conformance): define plugin port evidence`.
+- [x] Keep Port-specific semantic suites beside their Host packages.
+- [x] Run `go test ./sdk/conformance ./sdk/internal/conformance`.
+- [x] Commit `feat(conformance): define plugin port evidence`.
 
 ### Task 2: Aggregate and audit evidence-derived support state
 
@@ -78,14 +80,14 @@ type ConformanceResult struct {
 - Produces: `RESERVED`, `SPECIFIED`, `CANDIDATE`, `SUPPORTED`, or
   `DEFERRED-INDEFINITE` Inspect state.
 
-- [ ] Write release-wide table tests proving each missing artifact still
+- [x] Write release-wide table tests proving each missing artifact still
   prevents `SUPPORTED` and no phase bypassed the P1 selection rule.
-- [ ] Prevent Module or README claims from changing computed state.
-- [ ] Include evidence IDs without embedding local absolute paths or Secrets.
-- [ ] Audit catalog completeness states from compiler evidence; Descriptor or
+- [x] Prevent Module or README claims from changing computed state.
+- [x] Include evidence IDs without embedding local absolute paths or Secrets.
+- [x] Audit catalog completeness states from compiler evidence; Descriptor or
   documentation claims cannot promote `INCOMPLETE_LOCALE` to `COMPLETE`.
-- [ ] Run `go test ./sdk/internal -run SupportState`.
-- [ ] Commit `feat(inspect): derive capability support from evidence`.
+- [x] Run `go test ./sdk/internal -run SupportState`.
+- [x] Commit `feat(inspect): derive capability support from evidence`.
 
 ### Task 3: Run the whole-Generation failure matrix
 
@@ -101,18 +103,18 @@ type ConformanceResult struct {
   full UI, MCP unavailable, and SCX candidate Recipes.
 - Produces: deterministic build/no-build decisions and diagnostic snapshots.
 
-- [ ] Write fixtures for missing Provider, duplicate exclusive Provider, cycle,
+- [x] Write fixtures for missing Provider, duplicate exclusive Provider, cycle,
   conflict, unused Provider, protected Tool override, UI root conflict,
   Middleware timeout, startup rollback, bad hash, v0 input, and unsupported
   Eino-scoped capability.
-- [ ] Cover catalog duplicate keys, unknown fields, ownership, placeholder
+- [x] Cover catalog duplicate keys, unknown fields, ownership, placeholder
   drift, missing English, confinement/symlink escape, and every resource limit.
-- [ ] Assert every invalid case emits no formal artifact.
-- [ ] Assert errors name Module, Port/edge, and violated rule with redaction.
-- [ ] Repeat valid builds and assert identical canonical Manifest and
+- [x] Assert every invalid case emits no formal artifact.
+- [x] Assert errors name Module, Port/edge, and violated rule with redaction.
+- [x] Repeat valid builds and assert identical canonical Manifest and
   Generation ID.
-- [ ] Run `go test ./sdk/internal/conformance ./sdk/internal -run Generation`.
-- [ ] Commit `test(assembly): cover generation failure matrix`.
+- [x] Run `go test ./sdk/internal/conformance ./sdk/internal -run Generation`.
+- [x] Commit `test(assembly): cover generation failure matrix`.
 
 ### Task 4: Prove default parity and minimal removal
 
@@ -128,15 +130,15 @@ type ConformanceResult struct {
 - Produces: human-readable inventory comparison and binary/Manifest removal
   proof.
 
-- [ ] Compare established first-party Tool, Channel, Face, Provider Profile,
+- [x] Compare established first-party Tool, Channel, Face, Provider Profile,
   Context, Skill, MCP, status, and UI behavior against the P2 baseline.
-- [ ] Start default with no credentials and prove network instances remain
+- [x] Start default with no credentials and prove network instances remain
   unconfigured/inactive.
-- [ ] Verify each omitted Module has no import, constructor, asset, Port edge,
+- [x] Verify each omitted Module has no import, constructor, asset, Port edge,
   Grant, catalog, generated localization projection, or Inspect record in the
   minimal artifact.
-- [ ] Run both executable smoke paths required by the selected Recipes.
-- [ ] Commit `test(release): prove default parity and minimal removal`.
+- [x] Run both executable smoke paths required by the selected Recipes.
+- [x] Commit `test(release): prove default parity and minimal removal`.
 
 ### Task 5: Exercise whole-Generation rollback
 
@@ -154,15 +156,15 @@ type ConformanceResult struct {
 - Produces: an exercised rollback to the previous artifact without code hot
   swap or Journal mutation.
 
-- [ ] Write a RED test that installs candidate B, detects failed acceptance,
+- [x] Write a RED test that installs candidate B, detects failed acceptance,
   and restores sealed artifact A on the next launch.
-- [ ] Assert artifact A's embedded identity and Manifest are unchanged.
-- [ ] Assert rollback restores catalog digests and packaged-locale identity
+- [x] Assert artifact A's embedded identity and Manifest are unchanged.
+- [x] Assert rollback restores catalog digests and packaged-locale identity
   together with the whole sealed Generation.
-- [ ] Assert durable data follows existing compatibility contracts and no
+- [x] Assert durable data follows existing compatibility contracts and no
   plugin-specific rollback writer touches Journal truth.
-- [ ] Perform the real lifecycle rollback and record artifact IDs.
-- [ ] Commit `test(release): exercise generation rollback`.
+- [x] Perform the real lifecycle rollback and record artifact IDs.
+- [x] Commit `test(release): exercise generation rollback`.
 
 ### Task 6: Validate developer workflow and the VIVY-PLUGIN Skill
 
@@ -181,14 +183,14 @@ type ConformanceResult struct {
 - Produces: truthful developer instructions that do not mention nonexistent or
   legacy APIs.
 
-- [ ] Run the Skill's quick validator and pressure-scenario matrix.
-- [ ] Execute `verify`, `pack`, `inspect-artifact`, removal, and failure flow
+- [x] Run the Skill's quick validator and pressure-scenario matrix.
+- [x] Execute `verify`, `pack`, `inspect-artifact`, removal, and failure flow
   from the documented commands.
-- [ ] Remove or correct any instruction whose command/output differs from the
+- [x] Remove or correct any instruction whose command/output differs from the
   shipped implementation.
-- [ ] Do not create an example solely to satisfy documentation; an approved
+- [x] Do not create an example solely to satisfy documentation; an approved
   example must pass full conformance and remain maintained.
-- [ ] Commit `docs(plugin): align v1 developer workflow`.
+- [x] Commit `docs(plugin): align v1 developer workflow`.
 
 ### Task 7: Run final product gates and close PLG-1
 
@@ -205,20 +207,22 @@ type ConformanceResult struct {
 - Consumes: all supported Port and Generation evidence.
 - Produces: auditable PLG-1 closure and SCX Gate C input.
 
-- [ ] Run every focused Port suite.
-- [ ] Run `vivy-sdk verify` on all selected public Modules.
-- [ ] Pack and inspect default, minimal, full-UI, and SCX candidate Generations.
-- [ ] Prove canonical catalog formatting is identity-neutral and semantic
+- [x] Run every focused Port suite.
+- [x] Run `vivy-sdk verify` on all selected public Modules.
+- [x] Pack and inspect default, minimal, full-UI, and SCX candidate Generations.
+- [x] Prove canonical catalog formatting is identity-neutral and semantic
   catalog changes deterministically change Generation identity.
-- [ ] Run `just ci`.
-- [ ] Run the split browser smoke at `http://127.0.0.1:3015` for user-visible
-  UI behavior.
-- [ ] Run the appropriate VIVY CODE/Channel/MCP real-path smokes without using
+- [x] Run the CI workflow's aggregate `just ci` guard; run #147 passed the
+  split `backend ci` and `ui ci` lanes plus the aggregate requirement.
+- [x] Run the split browser smoke at `http://127.0.0.1:3015` for user-visible
+  UI behavior in the dedicated Windows Playwright job.
+- [x] Run the appropriate VIVY CODE/Channel/MCP real-path smokes without using
   tenant Journal data.
-- [ ] Record every exact command, result, artifact ID, and skipped slice reason.
-- [ ] Move PLG-1 from the open board only after all selected capabilities and
-  SCX Gate C are complete.
-- [ ] Commit `docs(log): close plugin platform v1`.
+- [x] Record every exact command, result, artifact ID, and skipped slice reason.
+- [x] Move PLG-1 from the open board after all selected capabilities and SCX
+  Gate C are complete; PR #27 carries `Closes #14` for merge-time issue
+  closure.
+- [x] Commit `docs(log): close plugin platform v1`.
 
 ## Phase exit and rollback
 
@@ -226,3 +230,22 @@ Exit requires evidence-derived support states, full failure matrix, default
 parity, minimal removal, exercised rollback, truthful Skill instructions,
 `just ci`, real-path smokes, iteration logs, and PLG-1 closure. Any failed gate
 keeps PLG-1 open without restoring v0.
+
+## SCX alignment (2026-09-12)
+
+Apply release evidence to the selected SCX scope. Initial design fixtures cover personality/emotion, predetermined file retrieval and memory return; they are not executed proof or live integration evidence. No additional hardware/simulator gate is introduced. Original device validation stays with its unrecovered original plan. Generation rollback does not undo external memory writes; record compatibility and pending receipts separately.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.
+
+### Selected P8 Gate C matrix (2026-09-13)
+
+The owner explicitly authorized all remaining P8 Gates. The bounded subset of
+P9 needed by P8 Gate C is therefore executed without scheduling or claiming
+completion of the full PLG-P9 phase: selected SCX/default/minimal pack and
+Inspect, seven-artifact evidence for the two selected public Ports,
+deterministic rebuild, physical removal, redaction/outage cases, and actual
+Studio rollback to the prior sealed Generation without tenant Journal mutation.
+Full-UI, browser, channel, live MCP, and every-Port release closure were not
+implied by the SCX candidate result; they remain explicit gates in the PLG-P9
+phase scheduled on 2026-09-14.

@@ -5,6 +5,54 @@ VIVY CODE terminal (`vivy-code.exe`), and the first-party Studio overlay.
 Canonical product rules: `docs/architecture/VIVY-STUDIO.md` and
 `docs/architecture/VIVY-FACE-PACK.md`.
 
+## Communication and instruction priority
+
+- Match user-facing conversation to the language of the user's first message
+  in the current chat, unless they explicitly request a change. Keep code,
+  commands, and technical identifiers in English.
+- Write documentation and durable records in English, including plans,
+  reviews, iteration logs, commit messages, and issue/PR descriptions.
+  Preserve exact literals and localization values when required.
+- Lead with outcomes and impact, then necessary actions, decisions, and
+  evidence. Use concise paragraphs, concrete words, and lists only when useful;
+  omit boilerplate, repeated summaries, and unrequested comparisons.
+- Follow system, platform, and security constraints. Within those constraints,
+  current explicit user instructions take precedence over skills, memory, and
+  defaults. Project instructions apply within their directory scope.
+
+## Development principles: More, Fast, Good, Frugal
+
+- **More:** Less is more. Simple, composable architecture enables capabilities
+  shaped by users' creativity without locking them into predefined workflows.
+- **Fast:** Keep runtime overhead low enough for foundational infrastructure;
+  deliver efficiently through focused work and proportionate verification.
+- **Good:** Treat clear, coherent architecture and maintainable code as craft;
+  preserve product contracts and produce verifiable results.
+- **Frugal:** Use the least code, complexity, dependencies, and process needed
+  to meet the goal well.
+- Work autonomously toward the user's stated goal until complete. Finish
+  authorized work before asking for decisions, and make proposed next steps
+  concrete and reviewable. Reuse existing authorization; ask only for a real
+  blocker or an action outside it.
+- Challenge suggestions that undermine the goal. Avoid unrelated scope,
+  speculative warnings, and unnecessary approval or compliance rituals.
+
+## Tools, skills, and delegation
+
+- Use `rg` / `rg --files` for search; batch independent reads and queries.
+  Prefer CLI/API tools; use an authenticated browser when no suitable interface
+  exists. Prefer `lark-cli` for Feishu when available.
+- Complete small tasks directly. For complex workflows, prefer delegation
+  when independent subtasks save time or improve quality. Give each sub-agent
+  clear inputs, outputs, and completion criteria; the lead agent integrates
+  and verifies results. Prefer `gpt-5.6-luna` with `max` reasoning when available
+  and suitable.
+- Keep shared-state work and sequential decisions in one lane. Follow the
+  worktree isolation rules below for concurrent edits.
+- Choose optional external skills by task difficulty and relevance. Use
+  Superpowers for complex work, not routine edits; do not load workflows just
+  because they are available. Follow applicable project-specific skills below.
+
 ## Architecture decision order (mandatory)
 
 Vivy implementation decisions follow this order. A lower priority must not
@@ -42,6 +90,11 @@ or multi-agent behavior must include an **Eino capability check** before code
 is added. Naming a custom type `Eino*` is not evidence of Eino reuse; cite the
 actual upstream package/API used. Reviewers must reject unexplained parallel
 implementations even when tests pass.
+
+## Commit Rule for AI agents
+
+**important!** :AI tools may assist development, but must never appear as commit authors, committers, co-authors, PR authors, or repository contributors. All contributions must be attributed to the human contributor responsible for the change.
+**UNLESS YOU ARE INDIVIDUAL,HAVE YOUR OWN NAME,YOUR OWN GITHUB IDENTITY,ACCOUNT,NOT A COMPANY'S PRODUCT.**
 
 ## Scope Separation: Vivy vs Vivy Studio
 
@@ -107,7 +160,7 @@ remains a tenant product, not an IDE.
 The Studio engine's workspace is this repository root. It is not
 `data/` and it is not a tenant install.
 
-Do **not** read or write production journals from a Studio session:
+Do **not** read or write production journals from a Studio or agent session:
 
 - `data/vivy.db`
 - `data/demo/`
@@ -115,30 +168,6 @@ Do **not** read or write production journals from a Studio session:
 
 Studio's own DSH home is `data/studio-home/` (sessions, profile, settings).
 That directory is the engine's scratch, not the species Journal.
-
-## How to verify
-
-- Browser UI during development: `http://127.0.0.1:3015` (split Vite), not
-  the embedded UI on `:8787`
-- Kernel / docs / UI: `just ci`
-- User plugin v1: first use `.agents/skills/vivy-plugin` and the manually
-  scheduled phase under `docs/plans/plugin-platform/`. The v1 Ports are
-  currently specified, not implemented; do not fall back to the rejected v0
-  API. Once the v1 SDK phase ships, verify with `vivy-sdk verify
-  plugins/<name>`, pack the explicit Recipe, then inspect the artifact.
-- Studio lifecycle (pack → eval → release → install → rollback):
-  `just studio` builds `vivy-studio.exe`; the ledger lives at
-  `data/studio-home/studio.db` (Studio-owned, not the species Journal).
-  See `.agents/skills/vivy-studio-lifecycle`.
-- Studio shell / skin / console: sources under submodule `studio/`
-  (`just ensure-studio` first); launch with `.\launch-vivy-studio.ps1`
-- Do not treat a hand-rolled `go test` as the product path when `just ci` exists
-- Do not open `internal/runtime/engine.go` to "install" a plugin
-
-Prefabricated skills: `.agents/skills/vivy-plugin`,
-`.agents/skills/vivy-plugin-five` (legacy redirect only),
-`.agents/skills/vivy-kernel-ci`, `.agents/skills/vivy-studio-lifecycle`,
-`.agents/skills/vivy-studio-skin`.
 
 ## Plugin development v1 (mandatory)
 
@@ -154,9 +183,8 @@ work.
   generated Assembly -> Generation evidence**. Do not recreate a God `Plugin`
   interface, untyped registry, or last-writer-wins composition.
 - `vivy.plugin/v0`, `Seam`, the legacy public API, compatibility Adapters, and
-  migration commands are rejected. Do not extend or preserve them. Until P1/P2
-  ships, v1 implementation requests follow the approved plan instead of using
-  v0 as a shortcut.
+  migration commands are rejected. Do not extend or preserve them. Follow the
+  approved v1 plan and its current phase status; never use v0 as a shortcut.
 - External Modules enter only through explicit Recipe source pins. Never scan a
   directory or load Go/UI Module code at runtime. Do not hand-edit generated
   Assembly files.
@@ -203,12 +231,6 @@ tree, not `node_modules`, as the source of truth for harness behavior.
 Ordinary design notes, research, reviews, plans, reports, and iteration
 records belong under `docs/`.
 
-### Documentation language (mandatory)
-
-Write all human-readable documentation in English. Preserve non-English text
-only when it is an exact code, UI selector, test fixture, localization value,
-protocol payload, or other literal that must remain unchanged.
-
 Keep at the repository root only intentional entry points: `AGENTS.md`,
 `README.md`, `LICENSE`, `justfile`, `config.example.yaml`. Product-contract
 docs live in `docs/architecture/`. Research dossiers live in `docs/research/`.
@@ -221,7 +243,9 @@ Studio scratch (`data/studio-home/`), and `.workspace/` are not documentation.
 ## Iteration logs (`docs/logs`)
 
 Every deliverable change (kernel, UI, Studio, product-contract docs, or a
-closed TODO track) gets a new directory under `docs/logs/`.
+closed TODO track) gets a new directory under `docs/logs/`. For minor
+editorial or agent-instruction changes with no product behavior or contract
+change, a focused commit describing the change and checks is sufficient.
 
 Naming: `YYYY-MM-DD-short-slug` (date of the delivery, hyphenated theme).
 Do not nest extra version directories unless one folder must hold several
@@ -230,7 +254,7 @@ shipped cuts of the same theme.
 Required files in that directory:
 
 - `summary.md` — what changed, scope, what was explicitly not done
-- `verification.md` — commands run and results (`just ci` at minimum)
+- `verification.md` — commands run, results, and reasons for any skipped checks
 - `acceptance.md` — how a human can tell it worked (product/user view)
 
 Optional: `notes.md` (discussion), `release.md` (how it ships; omit with a
@@ -278,11 +302,19 @@ Default gate for kernel, UI, Studio overlay, and product-contract docs is
 **`just ci`** from the repository root. A hand-rolled `go test` is not the
 product path when `just ci` exists.
 
+For minor editorial or agent-instruction changes, review the diff and run
+`git diff --check`; full product CI is unnecessary. Do not add tests that
+merely restate reversible, low-impact edits. After required checks pass,
+repeat or expand verification only for new changes, failures, or unresolved
+risks. Remove temporary artifacts created by the task before finishing.
+
 User-visible or executable behavior also needs a minimum real-path smoke:
 
 - Browser UI: exercise the change at `http://127.0.0.1:3015` (split Vite),
   not only a screenshot and not the embedded UI on `:8787`
-- Plugin: `vivy-sdk verify` then `vivy-sdk pack --with <name>`
+- Plugin: follow `.agents/skills/vivy-plugin` for SDK verification, explicit
+  Recipe packing, and artifact inspection. Never install plugins by editing
+  `internal/runtime/engine.go`.
 - Studio lifecycle: `just studio` and the skill `vivy-studio-lifecycle`
 
 Record the commands and outcomes in that iteration's `verification.md`.
@@ -310,68 +342,9 @@ provider's raw model id. Do not auto-insert a gateway `provider/model`
 prefix. Prefix rewriting is only for a true aggregator gateway. Changing
 routing requires a test that asserts the outbound `model` field.
 
-## Rulebook (mandatory unless a rule states an exception)
+## Delivery
 
-- **architecture-unity-first** — Preserve Vivy's canonical contracts, single
-  runtime/Journal/policy path, domain firewall, and existing seams before
-  optimizing a local feature. No parallel runtime or source of truth.
-  Maintainer: current design and delivery owner.
-- **eino-native-second** — After satisfying architecture unity, inspect and
-  prefer the repository-pinned Eino/EinoExt capability before writing custom
-  LLM runtime or orchestration machinery. A custom implementation must carry
-  the comparison and exception evidence required by “Architecture decision
-  order”. Maintainer: current design and delivery owner.
-- **expert-mode-subagent-supervision** — When the user explicitly asks to
-  enable “Expert Mode”, start subagents for the problem-analysis,
-  localization/diagnosis, and actual code-writing phases. The main agent is
-  the supervisor: it assigns and scopes the work, keeps lanes isolated,
-  reviews the findings and changes, and owns the final integration and
-  verification. Do not silently enable Expert Mode when the user has not
-  requested it.
-- **goal-human-intent** — When the user explicitly starts `/goal` or Goal
-  mode, treat the human's stated task as the sole objective. Think through
-  how to complete that task; do not invent side quests, expand the product
-  scope, or assign unrelated work to yourself.
-- **minimal-lightweight-scope** — Keep code minimal, the framework
-  lightweight, and the design clear and elegant. Do not add requirements or
-  unrelated features beyond the human's request. If a separate security,
-  safety, or other material finding would require a new plan or scope
-  expansion, pause and ask the human before proceeding, unless an immediate
-  safety stop is required.
-- **iteration-log-required** — Deliverable work writes `docs/logs/<date>-<slug>/`
-  with `summary.md`, `verification.md`, and `acceptance.md` before claiming
-  done. Maintainer: current delivery owner.
-- **just-ci-is-the-gate** — Kernel / UI / Studio / architecture-doc changes
-  run `just ci`. Skip a slice only with a reason in `verification.md`.
-  Maintainer: current delivery owner.
-- **smoke-for-user-visible-change** — UI or executable behavior is not done
-  after unit tests alone. Hit `http://127.0.0.1:3015` (or the plugin/Studio
-  path above) and record it. Maintainer: current delivery owner.
-- **todolist-capture-required** — Unfixed findings go in `docs/TODO.md` §0.1
-  in the same iteration. Maintainer: current assistant.
-- **air-gap-tenant-journal** — Do not read or write `data/vivy.db`,
-  `data/demo/`, or `data/workspaces/` from a Studio or agent session.
-  Maintainer: current assistant.
-- **no-plugin-via-engine-import** — Do not install a plugin by editing
-  `internal/runtime/engine.go`. Use `vivy-sdk pack`. Maintainer: current
-  assistant.
-- **parallel-worktree-isolation** (hard requirement) — The shared root
-  working tree hosts at most one active write lane. A second concurrent
-  lane, or a new feature started on a dirty root tree, must develop in its
-  own `git worktree` on its own branch and land via merge/PR. See
-  "Parallel lanes". Maintainer: current assistant.
-- **commit-one-concern-per-deliverable** — Every completed deliverable is
-  committed on completion as one focused commit: stage only that
-  deliverable's explicit paths, keep unrelated pre-existing dirty changes
-  and other lanes' files out, and remove scratch artifacts first. Never
-  mix features, docs, and cleanup in one commit. Pushing still requires
-  explicit user authorization. Maintainer: current delivery owner.
-
-Not ported from agent-diva on purpose: `LOCK.md` parallel mutex, root
-`TODOLIST.md`, `/new-command` index, per-update auto-commit, and the
-`[I strictly follow the rules]` reply prefix. Concurrency and commit
-hygiene are handled natively by `parallel-worktree-isolation` (structural
-worktree separation replaces the lock file) and
-`commit-one-concern-per-deliverable` (commits follow deliverables, not
-raw updates). Vivy already has air-gap, `just ci`, and Studio venue
-rules; those stay as written above.
+Commit each completed deliverable as one focused change, including its related
+code, documentation, and verification evidence. Stage explicit paths only;
+leave unrelated changes untouched. Push when authorized by the user, including
+existing authorization in the current conversation.

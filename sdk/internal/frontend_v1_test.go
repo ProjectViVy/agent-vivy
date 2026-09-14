@@ -3,6 +3,7 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,10 +11,81 @@ import (
 	"strings"
 	"testing"
 
+	providerconformance "agent-vivy/sdk/conformance"
 	generationv1 "agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
 )
+
+func TestUIDependencyLockHashNormalizesCRLF(t *testing.T) {
+	lfRoot := t.TempDir()
+	crlfRoot := t.TempDir()
+	lfBody := []byte("lockfileVersion: '9.0'\n\nimporters: {}\n")
+	crlfBody := bytes.ReplaceAll(lfBody, []byte("\n"), []byte("\r\n"))
+	if err := os.WriteFile(filepath.Join(lfRoot, "pnpm-lock.yaml"), lfBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(crlfRoot, "pnpm-lock.yaml"), crlfBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lfHash, err := hashUIDependencyLocks(lfRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlfHash, err := hashUIDependencyLocks(crlfRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lfHash != crlfHash {
+		t.Fatalf("dependency lock hash differs by line endings: LF %s, CRLF %s", lfHash, crlfHash)
+	}
+}
+
+func TestWriteEmbeddedManifestOverlay(t *testing.T) {
+	root := t.TempDir()
+	overlayFile := filepath.Join(root, "overlay.json")
+	if err := os.WriteFile(overlayFile, []byte(`{"Replace":{"existing.go":"existing-replacement.go"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(root, "manifest.go")
+	original := []byte("package generation\n\nvar EmbeddedManifestBase64 string\n\nfunc EmbeddedManifest() {}\n")
+	if err := os.WriteFile(sourcePath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replacementPath := filepath.Join(root, "generated-manifest.go")
+	embedded := "VIVY_GENERATION_V1_BEGIN[eyJnZW5lcmF0aW9uSWQiOiJ0ZXN0In0=]VIVY_GENERATION_V1_END"
+	if err := writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.ReadFile(replacementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantValue := `var EmbeddedManifestBase64 = "` + embedded + `"`
+	if !strings.Contains(string(replacement), wantValue) {
+		t.Fatalf("generated manifest source = %q, want %q", replacement, wantValue)
+	}
+	if strings.Contains(string(replacement), "var EmbeddedManifestBase64 string") || !strings.Contains(string(replacement), "func EmbeddedManifest()") {
+		t.Fatalf("generated manifest source did not preserve the original file: %q", replacement)
+	}
+	raw, err := os.ReadFile(overlayFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var overlay struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(raw, &overlay); err != nil {
+		t.Fatal(err)
+	}
+	if got := overlay.Replace[sourcePath]; got != replacementPath {
+		t.Fatalf("manifest overlay replacement = %q, want %q", got, replacementPath)
+	}
+	if got := overlay.Replace["existing.go"]; got != "existing-replacement.go" {
+		t.Fatalf("existing overlay replacement = %q, want it preserved", got)
+	}
+}
 
 func TestV1PackAndInspectProveRecipeRemoval(t *testing.T) {
 	root := t.TempDir()
@@ -280,6 +352,28 @@ ui:
 	}
 }
 
+func TestPackAndInspectCheckedInFullUIGateRecipe(t *testing.T) {
+	artifact, err := Pack(context.Background(), packOptions{
+		Recipe:  "testdata/full-ui.vivy.yml",
+		Output:  filepath.Join(t.TempDir(), "artifact"),
+		Sources: []string{"testdata/full-ui-module"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := InspectArtifact(artifact.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Manifest.UI == nil || inspected.Manifest.UI.Root != "fixture.full-ui.root" {
+		t.Fatalf("full-UI gate root = %#v", inspected.Manifest.UI)
+	}
+	if len(inspected.Manifest.ConformanceResults) != 3*len(providerconformance.RequiredProviderChecks()) {
+		t.Fatalf("full-UI gate conformance results = %#v", inspected.Manifest.ConformanceResults)
+	}
+	t.Logf("full-UI generation=%s", inspected.Manifest.GenerationID)
+}
+
 func TestPackRejectsUIContentHashDrift(t *testing.T) {
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -354,11 +448,11 @@ func TestUIArtifactAssetHashBindingHandlesCompactObjectKeys(t *testing.T) {
 
 func writePackUIFixture(t *testing.T, repoRoot string) (string, string, string) {
 	t.Helper()
-	root := t.TempDir()
+	root := temporaryRepositoryModule(t, repoRoot, "pack-ui-")
 	if err := os.MkdirAll(filepath.Join(root, "i18n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	goMod := fmt.Sprintf("module example.com/pack-ui\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repoRoot))
+	goMod := "module example.com/pack-ui\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => ../..\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -441,6 +535,20 @@ lifecycle: {scope: generation}
 	return root, digest, lockHash
 }
 
+func temporaryRepositoryModule(t *testing.T, repoRoot, prefix string) string {
+	t.Helper()
+	workspace := filepath.Join(repoRoot, ".workspace")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(workspace, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	return root
+}
+
 func TestInspectArtifactValidatesFinalUIArtifactHash(t *testing.T) {
 	root := t.TempDir()
 	artifactDir := filepath.Join(root, "artifact")
@@ -466,11 +574,20 @@ func TestInspectArtifactValidatesFinalUIArtifactHash(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(artifactDir, "generation.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(artifactDir, "vivy"), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, artifactBinaryName(runtime.GOOS)), []byte(generationv1.FrameEmbeddedManifest(raw)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InspectArtifact(artifactDir); err == nil || !strings.Contains(err.Error(), "UI artifact hash") {
 		t.Fatalf("InspectArtifact() error = %v, want final UI artifact hash rejection", err)
+	}
+}
+
+func TestArtifactBinaryNameUsesNativeExecutableSuffix(t *testing.T) {
+	if got := artifactBinaryName("windows"); got != "vivy.exe" {
+		t.Fatalf("Windows artifact name = %q, want vivy.exe", got)
+	}
+	if got := artifactBinaryName("linux"); got != "vivy" {
+		t.Fatalf("Linux artifact name = %q, want vivy", got)
 	}
 }
 
@@ -532,6 +649,60 @@ func TestFailedCompilationEmitsNoGenerationDirectory(t *testing.T) {
 	}
 }
 
+func TestGenerationFailureMatrixEmitsNoFormalArtifact(t *testing.T) {
+	const minimalModules = "vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox"
+	tests := []struct {
+		name      string
+		recipe    string
+		wantError string
+	}{
+		{
+			name:      "legacy v0 recipe",
+			recipe:    "apiVersion: vivy.generation/v0\nmodules: [" + minimalModules + "]\n",
+			wantError: "unsupported recipe apiVersion vivy.generation/v0",
+		},
+		{
+			name:      "missing module",
+			recipe:    "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", missing/module]\n",
+			wantError: "missing source for module missing/module",
+		},
+		{
+			name:      "duplicate module",
+			recipe:    "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", vivy/loop]\n",
+			wantError: "duplicate module vivy/loop",
+		},
+		{
+			name:      "selected Provider without Host",
+			recipe:    "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", vivy/context-source]\n",
+			wantError: "requires conditional Host core/context-host@v1",
+		},
+		{
+			name: "duplicate exclusive face Provider",
+			recipe: "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", vivy/face-host, vivy/headless, vivy/tui]\nexclusive:\n" +
+				"  std/face@v1: vivy/headless\n",
+			wantError: "duplicate provider for std/face@v1",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			recipe := filepath.Join(root, "recipe.yml")
+			output := filepath.Join(root, "generation")
+			if err := os.WriteFile(recipe, []byte(test.recipe), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Pack(context.Background(), packOptions{Recipe: recipe, Output: output})
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("Pack() error = %v, want %q", err, test.wantError)
+			}
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatalf("invalid Generation emitted formal artifact: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 	root := t.TempDir()
 	tests := []struct {
@@ -541,6 +712,7 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 		{"minimal", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityNotCompiled)},
 		{"headless", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"vivy-code", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
+		{"scx", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 	}
 	for _, test := range tests {
 		name := test.name
@@ -564,6 +736,76 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 				t.Fatalf("mcp capability = %s, want %s", got, test.mcp)
 			}
 		})
+	}
+}
+
+func TestPackAndInspectSCXCandidateIsDeterministicAndRemovable(t *testing.T) {
+	root := t.TempDir()
+	pack := func(name, recipe string) Artifact {
+		t.Helper()
+		artifact, err := Pack(context.Background(), packOptions{
+			Recipe: filepath.Join("..", "..", "recipes", recipe+".vivy.yml"),
+			Output: filepath.Join(root, name),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspected, err := InspectArtifact(artifact.Directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inspected
+	}
+
+	first := pack("scx-first", "scx")
+	second := pack("scx-second", "scx")
+	if first.Manifest.GenerationID != second.Manifest.GenerationID {
+		t.Fatalf("SCX deterministic rebuild drifted: %s != %s", first.Manifest.GenerationID, second.Manifest.GenerationID)
+	}
+
+	const fixtureID = "scx/reference-fixtures"
+	var fixture *assemblyv1.ManifestModule
+	for index := range first.Manifest.Modules {
+		if first.Manifest.Modules[index].ID == fixtureID {
+			fixture = &first.Manifest.Modules[index]
+			break
+		}
+	}
+	if fixture == nil {
+		t.Fatal("SCX candidate Manifest omits reference fixture module")
+	}
+	if fixture.Version != "0.1.0" || fixture.Source.Ref != "repo:plugins/scx-reference" || fixture.Source.SHA256 == "" {
+		t.Fatalf("SCX source identity is not sealed: %#v", fixture)
+	}
+	if len(first.Manifest.ContextSourcePolicies) != 1 || first.Manifest.ContextSourcePolicies[0].ProviderID != "scx.reference" || !first.Manifest.ContextSourcePolicies[0].Required {
+		t.Fatalf("SCX required Source policy is not sealed: %#v", first.Manifest.ContextSourcePolicies)
+	}
+	if len(first.Manifest.RunObserverPolicies) != 1 || first.Manifest.RunObserverPolicies[0].ProviderID != "scx.reference" {
+		t.Fatalf("SCX Observer policy is not sealed: %#v", first.Manifest.RunObserverPolicies)
+	}
+	edges := map[string]bool{}
+	for _, edge := range first.Manifest.PortEdges {
+		if edge.Provider == fixtureID || edge.Consumer == fixtureID {
+			edges[edge.Port.Port+":"+edge.Provider+":"+edge.Consumer] = true
+		}
+	}
+	for _, required := range []string{
+		"core/context-host@v1:vivy/context-host:" + fixtureID,
+		"core/observer-host@v1:vivy/observer-host:" + fixtureID,
+		"std/context-source@v1:" + fixtureID + ":vivy/context-host",
+		"std/observer/run@v1:" + fixtureID + ":vivy/observer-host",
+	} {
+		if !edges[required] {
+			t.Errorf("SCX candidate Manifest omits edge %q", required)
+		}
+	}
+	for _, recipe := range []string{"default", "minimal"} {
+		artifact := pack(recipe, recipe)
+		for _, selected := range artifact.Manifest.Modules {
+			if selected.ID == fixtureID {
+				t.Fatalf("%s Generation retained removed SCX module", recipe)
+			}
+		}
 	}
 }
 
@@ -603,6 +845,34 @@ func TestVerifyRejectsModifiedSourceTree(t *testing.T) {
 	}
 	if _, err := Verify(dir); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
 		t.Fatalf("Verify() error = %v, want source hash rejection", err)
+	}
+}
+
+func TestVerifyEverySelectedPublicModule(t *testing.T) {
+	for _, source := range []string{
+		"../../plugins/dingtalk",
+		"../../plugins/discord",
+		"../../plugins/feishu",
+		"../../plugins/governance",
+		"../../plugins/hello-fs",
+		"../../plugins/lsp",
+		"../../plugins/qq",
+		"../../plugins/scx-reference",
+		"../../plugins/telegram",
+		"../../faces/headless",
+		"../../faces/tui",
+		"testdata/full-ui-module",
+	} {
+		source := source
+		t.Run(filepath.Base(source), func(t *testing.T) {
+			report, err := Verify(source)
+			if err != nil {
+				t.Fatalf("Verify(%q) error = %v", source, err)
+			}
+			if !report.OK || report.Module == "" {
+				t.Fatalf("Verify(%q) report = %#v", source, report)
+			}
+		})
 	}
 }
 
@@ -682,8 +952,8 @@ func TestPackLinksExternalStandaloneModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := t.TempDir()
-	goMod := fmt.Sprintf("module example.com/acme/vivy-tool\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repoRoot))
+	source := temporaryRepositoryModule(t, repoRoot, "acme-tool-")
+	goMod := "module example.com/acme/vivy-tool\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => ../..\n"
 	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}

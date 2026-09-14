@@ -134,6 +134,14 @@ func TestSessionWorkspaceManagerResolvesDefaultAndSelectedRoots(t *testing.T) {
 	defaultRoot := filepath.Join(t.TempDir(), "default")
 	alpha := t.TempDir()
 	beta := t.TempDir()
+	canonicalAlpha, err := filepath.EvalSymlinks(alpha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalBeta, err := filepath.EvalSymlinks(beta)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sessions := workspaceSessionLookup{
 		"sess-default": {ID: "sess-default"},
 		"sess-alpha":   {ID: "sess-alpha", WorkspacePath: alpha},
@@ -164,18 +172,18 @@ func TestSessionWorkspaceManagerResolvesDefaultAndSelectedRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if alphaWorkspace.Path != alpha || betaWorkspace.Path != beta || alphaWorkspace.ID == betaWorkspace.ID {
+	if alphaWorkspace.Path != canonicalAlpha || betaWorkspace.Path != canonicalBeta || alphaWorkspace.ID == betaWorkspace.ID {
 		t.Fatalf("selected workspaces = %+v / %+v", alphaWorkspace, betaWorkspace)
 	}
 
 	// A new run is allocated before its durable Run row exists. The service
 	// puts the already-authoritative session id in context for that boundary.
 	fromContext, err := manager.Ensure(withSessionID(context.Background(), "sess-alpha"), "run-new")
-	if err != nil || fromContext.Path != alpha {
+	if err != nil || fromContext.Path != canonicalAlpha {
 		t.Fatalf("pre-persist selected workspace = %+v, err=%v", fromContext, err)
 	}
 	durableOwner, err := manager.Ensure(withSessionID(context.Background(), "sess-beta"), "run-alpha")
-	if err != nil || durableOwner.Path != alpha {
+	if err != nil || durableOwner.Path != canonicalAlpha {
 		t.Fatalf("durable run owner lost to stale context = %+v, err=%v", durableOwner, err)
 	}
 }

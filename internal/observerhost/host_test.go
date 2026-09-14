@@ -124,7 +124,7 @@ func TestRunObserverSeesOnlyCommittedEvents(t *testing.T) {
 	journal := &memoryJournal{}
 	cursors := &memorySnapshots{}
 	provider := &recordingRunObserver{id: "fixture/run"}
-	host, err := New(Config{Journal: journal, Cursors: cursors, RunProviders: []observer.RunProvider{provider}})
+	host, err := New(Config{Journal: journal, Cursors: cursors, RunSubscriptions: []RunSubscription{{Provider: provider, EventTypes: []string{string(domain.EventToolFinished)}, AllowedPayloadFields: []string{"secret"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestRunObserverSeesOnlyCommittedEvents(t *testing.T) {
 	}
 
 	_, err = journal.Append(context.Background(), storage.Commit{RunID: "run-1", Events: []domain.RunEvent{{
-		Type:      domain.EventType("tool.completed"),
+		Type:      domain.EventToolFinished,
 		CreatedAt: 123,
 		Payload:   json.RawMessage(`{"secret":"sk-test-1234567890123456"}`),
 	}}})
@@ -160,7 +160,7 @@ func TestRunObserverCanReceiveDuplicateStableEventID(t *testing.T) {
 	_, _ = journal.Append(context.Background(), storage.Commit{RunID: "run-dup", Events: []domain.RunEvent{{Type: domain.EventType("run.started")}}})
 	cursors := &memorySnapshots{failPut: 1}
 	provider := &recordingRunObserver{id: "fixture/run"}
-	host, err := New(Config{Journal: journal, Cursors: cursors, RunProviders: []observer.RunProvider{provider}})
+	host, err := New(Config{Journal: journal, Cursors: cursors, RunSubscriptions: []RunSubscription{{Provider: provider, EventTypes: []string{"run.started"}, AllowedPayloadFields: []string{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

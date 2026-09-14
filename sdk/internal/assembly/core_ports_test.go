@@ -11,11 +11,11 @@ import (
 
 func TestPublicSourceCannotProvideCorePort(t *testing.T) {
 	descriptor := withProvides(testDescriptor("fixture/action-host"), module.PortRef{Port: "core/action-host@v1", ID: "fixture.action-host"})
-	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: descriptor, Trust: TrustT2}})
+	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: descriptor, Trust: TrustT2, RootlessFixture: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence()}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence(), ConformanceResults: SupportedPortConformance()}
 	_, err = compiler.Compile(context.Background(), Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{descriptor.Module.ID}})
 	if err == nil || !strings.Contains(err.Error(), "may only be provided by build-owned T1 module vivy/action-host") {
 		t.Fatalf("public core Provider error = %v", err)
@@ -29,7 +29,7 @@ func TestCanonicalCoreOwnerCanProvideActionHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence()}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence(), ConformanceResults: SupportedPortConformance()}
 	if _, err := compiler.Compile(context.Background(), Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{descriptor.Module.ID}}); err != nil {
 		t.Fatalf("canonical action Host rejected: %v", err)
 	}

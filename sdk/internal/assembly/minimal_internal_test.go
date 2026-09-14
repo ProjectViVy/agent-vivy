@@ -46,7 +46,7 @@ func TestMinimalRecipeOmitsOptionalCapabilities(t *testing.T) {
 	if err := decoder.Decode(&recipe); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := (Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence()}).Compile(context.Background(), recipe)
+	plan, err := (Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence(), ConformanceResults: SupportedPortConformance()}).Compile(context.Background(), recipe)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"agent-vivy/internal/moduleport"
+	providerconformance "agent-vivy/sdk/conformance"
+	generationconformance "agent-vivy/sdk/internal/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 )
@@ -47,9 +49,10 @@ type AssemblyPlan struct {
 }
 
 type Compiler struct {
-	Ports        port.Catalog
-	Sources      SourceCatalog
-	PortEvidence map[string]port.SupportEvidence
+	Ports              port.Catalog
+	Sources            SourceCatalog
+	PortEvidence       map[string]port.SupportEvidence
+	ConformanceResults []providerconformance.ConformanceResult
 }
 
 type diagnosticsError struct {
@@ -62,6 +65,10 @@ func (err diagnosticsError) Error() string {
 
 func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, error) {
 	if err := ctx.Err(); err != nil {
+		return AssemblyPlan{}, err
+	}
+	portSupport, err := generationconformance.EvaluatePortSupport(c.Ports, c.PortEvidence, c.ConformanceResults)
+	if err != nil {
 		return AssemblyPlan{}, err
 	}
 	diagnostics := make([]string, 0)
@@ -92,6 +99,9 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 				diagnostics = append(diagnostics, "source pin mismatch for "+moduleID)
 			}
 		}
+		if record.Trust == TrustT2 && record.Root == "" && !record.RootlessFixture {
+			diagnostics = append(diagnostics, "T2 module "+moduleID+" lacks a verified source root")
+		}
 		selected[moduleID] = record
 		resolved = append(resolved, ResolvedModule{Descriptor: record.Descriptor, Trust: record.Trust, Binding: record.Binding})
 		if err := record.Descriptor.Validate(); err != nil {
@@ -101,6 +111,11 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 	for moduleID := range recipe.Sources {
 		if _, exists := selected[moduleID]; !exists {
 			diagnostics = append(diagnostics, "source pin names unselected module "+moduleID)
+		}
+	}
+	for _, approval := range recipe.GrantApprovals {
+		if _, exists := selected[approval.Module]; !exists {
+			diagnostics = append(diagnostics, "grant approval names unselected module "+approval.Module)
 		}
 	}
 	providers := make(map[string][]SourceRecord)
@@ -206,9 +221,15 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			}
 		}
 		for _, requirement := range record.Descriptor.Requires {
+			if err := c.validatePublicPortConsumer(requirement, consumerID, record.Trust); err != nil {
+				diagnostics = append(diagnostics, err.Error())
+			}
 			c.compileRequirement(requirement, consumerID, selected, graph, &edges, used, &diagnostics)
 		}
 		for _, requirement := range record.Descriptor.Optional {
+			if err := c.validatePublicPortConsumer(requirement, consumerID, record.Trust); err != nil {
+				diagnostics = append(diagnostics, err.Error())
+			}
 			if _, exists := selected[requirement.Provider]; requirement.Provider != "" && exists {
 				c.compileRequirement(requirement, consumerID, selected, graph, &edges, used, &diagnostics)
 			}
@@ -313,7 +334,7 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		if strings.HasPrefix(portName, "core/") {
 			continue
 		}
-		if err := c.Ports.RequireSelectable(module.PortRef{Port: portName}, c.PortEvidence[portName]); err != nil {
+		if err := requireSelectablePort(portSupport, module.PortRef{Port: portName}); err != nil {
 			diagnostics = append(diagnostics, err.Error())
 		}
 	}
@@ -337,7 +358,7 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			if strings.HasPrefix(requirement.Port, "core/") {
 				continue
 			}
-			if err := c.Ports.RequireSelectable(requirement.PortRef, c.PortEvidence[requirement.Port]); err != nil {
+			if err := requireSelectablePort(portSupport, requirement.PortRef); err != nil {
 				diagnostics = append(diagnostics, err.Error())
 			}
 		}
@@ -356,6 +377,34 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		return left < right
 	})
 	return AssemblyPlan{Modules: resolved, PortEdges: edges, LifecycleOrder: lifecycleOrder, OrderedContributions: ordered}, nil
+}
+
+func requireSelectablePort(records []generationconformance.PortSupportRecord, ref module.PortRef) error {
+	for _, record := range records {
+		if record.Port.Port != ref.Port {
+			continue
+		}
+		if record.State != port.SupportSupported {
+			return fmt.Errorf("Port %s is %s and cannot be selected", ref.Port, record.State)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown Port %s", ref.Port)
+}
+
+func (c Compiler) validatePublicPortConsumer(requirement module.Requirement, consumerID string, trust Trust) error {
+	definition, public := c.Ports.Lookup(requirement.PortRef)
+	if !public {
+		return nil
+	}
+	host, known := moduleport.Catalog().Lookup(definition.Consumer)
+	if !known {
+		return fmt.Errorf("public Port %s has unknown sole consumer %s", requirement.Port, definition.Consumer.Port)
+	}
+	if consumerID != host.Owner || trust != TrustT1 {
+		return fmt.Errorf("public Port %s may only be consumed by build-owned T1 module %s", requirement.Port, host.Owner)
+	}
+	return nil
 }
 
 func validateClosedInternalSelection(selected map[string]SourceRecord, providers map[string][]SourceRecord) []string {

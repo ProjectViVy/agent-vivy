@@ -26,6 +26,9 @@ type Definition struct {
 	Consumer      module.PortRef
 	Ordered       bool
 	AllowedGrants []module.Grant
+	// Support state is intentionally absent. The Assembly Compiler derives it
+	// from build-owned seven-artifact and conformance records, never from a
+	// Port Definition, Module Descriptor, or README claim.
 }
 
 type Catalog struct {

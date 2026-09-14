@@ -251,15 +251,15 @@ func TestServiceRunHappyPath(t *testing.T) {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
 	}
 
-	// Seq monotonic 1..K with no gaps. model.completed is the one v2 payload:
-	// its text is the preceding delta stream, while all other events remain
-	// on the v1 envelope.
+	// Seq is monotonic 1..K with no gaps. model.completed and the terminal
+	// Observer projection use v2; the remaining events retain their existing
+	// versions when no Context View is selected.
 	for i, ev := range events {
 		if ev.Seq != domain.EventSeq(i+1) {
 			t.Fatalf("event %d has seq %d, want %d", i, ev.Seq, i+1)
 		}
 		wantVersion := 1
-		if ev.Type == domain.EventModelCompleted {
+		if ev.Type == domain.EventModelCompleted || ev.Type == domain.EventRunCompleted {
 			wantVersion = 2
 		}
 		if ev.PayloadVersion != wantVersion {

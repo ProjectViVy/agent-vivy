@@ -44,7 +44,21 @@ func verifySource(dir string, descriptor module.Descriptor) error {
 			if unquoteErr != nil {
 				return unquoteErr
 			}
-			for _, forbidden := range []string{"agent-vivy/internal/", "github.com/cloudwego/eino", "github.com/pion/", ".workspace"} {
+			for _, forbidden := range []string{
+				"agent-vivy/internal/",
+				"agent-vivy/sdk/internal/",
+				"agent-vivy/plugins/",
+				"agent-vivy/faces/",
+				"example.com/vivy/plugins/",
+				"example.com/vivy/faces/",
+				"github.com/cloudwego/eino",
+				"github.com/pion/",
+				"golang.org/x/sys",
+				"syscall",
+				"plugin",
+				"unsafe",
+				".workspace",
+			} {
 				if strings.Contains(importPath, forbidden) {
 					return fmt.Errorf("forbidden source import %s", importPath)
 				}

@@ -313,6 +313,28 @@ func TestEinoSkillBackendProjectOverlayAndCollision(t *testing.T) {
 	}
 }
 
+func TestRepositoryProjectSkillsLoad(t *testing.T) {
+	backend, _, _ := openSkillTestBackend(t)
+	projectSkills := filepath.Join("..", "..", ".agents", "skills")
+	if err := backend.SetProjectSkillRoots([]string{projectSkills}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := backend.ListSkills(context.Background(), "release-smoke")
+	if err != nil {
+		t.Fatalf("load repository project skills: %v", err)
+	}
+	found := false
+	for _, item := range items {
+		if item.Name == "vivy-eino" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("repository project skills omitted vivy-eino")
+	}
+}
+
 func TestEinoSkillBackendProjectAlwaysSkills(t *testing.T) {
 	backend, userRoot, _ := openSkillTestBackend(t)
 	writeAlwaysSkillFixture(t, userRoot, "user-always", "name: user-always\ndescription: user\nalways: true\n", "user always")

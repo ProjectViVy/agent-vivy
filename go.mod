@@ -108,6 +108,7 @@ require (
 	example.com/vivy/plugins/discord v0.0.0
 	example.com/vivy/plugins/feishu v0.0.0
 	example.com/vivy/plugins/qq v0.0.0
+	example.com/vivy/plugins/scxreference v0.0.0
 	example.com/vivy/plugins/telegram v0.0.0
 	example.com/vivy/plugins/lsp v0.0.0
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -177,6 +178,8 @@ replace example.com/vivy/plugins/feishu => ./plugins/feishu
 replace example.com/vivy/plugins/qq => ./plugins/qq
 
 replace example.com/vivy/plugins/lsp => ./plugins/lsp
+
+replace example.com/vivy/plugins/scxreference => ./plugins/scx-reference
 
 replace example.com/vivy/faces/headless => ./faces/headless
 

@@ -92,6 +92,10 @@ type ServiceDeps struct {
 	Journal  storage.Journal
 	Runs     storage.RunStore
 	Messages storage.MessageStore
+	// TenantID is the process-owned isolation identity forwarded to every
+	// ContextHost request and terminal Observer projection. Empty means the
+	// single-tenant local organism.
+	TenantID string
 	// Notes feeds the preamble's notebook digest (MA-3); nil leaves the
 	// digest out.
 	Notes storage.NoteStore
@@ -186,6 +190,10 @@ type Service struct {
 	// live run. Action bridges must use this exact set rather than resolving
 	// the process-wide registry again.
 	runTools map[domain.RunID]map[string]struct{}
+	// contextViews memoizes each live run's committed Context View so resume
+	// paths skip a full Journal replay. Entries die with the run in
+	// cleanupRunState.
+	contextViews map[domain.RunID]string
 	// pendingEngine holds a settings-save engine rebuild that was deferred
 	// because runs were in flight; it is applied at the next idle run
 	// start (ScheduleEngineReload).
@@ -262,6 +270,11 @@ type RunOptions struct {
 // NewService wires the run service over an engine and its dependencies.
 // provider and modelID label the run.started payload.
 func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Service {
+	if strings.TrimSpace(deps.TenantID) == "" {
+		deps.TenantID = "local"
+	} else {
+		deps.TenantID = strings.TrimSpace(deps.TenantID)
+	}
 	if deps.Budget == (BudgetPolicy{}) {
 		deps.Budget = DefaultBudgetPolicy()
 	}
@@ -283,6 +296,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		ledgers:         make(map[domain.RunID]*BudgetLedger),
 		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
 		runTools:        make(map[domain.RunID]map[string]struct{}),
+		contextViews:    make(map[domain.RunID]string),
 		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
 }
@@ -554,6 +568,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	}
 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	runProvider, runModel := s.CurrentModel()
 	m.setUsageRoutes(runProvider, runModel, s.engine.cfg.SummaryModelID)
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
@@ -1211,6 +1226,8 @@ func (s *Service) rebuildPending(ctx context.Context, run domain.Run, approval d
 		return
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	m.setRunScope(s.deps.TenantID, workspaceID, string(run.SessionID))
+	m.setContextViewID(s.contextViewForRun(ctx, run.ID))
 	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	toolName, selectedTools, mode, face, profile, snapshot, sandboxMode, approvalPolicy := s.approvalDetails(ctx, run.ID)
@@ -1252,6 +1269,8 @@ func (s *Service) rebuildPendingQuestion(ctx context.Context, run domain.Run, qu
 		resumeTarget = question.ResumeTarget
 	}
 	m := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
+	m.setRunScope(s.deps.TenantID, workspaceID, string(run.SessionID))
+	m.setContextViewID(s.contextViewForRun(ctx, run.ID))
 	providerName, modelID := s.usageRoutesForRun(ctx, run.ID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	m.registerOpenCall(openToolCall{id: question.ToolCallID, name: toolName})
@@ -1296,7 +1315,53 @@ func (s *Service) newResumeEventMapper(ctx context.Context, runID domain.RunID) 
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
 	providerName, modelID := s.usageRoutesForRun(ctx, runID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
+	m.setContextViewID(s.contextViewForRun(ctx, runID))
 	return m
+}
+
+func (s *Service) contextViewForRun(ctx context.Context, runID domain.RunID) string {
+	s.mu.Lock()
+	view, cached := s.contextViews[runID]
+	s.mu.Unlock()
+	if cached {
+		return view
+	}
+	if s.deps.Journal == nil {
+		return ""
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = it.Close() }()
+	view = ""
+	for it.Next() {
+		event := it.Value().Event
+		if event.Type != domain.EventModelRequest {
+			continue
+		}
+		var request payloadModelRequest
+		if json.Unmarshal(event.Payload, &request) == nil && request.ContextView != "" {
+			view = request.ContextView
+		}
+	}
+	if err := it.Err(); err != nil {
+		slog.Warn("context view recovery replay failed; resuming without view", "run", string(runID), "err", err)
+		return ""
+	}
+	s.storeContextView(runID, view)
+	return view
+}
+
+// storeContextView memoizes a committed View for later resumes. The map is
+// created lazily because tests build Service values directly.
+func (s *Service) storeContextView(runID domain.RunID, view string) {
+	s.mu.Lock()
+	if s.contextViews == nil {
+		s.contextViews = make(map[domain.RunID]string)
+	}
+	s.contextViews[runID] = view
+	s.mu.Unlock()
 }
 
 // recoverBudgetLedger rebuilds the shared run-tree accounting from durable
@@ -1541,12 +1606,17 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	// Capture the engine once: a settings-save engine rebuild only happens
 	// while no run is registered, so this reference is stable for the run.
 	eng := s.engine
-	msgs, selection, _, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
+	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	msgs, selection, stats, err := s.runMessagesForRun(ctx, sessionID, userText, eng, face, workspaceID)
 	if err != nil {
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
-	if !s.persistAndPublish(ctx, sessionID, m.build(domain.EventModelRequest, digestModelRequest(msgs, selection.Names()))) {
+	m.setContextViewID(stats.ContextViewID)
+	modelRequest := digestModelRequest(msgs, selection.Names())
+	modelRequest.ContextView = stats.ContextViewID
+	s.storeContextView(m.runID, stats.ContextViewID)
+	if !s.persistAndPublish(ctx, sessionID, m.build(domain.EventModelRequest, modelRequest)) {
 		return
 	}
 	ledger := s.ledgerForRun(m.runID)
@@ -1637,27 +1707,31 @@ func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.Sessio
 		return nil, selection, stats, err
 	}
 	if eng.cfg.ContextHost != nil && len(msgs) > 0 {
-		request := contexthost.Request{Query: userText, SessionID: string(sessionID), WorkspaceID: workspaceID}
+		request := contexthost.Request{Query: userText, TenantID: s.deps.TenantID, SessionID: string(sessionID), WorkspaceID: workspaceID}
 		if eng.cfg.MaxContextBytes > 0 {
 			used := projectedContextBytes(msgs)
-			if used < eng.cfg.MaxContextBytes {
-				request.ByteBudget = eng.cfg.MaxContextBytes - used
-				// Keep the Host's token bound coupled to the same final
-				// runtime budget. Byte framing remains authoritative.
-				request.TokenBudget = request.ByteBudget
-				request.CandidateBytes = contextCandidateBytes
-			}
+			request.EnforceByteBudget = true
+			request.ByteBudget = max(0, eng.cfg.MaxContextBytes-used)
+			// Keep the Host's token bound coupled to the same final
+			// runtime budget. Byte framing remains authoritative.
+			request.TokenBudget = request.ByteBudget
+			request.CandidateBytes = contextCandidateBytes
 		}
-		if request.ByteBudget != 0 || eng.cfg.MaxContextBytes == 0 {
-			contextResult, contextErr := eng.cfg.ContextHost.Query(ctx, request)
-			if contextErr != nil {
-				if ctx.Err() != nil {
-					return nil, selection, stats, ctx.Err()
-				}
-				slog.Warn("context host query failed; continuing without remote context", "session", string(sessionID), "err", contextErr)
-			} else if ctx.Err() != nil {
+		contextResult, contextErr := eng.cfg.ContextHost.Query(ctx, request)
+		if contextErr != nil {
+			if ctx.Err() != nil {
 				return nil, selection, stats, ctx.Err()
-			} else if parts := contextCandidatesToUserParts(contextResult.Candidates); len(parts) > 0 {
+			}
+			// Optional Source failures are returned inside Result.Failures and
+			// may be omitted by ContextHost. A top-level error means required
+			// preparation, exact-version resolution, or the request contract
+			// failed and must not silently become a model call without context.
+			return nil, selection, stats, fmt.Errorf("runtime: prepare context: %w", contextErr)
+		} else if ctx.Err() != nil {
+			return nil, selection, stats, ctx.Err()
+		} else {
+			stats.ContextViewID = contextResult.View.ID
+			if parts := contextCandidatesToUserParts(contextResult.Candidates); len(parts) > 0 {
 				appendContextParts(msgs[len(msgs)-1], parts)
 			}
 		}
@@ -2542,6 +2616,7 @@ func (s *Service) resumeRun(sessionID domain.SessionID, workspaceID, toolName st
 	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger)
+	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{
 		Targets: map[string]any{resumeTarget: resumeValue},
 	})
@@ -2777,6 +2852,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
 	delete(s.runSessions, runID)
+	delete(s.contextViews, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 }

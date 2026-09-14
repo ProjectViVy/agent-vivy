@@ -31,6 +31,9 @@ type ContextStats struct {
 	IncludedHistoryMessages int
 	DroppedHistoryMessages  int
 	Bytes                   int
+	// ContextViewID identifies the immutable ContextHost selection used for
+	// this model call. It is safe provenance, not raw candidate content.
+	ContextViewID string
 }
 
 // contextProjectionBudget tracks the bytes that the final Eino message list

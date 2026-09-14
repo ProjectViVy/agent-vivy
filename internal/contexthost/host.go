@@ -33,25 +33,36 @@ const (
 )
 
 var (
-	ErrInvalidSource   = errors.New("contexthost: invalid source")
-	ErrDuplicateSource = errors.New("contexthost: duplicate source")
+	ErrInvalidSource           = errors.New("contexthost: invalid source")
+	ErrDuplicateSource         = errors.New("contexthost: duplicate source")
+	ErrResourceResolver        = errors.New("contexthost: resource resolver unavailable")
+	ErrResourceVersionMismatch = errors.New("contexthost: resource version mismatch")
+	ErrResourceScope           = errors.New("contexthost: resource scope mismatch")
+	ErrRequiredContextBudget   = errors.New("contexthost: required context exceeds budget")
+	ErrRequiredContextExpired  = errors.New("contexthost: required context expired")
 )
 
 type AuthorizeFunc func(context.Context, string, Request) error
 type TokenEstimator func(string) int
 
 type Config struct {
-	Sources           []contextsource.Provider
+	Sources []contextsource.Provider
+	// RequiredSourceIDs is build-owned policy. A required Source outage or
+	// authorization failure aborts preparation instead of becoming an optional
+	// omission. Providers cannot mark themselves required at runtime.
+	RequiredSourceIDs []string
 	Authorize         AuthorizeFunc
 	SourceTimeout     time.Duration
 	MaxCandidateBytes int
 	MaxTotalBytes     int
 	MaxCandidates     int
 	TokenEstimator    TokenEstimator
+	Now               func() time.Time
 }
 
 type Request struct {
 	Query       string
+	TenantID    string
 	SessionID   string
 	WorkspaceID string
 	TokenBudget int
@@ -59,6 +70,9 @@ type Request struct {
 	// Zero means that the caller has no additional byte budget. The runtime
 	// supplies CandidateBytes when framing overhead must be accounted for.
 	ByteBudget int
+	// EnforceByteBudget distinguishes an explicit zero-byte remainder from
+	// the legacy zero value, which means no request-specific byte limit.
+	EnforceByteBudget bool
 	// CandidateBytes returns the bytes the caller will actually add to its
 	// model input for one candidate, including provenance framing. When it is
 	// nil, the redacted candidate body length is used.
@@ -88,21 +102,46 @@ type Result struct {
 	DroppedDuplicate int
 	DroppedOversize  int
 	DroppedBudget    int
+	DroppedExpired   int
+	View             View
+}
+
+type ViewItem struct {
+	SourceID     string
+	ContentID    string
+	Version      string
+	ProvenanceID string
+	Treatment    contextsource.Treatment
+}
+
+type View struct {
+	ID          string
+	TenantID    string
+	WorkspaceID string
+	SessionID   string
+	Items       []ViewItem
 }
 
 type Host struct {
 	sources           []contextsource.Provider
+	requiredSources   map[string]struct{}
 	authorize         AuthorizeFunc
 	sourceTimeout     time.Duration
 	maxCandidateBytes int
 	maxTotalBytes     int
 	maxCandidates     int
 	estimate          TokenEstimator
+	now               func() time.Time
 }
 
 type sourceOutcome struct {
 	page contextsource.Page
 	err  error
+}
+
+type resourceOutcome struct {
+	resource contextsource.Resource
+	err      error
 }
 
 func New(cfg Config) (*Host, error) {
@@ -131,19 +170,40 @@ func New(cfg Config) (*Host, error) {
 			return (len(text) + 3) / 4
 		}
 	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
 
 	sources, err := validateSources(cfg.Sources)
 	if err != nil {
 		return nil, err
 	}
+	required := make(map[string]struct{}, len(cfg.RequiredSourceIDs))
+	selected := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		selected[source.ID()] = struct{}{}
+	}
+	for _, id := range cfg.RequiredSourceIDs {
+		id = strings.TrimSpace(id)
+		if _, ok := selected[id]; !ok {
+			return nil, fmt.Errorf("%w: required source %s is not selected", ErrInvalidSource, id)
+		}
+		if _, duplicate := required[id]; duplicate {
+			return nil, fmt.Errorf("%w: required source %s is duplicated", ErrInvalidSource, id)
+		}
+		required[id] = struct{}{}
+	}
 	return &Host{
 		sources:           sources,
+		requiredSources:   required,
 		authorize:         cfg.Authorize,
 		sourceTimeout:     timeout,
 		maxCandidateBytes: maxCandidateBytes,
 		maxTotalBytes:     maxTotalBytes,
 		maxCandidates:     maxCandidates,
 		estimate:          estimator,
+		now:               now,
 	}, nil
 }
 
@@ -209,6 +269,9 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 		if host.authorize != nil {
 			if err := host.authorize(ctx, sourceID, request); err != nil {
 				result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+				if host.sourceRequired(sourceID) {
+					return result, err
+				}
 				if ctx.Err() != nil {
 					result.Candidates = nil
 					return result, nil
@@ -227,6 +290,7 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 		}
 		page, err := host.querySource(ctx, source, contextsource.Request{
 			Query:       request.Query,
+			TenantID:    request.TenantID,
 			SessionID:   request.SessionID,
 			WorkspaceID: request.WorkspaceID,
 			Cursor:      cursor,
@@ -234,6 +298,9 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 		})
 		if err != nil {
 			result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+			if host.sourceRequired(sourceID) {
+				return result, err
+			}
 			if ctx.Err() != nil {
 				result.Candidates = nil
 				return result, nil
@@ -263,10 +330,34 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 			}
 			candidate, ok := host.normalizeCandidate(sourceID, raw)
 			if !ok {
+				if strictTreatment(raw.Treatment) {
+					return result, ErrInvalidSource
+				}
 				result.DroppedInvalid++
 				continue
 			}
+			if candidate.ValidUntil > 0 && host.now().UnixMilli() > candidate.ValidUntil {
+				if strictTreatment(candidate.Treatment) {
+					return result, ErrRequiredContextExpired
+				}
+				result.DroppedExpired++
+				continue
+			}
+			if candidate.Resource != nil {
+				strict := strictTreatment(candidate.Treatment)
+				candidate, err = host.resolveCandidate(ctx, source, request, candidate)
+				if err != nil {
+					result.Failures = append(result.Failures, Failure{SourceID: sourceID, Cause: err})
+					if strict {
+						return result, err
+					}
+					continue
+				}
+			}
 			if len(candidate.Content) > host.maxCandidateBytes {
+				if strictTreatment(candidate.Treatment) {
+					return result, ErrRequiredContextBudget
+				}
 				result.DroppedOversize++
 				continue
 			}
@@ -283,6 +374,9 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 	// when confidence is equal. Sources cannot smuggle a second ordering
 	// mechanism into the Host.
 	sort.SliceStable(collected, func(i, j int) bool {
+		if treatmentRank(collected[i].Treatment) != treatmentRank(collected[j].Treatment) {
+			return treatmentRank(collected[i].Treatment) < treatmentRank(collected[j].Treatment)
+		}
 		return collected[i].Confidence > collected[j].Confidence
 	})
 
@@ -307,6 +401,9 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 		}
 		seenContent[dedupKey] = struct{}{}
 		if len(result.Candidates) >= host.maxCandidates {
+			if strictTreatment(candidate.Treatment) {
+				return result, ErrRequiredContextBudget
+			}
 			result.DroppedBudget++
 			continue
 		}
@@ -319,14 +416,23 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 			continue
 		}
 		if result.Bytes+candidateBytes > host.maxTotalBytes {
+			if strictTreatment(candidate.Treatment) {
+				return result, ErrRequiredContextBudget
+			}
 			result.DroppedBudget++
 			continue
 		}
-		if request.ByteBudget > 0 && result.Bytes+candidateBytes > request.ByteBudget {
+		if (request.EnforceByteBudget || request.ByteBudget > 0) && result.Bytes+candidateBytes > request.ByteBudget {
+			if strictTreatment(candidate.Treatment) {
+				return result, ErrRequiredContextBudget
+			}
 			result.DroppedBudget++
 			continue
 		}
 		if request.TokenBudget > 0 && result.Tokens+candidate.Tokens > request.TokenBudget {
+			if strictTreatment(candidate.Treatment) {
+				return result, ErrRequiredContextBudget
+			}
 			result.DroppedBudget++
 			continue
 		}
@@ -334,7 +440,47 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 		result.Bytes += candidateBytes
 		result.Tokens += candidate.Tokens
 	}
+	result.View = makeView(request, result.Candidates)
 	return result, nil
+}
+
+func (host *Host) sourceRequired(sourceID string) bool {
+	_, required := host.requiredSources[sourceID]
+	return required
+}
+
+func strictTreatment(treatment contextsource.Treatment) bool {
+	return treatment == contextsource.TreatmentRequired || treatment == contextsource.TreatmentReserved
+}
+
+func treatmentRank(treatment contextsource.Treatment) int {
+	switch treatment {
+	case contextsource.TreatmentRequired:
+		return 0
+	case contextsource.TreatmentReserved:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func makeView(request Request, candidates []Candidate) View {
+	view := View{TenantID: request.TenantID, WorkspaceID: request.WorkspaceID, SessionID: request.SessionID, Items: make([]ViewItem, 0, len(candidates))}
+	hash := sha256.New()
+	for _, value := range []string{request.TenantID, request.WorkspaceID, request.SessionID} {
+		_, _ = hash.Write([]byte(value))
+		_, _ = hash.Write([]byte{0})
+	}
+	for _, candidate := range candidates {
+		item := ViewItem{SourceID: candidate.SourceID, ContentID: candidate.ContentID, Version: candidate.Version, ProvenanceID: candidate.ProvenanceID, Treatment: candidate.Treatment}
+		view.Items = append(view.Items, item)
+		for _, value := range []string{item.SourceID, item.ContentID, item.Version, item.ProvenanceID, string(item.Treatment)} {
+			_, _ = hash.Write([]byte(value))
+			_, _ = hash.Write([]byte{0})
+		}
+	}
+	view.ID = hex.EncodeToString(hash.Sum(nil))
+	return view
 }
 
 func (host *Host) sourcePageLimit(requestLimit int) int {
@@ -382,6 +528,87 @@ func (host *Host) querySource(ctx context.Context, source contextsource.Provider
 	}
 }
 
+func (host *Host) resolveCandidate(ctx context.Context, source contextsource.Provider, request Request, candidate Candidate) (Candidate, error) {
+	reference := candidate.Resource
+	if reference == nil {
+		return candidate, nil
+	}
+	if !scopeMatches(reference.Scope, request) {
+		return Candidate{}, ErrResourceScope
+	}
+	if host.authorize != nil {
+		if err := host.authorize(ctx, source.ID(), request); err != nil {
+			return Candidate{}, err
+		}
+	}
+	resolver, ok := source.(contextsource.Resolver)
+	if !ok {
+		return Candidate{}, ErrResourceResolver
+	}
+	maxBytes := host.maxCandidateBytes
+	if request.ByteBudget > 0 && request.ByteBudget < maxBytes {
+		maxBytes = request.ByteBudget
+	}
+	callCtx, cancel := context.WithTimeout(ctx, host.sourceTimeout)
+	defer cancel()
+	outcomes := make(chan resourceOutcome, 1)
+	resolveRequest := contextsource.ResolveRequest{
+		Reference: reference.Clone(), TenantID: request.TenantID, WorkspaceID: request.WorkspaceID,
+		SessionID: request.SessionID, MaxBytes: maxBytes,
+	}
+	go func() {
+		outcome := resourceOutcome{}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				outcome.err = fmt.Errorf("context resource resolver panic: %v", recovered)
+			}
+			select {
+			case outcomes <- outcome:
+			default:
+			}
+		}()
+		outcome.resource, outcome.err = resolver.Resolve(callCtx, resolveRequest)
+	}()
+	var outcome resourceOutcome
+	select {
+	case <-callCtx.Done():
+		return Candidate{}, callCtx.Err()
+	case outcome = <-outcomes:
+	}
+	if outcome.err != nil {
+		return Candidate{}, outcome.err
+	}
+	resource := outcome.resource.Clone()
+	if reference.VersionMode == contextsource.VersionExact && resource.Reference.Version != reference.Version {
+		return Candidate{}, ErrResourceVersionMismatch
+	}
+	if resource.Reference.URI != reference.URI || resource.Reference.MediaType != reference.MediaType || !scopeEqual(resource.Reference.Scope, reference.Scope) {
+		return Candidate{}, ErrResourceScope
+	}
+	if len(resource.Content) > maxBytes {
+		return Candidate{}, ErrRequiredContextBudget
+	}
+	raw := candidate.Candidate.Clone()
+	raw.Content = string(resource.Content)
+	raw.SizeHint = len(resource.Content)
+	raw.MediaType = resource.Reference.MediaType
+	raw.Version = resource.Reference.Version
+	raw.Resource = &resource.Reference
+	resolved, valid := host.normalizeCandidate(source.ID(), raw)
+	if !valid {
+		return Candidate{}, ErrInvalidSource
+	}
+	return resolved, nil
+}
+
+func scopeMatches(scope contextsource.Scope, request Request) bool {
+	return (scope.TenantID == "" || scope.TenantID == request.TenantID) &&
+		(scope.WorkspaceID == "" || scope.WorkspaceID == request.WorkspaceID) &&
+		(scope.SessionID == "" || scope.SessionID == request.SessionID)
+}
+
+func scopeEqual(left, right contextsource.Scope) bool { return left == right }
+
 func (host *Host) normalizeCandidate(sourceID string, raw contextsource.Candidate) (Candidate, bool) {
 	candidate := raw.Clone()
 	if candidate.SourceID == "" {
@@ -392,6 +619,32 @@ func (host *Host) normalizeCandidate(sourceID string, raw contextsource.Candidat
 	}
 	if !validBoundedIdentifier(candidate.MediaType, maxMediaTypeBytes, true) || !validBoundedIdentifier(candidate.Version, maxVersionBytes, true) {
 		return Candidate{}, false
+	}
+	if candidate.Treatment == "" {
+		candidate.Treatment = contextsource.TreatmentCompetitive
+	}
+	if candidate.Treatment != contextsource.TreatmentCompetitive && candidate.Treatment != contextsource.TreatmentReserved && candidate.Treatment != contextsource.TreatmentRequired {
+		return Candidate{}, false
+	}
+	if candidate.ValidUntil < 0 {
+		return Candidate{}, false
+	}
+	if candidate.Resource != nil {
+		reference := candidate.Resource
+		if !validBoundedIdentifier(reference.URI, maxContentIDBytes, false) || !validBoundedIdentifier(reference.Version, maxVersionBytes, false) || !validBoundedIdentifier(reference.MediaType, maxMediaTypeBytes, false) || reference.SizeHint < 0 {
+			return Candidate{}, false
+		}
+		if reference.VersionMode != contextsource.VersionExact && reference.VersionMode != contextsource.VersionBestEffort {
+			return Candidate{}, false
+		}
+		if candidate.Version != "" && candidate.Version != reference.Version {
+			return Candidate{}, false
+		}
+		if candidate.MediaType != "" && candidate.MediaType != reference.MediaType {
+			return Candidate{}, false
+		}
+		candidate.Version = reference.Version
+		candidate.MediaType = reference.MediaType
 	}
 	if !utf8.ValidString(candidate.Content) || !validMetadata(candidate.Metadata) {
 		return Candidate{}, false

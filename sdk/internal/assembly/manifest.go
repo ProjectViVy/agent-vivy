@@ -5,10 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
+	providerconformance "agent-vivy/sdk/conformance"
+	generationconformance "agent-vivy/sdk/internal/conformance"
 	"agent-vivy/sdk/module"
 )
 
@@ -41,15 +45,16 @@ type CatalogManifest struct {
 	// APIVersion and Units are the compiler-owned catalog projection consumed
 	// by the generated Web/TUI hosts. The metadata fields remain available to
 	// Inspect and the digest binds this exact canonical projection.
-	APIVersion    string                 `json:"apiVersion,omitempty"`
-	SchemaVersion string                 `json:"schemaVersion"`
-	Path          string                 `json:"path"`
-	Digest        string                 `json:"digest"`
-	DefaultLocale string                 `json:"defaultLocale"`
-	Locales       []string               `json:"locales"`
-	Completeness  map[string]string      `json:"completeness,omitempty"`
-	Evidence      []string               `json:"evidence,omitempty"`
-	Units         map[string]CatalogUnit `json:"units,omitempty"`
+	APIVersion       string                 `json:"apiVersion,omitempty"`
+	SchemaVersion    string                 `json:"schemaVersion"`
+	Path             string                 `json:"path"`
+	Digest           string                 `json:"digest"`
+	DefaultLocale    string                 `json:"defaultLocale"`
+	Locales          []string               `json:"locales"`
+	Completeness     map[string]string      `json:"completeness,omitempty"`
+	CompilationState string                 `json:"compilationState"`
+	Evidence         []string               `json:"evidence,omitempty"`
+	Units            map[string]CatalogUnit `json:"units,omitempty"`
 }
 
 // CatalogUnit is the shared Web/TUI translation-unit shape. It deliberately
@@ -74,9 +79,24 @@ type SealInputs struct {
 	// manifest (rather than only returning it from GenerateUIAssembly) binds
 	// root selection, extension order, replacement relationships, SDK pin, and
 	// all UI content identities to the Generation ID consumed by Inspect.
-	UI               *UIAssemblyManifest
-	Catalogs         []CatalogManifest
-	CapabilityStates map[string]CapabilityState
+	UI                    *UIAssemblyManifest
+	Catalogs              []CatalogManifest
+	CapabilityStates      map[string]CapabilityState
+	ContextSourcePolicies []ContextSourcePolicy
+	RunObserverPolicies   []RunObserverPolicy
+	ConformanceResults    []providerconformance.ConformanceResult
+	PortSupport           []generationconformance.PortSupportRecord
+}
+
+type ContextSourcePolicy struct {
+	ProviderID string `json:"providerId"`
+	Required   bool   `json:"required"`
+}
+
+type RunObserverPolicy struct {
+	ProviderID           string   `json:"providerId"`
+	EventTypes           []string `json:"eventTypes"`
+	AllowedPayloadFields []string `json:"allowedPayloadFields"`
 }
 
 type ManifestModule struct {
@@ -90,20 +110,24 @@ type ManifestModule struct {
 }
 
 type GenerationManifest struct {
-	GenerationID         string                     `json:"generationId"`
-	SpecificationVersion string                     `json:"specificationVersion"`
-	CompilerVersion      string                     `json:"compilerVersion"`
-	SDKVersion           string                     `json:"sdkVersion"`
-	RecipeDigest         string                     `json:"recipeDigest"`
-	Modules              []ManifestModule           `json:"modules"`
-	PortEdges            []PortEdge                 `json:"portEdges"`
-	LifecycleOrder       []string                   `json:"lifecycleOrder"`
-	OrderedContributions map[string][]string        `json:"orderedContributions"`
-	DependencyLocks      map[string]string          `json:"dependencyLocks"`
-	UIArtifacts          map[string]string          `json:"uiArtifacts"`
-	UI                   *UIAssemblyManifest        `json:"ui,omitempty"`
-	Catalogs             []CatalogManifest          `json:"catalogs"`
-	CapabilityStates     map[string]CapabilityState `json:"capabilityStates,omitempty"`
+	GenerationID          string                                    `json:"generationId"`
+	SpecificationVersion  string                                    `json:"specificationVersion"`
+	CompilerVersion       string                                    `json:"compilerVersion"`
+	SDKVersion            string                                    `json:"sdkVersion"`
+	RecipeDigest          string                                    `json:"recipeDigest"`
+	Modules               []ManifestModule                          `json:"modules"`
+	PortEdges             []PortEdge                                `json:"portEdges"`
+	LifecycleOrder        []string                                  `json:"lifecycleOrder"`
+	OrderedContributions  map[string][]string                       `json:"orderedContributions"`
+	DependencyLocks       map[string]string                         `json:"dependencyLocks"`
+	UIArtifacts           map[string]string                         `json:"uiArtifacts"`
+	UI                    *UIAssemblyManifest                       `json:"ui,omitempty"`
+	Catalogs              []CatalogManifest                         `json:"catalogs"`
+	CapabilityStates      map[string]CapabilityState                `json:"capabilityStates,omitempty"`
+	ContextSourcePolicies []ContextSourcePolicy                     `json:"contextSourcePolicies,omitempty"`
+	RunObserverPolicies   []RunObserverPolicy                       `json:"runObserverPolicies,omitempty"`
+	ConformanceResults    []providerconformance.ConformanceResult   `json:"conformanceResults,omitempty"`
+	PortSupport           []generationconformance.PortSupportRecord `json:"portSupport,omitempty"`
 }
 
 func CanonicalRecipe(recipe Recipe) ([]byte, error) {
@@ -140,20 +164,31 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 	if !json.Valid(inputs.CanonicalRecipe) {
 		return GenerationManifest{}, nil, fmt.Errorf("canonical Recipe is not valid JSON")
 	}
+	conformanceResults, err := providerconformance.CanonicalResults(inputs.ConformanceResults)
+	if err != nil {
+		return GenerationManifest{}, nil, err
+	}
 	recipeDigest := sha256.Sum256(inputs.CanonicalRecipe)
 	manifest := GenerationManifest{
-		SpecificationVersion: inputs.SpecificationVersion,
-		CompilerVersion:      inputs.CompilerVersion,
-		SDKVersion:           inputs.SDKVersion,
-		RecipeDigest:         hex.EncodeToString(recipeDigest[:]),
-		PortEdges:            append([]PortEdge(nil), plan.PortEdges...),
-		LifecycleOrder:       append([]string(nil), plan.LifecycleOrder...),
-		OrderedContributions: cloneStringSliceMap(plan.OrderedContributions),
-		DependencyLocks:      cloneStringMap(inputs.DependencyLocks),
-		UIArtifacts:          cloneStringMap(inputs.UIArtifacts),
-		UI:                   cloneUIAssemblyManifest(inputs.UI),
-		Catalogs:             cloneCatalogManifests(inputs.Catalogs),
-		CapabilityStates:     cloneStringMap(inputs.CapabilityStates),
+		SpecificationVersion:  inputs.SpecificationVersion,
+		CompilerVersion:       inputs.CompilerVersion,
+		SDKVersion:            inputs.SDKVersion,
+		RecipeDigest:          hex.EncodeToString(recipeDigest[:]),
+		PortEdges:             append([]PortEdge(nil), plan.PortEdges...),
+		LifecycleOrder:        append([]string(nil), plan.LifecycleOrder...),
+		OrderedContributions:  cloneStringSliceMap(plan.OrderedContributions),
+		DependencyLocks:       cloneStringMap(inputs.DependencyLocks),
+		UIArtifacts:           cloneStringMap(inputs.UIArtifacts),
+		UI:                    cloneUIAssemblyManifest(inputs.UI),
+		Catalogs:              cloneCatalogManifests(inputs.Catalogs),
+		CapabilityStates:      cloneStringMap(inputs.CapabilityStates),
+		ContextSourcePolicies: cloneContextSourcePolicies(inputs.ContextSourcePolicies),
+		RunObserverPolicies:   cloneRunObserverPolicies(inputs.RunObserverPolicies),
+		ConformanceResults:    conformanceResults,
+	}
+	manifest.PortSupport, err = generationconformance.CanonicalPortSupport(inputs.PortSupport)
+	if err != nil {
+		return GenerationManifest{}, nil, err
 	}
 	manifest.Catalogs = canonicalizeCatalogManifests(manifest.Catalogs)
 	if manifest.UI != nil {
@@ -177,6 +212,15 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		}
 	}
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
+		return GenerationManifest{}, nil, err
+	}
+	if err := validateRuntimePolicies(manifest.ContextSourcePolicies, manifest.RunObserverPolicies); err != nil {
+		return GenerationManifest{}, nil, err
+	}
+	if err := validateCanonicalConformanceResults(manifest.ConformanceResults); err != nil {
+		return GenerationManifest{}, nil, err
+	}
+	if err := validateCanonicalPortSupport(manifest.PortSupport); err != nil {
 		return GenerationManifest{}, nil, err
 	}
 	for _, resolved := range plan.Modules {
@@ -217,6 +261,9 @@ func canonicalizeCatalogManifests(source []CatalogManifest) []CatalogManifest {
 		cloned[index].Locales = canonicalStrings(cloned[index].Locales)
 		cloned[index].Evidence = canonicalStrings(cloned[index].Evidence)
 		cloned[index].Completeness = cloneStringMap(cloned[index].Completeness)
+		if _, state, err := deriveCatalogCompleteness(cloned[index]); err == nil {
+			cloned[index].CompilationState = state
+		}
 	}
 	sort.SliceStable(cloned, func(left, right int) bool {
 		return cloned[left].Module < cloned[right].Module
@@ -239,6 +286,15 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
 		return GenerationManifest{}, err
 	}
+	if err := validateRuntimePolicies(manifest.ContextSourcePolicies, manifest.RunObserverPolicies); err != nil {
+		return GenerationManifest{}, err
+	}
+	if err := validateCanonicalConformanceResults(manifest.ConformanceResults); err != nil {
+		return GenerationManifest{}, err
+	}
+	if err := validateCanonicalPortSupport(manifest.PortSupport); err != nil {
+		return GenerationManifest{}, err
+	}
 	if err := validateInspectedCatalogs(manifest); err != nil {
 		return GenerationManifest{}, err
 	}
@@ -255,6 +311,32 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	}
 	manifest.GenerationID = want
 	return manifest, nil
+}
+
+func validateCanonicalConformanceResults(results []providerconformance.ConformanceResult) error {
+	canonical, err := providerconformance.CanonicalResults(results)
+	if err != nil {
+		return err
+	}
+	currentRaw, currentErr := json.Marshal(results)
+	canonicalRaw, canonicalErr := json.Marshal(canonical)
+	if currentErr != nil || canonicalErr != nil || !bytes.Equal(currentRaw, canonicalRaw) {
+		return fmt.Errorf("Generation Manifest conformance results are not canonical")
+	}
+	return nil
+}
+
+func validateCanonicalPortSupport(records []generationconformance.PortSupportRecord) error {
+	canonical, err := generationconformance.CanonicalPortSupport(records)
+	if err != nil {
+		return err
+	}
+	currentRaw, currentErr := json.Marshal(records)
+	canonicalRaw, canonicalErr := json.Marshal(canonical)
+	if currentErr != nil || canonicalErr != nil || !bytes.Equal(currentRaw, canonicalRaw) {
+		return fmt.Errorf("Generation Manifest Port support records are not canonical")
+	}
+	return nil
 }
 
 // validateInspectedCatalogs protects the trust boundary used by studio
@@ -377,6 +459,60 @@ func cloneStringSliceMap(source map[string][]string) map[string][]string {
 	return cloned
 }
 
+func cloneContextSourcePolicies(source []ContextSourcePolicy) []ContextSourcePolicy {
+	cloned := append([]ContextSourcePolicy(nil), source...)
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].ProviderID < cloned[j].ProviderID })
+	return cloned
+}
+
+func cloneRunObserverPolicies(source []RunObserverPolicy) []RunObserverPolicy {
+	if source == nil {
+		return nil
+	}
+	cloned := make([]RunObserverPolicy, len(source))
+	for index, policy := range source {
+		cloned[index] = RunObserverPolicy{
+			ProviderID:           policy.ProviderID,
+			EventTypes:           canonicalStrings(policy.EventTypes),
+			AllowedPayloadFields: canonicalStrings(policy.AllowedPayloadFields),
+		}
+	}
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].ProviderID < cloned[j].ProviderID })
+	return cloned
+}
+
+func validateRuntimePolicies(contextPolicies []ContextSourcePolicy, observerPolicies []RunObserverPolicy) error {
+	seen := map[string]struct{}{}
+	for _, policy := range contextPolicies {
+		id := strings.TrimSpace(policy.ProviderID)
+		if id == "" || id != policy.ProviderID {
+			return errors.New("Generation Manifest has invalid Context Source policy")
+		}
+		if _, duplicate := seen["context\x00"+id]; duplicate {
+			return fmt.Errorf("Generation Manifest repeats Context Source policy %s", id)
+		}
+		seen["context\x00"+id] = struct{}{}
+	}
+	for _, policy := range observerPolicies {
+		id := strings.TrimSpace(policy.ProviderID)
+		if id == "" || id != policy.ProviderID || len(policy.EventTypes) == 0 {
+			return errors.New("Generation Manifest has invalid Run Observer policy")
+		}
+		if _, duplicate := seen["observer\x00"+id]; duplicate {
+			return fmt.Errorf("Generation Manifest repeats Run Observer policy %s", id)
+		}
+		seen["observer\x00"+id] = struct{}{}
+		for _, values := range [][]string{policy.EventTypes, policy.AllowedPayloadFields} {
+			for _, value := range values {
+				if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value {
+					return errors.New("Generation Manifest has invalid Run Observer policy value")
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func cloneCatalogUnits(source map[string]CatalogUnit) map[string]CatalogUnit {
 	if source == nil {
 		return nil
@@ -403,16 +539,17 @@ func cloneStringSlice(source []string) []string {
 
 func cloneCatalogManifest(source CatalogManifest) CatalogManifest {
 	return CatalogManifest{
-		Module:        source.Module,
-		APIVersion:    source.APIVersion,
-		SchemaVersion: source.SchemaVersion,
-		Path:          source.Path,
-		Digest:        source.Digest,
-		DefaultLocale: source.DefaultLocale,
-		Locales:       append([]string(nil), source.Locales...),
-		Completeness:  cloneStringMap(source.Completeness),
-		Evidence:      append([]string(nil), source.Evidence...),
-		Units:         cloneCatalogUnits(source.Units),
+		Module:           source.Module,
+		APIVersion:       source.APIVersion,
+		SchemaVersion:    source.SchemaVersion,
+		Path:             source.Path,
+		Digest:           source.Digest,
+		DefaultLocale:    source.DefaultLocale,
+		Locales:          append([]string(nil), source.Locales...),
+		Completeness:     cloneStringMap(source.Completeness),
+		CompilationState: source.CompilationState,
+		Evidence:         append([]string(nil), source.Evidence...),
+		Units:            cloneCatalogUnits(source.Units),
 	}
 }
 

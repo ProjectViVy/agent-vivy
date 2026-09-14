@@ -77,6 +77,7 @@ type payloadModelRequest struct {
 	PreambleSHA256 string                       `json:"preamble_sha256"`
 	PreambleBytes  int                          `json:"preamble_bytes"`
 	Messages       []payloadModelRequestMessage `json:"messages"`
+	ContextView    string                       `json:"context_view,omitempty"`
 }
 
 type payloadModelRequestMessage struct {
@@ -209,7 +210,12 @@ type payloadQuestionCancelled struct {
 }
 
 type payloadRunCompleted struct {
-	Summary string `json:"summary,omitempty"`
+	Outcome     string `json:"outcome"`
+	Summary     string `json:"summary,omitempty"`
+	View        string `json:"view,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
 }
 
 // Cause categories for run.failed (FR-11; structured, never leaky).
@@ -225,6 +231,11 @@ const (
 type payloadRunFailed struct {
 	CauseCategory string `json:"cause_category"`
 	Message       string `json:"message"`
+	Outcome       string `json:"outcome"`
+	View          string `json:"view,omitempty"`
+	TenantID      string `json:"tenant_id,omitempty"`
+	WorkspaceID   string `json:"workspace_id,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
 }
 
 // Provider failures intentionally collapse to one stable, actionable user
@@ -238,7 +249,12 @@ const (
 )
 
 type payloadRunCancelled struct {
-	Reason string `json:"reason"`
+	Reason      string `json:"reason"`
+	Outcome     string `json:"outcome"`
+	View        string `json:"view,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
 }
 
 type payloadChildRequested struct {
