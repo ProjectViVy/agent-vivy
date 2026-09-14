@@ -72,7 +72,7 @@ func completeProviderResults(portID, providerID, evidenceID string) []providerco
 func completeEvidence(portID string) port.SupportEvidence {
 	references := make([]port.EvidenceReference, 0, len(port.RequiredEvidenceKinds()))
 	for _, kind := range port.RequiredEvidenceKinds() {
-		references = append(references, port.EvidenceReference{Kind: kind, ID: portID + ":" + string(kind)})
+		references = append(references, port.EvidenceReference{Kind: kind, ID: portID + "/" + string(kind)})
 	}
 	return port.SupportEvidence{References: references, GatesPassed: true}
 }
