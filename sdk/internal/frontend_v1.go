@@ -892,6 +892,7 @@ func hashUIDependencyLocks(root string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 		_, _ = io.WriteString(h, filepath.ToSlash(rel))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(body)
