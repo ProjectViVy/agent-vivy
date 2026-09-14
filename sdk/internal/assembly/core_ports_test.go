@@ -11,7 +11,7 @@ import (
 
 func TestPublicSourceCannotProvideCorePort(t *testing.T) {
 	descriptor := withProvides(testDescriptor("fixture/action-host"), module.PortRef{Port: "core/action-host@v1", ID: "fixture.action-host"})
-	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: descriptor, Trust: TrustT2}})
+	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: descriptor, Trust: TrustT2, RootlessFixture: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

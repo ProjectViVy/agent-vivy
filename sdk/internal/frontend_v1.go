@@ -98,14 +98,44 @@ func parsePackArgs(args []string) (packOptions, error) {
 	return o, nil
 }
 
+// repoSourceDirs is the single build-owned table of repository Modules that
+// enter a Generation without an external Recipe pin. snapshotSourceDirs and
+// sourceRecords both derive from it, so a new repository Module cannot be
+// added to one path and forgotten in the other.
+type repoSourceDir struct {
+	dir, importPath, pkg                string
+	diagnostics, languageServerStatuses bool
+	requiredContextSource               bool
+}
+
+var repoSourceDirs = []repoSourceDir{
+	{dir: "plugins/dingtalk", importPath: "example.com/vivy/plugins/dingtalk", pkg: "dingtalk"},
+	{dir: "plugins/discord", importPath: "example.com/vivy/plugins/discord", pkg: "discord"},
+	{dir: "plugins/feishu", importPath: "example.com/vivy/plugins/feishu", pkg: "feishu"},
+	{dir: "plugins/qq", importPath: "example.com/vivy/plugins/qq", pkg: "qq"},
+	{dir: "plugins/telegram", importPath: "example.com/vivy/plugins/telegram", pkg: "telegram"},
+	{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
+	{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
+	{dir: "plugins/scx-reference", importPath: "example.com/vivy/plugins/scxreference", pkg: "scxreference", requiredContextSource: true},
+	{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
+	{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
+}
+
 func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, error) {
 	if len(sources) == 0 {
 		return "", nil, nil
 	}
-	known := make(map[string]bool)
-	for _, rel := range []string{"plugins/dingtalk", "plugins/discord", "plugins/feishu", "plugins/qq", "plugins/telegram", "plugins/hello-fs", "plugins/lsp", "plugins/scx-reference", "faces/headless", "faces/tui", "sdk/internal/testdata/full-ui-module"} {
+	// The full-UI-module testdata tree is snapshot-only: it reaches a Pack
+	// through the UI Assembly path, not sourceRecords.
+	known := make([]string, 0, len(repoSourceDirs)+1)
+	for _, entry := range repoSourceDirs {
+		known = append(known, entry.dir)
+	}
+	known = append(known, "sdk/internal/testdata/full-ui-module")
+	knownAbs := make(map[string]bool, len(known))
+	for _, rel := range known {
 		abs, _ := filepath.Abs(filepath.Join(repoRoot, rel))
-		known[abs] = true
+		knownAbs[abs] = true
 	}
 	root, err := os.MkdirTemp("", "vivy-source-snapshot-")
 	if err != nil {
@@ -121,7 +151,7 @@ func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, er
 		if err != nil {
 			return cleanup(err)
 		}
-		if known[abs] {
+		if knownAbs[abs] {
 			out = append(out, abs)
 			continue
 		}
@@ -1524,21 +1554,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 	for _, r := range internal {
 		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
 	}
-	known := []struct {
-		dir, importPath, pkg                string
-		diagnostics, languageServerStatuses bool
-	}{
-		{dir: "plugins/dingtalk", importPath: "example.com/vivy/plugins/dingtalk", pkg: "dingtalk"},
-		{dir: "plugins/discord", importPath: "example.com/vivy/plugins/discord", pkg: "discord"},
-		{dir: "plugins/feishu", importPath: "example.com/vivy/plugins/feishu", pkg: "feishu"},
-		{dir: "plugins/qq", importPath: "example.com/vivy/plugins/qq", pkg: "qq"},
-		{dir: "plugins/telegram", importPath: "example.com/vivy/plugins/telegram", pkg: "telegram"},
-		{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
-		{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
-		{dir: "plugins/scx-reference", importPath: "example.com/vivy/plugins/scxreference", pkg: "scxreference"},
-		{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
-		{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
-	}
+	known := repoSourceDirs
 	seen := map[string]bool{}
 	for _, k := range known {
 		dir := filepath.Join(repoRoot, k.dir)
@@ -1554,7 +1570,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		}
 		binding := assemblyv1.GoBinding{ImportPath: k.importPath, Package: k.pkg, Constructor: "New", ProviderConstructor: "NewProvider", DiagnosticObserver: k.diagnostics, LanguageServerStatusProvider: k.languageServerStatuses}
 		binding.RunObserverProvider = descriptorProvidesPort(d, "std/observer/run@v1")
-		binding.ContextSourceRequired = k.dir == "plugins/scx-reference"
+		binding.ContextSourceRequired = k.requiredContextSource
 		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT1, Root: dir, Ref: "repo:" + k.dir, Binding: binding})
 		seen[dir] = true
 	}

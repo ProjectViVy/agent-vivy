@@ -39,6 +39,7 @@ var (
 	ErrResourceVersionMismatch = errors.New("contexthost: resource version mismatch")
 	ErrResourceScope           = errors.New("contexthost: resource scope mismatch")
 	ErrRequiredContextBudget   = errors.New("contexthost: required context exceeds budget")
+	ErrRequiredContextExpired  = errors.New("contexthost: required context expired")
 )
 
 type AuthorizeFunc func(context.Context, string, Request) error
@@ -336,6 +337,9 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 				continue
 			}
 			if candidate.ValidUntil > 0 && host.now().UnixMilli() > candidate.ValidUntil {
+				if strictTreatment(candidate.Treatment) {
+					return result, ErrRequiredContextExpired
+				}
 				result.DroppedExpired++
 				continue
 			}

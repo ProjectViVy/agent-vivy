@@ -21,6 +21,7 @@ type receiptRunObserver struct {
 	events        []observer.RunEvent
 	outage        bool
 	ambiguousOnce bool
+	attempts      int
 }
 
 func (provider *receiptRunObserver) setOutage(value bool) {
@@ -38,6 +39,7 @@ func (provider *receiptRunObserver) ObserveRun(context.Context, observer.RunEven
 func (provider *receiptRunObserver) ObserveRunWithReceipt(_ context.Context, event observer.RunEvent) (observer.DeliveryReceipt, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
+	provider.attempts++
 	if provider.outage {
 		return observer.DeliveryReceipt{}, errors.New("receiver unavailable")
 	}
@@ -195,5 +197,57 @@ func TestSCXObserverStructuralRedactionAlwaysProducesValidJSON(t *testing.T) {
 	}
 	if !json.Valid(projected) || strings.Contains(string(projected), "secret-value") || strings.Contains(string(projected), "sk-test-") || strings.Contains(string(projected), "plain-secret") {
 		t.Fatalf("structurally redacted payload = %q", projected)
+	}
+}
+
+func TestRetryDelayForDoublesPerAttemptAndCapsAtMax(t *testing.T) {
+	base := 5 * time.Millisecond
+	max := 200 * time.Millisecond
+	for _, tc := range []struct {
+		attempts int
+		want     time.Duration
+	}{
+		{attempts: 0, want: base},
+		{attempts: 1, want: base},
+		{attempts: 2, want: 10 * time.Millisecond},
+		{attempts: 3, want: 20 * time.Millisecond},
+		{attempts: 6, want: 160 * time.Millisecond},
+		{attempts: 7, want: max},
+		{attempts: 50, want: max},
+	} {
+		if got := retryDelayFor(base, max, tc.attempts); got != tc.want {
+			t.Fatalf("retryDelayFor(attempts=%d) = %v, want %v", tc.attempts, got, tc.want)
+		}
+	}
+	if got := retryDelayFor(100*time.Millisecond, 50*time.Millisecond, 3); got != 50*time.Millisecond {
+		t.Fatalf("retryDelayFor(max below base) = %v, want max", got)
+	}
+}
+
+func TestSCXObserverRetryBackoffBoundsPermanentFailureAttempts(t *testing.T) {
+	journal := &memoryJournal{}
+	_, _ = journal.Append(context.Background(), storage.Commit{RunID: "run-stuck", Events: []domain.RunEvent{{
+		Type: domain.EventRunCompleted, Payload: json.RawMessage(`{"outcome":"completed"}`),
+	}}})
+	provider := &receiptRunObserver{id: "fake-stuck", receipts: map[observer.EventID]observer.DeliveryReceipt{}, outage: true}
+	host, err := New(Config{Journal: journal, Cursors: &memorySnapshots{}, RetryDelay: 5 * time.Millisecond, MaxRetryDelay: 200 * time.Millisecond, RunSubscriptions: []RunSubscription{{
+		Provider: provider, EventTypes: []string{"run.completed"}, AllowedPayloadFields: []string{"outcome"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	host.Start(ctx)
+	t.Cleanup(func() { cancel(); host.Close() })
+	host.OnRunEvent(ctx, domain.RunEvent{RunID: "run-stuck", Type: domain.EventRunCompleted})
+	time.Sleep(250 * time.Millisecond)
+	provider.mu.Lock()
+	attempts := provider.attempts
+	provider.mu.Unlock()
+	// Without backoff a permanently failing receiver is hit roughly every
+	// RetryDelay; the doubling schedule must keep the 250ms window far below
+	// that while still retrying at least twice.
+	if attempts < 2 || attempts > 8 {
+		t.Fatalf("permanent-failure attempts in 250ms = %d, want 2..8", attempts)
 	}
 }
