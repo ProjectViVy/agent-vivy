@@ -518,11 +518,13 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	// Provenance is validated before anything is persisted so an invalid
-	// world entry cannot leave a half-labeled user message behind.
-	provenance := domain.Provenance{Source: "ui"}
+	// world entry cannot leave a half-labeled user message behind. The
+	// source must name a member of the closed ui|channel|headless
+	// vocabulary (CH-C1-N4); the platform name travels in Channel.
+	provenance := domain.Provenance{Source: domain.SourceUI}
 	if options.Provenance != nil {
-		if strings.TrimSpace(options.Provenance.Source) == "" {
-			return "", errors.New("runtime: run provenance requires a non-empty source")
+		if !domain.ValidMessageSource(options.Provenance.Source) {
+			return "", fmt.Errorf("runtime: run provenance source %q is outside the ui|channel|headless vocabulary", options.Provenance.Source)
 		}
 		provenance = *options.Provenance
 	}

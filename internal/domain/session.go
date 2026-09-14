@@ -53,11 +53,32 @@ func (s Session) PermissionPreset() PermissionPreset {
 	return PermissionPresetOf(mode, policy)
 }
 
+// Message source vocabulary (CH-C1-N4): the closed set of provenance
+// values a turn may carry. The platform name itself lives in
+// Provenance.Channel, never in Source.
+const (
+	SourceUI       = "ui"
+	SourceChannel  = "channel"
+	SourceHeadless = "headless"
+)
+
+// ValidMessageSource reports whether s is a member of the closed provenance
+// vocabulary. The runtime rejects anything else before persisting a turn;
+// the empty value never passes here — it exists only on legacy rows and
+// in-process appends, which EffectiveSource reads as ui.
+func ValidMessageSource(s string) bool {
+	switch s {
+	case SourceUI, SourceChannel, SourceHeadless:
+		return true
+	}
+	return false
+}
+
 // Provenance marks the world entry of one user turn. The runtime stamps
 // it onto the user message row; a nil Provenance (or an empty Source,
 // see Message.EffectiveSource) means the built-in UI.
 type Provenance struct {
-	Source           string // "ui" | "channel"
+	Source           string // ui | channel | headless (ValidMessageSource)
 	Channel          string // platform name, e.g. "telegram"; channel turns only
 	ChatID           string // platform chat the turn arrived in; channel turns only
 	ChannelMessageID string // platform-side message id; channel turns only
@@ -87,9 +108,9 @@ type FileContext struct {
 // Message is one turn in a session. Content is append-only; there is no
 // silent mutation path (FR-2). ToolCallID/ToolName/ToolArgs project a
 // model-visible tool turn (ADR-010); they are empty on ordinary text rows.
-// Provenance: Source is "ui" | "channel" (empty reads as ui, see
+// Provenance: Source is ui | channel | headless (empty reads as ui, see
 // EffectiveSource); Channel/ChatID/ChannelMessageID carry channel
-// provenance and stay empty on ui rows.
+// provenance and stay empty on non-channel rows.
 type Message struct {
 	ID               string
 	SessionID        SessionID
@@ -112,7 +133,7 @@ type Message struct {
 // (legacy rows, in-process appends) reads as the built-in UI.
 func (m Message) EffectiveSource() string {
 	if m.Source == "" {
-		return "ui"
+		return SourceUI
 	}
 	return m.Source
 }

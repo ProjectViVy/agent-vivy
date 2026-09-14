@@ -526,11 +526,11 @@ type messageProvenanceResult struct {
 }
 
 func messageProvenance(message domain.Message) *messageProvenanceResult {
-	if message.EffectiveSource() != "channel" {
+	if message.EffectiveSource() != domain.SourceChannel {
 		return nil
 	}
 	return &messageProvenanceResult{
-		Source:           "channel",
+		Source:           domain.SourceChannel,
 		Channel:          message.Channel,
 		ChatID:           message.ChatID,
 		ChannelMessageID: message.ChannelMessageID,
