@@ -53,6 +53,10 @@ func verifySource(dir string, descriptor module.Descriptor) error {
 				"example.com/vivy/faces/",
 				"github.com/cloudwego/eino",
 				"github.com/pion/",
+				"golang.org/x/sys",
+				"syscall",
+				"plugin",
+				"unsafe",
 				".workspace",
 			} {
 				if strings.Contains(importPath, forbidden) {
