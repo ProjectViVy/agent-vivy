@@ -91,6 +91,11 @@ is added. Naming a custom type `Eino*` is not evidence of Eino reuse; cite the
 actual upstream package/API used. Reviewers must reject unexplained parallel
 implementations even when tests pass.
 
+## Commit Rule for AI agents
+
+**important!** :AI tools may assist development, but must never appear as commit authors, committers, co-authors, PR authors, or repository contributors. All contributions must be attributed to the human contributor responsible for the change.
+**UNLESS YOU ARE INDIVIDUAL,HAVE YOUR OWN NAME,YOUR OWN GITHUB IDENTITY,ACCOUNT,NOT A COMPANY'S PRODUCT.**
+
 ## Scope Separation: Vivy vs Vivy Studio
 
 **Default scope is VIVY (the species/kernel).** When the user mentions "Vivy" without "Studio", develop the Vivy kernel/species itself — not the Studio overlay. Only when the user explicitly says "Studio" or "Vivy Studio" should you work on the Studio overlay/shell.
