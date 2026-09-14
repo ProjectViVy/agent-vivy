@@ -16,6 +16,31 @@ import (
 	"agent-vivy/sdk/module"
 )
 
+func TestUIDependencyLockHashNormalizesCRLF(t *testing.T) {
+	lfRoot := t.TempDir()
+	crlfRoot := t.TempDir()
+	lfBody := []byte("lockfileVersion: '9.0'\n\nimporters: {}\n")
+	crlfBody := bytes.ReplaceAll(lfBody, []byte("\n"), []byte("\r\n"))
+	if err := os.WriteFile(filepath.Join(lfRoot, "pnpm-lock.yaml"), lfBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(crlfRoot, "pnpm-lock.yaml"), crlfBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lfHash, err := hashUIDependencyLocks(lfRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlfHash, err := hashUIDependencyLocks(crlfRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lfHash != crlfHash {
+		t.Fatalf("dependency lock hash differs by line endings: LF %s, CRLF %s", lfHash, crlfHash)
+	}
+}
+
 func TestV1PackAndInspectProveRecipeRemoval(t *testing.T) {
 	root := t.TempDir()
 	defaultArtifact, err := Pack(context.Background(), packOptions{Recipe: "../../recipes/default.vivy.yml", Output: filepath.Join(root, "default")})
