@@ -61,7 +61,7 @@ and `just ci`.
 | PLG-P6 | [#11](https://github.com/ProjectViVy/agent-vivy/issues/11) | Full-code UI Modules and Control Actions | `IMPLEMENTATION COMPLETE · 2026-09-11` | P2 | Not on core SCX path; P9 release conformance remains separate |
 | PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `DONE · 2026-09-12` | P2, P3, P4, P5 | Gate B hardening |
 | PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `COMPLETE · GATES A/B/C PASSED FOR BOUNDED FIXTURES A-C · 2026-09-13` | P1–P7 plus selected P9 matrix | Direct SCX integration |
-| PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `REVIEW READY · LOCAL GATES PASSED · CI/BROWSER PENDING · 2026-09-14` | P1–P8 | Gate C critical path |
+| PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `COMPLETE · 2026-09-14 · GitHub run #147 green` | P1–P8 | Gate C critical path |
 
 Only a human changes an `UNSCHEDULED` phase to scheduled. PLG-P1 and PLG-P2
 were scheduled together by the human owner on 2026-09-09 and completed in one
@@ -83,9 +83,9 @@ scheduled by the human owner on 2026-09-13; all three Gates passed for bounded
 fixtures A-C and the selected SCX candidate. The original stage IDs remain
 unrecovered and were not invented. PLG-P9 was explicitly scheduled by the human
 owner on 2026-09-14 after P8 completed. Its work runs on
-`feat/plugin-v1-p9`; local product gates and independent review are complete,
-while final closure still depends on the published GitHub Actions and Windows
-browser gate. Final P8 Gate B/C conformance and rollback evidence is filed in
+`feat/plugin-v1-p9`; local product gates, independent review, and the published
+GitHub Actions/Windows browser gate are complete in run #147. Final P8 Gate
+B/C conformance and rollback evidence is filed in
 `docs/logs/2026-09-13-plugin-p8-gates-b-c/`.
 Dependency order is an execution constraint, not a calendar commitment.
 

@@ -2,7 +2,8 @@
 
 Date: 2026-09-14
 
-PLG-P9 is accepted locally when all of the following remain true:
+PLG-P9 is accepted on the published branch when all of the following remain
+true:
 
 - [x] Support state comes only from complete, exact Provider/Port/source
   evidence and all required Port artifacts.
@@ -22,10 +23,12 @@ PLG-P9 is accepted locally when all of the following remain true:
 - [x] VIVY CODE, Channel, MCP, and packed full-UI HTTP real paths pass without
   tenant data or live credentials.
 - [x] Independent review reports READY with no remaining findings.
-- [ ] GitHub Actions `backend-ci`, `ui-ci`, and Windows Playwright browser jobs
-  pass on the published branch.
-- [ ] PLG-1 is removed from the open board and issue #14 is closed only after
-  the complete GitHub gate passes.
+- [x] GitHub Actions `backend ci`, `ui ci`, Windows Playwright browser, and
+  aggregate `just ci` jobs pass in [run #147](https://github.com/ProjectViVy/agent-vivy/actions/runs/34825393484).
+- [x] PLG-1 is removed from the open board after the complete GitHub gate
+  passed; PR [#27](https://github.com/ProjectViVy/agent-vivy/pull/27) carries
+  `Closes #14`, so the issue remains open until that PR is merged.
 
-The phase remains `REVIEW READY · CI/BROWSER PENDING` until the last two items
-are checked. No skipped browser slice is silently converted into acceptance.
+The phase is `COMPLETE · 2026-09-14` on the published PR branch. The local
+browser slice remains unexecuted because Chromium is unavailable in this
+worker, while the required Windows browser job passed.

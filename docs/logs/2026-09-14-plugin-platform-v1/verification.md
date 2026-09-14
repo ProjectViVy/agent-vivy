@@ -21,6 +21,23 @@ Windows `backend-ci`, `ui-ci`, and browser jobs.
 | focused catalog canonicalization/semantic-identity selectors in `sdk/internal` and `sdk/internal/assembly` | PASS |
 | `go test ./internal/runtime ./internal/codeface -count=1` after the TTY-discovered skill correction | PASS; runtime 26.226s, codeface 0.449s |
 
+## Published Windows CI closure
+
+The final code head `2e715cf` passed [GitHub Actions run #147](https://github.com/ProjectViVy/agent-vivy/actions/runs/34825393484):
+
+| Required check | Result |
+| --- | --- |
+| `backend ci` | PASS |
+| `ui ci` | PASS |
+| `full UI browser smoke` | PASS; Windows Playwright at `http://127.0.0.1:3015` |
+| aggregate `just ci` | PASS |
+
+The aggregate is the workflow's required-lane guard; its backend and UI lanes
+run the split equivalents of the repository `just ci` recipe. This closes the
+previously skipped browser slice. The local Linux worker still lacks
+PowerShell-backed `just` and Chromium, so the browser result is intentionally
+the dedicated Windows result above rather than a local claim.
+
 The complete local UI gate passed before final publication: typecheck; 35
 Vitest files and 316 tests; a 2,280-module production build; 1,396-key English
 and Chinese catalog completeness with 138 placeholder checks; eight cross-face
@@ -68,8 +85,8 @@ and `go run ./sdk inspect-artifact <output>` accepted the result.
   full-UI copy and route markers.
 - Browser behavior: not executed locally because Chromium is absent and its
   installer is unavailable in this worker's network venue. The required
-  `pnpm exec playwright test e2e/plugin-full-ui.spec.ts` runs in the dedicated
-  GitHub Actions Windows browser job and remains a closure gate.
+  `pnpm exec playwright test e2e/plugin-full-ui.spec.ts` passed in the
+  dedicated GitHub Actions Windows browser job recorded above.
 
 No real-path smoke used tenant Journal data or live provider/channel
 credentials.

@@ -20,7 +20,7 @@ React/Vitest/Playwright where UI is included, `just ci`, Git iteration logs.
 
 ## Global Constraints
 
-- State: `IN PROGRESS · HUMAN-SCHEDULED · 2026-09-14`; depends on every phase
+- State: `COMPLETE · HUMAN-SCHEDULED · 2026-09-14`; depends on every phase
   included in the release scope.
 - A Port without all seven artifacts remains `SPECIFIED` or
   `DEFERRED-INDEFINITE`; release does not promote it optimistically.
@@ -212,15 +212,17 @@ type ConformanceResult struct {
 - [x] Pack and inspect default, minimal, full-UI, and SCX candidate Generations.
 - [x] Prove canonical catalog formatting is identity-neutral and semantic
   catalog changes deterministically change Generation identity.
-- [ ] Run `just ci`.
-- [ ] Run the split browser smoke at `http://127.0.0.1:3015` for user-visible
-  UI behavior.
+- [x] Run the CI workflow's aggregate `just ci` guard; run #147 passed the
+  split `backend ci` and `ui ci` lanes plus the aggregate requirement.
+- [x] Run the split browser smoke at `http://127.0.0.1:3015` for user-visible
+  UI behavior in the dedicated Windows Playwright job.
 - [x] Run the appropriate VIVY CODE/Channel/MCP real-path smokes without using
   tenant Journal data.
 - [x] Record every exact command, result, artifact ID, and skipped slice reason.
-- [ ] Move PLG-1 from the open board only after all selected capabilities and
-  SCX Gate C are complete.
-- [ ] Commit `docs(log): close plugin platform v1`.
+- [x] Move PLG-1 from the open board after all selected capabilities and SCX
+  Gate C are complete; PR #27 carries `Closes #14` for merge-time issue
+  closure.
+- [x] Commit `docs(log): close plugin platform v1`.
 
 ## Phase exit and rollback
 

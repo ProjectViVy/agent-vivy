@@ -2,8 +2,10 @@
 
 Date: 2026-09-14
 
-Status: local release gates complete; GitHub Actions and the Windows browser
-smoke remain required before PLG-1 closes.
+Status: PLG-P9 complete; the published code head passed all GitHub release
+gates in [run #147](https://github.com/ProjectViVy/agent-vivy/actions/runs/34825393484).
+PR [#27](https://github.com/ProjectViVy/agent-vivy/pull/27) remains open for
+human merge; its `Closes #14` body will close the tracker issue on merge.
 
 PLG-P9 makes release support an evidence-derived property of the sealed
 Generation. A public Port is reported as `SUPPORTED` only when its exact
@@ -26,7 +28,7 @@ The release slice includes:
 - a repository-skill load gate discovered by the credential-free VIVY CODE
   smoke.
 
-Independent code review reported READY on the final local tree, published to
-GitHub as `5304831`, with no Critical, Important, or Minor findings. PLG-1
-deliberately remains on the open board until the PR's complete GitHub gate,
-including Playwright, passes.
+Independent code review reported READY with no Critical, Important, or Minor
+findings on the final tree, published through `2e715cf`. PLG-1 is archived
+from the open board after the complete GitHub gate, including Playwright,
+passed.
