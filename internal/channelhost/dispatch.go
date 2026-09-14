@@ -68,14 +68,6 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return nil
 	}
 
-	sessionID, err := h.EnsureSession(ctx, msg.Channel, msg.ChatID, msg.TopicID)
-	if err != nil {
-		return fmt.Errorf("channelhost: ensure session: %w", err)
-	}
-	if err := h.journalInbound(ctx, msg, sessionID); err != nil {
-		return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
-	}
-
 	// v1 carries text only; media-ref and structured parts are ignored
 	// with a log so a silent content loss stays visible in the gateway log.
 	var texts []string
@@ -89,6 +81,41 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		}
 	}
 	text := strings.Join(texts, "\n")
+
+	// HITL command surface (contract §12): an exact /approve, /deny, or
+	// /pending token is answered in place — journaled like any inbound
+	// message, but it opens no run, tracks no target, and records no
+	// delivery intent. Non-command text (including other "/" tokens) falls
+	// through to the ordinary turn path untouched.
+	if cmd, arg, ok := parseApprovalCommand(text); ok {
+		sessionID, err := h.EnsureSession(ctx, msg.Channel, msg.ChatID, msg.TopicID)
+		if err != nil {
+			return fmt.Errorf("channelhost: ensure session: %w", err)
+		}
+		if err := h.journalInbound(ctx, msg, sessionID); err != nil {
+			return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
+		}
+		ch := h.channelByName(msg.Channel)
+		if ch == nil {
+			h.logger.Warn("channelhost: dropping approval command for unregistered channel",
+				"channel", msg.Channel, "chat_id", msg.ChatID)
+			return nil
+		}
+		reply := channelReply{
+			ch: ch, chatID: msg.ChatID, topicID: msg.TopicID,
+			sessionID: sessionID, senderID: msg.Sender, maxRunes: runesLimit(ch),
+		}
+		h.handleApprovalCommand(ctx, reply, cmd, arg)
+		return nil
+	}
+
+	sessionID, err := h.EnsureSession(ctx, msg.Channel, msg.ChatID, msg.TopicID)
+	if err != nil {
+		return fmt.Errorf("channelhost: ensure session: %w", err)
+	}
+	if err := h.journalInbound(ctx, msg, sessionID); err != nil {
+		return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
+	}
 
 	runID, err := h.deps.Run(ctx, sessionID, text, &domain.Provenance{
 		Source:           domain.SourceChannel,
@@ -163,12 +190,19 @@ func (h *Host) journalInbound(ctx context.Context, msg plugin.InboundMessage, se
 }
 
 // OnRunEvent observes durable run events (runtime.RunHook satisfied
-// structurally). Only tracked channel runs are acted on: on run.completed
-// the durable intent flips to pending and the run's last assistant message
-// is delivered back to the originating chat; run.failed / run.cancelled
-// settle the intent (the journal already records why). Either way a
-// terminal closes exactly one delivery.
+// structurally). Non-terminal interception: a channel run suspended for
+// approval notifies its originating chat (contract §12) — the tracked
+// target is read, never consumed, so the terminal still delivers or settles
+// exactly one reply. Terminal handling: only tracked channel runs are acted
+// on; on run.completed the durable intent flips to pending and the run's
+// last assistant message is delivered back to the originating chat;
+// run.failed / run.cancelled settle the intent (the journal already records
+// why). Either way a terminal closes exactly one delivery.
 func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
+	if ev.Type == domain.EventToolApprovalRequired {
+		h.notifyApprovalRequired(ctx, ev)
+		return
+	}
 	if !ev.Type.Terminal() {
 		return
 	}

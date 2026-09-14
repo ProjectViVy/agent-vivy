@@ -611,6 +611,14 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				}
 				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
 			},
+			Approvals: backend,
+			Runs:      backend,
+			DecideApproval: func(ctx context.Context, approvalID, decision, actor string) error {
+				if svc == nil {
+					return errors.New("app: runtime service is not wired")
+				}
+				return svc.DecideApprovalAsActor(ctx, approvalID, decision, "", actor)
+			},
 			Channels:    channelPlugins,
 			Config:      cfg.Channels,
 			Logger:      logger,

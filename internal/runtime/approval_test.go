@@ -601,3 +601,42 @@ func TestMapperInterruptDetailsFallback(t *testing.T) {
 		t.Fatalf("fallback args = %+v", d.Args)
 	}
 }
+
+// TestServiceApprovalActorAttribution: DecideApprovalAsActor runs the exact
+// decide path with the actor recorded in the durable decision event and the
+// approval metadata — a channel decision is attributable without being a
+// second decision path — and an empty actor is rejected.
+func TestServiceApprovalActorAttribution(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+
+	runID, err := svc.Run(ctx, "sess-1", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	waitForApprovalEvent(t, backend, runID)
+
+	if err := svc.DecideApprovalAsActor(ctx, approval.ID, domain.ApprovalApproved, "", "  "); err == nil {
+		t.Fatal("empty actor accepted")
+	}
+	if err := svc.DecideApprovalAsActor(ctx, approval.ID, domain.ApprovalApproved, "", strings.Repeat("x", 201)); err == nil {
+		t.Fatal("over-long actor accepted")
+	}
+
+	if err := svc.DecideApprovalAsActor(ctx, approval.ID, domain.ApprovalApproved, "", "channel:telegram:12345"); err != nil {
+		t.Fatalf("decide as actor: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+
+	events := replayAll(t, backend, runID)
+	decided := events[indexOfType(events, domain.EventToolApprovalDecided)]
+	var payload payloadApprovalDecided
+	mustUnmarshal(t, decided.Payload, &payload)
+	if payload.Actor != "channel:telegram:12345" {
+		t.Fatalf("decided actor = %q, want the channel attribution", payload.Actor)
+	}
+	if payload.Decision != domain.ApprovalApproved {
+		t.Fatalf("decided decision = %q", payload.Decision)
+	}
+}
