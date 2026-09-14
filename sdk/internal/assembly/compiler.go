@@ -92,6 +92,9 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 				diagnostics = append(diagnostics, "source pin mismatch for "+moduleID)
 			}
 		}
+		if record.Trust == TrustT2 && record.Root == "" && !record.RootlessFixture {
+			diagnostics = append(diagnostics, "T2 module "+moduleID+" lacks a verified source root")
+		}
 		selected[moduleID] = record
 		resolved = append(resolved, ResolvedModule{Descriptor: record.Descriptor, Trust: record.Trust, Binding: record.Binding})
 		if err := record.Descriptor.Validate(); err != nil {
@@ -101,6 +104,11 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 	for moduleID := range recipe.Sources {
 		if _, exists := selected[moduleID]; !exists {
 			diagnostics = append(diagnostics, "source pin names unselected module "+moduleID)
+		}
+	}
+	for _, approval := range recipe.GrantApprovals {
+		if _, exists := selected[approval.Module]; !exists {
+			diagnostics = append(diagnostics, "grant approval names unselected module "+approval.Module)
 		}
 	}
 	providers := make(map[string][]SourceRecord)
