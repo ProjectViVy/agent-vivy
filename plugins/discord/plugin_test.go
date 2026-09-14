@@ -998,3 +998,25 @@ func TestLateDeathSignalAfterStopIsBenign(t *testing.T) {
 		t.Fatalf("Send after Stop must fail")
 	}
 }
+
+// TestHealthClassifiesRedialingGateway (CH-R-1): a dropped gateway session
+// surfaces as a temporary HealthError while the loop redials, and Health
+// returns to nil once the replacement session opens.
+func TestHealthClassifiesRedialingGateway(t *testing.T) {
+	old := wsRedialDelay
+	wsRedialDelay = 20 * time.Millisecond
+	t.Cleanup(func() { wsRedialDelay = old })
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	h.drop(t, 0)
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health while redialing", func() bool {
+		err := h.p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return h.p.Health(context.Background()) == nil
+	})
+}

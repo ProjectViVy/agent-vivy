@@ -60,8 +60,9 @@ const p2pChatType = "p2p"
 // wsRedialDelay is how often the supervisor offers the event gateway a
 // fresh websocket after a healthy connection died. The SDK's own
 // auto-reconnect is disabled (its retry loop would keep redialing under a
-// dead context); this loop is the context-aware replacement.
-const wsRedialDelay = 3 * time.Second
+// dead context); this loop is the context-aware replacement. A var, like
+// the sibling adapters, so lifecycle tests can shrink it.
+var wsRedialDelay = 3 * time.Second
 
 // wsCreds carries the credentials the two SDK clients need between Start
 // and the client factories. AppID/AppSecret are values resolved through
@@ -134,6 +135,11 @@ type Plugin struct {
 	// redial and the event handler before every publish, so neither a
 	// redial nor a late callback can resurrect a stopped ear.
 	stopped bool
+	// health is the live gateway state for the HealthChecker face (CH-R-1):
+	// nil while a connection is live, a temporary HealthError while
+	// redialing. Guarded by mu; written only by the supervisor loop, read
+	// through Health.
+	health error
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -388,11 +394,20 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 				report(err)
 				return
 			}
+			// A later failed attempt is a redial: the classified health
+			// (CH-R-1) keeps the broken link visible to the Host inspect
+			// surface, exactly like the CH-C6-N1 log line would.
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("gateway redial failed: %w", err)}
+			p.mu.Unlock()
 			if !p.pause(ctx) {
 				return
 			}
 			continue
 		case <-ready:
+			p.mu.Lock()
+			p.health = nil
+			p.mu.Unlock()
 		case <-ctx.Done():
 			client.Close()
 			p.retire(client)
@@ -504,6 +519,16 @@ func (p *Plugin) Stop(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Health implements plugin.HealthChecker (CH-R-1): read-only gateway state,
+// no network I/O. A live websocket is healthy; a broken link is temporary —
+// the supervise loop owns recovery, so no feishu condition is classified
+// dead this generation (a failed first connect never starts the ear).
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
 }
 
 // Send implements plugin.Channel: deliver each text part as one

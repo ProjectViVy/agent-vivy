@@ -1354,3 +1354,59 @@ func TestStopDuringFirstConnectReturns(t *testing.T) {
 		t.Fatal("Start did not return after Stop")
 	}
 }
+
+// TestHealthClassifiesRedialingGateway (CH-R-1): a dropped connection
+// surfaces as a temporary HealthError while the loop redials, and Health
+// returns to nil once a replacement attempt connects.
+func TestHealthClassifiesRedialingGateway(t *testing.T) {
+	oldDelay := wsRedialDelay
+	wsRedialDelay = 20 * time.Millisecond
+	t.Cleanup(func() { wsRedialDelay = oldDelay })
+
+	stub := newLarkStub(t, stubOptions{})
+	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+
+	// Scripted attempts: 1 connects (the test drops it), 2 fails its
+	// connect, 3 reconnects and clears the classification.
+	live := newFakeWS(nil)
+	dead := newFakeWS(errors.New("handshake refused"))
+	fresh := newFakeWS(nil)
+	var mu sync.Mutex
+	var attempt int
+	p := newAdapter()
+	p.newWS = func(onEvent eventFunc, _ wsCreds, _ string) wsClient {
+		mu.Lock()
+		attempt++
+		i := attempt
+		mu.Unlock()
+		var ws *fakeWS
+		switch i {
+		case 1:
+			ws = live
+		case 2:
+			ws = dead
+		default:
+			ws = fresh
+		}
+		ws.setOnEvent(onEvent)
+		return ws
+	}
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = p.Stop(ctx)
+	})
+
+	live.cancelRun(errors.New("connection reset"))
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health while redialing", func() bool {
+		err := p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return p.Health(context.Background()) == nil
+	})
+}

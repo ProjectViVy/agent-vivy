@@ -985,6 +985,13 @@ export interface FaceChannelCapabilities {
   readonly health: boolean;
 }
 
+/** Live probe of a started HealthChecker adapter (CH-R-1). */
+export interface FaceChannelHealth {
+  readonly ok: boolean;
+  readonly class?: string;
+  readonly detail?: string;
+}
+
 export interface FaceChannelStatus {
   readonly name: string;
   readonly capabilities: FaceChannelCapabilities;
@@ -995,6 +1002,7 @@ export interface FaceChannelStatus {
   readonly token_env: string;
   readonly token_env_set: boolean;
   readonly note: string;
+  readonly health: FaceChannelHealth | null;
 }
 
 export interface FaceChannelEnvelope {

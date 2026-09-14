@@ -1452,3 +1452,45 @@ func TestGiveUpLogged(t *testing.T) {
 		return strings.Contains(buf.String(), "ear stays deaf until the channel restarts")
 	})
 }
+
+// TestHealthClassifiesRedialingGateway (CH-R-1): a broken session is
+// temporary while the loop redials, and Health returns to nil after the
+// gateway reconnects.
+func TestHealthClassifiesRedialingGateway(t *testing.T) {
+	shrinkRedialDelay(t)
+	h := newHarness(t, validSettings)
+	// Attempt #1 (the first redial after the drop) dials refused; every
+	// later attempt dials normally, so the ear recovers.
+	h.spy.onBuild = func(n int, f *fakeWS) {
+		if n == 1 {
+			f.connectErr = errors.New("refused")
+		}
+	}
+	h.start(t)
+
+	h.spy.nth(0).drop(errors.New("connection reset"))
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health while redialing", func() bool {
+		err := h.p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return h.p.Health(context.Background()) == nil
+	})
+}
+
+// TestHealthDeadAfterGiveUp (CH-R-1): the terminal cannot-identify close
+// surfaces through Health as a dead classification — the ear cannot recover
+// on its own.
+func TestHealthDeadAfterGiveUp(t *testing.T) {
+	shrinkRedialDelay(t)
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	h.spy.nth(0).drop(errs.New(errs.CodeConnCloseCantIdentify, "bot delisted"))
+	var healthErr *plugin.HealthError
+	waitFor(t, "dead health after give-up", func() bool {
+		err := h.p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassDead
+	})
+}

@@ -121,6 +121,52 @@ type ListenHandler interface{ ListenHandler() http.Handler }
 type StreamingCapable interface {
 	Stream(context.Context, string, string, string) error
 }
+
+// ErrorClass is the minimal error-classification vocabulary of the §8
+// Reliability row (CH-R-1). It answers "why is this ear degraded" with one
+// word so the Host inspect surface and the Settings UI can show it without
+// parsing adapter-specific error strings.
+type ErrorClass string
+
+const (
+	// ClassRateLimit: the platform is throttling this bot (429s, quota
+	// windows). Recovery is expected once the throttle lifts; the adapter
+	// keeps retrying with backoff.
+	ClassRateLimit ErrorClass = "rate-limit"
+	// ClassTemporary: a transient transport or connectivity failure
+	// (dropped socket, refused dial, handshake timeout). The supervised
+	// redial loop is expected to recover on its own.
+	ClassTemporary ErrorClass = "temporary"
+	// ClassDead: the ear cannot recover without operator action — revoked
+	// credentials, a delisted or banned bot, a gateway that permanently
+	// refuses the session. Retrying only burns quota.
+	ClassDead ErrorClass = "dead"
+)
+
+// HealthError classifies a Health report (CH-R-1). HealthChecker
+// implementations return it to explain an unhealthy ear; the Host extracts
+// the class with errors.As and surfaces it alongside the plain message. A
+// Health error that is not a *HealthError is reported as ClassTemporary —
+// the default assumption for a supervised, redialing ear.
+type HealthError struct {
+	Class ErrorClass
+	Err   error
+}
+
+func (e *HealthError) Error() string {
+	if e.Err == nil {
+		return string(e.Class)
+	}
+	return e.Err.Error()
+}
+
+func (e *HealthError) Unwrap() error { return e.Err }
+
+// HealthChecker reports the adapter's live transport state. The contract is
+// deliberately narrow: Health reads internal state only — it never performs
+// network I/O and must return promptly — so the Host may call it inline
+// while building the inspect surface. A nil error means healthy.
 type HealthChecker interface{ Health(context.Context) error }
+
 type TaskLifecycle interface{}
 type PipeServer interface{}

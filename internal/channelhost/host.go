@@ -242,6 +242,11 @@ type ChannelStatus struct {
 	// Note is the human-readable skip/fail reason of the last StartAll;
 	// empty when the channel started.
 	Note string
+	// Health is the live probe of a started HealthChecker adapter; nil when
+	// the channel is not started or the adapter has no Health face. The
+	// StartAll note answers "why did it not start"; this answers "is the
+	// running ear actually connected" (CH-R-1).
+	Health *ChannelHealth
 }
 
 // Inspect reports every compiled-in channel in deterministic name order,
@@ -280,6 +285,9 @@ func (h *Host) Inspect() []ChannelStatus {
 		}
 		if status.TokenEnv != "" && h.deps.Credentials != nil {
 			status.TokenEnvSet = h.deps.Credentials.IsSet("vivy/"+name, status.TokenEnv)
+		}
+		if status.Started {
+			status.Health = h.probeHealth(ch)
 		}
 		statuses = append(statuses, status)
 	}

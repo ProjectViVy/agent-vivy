@@ -54,6 +54,7 @@ This translates DSH's "registration as effect" into Vivy's cold plug/unplug mode
 | 2026-08-30 | **Eino-native A2A = borrow the protocol, not the example server.** Later, `plugins/a2a` uses the `models`/`transport` from `eino-ext/a2a`; do not use `RegisterServerHandlers(adk.Agent)` as the gateway. The loop remains `Service.Run`. |
 | 2026-09-14 | **§12 ledger corrected to the implemented shape (CH-C1-N2).** The `channel.inbound` payload is the identifiers-only `{channel, chat_id, sender, message_id, session_id}`; `content_digest` / `bytes` and the `peer` provenance blob are retired from the contract. **Source vocabulary ruled `ui \| channel \| headless` (CH-C1-N4)** — the platform name lives in the `channel` field. Outbound delivery became durable (at-least-once intent rows + restart reconcile), `chanin_*` events got a 30-day retention, and StopAll drains in-flight Sends. |
 | 2026-09-15 | **Capability discovery wired through the v1 wrappers; every ear carries an outbound rune ceiling (gate-0).** `plugin.CapabilitySource` (`CapabilityTarget() any`) lets the assembly wrappers point Discover at the adapter's own method set — a typed-nil probe captured from the provider at bind time, type-asserted and never called — so `advertised` reports what the adapter implements instead of a wrapper-induced zero; the five text-only ears still advertise nothing today, and tier1's CH-R-1 `HealthChecker` flips them to `Health: true` on rebase (Health call-path forwarding stays with that batch). Outbound ceilings land in `Definition.MaxMessageRunes` with sources: discord 2000 characters (official create-message, reject 50035), dingtalk 5000 runes (official 20000-**byte** `text.content` bound — picoclaw's character reading is unsafe for CJK — divided by 4 for worst-case runes), feishu 37500 runes (official 150KB text message, error 230025), qq 2000 runes (no official number published; over-length rejects with 40054007, so the value follows community practice aligned with Discord), telegram 4096 (official Bot API; the Definition is now the single source and the adapter's shadowed duplicate is gone). `splitRunes` closes and reopens fenced code so every delivered chunk renders standalone; behavior without an open fence at the cut is unchanged. |
+| 2026-09-15 | **Error classification ruled `rate-limit \| temporary \| dead` (CH-R-1).** `plugin.ErrorClass` + `plugin.HealthError` land in `sdk/port/channel`; `HealthChecker.Health` is defined as read-only internal state, no network I/O, so the Host probes it inline while building the inspect surface. All five batch adapters report it; a plain (unclassified) Health error defaults to `temporary` — the supervised-ear assumption. This closes the §8 Reliability slot for this generation; rate-limit is carried by the vocabulary but no adapter currently emits it. |
 
 The five names in this batch are: `telegram`, `discord`, `feishu`, `dingtalk`, `qq`.
 
@@ -238,7 +239,7 @@ Required     Start Stop Send
 Interaction  Typing  Edit  Delete  Reaction  Placeholder  Stream
 Media        MediaSender
 Ingress      WebhookHandler / ListenHandler   ← Host owns Listen
-Reliability  HealthChecker  error classification (rate-limit / temporary)
+Reliability  HealthChecker  error classification: rate-limit / temporary / dead
 Heavyweight  TaskLifecycle (A2A)  PipeServer (NeuroLink)
 ```
 
