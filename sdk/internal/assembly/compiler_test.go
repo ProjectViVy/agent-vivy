@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	providerconformance "agent-vivy/sdk/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 )
@@ -31,6 +32,11 @@ func TestCompilePluginV1GraphFixtures(t *testing.T) {
 		"invalid/dependency-cycle/case.json",
 		"invalid/unapproved-grant/case.json",
 		"invalid/bad-source-hash/case.json",
+		"invalid/unused-provider/case.json",
+		"invalid/module-conflict/case.json",
+		"invalid/protected-tool-override/case.json",
+		"invalid/legacy-v0-recipe/case.json",
+		"invalid/unsupported-eino-port/case.json",
 	}
 
 	for _, casePath := range casePaths {
@@ -111,7 +117,7 @@ func TestCompileRequiresAuthoritativeT2SourcePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence(), ConformanceResults: supportedPortConformance()}
 	base := Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{provider.Module.ID, host.Module.ID}}
 	if _, err := compiler.Compile(context.Background(), base); err == nil || !strings.Contains(err.Error(), "missing authoritative source pin") {
 		t.Fatalf("missing pin error = %v", err)
@@ -224,7 +230,7 @@ func TestCompileIsDeterministicAndUsesCatalogTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence(), ConformanceResults: supportedPortConformance()}
 	recipe := Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{"vivy/tool-host", "fixture/provider"}}
 
 	first, err := compiler.Compile(context.Background(), recipe)
@@ -264,6 +270,24 @@ func TestCompileRejectsPortWithoutBuildEvidence(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsPortWithoutMatchingConformanceResult(t *testing.T) {
+	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
+	consumer := testDescriptor("fixture/consumer")
+	consumer.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "std/tool@v1"}, Provider: "fixture/provider"}}
+	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: provider, Trust: TrustT2}, {Descriptor: consumer, Trust: TrustT1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = (Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}).Compile(context.Background(), Recipe{
+		APIVersion: RecipeAPIVersionV1,
+		Modules:    []string{"fixture/provider", "fixture/consumer"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Port std/tool@v1 is CANDIDATE and cannot be selected") {
+		t.Fatalf("Compile() error = %v, want conformance-evidence rejection", err)
+	}
+}
+
 func loadFixtureCase(t *testing.T, relative string) fixtureCase {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "testdata", "plugin-v1", relative))
@@ -291,7 +315,7 @@ func fixtureCompiler(t *testing.T, descriptors []module.Descriptor) Compiler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
+	return Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence(), ConformanceResults: supportedPortConformance()}
 }
 
 func supportedPortEvidence() map[string]port.SupportEvidence {
@@ -304,6 +328,24 @@ func supportedPortEvidence() map[string]port.SupportEvidence {
 		evidence[definition.Ref.Port] = port.SupportEvidence{References: references, GatesPassed: true}
 	}
 	return evidence
+}
+
+func supportedPortConformance() []providerconformance.ConformanceResult {
+	evidence := supportedPortEvidence()
+	results := make([]providerconformance.ConformanceResult, 0, len(evidence)*len(providerconformance.RequiredProviderChecks()))
+	for _, definition := range port.PublicCatalog().Definitions() {
+		for _, reference := range evidence[definition.Ref.Port].References {
+			if reference.Kind == port.EvidenceConformanceSuite {
+				for _, check := range providerconformance.RequiredProviderChecks() {
+					results = append(results, providerconformance.ConformanceResult{
+						Port: definition.Ref, ProviderID: "fixture/provider", SourceSHA256: strings.Repeat("a", 64),
+						Suite: check, Passed: true, EvidenceID: reference.ID,
+					})
+				}
+			}
+		}
+	}
+	return results
 }
 
 func withProvides(descriptor module.Descriptor, refs ...module.PortRef) module.Descriptor {
@@ -334,7 +376,7 @@ func TestCompileRejectsCoreAuthorityAndDuplicateProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence()}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: SupportedPortEvidence(), ConformanceResults: SupportedPortConformance()}
 	_, err = compiler.Compile(context.Background(), Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{"fixture/core"}})
 	if err == nil || !strings.Contains(err.Error(), "core Port core/tool-host@v1 may only be provided") {
 		t.Fatalf("core authority error = %v", err)
@@ -376,7 +418,7 @@ func TestCompileRequiresTypedMCPHostProviderAndCoreOwner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
+		compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence(), ConformanceResults: supportedPortConformance()}
 		_, err = compiler.Compile(context.Background(), Recipe{
 			APIVersion: RecipeAPIVersionV1,
 			Modules:    []string{toolHost.Module.ID, mcp.Module.ID},

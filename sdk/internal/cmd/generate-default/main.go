@@ -55,7 +55,7 @@ func main() {
 	catalog, err := assemblyv1.NewSourceCatalog(records)
 	must(err)
 	evidence := assemblyv1.SupportedPortEvidence()
-	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence}).Compile(context.Background(), recipe)
+	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence, ConformanceResults: assemblyv1.SupportedPortConformance()}).Compile(context.Background(), recipe)
 	must(err)
 	generated, err := assemblyv1.GenerateRuntimeAssembly(plan, "assembly")
 	must(err)

@@ -20,6 +20,7 @@ import (
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
+	generationconformance "agent-vivy/sdk/internal/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 	"gopkg.in/yaml.v3"
@@ -197,7 +198,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	evidence := assemblyv1.SupportedPortEvidence()
-	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence}).Compile(ctx, recipe)
+	conformanceResults := assemblyv1.SupportedPortConformance()
+	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence, ConformanceResults: conformanceResults}).Compile(ctx, recipe)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -261,7 +263,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		if err := json.Unmarshal(compiled.Canonical, &projection); err != nil {
 			return Artifact{}, fmt.Errorf("sdk: decode i18n catalog projection for %s: %w", resolved.Descriptor.Module.ID, err)
 		}
-		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, Evidence: []string{string(compiled.State)}, Units: projection.Units})
+		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, CompilationState: string(compiled.State), Evidence: []string{string(compiled.State)}, Units: projection.Units})
 	}
 	uiInput := assemblyv1.UIAssemblyInput{SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: catalogs}
 	if recipe.UI != nil {
@@ -325,12 +327,22 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		uiArtifacts["ui/provider/"+id] = digest
 	}
 	capabilityStates := capabilityStatesForPlan(plan)
+	portSupport, err := generationconformance.EvaluatePortSupport(port.PublicCatalog(), evidence, conformanceResults)
+	if err != nil {
+		return Artifact{}, err
+	}
+	selectedConformanceResults, err := assemblyv1.ConformanceResultsForPlan(plan)
+	if err != nil {
+		return Artifact{}, err
+	}
 	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
-		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p8", SDKVersion: "v1",
+		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
 		CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts,
 		UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates,
 		ContextSourcePolicies: assemblyv1.ContextSourcePoliciesForPlan(plan),
 		RunObserverPolicies:   assemblyv1.RunObserverPoliciesForPlan(plan),
+		ConformanceResults:    selectedConformanceResults,
+		PortSupport:           portSupport,
 	})
 	if err != nil {
 		return Artifact{}, err
