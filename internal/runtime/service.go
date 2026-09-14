@@ -190,6 +190,10 @@ type Service struct {
 	// live run. Action bridges must use this exact set rather than resolving
 	// the process-wide registry again.
 	runTools map[domain.RunID]map[string]struct{}
+	// contextViews memoizes each live run's committed Context View so resume
+	// paths skip a full Journal replay. Entries die with the run in
+	// cleanupRunState.
+	contextViews map[domain.RunID]string
 	// pendingEngine holds a settings-save engine rebuild that was deferred
 	// because runs were in flight; it is applied at the next idle run
 	// start (ScheduleEngineReload).
@@ -292,6 +296,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		ledgers:         make(map[domain.RunID]*BudgetLedger),
 		snapshots:       make(map[domain.RunID]domain.PolicySnapshot),
 		runTools:        make(map[domain.RunID]map[string]struct{}),
+		contextViews:    make(map[domain.RunID]string),
 		lastCompaction:  make(map[domain.SessionID]*LastCompaction),
 	}
 }
@@ -1293,6 +1298,12 @@ func (s *Service) newResumeEventMapper(ctx context.Context, runID domain.RunID) 
 }
 
 func (s *Service) contextViewForRun(ctx context.Context, runID domain.RunID) string {
+	s.mu.Lock()
+	view, cached := s.contextViews[runID]
+	s.mu.Unlock()
+	if cached {
+		return view
+	}
 	if s.deps.Journal == nil {
 		return ""
 	}
@@ -1301,7 +1312,7 @@ func (s *Service) contextViewForRun(ctx context.Context, runID domain.RunID) str
 		return ""
 	}
 	defer func() { _ = it.Close() }()
-	view := ""
+	view = ""
 	for it.Next() {
 		event := it.Value().Event
 		if event.Type != domain.EventModelRequest {
@@ -1312,7 +1323,23 @@ func (s *Service) contextViewForRun(ctx context.Context, runID domain.RunID) str
 			view = request.ContextView
 		}
 	}
+	if err := it.Err(); err != nil {
+		slog.Warn("context view recovery replay failed; resuming without view", "run", string(runID), "err", err)
+		return ""
+	}
+	s.storeContextView(runID, view)
 	return view
+}
+
+// storeContextView memoizes a committed View for later resumes. The map is
+// created lazily because tests build Service values directly.
+func (s *Service) storeContextView(runID domain.RunID, view string) {
+	s.mu.Lock()
+	if s.contextViews == nil {
+		s.contextViews = make(map[domain.RunID]string)
+	}
+	s.contextViews[runID] = view
+	s.mu.Unlock()
 }
 
 // recoverBudgetLedger rebuilds the shared run-tree accounting from durable
@@ -1566,6 +1593,7 @@ func (s *Service) drive(ctx context.Context, m *eventMapper, sessionID domain.Se
 	m.setContextViewID(stats.ContextViewID)
 	modelRequest := digestModelRequest(msgs, selection.Names())
 	modelRequest.ContextView = stats.ContextViewID
+	s.storeContextView(m.runID, stats.ContextViewID)
 	if !s.persistAndPublish(ctx, sessionID, m.build(domain.EventModelRequest, modelRequest)) {
 		return
 	}
@@ -2802,6 +2830,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.snapshots, runID)
 	delete(s.runTools, runID)
 	delete(s.runSessions, runID)
+	delete(s.contextViews, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 }
