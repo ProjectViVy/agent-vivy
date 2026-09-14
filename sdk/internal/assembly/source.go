@@ -21,6 +21,10 @@ type SourceRecord struct {
 	Binding    GoBinding
 	Root       string
 	Ref        string
+	// RootlessFixture admits a T2 record without a verified source root for
+	// compiler test fixtures only. Production catalogs must never set it: a
+	// real T2 Module always enters through a hashed, pinned Root.
+	RootlessFixture bool
 }
 
 // GoBinding is build metadata owned by the Source Catalog. It is not part of
