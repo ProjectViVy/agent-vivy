@@ -46,3 +46,21 @@ pointed at a temp config with a temp sqlite path, port 18787):
 | Live-platform smoke (telegram/dingtalk/feishu/qq/discord ears) | No real bot credentials in this environment; the ears' wire behavior is unchanged except dingtalk's redial, which is proven against the loopback gateway stub. Matches the honest-skip precedent of the C4–C7 filings. |
 | Real-Postgres migration v21 run | No Postgres/DSN locally (long-standing CH-C1-N5 debt); the migration is covered by compile-time checks and the postgres-gated conformance cases will exercise it when `VIVY_POSTGRES_TEST_DSN` is set. |
 | Browser UI exercise at `127.0.0.1:3015` | The batch changes no UI/RPC surface: Settings channels page, `channel/inspect`, and history provenance projections are byte-identical (only the `Source` constant replaced equal literals). The composed-organism boot smoke above covers the executable path. |
+
+
+## Rebase onto the P9 mainline (2026-09-14, later same day)
+
+The branch was rebased onto `main` after PLG-P9 (#26/#27), the TODO board
+restructure (#28), and the GPL relicense landed. Outcomes and extra checks:
+
+- Only conflict: `docs/TODO.md`. Resolved onto the new board structure; the
+  four completed rows now live in the `docs/COMPLETE.MD` archive instead of
+  the removed §10.1 (board structure changed under the batch).
+- New gate surfaced by P9: `TestCheckedInProviderConformanceMatchesExecutedSuites`
+  pins every Provider source digest. The batch changed the `internal/` tree
+  and `plugins/dingtalk`, so the pins were refreshed (`10f5439c` -> `6d88cd29`
+  for internal, dingtalk stays at its self-describing fixed point `023bf2d6`)
+  in `reproduction_test.go` + `conformance_results.json`; no suite results
+  changed. Committed as `test: refresh P9 conformance evidence`.
+- Full `just ci` re-run on the rebased branch: PASS (exit 0).
+
