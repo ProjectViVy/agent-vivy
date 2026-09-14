@@ -307,27 +307,35 @@ The v1 command surface remains conceptually:
 
 ```text
 vivy-sdk verify plugins/<name>
-vivy-sdk pack --recipe vivy.generation.yml
+vivy-sdk pack --recipe vivy.generation.yml --output dist/<generation>
 vivy-sdk inspect-artifact dist/<generation>
 ```
 
-These commands are target contracts until their implementation phase reaches
-`SUPPORTED`. Documentation and Skills MUST NOT pretend that the current v0 SDK
-already implements v1.
+These commands are the shipped v1 contract. `pack` requires a new output
+directory and accepts repeatable `--source <module-directory>` arguments for
+external sources explicitly pinned by the Recipe. There is no v0 command or
+compatibility path.
 
 `verify` checks Descriptor schema, typed Port declarations, import firewall,
 source identity, Grant requests, catalog schema, confinement, namespace,
-placeholder parity and limits, UI build metadata, and focused conformance.
+placeholder parity and limits, and UI build metadata. It does not execute a
+Provider: focused conformance remains a separate release/CI gate.
 
 `pack` compiles the complete Recipe graph, creates typed generated wiring,
-builds backend and UI contributions, runs Generation conformance, embeds the
-immutable Manifest, and emits no artifact on failure.
+builds backend and UI contributions, binds complete checked-in conformance
+results only when they match a selected Provider and source hash, embeds the
+immutable Manifest, and emits no artifact on failure. It never relabels a
+result onto an unattested third-party Provider. `pack` does not run test
+suites; the executable result-reproduction gate, Generation matrix, and
+focused suites must pass before their immutable result bundle is advanced.
 
 `inspect-artifact` displays Module/Port graph, Trust assignment, effective
 Grants, source and artifact hashes, lifecycle order, Middleware/UI composition,
-default and deferred capability status, compiler version, and catalog schema,
-path, canonical digest, default and packaged locales, completeness, and
-evidence identifiers.
+runtime capability state, compiler version, evidence-derived public Port
+support, selected-Provider conformance results, and catalog schema, path,
+canonical digest, default and packaged locales, compiler-derived completeness,
+and evidence identifiers. It validates the executable's embedded Manifest
+without executing the artifact.
 
 ## 10. Failure rules
 

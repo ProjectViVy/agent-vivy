@@ -155,5 +155,12 @@ func TestCalculateEffectiveGrantsRejectsSecretAndEnvironmentMaterial(t *testing.
 		if err == nil || !strings.Contains(err.Error(), "forbidden Secret or environment material") {
 			t.Fatalf("calculateEffectiveGrants() error = %v, want material rejection for %#v", err, constraints)
 		}
+		for _, values := range constraints {
+			for _, value := range values {
+				if strings.Contains(err.Error(), value) {
+					t.Fatalf("calculateEffectiveGrants() leaked rejected material %q in %v", value, err)
+				}
+			}
+		}
 	}
 }

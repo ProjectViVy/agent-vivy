@@ -15,11 +15,13 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
+	generationconformance "agent-vivy/sdk/internal/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 	"gopkg.in/yaml.v3"
@@ -227,7 +229,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	evidence := assemblyv1.SupportedPortEvidence()
-	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence}).Compile(ctx, recipe)
+	conformanceResults := assemblyv1.SupportedPortConformance()
+	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence, ConformanceResults: conformanceResults}).Compile(ctx, recipe)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -291,7 +294,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		if err := json.Unmarshal(compiled.Canonical, &projection); err != nil {
 			return Artifact{}, fmt.Errorf("sdk: decode i18n catalog projection for %s: %w", resolved.Descriptor.Module.ID, err)
 		}
-		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, Evidence: []string{string(compiled.State)}, Units: projection.Units})
+		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, CompilationState: string(compiled.State), Evidence: []string{string(compiled.State)}, Units: projection.Units})
 	}
 	uiInput := assemblyv1.UIAssemblyInput{SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: catalogs}
 	if recipe.UI != nil {
@@ -355,12 +358,22 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		uiArtifacts["ui/provider/"+id] = digest
 	}
 	capabilityStates := capabilityStatesForPlan(plan)
+	portSupport, err := generationconformance.EvaluatePortSupport(port.PublicCatalog(), evidence, conformanceResults)
+	if err != nil {
+		return Artifact{}, err
+	}
+	selectedConformanceResults, err := assemblyv1.ConformanceResultsForPlan(plan)
+	if err != nil {
+		return Artifact{}, err
+	}
 	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
-		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p8", SDKVersion: "v1",
+		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
 		CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts,
 		UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates,
 		ContextSourcePolicies: assemblyv1.ContextSourcePoliciesForPlan(plan),
 		RunObserverPolicies:   assemblyv1.RunObserverPoliciesForPlan(plan),
+		ConformanceResults:    selectedConformanceResults,
+		PortSupport:           portSupport,
 	})
 	if err != nil {
 		return Artifact{}, err
@@ -397,7 +410,15 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	binaryName := artifactBinaryName(runtime.GOOS)
 	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
-	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-ldflags", "-X=agent-vivy/sdk/generation.EmbeddedManifestBase64="+embedded, "-o", binary, "./cmd/vivy")
+	manifestValueSource, err := filepath.Abs(filepath.Join(repoRoot, "sdk/generation/manifest.go"))
+	if err != nil {
+		return Artifact{}, err
+	}
+	manifestValueReplacement := filepath.Join(overlayDir, "manifest.go")
+	if err := writeEmbeddedManifestOverlay(overlayFile, manifestValueSource, manifestValueReplacement, embedded); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: bind embedded Generation Manifest: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-o", binary, "./cmd/vivy")
 	cmd.Dir = repoRoot
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build generation: %w: %s", buildErr, output)
@@ -528,6 +549,42 @@ func overlaySelectedUIDist(overlayFile, repositoryDist, selectedDist string) err
 	}); err != nil {
 		return fmt.Errorf("map selected UI dist: %w", err)
 	}
+	encoded, err := json.Marshal(struct {
+		Replace map[string]string
+	}{Replace: overlay.Replace})
+	if err != nil {
+		return fmt.Errorf("encode Go overlay: %w", err)
+	}
+	return os.WriteFile(overlayFile, encoded, 0o600)
+}
+
+func writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded string) error {
+	original, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	declaration := []byte("var EmbeddedManifestBase64 string")
+	if bytes.Count(original, declaration) != 1 {
+		return errors.New("manifest source has an unexpected EmbeddedManifestBase64 declaration")
+	}
+	source := bytes.Replace(original, declaration, []byte("var EmbeddedManifestBase64 = "+strconv.Quote(embedded)), 1)
+	if err := os.WriteFile(replacementPath, source, 0o600); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(overlayFile)
+	if err != nil {
+		return err
+	}
+	var overlay struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(raw, &overlay); err != nil {
+		return fmt.Errorf("decode Go overlay: %w", err)
+	}
+	if overlay.Replace == nil {
+		overlay.Replace = make(map[string]string)
+	}
+	overlay.Replace[sourcePath] = replacementPath
 	encoded, err := json.Marshal(struct {
 		Replace map[string]string
 	}{Replace: overlay.Replace})
@@ -910,6 +967,7 @@ func hashUIDependencyLocks(root string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 		_, _ = io.WriteString(h, filepath.ToSlash(rel))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(body)

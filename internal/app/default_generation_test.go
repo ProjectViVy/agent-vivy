@@ -17,15 +17,22 @@ import (
 )
 
 type defaultGenerationInventory struct {
+	Modules            []string          `json:"modules"`
 	Channels           []string          `json:"channels"`
 	ProtectedTools     []string          `json:"protectedTools"`
+	Actions            []string          `json:"actions"`
 	ToolWorldProviders []string          `json:"toolWorldProviders"`
 	DefaultFace        string            `json:"defaultFace"`
 	NetworkState       map[string]string `json:"networkState"`
 	ProviderProfiles   []string          `json:"providerProfiles"`
+	ContextSources     []string          `json:"contextSources"`
+	SkillSources       []string          `json:"skillSources"`
+	RunObservers       []string          `json:"runObservers"`
 }
 
 func TestDefaultGenerationLeavesUnconfiguredNetworkInactive(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
 	a, err := New(context.Background(), newAnthropicTestConfig(t))
@@ -40,6 +47,12 @@ func TestDefaultGenerationLeavesUnconfiguredNetworkInactive(t *testing.T) {
 		if status.Started {
 			t.Fatalf("unconfigured channel started: %+v", status)
 		}
+	}
+	if a.mcpBackend == nil {
+		t.Fatal("default Generation did not compile the inactive MCP Host")
+	}
+	if configured := a.mcpBackend.ConfiguredServers(); len(configured) != 0 {
+		t.Fatalf("unconfigured MCP instances became active: %#v", configured)
 	}
 }
 
@@ -73,10 +86,13 @@ func TestDefaultGenerationBaselineInventory(t *testing.T) {
 	assembly := genassembly.BuildDefault()
 	manifest := assembly.Manifest
 	got := defaultGenerationInventory{
+		Modules:  manifest.Modules,
 		Channels: manifest.Channels, ProtectedTools: manifest.Tools,
-		ToolWorldProviders: manifest.ToolWorlds, DefaultFace: manifest.Face,
+		Actions: manifest.Actions, ToolWorldProviders: manifest.ToolWorlds, DefaultFace: manifest.Face,
 		NetworkState:     map[string]string{"channels": string(manifest.NetworkStates["channels"]), "mcp": string(manifest.NetworkStates["mcp"])},
 		ProviderProfiles: manifest.ProviderProfiles,
+		ContextSources:   manifest.ContextSources, SkillSources: manifest.SkillSources,
+		RunObservers: append([]string{}, manifest.RunObservers...),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v, want %#v", got, want)

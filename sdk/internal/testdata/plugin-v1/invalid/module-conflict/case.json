@@ -1,0 +1,28 @@
+{
+  "id": "module-conflict",
+  "expect": "reject",
+  "rule": "A Generation cannot select two Modules joined by a declared conflict.",
+  "wantError": "module conflict: fixture/a conflicts with fixture/b",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/a", "fixture/b"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/a", "version": "1.0.0" },
+      "source": { "ref": "git:fixture/a@0123456", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+      "provides": [],
+      "requires": [],
+      "conflicts": [{ "module": "fixture/b" }],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    },
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/b", "version": "1.0.0" },
+      "source": { "ref": "git:fixture/b@0123456", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

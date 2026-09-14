@@ -8,6 +8,11 @@
     { "id": "duplicate-exclusive-provider", "path": "invalid/duplicate-exclusive-provider/case.json", "expect": "reject" },
     { "id": "dependency-cycle", "path": "invalid/dependency-cycle/case.json", "expect": "reject" },
     { "id": "unapproved-grant", "path": "invalid/unapproved-grant/case.json", "expect": "reject" },
-    { "id": "bad-source-hash", "path": "invalid/bad-source-hash/case.json", "expect": "reject" }
+    { "id": "bad-source-hash", "path": "invalid/bad-source-hash/case.json", "expect": "reject" },
+    { "id": "unused-provider", "path": "invalid/unused-provider/case.json", "expect": "reject" },
+    { "id": "module-conflict", "path": "invalid/module-conflict/case.json", "expect": "reject" },
+    { "id": "protected-tool-override", "path": "invalid/protected-tool-override/case.json", "expect": "reject" },
+    { "id": "legacy-v0-recipe", "path": "invalid/legacy-v0-recipe/case.json", "expect": "reject" },
+    { "id": "unsupported-eino-port", "path": "invalid/unsupported-eino-port/case.json", "expect": "reject" }
   ]
 }
