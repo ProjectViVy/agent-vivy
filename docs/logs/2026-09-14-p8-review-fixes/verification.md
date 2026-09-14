@@ -38,6 +38,29 @@ updated for the removed `"result"` allowlist field.
   `TestContextViewRecoveryToleratesIteratorFailure` (iterator error returns
   empty and caches nothing).
 
+## Round 2 — foundation audit fixes
+
+Worktree `../agent-vivy-p8-fixes` (fresh checkout needed `pnpm install` +
+`pnpm build` in `ui/` before pack tests could run; `ui/node_modules` and
+`ui/dist` are per-checkout and gitignored).
+
+```
+go test ./sdk/internal/assembly/ ./sdk/internal/ -count=1   # both ok
+just ci                                                    # exit 0
+```
+
+New tests:
+
+- `sdk/internal`: forbidden-import table extended with `plugin`, `syscall`,
+  `unsafe`, `golang.org/x/sys/windows`.
+- `sdk/internal/assembly`: `TestCompileRejectsRootlessT2WithoutFixtureFlag`,
+  `TestCompileRejectsGrantApprovalForUnselectedModule`.
+
+Known-plugin collision check before widening the firewall: no `.go` file
+under `plugins/` or `sdk/internal/testdata/` imports any of the newly
+forbidden packages (`.go.sum` transitive mentions are irrelevant — the
+firewall parses direct `.go` imports only).
+
 ## Skipped slices
 
 None. UI smoke not run: no user-visible UI change in this iteration

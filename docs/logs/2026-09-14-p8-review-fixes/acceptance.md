@@ -22,3 +22,19 @@ How a human can tell the fixes worked, without reading the diff:
    longer lists a `result` payload field in the sealed Run Observer policy;
    the visible allowlist matches what terminal payloads actually contain.
 5. `just ci` green is the overall gate for the tree.
+
+Round 2 (foundation hardening):
+
+6. **Firewall**: a module source importing `plugin`, `syscall`,
+   `golang.org/x/sys`, or `unsafe` is now rejected by `vivy-sdk` source
+   verification with `forbidden source import ...`, exactly like the
+   existing runtime/Eino rejections.
+7. **Unverified T2**: a T2 module record that reaches the compiler without
+   a hashed, pinned source root fails the build with "lacks a verified
+   source root" instead of compiling silently.
+8. **Stale recipes**: a Recipe whose `grantApprovals` names a module that is
+   not in `modules` fails with an explicit diagnostic instead of quietly
+   ignoring the approval.
+9. The Module Standard now says out loud that the source firewall is
+   advisory defense-in-depth, so Inspect and docs can no longer oversell it
+   as a containment boundary.
