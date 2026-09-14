@@ -27,6 +27,13 @@ import (
 // and the runtime package is never imported here.
 type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error)
 
+// DecideApprovalFunc settles one approval attributed to the named actor.
+// The app injects it from *runtime.Service.DecideApprovalAsActor; the host
+// only forwards decisions that passed its own scoping (allow-listed sender,
+// originating session), and every decision still runs through the kernel's
+// single DecideApproval path (contract §12).
+type DecideApprovalFunc func(ctx context.Context, approvalID, decision, actor string) error
+
 type CredentialResolver interface {
 	Resolve(moduleID, ref string) (string, error)
 	IsSet(moduleID, ref string) bool
@@ -49,6 +56,14 @@ type Deps struct {
 	Channels    []plugin.Channel
 	Config      config.Channels
 	Credentials CredentialResolver
+	// Approvals, Runs, and DecideApproval enable the HITL channel surface
+	// (contract §12): a pending-approval notification to the originating
+	// chat plus the session-scoped /approve, /deny, and /pending commands.
+	// All three are optional; if any is nil the notification and the
+	// commands are disabled with a start note, never half-enabled.
+	Approvals      storage.ApprovalStore
+	Runs           storage.RunStore
+	DecideApproval DecideApprovalFunc
 	// Logger receives structured host logs. Inbound content is never
 	// logged; sender ids and chat ids are identifiers, not content.
 	Logger *slog.Logger

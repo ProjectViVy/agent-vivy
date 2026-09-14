@@ -73,7 +73,7 @@ This section retains only currently open, deferred, superseded, or otherwise unr
 | HITL-P1-3 | Structured MCP elicitation | OPEN | |
 | HITL-P1-4 | Reviewer assignment | OPEN | |
 | HITL-P1-5 | Review history / search | OPEN | |
-| HITL-P1-6 | External notifications | OPEN | |
+| CH-NATIVE-CARD | Native approval cards in channels (Feishu card callbacks, DingTalk STREAM cards, QQ button templates) | OPEN | Blocked by QQ template-permission + short passive window and by the text-only outbound contract; needs its own decision record. Survey: `docs/research/2026-09-15-channel-native-approval-ui.md`. Also open: QQ C2C passive replies expire after 60 minutes, so very long approvals can become unreachable from QQ (the local UI stays authoritative). |
 | HITL-P1-7 | Generic edit + bulk approval | DEFERRED | Explicitly not P0 |
 | MEM-1 | Memory / BML / Laputa / AutoDream / Evolution / RAG | IMPLEMENTATION DEFERRED | SCX now records memory/RAG and laputa-garden integration direction in `docs/architecture/SCX-ARCHITECTURE-DESIGN.md`. This is not a live backend or an AutoDream/Evolution implementation; those broader capabilities remain deferred. |
 | P2-3 | QwenPaw filesystem-journal probe | DEFERRED | Out of V0; SR-4 was decided on 2026-09-02: keep QwenPaw externally obtained and recheck it against `qwenpaw-vendor-ruling.md` when the probe is proposed |

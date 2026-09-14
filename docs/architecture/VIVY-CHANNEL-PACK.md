@@ -55,6 +55,7 @@ This translates DSH's "registration as effect" into Vivy's cold plug/unplug mode
 | 2026-09-14 | **§12 ledger corrected to the implemented shape (CH-C1-N2).** The `channel.inbound` payload is the identifiers-only `{channel, chat_id, sender, message_id, session_id}`; `content_digest` / `bytes` and the `peer` provenance blob are retired from the contract. **Source vocabulary ruled `ui \| channel \| headless` (CH-C1-N4)** — the platform name lives in the `channel` field. Outbound delivery became durable (at-least-once intent rows + restart reconcile), `chanin_*` events got a 30-day retention, and StopAll drains in-flight Sends. |
 | 2026-09-15 | **Capability discovery wired through the v1 wrappers; every ear carries an outbound rune ceiling (gate-0).** `plugin.CapabilitySource` (`CapabilityTarget() any`) lets the assembly wrappers point Discover at the adapter's own method set — a typed-nil probe captured from the provider at bind time, type-asserted and never called — so `advertised` reports what the adapter implements instead of a wrapper-induced zero; the five text-only ears still advertise nothing today, and tier1's CH-R-1 `HealthChecker` flips them to `Health: true` on rebase (Health call-path forwarding stays with that batch). Outbound ceilings land in `Definition.MaxMessageRunes` with sources: discord 2000 characters (official create-message, reject 50035), dingtalk 5000 runes (official 20000-**byte** `text.content` bound — picoclaw's character reading is unsafe for CJK — divided by 4 for worst-case runes), feishu 37500 runes (official 150KB text message, error 230025), qq 2000 runes (no official number published; over-length rejects with 40054007, so the value follows community practice aligned with Discord), telegram 4096 (official Bot API; the Definition is now the single source and the adapter's shadowed duplicate is gone). `splitRunes` closes and reopens fenced code so every delivered chunk renders standalone; behavior without an open fence at the cut is unchanged. |
 | 2026-09-15 | **Error classification ruled `rate-limit \| temporary \| dead` (CH-R-1).** `plugin.ErrorClass` + `plugin.HealthError` land in `sdk/port/channel`; `HealthChecker.Health` is defined as read-only internal state, no network I/O, so the Host probes it inline while building the inspect surface. All five batch adapters report it; a plain (unclassified) Health error defaults to `temporary` — the supervised-ear assumption. This closes the §8 Reliability slot for this generation; rate-limit is carried by the vocabulary but no adapter currently emits it. |
+| 2026-09-15 | **Channel-side HITL commands ruled in (supersedes the 2026-08-31 ACP "channel user = remote principal" reading for this narrow surface).** A user at home with only a phone chat cannot walk to the PC to click Approve, so the originating chat gets a pending-approval text and the allow-listed sender may answer `/approve` / `/deny` / `/pending`. Boundaries: one decision path (`DecideApprovalAsActor`, actor `channel:<channel>:<sender>`, journaled like a local decision); session-scoped visibility (a chat can never see or decide another chat's approvals); allow_from remains the sender boundary; exact-token commands only, no free-text decisions, no native approval cards this generation. |
 
 The five names in this batch are: `telegram`, `discord`, `feishu`, `dingtalk`, `qq`.
 
@@ -523,7 +524,16 @@ Contract changes (landed with CH-C1; hardened 2026-09-14):
 
 The first cut does not do media, group triggers, or incremental streaming edits. If Telegram forums are encountered, append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
 
-HITL: the kernel still decides all approval / question outcomes. The first cut dual-writes to the local UI; the channel only delivers text such as "there is a pending approval" (optional and may be cut later). A Telegram user directly deciding an approval = an ACP remote principal, not part of this contract.
+HITL (implemented 2026-09-15, see §1): the kernel still owns every approval / question outcome — there is
+exactly one decision path. A channel run suspended for approval notifies its originating chat with one plain
+text (tool name, session pointer, command hint); the notification is a direct adapter Send and never touches
+the §12 delivery ledger. An allow-listed sender may decide with the exact commands `/approve [id]`, `/deny [id]`,
+and `/pending`: commands are journaled like any inbound message but open no run, track no target, and record no
+delivery intent; the decision is forwarded through `Service.DecideApprovalAsActor` with actor
+`channel:<channel>:<sender>` and is session-scoped — a sender only ever sees and decides approvals of the
+session this chat maps to (allow_from stays the authorization boundary). Native platform approval cards
+(Feishu interactive cards, DingTalk STREAM card callbacks, QQ keyboard templates) are explicitly NOT part of
+this contract; they would need their own decision record. See `docs/research/2026-09-15-channel-native-approval-ui.md`.
 
 ---
 
