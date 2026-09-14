@@ -76,8 +76,28 @@ All commands run from the repository root on `feat/channel-tier1`
 
 - Postgres conformance remains DSN-gated (no real Postgres locally; that is
   the pre-existing CH-C1-N5 debt, not carried by this batch).
-- No production `data/` journal was touched: no live server was started in
-  this batch (the deliverables are covered end-to-end by the channelhost
-  loopback fakes and the real-path RPC tests; the UI was verified through
-  the type-checked component tree and the compat pins, with the browser
-  smoke listed in acceptance.md to run against `just dev`).
+- No production `data/` journal was touched: the browser smoke ran against a
+  throwaway instance (`VIVY_CONFIG` → `.workspace/tier1-smoke/config.yaml`,
+  sqlite inside `.workspace/`, scratch removed afterwards).
+
+## Real-path browser smoke (feature 1 UI, 2026-09-15)
+
+Split dev pair on the throwaway journal: `go run ./cmd/vivy` with
+`VIVY_CONFIG` (healthz ok, one seeded failed delivery row written through
+`storage.sqlite` by a one-off in gitignored `.workspace/`), `pnpm dev` in
+`ui/`, then Chrome at `http://127.0.0.1:3015/settings?tab=channels`:
+
+- The Channels tab renders over the real websocket RPC: five compiled-in
+  channel cards (钉钉/Discord/飞书/QQ/Telegram, all "no config envelope"),
+  control plane "connected".
+- The new 失败投递 (Failed deliveries) section lists the seeded row —
+  Telegram · 12345678 · chanin_smokerow1 · "3 attempts" — with a 重投
+  (Redeliver) button.
+- Clicking 重投 exercises the full loop: the real
+  `channel/deliveries/redeliver` RPC reaches `Host.RedeliverDelivery`, which
+  correctly refuses (telegram is not started: "no config envelope"), and the
+  UI surfaces the exact server refusal in the action-error banner — no fake
+  success. (The happy path is proven by the channelhost/RPC tests; a real
+  redeliver needs a live platform transport, which this offline smoke does
+  not have.)
+
