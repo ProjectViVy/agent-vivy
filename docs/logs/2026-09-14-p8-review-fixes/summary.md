@@ -1,0 +1,52 @@
+# P8 review hardening (post PR #24 / PR #25 audit)
+
+Date: 2026-09-14
+Branch: `fix/p8-review-fixes` (from `main` = `cf98076`)
+
+## What changed
+
+Follow-up to the code review of PR #24 (PLG-P8 Gate A) and PR #25 (Gates B
+and C). Three review risks and two nits were fixed directly instead of being
+tracked on the board:
+
+1. **Observer delivery retry backoff** (`internal/observerhost/host.go`):
+   a persistently failing Run Observer no longer spins at the base retry
+   interval forever. The delay doubles per consecutive failure and caps at
+   `MaxRetryDelay` (default 60s, config-exposed). Delivery is never
+   abandoned, so the at-least-once receipt contract is unchanged. Attempts
+   reset on success.
+2. **Required/reserved expired context fails closed**
+   (`internal/contexthost/host.go`): an expired candidate with strict
+   treatment now returns the new `ErrRequiredContextExpired` instead of
+   being silently dropped, matching the fail-closed behavior already used
+   for oversize, budget, and invalid-provenance paths. Competitive expired
+   candidates are still omitted (`DroppedExpired`).
+3. **Context View recovery cache + iterator error handling**
+   (`internal/runtime/service.go`): `contextViewForRun` memoizes the
+   committed Context View per live run (`Service.contextViews`, evicted in
+   `cleanupRunState`), eliminating the full-Journal replay on every tool
+   resume (O(n^2) over a long run). `drive()` seeds the cache from the
+   fresh preparation. Journal iterator errors are now observed (`it.Err()`)
+   and logged as a warning; recovery degrades to no View instead of
+   silently depending on a partial scan.
+4. **Dead allowlist entry removed** (`sdk/internal/assembly/runtime_generate.go`):
+   the generated Run Observer projection no longer allows the `"result"`
+   payload field, which no terminal payload defines.
+5. **Docs table header** (`docs/architecture/SCX-PLUGIN-INTEGRATION.md`):
+   the pinned-Eino decision table now says "Decision for Gates A–C" and the
+   retrieval row no longer references the already-passed Gate B as future.
+
+## Scope explicitly not done
+
+- Dotted-path payload projection and `terminalRunIDs` startup scan remain
+  as-is (future needs, no current consumer).
+- `time.Sleep`-based synchronization in observer conformance tests was not
+  converted to channels.
+- `scx-reference` capacity semantics (`DeliveryFailed` receipt) unchanged;
+  the backoff cap contains its retry cost.
+- No `docs/TODO.md` entries: every finding in this iteration was fixed in
+  the same iteration, at the owner's request.
+
+## Verification
+
+See `verification.md`. Acceptance view in `acceptance.md`.
