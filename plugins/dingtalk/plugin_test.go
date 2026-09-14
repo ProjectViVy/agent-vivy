@@ -767,11 +767,20 @@ type streamStub struct {
 	tickets    sync.Mutex
 	ticketHits int
 	wsOnce     sync.Once
+	// silent turns the websocket side into a black hole: no frames are
+	// pushed, client pings are swallowed, and the socket never closes —
+	// the loopback shape of a silently dropped link (CH-C6-N3).
+	silent bool
 }
 
 func newStreamStub(t *testing.T) *streamStub {
+	return newStreamStubMode(t, false)
+}
+
+func newStreamStubMode(t *testing.T, silent bool) *streamStub {
 	t.Helper()
 	stub := &streamStub{
+		silent:     silent,
 		wsOpened:   make(chan struct{}),
 		acked:      make(chan payload.DataFrameResponse, 1),
 		robotPosts: make(chan webhookCall, 8),
@@ -805,6 +814,15 @@ func newStreamStub(t *testing.T) *streamStub {
 		conn := hijackWebSocket(t, w, r)
 		defer conn.Close()
 		stub.wsOnce.Do(func() { close(stub.wsOpened) })
+		if stub.silent {
+			// Swallow everything the client sends and push nothing back —
+			// the client's read deadline is the only way out.
+			for {
+				if _, _, err := readWSFrame(conn); err != nil {
+					return
+				}
+			}
+		}
 
 		// One chatbot callback frame, as the DingTalk gateway would push
 		// after a user messages the robot in a single chat.
@@ -955,7 +973,7 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	env := envFor(t, fmt.Sprintf(`{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value","open_api_host":%q}`, stub.server.URL))
 	env.client = stub.server.Client()
 
-	p := newAdapter() // production factory: the real SDK client
+	p := newAdapter() // production factory: the governed stream client
 	if err := p.Start(context.Background(), env); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -1016,6 +1034,51 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	}
 	if got := stub.ticketCount(); got != 1 {
 		t.Fatalf("ticket exchanges = %d, want exactly the initial one (no redial after stop)", got)
+	}
+}
+
+// TestStreamSilentLinkRedials (CH-C6-N3): a link that dies without
+// FIN/RST — no frames, no close, client pings swallowed — must trip the
+// read deadline, clear the connection, and let the supervise tick redial
+// instead of leaving the ear deaf until process restart.
+func TestStreamSilentLinkRedials(t *testing.T) {
+	oldPing, oldDeadline := streamPingInterval, streamReadDeadline
+	streamPingInterval, streamReadDeadline = 30*time.Millisecond, 150*time.Millisecond
+	t.Cleanup(func() { streamPingInterval, streamReadDeadline = oldPing, oldDeadline })
+	shrinkStreamRedialDelay(t)
+
+	stub := newStreamStubMode(t, true)
+	env := envFor(t, fmt.Sprintf(`{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value","open_api_host":%q}`, stub.server.URL))
+	env.client = stub.server.Client()
+
+	p := newAdapter()
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = p.Stop(ctx)
+	})
+
+	waitFor(t, "websocket open", func() bool {
+		select {
+		case <-stub.wsOpened:
+			return true
+		default:
+			return false
+		}
+	})
+	// The silent link starves the read deadline; the supervise loop must
+	// complete a second gateway ticket exchange (the redial).
+	waitFor(t, "redial after silent link death", func() bool {
+		return stub.ticketCount() >= 2
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
 	}
 }
 
