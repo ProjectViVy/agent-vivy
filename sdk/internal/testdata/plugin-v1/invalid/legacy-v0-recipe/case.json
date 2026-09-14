@@ -1,0 +1,18 @@
+{
+  "id": "legacy-v0-recipe",
+  "expect": "reject",
+  "rule": "Only the v1 Generation Recipe contract is accepted.",
+  "wantError": "unsupported recipe apiVersion vivy.generation/v0",
+  "recipe": { "apiVersion": "vivy.generation/v0", "modules": ["fixture/minimal"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/minimal", "version": "1.0.0" },
+      "source": { "ref": "git:fixture/minimal@0123456", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

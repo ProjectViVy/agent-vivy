@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,6 +164,49 @@ func TestLoadCatalogRejectsSymlinkEscape(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "escapes Module source") {
 		t.Fatalf("loadCatalog() error = %v, want symlink escape rejection", err)
 	}
+}
+
+func TestLoadCatalogRejectsEveryResourceLimit(t *testing.T) {
+	t.Run("catalog bytes", func(t *testing.T) {
+		_, err := loadCatalog(writeCatalog(t, strings.Repeat(" ", maxCatalogBytes+1)), descriptorForCatalog("en"))
+		if err == nil || !strings.Contains(err.Error(), "exceeds 1048576 bytes") {
+			t.Fatalf("loadCatalog() error = %v, want catalog byte limit", err)
+		}
+	})
+
+	t.Run("catalog units", func(t *testing.T) {
+		document := catalogDocument{APIVersion: catalogAPIVersion, Units: make(map[string]catalogUnit, maxCatalogUnits+1)}
+		for index := 0; index <= maxCatalogUnits; index++ {
+			key := fmt.Sprintf("plugin.example/search-tools.unit.%04d", index)
+			document.Units[key] = catalogUnit{Description: "unit", Messages: map[string]string{"en": "unit"}}
+		}
+		raw, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = loadCatalog(writeCatalog(t, string(raw)), descriptorForCatalog("en"))
+		if err == nil || !strings.Contains(err.Error(), "exceeds 4096 units") {
+			t.Fatalf("loadCatalog() error = %v, want unit limit", err)
+		}
+	})
+
+	t.Run("unit placeholders", func(t *testing.T) {
+		placeholders := make([]string, maxCatalogPlaceholders+1)
+		for index := range placeholders {
+			placeholders[index] = fmt.Sprintf("p%02d", index)
+		}
+		document := catalogDocument{APIVersion: catalogAPIVersion, Units: map[string]catalogUnit{
+			"plugin.example/search-tools.unit": {Description: "unit", Placeholders: placeholders, Messages: map[string]string{"en": "unit"}},
+		}}
+		raw, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = loadCatalog(writeCatalog(t, string(raw)), descriptorForCatalog("en"))
+		if err == nil || !strings.Contains(err.Error(), "exceeds 32 placeholders") {
+			t.Fatalf("loadCatalog() error = %v, want placeholder limit", err)
+		}
+	})
 }
 
 func TestLoadCatalogNotApplicable(t *testing.T) {

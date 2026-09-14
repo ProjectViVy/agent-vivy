@@ -81,11 +81,99 @@ jobs:
       - name: Run UI CI
         run: just ui-ci
 
+  browser:
+    name: full UI browser smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.19.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build baseline UI embed
+        working-directory: ui
+        run: pnpm build
+
+      - name: Install Chromium
+        working-directory: ui
+        run: pnpm exec playwright install chromium
+
+      - name: Pack and start selected full UI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .workspace/p9-browser-home | Out-Null
+          go run ./sdk pack --recipe sdk/internal/testdata/full-ui.vivy.yml --source sdk/internal/testdata/full-ui-module --output .workspace/p9-full-ui
+          $savedAddr = $env:VIVY_ADDR
+          $savedHome = $env:VIVY_USER_HOME
+          try {
+            $env:VIVY_ADDR = '127.0.0.1:3015'
+            $env:VIVY_USER_HOME = (Resolve-Path '.workspace/p9-browser-home').Path
+            $process = Start-Process -FilePath (Resolve-Path '.workspace/p9-full-ui/vivy.exe') -WorkingDirectory $PWD -PassThru -RedirectStandardOutput '.workspace/p9-full-ui.stdout.log' -RedirectStandardError '.workspace/p9-full-ui.stderr.log'
+            Set-Content -Path '.workspace/p9-full-ui.pid' -Value $process.Id
+          } finally {
+            $env:VIVY_ADDR = $savedAddr
+            $env:VIVY_USER_HOME = $savedHome
+          }
+          for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            try {
+              $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 'http://127.0.0.1:3015/healthz'
+              if ($response.StatusCode -eq 200) {
+                exit 0
+              }
+            } catch {
+              Start-Sleep -Milliseconds 500
+            }
+          }
+          Get-Content '.workspace/p9-full-ui.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content '.workspace/p9-full-ui.stderr.log' -ErrorAction SilentlyContinue
+          throw 'selected full-UI server did not become healthy'
+
+      - name: Resolve Go executable
+        shell: pwsh
+        run: '"GO_EXE=$((Get-Command go).Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+
+      - name: Run split full UI smoke
+        working-directory: ui
+        env:
+          VIVY_FULL_UI_URL: http://127.0.0.1:3015
+        run: pnpm exec playwright test e2e/plugin-full-ui.spec.ts
+
+      - name: Stop selected full UI
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path '.workspace/p9-full-ui.pid') {
+            Stop-Process -Id (Get-Content '.workspace/p9-full-ui.pid') -Force -ErrorAction SilentlyContinue
+          }
+
   aggregate:
     name: just ci
     if: always()
     needs:
       - backend
+      - browser
       - ui
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -94,9 +182,12 @@ jobs:
       - name: Require every CI lane
         env:
           BACKEND_RESULT: ${{ needs.backend.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
           UI_RESULT: ${{ needs.ui.result }}
         run: |
           echo "backend ci: $BACKEND_RESULT"
+          echo "browser smoke: $BROWSER_RESULT"
           echo "ui ci: $UI_RESULT"
           test "$BACKEND_RESULT" = "success"
+          test "$BROWSER_RESULT" = "success"
           test "$UI_RESULT" = "success"

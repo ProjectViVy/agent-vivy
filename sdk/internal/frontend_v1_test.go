@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	providerconformance "agent-vivy/sdk/conformance"
 	generationv1 "agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
@@ -280,6 +281,28 @@ ui:
 	}
 }
 
+func TestPackAndInspectCheckedInFullUIGateRecipe(t *testing.T) {
+	artifact, err := Pack(context.Background(), packOptions{
+		Recipe:  "testdata/full-ui.vivy.yml",
+		Output:  filepath.Join(t.TempDir(), "artifact"),
+		Sources: []string{"testdata/full-ui-module"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := InspectArtifact(artifact.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Manifest.UI == nil || inspected.Manifest.UI.Root != "fixture.full-ui.root" {
+		t.Fatalf("full-UI gate root = %#v", inspected.Manifest.UI)
+	}
+	if len(inspected.Manifest.ConformanceResults) != 3*len(providerconformance.RequiredProviderChecks()) {
+		t.Fatalf("full-UI gate conformance results = %#v", inspected.Manifest.ConformanceResults)
+	}
+	t.Logf("full-UI generation=%s", inspected.Manifest.GenerationID)
+}
+
 func TestPackRejectsUIContentHashDrift(t *testing.T) {
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -354,11 +377,11 @@ func TestUIArtifactAssetHashBindingHandlesCompactObjectKeys(t *testing.T) {
 
 func writePackUIFixture(t *testing.T, repoRoot string) (string, string, string) {
 	t.Helper()
-	root := t.TempDir()
+	root := temporaryRepositoryModule(t, repoRoot, "pack-ui-")
 	if err := os.MkdirAll(filepath.Join(root, "i18n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	goMod := fmt.Sprintf("module example.com/pack-ui\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repoRoot))
+	goMod := "module example.com/pack-ui\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => ../..\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -439,6 +462,20 @@ lifecycle: {scope: generation}
 		t.Fatal(err)
 	}
 	return root, digest, lockHash
+}
+
+func temporaryRepositoryModule(t *testing.T, repoRoot, prefix string) string {
+	t.Helper()
+	workspace := filepath.Join(repoRoot, ".workspace")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(workspace, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	return root
 }
 
 func TestInspectArtifactValidatesFinalUIArtifactHash(t *testing.T) {
@@ -538,6 +575,60 @@ func TestFailedCompilationEmitsNoGenerationDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Fatalf("failed pack emitted output: %v", err)
+	}
+}
+
+func TestGenerationFailureMatrixEmitsNoFormalArtifact(t *testing.T) {
+	const minimalModules = "vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox"
+	tests := []struct {
+		name      string
+		recipe    string
+		wantError string
+	}{
+		{
+			name:      "legacy v0 recipe",
+			recipe:    "apiVersion: vivy.generation/v0\nmodules: [" + minimalModules + "]\n",
+			wantError: "unsupported recipe apiVersion vivy.generation/v0",
+		},
+		{
+			name:      "missing module",
+			recipe:    "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", missing/module]\n",
+			wantError: "missing source for module missing/module",
+		},
+		{
+			name:      "duplicate module",
+			recipe:    "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", vivy/loop]\n",
+			wantError: "duplicate module vivy/loop",
+		},
+		{
+			name:      "selected Provider without Host",
+			recipe:    "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", vivy/context-source]\n",
+			wantError: "requires conditional Host core/context-host@v1",
+		},
+		{
+			name: "duplicate exclusive face Provider",
+			recipe: "apiVersion: vivy.generation/v1\nmodules: [" + minimalModules + ", vivy/face-host, vivy/headless, vivy/tui]\nexclusive:\n" +
+				"  std/face@v1: vivy/headless\n",
+			wantError: "duplicate provider for std/face@v1",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			recipe := filepath.Join(root, "recipe.yml")
+			output := filepath.Join(root, "generation")
+			if err := os.WriteFile(recipe, []byte(test.recipe), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Pack(context.Background(), packOptions{Recipe: recipe, Output: output})
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("Pack() error = %v, want %q", err, test.wantError)
+			}
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatalf("invalid Generation emitted formal artifact: %v", statErr)
+			}
+		})
 	}
 }
 
@@ -686,6 +777,34 @@ func TestVerifyRejectsModifiedSourceTree(t *testing.T) {
 	}
 }
 
+func TestVerifyEverySelectedPublicModule(t *testing.T) {
+	for _, source := range []string{
+		"../../plugins/dingtalk",
+		"../../plugins/discord",
+		"../../plugins/feishu",
+		"../../plugins/governance",
+		"../../plugins/hello-fs",
+		"../../plugins/lsp",
+		"../../plugins/qq",
+		"../../plugins/scx-reference",
+		"../../plugins/telegram",
+		"../../faces/headless",
+		"../../faces/tui",
+		"testdata/full-ui-module",
+	} {
+		source := source
+		t.Run(filepath.Base(source), func(t *testing.T) {
+			report, err := Verify(source)
+			if err != nil {
+				t.Fatalf("Verify(%q) error = %v", source, err)
+			}
+			if !report.OK || report.Module == "" {
+				t.Fatalf("Verify(%q) report = %#v", source, report)
+			}
+		})
+	}
+}
+
 func TestPackSourceCatalogAppliesCapabilityFirewall(t *testing.T) {
 	dir := t.TempDir()
 	const placeholder = "0000000000000000000000000000000000000000000000000000000000000000"
@@ -762,8 +881,8 @@ func TestPackLinksExternalStandaloneModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := t.TempDir()
-	goMod := fmt.Sprintf("module example.com/acme/vivy-tool\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => %s\n", filepath.ToSlash(repoRoot))
+	source := temporaryRepositoryModule(t, repoRoot, "acme-tool-")
+	goMod := "module example.com/acme/vivy-tool\n\ngo 1.26.4\n\nrequire agent-vivy v0.0.0\nreplace agent-vivy => ../..\n"
 	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}

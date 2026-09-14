@@ -1,0 +1,18 @@
+{
+  "id": "unused-provider",
+  "expect": "reject",
+  "rule": "Every selected public Provider binds to its sole Host Consumer.",
+  "wantError": "unused provider fixture/provider for std/tool@v1",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/provider"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/provider", "version": "1.0.0" },
+      "source": { "ref": "git:fixture/provider@0123456", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+      "provides": [{ "port": "std/tool@v1", "id": "fixture.tool" }],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

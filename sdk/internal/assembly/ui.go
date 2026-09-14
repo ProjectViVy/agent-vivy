@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"agent-vivy/sdk/module"
 	uiSDK "agent-vivy/sdk/ui"
 )
 
@@ -428,9 +429,86 @@ func normalizeCatalogManifests(input []CatalogManifest) ([]CatalogManifest, erro
 				return nil, uiAssemblyError(UIAssemblyErrorInvalidInput, catalog.Module, fmt.Sprintf("catalog unit %q requires an English message", key))
 			}
 		}
+		computedCompleteness, computedCompilationState, deriveErr := deriveCatalogCompleteness(*catalog)
+		if deriveErr != nil {
+			return nil, uiAssemblyError(UIAssemblyErrorInvalidInput, catalog.Module, deriveErr.Error())
+		}
+		if !equalStringMap(catalog.Completeness, computedCompleteness) {
+			return nil, uiAssemblyError(UIAssemblyErrorInvalidInput, catalog.Module, "catalog completeness does not exactly match compiler evidence")
+		}
+		if catalog.CompilationState != "" && catalog.CompilationState != computedCompilationState {
+			return nil, uiAssemblyError(UIAssemblyErrorInvalidInput, catalog.Module, fmt.Sprintf("catalog compilation state %s disagrees with compiler evidence %s", catalog.CompilationState, computedCompilationState))
+		}
+		catalog.CompilationState = computedCompilationState
 	}
 	sort.Slice(catalogs, func(left, right int) bool { return catalogs[left].Module < catalogs[right].Module })
 	return catalogs, nil
+}
+
+func catalogCompilationState(completeness map[string]string) string {
+	for _, state := range completeness {
+		if state != "COMPLETE" {
+			return "INCOMPLETE_LOCALE"
+		}
+	}
+	return "COMPLETE"
+}
+
+func deriveCatalogCompleteness(catalog CatalogManifest) (map[string]string, string, error) {
+	expectedLocales := make(map[string]struct{}, len(catalog.Locales)+1)
+	for _, locale := range catalog.Locales {
+		locale = module.NormalizeLocale(locale)
+		if locale == "" {
+			return nil, "", fmt.Errorf("catalog locales contain an empty locale")
+		}
+		if _, duplicate := expectedLocales[locale]; duplicate {
+			return nil, "", fmt.Errorf("catalog locales contain duplicate locale %s", locale)
+		}
+		expectedLocales[locale] = struct{}{}
+	}
+	// Chinese is a currently selectable product locale even when a Module
+	// packages only English, so the compiler must retain explicit incomplete
+	// evidence for it rather than letting an omitted map look complete.
+	expectedLocales["zh"] = struct{}{}
+	computed := make(map[string]string, len(expectedLocales))
+	for locale := range expectedLocales {
+		computed[locale] = "COMPLETE"
+	}
+	for key, unit := range catalog.Units {
+		forms := []map[string]string{unit.Messages}
+		if unit.Short != nil {
+			forms = append(forms, unit.Short)
+		}
+		if unit.Long != nil {
+			forms = append(forms, unit.Long)
+		}
+		for _, form := range forms {
+			for locale := range form {
+				normalized := module.NormalizeLocale(locale)
+				if _, ok := expectedLocales[normalized]; !ok {
+					return nil, "", fmt.Errorf("catalog unit %q uses undeclared locale %s", key, locale)
+				}
+			}
+			for locale := range expectedLocales {
+				if strings.TrimSpace(form[locale]) == "" {
+					computed[locale] = "INCOMPLETE"
+				}
+			}
+		}
+	}
+	return computed, catalogCompilationState(computed), nil
+}
+
+func equalStringMap(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func containsString(values []string, want string) bool {

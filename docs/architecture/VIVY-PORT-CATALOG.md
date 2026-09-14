@@ -21,24 +21,24 @@
 
 | Port | Cardinality | Consumer | v1 state |
 |---|---:|---|---|
-| `std/tool@v1` | `0..n` | ToolHost | `SPECIFIED` |
-| `std/tool-world@v1` | `0..n` | ToolHost | `SPECIFIED` |
-| `std/channel@v1` | `0..n` | ChannelHost | `SPECIFIED` |
-| `std/face@v1` | `0..1` | FaceHost | `SPECIFIED` |
-| `std/provider-profile@v1` | `0..n` | ModelHost | `SPECIFIED` |
+| `std/tool@v1` | `0..n` | ToolHost | `SUPPORTED` |
+| `std/tool-world@v1` | `0..n` | ToolHost | `SUPPORTED` |
+| `std/channel@v1` | `0..n` | ChannelHost | `SUPPORTED` |
+| `std/face@v1` | `0..1` | FaceHost | `SUPPORTED` |
+| `std/provider-profile@v1` | `0..n` | ModelHost | `SUPPORTED` |
 | `std/context-source@v1` | `0..n` | ContextHost | `SUPPORTED` |
-| `std/skill-source@v1` | `0..n` | SkillHost | `SPECIFIED` |
-| `std/middleware/pre-tool@v1` | `0..n`, ordered | ToolHost | `SPECIFIED` |
+| `std/skill-source@v1` | `0..n` | SkillHost | `SUPPORTED` |
+| `std/middleware/pre-tool@v1` | `0..n`, ordered | ToolHost | `SUPPORTED` |
 | `std/observer/run@v1` | `0..n` | ObserverHost | `SUPPORTED` |
-| `std/observer/diagnostic@v1` | `0..n` | ObserverHost | `SPECIFIED` |
-| `std/status-source@v1` | `0..n` | StatusHost | `SPECIFIED` |
+| `std/observer/diagnostic@v1` | `0..n` | ObserverHost | `SUPPORTED` |
+| `std/status-source@v1` | `0..n` | StatusHost | `SUPPORTED` |
 | `std/ui-extension@v1` | `0..n`, ordered | PresentationHost | `SUPPORTED` |
 | `std/ui-root@v1` | `0..1` | PresentationHost | `SUPPORTED` |
 | `std/control-action@v1` | `0..n` | ActionHost | `SUPPORTED` |
 
-The three P6 rows and the two SCX-critical rows are `SUPPORTED` by the
-seven-artifact implementation evidence recorded in
-`sdk/internal/assembly/evidence.go`. This is a capability status, not a blanket
+All 14 public Ports are `SUPPORTED` by the seven-artifact implementation
+evidence recorded in `sdk/internal/assembly/evidence.go` and projected by the
+compiler into the sealed Manifest. This is a capability status, not a blanket
 integration claim: release-wide conformance and rollback remain separately
 gated for each selected Generation.
 
