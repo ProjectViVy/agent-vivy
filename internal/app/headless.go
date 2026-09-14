@@ -131,7 +131,7 @@ func runHeadlessTurn(ctx context.Context, svc *runtime.Service, sessionID domain
 	result := HeadlessResult{SessionID: sessionID}
 	runID, err := svc.RunWithOptions(ctx, sessionID, prompt, runtime.RunOptions{
 		Face:       domain.FaceHeadless,
-		Provenance: &domain.Provenance{Source: "headless"},
+		Provenance: &domain.Provenance{Source: domain.SourceHeadless},
 	})
 	if err != nil {
 		return result, err
