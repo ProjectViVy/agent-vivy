@@ -48,8 +48,12 @@ func TestWriteEmbeddedManifestOverlay(t *testing.T) {
 	if err := os.WriteFile(overlayFile, []byte(`{"Replace":{"existing.go":"existing-replacement.go"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sourcePath := filepath.Join(root, "manifest_value.go")
-	replacementPath := filepath.Join(root, "generated-manifest-value.go")
+	sourcePath := filepath.Join(root, "manifest.go")
+	original := []byte("package generation\n\nvar EmbeddedManifestBase64 string\n\nfunc EmbeddedManifest() {}\n")
+	if err := os.WriteFile(sourcePath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replacementPath := filepath.Join(root, "generated-manifest.go")
 	embedded := "VIVY_GENERATION_V1_BEGIN[eyJnZW5lcmF0aW9uSWQiOiJ0ZXN0In0=]VIVY_GENERATION_V1_END"
 	if err := writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded); err != nil {
 		t.Fatal(err)
@@ -61,6 +65,9 @@ func TestWriteEmbeddedManifestOverlay(t *testing.T) {
 	wantValue := `var EmbeddedManifestBase64 = "` + embedded + `"`
 	if !strings.Contains(string(replacement), wantValue) {
 		t.Fatalf("generated manifest source = %q, want %q", replacement, wantValue)
+	}
+	if strings.Contains(string(replacement), "var EmbeddedManifestBase64 string") || !strings.Contains(string(replacement), "func EmbeddedManifest()") {
+		t.Fatalf("generated manifest source did not preserve the original file: %q", replacement)
 	}
 	raw, err := os.ReadFile(overlayFile)
 	if err != nil {
