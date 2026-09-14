@@ -346,6 +346,68 @@ func TestResumeMapperRecoversContextViewFromCommittedModelRequest(t *testing.T) 
 	}
 }
 
+func TestContextViewRecoveryIsCachedPerRun(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const runID domain.RunID = "run-view-cache"
+	_, err = backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{
+		Type: domain.EventModelRequest, Payload: json.RawMessage(`{"context_view":"view-cached"}`),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := &Engine{cfg: EngineConfig{MaxEventPayloadBytes: 64 << 10}}
+	svc := NewService(eng, "test", "test-model", ServiceDeps{Journal: backend})
+	if got := svc.contextViewForRun(ctx, runID); got != "view-cached" {
+		t.Fatalf("first recovery = %q, want view-cached", got)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The cached View must survive a backend that can no longer serve
+	// replays; a resume must not re-read the Journal.
+	if got := svc.contextViewForRun(ctx, runID); got != "view-cached" {
+		t.Fatalf("cached recovery = %q, want view-cached", got)
+	}
+	// A miss on the closed backend degrades to no View instead of failing.
+	if got := svc.contextViewForRun(ctx, "run-view-uncached"); got != "" {
+		t.Fatalf("uncached recovery = %q, want empty", got)
+	}
+}
+
+type failingReplayJournal struct{}
+
+func (failingReplayJournal) Append(context.Context, storage.Commit) (domain.EventSeq, error) {
+	return 0, errors.New("append unused")
+}
+
+type failingReplayIterator struct{}
+
+func (failingReplayIterator) Next() bool           { return false }
+func (failingReplayIterator) Value() storage.Entry { return storage.Entry{} }
+func (failingReplayIterator) Err() error           { return errors.New("replay failed") }
+func (failingReplayIterator) Close() error         { return nil }
+func (failingReplayJournal) Replay(context.Context, domain.RunID, domain.EventSeq) (storage.Iterator[storage.Entry], error) {
+	return failingReplayIterator{}, nil
+}
+
+func TestContextViewRecoveryToleratesIteratorFailure(t *testing.T) {
+	eng := &Engine{cfg: EngineConfig{MaxEventPayloadBytes: 64 << 10}}
+	svc := NewService(eng, "test", "test-model", ServiceDeps{Journal: failingReplayJournal{}})
+	if got := svc.contextViewForRun(context.Background(), "run-view-iterfail"); got != "" {
+		t.Fatalf("iterator-failure recovery = %q, want empty", got)
+	}
+	svc.mu.Lock()
+	cached := len(svc.contextViews)
+	svc.mu.Unlock()
+	if cached != 0 {
+		t.Fatalf("iterator failure cached %d entries, want none", cached)
+	}
+}
+
 func TestServiceRunPassesEnsuredWorkspaceIdentityToContextHost(t *testing.T) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))

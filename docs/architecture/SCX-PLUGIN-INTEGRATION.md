@@ -86,10 +86,10 @@ reserved, competitive, expiry, provenance, scope, and budget semantics. This
 passes the selected plaintext fixture; generic audio/video/device loading is
 not selected or claimed.
 
-| Need | Pinned Eino v0.9.13 evidence | Decision for Gate A |
+| Need | Pinned Eino v0.9.13 evidence | Decision for Gates A–C |
 | --- | --- | --- |
 | Final model input | `schema.Message`, `schema.MessageInputPart`, and `schema.UserMessage` in `schema/message.go` | **ADAPT existing path**: `internal/runtime/contextadapter.go` remains the sole ContextHost-to-Eino projection |
-| Retrieval component | `components/retriever.Retriever.Retrieve`; `compose.Chain.AppendRetriever` and graph Retriever nodes | **AVAILABLE, NOT SELECTED**: Gate A adds no Eino graph and no public Eino type; reassess only for the named Gate B slice |
+| Retrieval component | `components/retriever.Retriever.Retrieve`; `compose.Chain.AppendRetriever` and graph Retriever nodes | **AVAILABLE, NOT SELECTED**: the selected Gates A–C slices add no Eino graph and no public Eino type; any future retrieval-backed slice reassesses this row |
 | Public SCX Provider ABI | No Eino type is required | **KEEP VIVY CONTRACT**: compile-time fakes implement only `contextsource`, `skillsource`, `tool`, and `toolworld`; the compiler rejects public-Port consumers other than the cataloged build-owned T1 Host, and the source firewall rejects direct Runtime, Eino, and concrete local Module imports |
 
 ## Bounded local validation
