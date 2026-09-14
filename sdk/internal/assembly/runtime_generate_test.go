@@ -96,7 +96,7 @@ func TestGenerateRuntimeAssemblyBindsRunObserversThroughObserverHost(t *testing.
 		"RunObservers []observer.RunProvider",
 		"RunObservers: append([]observer.RunProvider{}, memory.NewProvider())",
 		`RunObservers: []string{"fixture.memory"}`,
-		`RunObserverPolicies: []generation.RunObserverPolicy{{ProviderID: "fixture.memory", EventTypes: []string{"run.cancelled", "run.completed", "run.failed"}, AllowedPayloadFields: []string{"cause_category", "message", "outcome", "reason", "result", "session_id", "summary", "tenant_id", "view", "workspace_id"}}}`,
+		`RunObserverPolicies: []generation.RunObserverPolicy{{ProviderID: "fixture.memory", EventTypes: []string{"run.cancelled", "run.completed", "run.failed"}, AllowedPayloadFields: []string{"cause_category", "message", "outcome", "reason", "session_id", "summary", "tenant_id", "view", "workspace_id"}}}`,
 		"func (assembly *RuntimeAssembly) RunObserverProviders() any",
 	} {
 		if !strings.Contains(compactSource, strings.Join(strings.Fields(want), " ")) {
