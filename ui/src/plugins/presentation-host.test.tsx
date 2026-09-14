@@ -607,6 +607,24 @@ describe('PresentationHost', () => {
     expect(createWebFaceHost(router, { catalogs: malformedDigest }).t(key)).toContain('[missing translation:');
   });
 
+  it('accepts the compiler-owned catalog compilation state', () => {
+    const key = 'plugin.example/search-tools.results';
+    const base = {
+      apiVersion: 'vivy.i18n/v1',
+      schemaVersion: 'vivy.i18n/v1',
+      path: 'i18n/catalog.json',
+      defaultLocale: 'en',
+      locales: ['en'],
+      module: 'example/search-tools',
+      completeness: { en: 'COMPLETE', zh: 'INCOMPLETE' },
+      compilationState: 'INCOMPLETE_LOCALE',
+      units: { [key]: { description: 'Result count', placeholders: [], messages: { en: 'first' } } },
+    } as const;
+    const catalog = { ...base, digest: catalogProjectionDigest(base) };
+    const router = { navigate: vi.fn().mockResolvedValue(undefined), invalidate: vi.fn().mockResolvedValue(undefined) };
+    expect(createWebFaceHost(router, { catalogs: [catalog] }).t(key)).toBe('first');
+  });
+
   it('fails closed for a valid-format catalog digest that does not match its body', () => {
     const key = 'plugin.example/search-tools.results';
     const wrongDigest = [{
