@@ -47,6 +47,41 @@ tracked on the board:
 - No `docs/TODO.md` entries: every finding in this iteration was fixed in
   the same iteration, at the owner's request.
 
+## Round 2 — plugin v1 foundation audit fixes
+
+A second review pass covered the P1-P7 foundation the P8 work sits on
+(`compiler.go`, `graph.go`, `grants.go`, `source.go`, `source_verify_v1.go`,
+`sourcehash/tree.go`, `frontend_v1.go`, `port/catalog.go`) at
+`origin/main` (`cf98076`). Three risks and one nit were fixed on the same
+branch, in an isolated worktree (`../agent-vivy-p8-fixes`) because the root
+checkout was occupied by another lane:
+
+1. **Source firewall widened and re-scoped as advisory**
+   (`sdk/internal/source_verify_v1.go`): the forbidden import list now also
+   rejects `plugin`, `syscall`, `golang.org/x/sys`, and `unsafe`.
+   `VIVY-MODULE-STANDARD.md` §5 gains a "Source firewall scope" note: the
+   scan is defense-in-depth over direct imports and package-level selectors;
+   the authoritative capability boundary stays with Host interfaces and
+   Grant enforcement.
+2. **T2 sources without a verified root are rejected**
+   (`sdk/internal/assembly`): a T2 `SourceRecord` with an empty `Root` now
+   fails Compile with "lacks a verified source root" unless it explicitly
+   carries the new `RootlessFixture` flag (test fixtures only; production
+   catalogs never set it).
+3. **Orphan grant approvals are rejected** (`compiler.go`): a
+   `GrantApprovals` entry naming an unselected module now produces a
+   diagnostic, symmetric with the existing orphan source-pin check.
+4. **Single repository Module table** (`frontend_v1.go`):
+   `snapshotSourceDirs` and `sourceRecords` now derive from one
+   package-level `repoSourceDirs` table; the scx-reference
+   required-context special case became a table column instead of a magic
+   path comparison.
+
+Foundation findings deliberately not changed: `sourcehash`'s single
+generated-file exclusion (no second generated file exists) and the empty-ID
+requirement matching in `compileRequirement` (no consumer supplies empty
+IDs today).
+
 ## Verification
 
 See `verification.md`. Acceptance view in `acceptance.md`.
