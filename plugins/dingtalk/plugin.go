@@ -207,17 +207,15 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 }
 
 // supervise keeps the stream client connected until the context is
-// cancelled. The protocol client's auto-reconnect is deliberately absent;
-// this loop is the context-aware owner: while the client holds a connection,
-// Start is a cheap no-op, so the tick only re-runs the gateway exchange
-// and handshake once the connection is actually gone. That happens on
-// graceful gateway disconnect frames (the protocol reader closes
-// the conn, so the next tick redials) — but NOT on silent network death
-// (NAT timeout, read stall): the SDK never notices, Start keeps being a
-// no-op, and the ear stays deaf until process restart (CH-C6-N3). Failed
-// redials stay visible — every failed attempt is warned through the
-// kernel log face (CH-C6-N1) and the recovery is logged — while Stop ends
-// the loop.
+// cancelled. The protocol client holds no auto-reconnect; this loop is the
+// context-aware owner: while the client holds a connection, Start is a
+// cheap no-op, so the tick only re-runs the gateway exchange and handshake
+// once the connection is actually gone. That happens on graceful gateway
+// disconnect frames and on silent link death alike — the client bounds
+// every read (ping + read deadline, CH-C6-N3), so a NAT-dropped socket
+// clears itself and the next tick redials. Failed redials stay visible —
+// every failed attempt is warned through the kernel log face (CH-C6-N1)
+// and the recovery is logged — while Stop ends the loop.
 func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 	defer close(done)
 	failures := 0
