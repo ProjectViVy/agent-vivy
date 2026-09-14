@@ -145,6 +145,24 @@ export function ChannelsSettings() {
   const pendingRestart = (name: string): boolean =>
     channelPendingRestart(statusByName.get(name), envelopes[name]);
 
+  /** 编辑面板的实时健康徽标（CH-R-1）；detail 悬停可见（仅标识符）。 */
+  const selectedHealthBadge = selectedStatus?.health
+    ? selectedStatus.health.ok
+      ? { label: t('channels.healthOk'), className: 'border-emerald-500/40 text-emerald-600' }
+      : {
+          label:
+            selectedStatus.health.class === 'dead'
+              ? t('channels.healthDead')
+              : selectedStatus.health.class === 'rate-limit'
+                ? t('channels.healthRateLimit')
+                : t('channels.healthTemporary'),
+          className:
+            selectedStatus.health.class === 'dead'
+              ? 'border-destructive/40 text-destructive'
+              : 'border-amber-500/40 text-amber-600',
+        }
+    : null;
+
   const emptyGeneration = loaded && !error && statuses.length === 0;
 
   /**
@@ -348,6 +366,15 @@ export function ChannelsSettings() {
                             </Badge>
                             {pendingRestart(selected) ? (
                               <Badge variant="outline">{t('channels.pendingRestart')}</Badge>
+                            ) : null}
+                            {selectedHealthBadge ? (
+                              <Badge
+                                variant="outline"
+                                className={selectedHealthBadge.className}
+                                title={selectedStatus.health?.detail ?? undefined}
+                              >
+                                {selectedHealthBadge.label}
+                              </Badge>
                             ) : null}
                             <Switch
                               checked={selectedDraft.enabled}

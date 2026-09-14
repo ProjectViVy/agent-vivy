@@ -447,6 +447,9 @@ export interface ChannelStatus {
   token_env_set: boolean;
   /** 启动跳过/失败原因；空串 = 已启动（或尚未启动过）。 */
   note: string;
+  /** 已启动且实现 HealthChecker 的适配器的实时健康探测（CH-R-1）；
+   *  null = 未启动或无健康面。class ∈ rate-limit / temporary / dead。 */
+  health: { ok: boolean; class?: string; detail?: string } | null;
 }
 
 /**

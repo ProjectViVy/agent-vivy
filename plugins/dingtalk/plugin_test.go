@@ -1189,3 +1189,31 @@ func TestSuperviseSilentWithoutLogFace(t *testing.T) {
 		return starts >= 2
 	})
 }
+
+// TestHealthClassifiesRedialingStream (CH-R-1): while the supervise loop is
+// redialing a broken link, Health reports a temporary classification; once
+// the stream reconnects, Health returns to nil.
+func TestHealthClassifiesRedialingStream(t *testing.T) {
+	shrinkStreamRedialDelay(t)
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	stream := newFakeStream(nil)
+	// Plan: the initial connect succeeds, the next redial fails, then the
+	// ear reconnects (drained plan = success).
+	scripted := &scriptedStream{fakeStream: stream, plan: []bool{false, true}}
+	spy := &factorySpy{f: func(streamCreds, string) streamClient { return scripted }}
+	p := newAdapter()
+	p.newClient = spy.build
+	if err := p.Start(context.Background(), env); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health during redial", func() bool {
+		err := p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return p.Health(context.Background()) == nil
+	})
+}

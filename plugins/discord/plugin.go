@@ -182,6 +182,11 @@ type Plugin struct {
 	// every redial and the event handler before every publish, so
 	// neither a redial nor a late callback can resurrect a stopped ear.
 	stopped bool
+	// health is the live gateway state for the HealthChecker face
+	// (CH-R-1): nil while the gateway session is live, a temporary
+	// HealthError while redialing. Guarded by mu; written only by the
+	// supervisor loop, read through Health.
+	health error
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -424,6 +429,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			if report(fmt.Errorf("build session: %w", err)) {
 				return
 			}
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("build session: %w", err)}
+			p.mu.Unlock()
 			if !p.pause(ctx) {
 				return
 			}
@@ -445,6 +453,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			if report(fmt.Errorf("gateway handshake: %w", err)) {
 				return
 			}
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("gateway handshake: %w", err)}
+			p.mu.Unlock()
 			if !p.pause(ctx) {
 				return
 			}
@@ -460,6 +471,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		}
 
 		report(nil)
+		p.mu.Lock()
+		p.health = nil
+		p.mu.Unlock()
 
 		// Hold the attempt until the connection dies or the context (or a
 		// Stop) ends the run.
@@ -469,6 +483,9 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			// on their way out; the supervisor only retires the slot and
 			// schedules a fresh session.
 			p.retire(sess)
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: errors.New("gateway session died; redialing")}
+			p.mu.Unlock()
 		case <-ctx.Done():
 			// The supervisor — not Stop — closes the session: Stop must
 			// return even while a hanging Open holds the session mutex.
@@ -553,6 +570,17 @@ func (p *Plugin) Stop(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Health implements plugin.HealthChecker (CH-R-1): read-only gateway state,
+// no network I/O. A live gateway session is healthy; a broken link is
+// temporary — the supervise loop owns recovery, so no discord condition is
+// classified dead this generation (a failed handshake never starts the ear
+// and is retried).
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
 }
 
 // Send implements plugin.Channel: deliver each text part as one plain

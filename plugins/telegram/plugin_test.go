@@ -529,3 +529,24 @@ func TestSendSurfacesAPIError(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 }
+
+// TestHealthReportsStartedEar (CH-R-1): Health returns nil for a started
+// ear (telego owns transient-poll recovery internally) and a temporary
+// classification before Start.
+func TestHealthReportsStartedEar(t *testing.T) {
+	p := newAdapter()
+	if err := p.Health(context.Background()); err == nil {
+		t.Fatal("health before start = nil, want a temporary error")
+	} else {
+		var healthErr *plugin.HealthError
+		if !errors.As(err, &healthErr) || healthErr.Class != plugin.ClassTemporary {
+			t.Fatalf("health before start = %v, want a temporary HealthError", err)
+		}
+	}
+
+	stub := newTelegramStub(t)
+	p2 := startForTest(t, envForStub(stubSettings(stub)))
+	if err := p2.Health(context.Background()); err != nil {
+		t.Fatalf("health after start = %v, want nil", err)
+	}
+}

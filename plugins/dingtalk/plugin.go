@@ -121,6 +121,10 @@ type Plugin struct {
 	// and never mutated afterwards, so the loop reads it without the
 	// mutex; nil (env without the face) keeps the loop silent.
 	logger *slog.Logger
+	// health is the live link state for the HealthChecker face (CH-R-1):
+	// nil while the stream is connected, a classified HealthError while
+	// redialing. Guarded by mu; read through Health.
+	health error
 }
 
 func newAdapter() *Plugin {
@@ -233,14 +237,22 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}) {
 		}
 		if err := stream.Start(ctx); err != nil {
 			failures++
+			p.mu.Lock()
+			p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("stream redial failed: %w", err)}
+			p.mu.Unlock()
 			if p.logger != nil {
 				p.logger.Warn("dingtalk: stream redial failed; will retry",
 					"failures", failures, "err", err)
 			}
 			continue
 		}
-		if failures > 0 && p.logger != nil {
-			p.logger.Info("dingtalk: stream reconnected", "failed_attempts", failures)
+		if failures > 0 {
+			p.mu.Lock()
+			p.health = nil
+			p.mu.Unlock()
+			if p.logger != nil {
+				p.logger.Info("dingtalk: stream reconnected", "failed_attempts", failures)
+			}
 		}
 		failures = 0
 		// A redial that raced Stop must not leave an orphan socket behind.
@@ -339,6 +351,16 @@ func (p *Plugin) Stop(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Health implements plugin.HealthChecker (CH-R-1): read-only link state,
+// no network I/O. A connected stream is healthy; a broken link surfaces as
+// a temporary HealthError — the supervise loop owns recovery, so no
+// dingtalk condition is classified dead this generation.
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
 }
 
 // Send implements plugin.Channel: deliver each text part as one

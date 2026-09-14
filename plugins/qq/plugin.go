@@ -206,6 +206,11 @@ type Plugin struct {
 	// goroutine exists and never mutated afterwards, so the loop reads it
 	// without the mutex; nil (env without the face) keeps the loop silent.
 	logger *slog.Logger
+	// health is the live gateway state for the HealthChecker face (CH-R-1):
+	// nil while a session is live, a temporary HealthError while redialing,
+	// dead once the gateway gave up on the bot. Guarded by mu; written only
+	// by the supervisor loop, read through Health.
+	health error
 }
 
 // Compile-time assertions: a seam-channel plugin IS a Channel and a
@@ -547,6 +552,20 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		}
 		return errors.New("channel stopped while connecting")
 	}
+	// healthWhileRedialing and healthDead record the classified live state
+	// (CH-R-1) alongside the log lines: redialing attempts are temporary —
+	// the loop keeps retrying — while a give-up close is dead and needs an
+	// operator (or a Host restart) to revive the ear.
+	healthWhileRedialing := func(stage string, err error) {
+		p.mu.Lock()
+		p.health = &plugin.HealthError{Class: plugin.ClassTemporary, Err: fmt.Errorf("%s: %w", stage, err)}
+		p.mu.Unlock()
+	}
+	healthDead := func(err error) {
+		p.mu.Lock()
+		p.health = &plugin.HealthError{Class: plugin.ClassDead, Err: fmt.Errorf("gateway gave up on the bot: %w", err)}
+		p.mu.Unlock()
+	}
 	// handleDeath closes a dead (connected) attempt, classifies the
 	// gateway close for the next attempt, and reports whether the
 	// supervisor may redial. Shared by every death path — the same close
@@ -590,6 +609,7 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 				return
 			}
 			failures++
+			healthWhileRedialing("dial gateway", err)
 			p.logRedialFailure("dial gateway", err, failures)
 			if !p.pause(ctx) {
 				return
@@ -621,6 +641,7 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 				return
 			}
 			failures++
+			healthWhileRedialing("authenticate", authErr)
 			p.logRedialFailure("authenticate", authErr, failures)
 			if !p.pause(ctx) {
 				return
@@ -648,10 +669,12 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 					return
 				}
 				if !handleDeath(ws, err) {
+					healthDead(err)
 					p.logGiveUp(err)
 					return
 				}
 				failures++
+				healthWhileRedialing("handshake", err)
 				p.logRedialFailure("handshake", err, failures)
 				if !p.pause(ctx) {
 					return
@@ -673,8 +696,13 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 		}
 
 		report(nil)
-		if failures > 0 && p.logger != nil {
-			p.logger.Info("qq: gateway reconnected", "failed_attempts", failures)
+		if failures > 0 {
+			p.mu.Lock()
+			p.health = nil
+			p.mu.Unlock()
+			if p.logger != nil {
+				p.logger.Info("qq: gateway reconnected", "failed_attempts", failures)
+			}
 		}
 		failures = 0
 
@@ -685,10 +713,12 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 			// captured through this adapter's own handlers (READY session
 			// id, last dispatched event sequence).
 			if !handleDeath(ws, err) {
+				healthDead(err)
 				p.logGiveUp(err)
 				return
 			}
 			failures++
+			healthWhileRedialing("session", err)
 			p.logRedialFailure("session", err, failures)
 		case <-ctx.Done():
 			p.closeAttempt(ws)
@@ -807,6 +837,16 @@ func (p *Plugin) Stop(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Health implements plugin.HealthChecker (CH-R-1): read-only gateway state,
+// no network I/O. A live session is healthy; a redialing ear is temporary;
+// the terminal give-up close (bot delisted/banned) is dead — only an
+// operator or a Host restart revives it.
+func (p *Plugin) Health(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.health
 }
 
 // Send implements plugin.Channel: deliver each text part as one official

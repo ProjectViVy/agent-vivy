@@ -4868,12 +4868,24 @@ type channelCapsResult struct {
 	Health      bool `json:"health"`
 }
 
+// channelHealthResult is the live probe of a started HealthChecker adapter
+// (CH-R-1): ok=true means the transport is healthy; otherwise class carries
+// the classification (rate-limit / temporary / dead) and detail the
+// adapter's bounded reason. Null in JSON when the channel is not started or
+// the adapter has no Health face.
+type channelHealthResult struct {
+	OK     bool   `json:"ok"`
+	Class  string `json:"class,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // channelStatusResult is one channel/inspect entry: process truth from the
 // last StartAll. Settings writes apply on the next process restart, so the
 // UI derives "pending restart" by comparing this against channel/get.
 type channelStatusResult struct {
-	Name         string            `json:"name"`
-	Capabilities channelCapsResult `json:"capabilities"`
+	Name         string               `json:"name"`
+	Capabilities channelCapsResult    `json:"capabilities"`
+	Health       *channelHealthResult `json:"health"`
 	// Configured reports an effective channels.<name> envelope at startup.
 	Configured bool `json:"configured"`
 	// Enabled is the effective envelope switch; false when unconfigured.
@@ -4920,9 +4932,14 @@ func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
 	if allowFrom == nil {
 		allowFrom = []string{}
 	}
+	var health *channelHealthResult
+	if s.Health != nil {
+		health = &channelHealthResult{OK: s.Health.OK, Class: s.Health.Class, Detail: s.Health.Detail}
+	}
 	return channelStatusResult{
 		Name:         s.Name,
 		Capabilities: toChannelCapsResult(s.Capabilities),
+		Health:       health,
 		Configured:   s.Configured,
 		Enabled:      s.Enabled,
 		AllowFrom:    allowFrom,

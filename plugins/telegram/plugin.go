@@ -55,6 +55,19 @@ type Plugin struct {
 	done chan struct{}
 }
 
+// Health implements plugin.HealthChecker (CH-R-1): read-only internal
+// state, no network I/O. A started ear is healthy — telego retries
+// transient getUpdates failures internally (default 8s retry, errors on
+// the process stderr), so there is no adapter-visible redial state this
+// generation; plumbing telego's poll-loop errors into a finer
+// classification stays open. Not started is temporary.
+func (p *Plugin) Health(context.Context) error {
+	if p.bot == nil {
+		return &plugin.HealthError{Class: plugin.ClassTemporary, Err: errors.New("long poll not started")}
+	}
+	return nil
+}
+
 func newAdapter() *Plugin { return &Plugin{} }
 
 // Start implements plugin.Channel. Fail-closed order: settings must decode
