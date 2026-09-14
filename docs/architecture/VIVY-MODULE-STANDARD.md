@@ -179,6 +179,20 @@ by a Manifest. T2 Grants are governance and conformance contracts. Code that
 requires a hard trust boundary MUST run as T3. Documentation and Inspect MUST
 not describe T2 as sandboxed.
 
+### Source firewall scope
+
+`vivy-sdk` source verification additionally rejects direct imports of the
+kernel (`agent-vivy/internal/...`, `agent-vivy/sdk/internal/...`), sibling
+Module code (`plugins/`, `faces/` trees), Eino, raw media/transport stacks,
+and raw capability packages (`syscall`, `golang.org/x/sys`, `plugin`,
+`unsafe`), plus package-level capability calls on `os`, `os/exec`, `net`, and
+`net/http`. This firewall is advisory defense-in-depth for review, not a
+containment boundary: it scans parsed direct imports and package-level
+selectors only, so indirect dependencies and constructed values (for example
+`&http.Client{}`) are out of its reach. The authoritative capability boundary
+remains the Host interfaces handed to a Module and Grant enforcement on the
+single Run path.
+
 ## 6. Grants
 
 The formal Grant vocabulary is:

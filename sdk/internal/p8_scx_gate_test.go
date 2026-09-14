@@ -15,6 +15,10 @@ func TestP8SCXGateARejectsDirectImplementationDependencies(t *testing.T) {
 		"runtime":         "agent-vivy/internal/runtime",
 		"eino":            "github.com/cloudwego/eino/schema",
 		"public-provider": "agent-vivy/plugins/hello-fs",
+		"plugin":          "plugin",
+		"syscall":         "syscall",
+		"unsafe":          "unsafe",
+		"x-sys":           "golang.org/x/sys/windows",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()

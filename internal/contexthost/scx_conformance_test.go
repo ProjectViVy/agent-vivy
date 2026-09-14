@@ -162,6 +162,22 @@ func TestSCXRequiredContextCannotBeSilentlyDroppedForBudget(t *testing.T) {
 	}
 }
 
+func TestSCXRequiredExpiredCandidateFailsClosed(t *testing.T) {
+	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+	source := &scxResourceSource{id: "fixture.required-expired", page: contextsource.NewPage([]contextsource.Candidate{
+		{SourceID: "fixture.required-expired", ContentID: "persona", Content: "stale persona.", Treatment: contextsource.TreatmentRequired, ValidUntil: now.Add(-time.Second).UnixMilli()},
+		{SourceID: "fixture.required-expired", ContentID: "emotion", Content: "current emotion.", Treatment: contextsource.TreatmentCompetitive},
+	}, "")}
+	host, err := New(Config{Sources: []contextsource.Provider{source}, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = host.Query(context.Background(), Request{ByteBudget: 128})
+	if !errors.Is(err, ErrRequiredContextExpired) {
+		t.Fatalf("required expired error = %v", err)
+	}
+}
+
 func TestSCXRequiredCandidateWithInvalidProvenanceFailsClosed(t *testing.T) {
 	source := &scxResourceSource{id: "fixture.required-invalid", page: contextsource.NewPage([]contextsource.Candidate{{
 		SourceID: "fixture.spoofed", ContentID: "required", Content: "required passage", Treatment: contextsource.TreatmentRequired,

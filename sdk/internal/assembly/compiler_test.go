@@ -134,6 +134,43 @@ func TestCompileRequiresAuthoritativeT2SourcePin(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsRootlessT2WithoutFixtureFlag(t *testing.T) {
+	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
+	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
+	catalog, err := NewSourceCatalog([]SourceRecord{
+		{Descriptor: provider, Trust: TrustT2},
+		{Descriptor: host, Trust: TrustT1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: supportedPortEvidence()}
+	_, err = compiler.Compile(context.Background(), Recipe{APIVersion: RecipeAPIVersionV1, Modules: []string{host.Module.ID, provider.Module.ID}})
+	if err == nil || !strings.Contains(err.Error(), "T2 module fixture/provider lacks a verified source root") {
+		t.Fatalf("rootless T2 error = %v", err)
+	}
+}
+
+func TestCompileRejectsGrantApprovalForUnselectedModule(t *testing.T) {
+	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
+	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
+	provider.RequestedGrants = []module.Grant{module.GrantFSRead}
+	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
+	compiler := fixtureCompiler(t, []module.Descriptor{provider, host})
+	_, err := compiler.Compile(context.Background(), Recipe{
+		APIVersion: RecipeAPIVersionV1,
+		Modules:    []string{host.Module.ID, provider.Module.ID},
+		GrantApprovals: []GrantApproval{
+			{Module: provider.Module.ID, Name: module.GrantFSRead, Constraints: map[string][]string{"roots": {"repo://"}}},
+			{Module: "fixture/absent", Name: module.GrantFSRead, Constraints: map[string][]string{"roots": {"repo://"}}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "grant approval names unselected module fixture/absent") {
+		t.Fatalf("orphan approval error = %v", err)
+	}
+}
+
 func TestCompileRejectsUnusedProviderUnresolvedOrderAndConflict(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -224,7 +261,7 @@ func TestCompileIsDeterministicAndUsesCatalogTrust(t *testing.T) {
 	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
 	catalog, err := NewSourceCatalog([]SourceRecord{
-		{Descriptor: provider, Trust: TrustT2},
+		{Descriptor: provider, Trust: TrustT2, RootlessFixture: true},
 		{Descriptor: host, Trust: TrustT1},
 	})
 	if err != nil {
@@ -256,7 +293,7 @@ func TestCompileRejectsPortWithoutBuildEvidence(t *testing.T) {
 	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
 	consumer := testDescriptor("fixture/consumer")
 	consumer.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "std/tool@v1"}, Provider: "fixture/provider"}}
-	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: provider, Trust: TrustT2}, {Descriptor: consumer, Trust: TrustT1}})
+	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: provider, Trust: TrustT2, RootlessFixture: true}, {Descriptor: consumer, Trust: TrustT1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +346,7 @@ func fixtureCompiler(t *testing.T, descriptors []module.Descriptor) Compiler {
 		if strings.HasPrefix(descriptor.Source.Ref, "internal:") {
 			trust = TrustT1
 		}
-		records = append(records, SourceRecord{Descriptor: descriptor, Trust: trust})
+		records = append(records, SourceRecord{Descriptor: descriptor, Trust: trust, RootlessFixture: trust == TrustT2})
 	}
 	catalog, err := NewSourceCatalog(records)
 	if err != nil {
@@ -372,7 +409,7 @@ func testCoreHostDescriptor(id, portName string) module.Descriptor {
 
 func TestCompileRejectsCoreAuthorityAndDuplicateProviderIdentity(t *testing.T) {
 	core := withProvides(testDescriptor("fixture/core"), module.PortRef{Port: "core/tool-host@v1", ID: "fixture.tool-host"})
-	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: core, Trust: TrustT2}})
+	catalog, err := NewSourceCatalog([]SourceRecord{{Descriptor: core, Trust: TrustT2, RootlessFixture: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
