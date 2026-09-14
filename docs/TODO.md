@@ -122,32 +122,4 @@ This section retains only currently open, deferred, superseded, or otherwise unr
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
-
-## 14. Next stage — HITL Review Center and UI Foundations
-
-> Decision baseline from `docs/research/hitl-ui-2026-08-11/`. The next stage
-> is a product-contract and UI stage over the completed tool expansion. It
-> keeps Browser Use excluded and GraphTool test-only.
-
-| ID | Task | Depends | Acceptance |
-|---|---|---|---|
-| HITL-01 | Freeze the durable ReviewItem contract: proposal, question, source/actor, risk, expiry, stale state, and redacted view | ET-01..ET-12, C6 | Queue and inline surfaces consume one server-authoritative DTO |
-| HITL-02 | Expose cross-session review queue APIs and complete approval/question payloads | HITL-01, D1/D2 | Pending work is discoverable without opening the originating session; late decisions are conflict-safe |
-| HITL-03 | Add replayable decision, expiry, cancel, and stale lifecycle transitions | HITL-01, B4/B5 | Refresh, reconnect, restart, and timeout preserve one auditable outcome |
-| HITL-04 | Design and implement Review Center + run inspector Review tab | HITL-01, HITL-02 | Queue → detail → decision → execution/result works on desktop and narrow viewport |
-| HITL-05 | Add diff-first file/Skills review and structured command/HTTP/MCP/child renderers | HITL-01, ET-01/02/08/09/11 | Exact target, preview, risk, trust, and precondition are visible before approval |
-| HITL-06 | Separate question/elicitation UI from approval UI | HITL-02 | Answer supplies data only; cancel/expiry cannot authorize an effect |
-| HITL-07 | Verify HITL resilience and accessibility | HITL-03..06 | Playwright, race/restart/expiry tests, keyboard navigation, and secret-redaction checks pass |
-
-Implementation status (2026-08-12): HITL-01 through HITL-07 P0 are delivered
-and release-verified. The real-process evidence is recorded in
-`docs/logs/2026-08-12-hitl-release-closure/`.
-The Review Center and inline inspector consume the same redacted ReviewItem
-projection; file/Skills diffs and command/HTTP/MCP/child proposals use the
-shared structured preview fields. Specialized proposal editing, remember
-policies, structured MCP elicitation, assignment, history/search, and external
-notifications remain P1 follow-up work.
-
-Recommended P1 follow-up is **still open** — tracked as HITL-P1-1..7 in §0.1.
-Generic edit and bulk approval are not P0.
-
+> The completed HITL P0 stage is archived in `docs/COMPLETE.MD`; open P1 follow-ups remain in §0.1.
