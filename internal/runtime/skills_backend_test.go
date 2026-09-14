@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
+
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -326,6 +328,45 @@ func TestEinoSkillBackendProjectAlwaysSkills(t *testing.T) {
 	if !strings.Contains(got, "project always") || !strings.Contains(got, "user always") {
 		t.Fatalf("AlwaysSkills = %q", got)
 	}
+}
+
+func TestEinoSkillBackendSelectedWorkspaceReplacesLaunchProjectSkills(t *testing.T) {
+	backend, _, _ := openSkillTestBackend(t)
+	launchRoot := filepath.Join(t.TempDir(), ".agents", "skills")
+	selectedProject := t.TempDir()
+	selectedRoot := filepath.Join(selectedProject, ".agents", "skills")
+	writeSkillFixture(t, launchRoot, "launch-only", "launch project")
+	writeSkillFixture(t, selectedRoot, "selected-only", "selected project")
+	if err := backend.SetProjectSkillRoots([]string{launchRoot}); err != nil {
+		t.Fatal(err)
+	}
+	backend.SetSessionWorkspaceLookup(workspaceSessionLookup{
+		"session-selected": {ID: "session-selected", WorkspacePath: selectedProject},
+	})
+
+	defaultItems, err := backend.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !frontMatterContains(defaultItems, "launch-only") || frontMatterContains(defaultItems, "selected-only") {
+		t.Fatalf("default skill overlay = %+v", defaultItems)
+	}
+	selectedItems, err := backend.List(withSessionID(context.Background(), "session-selected"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !frontMatterContains(selectedItems, "selected-only") || frontMatterContains(selectedItems, "launch-only") {
+		t.Fatalf("selected skill overlay = %+v", selectedItems)
+	}
+}
+
+func frontMatterContains(items []einoskill.FrontMatter, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func mustView(t *testing.T, backend *EinoSkillBackend, name string) string {

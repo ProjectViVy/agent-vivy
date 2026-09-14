@@ -21,6 +21,8 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('session/todos');
     expect(api.RPC_METHODS).toContain('session/todo/update');
     expect(api.RPC_METHODS).toContain('session/set_permission');
+    expect(api.RPC_METHODS).toContain('session/set_workspace');
+    expect(api.RPC_METHODS).toContain('workspace/browse');
     expect(api.RPC_METHODS).toContain('skills/list');
     expect(api.RPC_METHODS).toContain('skills/get');
     expect(api.RPC_METHODS).toContain('channel/inspect');
@@ -32,6 +34,14 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('cron/delete');
     expect(api.RPC_METHODS).toContain('cron/trigger');
     expect(api.RPC_METHODS).toContain('cron/stop');
+  });
+  it('maps workspace selection and browsing to their wire methods', async () => {
+    await api.createSession('', '/code/vivy');
+    expect(call).toHaveBeenLastCalledWith('session/create', { title: '', workspace_path: '/code/vivy' });
+    await api.setSessionWorkspace('s1', '/code/next');
+    expect(call).toHaveBeenLastCalledWith('session/set_workspace', { session_id: 's1', workspace_path: '/code/next' });
+    await api.browseWorkspace('/code');
+    expect(call).toHaveBeenLastCalledWith('workspace/browse', { path: '/code' });
   });
   it('maps representative runtime and lifecycle operations to their wire methods', async () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });

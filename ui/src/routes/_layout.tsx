@@ -56,8 +56,8 @@ function Layout() {
     setMobileNavOpen(false);
     await navigate({ to: '/' });
   };
-  const createAndOpen = async () => {
-    const created = await createSession();
+  const createAndOpen = async (workspacePath = '') => {
+    const created = await createSession('', workspacePath);
     setMobileNavOpen(false);
     await navigate({ to: '/' });
     return created;
@@ -76,7 +76,7 @@ function Layout() {
       onSelectSession={(id) => void selectAndOpen(id)}
       onRenameSession={renameSession}
       onDeleteSession={deleteSession}
-      onCreateSession={() => createAndOpen()}
+      onCreateSession={(workspacePath) => createAndOpen(workspacePath)}
     />
   );
 

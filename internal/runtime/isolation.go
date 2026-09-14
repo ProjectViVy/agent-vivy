@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 // Workspace is the only filesystem identity a background run may receive.
@@ -23,8 +25,22 @@ type Workspace struct {
 // root. It intentionally does not execute git or shell commands; a future
 // filesystem/subagent tool must be wired to this boundary explicitly.
 type WorkspaceManager struct {
-	root  string
-	local bool
+	root     string
+	local    bool
+	sessions SessionWorkspaceLookup
+	runs     RunWorkspaceLookup
+}
+
+// SessionWorkspaceLookup resolves the durable project directory attached to
+// a conversation. It is deliberately narrower than storage.SessionStore.
+type SessionWorkspaceLookup interface {
+	GetSession(context.Context, domain.SessionID) (domain.Session, error)
+}
+
+// RunWorkspaceLookup recovers session ownership when a workspace is inspected
+// outside an active run context (restart, file preview, LSP status).
+type RunWorkspaceLookup interface {
+	GetRun(context.Context, domain.RunID) (domain.Run, error)
 }
 
 // NewWorkspaceManager validates and normalizes the isolation root. The root
@@ -39,6 +55,22 @@ func NewWorkspaceManager(root string) (*WorkspaceManager, error) {
 		return nil, fmt.Errorf("runtime: resolve workspace root: %w", err)
 	}
 	return &WorkspaceManager{root: filepath.Clean(abs)}, nil
+}
+
+// NewSessionWorkspaceManager preserves private per-run workspaces for
+// sessions without an explicit selection and mounts a selected project root
+// for every run in that session.
+func NewSessionWorkspaceManager(root string, sessions SessionWorkspaceLookup, runs RunWorkspaceLookup) (*WorkspaceManager, error) {
+	m, err := NewWorkspaceManager(root)
+	if err != nil {
+		return nil, err
+	}
+	if sessions == nil || runs == nil {
+		return nil, errors.New("runtime: session workspace lookups must be wired")
+	}
+	m.sessions = sessions
+	m.runs = runs
+	return m, nil
 }
 
 // NewLocalWorkspaceManager mounts root itself as the workspace for every
@@ -63,6 +95,11 @@ func (m *WorkspaceManager) Ensure(ctx context.Context, runID domain.RunID) (Work
 	}
 	if err := ctx.Err(); err != nil {
 		return Workspace{}, err
+	}
+	if selected, ok, err := m.selectedWorkspace(ctx, runID); err != nil {
+		return Workspace{}, err
+	} else if ok {
+		return selected, nil
 	}
 	if m.local {
 		info, err := os.Lstat(m.root)
@@ -107,6 +144,11 @@ func (m *WorkspaceManager) Existing(ctx context.Context, runID domain.RunID) (Wo
 	if err := ctx.Err(); err != nil {
 		return Workspace{}, false, err
 	}
+	if selected, ok, err := m.selectedWorkspace(ctx, runID); err != nil {
+		return Workspace{}, false, err
+	} else if ok {
+		return selected, true, nil
+	}
 	if m.local {
 		info, err := os.Lstat(m.root)
 		if errors.Is(err, os.ErrNotExist) {
@@ -139,6 +181,82 @@ func (m *WorkspaceManager) Existing(ctx context.Context, runID domain.RunID) (Wo
 		return Workspace{}, false, errors.New("runtime: workspace path is not a private directory")
 	}
 	return Workspace{ID: name, Path: workspacePath}, true, nil
+}
+
+func (m *WorkspaceManager) selectedWorkspace(ctx context.Context, runID domain.RunID) (Workspace, bool, error) {
+	if m == nil || m.sessions == nil {
+		return Workspace{}, false, nil
+	}
+	sessionID := contextSessionID(ctx)
+	run, err := m.runs.GetRun(ctx, runID)
+	switch {
+	case err == nil:
+		// A durable run is authoritative. The context is only a pre-persist
+		// bridge and may be stale when a caller reuses it for inspection.
+		sessionID = run.SessionID
+	case errors.Is(err, storage.ErrNotFound) && sessionID != "":
+		// The runtime allocates the workspace before CreateRun persists the
+		// owner, so carry the session identity explicitly for that short gap.
+	case err != nil:
+		return Workspace{}, false, fmt.Errorf("runtime: resolve workspace run owner: %w", err)
+	}
+	if sessionID == "" {
+		return Workspace{}, false, fmt.Errorf("runtime: resolve workspace run owner: %w", storage.ErrNotFound)
+	}
+	session, err := m.sessions.GetSession(ctx, sessionID)
+	if err != nil {
+		return Workspace{}, false, fmt.Errorf("runtime: resolve session workspace: %w", err)
+	}
+	root := strings.TrimSpace(session.WorkspacePath)
+	if root == "" {
+		return Workspace{}, false, nil
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return Workspace{}, false, fmt.Errorf("runtime: inspect selected workspace: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return Workspace{}, false, errors.New("runtime: selected workspace root is not a directory")
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return Workspace{}, false, fmt.Errorf("runtime: canonicalize selected workspace: %w", err)
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(canonical)))
+	return Workspace{ID: fmt.Sprintf("selected_%x", sum[:8]), Path: filepath.Clean(canonical)}, true, nil
+}
+
+// ValidateRunPath checks a path against the root selected for this run rather
+// than the process's default root.
+func (m *WorkspaceManager) ValidateRunPath(ctx context.Context, runID domain.RunID, path string) error {
+	workspace, err := m.Ensure(ctx, runID)
+	if err != nil {
+		return err
+	}
+	return ensurePathUnderRoot(workspace.Path, path)
+}
+
+func ensurePathUnderRoot(root, path string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("runtime: resolve workspace root: %w", err)
+	}
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("runtime: resolve workspace path: %w", err)
+		}
+		realParent, parentErr := filepath.EvalSymlinks(filepath.Dir(path))
+		if parentErr != nil {
+			return fmt.Errorf("runtime: resolve workspace parent: %w", parentErr)
+		}
+		realPath = filepath.Join(realParent, filepath.Base(path))
+	}
+	rel, err := filepath.Rel(realRoot, realPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return errors.New("runtime: workspace path escapes selected root")
+	}
+	return nil
 }
 
 // ValidatePath reports whether a path stays inside the manager root. It is

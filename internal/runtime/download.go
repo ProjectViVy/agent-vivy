@@ -104,7 +104,7 @@ func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, inpu
 	// needs real directories, and resolve() has already bounded the path to
 	// the workspace before anything is created.
 	if b.sandbox != nil {
-		if err := b.sandbox.ValidatePathWithMode(path, FileOpWrite, sandboxMode(ctx)); err != nil {
+		if err := b.sandbox.ValidatePathWithinRoot(root, path, FileOpWrite, sandboxMode(ctx)); err != nil {
 			return tools.DownloadResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}

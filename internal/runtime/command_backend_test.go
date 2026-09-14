@@ -46,6 +46,43 @@ func TestCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
 		t.Fatalf("proposal=%#v err=%v", proposal, err)
 	}
 }
+
+func TestSelectedSessionWorkspaceDrivesFileAndCommandOperations(t *testing.T) {
+	selected := t.TempDir()
+	if err := os.WriteFile(filepath.Join(selected, "go.mod"), []byte("module selected.example\n\ngo 1.24\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewSessionWorkspaceManager(filepath.Join(t.TempDir(), "default"), workspaceSessionLookup{
+		"session-selected": {ID: "session-selected", WorkspacePath: selected},
+	}, workspaceRunLookup{
+		"run-selected": {ID: "run-selected", SessionID: "session-selected"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox, err := NewSandboxManager(domain.SandboxModeDangerFullAccess, t.TempDir(), []string{"go"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := NewEinoFilesystemBackend(manager, sandbox)
+	if _, err := files.WriteFile(context.Background(), "run-selected", tools.FileWriteRequest{Path: "vivy-marker.txt", Content: "selected", CreateParents: true}); err != nil {
+		t.Fatalf("write selected workspace: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(selected, "vivy-marker.txt")); err != nil || string(data) != "selected" {
+		t.Fatalf("selected write = %q, %v", data, err)
+	}
+
+	commands := NewCommandBackend(manager, sandbox, []string{"go"}, 30*time.Second)
+	result, err := commands.Execute(context.Background(), "run-selected", tools.CommandRequest{Command: "go", Args: []string{"env", "GOMOD"}})
+	if err != nil {
+		t.Fatalf("execute in selected workspace: %v", err)
+	}
+	wantModule := filepath.Join(selected, "go.mod")
+	if result.ExitCode != 0 || filepath.Clean(strings.TrimSpace(result.Stdout)) != wantModule {
+		t.Fatalf("go env GOMOD = %#v, want %q", result, wantModule)
+	}
+}
+
 func TestCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T) {
 	manager, err := NewWorkspaceManager(t.TempDir())
 	if err != nil {
