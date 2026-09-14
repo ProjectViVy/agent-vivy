@@ -160,6 +160,19 @@ jobs:
           VIVY_FULL_UI_URL: http://127.0.0.1:3015
         run: pnpm exec playwright test e2e/plugin-full-ui.spec.ts
 
+      - name: Dump selected full UI logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path '.workspace/p9-full-ui.stdout.log') {
+            Write-Host '--- selected full UI stdout ---'
+            Get-Content '.workspace/p9-full-ui.stdout.log'
+          }
+          if (Test-Path '.workspace/p9-full-ui.stderr.log') {
+            Write-Host '--- selected full UI stderr ---'
+            Get-Content '.workspace/p9-full-ui.stderr.log'
+          }
+
       - name: Stop selected full UI
         if: always()
         shell: pwsh
