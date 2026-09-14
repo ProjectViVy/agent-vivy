@@ -48,11 +48,14 @@ func Reset() { Items = nil; FailStart = "" }
 	writeGeneratedTestFile(t, root, "runtimeassembly/zz_default.go", string(runtimeAssembly))
 	writeGeneratedTestFile(t, root, "runtimeassembly/zz_default_test.go", generatedRuntimeAssemblyBehaviorTest)
 
-	command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "test", "./...")
+	command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "test", "-v", "./...")
 	command.Dir = root
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated binder did not pass real module test: %v\n%s", err, output)
+	}
+	if os.Getenv("VIVY_P9_EMIT_DIAGNOSTIC") == "1" {
+		t.Logf("generated lifecycle output:\n%s", output)
 	}
 }
 
@@ -129,7 +132,9 @@ func TestStartFailureRollsBackEveryConstructedOwner(t *testing.T) {
     owners, err := Construct(context.Background(), hosts{})
     if err != nil { t.Fatal(err) }
     events.FailStart = "search"
-    if err := owners.Start(context.Background()); err == nil { t.Fatal("Start() succeeded") }
+	startErr := owners.Start(context.Background())
+	if startErr == nil { t.Fatal("Start() succeeded") }
+	t.Logf("VIVY_P9_DIAGNOSTIC=%s", startErr)
     want := []string{"construct:clock", "construct:search", "start:clock", "ready:clock", "start:search", "stop:search", "stop:clock", "close:search", "close:clock"}
     if !reflect.DeepEqual(events.Items, want) { t.Fatalf("events = %v, want %v", events.Items, want) }
 }

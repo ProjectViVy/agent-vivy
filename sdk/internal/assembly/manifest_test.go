@@ -9,9 +9,72 @@ import (
 	"strings"
 	"testing"
 
+	providerconformance "agent-vivy/sdk/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 )
+
+func TestConformanceResultsAreSealedCanonicalAndIdentityBound(t *testing.T) {
+	plan := manifestTestPlan()
+	results := []providerconformance.ConformanceResult{
+		{Port: module.PortRef{Port: "std/tool@v1", ID: "fixture.search"}, ProviderID: "fixture/search", SourceSHA256: strings.Repeat("a", 64), Suite: "timeout", Passed: true, EvidenceID: "evidence/timeout"},
+		{Port: module.PortRef{Port: "std/tool@v1", ID: "fixture.search"}, ProviderID: "fixture/search", SourceSHA256: strings.Repeat("a", 64), Suite: "registration", Passed: true, EvidenceID: "evidence/registration"},
+	}
+	inputs := SealInputs{
+		SpecificationVersion: "vivy.assembly/v1",
+		CompilerVersion:      "compiler-test",
+		SDKVersion:           "sdk-test",
+		CanonicalRecipe:      []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/search"]}`),
+		ConformanceResults:   results,
+	}
+	manifest, raw, err := SealManifest(plan, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.ConformanceResults) != 2 || manifest.ConformanceResults[0].Suite != "registration" {
+		t.Fatalf("conformance results are not canonical: %#v", manifest.ConformanceResults)
+	}
+	inspected, err := InspectManifest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inspected.ConformanceResults, manifest.ConformanceResults) {
+		t.Fatalf("Inspect conformance = %#v, want %#v", inspected.ConformanceResults, manifest.ConformanceResults)
+	}
+
+	inputs.ConformanceResults[0].Passed = false
+	failed, _, err := SealManifest(plan, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.GenerationID == manifest.GenerationID {
+		t.Fatal("conformance outcome did not change Generation identity")
+	}
+}
+
+func TestCatalogCompletenessComesFromCompilerEvidence(t *testing.T) {
+	catalog := CatalogManifest{
+		Module: "fixture/catalog", APIVersion: "vivy.i18n/v1", SchemaVersion: "vivy.i18n/v1",
+		Path: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"},
+		CompilationState: "COMPLETE",
+		Completeness:     map[string]string{"en": "COMPLETE", "zh": "INCOMPLETE"},
+		Units: map[string]CatalogUnit{
+			"plugin.fixture/catalog.title": {Description: "Title", Messages: map[string]string{"en": "Title"}},
+		},
+	}
+	catalog.Digest = catalogProjectionDigest(catalog)
+	manifest, _, err := SealManifest(manifestTestPlan(), SealInputs{
+		SpecificationVersion: "vivy.assembly/v1", CompilerVersion: "compiler-test", SDKVersion: "sdk-test",
+		CanonicalRecipe: []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/search"]}`),
+		Catalogs:        []CatalogManifest{catalog},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.Catalogs[0].CompilationState; got != "INCOMPLETE_LOCALE" {
+		t.Fatalf("catalog compilation state = %s, want compiler-derived INCOMPLETE_LOCALE", got)
+	}
+}
 
 func TestCanonicalRecipeAndManifestAreSemanticByteStable(t *testing.T) {
 	firstRecipe := Recipe{
@@ -146,6 +209,7 @@ func TestGenerationIDChangesWhenEmbeddedCatalogBodyChanges(t *testing.T) {
 		Path:          "i18n/catalog.json",
 		DefaultLocale: "en",
 		Locales:       []string{"en", "zh"},
+		Completeness:  map[string]string{"en": "COMPLETE", "zh": "COMPLETE"},
 		Units: map[string]CatalogUnit{
 			"plugin.fixture/search.title": {
 				Description:  "Title",
@@ -191,6 +255,7 @@ func TestSealManifestCanonicalizesUIProjectionCatalogOrder(t *testing.T) {
 		Path:          "i18n/catalog.json",
 		DefaultLocale: "en",
 		Locales:       []string{"zh", "en"},
+		Completeness:  map[string]string{"en": "COMPLETE", "zh": "COMPLETE"},
 		Evidence:      []string{"INCOMPLETE_LOCALE", "COMPLETE"},
 		Units: map[string]CatalogUnit{
 			"plugin.fixture/catalog-a.title": {
@@ -208,6 +273,7 @@ func TestSealManifestCanonicalizesUIProjectionCatalogOrder(t *testing.T) {
 		Path:          "i18n/catalog.json",
 		DefaultLocale: "en",
 		Locales:       []string{"en"},
+		Completeness:  map[string]string{"en": "COMPLETE", "zh": "INCOMPLETE"},
 		Units: map[string]CatalogUnit{
 			"plugin.fixture/catalog-b.title": {
 				Description:  "Title B",

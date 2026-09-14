@@ -352,6 +352,7 @@ func TestGenerateUIAssemblyEmbedsValidatedCatalogProjection(t *testing.T) {
 		Path:          "i18n/catalog.json",
 		DefaultLocale: "en",
 		Locales:       []string{"en", "zh"},
+		Completeness:  map[string]string{"en": "COMPLETE", "zh": "INCOMPLETE"},
 		Units: map[string]CatalogUnit{
 			"plugin.fixture/catalog.results": {
 				Description:  "Result count",
@@ -383,6 +384,7 @@ func TestGenerateUIAssemblyRejectsMalformedOrAmbiguousCatalogs(t *testing.T) {
 		SchemaVersion: "vivy.i18n/v1",
 		DefaultLocale: "en",
 		Locales:       []string{"en"},
+		Completeness:  map[string]string{"en": "COMPLETE", "zh": "INCOMPLETE"},
 		Units: map[string]CatalogUnit{
 			"plugin.fixture/catalog.message": {
 				Description:  "Message",
@@ -398,6 +400,26 @@ func TestGenerateUIAssemblyRejectsMalformedOrAmbiguousCatalogs(t *testing.T) {
 		code UIAssemblyErrorCode
 		want string
 	}{
+		{name: "missing completeness", set: func(input *UIAssemblyInput) {
+			copy := valid
+			copy.Completeness = nil
+			input.Catalogs = []CatalogManifest{copy}
+		}, code: UIAssemblyErrorInvalidInput, want: "completeness"},
+		{name: "missing required locale completeness", set: func(input *UIAssemblyInput) {
+			copy := valid
+			copy.Completeness = map[string]string{"en": "COMPLETE"}
+			input.Catalogs = []CatalogManifest{copy}
+		}, code: UIAssemblyErrorInvalidInput, want: "completeness"},
+		{name: "extra locale completeness", set: func(input *UIAssemblyInput) {
+			copy := valid
+			copy.Completeness = map[string]string{"en": "COMPLETE", "zh": "INCOMPLETE", "ja": "INCOMPLETE"}
+			input.Catalogs = []CatalogManifest{copy}
+		}, code: UIAssemblyErrorInvalidInput, want: "completeness"},
+		{name: "inconsistent locale completeness", set: func(input *UIAssemblyInput) {
+			copy := valid
+			copy.Completeness = map[string]string{"en": "INCOMPLETE", "zh": "INCOMPLETE"}
+			input.Catalogs = []CatalogManifest{copy}
+		}, code: UIAssemblyErrorInvalidInput, want: "completeness"},
 		{name: "missing units", set: func(input *UIAssemblyInput) {
 			copy := valid
 			copy.Units = nil

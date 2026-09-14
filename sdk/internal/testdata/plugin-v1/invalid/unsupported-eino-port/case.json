@@ -1,0 +1,18 @@
+{
+  "id": "unsupported-eino-port",
+  "expect": "reject",
+  "rule": "Eino-scoped capabilities require a public v1 Port or an explicit deferred result.",
+  "wantError": "unknown Port std/eino-graph@v1",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/eino-graph"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/eino-graph", "version": "1.0.0" },
+      "source": { "ref": "git:fixture/eino-graph@0123456", "sha256": "abababababababababababababababababababababababababababababababab" },
+      "provides": [{ "port": "std/eino-graph@v1", "id": "fixture.eino-graph" }],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

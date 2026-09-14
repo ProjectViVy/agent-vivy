@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"agent-vivy/internal/moduleport"
+	providerconformance "agent-vivy/sdk/conformance"
+	generationconformance "agent-vivy/sdk/internal/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 )
@@ -47,9 +49,10 @@ type AssemblyPlan struct {
 }
 
 type Compiler struct {
-	Ports        port.Catalog
-	Sources      SourceCatalog
-	PortEvidence map[string]port.SupportEvidence
+	Ports              port.Catalog
+	Sources            SourceCatalog
+	PortEvidence       map[string]port.SupportEvidence
+	ConformanceResults []providerconformance.ConformanceResult
 }
 
 type diagnosticsError struct {
@@ -62,6 +65,10 @@ func (err diagnosticsError) Error() string {
 
 func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, error) {
 	if err := ctx.Err(); err != nil {
+		return AssemblyPlan{}, err
+	}
+	portSupport, err := generationconformance.EvaluatePortSupport(c.Ports, c.PortEvidence, c.ConformanceResults)
+	if err != nil {
 		return AssemblyPlan{}, err
 	}
 	diagnostics := make([]string, 0)
@@ -327,7 +334,7 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		if strings.HasPrefix(portName, "core/") {
 			continue
 		}
-		if err := c.Ports.RequireSelectable(module.PortRef{Port: portName}, c.PortEvidence[portName]); err != nil {
+		if err := requireSelectablePort(portSupport, module.PortRef{Port: portName}); err != nil {
 			diagnostics = append(diagnostics, err.Error())
 		}
 	}
@@ -351,7 +358,7 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 			if strings.HasPrefix(requirement.Port, "core/") {
 				continue
 			}
-			if err := c.Ports.RequireSelectable(requirement.PortRef, c.PortEvidence[requirement.Port]); err != nil {
+			if err := requireSelectablePort(portSupport, requirement.PortRef); err != nil {
 				diagnostics = append(diagnostics, err.Error())
 			}
 		}
@@ -370,6 +377,19 @@ func (c Compiler) Compile(ctx context.Context, recipe Recipe) (AssemblyPlan, err
 		return left < right
 	})
 	return AssemblyPlan{Modules: resolved, PortEdges: edges, LifecycleOrder: lifecycleOrder, OrderedContributions: ordered}, nil
+}
+
+func requireSelectablePort(records []generationconformance.PortSupportRecord, ref module.PortRef) error {
+	for _, record := range records {
+		if record.Port.Port != ref.Port {
+			continue
+		}
+		if record.State != port.SupportSupported {
+			return fmt.Errorf("Port %s is %s and cannot be selected", ref.Port, record.State)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown Port %s", ref.Port)
 }
 
 func (c Compiler) validatePublicPortConsumer(requirement module.Requirement, consumerID string, trust Trust) error {
