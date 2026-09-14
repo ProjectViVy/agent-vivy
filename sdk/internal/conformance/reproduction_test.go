@@ -423,7 +423,7 @@ func releaseHostCommand(portID string) releaseTestCommand {
 }
 
 func releaseSuiteCases() []releaseSuiteCase {
-	internalSHA := "97e22048ccc38df1fdc7a6279896b52ed9a58cde0200d6083c4229f49a6dfd60"
+	internalSHA := "10f5439c9e5756f41794950811d0074873b6fb2593d93e2730752ce844cbb75d"
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx"}}
@@ -435,7 +435,7 @@ func releaseSuiteCases() []releaseSuiteCase {
 		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "249983bd553e0805a22e6f72594ff7e1498b057bb176c4c29f50c4c07196a921", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
 		{"std/channel@v1", "vivy/discord", "plugins/discord", "82b537cc9f47cdd2d6fa4cc30a7f08740c633a78250a1b158e1fa861a794ff7c", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
 		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "0a5b062c84060b09f427f4ccb91612471d3a76fa2aa40e581fa9a690fde04d77", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
-		{"std/channel@v1", "vivy/qq", "plugins/qq", "785ba74510e35051e0f2874d5efcb5e892416728437e024e8822088bb98ab1ac", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
+		{"std/channel@v1", "vivy/qq", "plugins/qq", "e422eccce4aa9ca7b2953739f3c7024b89989e4a39898e64ea872728173215ee", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
 		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "c3b73462f1e9fa55abd1d544a31efe0014676d76cc677278505dafa54f34b7d0", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
 		{"std/face@v1", "vivy/headless", "faces/headless", "0c1a976e1753e628d4da679c3eae6c755d6dba49d437264295177a1267f0a7fc", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
 		{"std/face@v1", "vivy/tui", "faces/tui", "96e0104bbac52765a4d826d8324b7f81695ce3aef6b9a5d755e69b4507178251", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
