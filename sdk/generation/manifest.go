@@ -15,6 +15,10 @@ var (
 	embeddedEnd   = []byte("]VIVY_GENERATION_V1_END")
 )
 
+// EmbeddedManifestBase64 is set only by vivy-sdk pack through the Go linker.
+// A packed executable therefore carries the exact sealed Manifest it reports.
+var EmbeddedManifestBase64 string
+
 func EmbeddedManifest() ([]byte, error) {
 	if EmbeddedManifestBase64 == "" {
 		return nil, errors.New("no sealed Generation Manifest is embedded")

@@ -380,11 +380,11 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	binaryName := artifactBinaryName(runtime.GOOS)
 	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
-	manifestValueSource, err := filepath.Abs(filepath.Join(repoRoot, "sdk/generation/manifest_value.go"))
+	manifestValueSource, err := filepath.Abs(filepath.Join(repoRoot, "sdk/generation/manifest.go"))
 	if err != nil {
 		return Artifact{}, err
 	}
-	manifestValueReplacement := filepath.Join(overlayDir, "manifest_value.go")
+	manifestValueReplacement := filepath.Join(overlayDir, "manifest.go")
 	if err := writeEmbeddedManifestOverlay(overlayFile, manifestValueSource, manifestValueReplacement, embedded); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: bind embedded Generation Manifest: %w", err)
 	}
@@ -529,7 +529,15 @@ func overlaySelectedUIDist(overlayFile, repositoryDist, selectedDist string) err
 }
 
 func writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded string) error {
-	source := []byte("package generation\n\nvar EmbeddedManifestBase64 = " + strconv.Quote(embedded) + "\n")
+	original, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	declaration := []byte("var EmbeddedManifestBase64 string")
+	if bytes.Count(original, declaration) != 1 {
+		return errors.New("manifest source has an unexpected EmbeddedManifestBase64 declaration")
+	}
+	source := bytes.Replace(original, declaration, []byte("var EmbeddedManifestBase64 = "+strconv.Quote(embedded)), 1)
 	if err := os.WriteFile(replacementPath, source, 0o600); err != nil {
 		return err
 	}
