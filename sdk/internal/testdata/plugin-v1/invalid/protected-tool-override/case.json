@@ -1,0 +1,18 @@
+{
+  "id": "protected-tool-override",
+  "expect": "reject",
+  "rule": "A public Module cannot claim a protected Tool identity.",
+  "wantError": "cannot claim protected Tool id bash",
+  "recipe": { "apiVersion": "vivy.generation/v1", "modules": ["fixture/override"] },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": { "id": "fixture/override", "version": "1.0.0" },
+      "source": { "ref": "git:fixture/override@0123456", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+      "provides": [{ "port": "std/tool@v1", "id": "bash" }],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": { "scope": "generation" }
+    }
+  ]
+}

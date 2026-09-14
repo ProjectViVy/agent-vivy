@@ -69,6 +69,38 @@ its source/hash/Grant in Inspect.
 
 ## Completion
 
-Use test-first implementation. Run focused tests, the phase gate, `just ci`,
-and the real plugin path once v1 commands are supported. Record the iteration
-log and commit one concern. A browser refresh never installs a Module.
+Use test-first implementation. A browser refresh never installs a Module.
+
+From the repository root, the supported quick workflow is:
+
+```text
+go run ./sdk verify plugins/hello-fs
+go run ./sdk pack --recipe recipes/minimal.vivy.yml --output <new-output-directory>
+go run ./sdk inspect-artifact <output-directory>
+```
+
+`pack` requires both `--recipe` and `--output`; the output path must not exist.
+Add one `--source <module-directory>` for each external source selected by the
+Recipe. Inspect consumes the artifact directory, parses the sealed executable
+without running it, and reports build-owned Port support and conformance
+evidence.
+
+Run the pressure matrix before claiming a Provider or Generation complete:
+
+```text
+go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1
+go test ./sdk/internal/conformance -run 'TestGeneration(FailureMatrixEvidence|RollbackRestoresCatalogAndLocaleIdentity)' -count=1
+go test ./sdk/internal -run 'Test(GenerationFailureMatrixExecutesEveryCase|MinimalArtifactPhysicallyOmitsOptionalModules)' -count=1
+go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures|StartFailureRollsBackEveryConstructedOwner)' -count=1
+go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed|PanicAndInvalidDecisionFailClosed)' -count=1
+```
+
+Then run the focused Host/Port suites, `just ci`, and the real selected product
+path. Record the iteration log and commit one concern.
+
+`verify` is static and never starts Provider code. `pack` consumes the
+checked-in, source-hash-bound conformance result bundle; it does not execute
+the suites. Unattested third-party Providers remain packable but receive no
+conformance record in Inspect. Advance the bundle only when the executable
+reproduction gate, focused suites, and Generation matrix match the same
+release evidence set.

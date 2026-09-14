@@ -179,6 +179,20 @@ by a Manifest. T2 Grants are governance and conformance contracts. Code that
 requires a hard trust boundary MUST run as T3. Documentation and Inspect MUST
 not describe T2 as sandboxed.
 
+### Source firewall scope
+
+`vivy-sdk` source verification additionally rejects direct imports of the
+kernel (`agent-vivy/internal/...`, `agent-vivy/sdk/internal/...`), sibling
+Module code (`plugins/`, `faces/` trees), Eino, raw media/transport stacks,
+and raw capability packages (`syscall`, `golang.org/x/sys`, `plugin`,
+`unsafe`), plus package-level capability calls on `os`, `os/exec`, `net`, and
+`net/http`. This firewall is advisory defense-in-depth for review, not a
+containment boundary: it scans parsed direct imports and package-level
+selectors only, so indirect dependencies and constructed values (for example
+`&http.Client{}`) are out of its reach. The authoritative capability boundary
+remains the Host interfaces handed to a Module and Grant enforcement on the
+single Run path.
+
 ## 6. Grants
 
 The formal Grant vocabulary is:
@@ -352,3 +366,14 @@ Every Module or Port change must answer:
 
 An unanswered question is a specification failure, not an implementation
 detail.
+
+## SCX architecture direction (2026-09-12)
+
+[SCX architecture](SCX-ARCHITECTURE-DESIGN.md) and its
+[integration map](SCX-PLUGIN-INTEGRATION.md) describe the changing context pipeline:
+resource references, per-call Context Views, and committed-event feedback.
+They add no selectable Port, Grant, support status, runtime code-loading path or
+exception to this contract. ContextHost/Runtime own preparation and projection;
+ObserverHost owns event projections; ActionHost owns typed management. Reliable
+Run observation must not be confused with ephemeral diagnostics. Rich media,
+external memory and future device support require their own scoped evidence.

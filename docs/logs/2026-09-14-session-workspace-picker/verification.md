@@ -5,13 +5,14 @@
 | Command | Result |
 | --- | --- |
 | `pnpm typecheck` (`ui/`) | Pass |
-| `pnpm test` (`ui/`) | Pass — 37 files / 332 tests |
+| `pnpm test` (`ui/`) | Pass — 37 files / 333 tests |
 | `pnpm build` (`ui/`) | Pass — pre-existing chunk-size warning only |
 | I18N completeness + cross-face checks | Pass — 1,410 keys per locale; 13 shared semantic units |
 | `go vet ./...` | Pass |
 | `go test -timeout 20m ./...` | Pass |
 | Headless compile for `cmd/vivy`, `cmd/vivy-code`, and `ui` | Pass |
 | Per-module vet/test for `plugins/*` and `faces/*` | Pass |
+| Provider conformance reproduction + source digest | Pass — checked-in results match the merged source tree |
 | PostgreSQL live upgrade/conformance suite | Skipped — `VIVY_POSTGRES_TEST_DSN` was unset |
 
 `just ci` could not be invoked because this Linux environment has neither
@@ -28,6 +29,8 @@ Go 1.26.4 and the locked pnpm install.
 - Runtime tests cover default per-run roots, different selected roots for
   different sessions, pre-persist and durable run ownership, fork inheritance,
   selected-root sandbox escape rejection, and shell pre-persist context.
+- Selected-workspace path assertions canonicalize Windows short/long path
+  aliases before comparison, matching the runtime's canonical-path contract.
 - A real runtime smoke writes a file and executes `go env GOMOD` through the
   filesystem and command backends, proving both effects land in the selected
   directory. Model integration tests prove the selected `AGENTS.md` replaces

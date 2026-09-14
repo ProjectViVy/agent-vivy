@@ -49,6 +49,10 @@ func TestCommandBackendRunsInsideWorkspaceAndBuildsProposal(t *testing.T) {
 
 func TestSelectedSessionWorkspaceDrivesFileAndCommandOperations(t *testing.T) {
 	selected := t.TempDir()
+	canonicalSelected, err := filepath.EvalSymlinks(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(selected, "go.mod"), []byte("module selected.example\n\ngo 1.24\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +81,7 @@ func TestSelectedSessionWorkspaceDrivesFileAndCommandOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute in selected workspace: %v", err)
 	}
-	wantModule := filepath.Join(selected, "go.mod")
+	wantModule := filepath.Join(canonicalSelected, "go.mod")
 	if result.ExitCode != 0 || filepath.Clean(strings.TrimSpace(result.Stdout)) != wantModule {
 		t.Fatalf("go env GOMOD = %#v, want %q", result, wantModule)
 	}

@@ -261,3 +261,10 @@ Exit requires complete UI modification without a UI authorization system,
 deterministic build provenance, one UI root, ordered cleanup, one Action RPC,
 and server-side authority tests. Rollback selects the previous sealed
 Generation and does not hot-unload frontend code.
+
+## SCX alignment (2026-09-12)
+
+SCX may use existing StatusHost and ActionHost surfaces to inspect selection, delivery backlog and management receipts. A view record is evidence of preparation/sending, not model understanding. No new SCX UI framework is required; full custom UI remains off the core path unless explicitly selected.
+
+See [SCX integration mapping](../../architecture/SCX-PLUGIN-INTEGRATION.md).
+This note records design dependencies; it does not reopen completed work or schedule implementation.

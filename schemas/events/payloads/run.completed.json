@@ -1,14 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/run.completed.json",
-  "title": "run.completed payload (v1)",
-  "description": "Terminal event; exactly one terminal event per run (D-008).",
-  "type": "object",
-  "properties": {
-    "summary": {
-      "type": "string",
-      "description": "Optional short summary for session titles / lists."
+  "title": "run.completed payload",
+  "description": "Terminal event; exactly one terminal event per run (D-008). Payload version is carried by the RunEvent envelope. V1 remains the legacy terminal summary; v2 adds the bounded Observer projection.",
+  "oneOf": [
+    {
+      "title": "v1 legacy terminal",
+      "type": "object",
+      "properties": {
+        "summary": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "v2 observer projection",
+      "type": "object",
+      "properties": {
+        "outcome": { "type": "string", "const": "completed" },
+        "summary": { "type": "string" },
+        "view": { "type": "string" },
+        "tenant_id": { "type": "string" },
+        "workspace_id": { "type": "string" },
+        "session_id": { "type": "string" }
+      },
+      "required": ["outcome"],
+      "additionalProperties": false
     }
-  },
-  "additionalProperties": false
+  ]
 }

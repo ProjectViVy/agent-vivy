@@ -13,12 +13,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/sdk/generation"
 	assemblyv1 "agent-vivy/sdk/internal/assembly"
+	generationconformance "agent-vivy/sdk/internal/conformance"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port"
 	"gopkg.in/yaml.v3"
@@ -95,14 +98,44 @@ func parsePackArgs(args []string) (packOptions, error) {
 	return o, nil
 }
 
+// repoSourceDirs is the single build-owned table of repository Modules that
+// enter a Generation without an external Recipe pin. snapshotSourceDirs and
+// sourceRecords both derive from it, so a new repository Module cannot be
+// added to one path and forgotten in the other.
+type repoSourceDir struct {
+	dir, importPath, pkg                string
+	diagnostics, languageServerStatuses bool
+	requiredContextSource               bool
+}
+
+var repoSourceDirs = []repoSourceDir{
+	{dir: "plugins/dingtalk", importPath: "example.com/vivy/plugins/dingtalk", pkg: "dingtalk"},
+	{dir: "plugins/discord", importPath: "example.com/vivy/plugins/discord", pkg: "discord"},
+	{dir: "plugins/feishu", importPath: "example.com/vivy/plugins/feishu", pkg: "feishu"},
+	{dir: "plugins/qq", importPath: "example.com/vivy/plugins/qq", pkg: "qq"},
+	{dir: "plugins/telegram", importPath: "example.com/vivy/plugins/telegram", pkg: "telegram"},
+	{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
+	{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
+	{dir: "plugins/scx-reference", importPath: "example.com/vivy/plugins/scxreference", pkg: "scxreference", requiredContextSource: true},
+	{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
+	{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
+}
+
 func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, error) {
 	if len(sources) == 0 {
 		return "", nil, nil
 	}
-	known := make(map[string]bool)
-	for _, rel := range []string{"plugins/dingtalk", "plugins/discord", "plugins/feishu", "plugins/qq", "plugins/telegram", "plugins/hello-fs", "plugins/lsp", "faces/headless", "faces/tui", "sdk/internal/testdata/full-ui-module"} {
+	// The full-UI-module testdata tree is snapshot-only: it reaches a Pack
+	// through the UI Assembly path, not sourceRecords.
+	known := make([]string, 0, len(repoSourceDirs)+1)
+	for _, entry := range repoSourceDirs {
+		known = append(known, entry.dir)
+	}
+	known = append(known, "sdk/internal/testdata/full-ui-module")
+	knownAbs := make(map[string]bool, len(known))
+	for _, rel := range known {
 		abs, _ := filepath.Abs(filepath.Join(repoRoot, rel))
-		known[abs] = true
+		knownAbs[abs] = true
 	}
 	root, err := os.MkdirTemp("", "vivy-source-snapshot-")
 	if err != nil {
@@ -118,7 +151,7 @@ func snapshotSourceDirs(repoRoot string, sources []string) (string, []string, er
 		if err != nil {
 			return cleanup(err)
 		}
-		if known[abs] {
+		if knownAbs[abs] {
 			out = append(out, abs)
 			continue
 		}
@@ -196,7 +229,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	evidence := assemblyv1.SupportedPortEvidence()
-	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence}).Compile(ctx, recipe)
+	conformanceResults := assemblyv1.SupportedPortConformance()
+	plan, err := (assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: evidence, ConformanceResults: conformanceResults}).Compile(ctx, recipe)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -260,7 +294,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		if err := json.Unmarshal(compiled.Canonical, &projection); err != nil {
 			return Artifact{}, fmt.Errorf("sdk: decode i18n catalog projection for %s: %w", resolved.Descriptor.Module.ID, err)
 		}
-		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, Evidence: []string{string(compiled.State)}, Units: projection.Units})
+		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, CompilationState: string(compiled.State), Evidence: []string{string(compiled.State)}, Units: projection.Units})
 	}
 	uiInput := assemblyv1.UIAssemblyInput{SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: catalogs}
 	if recipe.UI != nil {
@@ -324,7 +358,23 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		uiArtifacts["ui/provider/"+id] = digest
 	}
 	capabilityStates := capabilityStatesForPlan(plan)
-	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p1", SDKVersion: "v1", CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts, UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates})
+	portSupport, err := generationconformance.EvaluatePortSupport(port.PublicCatalog(), evidence, conformanceResults)
+	if err != nil {
+		return Artifact{}, err
+	}
+	selectedConformanceResults, err := assemblyv1.ConformanceResultsForPlan(plan)
+	if err != nil {
+		return Artifact{}, err
+	}
+	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
+		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
+		CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts,
+		UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates,
+		ContextSourcePolicies: assemblyv1.ContextSourcePoliciesForPlan(plan),
+		RunObserverPolicies:   assemblyv1.RunObserverPoliciesForPlan(plan),
+		ConformanceResults:    selectedConformanceResults,
+		PortSupport:           portSupport,
+	})
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -357,9 +407,18 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err := copySourceTree(uiBuild.Dist, filepath.Join(stage, "ui", "dist")); err != nil {
 		return Artifact{}, fmt.Errorf("sdk: stage final UI artifact: %w", err)
 	}
-	binary := filepath.Join(stage, "vivy")
+	binaryName := artifactBinaryName(runtime.GOOS)
+	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
-	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-ldflags", "-X=agent-vivy/sdk/generation.EmbeddedManifestBase64="+embedded, "-o", binary, "./cmd/vivy")
+	manifestValueSource, err := filepath.Abs(filepath.Join(repoRoot, "sdk/generation/manifest.go"))
+	if err != nil {
+		return Artifact{}, err
+	}
+	manifestValueReplacement := filepath.Join(overlayDir, "manifest.go")
+	if err := writeEmbeddedManifestOverlay(overlayFile, manifestValueSource, manifestValueReplacement, embedded); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: bind embedded Generation Manifest: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-o", binary, "./cmd/vivy")
 	cmd.Dir = repoRoot
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build generation: %w: %s", buildErr, output)
@@ -374,7 +433,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("publish generation: %w", err)
 	}
 	published = true
-	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, "vivy"), Manifest: manifest}, nil
+	return Artifact{Directory: o.Output, Binary: filepath.Join(o.Output, binaryName), Manifest: manifest}, nil
 }
 
 type builtWebUI struct {
@@ -490,6 +549,42 @@ func overlaySelectedUIDist(overlayFile, repositoryDist, selectedDist string) err
 	}); err != nil {
 		return fmt.Errorf("map selected UI dist: %w", err)
 	}
+	encoded, err := json.Marshal(struct {
+		Replace map[string]string
+	}{Replace: overlay.Replace})
+	if err != nil {
+		return fmt.Errorf("encode Go overlay: %w", err)
+	}
+	return os.WriteFile(overlayFile, encoded, 0o600)
+}
+
+func writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded string) error {
+	original, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	declaration := []byte("var EmbeddedManifestBase64 string")
+	if bytes.Count(original, declaration) != 1 {
+		return errors.New("manifest source has an unexpected EmbeddedManifestBase64 declaration")
+	}
+	source := bytes.Replace(original, declaration, []byte("var EmbeddedManifestBase64 = "+strconv.Quote(embedded)), 1)
+	if err := os.WriteFile(replacementPath, source, 0o600); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(overlayFile)
+	if err != nil {
+		return err
+	}
+	var overlay struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(raw, &overlay); err != nil {
+		return fmt.Errorf("decode Go overlay: %w", err)
+	}
+	if overlay.Replace == nil {
+		overlay.Replace = make(map[string]string)
+	}
+	overlay.Replace[sourcePath] = replacementPath
 	encoded, err := json.Marshal(struct {
 		Replace map[string]string
 	}{Replace: overlay.Replace})
@@ -872,6 +967,7 @@ func hashUIDependencyLocks(root string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 		_, _ = io.WriteString(h, filepath.ToSlash(rel))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(body)
@@ -1411,7 +1507,7 @@ func InspectArtifact(dir string) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	binary := filepath.Join(dir, "vivy")
+	binary := filepath.Join(dir, artifactBinaryName(runtime.GOOS))
 	if _, err := os.Stat(binary); err != nil {
 		return Artifact{}, err
 	}
@@ -1442,6 +1538,13 @@ func InspectArtifact(dir string) (Artifact, error) {
 	return Artifact{Directory: dir, Binary: binary, Manifest: manifest}, nil
 }
 
+func artifactBinaryName(goos string) string {
+	if goos == "windows" {
+		return "vivy.exe"
+	}
+	return "vivy"
+}
+
 func sourceRecords(repoRoot string, sources []string, pins map[string]module.Source) ([]assemblyv1.SourceRecord, error) {
 	internal, err := defaults.Catalog(repoRoot)
 	if err != nil {
@@ -1451,20 +1554,7 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 	for _, r := range internal {
 		records = append(records, assemblyv1.SourceRecord{Descriptor: r.Descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, "internal"), Ref: "file:internal", Binding: assemblyv1.GoBinding{ImportPath: r.Binding.ImportPath, Package: r.Binding.Package, Constructor: r.Binding.Constructor, ProviderConstructor: r.Binding.ProviderConstructor, ProviderCollection: r.Binding.ProviderCollection, ContextSourceProvider: r.Binding.ContextSourceProvider, SkillSourceProvider: r.Binding.SkillSourceProvider, MCPHostProvider: r.Binding.MCPHostProvider}})
 	}
-	known := []struct {
-		dir, importPath, pkg                string
-		diagnostics, languageServerStatuses bool
-	}{
-		{dir: "plugins/dingtalk", importPath: "example.com/vivy/plugins/dingtalk", pkg: "dingtalk"},
-		{dir: "plugins/discord", importPath: "example.com/vivy/plugins/discord", pkg: "discord"},
-		{dir: "plugins/feishu", importPath: "example.com/vivy/plugins/feishu", pkg: "feishu"},
-		{dir: "plugins/qq", importPath: "example.com/vivy/plugins/qq", pkg: "qq"},
-		{dir: "plugins/telegram", importPath: "example.com/vivy/plugins/telegram", pkg: "telegram"},
-		{dir: "plugins/hello-fs", importPath: "agent-vivy/plugins/hello-fs", pkg: "hellofs"},
-		{dir: "plugins/lsp", importPath: "example.com/vivy/plugins/lsp", pkg: "lsp", diagnostics: true, languageServerStatuses: true},
-		{dir: "faces/headless", importPath: "example.com/vivy/faces/headless", pkg: "headless"},
-		{dir: "faces/tui", importPath: "example.com/vivy/faces/tui", pkg: "tui"},
-	}
+	known := repoSourceDirs
 	seen := map[string]bool{}
 	for _, k := range known {
 		dir := filepath.Join(repoRoot, k.dir)
@@ -1478,7 +1568,10 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		if err := verifySource(dir, d); err != nil {
 			return nil, fmt.Errorf("sdk: source %s: %w", dir, err)
 		}
-		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT1, Root: dir, Ref: "repo:" + k.dir, Binding: assemblyv1.GoBinding{ImportPath: k.importPath, Package: k.pkg, Constructor: "New", ProviderConstructor: "NewProvider", DiagnosticObserver: k.diagnostics, LanguageServerStatusProvider: k.languageServerStatuses}})
+		binding := assemblyv1.GoBinding{ImportPath: k.importPath, Package: k.pkg, Constructor: "New", ProviderConstructor: "NewProvider", DiagnosticObserver: k.diagnostics, LanguageServerStatusProvider: k.languageServerStatuses}
+		binding.RunObserverProvider = descriptorProvidesPort(d, "std/observer/run@v1")
+		binding.ContextSourceRequired = k.requiredContextSource
+		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT1, Root: dir, Ref: "repo:" + k.dir, Binding: binding})
 		seen[dir] = true
 	}
 	for _, dir := range sources {
@@ -1504,9 +1597,20 @@ func sourceRecords(repoRoot string, sources []string, pins map[string]module.Sou
 		if err != nil {
 			return nil, fmt.Errorf("sdk: source %s: %w", dir, err)
 		}
-		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT2, Root: abs, Ref: pin.Ref, Binding: assemblyv1.GoBinding{ImportPath: importPath, Package: packageName, Constructor: "New", ProviderConstructor: "NewProvider"}})
+		binding := assemblyv1.GoBinding{ImportPath: importPath, Package: packageName, Constructor: "New", ProviderConstructor: "NewProvider"}
+		binding.RunObserverProvider = descriptorProvidesPort(d, "std/observer/run@v1")
+		records = append(records, assemblyv1.SourceRecord{Descriptor: d, Trust: assemblyv1.TrustT2, Root: abs, Ref: pin.Ref, Binding: binding})
 	}
 	return records, nil
+}
+
+func descriptorProvidesPort(descriptor module.Descriptor, portName string) bool {
+	for _, provided := range descriptor.Provides {
+		if provided.Port == portName {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceGoBinding(dir string) (string, string, error) {

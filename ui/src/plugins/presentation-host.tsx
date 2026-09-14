@@ -77,6 +77,7 @@ export interface PluginCatalogProjectionEntry {
   readonly moduleId?: string;
   readonly digest?: string;
   readonly completeness?: Readonly<Record<string, string>>;
+  readonly compilationState?: string;
   readonly evidence?: readonly string[];
   readonly units: Readonly<Record<string, PluginCatalogUnitProjection>>;
 }
@@ -1000,7 +1001,7 @@ function inferCatalogOwner(units: CatalogRecord): string | undefined {
 }
 
 function validateCatalogProjection(value: unknown, hintedOwner: string | undefined, allowInferredOwner: boolean): PluginCatalogProjectionEntry | undefined {
-  if (!isPlainRecord(value) || !hasOnlyCatalogKeys(value, ['apiVersion', 'schemaVersion', 'path', 'defaultLocale', 'locales', 'module', 'moduleId', 'digest', 'completeness', 'evidence', 'units'])) return undefined;
+  if (!isPlainRecord(value) || !hasOnlyCatalogKeys(value, ['apiVersion', 'schemaVersion', 'path', 'defaultLocale', 'locales', 'module', 'moduleId', 'digest', 'completeness', 'compilationState', 'evidence', 'units'])) return undefined;
   if (!isPlainRecord(value.units) || Object.keys(value.units).length === 0 || Object.keys(value.units).length > maxCatalogUnits) return undefined;
 
   const rawModule = value.module ?? value.moduleId ?? (allowInferredOwner ? hintedOwner ?? inferCatalogOwner(value.units) : undefined);
@@ -1038,6 +1039,15 @@ function validateCatalogProjection(value: unknown, hintedOwner: string | undefin
       completeness[normalizedLocale] = state;
     }
   }
+  let compilationState: string | undefined;
+  if (value.compilationState !== undefined) {
+    if (value.compilationState !== 'COMPLETE' && value.compilationState !== 'INCOMPLETE_LOCALE') return undefined;
+    compilationState = value.compilationState;
+    if (completeness !== undefined) {
+      const expected = Object.values(completeness).some((state) => state !== 'COMPLETE') ? 'INCOMPLETE_LOCALE' : 'COMPLETE';
+      if (compilationState !== expected) return undefined;
+    }
+  }
   let evidence: string[] | undefined;
   if (value.evidence !== undefined) {
     if (!Array.isArray(value.evidence) || value.evidence.some((entry) => typeof entry !== 'string' || entry.length === 0)) return undefined;
@@ -1052,6 +1062,7 @@ function validateCatalogProjection(value: unknown, hintedOwner: string | undefin
     module: rawModule,
     digest: value.digest,
     ...(completeness ? { completeness } : {}),
+    ...(compilationState ? { compilationState } : {}),
     ...(evidence ? { evidence } : {}),
     units,
   };

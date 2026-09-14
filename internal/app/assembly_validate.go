@@ -59,6 +59,12 @@ func validateRuntimeAssembly(assembly genassembly.RuntimeAssembly) error {
 	if len(contextIDs) > 0 && !compiledModules["vivy/context-host"] {
 		return fmt.Errorf("app: generated ContextSources are present without compiled ContextHost")
 	}
+	if _, err := buildRunSubscriptions(&assembly, assembly.Manifest); err != nil {
+		return err
+	}
+	if len(assembly.Manifest.RunObservers) > 0 && !compiledModules["vivy/observer-host"] {
+		return fmt.Errorf("app: generated Run Observers are present without compiled ObserverHost")
+	}
 
 	skillSources, err := generatedSkillSources(assembly)
 	if err != nil {

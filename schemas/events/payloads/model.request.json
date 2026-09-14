@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/model.request.json",
-  "title": "model.request payload (v1)",
+  "title": "model.request payload",
   "description": "Digest of the exact message list handed to the model for one invocation (ADR-010). Full text lives on the message projection and prior journal events; this event only records reconstructable fingerprints.",
   "type": "object",
   "properties": {
@@ -41,8 +41,23 @@
         "required": ["role", "content_sha256", "byte_len"],
         "additionalProperties": false
       }
+    },
+    "context_view": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable ContextHost View identity selected for this request; content is not embedded."
     }
   },
   "required": ["selected_tools", "preamble_sha256", "preamble_bytes", "messages"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "title": "v1 legacy request digest",
+      "not": { "required": ["context_view"] }
+    },
+    {
+      "title": "v2 Context View digest",
+      "required": ["context_view"]
+    }
+  ]
 }

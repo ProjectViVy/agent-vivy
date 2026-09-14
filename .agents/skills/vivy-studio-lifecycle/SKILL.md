@@ -1,6 +1,6 @@
 ---
 name: vivy-studio-lifecycle
-description: Drive the Studio lifecycle from inside Vivy Studio: pack a generation with vivy-sdk, eval the candidate EXE that the Studio spawns itself, human-gated release, install into the daily location, and rollback. Use when the user mentions 发布 / 安装 / 回滚 / pack+eval / ST-5 / ST-7 / ST-8, or asks to cut and ship the next Vivy body.
+description: 'Drive the Studio lifecycle from inside Vivy Studio: pack a generation with vivy-sdk, eval the candidate EXE that the Studio spawns itself, human-gated release, install into the daily location, and rollback. Use when the user mentions 发布 / 安装 / 回滚 / pack+eval / ST-5 / ST-7 / ST-8, or asks to cut and ship the next Vivy body.'
 ---
 
 # Vivy Studio lifecycle

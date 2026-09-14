@@ -52,6 +52,12 @@ func buildGeneratedContextHost(assembly genassembly.RuntimeAssembly, extra ...co
 	if err != nil {
 		return nil, err
 	}
+	generatedByID := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		if source != nil {
+			generatedByID[source.ID()] = struct{}{}
+		}
+	}
 	for _, source := range extra {
 		if source != nil {
 			sources = append(sources, source)
@@ -60,7 +66,21 @@ func buildGeneratedContextHost(assembly genassembly.RuntimeAssembly, extra ...co
 	if len(sources) == 0 {
 		return nil, nil
 	}
-	return contexthost.New(contexthost.Config{Sources: sources})
+	required := make([]string, 0, len(assembly.Manifest.ContextSourcePolicies))
+	seenPolicies := make(map[string]struct{}, len(assembly.Manifest.ContextSourcePolicies))
+	for _, policy := range assembly.Manifest.ContextSourcePolicies {
+		if _, ok := generatedByID[policy.ProviderID]; !ok {
+			return nil, fmt.Errorf("app: sealed Context Source policy names unknown provider %q", policy.ProviderID)
+		}
+		if _, duplicate := seenPolicies[policy.ProviderID]; duplicate {
+			return nil, fmt.Errorf("app: sealed Context Source policy repeats provider %q", policy.ProviderID)
+		}
+		seenPolicies[policy.ProviderID] = struct{}{}
+		if policy.Required {
+			required = append(required, policy.ProviderID)
+		}
+	}
+	return contexthost.New(contexthost.Config{Sources: sources, RequiredSourceIDs: required})
 }
 
 // contextHostForAssembly combines build-owned Context Sources with an

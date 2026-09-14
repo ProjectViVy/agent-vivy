@@ -50,6 +50,35 @@ type RunProvider interface {
 	ObserveRun(context.Context, RunEvent) error
 }
 
+type DeliveryState string
+
+const (
+	DeliveryAccepted  DeliveryState = "accepted"
+	DeliveryPending   DeliveryState = "pending"
+	DeliveryCompleted DeliveryState = "completed"
+	DeliveryFailed    DeliveryState = "failed"
+)
+
+// DeliveryReceipt is the receiver's idempotent disposition for one stable
+// EventID. A receiver returns the same receipt when the Host retries an event
+// after an ambiguous acknowledgement.
+type DeliveryReceipt struct {
+	EventID   EventID
+	ReceiptID string
+	State     DeliveryState
+}
+
+func NewDeliveryReceipt(eventID EventID, receiptID string, state DeliveryState) DeliveryReceipt {
+	return DeliveryReceipt{EventID: eventID, ReceiptID: strings.TrimSpace(receiptID), State: state}
+}
+
+// ReceiptRunProvider is the receipt-aware form used by reliable external
+// consumers. RunProvider remains the baseline ABI; ObserverHost detects this
+// optional companion and retains its cursor for pending or failed delivery.
+type ReceiptRunProvider interface {
+	ObserveRunWithReceipt(context.Context, RunEvent) (DeliveryReceipt, error)
+}
+
 type Diagnostic struct {
 	Namespace string
 	Level     string

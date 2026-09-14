@@ -237,7 +237,7 @@ func conformanceCompiler(t *testing.T, descriptors []module.Descriptor) assembly
 	if err != nil {
 		t.Fatal(err)
 	}
-	return assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: assemblyv1.SupportedPortEvidence()}
+	return assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: assemblyv1.SupportedPortEvidence(), ConformanceResults: assemblyv1.SupportedPortConformance()}
 }
 
 func compilePortFixture(t *testing.T, definition port.Definition, descriptors []module.Descriptor) assemblyv1.AssemblyPlan {

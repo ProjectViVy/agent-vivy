@@ -60,8 +60,8 @@ and `just ci`.
 | PLG-P5 | [#10](https://github.com/ProjectViVy/agent-vivy/issues/10) | Declarative Provider Profile and Eino adapters | `DONE · 2026-09-10` | P2 | Gate B and P7 critical path |
 | PLG-P6 | [#11](https://github.com/ProjectViVy/agent-vivy/issues/11) | Full-code UI Modules and Control Actions | `IMPLEMENTATION COMPLETE · 2026-09-11` | P2 | Not on core SCX path; P9 release conformance remains separate |
 | PLG-P7 | [#12](https://github.com/ProjectViVy/agent-vivy/issues/12) | Closed internal Module composition | `DONE · 2026-09-12` | P2, P3, P4, P5 | Gate B hardening |
-| PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `UNSCHEDULED` | P1–P7 as identified | Direct SCX integration |
-| PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `UNSCHEDULED` | P1–P8 | Gate C critical path |
+| PLG-P8 | [#13](https://github.com/ProjectViVy/agent-vivy/issues/13) | SCX integration Gates A/B/C | `COMPLETE · GATES A/B/C PASSED FOR BOUNDED FIXTURES A-C · 2026-09-13` | P1–P7 plus selected P9 matrix | Direct SCX integration |
+| PLG-P9 | [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) | Release conformance, Inspect, removal, rollback | `COMPLETE · 2026-09-14 · GitHub run #147 green` | P1–P8 | Gate C critical path |
 
 Only a human changes an `UNSCHEDULED` phase to scheduled. PLG-P1 and PLG-P2
 were scheduled together by the human owner on 2026-09-09 and completed in one
@@ -78,8 +78,15 @@ and approval binding/redaction corrections are recorded in
 `docs/logs/2026-09-12-plugin-v1-p3-closure/`. PLG-P7 was explicitly scheduled
 by the human owner and completed on 2026-09-12; its internal Port, lifecycle,
 authority, full-CI, and pack/Inspect evidence is recorded in
-`docs/logs/2026-09-12-plugin-p7-internal-moduleization/`. The separate PLG-P8
-integration and PLG-P9 release-conformance phases remain `UNSCHEDULED`.
+`docs/logs/2026-09-12-plugin-p7-internal-moduleization/`. PLG-P8 was explicitly
+scheduled by the human owner on 2026-09-13; all three Gates passed for bounded
+fixtures A-C and the selected SCX candidate. The original stage IDs remain
+unrecovered and were not invented. PLG-P9 was explicitly scheduled by the human
+owner on 2026-09-14 after P8 completed. Its work runs on
+`feat/plugin-v1-p9`; local product gates, independent review, and the published
+GitHub Actions/Windows browser gate are complete in run #147. Final P8 Gate
+B/C conformance and rollback evidence is filed in
+`docs/logs/2026-09-13-plugin-p8-gates-b-c/`.
 Dependency order is an execution constraint, not a calendar commitment.
 
 ## Critical path
@@ -145,3 +152,19 @@ behavior parity, a minimal Generation proves real removal, all SCX gates pass,
 Inspect reports sealed provenance, whole-Generation rollback is demonstrated,
 the v0 API and path no longer exist, and `just ci` plus required real-path
 smokes are green.
+
+## SCX design baseline (updated 2026-09-13)
+
+P8 records exact platform evidence and executable contract checks for Gates
+A/B/C. PLG-P9 was scheduled separately on 2026-09-14 and owns the remaining
+release-wide acceptance beyond the selected matrix used by P8 Gate C.
+[SCX architecture](../../architecture/SCX-ARCHITECTURE-DESIGN.md) records the
+agreed direction; broader media/device/live-system interfaces remain unselected.
+[SCX integration](../../architecture/SCX-PLUGIN-INTEGRATION.md) maps candidate
+sources, resource resolution, Context Views, hooks, memory return and controls to
+existing authority owners. It also records the missing original stage mapping
+and the stable Gate/fixture evidence used instead.
+
+Initial validation is limited to three local reference scenarios with fake
+providers. Multimodal/embodied extensibility is considered in the contract; this
+cycle does not create an additional hardware or simulation test platform.
