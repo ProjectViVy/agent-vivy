@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"agent-vivy/internal/modules/defaults"
@@ -379,7 +380,15 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	binaryName := artifactBinaryName(runtime.GOOS)
 	binary := filepath.Join(stage, binaryName)
 	embedded := generation.FrameEmbeddedManifest(manifestRaw)
-	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-ldflags", "-X=agent-vivy/sdk/generation.EmbeddedManifestBase64="+embedded, "-o", binary, "./cmd/vivy")
+	manifestValueSource, err := filepath.Abs(filepath.Join(repoRoot, "sdk/generation/manifest_value.go"))
+	if err != nil {
+		return Artifact{}, err
+	}
+	manifestValueReplacement := filepath.Join(overlayDir, "manifest_value.go")
+	if err := writeEmbeddedManifestOverlay(overlayFile, manifestValueSource, manifestValueReplacement, embedded); err != nil {
+		return Artifact{}, fmt.Errorf("sdk: bind embedded Generation Manifest: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "go", "build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile, "-o", binary, "./cmd/vivy")
 	cmd.Dir = repoRoot
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build generation: %w: %s", buildErr, output)
@@ -510,6 +519,34 @@ func overlaySelectedUIDist(overlayFile, repositoryDist, selectedDist string) err
 	}); err != nil {
 		return fmt.Errorf("map selected UI dist: %w", err)
 	}
+	encoded, err := json.Marshal(struct {
+		Replace map[string]string
+	}{Replace: overlay.Replace})
+	if err != nil {
+		return fmt.Errorf("encode Go overlay: %w", err)
+	}
+	return os.WriteFile(overlayFile, encoded, 0o600)
+}
+
+func writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded string) error {
+	source := []byte("package generation\n\nvar EmbeddedManifestBase64 = " + strconv.Quote(embedded) + "\n")
+	if err := os.WriteFile(replacementPath, source, 0o600); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(overlayFile)
+	if err != nil {
+		return err
+	}
+	var overlay struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(raw, &overlay); err != nil {
+		return fmt.Errorf("decode Go overlay: %w", err)
+	}
+	if overlay.Replace == nil {
+		overlay.Replace = make(map[string]string)
+	}
+	overlay.Replace[sourcePath] = replacementPath
 	encoded, err := json.Marshal(struct {
 		Replace map[string]string
 	}{Replace: overlay.Replace})

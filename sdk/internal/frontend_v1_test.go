@@ -3,6 +3,7 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,44 @@ func TestUIDependencyLockHashNormalizesCRLF(t *testing.T) {
 	}
 	if lfHash != crlfHash {
 		t.Fatalf("dependency lock hash differs by line endings: LF %s, CRLF %s", lfHash, crlfHash)
+	}
+}
+
+func TestWriteEmbeddedManifestOverlay(t *testing.T) {
+	root := t.TempDir()
+	overlayFile := filepath.Join(root, "overlay.json")
+	if err := os.WriteFile(overlayFile, []byte(`{"Replace":{"existing.go":"existing-replacement.go"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(root, "manifest_value.go")
+	replacementPath := filepath.Join(root, "generated-manifest-value.go")
+	embedded := "VIVY_GENERATION_V1_BEGIN[eyJnZW5lcmF0aW9uSWQiOiJ0ZXN0In0=]VIVY_GENERATION_V1_END"
+	if err := writeEmbeddedManifestOverlay(overlayFile, sourcePath, replacementPath, embedded); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.ReadFile(replacementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantValue := `var EmbeddedManifestBase64 = "` + embedded + `"`
+	if !strings.Contains(string(replacement), wantValue) {
+		t.Fatalf("generated manifest source = %q, want %q", replacement, wantValue)
+	}
+	raw, err := os.ReadFile(overlayFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var overlay struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(raw, &overlay); err != nil {
+		t.Fatal(err)
+	}
+	if got := overlay.Replace[sourcePath]; got != replacementPath {
+		t.Fatalf("manifest overlay replacement = %q, want %q", got, replacementPath)
+	}
+	if got := overlay.Replace["existing.go"]; got != "existing-replacement.go" {
+		t.Fatalf("existing overlay replacement = %q, want it preserved", got)
 	}
 }
 
