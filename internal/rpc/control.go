@@ -970,6 +970,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
 			"channel.inspect", "channel.get", "channel.update",
+			"channel.deliveries.list", "channel.deliveries.redeliver",
 			"session.context", "session.sidebar", "context.compact", "session.rewind", "session.fork", "session.edit",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
@@ -1224,6 +1225,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.getChannel(request)
 	case "channel/update":
 		return h.updateChannel(ctx, request)
+	case "channel/deliveries/list":
+		return h.listChannelDeliveries(ctx)
+	case "channel/deliveries/redeliver":
+		return h.redeliverChannelDelivery(ctx, request)
 	case "stats/tokens":
 		return h.statsTokens(ctx, request)
 	case "skills/list":
@@ -5068,6 +5073,73 @@ func (h *controlHandler) updateChannel(ctx context.Context, request Request) (an
 	h.notifySettingsChanged()
 	_ = ctx
 	return h.channelEnvelopeView(params.Name, saved), nil
+}
+
+// channelDeliveryResult is one failed delivery intent row (channel/
+// deliveries/list). Identifiers only — the reply content itself stays in
+// the message log (D-010).
+type channelDeliveryResult struct {
+	RunID       string `json:"run_id"`
+	SessionID   string `json:"session_id"`
+	Channel     string `json:"channel"`
+	ChatID      string `json:"chat_id"`
+	TopicID     string `json:"topic_id"`
+	State       string `json:"state"`
+	Attempts    int    `json:"attempts"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+	UpdatedAtMs int64  `json:"updated_at_ms"`
+}
+
+// listChannelDeliveries reports the failed delivery intents: the
+// operator-visible side of the delivery ledger (attempts exhausted, parked
+// by failDelivery). Open intents (armed/pending) are Host-internal and
+// never surface here.
+func (h *controlHandler) listChannelDeliveries(ctx context.Context) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	failed, err := h.deps.Channels.FailedDeliveries(ctx)
+	if err != nil {
+		return nil, &Error{Code: InternalError, Message: fmt.Sprintf("list failed deliveries: %v", err)}
+	}
+	out := make([]channelDeliveryResult, 0, len(failed))
+	for _, d := range failed {
+		out = append(out, channelDeliveryResult{
+			RunID: string(d.RunID), SessionID: string(d.SessionID),
+			Channel: d.Channel, ChatID: d.ChatID, TopicID: d.TopicID,
+			State: d.State, Attempts: d.Attempts,
+			CreatedAtMs: d.CreatedAtMs, UpdatedAtMs: d.UpdatedAtMs,
+		})
+	}
+	return map[string]any{"deliveries": out}, nil
+}
+
+// redeliverChannelDelivery re-arms one failed delivery intent. Operator
+// errors (unknown run, channel not running) come back as errors; a draining
+// host refuses so the operator retries after restart.
+func (h *controlHandler) redeliverChannelDelivery(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	var params struct {
+		RunID string `json:"run_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.RunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "run_id is required"}
+	}
+	if err := h.deps.Channels.RedeliverDelivery(ctx, domain.RunID(params.RunID)); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "not running"), strings.Contains(msg, "shutting down"):
+			return nil, &Error{Code: CodeConflict, Message: msg}
+		default:
+			return nil, &Error{Code: CodeNotFound, Message: msg}
+		}
+	}
+	return map[string]any{"run_id": params.RunID, "redelivered": true}, nil
 }
 
 type mcpServerResult struct {

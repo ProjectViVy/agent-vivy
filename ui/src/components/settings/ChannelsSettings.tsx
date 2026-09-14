@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from '@/i18n';
-import { disableChannel, channelPendingRestart, refreshChannels, saveChannel, toggleChannel, useChannelsState } from './channel-store';
+import { disableChannel, channelPendingRestart, redeliverDelivery, refreshChannels, saveChannel, toggleChannel, useChannelsState } from './channel-store';
 import { joinIdList, splitIdList } from './channel-schema';
 import type { ChannelEnvelope } from '../../lib/api';
 import ChannelCardView from './ChannelCardView';
@@ -26,13 +26,14 @@ type ChannelDraft = {
 
 export function ChannelsSettings() {
   const { t } = useTranslation();
-  const { statuses, envelopes, loaded, error } = useChannelsState();
+  const { statuses, envelopes, failedDeliveries, loaded, error } = useChannelsState();
 
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [wizardOpen, setWizardOpen] = useState(false);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, ChannelDraft>>({});
   const [busyName, setBusyName] = useState<string | null>(null);
+  const [redeliveringRun, setRedeliveringRun] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const statusByName = useMemo(() => new Map(statuses.map((s) => [s.name, s])), [statuses]);
@@ -110,6 +111,17 @@ export function ChannelsSettings() {
     void runAction(name, () => disableChannel(name));
   };
 
+  const handleRedeliver = (runId: string) => {
+    if (redeliveringRun) return;
+    setRedeliveringRun(runId);
+    setActionError(null);
+    redeliverDelivery(runId)
+      .catch((e: unknown) => {
+        setActionError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => setRedeliveringRun(null));
+  };
+
   const handleWizardComplete = ({ platform, allowFromText }: ChannelWizardData) => {
     void runAction(platform, async () => {
       const envelope = await saveChannel(platform, {
@@ -134,6 +146,47 @@ export function ChannelsSettings() {
     channelPendingRestart(statusByName.get(name), envelopes[name]);
 
   const emptyGeneration = loaded && !error && statuses.length === 0;
+
+  /**
+   * 失败投递区块：跨渠道列出停为 failed 的投递意图并提供重投。只在有
+   * 失败行时出现；重投保留累计 attempts（预算 3 不变），通道未运行或
+   * 正在排空时服务端拒绝并把原因显示在 actionError。
+   */
+  const failedDeliveriesSection =
+    loaded && !error && failedDeliveries.length > 0 ? (
+      <div className="border-t px-4 py-3">
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('channels.failedDeliveries')}
+        </h4>
+        <div className="space-y-1.5">
+          {failedDeliveries.map((d) => (
+            <div
+              key={d.run_id}
+              className="flex flex-wrap items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs"
+            >
+              <span className="font-medium capitalize">{PLATFORM_DISPLAY_NAMES[d.channel] ?? d.channel}</span>
+              <span className="font-mono text-muted-foreground">{d.chat_id}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{d.run_id}</span>
+              <span className="text-muted-foreground">
+                {t('channels.deliveryAttempts', { attempts: d.attempts })}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busyName !== null || redeliveringRun !== null}
+                onClick={() => handleRedeliver(d.run_id)}
+              >
+                {redeliveringRun === d.run_id ? (
+                  <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {redeliveringRun === d.run_id ? t('channels.redelivering') : t('channels.redeliver')}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null;
 
   return (
     <div className="flex h-[min(44rem,calc(100dvh-16rem))] min-h-0 overflow-hidden rounded-lg border">
@@ -253,15 +306,18 @@ export function ChannelsSettings() {
               </div>
             ) : null}
             {viewMode === 'card' ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <ChannelCardView
-                  statuses={statuses}
-                  envelopes={envelopes}
-                  busyName={busyName}
-                  onEdit={handleCardEdit}
-                  onToggle={handleToggle}
-                  onDisable={handleDisable}
-                />
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                <div className="min-h-0 flex-1">
+                  <ChannelCardView
+                    statuses={statuses}
+                    envelopes={envelopes}
+                    busyName={busyName}
+                    onEdit={handleCardEdit}
+                    onToggle={handleToggle}
+                    onDisable={handleDisable}
+                  />
+                </div>
+                {failedDeliveriesSection}
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -337,6 +393,7 @@ export function ChannelsSettings() {
                     <p className="text-sm">{t('channels.selectChannel')}</p>
                   </div>
                 )}
+                {failedDeliveriesSection}
               </div>
             )}
           </>

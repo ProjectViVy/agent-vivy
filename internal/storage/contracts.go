@@ -626,6 +626,11 @@ type ChannelDeliveryStore interface {
 	// first, so restart reconcile drains in arrival order. failed rows are
 	// never returned.
 	ListOpenChannelDeliveries(ctx context.Context) ([]ChannelDelivery, error)
+	// ListFailedChannelDeliveries returns only failed rows, oldest first —
+	// the operator-visible side of the ledger (delivery control surface).
+	// Rows stay failed until an explicit redeliver re-arms them or they are
+	// deleted; listing never mutates.
+	ListFailedChannelDeliveries(ctx context.Context) ([]ChannelDelivery, error)
 	// DeleteChannelDelivery removes the row (delivery succeeded, or the
 	// run's terminal state settled the intent). Deleting an unknown row is
 	// not an error.

@@ -158,9 +158,8 @@ func (h *Host) trackDeliveryAttempt(target outboundTarget, attempts int) {
 }
 
 // failDelivery marks the intent failed after the attempt budget ran out.
-// The row is terminal visibility, not a retry source: an operator who
-// revives the channel sees the failed intent in storage and the structured
-// log, and a later slice may add a redelivery control.
+// The row is terminal visibility, not a retry source: an operator revives
+// it explicitly through RedeliverDelivery.
 func (h *Host) failDelivery(target outboundTarget, attempts int, cause error) {
 	attrs := []any{
 		"run", string(target.runID), "chat_id", target.chatID, "attempts", attempts,
@@ -188,6 +187,79 @@ func (h *Host) settleDelivery(target outboundTarget) {
 	if err := h.deps.Deliveries.DeleteChannelDelivery(context.Background(), target.runID); err != nil {
 		h.logger.Warn("channelhost: settled-intent delete failed", "run", string(target.runID), "err", err)
 	}
+}
+
+// FailedDeliveries lists the failed delivery intents — the operator-visible
+// side of the ledger. Read-only: rows stay failed until an explicit
+// RedeliverDelivery re-arms one.
+func (h *Host) FailedDeliveries(ctx context.Context) ([]storage.ChannelDelivery, error) {
+	return h.deps.Deliveries.ListFailedChannelDeliveries(ctx)
+}
+
+// RedeliverDelivery re-arms one failed delivery intent (the delivery
+// control surface failDelivery reserved). The accumulated attempt count is
+// kept, so with the budget spent a redeliver is exactly one delivery
+// attempt: success deletes the row, another failure re-parks it as failed
+// with attempts+1. An operator error (unknown or non-failed run, channel
+// not running) is reported, never silently swallowed; a race with StopAll
+// keeps the row pending for the next start, matching the drain contract.
+func (h *Host) RedeliverDelivery(ctx context.Context, runID domain.RunID) error {
+	failed, err := h.deps.Deliveries.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		return fmt.Errorf("channelhost: list failed deliveries: %w", err)
+	}
+	var d storage.ChannelDelivery
+	found := false
+	for _, row := range failed {
+		if row.RunID == runID {
+			d = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("channelhost: no failed delivery intent for run %s", runID)
+	}
+	h.mu.Lock()
+	draining := h.draining
+	started := false
+	for _, running := range h.started {
+		if running.Name() == d.Channel {
+			started = true
+			break
+		}
+	}
+	note := h.notes[d.Channel]
+	h.mu.Unlock()
+	if draining {
+		return fmt.Errorf("channelhost: host is shutting down; redeliver %s after restart", runID)
+	}
+	if !started {
+		if note != "" {
+			return fmt.Errorf("channelhost: channel %q is not running (%s)", d.Channel, note)
+		}
+		return fmt.Errorf("channelhost: channel %q is not running", d.Channel)
+	}
+	ch := h.channelByName(d.Channel)
+	if ch == nil {
+		return fmt.Errorf("channelhost: channel %q not registered", d.Channel)
+	}
+	target := outboundTarget{
+		runID:       d.RunID,
+		sessionID:   d.SessionID,
+		chatID:      d.ChatID,
+		topicID:     d.TopicID,
+		ch:          ch,
+		maxRunes:    runesLimit(ch),
+		createdAtMs: d.CreatedAtMs,
+	}
+	h.logger.Info("channelhost: operator redelivery requested",
+		"run", string(d.RunID), "channel", d.Channel, "chat_id", d.ChatID, "attempts", d.Attempts)
+	// Persist pending BEFORE the goroutine spawns (crash after this point
+	// redelivers instead of losing) — the same order as restart recovery.
+	h.markPending(target, d.Attempts)
+	h.enqueueDelivery(target, d.Attempts)
+	return nil
 }
 
 // recoverDeliveries reconciles the durable intents at startup, after the

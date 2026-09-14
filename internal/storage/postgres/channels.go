@@ -72,6 +72,37 @@ func (b *Backend) ListOpenChannelDeliveries(ctx context.Context) ([]storage.Chan
 	return out, nil
 }
 
+// ListFailedChannelDeliveries returns only failed rows, oldest first. These
+// are the operator-visible side of the ledger: terminal, never returned by
+// the open listing, and revived only by an explicit redeliver.
+func (b *Backend) ListFailedChannelDeliveries(ctx context.Context) ([]storage.ChannelDelivery, error) {
+	rows, err := b.db.QueryContext(ctx, `
+		SELECT run_id, session_id, channel, chat_id, topic_id, state, attempts, created_at_ms, updated_at_ms
+		FROM channel_deliveries
+		WHERE state = ?
+		ORDER BY created_at_ms, run_id`, storage.ChannelDeliveryFailed)
+	if err != nil {
+		return nil, fmt.Errorf("storage: list failed channel deliveries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []storage.ChannelDelivery
+	for rows.Next() {
+		var d storage.ChannelDelivery
+		var runID, sessionID string
+		if err := rows.Scan(&runID, &sessionID, &d.Channel, &d.ChatID, &d.TopicID,
+			&d.State, &d.Attempts, &d.CreatedAtMs, &d.UpdatedAtMs); err != nil {
+			return nil, fmt.Errorf("storage: scan channel delivery: %w", err)
+		}
+		d.RunID = domain.RunID(runID)
+		d.SessionID = domain.SessionID(sessionID)
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate channel deliveries: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteChannelDelivery removes the intent row. Deleting an unknown row is
 // not an error: the delivery goroutine and the restart reconcile may race
 // a successful send.

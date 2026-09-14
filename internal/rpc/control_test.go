@@ -4246,3 +4246,117 @@ func TestSessionForkRoute(t *testing.T) {
 		t.Fatalf("missing message_id err = %v, want InvalidParams", rpcErr)
 	}
 }
+
+// TestChannelDeliveriesRPC covers the failed-delivery control surface:
+// the listing returns only failed rows, and redeliver rejects operator
+// errors (unknown run, channel not running) while the happy path re-arms
+// the intent through the live adapter.
+func TestChannelDeliveriesRPC(t *testing.T) {
+	env := newControlTestEnv(t)
+	if _, rpcErr := callControl(t, env.handler, "channel/deliveries/list", nil); rpcErr == nil || rpcErr.Code != MethodNotFound {
+		t.Fatalf("expected method-not-found without a channel host, got %v", rpcErr)
+	}
+
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "chan-deliveries.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	fakeCh := fake.New()
+	fakeCh.Publish = func(context.Context, plugin.ChannelEnv) error { return nil }
+	envelope := config.ChannelEnvelope{Enabled: true, AllowFrom: []string{"alice"}}
+	host := channelhost.New(channelhost.Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
+			return "run-chan-deliveries", nil
+		},
+		Channels: []plugin.Channel{fakeCh},
+		Config:   config.Channels{"fake": envelope},
+	})
+	envCh, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.Channels = host
+		deps.ConfigChannels = config.Channels{"fake": envelope}
+	})
+
+	// Seed one failed intent and one armed intent, plus the assistant row
+	// the delivery path reads back. The failed row is the operator-visible
+	// one; the armed row never surfaces in the listing.
+	failedRun := domain.RunID("run-chan-failed")
+	now := time.Now().UnixMilli()
+	if err := backend.AppendMessage(ctx, domain.Message{
+		ID: "msg-chan-failed", SessionID: "sess-chan-1", RunID: failedRun,
+		Role: domain.RoleAssistant, CreatedAt: now, Content: "channel reply",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: failedRun, SessionID: "sess-chan-1", Channel: "fake", ChatID: "chat-1",
+		State: storage.ChannelDeliveryFailed, Attempts: 3,
+		CreatedAtMs: now, UpdatedAtMs: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: "run-chan-armed", SessionID: "sess-chan-1", Channel: "fake", ChatID: "chat-1",
+		State: storage.ChannelDeliveryArmed, CreatedAtMs: now, UpdatedAtMs: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, rpcErr := callControl(t, envCh.handler, "channel/deliveries/list", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	listed := got.(map[string]any)["deliveries"].([]channelDeliveryResult)
+	if len(listed) != 1 || listed[0].RunID != string(failedRun) || listed[0].State != storage.ChannelDeliveryFailed {
+		t.Fatalf("deliveries = %+v, want only the failed row", listed)
+	}
+	if listed[0].Channel != "fake" || listed[0].ChatID != "chat-1" || listed[0].Attempts != 3 {
+		t.Fatalf("failed row = %+v", listed[0])
+	}
+
+	// Redeliver guards.
+	if _, rpcErr := callControl(t, envCh.handler, "channel/deliveries/redeliver", map[string]any{}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("missing run_id err = %v, want InvalidParams", rpcErr)
+	}
+	if _, rpcErr := callControl(t, envCh.handler, "channel/deliveries/redeliver", map[string]any{"run_id": "run-unknown"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
+		t.Fatalf("unknown run err = %v, want CodeNotFound", rpcErr)
+	}
+
+	// Happy path: the adapter is live after StartAll, so the redeliver
+	// re-arms the intent and the row leaves the failed listing.
+	if err := host.StartAll(ctx); err != nil {
+		t.Fatalf("start all: %v", err)
+	}
+	if _, rpcErr := callControl(t, envCh.handler, "channel/deliveries/redeliver", map[string]any{"run_id": string(failedRun)}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(fakeCh.Snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("redelivered intent never reached the fake channel")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if sent := fakeCh.Snapshot(); len(sent) != 1 {
+		t.Fatalf("sent = %+v, want exactly one redelivered envelope", sent)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		failed, err := backend.ListFailedChannelDeliveries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(failed) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("failed listing still holds rows after redeliver: %+v", failed)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
