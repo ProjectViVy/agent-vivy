@@ -52,6 +52,7 @@ This translates DSH's "registration as effect" into Vivy's cold plug/unplug mode
 | 2026-08-30 | **Adopt the super-channel.** Host + envelope + capability matrix are the contract spine. A2A / NeuroLink come later, using the same envelope. |
 | 2026-08-30 | **Pluginize all five in this batch.** Put the five adapters in `plugins/<name>/` and use the established `Register()` overlay. Do not add a `channels/` directory or a new `RegisterChannels()`. |
 | 2026-08-30 | **Eino-native A2A = borrow the protocol, not the example server.** Later, `plugins/a2a` uses the `models`/`transport` from `eino-ext/a2a`; do not use `RegisterServerHandlers(adk.Agent)` as the gateway. The loop remains `Service.Run`. |
+| 2026-09-14 | **§12 ledger corrected to the implemented shape (CH-C1-N2).** The `channel.inbound` payload is the identifiers-only `{channel, chat_id, sender, message_id, session_id}`; `content_digest` / `bytes` and the `peer` provenance blob are retired from the contract. **Source vocabulary ruled `ui \| channel \| headless` (CH-C1-N4)** — the platform name lives in the `channel` field. Outbound delivery became durable (at-least-once intent rows + restart reconcile), `chanin_*` events got a 30-day retention, and StopAll drains in-flight Sends. |
 
 The five names in this batch are: `telegram`, `discord`, `feishu`, `dingtalk`, `qq`.
 
@@ -464,24 +465,59 @@ platform Update
   → adapter normalizes InboundMessage / SenderInfo / parts
   → ChannelEnv.PublishInbound
   → Host: allow_from (empty = discard and record an audit entry; a channel that is not started cannot reach here)
-  → Journal  channel.inbound
-        {channel, peer, message_id, content_digest, bytes}
-        never write tokens, raw secrets, or unbounded attachments
   → SessionMap.Ensure(channel, chat_id[, topic]) → Session (with provenance)
+  → Journal  channel.inbound
+        {channel, chat_id, sender, message_id, session_id}
+        never write tokens, raw secrets, or unbounded attachments
   → Message(role=user, source=channel, …)
   → Service.Run
   → live surface: typing / placeholder (does not enter the Journal)
   → run terminal state → Host → adapter.Send
 ```
 
-NG-10: every new model-visible input requires a new event. Today, writing Telegram text as an ordinary `user` row makes replay look as if it came from the local UI.
+NG-10: every new model-visible input requires a new event. Writing Telegram text as an ordinary `user` row would make replay look as if it came from the local UI; `channel.inbound` plus the message provenance is the landing of that rule, and outbound delivery state deliberately stays out of the vocabulary (it is not model-visible input).
 
-Contract changes needed (after adoption, in a separate PR; do not smuggle implementation into this document):
+> **2026-09-14 ledger ruling (CH-C1-N2 / CH-C1-N4):** the sketch above is the
+> implemented shape — the journal payload is the identifiers-only
+> `{channel, chat_id, sender, message_id, session_id}` (schema:
+> `schemas/events/payloads/channel.inbound.json`, `additionalProperties: false`;
+> `run_id` is optional and stays omitted, because no run exists at journal
+> time). `content_digest` / `bytes` were dropped at implementation: the event
+> is a provenance record, not a content audit. The append lands under a
+> per-message pseudo run (`chanin_<16hex>`) so the one-terminal-per-run
+> journal invariant is untouched, and the session mapping runs BEFORE the
+> journal append because the payload names the mapped session.
 
-- New `EventType`: `channel.inbound` (and optional `channel.started` / `channel.stopped` / `channel.lost`; the latter two may start as live-surface events)
-- Add provenance to `domain.Message`: `source` (`ui` \| channel name), `peer` (bounded)
+Provenance `source` is the **closed vocabulary `ui | channel | headless`**
+(CH-C1-N4): the platform name lives in the separate `channel` field, never in
+`source`; `headless` marks `vivy run` turns; anything else is rejected by the
+runtime before a turn is persisted. An empty source exists only on legacy rows
+and in-process appends and reads as `ui`.
+
+**Outbound durability (CH-C3-N1, landed 2026-09-14).** The reply intent is
+durable, not in-memory. When an inbound turn opens its run, the Host records a
+delivery intent (run, session, channel, chat, topic, state); `run.completed`
+flips it to pending before the Send goroutine spawns; success deletes the row,
+bounded attempts — persisted across restarts — park it as `failed`, and a
+failed / cancelled terminal settles it. On restart the Host reconciles open
+rows against the journal: armed + completed → deliver, armed + ended →
+settle, pending → redeliver. Delivery is therefore **at-least-once**: a crash
+between Send success and the row delete can duplicate one reply —
+exactly-once is impossible against external platforms. Delivery state is
+Host-internal operational state, **not** a Journal event; the event vocabulary
+is unchanged (NG-10 untouched). Two bounds keep it finite: `chanin_*`
+provenance events are pruned after 30 days (a constant, matching
+`FileVersionRetention` — retention policy ships as code, not as a knob), and
+`StopAll` waits, bounded by the shutdown deadline, for in-flight Sends before
+stopping adapters; an intent that does not drain stays pending and the next
+start redelivers it.
+
+Contract changes (landed with CH-C1; hardened 2026-09-14):
+
+- `EventType` `channel.inbound` exists; `channel.started` / `channel.stopped` / `channel.lost` remain optional future events
+- `domain.Message` provenance: `source` in the closed vocabulary `ui | channel | headless` (CH-C1-N4), plus `channel` / `chat_id` / `channel_message_id` (bounded ids; the `peer` blob did not survive implementation)
 - Keep `run.started` as `additionalProperties: false`; do not put provenance into the old payload
-- SQLite / Postgres migrations and conformance
+- SQLite / Postgres migrations and conformance: CN-17 (provenance), CN-27 / CN-28 (delivery intents, retention)
 
 The first cut does not do media, group triggers, or incremental streaming edits. If Telegram forums are encountered, append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
 
