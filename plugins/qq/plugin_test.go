@@ -1190,7 +1190,13 @@ func TestRedialResumeAndGiveUp(t *testing.T) {
 
 	// An unresumable close (invalid session): the next attempt re-identifies.
 	second.drop(errs.New(errs.CodeConnCloseCantResume, "invalid session"))
-	waitFor(t, "redial after an unresumable close", func() bool { return h.spy.count() >= 3 })
+	waitFor(t, "redial after an unresumable close", func() bool {
+		if h.spy.count() < 3 {
+			return false
+		}
+		connect, identify, resume, _, _ := h.spy.nth(2).calls()
+		return connect == 1 && identify == 1 && resume == 0
+	})
 	third := h.spy.nth(2)
 	if third.resumeID != "" || third.resumeSeq != 0 {
 		t.Fatalf("third attempt resume state = (%q, %d), want fresh", third.resumeID, third.resumeSeq)
