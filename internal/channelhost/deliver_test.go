@@ -40,9 +40,10 @@ func newDeliverTestHost(t *testing.T, ch plugin.Channel, configured bool) (*Host
 	}
 
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
 		Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
 			return "run_1", nil
 		},

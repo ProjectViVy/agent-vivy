@@ -3251,9 +3251,10 @@ func TestChannelInspectRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := channelhost.New(channelhost.Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
 		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
 			return "run-chan-inspect", nil
 		},

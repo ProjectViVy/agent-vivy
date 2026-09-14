@@ -1,0 +1,290 @@
+package channelhost
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
+	plugin "agent-vivy/sdk/port/channel"
+)
+
+// enqueueDelivery persists the pending state and spawns the delivery
+// goroutine, unless shutdown already began — an intent racing StopAll
+// stays pending in the durable store and the next start redelivers it.
+// Callers pass the attempt count carried by the durable row so retries
+// survive restarts.
+func (h *Host) enqueueDelivery(target outboundTarget, attempts int) {
+	h.mu.Lock()
+	if h.draining {
+		h.mu.Unlock()
+		return
+	}
+	h.deliveryWG.Add(1)
+	h.mu.Unlock()
+	go func() {
+		defer h.deliveryWG.Done()
+		h.deliver(target, attempts)
+	}()
+}
+
+// deliver sends the run's last assistant message to the chat the turn
+// arrived from, with bounded retries recorded in the durable intent row:
+// pending while attempts remain, failed once they are exhausted, deleted
+// on success. The reply content is re-read from the message log on every
+// attempt — the assistant row is already durable, so the intent row only
+// has to remember where the reply must land.
+func (h *Host) deliver(target outboundTarget, attempts int) {
+	if target.ch == nil {
+		// A config envelope naming a channel no compiled-in plugin provides
+		// has no adapter to deliver through and never will; settle the
+		// intent instead of retrying it forever.
+		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
+			"run", string(target.runID), "chat_id", target.chatID)
+		h.settleDelivery(target)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), outboundDeliveryTimeout)
+	defer cancel()
+	for {
+		var lastErr error
+		content, settled, err := h.replyContent(ctx, target)
+		switch {
+		case settled:
+			// A completed run with no assistant text is a settled outcome,
+			// not a retryable failure — nothing will ever come.
+			h.settleDelivery(target)
+			return
+		case err == nil:
+			lastErr = h.sendReply(ctx, target, content)
+			if lastErr == nil {
+				if derr := h.deps.Deliveries.DeleteChannelDelivery(ctx, target.runID); derr != nil {
+					h.logger.Warn("channelhost: delivered but the durable intent delete failed",
+						"run", string(target.runID), "err", derr)
+				}
+				h.logger.Info("channelhost: outbound delivered",
+					"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
+				return
+			}
+		default:
+			// A transient message-store failure keeps the intent and burns
+			// an attempt; it must never settle the row.
+			lastErr = err
+		}
+		attempts++
+		if attempts >= outboundDeliveryAttempts {
+			h.failDelivery(target, attempts, lastErr)
+			return
+		}
+		h.trackDeliveryAttempt(target, attempts)
+		select {
+		case <-ctx.Done():
+			// The delivery budget ran out mid-retry; the intent stays
+			// pending and the next start redelivers it.
+			return
+		case <-time.After(outboundDeliveryRetryDelay):
+		}
+	}
+}
+
+// replyContent loads the run's latest text assistant turn. settled=true
+// means the intent can never produce a delivery and must be removed;
+// err reports a transient failure that only the retry path may handle.
+func (h *Host) replyContent(ctx context.Context, target outboundTarget) (content string, settled bool, err error) {
+	msgs, err := h.deps.Messages.ListMessages(ctx, target.sessionID)
+	if err != nil {
+		return "", false, fmt.Errorf("list messages: %w", err)
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		// Tool-call rows project as assistant role too; the reply is the
+		// latest text assistant turn of this run.
+		if m.RunID == target.runID && m.Role == domain.RoleAssistant && m.ToolCallID == "" {
+			if m.Content == "" {
+				h.logger.Info("channelhost: completed run has no assistant text; nothing to deliver",
+					"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
+				return "", true, nil
+			}
+			return m.Content, false, nil
+		}
+	}
+	h.logger.Info("channelhost: completed run has no assistant text; nothing to deliver",
+		"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
+	return "", true, nil
+}
+
+// sendReply splits the content by the adapter's outbound bound and sends
+// the chunks in order (CH-C4-N1). A mid-reply failure is reported as an
+// error so the retry pass redelivers from the start — adapters own
+// deduplication limits; the host owns the retry.
+func (h *Host) sendReply(ctx context.Context, target outboundTarget, content string) error {
+	var delivered int
+	for _, chunk := range splitRunes(content, target.maxRunes) {
+		ids, err := target.ch.Send(ctx, plugin.OutboundMessage{
+			ChatID:  target.chatID,
+			TopicID: target.topicID,
+			Parts:   []plugin.Part{{Kind: plugin.PartText, Text: chunk}},
+		})
+		if err != nil {
+			h.logger.Error("channelhost: outbound delivery failed",
+				"run", string(target.runID), "channel", target.ch.Name(),
+				"chat_id", target.chatID, "attempt_delivered", delivered, "err", err)
+			if delivered > 0 {
+				h.logger.Warn("channelhost: outbound delivery stopped mid-reply",
+					"run", string(target.runID), "channel", target.ch.Name(),
+					"chat_id", target.chatID, "delivered", delivered)
+			}
+			return err
+		}
+		delivered += len(ids)
+	}
+	return nil
+}
+
+// trackDeliveryAttempt records the attempt count while the delivery stays
+// pending. A persistence failure never stops the in-process retry: the
+// log carries the truth and the row may lag by one attempt.
+func (h *Host) trackDeliveryAttempt(target outboundTarget, attempts int) {
+	if err := h.deps.Deliveries.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
+		RunID: target.runID, SessionID: target.sessionID, Channel: target.ch.Name(),
+		ChatID: target.chatID, TopicID: target.topicID,
+		State: storage.ChannelDeliveryPending, Attempts: attempts,
+		CreatedAtMs: target.createdAtMs, UpdatedAtMs: time.Now().UnixMilli(),
+	}); err != nil {
+		h.logger.Warn("channelhost: delivery attempt tracking failed",
+			"run", string(target.runID), "attempts", attempts, "err", err)
+	}
+}
+
+// failDelivery marks the intent failed after the attempt budget ran out.
+// The row is terminal visibility, not a retry source: an operator who
+// revives the channel sees the failed intent in storage and the structured
+// log, and a later slice may add a redelivery control.
+func (h *Host) failDelivery(target outboundTarget, attempts int, cause error) {
+	attrs := []any{
+		"run", string(target.runID), "chat_id", target.chatID, "attempts", attempts,
+	}
+	if target.ch != nil {
+		attrs = append(attrs, "channel", target.ch.Name())
+	}
+	if cause != nil {
+		attrs = append(attrs, "err", cause)
+	}
+	h.logger.Error("channelhost: outbound delivery attempts exhausted; intent parked as failed", attrs...)
+	if err := h.deps.Deliveries.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
+		RunID: target.runID, SessionID: target.sessionID, Channel: target.ch.Name(),
+		ChatID: target.chatID, TopicID: target.topicID,
+		State: storage.ChannelDeliveryFailed, Attempts: attempts,
+		CreatedAtMs: target.createdAtMs, UpdatedAtMs: time.Now().UnixMilli(),
+	}); err != nil {
+		h.logger.Warn("channelhost: failed-intent tracking errored", "run", string(target.runID), "err", err)
+	}
+}
+
+// settleDelivery deletes a settled intent (delivered, nothing to deliver,
+// or undeliverable). Deleting an already-deleted row is not an error.
+func (h *Host) settleDelivery(target outboundTarget) {
+	if err := h.deps.Deliveries.DeleteChannelDelivery(context.Background(), target.runID); err != nil {
+		h.logger.Warn("channelhost: settled-intent delete failed", "run", string(target.runID), "err", err)
+	}
+}
+
+// recoverDeliveries reconciles the durable intents at startup, after the
+// adapters are live and restart recovery has settled the run store:
+//   - armed: the run reached no delivery decision before the restart. The
+//     run's journal decides — completed delivers now, failed/cancelled
+//     settles, a missing terminal is a post-recovery invariant violation
+//     and settles with a warning.
+//   - pending: the reply was not confirmed sent. Redeliver (at-least-once;
+//     a crash between Send success and the row delete can duplicate one
+//     reply). Attempts carried by the row bound the redeliveries so a
+//     permanently dead channel settles to failed instead of retrying on
+//     every boot.
+//
+// A listing failure skips the reconcile without failing startup: the rows
+// stay open and the next start retries them.
+func (h *Host) recoverDeliveries(ctx context.Context) {
+	open, err := h.deps.Deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		h.logger.Error("channelhost: list open delivery intents failed; restart redelivery skipped", "err", err)
+		return
+	}
+	for _, d := range open {
+		target := outboundTarget{
+			runID:       d.RunID,
+			sessionID:   d.SessionID,
+			chatID:      d.ChatID,
+			topicID:     d.TopicID,
+			ch:          h.channelByName(d.Channel),
+			maxRunes:    runesLimit(h.channelByName(d.Channel)),
+			createdAtMs: d.CreatedAtMs,
+		}
+		switch d.State {
+		case storage.ChannelDeliveryArmed:
+			switch term := h.runTerminalType(ctx, d.RunID); {
+			case term == domain.EventRunCompleted:
+				h.markPending(target, d.Attempts)
+				h.enqueueDelivery(target, d.Attempts)
+			case term.Terminal():
+				h.logger.Info("channelhost: restart settles armed intent of ended run",
+					"run", string(d.RunID), "type", string(term))
+				h.settleDelivery(target)
+			default:
+				h.logger.Warn("channelhost: armed intent has no terminal run after recovery; settling",
+					"run", string(d.RunID))
+				h.settleDelivery(target)
+			}
+		case storage.ChannelDeliveryPending:
+			if d.Attempts >= outboundDeliveryAttempts {
+				h.failDelivery(target, d.Attempts, nil)
+				continue
+			}
+			h.markPending(target, d.Attempts)
+			h.enqueueDelivery(target, d.Attempts)
+		default:
+			h.logger.Warn("channelhost: unknown open intent state; leaving row untouched",
+				"run", string(d.RunID), "state", d.State)
+		}
+	}
+}
+
+// runTerminalType replays the run's journal and returns its terminal event
+// type, or the empty type when the run has none.
+func (h *Host) runTerminalType(ctx context.Context, runID domain.RunID) domain.EventType {
+	it, err := h.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		h.logger.Warn("channelhost: replay for delivery reconcile failed", "run", string(runID), "err", err)
+		return ""
+	}
+	defer func() { _ = it.Close() }()
+	term := domain.EventType("")
+	for it.Next() {
+		if t := it.Value().Event.Type; t.Terminal() {
+			term = t
+		}
+	}
+	return term
+}
+
+// markPending persists the pending state before the delivery goroutine
+// spawns, so a crash after this point redelivers instead of losing.
+func (h *Host) markPending(target outboundTarget, attempts int) {
+	if err := h.deps.Deliveries.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
+		RunID: target.runID, SessionID: target.sessionID, Channel: target.ch.Name(),
+		ChatID: target.chatID, TopicID: target.topicID,
+		State: storage.ChannelDeliveryPending, Attempts: attempts,
+		CreatedAtMs: target.createdAtMs, UpdatedAtMs: time.Now().UnixMilli(),
+	}); err != nil {
+		h.logger.Warn("channelhost: pending-intent tracking failed",
+			"run", string(target.runID), "err", err)
+	}
+}
+
+// runesLimit returns the adapter's outbound text bound (0 = unbounded).
+func runesLimit(ch plugin.Channel) int {
+	if rl, ok := ch.(plugin.RunesLimiter); ok {
+		return rl.MaxMessageRunes()
+	}
+	return 0
+}

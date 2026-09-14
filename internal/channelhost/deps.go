@@ -32,13 +32,17 @@ type CredentialResolver interface {
 	IsSet(moduleID, ref string) bool
 }
 
-// Deps wires the host. Journal, Messages and Sessions are the organism's
-// durable stores; Channels is the generated Assembly's Channel set;
-// Config is the kernel-owned channels envelope.
+// Deps wires the host. Journal, Messages, Sessions and Deliveries are the
+// organism's durable stores; Channels is the generated Assembly's Channel
+// set; Config is the kernel-owned channels envelope.
 type Deps struct {
 	Journal  storage.Journal
 	Messages storage.MessageStore
 	Sessions storage.SessionStore
+	// Deliveries persists the durable outbound reply intents (CH-C3-N1).
+	// Nil Deps.Deliveries makes StartAll fail closed: an ear that can lose
+	// replies to a restart must not go live.
+	Deliveries storage.ChannelDeliveryStore
 	// Run starts one run per accepted inbound turn. Nil Deps.Run makes
 	// StartAll fail closed.
 	Run         RunFunc

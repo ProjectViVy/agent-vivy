@@ -91,7 +91,7 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	text := strings.Join(texts, "\n")
 
 	runID, err := h.deps.Run(ctx, sessionID, text, &domain.Provenance{
-		Source:           "channel",
+		Source:           domain.SourceChannel,
 		Channel:          msg.Channel,
 		ChatID:           msg.ChatID,
 		ChannelMessageID: msg.MessageID,
@@ -100,18 +100,30 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return fmt.Errorf("channelhost: start run for channel %s: %w", msg.Channel, err)
 	}
 	ch := h.channelByName(msg.Channel)
-	maxRunes := 0
-	if rl, ok := ch.(plugin.RunesLimiter); ok {
-		maxRunes = rl.MaxMessageRunes()
+	target := outboundTarget{
+		runID:       runID,
+		sessionID:   sessionID,
+		chatID:      msg.ChatID,
+		topicID:     msg.TopicID,
+		ch:          ch,
+		maxRunes:    runesLimit(ch),
+		createdAtMs: time.Now().UnixMilli(),
+	}
+	// The durable reply intent (CH-C3-N1): from this point a restart can
+	// finish or settle the delivery. A persistence failure never stops the
+	// in-process delivery — it only degrades this one reply back to the
+	// pre-hardening best effort, with the error in the log.
+	if err := h.deps.Deliveries.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+		RunID: runID, SessionID: sessionID, Channel: msg.Channel,
+		ChatID: msg.ChatID, TopicID: msg.TopicID,
+		State:       storage.ChannelDeliveryArmed,
+		CreatedAtMs: target.createdAtMs, UpdatedAtMs: target.createdAtMs,
+	}); err != nil {
+		h.logger.Error("channelhost: durable delivery intent recording failed",
+			"run", string(runID), "channel", msg.Channel, "err", err)
 	}
 	h.mu.Lock()
-	h.targets[runID] = outboundTarget{
-		sessionID: sessionID,
-		chatID:    msg.ChatID,
-		topicID:   msg.TopicID,
-		ch:        ch,
-		maxRunes:  maxRunes,
-	}
+	h.targets[runID] = target
 	h.mu.Unlock()
 	return nil
 }
@@ -152,10 +164,10 @@ func (h *Host) journalInbound(ctx context.Context, msg plugin.InboundMessage, se
 
 // OnRunEvent observes durable run events (runtime.RunHook satisfied
 // structurally). Only tracked channel runs are acted on: on run.completed
-// the run's last assistant message is delivered back to the originating
-// chat; run.failed / run.cancelled are logged and deliver nothing this
-// slice. The tracking entry is removed either way, so a terminal closes
-// exactly one delivery.
+// the durable intent flips to pending and the run's last assistant message
+// is delivered back to the originating chat; run.failed / run.cancelled
+// settle the intent (the journal already records why). Either way a
+// terminal closes exactly one delivery.
 func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 	if !ev.Type.Terminal() {
 		return
@@ -170,86 +182,27 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 	if target.ch == nil {
 		// channelByName missed (a config envelope naming a channel no
 		// compiled-in plugin provides): there is no adapter to deliver
-		// through and no channel name to log. Drop with a warning — a
-		// method call on the nil interface would panic the goroutine.
+		// through and no channel name to log. Settle the intent with a
+		// warning — a method call on the nil interface would panic the
+		// goroutine.
 		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
 			"run", string(ev.RunID), "chat_id", target.chatID)
+		h.settleDelivery(target)
 		return
 	}
 	if ev.Type != domain.EventRunCompleted {
 		h.logger.Info("channelhost: channel run ended without delivery",
 			"run", string(ev.RunID), "type", string(ev.Type),
 			"channel", target.ch.Name(), "chat_id", target.chatID)
+		h.settleDelivery(target)
 		return
 	}
 	// Delivery hops off the runtime goroutine: platform Send latency must
-	// never stall event mapping. The fresh context survives the run's own
-	// cancellation (an inbound turn must be answered even if its caller
-	// is gone) and is bounded by outboundDeliveryTimeout.
-	go h.deliverCompleted(ev.RunID, target)
-}
-
-// deliverCompleted sends the run's last assistant message to the chat the
-// turn arrived from.
-func (h *Host) deliverCompleted(runID domain.RunID, target outboundTarget) {
-	if target.ch == nil {
-		// Defense at the goroutine boundary (the only unguarded hop): a
-		// nil-channel target is dropped with a warning, never dereferenced.
-		h.logger.Warn("channelhost: dropping delivery for unregistered channel",
-			"run", string(runID), "chat_id", target.chatID)
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), outboundDeliveryTimeout)
-	defer cancel()
-	msgs, err := h.deps.Messages.ListMessages(ctx, target.sessionID)
-	if err != nil {
-		h.logger.Error("channelhost: list messages for channel delivery failed",
-			"run", string(runID), "channel", target.ch.Name(), "err", err)
-		return
-	}
-	content := ""
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
-		// Tool-call rows project as assistant role too; the reply is the
-		// latest text assistant turn of this run.
-		if m.RunID == runID && m.Role == domain.RoleAssistant && m.ToolCallID == "" {
-			content = m.Content
-			break
-		}
-	}
-	if content == "" {
-		h.logger.Info("channelhost: completed run has no assistant text; nothing to deliver",
-			"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID)
-		return
-	}
-	// CH-C4-N1: an adapter-declared outbound bound splits the reply into
-	// several sends instead of one delivery the platform would reject (the
-	// telegram failure that motivated the row). Chunk boundaries prefer a
-	// newline inside the window; a mid-word hard break is the fallback.
-	// Runes approximate platform character limits; an astral-heavy text
-	// may still edge past a UTF-16-counting ceiling, but never by the
-	// order of magnitude that caused the original total loss.
-	var delivered int
-	for _, chunk := range splitRunes(content, target.maxRunes) {
-		ids, err := target.ch.Send(ctx, plugin.OutboundMessage{
-			ChatID:  target.chatID,
-			TopicID: target.topicID,
-			Parts:   []plugin.Part{{Kind: plugin.PartText, Text: chunk}},
-		})
-		if err != nil {
-			h.logger.Error("channelhost: outbound delivery failed",
-				"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "err", err)
-			if delivered > 0 {
-				h.logger.Warn("channelhost: outbound delivery stopped mid-reply",
-					"run", string(runID), "channel", target.ch.Name(),
-					"chat_id", target.chatID, "delivered", delivered)
-			}
-			return
-		}
-		delivered += len(ids)
-	}
-	h.logger.Info("channelhost: outbound delivered",
-		"run", string(runID), "channel", target.ch.Name(), "chat_id", target.chatID, "ids", delivered)
+	// never stall event mapping. The durable intent flips to pending BEFORE
+	// the goroutine spawns, so a crash after this point redelivers instead
+	// of losing the reply.
+	h.markPending(target, 0)
+	h.enqueueDelivery(target, 0)
 }
 
 // splitRunes chunks content into pieces of at most limit runes. limit <= 0

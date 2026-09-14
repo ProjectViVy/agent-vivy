@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-17).
+// Package conformance is the D-032 backend suite (CN-01..CN-28).
 package conformance
 
 import (
@@ -73,9 +73,11 @@ func Run(t *testing.T, h Harness) {
 		{"CN-24", "durable session activity timestamp", cnSessionActivity},
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
+		{"CN-27", "channel delivery intent round-trip", cnChannelDeliveryIntent},
+		{"CN-28", "channel inbound retention prune", cnChannelInboundPrune},
 	}
-	if len(cases) != 26 {
-		t.Fatalf("conformance suite must carry exactly 26 cases, got %d", len(cases))
+	if len(cases) != 28 {
+		t.Fatalf("conformance suite must carry exactly 28 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -1140,6 +1142,136 @@ func cnAttributedModelUsage(t *testing.T, h Harness) {
 	}
 	if len(aggregated) != 3 || requests != 3 {
 		t.Fatalf("session usage aggregates = %+v, want three routes/requests", aggregated)
+	}
+}
+
+func cnChannelDeliveryIntent(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	deliveries, ok := b.(storage.ChannelDeliveryStore)
+	if !ok {
+		t.Fatal("backend does not implement ChannelDeliveryStore")
+	}
+	armed := storage.ChannelDelivery{
+		RunID: "chanin-run-1", SessionID: "sess-1", Channel: "telegram", ChatID: "chat-1",
+		TopicID: "topic-1", State: storage.ChannelDeliveryArmed, Attempts: 0,
+		CreatedAtMs: 100, UpdatedAtMs: 100,
+	}
+	if err := deliveries.UpsertChannelDelivery(ctx, armed); err != nil {
+		t.Fatal(err)
+	}
+	pending := storage.ChannelDelivery{
+		RunID: "chanin-run-2", SessionID: "sess-2", Channel: "feishu", ChatID: "chat-2",
+		State: storage.ChannelDeliveryPending, Attempts: 1,
+		CreatedAtMs: 200, UpdatedAtMs: 250,
+	}
+	if err := deliveries.UpsertChannelDelivery(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	failed := storage.ChannelDelivery{
+		RunID: "chanin-run-3", SessionID: "sess-3", Channel: "qq", ChatID: "chat-3",
+		State: storage.ChannelDeliveryFailed, Attempts: 3,
+		CreatedAtMs: 300, UpdatedAtMs: 400,
+	}
+	if err := deliveries.UpsertChannelDelivery(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	open, err := deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 2 || open[0].RunID != "chanin-run-1" || open[1].RunID != "chanin-run-2" {
+		t.Fatalf("open rows = %+v, want armed then pending ordered by created_at", open)
+	}
+	if open[0].Channel != "telegram" || open[0].TopicID != "topic-1" || open[0].Attempts != 0 {
+		t.Fatalf("armed row round-trip mismatch: %+v", open[0])
+	}
+	// Upsert replaces every field of the existing row (state machine advance).
+	armed.State = storage.ChannelDeliveryPending
+	armed.Attempts = 2
+	armed.UpdatedAtMs = 150
+	if err := deliveries.UpsertChannelDelivery(ctx, armed); err != nil {
+		t.Fatal(err)
+	}
+	open, err = deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 2 || open[0].RunID != "chanin-run-1" || open[0].State != storage.ChannelDeliveryPending || open[0].Attempts != 2 {
+		t.Fatalf("upsert did not advance the state machine: %+v", open)
+	}
+	if err := deliveries.DeleteChannelDelivery(ctx, armed.RunID); err != nil {
+		t.Fatal(err)
+	}
+	// Deleting an unknown row is not an error (delivery/reconcile race).
+	if err := deliveries.DeleteChannelDelivery(ctx, "chanin-unknown"); err != nil {
+		t.Fatalf("unknown delete: %v", err)
+	}
+	open, err = deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 || open[0].RunID != "chanin-run-2" {
+		t.Fatalf("open rows after delete = %+v, want only chanin-run-2", open)
+	}
+	// failed rows survive as terminal visibility but never reopen.
+	if err := deliveries.UpsertChannelDelivery(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	open, err = deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 {
+		t.Fatalf("failed row leaked into the open list: %+v", open)
+	}
+}
+
+func cnChannelInboundPrune(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	maintenance, ok := b.(storage.ChannelMaintenanceStore)
+	if !ok {
+		t.Fatal("backend does not implement ChannelMaintenanceStore")
+	}
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-prune", Title: "prune", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-real", SessionID: "sess-prune", Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// One old chanin event, one fresh chanin event, one real run event at
+	// the old timestamp.
+	if _, err := b.Append(ctx, storage.Commit{RunID: "chanin_old", Events: []domain.RunEvent{
+		{Type: domain.EventChannelInbound, CreatedAt: 1000, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: "chanin_new", Events: []domain.RunEvent{
+		{Type: domain.EventChannelInbound, CreatedAt: 5000, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: "run-real", Events: []domain.RunEvent{
+		{Type: domain.EventRunStarted, CreatedAt: 1000, PayloadVersion: 1, Payload: []byte(`{}`)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := maintenance.PruneChannelInboundEvents(ctx, time.UnixMilli(4000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("pruned %d rows, want exactly the old chanin event", n)
+	}
+	if got := replayAll(t, b, "chanin_old", 0); len(got) != 0 {
+		t.Fatalf("old chanin event survived the prune: %+v", got)
+	}
+	if got := replayAll(t, b, "chanin_new", 0); len(got) != 1 {
+		t.Fatalf("fresh chanin event was pruned: %+v", got)
+	}
+	if got := replayAll(t, b, "run-real", 0); len(got) != 1 {
+		t.Fatalf("real run event was pruned: %+v", got)
 	}
 }
 
