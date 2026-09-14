@@ -329,7 +329,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var sandboxManager *runtime.SandboxManager
 	var sandboxProvider *sandboxmodule.Provider
 	if cfg.Runtime.WorkspaceRoot != "" {
-		sandboxProvider, err = sandboxmodule.Compose(cfg)
+		sandboxProvider, err = sandboxmodule.ComposeWithSessionWorkspaces(cfg, backend, backend)
 		if err != nil {
 			_ = backend.Close()
 			return nil, fmt.Errorf("app: compose Sandbox Backend: %w", err)
@@ -349,6 +349,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return nil, fmt.Errorf("app: build skills backend: %w", err)
 		}
 		skillBackend = built
+		skillBackend.SetSessionWorkspaceLookup(backend)
 		skillOps = built
 	}
 	var marketplace tools.SkillsMarketplace
@@ -554,7 +555,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		modelWindow = info.ContextWindow
 	}
 	cmp := compactionPolicyFor(cfg, nil, modelWindow)
-	agentsMDBackend, agentsMDFiles, err := projectInstructionBackends(logger, ao.instructionRoot, skillBackend, fileBackend)
+	agentsMDBackend, agentsMDFiles, err := projectInstructionBackends(logger, ao.instructionRoot, skillBackend, fileBackend, backend)
 	if err != nil {
 		_ = backend.Close()
 		return nil, err

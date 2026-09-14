@@ -325,7 +325,7 @@ func (b *CommandBackend) resolveCommandContext(ctx context.Context, runID domain
 	}
 	realWorkspace, _ := filepath.EvalSymlinks(workspace.Path)
 	if !strings.EqualFold(filepath.Clean(realCwd), filepath.Clean(realWorkspace)) {
-		if err := b.manager.ValidatePath(realCwd); err != nil {
+		if err := b.manager.ValidateRunPath(ctx, runID, realCwd); err != nil {
 			return "", nil, 0, errors.New("command: cwd symlink escapes workspace")
 		}
 	}

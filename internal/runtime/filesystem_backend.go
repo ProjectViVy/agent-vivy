@@ -116,7 +116,7 @@ func (b *EinoFilesystemBackend) ListDir(ctx context.Context, runID domain.RunID,
 		root, _, err := b.resolve(ctx, runID, req.Path, false)
 		if err == nil {
 			fullPath := filepath.Join(root, req.Path)
-			if err := b.sandbox.ValidatePathWithMode(fullPath, FileOpRead, sandboxMode(ctx)); err != nil {
+			if err := b.sandbox.ValidatePathWithinRoot(root, fullPath, FileOpRead, sandboxMode(ctx)); err != nil {
 				return tools.DirListResult{}, fmt.Errorf("sandbox: %w", err)
 			}
 		}
@@ -205,7 +205,7 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 		root, _, err := b.resolve(ctx, runID, req.Path, false)
 		if err == nil {
 			fullPath := filepath.Join(root, req.Path)
-			if err := b.sandbox.ValidatePathWithMode(fullPath, FileOpRead, sandboxMode(ctx)); err != nil {
+			if err := b.sandbox.ValidatePathWithinRoot(root, fullPath, FileOpRead, sandboxMode(ctx)); err != nil {
 				return tools.FileReadResult{}, fmt.Errorf("sandbox: %w", err)
 			}
 		}
@@ -398,7 +398,7 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 	// the workspace and rejected symlink components before anything is
 	// created (same order as download.go).
 	if b.sandbox != nil {
-		if err := b.sandbox.ValidatePathWithMode(path, FileOpWrite, sandboxMode(ctx)); err != nil {
+		if err := b.sandbox.ValidatePathWithinRoot(root, path, FileOpWrite, sandboxMode(ctx)); err != nil {
 			return tools.FileMutationResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
@@ -734,7 +734,7 @@ func (b *EinoFilesystemBackend) validateSandboxPath(ctx context.Context, runID d
 		return nil
 	}
 	fullPath := filepath.Join(root, value)
-	if err := b.sandbox.ValidatePathWithMode(fullPath, op, sandboxMode(ctx)); err != nil {
+	if err := b.sandbox.ValidatePathWithinRoot(root, fullPath, op, sandboxMode(ctx)); err != nil {
 		return fmt.Errorf("sandbox: %w", err)
 	}
 	return nil

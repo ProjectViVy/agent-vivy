@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
+	ApiError: class ApiError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
   initialize: vi.fn(), recoverBackgroundRuns: vi.fn(), listSessions: vi.fn(), listBackgroundRuns: vi.fn(), getSettings: vi.fn(), listMessages: vi.fn(), listTodos: vi.fn(), updateTodo: vi.fn(), getRun: vi.fn(), getRunLog: vi.fn(), listChildren: vi.fn(), listReviews: vi.fn(),
-  createSession: vi.fn(), renameSession: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
+  createSession: vi.fn(), renameSession: vi.fn(), setSessionWorkspace: vi.fn(), deleteSession: vi.fn(), startTurn: vi.fn(), cancelRun: vi.fn(), attachBackgroundRun: vi.fn(), startChild: vi.fn(), getChild: vi.fn(), waitChild: vi.fn(), cancelChild: vi.fn(), respondReview: vi.fn(), updateSettings: vi.fn(), updateLocale: vi.fn(), inspectSpecies: vi.fn(), listGenerations: vi.fn(), listEvals: vi.fn(), listPromotions: vi.fn(), createGeneration: vi.fn(), rejectGeneration: vi.fn(), startEval: vi.fn(), recordEval: vi.fn(), promoteGeneration: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
@@ -206,6 +207,86 @@ describe('Vivy store integrity', () => {
     expect(useVivyStore.getState().activeSessionId).toBe('s2');
     expect(useVivyStore.getState().messages.map((item) => item.content)).toEqual(['new']);
   });
+
+  it('sets a workspace on the empty active session without creating another chat', async () => {
+    useVivyStore.setState({
+      sessions: [{ id: 's1', title: '', created_at: 1, workspace_path: '' }],
+      activeSessionId: 's1',
+      messages: [],
+      currentRun: null,
+    });
+    api.setSessionWorkspace.mockResolvedValue({ id: 's1', title: '', created_at: 1, workspace_path: '/code/vivy' });
+
+    await useVivyStore.getState().chooseWorkspace('/code/vivy');
+
+    expect(api.setSessionWorkspace).toHaveBeenCalledWith('s1', '/code/vivy');
+    expect(api.createSession).not.toHaveBeenCalled();
+    expect(useVivyStore.getState().sessions[0].workspace_path).toBe('/code/vivy');
+  });
+
+  it('starts a new workspace-bound chat when the active session has history', async () => {
+    useVivyStore.setState({
+      sessions: [{ id: 's1', title: 'Existing', created_at: 1, workspace_path: '' }],
+      activeSessionId: 's1',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', created_at: 2 }],
+      currentRun: null,
+    });
+    api.createSession.mockResolvedValue({ id: 's2', title: '', created_at: 3, workspace_path: '/code/vivy' });
+    api.listMessages.mockResolvedValue({ messages: [] });
+
+    await useVivyStore.getState().chooseWorkspace('/code/vivy');
+
+    expect(api.setSessionWorkspace).not.toHaveBeenCalled();
+    expect(api.createSession).toHaveBeenCalledWith('', '/code/vivy');
+    expect(useVivyStore.getState().activeSessionId).toBe('s2');
+  });
+
+	it('keeps the current chat when its workspace is selected again', async () => {
+		const active = { id: 's1', title: 'Existing', created_at: 1, workspace_path: '/code/vivy' };
+		useVivyStore.setState({
+			sessions: [active],
+			activeSessionId: 's1',
+			messages: [{ id: 'm1', role: 'user', content: 'hello', created_at: 2 }],
+			currentRun: null,
+		});
+
+		await expect(useVivyStore.getState().chooseWorkspace('/code/vivy')).resolves.toEqual(active);
+
+		expect(api.setSessionWorkspace).not.toHaveBeenCalled();
+		expect(api.createSession).not.toHaveBeenCalled();
+		expect(useVivyStore.getState().activeSessionId).toBe('s1');
+	});
+
+	it('keeps a historical default-workspace chat when default is selected again', async () => {
+		const active = { id: 's1', title: 'Existing', created_at: 1, workspace_path: '' };
+		useVivyStore.setState({
+			sessions: [active],
+			activeSessionId: 's1',
+			messages: [{ id: 'm1', role: 'user', content: 'hello', created_at: 2 }],
+			currentRun: null,
+		});
+
+		await expect(useVivyStore.getState().chooseWorkspace('')).resolves.toEqual(active);
+		expect(api.setSessionWorkspace).not.toHaveBeenCalled();
+		expect(api.createSession).not.toHaveBeenCalled();
+	});
+
+	it('starts a new chat when the backend reports hidden durable history', async () => {
+		useVivyStore.setState({
+			sessions: [{ id: 's1', title: '', created_at: 1, workspace_path: '' }],
+			activeSessionId: 's1',
+			messages: [],
+			currentRun: null,
+		});
+		api.setSessionWorkspace.mockRejectedValue(new api.ApiError(409, 'conflict', 'workspace is locked'));
+		api.createSession.mockResolvedValue({ id: 's2', title: '', created_at: 3, workspace_path: '/code/vivy' });
+		api.listMessages.mockResolvedValue({ messages: [] });
+
+		await useVivyStore.getState().chooseWorkspace('/code/vivy');
+
+		expect(api.createSession).toHaveBeenCalledWith('', '/code/vivy');
+		expect(useVivyStore.getState().activeSessionId).toBe('s2');
+	});
 
   it('retries initialization after a control-plane failure without a full page reload', async () => {
     api.initialize.mockRejectedValueOnce(new Error('Failed to fetch'));

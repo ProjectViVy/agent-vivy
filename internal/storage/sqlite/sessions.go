@@ -21,8 +21,8 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 		s.UpdatedAt = time.Now().UnixMilli()
 	}
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy) VALUES (?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy)); err != nil {
+		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy), s.WorkspacePath); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
@@ -31,7 +31,7 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 // ListSessions returns all sessions by durable activity, newest first.
 func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy FROM sessions ORDER BY updated_at DESC, id`)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path FROM sessions ORDER BY updated_at DESC, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list sessions: %w", err)
 	}
@@ -41,7 +41,7 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	for rows.Next() {
 		var s domain.Session
 		var id string
-		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy); err != nil {
+		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath); err != nil {
 			return nil, fmt.Errorf("storage: scan session: %w", err)
 		}
 		s.ID = domain.SessionID(id)
@@ -54,8 +54,8 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error) {
 	var s domain.Session
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy FROM sessions WHERE id = ?`, id).
-		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path FROM sessions WHERE id = ?`, id).
+		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Session{}, storage.ErrNotFound
 	}
@@ -63,6 +63,29 @@ func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.S
 		return domain.Session{}, fmt.Errorf("storage: get session %s: %w", id, err)
 	}
 	return s, nil
+}
+
+// UpdateSessionWorkspace changes an empty conversation's workspace. The
+// NOT EXISTS guard closes the race with creation of the first durable run.
+func (b *Backend) UpdateSessionWorkspace(ctx context.Context, id domain.SessionID, path string) error {
+	at := time.Now().UnixMilli()
+	res, err := b.db.ExecContext(ctx, `UPDATE sessions
+		SET workspace_path = ?, updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
+		WHERE id = ? AND NOT EXISTS (SELECT 1 FROM runs WHERE session_id = ?)`, path, at, at, id, id)
+	if err != nil {
+		return fmt.Errorf("storage: update session workspace %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("storage: update session workspace rows: %w", err)
+	} else if n > 0 {
+		return nil
+	}
+	if _, err := b.GetSession(ctx, id); errors.Is(err, storage.ErrNotFound) {
+		return storage.ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	return storage.ErrConflict
 }
 
 // RenameSession updates the title; absent ids yield storage.ErrNotFound.

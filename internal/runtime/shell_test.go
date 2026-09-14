@@ -27,6 +27,15 @@ type shellFixture struct {
 	sessionID domain.SessionID
 }
 
+type shellWorkspaceContextProbe struct {
+	sessionID domain.SessionID
+}
+
+func (probe *shellWorkspaceContextProbe) Ensure(ctx context.Context, _ domain.RunID) (Workspace, error) {
+	probe.sessionID = contextSessionID(ctx)
+	return Workspace{}, errors.New("workspace probe stop")
+}
+
 func newShellFixture(t *testing.T, approval domain.ApprovalPolicy, hooks ...*ToolHookChain) shellFixture {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
@@ -165,6 +174,18 @@ func TestShellAvailabilityRequiresCompleteGovernedBackend(t *testing.T) {
 	unwired := NewService(f.service.engine, "", "", ServiceDeps{})
 	if unwired.ShellAvailable() {
 		t.Fatal("shell advertised without workspace, stores, and sink")
+	}
+}
+
+func TestRunShellCarriesSessionAuthorityIntoPrePersistWorkspaceAllocation(t *testing.T) {
+	f := newShellFixture(t, domain.ApprovalPolicyAuto)
+	probe := &shellWorkspaceContextProbe{}
+	f.service.deps.Workspaces = probe
+	if _, err := f.service.RunShell(context.Background(), f.sessionID, "echo never-runs"); err == nil {
+		t.Fatal("RunShell unexpectedly passed the workspace probe")
+	}
+	if probe.sessionID != f.sessionID {
+		t.Fatalf("workspace session authority = %q, want %q", probe.sessionID, f.sessionID)
 	}
 }
 

@@ -15,6 +15,7 @@ import type { AttachmentInput, PermissionPreset, RunMode, SessionContext, Thinki
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { dateTimeLocale, useTranslation } from '@/i18n';
+import { WorkspaceSelector } from './WorkspaceSelector';
 
 interface ChatInputProps {
   onSend: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
@@ -91,6 +92,7 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   const sessions = useVivyStore((state) => state.sessions);
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
+	const chooseWorkspace = useVivyStore((state) => state.chooseWorkspace);
   const { t } = useTranslation();
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
@@ -346,7 +348,7 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
-    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
+    </div><WorkspaceSelector workspacePath={activeSession?.workspace_path ?? ''} disabled={!activeSessionId || permissionLocked} onSelect={chooseWorkspace} />{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
     <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.queue')} aria-label={t('chatInput.queue')}><Send className="h-4 w-4" /></button>
     <Button size="icon" variant="destructive" className="rounded-full" onClick={queuedMessages.length ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
