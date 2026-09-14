@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Check, CheckCircle, ChevronDown, Clock, Lightbulb, LightbulbOff,
-  Paperclip, Plus, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, X, Zap,
+  Paperclip, Send, Settings2, Shield, ShieldCheck, Sparkles, Square, X, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -83,7 +83,6 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const openReviewCenter = useVivyStore((state) => state.setReviewCenterOpen);
-  const openSessionDrawer = useVivyStore((state) => state.setSessionDrawerOpen);
   const queuedMessages = useVivyStore((state) => state.queuedMessages);
   const removeQueuedMessage = useVivyStore((state) => state.removeQueuedMessage);
   const clearQueue = useVivyStore((state) => state.clearQueue);
@@ -92,12 +91,10 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
   const sessions = useVivyStore((state) => state.sessions);
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
-  const createSession = useVivyStore((state) => state.createSession);
   const { t } = useTranslation();
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const permissionPreset: PermissionPreset = activeSession?.permission_preset ?? 'smart';
   const permissionBusy = sessionBusyId === activeSessionId;
-  const creatingSession = sessionBusyId === 'create';
   const draftBytes = TEXT_ENCODER.encode(value).length;
   // 真实上下文：服务端 session/context 的 feed 占用 + 当前草稿（1 token ≈ 4 字节估算）。
   const usedTokens = (context?.feed_tokens ?? 0) + Math.round(draftBytes / 4);
@@ -183,14 +180,6 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
       setPending([]);
     } catch {
       /* keep the draft; ChatView / store already expose the failure */
-    }
-  };
-
-  const createNewSession = async () => {
-    try {
-      await createSession();
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : t('chatInput.newSessionFailed'));
     }
   };
 
@@ -305,9 +294,8 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* 右侧：历史 + 审批中心 */}
+      {/* 右侧：审批中心 */}
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <button type="button" onClick={() => openSessionDrawer(true)} className="shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.history')} aria-label={t('chatInput.history')}><Clock className="h-4 w-4" /></button>
         <button type="button" aria-expanded={reviewCenterOpen} onClick={() => openReviewCenter(true)} className="relative shrink-0 rounded-lg p-1.5 transition-colors hover:bg-accent" title={t('chatInput.reviewCenter')} aria-label={t('chatInput.reviewCenter')}><ShieldCheck className="h-4 w-4" />{pendingReviewCount ? <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white" aria-hidden="true">{pendingReviewCount}</span> : null}</button>
       </div>
     </div>
@@ -358,7 +346,7 @@ export function ChatInput({ onSend, onQueue, onCancel, disabled, running, placeh
         <svg viewBox="0 0 24 24" className="h-7 w-7 -rotate-90" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted" /><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={contextCircumference} strokeDashoffset={contextCircumference * (1 - contextRatio)} className={`transition-[stroke-dashoffset] duration-300 ${contextColor}`} /></svg>
       </div>
       <span className="min-w-[2.25rem] text-xs font-medium text-muted-foreground">{contextPercent}%</span>
-    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" /><button type="button" onClick={() => void createNewSession()} disabled={creatingSession} className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50" title={t('chatInput.newSession')} aria-label={t('chatInput.newSession')}><Plus className="h-4 w-4" /></button>{running ? (
+    </div>{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
     <button type="button" onClick={() => void send()} disabled={disabled || !value.trim()} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.queue')} aria-label={t('chatInput.queue')}><Send className="h-4 w-4" /></button>
     <Button size="icon" variant="destructive" className="rounded-full" onClick={queuedMessages.length ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={queuedMessages.length ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>

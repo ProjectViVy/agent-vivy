@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ListTodo, Folder, Menu, MessageSquare, Wifi, WifiOff } from 'lucide-react';
+import { ListTodo, Folder, Menu, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar';
-import { SessionDrawer } from '@/components/chat/SessionDrawer';
 import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
 import { ApprovalsView } from '@/components/approvals/ApprovalsView';
 import { FilesPanel } from '@/components/files/FilesPanel';
@@ -31,14 +30,13 @@ function Layout() {
   const deleteSession = useVivyStore((state) => state.deleteSession);
   const renameSession = useVivyStore((state) => state.renameSession);
   const selectSession = useVivyStore((state) => state.selectSession);
+  const createSession = useVivyStore((state) => state.createSession);
   const connection = useVivyStore((state) => state.connection);
   const run = useVivyStore((state) => state.currentRun);
   const reviewCenterOpen = useVivyStore((state) => state.reviewCenterOpen);
   const setReviewCenterOpen = useVivyStore((state) => state.setReviewCenterOpen);
   const filesPanelOpen = useVivyStore((state) => state.filesPanelOpen);
   const setFilesPanelOpen = useVivyStore((state) => state.setFilesPanelOpen);
-  const sessionDrawerOpen = useVivyStore((state) => state.sessionDrawerOpen);
-  const setSessionDrawerOpen = useVivyStore((state) => state.setSessionDrawerOpen);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
   const reviewResponding = useVivyStore((state) => state.reviewBusyIds.length > 0);
@@ -55,9 +53,14 @@ function Layout() {
   const navClosed = mobile ? !mobileNavOpen : desktopCollapsed;
   const selectAndOpen = async (id: string) => {
     await selectSession(id);
-    setSessionDrawerOpen(false);
     setMobileNavOpen(false);
     await navigate({ to: '/' });
+  };
+  const createAndOpen = async () => {
+    const created = await createSession();
+    setMobileNavOpen(false);
+    await navigate({ to: '/' });
+    return created;
   };
   const toggleNav = () => {
     if (mobile) setMobileNavOpen((open) => !open);
@@ -65,7 +68,17 @@ function Layout() {
   };
   const toggleTodos = () => setTodoPanelOpen(!todoPanelOpen);
 
-  const sidebar = <ConversationSidebar />;
+  const sidebar = (
+    <ConversationSidebar
+      sessions={sessions}
+      activeSessionId={activeSessionId}
+      busyId={busyId}
+      onSelectSession={(id) => void selectAndOpen(id)}
+      onRenameSession={renameSession}
+      onDeleteSession={deleteSession}
+      onCreateSession={() => createAndOpen()}
+    />
+  );
 
   return (
     <div className="flex h-dvh bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
@@ -106,26 +119,6 @@ function Layout() {
             <MaskAndModelSwitcher />
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Sheet open={sessionDrawerOpen} onOpenChange={setSessionDrawerOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" title={t('layout.sessions')} aria-label={t('layout.sessions')}><MessageSquare className="h-5 w-5" /></Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:max-w-[360px]">
-                <SheetHeader className="border-b">
-                  <SheetTitle>{t('layout.sessions')}</SheetTitle>
-                </SheetHeader>
-                <SheetBody className="overflow-hidden">
-                  <SessionDrawer
-                    sessions={sessions}
-                    activeSessionId={activeSessionId}
-                    busyId={busyId}
-                    onSelectSession={(id) => void selectAndOpen(id)}
-                    onRenameSession={renameSession}
-                    onDeleteSession={deleteSession}
-                  />
-                </SheetBody>
-              </SheetContent>
-            </Sheet>
             <Button
               variant="ghost"
               size="icon"
