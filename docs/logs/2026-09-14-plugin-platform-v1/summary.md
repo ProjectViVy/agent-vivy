@@ -26,6 +26,7 @@ The release slice includes:
 - a repository-skill load gate discovered by the credential-free VIVY CODE
   smoke.
 
-Independent code review reported READY at `c58e1eb` with no Critical,
-Important, or Minor findings. PLG-1 deliberately remains on the open board
-until the PR's complete GitHub gate, including Playwright, passes.
+Independent code review reported READY on the final local tree, published to
+GitHub as `5304831`, with no Critical, Important, or Minor findings. PLG-1
+deliberately remains on the open board until the PR's complete GitHub gate,
+including Playwright, passes.
