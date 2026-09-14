@@ -75,9 +75,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 		{"CN-27", "channel delivery intent round-trip", cnChannelDeliveryIntent},
 		{"CN-28", "channel inbound retention prune", cnChannelInboundPrune},
+		{"CN-29", "channel failed delivery listing", cnChannelFailedListing},
 	}
-	if len(cases) != 28 {
-		t.Fatalf("conformance suite must carry exactly 28 cases, got %d", len(cases))
+	if len(cases) != 29 {
+		t.Fatalf("conformance suite must carry exactly 29 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -1224,6 +1225,68 @@ func cnChannelDeliveryIntent(t *testing.T, h Harness) {
 	}
 	if len(open) != 1 {
 		t.Fatalf("failed row leaked into the open list: %+v", open)
+	}
+}
+
+// cnChannelFailedListing pins the operator-visible side of the ledger: the
+// failed listing returns only failed rows (never armed/pending), ordered
+// oldest first, and the two listings partition the table.
+func cnChannelFailedListing(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	deliveries, ok := b.(storage.ChannelDeliveryStore)
+	if !ok {
+		t.Fatal("backend does not implement ChannelDeliveryStore")
+	}
+	rows := []storage.ChannelDelivery{
+		{RunID: "chanin-run-1", SessionID: "sess-1", Channel: "telegram", ChatID: "chat-1",
+			State: storage.ChannelDeliveryFailed, Attempts: 3,
+			CreatedAtMs: 100, UpdatedAtMs: 400},
+		{RunID: "chanin-run-2", SessionID: "sess-2", Channel: "qq", ChatID: "chat-2",
+			State: storage.ChannelDeliveryArmed, Attempts: 0,
+			CreatedAtMs: 200, UpdatedAtMs: 200},
+		{RunID: "chanin-run-3", SessionID: "sess-3", Channel: "feishu", ChatID: "chat-3",
+			State: storage.ChannelDeliveryFailed, Attempts: 5,
+			CreatedAtMs: 300, UpdatedAtMs: 600},
+		{RunID: "chanin-run-4", SessionID: "sess-4", Channel: "dingtalk", ChatID: "chat-4",
+			State: storage.ChannelDeliveryPending, Attempts: 1,
+			CreatedAtMs: 400, UpdatedAtMs: 450},
+	}
+	for _, d := range rows {
+		if err := deliveries.UpsertChannelDelivery(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed, err := deliveries.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failed) != 2 || failed[0].RunID != "chanin-run-1" || failed[1].RunID != "chanin-run-3" {
+		t.Fatalf("failed rows = %+v, want only the two failed rows ordered by created_at", failed)
+	}
+	if failed[0].Attempts != 3 || failed[1].Attempts != 5 || failed[1].UpdatedAtMs != 600 {
+		t.Fatalf("failed row round-trip mismatch: %+v", failed)
+	}
+	// The listings partition the table: open + failed covers every row.
+	open, err := deliveries.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 2 {
+		t.Fatalf("open rows = %+v, want the armed and pending rows only", open)
+	}
+	// Redelivery is a state-machine advance through the existing upsert:
+	// failed -> pending removes the row from the failed listing.
+	rows[0].State = storage.ChannelDeliveryPending
+	if err := deliveries.UpsertChannelDelivery(ctx, rows[0]); err != nil {
+		t.Fatal(err)
+	}
+	failed, err = deliveries.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failed) != 1 || failed[0].RunID != "chanin-run-3" {
+		t.Fatalf("failed rows after re-arm = %+v, want only chanin-run-3", failed)
 	}
 }
 
