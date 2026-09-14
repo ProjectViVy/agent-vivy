@@ -122,6 +122,8 @@ jobs:
 
       - name: Pack and start selected full UI
         shell: pwsh
+        env:
+          VIVY_FULL_UI_URL: http://127.0.0.1:3015
         run: |
           New-Item -ItemType Directory -Force -Path .workspace/p9-browser-home | Out-Null
           go run ./sdk pack --recipe sdk/internal/testdata/full-ui.vivy.yml --source sdk/internal/testdata/full-ui-module --output .workspace/p9-full-ui
@@ -136,29 +138,33 @@ jobs:
             $env:VIVY_ADDR = $savedAddr
             $env:VIVY_USER_HOME = $savedHome
           }
+          $healthy = $false
           for ($attempt = 0; $attempt -lt 60; $attempt++) {
             try {
               $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 'http://127.0.0.1:3015/healthz'
               if ($response.StatusCode -eq 200) {
-                exit 0
+                $healthy = $true
+                break
               }
             } catch {
               Start-Sleep -Milliseconds 500
             }
           }
-          Get-Content '.workspace/p9-full-ui.stdout.log' -ErrorAction SilentlyContinue
-          Get-Content '.workspace/p9-full-ui.stderr.log' -ErrorAction SilentlyContinue
-          throw 'selected full-UI server did not become healthy'
-
-      - name: Resolve Go executable
-        shell: pwsh
-        run: '"GO_EXE=$((Get-Command go).Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
-
-      - name: Run split full UI smoke
-        working-directory: ui
-        env:
-          VIVY_FULL_UI_URL: http://127.0.0.1:3015
-        run: pnpm exec playwright test e2e/plugin-full-ui.spec.ts
+          if (-not $healthy) {
+            Get-Content '.workspace/p9-full-ui.stdout.log' -ErrorAction SilentlyContinue
+            Get-Content '.workspace/p9-full-ui.stderr.log' -ErrorAction SilentlyContinue
+            throw 'selected full-UI server did not become healthy'
+          }
+          $env:GO_EXE = (Get-Command go).Source
+          Push-Location ui
+          try {
+            pnpm exec playwright test e2e/plugin-full-ui.spec.ts
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          } finally {
+            Pop-Location
+          }
 
       - name: Dump selected full UI logs on failure
         if: failure()
