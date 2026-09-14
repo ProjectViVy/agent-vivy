@@ -126,13 +126,14 @@ func startAllowedHost(t *testing.T) (*sqlite.Backend, *recordingJournal, *runRec
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -149,13 +150,14 @@ func TestStartAllRefusesEmptyAllowFrom(t *testing.T) {
 	journal := &recordingJournal{Journal: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -197,13 +199,14 @@ func TestPublishInboundDropsSenderNotInAllowFrom(t *testing.T) {
 		})
 	}
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -352,11 +355,12 @@ func TestChannelSessionIDDeterministic(t *testing.T) {
 
 	backend := openBackend(t)
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      (&runRecorder{messages: backend}).run,
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        (&runRecorder{messages: backend}).run,
+		Logger:     testLogger(),
 	})
 	ctx := context.Background()
 	first, err := host.EnsureSession(ctx, "fake", "chat-1", "")
@@ -402,11 +406,12 @@ func TestEnsureSessionConcurrentSameChat(t *testing.T) {
 	backend := openBackend(t)
 	runs := &runRecorder{messages: backend}
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Logger:     testLogger(),
 	})
 	ctx := context.Background()
 
@@ -456,13 +461,14 @@ func TestConcurrentInboundSameChatDispatch(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  journal,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    journal,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	ctx := context.Background()
 	env := host.envFor(ch)
@@ -595,13 +601,14 @@ func TestDeliverySplitsAtAdapterRunesLimit(t *testing.T) {
 				ch = runesLimited{Channel: fakeCh, runes: tc.limit}
 			}
 			host := New(Deps{
-				Journal:  backend,
-				Messages: backend,
-				Sessions: backend,
-				Run:      runs.run,
-				Channels: []plugin.Channel{ch},
-				Config:   config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-				Logger:   testLogger(),
+				Journal:    backend,
+				Messages:   backend,
+				Sessions:   backend,
+				Deliveries: backend,
+				Run:        runs.run,
+				Channels:   []plugin.Channel{ch},
+				Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+				Logger:     testLogger(),
 			})
 			env := host.envFor(ch)
 			if err := env.PublishInbound(ctx, plugin.InboundMessage{
@@ -739,11 +746,12 @@ func TestStartAllIgnoresConfigWithoutPlugin(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
 		Config: config.Channels{
 			"ghost": {Enabled: true, AllowFrom: []string{"someone"}},
 		},
@@ -770,13 +778,14 @@ func TestDeliverCompletedDropsUnregisteredChannel(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"ghost": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"ghost": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	env := host.envFor(ch)
 	err := env.PublishInbound(context.Background(), plugin.InboundMessage{
@@ -848,11 +857,12 @@ func TestInspectNotesRecordStartAllDecisions(t *testing.T) {
 		return errors.New("boom: platform unreachable")
 	}
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{refused, ok},
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{refused, ok},
 		Config: config.Channels{
 			"fake":    {Enabled: true, AllowFrom: []string{"alice"}},
 			"refused": {Enabled: true, AllowFrom: []string{"alice"}},
@@ -902,13 +912,14 @@ func TestInspectNotesForSkips(t *testing.T) {
 	runs := &runRecorder{messages: backend}
 	ch := fake.New()
 	host := New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{}, // compiled-in but unconfigured
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{}, // compiled-in but unconfigured
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -929,13 +940,14 @@ func TestInspectNotesForSkips(t *testing.T) {
 
 	// Disabled envelope.
 	host = New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}}},
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: false, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)
@@ -946,13 +958,14 @@ func TestInspectNotesForSkips(t *testing.T) {
 
 	// Empty allow_from refusal.
 	host = New(Deps{
-		Journal:  backend,
-		Messages: backend,
-		Sessions: backend,
-		Run:      runs.run,
-		Channels: []plugin.Channel{ch},
-		Config:   config.Channels{"fake": {Enabled: true}},
-		Logger:   testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start all: %v", err)

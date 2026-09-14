@@ -14,14 +14,25 @@ import (
 	plugin "agent-vivy/sdk/port/channel"
 )
 
-// outboundDeliveryTimeout bounds one outbound assistant delivery. Send
-// runs on a detached goroutine, so a slow platform call never stalls the
-// runtime event loop; the bound keeps a wedged adapter from leaking
+// outboundDeliveryTimeout bounds one outbound delivery attempt sequence.
+// Send runs on a detached goroutine, so a slow platform call never stalls
+// the runtime event loop; the bound keeps a wedged adapter from leaking
 // goroutines.
 const outboundDeliveryTimeout = 30 * time.Second
 
+// outboundDeliveryAttempts bounds one delivery intent's send attempts,
+// including redeliveries carried across restarts through the durable row
+// (pending.attempts). Exhaustion marks the row failed instead of retrying
+// forever against a dead channel.
+const outboundDeliveryAttempts = 3
+
+// outboundDeliveryRetryDelay is the pause between delivery attempts. It is
+// a var so lifecycle tests can shrink it.
+var outboundDeliveryRetryDelay = 2 * time.Second
+
 // outboundTarget remembers where a channel run's reply must land.
 type outboundTarget struct {
+	runID     domain.RunID
 	sessionID domain.SessionID
 	chatID    string
 	topicID   string
@@ -29,6 +40,9 @@ type outboundTarget struct {
 	// maxRunes is the adapter's outbound text bound (plugin.RunesLimiter,
 	// CH-C4-N1); 0 = the adapter declares no limit and gets whole messages.
 	maxRunes int
+	// createdAtMs is the durable intent's creation stamp, carried through
+	// state transitions so the row's arrival order survives updates.
+	createdAtMs int64
 }
 
 // Host owns the started channel adapters and the inbound/outbound
@@ -47,6 +61,13 @@ type Host struct {
 	// refused", "start failed: <err>"); empty means started. Guarded by mu.
 	notes   map[string]string
 	targets map[domain.RunID]outboundTarget
+	// draining gates delivery-goroutine spawns once StopAll began: a run
+	// completing during shutdown leaves its durable intent pending instead
+	// of racing the wait. Guarded by mu.
+	draining bool
+	// deliveryWG tracks in-flight delivery goroutines so StopAll can join
+	// them instead of dropping the Send to process exit.
+	deliveryWG sync.WaitGroup
 }
 
 // New builds a Host over its dependencies. Call StartAll once startup
@@ -82,6 +103,9 @@ func (h *Host) StartAll(ctx context.Context) error {
 	}
 	if h.deps.Run == nil {
 		return errors.New("channelhost: run callback is required")
+	}
+	if h.deps.Deliveries == nil {
+		return errors.New("channelhost: durable delivery store is required")
 	}
 	seen := make(map[string]bool)
 	h.mu.Lock()
@@ -127,16 +151,37 @@ func (h *Host) StartAll(ctx context.Context) error {
 		h.mu.Unlock()
 		h.logger.Info("channelhost: channel started", "channel", name, "allow_from_count", len(envelope.AllowFrom))
 	}
+	// Reconcile only after the adapters are live: redeliveries resolve the
+	// channel by name and need a started Send. Callers run StartAll after
+	// runtime restart recovery, so a reconciled run's terminal state is
+	// already settled in the journal.
+	h.recoverDeliveries(ctx)
 	return nil
 }
 
-// StopAll stops the started channels in reverse start order. It is safe
-// to call on a host that never started.
+// StopAll stops the started channels in reverse start order. It first
+// stops accepting new delivery goroutines and waits — bounded by the
+// caller's deadline — for in-flight Sends to finish, so a graceful
+// shutdown no longer drops a reply that was already on the wire. An intent
+// that does not drain stays pending in the durable store and is
+// redelivered on the next start. It is safe to call on a host that never
+// started.
 func (h *Host) StopAll(ctx context.Context) {
 	h.mu.Lock()
+	h.draining = true
 	started := append([]plugin.Channel(nil), h.started...)
 	h.started = nil
 	h.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		h.deliveryWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		h.logger.Warn("channelhost: shutdown deadline reached before deliveries drained; open intents stay durable for the next start")
+	}
 	for i := len(started) - 1; i >= 0; i-- {
 		ch := started[i]
 		if err := ch.Stop(ctx); err != nil {

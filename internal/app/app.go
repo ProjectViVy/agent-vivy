@@ -601,9 +601,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return nil, err
 		}
 		channelHost = channelhost.New(channelhost.Deps{
-			Journal:  backend,
-			Messages: backend,
-			Sessions: backend,
+			Journal:    backend,
+			Messages:   backend,
+			Sessions:   backend,
+			Deliveries: backend,
 			Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
@@ -1028,6 +1029,16 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if err := svc.Recover(ctx); err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
+	}
+	// Channel inbound retention (CH-C3-N1): chanin_* provenance events are
+	// bounded operational records, pruned once per process start. A prune
+	// failure never blocks startup — the next start retries it.
+	if maint, ok := backend.(storage.ChannelMaintenanceStore); ok {
+		if n, err := maint.PruneChannelInboundEvents(ctx, time.Now().Add(-storage.ChannelInboundRetention)); err != nil {
+			logger.Warn("channel inbound event prune failed", "err", err)
+		} else if n > 0 {
+			logger.Info("channel inbound events pruned", "rows", n)
+		}
 	}
 	// Start the channel ears before the server listens (C3). Unconfigured
 	// and disabled channels are skipped; empty allow_from refuses Start
