@@ -32,7 +32,7 @@ func RunObserverPoliciesForPlan(plan AssemblyPlan) []RunObserverPolicy {
 					ProviderID: provided.ID,
 					EventTypes: []string{"run.completed", "run.failed", "run.cancelled"},
 					AllowedPayloadFields: []string{
-						"outcome", "result", "view", "summary", "cause_category", "message", "reason",
+						"outcome", "view", "summary", "cause_category", "message", "reason",
 						"tenant_id", "workspace_id", "session_id",
 					},
 				})
