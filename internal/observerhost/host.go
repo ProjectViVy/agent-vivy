@@ -24,6 +24,7 @@ const (
 	defaultDeliveryTimeout  = 2 * time.Second
 	defaultDiagnosticBuffer = 64
 	defaultRetryDelay       = time.Second
+	defaultMaxRetryDelay    = time.Minute
 )
 
 var (
@@ -55,7 +56,11 @@ type Config struct {
 	DiagnosticProviders []observer.DiagnosticProvider
 	DeliveryTimeout     time.Duration
 	RetryDelay          time.Duration
-	DiagnosticBuffer    int
+	// MaxRetryDelay caps the exponential retry backoff. Delivery is never
+	// abandoned, but a persistently failing receiver must not spin at the
+	// base retry interval forever.
+	MaxRetryDelay    time.Duration
+	DiagnosticBuffer int
 }
 
 type Host struct {
@@ -64,10 +69,14 @@ type Host struct {
 	runSubscriptions []RunSubscription
 	deliveryTimeout  time.Duration
 	retryDelay       time.Duration
+	maxRetryDelay    time.Duration
 
 	wake    chan struct{}
 	mu      sync.Mutex
 	pending map[domain.RunID]struct{}
+	// attempts counts consecutive failed deliveries per run; the next retry
+	// delay doubles per attempt up to maxRetryDelay and resets on success.
+	attempts map[domain.RunID]int
 
 	diagnostics map[string]chan observer.Diagnostic
 	diagByID    map[string]observer.DiagnosticProvider
@@ -91,6 +100,13 @@ func New(cfg Config) (*Host, error) {
 	if retryDelay <= 0 {
 		retryDelay = defaultRetryDelay
 	}
+	maxRetryDelay := cfg.MaxRetryDelay
+	if maxRetryDelay <= 0 {
+		maxRetryDelay = defaultMaxRetryDelay
+	}
+	if maxRetryDelay < retryDelay {
+		maxRetryDelay = retryDelay
+	}
 	buffer := cfg.DiagnosticBuffer
 	if buffer <= 0 {
 		buffer = defaultDiagnosticBuffer
@@ -100,8 +116,10 @@ func New(cfg Config) (*Host, error) {
 		cursors:         cfg.Cursors,
 		deliveryTimeout: deliveryTimeout,
 		retryDelay:      retryDelay,
+		maxRetryDelay:   maxRetryDelay,
 		wake:            make(chan struct{}, 1),
 		pending:         make(map[domain.RunID]struct{}),
+		attempts:        make(map[domain.RunID]int),
 		diagnostics:     make(map[string]chan observer.Diagnostic),
 		diagByID:        make(map[string]observer.DiagnosticProvider),
 		drops:           make(map[string]*atomic.Uint64),
@@ -204,18 +222,46 @@ func (h *Host) runLoop(ctx context.Context) {
 					break
 				}
 				if err := h.DeliverRun(ctx, runID); err != nil {
-					h.scheduleRetry(ctx, runID)
+					h.scheduleRetry(ctx, runID, retryDelayFor(h.retryDelay, h.maxRetryDelay, h.noteFailure(runID)))
+					continue
 				}
+				h.clearAttempts(runID)
 			}
 		}
 	}
 }
 
-func (h *Host) scheduleRetry(ctx context.Context, runID domain.RunID) {
+// retryDelayFor doubles the base delay once per prior failed attempt and caps
+// the result at max. attempts <= 1 yields the base delay itself.
+func retryDelayFor(base, max time.Duration, attempts int) time.Duration {
+	delay := base
+	for attempt := 1; attempt < attempts && delay < max; attempt++ {
+		delay *= 2
+	}
+	if delay > max {
+		return max
+	}
+	return delay
+}
+
+func (h *Host) noteFailure(runID domain.RunID) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.attempts[runID]++
+	return h.attempts[runID]
+}
+
+func (h *Host) clearAttempts(runID domain.RunID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.attempts, runID)
+}
+
+func (h *Host) scheduleRetry(ctx context.Context, runID domain.RunID, delay time.Duration) {
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
-		timer := time.NewTimer(h.retryDelay)
+		timer := time.NewTimer(delay)
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
