@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,9 +9,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +96,12 @@ func (e *fakeEnv) snapshot() []plugin.InboundMessage {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]plugin.InboundMessage(nil), e.published...)
+}
+
+func (e *fakeEnv) reset() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.published = nil
 }
 
 // sentCall records one ChannelMessageSend invocation.
@@ -747,7 +756,7 @@ func TestNormalizeMessage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, publishable := normalizeMessage(tc.m, "bot-1")
+			got, _, publishable := normalizeMessage(tc.m, "bot-1")
 			if publishable != tc.want {
 				t.Fatalf("publishable = %v, want %v", publishable, tc.want)
 			}
@@ -1222,4 +1231,135 @@ func TestGroupMentionOnlyGatesGuildMessages(t *testing.T) {
 	// A DM skips the gate (the nil-session dispatch stays legal there).
 	h.dispatch(t, 0, message("d-1", "U1", "dm hello"))
 	waitFor(t, "dm envelope", func() bool { return len(h.env.snapshot()) == 2 })
+}
+
+// stubImageBytes is a JPEG-magic payload; the adapter does not sniff
+// (the Host does), but real magic bytes keep the fixture honest.
+var stubImageBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
+// TestNormalizeMessageImagePreScreen: image attachments return as download
+// refs (DM and guild alike), non-image attachments survive as [file: name]
+// annotations, and a captionless image message is a valid turn.
+func TestNormalizeMessageImagePreScreen(t *testing.T) {
+	withMedia := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-1", ChannelID: "chan-1", Content: "look",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/pic.jpg", Filename: "pic.jpg", ContentType: "image/jpeg"},
+			{ID: "a2", URL: "https://cdn.example.com/notes.txt", Filename: "notes.txt", ContentType: "text/plain"},
+		},
+	}}
+	msg, refs, publishable := normalizeMessage(withMedia, "bot-1")
+	if !publishable {
+		t.Fatal("text + media message must be publishable")
+	}
+	if len(refs) != 1 || refs[0].url != "https://cdn.example.com/pic.jpg" ||
+		refs[0].name != "pic.jpg" || refs[0].contentType != "image/jpeg" {
+		t.Fatalf("image refs = %+v", refs)
+	}
+	if len(msg.Parts) != 2 || msg.Parts[0].Text != "look" || msg.Parts[1].Text != "[file: notes.txt]" {
+		t.Fatalf("parts = %+v, want text then the file annotation", msg.Parts)
+	}
+
+	captionless := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-2", ChannelID: "chan-1",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/pic.png", Filename: "pic.png", ContentType: "image/png"},
+		},
+	}}
+	msg, refs, publishable = normalizeMessage(captionless, "bot-1")
+	if !publishable || len(refs) != 1 || len(msg.Parts) != 0 {
+		t.Fatalf("captionless image: publishable=%v refs=%d parts=%+v", publishable, len(refs), msg.Parts)
+	}
+
+	// An image-class attachment by extension alone (no content type) is
+	// still pre-screened.
+	byExt := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-3", ChannelID: "chan-1",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/pic", Filename: "photo.webp"},
+		},
+	}}
+	if _, refs, publishable := normalizeMessage(byExt, "bot-1"); !publishable || len(refs) != 1 {
+		t.Fatalf("extension-only image: publishable=%v refs=%d", publishable, len(refs))
+	}
+
+	// A lone non-image attachment still publishes its annotation.
+	junk := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-img-4", ChannelID: "chan-1",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: "https://cdn.example.com/data.bin", Filename: "data.bin", ContentType: "application/octet-stream"},
+		},
+	}}
+	if _, _, publishable := normalizeMessage(junk, "bot-1"); !publishable {
+		t.Fatal("a lone non-image attachment must publish its [file: name] annotation")
+	}
+}
+
+// TestInboundImageDownloadsBounded: the handler downloads image attachments
+// through the governed transport with the shared bound — a good image
+// lands as annotation plus media part, an oversize or failing one keeps
+// only the annotation.
+func TestInboundImageDownloadsBounded(t *testing.T) {
+	oversize := append([]byte{0x89, 'P', 'N', 'G'}, bytes.Repeat([]byte{0x00}, 5<<20)...) // > 5 MiB
+	var mode atomic.Value                                                                 // "ok" | "oversize" | "missing"
+	mode.Store("ok")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch mode.Load() {
+		case "ok":
+			_, _ = w.Write(stubImageBytes)
+		case "oversize":
+			_, _ = w.Write(oversize)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	withImage := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m-dl-1", ChannelID: "chan-1", Content: "look",
+		Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeDefault,
+		Attachments: []*discordgo.MessageAttachment{
+			{ID: "a1", URL: srv.URL + "/pic.jpg", Filename: "pic.jpg", ContentType: "image/jpeg"},
+		},
+	}}
+
+	// A good image arrives as annotation + bounded media part.
+	h.dispatch(t, 0, withImage)
+	waitFor(t, "downloaded envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env1 := h.env.snapshot()[0]
+	if len(env1.Parts) != 3 ||
+		env1.Parts[0].Text != "look" ||
+		env1.Parts[1].Text != "[image: pic.jpg]" ||
+		env1.Parts[2].Kind != plugin.PartMedia ||
+		string(env1.Parts[2].Media.Data) != string(stubImageBytes) ||
+		env1.Parts[2].Media.MimeType != "image/jpeg" {
+		t.Fatalf("envelope parts = %+v", env1.Parts)
+	}
+
+	// An over-bound image keeps the text and the annotation, drops bytes.
+	h.env.reset()
+	mode.Store("oversize")
+	h.dispatch(t, 0, withImage)
+	waitFor(t, "oversize envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env2 := h.env.snapshot()[0]
+	if len(env2.Parts) != 2 || env2.Parts[0].Text != "look" || env2.Parts[1].Text != "[image: pic.jpg]" {
+		t.Fatalf("oversize envelope parts = %+v", env2.Parts)
+	}
+
+	// A failing download keeps the text and the annotation too.
+	h.env.reset()
+	mode.Store("missing")
+	h.dispatch(t, 0, withImage)
+	waitFor(t, "failed-download envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env3 := h.env.snapshot()[0]
+	if len(env3.Parts) != 2 || env3.Parts[0].Text != "look" || env3.Parts[1].Text != "[image: pic.jpg]" {
+		t.Fatalf("failed-download envelope parts = %+v", env3.Parts)
+	}
 }
