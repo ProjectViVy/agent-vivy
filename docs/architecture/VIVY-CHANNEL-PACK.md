@@ -56,6 +56,7 @@ This translates DSH's "registration as effect" into Vivy's cold plug/unplug mode
 | 2026-09-15 | **Capability discovery wired through the v1 wrappers; every ear carries an outbound rune ceiling (gate-0).** `plugin.CapabilitySource` (`CapabilityTarget() any`) lets the assembly wrappers point Discover at the adapter's own method set — a typed-nil probe captured from the provider at bind time, type-asserted and never called — so `advertised` reports what the adapter implements instead of a wrapper-induced zero; the five text-only ears still advertise nothing today, and tier1's CH-R-1 `HealthChecker` flips them to `Health: true` on rebase (Health call-path forwarding stays with that batch). Outbound ceilings land in `Definition.MaxMessageRunes` with sources: discord 2000 characters (official create-message, reject 50035), dingtalk 5000 runes (official 20000-**byte** `text.content` bound — picoclaw's character reading is unsafe for CJK — divided by 4 for worst-case runes), feishu 37500 runes (official 150KB text message, error 230025), qq 2000 runes (no official number published; over-length rejects with 40054007, so the value follows community practice aligned with Discord), telegram 4096 (official Bot API; the Definition is now the single source and the adapter's shadowed duplicate is gone). `splitRunes` closes and reopens fenced code so every delivered chunk renders standalone; behavior without an open fence at the cut is unchanged. |
 | 2026-09-15 | **Error classification ruled `rate-limit \| temporary \| dead` (CH-R-1).** `plugin.ErrorClass` + `plugin.HealthError` land in `sdk/port/channel`; `HealthChecker.Health` is defined as read-only internal state, no network I/O, so the Host probes it inline while building the inspect surface. All five batch adapters report it; a plain (unclassified) Health error defaults to `temporary` — the supervised-ear assumption. This closes the §8 Reliability slot for this generation; rate-limit is carried by the vocabulary but no adapter currently emits it. |
 | 2026-09-15 | **Channel-side HITL commands ruled in (supersedes the 2026-08-31 ACP "channel user = remote principal" reading for this narrow surface).** A user at home with only a phone chat cannot walk to the PC to click Approve, so the originating chat gets a pending-approval text and the allow-listed sender may answer `/approve` / `/deny` / `/pending`. Boundaries: one decision path (`DecideApprovalAsActor`, actor `channel:<channel>:<sender>`, journaled like a local decision); session-scoped visibility (a chat can never see or decide another chat's approvals); allow_from remains the sender boundary; exact-token commands only, no free-text decisions, no native approval cards this generation. |
+| 2026-09-15 | **Text loop ruled: group triggers are mention-only; outbound markdown scope set per ear (tier-1 text loop).** A group message triggers a run only when the bot is explicitly addressed — @mention / `text_mention` / `/cmd@bot` entities on Telegram (forum topics carry `topic_id`), `IsInAtList` on DingTalk, a mention of the bot's own open_id on Feishu, the group AT event itself on QQ (decoded by the plugin's own ws dispatcher, bypassing the botgo v0.2.1 `group_id` defect), and a `Mentions` hit on Discord. `allow_from` keeps exact sender matching and empty-`allow_from` fail-closed admission unchanged in groups; there is no config knob in this cut — mention-only is fixed, and prefix/permissive modes would need their own decision record. Outbound markdown: Telegram converts model markdown to HTML, sends with `parse_mode`, and falls back to plain text on platform rejection; DingTalk posts markdown to the sessionWebhook with the same fallback; QQ grows a `markdown` settings flag (default off) with the fallback; Discord renders markdown natively (no change); Feishu stays plain text this batch (no native markdown message type). Reply threading sets `OutboundMessage.ReplyTo` from the triggering message on the first chunk of a reply only; adapters opt in per platform (Feishu claims nothing — its quote semantics are inbound-context and stay a separate item). |
 
 The five names in this batch are: `telegram`, `discord`, `feishu`, `dingtalk`, `qq`.
 
@@ -208,7 +209,7 @@ Exclusive responsibilities that adapters must not perform:
 1. **Admission.** Empty `allow_from` = reject `Start` (fail-closed). Forbid picoclaw / Diva GUI's "an empty list means speaking to the whole world." `"*"` is not allowed in the first cut.
 2. **Session mapping.** `(channel, chat_id[, topic_id])` → existing or new Vivy `Session`. Local UI Session and channel Session do not merge by default.
 3. **Accounting.** First `channel.inbound`, then `Message(role=user)` with provenance. Call `Service.Run`.
-4. **Outbound.** Send terminal state (and future incremental output, if implemented) back through the adapter's `Send`. Live-surface typing / placeholder does not enter the Journal.
+4. **Outbound.** Send terminal state (and future incremental output, if implemented) back through the adapter's `Send`; reply threading sets `ReplyTo` from the triggering message on the first chunk only. Live-surface typing / placeholder does not enter the Journal.
 5. **Secrets.** Resolve only `token_env` in the envelope (or the symmetric `*_env`). Values are never written to configuration or the Journal.
 6. **Capability discovery.** Host uses type assertions on adapters; degrade when an optional interface is absent, and do not require all five packages to implement the full set.
 7. **Supervision.** Supervise later child-process lifecycles; a crash = `channel_lost`, not species death.
@@ -522,7 +523,7 @@ Contract changes (landed with CH-C1; hardened 2026-09-14):
 - Keep `run.started` as `additionalProperties: false`; do not put provenance into the old payload
 - SQLite / Postgres migrations and conformance: CN-17 (provenance), CN-27 / CN-28 (delivery intents, retention)
 
-The first cut does not do media, group triggers, or incremental streaming edits. If Telegram forums are encountered, append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
+The first cut does not do media or incremental streaming edits; group triggers landed mention-only (2026-09-15, §1). Telegram forum topics append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
 
 HITL (implemented 2026-09-15, see §1): the kernel still owns every approval / question outcome — there is
 exactly one decision path. A channel run suspended for approval notifies its originating chat with one plain
@@ -557,8 +558,7 @@ The product does not need picoclaw's 21 protocols; it needs a set of **domestic 
 Rewrite all adapters from `.workspace/picoclaw` (**do not** import its modules) and connect them to the same Host.
 The committed default `vivy.exe` still has `Register() = nil`. The following are **plugins that can be named in a recipe**, not parts welded into the daily body.
 
-The first cut for every adapter is: private (or direct) text in / text out, `allow_from` fail-closed, `token_env`, no media, no group triggers, and no HITL proxy approval.
-Groups / media / placeholder editing / streaming come later for each package and do not block Host.
+The first cut for every adapter was: private (or direct) text in / text out, `allow_from` fail-closed, `token_env`, no media, and no HITL proxy approval. Group triggers landed mention-only for every ear (2026-09-15, §1); media / placeholder editing / streaming come later for each package and do not block Host.
 
 ### 14.1 Waves (by Transport and Product Risk, Not Name Recognition)
 
@@ -602,11 +602,11 @@ The resident may want only one of these. Do not weld all five into the default `
 
 | Package | Does | Explicitly does not do (later for this package) |
 |---|---|---|
-| telegram | Private-chat text, long-poll, proxy/`base_url` may go in settings | webhook, groups, media, command menus, full MarkdownV2 |
-| dingtalk | Direct-chat text, Stream mode, save and use session webhook | Cards, media; do not turn it into a webhook text bot |
-| feishu | Direct-chat text, WS events, `is_lark` domain switch | 32-bit, emoji, the public webhook mode described in the docs |
-| qq | Direct/channel text (as reliably received through the official API) | Large-file base64, voice, personal accounts, OneBot |
-| discord | DM / text-channel text, Message Content Intent | `voice.go`, WebRTC, the full slash-command suite, TTS |
+| telegram | Private + group mention-only text (groups, supergroups, forum topics via `topic_id`), long-poll, proxy/`base_url` may go in settings; outbound markdown (HTML) with plain-text fallback; typing; reply threading | webhook, media, command menus, full MarkdownV2 |
+| dingtalk | Direct-chat + group mention-only (`IsInAtList`) text, Stream mode, save and use session webhook; markdown via sessionWebhook with plain-text fallback | Cards, media; typing (the platform has none); do not turn it into a webhook text bot |
+| feishu | Direct-chat + group mention-only (bot open_id) text, WS events, `is_lark` domain switch | 32-bit, emoji, the public webhook mode described in the docs; typing / outbound markdown / reply threading (no platform typing, no native markdown message type; quote semantics deferred with picoclaw's inbound-quote item) |
+| qq | C2C text + group AT mention-only text through the plugin's own ws decode (`group_openid`; bypasses the botgo v0.2.1 `group_id` defect), typing, reply threading via `msg_id`+`msg_seq`, opt-in `markdown` flag with plain-text fallback | Large-file base64, voice, personal accounts, OneBot |
+| discord | DM / text-channel + guild mention-only text, Message Content Intent, native markdown rendering, typing, reply threading via `MessageReference` | `voice.go`, WebRTC, the full slash-command suite, TTS |
 
 ### 14.4 Rewrite Rules (Relative to picoclaw)
 
@@ -730,7 +730,7 @@ channel is the new Kind B seam; it is not Kind A, MCP, or a second EXE.
 
 - Change `sdk/plugin` or add event types while merging this document (that is a post-adoption implementation PR)
 - Hot mounting / hot unloading / marketplace scanning
-- The complete picoclaw protocol matrix, media pipeline, group triggers, or streaming placeholder editing
+- The complete picoclaw protocol matrix, media pipeline, or streaming placeholder editing (group triggers landed mention-only, 2026-09-15 §1)
 - Public webhook, Discord voice, WeChat personal accounts, an external OneBot bridge, or email
 - WeCom QR binding surface
 - Replacing the local UI with a channel
