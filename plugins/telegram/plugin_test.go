@@ -138,6 +138,28 @@ type telegramStub struct {
 	getFileCalls int  // observed hits on the getFile endpoint
 	downloadErr  bool // file endpoint answers 500
 	downloads    int  // observed hits on the file endpoint
+
+	photoCalls    chan mediaCall
+	documentCalls chan mediaCall
+	groupCalls    chan mediaGroupCall
+	// dimensionFail makes sendPhoto answer the platform's invalid-dimensions
+	// rejection (the SendDocument fallback trigger); photoFail answers a
+	// generic rejection that must surface instead of falling back.
+	dimensionFail atomic.Bool
+	photoFail     atomic.Bool
+}
+
+// mediaCall records one multipart media send.
+type mediaCall struct {
+	ChatID   json.RawMessage
+	FileName string
+}
+
+// mediaGroupCall records one SendMediaGroup invocation.
+type mediaGroupCall struct {
+	ChatID    json.RawMessage
+	MediaJSON []json.RawMessage // the serialized media items
+	Files     []string          // multipart file names in attach order
 }
 
 type sendMessageCall struct {
@@ -160,12 +182,15 @@ type chatActionCall struct {
 func newTelegramStub(t *testing.T) *telegramStub {
 	t.Helper()
 	stub := &telegramStub{
-		updates:    make(chan []map[string]any, 8),
-		sends:      make(chan sendMessageCall, 16),
-		actions:    make(chan chatActionCall, 16),
-		photoBytes: append([]byte(nil), stubPhotoBytes...),
-		filePath:   "photos/file_0.jpg",
-		fileSize:   len(stubPhotoBytes),
+		updates:       make(chan []map[string]any, 8),
+		sends:         make(chan sendMessageCall, 16),
+		actions:       make(chan chatActionCall, 16),
+		photoBytes:    append([]byte(nil), stubPhotoBytes...),
+		filePath:      "photos/file_0.jpg",
+		fileSize:      len(stubPhotoBytes),
+		photoCalls:    make(chan mediaCall, 16),
+		documentCalls: make(chan mediaCall, 16),
+		groupCalls:    make(chan mediaGroupCall, 16),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +249,59 @@ func newTelegramStub(t *testing.T) *telegramStub {
 				result["file_size"] = fileSize
 			}
 			writeTelegramOK(w, result)
+		case strings.HasSuffix(r.URL.Path, "/sendPhoto"), strings.HasSuffix(r.URL.Path, "/sendDocument"):
+			if err := r.ParseMultipartForm(8 << 20); err != nil {
+				writeTelegramError(w, "bad multipart")
+				return
+			}
+			field := "photo"
+			if strings.HasSuffix(r.URL.Path, "/sendDocument") {
+				field = "document"
+			}
+			var fileName string
+			if fhs := r.MultipartForm.File[field]; len(fhs) > 0 {
+				fileName = fhs[0].Filename
+			}
+			call := mediaCall{ChatID: json.RawMessage(r.FormValue("chat_id")), FileName: fileName}
+			if field == "photo" {
+				if stub.dimensionFail.Load() {
+					writeTelegramError(w, "Bad Request: PHOTO_INVALID_DIMENSIONS: photo has invalid dimensions")
+					return
+				}
+				if stub.photoFail.Load() {
+					writeTelegramError(w, "Bad Request: image is too large")
+					return
+				}
+				stub.photoCalls <- call
+			} else {
+				stub.documentCalls <- call
+			}
+			writeTelegramOK(w, map[string]any{
+				"message_id": stub.sendSeq.Add(1),
+				"chat":       map[string]any{"id": 1, "type": "private"},
+			})
+		case strings.HasSuffix(r.URL.Path, "/sendMediaGroup"):
+			if err := r.ParseMultipartForm(16 << 20); err != nil {
+				writeTelegramError(w, "bad multipart")
+				return
+			}
+			var raw []json.RawMessage
+			_ = json.Unmarshal([]byte(r.FormValue("media")), &raw)
+			var names []string
+			for _, fhs := range r.MultipartForm.File {
+				for _, fh := range fhs {
+					names = append(names, fh.Filename)
+				}
+			}
+			stub.groupCalls <- mediaGroupCall{
+				ChatID:    json.RawMessage(r.FormValue("chat_id")),
+				MediaJSON: raw,
+				Files:     names,
+			}
+			writeTelegramOK(w, []any{
+				map[string]any{"message_id": stub.sendSeq.Add(1), "chat": map[string]any{"id": 1}},
+				map[string]any{"message_id": stub.sendSeq.Add(1), "chat": map[string]any{"id": 1}},
+			})
 		case strings.Contains(r.URL.Path, "/file/bot"):
 			stub.photoMutex.Lock()
 			stub.downloads++
@@ -1092,5 +1170,141 @@ func TestGroupAlbumStaysOut(t *testing.T) {
 	time.Sleep(10 * tick)
 	if got := len(env.snapshot()); got != 0 {
 		t.Fatalf("published %d envelopes, want 0 for a group album", got)
+	}
+}
+
+// mediaOutFixture starts an ear for outbound media assertions.
+func mediaOutFixture(t *testing.T) (*Plugin, *telegramStub) {
+	t.Helper()
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	return startForTest(t, env), stub
+}
+
+func mediaPart(name string, data []byte) plugin.Part {
+	return plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{Name: name, MimeType: "image/jpeg", Data: data}}
+}
+
+// TestSendMediaSinglePhoto: one image leaves as one multipart sendPhoto.
+func TestSendMediaSinglePhoto(t *testing.T) {
+	p, stub := mediaOutFixture(t)
+
+	ids, err := p.SendMedia(context.Background(), "123456", []plugin.Part{
+		{Kind: plugin.PartText, Text: "ignored"},
+		mediaPart("photo-1.jpg", stubPhotoBytes),
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "empty.jpg", MimeType: "image/jpeg"}}, // skipped
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "1" {
+		t.Fatalf("ids = %v, want one photo id", ids)
+	}
+	select {
+	case call := <-stub.photoCalls:
+		if string(call.ChatID) != "123456" || call.FileName != "photo-1.jpg" {
+			t.Fatalf("photo call = %+v", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sendPhoto never recorded")
+	}
+	select {
+	case call := <-stub.documentCalls:
+		t.Fatalf("unexpected document call: %+v", call)
+	default:
+	}
+}
+
+// TestSendMediaAlbumBatches: two-plus images leave as one SendMediaGroup;
+// more than ten split into batches of ten.
+func TestSendMediaAlbumBatches(t *testing.T) {
+	p, stub := mediaOutFixture(t)
+
+	parts := []plugin.Part{
+		mediaPart("a.jpg", stubPhotoBytes),
+		mediaPart("b.jpg", stubPhotoBytes),
+	}
+	ids, err := p.SendMedia(context.Background(), "123456", parts)
+	if err != nil {
+		t.Fatalf("send album: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ids = %v, want two (one per album member)", ids)
+	}
+	select {
+	case call := <-stub.groupCalls:
+		if len(call.MediaJSON) != 2 || len(call.Files) != 2 {
+			t.Fatalf("group call = %+v, want two media items with two files", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sendMediaGroup never recorded")
+	}
+
+	// Eleven images: one album of ten plus a single follow-up photo.
+	var big []plugin.Part
+	for i := 0; i < 11; i++ {
+		big = append(big, mediaPart(fmt.Sprintf("img-%d.jpg", i), stubPhotoBytes))
+	}
+	if _, err := p.SendMedia(context.Background(), "123456", big); err != nil {
+		t.Fatalf("send eleven: %v", err)
+	}
+	select {
+	case call := <-stub.groupCalls:
+		if len(call.MediaJSON) != 10 {
+			t.Fatalf("first batch items = %d, want 10", len(call.MediaJSON))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("first album never recorded")
+	}
+	select {
+	case call := <-stub.photoCalls:
+		if call.FileName != "img-10.jpg" {
+			t.Fatalf("overflow photo = %q, want img-10.jpg", call.FileName)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("overflow photo never recorded")
+	}
+}
+
+// TestSendMediaDimensionFallback: a photo Telegram rejects for invalid
+// dimensions leaves as a document with the same bytes.
+func TestSendMediaDimensionFallback(t *testing.T) {
+	p, stub := mediaOutFixture(t)
+	stub.dimensionFail.Store(true)
+
+	ids, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("weird.jpg", stubPhotoBytes)})
+	if err != nil {
+		t.Fatalf("send with fallback: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("ids = %v, want the document id", ids)
+	}
+	select {
+	case call := <-stub.photoCalls:
+		t.Fatalf("unexpected successful photo path: %+v", call)
+	default:
+	}
+	select {
+	case call := <-stub.documentCalls:
+		if call.FileName != "weird.jpg" {
+			t.Fatalf("document call = %+v, want the same file name", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sendDocument fallback never recorded")
+	}
+}
+
+// TestSendMediaFailClosed: not started fails closed; a hard platform
+// failure surfaces for the ledger to retry.
+func TestSendMediaFailClosed(t *testing.T) {
+	p := newAdapter()
+	if _, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("a.jpg", []byte("x"))}); err == nil {
+		t.Fatal("send media before start must fail closed")
+	}
+
+	p, stub := mediaOutFixture(t)
+	stub.photoFail.Store(true)
+	if _, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("a.jpg", stubPhotoBytes)}); err == nil {
+		t.Fatal("a hard photo failure must surface for the ledger to retry")
 	}
 }

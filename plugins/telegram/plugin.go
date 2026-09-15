@@ -23,6 +23,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -489,6 +490,103 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 	}
 	return ids, nil
 }
+
+// mediaByteFile wraps media bytes as a named multipart file for the Bot
+// API upload (telego's NamedReader needs the file name).
+type mediaByteFile struct {
+	*bytes.Reader
+	name string
+}
+
+func newMediaByteFile(data []byte, name string) *mediaByteFile {
+	return &mediaByteFile{Reader: bytes.NewReader(data), name: name}
+}
+
+func (f *mediaByteFile) Name() string { return f.name }
+
+// SendMedia implements plugin.MediaSender (§1 outbound media): one to four
+// bounded images leave as a single photo or as albums (picoclaw's ≤10 per
+// SendMediaGroup, rewritten); an image Telegram rejects for its dimensions
+// leaves as a document instead (the same bytes re-attached). The reply's
+// text has already gone out through Send — no captions are attached, and
+// the MediaSender signature carries no topic id, so forum media lands in
+// the chat's General topic this slice. A failure fails the whole batch;
+// the Host's ledger retries it (at-least-once, re-upload on redelivery).
+func (p *Plugin) SendMedia(ctx context.Context, chatID string, parts []plugin.Part) ([]string, error) {
+	if p.bot == nil {
+		return nil, errors.New("telegram: channel not started")
+	}
+	id, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("telegram: invalid chat id %q: %w", chatID, err)
+	}
+	var medias []plugin.Media
+	for _, part := range parts {
+		if part.Kind == plugin.PartMedia && len(part.Media.Data) > 0 {
+			medias = append(medias, part.Media)
+		}
+	}
+	if len(medias) == 0 {
+		return nil, nil
+	}
+	sendSingle := func(m plugin.Media) (string, error) {
+		sent, err := p.bot.SendPhoto(ctx, &telego.SendPhotoParams{
+			ChatID: telego.ChatID{ID: id},
+			Photo:  telego.InputFile{File: newMediaByteFile(m.Data, m.Name)},
+		})
+		if err != nil && strings.Contains(err.Error(), "PHOTO_INVALID_DIMENSIONS") {
+			// The image violates Telegram's photo bounds; the same bytes
+			// leave as a document instead of failing the delivery
+			// (picoclaw's fallback, rewritten).
+			sent, err = p.bot.SendDocument(ctx, &telego.SendDocumentParams{
+				ChatID:   telego.ChatID{ID: id},
+				Document: telego.InputFile{File: newMediaByteFile(m.Data, m.Name)},
+			})
+		}
+		if err != nil {
+			return "", fmt.Errorf("telegram: send media to chat %d: %w", id, err)
+		}
+		return strconv.Itoa(sent.MessageID), nil
+	}
+	var ids []string
+	for first := 0; first < len(medias); {
+		batch := medias[first:]
+		if len(batch) > telegramAlbumBatch {
+			batch = batch[:telegramAlbumBatch]
+		}
+		first += len(batch)
+		if len(batch) == 1 {
+			sentID, err := sendSingle(batch[0])
+			if err != nil {
+				return ids, err
+			}
+			ids = append(ids, sentID)
+			continue
+		}
+		items := make([]telego.InputMedia, 0, len(batch))
+		for _, m := range batch {
+			items = append(items, &telego.InputMediaPhoto{
+				Type:  "photo",
+				Media: telego.InputFile{File: newMediaByteFile(m.Data, m.Name)},
+			})
+		}
+		sent, err := p.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
+			ChatID: telego.ChatID{ID: id},
+			Media:  items,
+		})
+		if err != nil {
+			return ids, fmt.Errorf("telegram: send media group to chat %d: %w", id, err)
+		}
+		for _, m := range sent {
+			ids = append(ids, strconv.Itoa(m.MessageID))
+		}
+	}
+	return ids, nil
+}
+
+// telegramAlbumBatch is the SendMediaGroup size bound: Bot API albums
+// carry 2-10 items (picoclaw's number, unchanged).
+const telegramAlbumBatch = 10
 
 // Typing implements plugin.Typing: one "typing" chat action ping. The Host
 // owns the resend cadence and stops at the run's terminal; the action
