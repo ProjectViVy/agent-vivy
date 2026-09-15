@@ -879,6 +879,7 @@ type larkStub struct {
 	resourceAuths []string
 	imageHits     int
 	imageAuths    []string
+	uploads       []imageUploadCall
 }
 
 type tokenCall struct {
@@ -892,6 +893,7 @@ type messageCall struct {
 	receiveID     string
 	msgType       string
 	text          string
+	content       string
 	authorization string
 }
 
@@ -1012,6 +1014,34 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		}
 	})
 
+	// Image upload (POST .../images): the outbound step one. Serves the
+	// canned image key.
+	mux.HandleFunc("/open-apis/im/v1/images", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			http.Error(w, "bad multipart", http.StatusBadRequest)
+			return
+		}
+		call := imageUploadCall{imageType: r.FormValue("image_type")}
+		if fhs := r.MultipartForm.File["image"]; len(fhs) > 0 {
+			f, err := fhs[0].Open()
+			if err == nil {
+				data, _ := io.ReadAll(f)
+				_ = f.Close()
+				call.data = data
+				call.fileName = fhs[0].Filename
+			}
+		}
+		stub.mu.Lock()
+		stub.uploads = append(stub.uploads, call)
+		stub.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"msg":  "ok",
+			"data": map[string]string{"image_key": "img_out_key"},
+		})
+	})
+
 	// Message-resource download (GET .../messages/:id/resources/:file_key):
 	// the primary inbound-image route. Success answers raw bytes; the
 	// failure knob answers an error envelope so the dual-API fallback fires.
@@ -1095,6 +1125,7 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 			receiveID:     req.ReceiveID,
 			msgType:       req.MsgType,
 			text:          textPayload.Text,
+			content:       req.Content,
 			authorization: r.Header.Get("Authorization"),
 		})
 		stub.mu.Unlock()
@@ -1623,4 +1654,70 @@ func TestInboundImageDualAPIFallback(t *testing.T) {
 		}
 		_ = p
 	})
+}
+
+// TestSendMediaImageUploadAndSend: each media part uploads (image_type
+// "message") and leaves as one msg_type=image message carrying the
+// returned key.
+func TestSendMediaImageUploadAndSend(t *testing.T) {
+	stub := newLarkStub(t, stubOptions{})
+	env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+	ws := newFakeWS(nil)
+	p, _ := startWithFake(t, env, ws)
+
+	ids, err := p.SendMedia(context.Background(), "oc_chat_1", []plugin.Part{
+		{Kind: plugin.PartText, Text: "ignored"},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "out.jpg", MimeType: "image/jpeg", Data: stubFeishuImageBytes}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "empty.jpg", MimeType: "image/jpeg"}}, // skipped
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != stubMessageID {
+		t.Fatalf("ids = %v, want [%s]", ids, stubMessageID)
+	}
+	uploads := stub.uploadCalls()
+	if len(uploads) != 1 || uploads[0].imageType != "message" ||
+		string(uploads[0].data) != string(stubFeishuImageBytes) {
+		t.Fatalf("uploads = %+v", uploads)
+	}
+	calls := stub.messageCalls()
+	if len(calls) != 1 || calls[0].msgType != "image" {
+		t.Fatalf("message calls = %+v, want one image message", calls)
+	}
+	var content struct {
+		ImageKey string `json:"image_key"`
+	}
+	if err := json.Unmarshal([]byte(calls[0].content), &content); err != nil || content.ImageKey != "img_out_key" {
+		t.Fatalf("message content = %q, want the uploaded key", calls[0].content)
+	}
+
+	// A send failure surfaces for the ledger to retry.
+	stub.setMessageCode(230013, "permission denied")
+	if _, err := p.SendMedia(context.Background(), "oc_chat_1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "out2.jpg", MimeType: "image/jpeg", Data: stubFeishuImageBytes}},
+	}); err == nil {
+		t.Fatal("a failed image message must surface")
+	}
+}
+
+// setMessageCode makes the message endpoint answer the given platform
+// error from now on.
+func (s *larkStub) setMessageCode(code int, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messageCode, s.messageMsg = code, msg
+}
+
+// imageUploadCall records one outbound image upload.
+type imageUploadCall struct {
+	imageType string
+	fileName  string
+	data      []byte
+}
+
+func (s *larkStub) uploadCalls() []imageUploadCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]imageUploadCall(nil), s.uploads...)
 }
