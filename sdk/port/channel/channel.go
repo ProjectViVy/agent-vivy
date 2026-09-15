@@ -129,8 +129,15 @@ type ReactionSender interface {
 type Placeholder interface {
 	Placeholder(context.Context, string) (string, error)
 }
+
+// MediaSender is the optional outbound media face (§1 Decision Record,
+// 2026-09-15): one batch call per delivery carrying every media part of
+// the reply, addressed by the same chat id as Send. Parts arrive as
+// {Kind: PartMedia, Media: …}; the reply's text has already gone out
+// through Send, so the parts carry no caption. Uploads are not idempotent:
+// the Host's at-least-once redelivery re-uploads on retry.
 type MediaSender interface {
-	SendMedia(context.Context, string, Part) ([]string, error)
+	SendMedia(context.Context, string, []Part) ([]string, error)
 }
 type WebhookHandler interface {
 	WebhookPath() string

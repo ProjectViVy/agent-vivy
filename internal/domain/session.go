@@ -84,9 +84,10 @@ type Provenance struct {
 	ChannelMessageID string // platform-side message id; channel turns only
 }
 
-// Attachment is one binary image carried on a user message (VC-1g-2).
-// Vivy accepts images only; the mime whitelist and size cap are enforced
-// at the RPC boundary, storage persists the raw bytes as given.
+// Attachment is one binary image carried on a message (VC-1g-2). Vivy
+// accepts images only; the mime whitelist and size cap are enforced at
+// every boundary that admits them (RPC for the user path, the channel
+// host for the channel path), storage persists the raw bytes as given.
 type Attachment struct {
 	Name     string
 	MimeType string
@@ -118,7 +119,7 @@ type Message struct {
 	Role             Role
 	CreatedAt        int64 // unix milli
 	Content          string
-	Attachments      []Attachment  // user rows only; images delivered as multimodal input
+	Attachments      []Attachment  // user rows: multimodal input; assistant rows: the outbound media source for channel delivery
 	FileContexts     []FileContext // user rows only; bounded project text snapshots
 	ToolCallID       string
 	ToolName         string
