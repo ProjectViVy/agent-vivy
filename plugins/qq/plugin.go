@@ -49,7 +49,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -149,6 +151,18 @@ type groupATMessage struct {
 	Author      struct {
 		MemberOpenID string `json:"member_openid"`
 	} `json:"author"`
+	// Attachments rides the official payload's attachment array (same
+	// shape as C2C): image-class entries are downloaded, the rest survive
+	// as text annotations (§12 media ruling).
+	Attachments []*groupAttachment `json:"attachments"`
+}
+
+// groupAttachment is one attachment of a GROUP_AT_MESSAGE_CREATE payload,
+// decoded locally for the same reason as groupATMessage itself.
+type groupAttachment struct {
+	URL         string `json:"url"`
+	FileName    string `json:"filename"`
+	ContentType string `json:"content_type"`
 }
 
 // chatState is the plugin-side per-chat runtime state: the passive-reply
@@ -183,6 +197,9 @@ type Plugin struct {
 	markdown bool
 	// tokenSource is the access-token source both SDK clients share.
 	tokenSource oauth2.TokenSource
+	// appID is the resolved open-platform app id; inbound attachment
+	// downloads present it as X-Union-Appid alongside the bearer token.
+	appID string
 	// gatewayURL is the websocket gateway URL fetched once per Start;
 	// redials reuse it exactly like botgo's own session manager does.
 	gatewayURL string
@@ -360,6 +377,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 
 	p.mu.Lock()
 	p.tokenSource = ts
+	p.appID = appID
 	p.api = api
 	p.markdown = settings.Markdown
 	p.gatewayURL = gatewayURL
@@ -471,9 +489,20 @@ func (p *Plugin) c2cHandler(env plugin.ChannelEnv) event.C2CMessageEventHandler 
 			p.resumeSeq = payload.Seq
 			p.mu.Unlock()
 		}
-		msg, publishable := normalizeC2C(data)
+		msg, refs, publishable := normalizeC2C(data)
 		if !publishable {
 			return nil
+		}
+		// Image downloads are best-effort (§12): each success appends the
+		// annotation plus the media part; a failure keeps the annotation
+		// so the sender's image never vanishes without a trace.
+		for _, ref := range refs {
+			ann := plugin.Part{Kind: plugin.PartText, Text: "[image: " + ref.name + "]"}
+			if media, ok := p.downloadAttachment(publishCtx, env, ref); ok {
+				msg.Parts = append(msg.Parts, ann, plugin.Part{Kind: plugin.PartMedia, Media: media})
+			} else {
+				msg.Parts = append(msg.Parts, ann)
+			}
 		}
 		// Duplicate fence: QQ redelivers the same msg_id for reachability.
 		if !p.rememberSeen(msg.MessageID) {
@@ -567,9 +596,20 @@ func (p *Plugin) groupHandler(env plugin.ChannelEnv) groupATMessageHandler {
 			p.resumeSeq = payload.Seq
 			p.mu.Unlock()
 		}
-		msg, publishable := normalizeGroup(data)
+		msg, refs, publishable := normalizeGroup(data)
 		if !publishable {
 			return nil
+		}
+		// Image downloads are best-effort (§12): each success appends the
+		// annotation plus the media part; a failure keeps the annotation
+		// so the sender's image never vanishes without a trace.
+		for _, ref := range refs {
+			ann := plugin.Part{Kind: plugin.PartText, Text: "[image: " + ref.name + "]"}
+			if media, ok := p.downloadAttachment(publishCtx, env, ref); ok {
+				msg.Parts = append(msg.Parts, ann, plugin.Part{Kind: plugin.PartMedia, Media: media})
+			} else {
+				msg.Parts = append(msg.Parts, ann)
+			}
 		}
 		// Duplicate fence: QQ redelivers the same msg_id for reachability.
 		if !p.rememberSeen(msg.MessageID) {
@@ -589,28 +629,50 @@ func (p *Plugin) groupHandler(env plugin.ChannelEnv) groupATMessageHandler {
 // ChatID is the group_openid — the Send and typing addressing key;
 // Sender keeps the C2C "qq:user_" format over the member's openid (a
 // distinct openid namespace, same allow_from shape).
-func normalizeGroup(data *groupATMessage) (plugin.InboundMessage, bool) {
+func normalizeGroup(data *groupATMessage) (plugin.InboundMessage, []*imageRef, bool) {
 	if data == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	content := strings.TrimSpace(data.Content)
-	if content == "" {
-		return plugin.InboundMessage{}, false
-	}
 	if strings.TrimSpace(data.GroupOpenID) == "" {
 		// Without the group address no reply could ever land.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	member := strings.TrimSpace(data.Author.MemberOpenID)
 	if member == "" {
 		// No sender id: allow_from could never match this envelope.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	messageID := strings.TrimSpace(data.ID)
 	if messageID == "" {
 		// The Host dispatch drops envelopes without a message id; do not
 		// publish what cannot be journaled.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
+	}
+	var refs []*imageRef
+	var parts []plugin.Part
+	if content != "" {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: content})
+	}
+	for _, att := range data.Attachments {
+		if att == nil {
+			continue
+		}
+		name := strings.TrimSpace(att.FileName)
+		if imageAttachment(name, att.ContentType) {
+			url := strings.TrimSpace(att.URL)
+			if url == "" {
+				continue
+			}
+			refs = append(refs, &imageRef{url: url, name: name, contentType: att.ContentType})
+			continue
+		}
+		if name != "" {
+			parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: "[file: " + name + "]"})
+		}
+	}
+	if len(parts) == 0 && len(refs) == 0 {
+		return plugin.InboundMessage{}, nil, false
 	}
 	return plugin.InboundMessage{
 		Channel:   ChannelName,
@@ -619,8 +681,8 @@ func normalizeGroup(data *groupATMessage) (plugin.InboundMessage, bool) {
 		MessageID: messageID,
 		ReplyTo:   "",
 		TopicID:   "",
-		Parts:     []plugin.Part{{Kind: plugin.PartText, Text: content}},
-	}, true
+		Parts:     parts,
+	}, refs, true
 }
 
 // supervise keeps the event gateway connected until the context is
@@ -1145,21 +1207,22 @@ func (p *Plugin) Typing(ctx context.Context, chatID string) error {
 }
 
 // normalizeC2C maps one C2C_MESSAGE_CREATE event to a kernel inbound
-// envelope. It accepts exactly one shape this slice — a single-chat TEXT
-// message with a sender, a message id and non-empty plain text content —
-// and reports everything else as not publishable: media-only messages
-// (attachments without text; media in is a later slice), empty content,
-// and envelopes the Host dispatch would drop anyway (missing sender or
-// message id).
+// envelope plus its pre-screened image attachments. It accepts a single-
+// chat message carrying text, image-class attachments, or both; image
+// attachments return as download refs (the handler fetches them with the
+// platform's auth headers), every other attachment survives as a
+// `[file: name]` text annotation. Media-only messages with neither text
+// nor annotations stay unpublishable, as do envelopes the Host dispatch
+// would drop anyway (missing sender or message id).
 //
 // botgo v0.2.1 does not model the event's message_type field, so text is
 // detected by content: the official payload puts the plain text in
 // `content` (message_type 0), and cards/ark payloads carry no plain text.
 // The sender identity is Author.ID — the official payload's per-app user
 // openid (equal to author.user_openid on C2C events).
-func normalizeC2C(data *dto.WSC2CMessageData) (plugin.InboundMessage, bool) {
+func normalizeC2C(data *dto.WSC2CMessageData) (plugin.InboundMessage, []*imageRef, bool) {
 	if data == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	senderID := ""
 	if data.Author != nil {
@@ -1167,19 +1230,42 @@ func normalizeC2C(data *dto.WSC2CMessageData) (plugin.InboundMessage, bool) {
 	}
 	if senderID == "" {
 		// No sender id: allow_from could never match this envelope.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	messageID := strings.TrimSpace(data.ID)
 	if messageID == "" {
 		// The Host dispatch drops envelopes without a message id; do not
 		// publish what cannot be journaled. The message id is also the
 		// passive-reply key — without it the chat is unreachable.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	content := strings.TrimSpace(data.Content)
-	if content == "" {
-		// Pictures, files, ark cards — no text part to publish.
-		return plugin.InboundMessage{}, false
+	var refs []*imageRef
+	var parts []plugin.Part
+	if content != "" {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: content})
+	}
+	for _, att := range data.Attachments {
+		if att == nil {
+			continue
+		}
+		name := strings.TrimSpace(att.FileName)
+		if imageAttachment(name, att.ContentType) {
+			url := strings.TrimSpace(att.URL)
+			if url == "" {
+				continue
+			}
+			refs = append(refs, &imageRef{url: url, name: name, contentType: att.ContentType})
+			continue
+		}
+		if name != "" {
+			parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: "[file: " + name + "]"})
+		}
+	}
+	if len(parts) == 0 && len(refs) == 0 {
+		// Pictures with no usable url, files, ark cards — nothing to
+		// publish.
+		return plugin.InboundMessage{}, nil, false
 	}
 	return plugin.InboundMessage{
 		Channel: ChannelName,
@@ -1192,6 +1278,130 @@ func normalizeC2C(data *dto.WSC2CMessageData) (plugin.InboundMessage, bool) {
 		// threading, no forum topics).
 		ReplyTo: "",
 		TopicID: "",
-		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
-	}, true
+		Parts:   parts,
+	}, refs, true
+}
+
+// imageRef is one pre-screened image attachment: the CDN URL to download,
+// the display name, and the platform's claimed content type (provisional
+// — the Host sniffs the actual bytes).
+type imageRef struct {
+	url         string
+	name        string
+	contentType string
+}
+
+// maxInboundImageBytes mirrors the Host's shared attachment bound
+// (internal/attachment, §1 media ruling): 5 MiB per image. The read is
+// capped one byte over so an over-limit payload is detected, rejected,
+// and never truncated into the turn.
+const maxInboundImageBytes = 5 << 20
+
+// imageAttachment reports whether an attachment is image-class by content
+// type first, extension second (picoclaw's table, rewritten).
+func imageAttachment(filename, contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.HasPrefix(ct, "image/") {
+		return true
+	}
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 {
+		return false
+	}
+	switch strings.ToLower(filename[dot:]) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
+		return true
+	}
+	return false
+}
+
+// imageMimeClaim turns a filename into the provisional MIME claim sent to
+// the Host (which sniffs the real bytes against the whitelist anyway).
+func imageMimeClaim(filename string) string {
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 {
+		return "application/octet-stream"
+	}
+	switch strings.ToLower(filename[dot:]) {
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default: // .jpg/.jpeg and anything else image-class
+		return "image/jpeg"
+	}
+}
+
+// envWarn logs through the Host logger when one is available; the surface
+// is advisory and must never panic on a nil logger (test doubles).
+func envWarn(env plugin.ChannelEnv, msg string, args ...any) {
+	if logger := env.Logger(); logger != nil {
+		logger.Warn(msg, args...)
+	}
+}
+
+// downloadAttachment fetches one image attachment through the governed
+// transport with QQ's auth headers — X-Union-Appid (the app id) and the
+// bearer token from the shared token source — reading at most
+// maxInboundImageBytes+1 bytes. Every failure drops only the image part;
+// logs carry the attachment name and byte counts, never the URL, the
+// token, or a raw transport error.
+func (p *Plugin) downloadAttachment(ctx context.Context, env plugin.ChannelEnv, ref *imageRef) (plugin.Media, bool) {
+	if ref == nil || ref.url == "" {
+		return plugin.Media{}, false
+	}
+	p.mu.Lock()
+	ts, appID := p.tokenSource, p.appID
+	p.mu.Unlock()
+	if ts == nil {
+		envWarn(env, "qq: attachment download has no token source; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	tok, err := ts.Token()
+	if err != nil || tok == nil || tok.AccessToken == "" {
+		envWarn(env, "qq: attachment download could not resolve the access token; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	client := &http.Client{Transport: env.HTTP().Transport} // nil transport = http.DefaultTransport
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ref.url, nil)
+	if err != nil {
+		envWarn(env, "qq: attachment request is invalid; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	req.Header.Set("X-Union-Appid", appID)
+	if tok.TokenType != "" {
+		req.Header.Set("Authorization", tok.TokenType+" "+tok.AccessToken)
+	} else {
+		req.Header.Set("Authorization", tok.AccessToken)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		envWarn(env, "qq: attachment download failed; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		envWarn(env, "qq: attachment download returned a non-200 status; dropping the image part",
+			"name", ref.name, "status", resp.StatusCode)
+		return plugin.Media{}, false
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxInboundImageBytes+1))
+	if err != nil {
+		envWarn(env, "qq: attachment download body failed; dropping the image part", "name", ref.name)
+		return plugin.Media{}, false
+	}
+	if len(data) == 0 || len(data) > maxInboundImageBytes {
+		envWarn(env, "qq: attachment is empty or over the inbound size bound; dropping the image part",
+			"name", ref.name, "bytes", len(data))
+		return plugin.Media{}, false
+	}
+	mime := strings.TrimSpace(ref.contentType)
+	if mime == "" {
+		mime = imageMimeClaim(ref.name)
+	}
+	// The claim is provisional: the Host sniffs the actual bytes against
+	// the shared whitelist before the part reaches the turn.
+	return plugin.Media{Name: ref.name, MimeType: mime, Data: data}, true
 }
