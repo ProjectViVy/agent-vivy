@@ -24,6 +24,7 @@ import (
 
 	"agent-vivy/internal/actionhost"
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
@@ -527,11 +528,11 @@ type messageProvenanceResult struct {
 }
 
 func messageProvenance(message domain.Message) *messageProvenanceResult {
-	if message.EffectiveSource() != "channel" {
+	if message.EffectiveSource() != domain.SourceChannel {
 		return nil
 	}
 	return &messageProvenanceResult{
-		Source:           "channel",
+		Source:           domain.SourceChannel,
 		Channel:          message.Channel,
 		ChatID:           message.ChatID,
 		ChannelMessageID: message.ChannelMessageID,
@@ -971,6 +972,7 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"settings.mcp.resources", "settings.mcp.read", "settings.mcp.resources.list", "settings.mcp.resources.read",
 			"mcp.resources.list", "mcp.resources.read",
 			"channel.inspect", "channel.get", "channel.update",
+			"channel.deliveries.list", "channel.deliveries.redeliver",
 			"session.context", "session.sidebar", "context.compact", "session.rewind", "session.fork", "session.edit",
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
@@ -1237,6 +1239,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.getChannel(request)
 	case "channel/update":
 		return h.updateChannel(ctx, request)
+	case "channel/deliveries/list":
+		return h.listChannelDeliveries(ctx)
+	case "channel/deliveries/redeliver":
+		return h.redeliverChannelDelivery(ctx, request)
 	case "stats/tokens":
 		return h.statsTokens(ctx, request)
 	case "skills/list":
@@ -2862,8 +2868,8 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 		return nil, rpcErr
 	}
 	if len(params.AttachmentPaths) > 0 {
-		if len(attachments)+len(params.AttachmentPaths) > maxAttachmentCount {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+		if len(attachments)+len(params.AttachmentPaths) > attachment.MaxCount {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 		}
 		resolved, err := resolveProjectAttachments(h.deps.ProjectRoot, params.AttachmentPaths)
 		if err != nil {
@@ -3445,53 +3451,28 @@ func parseShellParams(request Request) (shellParams, *Error) {
 	return params, nil
 }
 
-// Image attachment limits (VC-1g-2, aligned with the Crush client
-// surface): images only, 5 MiB per file, at most 4 per message.
-var attachmentMimeWhitelist = map[string]bool{
-	"image/png":  true,
-	"image/jpeg": true,
-	"image/gif":  true,
-	"image/webp": true,
-}
-
-const (
-	maxAttachmentBytes = 5 << 20
-	maxAttachmentCount = 4
-)
-
 // attachmentsFromParams decodes and validates the base64 image
-// attachments of a turn/start call.
+// attachments of a turn/start call. The limits are the shared
+// internal/attachment vocabulary (VC-1g-2), the same numbers the channel
+// inbound path enforces.
 func attachmentsFromParams(items []turnAttachment) ([]domain.Attachment, *Error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
-	if len(items) > maxAttachmentCount {
-		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", maxAttachmentCount)}
+	if len(items) > attachment.MaxCount {
+		return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 	}
 	out := make([]domain.Attachment, 0, len(items))
 	for index, item := range items {
-		mime := strings.ToLower(strings.TrimSpace(item.MimeType))
-		if !attachmentMimeWhitelist[mime] {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: unsupported type %q (png, jpeg, gif and webp images only)", index+1, item.MimeType)}
-		}
 		data, err := base64.StdEncoding.DecodeString(item.Data)
 		if err != nil {
 			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must be base64-encoded image bytes", index+1)}
 		}
-		if len(data) == 0 {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: data must not be empty", index+1)}
+		mime, err := attachment.ValidateOne(item.MimeType, data)
+		if err != nil {
+			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: %v", index+1, err)}
 		}
-		if len(data) > maxAttachmentBytes {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: image exceeds the %d MiB limit", index+1, maxAttachmentBytes>>20)}
-		}
-		detected := sniffAttachmentMIME(data)
-		if detected == "" {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: file content is not a supported image", index+1)}
-		}
-		if detected != mime {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("attachment %d: MIME type does not match image content", index+1)}
-		}
-		out = append(out, domain.Attachment{Name: safeAttachmentName(item.Name), MimeType: mime, Data: data})
+		out = append(out, domain.Attachment{Name: attachment.SanitizeName(item.Name), MimeType: mime, Data: data})
 	}
 	return out, nil
 }
@@ -4928,12 +4909,24 @@ type channelCapsResult struct {
 	Health      bool `json:"health"`
 }
 
+// channelHealthResult is the live probe of a started HealthChecker adapter
+// (CH-R-1): ok=true means the transport is healthy; otherwise class carries
+// the classification (rate-limit / temporary / dead) and detail the
+// adapter's bounded reason. Null in JSON when the channel is not started or
+// the adapter has no Health face.
+type channelHealthResult struct {
+	OK     bool   `json:"ok"`
+	Class  string `json:"class,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // channelStatusResult is one channel/inspect entry: process truth from the
 // last StartAll. Settings writes apply on the next process restart, so the
 // UI derives "pending restart" by comparing this against channel/get.
 type channelStatusResult struct {
-	Name         string            `json:"name"`
-	Capabilities channelCapsResult `json:"capabilities"`
+	Name         string               `json:"name"`
+	Capabilities channelCapsResult    `json:"capabilities"`
+	Health       *channelHealthResult `json:"health"`
 	// Configured reports an effective channels.<name> envelope at startup.
 	Configured bool `json:"configured"`
 	// Enabled is the effective envelope switch; false when unconfigured.
@@ -4980,9 +4973,14 @@ func toChannelStatusResult(s channelhost.ChannelStatus) channelStatusResult {
 	if allowFrom == nil {
 		allowFrom = []string{}
 	}
+	var health *channelHealthResult
+	if s.Health != nil {
+		health = &channelHealthResult{OK: s.Health.OK, Class: s.Health.Class, Detail: s.Health.Detail}
+	}
 	return channelStatusResult{
 		Name:         s.Name,
 		Capabilities: toChannelCapsResult(s.Capabilities),
+		Health:       health,
 		Configured:   s.Configured,
 		Enabled:      s.Enabled,
 		AllowFrom:    allowFrom,
@@ -5133,6 +5131,73 @@ func (h *controlHandler) updateChannel(ctx context.Context, request Request) (an
 	h.notifySettingsChanged()
 	_ = ctx
 	return h.channelEnvelopeView(params.Name, saved), nil
+}
+
+// channelDeliveryResult is one failed delivery intent row (channel/
+// deliveries/list). Identifiers only — the reply content itself stays in
+// the message log (D-010).
+type channelDeliveryResult struct {
+	RunID       string `json:"run_id"`
+	SessionID   string `json:"session_id"`
+	Channel     string `json:"channel"`
+	ChatID      string `json:"chat_id"`
+	TopicID     string `json:"topic_id"`
+	State       string `json:"state"`
+	Attempts    int    `json:"attempts"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+	UpdatedAtMs int64  `json:"updated_at_ms"`
+}
+
+// listChannelDeliveries reports the failed delivery intents: the
+// operator-visible side of the delivery ledger (attempts exhausted, parked
+// by failDelivery). Open intents (armed/pending) are Host-internal and
+// never surface here.
+func (h *controlHandler) listChannelDeliveries(ctx context.Context) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	failed, err := h.deps.Channels.FailedDeliveries(ctx)
+	if err != nil {
+		return nil, &Error{Code: InternalError, Message: fmt.Sprintf("list failed deliveries: %v", err)}
+	}
+	out := make([]channelDeliveryResult, 0, len(failed))
+	for _, d := range failed {
+		out = append(out, channelDeliveryResult{
+			RunID: string(d.RunID), SessionID: string(d.SessionID),
+			Channel: d.Channel, ChatID: d.ChatID, TopicID: d.TopicID,
+			State: d.State, Attempts: d.Attempts,
+			CreatedAtMs: d.CreatedAtMs, UpdatedAtMs: d.UpdatedAtMs,
+		})
+	}
+	return map[string]any{"deliveries": out}, nil
+}
+
+// redeliverChannelDelivery re-arms one failed delivery intent. Operator
+// errors (unknown run, channel not running) come back as errors; a draining
+// host refuses so the operator retries after restart.
+func (h *controlHandler) redeliverChannelDelivery(ctx context.Context, request Request) (any, *Error) {
+	if h.deps.Channels == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "channel host is not configured"}
+	}
+	var params struct {
+		RunID string `json:"run_id"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if params.RunID == "" {
+		return nil, &Error{Code: InvalidParams, Message: "run_id is required"}
+	}
+	if err := h.deps.Channels.RedeliverDelivery(ctx, domain.RunID(params.RunID)); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "not running"), strings.Contains(msg, "shutting down"):
+			return nil, &Error{Code: CodeConflict, Message: msg}
+		default:
+			return nil, &Error{Code: CodeNotFound, Message: msg}
+		}
+	}
+	return map[string]any{"run_id": params.RunID, "redelivered": true}, nil
 }
 
 type mcpServerResult struct {

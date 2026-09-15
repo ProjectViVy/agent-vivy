@@ -265,6 +265,10 @@ type RunOptions struct {
 	// RunWithOptions; the runtime validates and persists the snapshot without
 	// reading the host filesystem.
 	FileContexts []domain.FileContext
+	// BeforeStart runs synchronously after the run ID is minted and before
+	// any run state is persisted or published. Channel ingress uses it to
+	// durably arm the outbound delivery target before terminal events can race.
+	BeforeStart func(domain.RunID) error
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -518,11 +522,13 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	// Provenance is validated before anything is persisted so an invalid
-	// world entry cannot leave a half-labeled user message behind.
-	provenance := domain.Provenance{Source: "ui"}
+	// world entry cannot leave a half-labeled user message behind. The
+	// source must name a member of the closed ui|channel|headless
+	// vocabulary (CH-C1-N4); the platform name travels in Channel.
+	provenance := domain.Provenance{Source: domain.SourceUI}
 	if options.Provenance != nil {
-		if strings.TrimSpace(options.Provenance.Source) == "" {
-			return "", errors.New("runtime: run provenance requires a non-empty source")
+		if !domain.ValidMessageSource(options.Provenance.Source) {
+			return "", fmt.Errorf("runtime: run provenance source %q is outside the ui|channel|headless vocabulary", options.Provenance.Source)
 		}
 		provenance = *options.Provenance
 	}
@@ -539,6 +545,11 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	runID := newRunID()
+	if options.BeforeStart != nil {
+		if err := options.BeforeStart(runID); err != nil {
+			return "", fmt.Errorf("runtime: prepare run %s: %w", runID, err)
+		}
+	}
 	workspaceID := ""
 	if s.deps.Workspaces != nil {
 		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
@@ -2158,7 +2169,31 @@ func (s *Service) DecideApproval(ctx context.Context, approvalID, decision strin
 
 // DecideApprovalWithReason records an optional bounded human rationale and
 // emits a durable decision event before any resumed model work is visible.
+// The decision is attributed to the local user.
 func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, decision, reason string) error {
+	return s.decideApprovalWithReason(ctx, approvalID, decision, reason, "local_user")
+}
+
+// DecideApprovalAsActor settles a pending approval attributed to the named
+// actor (e.g. "channel:telegram:12345"). It runs the exact same validation,
+// journaling, and resume machinery as the local path — the actor only
+// changes the attribution recorded in the journal and the approval store,
+// so a channel-side decision stays auditable without becoming a second
+// decision path. The authorization boundary lives with the caller: the
+// ChannelHost only forwards decisions from allow-listed senders scoped to
+// the originating session (contract §12).
+func (s *Service) DecideApprovalAsActor(ctx context.Context, approvalID, decision, reason, actor string) error {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return errors.New("runtime: approval actor is required")
+	}
+	if len(actor) > 200 {
+		return errors.New("runtime: approval actor is too long")
+	}
+	return s.decideApprovalWithReason(ctx, approvalID, decision, reason, actor)
+}
+
+func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, decision, reason, actor string) error {
 	if decision != domain.ApprovalApproved && decision != domain.ApprovalDenied {
 		return ErrApprovalInvalidDecision
 	}
@@ -2192,7 +2227,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
 		return errors.New("runtime: approval is not durable yet")
 	}
-	decided, err := s.decideApproval(ctx, approvalID, decision, reason)
+	decided, err := s.decideApproval(ctx, approvalID, decision, actor, reason)
 	if err != nil {
 		return fmt.Errorf("runtime: decide approval: %w", err)
 	}
@@ -2201,7 +2236,7 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 		return ErrApprovalAlreadyDecided
 	}
 	decisionPersisted := s.journalReviewEvent(ctx, approval.RunID, domain.EventToolApprovalDecided, payloadApprovalDecided{
-		ApprovalID: approval.ID, Decision: decision, Actor: "local_user", Reason: reason, DecidedAt: time.Now().UnixMilli(),
+		ApprovalID: approval.ID, Decision: decision, Actor: actor, Reason: reason, DecidedAt: time.Now().UnixMilli(),
 	})
 	if approval.Kind == domain.ApprovalKindChild {
 		if s.deps.ChildApprovals == nil {
@@ -2271,9 +2306,9 @@ func (s *Service) DecideApprovalWithReason(ctx context.Context, approvalID, deci
 	return nil
 }
 
-func (s *Service) decideApproval(ctx context.Context, id, decision, reason string) (bool, error) {
+func (s *Service) decideApproval(ctx context.Context, id, decision, actor, reason string) (bool, error) {
 	if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {
-		return lifecycle.DecideApprovalWithMetadata(ctx, id, decision, "local_user", reason)
+		return lifecycle.DecideApprovalWithMetadata(ctx, id, decision, actor, reason)
 	}
 	return s.deps.Approvals.DecideApproval(ctx, id, decision)
 }

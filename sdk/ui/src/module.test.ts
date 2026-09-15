@@ -349,6 +349,8 @@ describe("full-code UI composition", () => {
         deleteMcpServer: unavailableFaceOperation,
         probeMcpServer: unavailableFaceOperation,
         inspectChannels: unavailableFaceOperation,
+        listChannelDeliveries: unavailableFaceOperation,
+        redeliverChannelDelivery: unavailableFaceOperation,
         getChannel: unavailableFaceOperation,
         updateChannel: unavailableFaceOperation,
         getTokenUsage: unavailableFaceOperation,

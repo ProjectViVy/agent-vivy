@@ -3,6 +3,7 @@ package qq
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/tencent-connect/botgo/errs"
 	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/log"
+	"github.com/tencent-connect/botgo/openapi"
 	"github.com/tencent-connect/botgo/openapi/options"
 	"golang.org/x/oauth2"
 
@@ -67,11 +70,34 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 // botgoOpenAPI and botgoSandbox are the production OpenAPI constructors,
 // reachable for the Send loopback test (New wires them into p.newAPI; the
-// generic harness swaps that factory out).
-func botgoOpenAPI(appID string, ts oauth2.TokenSource) qqAPI { return botgo.NewOpenAPI(appID, ts) }
+// generic harness swaps that factory out). The media surface stays with
+// the governed client — the SDK wrapper serves the media endpoints never.
+type botgoAPI struct {
+	openapi.OpenAPI
+}
+
+func (b botgoAPI) PostC2CMediaUpload(context.Context, string, qqMediaUpload) (string, error) {
+	return "", errors.New("media endpoints are served by the governed client only")
+}
+
+func (b botgoAPI) PostGroupMediaUpload(context.Context, string, qqMediaUpload) (string, error) {
+	return "", errors.New("media endpoints are served by the governed client only")
+}
+
+func (b botgoAPI) PostC2CRichMedia(context.Context, string, qqRichMediaMessage) (*dto.Message, error) {
+	return nil, errors.New("media endpoints are served by the governed client only")
+}
+
+func (b botgoAPI) PostGroupRichMedia(context.Context, string, qqRichMediaMessage) (*dto.Message, error) {
+	return nil, errors.New("media endpoints are served by the governed client only")
+}
+
+func botgoOpenAPI(appID string, ts oauth2.TokenSource) qqAPI {
+	return botgoAPI{OpenAPI: botgo.NewOpenAPI(appID, ts)}
+}
 
 func botgoSandbox(appID string, ts oauth2.TokenSource) qqAPI {
-	return botgo.NewSandboxOpenAPI(appID, ts)
+	return botgoAPI{OpenAPI: botgo.NewSandboxOpenAPI(appID, ts)}
 }
 
 // --- fakes -----------------------------------------------------------------
@@ -205,13 +231,24 @@ type fakeAPI struct {
 	wsURL string
 	wsErr error
 
-	mu       sync.Mutex
-	c2cCalls []c2cCall
+	uploadErr error
+	richErr   error
+
+	mu          sync.Mutex
+	c2cCalls    []c2cCall
+	groupCalls  []groupCall
+	uploadCalls []mediaUploadCall
+	richCalls   []richMediaCall
 }
 
 type c2cCall struct {
 	userID string
 	msg    dto.APIMessage
+}
+
+type groupCall struct {
+	groupOpenID string
+	msg         dto.APIMessage
 }
 
 func (a *fakeAPI) WS(context.Context, map[string]string, string) (*dto.WebsocketAP, error) {
@@ -232,6 +269,76 @@ func (a *fakeAPI) PostC2CMessage(_ context.Context, userID string, msg dto.APIMe
 	return &dto.Message{ID: "sent-via-stub"}, nil
 }
 
+// PostGroupMessage records the group post like its C2C sibling.
+func (a *fakeAPI) PostGroupMessage(_ context.Context, groupOpenID string, msg dto.APIMessage, _ ...options.Option) (*dto.Message, error) {
+	a.mu.Lock()
+	a.groupCalls = append(a.groupCalls, groupCall{groupOpenID: groupOpenID, msg: msg})
+	a.mu.Unlock()
+	return &dto.Message{ID: "sent-via-stub"}, nil
+}
+
+// PostC2CMediaUpload records the upload and returns the canned handle.
+func (a *fakeAPI) PostC2CMediaUpload(_ context.Context, userID string, upload qqMediaUpload) (string, error) {
+	a.mu.Lock()
+	a.uploadCalls = append(a.uploadCalls, mediaUploadCall{target: userID, upload: upload})
+	err, n := a.uploadErr, len(a.uploadCalls)
+	a.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("file-info-%d", n), nil
+}
+
+// PostGroupMediaUpload records the group upload like its C2C sibling.
+func (a *fakeAPI) PostGroupMediaUpload(_ context.Context, groupOpenID string, upload qqMediaUpload) (string, error) {
+	a.mu.Lock()
+	a.uploadCalls = append(a.uploadCalls, mediaUploadCall{target: groupOpenID, upload: upload, group: true})
+	err, n := a.uploadErr, len(a.uploadCalls)
+	a.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("file-info-%d", n), nil
+}
+
+// PostC2CRichMedia records the msg_type=7 reply.
+func (a *fakeAPI) PostC2CRichMedia(_ context.Context, userID string, msg qqRichMediaMessage) (*dto.Message, error) {
+	a.mu.Lock()
+	a.richCalls = append(a.richCalls, richMediaCall{target: userID, msg: msg})
+	err := a.richErr
+	a.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return &dto.Message{ID: "rich-via-stub"}, nil
+}
+
+// PostGroupRichMedia records the group variant.
+func (a *fakeAPI) PostGroupRichMedia(_ context.Context, groupOpenID string, msg qqRichMediaMessage) (*dto.Message, error) {
+	a.mu.Lock()
+	a.richCalls = append(a.richCalls, richMediaCall{target: groupOpenID, msg: msg, group: true})
+	err := a.richErr
+	a.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return &dto.Message{ID: "rich-via-stub"}, nil
+}
+
+// mediaUploadCall records one /files upload.
+type mediaUploadCall struct {
+	target string
+	upload qqMediaUpload
+	group  bool
+}
+
+// richMediaCall records one msg_type=7 post.
+type richMediaCall struct {
+	target string
+	msg    qqRichMediaMessage
+	group  bool
+}
+
 func (a *fakeAPI) c2cCount() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -248,6 +355,7 @@ type fakeWS struct {
 	resumeID  string
 	resumeSeq uint32
 	onC2C     event.C2CMessageEventHandler
+	onGroup   groupATMessageHandler
 	onReady   event.ReadyHandler
 
 	// assignedID is the gateway-assigned session id handed out at READY.
@@ -280,13 +388,14 @@ type wsFactorySpy struct {
 	onBuild func(n int, f *fakeWS)
 }
 
-func (s *wsFactorySpy) build(onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler,
+func (s *wsFactorySpy) build(onC2C event.C2CMessageEventHandler, onGroup groupATMessageHandler, onReady event.ReadyHandler,
 	gatewayURL string, _ oauth2.TokenSource, resumeID string, resumeSeq uint32) wsClient {
 	f := &fakeWS{
 		url:        gatewayURL,
 		resumeID:   resumeID,
 		resumeSeq:  resumeSeq,
 		onC2C:      onC2C,
+		onGroup:    onGroup,
 		onReady:    onReady,
 		assignedID: "",
 		session:    &dto.Session{URL: gatewayURL, ID: resumeID, LastSeq: resumeSeq},
@@ -534,11 +643,11 @@ func TestDecodeSettings(t *testing.T) {
 		}
 	})
 	t.Run("fields decode and trim", func(t *testing.T) {
-		s, err := DecodeSettings(json.RawMessage(`{"app_id_env":" A ","app_secret_env":" B ","sandbox":true}`))
+		s, err := DecodeSettings(json.RawMessage(`{"app_id_env":" A ","app_secret_env":" B ","sandbox":true,"markdown":true}`))
 		if err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if s.AppIDEnv != "A" || s.AppSecretEnv != "B" || !s.Sandbox {
+		if s.AppIDEnv != "A" || s.AppSecretEnv != "B" || !s.Sandbox || !s.Markdown {
 			t.Fatalf("settings = %+v", s)
 		}
 	})
@@ -766,7 +875,7 @@ func TestNormalizeC2C(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, publishable := normalizeC2C(tc.data)
+			got, _, publishable := normalizeC2C(tc.data)
 			if publishable != tc.want {
 				t.Fatalf("publishable = %v, want %v", publishable, tc.want)
 			}
@@ -899,6 +1008,9 @@ type loopbackServer struct {
 	requests []recordedRequest
 	c2cCode  int // status the /v2/users/... handler answers with
 	c2cBody  string
+	// failMarkdown rejects msg_type 2 posts with the platform's markdown
+	// rejection while text posts succeed (the fallback stand-in).
+	failMarkdown bool
 }
 
 type recordedRequest struct {
@@ -929,6 +1041,13 @@ func newLoopback(t *testing.T) *loopbackServer {
 			body:   body,
 		})
 		code, bodyText := lb.c2cCode, lb.c2cBody
+		if strings.HasSuffix(r.URL.Path, "/files") {
+			// The rich-media upload answers with the handle the following
+			// msg_type=7 post must carry verbatim.
+			bodyText = `{"file_info":"LB-FILE-1"}`
+		} else if lb.failMarkdown && bytes.Contains(body, []byte(`"msg_type":2`)) {
+			code, bodyText = http.StatusBadRequest, `{"code":11253,"message":"markdown not allowed","trace_id":"t-1"}`
+		}
 		lb.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
@@ -943,6 +1062,15 @@ func newLoopback(t *testing.T) *loopbackServer {
 	return lb
 }
 
+// serveToken registers the loopback token endpoint the governed client
+// exchanges app credentials at.
+func (lb *loopbackServer) serveToken() {
+	lb.srv.Config.Handler.(*http.ServeMux).HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"`+stubAccessToken+`","expires_in":7200,"code":0}`)
+	})
+}
+
 func (lb *loopbackServer) sent() []recordedRequest {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -953,6 +1081,13 @@ func (lb *loopbackServer) setC2C(code int, body string) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.c2cCode, lb.c2cBody = code, body
+}
+
+// rejectMarkdown turns on the markdown rejection mode.
+func (lb *loopbackServer) rejectMarkdown() {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.failMarkdown = true
 }
 
 // newRealAPIHarness wires a plugin with the PRODUCTION OpenAPI factory
@@ -1451,4 +1586,471 @@ func TestGiveUpLogged(t *testing.T) {
 	waitFor(t, "give-up error line", func() bool {
 		return strings.Contains(buf.String(), "ear stays deaf until the channel restarts")
 	})
+}
+
+// TestHealthClassifiesRedialingGateway (CH-R-1): a broken session is
+// temporary while the loop redials, and Health returns to nil after the
+// gateway reconnects.
+func TestHealthClassifiesRedialingGateway(t *testing.T) {
+	shrinkRedialDelay(t)
+	h := newHarness(t, validSettings)
+	// Attempt #1 (the first redial after the drop) dials refused; every
+	// later attempt dials normally, so the ear recovers.
+	h.spy.onBuild = func(n int, f *fakeWS) {
+		if n == 1 {
+			f.connectErr = errors.New("refused")
+		}
+	}
+	h.start(t)
+
+	h.spy.nth(0).drop(errors.New("connection reset"))
+	var healthErr *plugin.HealthError
+	waitFor(t, "temporary health while redialing", func() bool {
+		err := h.p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassTemporary
+	})
+	waitFor(t, "healthy after reconnect", func() bool {
+		return h.p.Health(context.Background()) == nil
+	})
+}
+
+// TestHealthDeadAfterGiveUp (CH-R-1): the terminal cannot-identify close
+// surfaces through Health as a dead classification — the ear cannot recover
+// on its own.
+func TestHealthDeadAfterGiveUp(t *testing.T) {
+	shrinkRedialDelay(t)
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	h.spy.nth(0).drop(errs.New(errs.CodeConnCloseCantIdentify, "bot delisted"))
+	var healthErr *plugin.HealthError
+	waitFor(t, "dead health after give-up", func() bool {
+		err := h.p.Health(context.Background())
+		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassDead
+	})
+}
+
+// TestTypingInputNotifyLoopback: plugin.Typing sends one InputNotify
+// (msg_type 6) anchored to the open passive window's msg_id. Without a
+// window there is nothing to anchor to — no request, no error (typing is
+// best-effort). InputNotify carries no msg_seq.
+func TestTypingInputNotifyLoopback(t *testing.T) {
+	lb := newLoopback(t)
+	h := newRealAPIHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.Typing(context.Background(), "OPENID-NOWINDOW"); err != nil {
+		t.Fatalf("typing without a window: %v", err)
+	}
+	if got := len(lb.sent()); got != 0 {
+		t.Fatalf("c2c posts without a window = %d, want 0", got)
+	}
+
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "hello"))
+	if err := h.p.Typing(context.Background(), "OPENID1"); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	sent := lb.sent()
+	if len(sent) != 1 {
+		t.Fatalf("c2c posts = %d, want 1", len(sent))
+	}
+	if want := "/v2/users/OPENID1/messages"; sent[0].path != want {
+		t.Fatalf("post path = %s, want %s", sent[0].path, want)
+	}
+	var body struct {
+		MsgType     *int   `json:"msg_type"`
+		MsgID       string `json:"msg_id"`
+		InputNotify *struct {
+			InputType   int   `json:"input_type"`
+			InputSecond int32 `json:"input_second"`
+		} `json:"input_notify"`
+	}
+	if err := json.Unmarshal(sent[0].body, &body); err != nil {
+		t.Fatalf("body decode: %v (%s)", err, sent[0].body)
+	}
+	if body.MsgType == nil || *body.MsgType != 6 {
+		t.Fatalf("msg_type = %v, want 6 (input notify)", body.MsgType)
+	}
+	if body.MsgID != "in-1" {
+		t.Fatalf("msg_id = %q, want the passive window in-1", body.MsgID)
+	}
+	if body.InputNotify == nil || body.InputNotify.InputType != 1 || body.InputNotify.InputSecond != 10 {
+		t.Fatalf("input_notify = %+v, want input_type 1 for 10s", body.InputNotify)
+	}
+}
+
+// TestSendMarkdownFlagWithFallback: with settings.markdown the reply goes
+// out as msg_type 2 native markdown anchored to the passive window; a
+// platform rejection (most robots lack the markdown permission) retries
+// the same chunk as plain text — burning one seq on the way, which the
+// platform's (msg_id, msg_seq) dedup treats as a normal gap.
+func TestSendMarkdownFlagWithFallback(t *testing.T) {
+	lb := newLoopback(t)
+	lb.rejectMarkdown()
+	markdownSettings := `{"app_id_env":"` + stubAppIDEnvName + `","app_secret_env":"` + stubAppSecretEnvName + `","markdown":true}`
+	h := newRealAPIHarness(t, markdownSettings)
+	h.start(t)
+
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "hello"))
+	ids, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "OPENID1",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "**bold**"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("send with fallback = ids %v err %v, want one delivered id", ids, err)
+	}
+	sent := lb.sent()
+	if len(sent) != 2 {
+		t.Fatalf("c2c posts = %d, want the markdown attempt plus the text fallback", len(sent))
+	}
+
+	var mdBody struct {
+		MsgType  *int `json:"msg_type"`
+		Markdown *struct {
+			Content string `json:"content"`
+		} `json:"markdown"`
+		MsgID  string `json:"msg_id"`
+		MsgSeq int    `json:"msg_seq"`
+	}
+	if err := json.Unmarshal(sent[0].body, &mdBody); err != nil {
+		t.Fatalf("markdown body decode: %v (%s)", err, sent[0].body)
+	}
+	if mdBody.MsgType == nil || *mdBody.MsgType != 2 {
+		t.Fatalf("markdown msg_type = %v, want 2", mdBody.MsgType)
+	}
+	if mdBody.Markdown == nil || mdBody.Markdown.Content != "**bold**" {
+		t.Fatalf("markdown body = %+v, want the native markdown content", mdBody.Markdown)
+	}
+	if mdBody.MsgID != "in-1" || mdBody.MsgSeq != 1 {
+		t.Fatalf("markdown window = %q seq %d, want in-1 seq 1", mdBody.MsgID, mdBody.MsgSeq)
+	}
+
+	var txtBody struct {
+		Content string `json:"content"`
+		MsgSeq  int    `json:"msg_seq"`
+	}
+	if err := json.Unmarshal(sent[1].body, &txtBody); err != nil {
+		t.Fatalf("fallback body decode: %v (%s)", err, sent[1].body)
+	}
+	if txtBody.Content != "**bold**" {
+		t.Fatalf("fallback content = %q, want the raw markdown as plain text", txtBody.Content)
+	}
+	if txtBody.MsgSeq != 2 {
+		t.Fatalf("fallback seq = %d, want 2 (the rejected markdown burned one)", txtBody.MsgSeq)
+	}
+}
+
+// TestSendThreadsToReplyTo: the reply anchors to the ReplyTo msg_id — not
+// whatever inbound replaced the window state in the meantime. Two windows
+// opened in sequence; threading to the older one must still quote it.
+func TestSendThreadsToReplyTo(t *testing.T) {
+	lb := newLoopback(t)
+	h := newRealAPIHarness(t, validSettings)
+	h.start(t)
+
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "first"))
+	h.dispatch(t, 8, c2cEvent("in-2", "OPENID1", "second"))
+
+	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "OPENID1",
+		ReplyTo: "in-1",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "threaded"}},
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	sent := lb.sent()
+	if len(sent) != 1 {
+		t.Fatalf("c2c posts = %d, want 1", len(sent))
+	}
+	var body struct {
+		MsgID  string `json:"msg_id"`
+		MsgSeq int    `json:"msg_seq"`
+	}
+	if err := json.Unmarshal(sent[0].body, &body); err != nil {
+		t.Fatalf("body decode: %v (%s)", err, sent[0].body)
+	}
+	if body.MsgID != "in-1" {
+		t.Fatalf("msg_id = %q, want the threaded in-1 (not the window's in-2)", body.MsgID)
+	}
+	if body.MsgSeq != 1 {
+		t.Fatalf("msg_seq = %d, want 1", body.MsgSeq)
+	}
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// wsGroupPayload builds the ws payload the group handler reads the resume
+// sequence from.
+func wsGroupPayload(seq uint32) *dto.WSPayload {
+	return &dto.WSPayload{WSPayloadBase: dto.WSPayloadBase{Seq: seq}}
+}
+
+// TestGroupATMessageRoundTrip: a group AT event publishes an envelope
+// keyed by the group_openid with the member openid sender, opens the
+// group's passive window, and the reply routes through the group endpoint
+// anchored to the event's msg_id. Group AT messages are mention-only by
+// construction (the platform strips the @bot prefix from content).
+func TestGroupATMessageRoundTrip(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.onGroup(wsGroupPayload(9), &groupATMessage{
+		ID:          "gm-1",
+		Content:     "what is up",
+		GroupOpenID: "GROUPOPEN1",
+		Author:      groupAuthor("MEMBER1"),
+	}); err != nil {
+		t.Fatalf("group dispatch: %v", err)
+	}
+	waitFor(t, "group envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	got := h.env.snapshot()[0]
+	if got.ChatID != "GROUPOPEN1" || got.Sender != "qq:user_MEMBER1" || got.MessageID != "gm-1" || got.Parts[0].Text != "what is up" {
+		t.Fatalf("group envelope = %+v", got)
+	}
+
+	ids, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "GROUPOPEN1",
+		ReplyTo: "gm-1",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "group reply"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("group send = ids %v err %v", ids, err)
+	}
+
+	h.p.mu.Lock()
+	api := h.p.api.(*fakeAPI)
+	h.p.mu.Unlock()
+	if got := api.c2cCount(); got != 0 {
+		t.Fatalf("c2c posts = %d, want 0 (the reply must route to the group endpoint)", got)
+	}
+	if len(api.groupCalls) != 1 || api.groupCalls[0].groupOpenID != "GROUPOPEN1" {
+		t.Fatalf("group calls = %+v, want one post to GROUPOPEN1", api.groupCalls)
+	}
+	body := api.groupCalls[0].msg.(*dto.MessageToCreate)
+	if body.Content != "group reply" || body.MsgID != "gm-1" || body.MsgSeq != 1 {
+		t.Fatalf("group body = %+v, want the reply anchored to gm-1 seq 1", body)
+	}
+}
+
+// TestNormalizeGroupShapeFilter: missing group address, sender, message
+// id, or content each drop the event locally.
+func TestNormalizeGroupShapeFilter(t *testing.T) {
+	valid := &groupATMessage{ID: "gm-9", Content: "hi", GroupOpenID: "GROUP1", Author: groupAuthor("MEMBER1")}
+	if msg, _, ok := normalizeGroup(valid); !ok || msg.ChatID != "GROUP1" || msg.Sender != "qq:user_MEMBER1" {
+		t.Fatalf("valid group event = %+v ok=%v", msg, ok)
+	}
+	for name, data := range map[string]*groupATMessage{
+		"nil":              nil,
+		"no content":       {ID: "gm-1", GroupOpenID: "G", Author: groupAuthor("M")},
+		"no group openid":  {ID: "gm-1", Content: "hi", Author: groupAuthor("M")},
+		"no member openid": {ID: "gm-1", Content: "hi", GroupOpenID: "G"},
+		"no message id":    {Content: "hi", GroupOpenID: "G", Author: groupAuthor("M")},
+	} {
+		if _, _, ok := normalizeGroup(data); ok {
+			t.Fatalf("%s must not be publishable", name)
+		}
+	}
+}
+
+// groupAuthor builds the anonymous author member of a groupATMessage.
+func groupAuthor(memberOpenID string) struct {
+	MemberOpenID string `json:"member_openid"`
+} {
+	return struct {
+		MemberOpenID string `json:"member_openid"`
+	}{MemberOpenID: memberOpenID}
+}
+
+// stubQQImageBytes is a JPEG-magic payload; the adapter does not sniff
+// (the Host does), but real magic bytes keep the fixture honest.
+var stubQQImageBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
+// TestNormalizeC2CImagePreScreen: image attachments return as download
+// refs, other attachments survive as [file: name] annotations, and an
+// image-only message is a valid turn.
+func TestNormalizeC2CImagePreScreen(t *testing.T) {
+	data := c2cEvent("m-img-1", "U1", "look")
+	data.Attachments = []*dto.MessageAttachment{
+		{URL: "https://multimedia.qq.com/pic.jpg", FileName: "pic.jpg", ContentType: "image/jpeg"},
+		{URL: "https://multimedia.qq.com/notes.txt", FileName: "notes.txt", ContentType: "text/plain"},
+	}
+	msg, refs, publishable := normalizeC2C(data)
+	if !publishable {
+		t.Fatal("text + media message must be publishable")
+	}
+	if len(refs) != 1 || refs[0].url != "https://multimedia.qq.com/pic.jpg" || refs[0].name != "pic.jpg" {
+		t.Fatalf("image refs = %+v", refs)
+	}
+	if len(msg.Parts) != 2 || msg.Parts[0].Text != "look" || msg.Parts[1].Text != "[file: notes.txt]" {
+		t.Fatalf("parts = %+v, want text then the file annotation", msg.Parts)
+	}
+
+	imageOnly := c2cEvent("m-img-2", "U1", "")
+	imageOnly.Attachments = []*dto.MessageAttachment{
+		{URL: "https://multimedia.qq.com/pic.png", FileName: "pic.png", ContentType: "image/png"},
+	}
+	if msg, refs, ok := normalizeC2C(imageOnly); !ok || len(refs) != 1 || len(msg.Parts) != 0 {
+		t.Fatalf("image-only: ok=%v refs=%d parts=%+v", ok, len(refs), msg.Parts)
+	}
+}
+
+// TestInboundImageDownloadsWithAuthHeaders: the handler downloads image
+// attachments through the governed transport carrying X-Union-Appid and
+// the bearer token; a failed download keeps the text and the annotation.
+func TestInboundImageDownloadsWithAuthHeaders(t *testing.T) {
+	var gotAuth, gotAppid atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth.Store(r.Header.Get("Authorization"))
+		gotAppid.Store(r.Header.Get("X-Union-Appid"))
+		_, _ = w.Write(stubQQImageBytes)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+	data := c2cEvent("m-dl-1", "U1", "look")
+	data.Attachments = []*dto.MessageAttachment{
+		{URL: srv.URL + "/pic.jpg", FileName: "pic.jpg", ContentType: "image/jpeg"},
+	}
+	h.dispatch(t, 1, data)
+	waitFor(t, "downloaded envelope", func() bool { return len(h.env.snapshot()) == 1 })
+
+	env1 := h.env.snapshot()[0]
+	if len(env1.Parts) != 3 ||
+		env1.Parts[1].Text != "[image: pic.jpg]" ||
+		env1.Parts[2].Kind != plugin.PartMedia ||
+		string(env1.Parts[2].Media.Data) != string(stubQQImageBytes) {
+		t.Fatalf("envelope parts = %+v", env1.Parts)
+	}
+	if auth, _ := gotAuth.Load().(string); auth != "QQBot "+stubAccessToken {
+		t.Fatalf("Authorization = %q, want the bearer token", auth)
+	}
+	if appid, _ := gotAppid.Load().(string); appid == "" {
+		t.Fatal("X-Union-Appid header missing")
+	}
+}
+
+// TestGroupImagePreScreenAndDownload: group AT messages carry the same
+// media pipeline behind the mention gate.
+func TestGroupImagePreScreenAndDownload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(stubQQImageBytes)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+	data := &groupATMessage{
+		ID: "gm-img-1", Content: "look", GroupOpenID: "GROUP1",
+		Author: groupAuthor("MEMBER1"),
+		Attachments: []*groupAttachment{
+			{URL: srv.URL + "/pic.jpg", FileName: "pic.jpg", ContentType: "image/jpeg"},
+		},
+	}
+	f := h.spy.nth(0)
+	if f.onGroup == nil {
+		t.Fatal("group handler not registered")
+	}
+	if err := f.onGroup(wsPayload(1), data); err != nil {
+		t.Fatalf("dispatch group event: %v", err)
+	}
+	waitFor(t, "group media envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env1 := h.env.snapshot()[0]
+	if env1.ChatID != "GROUP1" || len(env1.Parts) != 3 ||
+		env1.Parts[2].Kind != plugin.PartMedia ||
+		string(env1.Parts[2].Media.Data) != string(stubQQImageBytes) {
+		t.Fatalf("group envelope = %+v", env1)
+	}
+}
+
+// TestSendMediaTwoStep: each image uploads through /files (file_type 1,
+// base64 file_data) and leaves as one msg_type=7 passive reply carrying
+// the returned handle verbatim.
+func TestSendMediaTwoStep(t *testing.T) {
+	lb := newLoopback(t)
+	// The media surface lives on the governed client (the production
+	// factory), so this harness pins it and repoints the token/API
+	// endpoints at the loopback server.
+	h := newHarness(t, validSettings)
+	h.p.newAPI = func(appID string, ts oauth2.TokenSource, sandbox bool) qqAPI {
+		return newGovernedQQAPI(h.env, appID, ts, sandbox)
+	}
+	oldTokenURL, oldAPIBase := qqTokenURL, qqAPIBaseURL
+	qqTokenURL = lb.srv.URL + "/token"
+	qqAPIBaseURL = lb.srv.URL
+	t.Cleanup(func() { qqTokenURL, qqAPIBaseURL = oldTokenURL, oldAPIBase })
+	lb.serveToken()
+	h.start(t)
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "hello"))
+
+	ids, err := h.p.SendMedia(context.Background(), "OPENID1", []plugin.Part{
+		{Kind: plugin.PartText, Text: "ignored"},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "pic.jpg", MimeType: "image/jpeg", Data: stubQQImageBytes}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "empty.jpg", MimeType: "image/jpeg"}}, // skipped
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("ids = %v, want one rich-media id", ids)
+	}
+	sent := lb.sent()
+	if len(sent) != 2 {
+		t.Fatalf("requests = %d, want one upload plus one rich post", len(sent))
+	}
+	if !strings.HasSuffix(sent[0].path, "/v2/users/OPENID1/files") {
+		t.Fatalf("upload path = %s, want the /files endpoint", sent[0].path)
+	}
+	var uploadBody struct {
+		FileType int    `json:"file_type"`
+		FileData string `json:"file_data"`
+	}
+	if err := json.Unmarshal(sent[0].body, &uploadBody); err != nil {
+		t.Fatalf("decode upload body: %v", err)
+	}
+	if uploadBody.FileType != 1 {
+		t.Fatalf("file_type = %d, want 1 (image)", uploadBody.FileType)
+	}
+	if decoded, derr := base64.StdEncoding.DecodeString(uploadBody.FileData); derr != nil ||
+		string(decoded) != string(stubQQImageBytes) {
+		t.Fatalf("file_data does not round-trip the image bytes (err=%v)", derr)
+	}
+	if !strings.HasSuffix(sent[1].path, "/v2/users/OPENID1/messages") {
+		t.Fatalf("rich path = %s, want the messages endpoint", sent[1].path)
+	}
+	if !bytes.Contains(sent[1].body, []byte(`"file_info":"LB-FILE-1"`)) {
+		t.Fatalf("rich body = %s, want the raw file_info handle", sent[1].body)
+	}
+	if !bytes.Contains(sent[1].body, []byte(`"msg_type":7`)) || !bytes.Contains(sent[1].body, []byte(`"msg_id":"in-1"`)) {
+		t.Fatalf("rich body = %s, want msg_type 7 anchored to the inbound window", sent[1].body)
+	}
+}
+
+// TestSendMediaFailPaths: oversize bytes and a non-image claim reject
+// before any upload; an upload failure surfaces for the ledger to retry.
+func TestSendMediaFailPaths(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+	h.dispatch(t, 7, c2cEvent("in-1", "U1", "hello"))
+
+	oversize := plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+		Name: "big.jpg", MimeType: "image/jpeg", Data: bytes.Repeat([]byte{0x00}, 5<<20+1)}}
+	if _, err := h.p.SendMedia(context.Background(), "U1", []plugin.Part{oversize}); err == nil {
+		t.Fatal("oversize media must reject")
+	}
+	notImage := plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+		Name: "x.txt", MimeType: "text/plain", Data: []byte("x")}}
+	if _, err := h.p.SendMedia(context.Background(), "U1", []plugin.Part{notImage}); err == nil {
+		t.Fatal("a non-image claim must reject")
+	}
+	h.api.uploadErr = errors.New("upload refused")
+	if _, err := h.p.SendMedia(context.Background(), "U1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "ok.jpg", MimeType: "image/jpeg", Data: stubQQImageBytes}},
+	}); err == nil {
+		t.Fatal("an upload failure must surface")
+	}
+	// No request may have landed on the message endpoints.
+	if n := h.api.c2cCount(); n != 0 {
+		t.Fatalf("c2c posts = %d, want 0 (rich media rides its own calls)", n)
+	}
 }

@@ -15,9 +15,10 @@ export const RPC_METHODS = [
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'tools/list', 'tools/set-active',
   'channel/inspect', 'channel/get', 'channel/update',
+  'channel/deliveries/list', 'channel/deliveries/redeliver',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
-	'workspace/browse',
+  'workspace/browse',
   'skills/list', 'skills/get', 'skills/set-enabled',
   'skills/marketplace/search', 'skills/marketplace/featured', 'skills/marketplace/install',
 ] as const;
@@ -452,6 +453,9 @@ export interface ChannelStatus {
   token_env_set: boolean;
   /** 启动跳过/失败原因；空串 = 已启动（或尚未启动过）。 */
   note: string;
+  /** 已启动且实现 HealthChecker 的适配器的实时健康探测（CH-R-1）；
+   *  null = 未启动或无健康面。class ∈ rate-limit / temporary / dead。 */
+  health: { ok: boolean; class?: string; detail?: string } | null;
 }
 
 /**
@@ -481,6 +485,29 @@ export const inspectChannels = () => request<ChannelStatus[]>('channel/inspect')
 export const getChannel = (name: string) => request<ChannelEnvelope>('channel/get', { name });
 export const updateChannel = (name: string, patch: ChannelUpdateInput) =>
   request<ChannelEnvelope>('channel/update', { name, ...patch });
+
+/**
+ * channel/deliveries/list 条目：一条失败投递意图（attempts 预算耗尽后被
+ * 停为 failed 的行）。只含标识符——回复正文留在消息日志里（D-010）。
+ */
+export interface ChannelDelivery {
+  run_id: string;
+  session_id: string;
+  channel: string;
+  chat_id: string;
+  topic_id: string;
+  state: string;
+  attempts: number;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+/** 失败投递列表（操作员可见的台账面；armed/pending 是 Host 内部态，不外露）。 */
+export const listChannelDeliveries = () =>
+  request<{ deliveries: ChannelDelivery[] }>('channel/deliveries/list');
+/** 重投一条失败投递：保留累计 attempts，预算不变——每次点击恰好一次投递。 */
+export const redeliverChannelDelivery = (runId: string) =>
+  request<{ run_id: string; redelivered: boolean }>('channel/deliveries/redeliver', { run_id: runId });
 
 // ==================== Token Usage Stats ====================
 

@@ -92,6 +92,46 @@ func TestRunWithoutProvenanceKeepsUISource(t *testing.T) {
 	}
 }
 
+// TestRunWithHeadlessProvenanceAccepted: headless is a vocabulary member
+// (CH-C1-N4) — vivy run turns persist with Source=headless.
+func TestRunWithHeadlessProvenanceAccepted(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	runID, err := svc.RunWithOptions(context.Background(), "sess-headless-1", "hello vivy", RunOptions{
+		Provenance: &domain.Provenance{Source: domain.SourceHeadless},
+	})
+	if err != nil {
+		t.Fatalf("run with headless provenance: %v", err)
+	}
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	msgs, err := backend.ListMessages(context.Background(), "sess-headless-1")
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) == 0 || msgs[0].Source != domain.SourceHeadless {
+		t.Fatalf("headless turn Source = %+v, want %q", msgs, domain.SourceHeadless)
+	}
+}
+
+// TestRunWithUnknownProvenanceSourceRejected covers the vocabulary failure
+// path (CH-C1-N4): a non-nil Provenance whose Source is outside the closed
+// ui|channel|headless set is rejected before anything is persisted.
+func TestRunWithUnknownProvenanceSourceRejected(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	_, err := svc.RunWithOptions(context.Background(), "sess-bad-2", "hello vivy", RunOptions{
+		Provenance: &domain.Provenance{Source: "telegram"},
+	})
+	if err == nil {
+		t.Fatal("run with out-of-vocabulary provenance source: want error, got nil")
+	}
+	msgs, listErr := backend.ListMessages(context.Background(), "sess-bad-2")
+	if listErr != nil {
+		t.Fatalf("list messages: %v", listErr)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("rejected run left messages behind: %+v", msgs)
+	}
+}
+
 // TestRunWithEmptyProvenanceSourceRejected covers the failure path: a
 // non-nil Provenance with an empty Source is rejected before anything is
 // persisted.

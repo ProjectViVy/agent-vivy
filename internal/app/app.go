@@ -602,14 +602,42 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			return nil, err
 		}
 		channelHost = channelhost.New(channelhost.Deps{
-			Journal:  backend,
-			Messages: backend,
-			Sessions: backend,
-			Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+			Journal:    backend,
+			Messages:   backend,
+			Sessions:   backend,
+			Deliveries: backend,
+			RunPrepared: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance, prepare channelhost.PrepareRunFunc) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
-				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+				// Channel inbound media (channel tier 2) rides the same
+				// RunOptions.Attachments contract as the UI boundary. The
+				// RPC path rejects images for a model without vision; the
+				// channel path cannot bounce a platform message, so it
+				// degrades visibly instead: attachments drop with a
+				// warning and the text still runs.
+				if len(attachments) > 0 {
+					if info := svc.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
+						channel := ""
+						if prov != nil {
+							channel = prov.Channel
+						}
+						logger.Warn("app: dropping channel image attachments; the active model does not support images",
+							"session", string(sessionID), "channel", channel, "attachments", len(attachments))
+						attachments = nil
+					}
+				}
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{
+					Provenance: prov, Attachments: attachments, BeforeStart: prepare,
+				})
+			},
+			Approvals: backend,
+			Runs:      backend,
+			DecideApproval: func(ctx context.Context, approvalID, decision, actor string) error {
+				if svc == nil {
+					return errors.New("app: runtime service is not wired")
+				}
+				return svc.DecideApprovalAsActor(ctx, approvalID, decision, "", actor)
 			},
 			Channels:    channelPlugins,
 			Config:      cfg.Channels,
@@ -1029,6 +1057,16 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if err := svc.Recover(ctx); err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: restart recovery: %w", err)
+	}
+	// Channel inbound retention (CH-C3-N1): chanin_* provenance events are
+	// bounded operational records, pruned once per process start. A prune
+	// failure never blocks startup — the next start retries it.
+	if maint, ok := backend.(storage.ChannelMaintenanceStore); ok {
+		if n, err := maint.PruneChannelInboundEvents(ctx, time.Now().Add(-storage.ChannelInboundRetention)); err != nil {
+			logger.Warn("channel inbound event prune failed", "err", err)
+		} else if n > 0 {
+			logger.Info("channel inbound events pruned", "rows", n)
+		}
 	}
 	// Start the channel ears before the server listens (C3). Unconfigured
 	// and disabled channels are skipped; empty allow_from refuses Start
