@@ -25,6 +25,15 @@ type mediaChannel struct {
 	failNext int
 }
 
+// capabilitySourceChannel models the production assembly wrapper: the base
+// Channel lives on the wrapper while optional capabilities live on its target.
+type capabilitySourceChannel struct {
+	plugin.Channel
+	target any
+}
+
+func (c *capabilitySourceChannel) CapabilityTarget() any { return c.target }
+
 func (m *mediaChannel) SendMedia(_ context.Context, chatID string, parts []plugin.Part) ([]string, error) {
 	m.mu.Lock()
 	m.total++
@@ -79,6 +88,7 @@ func waitDeliverySettled(t *testing.T, h *Host, runID domain.RunID) {
 // SendMedia in one batch; success deletes the intent.
 func TestOutboundMediaRidesTheDeliveryLedger(t *testing.T) {
 	mc := &mediaChannel{Channel: fake.New()}
+	bound := &capabilitySourceChannel{Channel: mc.Channel, target: mc}
 	media := []domain.Attachment{
 		{Name: "photo-1.jpg", MimeType: "image/jpeg", Data: mediaTestJPEG()},
 	}
@@ -106,7 +116,7 @@ func TestOutboundMediaRidesTheDeliveryLedger(t *testing.T) {
 		Sessions:   backend,
 		Deliveries: backend,
 		Run:        run,
-		Channels:   []plugin.Channel{mc},
+		Channels:   []plugin.Channel{bound},
 		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
 		Logger:     testLogger(),
 	})

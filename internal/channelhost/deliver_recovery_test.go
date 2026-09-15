@@ -487,3 +487,117 @@ func TestDeliveryAttemptsExhaustedMarksFailed(t *testing.T) {
 		t.Fatalf("failing channel recorded sends: %+v", got)
 	}
 }
+
+
+// TestRecoveryLeavesPendingIntentWhenPluginMissing keeps the durable row
+// untouched. A temporarily uninstalled plugin must not panic startup or
+// consume the retry budget; reinstalling it on a later boot can recover.
+func TestRecoveryLeavesPendingIntentWhenPluginMissing(t *testing.T) {
+	backend := openBackend(t)
+	sessionID := ChannelSessionID("removed", "chat-1", "")
+	runID := domain.RunID("run-plugin-missing")
+	now := time.Now().UnixMilli()
+	if err := backend.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
+		RunID: runID, SessionID: sessionID, Channel: "removed", ChatID: "chat-1",
+		State: storage.ChannelDeliveryPending, Attempts: outboundDeliveryAttempts,
+		CreatedAtMs: now, UpdatedAtMs: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	host := New(Deps{
+		Journal: backend, Messages: backend, Sessions: backend, Deliveries: backend,
+		Run: (&runRecorder{messages: backend}).run, Logger: testLogger(),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start host: %v", err)
+	}
+	open := openIntent(t, backend)
+	if len(open) != 1 || open[0].RunID != runID ||
+		open[0].State != storage.ChannelDeliveryPending ||
+		open[0].Attempts != outboundDeliveryAttempts {
+		t.Fatalf("missing-plugin recovery mutated intent: %+v", open)
+	}
+}
+
+// TestRecoveryLeavesPendingIntentWhenChannelDisabled proves that compiled is
+// not equivalent to running. Recovery waits for a later boot that actually
+// starts the adapter instead of sending through a disabled instance.
+func TestRecoveryLeavesPendingIntentWhenChannelDisabled(t *testing.T) {
+	backend := openBackend(t)
+	sessionID := ChannelSessionID("fake", "chat-1", "")
+	runID := domain.RunID("run-channel-disabled")
+	now := time.Now().UnixMilli()
+	if err := backend.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
+		RunID: runID, SessionID: sessionID, Channel: "fake", ChatID: "chat-1",
+		State: storage.ChannelDeliveryPending, Attempts: 1,
+		CreatedAtMs: now, UpdatedAtMs: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seedReply(t, backend, sessionID, runID)
+	ch := fake.New()
+	host := New(Deps{
+		Journal: backend, Messages: backend, Sessions: backend, Deliveries: backend,
+		Run: (&runRecorder{messages: backend}).run,
+		Channels: []plugin.Channel{ch},
+		Config: config.Channels{"fake": {Enabled: false}},
+		Logger: testLogger(),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start host: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if sent := ch.Snapshot(); len(sent) != 0 {
+		t.Fatalf("disabled channel sent recovered reply: %+v", sent)
+	}
+	open := openIntent(t, backend)
+	if len(open) != 1 || open[0].RunID != runID ||
+		open[0].State != storage.ChannelDeliveryPending || open[0].Attempts != 1 {
+		t.Fatalf("disabled-channel recovery mutated intent: %+v", open)
+	}
+}
+
+// TestFastTerminalBeforeRunReturnsIsDelivered reproduces the ordering race:
+// a runtime may publish a terminal event before Run returns. The host must
+// have registered and durably armed the target before that event is visible.
+func TestFastTerminalBeforeRunReturnsIsDelivered(t *testing.T) {
+	backend := openBackend(t)
+	ch := fake.New()
+	ch.Publish = func(context.Context, plugin.ChannelEnv) error { return nil }
+	var host *Host
+	run := func(ctx context.Context, sessionID domain.SessionID, _ string, _ []domain.Attachment, _ *domain.Provenance) (domain.RunID, error) {
+		runID := domain.RunID("run-fast-terminal")
+		if err := backend.AppendMessage(ctx, domain.Message{
+			ID: "msg-fast-terminal", SessionID: sessionID, RunID: runID,
+			Role: domain.RoleAssistant, Content: "fast reply", CreatedAt: time.Now().UnixMilli(),
+		}); err != nil {
+			return "", err
+		}
+		host.OnRunEvent(ctx, domain.RunEvent{
+			RunID: runID, Type: domain.EventRunCompleted,
+			CreatedAt: time.Now().UnixMilli(), PayloadVersion: 1,
+		})
+		return runID, nil
+	}
+	host = New(Deps{
+		Journal: backend, Messages: backend, Sessions: backend, Deliveries: backend,
+		Run: run, Channels: []plugin.Channel{ch},
+		Config: config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger: testLogger(),
+	})
+	if err := host.StartAll(context.Background()); err != nil {
+		t.Fatalf("start host: %v", err)
+	}
+	publishHello(t, host, ch, "m-fast-terminal")
+	deadline := time.Now().Add(time.Second)
+	for len(ch.Snapshot()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sent := ch.Snapshot()
+	if len(sent) != 1 || sent[0].Parts[0].Text != "fast reply" {
+		t.Fatalf("fast terminal delivery = %+v, want one reply", sent)
+	}
+	if open := openIntent(t, backend); len(open) != 0 {
+		t.Fatalf("fast terminal left durable intent open: %+v", open)
+	}
+}
