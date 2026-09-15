@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/app/settings"
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/channelhost/fake"
 	"agent-vivy/internal/config"
@@ -3478,7 +3479,7 @@ func TestTurnStartAttachmentsValidationAndRoundTrip(t *testing.T) {
 		}},
 		{"oversize", map[string]any{
 			"session_id": sessionID, "text": "hi",
-			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, maxAttachmentBytes+1))}},
+			"attachments": []map[string]string{{"mime_type": "image/png", "data": base64.StdEncoding.EncodeToString(make([]byte, attachment.MaxBytes+1))}},
 		}},
 		{"too many", map[string]any{
 			"session_id": sessionID, "text": "hi",
@@ -3634,7 +3635,7 @@ func TestAttachmentPathsFlowAndMessageDTOConsistency(t *testing.T) {
 		t.Fatalf("metadata-only attachment = %+v", metadataMessage)
 	}
 
-	inline := make([]map[string]string, maxAttachmentCount)
+	inline := make([]map[string]string, attachment.MaxCount)
 	for index := range inline {
 		inline[index] = map[string]string{
 			"name":      fmt.Sprintf("inline-%d.png", index),
