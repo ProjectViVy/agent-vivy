@@ -32,8 +32,8 @@ var outboundDeliveryRetryDelay = 2 * time.Second
 
 // outboundTarget remembers where a channel run's reply must land.
 type outboundTarget struct {
-	runID     domain.RunID
-	sessionID domain.SessionID
+	runID       domain.RunID
+	sessionID   domain.SessionID
 	chatID      string
 	topicID     string
 	channelName string
