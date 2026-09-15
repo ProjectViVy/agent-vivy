@@ -13,7 +13,8 @@ type Capabilities struct {
 	Edit bool
 	// Delete maps plugin.MessageDeleter ("delivery": delete).
 	Delete bool
-	// Reaction maps plugin.ReactionSender ("交互": emoji reaction).
+	// Reaction maps plugin.ReactionSender + plugin.ReactionRemover
+	// ("交互": emoji reaction with withdrawal).
 	Reaction bool
 	// Placeholder maps plugin.Placeholder ("交互": replaceable working message).
 	Placeholder bool
@@ -79,7 +80,12 @@ func Discover(ch plugin.Channel) Capabilities {
 		c.Delete = true
 	}
 	if _, ok := target.(plugin.ReactionSender); ok {
-		c.Reaction = true
+		// The reaction ack contract includes the withdrawal half: only an
+		// adapter with both faces advertises Reaction, so an advertised ack
+		// can always be undone when the turn settles.
+		if _, canRemove := target.(plugin.ReactionRemover); canRemove {
+			c.Reaction = true
+		}
 	}
 	if _, ok := target.(plugin.Placeholder); ok {
 		c.Placeholder = true
