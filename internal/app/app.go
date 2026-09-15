@@ -606,7 +606,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Messages:   backend,
 			Sessions:   backend,
 			Deliveries: backend,
-			Run: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error) {
+			RunPrepared: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance, prepare channelhost.PrepareRunFunc) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
@@ -627,7 +627,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 						attachments = nil
 					}
 				}
-				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov, Attachments: attachments})
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{
+					Provenance: prov, Attachments: attachments, BeforeStart: prepare,
+				})
 			},
 			Approvals: backend,
 			Runs:      backend,
