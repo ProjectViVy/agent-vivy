@@ -16,12 +16,12 @@ import (
 // TestChannelProvidersAdvertiseExactlyTheirAdapterSurface pins the gate-0
 // forwarding fix for the five compiled ears: capability discovery follows
 // the CapabilitySource seam through the full bind chain (boundChannel ->
-// providerChannel) and reports the adapter's own method set. The v1
-// text-only cut implements no optional interface, so every ear advertises
-// the zero set today. When a batch lands a real capability on an adapter
-// (tier1's CH-R-1 HealthChecker is first), this expectation flips with it —
-// the advertised set must always be exactly the adapter's surface, never a
-// wrapper's. The rune ceilings pin the outbound split bound each
+// providerChannel) and reports the adapter's own method set. CH-R-1 gave
+// every adapter a HealthChecker, so each ear advertises exactly
+// {Health: true} today — as the gate-0 record anticipated on rebase. When a
+// batch lands a real capability on an adapter, this expectation flips with
+// it — the advertised set must always be exactly the adapter's surface,
+// never a wrapper's. The rune ceilings pin the outbound split bound each
 // Definition declares (sources in the module_v1.go comments).
 func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 	ears := []struct {
@@ -30,11 +30,11 @@ func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 		want     channelhost.Capabilities
 		runes    int
 	}{
-		{"dingtalk", dingtalk.NewProvider(), channelhost.Capabilities{}, 5000},
-		{"discord", discord.NewProvider(), channelhost.Capabilities{}, 2000},
-		{"feishu", feishu.NewProvider(), channelhost.Capabilities{}, 37500},
-		{"qq", qq.NewProvider(), channelhost.Capabilities{}, 2000},
-		{"telegram", telegram.NewProvider(), channelhost.Capabilities{}, 4096},
+		{"dingtalk", dingtalk.NewProvider(), channelhost.Capabilities{Health: true}, 5000},
+		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true}, 2000},
+		{"feishu", feishu.NewProvider(), channelhost.Capabilities{Health: true}, 37500},
+		{"qq", qq.NewProvider(), channelhost.Capabilities{Health: true}, 2000},
+		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true}, 4096},
 	}
 	for _, ear := range ears {
 		if got := ear.provider.Definition().MaxMessageRunes; got != ear.runes {
