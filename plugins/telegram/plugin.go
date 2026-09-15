@@ -197,11 +197,15 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send implements plugin.Channel: deliver each text part as one plain-text
-// sendMessage and return the platform message ids produced.
+// Send implements plugin.Channel: deliver each text part as one sendMessage
+// and return the platform message ids produced.
 //
-// OutboundMessage.ReplyTo and TopicID are ignored this slice — private-chat
-// text has no reply threading or forum topics in the first cut. Non-text
+// Text parts carry the model's markdown: each part is converted to
+// Telegram's HTML subset and sent with parse_mode=HTML (tier-1 text loop).
+// When the platform rejects the formatted body, the same chunk is resent
+// as plain text, so a parse rejection degrades the formatting, never the
+// reply. OutboundMessage.ReplyTo and TopicID are ignored this slice —
+// reply threading and forum topics land with the group feature. Non-text
 // parts are skipped (media is a later slice); an envelope with no text
 // parts sends nothing and returns no ids.
 func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string, error) {
@@ -220,14 +224,22 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		// ParseMode is intentionally left unset: plain text only, no
-		// MarkdownV2/HTML suite this slice.
 		sent, err := p.bot.SendMessage(ctx, &telego.SendMessageParams{
-			ChatID: telego.ChatID{ID: chatID},
-			Text:   part.Text,
+			ChatID:    telego.ChatID{ID: chatID},
+			Text:      markdownToHTML(part.Text),
+			ParseMode: telego.ModeHTML,
 		})
 		if err != nil {
-			return ids, fmt.Errorf("telegram: send message to chat %d: %w", chatID, err)
+			// The platform refused the formatted body — degrade this one
+			// chunk to plain text instead of dropping the reply; only a
+			// plain-text failure surfaces.
+			sent, err = p.bot.SendMessage(ctx, &telego.SendMessageParams{
+				ChatID: telego.ChatID{ID: chatID},
+				Text:   part.Text,
+			})
+			if err != nil {
+				return ids, fmt.Errorf("telegram: send message to chat %d: %w", chatID, err)
+			}
 		}
 		ids = append(ids, strconv.Itoa(sent.MessageID))
 	}

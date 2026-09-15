@@ -37,6 +37,11 @@ type Settings struct {
 	// Default false. The websocket gateway URL is discovered through the
 	// same client, so one switch moves both. Default false (production).
 	Sandbox bool `json:"sandbox"`
+	// Markdown sends outbound replies as QQ native markdown (msg_type 2)
+	// instead of plain text. Default false: most robots lack the markdown
+	// permission, so the flag is opt-in — a platform rejection still
+	// degrades the chunk to plain text (tier-1 text loop ruling).
+	Markdown bool `json:"markdown"`
 }
 
 // DecodeSettings decodes the raw settings JSON handed over by the Host

@@ -114,6 +114,10 @@ type telegramStub struct {
 	sends   chan sendMessageCall
 	sendSeq atomic.Int64
 
+	// sendFailures counts remaining sendMessage rejections for the
+	// formatted-send fallback tests.
+	sendFailures atomic.Int64
+
 	actions chan chatActionCall
 }
 
@@ -163,6 +167,10 @@ func newTelegramStub(t *testing.T) *telegramStub {
 				return
 			}
 			stub.sends <- call
+			if stub.sendFailures.Add(-1) >= 0 {
+				writeTelegramError(w, "Bad Request: can't parse entities")
+				return
+			}
 			writeTelegramOK(w, map[string]any{
 				"message_id": stub.sendSeq.Add(1),
 				"chat":       map[string]any{"id": 1, "type": "private"},
@@ -187,6 +195,10 @@ func newTelegramStub(t *testing.T) *telegramStub {
 
 // pushUpdates queues one update batch; the next getUpdates call returns it.
 func (s *telegramStub) pushUpdates(batch []map[string]any) { s.updates <- batch }
+
+// failNextSends makes the next n sendMessage calls answer with the
+// platform's parse rejection (the formatted-send failure stand-in).
+func (s *telegramStub) failNextSends(n int64) { s.sendFailures.Add(n) }
 
 // waitForSend reads one recorded sendMessage call.
 func (s *telegramStub) waitForSend(t *testing.T) sendMessageCall {
@@ -497,8 +509,8 @@ func TestSendPlainText(t *testing.T) {
 	first := stub.waitForSend(t)
 	second := stub.waitForSend(t)
 	for _, call := range []sendMessageCall{first, second} {
-		if string(call.ChatID) != "123456" || call.ParseMode != "" {
-			t.Fatalf("sendMessage call = %+v, want numeric chat id and no parse_mode", call)
+		if string(call.ChatID) != "123456" || call.ParseMode != "HTML" {
+			t.Fatalf("sendMessage call = %+v, want numeric chat id and parse_mode HTML", call)
 		}
 	}
 	if first.Text != "first" || second.Text != "second" {
@@ -534,6 +546,32 @@ func TestSendIsIdempotentAfterStop(t *testing.T) {
 	// The call may succeed (loopback race) or fail with a context error;
 	// the contract is "no panic, no deadlock".
 	_, _ = p.Send(context.Background(), plugin.OutboundMessage{ChatID: "123456", Parts: []plugin.Part{{Kind: plugin.PartText, Text: "after stop"}}})
+}
+
+// TestSendMarkdownWithPlainFallback: a formatted send the platform rejects
+// (entity parse failure) degrades to the same chunk resent as plain text —
+// the reply is lost only if plain text fails too.
+func TestSendMarkdownWithPlainFallback(t *testing.T) {
+	stub := newTelegramStub(t)
+	stub.failNextSends(1)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	ids, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "123456",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "**bold** and <raw>"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("send with fallback = ids %v err %v, want one delivered id", ids, err)
+	}
+
+	formatted := stub.waitForSend(t)
+	if formatted.ParseMode != "HTML" || formatted.Text != "<b>bold</b> and &lt;raw&gt;" {
+		t.Fatalf("formatted call = %+v, want the HTML body with parse_mode", formatted)
+	}
+	fallback := stub.waitForSend(t)
+	if fallback.ParseMode != "" || fallback.Text != "**bold** and <raw>" {
+		t.Fatalf("fallback call = %+v, want the raw markdown without parse_mode", fallback)
+	}
 }
 
 // TestTypingSendsChatAction: plugin.Typing sends one "typing" chat action

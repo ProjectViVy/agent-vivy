@@ -534,11 +534,11 @@ func TestDecodeSettings(t *testing.T) {
 		}
 	})
 	t.Run("fields decode and trim", func(t *testing.T) {
-		s, err := DecodeSettings(json.RawMessage(`{"app_id_env":" A ","app_secret_env":" B ","sandbox":true}`))
+		s, err := DecodeSettings(json.RawMessage(`{"app_id_env":" A ","app_secret_env":" B ","sandbox":true,"markdown":true}`))
 		if err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if s.AppIDEnv != "A" || s.AppSecretEnv != "B" || !s.Sandbox {
+		if s.AppIDEnv != "A" || s.AppSecretEnv != "B" || !s.Sandbox || !s.Markdown {
 			t.Fatalf("settings = %+v", s)
 		}
 	})
@@ -899,6 +899,9 @@ type loopbackServer struct {
 	requests []recordedRequest
 	c2cCode  int // status the /v2/users/... handler answers with
 	c2cBody  string
+	// failMarkdown rejects msg_type 2 posts with the platform's markdown
+	// rejection while text posts succeed (the fallback stand-in).
+	failMarkdown bool
 }
 
 type recordedRequest struct {
@@ -929,6 +932,9 @@ func newLoopback(t *testing.T) *loopbackServer {
 			body:   body,
 		})
 		code, bodyText := lb.c2cCode, lb.c2cBody
+		if lb.failMarkdown && bytes.Contains(body, []byte(`"msg_type":2`)) {
+			code, bodyText = http.StatusBadRequest, `{"code":11253,"message":"markdown not allowed","trace_id":"t-1"}`
+		}
 		lb.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
@@ -953,6 +959,13 @@ func (lb *loopbackServer) setC2C(code int, body string) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.c2cCode, lb.c2cBody = code, body
+}
+
+// rejectMarkdown turns on the markdown rejection mode.
+func (lb *loopbackServer) rejectMarkdown() {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.failMarkdown = true
 }
 
 // newRealAPIHarness wires a plugin with the PRODUCTION OpenAPI factory
@@ -1541,5 +1554,66 @@ func TestTypingInputNotifyLoopback(t *testing.T) {
 	}
 	if body.InputNotify == nil || body.InputNotify.InputType != 1 || body.InputNotify.InputSecond != 10 {
 		t.Fatalf("input_notify = %+v, want input_type 1 for 10s", body.InputNotify)
+	}
+}
+
+// TestSendMarkdownFlagWithFallback: with settings.markdown the reply goes
+// out as msg_type 2 native markdown anchored to the passive window; a
+// platform rejection (most robots lack the markdown permission) retries
+// the same chunk as plain text — burning one seq on the way, which the
+// platform's (msg_id, msg_seq) dedup treats as a normal gap.
+func TestSendMarkdownFlagWithFallback(t *testing.T) {
+	lb := newLoopback(t)
+	lb.rejectMarkdown()
+	markdownSettings := `{"app_id_env":"` + stubAppIDEnvName + `","app_secret_env":"` + stubAppSecretEnvName + `","markdown":true}`
+	h := newRealAPIHarness(t, markdownSettings)
+	h.start(t)
+
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "hello"))
+	ids, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "OPENID1",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "**bold**"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("send with fallback = ids %v err %v, want one delivered id", ids, err)
+	}
+	sent := lb.sent()
+	if len(sent) != 2 {
+		t.Fatalf("c2c posts = %d, want the markdown attempt plus the text fallback", len(sent))
+	}
+
+	var mdBody struct {
+		MsgType  *int `json:"msg_type"`
+		Markdown *struct {
+			Content string `json:"content"`
+		} `json:"markdown"`
+		MsgID  string `json:"msg_id"`
+		MsgSeq int    `json:"msg_seq"`
+	}
+	if err := json.Unmarshal(sent[0].body, &mdBody); err != nil {
+		t.Fatalf("markdown body decode: %v (%s)", err, sent[0].body)
+	}
+	if mdBody.MsgType == nil || *mdBody.MsgType != 2 {
+		t.Fatalf("markdown msg_type = %v, want 2", mdBody.MsgType)
+	}
+	if mdBody.Markdown == nil || mdBody.Markdown.Content != "**bold**" {
+		t.Fatalf("markdown body = %+v, want the native markdown content", mdBody.Markdown)
+	}
+	if mdBody.MsgID != "in-1" || mdBody.MsgSeq != 1 {
+		t.Fatalf("markdown window = %q seq %d, want in-1 seq 1", mdBody.MsgID, mdBody.MsgSeq)
+	}
+
+	var txtBody struct {
+		Content string `json:"content"`
+		MsgSeq  int    `json:"msg_seq"`
+	}
+	if err := json.Unmarshal(sent[1].body, &txtBody); err != nil {
+		t.Fatalf("fallback body decode: %v (%s)", err, sent[1].body)
+	}
+	if txtBody.Content != "**bold**" {
+		t.Fatalf("fallback content = %q, want the raw markdown as plain text", txtBody.Content)
+	}
+	if txtBody.MsgSeq != 2 {
+		t.Fatalf("fallback seq = %d, want 2 (the rejected markdown burned one)", txtBody.MsgSeq)
 	}
 }

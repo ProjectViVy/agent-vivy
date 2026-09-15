@@ -212,6 +212,10 @@ type webhookStub struct {
 	server *httptest.Server
 	status int
 	ack    map[string]any
+	// markdownAck, when set, answers markdown-msgtype POSTs — the
+	// platform-rejects-markdown stand-in behind the plain-text fallback.
+	// Set before any traffic starts.
+	markdownAck map[string]any
 
 	mu    sync.Mutex
 	calls []webhookCall
@@ -246,10 +250,14 @@ func newWebhookStub(t *testing.T, status int, ack map[string]any) *webhookStub {
 			rawBody:    body,
 			httpClient: r.Header.Get("Content-Type"),
 		})
+		ack := stub.ack
+		if decoded.MsgType == "markdown" && stub.markdownAck != nil {
+			ack = stub.markdownAck
+		}
 		stub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(stub.status)
-		_ = json.NewEncoder(w).Encode(stub.ack)
+		_ = json.NewEncoder(w).Encode(ack)
 	})
 	stub.server = httptest.NewServer(mux)
 	t.Cleanup(stub.server.Close)
@@ -261,6 +269,9 @@ func (s *webhookStub) callsSnapshot() []webhookCall {
 	defer s.mu.Unlock()
 	return append([]webhookCall(nil), s.calls...)
 }
+
+// setMarkdownAck makes every markdown-msgtype POST answer with ack.
+func (s *webhookStub) setMarkdownAck(ack map[string]any) { s.markdownAck = ack }
 
 // TestDecodeSettings: valid decode, unknown field fails closed, absent or
 // malformed settings fail closed, both env_key names survive.
@@ -648,8 +659,11 @@ func TestSendPlainText(t *testing.T) {
 	}
 	for i, want := range []string{"first", "second"} {
 		call := calls[i]
-		if call.msgType != "text" || call.content != want {
-			t.Fatalf("webhook call %d = %+v, want text %q in robot text shape", i, call, want)
+		if call.msgType != "markdown" {
+			t.Fatalf("webhook call %d msgtype = %q, want the markdown first attempt", i, call.msgType)
+		}
+		if !strings.Contains(string(call.rawBody), want) {
+			t.Fatalf("webhook call %d body = %s, want %q in the markdown payload", i, call.rawBody, want)
 		}
 		if call.httpClient != "application/json" {
 			t.Fatalf("webhook call %d content type = %q", i, call.httpClient)
@@ -665,6 +679,41 @@ func TestSendPlainText(t *testing.T) {
 	}
 	if got := len(webhook.callsSnapshot()); got != 2 {
 		t.Fatalf("webhook calls = %d, want still 2", got)
+	}
+}
+
+// TestSendMarkdownFallsBackToPlainText: a markdown POST the robot rejects
+// (non-zero errcode on HTTP 200) is retried once in the text shape, and
+// only a text failure surfaces to the Host.
+func TestSendMarkdownFallsBackToPlainText(t *testing.T) {
+	webhook := newWebhookStub(t, http.StatusOK, map[string]any{"errcode": 0, "errmsg": "ok"})
+	webhook.setMarkdownAck(map[string]any{"errcode": 310000, "errmsg": "markdown rejected"})
+	env := envFor(t, `{"client_id_env":"ding-vivy-test-app-key","client_secret_env":"ding-vivy-test-app-secret-value"}`)
+	stream := newFakeStream(nil)
+	p, _ := startWithFake(t, env, stream)
+	handler, _, _ := stream.state()
+	data := textCallback()
+	data.SessionWebhook = webhook.server.URL + "/robot/send?access_token=sekret"
+	if _, err := handler(context.Background(), data); err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+
+	ids, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "cid-20:1",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "**bold** plan"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("send with fallback = ids %v err %v, want one delivered id", ids, err)
+	}
+	calls := webhook.callsSnapshot()
+	if len(calls) != 2 {
+		t.Fatalf("webhook calls = %d, want the markdown attempt plus the text fallback", len(calls))
+	}
+	if calls[0].msgType != "markdown" || !strings.Contains(string(calls[0].rawBody), "**bold** plan") {
+		t.Fatalf("call 0 = %+v, want the markdown attempt carrying the text", calls[0])
+	}
+	if calls[1].msgType != "text" || calls[1].content != "**bold** plan" {
+		t.Fatalf("call 1 = %+v, want the plain-text fallback", calls[1])
 	}
 }
 
@@ -1010,8 +1059,10 @@ func TestStreamLoopbackLifecycle(t *testing.T) {
 	}
 	select {
 	case call := <-stub.robotPosts:
-		if call.msgType != "text" || call.content != "hello human" {
-			t.Fatalf("robot post = %+v", call)
+		// The reply goes out as markdown first (tier-1 text loop); the
+		// webhookStub-level tests pin the payload and the fallback.
+		if call.msgType != "markdown" {
+			t.Fatalf("robot post = %+v, want the markdown first attempt", call)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("session webhook was never called")

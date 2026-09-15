@@ -150,6 +150,10 @@ type Plugin struct {
 	// api is the OpenAPI client used by Start (gateway discovery) and
 	// Send; non-nil once Start succeeded, nil after Stop or a failed Start.
 	api qqAPI
+	// markdown is the decoded settings.markdown flag (tier-1 text loop):
+	// outbound parts go out as QQ native markdown, degrading to plain text
+	// when the platform rejects the formatted body.
+	markdown bool
 	// tokenSource is the access-token source both SDK clients share.
 	tokenSource oauth2.TokenSource
 	// gatewayURL is the websocket gateway URL fetched once per Start;
@@ -325,6 +329,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	p.mu.Lock()
 	p.tokenSource = ts
 	p.api = api
+	p.markdown = settings.Markdown
 	p.gatewayURL = gatewayURL
 	p.runCtx = ctx
 	// Per-chat runtime state starts empty on every Start: a restarted
@@ -869,6 +874,7 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 	p.mu.Lock()
 	api := p.api
 	state := p.chats[msg.ChatID]
+	markdown := p.markdown
 	p.mu.Unlock()
 	if api == nil {
 		return nil, errors.New("qq: channel not started")
@@ -888,7 +894,19 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		messageID, err := p.sendText(ctx, api, state, msg.ChatID, part.Text)
+		var messageID string
+		var err error
+		if markdown {
+			// Native markdown first (tier-1 text loop); most robots lack
+			// the markdown permission, so a rejection degrades this one
+			// chunk to plain text instead of dropping the reply.
+			messageID, err = p.sendMarkdown(ctx, api, state, msg.ChatID, part.Text)
+			if err != nil {
+				messageID, err = p.sendText(ctx, api, state, msg.ChatID, part.Text)
+			}
+		} else {
+			messageID, err = p.sendText(ctx, api, state, msg.ChatID, part.Text)
+		}
 		if err != nil {
 			return ids, fmt.Errorf("qq: send message to chat %q: %w", msg.ChatID, err)
 		}
@@ -924,6 +942,36 @@ func (p *Plugin) sendText(ctx context.Context, api qqAPI, state *chatState, chat
 		MsgType: dto.TextMsg,
 		MsgID:   passiveID,
 		MsgSeq:  seq,
+	})
+	if err != nil {
+		return "", err
+	}
+	if sent == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(sent.ID), nil
+}
+
+// sendMarkdown posts one native-markdown passive reply through the same
+// C2C endpoint (msg_type 2, dto.Markdown.Content). The seq discipline is
+// the passive window's — the platform dedups on (msg_id, msg_seq), so a
+// rejected markdown send burns a seq exactly like a failed text send.
+// The plain Content field stays empty: the markdown body travels in
+// dto.Markdown only.
+func (p *Plugin) sendMarkdown(ctx context.Context, api qqAPI, state *chatState, chatID, text string) (string, error) {
+	p.mu.Lock()
+	passiveID := state.msgID
+	state.seq++
+	seq := state.seq
+	p.mu.Unlock()
+	if passiveID == "" {
+		return "", errors.New("passive reply window is empty")
+	}
+	sent, err := api.PostC2CMessage(ctx, chatID, &dto.MessageToCreate{
+		MsgType:  dto.MarkdownMsg,
+		Markdown: &dto.Markdown{Content: text},
+		MsgID:    passiveID,
+		MsgSeq:   seq,
 	})
 	if err != nil {
 		return "", err
