@@ -9,9 +9,10 @@
 // is banned in plugins and the SDK verifier rejects its imports), no
 // slash-command suite (interactions never reach the adapter; command-type
 // messages are dropped by the shape filter), no webhook serving (the
-// Gateway websocket counts as transport poll, contract §14.3), no embeds
-// or media, no reactions, no typing indicators, no message edits, no
-// forum topics, no thread management. Plain TEXT only: DMs and guild text
+// Gateway websocket counts as transport poll, contract §14.3), no embeds,
+// no reactions, no forum topics, no thread management. Since the first
+// cut: typing, message edits/deletes, and the fixed-copy "Thinking…"
+// placeholder (contract §1/§12). Plain TEXT only: DMs and guild text
 // channels, Message Content Intent required (see below).
 //
 // Transport: an OUTBOUND websocket to the Discord Gateway (manifest
@@ -162,6 +163,10 @@ func envWarn(env plugin.ChannelEnv, msg string, args ...any) {
 	}
 }
 
+// placeholderText is the fixed live-surface copy (contract §12): not a
+// settings knob this generation.
+const placeholderText = "Thinking…"
+
 // wsRedialDelay is how often the supervisor offers the gateway a fresh
 // session after a connection died. discordgo's own reconnect loop is not
 // used (see the package comment); this loop is the context-aware
@@ -202,6 +207,11 @@ type session interface {
 	// ChannelMessageSendComplex is the structured send; the adapter uses
 	// it for reply threading (tier-1) via the MessageReference field.
 	ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelMessageEditComplex rewrites one sent message (interaction
+	// face); the adapter edits only the content.
+	ChannelMessageEditComplex(m *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelMessageDelete removes one sent message (interaction face).
+	ChannelMessageDelete(channelID, messageID string, options ...discordgo.RequestOption) error
 	// ChannelTyping broadcasts one "typing" indicator ping (REST POST
 	// /channels/{id}/typing); the Host re-pings on its own cadence.
 	ChannelTyping(channelID string, options ...discordgo.RequestOption) error
@@ -780,6 +790,77 @@ func (p *Plugin) SendMedia(_ context.Context, chatID string, parts []plugin.Part
 		return nil, nil
 	}
 	return []string{strings.TrimSpace(sent.ID)}, nil
+}
+
+// editTextOf flattens an edit payload to one text body: an edit targets a
+// single sent message, so the payload's text parts join. Empty parts drop.
+func editTextOf(parts []plugin.Part) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Kind == plugin.PartText && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// EditMessage implements plugin.MessageEditor: rewrite one sent message's
+// content on the never-opened send client (plain REST, like Send). The
+// content is sent as-is — Discord renders markdown natively — and Discord
+// has no "not modified" rejection, so no idempotency mapping exists.
+func (p *Plugin) EditMessage(_ context.Context, chatID, messageID string, msg plugin.OutboundMessage) error {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return errors.New("discord: channel not started")
+	}
+	text := editTextOf(msg.Parts)
+	if text == "" {
+		return errors.New("discord: edit payload has no text")
+	}
+	if _, err := sender.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID:      messageID,
+		Channel: chatID,
+		Content: &text,
+	}); err != nil {
+		return fmt.Errorf("discord: edit message %s in chat %q: %w", messageID, chatID, err)
+	}
+	return nil
+}
+
+// DeleteMessage implements plugin.MessageDeleter: remove one sent message
+// on the never-opened send client. Deleting an already-deleted message
+// surfaces as a platform error — the Host settles each live-surface
+// message exactly once, so a repeat is a caller bug worth seeing.
+func (p *Plugin) DeleteMessage(_ context.Context, chatID, messageID string) error {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return errors.New("discord: channel not started")
+	}
+	return sender.ChannelMessageDelete(chatID, messageID)
+}
+
+// Placeholder implements plugin.Placeholder: send the fixed "Thinking…"
+// marker as a plain REST message and return its id so the Host can delete
+// it at the turn's terminal.
+func (p *Plugin) Placeholder(_ context.Context, chatID string) (string, error) {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return "", errors.New("discord: channel not started")
+	}
+	sent, err := sender.ChannelMessageSend(chatID, placeholderText)
+	if err != nil {
+		return "", fmt.Errorf("discord: send placeholder to chat %q: %w", chatID, err)
+	}
+	if sent == nil || strings.TrimSpace(sent.ID) == "" {
+		return "", nil
+	}
+	return strings.TrimSpace(sent.ID), nil
 }
 
 // normalizeMessage maps one MESSAGE_CREATE event to a kernel inbound
