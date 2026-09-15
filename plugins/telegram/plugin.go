@@ -5,10 +5,11 @@
 // layout and the Start/Stop/Send structure when copying it.
 //
 // First-cut scope (what this adapter deliberately does NOT do): no webhook,
-// no group triggers, no outbound media, no command menus, no MarkdownV2/HTML
-// formatting suite, no voice. Private-chat TEXT and inbound PHOTOS only;
-// photos become bounded image parts the Host validates against the shared
-// attachment limits before they reach the turn.
+// no outbound media, no command menus, no voice. Since the first cut:
+// group triggers (mention-only, tier-1), outbound markdown (HTML with a
+// plain-text fallback), inbound photos, and the interaction faces — edit
+// (idempotent: "message is not modified" is success), delete, and the
+// fixed-copy "Thinking…" placeholder (contract §1/§12).
 //
 // Policy boundaries:
 //   - allow_from is enforced by the kernel ChannelHost at dispatch; the
@@ -604,6 +605,117 @@ func (p *Plugin) Typing(ctx context.Context, chatID string) error {
 		ChatID: telego.ChatID{ID: id},
 		Action: telego.ChatActionTyping,
 	})
+}
+
+// placeholderText is the fixed live-surface copy (contract §12): not a
+// settings knob this generation. Plain text, no parse mode — the copy is
+// ours, never model output.
+const placeholderText = "Thinking…"
+
+// editTextOf flattens an edit payload to one text body: an edit targets a
+// single sent message, so the payload's text parts join. Empty parts drop.
+func editTextOf(parts []plugin.Part) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Kind == plugin.PartText && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// EditMessage implements plugin.MessageEditor: rewrite one already-sent
+// message. The body goes through the same markdown→HTML conversion and
+// plain-text fallback as Send (tier-1), because the platform rejects the
+// same way. Idempotency (contract §1): a "message is not modified" answer
+// is success — the content already reads exactly what the edit wanted (a
+// retried or raced duplicate), and treating it as an error would fault a
+// completed action.
+func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID string, msg plugin.OutboundMessage) error {
+	if p.bot == nil {
+		return errors.New("telegram: channel not started")
+	}
+	cid, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("telegram: invalid chat id %q: %w", chatID, err)
+	}
+	mid, err := strconv.Atoi(messageID)
+	if err != nil {
+		return fmt.Errorf("telegram: invalid message id %q: %w", messageID, err)
+	}
+	text := editTextOf(msg.Parts)
+	if text == "" {
+		return errors.New("telegram: edit payload has no text")
+	}
+	if _, err := p.bot.EditMessageText(ctx, &telego.EditMessageTextParams{
+		ChatID:    telego.ChatID{ID: cid},
+		MessageID: mid,
+		Text:      markdownToHTML(text),
+		ParseMode: telego.ModeHTML,
+	}); err != nil {
+		if strings.Contains(err.Error(), "message is not modified") {
+			return nil
+		}
+		// The platform refused the formatted body — degrade the same chunk
+		// to plain text, exactly like the Send fallback; only a plain-text
+		// failure (or a raced not-modified) surfaces.
+		if _, retryErr := p.bot.EditMessageText(ctx, &telego.EditMessageTextParams{
+			ChatID:    telego.ChatID{ID: cid},
+			MessageID: mid,
+			Text:      text,
+		}); retryErr != nil {
+			if strings.Contains(retryErr.Error(), "message is not modified") {
+				return nil
+			}
+			return fmt.Errorf("telegram: edit message %d in chat %d: %w", mid, cid, retryErr)
+		}
+	}
+	return nil
+}
+
+// DeleteMessage implements plugin.MessageDeleter: remove one sent message.
+// Deleting an already-deleted message surfaces as a platform error — the
+// Host settles each live-surface message exactly once, so a repeat is a
+// caller bug worth seeing.
+func (p *Plugin) DeleteMessage(ctx context.Context, chatID, messageID string) error {
+	if p.bot == nil {
+		return errors.New("telegram: channel not started")
+	}
+	cid, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("telegram: invalid chat id %q: %w", chatID, err)
+	}
+	mid, err := strconv.Atoi(messageID)
+	if err != nil {
+		return fmt.Errorf("telegram: invalid message id %q: %w", messageID, err)
+	}
+	return p.bot.DeleteMessage(ctx, &telego.DeleteMessageParams{
+		ChatID:    telego.ChatID{ID: cid},
+		MessageID: mid,
+	})
+}
+
+// Placeholder implements plugin.Placeholder: send the fixed "Thinking…"
+// marker (plain text, no parse mode) and return its message id so the Host
+// can delete it at the turn's terminal. TopicID is not addressable through
+// the port face, so a forum-topic turn's placeholder lands in the topic's
+// General — a cosmetic wart recorded in the batch log.
+func (p *Plugin) Placeholder(ctx context.Context, chatID string) (string, error) {
+	if p.bot == nil {
+		return "", errors.New("telegram: channel not started")
+	}
+	id, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("telegram: invalid chat id %q: %w", chatID, err)
+	}
+	sent, err := p.bot.SendMessage(ctx, &telego.SendMessageParams{
+		ChatID: telego.ChatID{ID: id},
+		Text:   placeholderText,
+	})
+	if err != nil {
+		return "", fmt.Errorf("telegram: send placeholder to chat %d: %w", id, err)
+	}
+	return strconv.Itoa(sent.MessageID), nil
 }
 
 // photoRef describes the one downloadable photo of an accepted update:
