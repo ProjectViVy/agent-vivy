@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-vivy/internal/channelhost"
 	"agent-vivy/internal/config"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
@@ -71,6 +72,56 @@ func TestBindChannelsRejectsUncompiledConfig(t *testing.T) {
 	_, err := bindChannels([]channel.ChannelProvider{stubChannelProvider{id: "vivy.fake"}}, nil, config.Channels{"missing": {}})
 	if err == nil || !strings.Contains(err.Error(), "not compiled") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// capabilityAdapter implements two optional interfaces so the test can see
+// them advertised through the full bind chain.
+type capabilityAdapter struct{}
+
+func (capabilityAdapter) Typing(_ context.Context, _ string) error { return nil }
+func (capabilityAdapter) Health(_ context.Context) error           { return nil }
+
+type capabilityInstance struct{}
+
+func (capabilityInstance) Start(context.Context) error { return nil }
+func (capabilityInstance) Stop(context.Context) error  { return nil }
+func (capabilityInstance) Send(context.Context, channel.OutboundMessage) ([]string, error) {
+	return nil, nil
+}
+
+type capabilityProvider struct{ id string }
+
+func (p capabilityProvider) Definition() channel.Definition {
+	return channel.Definition{ID: p.id, MaxMessageRunes: 1234}
+}
+func (capabilityProvider) Construct(context.Context, channel.Host) (channel.Instance, error) {
+	return capabilityInstance{}, nil
+}
+
+// CapabilityTarget points Discover at the adapter's method set — the same
+// typed-nil probe the five compiled channel providers use.
+func (capabilityProvider) CapabilityTarget() any { return (*capabilityAdapter)(nil) }
+
+// TestBindChannelsExposesAdapterCapabilities: a capability that only the
+// adapter implements is advertised through the providerChannel wrapper, and
+// the Definition's rune ceiling reaches the host's RunesLimiter probe.
+func TestBindChannelsExposesAdapterCapabilities(t *testing.T) {
+	bound, err := bindChannels([]channel.ChannelProvider{capabilityProvider{id: "vivy.fake"}}, nil, nil)
+	if err != nil || len(bound) != 1 {
+		t.Fatalf("bound=%v err=%v", bound, err)
+	}
+	caps := channelhost.Discover(bound[0])
+	if !caps.Typing || !caps.Health {
+		t.Fatalf("capabilities = %+v, want Typing and Health from the adapter", caps)
+	}
+	if caps.Edit || caps.Delete || caps.Reaction || caps.Placeholder || caps.Media ||
+		caps.MediaStore || caps.Webhook || caps.Listen || caps.Stream {
+		t.Fatalf("capabilities = %+v, want nothing beyond the adapter's own", caps)
+	}
+	limited, ok := bound[0].(channel.RunesLimiter)
+	if !ok || limited.MaxMessageRunes() != 1234 {
+		t.Fatalf("MaxMessageRunes probe = %v, want the Definition ceiling 1234", limited)
 	}
 }
 

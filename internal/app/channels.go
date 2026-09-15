@@ -31,7 +31,11 @@ func bindChannels(providers []channel.ChannelProvider, grants map[string][]modul
 			return nil, fmt.Errorf("app: duplicate channel provider name %q", name)
 		}
 		byName[name] = true
-		out = append(out, &providerChannel{name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes})
+		var capabilityTarget any
+		if source, ok := provider.(channel.CapabilitySource); ok {
+			capabilityTarget = source.CapabilityTarget()
+		}
+		out = append(out, &providerChannel{name: name, provider: provider, grants: cloneGrantBindings(grants[definition.ID]), maxRunes: definition.MaxMessageRunes, capabilityTarget: capabilityTarget})
 	}
 	for name := range configured {
 		if !byName[name] {
@@ -59,11 +63,12 @@ func compiledChannelNames(providers []channel.ChannelProvider) []string {
 }
 
 type providerChannel struct {
-	name     string
-	provider channel.ChannelProvider
-	grants   []module.GrantBinding
-	instance channel.Instance
-	maxRunes int
+	name             string
+	provider         channel.ChannelProvider
+	grants           []module.GrantBinding
+	instance         channel.Instance
+	maxRunes         int
+	capabilityTarget any
 }
 
 func (c *providerChannel) Name() string { return c.name }
@@ -101,6 +106,15 @@ func (c *providerChannel) Send(ctx context.Context, msg channel.OutboundMessage)
 	return c.instance.Send(ctx, msg)
 }
 func (c *providerChannel) MaxMessageRunes() int { return c.maxRunes }
+
+// CapabilityTarget implements plugin.CapabilitySource: Discover follows it
+// to the adapter type behind the provider instead of asserting on this
+// wrapper. The probe is captured from the provider at bind time, so the
+// advertised surface is the adapter's own method set even before Start has
+// constructed the instance. A provider without the seam leaves the target
+// nil and Discover falls back to this wrapper, which honestly reports no
+// optional capability.
+func (c *providerChannel) CapabilityTarget() any { return c.capabilityTarget }
 
 func cloneGrantBindings(bindings []module.GrantBinding) []module.GrantBinding {
 	out := make([]module.GrantBinding, len(bindings))

@@ -36,6 +36,16 @@ type Instance interface {
 	Send(context.Context, OutboundMessage) ([]string, error)
 }
 
+// CapabilitySource lets a wrapper channel point capability discovery at the
+// object whose concrete method set defines the optional surface — the
+// adapter itself — instead of at the wrapper. The host only asserts
+// interfaces against the returned value, never calls methods on it, so a
+// typed nil pointer is a valid side-effect-free target. A wrapper must
+// never implement the optional capability interfaces itself: that would
+// advertise capabilities the adapter does not have (VIVY-CHANNEL-PACK.md
+// §7 capability discovery, §8 matrix).
+type CapabilitySource interface{ CapabilityTarget() any }
+
 // Channel is the focused host-owned adapter shape. Assemblies expose
 // ChannelProvider values; channel hosts bind those providers into Channels.
 type Channel interface {

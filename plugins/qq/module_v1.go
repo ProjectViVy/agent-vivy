@@ -28,6 +28,11 @@ func (channelProvider) Construct(_ context.Context, h channel.Host) (channel.Ins
 	return &boundChannel{adapter: newAdapter(), host: h}, nil
 }
 
+// CapabilityTarget points capability discovery at the adapter's method set
+// without constructing one (plugin.CapabilitySource). The value is only
+// ever type-asserted, never called, so the typed nil is enough.
+func (channelProvider) CapabilityTarget() any { return (*Plugin)(nil) }
+
 type boundChannel struct {
 	adapter *Plugin
 	host    channel.Host
@@ -39,5 +44,5 @@ func (c *boundChannel) Send(x context.Context, m channel.OutboundMessage) ([]str
 	return c.adapter.Send(x, m)
 }
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/qq", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/qq", SHA256: "e422eccce4aa9ca7b2953739f3c7024b89989e4a39898e64ea872728173215ee"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.qq"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/qq", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/qq", SHA256: "0a38f2e8659048d25e0a45dced4b784ec4231a6d9b6ed703ba29a92ef0817a0f"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.qq"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }

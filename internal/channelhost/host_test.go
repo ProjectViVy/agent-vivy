@@ -834,6 +834,38 @@ type typingStub struct {
 
 func (typingStub) Typing(_ context.Context, _ string) error { return nil }
 
+// wrapperChannel stands for the v1 assembly wrappers (boundChannel on the
+// plugin side, providerChannel in app): it forwards the core surface and
+// points Discover at the wrapped adapter instead of declaring capabilities
+// of its own.
+type wrapperChannel struct {
+	plugin.Channel
+	target any
+}
+
+func (c wrapperChannel) CapabilityTarget() any { return c.target }
+
+// TestDiscoverResolvesCapabilitySourceThroughWrappers: the probe follows
+// the CapabilitySource chain to the innermost target, so a capability that
+// only the adapter implements is advertised through any number of wrappers;
+// a nil link falls back to asserting the wrapper, which reports nothing.
+func TestDiscoverResolvesCapabilitySourceThroughWrappers(t *testing.T) {
+	adapter := &typingStub{Channel: fake.New()}
+	inner := wrapperChannel{Channel: adapter, target: adapter}
+	outer := wrapperChannel{Channel: inner, target: inner}
+	got := Discover(outer)
+	if !got.Typing {
+		t.Fatalf("adapter capability invisible through two wrappers: %+v", got)
+	}
+	if got.Edit || got.Delete || got.Reaction || got.Placeholder || got.Media ||
+		got.MediaStore || got.Webhook || got.Listen || got.Stream || got.Health {
+		t.Fatalf("wrappers fabricated capabilities: %+v", got)
+	}
+	if got := Discover(wrapperChannel{Channel: fake.New(), target: nil}); got != (Capabilities{}) {
+		t.Fatalf("nil target changed the probe subject: %+v", got)
+	}
+}
+
 // renamedChannel rebrands a fake adapter so one host can carry several
 // channel names without triggering the duplicate-name guard.
 type renamedChannel struct {
