@@ -10,7 +10,7 @@
 > - `VIVY-WORLDVIEW.md` — structural correspondence between product philosophy and worldview (does not replace development-environment strategy)
 > - `VIVY-GATEWAY-AND-STUDIO.md` — English decision IDs (NG-*)
 > - `VIVY-ASSEMBLY.md` / `VIVY-PLUGIN-SPEC.md` — recipes and user plugins
-> - `.workspace/deepseek-harness/upstream` — evidence source for the first development engine (official clone, `47f9438`)
+> - `.workspace/deepseek-harness/upstream` — evidence source for the first development engine (official clone, `0d1f50007f`, synced 2026-09-16, dsh `0.1.6-alpha.1`)
 
 ---
 
@@ -204,7 +204,7 @@ Take: `dsh-base` + `dsh-web-app`, along with fs / pwsh / grep / lsp / skill / wo
 
 Do not take: the default `tool-cordis` (hot-attached to a live process, disappears on restart, and officially declared not to be a security boundary); the plugin marketplace; or treating DSH session logs as Vivy Journal or the Studio ledger.
 
-The first shell can simply be a DSH Web build pinned to a commit (`.workspace/deepseek-harness/upstream`, currently `47f9438`), but the profile name, window name, project, and Skill must be Vivy Studio. Do not launch it from `vivy.exe`. Apply the re-skin afterward.
+The first shell can simply be a DSH Web build pinned to a commit (`.workspace/deepseek-harness/upstream`, currently `0d1f50007f`, dsh `0.1.6-alpha.1`), but the profile name, window name, project, and Skill must be Vivy Studio. Do not launch it from `vivy.exe`. Apply the re-skin afterward.
 
 ---
 
