@@ -23,6 +23,10 @@ func (moduleInstance) Close(context.Context) error { return nil }
 type channelProvider struct{}
 
 func NewProvider() channel.ChannelProvider { return channelProvider{} }
+
+// MaxMessageRunes: the official Bot API caps sendMessage text at 4096
+// characters. This Definition is the single source of the ceiling; the
+// adapter no longer repeats it.
 func (channelProvider) Definition() channel.Definition {
 	return channel.Definition{ID: "vivy.telegram", MaxMessageRunes: 4096}
 }
@@ -46,5 +50,5 @@ func (c *boundChannel) Send(x context.Context, m channel.OutboundMessage) ([]str
 	return c.adapter.Send(x, m)
 }
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/telegram", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/telegram", SHA256: "a4cc601eb95be2d1b2a794fd865515ab1020ef707991ca9f737bbc463c730eb6"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.telegram"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/telegram", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/telegram", SHA256: "61436c68739d41d8583bbfbb993bf7949b1a4da32235edbe80067bb2ef5f8d41"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.telegram"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }

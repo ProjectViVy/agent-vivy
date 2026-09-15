@@ -55,12 +55,6 @@ type Plugin struct {
 	done chan struct{}
 }
 
-// MaxMessageRunes implements plugin.RunesLimiter (CH-C4-N1): the Host
-// splits assistant replies at this bound before Send, so an over-limit
-// reply arrives as several messages instead of one rejected sendMessage.
-// Keep in sync with channel.max_message_runes in vivy-plugin.json.
-func (p *Plugin) MaxMessageRunes() int { return 4096 }
-
 func newAdapter() *Plugin { return &Plugin{} }
 
 // Start implements plugin.Channel. Fail-closed order: settings must decode

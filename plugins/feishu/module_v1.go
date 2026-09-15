@@ -22,8 +22,15 @@ func (moduleInstance) Close(context.Context) error { return nil }
 
 type channelProvider struct{}
 
-func NewProvider() channel.ChannelProvider             { return channelProvider{} }
-func (channelProvider) Definition() channel.Definition { return channel.Definition{ID: "vivy.feishu"} }
+func NewProvider() channel.ChannelProvider { return channelProvider{} }
+
+// MaxMessageRunes: the official im/v1 create-message endpoint caps text
+// content at 150KB (open.feishu.cn, send a message; over-length rejects
+// with 230025). Runes are up to 4 UTF-8 bytes, so 37500 is the
+// worst-case-safe rune ceiling.
+func (channelProvider) Definition() channel.Definition {
+	return channel.Definition{ID: "vivy.feishu", MaxMessageRunes: 37500}
+}
 func (channelProvider) Construct(_ context.Context, h channel.Host) (channel.Instance, error) {
 	return &boundChannel{adapter: newAdapter(), host: h}, nil
 }
@@ -44,5 +51,5 @@ func (c *boundChannel) Send(x context.Context, m channel.OutboundMessage) ([]str
 	return c.adapter.Send(x, m)
 }
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/feishu", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/feishu", SHA256: "d3f2b0959ef33df53e07a53d05e41e34eaabfff4afd3dec9455debd64734ea00"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.feishu"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/feishu", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/feishu", SHA256: "0f6b498d4aa9fa6199847386b860a0842343d150cdf6e32cc3c28a89f8efa3a7"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.feishu"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
