@@ -589,14 +589,14 @@ func TestFastTerminalBeforeRunReturnsIsDelivered(t *testing.T) {
 		return runID, nil
 	}
 	host = New(Deps{
-		Journal:    backend,
-		Messages:   backend,
-		Sessions:   backend,
-		Deliveries: backend,
+		Journal:     backend,
+		Messages:    backend,
+		Sessions:    backend,
+		Deliveries:  backend,
 		RunPrepared: run,
 		Channels:    []plugin.Channel{ch},
-		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger:     testLogger(),
+		Config:      config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:      testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start host: %v", err)
