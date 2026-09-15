@@ -34,9 +34,10 @@ var outboundDeliveryRetryDelay = 2 * time.Second
 type outboundTarget struct {
 	runID     domain.RunID
 	sessionID domain.SessionID
-	chatID    string
-	topicID   string
-	ch        plugin.Channel
+	chatID      string
+	topicID     string
+	channelName string
+	ch          plugin.Channel
 	// msgID is the triggering inbound message id (tier-1 reply threading):
 	// sendReply quotes it on the first chunk via OutboundMessage.ReplyTo.
 	// In-process only — the durable intent row carries no message id, so a
@@ -57,6 +58,18 @@ type outboundTarget struct {
 	// when the adapter has neither face. Its goroutine settles itself when
 	// closeLive fires (terminal handler or StopAll) or the TTL fires.
 	live *liveSurface
+}
+
+// name returns the durable channel identity even when no live plugin object is
+// available. Recovery and persistence must never depend on dereferencing ch.
+func (t outboundTarget) name() string {
+	if t.channelName != "" {
+		return t.channelName
+	}
+	if t.ch != nil {
+		return t.ch.Name()
+	}
+	return ""
 }
 
 // Host owns the started channel adapters and the inbound/outbound
