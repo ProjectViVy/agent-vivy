@@ -488,7 +488,6 @@ func TestDeliveryAttemptsExhaustedMarksFailed(t *testing.T) {
 	}
 }
 
-
 // TestRecoveryLeavesPendingIntentWhenPluginMissing keeps the durable row
 // untouched. A temporarily uninstalled plugin must not panic startup or
 // consume the retry budget; reinstalling it on a later boot can recover.
