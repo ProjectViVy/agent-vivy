@@ -423,7 +423,7 @@ func releaseHostCommand(portID string) releaseTestCommand {
 }
 
 func releaseSuiteCases() []releaseSuiteCase {
-	internalSHA := "6d88cd296faa7be5ee39c6505d137ce52da8b28bd878054b02ad8d58c04434ba"
+	internalSHA := "615826f08011e54bc1844eb0d3fef587d1d759ba35979f6f108a91753da95feb"
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx"}}
@@ -432,11 +432,11 @@ func releaseSuiteCases() []releaseSuiteCase {
 		{"std/tool-world@v1", "vivy/mcp-host", "internal", internalSHA, "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost", goTest("./internal/mcphost", "^TestMCPToolBridgeEntersSoleToolHost$")},
 		{"std/tool-world@v1", "vivy/hello-fs", "plugins/hello-fs", "40439b91831bda45ff7fe7fab1ccfbb5a89c8a613d37bedb6878e35e8fdab41e", "plugins/hello-fs/plugin_test.go#TestHelloStatReadsThroughEnv", goTest("./plugins/hello-fs", "^TestHelloStatReadsThroughEnv$")},
 		{"std/tool-world@v1", "vivy/lsp", "plugins/lsp", "96dac7da535dbbc1557b3ec83c5b4c46c1449b38e9d9e957a4cd22fa583991d3", "plugins/lsp/plugin_test.go#TestDiagnosticsToolEndToEnd", nested("plugins/lsp")},
-		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "023bf2d624e9e91e970111ab24ce516e797c45472fc1f6b279de0927db9dc023", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
-		{"std/channel@v1", "vivy/discord", "plugins/discord", "82b537cc9f47cdd2d6fa4cc30a7f08740c633a78250a1b158e1fa861a794ff7c", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
-		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "0a5b062c84060b09f427f4ccb91612471d3a76fa2aa40e581fa9a690fde04d77", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
-		{"std/channel@v1", "vivy/qq", "plugins/qq", "e422eccce4aa9ca7b2953739f3c7024b89989e4a39898e64ea872728173215ee", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
-		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "c3b73462f1e9fa55abd1d544a31efe0014676d76cc677278505dafa54f34b7d0", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
+		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "4886d9c9abb35b7629d544ff81f6f5ad7574ef3902adaf01ed49a32a57a62843", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
+		{"std/channel@v1", "vivy/discord", "plugins/discord", "b48dc145259d93927cf28726d6092ec5065e311e3acd514506dcfd0d39b0cc56", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
+		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "d3f2b0959ef33df53e07a53d05e41e34eaabfff4afd3dec9455debd64734ea00", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
+		{"std/channel@v1", "vivy/qq", "plugins/qq", "0a38f2e8659048d25e0a45dced4b784ec4231a6d9b6ed703ba29a92ef0817a0f", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
+		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "a4cc601eb95be2d1b2a794fd865515ab1020ef707991ca9f737bbc463c730eb6", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
 		{"std/face@v1", "vivy/headless", "faces/headless", "0c1a976e1753e628d4da679c3eae6c755d6dba49d437264295177a1267f0a7fc", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
 		{"std/face@v1", "vivy/tui", "faces/tui", "96e0104bbac52765a4d826d8324b7f81695ce3aef6b9a5d755e69b4507178251", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
 		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", internalSHA, "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
