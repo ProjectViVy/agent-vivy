@@ -136,6 +136,12 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		maxRunes:    runesLimit(ch),
 		createdAtMs: time.Now().UnixMilli(),
 	}
+	// The live-surface typing indicator (contract §7): starts only when the
+	// adapter has the face, never touches the Journal, and is bounded by
+	// the run's terminal below and a 5-minute cap.
+	if ch != nil && typingFor(ch) != nil {
+		target.stopTyping = make(chan struct{})
+	}
 	// The durable reply intent (CH-C3-N1): from this point a restart can
 	// finish or settle the delivery. A persistence failure never stops the
 	// in-process delivery — it only degrades this one reply back to the
@@ -152,6 +158,7 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	h.mu.Lock()
 	h.targets[runID] = target
 	h.mu.Unlock()
+	h.startTyping(target)
 	return nil
 }
 
@@ -209,6 +216,7 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 	h.mu.Lock()
 	target, tracked := h.targets[ev.RunID]
 	delete(h.targets, ev.RunID)
+	closeTyping(target)
 	h.mu.Unlock()
 	if !tracked {
 		return

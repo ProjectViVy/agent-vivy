@@ -17,11 +17,10 @@ import (
 // forwarding fix for the five compiled ears: capability discovery follows
 // the CapabilitySource seam through the full bind chain (boundChannel ->
 // providerChannel) and reports the adapter's own method set. CH-R-1 gave
-// every adapter a HealthChecker, so each ear advertises exactly
-// {Health: true} today — as the gate-0 record anticipated on rebase. When a
-// batch lands a real capability on an adapter, this expectation flips with
-// it — the advertised set must always be exactly the adapter's surface,
-// never a wrapper's. The rune ceilings pin the outbound split bound each
+// every adapter a HealthChecker; the tier-1 text loop added Typing where
+// the platform has one (telegram, discord, qq — dingtalk and feishu have
+// none). Each ear advertises exactly its adapter's surface, never a
+// wrapper's. The rune ceilings pin the outbound split bound each
 // Definition declares (sources in the module_v1.go comments).
 func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 	ears := []struct {
@@ -31,10 +30,10 @@ func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 		runes    int
 	}{
 		{"dingtalk", dingtalk.NewProvider(), channelhost.Capabilities{Health: true}, 5000},
-		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true}, 2000},
+		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true, Typing: true}, 2000},
 		{"feishu", feishu.NewProvider(), channelhost.Capabilities{Health: true}, 37500},
-		{"qq", qq.NewProvider(), channelhost.Capabilities{Health: true}, 2000},
-		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true}, 4096},
+		{"qq", qq.NewProvider(), channelhost.Capabilities{Health: true, Typing: true}, 2000},
+		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true, Typing: true}, 4096},
 	}
 	for _, ear := range ears {
 		if got := ear.provider.Definition().MaxMessageRunes; got != ear.runes {

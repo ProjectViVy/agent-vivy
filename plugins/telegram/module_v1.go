@@ -35,8 +35,10 @@ func (channelProvider) Construct(_ context.Context, h channel.Host) (channel.Ins
 }
 
 // CapabilityTarget points capability discovery at the adapter's method set
-// without constructing one (plugin.CapabilitySource). The value is only
-// ever type-asserted, never called, so the typed nil is enough.
+// without constructing one (plugin.CapabilitySource). This bind-time probe
+// is only ever type-asserted; once Start has built the instance, the
+// boundChannel disclosure below exposes the live adapter for host call
+// paths (typing, health probes).
 func (channelProvider) CapabilityTarget() any { return (*Plugin)(nil) }
 
 type boundChannel struct {
@@ -49,6 +51,12 @@ func (c *boundChannel) Stop(x context.Context) error  { return c.adapter.Stop(x)
 func (c *boundChannel) Send(x context.Context, m channel.OutboundMessage) ([]string, error) {
 	return c.adapter.Send(x, m)
 }
+
+// CapabilityTarget discloses the live adapter (plugin.CapabilitySource):
+// once the instance exists, host call paths resolve to the adapter's own
+// method set through the wrapper instead of the bind-time typed nil.
+func (c *boundChannel) CapabilityTarget() any { return c.adapter }
+
 func (vivyModule) Descriptor() module.Descriptor {
 	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/telegram", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/telegram", SHA256: "043498e194151b08792177a149902343a198c26d0510598cfdf947f264535eb2"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.telegram"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }

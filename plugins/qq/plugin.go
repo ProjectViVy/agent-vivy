@@ -934,6 +934,34 @@ func (p *Plugin) sendText(ctx context.Context, api qqAPI, state *chatState, chat
 	return strings.TrimSpace(sent.ID), nil
 }
 
+// Typing implements plugin.Typing: one InputNotify (msg_type 6, "the other
+// side is typing") over the C2C endpoint. QQ anchors the input status to
+// the same passive msg_id the next reply would carry; without an open
+// window (no inbound yet, or state lost to a restart) there is nothing to
+// anchor to, so the ping is skipped — typing is best-effort. InputNotify
+// carries no msg_seq: the platform does not dedup input states.
+func (p *Plugin) Typing(ctx context.Context, chatID string) error {
+	p.mu.Lock()
+	api := p.api
+	var passiveID string
+	if state := p.chats[chatID]; state != nil {
+		passiveID = state.msgID
+	}
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("qq: channel not started")
+	}
+	if passiveID == "" {
+		return nil
+	}
+	_, err := api.PostC2CMessage(ctx, chatID, &dto.MessageToCreate{
+		MsgType:     dto.InputNotifyMsg,
+		MsgID:       passiveID,
+		InputNotify: &dto.InputNotify{InputType: 1, InputSecond: 10},
+	})
+	return err
+}
+
 // normalizeC2C maps one C2C_MESSAGE_CREATE event to a kernel inbound
 // envelope. It accepts exactly one shape this slice — a single-chat TEXT
 // message with a sender, a message id and non-empty plain text content —

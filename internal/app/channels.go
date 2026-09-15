@@ -107,14 +107,23 @@ func (c *providerChannel) Send(ctx context.Context, msg channel.OutboundMessage)
 }
 func (c *providerChannel) MaxMessageRunes() int { return c.maxRunes }
 
-// CapabilityTarget implements plugin.CapabilitySource: Discover follows it
-// to the adapter type behind the provider instead of asserting on this
-// wrapper. The probe is captured from the provider at bind time, so the
-// advertised surface is the adapter's own method set even before Start has
-// constructed the instance. A provider without the seam leaves the target
-// nil and Discover falls back to this wrapper, which honestly reports no
-// optional capability.
-func (c *providerChannel) CapabilityTarget() any { return c.capabilityTarget }
+// CapabilityTarget implements plugin.CapabilitySource: discovery and host
+// call paths follow it to the adapter behind this wrapper. Before Start has
+// constructed the instance, the bind-time typed-nil probe from the provider
+// is returned — valid for method-set assertions only. After Start, the
+// instance's own disclosure (the live adapter) wins, so calls such as
+// typing and health probes reach the real method set. A provider without
+// the bind-time seam leaves that target nil and the chain falls back to
+// this wrapper, which honestly reports (and can serve) no optional
+// capability.
+func (c *providerChannel) CapabilityTarget() any {
+	if cs, ok := c.instance.(channel.CapabilitySource); ok {
+		if t := cs.CapabilityTarget(); t != nil {
+			return t
+		}
+	}
+	return c.capabilityTarget
+}
 
 func cloneGrantBindings(bindings []module.GrantBinding) []module.GrantBinding {
 	out := make([]module.GrantBinding, len(bindings))
