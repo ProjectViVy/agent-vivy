@@ -82,7 +82,7 @@ func (b *Backend) CommitSessionFork(ctx context.Context, child domain.Session, m
 	if updatedAt <= 0 {
 		updatedAt = child.CreatedAt
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy) VALUES (?,?,?,?,?,?)`, child.ID, child.Title, child.CreatedAt, updatedAt, mode, policy); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy,workspace_path) VALUES (?,?,?,?,?,?,?)`, child.ID, child.Title, child.CreatedAt, updatedAt, mode, policy, child.WorkspacePath); err != nil {
 		return nil, fmt.Errorf("storage: create fork session: %w", err)
 	}
 	for _, m := range messages {

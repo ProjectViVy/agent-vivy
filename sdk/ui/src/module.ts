@@ -475,6 +475,7 @@ export interface FaceSession {
   readonly id: string;
   readonly title: string;
   readonly created_at: number;
+	readonly workspace_path?: string;
   readonly sandbox_mode?: FaceSandboxMode;
   readonly approval_policy?: FaceApprovalPolicy;
   readonly permission_preset?: FacePermissionPreset;
@@ -630,6 +631,19 @@ export interface FaceWorkspaceFileContent extends FaceWorkspaceFile {
   readonly content: string;
   readonly truncated: boolean;
   readonly binary: boolean;
+}
+
+export interface FaceWorkspaceDirectory {
+	readonly name: string;
+	readonly path: string;
+}
+
+export interface FaceWorkspaceBrowseResult {
+	readonly path: string;
+	readonly parent?: string;
+	readonly roots: readonly string[];
+	readonly directories: readonly FaceWorkspaceDirectory[];
+	readonly truncated: boolean;
 }
 
 export interface FaceRewindResult {
@@ -1348,11 +1362,13 @@ export interface FaceClientAPI {
   initialize(): Promise<FaceRPCCapabilities>;
   listWorkspaceFiles(runId: string): Promise<FaceWorkspaceFileList>;
   readWorkspaceFile(runId: string, path: string): Promise<FaceWorkspaceFileContent>;
+	browseWorkspace(path?: string): Promise<FaceWorkspaceBrowseResult>;
   listSessions(): Promise<FaceSessionList>;
   getSession(id: string): Promise<FaceSessionDetail>;
-  createSession(title: string): Promise<FaceSession>;
+  createSession(title: string, workspacePath?: string): Promise<FaceSession>;
   renameSession(id: string, title: string): Promise<FaceSession>;
   setSessionPermission(id: string, preset: Exclude<FacePermissionPreset, "custom">): Promise<FaceSession>;
+	setSessionWorkspace(id: string, workspacePath: string): Promise<FaceSession>;
   deleteSession(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<FaceMessageList>;
   getSessionContext(sessionId: string): Promise<FaceSessionContext>;
@@ -1532,7 +1548,8 @@ export interface FaceStoreState {
   initialize(): Promise<void>;
   retryInitialize(): Promise<void>;
   loadSessions(): Promise<void>;
-  createSession(title?: string): Promise<FaceSession>;
+  createSession(title?: string, workspacePath?: string): Promise<FaceSession>;
+	chooseWorkspace(workspacePath: string): Promise<FaceSession>;
   renameSession(id: string, title: string): Promise<void>;
   setSessionPermission(id: string, preset: Exclude<FacePermissionPreset, "custom">): Promise<void>;
   deleteSession(id: string): Promise<void>;

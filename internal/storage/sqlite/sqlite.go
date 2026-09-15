@@ -52,6 +52,7 @@ var migrations = []struct {
 	{20, migration020},
 	{21, migration021},
 	{22, migration022},
+	{23, migration023},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -652,4 +653,10 @@ const migration021 = `
 const migration022 = `
 	ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
 	UPDATE sessions SET updated_at = created_at WHERE updated_at = 0;
+`
+
+// migration023 attaches one immutable-after-first-run project directory to
+// each conversation. Empty means the existing default private workspace.
+const migration023 = `
+	ALTER TABLE sessions ADD COLUMN workspace_path TEXT NOT NULL DEFAULT '';
 `

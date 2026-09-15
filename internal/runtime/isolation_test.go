@@ -7,7 +7,26 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
+
+type workspaceSessionLookup map[domain.SessionID]domain.Session
+
+func (lookup workspaceSessionLookup) GetSession(_ context.Context, id domain.SessionID) (domain.Session, error) {
+	if session, ok := lookup[id]; ok {
+		return session, nil
+	}
+	return domain.Session{}, storage.ErrNotFound
+}
+
+type workspaceRunLookup map[domain.RunID]domain.Run
+
+func (lookup workspaceRunLookup) GetRun(_ context.Context, id domain.RunID) (domain.Run, error) {
+	if run, ok := lookup[id]; ok {
+		return run, nil
+	}
+	return domain.Run{}, storage.ErrNotFound
+}
 
 func TestWorkspaceManagerAllocatesPerRunInsideRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "sandboxes")
@@ -105,5 +124,66 @@ func TestLocalWorkspaceManagerMountsProjectRoot(t *testing.T) {
 	}
 	if err := m.ValidatePath(filepath.Join(root, "..", "outside.txt")); err == nil {
 		t.Fatal("want local world escape rejection")
+	}
+}
+
+// Replacing the session lookup with the process-wide root must fail this
+// test: two conversations selected in different projects may never share the
+// same filesystem authority.
+func TestSessionWorkspaceManagerResolvesDefaultAndSelectedRoots(t *testing.T) {
+	defaultRoot := filepath.Join(t.TempDir(), "default")
+	alpha := t.TempDir()
+	beta := t.TempDir()
+	canonicalAlpha, err := filepath.EvalSymlinks(alpha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalBeta, err := filepath.EvalSymlinks(beta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := workspaceSessionLookup{
+		"sess-default": {ID: "sess-default"},
+		"sess-alpha":   {ID: "sess-alpha", WorkspacePath: alpha},
+		"sess-beta":    {ID: "sess-beta", WorkspacePath: beta},
+	}
+	runs := workspaceRunLookup{
+		"run-default": {ID: "run-default", SessionID: "sess-default"},
+		"run-alpha":   {ID: "run-alpha", SessionID: "sess-alpha"},
+		"run-beta":    {ID: "run-beta", SessionID: "sess-beta"},
+	}
+	manager, err := NewSessionWorkspaceManager(defaultRoot, sessions, runs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defaultWorkspace, err := manager.Ensure(context.Background(), "run-default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultWorkspace.Path != filepath.Join(defaultRoot, "run-default") {
+		t.Fatalf("default workspace = %q", defaultWorkspace.Path)
+	}
+	alphaWorkspace, err := manager.Ensure(context.Background(), "run-alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	betaWorkspace, err := manager.Ensure(context.Background(), "run-beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alphaWorkspace.Path != canonicalAlpha || betaWorkspace.Path != canonicalBeta || alphaWorkspace.ID == betaWorkspace.ID {
+		t.Fatalf("selected workspaces = %+v / %+v", alphaWorkspace, betaWorkspace)
+	}
+
+	// A new run is allocated before its durable Run row exists. The service
+	// puts the already-authoritative session id in context for that boundary.
+	fromContext, err := manager.Ensure(withSessionID(context.Background(), "sess-alpha"), "run-new")
+	if err != nil || fromContext.Path != canonicalAlpha {
+		t.Fatalf("pre-persist selected workspace = %+v, err=%v", fromContext, err)
+	}
+	durableOwner, err := manager.Ensure(withSessionID(context.Background(), "sess-beta"), "run-alpha")
+	if err != nil || durableOwner.Path != canonicalAlpha {
+		t.Fatalf("durable run owner lost to stale context = %+v, err=%v", durableOwner, err)
 	}
 }

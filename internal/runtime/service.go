@@ -541,7 +541,7 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 	runID := newRunID()
 	workspaceID := ""
 	if s.deps.Workspaces != nil {
-		workspace, err := s.deps.Workspaces.Ensure(ctx, runID)
+		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
 		if err != nil {
 			return "", fmt.Errorf("runtime: allocate isolated workspace: %w", err)
 		}
@@ -908,7 +908,7 @@ func (s *Service) recover(ctx context.Context) error {
 		}
 		workspaceID := ""
 		if s.deps.Workspaces != nil {
-			workspace, err := s.deps.Workspaces.Ensure(ctx, run.ID)
+			workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, run.SessionID), run.ID)
 			if err != nil {
 				s.failUnrecoverable(ctx, run.ID, "workspace isolation unavailable")
 				continue
@@ -1052,6 +1052,28 @@ func (s *Service) RegisterWorkerAuthority(runID domain.RunID, snapshot domain.Po
 	s.ledgers[runID] = ledger
 	s.mu.Unlock()
 	return nil
+}
+
+// SetSessionWorkspace changes an unused session's filesystem authority under
+// the same startup fence that resolves the first run's workspace. Once a run
+// has crossed that fence, the storage guard returns ErrConflict.
+func (s *Service) SetSessionWorkspace(ctx context.Context, sessionID domain.SessionID, path string) (domain.Session, error) {
+	if s == nil || s.deps.Sessions == nil {
+		return domain.Session{}, errors.New("runtime: session store not wired")
+	}
+	store, ok := s.deps.Sessions.(storage.SessionWorkspaceStore)
+	if !ok {
+		return domain.Session{}, errors.New("runtime: session workspace store not wired")
+	}
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
+	if s.sessionDeleted(sessionID) {
+		return domain.Session{}, storage.ErrNotFound
+	}
+	if err := store.UpdateSessionWorkspace(ctx, sessionID, path); err != nil {
+		return domain.Session{}, err
+	}
+	return s.deps.Sessions.GetSession(ctx, sessionID)
 }
 
 // CreateWorkerRun serializes child creation with session deletion. Worker
