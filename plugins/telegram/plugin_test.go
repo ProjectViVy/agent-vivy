@@ -983,3 +983,114 @@ func TestOversizeBodyDropped(t *testing.T) {
 		t.Fatalf("file endpoint hits = %d, want 1", stub.downloadCount())
 	}
 }
+
+// shrinkAlbumWindow shrinks the album aggregation window for lifecycle
+// assertions and restores the production value on cleanup.
+func shrinkAlbumWindow(t *testing.T) time.Duration {
+	t.Helper()
+	old := mediaGroupDelay
+	mediaGroupDelay = 20 * time.Millisecond
+	t.Cleanup(func() { mediaGroupDelay = old })
+	return mediaGroupDelay
+}
+
+// albumPhotoUpdate builds one raw album-member photo update: a private
+// chat photo with (optionally) a caption and the shared media group id.
+func albumPhotoUpdate(updateID, messageID int64, groupID, caption string) map[string]any {
+	msg := map[string]any{
+		"message_id":     messageID,
+		"from":           map[string]any{"id": 123456, "is_bot": false, "first_name": "Human"},
+		"chat":           map[string]any{"id": 123456, "type": "private"},
+		"media_group_id": groupID,
+		"photo": []any{
+			map[string]any{"file_id": "photo-small-" + fmt.Sprint(messageID), "width": 90, "height": 90},
+			map[string]any{"file_id": "photo-large-" + fmt.Sprint(messageID), "width": 1280, "height": 960},
+		},
+	}
+	if caption != "" {
+		msg["caption"] = caption
+	}
+	return map[string]any{"update_id": updateID, "message": msg}
+}
+
+// TestAlbumAggregatesIntoOneTurn: album members arriving out of order land
+// as one envelope — the captions join in message-id order and each
+// message's largest photo variant becomes its own media part.
+func TestAlbumAggregatesIntoOneTurn(t *testing.T) {
+	shrinkAlbumWindow(t)
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	_ = startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{
+		albumPhotoUpdate(101, 149, "grp-1", "second caption"),
+		albumPhotoUpdate(102, 148, "grp-1", "first caption"),
+	})
+
+	waitFor(t, "aggregated album envelope", func() bool { return len(env.snapshot()) == 1 })
+	got := env.snapshot()[0]
+	if got.ChatID != "123456" || got.Sender != "telegram:123456" || got.MessageID != "148" {
+		t.Fatalf("envelope header = %+v", got)
+	}
+	if len(got.Parts) != 3 ||
+		got.Parts[0].Kind != plugin.PartText ||
+		got.Parts[0].Text != "first caption\nsecond caption" ||
+		got.Parts[1].Kind != plugin.PartMedia ||
+		got.Parts[1].Media.Name != "photo-148.jpg" ||
+		got.Parts[2].Media.Name != "photo-149.jpg" {
+		t.Fatalf("envelope parts = %+v", got.Parts)
+	}
+}
+
+// TestAlbumFlushedOnStop: an album still inside its window publishes when
+// the ear stops — Stop drains the aggregation before cancelling the poll
+// context.
+func TestAlbumFlushedOnStop(t *testing.T) {
+	shrinkAlbumWindow(t)
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	p := startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{
+		albumPhotoUpdate(103, 150, "grp-2", "lost album"),
+	})
+	// Wait until the poll loop actually buffered the album member (the
+	// long-poll window means the update may still be in flight), then stop
+	// before the aggregation window elapses; the drain must still publish.
+	waitFor(t, "album buffered", func() bool {
+		p.mediaGroupMu.Lock()
+		defer p.mediaGroupMu.Unlock()
+		return len(p.mediaGroups) == 1
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitFor(t, "flushed album on stop", func() bool { return len(env.snapshot()) == 1 })
+	got := env.snapshot()[0]
+	if len(got.Parts) != 2 || got.Parts[0].Text != "lost album" ||
+		got.Parts[1].Kind != plugin.PartMedia || got.Parts[1].Media.Name != "photo-150.jpg" {
+		t.Fatalf("flushed envelope parts = %+v", got.Parts)
+	}
+}
+
+// TestGroupAlbumStaysOut: a group album is dropped this slice — group
+// turns are text-only under the mention-gate ruling.
+func TestGroupAlbumStaysOut(t *testing.T) {
+	tick := shrinkAlbumWindow(t)
+	_ = tick
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	_ = startForTest(t, env)
+
+	group := albumPhotoUpdate(104, 151, "grp-3", "look")
+	msg := group["message"].(map[string]any)
+	msg["chat"] = map[string]any{"id": -999, "type": "group", "title": "Room"}
+	stub.pushUpdates([]map[string]any{group})
+
+	time.Sleep(10 * tick)
+	if got := len(env.snapshot()); got != 0 {
+		t.Fatalf("published %d envelopes, want 0 for a group album", got)
+	}
+}
