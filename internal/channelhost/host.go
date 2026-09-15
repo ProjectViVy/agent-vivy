@@ -128,7 +128,7 @@ func (h *Host) StartAll(ctx context.Context) error {
 	if h.deps.Journal == nil || h.deps.Messages == nil || h.deps.Sessions == nil {
 		return errors.New("channelhost: journal, messages, and sessions stores are required")
 	}
-	if h.deps.Run == nil {
+	if h.deps.Run == nil && h.deps.RunPrepared == nil {
 		return errors.New("channelhost: run callback is required")
 	}
 	if h.deps.Deliveries == nil {
