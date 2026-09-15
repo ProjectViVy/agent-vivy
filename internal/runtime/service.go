@@ -265,6 +265,10 @@ type RunOptions struct {
 	// RunWithOptions; the runtime validates and persists the snapshot without
 	// reading the host filesystem.
 	FileContexts []domain.FileContext
+	// BeforeStart runs synchronously after the run ID is minted and before
+	// any run state is persisted or published. Channel ingress uses it to
+	// durably arm the outbound delivery target before terminal events can race.
+	BeforeStart func(domain.RunID) error
 }
 
 // NewService wires the run service over an engine and its dependencies.
@@ -541,6 +545,11 @@ func (s *Service) runWithOptions(ctx context.Context, sessionID domain.SessionID
 		return "", err
 	}
 	runID := newRunID()
+	if options.BeforeStart != nil {
+		if err := options.BeforeStart(runID); err != nil {
+			return "", fmt.Errorf("runtime: prepare run %s: %w", runID, err)
+		}
+	}
 	workspaceID := ""
 	if s.deps.Workspaces != nil {
 		workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID)
