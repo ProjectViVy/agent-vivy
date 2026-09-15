@@ -394,8 +394,15 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		if err := replyText(ctx, p.http, sessionWebhook, part.Text); err != nil {
-			return ids, fmt.Errorf("dingtalk: send message to chat %q: %w", msg.ChatID, err)
+		// The reply carries the model's markdown: send it as DingTalk
+		// markdown (the dialect renders the common subset natively) and
+		// fall back to plain text when the platform rejects the formatted
+		// body (tier-1 text loop) — a rejection degrades the formatting,
+		// never the reply.
+		if err := replyMarkdown(ctx, p.http, sessionWebhook, part.Text); err != nil {
+			if err := replyText(ctx, p.http, sessionWebhook, part.Text); err != nil {
+				return ids, fmt.Errorf("dingtalk: send message to chat %q: %w", msg.ChatID, err)
+			}
 		}
 		ids = append(ids, msg.ChatID)
 	}
@@ -416,6 +423,47 @@ func replyText(ctx context.Context, httpClient *http.Client, sessionWebhook, tex
 	if err != nil {
 		return err
 	}
+	return postWebhook(ctx, httpClient, sessionWebhook, body)
+}
+
+// replyMarkdown posts one markdown reply to a sessionWebhook — the
+// DingTalk robot markdown contract ({"msgtype":"markdown",
+// "markdown":{"title":...,"text":...}}), the shape the Stream SDK's own
+// chatbot.SimpleReplyMarkdown sends. The model's markdown goes over as-is.
+func replyMarkdown(ctx context.Context, httpClient *http.Client, sessionWebhook, text string) error {
+	body, err := json.Marshal(map[string]any{
+		"msgtype":  "markdown",
+		"markdown": map[string]string{"title": markdownTitle(text), "text": text},
+	})
+	if err != nil {
+		return err
+	}
+	return postWebhook(ctx, httpClient, sessionWebhook, body)
+}
+
+// markdownTitle picks the notification-card title: the first non-empty
+// line, capped at 20 runes with an ellipsis. Empty text keeps a constant
+// title so the payload stays well-formed.
+func markdownTitle(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > 20 {
+			return string(runes[:20]) + "…"
+		}
+		return line
+	}
+	return "vivy"
+}
+
+// postWebhook is the shared sessionWebhook transport: one JSON POST and
+// the robot-ack decode. The reply body must decode as
+// {"errcode":<int>,"errmsg":<string>}; a non-zero errcode is an error even
+// on HTTP 200.
+func postWebhook(ctx context.Context, httpClient *http.Client, sessionWebhook string, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sessionWebhook, bytes.NewReader(body))
 	if err != nil {
 		// A parse failure wraps the raw webhook URL (token included) in
