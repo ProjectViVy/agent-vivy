@@ -1,6 +1,7 @@
 package feishu
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"crypto/tls"
@@ -392,7 +393,7 @@ func TestDomainFor(t *testing.T) {
 // this shape filter). Reaction events are separate event types and never
 // reach this handler.
 func TestNormalizeEvent(t *testing.T) {
-	msg, ok := normalizeEvent(p2pTextEvent())
+	msg, _, ok := normalizeEvent(p2pTextEvent())
 	if !ok {
 		t.Fatal("p2p text event must be publishable")
 	}
@@ -411,7 +412,7 @@ func TestNormalizeEvent(t *testing.T) {
 		m.Event.Sender.SenderId.OpenId = nil
 		m.Event.Sender.SenderId.UserId = ptr("u_88")
 	})
-	if msg, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:u_88" {
+	if msg, _, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:u_88" {
 		t.Fatalf("user_id fallback = %+v ok=%v", msg, ok)
 	}
 	noOpen = withField(p2pTextEvent(), func(m *larkim.P2MessageReceiveV1) {
@@ -419,7 +420,7 @@ func TestNormalizeEvent(t *testing.T) {
 		m.Event.Sender.SenderId.UserId = nil
 		m.Event.Sender.SenderId.UnionId = ptr("un_99")
 	})
-	if msg, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:un_99" {
+	if msg, _, ok = normalizeEvent(noOpen); !ok || msg.Sender != "feishu:un_99" {
 		t.Fatalf("union_id fallback = %+v ok=%v", msg, ok)
 	}
 
@@ -444,7 +445,7 @@ func TestNormalizeEvent(t *testing.T) {
 		"missing chat id":      withField(p2pTextEvent(), func(m *larkim.P2MessageReceiveV1) { m.Event.Message.ChatId = nil }),
 	}
 	for name, event := range cases {
-		if msg, ok := normalizeEvent(event); ok {
+		if msg, _, ok := normalizeEvent(event); ok {
 			t.Fatalf("%s must not be publishable, got %+v", name, msg)
 		}
 	}
@@ -863,15 +864,21 @@ type larkStub struct {
 	server *httptest.Server
 	wsOpen chan struct{}
 
-	mu           sync.Mutex
-	tokenHits    int
-	tokenCode    int
-	tokenMsg     string
-	messageCode  int
-	messageMsg   string
-	tokens       []tokenCall
-	messages     []messageCall
-	endpointHits int
+	mu            sync.Mutex
+	tokenHits     int
+	tokenCode     int
+	tokenMsg      string
+	messageCode   int
+	messageMsg    string
+	tokens        []tokenCall
+	messages      []messageCall
+	endpointHits  int
+	resourceHits  int
+	resourceCode  int
+	resourceMsg   string
+	resourceAuths []string
+	imageHits     int
+	imageAuths    []string
 }
 
 type tokenCall struct {
@@ -889,20 +896,24 @@ type messageCall struct {
 }
 
 type stubOptions struct {
-	tokenCode   int // non-zero: the token endpoint answers with this error
-	tokenMsg    string
-	messageCode int // non-zero: the message endpoint answers with this error
-	messageMsg  string
+	tokenCode    int // non-zero: the token endpoint answers with this error
+	tokenMsg     string
+	messageCode  int // non-zero: the message endpoint answers with this error
+	messageMsg   string
+	resourceCode int // non-zero: the message-resource download answers with this error
+	resourceMsg  string
 }
 
 func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 	t.Helper()
 	stub := &larkStub{
-		wsOpen:      make(chan struct{}, 1),
-		tokenCode:   opts.tokenCode,
-		tokenMsg:    opts.tokenMsg,
-		messageCode: opts.messageCode,
-		messageMsg:  opts.messageMsg,
+		wsOpen:       make(chan struct{}, 1),
+		tokenCode:    opts.tokenCode,
+		tokenMsg:     opts.tokenMsg,
+		messageCode:  opts.messageCode,
+		messageMsg:   opts.messageMsg,
+		resourceCode: opts.resourceCode,
+		resourceMsg:  opts.resourceMsg,
 	}
 	mux := http.NewServeMux()
 
@@ -1001,6 +1012,41 @@ func newLarkStub(t *testing.T, opts stubOptions) *larkStub {
 		}
 	})
 
+	// Message-resource download (GET .../messages/:id/resources/:file_key):
+	// the primary inbound-image route. Success answers raw bytes; the
+	// failure knob answers an error envelope so the dual-API fallback fires.
+	mux.HandleFunc("/open-apis/im/v1/messages/", func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/resources/img_stub_key") {
+			http.NotFound(w, r)
+			return
+		}
+		stub.mu.Lock()
+		stub.resourceHits++
+		stub.resourceAuths = append(stub.resourceAuths, r.Header.Get("Authorization"))
+		code, msg := stub.resourceCode, stub.resourceMsg
+		stub.mu.Unlock()
+		w.Header().Set("Content-Type", "image/jpeg")
+		if code != 0 {
+			// Error envelopes ride a non-200 status — the SDK only parses
+			// the JSON body (and reports Success()=false) below 200.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "msg": msg})
+			return
+		}
+		_, _ = w.Write(stubFeishuImageBytes)
+	})
+
+	// Image download (GET .../images/:image_key): the fallback route.
+	mux.HandleFunc("/open-apis/im/v1/images/", func(w http.ResponseWriter, r *http.Request) {
+		stub.mu.Lock()
+		stub.imageHits++
+		stub.imageAuths = append(stub.imageAuths, r.Header.Get("Authorization"))
+		stub.mu.Unlock()
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(stubFeishuImageBytes)
+	})
+
 	// Tenant access token: the SDK exchanges app credentials before the
 	// first message call and caches the result.
 	mux.HandleFunc("/open-apis/auth/v3/tenant_access_token/internal", func(w http.ResponseWriter, r *http.Request) {
@@ -1085,6 +1131,12 @@ func (s *larkStub) messageCalls() []messageCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]messageCall(nil), s.messages...)
+}
+
+func (s *larkStub) downloadCalls() (resourceHits, imageHits int, auths []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resourceHits, s.imageHits, append(append([]string(nil), s.resourceAuths...), s.imageAuths...)
 }
 
 func (s *larkStub) endpointCount() int {
@@ -1437,7 +1489,7 @@ func TestGroupMentionOnlyGatesGroupChats(t *testing.T) {
 	}
 
 	// A bot mention publishes, with every placeholder stripped.
-	msg, ok := normalizeEvent(groupEvent("@_user_1 @_user_2 summarize this", "user", "bot"))
+	msg, _, ok := normalizeEvent(groupEvent("@_user_1 @_user_2 summarize this", "user", "bot"))
 	if !ok {
 		t.Fatal("group message with a bot mention must publish")
 	}
@@ -1449,15 +1501,126 @@ func TestGroupMentionOnlyGatesGroupChats(t *testing.T) {
 	}
 
 	// User-only mentions drop.
-	if _, ok := normalizeEvent(groupEvent("@_user_1 hello there", "user")); ok {
+	if _, _, ok := normalizeEvent(groupEvent("@_user_1 hello there", "user")); ok {
 		t.Fatal("a group message mentioning only users must drop")
 	}
 	// No mentions drop.
-	if _, ok := normalizeEvent(groupEvent("plain chatter")); ok {
+	if _, _, ok := normalizeEvent(groupEvent("plain chatter")); ok {
 		t.Fatal("unmentioned group chatter must drop")
 	}
 	// A bare bot mention leaves nothing to publish.
-	if _, ok := normalizeEvent(groupEvent("@_user_1", "bot")); ok {
+	if _, _, ok := normalizeEvent(groupEvent("@_user_1", "bot")); ok {
 		t.Fatal("a bare bot mention leaves nothing to publish")
 	}
+}
+
+// stubFeishuImageBytes is a JPEG-magic payload; the adapter does not sniff
+// (the Host does), but real magic bytes keep the fixture honest.
+var stubFeishuImageBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
+// p2pImageEvent builds a p2p image message event carrying the stub image
+// key.
+func p2pImageEvent() *larkim.P2MessageReceiveV1 {
+	return &larkim.P2MessageReceiveV1{
+		Event: &larkim.P2MessageReceiveV1Data{
+			Sender: &larkim.EventSender{
+				SenderId:   &larkim.UserId{OpenId: ptr("ou_manager1234")},
+				SenderType: ptr("user"),
+			},
+			Message: &larkim.EventMessage{
+				MessageId:   ptr("om_img_1"),
+				ChatId:      ptr("oc_chat_1"),
+				ChatType:    ptr("p2p"),
+				MessageType: ptr("image"),
+				Content:     ptr(`{"image_key":"img_stub_key"}`),
+			},
+		},
+	}
+}
+
+// TestNormalizeEventImageType: an image event yields a download ref and no
+// text; junk keys and unknown message types stay dropped.
+func TestNormalizeEventImageType(t *testing.T) {
+	msg, refs, ok := normalizeEvent(p2pImageEvent())
+	if !ok {
+		t.Fatal("image event must be publishable")
+	}
+	if len(refs) != 1 || refs[0].messageID != "om_img_1" || refs[0].imageKey != "img_stub_key" {
+		t.Fatalf("refs = %+v", refs)
+	}
+	if len(msg.Parts) != 0 || msg.ChatID != "oc_chat_1" {
+		t.Fatalf("envelope = %+v", msg)
+	}
+
+	noKey := p2pImageEvent()
+	noKey.Event.Message.Content = ptr(`{"image_key":""}`)
+	if _, refs, ok := normalizeEvent(noKey); ok || len(refs) != 0 {
+		t.Fatal("an image event with an empty key must not publish")
+	}
+
+	rich := p2pTextEvent()
+	rich.Event.Message.MessageType = ptr("post")
+	rich.Event.Message.Content = ptr(`{"title":"t"}`)
+	if _, _, ok := normalizeEvent(rich); ok {
+		t.Fatal("post messages stay out of this slice")
+	}
+}
+
+// TestInboundImageDualAPIFallback: the message-resource route answers
+// first; when it fails, the image API serves the bytes. The envelope keeps
+// the [image: key] annotation either way.
+func TestInboundImageDualAPIFallback(t *testing.T) {
+	t.Run("primary route serves", func(t *testing.T) {
+		stub := newLarkStub(t, stubOptions{})
+		env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+		ws := newFakeWS(nil)
+		p, _ := startWithFake(t, env, ws)
+		onEvent, _, _ := ws.state()
+		if err := onEvent(context.Background(), p2pImageEvent()); err != nil {
+			t.Fatalf("event handler: %v", err)
+		}
+		waitFor(t, "image envelope", func() bool { return len(env.snapshot()) == 1 })
+		got := env.snapshot()[0]
+		if len(got.Parts) != 2 ||
+			got.Parts[0].Text != "[image: img_stub_key]" ||
+			got.Parts[1].Kind != plugin.PartMedia ||
+			string(got.Parts[1].Media.Data) != string(stubFeishuImageBytes) {
+			t.Fatalf("envelope parts = %+v", got.Parts)
+		}
+		resourceHits, imageHits, auths := stub.downloadCalls()
+		if resourceHits != 1 || imageHits != 0 {
+			t.Fatalf("downloads: resource=%d image=%d, want primary only", resourceHits, imageHits)
+		}
+		if len(auths) != 1 || auths[0] != "Bearer "+stubTenantToken {
+			t.Fatalf("authorization = %v, want the tenant bearer token", auths)
+		}
+		_ = p
+	})
+
+	t.Run("fallback serves on resource failure", func(t *testing.T) {
+		stub := newLarkStub(t, stubOptions{resourceCode: 99991663, resourceMsg: "token invalid"})
+		env := envFor(t, `{"app_id_env":"`+stubAppIDEnvName+`","app_secret_env":"`+stubAppSecretEnvName+`","open_base_url":"`+stub.server.URL+`"}`)
+		ws := newFakeWS(nil)
+		p, _ := startWithFake(t, env, ws)
+		onEvent, _, _ := ws.state()
+		if err := onEvent(context.Background(), p2pImageEvent()); err != nil {
+			t.Fatalf("event handler: %v", err)
+		}
+		waitFor(t, "fallback image envelope", func() bool { return len(env.snapshot()) == 1 })
+		got := env.snapshot()[0]
+		if len(got.Parts) != 2 ||
+			got.Parts[0].Text != "[image: img_stub_key]" ||
+			got.Parts[1].Kind != plugin.PartMedia ||
+			string(got.Parts[1].Media.Data) != string(stubFeishuImageBytes) {
+			t.Fatalf("envelope parts = %+v", got.Parts)
+		}
+		resourceHits, imageHits, _ := stub.downloadCalls()
+		if resourceHits < 1 || imageHits != 1 {
+			// The SDK retries an auth-class resource failure on its own, so
+			// the primary count may exceed one; the fallback runs exactly
+			// once and serves the bytes.
+			t.Fatalf("downloads: resource=%d image=%d, want retries plus one fallback", resourceHits, imageHits)
+		}
+		_ = p
+	})
 }
