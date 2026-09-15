@@ -47,6 +47,7 @@ package qq
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -129,6 +130,17 @@ type qqAPI interface {
 	// PostGroupMessage posts one message to a group
 	// (POST /v2/groups/{group_openid}/messages).
 	PostGroupMessage(ctx context.Context, groupOpenID string, msg dto.APIMessage, opt ...options.Option) (*dto.Message, error)
+	// PostC2CMediaUpload uploads one rich-media file for a C2C user
+	// (POST /v2/users/{user_id}/files) and returns its file_info handle.
+	PostC2CMediaUpload(ctx context.Context, userID string, upload qqMediaUpload) (string, error)
+	// PostGroupMediaUpload uploads for a group
+	// (POST /v2/groups/{group_openid}/files).
+	PostGroupMediaUpload(ctx context.Context, groupOpenID string, upload qqMediaUpload) (string, error)
+	// PostC2CRichMedia posts one msg_type=7 rich-media reply carrying an
+	// uploaded file handle (POST /v2/users/{user_id}/messages).
+	PostC2CRichMedia(ctx context.Context, userID string, msg qqRichMediaMessage) (*dto.Message, error)
+	// PostGroupRichMedia posts one to a group.
+	PostGroupRichMedia(ctx context.Context, groupOpenID string, msg qqRichMediaMessage) (*dto.Message, error)
 }
 
 // groupATMessageHandler is the GROUP_AT_MESSAGE_CREATE callback shape.
@@ -1089,6 +1101,105 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		}
 	}
 	return ids, nil
+}
+
+// maxOutboundImageBytes re-checks the shared attachment bound on the
+// outbound side (§1): the Host validates before SendMedia, and this bound
+// keeps the base64 upload body sane even if a future producer bypasses
+// that path. Reject, never truncate.
+const maxOutboundImageBytes = 5 << 20
+
+// SendMedia implements plugin.MediaSender (§1 outbound media) as the
+// official two-step contract: each image uploads through /files (base64
+// file_data, file_type 1) and then leaves as one msg_type=7 rich-media
+// passive reply riding the same msg_id/msg_seq window as text. The
+// reply's text has already gone out through Send — QQ rich-media bodies
+// carry no caption this batch. A failure fails the whole batch; the
+// Host's ledger retries it with a fresh upload (at-least-once).
+func (p *Plugin) SendMedia(ctx context.Context, chatID string, parts []plugin.Part) ([]string, error) {
+	p.mu.Lock()
+	api := p.api
+	state := p.chats[chatID]
+	p.mu.Unlock()
+	if api == nil {
+		return nil, errors.New("qq: channel not started")
+	}
+	if state == nil {
+		return nil, fmt.Errorf("qq: no passive reply window for chat %q; the chat must message the "+
+			"bot first (passive msg ids are runtime state and do not survive a restart)", chatID)
+	}
+	var ids []string
+	for _, part := range parts {
+		if part.Kind != plugin.PartMedia || len(part.Media.Data) == 0 {
+			continue
+		}
+		if len(part.Media.Data) > maxOutboundImageBytes {
+			return ids, fmt.Errorf("qq: media %q exceeds the %d KiB outbound bound",
+				part.Media.Name, maxOutboundImageBytes>>10)
+		}
+		if !strings.HasPrefix(strings.ToLower(part.Media.MimeType), "image/") {
+			return ids, fmt.Errorf("qq: media %q mime %q is not an image; only images are ruled in",
+				part.Media.Name, part.Media.MimeType)
+		}
+		fileInfo, err := p.uploadMedia(ctx, api, state, chatID, part.Media)
+		if err != nil {
+			return ids, fmt.Errorf("qq: upload media for chat %q: %w", chatID, err)
+		}
+		p.mu.Lock()
+		passiveID := state.msgID
+		p.mu.Unlock()
+		messageID, err := p.sendRichMedia(ctx, api, state, chatID, passiveID, fileInfo)
+		if err != nil {
+			return ids, fmt.Errorf("qq: send media to chat %q: %w", chatID, err)
+		}
+		if messageID != "" {
+			ids = append(ids, messageID)
+		}
+	}
+	return ids, nil
+}
+
+// uploadMedia runs step one: the base64 file upload, addressed by the
+// chat kind the passive window tracks.
+func (p *Plugin) uploadMedia(ctx context.Context, api qqAPI, state *chatState, chatID string, m plugin.Media) (string, error) {
+	upload := qqMediaUpload{
+		FileType: 1, // image (the only type this generation sends)
+		FileData: base64.StdEncoding.EncodeToString(m.Data),
+	}
+	if state.group {
+		return api.PostGroupMediaUpload(ctx, chatID, upload)
+	}
+	return api.PostC2CMediaUpload(ctx, chatID, upload)
+}
+
+// sendRichMedia posts step two: the msg_type=7 passive reply carrying the
+// uploaded handle, through the same window bookkeeping as text.
+func (p *Plugin) sendRichMedia(ctx context.Context, api qqAPI, state *chatState, chatID, passiveID, fileInfo string) (string, error) {
+	p.mu.Lock()
+	state.seq++
+	seq := state.seq
+	p.mu.Unlock()
+	if passiveID == "" {
+		return "", errors.New("passive reply window is empty")
+	}
+	body := qqRichMediaMessage{MsgType: int(dto.RichMediaMsg), MsgID: passiveID, MsgSeq: seq}
+	body.Media.FileInfo = fileInfo
+	var (
+		sent *dto.Message
+		err  error
+	)
+	if state.group {
+		sent, err = api.PostGroupRichMedia(ctx, chatID, body)
+	} else {
+		sent, err = api.PostC2CRichMedia(ctx, chatID, body)
+	}
+	if err != nil {
+		return "", err
+	}
+	if sent == nil {
+		return "", nil
+	}
+	return sent.ID, nil
 }
 
 // sendText posts one plain-text passive reply through the SDK's C2C

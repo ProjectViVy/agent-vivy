@@ -3,6 +3,7 @@ package qq
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/tencent-connect/botgo/errs"
 	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/log"
+	"github.com/tencent-connect/botgo/openapi"
 	"github.com/tencent-connect/botgo/openapi/options"
 	"golang.org/x/oauth2"
 
@@ -68,11 +70,34 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 // botgoOpenAPI and botgoSandbox are the production OpenAPI constructors,
 // reachable for the Send loopback test (New wires them into p.newAPI; the
-// generic harness swaps that factory out).
-func botgoOpenAPI(appID string, ts oauth2.TokenSource) qqAPI { return botgo.NewOpenAPI(appID, ts) }
+// generic harness swaps that factory out). The media surface stays with
+// the governed client — the SDK wrapper serves the media endpoints never.
+type botgoAPI struct {
+	openapi.OpenAPI
+}
+
+func (b botgoAPI) PostC2CMediaUpload(context.Context, string, qqMediaUpload) (string, error) {
+	return "", errors.New("media endpoints are served by the governed client only")
+}
+
+func (b botgoAPI) PostGroupMediaUpload(context.Context, string, qqMediaUpload) (string, error) {
+	return "", errors.New("media endpoints are served by the governed client only")
+}
+
+func (b botgoAPI) PostC2CRichMedia(context.Context, string, qqRichMediaMessage) (*dto.Message, error) {
+	return nil, errors.New("media endpoints are served by the governed client only")
+}
+
+func (b botgoAPI) PostGroupRichMedia(context.Context, string, qqRichMediaMessage) (*dto.Message, error) {
+	return nil, errors.New("media endpoints are served by the governed client only")
+}
+
+func botgoOpenAPI(appID string, ts oauth2.TokenSource) qqAPI {
+	return botgoAPI{OpenAPI: botgo.NewOpenAPI(appID, ts)}
+}
 
 func botgoSandbox(appID string, ts oauth2.TokenSource) qqAPI {
-	return botgo.NewSandboxOpenAPI(appID, ts)
+	return botgoAPI{OpenAPI: botgo.NewSandboxOpenAPI(appID, ts)}
 }
 
 // --- fakes -----------------------------------------------------------------
@@ -206,9 +231,14 @@ type fakeAPI struct {
 	wsURL string
 	wsErr error
 
-	mu         sync.Mutex
-	c2cCalls   []c2cCall
-	groupCalls []groupCall
+	uploadErr error
+	richErr   error
+
+	mu          sync.Mutex
+	c2cCalls    []c2cCall
+	groupCalls  []groupCall
+	uploadCalls []mediaUploadCall
+	richCalls   []richMediaCall
 }
 
 type c2cCall struct {
@@ -245,6 +275,68 @@ func (a *fakeAPI) PostGroupMessage(_ context.Context, groupOpenID string, msg dt
 	a.groupCalls = append(a.groupCalls, groupCall{groupOpenID: groupOpenID, msg: msg})
 	a.mu.Unlock()
 	return &dto.Message{ID: "sent-via-stub"}, nil
+}
+
+// PostC2CMediaUpload records the upload and returns the canned handle.
+func (a *fakeAPI) PostC2CMediaUpload(_ context.Context, userID string, upload qqMediaUpload) (string, error) {
+	a.mu.Lock()
+	a.uploadCalls = append(a.uploadCalls, mediaUploadCall{target: userID, upload: upload})
+	err, n := a.uploadErr, len(a.uploadCalls)
+	a.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("file-info-%d", n), nil
+}
+
+// PostGroupMediaUpload records the group upload like its C2C sibling.
+func (a *fakeAPI) PostGroupMediaUpload(_ context.Context, groupOpenID string, upload qqMediaUpload) (string, error) {
+	a.mu.Lock()
+	a.uploadCalls = append(a.uploadCalls, mediaUploadCall{target: groupOpenID, upload: upload, group: true})
+	err, n := a.uploadErr, len(a.uploadCalls)
+	a.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("file-info-%d", n), nil
+}
+
+// PostC2CRichMedia records the msg_type=7 reply.
+func (a *fakeAPI) PostC2CRichMedia(_ context.Context, userID string, msg qqRichMediaMessage) (*dto.Message, error) {
+	a.mu.Lock()
+	a.richCalls = append(a.richCalls, richMediaCall{target: userID, msg: msg})
+	err := a.richErr
+	a.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return &dto.Message{ID: "rich-via-stub"}, nil
+}
+
+// PostGroupRichMedia records the group variant.
+func (a *fakeAPI) PostGroupRichMedia(_ context.Context, groupOpenID string, msg qqRichMediaMessage) (*dto.Message, error) {
+	a.mu.Lock()
+	a.richCalls = append(a.richCalls, richMediaCall{target: groupOpenID, msg: msg, group: true})
+	err := a.richErr
+	a.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return &dto.Message{ID: "rich-via-stub"}, nil
+}
+
+// mediaUploadCall records one /files upload.
+type mediaUploadCall struct {
+	target string
+	upload qqMediaUpload
+	group  bool
+}
+
+// richMediaCall records one msg_type=7 post.
+type richMediaCall struct {
+	target string
+	msg    qqRichMediaMessage
+	group  bool
 }
 
 func (a *fakeAPI) c2cCount() int {
@@ -949,7 +1041,11 @@ func newLoopback(t *testing.T) *loopbackServer {
 			body:   body,
 		})
 		code, bodyText := lb.c2cCode, lb.c2cBody
-		if lb.failMarkdown && bytes.Contains(body, []byte(`"msg_type":2`)) {
+		if strings.HasSuffix(r.URL.Path, "/files") {
+			// The rich-media upload answers with the handle the following
+			// msg_type=7 post must carry verbatim.
+			bodyText = `{"file_info":"LB-FILE-1"}`
+		} else if lb.failMarkdown && bytes.Contains(body, []byte(`"msg_type":2`)) {
 			code, bodyText = http.StatusBadRequest, `{"code":11253,"message":"markdown not allowed","trace_id":"t-1"}`
 		}
 		lb.mu.Unlock()
@@ -964,6 +1060,15 @@ func newLoopback(t *testing.T) *loopbackServer {
 	constant.APIDomain = lb.srv.URL
 	t.Cleanup(func() { constant.APIDomain = old })
 	return lb
+}
+
+// serveToken registers the loopback token endpoint the governed client
+// exchanges app credentials at.
+func (lb *loopbackServer) serveToken() {
+	lb.srv.Config.Handler.(*http.ServeMux).HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"`+stubAccessToken+`","expires_in":7200,"code":0}`)
+	})
 }
 
 func (lb *loopbackServer) sent() []recordedRequest {
@@ -1855,5 +1960,97 @@ func TestGroupImagePreScreenAndDownload(t *testing.T) {
 		env1.Parts[2].Kind != plugin.PartMedia ||
 		string(env1.Parts[2].Media.Data) != string(stubQQImageBytes) {
 		t.Fatalf("group envelope = %+v", env1)
+	}
+}
+
+// TestSendMediaTwoStep: each image uploads through /files (file_type 1,
+// base64 file_data) and leaves as one msg_type=7 passive reply carrying
+// the returned handle verbatim.
+func TestSendMediaTwoStep(t *testing.T) {
+	lb := newLoopback(t)
+	// The media surface lives on the governed client (the production
+	// factory), so this harness pins it and repoints the token/API
+	// endpoints at the loopback server.
+	h := newHarness(t, validSettings)
+	h.p.newAPI = func(appID string, ts oauth2.TokenSource, sandbox bool) qqAPI {
+		return newGovernedQQAPI(h.env, appID, ts, sandbox)
+	}
+	oldTokenURL, oldAPIBase := qqTokenURL, qqAPIBaseURL
+	qqTokenURL = lb.srv.URL + "/token"
+	qqAPIBaseURL = lb.srv.URL
+	t.Cleanup(func() { qqTokenURL, qqAPIBaseURL = oldTokenURL, oldAPIBase })
+	lb.serveToken()
+	h.start(t)
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "hello"))
+
+	ids, err := h.p.SendMedia(context.Background(), "OPENID1", []plugin.Part{
+		{Kind: plugin.PartText, Text: "ignored"},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "pic.jpg", MimeType: "image/jpeg", Data: stubQQImageBytes}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "empty.jpg", MimeType: "image/jpeg"}}, // skipped
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("ids = %v, want one rich-media id", ids)
+	}
+	sent := lb.sent()
+	if len(sent) != 2 {
+		t.Fatalf("requests = %d, want one upload plus one rich post", len(sent))
+	}
+	if !strings.HasSuffix(sent[0].path, "/v2/users/OPENID1/files") {
+		t.Fatalf("upload path = %s, want the /files endpoint", sent[0].path)
+	}
+	var uploadBody struct {
+		FileType int    `json:"file_type"`
+		FileData string `json:"file_data"`
+	}
+	if err := json.Unmarshal(sent[0].body, &uploadBody); err != nil {
+		t.Fatalf("decode upload body: %v", err)
+	}
+	if uploadBody.FileType != 1 {
+		t.Fatalf("file_type = %d, want 1 (image)", uploadBody.FileType)
+	}
+	if decoded, derr := base64.StdEncoding.DecodeString(uploadBody.FileData); derr != nil ||
+		string(decoded) != string(stubQQImageBytes) {
+		t.Fatalf("file_data does not round-trip the image bytes (err=%v)", derr)
+	}
+	if !strings.HasSuffix(sent[1].path, "/v2/users/OPENID1/messages") {
+		t.Fatalf("rich path = %s, want the messages endpoint", sent[1].path)
+	}
+	if !bytes.Contains(sent[1].body, []byte(`"file_info":"LB-FILE-1"`)) {
+		t.Fatalf("rich body = %s, want the raw file_info handle", sent[1].body)
+	}
+	if !bytes.Contains(sent[1].body, []byte(`"msg_type":7`)) || !bytes.Contains(sent[1].body, []byte(`"msg_id":"in-1"`)) {
+		t.Fatalf("rich body = %s, want msg_type 7 anchored to the inbound window", sent[1].body)
+	}
+}
+
+// TestSendMediaFailPaths: oversize bytes and a non-image claim reject
+// before any upload; an upload failure surfaces for the ledger to retry.
+func TestSendMediaFailPaths(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+	h.dispatch(t, 7, c2cEvent("in-1", "U1", "hello"))
+
+	oversize := plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+		Name: "big.jpg", MimeType: "image/jpeg", Data: bytes.Repeat([]byte{0x00}, 5<<20+1)}}
+	if _, err := h.p.SendMedia(context.Background(), "U1", []plugin.Part{oversize}); err == nil {
+		t.Fatal("oversize media must reject")
+	}
+	notImage := plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+		Name: "x.txt", MimeType: "text/plain", Data: []byte("x")}}
+	if _, err := h.p.SendMedia(context.Background(), "U1", []plugin.Part{notImage}); err == nil {
+		t.Fatal("a non-image claim must reject")
+	}
+	h.api.uploadErr = errors.New("upload refused")
+	if _, err := h.p.SendMedia(context.Background(), "U1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "ok.jpg", MimeType: "image/jpeg", Data: stubQQImageBytes}},
+	}); err == nil {
+		t.Fatal("an upload failure must surface")
+	}
+	// No request may have landed on the message endpoints.
+	if n := h.api.c2cCount(); n != 0 {
+		t.Fatalf("c2c posts = %d, want 0 (rich media rides its own calls)", n)
 	}
 }
