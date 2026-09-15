@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"regexp"
 	"strings"
@@ -65,6 +66,43 @@ const groupChatType = "group"
 // reMentionPlaceholder matches a leftover @_user_N mention placeholder the
 // mentions array did not key.
 var reMentionPlaceholder = regexp.MustCompile(`@_user_\d+`)
+
+// maxInboundImageBytes mirrors the Host's shared attachment bound
+// (internal/attachment, §1 media ruling): 5 MiB per image. The read is
+// capped one byte over so an over-limit payload is detected, rejected,
+// and never truncated into the turn.
+const maxInboundImageBytes = 5 << 20
+
+// imageRef is one pre-screened inbound image: the message id (the
+// MessageResource.Get key) and the image key both APIs address.
+type imageRef struct {
+	messageID string
+	imageKey  string
+}
+
+// envWarn logs through the Host logger when one is available; the surface
+// is advisory and must never panic on a nil logger (test doubles).
+func envWarn(env plugin.ChannelEnv, msg string, args ...any) {
+	if logger := env.Logger(); logger != nil {
+		logger.Warn(msg, args...)
+	}
+}
+
+// imageKeyFromContent parses the image message content JSON
+// ({"image_key":"img_v2_..."}) minimally: the image_key field, nothing
+// else. A payload that does not decode to a non-empty string yields "".
+func imageKeyFromContent(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	var payload struct {
+		ImageKey string `json:"image_key"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.ImageKey)
+}
 
 // wsRedialDelay is how often the supervisor offers the event gateway a
 // fresh websocket after a healthy connection died. The SDK's own
@@ -329,8 +367,23 @@ func (p *Plugin) messageHandler(env plugin.ChannelEnv) eventFunc {
 		if stopped {
 			return nil
 		}
-		msg, publishable := normalizeEvent(event)
+		msg, refs, publishable := normalizeEvent(event)
 		if !publishable {
+			return nil
+		}
+		// Image downloads are best-effort (§12): each success appends the
+		// annotation plus the media part; a failure keeps the annotation so
+		// the sender's image never vanishes without a trace.
+		for _, ref := range refs {
+			ann := plugin.Part{Kind: plugin.PartText, Text: "[image: " + ref.imageKey + "]"}
+			if media, ok := p.downloadImage(ctx, env, ref); ok {
+				msg.Parts = append(msg.Parts, ann, plugin.Part{Kind: plugin.PartMedia, Media: media})
+			} else {
+				msg.Parts = append(msg.Parts, ann)
+			}
+		}
+		if len(msg.Parts) == 0 {
+			// Image-only message whose download failed — nothing to publish.
 			return nil
 		}
 		// PublishInbound is synchronous (journal + run start). A dispatch
@@ -627,61 +680,78 @@ func sendText(ctx context.Context, api *lark.Client, chatID, text string) (strin
 // Reaction events are separate event types (im.message.reaction.*), so
 // they never reach this handler; the dispatcher registers
 // im.message.receive_v1 only.
-func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bool) {
+func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, []*imageRef, bool) {
 	if event == nil || event.Event == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	message, sender := event.Event.Message, event.Event.Sender
 	if message == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	chatType := strings.TrimSpace(str(message.ChatType))
 	isGroup := chatType == groupChatType
 	if chatType != p2pChatType && !isGroup {
-		return plugin.InboundMessage{}, false
-	}
-	if str(message.MessageType) != larkim.MsgTypeText {
-		// Pictures, rich text, cards, audio — no text part to publish
-		// (media in is a later slice).
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	if sender != nil && strings.TrimSpace(str(sender.SenderType)) == "bot" {
 		// The bot's own echo (or another bot's message) must not loop back
 		// in as a new turn.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
-	content := textFromContent(str(message.Content))
-	if content == "" {
-		return plugin.InboundMessage{}, false
+	var refs []*imageRef
+	var content string
+	switch messageType := strings.TrimSpace(str(message.MessageType)); messageType {
+	case larkim.MsgTypeText:
+		content = textFromContent(str(message.Content))
+	case larkim.MsgTypeImage:
+		// An image message: the content carries the image key; the bytes
+		// are fetched by the handler through the dual-API download.
+		if key := imageKeyFromContent(str(message.Content)); key != "" {
+			refs = append(refs, &imageRef{
+				messageID: strings.TrimSpace(str(message.MessageId)),
+				imageKey:  key,
+			})
+		}
+	default:
+		// Rich text, cards, audio, video, media — not served (the §12
+		// ruling scopes inbound media to images).
+		return plugin.InboundMessage{}, nil, false
+	}
+	if content == "" && len(refs) == 0 {
+		return plugin.InboundMessage{}, nil, false
 	}
 	if isGroup {
 		if !botMentioned(message.Mentions) {
 			// Mention-only: group chatter that never @-addresses a bot
 			// never becomes a turn.
-			return plugin.InboundMessage{}, false
+			return plugin.InboundMessage{}, nil, false
 		}
 		content = strings.TrimSpace(stripMentionPlaceholders(content, message.Mentions))
-		if content == "" {
+		if content == "" && len(refs) == 0 {
 			// A bare "@vivy" ping has nothing left to answer.
-			return plugin.InboundMessage{}, false
+			return plugin.InboundMessage{}, nil, false
 		}
 	}
 	senderID := extractSenderID(sender)
 	if senderID == "" {
 		// No sender id: allow_from could never match this envelope.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	messageID := strings.TrimSpace(str(message.MessageId))
 	if messageID == "" {
 		// The Host dispatch drops envelopes without a message id; do not
 		// publish what cannot be journaled.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	chatID := strings.TrimSpace(str(message.ChatId))
 	if chatID == "" {
 		// The chat id is the Send addressing key; without it Vivy could
 		// not reply.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
+	}
+	var parts []plugin.Part
+	if content != "" {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: content})
 	}
 	return plugin.InboundMessage{
 		Channel:   ChannelName,
@@ -692,8 +762,71 @@ func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bo
 		// forum topics).
 		ReplyTo: "",
 		TopicID: "",
-		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
-	}, true
+		Parts:   parts,
+	}, refs, true
+}
+
+// downloadImage fetches one inbound image through the SDK client: the
+// message-resource API first (scoped to the message that carried it); on
+// a transport error, a non-success envelope, or an empty body it falls
+// back to the image API — picoclaw's dual-API semantics, rewritten on the
+// pinned SDK. The read is bounded by maxInboundImageBytes; every failure
+// drops only the image part. Logs carry keys and byte counts, never
+// tokens or raw transport errors.
+func (p *Plugin) downloadImage(ctx context.Context, env plugin.ChannelEnv, ref *imageRef) (plugin.Media, bool) {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil || ref == nil || ref.imageKey == "" {
+		return plugin.Media{}, false
+	}
+	read := func(file io.Reader) ([]byte, bool) {
+		if file == nil {
+			return nil, false
+		}
+		data, err := io.ReadAll(io.LimitReader(file, maxInboundImageBytes+1))
+		if err != nil || len(data) == 0 || len(data) > maxInboundImageBytes {
+			return nil, false
+		}
+		return data, true
+	}
+	if ref.messageID != "" {
+		resp, err := api.Im.MessageResource.Get(ctx, larkim.NewGetMessageResourceReqBuilder().
+			MessageId(ref.messageID).FileKey(ref.imageKey).Type("image").Build())
+		switch {
+		case err == nil && resp.Success():
+			if data, ok := read(resp.File); ok {
+				return plugin.Media{Name: ref.imageKey, MimeType: "image/jpeg", Data: data}, true
+			}
+			envWarn(env, "feishu: message-resource image body empty or over the bound; falling back to the image API",
+				"message_id", ref.messageID, "image_key", ref.imageKey)
+		case err != nil:
+			envWarn(env, "feishu: message-resource image fetch failed; falling back to the image API",
+				"message_id", ref.messageID, "image_key", ref.imageKey)
+		default:
+			envWarn(env, "feishu: message-resource image not successful; falling back to the image API",
+				"message_id", ref.messageID, "image_key", ref.imageKey, "code", resp.Code)
+		}
+	}
+	resp, err := api.Im.Image.Get(ctx, larkim.NewGetImageReqBuilder().ImageKey(ref.imageKey).Build())
+	if err != nil {
+		envWarn(env, "feishu: image API fetch failed; dropping the image part", "image_key", ref.imageKey)
+		return plugin.Media{}, false
+	}
+	if !resp.Success() {
+		envWarn(env, "feishu: image API not successful; dropping the image part",
+			"image_key", ref.imageKey, "code", resp.Code)
+		return plugin.Media{}, false
+	}
+	data, ok := read(resp.File)
+	if !ok {
+		envWarn(env, "feishu: image API body empty or over the bound; dropping the image part",
+			"image_key", ref.imageKey)
+		return plugin.Media{}, false
+	}
+	// The MIME claim is provisional: the Host sniffs the actual bytes
+	// against the shared whitelist before the part reaches the turn.
+	return plugin.Media{Name: ref.imageKey, MimeType: "image/jpeg", Data: data}, true
 }
 
 // botMentioned reports whether any mention entry is of type "bot" — the
