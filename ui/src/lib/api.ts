@@ -18,6 +18,7 @@ export const RPC_METHODS = [
   'channel/deliveries/list', 'channel/deliveries/redeliver',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
+  'workspace/browse',
   'skills/list', 'skills/get', 'skills/set-enabled',
   'skills/marketplace/search', 'skills/marketplace/featured', 'skills/marketplace/install',
 ] as const;

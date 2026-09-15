@@ -505,8 +505,12 @@ func TestRecoveryLeavesPendingIntentWhenPluginMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := New(Deps{
-		Journal: backend, Messages: backend, Sessions: backend, Deliveries: backend,
-		Run: (&runRecorder{messages: backend}).run, Logger: testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        (&runRecorder{messages: backend}).run,
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start host: %v", err)
@@ -537,11 +541,14 @@ func TestRecoveryLeavesPendingIntentWhenChannelDisabled(t *testing.T) {
 	seedReply(t, backend, sessionID, runID)
 	ch := fake.New()
 	host := New(Deps{
-		Journal: backend, Messages: backend, Sessions: backend, Deliveries: backend,
-		Run: (&runRecorder{messages: backend}).run,
-		Channels: []plugin.Channel{ch},
-		Config: config.Channels{"fake": {Enabled: false}},
-		Logger: testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        (&runRecorder{messages: backend}).run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: false}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start host: %v", err)
@@ -580,10 +587,14 @@ func TestFastTerminalBeforeRunReturnsIsDelivered(t *testing.T) {
 		return runID, nil
 	}
 	host = New(Deps{
-		Journal: backend, Messages: backend, Sessions: backend, Deliveries: backend,
-		Run: run, Channels: []plugin.Channel{ch},
-		Config: config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
-		Logger: testLogger(),
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
 	})
 	if err := host.StartAll(context.Background()); err != nil {
 		t.Fatalf("start host: %v", err)
