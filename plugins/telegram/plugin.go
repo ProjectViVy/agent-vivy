@@ -28,8 +28,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mymmrac/telego"
 
@@ -73,7 +76,31 @@ type Plugin struct {
 	cancel context.CancelFunc
 	// done is closed when the poll goroutine exited; nil until Start.
 	done chan struct{}
+	// mediaGroups buffers album updates (media_group_id) under a sliding
+	// window so a Telegram album lands as one turn. Guarded by
+	// mediaGroupMu; the map is created by Start and drained by Stop.
+	mediaGroupMu sync.Mutex
+	mediaGroups  map[string]*telegramMediaGroup
 }
+
+// telegramMediaGroup is one aggregating album: the buffered messages in
+// arrival order, the sliding-window timer, and a generation counter that
+// invalidates stale timer callbacks after a window reset. Each buffer
+// refresh also pins the poll context and env the eventual flush publishes
+// with, so a flushed album always rides the ear that received it.
+type telegramMediaGroup struct {
+	messages   []*telego.Message
+	timer      *time.Timer
+	generation uint64
+	ctx        context.Context
+	env        plugin.ChannelEnv
+}
+
+// mediaGroupDelay is the sliding aggregation window for album updates
+// (picoclaw's 500ms). Every message of the group resets the timer; the
+// flush fires once the group is quiet for one window. A var so media
+// tests can shrink it; tests never run in parallel.
+var mediaGroupDelay = 500 * time.Millisecond
 
 // Health implements plugin.HealthChecker (CH-R-1): read-only internal
 // state, no network I/O. A started ear is healthy — telego retries
@@ -148,6 +175,9 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	p.me = me
 	p.cancel = cancel
 	p.done = make(chan struct{})
+	p.mediaGroupMu.Lock()
+	p.mediaGroups = make(map[string]*telegramMediaGroup)
+	p.mediaGroupMu.Unlock()
 	go p.pollLoop(pollCtx, env, updates)
 	return nil
 }
@@ -190,26 +220,179 @@ func (p *Plugin) pollLoop(ctx context.Context, env plugin.ChannelEnv, updates <-
 				// Long polling stopped (context cancelled); exit cleanly.
 				return
 			}
+			// An album member (media_group_id set): buffer it under the
+			// sliding window and let the flush publish the whole album as
+			// one turn.
+			if m := upd.Message; m != nil && m.MediaGroupID != "" {
+				p.bufferMediaGroup(ctx, env, m)
+				continue
+			}
 			msg, photo, publishable := normalizeUpdate(upd, p.me)
 			if !publishable {
 				continue
 			}
+			var refs []*photoRef
 			if photo != nil {
-				// The download is best-effort: a failure keeps the caption
-				// (when present) and drops only the image part, so media
-				// trouble never silences a text the sender wrote.
-				if media, ok := p.downloadPhoto(ctx, env, photo); ok {
-					msg.Parts = append(msg.Parts, plugin.Part{Kind: plugin.PartMedia, Media: media})
-				} else if len(msg.Parts) == 0 {
-					continue // nothing publishable survived: photo failed, no caption
-				}
+				refs = []*photoRef{photo}
 			}
-			// PublishInbound is synchronous (journal + run start). A
-			// dispatch failure must not kill the ear; the Host's structured
-			// logs own the audit trail, so the adapter drops and continues.
-			_ = env.PublishInbound(ctx, msg)
+			p.publishWithPhotos(ctx, env, msg, refs)
 		}
 	}
+}
+
+// publishWithPhotos downloads a message's photo refs (best-effort) and
+// publishes the envelope. A failed download drops only the image part —
+// media trouble never silences a text the sender wrote; an envelope with
+// photos but nothing publishable surviving them is dropped entirely.
+// PublishInbound is synchronous (journal + run start). A dispatch failure
+// must not kill the ear; the Host's structured logs own the audit trail,
+// so the adapter drops and continues.
+func (p *Plugin) publishWithPhotos(ctx context.Context, env plugin.ChannelEnv, msg plugin.InboundMessage, refs []*photoRef) {
+	for _, ref := range refs {
+		if media, ok := p.downloadPhoto(ctx, env, ref); ok {
+			msg.Parts = append(msg.Parts, plugin.Part{Kind: plugin.PartMedia, Media: media})
+		}
+	}
+	if len(refs) > 0 && len(msg.Parts) == 0 {
+		return // every download failed and no caption survived
+	}
+	_ = env.PublishInbound(ctx, msg)
+}
+
+// bufferMediaGroup files one album member under the sliding window keyed
+// by chat and media_group_id (picoclaw's aggregation, rewritten): the
+// timer resets on every arrival, and the generation counter invalidates
+// stale timer callbacks. The flush publishes the album as one turn.
+func (p *Plugin) bufferMediaGroup(ctx context.Context, env plugin.ChannelEnv, msg *telego.Message) {
+	key := strconv.FormatInt(msg.Chat.ID, 10) + ":" + msg.MediaGroupID
+	p.mediaGroupMu.Lock()
+	defer p.mediaGroupMu.Unlock()
+	if p.mediaGroups == nil {
+		// Never started (or Stop already drained): a late frame has
+		// nowhere to aggregate.
+		return
+	}
+	group := p.mediaGroups[key]
+	if group == nil {
+		group = &telegramMediaGroup{}
+		p.mediaGroups[key] = group
+	}
+	group.messages = append(group.messages, msg)
+	group.generation++
+	group.ctx, group.env = ctx, env
+	if group.timer != nil {
+		group.timer.Stop()
+	}
+	group.timer = time.AfterFunc(mediaGroupDelay, func() { p.flushMediaGroup(key, group.generation) })
+}
+
+// flushMediaGroup fires when an album has been quiet for one window: it
+// takes the buffered messages, sorts them by message id (Telegram
+// interleaves), and publishes the album as one turn. A generation mismatch
+// means the window was reset after this timer was set — the callback
+// stands down.
+func (p *Plugin) flushMediaGroup(key string, generation uint64) {
+	p.mediaGroupMu.Lock()
+	group := p.mediaGroups[key]
+	if group == nil || group.generation != generation {
+		p.mediaGroupMu.Unlock()
+		return
+	}
+	delete(p.mediaGroups, key)
+	if group.timer != nil {
+		group.timer.Stop()
+	}
+	msgs := group.messages
+	ctx, env := group.ctx, group.env
+	p.mediaGroupMu.Unlock()
+
+	msg, refs, publishable := normalizeAlbum(msgs, p.me)
+	if !publishable {
+		return
+	}
+	p.publishWithPhotos(ctx, env, msg, refs)
+}
+
+// flushMediaGroupsOnStop drains every album still under its window at
+// Stop: the pending turns publish with their recorded poll contexts, which
+// are still live because Stop flushes before cancelling. Timers are
+// stopped, so no flush callback can fire afterwards; a callback that
+// already queued behind the lock stands down on the nil map.
+func (p *Plugin) flushMediaGroupsOnStop() {
+	p.mediaGroupMu.Lock()
+	groups := p.mediaGroups
+	p.mediaGroups = nil
+	p.mediaGroupMu.Unlock()
+	for _, group := range groups {
+		if group.timer != nil {
+			group.timer.Stop()
+		}
+		msg, refs, publishable := normalizeAlbum(group.messages, p.me)
+		if !publishable {
+			continue
+		}
+		p.publishWithPhotos(group.ctx, group.env, msg, refs)
+	}
+}
+
+// normalizeAlbum aggregates one album's messages into a single envelope:
+// the texts/captions join in message-id order as the text part, and every
+// message's largest photo variant becomes a download ref. Albums are a
+// private-chat surface this slice — a group album is dropped by the
+// mention-gate ruling (group turns stay text-only), and the sender guards
+// mirror normalizeUpdate.
+func normalizeAlbum(msgs []*telego.Message, me *telego.User) (plugin.InboundMessage, []*photoRef, bool) {
+	if len(msgs) == 0 {
+		return plugin.InboundMessage{}, nil, false
+	}
+	first := msgs[0]
+	if first.From == nil || first.From.IsBot || first.SenderChat != nil || first.Chat.Type != "private" {
+		// Group albums stay out this slice; anonymous/business senders are
+		// not allowlistable.
+		return plugin.InboundMessage{}, nil, false
+	}
+	sorted := make([]*telego.Message, len(msgs))
+	copy(sorted, msgs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].MessageID < sorted[j].MessageID })
+	var texts []string
+	var refs []*photoRef
+	for _, m := range sorted {
+		if m.From == nil || m.From.IsBot || m.SenderChat != nil {
+			continue
+		}
+		text := m.Text
+		if text == "" {
+			text = m.Caption
+		}
+		if t := strings.TrimSpace(text); t != "" {
+			texts = append(texts, t)
+		}
+		if len(m.Photo) > 0 {
+			refs = append(refs, &photoRef{
+				fileID:    largestPhoto(m.Photo).FileID,
+				messageID: int64(m.MessageID),
+			})
+		}
+	}
+	if len(texts) == 0 && len(refs) == 0 {
+		return plugin.InboundMessage{}, nil, false
+	}
+	var parts []plugin.Part
+	if len(texts) > 0 {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: strings.Join(texts, "\n")})
+	}
+	anchor := sorted[0]
+	return plugin.InboundMessage{
+		Channel: ChannelName,
+		ChatID:  strconv.FormatInt(anchor.Chat.ID, 10),
+		Sender:  senderPrefix + strconv.FormatInt(anchor.From.ID, 10),
+		// The first message id in album order anchors provenance; the
+		// album is one turn.
+		MessageID: strconv.Itoa(anchor.MessageID),
+		ReplyTo:   "",
+		TopicID:   "",
+		Parts:     parts,
+	}, refs, true
 }
 
 // Stop implements plugin.Channel: cancel the long-poll loop and wait (as
@@ -219,6 +402,11 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	if p.cancel == nil {
 		return nil // never started
 	}
+	// Drain albums still under their window first: the pending turns
+	// publish with their recorded poll contexts, which are live until the
+	// cancel below. Timers are stopped either way, so nothing fires after
+	// Stop returns.
+	p.flushMediaGroupsOnStop()
 	p.cancel()
 	if p.done != nil {
 		select {
