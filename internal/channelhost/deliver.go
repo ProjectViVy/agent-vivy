@@ -66,7 +66,7 @@ func (h *Host) deliver(target outboundTarget, attempts int) {
 						"run", string(target.runID), "err", derr)
 				}
 				h.logger.Info("channelhost: outbound delivered",
-					"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
+					"run", string(target.runID), "channel", target.name(), "chat_id", target.chatID)
 				return
 			}
 		default:
@@ -106,14 +106,14 @@ func (h *Host) replyContent(ctx context.Context, target outboundTarget) (content
 		if m.RunID == target.runID && m.Role == domain.RoleAssistant && m.ToolCallID == "" {
 			if m.Content == "" && len(m.Attachments) == 0 {
 				h.logger.Info("channelhost: completed run has no assistant text or media; nothing to deliver",
-					"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
+					"run", string(target.runID), "channel", target.name(), "chat_id", target.chatID)
 				return "", nil, true, nil
 			}
 			return m.Content, m.Attachments, false, nil
 		}
 	}
 	h.logger.Info("channelhost: completed run has no assistant text or media; nothing to deliver",
-		"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
+		"run", string(target.runID), "channel", target.name(), "chat_id", target.chatID)
 	return "", nil, true, nil
 }
 
@@ -145,11 +145,11 @@ func (h *Host) sendReply(ctx context.Context, target outboundTarget, content str
 		ids, err := target.ch.Send(ctx, outbound)
 		if err != nil {
 			h.logger.Error("channelhost: outbound delivery failed",
-				"run", string(target.runID), "channel", target.ch.Name(),
+				"run", string(target.runID), "channel", target.name(),
 				"chat_id", target.chatID, "attempt_delivered", delivered, "err", err)
 			if delivered > 0 {
 				h.logger.Warn("channelhost: outbound delivery stopped mid-reply",
-					"run", string(target.runID), "channel", target.ch.Name(),
+					"run", string(target.runID), "channel", target.name(),
 					"chat_id", target.chatID, "delivered", delivered)
 			}
 			return err
@@ -166,10 +166,10 @@ func (h *Host) sendMedia(ctx context.Context, target outboundTarget, media []dom
 	if len(media) == 0 {
 		return nil
 	}
-	sender, ok := target.ch.(plugin.MediaSender)
+	sender, ok := capabilityTarget(target.ch).(plugin.MediaSender)
 	if !ok {
 		h.logger.Warn("channelhost: ear has no media sender; delivering the reply without its media",
-			"run", string(target.runID), "channel", target.ch.Name(),
+			"run", string(target.runID), "channel", target.name(),
 			"chat_id", target.chatID, "media_count", len(media))
 		return nil
 	}
@@ -178,7 +178,7 @@ func (h *Host) sendMedia(ctx context.Context, target outboundTarget, media []dom
 		mime, err := attachment.ValidateOne(att.MimeType, att.Data)
 		if err != nil {
 			h.logger.Warn("channelhost: dropping invalid outbound media part",
-				"run", string(target.runID), "channel", target.ch.Name(), "err", err)
+				"run", string(target.runID), "channel", target.name(), "err", err)
 			continue
 		}
 		parts = append(parts, plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
@@ -192,7 +192,7 @@ func (h *Host) sendMedia(ctx context.Context, target outboundTarget, media []dom
 	}
 	if _, err := sender.SendMedia(ctx, target.chatID, parts); err != nil {
 		h.logger.Error("channelhost: outbound media delivery failed",
-			"run", string(target.runID), "channel", target.ch.Name(),
+			"run", string(target.runID), "channel", target.name(),
 			"chat_id", target.chatID, "media_count", len(parts), "err", err)
 		return err
 	}
@@ -204,7 +204,7 @@ func (h *Host) sendMedia(ctx context.Context, target outboundTarget, media []dom
 // log carries the truth and the row may lag by one attempt.
 func (h *Host) trackDeliveryAttempt(target outboundTarget, attempts int) {
 	if err := h.deps.Deliveries.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
-		RunID: target.runID, SessionID: target.sessionID, Channel: target.ch.Name(),
+		RunID: target.runID, SessionID: target.sessionID, Channel: target.name(),
 		ChatID: target.chatID, TopicID: target.topicID,
 		State: storage.ChannelDeliveryPending, Attempts: attempts,
 		CreatedAtMs: target.createdAtMs, UpdatedAtMs: time.Now().UnixMilli(),
@@ -222,14 +222,14 @@ func (h *Host) failDelivery(target outboundTarget, attempts int, cause error) {
 		"run", string(target.runID), "chat_id", target.chatID, "attempts", attempts,
 	}
 	if target.ch != nil {
-		attrs = append(attrs, "channel", target.ch.Name())
+		attrs = append(attrs, "channel", target.name())
 	}
 	if cause != nil {
 		attrs = append(attrs, "err", cause)
 	}
 	h.logger.Error("channelhost: outbound delivery attempts exhausted; intent parked as failed", attrs...)
 	if err := h.deps.Deliveries.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
-		RunID: target.runID, SessionID: target.sessionID, Channel: target.ch.Name(),
+		RunID: target.runID, SessionID: target.sessionID, Channel: target.name(),
 		ChatID: target.chatID, TopicID: target.topicID,
 		State: storage.ChannelDeliveryFailed, Attempts: attempts,
 		CreatedAtMs: target.createdAtMs, UpdatedAtMs: time.Now().UnixMilli(),
@@ -306,6 +306,7 @@ func (h *Host) RedeliverDelivery(ctx context.Context, runID domain.RunID) error 
 		sessionID:   d.SessionID,
 		chatID:      d.ChatID,
 		topicID:     d.TopicID,
+		channelName: d.Channel,
 		ch:          ch,
 		maxRunes:    runesLimit(ch),
 		createdAtMs: d.CreatedAtMs,
@@ -340,13 +341,20 @@ func (h *Host) recoverDeliveries(ctx context.Context) {
 		return
 	}
 	for _, d := range open {
+		ch := h.startedChannelByName(d.Channel)
+		if ch == nil {
+			h.logger.Info("channelhost: delivery recovery waits for a started channel",
+				"run", string(d.RunID), "channel", d.Channel, "state", d.State)
+			continue
+		}
 		target := outboundTarget{
 			runID:       d.RunID,
 			sessionID:   d.SessionID,
 			chatID:      d.ChatID,
 			topicID:     d.TopicID,
-			ch:          h.channelByName(d.Channel),
-			maxRunes:    runesLimit(h.channelByName(d.Channel)),
+			channelName: d.Channel,
+			ch:          ch,
+			maxRunes:    runesLimit(ch),
 			createdAtMs: d.CreatedAtMs,
 		}
 		switch d.State {
@@ -400,7 +408,7 @@ func (h *Host) runTerminalType(ctx context.Context, runID domain.RunID) domain.E
 // spawns, so a crash after this point redelivers instead of losing.
 func (h *Host) markPending(target outboundTarget, attempts int) {
 	if err := h.deps.Deliveries.UpsertChannelDelivery(context.Background(), storage.ChannelDelivery{
-		RunID: target.runID, SessionID: target.sessionID, Channel: target.ch.Name(),
+		RunID: target.runID, SessionID: target.sessionID, Channel: target.name(),
 		ChatID: target.chatID, TopicID: target.topicID,
 		State: storage.ChannelDeliveryPending, Attempts: attempts,
 		CreatedAtMs: target.createdAtMs, UpdatedAtMs: time.Now().UnixMilli(),

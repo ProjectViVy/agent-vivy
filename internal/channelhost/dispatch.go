@@ -127,6 +127,7 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		sessionID:   sessionID,
 		chatID:      msg.ChatID,
 		topicID:     msg.TopicID,
+		channelName: msg.Channel,
 		ch:          ch,
 		msgID:       msg.MessageID,
 		maxRunes:    runesLimit(ch),
@@ -449,6 +450,19 @@ func lastNewline(r []rune) int {
 // nil target and drop with a warning instead of panicking on it.
 func (h *Host) channelByName(name string) plugin.Channel {
 	for _, ch := range h.deps.Channels {
+		if ch != nil && ch.Name() == name {
+			return ch
+		}
+	}
+	return nil
+}
+
+// startedChannelByName resolves only adapters whose Start succeeded. Recovery
+// must not send through a merely compiled, disabled, or failed instance.
+func (h *Host) startedChannelByName(name string) plugin.Channel {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ch := range h.started {
 		if ch != nil && ch.Name() == name {
 			return ch
 		}
