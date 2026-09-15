@@ -4,10 +4,13 @@
 // plugins/telegram and carried on by plugins/dingtalk — same file layout,
 // same Start/Stop/Send skeleton, same supervised-redial lifecycle.
 //
-// First-cut scope (what this adapter deliberately does NOT do): no group
-// chats, no rich-text (post) or interactive-card messages, no media, no
-// reactions, no reply threading or topics, no webhook-mode event
-// subscription. P2P TEXT only.
+// First-cut scope (what this adapter deliberately does NOT do): no
+// rich-text (post) messages, no reply threading or topics, no webhook-mode
+// event subscription. Since the first cut: group chats (mention-only,
+// tier-1), image media, outbound cards (every text part as a schema-2.0
+// markdown card with the 11310 plain-text fallback), the interaction faces
+// — edit (card Patch), delete, the "Thinking…" card placeholder, and the
+// ack reaction (ack_emojis pool, idempotent withdrawal) — contract §1/§12.
 //
 // Transport: an OUTBOUND websocket to the Feishu/Lark event gateway
 // (manifest transport "poll", grant channel.poll). The adapter never opens
@@ -32,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"regexp"
 	"strings"
@@ -157,6 +161,9 @@ type Plugin struct {
 	creds wsCreds
 	// domain is the platform base URL (feishu/lark/open_base_url).
 	domain string
+	// settings are the decoded Start settings; the reaction ack reads the
+	// emoji pool from them. Set once by Start, never swapped afterwards.
+	settings Settings
 	// onEvent is the env-bound event handler handed to the websocket
 	// factory; set once by Start.
 	onEvent eventFunc
@@ -283,6 +290,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	p.host = env
 	p.creds = wsCreds{AppID: appID, AppSecret: appSecret, EncryptKey: settings.EncryptKey}
 	p.domain = domainFor(settings)
+	p.settings = settings
 	p.onEvent = p.messageHandler(env)
 	creds, domain := p.creds, p.domain
 	p.mu.Unlock()
@@ -595,14 +603,16 @@ func (p *Plugin) Health(context.Context) error {
 }
 
 // Send implements plugin.Channel: deliver each text part as one
-// im.v1.message Create call (receive_id_type chat_id, msg_type text) and
-// return the platform message ids produced.
+// im.v1.message Create call (receive_id_type chat_id) and return the
+// platform message ids produced. Every text part goes out as a schema-2.0
+// markdown interactive card (contract §1, 2026-09-15); a platform 11310
+// (card content limit) falls back to a plain text message, and every other
+// non-zero code keeps the failure semantics.
 //
-// OutboundMessage.ReplyTo and TopicID are ignored this slice — p2p text
-// has no reply threading or forum topics in the first cut. Non-text parts
-// are skipped (media is a later slice); an envelope with no text parts
-// sends nothing and returns no ids. A platform success without a message
-// id contributes no id.
+// OutboundMessage.ReplyTo and TopicID are ignored — p2p/group text has no
+// outbound quote semantics (tier-1 ruling). Non-text parts are skipped; an
+// envelope with no text parts sends nothing and returns no ids. A platform
+// success without a message id contributes no id.
 //
 // The SDK resolves the tenant_access_token from the app credentials on
 // the first call; this adapter never handles tokens.
@@ -624,7 +634,7 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		messageID, err := sendText(ctx, api, msg.ChatID, part.Text)
+		messageID, err := sendCardOrText(ctx, api, msg.ChatID, part.Text)
 		if err != nil {
 			return ids, fmt.Errorf("feishu: send message to chat %q: %w", msg.ChatID, err)
 		}
@@ -721,6 +731,85 @@ func sendImage(ctx context.Context, api *lark.Client, chatID, imageKey string) (
 	return "", nil
 }
 
+// feishuAPIError is a non-zero platform code on an otherwise-successful
+// HTTP call. The typed code lets callers branch on known codes (the 11310
+// card-limit fallback) without parsing error strings.
+type feishuAPIError struct {
+	Code int
+	Msg  string
+}
+
+func (e *feishuAPIError) Error() string {
+	return fmt.Sprintf("api error (code=%d msg=%s)", e.Code, e.Msg)
+}
+
+// cardLimitCode is the Feishu code for rejected interactive-card content
+// (schema/size limits). The reply is then redelivered as plain text so a
+// formatting ceiling degrades the rendering, never the reply.
+const cardLimitCode = 11310
+
+// sendCardOrText delivers one text part as a markdown card, falling back
+// to plain text exactly on the card-limit code.
+func sendCardOrText(ctx context.Context, api *lark.Client, chatID, text string) (string, error) {
+	messageID, err := sendCard(ctx, api, chatID, text)
+	if err == nil {
+		return messageID, nil
+	}
+	var apiErr *feishuAPIError
+	if errors.As(err, &apiErr) && apiErr.Code == cardLimitCode {
+		return sendText(ctx, api, chatID, text)
+	}
+	return "", err
+}
+
+// buildMarkdownCard renders one schema-2.0 interactive card with a single
+// markdown element — the minimal shape that lets Feishu render model
+// markdown natively (CommonMark per the card 2.0 spec).
+func buildMarkdownCard(content string) (string, error) {
+	card := map[string]any{
+		"schema": "2.0",
+		"body": map[string]any{
+			"elements": []map[string]any{
+				{"tag": "markdown", "content": content},
+			},
+		},
+	}
+	data, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// sendCard posts one interactive markdown-card message through the SDK
+// messaging API. A non-zero platform code comes back as *feishuAPIError
+// even on HTTP 200.
+func sendCard(ctx context.Context, api *lark.Client, chatID, text string) (string, error) {
+	content, err := buildMarkdownCard(text)
+	if err != nil {
+		return "", err
+	}
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(content).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", &feishuAPIError{Code: resp.Code, Msg: resp.Msg}
+	}
+	if resp.Data != nil && resp.Data.MessageId != nil {
+		return *resp.Data.MessageId, nil
+	}
+	return "", nil
+}
+
 // sendText posts one plain-text message to a chat through the SDK
 // messaging API. The content payload is the Feishu text message contract
 // ({"text":...}); the receive_id_type is chat_id. A non-zero platform
@@ -749,6 +838,157 @@ func sendText(ctx context.Context, api *lark.Client, chatID, text string) (strin
 		return *resp.Data.MessageId, nil
 	}
 	return "", nil
+}
+
+// placeholderText is the fixed live-surface copy (contract §12); the
+// feishu placeholder is a card so the terminal edit path stays uniform
+// (Patch only updates card content).
+const placeholderText = "Thinking…"
+
+// editContentOf flattens an edit payload to one text body: an edit targets
+// a single sent message, so the payload's text parts join.
+func editContentOf(parts []plugin.Part) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Kind == plugin.PartText && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// EditMessage implements plugin.MessageEditor: Feishu edits a message by
+// Patching new content onto it, and Patch only accepts interactive-card
+// content — which is why feishu outbound is card-first. The replacement
+// body goes through the same card build as Send; no plain-text fallback
+// exists for Patch (the message being edited is already a card).
+func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID string, msg plugin.OutboundMessage) error {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("feishu: channel not started")
+	}
+	text := editContentOf(msg.Parts)
+	if text == "" {
+		return errors.New("feishu: edit payload has no text")
+	}
+	content, err := buildMarkdownCard(text)
+	if err != nil {
+		return fmt.Errorf("feishu: edit card build: %w", err)
+	}
+	req := larkim.NewPatchMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().Content(content).Build()).
+		Build()
+	resp, err := api.Im.V1.Message.Patch(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu: edit message %s in chat %q: %w", messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu: edit message %s: %w", messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	return nil
+}
+
+// DeleteMessage implements plugin.MessageDeleter: remove one sent message.
+// Deleting an already-deleted message surfaces as a platform error — the
+// Host settles each live-surface message exactly once, so a repeat is a
+// caller bug worth seeing.
+func (p *Plugin) DeleteMessage(ctx context.Context, chatID, messageID string) error {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("feishu: channel not started")
+	}
+	req := larkim.NewDeleteMessageReqBuilder().MessageId(messageID).Build()
+	resp, err := api.Im.V1.Message.Delete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu: delete message %s in chat %q: %w", messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu: delete message %s: %w", messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	return nil
+}
+
+// Placeholder implements plugin.Placeholder: send the fixed "Thinking…"
+// copy as a card and return its message id so the Host can delete it at
+// the turn's terminal.
+func (p *Plugin) Placeholder(ctx context.Context, chatID string) (string, error) {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return "", errors.New("feishu: channel not started")
+	}
+	messageID, err := sendCard(ctx, api, chatID, placeholderText)
+	if err != nil {
+		return "", fmt.Errorf("feishu: send placeholder to chat %q: %w", chatID, err)
+	}
+	return messageID, nil
+}
+
+// React implements plugin.ReactionSender: add one ack emoji to a message
+// and return the platform reaction id the withdrawal needs. The emoji is
+// drawn randomly from the ack pool (settings.ack_emojis, default
+// THUMBSUP); the requested-emoji parameter is ignored because the
+// vocabulary is platform-specific — an empty pool (an explicit empty
+// ack_emojis list) disables the ack with a reported error.
+func (p *Plugin) React(ctx context.Context, chatID, messageID, _ string) (string, error) {
+	p.mu.Lock()
+	api, settings := p.api, p.settings
+	p.mu.Unlock()
+	if api == nil {
+		return "", errors.New("feishu: channel not started")
+	}
+	pool := settings.ackEmojiPool()
+	if len(pool) == 0 {
+		return "", errors.New("feishu: reaction ack disabled (ack_emojis is empty)")
+	}
+	emoji := pool[rand.Intn(len(pool))]
+	req := larkim.NewCreateMessageReactionReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+			ReactionType(larkim.NewEmojiBuilder().EmojiType(emoji).Build()).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.MessageReaction.Create(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("feishu: react %s to message %s in chat %q: %w", emoji, messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("feishu: react %s to message %s: %w", emoji, messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	if resp.Data != nil && resp.Data.ReactionId != nil {
+		return *resp.Data.ReactionId, nil
+	}
+	return "", nil
+}
+
+// RemoveReaction implements plugin.ReactionRemover: withdraw one reaction
+// by the id React returned. Errors surface — the Host logs them
+// best-effort, and a double withdrawal is a caller bug worth seeing.
+func (p *Plugin) RemoveReaction(ctx context.Context, chatID, messageID, reactionID string) error {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return errors.New("feishu: channel not started")
+	}
+	req := larkim.NewDeleteMessageReactionReqBuilder().
+		MessageId(messageID).
+		ReactionId(reactionID).
+		Build()
+	resp, err := api.Im.V1.MessageReaction.Delete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu: remove reaction %s from message %s in chat %q: %w", reactionID, messageID, chatID, err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu: remove reaction %s from message %s: %w", reactionID, messageID, &feishuAPIError{Code: resp.Code, Msg: resp.Msg})
+	}
+	return nil
 }
 
 // normalizeEvent maps one im.message.receive_v1 event to a kernel inbound

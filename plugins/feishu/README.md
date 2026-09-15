@@ -16,18 +16,24 @@ structure and Start/Stop/Send skeleton follow the shape template established by
   webhook callback, but this implementation uses a persistent connection—the
   plugin never listens on a port and never implements a webhook (contract §14.3:
   WS counts as poll)
-- Ignore group chats, rich text / cards / images and other non-text messages,
-  and the bot’s own messages (`sender_type == "bot"`) (to prevent echo loops);
-  reaction replies are a separate event type, are never registered, and therefore
-  never reach the ear
+- Group chats publish only on a bot mention (tier-1); rich text / images and
+  other non-text inbound messages are dropped, as are the bot’s own messages
+  (`sender_type == "bot"`) (to prevent echo loops); reaction events are a
+  separate event type, are never registered, and therefore never reach the ear
 - Send replies through OpenAPI `im.v1.messages` (`receive_id_type=chat_id`,
-  `msg_type=text`, `content={"text":...}`), collecting the platform’s returned
+  `msg_type=interactive`, content a schema-2.0 markdown card; platform error
+  11310 falls back to `msg_type=text`), collecting the platform’s returned
   `message_id`; the SDK manages tenant_access_token from the app credentials,
   and the plugin never touches any token
+- Interaction (contract §1/§12): edit via card `Patch`, delete via
+  `messages/:id`, the fixed “Thinking…” card placeholder, and the ack
+  reaction drawn from `ack_emojis` (default `THUMBSUP`, empty list disables)
+  withdrawn by reaction id
 
-**Does not do (later slice):** group triggers, rich text / interactive cards,
-media, reaction replies, reply threads and topics, webhook mode, or the full
-markdown suite.
+**Does not do (later slice):** rich text (post), reply threads and topics,
+webhook mode, or the full markdown suite. (Group triggers, media, cards, and
+the interaction faces — edit/delete/placeholder/ack — have landed; see
+VIVY-CHANNEL-PACK.md §1/§12.)
 
 ## Permission and policy boundaries
 
