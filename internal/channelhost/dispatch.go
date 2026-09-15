@@ -133,6 +133,7 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		chatID:      msg.ChatID,
 		topicID:     msg.TopicID,
 		ch:          ch,
+		msgID:       msg.MessageID,
 		maxRunes:    runesLimit(ch),
 		createdAtMs: time.Now().UnixMilli(),
 	}

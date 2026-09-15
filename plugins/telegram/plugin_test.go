@@ -127,6 +127,10 @@ type sendMessageCall struct {
 	ChatID    json.RawMessage `json:"chat_id"`
 	Text      string          `json:"text"`
 	ParseMode string          `json:"parse_mode"`
+	ReplyTo   *struct {
+		MessageID                int  `json:"message_id"`
+		AllowSendingWithoutReply bool `json:"allow_sending_without_reply"`
+	} `json:"reply_parameters"`
 }
 
 type chatActionCall struct {
@@ -637,5 +641,33 @@ func TestHealthReportsStartedEar(t *testing.T) {
 	p2 := startForTest(t, envForStub(stubSettings(stub)))
 	if err := p2.Health(context.Background()); err != nil {
 		t.Fatalf("health after start = %v, want nil", err)
+	}
+}
+
+// TestSendRepliesViaReplyParameters: a non-empty ReplyTo threads the
+// message (allow_sending_without_reply keeps a deleted anchor from
+// costing the reply); a non-numeric ReplyTo fails closed.
+func TestSendRepliesViaReplyParameters(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	if _, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "123456",
+		ReplyTo: "49",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "threaded"}},
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	call := stub.waitForSend(t)
+	if call.ReplyTo == nil || call.ReplyTo.MessageID != 49 || !call.ReplyTo.AllowSendingWithoutReply {
+		t.Fatalf("reply_parameters = %+v, want message_id 49 with allow_sending_without_reply", call.ReplyTo)
+	}
+
+	if _, err := p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "123456",
+		ReplyTo: "not-numeric",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "x"}},
+	}); err == nil {
+		t.Fatal("non-numeric reply-to must fail closed")
 	}
 }

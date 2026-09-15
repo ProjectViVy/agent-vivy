@@ -37,6 +37,12 @@ type outboundTarget struct {
 	chatID    string
 	topicID   string
 	ch        plugin.Channel
+	// msgID is the triggering inbound message id (tier-1 reply threading):
+	// sendReply quotes it on the first chunk via OutboundMessage.ReplyTo.
+	// In-process only — the durable intent row carries no message id, so a
+	// restart-recovered redelivery sends unthreaded (persisting it would
+	// need a channel_deliveries migration for a cosmetic header).
+	msgID string
 	// maxRunes is the adapter's outbound text bound (plugin.RunesLimiter,
 	// CH-C4-N1); 0 = the adapter declares no limit and gets whole messages.
 	maxRunes int

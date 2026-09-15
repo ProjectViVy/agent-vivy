@@ -1617,3 +1617,40 @@ func TestSendMarkdownFlagWithFallback(t *testing.T) {
 		t.Fatalf("fallback seq = %d, want 2 (the rejected markdown burned one)", txtBody.MsgSeq)
 	}
 }
+
+// TestSendThreadsToReplyTo: the reply anchors to the ReplyTo msg_id — not
+// whatever inbound replaced the window state in the meantime. Two windows
+// opened in sequence; threading to the older one must still quote it.
+func TestSendThreadsToReplyTo(t *testing.T) {
+	lb := newLoopback(t)
+	h := newRealAPIHarness(t, validSettings)
+	h.start(t)
+
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "first"))
+	h.dispatch(t, 8, c2cEvent("in-2", "OPENID1", "second"))
+
+	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "OPENID1",
+		ReplyTo: "in-1",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "threaded"}},
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	sent := lb.sent()
+	if len(sent) != 1 {
+		t.Fatalf("c2c posts = %d, want 1", len(sent))
+	}
+	var body struct {
+		MsgID  string `json:"msg_id"`
+		MsgSeq int    `json:"msg_seq"`
+	}
+	if err := json.Unmarshal(sent[0].body, &body); err != nil {
+		t.Fatalf("body decode: %v (%s)", err, sent[0].body)
+	}
+	if body.MsgID != "in-1" {
+		t.Fatalf("msg_id = %q, want the threaded in-1 (not the window's in-2)", body.MsgID)
+	}
+	if body.MsgSeq != 1 {
+		t.Fatalf("msg_seq = %d, want 1", body.MsgSeq)
+	}
+}
