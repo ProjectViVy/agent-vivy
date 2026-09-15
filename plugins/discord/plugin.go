@@ -136,6 +136,9 @@ type session interface {
 	Open() error
 	Close() error
 	ChannelMessageSend(channelID string, content string, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelMessageSendComplex is the structured send; the adapter uses
+	// it for reply threading (tier-1) via the MessageReference field.
+	ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	// ChannelTyping broadcasts one "typing" indicator ping (REST POST
 	// /channels/{id}/typing); the Host re-pings on its own cadence.
 	ChannelTyping(channelID string, options ...discordgo.RequestOption) error
@@ -620,7 +623,21 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		if part.Text == "" {
 			continue
 		}
-		sent, err := sender.ChannelMessageSend(msg.ChatID, part.Text)
+		var (
+			sent *discordgo.Message
+			err  error
+		)
+		if msg.ReplyTo != "" {
+			// Thread the reply to the triggering message (tier-1): the
+			// reference pins message and channel so the platform renders
+			// the quote header.
+			sent, err = sender.ChannelMessageSendComplex(msg.ChatID, &discordgo.MessageSend{
+				Content:   part.Text,
+				Reference: &discordgo.MessageReference{MessageID: msg.ReplyTo, ChannelID: msg.ChatID},
+			})
+		} else {
+			sent, err = sender.ChannelMessageSend(msg.ChatID, part.Text)
+		}
 		if err != nil {
 			return ids, fmt.Errorf("discord: send message to chat %q: %w", msg.ChatID, err)
 		}

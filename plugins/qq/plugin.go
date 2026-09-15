@@ -900,12 +900,12 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 			// Native markdown first (tier-1 text loop); most robots lack
 			// the markdown permission, so a rejection degrades this one
 			// chunk to plain text instead of dropping the reply.
-			messageID, err = p.sendMarkdown(ctx, api, state, msg.ChatID, part.Text)
+			messageID, err = p.sendMarkdown(ctx, api, state, msg.ChatID, msg.ReplyTo, part.Text)
 			if err != nil {
-				messageID, err = p.sendText(ctx, api, state, msg.ChatID, part.Text)
+				messageID, err = p.sendText(ctx, api, state, msg.ChatID, msg.ReplyTo, part.Text)
 			}
 		} else {
-			messageID, err = p.sendText(ctx, api, state, msg.ChatID, part.Text)
+			messageID, err = p.sendText(ctx, api, state, msg.ChatID, msg.ReplyTo, part.Text)
 		}
 		if err != nil {
 			return ids, fmt.Errorf("qq: send message to chat %q: %w", msg.ChatID, err)
@@ -925,12 +925,19 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 // QQ's {code,message} / {ret,...} shapes — botgo maps every non-success
 // status to an error carrying the raw body, and this adapter preserves
 // that cause chain.
-func (p *Plugin) sendText(ctx context.Context, api qqAPI, state *chatState, chatID, text string) (string, error) {
+func (p *Plugin) sendText(ctx context.Context, api qqAPI, state *chatState, chatID, replyTo, text string) (string, error) {
 	// Reserve the reply sequence under the lock; the I/O itself never
 	// holds it. A failed send burns one seq value — harmless, the platform
-	// dedups on (msg_id, msg_seq) pairs and seq gaps are allowed.
+	// dedups on (msg_id, msg_seq) pairs and seq gaps are allowed. The
+	// anchor is the triggering message when the host threads (tier-1) and
+	// the window's latest inbound otherwise; an expired anchor is a
+	// platform rejection that surfaces through the ordinary delivery
+	// retry, matching the passive contract.
 	p.mu.Lock()
 	passiveID := state.msgID
+	if replyTo != "" {
+		passiveID = replyTo
+	}
 	state.seq++
 	seq := state.seq
 	p.mu.Unlock()
@@ -958,9 +965,12 @@ func (p *Plugin) sendText(ctx context.Context, api qqAPI, state *chatState, chat
 // rejected markdown send burns a seq exactly like a failed text send.
 // The plain Content field stays empty: the markdown body travels in
 // dto.Markdown only.
-func (p *Plugin) sendMarkdown(ctx context.Context, api qqAPI, state *chatState, chatID, text string) (string, error) {
+func (p *Plugin) sendMarkdown(ctx context.Context, api qqAPI, state *chatState, chatID, replyTo, text string) (string, error) {
 	p.mu.Lock()
 	passiveID := state.msgID
+	if replyTo != "" {
+		passiveID = replyTo
+	}
 	state.seq++
 	seq := state.seq
 	p.mu.Unlock()

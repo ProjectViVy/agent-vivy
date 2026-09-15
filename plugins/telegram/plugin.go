@@ -204,10 +204,11 @@ func (p *Plugin) Stop(ctx context.Context) error {
 // Telegram's HTML subset and sent with parse_mode=HTML (tier-1 text loop).
 // When the platform rejects the formatted body, the same chunk is resent
 // as plain text, so a parse rejection degrades the formatting, never the
-// reply. OutboundMessage.ReplyTo and TopicID are ignored this slice —
-// reply threading and forum topics land with the group feature. Non-text
-// parts are skipped (media is a later slice); an envelope with no text
-// parts sends nothing and returns no ids.
+// reply. A non-empty ReplyTo threads the message to the triggering
+// inbound one (tier-1 reply threading); AllowSendingWithoutReply keeps a
+// deleted anchor from costing the reply. TopicID is ignored until the
+// group feature lands. Non-text parts are skipped (media is a later
+// slice); an envelope with no text parts sends nothing and returns no ids.
 func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string, error) {
 	if p.bot == nil {
 		return nil, errors.New("telegram: channel not started")
@@ -215,6 +216,17 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 	chatID, err := strconv.ParseInt(msg.ChatID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("telegram: invalid chat id %q: %w", msg.ChatID, err)
+	}
+	var reply *telego.ReplyParameters
+	if msg.ReplyTo != "" {
+		replyID, perr := strconv.Atoi(msg.ReplyTo)
+		if perr != nil {
+			return nil, fmt.Errorf("telegram: invalid reply-to message id %q: %w", msg.ReplyTo, perr)
+		}
+		reply = &telego.ReplyParameters{
+			MessageID:                replyID,
+			AllowSendingWithoutReply: true,
+		}
 	}
 	var ids []string
 	for _, part := range msg.Parts {
@@ -225,17 +237,19 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 			continue
 		}
 		sent, err := p.bot.SendMessage(ctx, &telego.SendMessageParams{
-			ChatID:    telego.ChatID{ID: chatID},
-			Text:      markdownToHTML(part.Text),
-			ParseMode: telego.ModeHTML,
+			ChatID:          telego.ChatID{ID: chatID},
+			Text:            markdownToHTML(part.Text),
+			ParseMode:       telego.ModeHTML,
+			ReplyParameters: reply,
 		})
 		if err != nil {
 			// The platform refused the formatted body — degrade this one
 			// chunk to plain text instead of dropping the reply; only a
 			// plain-text failure surfaces.
 			sent, err = p.bot.SendMessage(ctx, &telego.SendMessageParams{
-				ChatID: telego.ChatID{ID: chatID},
-				Text:   part.Text,
+				ChatID:          telego.ChatID{ID: chatID},
+				Text:            part.Text,
+				ReplyParameters: reply,
 			})
 			if err != nil {
 				return ids, fmt.Errorf("telegram: send message to chat %d: %w", chatID, err)

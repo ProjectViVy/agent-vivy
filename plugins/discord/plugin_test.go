@@ -99,6 +99,8 @@ func (e *fakeEnv) snapshot() []plugin.InboundMessage {
 type sentCall struct {
 	channelID string
 	content   string
+	// reference is the reply-threading message id ("" for plain sends).
+	reference string
 }
 
 // fakeSession is an in-memory session. It records the factory inputs and
@@ -153,6 +155,24 @@ func (f *fakeSession) Close() error {
 func (f *fakeSession) ChannelMessageSend(channelID, content string, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
 	f.mu.Lock()
 	f.sent = append(f.sent, sentCall{channelID: channelID, content: content})
+	call := len(f.sent)
+	err, failAt := f.sendErr, f.sendFailAt
+	f.mu.Unlock()
+	if err != nil && (failAt == 0 || call >= failAt) {
+		return nil, err
+	}
+	return &discordgo.Message{ID: fmt.Sprintf("sent-%d", call)}, nil
+}
+
+// ChannelMessageSendComplex implements session: records the call including
+// the reply reference.
+func (f *fakeSession) ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	ref := ""
+	if data.Reference != nil {
+		ref = data.Reference.MessageID
+	}
+	f.mu.Lock()
+	f.sent = append(f.sent, sentCall{channelID: channelID, content: data.Content, reference: ref})
 	call := len(f.sent)
 	err, failAt := f.sendErr, f.sendFailAt
 	f.mu.Unlock()
@@ -1056,5 +1076,38 @@ func TestTypingPingsTheSendClient(t *testing.T) {
 
 	if err := newAdapter().Typing(context.Background(), "chan-1"); err == nil {
 		t.Fatal("typing before start must fail closed")
+	}
+}
+
+// TestSendThreadsViaMessageReference: a non-empty ReplyTo routes the send
+// through the complex send with a MessageReference (the host quotes only
+// the first chunk; the adapter threads whatever envelope it is given); an
+// envelope without ReplyTo travels as a plain send.
+func TestSendThreadsViaMessageReference(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "chan-1",
+		ReplyTo: "msg-9",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "threaded"}},
+	}); err != nil {
+		t.Fatalf("threaded send: %v", err)
+	}
+	if _, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID: "chan-1",
+		Parts:  []plugin.Part{{Kind: plugin.PartText, Text: "plain"}},
+	}); err != nil {
+		t.Fatalf("plain send: %v", err)
+	}
+	calls := h.sender().sentCalls()
+	if len(calls) != 2 {
+		t.Fatalf("send calls = %d, want 2", len(calls))
+	}
+	if calls[0].reference != "msg-9" {
+		t.Fatalf("call 0 reference = %q, want msg-9", calls[0].reference)
+	}
+	if calls[1].reference != "" || calls[1].content != "plain" {
+		t.Fatalf("call 1 = %+v, want a plain unthreaded send", calls[1])
 	}
 }

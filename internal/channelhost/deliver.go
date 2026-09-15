@@ -115,17 +115,24 @@ func (h *Host) replyContent(ctx context.Context, target outboundTarget) (content
 }
 
 // sendReply splits the content by the adapter's outbound bound and sends
-// the chunks in order (CH-C4-N1). A mid-reply failure is reported as an
-// error so the retry pass redelivers from the start — adapters own
-// deduplication limits; the host owns the retry.
+// the chunks in order (CH-C4-N1). The first chunk quotes the triggering
+// message via ReplyTo (tier-1 reply threading) — later chunks are
+// follow-ups in the same thread, not replies of their own. A mid-reply
+// failure is reported as an error so the retry pass redelivers from the
+// start — adapters own deduplication limits; the host owns the retry.
 func (h *Host) sendReply(ctx context.Context, target outboundTarget, content string) error {
 	var delivered int
-	for _, chunk := range splitRunes(content, target.maxRunes) {
-		ids, err := target.ch.Send(ctx, plugin.OutboundMessage{
+	chunks := splitRunes(content, target.maxRunes)
+	for i, chunk := range chunks {
+		outbound := plugin.OutboundMessage{
 			ChatID:  target.chatID,
 			TopicID: target.topicID,
 			Parts:   []plugin.Part{{Kind: plugin.PartText, Text: chunk}},
-		})
+		}
+		if i == 0 {
+			outbound.ReplyTo = target.msgID
+		}
+		ids, err := target.ch.Send(ctx, outbound)
 		if err != nil {
 			h.logger.Error("channelhost: outbound delivery failed",
 				"run", string(target.runID), "channel", target.ch.Name(),
