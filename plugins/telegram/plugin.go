@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/mymmrac/telego"
 
@@ -49,6 +50,10 @@ type Plugin struct {
 	// bot is the telego handle; non-nil once Start succeeded, never
 	// swapped afterwards.
 	bot *telego.Bot
+	// me is the authenticated bot's own identity (getMe); the mention-only
+	// group gate matches against it. Set once by Start before the poll
+	// goroutine runs, never swapped afterwards.
+	me *telego.User
 	// cancel stops the long-poll loop; nil until Start.
 	cancel context.CancelFunc
 	// done is closed when the poll goroutine exited; nil until Start.
@@ -106,8 +111,9 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	// telego validates the token format eagerly but authenticates lazily;
 	// force the getMe round-trip now so a rejected token or an unreachable
 	// API server fails Start instead of leaving a deaf ear that retries
-	// forever.
-	if _, err := bot.GetMe(ctx); err != nil {
+	// forever. The bot's own identity anchors the mention-only group gate.
+	me, err := bot.GetMe(ctx)
+	if err != nil {
 		return fmt.Errorf("telegram: authenticate bot: %w", err)
 	}
 
@@ -124,6 +130,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	}
 
 	p.bot = bot
+	p.me = me
 	p.cancel = cancel
 	p.done = make(chan struct{})
 	go p.pollLoop(pollCtx, env, updates)
@@ -168,7 +175,7 @@ func (p *Plugin) pollLoop(ctx context.Context, env plugin.ChannelEnv, updates <-
 				// Long polling stopped (context cancelled); exit cleanly.
 				return
 			}
-			msg, publishable := normalizeUpdate(upd)
+			msg, publishable := normalizeUpdate(upd, p.me)
 			if !publishable {
 				continue
 			}
@@ -228,6 +235,14 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 			AllowSendingWithoutReply: true,
 		}
 	}
+	var threadID int
+	if msg.TopicID != "" {
+		tid, perr := strconv.Atoi(msg.TopicID)
+		if perr != nil {
+			return nil, fmt.Errorf("telegram: invalid topic id %q: %w", msg.TopicID, perr)
+		}
+		threadID = tid
+	}
 	var ids []string
 	for _, part := range msg.Parts {
 		if part.Kind != plugin.PartText {
@@ -241,6 +256,7 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 			Text:            markdownToHTML(part.Text),
 			ParseMode:       telego.ModeHTML,
 			ReplyParameters: reply,
+			MessageThreadID: threadID,
 		})
 		if err != nil {
 			// The platform refused the formatted body — degrade this one
@@ -250,6 +266,7 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 				ChatID:          telego.ChatID{ID: chatID},
 				Text:            part.Text,
 				ReplyParameters: reply,
+				MessageThreadID: threadID,
 			})
 			if err != nil {
 				return ids, fmt.Errorf("telegram: send message to chat %d: %w", chatID, err)
@@ -279,31 +296,56 @@ func (p *Plugin) Typing(ctx context.Context, chatID string) error {
 }
 
 // normalizeUpdate maps one Telegram update to a kernel inbound envelope.
-// It accepts exactly one shape this slice — a new text message from a
-// human in a private chat — and reports everything else as not
-// publishable: edited messages, channel posts, groups/supergroups/channels,
-// media, stickers, service messages, and the bot's own outgoing messages
-// (Telegram echoes them back through getUpdates; without the IsBot filter
-// every reply would loop back in as a new turn).
-func normalizeUpdate(upd telego.Update) (plugin.InboundMessage, bool) {
+// Private chats publish as before. Group and supergroup chats follow the
+// tier-1 mention-only ruling: a group message publishes only when it
+// explicitly addresses the bot — a @username mention entity, a
+// text_mention entity for the bot's user, or a /command@botname command —
+// and the matched mention text is stripped from the content (a bare
+// "@vivy" ping has nothing left and publishes nothing). Forum topics
+// carry their thread id in TopicID so the session mapping keeps contexts
+// apart. Everything else reports as not publishable: edited messages,
+// channel posts, channels, media, stickers, service messages, and the
+// bot's own outgoing messages (Telegram echoes them back through
+// getUpdates; without the IsBot filter every reply would loop back in as
+// a new turn).
+func normalizeUpdate(upd telego.Update, me *telego.User) (plugin.InboundMessage, bool) {
 	msg := upd.Message // nil for edited_message, channel_post, callback_query, ...
 	if msg == nil {
 		return plugin.InboundMessage{}, false
 	}
 	// From is nil for messages sent to channels; SenderChat set means the
 	// message was sent on behalf of a chat (anonymous admins, linked
-	// channels, business accounts) — none of those is a private-chat
-	// human sender this slice can allowlist.
+	// channels, business accounts) — none of those is a human sender this
+	// adapter can allowlist.
 	if msg.From == nil || msg.From.IsBot || msg.SenderChat != nil {
 		return plugin.InboundMessage{}, false
 	}
-	if msg.Chat.Type != "private" {
+	isGroup := msg.Chat.Type == "group" || msg.Chat.Type == "supergroup"
+	if !isGroup && msg.Chat.Type != "private" {
+		// Channels are broadcast-only; other chat kinds carry no turn.
 		return plugin.InboundMessage{}, false
 	}
-	if msg.Text == "" {
-		// Stickers, photos, captions, service messages — no text part to
-		// publish (media in is a later slice).
+	content := msg.Text
+	if isGroup {
+		if me == nil {
+			// Without the authenticated identity the mention gate cannot
+			// match; drop rather than guess.
+			return plugin.InboundMessage{}, false
+		}
+		var mentioned bool
+		mentioned, content = groupMentioned(msg, me)
+		if !mentioned {
+			return plugin.InboundMessage{}, false
+		}
+	}
+	if content == "" {
+		// Stickers, photos, captions, service messages — or a bare
+		// mention with no text left — no text part to publish.
 		return plugin.InboundMessage{}, false
+	}
+	topicID := ""
+	if isGroup && msg.MessageThreadID != 0 {
+		topicID = strconv.Itoa(msg.MessageThreadID)
 	}
 	return plugin.InboundMessage{
 		Channel: ChannelName,
@@ -312,10 +354,45 @@ func normalizeUpdate(upd telego.Update) (plugin.InboundMessage, bool) {
 		// MessageID is the unique identifier inside the chat; the kernel
 		// uses it for provenance, not for addressing.
 		MessageID: strconv.Itoa(msg.MessageID),
-		// ReplyTo/TopicID stay empty this slice (private chat, no reply
-		// threading, no forum topics).
-		ReplyTo: "",
-		TopicID: "",
-		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: msg.Text}},
+		ReplyTo:   "",
+		TopicID:   topicID,
+		Parts:     []plugin.Part{{Kind: plugin.PartText, Text: content}},
 	}, true
+}
+
+// groupMentioned reports whether a group message explicitly addresses the
+// bot and returns the content with the matched mention text stripped.
+// Entities are authoritative: a mention entity spans exactly the
+// @username text, a text_mention entity spans the display text of an
+// inline user link, and a bot_command may carry the /cmd@botname suffix
+// this bot is addressed with (another bot's command stays untouched).
+func groupMentioned(msg *telego.Message, me *telego.User) (bool, string) {
+	content := msg.Text
+	mentioned := false
+	// Strip back to front so earlier offsets stay valid.
+	for i := len(msg.Entities) - 1; i >= 0; i-- {
+		e := msg.Entities[i]
+		if e.Offset < 0 || e.Offset+e.Length > len(content) {
+			continue
+		}
+		span := content[e.Offset : e.Offset+e.Length]
+		switch e.Type {
+		case telego.EntityTypeMention:
+			if strings.EqualFold(span, "@"+me.Username) {
+				content = content[:e.Offset] + content[e.Offset+e.Length:]
+				mentioned = true
+			}
+		case telego.EntityTypeTextMention:
+			if e.User != nil && e.User.ID == me.ID {
+				content = content[:e.Offset] + content[e.Offset+e.Length:]
+				mentioned = true
+			}
+		case telego.EntityTypeBotCommand:
+			if idx := strings.Index(span, "@"+me.Username); idx >= 0 {
+				content = content[:e.Offset+idx] + content[e.Offset+e.Length:]
+				mentioned = true
+			}
+		}
+	}
+	return mentioned, strings.TrimSpace(content)
 }

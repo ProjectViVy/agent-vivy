@@ -115,26 +115,53 @@ type wsClient interface {
 }
 
 // qqAPI is the OpenAPI slice this adapter drives. It exists so Start
-// (gateway discovery) and Send (C2C reply) can be tested against a loopback
-// stub. Production routes it through ChannelEnv.HTTP and shares the
-// Host-governed oauth2.TokenSource.
+// (gateway discovery) and Send (C2C and group replies) can be tested
+// against a loopback stub. Production routes it through ChannelEnv.HTTP
+// and shares the Host-governed oauth2.TokenSource.
 type qqAPI interface {
 	// WS fetches the websocket gateway URL and session limits.
 	WS(ctx context.Context, params map[string]string, body string) (*dto.WebsocketAP, error)
 	// PostC2CMessage posts one message to a C2C user
 	// (POST /v2/users/{user_id}/messages).
 	PostC2CMessage(ctx context.Context, userID string, msg dto.APIMessage, opt ...options.Option) (*dto.Message, error)
+	// PostGroupMessage posts one message to a group
+	// (POST /v2/groups/{group_openid}/messages).
+	PostGroupMessage(ctx context.Context, groupOpenID string, msg dto.APIMessage, opt ...options.Option) (*dto.Message, error)
+}
+
+// groupATMessageHandler is the GROUP_AT_MESSAGE_CREATE callback shape.
+// botgo v0.2.1 exports no group handler type (its own dispatcher decodes
+// the defective dto.Message, whose group_id field real v2 group payloads
+// never send), so the plugin owns the type and decodes the event with its
+// own struct below.
+type groupATMessageHandler func(payload *dto.WSPayload, data *groupATMessage) error
+
+// groupATMessage decodes the official v2 GROUP_AT_MESSAGE_CREATE payload
+// (bot.q.qq.com/wiki, event group_at_message_create): the fields verified
+// against the official field table are group_openid, author.member_openid,
+// content (already stripped of the @bot prefix by the platform), and id
+// (the passive-reply anchor). Decoded locally on purpose: botgo v0.2.1's
+// dto.Message cannot address a group.
+type groupATMessage struct {
+	ID          string `json:"id"`
+	Content     string `json:"content"`
+	GroupOpenID string `json:"group_openid"`
+	Author      struct {
+		MemberOpenID string `json:"member_openid"`
+	} `json:"author"`
 }
 
 // chatState is the plugin-side per-chat runtime state: the passive-reply
 // window. QQ's v2 reply API has no "send to chat" call for this bot class
 // — every reply must carry the msg_id of the inbound message it answers
-// (60-minute passive window, 4 replies per msg_id), and replies to the
-// same msg_id need distinct msg_seq values. This is runtime state only
-// (never persisted, never logged, empty after restart).
+// (60-minute C2C passive window, 5 minutes for groups; 4 replies per
+// msg_id), and replies to the same msg_id need distinct msg_seq values.
+// This is runtime state only (never persisted, never logged, empty after
+// restart).
 type chatState struct {
 	msgID string // latest inbound msg_id (the passive window)
 	seq   uint32 // next msg_seq to hand out for that msg_id (starts at 1)
+	group bool   // true = the window came from a group AT event (route sends to the group endpoint)
 }
 
 // Plugin is the transport implementation bound by the v1 ChannelProvider.
@@ -162,13 +189,14 @@ type Plugin struct {
 	// runCtx is the lifetime context of the started ear; event handlers
 	// hand it to PublishInbound so a dispatch cannot outlive Stop.
 	runCtx context.Context
-	// onC2C and onReady are the event handlers handed to the ws factory;
-	// set once by Start.
+	// onC2C, onGroup, and onReady are the event handlers handed to the ws
+	// factory; set once by Start.
 	onC2C   event.C2CMessageEventHandler
+	onGroup groupATMessageHandler
 	onReady event.ReadyHandler
 	// newWS is the websocket client factory; New pins the production
 	// constructor and tests swap it. Never mutated after New.
-	newWS func(onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler,
+	newWS func(onC2C event.C2CMessageEventHandler, onGroup groupATMessageHandler, onReady event.ReadyHandler,
 		gatewayURL string, ts oauth2.TokenSource, resumeID string, resumeSeq uint32) wsClient
 	// newAPI is the OpenAPI client factory; New pins the production
 	// constructor and tests swap it. Never mutated after New.
@@ -233,9 +261,13 @@ func newAdapter() *Plugin {
 		p.mu.Unlock()
 		return newGovernedQQAPI(host, appID, ts, sandbox)
 	}
-	p.newWS = func(onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler,
+	p.newWS = func(onC2C event.C2CMessageEventHandler, onGroup groupATMessageHandler, onReady event.ReadyHandler,
 		gatewayURL string, ts oauth2.TokenSource, resumeID string, resumeSeq uint32) wsClient {
-		intent := dto.EventToIntent(dto.EventC2CMessageCreate)
+		// Subscribe to both C2C and group AT events: the two consts share
+		// the GROUP_AND_C2C_EVENT intent bit, so OR-ing them delivers both
+		// event kinds to the same gateway session.
+		intent := dto.EventToIntent(dto.EventC2CMessageCreate) |
+			dto.EventToIntent(dto.EventGroupAtMessageCreate)
 		session := dto.Session{
 			ID:          resumeID,
 			URL:         gatewayURL,
@@ -247,7 +279,7 @@ func newAdapter() *Plugin {
 		p.mu.Lock()
 		host := p.host
 		p.mu.Unlock()
-		return newGovernedQQWebSocket(host, session, onC2C, onReady)
+		return newGovernedQQWebSocket(host, session, onC2C, onGroup, onReady)
 	}
 	// Mute the SDK's default console logger before anything dials: it
 	// prints websocket frames and request bodies at INFO level, including
@@ -339,6 +371,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 	p.seen = make(map[string]time.Time)
 	p.resumeID, p.resumeSeq = "", 0
 	p.onC2C = p.c2cHandler(env)
+	p.onGroup = p.groupHandler(env)
 	p.onReady = p.readyHandler
 	p.mu.Unlock()
 
@@ -448,7 +481,7 @@ func (p *Plugin) c2cHandler(env plugin.ChannelEnv) event.C2CMessageEventHandler 
 		}
 		// The passive-reply window: latest inbound msg_id per chat wins,
 		// and the reply sequence restarts for the new window.
-		p.rememberChat(msg.ChatID, msg.MessageID)
+		p.rememberChat(msg.ChatID, msg.MessageID, false)
 		// PublishInbound is synchronous (journal + run start). A dispatch
 		// failure must not kill the stream; the Host's structured logs own
 		// the audit trail, so the adapter drops and continues. Returning
@@ -503,13 +536,91 @@ func (p *Plugin) sweepSeenLocked(now time.Time) {
 
 // rememberChat stores the passive-reply window for a chat: latest inbound
 // msg_id wins, reply sequence restarts at 0 (Send hands out 1, 2, ...).
-func (p *Plugin) rememberChat(chatID, msgID string) {
+// The group flag routes later sends to the matching endpoint.
+func (p *Plugin) rememberChat(chatID, msgID string, group bool) {
 	if chatID == "" || msgID == "" {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.chats[chatID] = &chatState{msgID: msgID}
+	p.chats[chatID] = &chatState{msgID: msgID, group: group}
+}
+
+// groupHandler builds the GROUP_AT_MESSAGE_CREATE handler for one Start
+// lifetime. It mirrors c2cHandler: fence late frames, fence duplicate
+// deliveries, remember the group's passive-reply window, and publish the
+// normalized envelope. Group AT messages are mention-only by construction
+// — the event fires only when the bot is @-addressed, and the platform
+// already strips the @bot prefix from the content.
+func (p *Plugin) groupHandler(env plugin.ChannelEnv) groupATMessageHandler {
+	return func(payload *dto.WSPayload, data *groupATMessage) error {
+		// Fence late events exactly like c2cHandler: a stopped ear must
+		// not remember state or publish anything.
+		p.mu.Lock()
+		stopped, publishCtx := p.stopped, p.runCtx
+		p.mu.Unlock()
+		if stopped {
+			return nil
+		}
+		if payload != nil && payload.Seq > 0 {
+			p.mu.Lock()
+			p.resumeSeq = payload.Seq
+			p.mu.Unlock()
+		}
+		msg, publishable := normalizeGroup(data)
+		if !publishable {
+			return nil
+		}
+		// Duplicate fence: QQ redelivers the same msg_id for reachability.
+		if !p.rememberSeen(msg.MessageID) {
+			return nil
+		}
+		p.rememberChat(msg.ChatID, msg.MessageID, true)
+		// PublishInbound is synchronous (journal + run start); a dispatch
+		// failure drops and continues so the frame still acks.
+		_ = env.PublishInbound(publishCtx, msg)
+		return nil
+	}
+}
+
+// normalizeGroup maps one GROUP_AT_MESSAGE_CREATE event to a kernel
+// inbound envelope (tier-1 group ruling; the payload fields are verified
+// against the official event table and recorded in the batch log).
+// ChatID is the group_openid — the Send and typing addressing key;
+// Sender keeps the C2C "qq:user_" format over the member's openid (a
+// distinct openid namespace, same allow_from shape).
+func normalizeGroup(data *groupATMessage) (plugin.InboundMessage, bool) {
+	if data == nil {
+		return plugin.InboundMessage{}, false
+	}
+	content := strings.TrimSpace(data.Content)
+	if content == "" {
+		return plugin.InboundMessage{}, false
+	}
+	if strings.TrimSpace(data.GroupOpenID) == "" {
+		// Without the group address no reply could ever land.
+		return plugin.InboundMessage{}, false
+	}
+	member := strings.TrimSpace(data.Author.MemberOpenID)
+	if member == "" {
+		// No sender id: allow_from could never match this envelope.
+		return plugin.InboundMessage{}, false
+	}
+	messageID := strings.TrimSpace(data.ID)
+	if messageID == "" {
+		// The Host dispatch drops envelopes without a message id; do not
+		// publish what cannot be journaled.
+		return plugin.InboundMessage{}, false
+	}
+	return plugin.InboundMessage{
+		Channel:   ChannelName,
+		ChatID:    strings.TrimSpace(data.GroupOpenID),
+		Sender:    senderPrefix + senderIDPrefix + member,
+		MessageID: messageID,
+		ReplyTo:   "",
+		TopicID:   "",
+		Parts:     []plugin.Part{{Kind: plugin.PartText, Text: content}},
+	}, true
 }
 
 // supervise keeps the event gateway connected until the context is
@@ -741,11 +852,11 @@ func (p *Plugin) supervise(ctx context.Context, done chan struct{}, firstErr cha
 // bakes the current resume state into the session.
 func (p *Plugin) buildClient() (wsClient, bool) {
 	p.mu.Lock()
-	onC2C, onReady := p.onC2C, p.onReady
+	onC2C, onGroup, onReady := p.onC2C, p.onGroup, p.onReady
 	gatewayURL, ts := p.gatewayURL, p.tokenSource
 	resumeID, resumeSeq := p.resumeID, p.resumeSeq
 	p.mu.Unlock()
-	ws := p.newWS(onC2C, onReady, gatewayURL, ts, resumeID, resumeSeq)
+	ws := p.newWS(onC2C, onGroup, onReady, gatewayURL, ts, resumeID, resumeSeq)
 	return ws, resumeID != ""
 }
 
@@ -866,10 +977,11 @@ func (p *Plugin) Health(context.Context) error {
 // first, and after a restart again (the window does not survive a
 // restart).
 //
-// OutboundMessage.ReplyTo and TopicID are ignored this slice. Non-text
-// parts are skipped (media is a later slice); an envelope with no text
-// parts sends nothing and returns no ids. A platform success without a
-// message id contributes no id.
+// OutboundMessage.ReplyTo threads the reply to that inbound msg_id when
+// set (tier-1 reply threading); TopicID stays unused (no forum topics).
+// Non-text parts are skipped (media is a later slice); an envelope with
+// no text parts sends nothing and returns no ids. A platform success
+// without a message id contributes no id.
 func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string, error) {
 	p.mu.Lock()
 	api := p.api
@@ -944,7 +1056,7 @@ func (p *Plugin) sendText(ctx context.Context, api qqAPI, state *chatState, chat
 	if passiveID == "" {
 		return "", errors.New("passive reply window is empty")
 	}
-	sent, err := api.PostC2CMessage(ctx, chatID, &dto.MessageToCreate{
+	sent, err := postMessage(ctx, api, state, chatID, &dto.MessageToCreate{
 		Content: text,
 		MsgType: dto.TextMsg,
 		MsgID:   passiveID,
@@ -977,7 +1089,7 @@ func (p *Plugin) sendMarkdown(ctx context.Context, api qqAPI, state *chatState, 
 	if passiveID == "" {
 		return "", errors.New("passive reply window is empty")
 	}
-	sent, err := api.PostC2CMessage(ctx, chatID, &dto.MessageToCreate{
+	sent, err := postMessage(ctx, api, state, chatID, &dto.MessageToCreate{
 		MsgType:  dto.MarkdownMsg,
 		Markdown: &dto.Markdown{Content: text},
 		MsgID:    passiveID,
@@ -992,8 +1104,20 @@ func (p *Plugin) sendMarkdown(ctx context.Context, api qqAPI, state *chatState, 
 	return strings.TrimSpace(sent.ID), nil
 }
 
+// postMessage routes one passive reply to the endpoint its window came
+// from: group windows post to /v2/groups/{group_openid}/messages, C2C
+// windows to /v2/users/{openid}/messages. The MessageToCreate shape is
+// identical on both.
+func postMessage(ctx context.Context, api qqAPI, state *chatState, chatID string, msg *dto.MessageToCreate) (*dto.Message, error) {
+	if state.group {
+		return api.PostGroupMessage(ctx, chatID, msg)
+	}
+	return api.PostC2CMessage(ctx, chatID, msg)
+}
+
 // Typing implements plugin.Typing: one InputNotify (msg_type 6, "the other
-// side is typing") over the C2C endpoint. QQ anchors the input status to
+// side is typing") over the chat's own passive endpoint. QQ anchors the
+// input status to
 // the same passive msg_id the next reply would carry; without an open
 // window (no inbound yet, or state lost to a restart) there is nothing to
 // anchor to, so the ping is skipped — typing is best-effort. InputNotify
@@ -1001,20 +1125,20 @@ func (p *Plugin) sendMarkdown(ctx context.Context, api qqAPI, state *chatState, 
 func (p *Plugin) Typing(ctx context.Context, chatID string) error {
 	p.mu.Lock()
 	api := p.api
-	var passiveID string
+	var st *chatState
 	if state := p.chats[chatID]; state != nil {
-		passiveID = state.msgID
+		st = state
 	}
 	p.mu.Unlock()
 	if api == nil {
 		return errors.New("qq: channel not started")
 	}
-	if passiveID == "" {
+	if st == nil || st.msgID == "" {
 		return nil
 	}
-	_, err := api.PostC2CMessage(ctx, chatID, &dto.MessageToCreate{
+	_, err := postMessage(ctx, api, st, chatID, &dto.MessageToCreate{
 		MsgType:     dto.InputNotifyMsg,
-		MsgID:       passiveID,
+		MsgID:       st.msgID,
 		InputNotify: &dto.InputNotify{InputType: 1, InputSecond: 10},
 	})
 	return err

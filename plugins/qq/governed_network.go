@@ -131,6 +131,19 @@ func (api *governedQQAPI) PostC2CMessage(ctx context.Context, userID string, mes
 	return &result, nil
 }
 
+// PostGroupMessage posts one message to a group
+// (POST /v2/groups/{group_openid}/messages) — the same MessageToCreate
+// contract as the C2C endpoint, addressed by the group_openid a group AT
+// event carries.
+func (api *governedQQAPI) PostGroupMessage(ctx context.Context, groupOpenID string, message dto.APIMessage, _ ...options.Option) (*dto.Message, error) {
+	var result dto.Message
+	path := "/v2/groups/" + url.PathEscape(groupOpenID) + "/messages"
+	if err := api.do(ctx, http.MethodPost, path, message, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (api *governedQQAPI) do(ctx context.Context, method, path string, body any, result any) error {
 	if api.host == nil {
 		return errors.New("qq: network host is not bound")
@@ -184,12 +197,13 @@ type governedQQWebSocket struct {
 	host      plugin.ChannelEnv
 	session   *dto.Session
 	onC2C     event.C2CMessageEventHandler
+	onGroup   groupATMessageHandler
 	onReady   event.ReadyHandler
 	conn      *websocket.Conn
 }
 
-func newGovernedQQWebSocket(host plugin.ChannelEnv, session dto.Session, onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler) wsClient {
-	return &governedQQWebSocket{host: host, session: &session, onC2C: onC2C, onReady: onReady}
+func newGovernedQQWebSocket(host plugin.ChannelEnv, session dto.Session, onC2C event.C2CMessageEventHandler, onGroup groupATMessageHandler, onReady event.ReadyHandler) wsClient {
+	return &governedQQWebSocket{host: host, session: &session, onC2C: onC2C, onGroup: onGroup, onReady: onReady}
 }
 
 func (client *governedQQWebSocket) Connect() error {
@@ -308,6 +322,20 @@ func (client *governedQQWebSocket) Listening() error {
 				}
 				if client.onC2C != nil {
 					if err := client.onC2C(payload, &message); err != nil {
+						return err
+					}
+				}
+			case dto.EventGroupAtMessageCreate:
+				// Decoded into the plugin's own struct: the pinned botgo
+				// dto.Message reads a group_id field the real v2 group
+				// payload never sends (it carries group_openid), so the
+				// SDK's own dispatcher cannot address a group.
+				var group groupATMessage
+				if err := json.Unmarshal(envelope.Data, &group); err != nil {
+					return err
+				}
+				if client.onGroup != nil {
+					if err := client.onGroup(payload, &group); err != nil {
 						return err
 					}
 				}
