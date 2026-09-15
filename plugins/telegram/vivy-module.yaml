@@ -1,6 +1,6 @@
 apiVersion: vivy.module/v1
 module: {id: vivy/telegram, version: 0.1.0}
-source: {ref: repo:plugins/telegram, sha256: 78bc10ef3b6e05f0412d80fed4bd871d8ab4b43614e8c6c0b1a2e8ead7b9bbcc}
+source: {ref: repo:plugins/telegram, sha256: 32b8f1c210f23ef21ff1b83e75f720a52fc7efd67a0119539a4b8b513213f971}
 provides: [{port: std/channel@v1, id: vivy.telegram}]
 requires: [{port: core/channel-host@v1, provider: vivy/channel-host}]
 requestedGrants: [channel.poll, secret.read, net.client]
