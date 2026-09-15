@@ -209,6 +209,13 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 // returns the content unchanged. Each chunk breaks at the last newline
 // inside the window when one exists (keeps paragraph shapes readable);
 // otherwise it hard-breaks. No empty chunk escapes.
+//
+// Fenced code blocks are kept renderable: when the chosen cut would land
+// inside an open ``` fence, the chunk either extends to the block's real
+// closing fence (when it fits) or ends with a synthesized ``` closer while
+// the remainder reopens with the original fence line, so every delivered
+// chunk stands alone. Content without an open fence at the cut splits
+// exactly as before.
 func splitRunes(content string, limit int) []string {
 	runes := []rune(content)
 	if limit <= 0 || len(runes) <= limit {
@@ -218,6 +225,8 @@ func splitRunes(content string, limit int) []string {
 	for start := 0; start < len(runes); {
 		end := start + limit
 		if end >= len(runes) {
+			// The tail travels as-is; when the source itself never closed a
+			// fence, the tail stays open the same way.
 			out = append(out, string(runes[start:]))
 			break
 		}
@@ -225,10 +234,105 @@ func splitRunes(content string, limit int) []string {
 		if idx := lastNewline(runes[start:end]); idx > 0 {
 			cut = start + idx + 1
 		}
-		out = append(out, string(runes[start:cut]))
-		start = cut
+		open := lastUnclosedFence(runes[start:cut])
+		if open < 0 || limit < fenceMinLimit {
+			out = append(out, string(runes[start:cut]))
+			start = cut
+			continue
+		}
+		opener := start + open
+		// Prefer ending the chunk at the block's real closing fence.
+		if closer := nextFence(runes, opener+len(fenceMarker)); closer >= 0 && closer+len(fenceMarker)-start <= limit {
+			out = append(out, string(runes[start:closer+len(fenceMarker)]))
+			start = closer + len(fenceMarker)
+			continue
+		}
+		// The block does not fit in one chunk: close the fence here and
+		// reopen the remainder with the original fence line (info string
+		// included), so both halves render standalone.
+		header := fenceHeader(runes, opener)
+		bodyStart := opener + len(header)
+		inner := start + limit - len(fenceMarker) - 1 // keep room for "\n```"
+		if inner <= bodyStart {
+			// No body inside the window: let the block travel whole to the
+			// next chunk by ending just before its opener. When the opener
+			// owns the chunk start there is nowhere before it — hard-cut
+			// and reopen with a bare fence.
+			if opener > start {
+				out = append(out, string(runes[start:opener]))
+				start = opener
+				continue
+			}
+			out = append(out, string(runes[start:inner])+"\n"+fenceMarker)
+			runes = append([]rune("```\n"), runes[inner:]...)
+			start = 0
+			continue
+		}
+		if idx := lastNewline(runes[bodyStart:inner]); idx >= 0 {
+			inner = bodyStart + idx + 1
+		}
+		chunk := string(runes[start:inner])
+		if !strings.HasSuffix(chunk, "\n") {
+			chunk += "\n"
+		}
+		out = append(out, chunk+fenceMarker)
+		runes = append(append([]rune{}, header...), runes[inner:]...)
+		start = 0
 	}
 	return out
+}
+
+// fenceMarker is the fenced code block delimiter the splitter protects.
+const fenceMarker = "```"
+
+// fenceMinLimit is the smallest limit where fence-aware splitting stays
+// sane: room for an opener line, some body, and a "\n```" closer. Below it
+// the splitter falls back to plain cutting instead of mangling markers.
+const fenceMinLimit = 16
+
+// lastUnclosedFence returns the index of the last unmatched ``` opener in
+// r, or -1 when the range leaves no fence open. The model is deliberately
+// simple, matching the markdown most models emit: every ``` toggles fence
+// state — info strings are not parsed and line anchoring is not required.
+func lastUnclosedFence(r []rune) int {
+	inFence := false
+	last := -1
+	for i := 0; i+2 < len(r); i++ {
+		if r[i] == '`' && r[i+1] == '`' && r[i+2] == '`' {
+			if !inFence {
+				last = i
+			}
+			inFence = !inFence
+			i += 2
+		}
+	}
+	if !inFence {
+		return -1
+	}
+	return last
+}
+
+// nextFence returns the index of the first ``` in r at or after from, or
+// -1 when none follows.
+func nextFence(r []rune, from int) int {
+	for i := from; i+2 < len(r); i++ {
+		if r[i] == '`' && r[i+1] == '`' && r[i+2] == '`' {
+			return i
+		}
+	}
+	return -1
+}
+
+// fenceHeader returns the fence line starting at opener (the ``` plus its
+// info string) including the trailing newline; an opener line that never
+// ends before EOF gets one synthesized so the reopened chunk renders.
+func fenceHeader(r []rune, opener int) []rune {
+	for i := opener; i < len(r); i++ {
+		if r[i] == '\n' {
+			return r[opener : i+1]
+		}
+	}
+	return append(r[opener:], '\n')
 }
 
 // lastNewline returns the index of the last '\n' in r, or -1.

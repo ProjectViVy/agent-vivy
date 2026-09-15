@@ -423,7 +423,7 @@ func releaseHostCommand(portID string) releaseTestCommand {
 }
 
 func releaseSuiteCases() []releaseSuiteCase {
-	internalSHA := "615826f08011e54bc1844eb0d3fef587d1d759ba35979f6f108a91753da95feb"
+	internalSHA := "45fcf5c8a918f669896b3a02d3ee15dc551c8f9965512d83d2af1834b2a6cdba"
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx"}}
