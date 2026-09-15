@@ -1138,6 +1138,7 @@ func TestInspectTokenEnvSet(t *testing.T) {
 		t.Fatal("TokenEnvSet = false for a set env variable")
 	}
 }
+
 // mediaTestJPEG is a JPEG-magic payload; the sniff is magic-byte based, so
 // no real image is needed.
 func mediaTestJPEG() []byte { return []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10} }

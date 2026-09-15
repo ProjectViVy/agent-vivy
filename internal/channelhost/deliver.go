@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	plugin "agent-vivy/sdk/port/channel"
@@ -49,15 +50,16 @@ func (h *Host) deliver(target outboundTarget, attempts int) {
 	defer cancel()
 	for {
 		var lastErr error
-		content, settled, err := h.replyContent(ctx, target)
+		content, media, settled, err := h.replyContent(ctx, target)
 		switch {
 		case settled:
-			// A completed run with no assistant text is a settled outcome,
-			// not a retryable failure — nothing will ever come.
+			// A completed run with no assistant text and no media is a
+			// settled outcome, not a retryable failure — nothing will ever
+			// come.
 			h.settleDelivery(target)
 			return
 		case err == nil:
-			lastErr = h.sendReply(ctx, target, content)
+			lastErr = h.sendReply(ctx, target, content, media)
 			if lastErr == nil {
 				if derr := h.deps.Deliveries.DeleteChannelDelivery(ctx, target.runID); derr != nil {
 					h.logger.Warn("channelhost: delivered but the durable intent delete failed",
@@ -88,39 +90,47 @@ func (h *Host) deliver(target outboundTarget, attempts int) {
 	}
 }
 
-// replyContent loads the run's latest text assistant turn. settled=true
-// means the intent can never produce a delivery and must be removed;
-// err reports a transient failure that only the retry path may handle.
-func (h *Host) replyContent(ctx context.Context, target outboundTarget) (content string, settled bool, err error) {
+// replyContent loads the run's latest text assistant turn and its media
+// attachments (§12 outbound media). settled=true means the intent can
+// never produce a delivery and must be removed; err reports a transient
+// failure that only the retry path may handle.
+func (h *Host) replyContent(ctx context.Context, target outboundTarget) (content string, media []domain.Attachment, settled bool, err error) {
 	msgs, err := h.deps.Messages.ListMessages(ctx, target.sessionID)
 	if err != nil {
-		return "", false, fmt.Errorf("list messages: %w", err)
+		return "", nil, false, fmt.Errorf("list messages: %w", err)
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		// Tool-call rows project as assistant role too; the reply is the
 		// latest text assistant turn of this run.
 		if m.RunID == target.runID && m.Role == domain.RoleAssistant && m.ToolCallID == "" {
-			if m.Content == "" {
-				h.logger.Info("channelhost: completed run has no assistant text; nothing to deliver",
+			if m.Content == "" && len(m.Attachments) == 0 {
+				h.logger.Info("channelhost: completed run has no assistant text or media; nothing to deliver",
 					"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
-				return "", true, nil
+				return "", nil, true, nil
 			}
-			return m.Content, false, nil
+			return m.Content, m.Attachments, false, nil
 		}
 	}
-	h.logger.Info("channelhost: completed run has no assistant text; nothing to deliver",
+	h.logger.Info("channelhost: completed run has no assistant text or media; nothing to deliver",
 		"run", string(target.runID), "channel", target.ch.Name(), "chat_id", target.chatID)
-	return "", true, nil
+	return "", nil, true, nil
 }
 
 // sendReply splits the content by the adapter's outbound bound and sends
 // the chunks in order (CH-C4-N1). The first chunk quotes the triggering
 // message via ReplyTo (tier-1 reply threading) — later chunks are
-// follow-ups in the same thread, not replies of their own. A mid-reply
-// failure is reported as an error so the retry pass redelivers from the
-// start — adapters own deduplication limits; the host owns the retry.
-func (h *Host) sendReply(ctx context.Context, target outboundTarget, content string) error {
+// follow-ups in the same thread, not replies of their own. After the text,
+// the reply's media attachments go out as one batch through the ear's
+// MediaSender when it has one (§12 outbound media); each part is
+// re-validated against the shared limits and an invalid one is dropped
+// with a log — reject, never truncate. A media failure fails the whole
+// attempt, so the ledger retries it like any send failure; an ear without
+// a MediaSender logs a warning and the delivery still succeeds. A
+// mid-reply failure is reported as an error so the retry pass redelivers
+// from the start — adapters own deduplication limits; the host owns the
+// retry.
+func (h *Host) sendReply(ctx context.Context, target outboundTarget, content string, media []domain.Attachment) error {
 	var delivered int
 	chunks := splitRunes(content, target.maxRunes)
 	for i, chunk := range chunks {
@@ -145,6 +155,46 @@ func (h *Host) sendReply(ctx context.Context, target outboundTarget, content str
 			return err
 		}
 		delivered += len(ids)
+	}
+	return h.sendMedia(ctx, target, media)
+}
+
+// sendMedia delivers one reply's media attachments as a single batch
+// (§12). The bytes are re-read from the message log by the caller on every
+// attempt, so a retry re-uploads — at-least-once semantics.
+func (h *Host) sendMedia(ctx context.Context, target outboundTarget, media []domain.Attachment) error {
+	if len(media) == 0 {
+		return nil
+	}
+	sender, ok := target.ch.(plugin.MediaSender)
+	if !ok {
+		h.logger.Warn("channelhost: ear has no media sender; delivering the reply without its media",
+			"run", string(target.runID), "channel", target.ch.Name(),
+			"chat_id", target.chatID, "media_count", len(media))
+		return nil
+	}
+	parts := make([]plugin.Part, 0, len(media))
+	for _, att := range media {
+		mime, err := attachment.ValidateOne(att.MimeType, att.Data)
+		if err != nil {
+			h.logger.Warn("channelhost: dropping invalid outbound media part",
+				"run", string(target.runID), "channel", target.ch.Name(), "err", err)
+			continue
+		}
+		parts = append(parts, plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+			Name:     attachment.SanitizeName(att.Name),
+			MimeType: mime,
+			Data:     att.Data,
+		}})
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	if _, err := sender.SendMedia(ctx, target.chatID, parts); err != nil {
+		h.logger.Error("channelhost: outbound media delivery failed",
+			"run", string(target.runID), "channel", target.ch.Name(),
+			"chat_id", target.chatID, "media_count", len(parts), "err", err)
+		return err
 	}
 	return nil
 }
