@@ -57,6 +57,8 @@ This translates DSH's "registration as effect" into Vivy's cold plug/unplug mode
 | 2026-09-15 | **Error classification ruled `rate-limit \| temporary \| dead` (CH-R-1).** `plugin.ErrorClass` + `plugin.HealthError` land in `sdk/port/channel`; `HealthChecker.Health` is defined as read-only internal state, no network I/O, so the Host probes it inline while building the inspect surface. All five batch adapters report it; a plain (unclassified) Health error defaults to `temporary` — the supervised-ear assumption. This closes the §8 Reliability slot for this generation; rate-limit is carried by the vocabulary but no adapter currently emits it. |
 | 2026-09-15 | **Channel-side HITL commands ruled in (supersedes the 2026-08-31 ACP "channel user = remote principal" reading for this narrow surface).** A user at home with only a phone chat cannot walk to the PC to click Approve, so the originating chat gets a pending-approval text and the allow-listed sender may answer `/approve` / `/deny` / `/pending`. Boundaries: one decision path (`DecideApprovalAsActor`, actor `channel:<channel>:<sender>`, journaled like a local decision); session-scoped visibility (a chat can never see or decide another chat's approvals); allow_from remains the sender boundary; exact-token commands only, no free-text decisions, no native approval cards this generation. |
 | 2026-09-15 | **Text loop ruled: group triggers are mention-only; outbound markdown scope set per ear (tier-1 text loop).** A group message triggers a run only when the bot is explicitly addressed — @mention / `text_mention` / `/cmd@bot` entities on Telegram (forum topics carry `topic_id`), `IsInAtList` on DingTalk, a mention entry typed `bot` on Feishu (the pinned lark SDK has no self-bot-info endpoint, so matching is by mention type rather than the bot's own open_id; a mention of ANOTHER bot would also trigger — recorded in the batch log), the group AT event itself on QQ (decoded by the plugin's own ws dispatcher, bypassing the botgo v0.2.1 `group_id` defect), and a `Mentions` hit on Discord. `allow_from` keeps exact sender matching and empty-`allow_from` fail-closed admission unchanged in groups; there is no config knob in this cut — mention-only is fixed, and prefix/permissive modes would need their own decision record. Outbound markdown: Telegram converts model markdown to HTML, sends with `parse_mode`, and falls back to plain text on platform rejection; DingTalk posts markdown to the sessionWebhook with the same fallback; QQ grows a `markdown` settings flag (default off) with the fallback; Discord renders markdown natively (no change); Feishu stays plain text this batch (no native markdown message type). Reply threading sets `OutboundMessage.ReplyTo` from the triggering message on the first chunk of a reply only, in-process only (a restart-recovered redelivery sends unthreaded — persisting the anchor would need a `channel_deliveries` migration); adapters opt in per platform (Feishu claims nothing — its quote semantics are inbound-context and stay a separate item). |
+| 2026-09-15 | **Typing is a live surface with host-owned lifecycle.** `plugin.Typing` (already declared) is implemented on the ears with a platform indicator — telegram (`sendChatAction`), qq, discord; feishu and dingtalk have no platform typing and stay out. The Host begins typing when an inbound turn is accepted, refreshes it while the run is live (the Telegram indicator lapses in ~5s), stops it on terminal run events, and sweeps it on StopAll. No Journal events — §5.1/§7/§12 unchanged. |
+| 2026-09-15 | **Inbound channel media = telegram photos first, host-enforced.** The envelope gains a by-value `Part{Kind: media, Media: …}` (additive; `std/channel@v1` unchanged). The telegram adapter downloads Bot API photos through the Host-governed `net.client` grant (`api.telegram.org:443`) and attaches them to the user turn. Limits are the UI/RPC attachment limits with one source (`internal/attachment`): 5 MiB per image, at most 4 per message, png/jpeg/gif/webp whitelist with magic-byte sniffing; reject, never truncate. `MediaStore` stays the noop handle; attachments persist bounded in `message_attachments` beside the user row; the `channel.inbound` journal payload stays identifiers-only. Outbound media (`MediaSender`) and other ears' media stay out for now. |
 
 The five names in this batch are: `telegram`, `discord`, `feishu`, `dingtalk`, `qq`.
 
@@ -246,6 +248,8 @@ Heavyweight  TaskLifecycle (A2A)  PipeServer (NeuroLink)
 ```
 
 The first cut for the five packages: required capabilities plus optional capabilities already stable in that platform's picoclaw implementation and not blocking the text loop. Stream / media / groups / approval cards all come later, but **Host must already understand these interfaces**. Otherwise this is not a super-channel, only five bots.
+
+2026-09-15: the typing live surface (Interaction row, on the ears with a platform indicator) and inbound photo parts on the envelope land inside this rule (see §1 Decision Record and §12); `MediaSender` and streaming stay out.
 
 ---
 
@@ -523,7 +527,16 @@ Contract changes (landed with CH-C1; hardened 2026-09-14):
 - Keep `run.started` as `additionalProperties: false`; do not put provenance into the old payload
 - SQLite / Postgres migrations and conformance: CN-17 (provenance), CN-27 / CN-28 (delivery intents, retention)
 
-The first cut does not do media or incremental streaming edits; group triggers landed mention-only (2026-09-15, §1). Telegram forum topics append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
+Inbound media is now scoped (2026-09-15, telegram first): photos enter
+`Message.Attachments` under the shared UI attachment limits — one source,
+`internal/attachment`: 5 MiB per image, at most 4 per message,
+png/jpeg/gif/webp with magic-byte sniffing, rejected not truncated — and are
+consumed by the existing multimodal context path. The journal payload above
+stays identifiers-only, so "never write unbounded attachments" holds: the
+bounded bytes persist in `message_attachments` beside the user message row,
+never inside a Journal event. Outbound media (`MediaSender`) and incremental
+streaming edits remain undone; group triggers landed mention-only
+(2026-09-15, §1). If Telegram forums are encountered, append `topic_id` to the mapping key as picoclaw does, to avoid mixing contexts.
 
 HITL (implemented 2026-09-15, see §1): the kernel still owns every approval / question outcome — there is
 exactly one decision path. A channel run suspended for approval notifies its originating chat with one plain
@@ -558,7 +571,7 @@ The product does not need picoclaw's 21 protocols; it needs a set of **domestic 
 Rewrite all adapters from `.workspace/picoclaw` (**do not** import its modules) and connect them to the same Host.
 The committed default `vivy.exe` still has `Register() = nil`. The following are **plugins that can be named in a recipe**, not parts welded into the daily body.
 
-The first cut for every adapter was: private (or direct) text in / text out, `allow_from` fail-closed, `token_env`, no media, and no HITL proxy approval. Group triggers landed mention-only for every ear (2026-09-15, §1); media / placeholder editing / streaming come later for each package and do not block Host.
+The first cut for every adapter was: private (or direct) text in / text out, `allow_from` fail-closed, `token_env`, and no HITL proxy approval. Group triggers landed mention-only for every ear, typing runs as a host-owned live surface, and inbound photos (telegram first) enter `Message.Attachments` under the shared attachment limits (2026-09-15, §1/§12). Media beyond that, placeholder editing, and streaming come later for each package and do not block Host.
 
 ### 14.1 Waves (by Transport and Product Risk, Not Name Recognition)
 
@@ -602,9 +615,9 @@ The resident may want only one of these. Do not weld all five into the default `
 
 | Package | Does | Explicitly does not do (later for this package) |
 |---|---|---|
-| telegram | Private + group mention-only text (groups, supergroups, forum topics via `topic_id`), long-poll, proxy/`base_url` may go in settings; outbound markdown (HTML) with plain-text fallback; typing; reply threading | webhook, media, command menus, full MarkdownV2 |
+| telegram | Private + group mention-only text (groups, supergroups, forum topics via `topic_id`), long-poll, proxy/`base_url` may go in settings; outbound markdown (HTML) with plain-text fallback; typing; reply threading; inbound photos under the shared attachment limits (§12) | webhook, outbound media, command menus, full MarkdownV2 |
 | dingtalk | Direct-chat + group mention-only (`IsInAtList`) text, Stream mode, save and use session webhook; markdown via sessionWebhook with plain-text fallback | Cards, media; typing (the platform has none); do not turn it into a webhook text bot |
-| feishu | Direct-chat + group mention-only (bot open_id) text, WS events, `is_lark` domain switch | 32-bit, emoji, the public webhook mode described in the docs; typing / outbound markdown / reply threading (no platform typing, no native markdown message type; quote semantics deferred with picoclaw's inbound-quote item) |
+| feishu | Direct-chat + group mention-only (bot open_id) text, WS events, `is_lark` domain switch | 32-bit, emoji, the public webhook mode described in the docs; typing / outbound markdown / reply threading / media (no platform typing, no native markdown message type; quote semantics deferred with picoclaw's inbound-quote item) |
 | qq | C2C text + group AT mention-only text through the plugin's own ws decode (`group_openid`; bypasses the botgo v0.2.1 `group_id` defect), typing, reply threading via `msg_id`+`msg_seq`, opt-in `markdown` flag with plain-text fallback | Large-file base64, voice, personal accounts, OneBot |
 | discord | DM / text-channel + guild mention-only text, Message Content Intent, native markdown rendering, typing, reply threading via `MessageReference` | `voice.go`, WebRTC, the full slash-command suite, TTS |
 
