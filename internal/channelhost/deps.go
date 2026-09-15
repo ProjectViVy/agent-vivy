@@ -29,6 +29,22 @@ import (
 // user turn; the callback decides whether the current model consumes them.
 type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error)
 
+// PrepareRunFunc registers all host-owned state that must exist before a run
+// can publish events. Returning an error aborts runtime startup.
+type PrepareRunFunc func(runID domain.RunID) error
+
+// RunPreparedFunc is the race-free production seam. The runtime calls prepare
+// synchronously after minting the run ID and before persisting or publishing
+// run state. RunFunc remains as a compatibility seam for embedders and tests.
+type RunPreparedFunc func(
+	ctx context.Context,
+	sessionID domain.SessionID,
+	text string,
+	attachments []domain.Attachment,
+	prov *domain.Provenance,
+	prepare PrepareRunFunc,
+) (domain.RunID, error)
+
 // DecideApprovalFunc settles one approval attributed to the named actor.
 // The app injects it from *runtime.Service.DecideApprovalAsActor; the host
 // only forwards decisions that passed its own scoping (allow-listed sender,
@@ -52,9 +68,11 @@ type Deps struct {
 	// Nil Deps.Deliveries makes StartAll fail closed: an ear that can lose
 	// replies to a restart must not go live.
 	Deliveries storage.ChannelDeliveryStore
-	// Run starts one run per accepted inbound turn. Nil Deps.Run makes
-	// StartAll fail closed.
+	// Run and RunPrepared start one run per accepted inbound turn.
+	// Production uses RunPrepared so the host can durably register the
+	// delivery before runtime events become visible. At least one is required.
 	Run         RunFunc
+	RunPrepared RunPreparedFunc
 	Channels    []plugin.Channel
 	Config      config.Channels
 	Credentials CredentialResolver
