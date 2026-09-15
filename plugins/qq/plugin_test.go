@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -782,7 +783,7 @@ func TestNormalizeC2C(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, publishable := normalizeC2C(tc.data)
+			got, _, publishable := normalizeC2C(tc.data)
 			if publishable != tc.want {
 				t.Fatalf("publishable = %v, want %v", publishable, tc.want)
 			}
@@ -1730,7 +1731,7 @@ func TestGroupATMessageRoundTrip(t *testing.T) {
 // id, or content each drop the event locally.
 func TestNormalizeGroupShapeFilter(t *testing.T) {
 	valid := &groupATMessage{ID: "gm-9", Content: "hi", GroupOpenID: "GROUP1", Author: groupAuthor("MEMBER1")}
-	if msg, ok := normalizeGroup(valid); !ok || msg.ChatID != "GROUP1" || msg.Sender != "qq:user_MEMBER1" {
+	if msg, _, ok := normalizeGroup(valid); !ok || msg.ChatID != "GROUP1" || msg.Sender != "qq:user_MEMBER1" {
 		t.Fatalf("valid group event = %+v ok=%v", msg, ok)
 	}
 	for name, data := range map[string]*groupATMessage{
@@ -1740,7 +1741,7 @@ func TestNormalizeGroupShapeFilter(t *testing.T) {
 		"no member openid": {ID: "gm-1", Content: "hi", GroupOpenID: "G"},
 		"no message id":    {Content: "hi", GroupOpenID: "G", Author: groupAuthor("M")},
 	} {
-		if _, ok := normalizeGroup(data); ok {
+		if _, _, ok := normalizeGroup(data); ok {
 			t.Fatalf("%s must not be publishable", name)
 		}
 	}
@@ -1753,4 +1754,106 @@ func groupAuthor(memberOpenID string) struct {
 	return struct {
 		MemberOpenID string `json:"member_openid"`
 	}{MemberOpenID: memberOpenID}
+}
+
+// stubQQImageBytes is a JPEG-magic payload; the adapter does not sniff
+// (the Host does), but real magic bytes keep the fixture honest.
+var stubQQImageBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
+// TestNormalizeC2CImagePreScreen: image attachments return as download
+// refs, other attachments survive as [file: name] annotations, and an
+// image-only message is a valid turn.
+func TestNormalizeC2CImagePreScreen(t *testing.T) {
+	data := c2cEvent("m-img-1", "U1", "look")
+	data.Attachments = []*dto.MessageAttachment{
+		{URL: "https://multimedia.qq.com/pic.jpg", FileName: "pic.jpg", ContentType: "image/jpeg"},
+		{URL: "https://multimedia.qq.com/notes.txt", FileName: "notes.txt", ContentType: "text/plain"},
+	}
+	msg, refs, publishable := normalizeC2C(data)
+	if !publishable {
+		t.Fatal("text + media message must be publishable")
+	}
+	if len(refs) != 1 || refs[0].url != "https://multimedia.qq.com/pic.jpg" || refs[0].name != "pic.jpg" {
+		t.Fatalf("image refs = %+v", refs)
+	}
+	if len(msg.Parts) != 2 || msg.Parts[0].Text != "look" || msg.Parts[1].Text != "[file: notes.txt]" {
+		t.Fatalf("parts = %+v, want text then the file annotation", msg.Parts)
+	}
+
+	imageOnly := c2cEvent("m-img-2", "U1", "")
+	imageOnly.Attachments = []*dto.MessageAttachment{
+		{URL: "https://multimedia.qq.com/pic.png", FileName: "pic.png", ContentType: "image/png"},
+	}
+	if msg, refs, ok := normalizeC2C(imageOnly); !ok || len(refs) != 1 || len(msg.Parts) != 0 {
+		t.Fatalf("image-only: ok=%v refs=%d parts=%+v", ok, len(refs), msg.Parts)
+	}
+}
+
+// TestInboundImageDownloadsWithAuthHeaders: the handler downloads image
+// attachments through the governed transport carrying X-Union-Appid and
+// the bearer token; a failed download keeps the text and the annotation.
+func TestInboundImageDownloadsWithAuthHeaders(t *testing.T) {
+	var gotAuth, gotAppid atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth.Store(r.Header.Get("Authorization"))
+		gotAppid.Store(r.Header.Get("X-Union-Appid"))
+		_, _ = w.Write(stubQQImageBytes)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+	data := c2cEvent("m-dl-1", "U1", "look")
+	data.Attachments = []*dto.MessageAttachment{
+		{URL: srv.URL + "/pic.jpg", FileName: "pic.jpg", ContentType: "image/jpeg"},
+	}
+	h.dispatch(t, 1, data)
+	waitFor(t, "downloaded envelope", func() bool { return len(h.env.snapshot()) == 1 })
+
+	env1 := h.env.snapshot()[0]
+	if len(env1.Parts) != 3 ||
+		env1.Parts[1].Text != "[image: pic.jpg]" ||
+		env1.Parts[2].Kind != plugin.PartMedia ||
+		string(env1.Parts[2].Media.Data) != string(stubQQImageBytes) {
+		t.Fatalf("envelope parts = %+v", env1.Parts)
+	}
+	if auth, _ := gotAuth.Load().(string); auth != "QQBot "+stubAccessToken {
+		t.Fatalf("Authorization = %q, want the bearer token", auth)
+	}
+	if appid, _ := gotAppid.Load().(string); appid == "" {
+		t.Fatal("X-Union-Appid header missing")
+	}
+}
+
+// TestGroupImagePreScreenAndDownload: group AT messages carry the same
+// media pipeline behind the mention gate.
+func TestGroupImagePreScreenAndDownload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(stubQQImageBytes)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+	data := &groupATMessage{
+		ID: "gm-img-1", Content: "look", GroupOpenID: "GROUP1",
+		Author: groupAuthor("MEMBER1"),
+		Attachments: []*groupAttachment{
+			{URL: srv.URL + "/pic.jpg", FileName: "pic.jpg", ContentType: "image/jpeg"},
+		},
+	}
+	f := h.spy.nth(0)
+	if f.onGroup == nil {
+		t.Fatal("group handler not registered")
+	}
+	if err := f.onGroup(wsPayload(1), data); err != nil {
+		t.Fatalf("dispatch group event: %v", err)
+	}
+	waitFor(t, "group media envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	env1 := h.env.snapshot()[0]
+	if env1.ChatID != "GROUP1" || len(env1.Parts) != 3 ||
+		env1.Parts[2].Kind != plugin.PartMedia ||
+		string(env1.Parts[2].Media.Data) != string(stubQQImageBytes) {
+		t.Fatalf("group envelope = %+v", env1)
+	}
 }
