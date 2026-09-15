@@ -423,7 +423,7 @@ func releaseHostCommand(portID string) releaseTestCommand {
 }
 
 func releaseSuiteCases() []releaseSuiteCase {
-	internalSHA := "c45ae68118c8896a8bcef8b273c6e8c1a7533f33dc42850a6ae523ff75c0d8de"
+	internalSHA := "182bc905e9461c51ead34f8acbd9d027dc91e110b99e944f80883d6730384903"
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx"}}
@@ -436,7 +436,7 @@ func releaseSuiteCases() []releaseSuiteCase {
 		{"std/channel@v1", "vivy/discord", "plugins/discord", "f109be76d22daadaea609ec7bb791d1abb2d11b9b370f10d33e85729fe0ba95e", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
 		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "78165b545028117d3c8e77b3c740fbcf7e23f0412e0ad71bcbdb1cdf7b32c74a", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
 		{"std/channel@v1", "vivy/qq", "plugins/qq", "5b3ecf6186583897902b1e0204bd1155bf2ed1a2e53183580c3bc2fb003cb98a", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
-		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "78bc10ef3b6e05f0412d80fed4bd871d8ab4b43614e8c6c0b1a2e8ead7b9bbcc", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
+		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "32b8f1c210f23ef21ff1b83e75f720a52fc7efd67a0119539a4b8b513213f971", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
 		{"std/face@v1", "vivy/headless", "faces/headless", "0c1a976e1753e628d4da679c3eae6c755d6dba49d437264295177a1267f0a7fc", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
 		{"std/face@v1", "vivy/tui", "faces/tui", "96e0104bbac52765a4d826d8324b7f81695ce3aef6b9a5d755e69b4507178251", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
 		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", internalSHA, "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
