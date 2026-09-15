@@ -26,6 +26,7 @@
 package feishu
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -632,6 +633,92 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		}
 	}
 	return ids, nil
+}
+
+// SendMedia implements plugin.MediaSender (§1 outbound media) as the
+// two-step Feishu contract: each image uploads through im.v1.image Create
+// (image_type "message") and the returned key leaves as one im.v1.message
+// Create with msg_type image. The reply's text has already gone out
+// through Send — Feishu image messages carry no caption this batch. A
+// failure fails the whole batch; the Host's ledger retries it with a
+// fresh upload (at-least-once).
+func (p *Plugin) SendMedia(ctx context.Context, chatID string, parts []plugin.Part) ([]string, error) {
+	p.mu.Lock()
+	api := p.api
+	p.mu.Unlock()
+	if api == nil {
+		return nil, errors.New("feishu: channel not started")
+	}
+	if strings.TrimSpace(chatID) == "" {
+		return nil, errors.New("feishu: outbound chat id is empty")
+	}
+	var ids []string
+	for _, part := range parts {
+		if part.Kind != plugin.PartMedia || len(part.Media.Data) == 0 {
+			continue
+		}
+		key, err := uploadImage(ctx, api, part.Media)
+		if err != nil {
+			return ids, fmt.Errorf("feishu: upload image %q: %w", part.Media.Name, err)
+		}
+		messageID, err := sendImage(ctx, api, chatID, key)
+		if err != nil {
+			return ids, fmt.Errorf("feishu: send image to chat %q: %w", chatID, err)
+		}
+		if messageID != "" {
+			ids = append(ids, messageID)
+		}
+	}
+	return ids, nil
+}
+
+// uploadImage runs step one: the image upload, typed "message" per the
+// im contract. A non-zero platform code is an error even on HTTP 200.
+func uploadImage(ctx context.Context, api *lark.Client, m plugin.Media) (string, error) {
+	req := larkim.NewCreateImageReqBuilder().
+		Body(larkim.NewCreateImageReqBodyBuilder().
+			ImageType("message").
+			Image(bytes.NewReader(m.Data)).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.Image.Create(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("api error (code=%d msg=%s)", resp.Code, resp.Msg)
+	}
+	if resp.Data == nil || resp.Data.ImageKey == nil || *resp.Data.ImageKey == "" {
+		return "", errors.New("upload succeeded but no image key came back")
+	}
+	return *resp.Data.ImageKey, nil
+}
+
+// sendImage posts step two: the image message carrying the uploaded key.
+func sendImage(ctx context.Context, api *lark.Client, chatID, imageKey string) (string, error) {
+	content, err := json.Marshal(map[string]string{"image_key": imageKey})
+	if err != nil {
+		return "", err
+	}
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType(larkim.MsgTypeImage).
+			Content(string(content)).
+			Build()).
+		Build()
+	resp, err := api.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("api error (code=%d msg=%s)", resp.Code, resp.Msg)
+	}
+	if resp.Data != nil && resp.Data.MessageId != nil {
+		return *resp.Data.MessageId, nil
+	}
+	return "", nil
 }
 
 // sendText posts one plain-text message to a chat through the SDK
