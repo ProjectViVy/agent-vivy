@@ -30,10 +30,10 @@ func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 		runes    int
 	}{
 		{"dingtalk", dingtalk.NewProvider(), channelhost.Capabilities{Health: true}, 5000},
-		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true, Typing: true}, 2000},
-		{"feishu", feishu.NewProvider(), channelhost.Capabilities{Health: true}, 37500},
-		{"qq", qq.NewProvider(), channelhost.Capabilities{Health: true, Typing: true}, 2000},
-		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true, Typing: true}, 4096},
+		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true}, 2000},
+		{"feishu", feishu.NewProvider(), channelhost.Capabilities{Health: true, Media: true}, 37500},
+		{"qq", qq.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true}, 2000},
+		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true}, 4096},
 	}
 	for _, ear := range ears {
 		if got := ear.provider.Definition().MaxMessageRunes; got != ear.runes {
