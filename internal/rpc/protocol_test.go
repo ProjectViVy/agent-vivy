@@ -8,10 +8,12 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"agent-vivy/internal/attachment"
 )
 
 func TestDefaultFrameLimitCarriesMaximumInlineAttachmentEnvelope(t *testing.T) {
-	wantMinimum := base64.StdEncoding.EncodedLen(maxAttachmentCount*maxAttachmentBytes) + (64 << 10)
+	wantMinimum := base64.StdEncoding.EncodedLen(attachment.MaxCount*attachment.MaxBytes) + (64 << 10)
 	if got := (Options{}).normalized().MaxFrameBytes; got < wantMinimum {
 		t.Fatalf("default frame limit = %d, need at least %d for attachment contract", got, wantMinimum)
 	}
