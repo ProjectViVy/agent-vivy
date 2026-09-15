@@ -133,6 +133,21 @@ type fakeSession struct {
 	closeCalls  int
 	sent        []sentCall
 	typingCalls []string
+	edits       []editCall
+	deleteCalls []deleteCall
+}
+
+// editCall records one edit invocation.
+type editCall struct {
+	channelID string
+	messageID string
+	content   string
+}
+
+// deleteCall records one delete invocation.
+type deleteCall struct {
+	channelID string
+	messageID string
 }
 
 // Open implements session. A hanging Open blocks briefly and fails: the
@@ -203,6 +218,45 @@ func (f *fakeSession) ChannelTyping(channelID string, _ ...discordgo.RequestOpti
 	f.typingCalls = append(f.typingCalls, channelID)
 	f.mu.Unlock()
 	return nil
+}
+
+// ChannelMessageEditComplex implements session: records the edit.
+func (f *fakeSession) ChannelMessageEditComplex(m *discordgo.MessageEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	content := ""
+	if m.Content != nil {
+		content = *m.Content
+	}
+	f.mu.Lock()
+	f.edits = append(f.edits, editCall{channelID: m.Channel, messageID: m.ID, content: content})
+	err := f.sendErr
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return &discordgo.Message{ID: m.ID, Content: content}, nil
+}
+
+// ChannelMessageDelete implements session: records the delete.
+func (f *fakeSession) ChannelMessageDelete(channelID, messageID string, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	f.deleteCalls = append(f.deleteCalls, deleteCall{channelID: channelID, messageID: messageID})
+	err := f.sendErr
+	f.mu.Unlock()
+	return err
+}
+
+// editsSnapshot returns the recorded edit invocations.
+func (f *fakeSession) editsSnapshot() []editCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]editCall(nil), f.edits...)
+}
+
+// deletesSnapshot returns the recorded delete invocations.
+func (f *fakeSession) deletesSnapshot() []deleteCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]deleteCall(nil), f.deleteCalls...)
 }
 
 // typingSnapshot returns the recorded typing target channel ids.
@@ -1422,5 +1476,96 @@ func TestSendMediaFailClosed(t *testing.T) {
 		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", MimeType: "image/png", Data: []byte("x")}},
 	}); err == nil {
 		t.Fatal("a failed complex send must surface")
+	}
+}
+
+// --- interaction capabilities (edit / delete / placeholder) -------------------
+
+// TestEditMessageRewritesOnTheSendClient: the edit lands on the
+// never-opened send client (never the ear), rewriting the content as-is.
+func TestEditMessageRewritesOnTheSendClient(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	err := h.p.EditMessage(context.Background(), "chan-1", "msg-9", plugin.OutboundMessage{
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "edited body"}},
+	})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	edits := h.sender().editsSnapshot()
+	if len(edits) != 1 || edits[0].channelID != "chan-1" || edits[0].messageID != "msg-9" || edits[0].content != "edited body" {
+		t.Fatalf("edits = %+v", edits)
+	}
+	// The ear sessions carry no REST writes.
+	for i := range h.spy.count() - 1 {
+		if got := len(h.ear(i).editsSnapshot()); got != 0 {
+			t.Fatalf("ear #%d carried %d edits, want 0", i, got)
+		}
+	}
+}
+
+// TestEditMessageRejectsEmptyPayload: no text, no platform call.
+func TestEditMessageRejectsEmptyPayload(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.EditMessage(context.Background(), "chan-1", "msg-9", plugin.OutboundMessage{}); err == nil {
+		t.Fatal("empty edit payload must fail")
+	}
+	if got := len(h.sender().editsSnapshot()); got != 0 {
+		t.Fatalf("edit calls for an empty payload = %d, want none", got)
+	}
+}
+
+// TestDeleteMessageRemovesOnTheSendClient: the delete names channel and
+// message ids and never touches an ear session.
+func TestDeleteMessageRemovesOnTheSendClient(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.DeleteMessage(context.Background(), "chan-1", "msg-9"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	deletes := h.sender().deletesSnapshot()
+	if len(deletes) != 1 || deletes[0].channelID != "chan-1" || deletes[0].messageID != "msg-9" {
+		t.Fatalf("deletes = %+v", deletes)
+	}
+}
+
+// TestPlaceholderSendsFixedCopyAndReturnsTheID: the placeholder is a plain
+// send of the fixed copy; the returned id is the one the Host deletes at
+// the terminal.
+func TestPlaceholderSendsFixedCopyAndReturnsTheID(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	id, err := h.p.Placeholder(context.Background(), "chan-1")
+	if err != nil {
+		t.Fatalf("placeholder: %v", err)
+	}
+	sends := h.sender().sentCalls()
+	if len(sends) != 1 || sends[0].content != placeholderText || sends[0].channelID != "chan-1" {
+		t.Fatalf("placeholder sends = %+v", sends)
+	}
+	if id != "sent-1" {
+		t.Fatalf("placeholder id = %q, want the canned send id", id)
+	}
+}
+
+// TestInteractionFacesFailClosedWhenNotStarted: before Start there is no
+// send client, so the faces must say so.
+func TestInteractionFacesFailClosedWhenNotStarted(t *testing.T) {
+	t.Setenv(stubTokenEnvName, stubTokenValue)
+	p := newAdapter()
+	ctx := context.Background()
+	if err := p.EditMessage(ctx, "c", "m", plugin.OutboundMessage{Parts: []plugin.Part{{Kind: plugin.PartText, Text: "x"}}}); err == nil {
+		t.Fatal("edit before start must fail")
+	}
+	if err := p.DeleteMessage(ctx, "c", "m"); err == nil {
+		t.Fatal("delete before start must fail")
+	}
+	if _, err := p.Placeholder(ctx, "c"); err == nil {
+		t.Fatal("placeholder before start must fail")
 	}
 }
