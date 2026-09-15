@@ -135,6 +135,12 @@ func (m *SandboxManager) ValidatePath(path string, op FileOp) error {
 
 // ValidatePathWithMode checks a path under an explicit sandbox mode.
 func (m *SandboxManager) ValidatePathWithMode(path string, op FileOp, mode domain.SandboxMode) error {
+	return m.ValidatePathWithinRoot(m.workspaceRoot, path, op, mode)
+}
+
+// ValidatePathWithinRoot applies the session's resolved workspace root while
+// preserving the process-wide mode, command, and network policy authority.
+func (m *SandboxManager) ValidatePathWithinRoot(workspaceRoot, path string, op FileOp, mode domain.SandboxMode) error {
 	if m == nil {
 		return errors.New("runtime: sandbox manager not initialized")
 	}
@@ -151,7 +157,15 @@ func (m *SandboxManager) ValidatePathWithMode(path string, op FileOp, mode domai
 		return fmt.Errorf("runtime: resolve path: %w", err)
 	}
 	abs = filepath.Clean(abs)
-	root := m.workspaceRoot
+	root := strings.TrimSpace(workspaceRoot)
+	if root == "" {
+		return errors.New("runtime: workspace root must not be empty")
+	}
+	if absolute, err := filepath.Abs(root); err == nil {
+		root = filepath.Clean(absolute)
+	} else {
+		return fmt.Errorf("runtime: resolve workspace root: %w", err)
+	}
 	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
 		root = realRoot
 	}

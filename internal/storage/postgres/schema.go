@@ -10,7 +10,8 @@ CREATE TABLE sessions (
 	created_at BIGINT NOT NULL,
 	updated_at BIGINT NOT NULL DEFAULT 0,
 	sandbox_mode TEXT NOT NULL DEFAULT 'workspace_write',
-	approval_policy TEXT NOT NULL DEFAULT 'ask'
+	approval_policy TEXT NOT NULL DEFAULT 'ask',
+	workspace_path TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE messages (
@@ -406,4 +407,10 @@ CREATE INDEX IF NOT EXISTS message_file_contexts_message_idx ON message_file_con
 const schemaV20Upgrade = `
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0;
 UPDATE sessions SET updated_at = created_at WHERE updated_at = 0;
+`
+
+// schemaV21Upgrade attaches one immutable-after-first-run project directory
+// to each conversation. Empty preserves the default private workspace.
+const schemaV21Upgrade = `
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS workspace_path TEXT NOT NULL DEFAULT '';
 `

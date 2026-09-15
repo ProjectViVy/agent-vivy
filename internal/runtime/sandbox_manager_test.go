@@ -36,6 +36,24 @@ func TestSandboxManagerPerCallMode(t *testing.T) {
 	}
 }
 
+// Using the process default root instead of the resolved session root must
+// fail this test when a web conversation mounts a selected project.
+func TestSandboxManagerValidatesAgainstResolvedWorkspaceRoot(t *testing.T) {
+	defaultRoot := t.TempDir()
+	selectedRoot := t.TempDir()
+	mgr, err := NewSandboxManager(domain.SandboxModeWorkspaceWrite, defaultRoot, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insideSelected := filepath.Join(selectedRoot, "file.txt")
+	if err := mgr.ValidatePathWithinRoot(selectedRoot, insideSelected, FileOpWrite, domain.SandboxModeWorkspaceWrite); err != nil {
+		t.Fatalf("selected workspace path rejected: %v", err)
+	}
+	if err := mgr.ValidatePathWithinRoot(selectedRoot, filepath.Join(defaultRoot, "outside.txt"), FileOpWrite, domain.SandboxModeWorkspaceWrite); !errors.Is(err, ErrSandboxDenied) {
+		t.Fatalf("path outside selected workspace = %v, want ErrSandboxDenied", err)
+	}
+}
+
 func TestSandboxManagerLiveNetworkPolicy(t *testing.T) {
 	root := t.TempDir()
 	mgr, err := NewSandboxManager(domain.SandboxModeWorkspaceWrite, root, nil, &domain.NetworkPolicy{

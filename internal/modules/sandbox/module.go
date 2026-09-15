@@ -26,6 +26,17 @@ type Provider struct {
 }
 
 func Compose(cfg config.Config) (*Provider, error) {
+	return compose(cfg, nil, nil)
+}
+
+// ComposeWithSessionWorkspaces enables the web face's durable per-session
+// project selection while keeping Compose's fixed-root behavior for small
+// embedders and existing tests.
+func ComposeWithSessionWorkspaces(cfg config.Config, sessions runtime.SessionWorkspaceLookup, runs runtime.RunWorkspaceLookup) (*Provider, error) {
+	return compose(cfg, sessions, runs)
+}
+
+func compose(cfg config.Config, sessions runtime.SessionWorkspaceLookup, runs runtime.RunWorkspaceLookup) (*Provider, error) {
 	provider := &Provider{}
 	if cfg.Runtime.WorkspaceRoot == "" {
 		return provider, nil
@@ -36,6 +47,8 @@ func Compose(cfg config.Config) (*Provider, error) {
 	)
 	if cfg.Runtime.World == "local" {
 		manager, err = runtime.NewLocalWorkspaceManager(cfg.Runtime.WorkspaceRoot)
+	} else if sessions != nil && runs != nil {
+		manager, err = runtime.NewSessionWorkspaceManager(cfg.Runtime.WorkspaceRoot, sessions, runs)
 	} else {
 		manager, err = runtime.NewWorkspaceManager(cfg.Runtime.WorkspaceRoot)
 	}

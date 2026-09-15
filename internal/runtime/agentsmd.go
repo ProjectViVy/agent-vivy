@@ -25,7 +25,8 @@ const (
 // AgentsMDBackend is the engine's AGENTS.md loading seam. The alias keeps
 // eino's middleware package out of the app wiring (D-007). Without an
 // instruction root the EinoFilesystemBackend resolves paths inside the
-// run workspace; WithInstructionRoot switches to ProjectAgentsMDBackend.
+// run workspace; WithInstructionRoot switches to a session-aware project
+// backend so selected folders and default launch instructions stay distinct.
 type AgentsMDBackend = agentsmd.Backend
 
 var _ AgentsMDBackend = (*EinoFilesystemBackend)(nil)
