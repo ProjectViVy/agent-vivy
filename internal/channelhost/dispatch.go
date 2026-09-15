@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -112,18 +113,8 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
 	}
 
-	runID, err := h.deps.Run(ctx, sessionID, text, attachments, &domain.Provenance{
-		Source:           domain.SourceChannel,
-		Channel:          msg.Channel,
-		ChatID:           msg.ChatID,
-		ChannelMessageID: msg.MessageID,
-	})
-	if err != nil {
-		return fmt.Errorf("channelhost: start run for channel %s: %w", msg.Channel, err)
-	}
 	ch := h.channelByName(msg.Channel)
 	target := outboundTarget{
-		runID:       runID,
 		sessionID:   sessionID,
 		chatID:      msg.ChatID,
 		topicID:     msg.TopicID,
@@ -148,22 +139,75 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	if newLiveTarget(ch) {
 		target.live = newLiveSurface()
 	}
-	// The durable reply intent (CH-C3-N1): from this point a restart can
-	// finish or settle the delivery. A persistence failure never stops the
-	// in-process delivery — it only degrades this one reply back to the
-	// pre-hardening best effort, with the error in the log.
-	if err := h.deps.Deliveries.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
-		RunID: runID, SessionID: sessionID, Channel: msg.Channel,
-		ChatID: msg.ChatID, TopicID: msg.TopicID,
-		State:       storage.ChannelDeliveryArmed,
-		CreatedAtMs: target.createdAtMs, UpdatedAtMs: target.createdAtMs,
-	}); err != nil {
-		h.logger.Error("channelhost: durable delivery intent recording failed",
-			"run", string(runID), "channel", msg.Channel, "err", err)
+
+	// Register the durable reply intent and the in-memory target before the
+	// runtime can publish run events. This closes the fast-terminal race:
+	// OnRunEvent either sees an armed target or the run never starts.
+	var prepared domain.RunID
+	prepare := func(runID domain.RunID) error {
+		if runID == "" {
+			return errors.New("channelhost: runtime prepared an empty run ID")
+		}
+		if prepared != "" {
+			return fmt.Errorf("channelhost: run already prepared as %s", prepared)
+		}
+		candidate := target
+		candidate.runID = runID
+		if err := h.deps.Deliveries.UpsertChannelDelivery(ctx, storage.ChannelDelivery{
+			RunID: runID, SessionID: sessionID, Channel: msg.Channel,
+			ChatID: msg.ChatID, TopicID: msg.TopicID,
+			State:       storage.ChannelDeliveryArmed,
+			CreatedAtMs: candidate.createdAtMs, UpdatedAtMs: candidate.createdAtMs,
+		}); err != nil {
+			return fmt.Errorf("channelhost: record durable delivery intent: %w", err)
+		}
+		h.mu.Lock()
+		h.targets[runID] = candidate
+		h.mu.Unlock()
+		target = candidate
+		prepared = runID
+		return nil
 	}
-	h.mu.Lock()
-	h.targets[runID] = target
-	h.mu.Unlock()
+	rollback := func() {
+		if prepared == "" {
+			return
+		}
+		h.mu.Lock()
+		if tracked, ok := h.targets[prepared]; ok {
+			delete(h.targets, prepared)
+			closeTyping(tracked)
+			closeLive(tracked)
+		}
+		h.mu.Unlock()
+		if err := h.deps.Deliveries.DeleteChannelDelivery(context.Background(), prepared); err != nil {
+			h.logger.Error("channelhost: rollback durable delivery intent failed",
+				"run", string(prepared), "channel", msg.Channel, "err", err)
+		}
+	}
+
+	prov := &domain.Provenance{
+		Source:           domain.SourceChannel,
+		Channel:          msg.Channel,
+		ChatID:           msg.ChatID,
+		ChannelMessageID: msg.MessageID,
+	}
+	var runID domain.RunID
+	if h.deps.RunPrepared != nil {
+		runID, err = h.deps.RunPrepared(ctx, sessionID, text, attachments, prov, prepare)
+	} else {
+		runID, err = h.deps.Run(ctx, sessionID, text, attachments, prov)
+		if err == nil {
+			err = prepare(runID)
+		}
+	}
+	if err != nil {
+		rollback()
+		return fmt.Errorf("channelhost: start run for channel %s: %w", msg.Channel, err)
+	}
+	if prepared != runID {
+		rollback()
+		return fmt.Errorf("channelhost: runtime returned run %s after preparing %s", runID, prepared)
+	}
 	h.startTyping(target)
 	h.startLiveSurface(target)
 	return nil
