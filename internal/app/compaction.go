@@ -98,7 +98,7 @@ func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend
 
 // sameCompactionPolicy reports whether two policies are equal; a nil and an
 // empty-disabled policy count as equal (both mean "no compression").
-func projectInstructionBackends(logger *slog.Logger, instructionRoot string, skillBackend *runtime.EinoSkillBackend, fileBackend *runtime.EinoFilesystemBackend) (runtime.AgentsMDBackend, []string, error) {
+func projectInstructionBackends(logger *slog.Logger, instructionRoot string, skillBackend *runtime.EinoSkillBackend, fileBackend *runtime.EinoFilesystemBackend, sessions runtime.SessionWorkspaceLookup) (runtime.AgentsMDBackend, []string, error) {
 	var workspace runtime.AgentsMDBackend
 	if fileBackend != nil {
 		workspace = fileBackend
@@ -110,7 +110,7 @@ func projectInstructionBackends(logger *slog.Logger, instructionRoot string, ski
 	if err != nil {
 		return nil, nil, fmt.Errorf("app: discover project instructions: %w", err)
 	}
-	backend, err := runtime.NewProjectAgentsMDBackend(discovered.Root)
+	backend, err := runtime.NewSessionProjectAgentsMDBackend(discovered.Root, discovered.AgentsMDFiles, sessions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("app: project agentsmd backend: %w", err)
 	}

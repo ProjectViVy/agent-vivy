@@ -98,3 +98,55 @@ func TestEngineProjectAgentsMDInjectsHostFileInSandbox(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineSelectedWorkspaceAgentsMDReplacesLaunchProject(t *testing.T) {
+	ctx := context.Background()
+	launchProject := t.TempDir()
+	selectedProject := t.TempDir()
+	const launchMarker = "LAUNCH-PROJECT-INSTRUCTIONS"
+	const selectedMarker = "SELECTED-WORKSPACE-INSTRUCTIONS"
+	if err := os.WriteFile(filepath.Join(launchProject, AgentsMDFileName), []byte(launchMarker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(selectedProject, AgentsMDFileName), []byte(selectedMarker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend, err := NewSessionProjectAgentsMDBackend(launchProject, []string{AgentsMDFileName}, workspaceSessionLookup{
+		"session-selected": {ID: "session-selected", WorkspacePath: selectedProject},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordingModel{inner: NewScriptedModel(agentsMDScript()...)}
+	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
+		StreamBuffer:         8,
+		MaxEventPayloadBytes: 64 << 10,
+		AgentsMDBackend:      backend,
+		AgentsMDFiles:        []string{AgentsMDFileName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx := withSessionID(withRunID(ctx, "run-selected-instructions"), "session-selected")
+	if final := drainFinalText(t, eng.RunHistory(runCtx, []*schema.Message{schema.UserMessage("follow the project")})); final != "AGENTSMD-TEST-DONE" {
+		t.Fatalf("final answer = %q", final)
+	}
+	for i, input := range rec.snapshot() {
+		joined := ""
+		for _, msg := range input {
+			if msg != nil {
+				joined += msg.Content
+			}
+		}
+		if !strings.Contains(joined, selectedMarker) {
+			t.Fatalf("model call %d missing selected workspace instructions", i)
+		}
+		if strings.Contains(joined, launchMarker) {
+			t.Fatalf("model call %d leaked launch-project instructions", i)
+		}
+	}
+}

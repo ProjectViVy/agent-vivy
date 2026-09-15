@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	schemaVersion    = 21
+	schemaVersion    = 22
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
@@ -215,6 +215,9 @@ func (b *Backend) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := apply(21, schemaV21Upgrade); err != nil {
+		return err
+	}
+	if err := apply(22, schemaV22Upgrade); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

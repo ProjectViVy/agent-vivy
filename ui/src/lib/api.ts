@@ -2,7 +2,7 @@ import { getRpcClient, RpcClientError, type RpcCapabilities } from './rpc';
 
 export const RPC_METHODS = [
   'initialize', 'capabilities',
-  'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission',
+	'session/create', 'session/list', 'session/get', 'session/rename', 'session/delete', 'session/messages', 'session/todos', 'session/todo/update', 'session/set_permission', 'session/set_workspace',
 	'session/context', 'context/compact', 'session/compactions', 'trajectory/session', 'session/rewind', 'session/fork', 'session/edit',
   'turn/start', 'turn/interrupt', 'run/cancel', 'run/get', 'run/subscribe', 'run/unsubscribe', 'run/log',
   'approval/list', 'approval/respond', 'question/list', 'question/respond', 'review/list', 'review/get', 'review/respond',
@@ -34,6 +34,7 @@ export interface Session {
   id: string;
   title: string;
   created_at: number;
+	workspace_path?: string;
   sandbox_mode?: SandboxMode;
   approval_policy?: ApprovalPolicy;
   permission_preset?: PermissionPreset;
@@ -90,8 +91,11 @@ export type ReviewStatus = 'pending' | 'approved' | 'denied' | 'answered' | 'can
 export interface ReviewItem { id: string; kind: ReviewKind; status: ReviewStatus; session_id: string; session_title?: string; run_id: string; tool_call_id?: string; tool_name?: string; source?: string; actor?: string; created_at: number; expires_at: number; decided_at?: number; action?: string; target?: string; precondition_hash?: string; preview?: string; risk_findings?: string[]; arguments?: Record<string, unknown>; prompt?: string; decision_reason?: string; stale_reason?: string; error?: string; effect?: string; reversibility?: string; scope?: string; trust?: string }
 export interface WorkspaceFile { path: string; size: number }
 export interface WorkspaceFileContent { path: string; content: string; size: number; truncated: boolean; binary: boolean }
+export interface WorkspaceDirectory { name: string; path: string }
+export interface WorkspaceBrowseResult { path: string; parent?: string; roots: string[]; directories: WorkspaceDirectory[]; truncated: boolean }
 export const listWorkspaceFiles = (runId: string) => request<{ files: WorkspaceFile[]; truncated: boolean }>('workspace/list', { run_id: runId });
 export const readWorkspaceFile = (runId: string, path: string) => request<WorkspaceFileContent>('workspace/read', { run_id: runId, path });
+export const browseWorkspace = (path = '') => request<WorkspaceBrowseResult>('workspace/browse', { path });
 export type Locale = 'en' | 'zh';
 export interface LocaleSettings {
   locale: Locale;
@@ -239,9 +243,10 @@ export async function request<T>(method: string, params?: unknown): Promise<T> {
 export const initialize = async (): Promise<RpcCapabilities> => (await getRpcClient()).capabilities;
 export const listSessions = () => request<{ sessions: Session[] }>('session/list');
 export const getSession = (id: string) => request<{ session: Session; messages: Message[] }>('session/get', { session_id: id });
-export const createSession = (title: string) => request<Session>('session/create', { title });
+export const createSession = (title: string, workspacePath = '') => request<Session>('session/create', { title, workspace_path: workspacePath });
 export const renameSession = (id: string, title: string) => request<Session>('session/rename', { session_id: id, title });
 export const setSessionPermission = (id: string, preset: Exclude<PermissionPreset, 'custom'>) => request<Session>('session/set_permission', { session_id: id, preset });
+export const setSessionWorkspace = (id: string, workspacePath: string) => request<Session>('session/set_workspace', { session_id: id, workspace_path: workspacePath });
 export const deleteSession = (id: string) => request<unknown>('session/delete', { session_id: id }).then(() => undefined);
 export const listMessages = (sessionId: string) => request<{ messages: Message[] }>('session/messages', { session_id: sessionId });
 export const getSessionContext = (sessionId: string) => request<SessionContext>('session/context', { session_id: sessionId });

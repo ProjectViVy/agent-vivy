@@ -203,7 +203,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 		return "", err
 	}
 	runID := newRunID()
-	if _, err := s.deps.Workspaces.Ensure(ctx, runID); err != nil {
+	if _, err := s.deps.Workspaces.Ensure(withSessionID(ctx, sessionID), runID); err != nil {
 		return "", fmt.Errorf("runtime: allocate shell workspace: %w", err)
 	}
 	now := time.Now().UnixMilli()

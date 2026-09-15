@@ -289,7 +289,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.Close() })
 
-	// (a) migrate recorded versions 15 through 20 alongside the pre-existing 14.
+	// (a) migrate recorded versions 15 through 21 alongside the pre-existing 14.
 	var versions []int64
 	rows, err := admin.QueryContext(ctx,
 		`SELECT version FROM `+schema+`.schema_migrations ORDER BY version`)
@@ -306,7 +306,7 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate schema_migrations: %v", err)
 	}
-	wantVersions := []int64{14, 15, 16, 17, 18, 19, 20}
+	wantVersions := []int64{14, 15, 16, 17, 18, 19, 20, 21}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("schema_migrations = %v, want %v", versions, wantVersions)
 	}
@@ -340,6 +340,17 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		if nullable != "NO" || def != "''" {
 			t.Fatalf("column %s = nullable %q default %q, want NO / ''", col, nullable, def)
 		}
+	}
+	var workspaceNullable, workspaceDefault string
+	if err := admin.QueryRowContext(ctx,
+		`SELECT is_nullable, column_default
+		 FROM information_schema.columns
+		 WHERE table_schema = $1 AND table_name = 'sessions' AND column_name = 'workspace_path'`,
+		schema).Scan(&workspaceNullable, &workspaceDefault); err != nil {
+		t.Fatalf("information_schema workspace_path: %v", err)
+	}
+	if workspaceNullable != "NO" || workspaceDefault != "''" {
+		t.Fatalf("workspace_path = nullable %q default %q, want NO / ''", workspaceNullable, workspaceDefault)
 	}
 
 	// (c) the legacy row survives the in-place upgrade with empty provenance.

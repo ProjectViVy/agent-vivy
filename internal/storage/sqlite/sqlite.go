@@ -53,6 +53,7 @@ var migrations = []struct {
 	{21, migration021},
 	{22, migration022},
 	{23, migration023},
+	{24, migration024},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -660,7 +661,7 @@ const migration022 = `
 // they must answer; success deletes the row, so the table only ever holds
 // undelivered intent and needs no retention of its own. No foreign keys —
 // chanin-adjacent operational state must not couple to the runs table.
-const migration023 = `
+const migration024 = `
 	CREATE TABLE IF NOT EXISTS channel_deliveries (
 		run_id TEXT PRIMARY KEY,
 		session_id TEXT NOT NULL,
@@ -673,4 +674,10 @@ const migration023 = `
 		updated_at_ms INTEGER NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS channel_deliveries_state_idx ON channel_deliveries(state, created_at_ms);
+`
+
+// migration023 attaches one immutable-after-first-run project directory to
+// each conversation. Empty means the existing default private workspace.
+const migration023 = `
+	ALTER TABLE sessions ADD COLUMN workspace_path TEXT NOT NULL DEFAULT '';
 `

@@ -50,6 +50,48 @@ func newTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlite.Bac
 	return svc, backend, sink
 }
 
+type blockingWorkspaceAllocator struct {
+	entered chan struct{}
+	release chan struct{}
+	path    string
+}
+
+func (allocator *blockingWorkspaceAllocator) Ensure(_ context.Context, runID domain.RunID) (Workspace, error) {
+	close(allocator.entered)
+	<-allocator.release
+	return Workspace{ID: string(runID), Path: allocator.path}, nil
+}
+
+func TestSetSessionWorkspaceSerializesWithFirstRunAllocation(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("session-workspace-race")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "race", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	allocator := &blockingWorkspaceAllocator{entered: make(chan struct{}), release: make(chan struct{}), path: t.TempDir()}
+	svc.deps.Workspaces = allocator
+	t.Cleanup(func() { svc.CancelAll(); svc.WaitIdle(context.Background()) })
+
+	runDone := make(chan error, 1)
+	go func() { _, err := svc.Run(ctx, sessionID, "start"); runDone <- err }()
+	<-allocator.entered
+	setDone := make(chan error, 1)
+	go func() { _, err := svc.SetSessionWorkspace(ctx, sessionID, t.TempDir()); setDone <- err }()
+	select {
+	case err := <-setDone:
+		t.Fatalf("workspace mutation escaped the startup fence: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(allocator.release)
+	if err := <-runDone; err != nil {
+		t.Fatalf("start run: %v", err)
+	}
+	if err := <-setDone; !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("workspace mutation after first run = %v, want conflict", err)
+	}
+}
+
 func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
 	svc := NewService(nil, "openai", "old-model", ServiceDeps{})
 	persisted := false

@@ -128,7 +128,7 @@ func (backend *HostedSkillBackend) Get(ctx context.Context, name string) (einosk
 	}
 	baseDirectory := ""
 	if resolved.SourceID == localSkillSourceID && backend.local != nil {
-		baseDirectory, err = backend.local.skillDir(resolved.ID)
+		baseDirectory, err = backend.local.skillDir(ctx, resolved.ID)
 		if err != nil {
 			return einoskill.Skill{}, err
 		}

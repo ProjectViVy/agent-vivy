@@ -113,7 +113,8 @@ func TestRewindSessionNotWired(t *testing.T) {
 func TestForkSessionCopiesHistoryAndAnchors(t *testing.T) {
 	svc, backend, sink := newTestService(t, testsupport.NewEchoModel())
 	ctx := context.Background()
-	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-src", Title: "origin", CreatedAt: 1, SandboxMode: string(domain.SandboxModeReadOnly), ApprovalPolicy: string(domain.ApprovalPolicyNever)}); err != nil {
+	workspace := t.TempDir()
+	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-src", Title: "origin", CreatedAt: 1, SandboxMode: string(domain.SandboxModeReadOnly), ApprovalPolicy: string(domain.ApprovalPolicyNever), WorkspacePath: workspace}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	appendRewindFixture(t, svc, "sess-src")
@@ -139,8 +140,8 @@ func TestForkSessionCopiesHistoryAndAnchors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession child: %v", err)
 	}
-	if child.Title != "origin (fork)" || child.SandboxMode != string(domain.SandboxModeReadOnly) || child.ApprovalPolicy != string(domain.ApprovalPolicyNever) || child.UpdatedAt <= 0 {
-		t.Fatalf("child session = %+v, want inherited knobs and default fork title", child)
+	if child.Title != "origin (fork)" || child.SandboxMode != string(domain.SandboxModeReadOnly) || child.ApprovalPolicy != string(domain.ApprovalPolicyNever) || child.WorkspacePath != workspace || child.UpdatedAt <= 0 {
+		t.Fatalf("child session = %+v, want inherited knobs, workspace, and default fork title", child)
 	}
 	childMsgs := mustListMessages(t, svc, domain.SessionID(result.SessionID))
 	if len(childMsgs) != 2 || childMsgs[0].Content != "one" || childMsgs[1].Content != "two" {

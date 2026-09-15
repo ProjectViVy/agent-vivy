@@ -88,7 +88,8 @@ interface RuntimeState {
   initialize: () => Promise<void>;
   retryInitialize: () => Promise<void>;
   loadSessions: () => Promise<void>;
-  createSession: (title?: string) => Promise<api.Session>;
+  createSession: (title?: string, workspacePath?: string) => Promise<api.Session>;
+	chooseWorkspace: (workspacePath: string) => Promise<api.Session>;
   renameSession: (id: string, title: string) => Promise<void>;
   setSessionPermission: (id: string, preset: Exclude<api.PermissionPreset, 'custom'>) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
@@ -385,11 +386,34 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     try { const result = await api.listSessions(); set({ sessions: result.sessions, sessionsPhase: result.sessions.length ? 'ready' : 'empty' }); }
     catch (error) { set((state) => ({ sessionsPhase: state.sessions.length ? 'ready' : 'error', sessionsError: errorMessage(error) })); }
   },
-  createSession: async (title = '') => {
+  createSession: async (title = '', workspacePath = '') => {
     set({ sessionBusyId: 'create', sessionsError: null });
-    try { const created = await api.createSession(title); set((state) => ({ sessions: [created, ...state.sessions], sessionsPhase: 'ready' })); await get().selectSession(created.id); return created; }
+    try { const created = await api.createSession(title, workspacePath); set((state) => ({ sessions: [created, ...state.sessions], sessionsPhase: 'ready' })); await get().selectSession(created.id); return created; }
     catch (error) { set((state) => ({ sessionsError: errorMessage(error), sessionsPhase: state.sessions.length ? state.sessionsPhase : 'error' })); throw error; } finally { set({ sessionBusyId: null }); }
   },
+	chooseWorkspace: async (workspacePath) => {
+		const state = get();
+		const activeId = state.activeSessionId;
+		const active = state.sessions.find((session) => session.id === activeId);
+		if (active && (active.workspace_path ?? '') === workspacePath) return active;
+		if (!activeId || state.messages.length > 0 || runActive(state.currentRun)) {
+			return get().createSession('', workspacePath);
+		}
+		set({ sessionBusyId: activeId, sessionsError: null });
+		try {
+			const updated = await api.setSessionWorkspace(activeId, workspacePath);
+			set((current) => ({ sessions: current.sessions.map((session) => session.id === activeId ? updated : session) }));
+			return updated;
+		} catch (error) {
+			if (error instanceof api.ApiError && error.status === 409) {
+				return get().createSession('', workspacePath);
+			}
+			set({ sessionsError: errorMessage(error) });
+			throw error;
+		} finally {
+			if (get().sessionBusyId === activeId) set({ sessionBusyId: null });
+		}
+	},
   renameSession: async (id, title) => {
     set({ sessionBusyId: id, sessionsError: null });
     try { const renamed = await api.renameSession(id, title); set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? renamed : item) })); }
