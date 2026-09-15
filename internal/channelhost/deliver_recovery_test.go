@@ -571,8 +571,11 @@ func TestFastTerminalBeforeRunReturnsIsDelivered(t *testing.T) {
 	ch := fake.New()
 	ch.Publish = func(context.Context, plugin.ChannelEnv) error { return nil }
 	var host *Host
-	run := func(ctx context.Context, sessionID domain.SessionID, _ string, _ []domain.Attachment, _ *domain.Provenance) (domain.RunID, error) {
+	run := func(ctx context.Context, sessionID domain.SessionID, _ string, _ []domain.Attachment, _ *domain.Provenance, prepare PrepareRunFunc) (domain.RunID, error) {
 		runID := domain.RunID("run-fast-terminal")
+		if err := prepare(runID); err != nil {
+			return "", err
+		}
 		if err := backend.AppendMessage(ctx, domain.Message{
 			ID: "msg-fast-terminal", SessionID: sessionID, RunID: runID,
 			Role: domain.RoleAssistant, Content: "fast reply", CreatedAt: time.Now().UnixMilli(),
@@ -590,8 +593,8 @@ func TestFastTerminalBeforeRunReturnsIsDelivered(t *testing.T) {
 		Messages:   backend,
 		Sessions:   backend,
 		Deliveries: backend,
-		Run:        run,
-		Channels:   []plugin.Channel{ch},
+		RunPrepared: run,
+		Channels:    []plugin.Channel{ch},
 		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
 		Logger:     testLogger(),
 	})
