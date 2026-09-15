@@ -500,6 +500,7 @@ type sessionResult struct {
 	SandboxMode      domain.SandboxMode      `json:"sandbox_mode"`
 	ApprovalPolicy   domain.ApprovalPolicy   `json:"approval_policy"`
 	PermissionPreset domain.PermissionPreset `json:"permission_preset"`
+	WorkspacePath    string                  `json:"workspace_path"`
 }
 
 type messageResult struct {
@@ -976,6 +977,10 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 			"cron.list", "cron.create", "cron.update", "cron.delete", "cron.trigger", "cron.stop",
 			"stats.tokens",
 			"skills.list", "skills.get",
+			"workspace.browse",
+		}
+		if _, ok := h.deps.Sessions.(storage.SessionWorkspaceStore); ok && h.deps.Service != nil {
+			capabilities = append(capabilities, "session.set_workspace")
 		}
 		_, hasMCPPrompts := h.deps.MCP.(tools.MCPPromptOperations)
 		if h.deps.Skills != nil || hasMCPPrompts {
@@ -1009,6 +1014,12 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return result, rpcErr
 	case "session/set_permission":
 		result, rpcErr := h.setSessionPermission(ctx, request)
+		if rpcErr == nil {
+			h.bindPeerSessionRequest(ctx, peer, request)
+		}
+		return result, rpcErr
+	case "session/set_workspace":
+		result, rpcErr := h.setSessionWorkspace(ctx, request)
 		if rpcErr == nil {
 			h.bindPeerSessionRequest(ctx, peer, request)
 		}
@@ -1131,6 +1142,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.workspaceList(ctx, request)
 	case "workspace/read":
 		return h.workspaceRead(ctx, request)
+	case "workspace/browse":
+		return h.workspaceBrowse(request)
 	case "approval/list":
 		return h.listApprovals(ctx)
 	case "approval/respond":
@@ -1372,7 +1385,8 @@ func (h *controlHandler) cancelChild(ctx context.Context, request Request) (any,
 
 func (h *controlHandler) createSession(ctx context.Context, request Request) (any, *Error) {
 	var params struct {
-		Title string `json:"title"`
+		Title         string `json:"title"`
+		WorkspacePath string `json:"workspace_path"`
 	}
 	if err := decodeParams(request, &params); err != nil {
 		return nil, err
@@ -1381,14 +1395,50 @@ func (h *controlHandler) createSession(ctx context.Context, request Request) (an
 	// auto-titler can name it after the first exchange; clients render a
 	// localized placeholder.
 	params.Title = strings.TrimSpace(params.Title)
+	workspacePath, pathErr := canonicalWorkspacePath(params.WorkspacePath)
+	if pathErr != nil {
+		return nil, &Error{Code: InvalidParams, Message: pathErr.Error()}
+	}
 	now := nowMillis()
-	session := domain.Session{ID: domain.SessionID(newControlID("sess_")), Title: params.Title, CreatedAt: now, UpdatedAt: now}
+	session := domain.Session{ID: domain.SessionID(newControlID("sess_")), Title: params.Title, CreatedAt: now, UpdatedAt: now, WorkspacePath: workspacePath}
 	if mode, policy, ok := h.defaultPreset().Bundle(); ok {
 		session.SandboxMode = string(mode)
 		session.ApprovalPolicy = string(policy)
 	}
 	if err := h.deps.Sessions.CreateSession(ctx, session); err != nil {
 		return nil, internalError(err)
+	}
+	return toSessionResult(session), nil
+}
+
+func (h *controlHandler) setSessionWorkspace(ctx context.Context, request Request) (any, *Error) {
+	var params struct {
+		SessionID     string `json:"session_id"`
+		WorkspacePath string `json:"workspace_path"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.SessionID) == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
+	}
+	path, err := canonicalWorkspacePath(params.WorkspacePath)
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	if h.deps.Service == nil {
+		return nil, &Error{Code: MethodNotFound, Message: "session workspace selection is not configured"}
+	}
+	session, err := h.deps.Service.SetSessionWorkspace(ctx, domain.SessionID(params.SessionID), path)
+	if err != nil {
+		switch {
+		case errors.Is(err, storage.ErrNotFound):
+			return nil, &Error{Code: CodeNotFound, Message: "session not found"}
+		case errors.Is(err, storage.ErrConflict):
+			return nil, &Error{Code: CodeConflict, Message: "session workspace is locked after the first run"}
+		default:
+			return nil, internalError(err)
+		}
 	}
 	return toSessionResult(session), nil
 }
@@ -1405,7 +1455,22 @@ func toSessionResult(session domain.Session) sessionResult {
 	return sessionResult{
 		ID: session.ID, Title: session.Title, CreatedAt: session.CreatedAt, UpdatedAt: session.UpdatedAt,
 		SandboxMode: mode, ApprovalPolicy: policy, PermissionPreset: domain.PermissionPresetOf(mode, policy),
+		WorkspacePath: session.WorkspacePath,
 	}
+}
+
+func (h *controlHandler) workspaceBrowse(request Request) (any, *Error) {
+	var params struct {
+		Path string `json:"path"`
+	}
+	if err := decodeParams(request, &params); err != nil {
+		return nil, err
+	}
+	result, err := browseWorkspaceDirectories(params.Path)
+	if err != nil {
+		return nil, &Error{Code: InvalidParams, Message: err.Error()}
+	}
+	return result, nil
 }
 
 func (h *controlHandler) setSessionPermission(ctx context.Context, request Request) (any, *Error) {

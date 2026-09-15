@@ -115,6 +115,13 @@ type SessionStore interface {
 	DeleteSession(ctx context.Context, id domain.SessionID) error
 }
 
+// SessionWorkspaceStore changes the directory attached to a conversation.
+// First-party backends accept the mutation only before the first run so a
+// historical run can never resolve against a different filesystem root.
+type SessionWorkspaceStore interface {
+	UpdateSessionWorkspace(ctx context.Context, id domain.SessionID, path string) error
+}
+
 // SessionActivityStore is the optional durable activity extension implemented
 // by the first-party backends. Keeping it separate preserves compatibility
 // with small embedders that only implement the original SessionStore surface;

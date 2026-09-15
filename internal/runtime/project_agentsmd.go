@@ -22,6 +22,80 @@ type ProjectAgentsMDBackend struct {
 
 var _ AgentsMDBackend = (*ProjectAgentsMDBackend)(nil)
 
+// SessionProjectAgentsMDBackend keeps the launch project's instruction view
+// for default sessions and switches AGENTS.md reads to an explicitly selected
+// workspace. The first configured launch file is a stable virtual entry point;
+// additional launch-only files are suppressed for selected workspaces.
+type SessionProjectAgentsMDBackend struct {
+	defaultBackend *ProjectAgentsMDBackend
+	sessions       SessionWorkspaceLookup
+	primaryFile    string
+	launchFiles    map[string]struct{}
+}
+
+var _ AgentsMDBackend = (*SessionProjectAgentsMDBackend)(nil)
+
+// NewSessionProjectAgentsMDBackend makes project instructions follow the same
+// durable session selection as filesystem and command tools.
+func NewSessionProjectAgentsMDBackend(root string, files []string, sessions SessionWorkspaceLookup) (*SessionProjectAgentsMDBackend, error) {
+	if sessions == nil {
+		return nil, errors.New("runtime: session instruction lookup must be wired")
+	}
+	base, err := NewProjectAgentsMDBackend(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		files = []string{AgentsMDFileName}
+	}
+	launchFiles := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		launchFiles[filepath.Clean(filepath.FromSlash(file))] = struct{}{}
+	}
+	return &SessionProjectAgentsMDBackend{
+		defaultBackend: base,
+		sessions:       sessions,
+		primaryFile:    filepath.Clean(filepath.FromSlash(files[0])),
+		launchFiles:    launchFiles,
+	}, nil
+}
+
+// Read resolves the selected root from the session identity carried by every
+// runtime model call. A missing identity is a non-run caller and retains the
+// historical launch-project behavior.
+func (b *SessionProjectAgentsMDBackend) Read(ctx context.Context, req *agentsmd.ReadRequest) (*agentsmd.FileContent, error) {
+	if b == nil || b.defaultBackend == nil || b.sessions == nil {
+		return nil, errors.New("runtime: session agentsmd backend is not wired")
+	}
+	sessionID := contextSessionID(ctx)
+	if sessionID == "" {
+		return b.defaultBackend.Read(ctx, req)
+	}
+	session, err := b.sessions.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: resolve session instructions: %w", err)
+	}
+	root := strings.TrimSpace(session.WorkspacePath)
+	if root == "" {
+		return b.defaultBackend.Read(ctx, req)
+	}
+	if req == nil {
+		return nil, errors.New("runtime: agentsmd read request is nil")
+	}
+	selected, err := NewProjectAgentsMDBackend(root)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: selected instruction root: %w", err)
+	}
+	requested := filepath.Clean(filepath.FromSlash(req.FilePath))
+	selectedReq := *req
+	if requested == b.primaryFile {
+		selectedReq.FilePath = AgentsMDFileName
+	} else if _, launchOnly := b.launchFiles[requested]; launchOnly {
+		return nil, os.ErrNotExist
+	}
+	return selected.Read(ctx, &selectedReq)
+}
+
 // NewProjectAgentsMDBackend binds AGENTS.md reads to a canonical host root.
 func NewProjectAgentsMDBackend(root string) (*ProjectAgentsMDBackend, error) {
 	root, err := CanonicalInstructionRoot(root)

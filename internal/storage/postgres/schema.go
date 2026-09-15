@@ -408,11 +408,11 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT
 UPDATE sessions SET updated_at = created_at WHERE updated_at = 0;
 `
 
-// schemaV21Upgrade adds the durable outbound channel-delivery intents
-// (CH-C3-N1), matching SQLite migration023. Rows are Host-internal
+// schemaV22Upgrade adds the durable outbound channel-delivery intents
+// (CH-C3-N1), matching SQLite migration024. Rows are Host-internal
 // operational state keyed by the run they must answer; success deletes the
 // row, so the table holds only undelivered intent.
-const schemaV21Upgrade = `
+const schemaV22Upgrade = `
 CREATE TABLE IF NOT EXISTS channel_deliveries (
 	run_id TEXT PRIMARY KEY,
 	session_id TEXT NOT NULL,
@@ -425,4 +425,10 @@ CREATE TABLE IF NOT EXISTS channel_deliveries (
 	updated_at_ms BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS channel_deliveries_state_idx ON channel_deliveries(state, created_at_ms);
+`
+
+// schemaV21Upgrade attaches one immutable-after-first-run project directory
+// to each conversation. Empty preserves the default private workspace.
+const schemaV21Upgrade = `
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS workspace_path TEXT NOT NULL DEFAULT '';
 `

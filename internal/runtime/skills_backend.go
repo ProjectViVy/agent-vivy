@@ -46,6 +46,7 @@ type skillRoot struct {
 type EinoSkillBackend struct {
 	root         string
 	projectRoots []skillRoot
+	sessions     SessionWorkspaceLookup
 	revisions    storage.SkillRevisionStore
 }
 
@@ -64,6 +65,21 @@ func NewEinoSkillBackend(root string, revisions storage.SkillRevisionStore) (*Ei
 // SetProjectSkillRoots installs closer-first read-only overlays (cwd then
 // git-root conventional dirs). Missing or symlink paths are skipped.
 func (b *EinoSkillBackend) SetProjectSkillRoots(roots []string) error {
+	out, err := normalizedProjectSkillRoots(roots)
+	if err != nil {
+		return err
+	}
+	b.projectRoots = out
+	return nil
+}
+
+// SetSessionWorkspaceLookup makes read-only project skill overlays follow an
+// explicitly selected workspace. Default sessions keep the launch overlays.
+func (b *EinoSkillBackend) SetSessionWorkspaceLookup(sessions SessionWorkspaceLookup) {
+	b.sessions = sessions
+}
+
+func normalizedProjectSkillRoots(roots []string) ([]skillRoot, error) {
 	out := make([]skillRoot, 0, len(roots))
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
@@ -73,7 +89,7 @@ func (b *EinoSkillBackend) SetProjectSkillRoots(roots []string) error {
 		}
 		abs, err := filepath.Abs(root)
 		if err != nil {
-			return fmt.Errorf("skills: resolve project root: %w", err)
+			return nil, fmt.Errorf("skills: resolve project root: %w", err)
 		}
 		abs = filepath.Clean(abs)
 		key := strings.ToLower(abs)
@@ -86,15 +102,34 @@ func (b *EinoSkillBackend) SetProjectSkillRoots(roots []string) error {
 		seen[key] = struct{}{}
 		out = append(out, skillRoot{path: abs, origin: tools.SkillOriginProject, writable: false})
 	}
-	b.projectRoots = out
-	return nil
+	return out, nil
 }
 
-func (b *EinoSkillBackend) scanRoots() []skillRoot {
-	out := make([]skillRoot, 0, len(b.projectRoots)+1)
-	out = append(out, b.projectRoots...)
+func (b *EinoSkillBackend) scanRoots(ctx context.Context) ([]skillRoot, error) {
+	projectRoots := b.projectRoots
+	if b.sessions != nil {
+		sessionID := contextSessionID(ctx)
+		if sessionID != "" {
+			session, err := b.sessions.GetSession(ctx, sessionID)
+			if err != nil {
+				return nil, fmt.Errorf("skills: resolve session workspace: %w", err)
+			}
+			if strings.TrimSpace(session.WorkspacePath) != "" {
+				discovered, err := DiscoverProjectInstructions(session.WorkspacePath)
+				if err != nil {
+					return nil, fmt.Errorf("skills: discover selected project: %w", err)
+				}
+				projectRoots, err = normalizedProjectSkillRoots(discovered.SkillRoots)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	out := make([]skillRoot, 0, len(projectRoots)+1)
+	out = append(out, projectRoots...)
 	out = append(out, skillRoot{path: b.root, origin: tools.SkillOriginUser, writable: true})
-	return out
+	return out, nil
 }
 
 func (b *EinoSkillBackend) List(ctx context.Context) ([]einoskill.FrontMatter, error) {
@@ -144,7 +179,7 @@ func (b *EinoSkillBackend) ViewSkill(ctx context.Context, _ domain.RunID, name, 
 	if relativePath == "" {
 		return tools.SkillView{SkillSummary: b.summary(item), Content: item.content, RelativePath: "SKILL.md", SupportingFiles: b.supportingFiles(item.dir)}, nil
 	}
-	path, rel, err := b.resolveSkillPath(item.name, relativePath, false)
+	path, rel, err := b.resolveSkillPath(ctx, item.name, relativePath, false)
 	if err != nil {
 		return tools.SkillView{}, err
 	}
@@ -185,7 +220,7 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 		return domain.ToolProposal{}, err
 	}
 	if req.Action != "create" {
-		if root, _, locErr := b.skillDirOf(req.SkillName); locErr == nil && !root.writable {
+		if root, _, locErr := b.skillDirOf(ctx, req.SkillName); locErr == nil && !root.writable {
 			return domain.ToolProposal{}, errSkillReadOnly
 		}
 	}
@@ -336,7 +371,11 @@ func (b *EinoSkillBackend) loadSkills(ctx context.Context) ([]loadedSkill, error
 	}
 	seen := make(map[string]struct{})
 	var out []loadedSkill
-	for _, root := range b.scanRoots() {
+	roots, err := b.scanRoots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, root := range roots {
 		items, err := b.loadRoot(ctx, root)
 		if err != nil {
 			return nil, err
@@ -366,7 +405,11 @@ func (b *EinoSkillBackend) loadSkillsAll(ctx context.Context) ([]loadedSkill, er
 		return nil, fmt.Errorf("skills: create root: %w", err)
 	}
 	var out []loadedSkill
-	for _, root := range b.scanRoots() {
+	roots, err := b.scanRoots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, root := range roots {
 		items, err := b.loadRoot(ctx, root)
 		if err != nil {
 			return nil, err
@@ -423,7 +466,11 @@ func (b *EinoSkillBackend) locateSkill(ctx context.Context, name string) (loaded
 		return loadedSkill{}, skillRoot{}, err
 	}
 	var last error
-	for _, root := range b.scanRoots() {
+	roots, err := b.scanRoots(ctx)
+	if err != nil {
+		return loadedSkill{}, skillRoot{}, err
+	}
+	for _, root := range roots {
 		item, err := b.loadSkillFromRoot(ctx, root, name)
 		if err == nil {
 			return item, root, nil
@@ -493,7 +540,7 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 	if err := validSkillName(name); err != nil {
 		return tools.SkillSummary{}, err
 	}
-	dir, err := b.writableSkillDir(name)
+	dir, err := b.writableSkillDir(ctx, name)
 	if err != nil {
 		return tools.SkillSummary{}, err
 	}
@@ -527,16 +574,20 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 	return b.summary(item), nil
 }
 
-func (b *EinoSkillBackend) skillDir(name string) (string, error) {
-	_, dir, err := b.skillDirOf(name)
+func (b *EinoSkillBackend) skillDir(ctx context.Context, name string) (string, error) {
+	_, dir, err := b.skillDirOf(ctx, name)
 	return dir, err
 }
 
-func (b *EinoSkillBackend) skillDirOf(name string) (skillRoot, string, error) {
+func (b *EinoSkillBackend) skillDirOf(ctx context.Context, name string) (skillRoot, string, error) {
 	if err := validSkillName(name); err != nil {
 		return skillRoot{}, "", err
 	}
-	for _, root := range b.scanRoots() {
+	roots, err := b.scanRoots(ctx)
+	if err != nil {
+		return skillRoot{}, "", err
+	}
+	for _, root := range roots {
 		dir, err := skillDirIn(root.path, name)
 		if err != nil {
 			continue
@@ -549,8 +600,8 @@ func (b *EinoSkillBackend) skillDirOf(name string) (skillRoot, string, error) {
 	return skillRoot{}, "", fmt.Errorf("skills: skill %q not found", name)
 }
 
-func (b *EinoSkillBackend) writableSkillDir(name string) (string, error) {
-	root, dir, err := b.skillDirOf(name)
+func (b *EinoSkillBackend) writableSkillDir(ctx context.Context, name string) (string, error) {
+	root, dir, err := b.skillDirOf(ctx, name)
 	if err != nil {
 		return "", err
 	}
@@ -575,8 +626,8 @@ func skillDirIn(root, name string) (string, error) {
 	return path, nil
 }
 
-func (b *EinoSkillBackend) resolveSkillPath(name, relative string, allowMissing bool) (string, string, error) {
-	dir, err := b.skillDir(name)
+func (b *EinoSkillBackend) resolveSkillPath(ctx context.Context, name, relative string, allowMissing bool) (string, string, error) {
+	dir, err := b.skillDir(ctx, name)
 	if err != nil {
 		if !allowMissing {
 			return "", "", err
@@ -612,7 +663,7 @@ func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.Ski
 			return nil, "", "", "", err
 		}
 		if action == "create" {
-			if _, _, err := b.skillDirOf(req.SkillName); err == nil {
+			if _, _, err := b.skillDirOf(ctx, req.SkillName); err == nil {
 				return nil, "", "", "", errors.New("skills: skill already exists")
 			}
 			if _, err := os.Lstat(dir); err == nil {
@@ -622,7 +673,7 @@ func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.Ski
 			}
 			return nil, filepath.Join(dir, "SKILL.md"), filepath.ToSlash(filepath.Join(req.SkillName, "SKILL.md")), "", nil
 		}
-		writable, err := b.writableSkillDir(req.SkillName)
+		writable, err := b.writableSkillDir(ctx, req.SkillName)
 		if err != nil {
 			return nil, "", "", "", err
 		}
@@ -632,7 +683,7 @@ func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.Ski
 		}
 		return current, writable, filepath.ToSlash(req.SkillName) + "/", sha256Hex(current), nil
 	}
-	if _, err := b.writableSkillDir(req.SkillName); err != nil {
+	if _, err := b.writableSkillDir(ctx, req.SkillName); err != nil {
 		return nil, "", "", "", err
 	}
 	rel := req.Path
@@ -642,7 +693,7 @@ func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.Ski
 	if rel == "" {
 		return nil, "", "", "", errors.New("skills: supporting path is required")
 	}
-	path, targetRel, err := b.resolveSkillPath(req.SkillName, rel, action == "write_file")
+	path, targetRel, err := b.resolveSkillPath(ctx, req.SkillName, rel, action == "write_file")
 	if err != nil {
 		return nil, "", "", "", err
 	}
@@ -911,7 +962,7 @@ func (b *EinoSkillBackend) rollbackMutationState(ctx context.Context, runID doma
 		return source, nil, target, filepath.ToSlash(source.SkillName) + "/", "", source.BeforePayload, nil
 	}
 	rel := strings.TrimPrefix(filepath.ToSlash(source.TargetPath), filepath.ToSlash(source.SkillName)+"/")
-	target, targetRel, err := b.resolveSkillPath(source.SkillName, rel, true)
+	target, targetRel, err := b.resolveSkillPath(ctx, source.SkillName, rel, true)
 	if err != nil {
 		return domain.SkillRevision{}, nil, "", "", "", nil, err
 	}

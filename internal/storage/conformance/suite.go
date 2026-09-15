@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-28).
+// Package conformance is the D-032 backend suite (CN-01..CN-30).
 package conformance
 
 import (
@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-26.
+// Run executes CN-01..CN-30.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -73,15 +73,56 @@ func Run(t *testing.T, h Harness) {
 		{"CN-24", "durable session activity timestamp", cnSessionActivity},
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
-		{"CN-27", "channel delivery intent round-trip", cnChannelDeliveryIntent},
-		{"CN-28", "channel inbound retention prune", cnChannelInboundPrune},
-		{"CN-29", "channel failed delivery listing", cnChannelFailedListing},
+		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
+		{"CN-28", "channel delivery intent round-trip", cnChannelDeliveryIntent},
+		{"CN-29", "channel inbound retention prune", cnChannelInboundPrune},
+		{"CN-30", "channel failed delivery listing", cnChannelFailedListing},
 	}
-	if len(cases) != 29 {
-		t.Fatalf("conformance suite must carry exactly 29 cases, got %d", len(cases))
+	if len(cases) != 30 {
+		t.Fatalf("conformance suite must carry exactly 30 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
+	}
+}
+
+func cnSessionWorkspace(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	workspaceStore, ok := b.(storage.SessionWorkspaceStore)
+	if !ok {
+		t.Fatal("backend does not implement SessionWorkspaceStore")
+	}
+	session := domain.Session{
+		ID: "sess-workspace", Title: "workspace", CreatedAt: 1,
+		WorkspacePath: "/projects/alpha",
+	}
+	if err := b.CreateSession(ctx, session); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	loaded, err := b.GetSession(ctx, session.ID)
+	if err != nil || loaded.WorkspacePath != session.WorkspacePath {
+		t.Fatalf("GetSession workspace = %q, err=%v; want %q", loaded.WorkspacePath, err, session.WorkspacePath)
+	}
+	listed, err := b.ListSessions(ctx)
+	if err != nil || len(listed) != 1 || listed[0].WorkspacePath != session.WorkspacePath {
+		t.Fatalf("ListSessions = %+v, err=%v", listed, err)
+	}
+	if err := workspaceStore.UpdateSessionWorkspace(ctx, session.ID, "/projects/beta"); err != nil {
+		t.Fatalf("UpdateSessionWorkspace before first run: %v", err)
+	}
+	if err := b.CreateRun(ctx, domain.Run{ID: "run-workspace", SessionID: session.ID, Status: domain.RunCompleted, CreatedAt: 2}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := workspaceStore.UpdateSessionWorkspace(ctx, session.ID, "/projects/gamma"); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("UpdateSessionWorkspace after first run = %v, want ErrConflict", err)
+	}
+	loaded, err = b.GetSession(ctx, session.ID)
+	if err != nil || loaded.WorkspacePath != "/projects/beta" {
+		t.Fatalf("started session workspace = %q, err=%v; want unchanged", loaded.WorkspacePath, err)
+	}
+	if err := workspaceStore.UpdateSessionWorkspace(ctx, "sess-missing", "/projects/nope"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("unknown session workspace update = %v, want ErrNotFound", err)
 	}
 }
 

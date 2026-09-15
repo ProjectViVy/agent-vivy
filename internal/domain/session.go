@@ -31,6 +31,9 @@ type Session struct {
 	UpdatedAt      int64  // unix milli
 	SandboxMode    string // read_only | workspace_write | danger_full_access
 	ApprovalPolicy string // ask | never | auto
+	// WorkspacePath is an optional canonical host directory selected before
+	// the first run. Empty keeps Vivy's default private per-run workspace.
+	WorkspacePath string
 }
 
 // EffectiveSandbox returns the session's sandbox knobs, substituting the

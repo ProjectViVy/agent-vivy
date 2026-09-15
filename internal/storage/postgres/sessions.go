@@ -21,8 +21,8 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 		s.UpdatedAt = time.Now().UnixMilli()
 	}
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy) VALUES (?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy)); err != nil {
+		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy), s.WorkspacePath); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
@@ -31,7 +31,7 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 // ListSessions returns all sessions by durable activity, newest first.
 func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy FROM sessions ORDER BY updated_at DESC, id`)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path FROM sessions ORDER BY updated_at DESC, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list sessions: %w", err)
 	}
@@ -41,7 +41,7 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	for rows.Next() {
 		var s domain.Session
 		var id string
-		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy); err != nil {
+		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath); err != nil {
 			return nil, fmt.Errorf("storage: scan session: %w", err)
 		}
 		s.ID = domain.SessionID(id)
@@ -54,8 +54,8 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error) {
 	var s domain.Session
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy FROM sessions WHERE id = ?`, id).
-		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path FROM sessions WHERE id = ?`, id).
+		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Session{}, storage.ErrNotFound
 	}
@@ -63,6 +63,46 @@ func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.S
 		return domain.Session{}, fmt.Errorf("storage: get session %s: %w", id, err)
 	}
 	return s, nil
+}
+
+// UpdateSessionWorkspace changes an empty conversation's workspace. It locks
+// the session row under the same protocol as CreateRun so separate processes
+// cannot commit a first run concurrently with a workspace change.
+func (b *Backend) UpdateSessionWorkspace(ctx context.Context, id domain.SessionID, path string) error {
+	tx, err := b.db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("storage: begin session workspace update %s: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var sessionID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = $1 FOR UPDATE`, id).Scan(&sessionID); errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("storage: lock session workspace %s: %w", id, err)
+	}
+	var started bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM runs WHERE session_id = $1)`, id).Scan(&started); err != nil {
+		return fmt.Errorf("storage: inspect session workspace history %s: %w", id, err)
+	}
+	if started {
+		return storage.ErrConflict
+	}
+	at := time.Now().UnixMilli()
+	res, err := tx.ExecContext(ctx, `UPDATE sessions
+		SET workspace_path = $1, updated_at = CASE WHEN updated_at < $2 THEN $3 ELSE updated_at END
+		WHERE id = $4`, path, at, at, id)
+	if err != nil {
+		return fmt.Errorf("storage: update session workspace %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("storage: update session workspace rows: %w", err)
+	} else if n == 0 {
+		return storage.ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: commit session workspace update %s: %w", id, err)
+	}
+	return nil
 }
 
 // RenameSession updates the title; absent ids yield storage.ErrNotFound.

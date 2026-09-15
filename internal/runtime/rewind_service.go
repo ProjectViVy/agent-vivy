@@ -167,6 +167,7 @@ func (s *Service) ForkSession(ctx context.Context, sessionID domain.SessionID, m
 		UpdatedAt:      now,
 		SandboxMode:    source.SandboxMode,
 		ApprovalPolicy: source.ApprovalPolicy,
+		WorkspacePath:  source.WorkspacePath,
 	}
 	// Message ids are globally unique, so copies get fresh ids; the run
 	// references keep pointing at the parent's runs (audit-true: the

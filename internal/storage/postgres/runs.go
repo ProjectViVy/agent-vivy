@@ -22,11 +22,25 @@ func (b *Backend) CreateRun(ctx context.Context, r domain.Run) error {
 	if rootID == "" {
 		rootID = r.ID
 	}
-	if _, err := b.db.ExecContext(ctx,
+	tx, err := b.db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("storage: begin create run %s: %w", r.ID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var sessionID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = $1 FOR UPDATE`, r.SessionID).Scan(&sessionID); errors.Is(err, sql.ErrNoRows) {
+		return storage.ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("storage: lock session for run %s: %w", r.ID, err)
+	}
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO runs (id, session_id, status, created_at, kind, parent_run_id, root_run_id, depth)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		r.ID, r.SessionID, string(r.Status), r.CreatedAt, string(kind), r.ParentID, rootID, r.Depth); err != nil {
 		return fmt.Errorf("storage: create run %s: %w", r.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: commit create run %s: %w", r.ID, err)
 	}
 	return nil
 }

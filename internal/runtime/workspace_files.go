@@ -117,7 +117,7 @@ func (s *WorkspaceFiles) Read(ctx context.Context, runID domain.RunID, rel strin
 		return ReadFileResult{}, err
 	}
 	full := filepath.Join(root, filepath.FromSlash(clean))
-	if err := s.manager.ValidatePath(full); err != nil {
+	if err := s.manager.ValidateRunPath(ctx, runID, full); err != nil {
 		return ReadFileResult{}, err
 	}
 	info, err := os.Lstat(full)
