@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-30).
+// Package conformance is the D-032 backend suite (CN-01..CN-31).
 package conformance
 
 import (
@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-30.
+// Run executes CN-01..CN-31.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -77,9 +77,10 @@ func Run(t *testing.T, h Harness) {
 		{"CN-28", "channel delivery intent round-trip", cnChannelDeliveryIntent},
 		{"CN-29", "channel inbound retention prune", cnChannelInboundPrune},
 		{"CN-30", "channel failed delivery listing", cnChannelFailedListing},
+		{"CN-31", "session deletion removes channel deliveries", cnSessionDeleteChannelDeliveries},
 	}
-	if len(cases) != 30 {
-		t.Fatalf("conformance suite must carry exactly 30 cases, got %d", len(cases))
+	if len(cases) != 31 {
+		t.Fatalf("conformance suite must carry exactly 31 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
@@ -1390,5 +1391,41 @@ func assertSingleProjectedMessage(t *testing.T, b storage.Engine, ctx context.Co
 	}
 	if !storage.SameProjectedMessage(got[0], want) {
 		t.Fatalf("stored projection = %+v, want fields matching %+v", got[0], want)
+	}
+}
+
+
+func cnSessionDeleteChannelDeliveries(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-delete-deliveries")
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, Title: "cleanup", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	for _, d := range []storage.ChannelDelivery{
+		{RunID: "run-delete-open", SessionID: sessionID, Channel: "fake", ChatID: "chat", State: storage.ChannelDeliveryPending, CreatedAtMs: 1, UpdatedAtMs: 1},
+		{RunID: "run-delete-failed", SessionID: sessionID, Channel: "fake", ChatID: "chat", State: storage.ChannelDeliveryFailed, Attempts: 3, CreatedAtMs: 2, UpdatedAtMs: 2},
+	} {
+		if err := b.UpsertChannelDelivery(ctx, d); err != nil {
+			t.Fatalf("UpsertChannelDelivery: %v", err)
+		}
+	}
+	if err := b.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	open, err := b.ListOpenChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListOpenChannelDeliveries: %v", err)
+	}
+	failed, err := b.ListFailedChannelDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListFailedChannelDeliveries: %v", err)
+	}
+	for _, rows := range [][]storage.ChannelDelivery{open, failed} {
+		for _, row := range rows {
+			if row.SessionID == sessionID {
+				t.Fatalf("DeleteSession left channel delivery behind: %+v", row)
+			}
+		}
 	}
 }
