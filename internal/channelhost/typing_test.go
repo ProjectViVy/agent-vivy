@@ -27,7 +27,7 @@ func (c *typingChannel) Typing(_ context.Context, _ string) error {
 
 // typingRuns hands out one fixed run id and returns immediately: the run
 // stays live because only the test sends its terminal event.
-func typingRuns(_ context.Context, _ domain.SessionID, _ string, _ *domain.Provenance) (domain.RunID, error) {
+func typingRuns(_ context.Context, _ domain.SessionID, _ string, _ []domain.Attachment, _ *domain.Provenance) (domain.RunID, error) {
 	return domain.RunID("run-typing"), nil
 }
 

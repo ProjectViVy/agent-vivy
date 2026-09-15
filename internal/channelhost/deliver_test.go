@@ -44,7 +44,7 @@ func newDeliverTestHost(t *testing.T, ch plugin.Channel, configured bool) (*Host
 		Messages:   backend,
 		Sessions:   backend,
 		Deliveries: backend,
-		Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+		Run: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error) {
 			return "run_1", nil
 		},
 		Channels: []plugin.Channel{ch},

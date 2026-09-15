@@ -86,12 +86,29 @@ const (
 	PartText       PartKind = "text"
 	PartMediaRef   PartKind = "media-ref"
 	PartStructured PartKind = "structured"
+	// PartMedia carries bounded media bytes by value (channel tier 2,
+	// VIVY-CHANNEL-PACK.md §1 Decision Record 2026-09-15). The Host
+	// re-validates every part against the shared attachment limits and
+	// rejects oversize or non-image content; an adapter that downloads
+	// platform media must apply the same bound before publishing.
+	PartMedia PartKind = "media"
 )
+
+// Media is one bounded by-value media payload on a Part (inbound photos
+// today). Name is display-only and host-sanitized; MimeType is the
+// adapter's claim, verified by the Host's content sniff; Data carries the
+// bytes.
+type Media struct {
+	Name     string
+	MimeType string
+	Data     []byte
+}
 
 type Part struct {
 	Kind           PartKind
 	Text, MediaRef string
 	Structured     json.RawMessage
+	Media          Media
 }
 type MediaStore interface {
 	Put(context.Context, string, io.Reader) (string, error)

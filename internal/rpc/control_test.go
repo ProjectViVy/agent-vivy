@@ -3256,7 +3256,7 @@ func TestChannelInspectRPC(t *testing.T) {
 		Messages:   backend,
 		Sessions:   backend,
 		Deliveries: backend,
-		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
+		Run: func(context.Context, domain.SessionID, string, []domain.Attachment, *domain.Provenance) (domain.RunID, error) {
 			return "run-chan-inspect", nil
 		},
 		Channels:    []plugin.Channel{fakeCh},
@@ -4272,7 +4272,7 @@ func TestChannelDeliveriesRPC(t *testing.T) {
 		Messages:   backend,
 		Sessions:   backend,
 		Deliveries: backend,
-		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
+		Run: func(context.Context, domain.SessionID, string, []domain.Attachment, *domain.Provenance) (domain.RunID, error) {
 			return "run-chan-deliveries", nil
 		},
 		Channels: []plugin.Channel{fakeCh},

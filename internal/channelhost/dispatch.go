@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	plugin "agent-vivy/sdk/port/channel"
@@ -68,25 +70,18 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return nil
 	}
 
-	// v1 carries text only; media-ref and structured parts are ignored
-	// with a log so a silent content loss stays visible in the gateway log.
-	var texts []string
-	for _, part := range msg.Parts {
-		switch part.Kind {
-		case plugin.PartText:
-			texts = append(texts, part.Text)
-		default:
-			h.logger.Warn("channelhost: ignoring non-text inbound part this slice",
-				"channel", msg.Channel, "message_id", msg.MessageID, "part_kind", string(part.Kind))
-		}
-	}
-	text := strings.Join(texts, "\n")
+	// Parts → turn input (§12): text parts join; media parts validate
+	// against the shared attachment limits and become turn attachments.
+	// Anything rejected is dropped with a log — bounded bytes only, never
+	// truncated, never journaled.
+	text, attachments := inboundTurnInput(h.logger, msg)
 
 	// HITL command surface (contract §12): an exact /approve, /deny, or
 	// /pending token is answered in place — journaled like any inbound
 	// message, but it opens no run, tracks no target, and records no
 	// delivery intent. Non-command text (including other "/" tokens) falls
-	// through to the ordinary turn path untouched.
+	// through to the ordinary turn path untouched. A command never carries
+	// media into a run: it opens none.
 	if cmd, arg, ok := parseApprovalCommand(text); ok {
 		sessionID, err := h.EnsureSession(ctx, msg.Channel, msg.ChatID, msg.TopicID)
 		if err != nil {
@@ -117,7 +112,7 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 		return fmt.Errorf("channelhost: journal channel.inbound: %w", err)
 	}
 
-	runID, err := h.deps.Run(ctx, sessionID, text, &domain.Provenance{
+	runID, err := h.deps.Run(ctx, sessionID, text, attachments, &domain.Provenance{
 		Source:           domain.SourceChannel,
 		Channel:          msg.Channel,
 		ChatID:           msg.ChatID,
@@ -161,6 +156,48 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	h.mu.Unlock()
 	h.startTyping(target)
 	return nil
+}
+
+// inboundTurnInput converts envelope parts into the run input: text parts
+// join in order; media parts validate against the shared image attachment
+// limits (count, whitelist, size, content sniff) and become user-turn
+// attachments. A rejected part never blocks the rest of the message — it
+// is dropped with a warning naming the reason, so content loss stays
+// visible in the gateway log. The channel.inbound event is journaled
+// before this runs and stays identifiers-only: media bytes never enter
+// the Journal (§12).
+func inboundTurnInput(logger *slog.Logger, msg plugin.InboundMessage) (string, []domain.Attachment) {
+	var texts []string
+	var attachments []domain.Attachment
+	for _, part := range msg.Parts {
+		switch part.Kind {
+		case plugin.PartText:
+			if part.Text != "" {
+				texts = append(texts, part.Text)
+			}
+		case plugin.PartMedia:
+			if len(attachments) >= attachment.MaxCount {
+				logger.Warn("channelhost: dropping inbound media part over the attachment count limit",
+					"channel", msg.Channel, "message_id", msg.MessageID, "mime_type", part.Media.MimeType)
+				continue
+			}
+			mime, err := attachment.ValidateOne(part.Media.MimeType, part.Media.Data)
+			if err != nil {
+				logger.Warn("channelhost: dropping invalid inbound media part",
+					"channel", msg.Channel, "message_id", msg.MessageID, "err", err)
+				continue
+			}
+			attachments = append(attachments, domain.Attachment{
+				Name:     attachment.SanitizeName(part.Media.Name),
+				MimeType: mime,
+				Data:     part.Media.Data,
+			})
+		default:
+			logger.Warn("channelhost: ignoring non-text inbound part this slice",
+				"channel", msg.Channel, "message_id", msg.MessageID, "part_kind", string(part.Kind))
+		}
+	}
+	return strings.Join(texts, "\n"), attachments
 }
 
 // journalInbound appends one channel.inbound event under a per-message

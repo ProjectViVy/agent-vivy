@@ -24,8 +24,10 @@ import (
 
 // RunFunc opens one run for an inbound turn. The app injects it from
 // *runtime.Service.RunWithOptions; the host never holds *runtime.Service,
-// and the runtime package is never imported here.
-type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error)
+// and the runtime package is never imported here. Attachments are the
+// Host-validated inbound media parts (channel tier 2) carried onto the
+// user turn; the callback decides whether the current model consumes them.
+type RunFunc func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error)
 
 // DecideApprovalFunc settles one approval attributed to the named actor.
 // The app injects it from *runtime.Service.DecideApprovalAsActor; the host

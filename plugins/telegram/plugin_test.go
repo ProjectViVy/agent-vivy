@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -103,10 +104,16 @@ func (e *fakeEnv) setFailures(n int) {
 	e.publishFailures = n
 }
 
+// stubPhotoBytes is a tiny well-formed JPEG payload (magic bytes plus
+// padding): enough for the host-side content sniff, no real image needed.
+var stubPhotoBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{0x00}, 32)...)
+
 // telegramStub is a loopback stand-in for the Telegram Bot API serving the
-// three calls the adapter makes this slice: getMe (authentication),
-// getUpdates (polling), and sendMessage (outbound text). All routing is by
-// path suffix because the bot token is embedded in the URL path.
+// calls the adapter makes this slice: getMe (authentication), getUpdates
+// (polling), sendMessage (outbound text with a formatted-send fallback),
+// sendChatAction (typing live surface), and getFile plus the /file/bot
+// path (inbound photo download). All routing is by path suffix because
+// the bot token is embedded in the URL path.
 type telegramStub struct {
 	server  *httptest.Server
 	updates chan []map[string]any // one-shot update batches for getUpdates
@@ -119,6 +126,18 @@ type telegramStub struct {
 	sendFailures atomic.Int64
 
 	actions chan chatActionCall
+
+	// Inbound photo behavior. Defaults serve stubPhotoBytes at
+	// photos/file_0.jpg with a truthful declared size; tests flip the
+	// error/size fields to exercise the drop paths.
+	photoMutex   sync.Mutex
+	photoBytes   []byte
+	filePath     string
+	fileSize     int  // declared by getFile; negative = omit
+	getFileErr   bool // getFile answers a platform error
+	getFileCalls int  // observed hits on the getFile endpoint
+	downloadErr  bool // file endpoint answers 500
+	downloads    int  // observed hits on the file endpoint
 }
 
 type sendMessageCall struct {
@@ -141,9 +160,12 @@ type chatActionCall struct {
 func newTelegramStub(t *testing.T) *telegramStub {
 	t.Helper()
 	stub := &telegramStub{
-		updates: make(chan []map[string]any, 8),
-		sends:   make(chan sendMessageCall, 16),
-		actions: make(chan chatActionCall, 16),
+		updates:    make(chan []map[string]any, 8),
+		sends:      make(chan sendMessageCall, 16),
+		actions:    make(chan chatActionCall, 16),
+		photoBytes: append([]byte(nil), stubPhotoBytes...),
+		filePath:   "photos/file_0.jpg",
+		fileSize:   len(stubPhotoBytes),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +210,30 @@ func newTelegramStub(t *testing.T) *telegramStub {
 			}
 			stub.actions <- call
 			writeTelegramOK(w, true)
+		case strings.HasSuffix(r.URL.Path, "/getFile"):
+			stub.photoMutex.Lock()
+			stub.getFileCalls++
+			filePath, fileSize, fail := stub.filePath, stub.fileSize, stub.getFileErr
+			stub.photoMutex.Unlock()
+			if fail {
+				writeTelegramError(w, "file not found")
+				return
+			}
+			result := map[string]any{"file_id": "photo-large", "file_unique_id": "u1", "file_path": filePath}
+			if fileSize >= 0 {
+				result["file_size"] = fileSize
+			}
+			writeTelegramOK(w, result)
+		case strings.Contains(r.URL.Path, "/file/bot"):
+			stub.photoMutex.Lock()
+			stub.downloads++
+			body, fail := append([]byte(nil), stub.photoBytes...), stub.downloadErr
+			stub.photoMutex.Unlock()
+			if fail {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write(body)
 		default:
 			http.NotFound(w, r)
 		}
@@ -341,7 +387,7 @@ func TestNormalizeUpdate(t *testing.T) {
 		Chat:      telego.Chat{ID: 123456, Type: "private"},
 		Text:      "hello vivy",
 	}}
-	msg, ok := normalizeUpdate(privateText, testBotUser)
+	msg, _, ok := normalizeUpdate(privateText, testBotUser)
 	if !ok {
 		t.Fatal("private text message must be publishable")
 	}
@@ -379,16 +425,12 @@ func TestNormalizeUpdate(t *testing.T) {
 			MessageID: 61, From: &telego.User{ID: 123456}, SenderChat: &telego.Chat{ID: 777, Type: "private"},
 			Chat: telego.Chat{ID: 123456, Type: "private"}, Text: "not a human sender",
 		}},
-		"photo without text": {Message: &telego.Message{
-			MessageID: 62, From: &telego.User{ID: 123456}, Chat: telego.Chat{ID: 123456, Type: "private"},
-			Photo: []telego.PhotoSize{{FileID: "f"}},
-		}},
 		"empty text": {Message: &telego.Message{
 			MessageID: 63, From: &telego.User{ID: 123456}, Chat: telego.Chat{ID: 123456, Type: "private"}, Text: "",
 		}},
 	}
 	for name, upd := range cases {
-		if msg, ok := normalizeUpdate(upd, testBotUser); ok {
+		if msg, _, ok := normalizeUpdate(upd, testBotUser); ok {
 			t.Fatalf("%s must not be publishable, got %+v", name, msg)
 		}
 	}
@@ -410,7 +452,7 @@ func TestNormalizeUpdate(t *testing.T) {
 	}
 
 	// A @username mention publishes with the markup stripped.
-	if msg, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot summarize", mentionEntity), testBotUser); !ok {
+	if msg, _, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot summarize", mentionEntity), testBotUser); !ok {
 		t.Fatal("mentioned group message must be publishable")
 	} else if msg.Parts[0].Text != "summarize" || msg.ChatID != "-999" {
 		t.Fatalf("group envelope = %+v, want the stripped text", msg)
@@ -418,14 +460,14 @@ func TestNormalizeUpdate(t *testing.T) {
 
 	// A mid-sentence mention strips cleanly (the two spaces around the
 	// removed span collapse at the edges only — an honest artifact).
-	if msg, ok := normalizeUpdate(groupMsg("supergroup", "hey @vivy_test_bot hi", mentionEntityMid), testBotUser); !ok {
+	if msg, _, ok := normalizeUpdate(groupMsg("supergroup", "hey @vivy_test_bot hi", mentionEntityMid), testBotUser); !ok {
 		t.Fatal("mid-sentence mention must be publishable")
 	} else if msg.Parts[0].Text != "hey  hi" {
 		t.Fatalf("stripped text = %q, want 'hey  hi'", msg.Parts[0].Text)
 	}
 
 	// A text_mention of the bot publishes.
-	if msg, ok := normalizeUpdate(groupMsg("group", "bot x", textMentionEntity), testBotUser); !ok {
+	if msg, _, ok := normalizeUpdate(groupMsg("group", "bot x", textMentionEntity), testBotUser); !ok {
 		t.Fatal("text_mention of the bot must be publishable")
 	} else if msg.Parts[0].Text != "x" {
 		t.Fatalf("stripped text = %q, want 'x'", msg.Parts[0].Text)
@@ -433,17 +475,17 @@ func TestNormalizeUpdate(t *testing.T) {
 
 	// A /command@thisbot publishes with the suffix stripped; another
 	// bot's command does not trigger.
-	if msg, ok := normalizeUpdate(groupMsg("group", "/status@vivy_test_bot", thisBotCommand), testBotUser); !ok {
+	if msg, _, ok := normalizeUpdate(groupMsg("group", "/status@vivy_test_bot", thisBotCommand), testBotUser); !ok {
 		t.Fatal("a /cmd@thisbot command must be publishable")
 	} else if msg.Parts[0].Text != "/status" {
 		t.Fatalf("command text = %q, want '/status'", msg.Parts[0].Text)
 	}
-	if _, ok := normalizeUpdate(groupMsg("group", "/status@other_bot", otherBotCommand), testBotUser); ok {
+	if _, _, ok := normalizeUpdate(groupMsg("group", "/status@other_bot", otherBotCommand), testBotUser); ok {
 		t.Fatal("another bot's command must not trigger")
 	}
 
 	// A bare mention leaves nothing to publish.
-	if _, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot", mentionEntity), testBotUser); ok {
+	if _, _, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot", mentionEntity), testBotUser); ok {
 		t.Fatal("a bare mention has nothing left to publish")
 	}
 
@@ -451,8 +493,46 @@ func TestNormalizeUpdate(t *testing.T) {
 	forum := groupMsg("supergroup", "@vivy_test_bot topic talk", mentionEntity)
 	forum.Message.MessageThreadID = 77
 	forum.Message.Chat.IsForum = true
-	if msg, ok := normalizeUpdate(forum, testBotUser); !ok || msg.TopicID != "77" {
+	if msg, _, ok := normalizeUpdate(forum, testBotUser); !ok || msg.TopicID != "77" {
 		t.Fatalf("forum topic envelope ok=%v TopicID=%q, want TopicID 77", ok, msg.TopicID)
+	}
+
+	// --- inbound photo (private) ---
+
+	// A photo message publishes: the caption becomes the text part and the
+	// largest photo variant is the download target. Without a caption the
+	// envelope starts with no text part at all.
+	photoMsg := telego.Update{Message: &telego.Message{
+		MessageID: 64, From: &telego.User{ID: 123456}, Chat: telego.Chat{ID: 123456, Type: "private"},
+		Caption: "look",
+		Photo: []telego.PhotoSize{
+			{FileID: "photo-small", Width: 90, Height: 90},
+			{FileID: "photo-large", Width: 1280, Height: 960},
+		},
+	}}
+	msg, photo, ok := normalizeUpdate(photoMsg, testBotUser)
+	if !ok {
+		t.Fatal("photo message must be publishable")
+	}
+	if photo == nil || photo.fileID != "photo-large" || photo.messageID != 64 {
+		t.Fatalf("photo ref = %+v, want the largest variant of message 64", photo)
+	}
+	if len(msg.Parts) != 1 || msg.Parts[0].Kind != plugin.PartText || msg.Parts[0].Text != "look" {
+		t.Fatalf("photo envelope text parts = %+v", msg.Parts)
+	}
+
+	photoMsg.Message.Caption = ""
+	msg, photo, ok = normalizeUpdate(photoMsg, testBotUser)
+	if !ok || photo == nil || len(msg.Parts) != 0 {
+		t.Fatalf("captionless photo must carry only the download ref: parts=%+v photo=%+v ok=%v", msg.Parts, photo, ok)
+	}
+
+	// A group photo stays out this slice even with a mentioning caption:
+	// group turns are text-only until group media is ruled in.
+	groupPhoto := groupMsg("group", "look what I made", nil)
+	groupPhoto.Message.Caption = "@vivy_test_bot look"
+	if _, _, ok := normalizeUpdate(groupPhoto, testBotUser); ok {
+		t.Fatal("a group photo must not publish this slice")
 	}
 }
 
@@ -736,5 +816,170 @@ func TestSendRepliesViaReplyParameters(t *testing.T) {
 		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "x"}},
 	}); err == nil {
 		t.Fatal("non-numeric reply-to must fail closed")
+	}
+}
+
+// photoUpdate builds one raw private-chat photo update: two resolution
+// variants and an optional caption.
+func photoUpdate(updateID int64, caption string) map[string]any {
+	message := map[string]any{
+		"message_id": int(updateID) + 48,
+		"from":       map[string]any{"id": 123456, "is_bot": false, "first_name": "Human"},
+		"chat":       map[string]any{"id": 123456, "type": "private"},
+		"photo": []any{
+			map[string]any{"file_id": "photo-small", "file_unique_id": "s1", "width": 90, "height": 90},
+			map[string]any{"file_id": "photo-large", "file_unique_id": "l1", "width": 1280, "height": 960},
+		},
+	}
+	if caption != "" {
+		message["caption"] = caption
+	}
+	return map[string]any{"update_id": updateID, "message": message}
+}
+
+// setPhotoBehavior mutates the stub's download behavior under the lock.
+func (s *telegramStub) setPhotoBehavior(apply func(*telegramStub)) {
+	s.photoMutex.Lock()
+	defer s.photoMutex.Unlock()
+	apply(s)
+}
+
+// downloadCount reports observed hits on the file endpoint.
+func (s *telegramStub) downloadCount() int {
+	s.photoMutex.Lock()
+	defer s.photoMutex.Unlock()
+	return s.downloads
+}
+
+// getFileCount reports observed hits on the getFile endpoint.
+func (s *telegramStub) getFileCount() int {
+	s.photoMutex.Lock()
+	defer s.photoMutex.Unlock()
+	return s.getFileCalls
+}
+
+// TestPhotoWithCaptionPublishesTextAndMedia: a captioned photo arrives as
+// one text part plus one bounded media part with the downloaded bytes.
+func TestPhotoWithCaptionPublishesTextAndMedia(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{photoUpdate(7, "look at this")})
+	waitFor(t, "published photo message", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 2 {
+		t.Fatalf("parts = %d, want text + media", len(parts))
+	}
+	if parts[0].Kind != plugin.PartText || parts[0].Text != "look at this" {
+		t.Fatalf("text part = %+v", parts[0])
+	}
+	if parts[1].Kind != plugin.PartMedia {
+		t.Fatalf("media part kind = %q", parts[1].Kind)
+	}
+	media := parts[1].Media
+	if media.MimeType != "image/jpeg" || string(media.Data) != string(stubPhotoBytes) {
+		t.Fatalf("media payload mime=%q bytes=%d, want image/jpeg and %d bytes", media.MimeType, len(media.Data), len(stubPhotoBytes))
+	}
+	if media.Name != "photo-55.jpg" {
+		t.Fatalf("media name = %q, want photo-55.jpg", media.Name)
+	}
+	if stub.downloadCount() != 1 {
+		t.Fatalf("file endpoint hits = %d, want 1", stub.downloadCount())
+	}
+}
+
+// TestCaptionlessPhotoPublishesMediaOnly.
+func TestCaptionlessPhotoPublishesMediaOnly(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+
+	stub.pushUpdates([]map[string]any{photoUpdate(8, "")})
+	waitFor(t, "published captionless photo", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 1 || parts[0].Kind != plugin.PartMedia || len(parts[0].Media.Data) == 0 {
+		t.Fatalf("parts = %+v, want exactly one media part", parts)
+	}
+}
+
+// TestPhotoDownloadFailureKeepsCaption: a failed getFile drops only the
+// image part; the caption still becomes a text turn.
+func TestPhotoDownloadFailureKeepsCaption(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	stub.setPhotoBehavior(func(s *telegramStub) { s.getFileErr = true })
+
+	stub.pushUpdates([]map[string]any{photoUpdate(9, "the caption survives")})
+	waitFor(t, "published caption-only message", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 1 || parts[0].Kind != plugin.PartText || parts[0].Text != "the caption survives" {
+		t.Fatalf("parts = %+v, want the caption text only", parts)
+	}
+	if stub.downloadCount() != 0 {
+		t.Fatalf("file endpoint hits = %d, want 0 (getFile failed)", stub.downloadCount())
+	}
+}
+
+// TestPhotoFailureWithoutCaptionNotPublished: when the photo fails and no
+// caption exists, nothing publishes.
+func TestPhotoFailureWithoutCaptionNotPublished(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	stub.setPhotoBehavior(func(s *telegramStub) { s.getFileErr = true })
+
+	stub.pushUpdates([]map[string]any{photoUpdate(10, "")})
+	waitFor(t, "getFile attempt", func() bool { return stub.getFileCount() == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if got := len(env.snapshot()); got != 0 {
+		t.Fatalf("published %d envelopes, want none", got)
+	}
+}
+
+// TestOversizePhotoDroppedWithoutDownload: a declared size over the
+// inbound bound short-circuits before the download; the caption survives.
+func TestOversizePhotoDroppedWithoutDownload(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	stub.setPhotoBehavior(func(s *telegramStub) { s.fileSize = maxInboundPhotoBytes + 1 })
+
+	stub.pushUpdates([]map[string]any{photoUpdate(11, "still text")})
+	waitFor(t, "published caption-only message", func() bool { return len(env.snapshot()) == 1 })
+
+	parts := env.snapshot()[0].Parts
+	if len(parts) != 1 || parts[0].Kind != plugin.PartText {
+		t.Fatalf("parts = %+v, want text only", parts)
+	}
+	if stub.downloadCount() != 0 {
+		t.Fatalf("file endpoint hits = %d, want 0 (declared oversize)", stub.downloadCount())
+	}
+}
+
+// TestOversizeBodyDropped: a lying declared size cannot smuggle more than
+// the bound through the download; the media part is dropped.
+func TestOversizeBodyDropped(t *testing.T) {
+	stub := newTelegramStub(t)
+	env := envForStub(stubSettings(stub))
+	startForTest(t, env)
+	oversize := append([]byte{0xff, 0xd8, 0xff, 0xe0}, make([]byte, maxInboundPhotoBytes)...)
+	stub.setPhotoBehavior(func(s *telegramStub) {
+		s.fileSize = 16 // the stub lies; the byte bound is the backstop
+		s.photoBytes = oversize
+	})
+
+	stub.pushUpdates([]map[string]any{photoUpdate(12, "")})
+	waitFor(t, "oversize body download", func() bool { return stub.downloadCount() == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if got := len(env.snapshot()); got != 0 {
+		t.Fatalf("published %d envelopes from an oversize photo, want none", got)
+	}
+	if stub.downloadCount() != 1 {
+		t.Fatalf("file endpoint hits = %d, want 1", stub.downloadCount())
 	}
 }
