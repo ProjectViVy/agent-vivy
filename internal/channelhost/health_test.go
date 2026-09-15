@@ -27,7 +27,7 @@ func newHealthHost(t *testing.T, ch plugin.Channel, envelope config.ChannelEnvel
 		Messages:   backend,
 		Sessions:   backend,
 		Deliveries: backend,
-		Run: func(context.Context, domain.SessionID, string, *domain.Provenance) (domain.RunID, error) {
+		Run: func(context.Context, domain.SessionID, string, []domain.Attachment, *domain.Provenance) (domain.RunID, error) {
 			return "run-health", nil
 		},
 		Channels: []plugin.Channel{ch},

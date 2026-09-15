@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"agent-vivy/internal/attachment"
 	"agent-vivy/internal/channelhost/fake"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
@@ -46,10 +47,11 @@ func (r *recordingJournal) snapshot() []storage.Commit {
 
 // runCall records one RunFunc invocation.
 type runCall struct {
-	sessionID domain.SessionID
-	text      string
-	prov      *domain.Provenance
-	runID     domain.RunID
+	sessionID   domain.SessionID
+	text        string
+	attachments []domain.Attachment
+	prov        *domain.Provenance
+	runID       domain.RunID
 }
 
 // runRecorder fakes the app-injected RunFunc. It mirrors what
@@ -62,11 +64,11 @@ type runRecorder struct {
 	next     int
 }
 
-func (r *runRecorder) run(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+func (r *runRecorder) run(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error) {
 	r.mu.Lock()
 	r.next++
 	runID := domain.RunID(fmt.Sprintf("run-test-%d", r.next))
-	call := runCall{sessionID: sessionID, text: text, runID: runID}
+	call := runCall{sessionID: sessionID, text: text, attachments: attachments, runID: runID}
 	if prov != nil {
 		p := *prov
 		call.prov = &p
@@ -76,12 +78,13 @@ func (r *runRecorder) run(ctx context.Context, sessionID domain.SessionID, text 
 
 	if r.messages != nil {
 		msg := domain.Message{
-			ID:        fmt.Sprintf("msg-test-%d", r.next),
-			SessionID: sessionID,
-			RunID:     runID,
-			Role:      domain.RoleUser,
-			CreatedAt: time.Now().UnixMilli(),
-			Content:   text,
+			ID:          fmt.Sprintf("msg-test-%d", r.next),
+			SessionID:   sessionID,
+			RunID:       runID,
+			Role:        domain.RoleUser,
+			CreatedAt:   time.Now().UnixMilli(),
+			Content:     text,
+			Attachments: attachments,
 		}
 		if prov != nil {
 			msg.Source = prov.Source
@@ -1133,5 +1136,142 @@ func TestInspectTokenEnvSet(t *testing.T) {
 	status = host.Inspect()[0]
 	if !status.TokenEnvSet {
 		t.Fatal("TokenEnvSet = false for a set env variable")
+	}
+}
+// mediaTestJPEG is a JPEG-magic payload; the sniff is magic-byte based, so
+// no real image is needed.
+func mediaTestJPEG() []byte { return []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10} }
+
+// mediaTestPNG is a PNG-magic payload.
+func mediaTestPNG() []byte { return []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a} }
+
+// TestInboundMediaReachesRunAsAttachments: a media part validated against
+// the shared limits rides the run call as a domain.Attachment and lands on
+// the persisted user turn; the text part still joins as content.
+func TestInboundMediaReachesRunAsAttachments(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
+	})
+	ctx := context.Background()
+	if err := host.envFor(ch).PublishInbound(ctx, plugin.InboundMessage{
+		Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-media",
+		Parts: []plugin.Part{
+			{Kind: plugin.PartText, Text: "look at this"},
+			{Kind: plugin.PartMedia, Media: plugin.Media{Name: "photo-1.jpg", MimeType: "image/jpeg", Data: mediaTestJPEG()}},
+		},
+	}); err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+
+	calls := runs.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("run calls = %d, want 1", len(calls))
+	}
+	if calls[0].text != "look at this" {
+		t.Fatalf("run text = %q", calls[0].text)
+	}
+	if len(calls[0].attachments) != 1 {
+		t.Fatalf("run attachments = %d, want 1", len(calls[0].attachments))
+	}
+	att := calls[0].attachments[0]
+	if att.MimeType != "image/jpeg" || att.Name != "photo-1.jpg" || len(att.Data) == 0 {
+		t.Fatalf("attachment = %+v", att)
+	}
+	msgs, err := backend.ListMessages(ctx, calls[0].sessionID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 1 || len(msgs[0].Attachments) != 1 || msgs[0].Attachments[0].MimeType != "image/jpeg" {
+		t.Fatalf("persisted messages = %+v", msgs)
+	}
+}
+
+// TestInboundMediaRejectionsStayBounded: oversize bytes, sniff mismatches,
+// and the per-message count cap each drop only their own part — the text
+// and every valid part still reach the run. Rejection is a log, never a
+// truncation and never a failed dispatch.
+func TestInboundMediaRejectionsStayBounded(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
+	})
+	oversize := append(mediaTestPNG(), make([]byte, attachment.MaxBytes)...) // > MaxBytes
+	parts := []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "big.png", MimeType: "image/png", Data: oversize}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "liar.png", MimeType: "image/png", Data: mediaTestJPEG()}},
+		{Kind: plugin.PartText, Text: "text survives"},
+	}
+	for i := 0; i < attachment.MaxCount; i++ {
+		parts = append(parts, plugin.Part{Kind: plugin.PartMedia, Media: plugin.Media{
+			Name: fmt.Sprintf("photo-%d.jpg", i), MimeType: "image/jpeg", Data: mediaTestJPEG(),
+		}})
+	}
+	ctx := context.Background()
+	if err := host.envFor(ch).PublishInbound(ctx, plugin.InboundMessage{
+		Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-mixed", Parts: parts,
+	}); err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+
+	calls := runs.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("run calls = %d, want 1", len(calls))
+	}
+	if calls[0].text != "text survives" {
+		t.Fatalf("run text = %q, want the text part untouched", calls[0].text)
+	}
+	if len(calls[0].attachments) != attachment.MaxCount {
+		t.Fatalf("run attachments = %d, want %d (oversize, mismatched, and fifth dropped)",
+			len(calls[0].attachments), attachment.MaxCount)
+	}
+}
+
+// TestInboundMediaWithoutTextStillRuns: a captionless photo is a valid
+// turn — empty content, the attachment carries the payload.
+func TestInboundMediaWithoutTextStillRuns(t *testing.T) {
+	backend := openBackend(t)
+	runs := &runRecorder{messages: backend}
+	ch := fake.New()
+	host := New(Deps{
+		Journal:    backend,
+		Messages:   backend,
+		Sessions:   backend,
+		Deliveries: backend,
+		Run:        runs.run,
+		Channels:   []plugin.Channel{ch},
+		Config:     config.Channels{"fake": {Enabled: true, AllowFrom: []string{"alice"}}},
+		Logger:     testLogger(),
+	})
+	ctx := context.Background()
+	if err := host.envFor(ch).PublishInbound(ctx, plugin.InboundMessage{
+		Channel: "fake", ChatID: "chat-1", Sender: "alice", MessageID: "m-photo-only",
+		Parts: []plugin.Part{
+			{Kind: plugin.PartMedia, Media: plugin.Media{Name: "photo.jpg", MimeType: "image/jpeg", Data: mediaTestJPEG()}},
+		},
+	}); err != nil {
+		t.Fatalf("publish inbound: %v", err)
+	}
+	calls := runs.snapshot()
+	if len(calls) != 1 || calls[0].text != "" || len(calls[0].attachments) != 1 {
+		t.Fatalf("run call = %+v with %d attachments, want empty text and one attachment", calls[0], len(calls[0].attachments))
 	}
 }

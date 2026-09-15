@@ -1,11 +1,14 @@
 // Package telegram is the first real seam-channel adapter (VIVY-CHANNEL-PACK.md
-// §14.3): private-chat text in / text out over outbound long polling. It is
-// the shape template for the feishu/qq/discord/dingtalk adapters — keep the
-// file layout and the Start/Stop/Send structure when copying it.
+// §14.3): private-chat text and inbound photos in, plain text out, over
+// outbound long polling, plus the typing live surface. It is the shape
+// template for the feishu/qq/discord/dingtalk adapters — keep the file
+// layout and the Start/Stop/Send structure when copying it.
 //
 // First-cut scope (what this adapter deliberately does NOT do): no webhook,
-// no group triggers, no media, no command menus, no MarkdownV2/HTML
-// formatting suite, no voice. Private-chat TEXT only.
+// no group triggers, no outbound media, no command menus, no MarkdownV2/HTML
+// formatting suite, no voice. Private-chat TEXT and inbound PHOTOS only;
+// photos become bounded image parts the Host validates against the shared
+// attachment limits before they reach the turn.
 //
 // Policy boundaries:
 //   - allow_from is enforced by the kernel ChannelHost at dispatch; the
@@ -13,12 +16,17 @@
 //   - secrets travel only through ChannelEnv.Secret (env_key names, never
 //     values in config).
 //   - the adapter never opens a listen socket; long polling is outbound.
+//   - photo downloads ride the Host-governed HTTP client (same
+//     api.telegram.org destination as the Bot API calls); their error logs
+//     carry message ids and sizes, never the download URL, because that URL
+//     embeds the bot token (D-010).
 package telegram
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,6 +49,13 @@ const senderPrefix = ChannelName + ":"
 // getUpdates request. Long enough to keep the request rate low, short
 // enough for Stop to shed the open request quickly.
 const pollTimeoutSeconds = 30
+
+// maxInboundPhotoBytes mirrors the Host's shared attachment bound
+// (internal/attachment, 5 MiB): the Host re-validates every media part and
+// rejects oversize content, so the adapter refuses to even download or
+// publish more. The duplicate bound is a transport safety net that keeps
+// unbounded bytes out of the adapter, not a second policy.
+const maxInboundPhotoBytes = 5 << 20
 
 // Plugin is the transport implementation bound by the v1 ChannelProvider.
 //
@@ -175,9 +190,19 @@ func (p *Plugin) pollLoop(ctx context.Context, env plugin.ChannelEnv, updates <-
 				// Long polling stopped (context cancelled); exit cleanly.
 				return
 			}
-			msg, publishable := normalizeUpdate(upd, p.me)
+			msg, photo, publishable := normalizeUpdate(upd, p.me)
 			if !publishable {
 				continue
+			}
+			if photo != nil {
+				// The download is best-effort: a failure keeps the caption
+				// (when present) and drops only the image part, so media
+				// trouble never silences a text the sender wrote.
+				if media, ok := p.downloadPhoto(ctx, env, photo); ok {
+					msg.Parts = append(msg.Parts, plugin.Part{Kind: plugin.PartMedia, Media: media})
+				} else if len(msg.Parts) == 0 {
+					continue // nothing publishable survived: photo failed, no caption
+				}
 			}
 			// PublishInbound is synchronous (journal + run start). A
 			// dispatch failure must not kill the ear; the Host's structured
@@ -295,57 +320,95 @@ func (p *Plugin) Typing(ctx context.Context, chatID string) error {
 	})
 }
 
+// photoRef describes the one downloadable photo of an accepted update:
+// the largest PhotoSize variant, addressed by its file id.
+type photoRef struct {
+	fileID    string
+	messageID int64
+}
+
 // normalizeUpdate maps one Telegram update to a kernel inbound envelope.
-// Private chats publish as before. Group and supergroup chats follow the
-// tier-1 mention-only ruling: a group message publishes only when it
-// explicitly addresses the bot — a @username mention entity, a
-// text_mention entity for the bot's user, or a /command@botname command —
-// and the matched mention text is stripped from the content (a bare
-// "@vivy" ping has nothing left and publishes nothing). Forum topics
-// carry their thread id in TopicID so the session mapping keeps contexts
-// apart. Everything else reports as not publishable: edited messages,
-// channel posts, channels, media, stickers, service messages, and the
-// bot's own outgoing messages (Telegram echoes them back through
-// getUpdates; without the IsBot filter every reply would loop back in as
-// a new turn).
-func normalizeUpdate(upd telego.Update, me *telego.User) (plugin.InboundMessage, bool) {
+// Private chats publish text and/or one photo: the caption is the text
+// part, the largest photo variant becomes the media part after the
+// bounded download. Group and supergroup chats follow the tier-1
+// mention-only ruling: a group message publishes only when it explicitly
+// addresses the bot — a @username mention entity, a text_mention entity
+// for the bot's user, or a /command@botname command — and the matched
+// mention text is stripped from the content; group turns stay text-only
+// this slice (a group photo whose only text is a caption does not
+// publish). Forum topics carry their thread id in TopicID so the session
+// mapping keeps contexts apart. Everything else reports as not
+// publishable: edited messages, channel posts, channels, stickers,
+// documents, service messages, and the bot's own outgoing messages
+// (Telegram echoes them back through getUpdates; without the IsBot filter
+// every reply would loop back in as a new turn).
+func normalizeUpdate(upd telego.Update, me *telego.User) (plugin.InboundMessage, *photoRef, bool) {
 	msg := upd.Message // nil for edited_message, channel_post, callback_query, ...
 	if msg == nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	// From is nil for messages sent to channels; SenderChat set means the
 	// message was sent on behalf of a chat (anonymous admins, linked
 	// channels, business accounts) — none of those is a human sender this
 	// adapter can allowlist.
 	if msg.From == nil || msg.From.IsBot || msg.SenderChat != nil {
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
 	isGroup := msg.Chat.Type == "group" || msg.Chat.Type == "supergroup"
 	if !isGroup && msg.Chat.Type != "private" {
 		// Channels are broadcast-only; other chat kinds carry no turn.
-		return plugin.InboundMessage{}, false
+		return plugin.InboundMessage{}, nil, false
 	}
-	content := msg.Text
 	if isGroup {
+		// Mention gating reads msg.Text + msg.Entities (tier-1 ruling);
+		// group turns stay text-only this slice — a group photo whose only
+		// text is a caption does not publish.
 		if me == nil {
 			// Without the authenticated identity the mention gate cannot
 			// match; drop rather than guess.
-			return plugin.InboundMessage{}, false
+			return plugin.InboundMessage{}, nil, false
 		}
-		var mentioned bool
-		mentioned, content = groupMentioned(msg, me)
-		if !mentioned {
-			return plugin.InboundMessage{}, false
+		mentioned, content := groupMentioned(msg, me)
+		if !mentioned || content == "" || len(msg.Photo) > 0 {
+			// Not addressed to the bot, a bare mention with no text left,
+			// or a group photo this slice does not carry.
+			return plugin.InboundMessage{}, nil, false
 		}
+		topicID := ""
+		if msg.MessageThreadID != 0 {
+			topicID = strconv.Itoa(msg.MessageThreadID)
+		}
+		return plugin.InboundMessage{
+			Channel:   ChannelName,
+			ChatID:    strconv.FormatInt(msg.Chat.ID, 10),
+			Sender:    senderPrefix + strconv.FormatInt(msg.From.ID, 10),
+			MessageID: strconv.Itoa(msg.MessageID),
+			ReplyTo:   "",
+			TopicID:   topicID,
+			Parts:     []plugin.Part{{Kind: plugin.PartText, Text: content}},
+		}, nil, true
 	}
-	if content == "" {
-		// Stickers, photos, captions, service messages — or a bare
-		// mention with no text left — no text part to publish.
-		return plugin.InboundMessage{}, false
+	// Private chat: Message.Text is empty on photo messages; the caption
+	// (if any) is the sender's text. A photo without a caption is still a
+	// valid turn.
+	text := msg.Text
+	if text == "" {
+		text = msg.Caption
 	}
-	topicID := ""
-	if isGroup && msg.MessageThreadID != 0 {
-		topicID = strconv.Itoa(msg.MessageThreadID)
+	var photo *photoRef
+	if len(msg.Photo) > 0 {
+		photo = &photoRef{
+			fileID:    largestPhoto(msg.Photo).FileID,
+			messageID: int64(msg.MessageID),
+		}
+	} else if text == "" {
+		// Stickers, documents, animations, service messages — nothing this
+		// slice publishes.
+		return plugin.InboundMessage{}, nil, false
+	}
+	var parts []plugin.Part
+	if text != "" {
+		parts = append(parts, plugin.Part{Kind: plugin.PartText, Text: text})
 	}
 	return plugin.InboundMessage{
 		Channel: ChannelName,
@@ -354,10 +417,12 @@ func normalizeUpdate(upd telego.Update, me *telego.User) (plugin.InboundMessage,
 		// MessageID is the unique identifier inside the chat; the kernel
 		// uses it for provenance, not for addressing.
 		MessageID: strconv.Itoa(msg.MessageID),
-		ReplyTo:   "",
-		TopicID:   topicID,
-		Parts:     []plugin.Part{{Kind: plugin.PartText, Text: content}},
-	}, true
+		// ReplyTo/TopicID stay empty on the private path (no reply
+		// threading inbound, no forum topics).
+		ReplyTo: "",
+		TopicID: "",
+		Parts:   parts,
+	}, photo, true
 }
 
 // groupMentioned reports whether a group message explicitly addresses the
@@ -395,4 +460,90 @@ func groupMentioned(msg *telego.Message, me *telego.User) (bool, string) {
 		}
 	}
 	return mentioned, strings.TrimSpace(content)
+}
+
+// largestPhoto picks the biggest photo variant (Telegram sends an album of
+// resolutions); dimensions are always present, unlike FileSize.
+func largestPhoto(sizes []telego.PhotoSize) telego.PhotoSize {
+	best := sizes[0]
+	for _, size := range sizes[1:] {
+		if size.Width*size.Height > best.Width*best.Height {
+			best = size
+		}
+	}
+	return best
+}
+
+// downloadPhoto fetches one photo through the governed transport:
+// getFile resolves the file path, then a plain GET on the Bot API file URL
+// streams at most maxInboundPhotoBytes+1 bytes. Every failure drops only
+// the image part. Logs carry the message id and byte sizes — never the
+// download URL or its embedded token (D-010), and never a raw transport
+// error, whose text includes the full URL.
+func (p *Plugin) downloadPhoto(ctx context.Context, env plugin.ChannelEnv, ref *photoRef) (plugin.Media, bool) {
+	if p.bot == nil {
+		return plugin.Media{}, false
+	}
+	file, err := p.bot.GetFile(ctx, &telego.GetFileParams{FileID: ref.fileID})
+	if err != nil {
+		envWarn(env, "telegram: photo getFile failed; dropping the image part",
+			"message_id", ref.messageID)
+		return plugin.Media{}, false
+	}
+	if file.FilePath == "" {
+		envWarn(env, "telegram: photo has no file path; dropping the image part",
+			"message_id", ref.messageID)
+		return plugin.Media{}, false
+	}
+	if file.FileSize > maxInboundPhotoBytes {
+		envWarn(env, "telegram: photo exceeds the inbound size bound; dropping the image part",
+			"message_id", ref.messageID, "bytes", file.FileSize)
+		return plugin.Media{}, false
+	}
+	client := &http.Client{Transport: env.HTTP().Transport} // nil transport = http.DefaultTransport
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.bot.FileDownloadURL(file.FilePath), nil)
+	if err != nil {
+		envWarn(env, "telegram: photo download request is invalid; dropping the image part",
+			"message_id", ref.messageID)
+		return plugin.Media{}, false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		envWarn(env, "telegram: photo download failed; dropping the image part",
+			"message_id", ref.messageID)
+		return plugin.Media{}, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		envWarn(env, "telegram: photo download returned a non-200 status; dropping the image part",
+			"message_id", ref.messageID, "status", resp.StatusCode)
+		return plugin.Media{}, false
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxInboundPhotoBytes+1))
+	if err != nil {
+		envWarn(env, "telegram: photo download body failed; dropping the image part",
+			"message_id", ref.messageID)
+		return plugin.Media{}, false
+	}
+	if len(data) == 0 || len(data) > maxInboundPhotoBytes {
+		envWarn(env, "telegram: photo is empty or over the inbound size bound; dropping the image part",
+			"message_id", ref.messageID, "bytes", len(data))
+		return plugin.Media{}, false
+	}
+	// Telegram serves compressed photos as JPEG. The claim is provisional:
+	// the Host sniffs the actual bytes against the shared whitelist before
+	// the part reaches the turn.
+	return plugin.Media{
+		Name:     fmt.Sprintf("photo-%d.jpg", ref.messageID),
+		MimeType: "image/jpeg",
+		Data:     data,
+	}, true
+}
+
+// envWarn logs through the Host logger when one is available; the surface
+// is advisory and must never panic on a nil logger (test doubles).
+func envWarn(env plugin.ChannelEnv, msg string, args ...any) {
+	if logger := env.Logger(); logger != nil {
+		logger.Warn(msg, args...)
+	}
 }

@@ -605,11 +605,28 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Messages:   backend,
 			Sessions:   backend,
 			Deliveries: backend,
-			Run: func(ctx context.Context, sessionID domain.SessionID, text string, prov *domain.Provenance) (domain.RunID, error) {
+			Run: func(ctx context.Context, sessionID domain.SessionID, text string, attachments []domain.Attachment, prov *domain.Provenance) (domain.RunID, error) {
 				if svc == nil {
 					return "", errors.New("app: runtime service is not wired")
 				}
-				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov})
+				// Channel inbound media (channel tier 2) rides the same
+				// RunOptions.Attachments contract as the UI boundary. The
+				// RPC path rejects images for a model without vision; the
+				// channel path cannot bounce a platform message, so it
+				// degrades visibly instead: attachments drop with a
+				// warning and the text still runs.
+				if len(attachments) > 0 {
+					if info := svc.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
+						channel := ""
+						if prov != nil {
+							channel = prov.Channel
+						}
+						logger.Warn("app: dropping channel image attachments; the active model does not support images",
+							"session", string(sessionID), "channel", channel, "attachments", len(attachments))
+						attachments = nil
+					}
+				}
+				return svc.RunWithOptions(ctx, sessionID, text, runtime.RunOptions{Provenance: prov, Attachments: attachments})
 			},
 			Approvals: backend,
 			Runs:      backend,
