@@ -19,9 +19,12 @@ import (
 // providerChannel) and reports the adapter's own method set. CH-R-1 gave
 // every adapter a HealthChecker; the tier-1 text loop added Typing where
 // the platform has one (telegram, discord, qq — dingtalk and feishu have
-// none). Each ear advertises exactly its adapter's surface, never a
-// wrapper's. The rune ceilings pin the outbound split bound each
-// Definition declares (sources in the module_v1.go comments).
+// none), and the interact batch added Edit/Delete/Placeholder on the ears
+// that can anchor them (telegram, discord, feishu — plus the Reaction pair
+// on feishu; qq and dingtalk stay empty, §1). Each ear advertises exactly
+// its adapter's surface, never a wrapper's. The rune ceilings pin the
+// outbound split bound each Definition declares (sources in the
+// module_v1.go comments).
 func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 	ears := []struct {
 		name     string
@@ -30,10 +33,10 @@ func TestChannelProvidersAdvertiseExactlyTheirAdapterSurface(t *testing.T) {
 		runes    int
 	}{
 		{"dingtalk", dingtalk.NewProvider(), channelhost.Capabilities{Health: true}, 5000},
-		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true}, 2000},
-		{"feishu", feishu.NewProvider(), channelhost.Capabilities{Health: true, Media: true}, 37500},
+		{"discord", discord.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true, Edit: true, Delete: true, Placeholder: true}, 2000},
+		{"feishu", feishu.NewProvider(), channelhost.Capabilities{Health: true, Media: true, Edit: true, Delete: true, Reaction: true, Placeholder: true}, 37500},
 		{"qq", qq.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true}, 2000},
-		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true}, 4096},
+		{"telegram", telegram.NewProvider(), channelhost.Capabilities{Health: true, Typing: true, Media: true, Edit: true, Delete: true, Placeholder: true}, 4096},
 	}
 	for _, ear := range ears {
 		if got := ear.provider.Definition().MaxMessageRunes; got != ear.runes {

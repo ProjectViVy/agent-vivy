@@ -423,7 +423,7 @@ func releaseHostCommand(portID string) releaseTestCommand {
 }
 
 func releaseSuiteCases() []releaseSuiteCase {
-	internalSHA := "a888405d6f472d4ee2309d15dab8054aedb8a710858fd7a0950eec860fe143d0"
+	internalSHA := "c45ae68118c8896a8bcef8b273c6e8c1a7533f33dc42850a6ae523ff75c0d8de"
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx"}}
@@ -433,10 +433,10 @@ func releaseSuiteCases() []releaseSuiteCase {
 		{"std/tool-world@v1", "vivy/hello-fs", "plugins/hello-fs", "40439b91831bda45ff7fe7fab1ccfbb5a89c8a613d37bedb6878e35e8fdab41e", "plugins/hello-fs/plugin_test.go#TestHelloStatReadsThroughEnv", goTest("./plugins/hello-fs", "^TestHelloStatReadsThroughEnv$")},
 		{"std/tool-world@v1", "vivy/lsp", "plugins/lsp", "96dac7da535dbbc1557b3ec83c5b4c46c1449b38e9d9e957a4cd22fa583991d3", "plugins/lsp/plugin_test.go#TestDiagnosticsToolEndToEnd", nested("plugins/lsp")},
 		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "2bb377560b27c5f24db1535dc2eaf86148edbe9a9a2977970d86d7a4ff05fff8", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
-		{"std/channel@v1", "vivy/discord", "plugins/discord", "e9f08736572355ef19f4860137b1450aa4c1d7227510b02ddcac47752f91e173", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
-		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "f5fda6902858189ba0b4e44b3254d94bee9d947a8cd0297483e671f779b9ae60", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
-		{"std/channel@v1", "vivy/qq", "plugins/qq", "15d8cd19fdc01e0e5c5b21f6a623c882726085eccdc1d9d18eca27aa250d3ef8", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
-		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "de72bd4536244c5e2f94751d8406173c91d16bf7c16d47a0361ff97d3a8e0f11", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
+		{"std/channel@v1", "vivy/discord", "plugins/discord", "f109be76d22daadaea609ec7bb791d1abb2d11b9b370f10d33e85729fe0ba95e", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
+		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "78165b545028117d3c8e77b3c740fbcf7e23f0412e0ad71bcbdb1cdf7b32c74a", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
+		{"std/channel@v1", "vivy/qq", "plugins/qq", "5b3ecf6186583897902b1e0204bd1155bf2ed1a2e53183580c3bc2fb003cb98a", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
+		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "78bc10ef3b6e05f0412d80fed4bd871d8ab4b43614e8c6c0b1a2e8ead7b9bbcc", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
 		{"std/face@v1", "vivy/headless", "faces/headless", "0c1a976e1753e628d4da679c3eae6c755d6dba49d437264295177a1267f0a7fc", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
 		{"std/face@v1", "vivy/tui", "faces/tui", "96e0104bbac52765a4d826d8324b7f81695ce3aef6b9a5d755e69b4507178251", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
 		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", internalSHA, "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
