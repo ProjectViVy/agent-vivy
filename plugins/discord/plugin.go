@@ -76,6 +76,7 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -742,6 +743,43 @@ func (p *Plugin) Typing(_ context.Context, chatID string) error {
 		return errors.New("discord: channel not started")
 	}
 	return sender.ChannelTyping(chatID)
+}
+
+// SendMedia implements plugin.MediaSender (§1 outbound media): one complex
+// send carrying every media part as multipart files with the platform
+// rendering the images inline. The reply's text has already gone out
+// through Send, so the message content stays empty — no caption this
+// batch. A part whose media is empty is skipped; a send failure fails the
+// whole batch (the Host retries it, at-least-once).
+func (p *Plugin) SendMedia(_ context.Context, chatID string, parts []plugin.Part) ([]string, error) {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return nil, errors.New("discord: channel not started")
+	}
+	var files []*discordgo.File
+	for _, part := range parts {
+		if part.Kind != plugin.PartMedia || len(part.Media.Data) == 0 {
+			continue
+		}
+		files = append(files, &discordgo.File{
+			Name:        part.Media.Name,
+			ContentType: part.Media.MimeType,
+			Reader:      bytes.NewReader(part.Media.Data),
+		})
+	}
+	if len(files) == 0 {
+		return nil, nil
+	}
+	sent, err := sender.ChannelMessageSendComplex(chatID, &discordgo.MessageSend{Files: files})
+	if err != nil {
+		return nil, fmt.Errorf("discord: send media to chat %q: %w", chatID, err)
+	}
+	if sent == nil || strings.TrimSpace(sent.ID) == "" {
+		return nil, nil
+	}
+	return []string{strings.TrimSpace(sent.ID)}, nil
 }
 
 // normalizeMessage maps one MESSAGE_CREATE event to a kernel inbound
