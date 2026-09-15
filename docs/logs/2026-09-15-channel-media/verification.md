@@ -21,6 +21,7 @@ environment.
 | QQ outbound (`c9e7298`) | `go test ./plugins/qq/... -count=1`; `-race` rerun (loopback body asserts raw `file_info`, no double base64) | pass |
 | Feishu outbound (`6b908fe`) | `go test ./plugins/feishu/... -count=1`; `-race` rerun | pass |
 | P9 refresh (`aaefaad`) | `go test ./sdk/internal/conformance/ -run TestCheckedInProviderConformance -count=1` | pass (421 s) |
+| Capability matrix (`a0fcef2`) | `go test ./sdk/internal/assembly/ -count=1`; then `go test ./sdk/internal/... -count=1` | pass |
 
 ## P9 digest refresh
 
@@ -37,8 +38,10 @@ state, not part of this batch).
 
 ## Full gate
 
-- `just ci` — see the batch log's final state; run at the end of the
-  batch on the branch head.
+- `just ci` — **green** on the branch head (`a0fcef2`, exit 0). The first
+  run caught one extra pin: the sdk assembly capability-matrix test still
+  expected `Media: false` on the four ears; updated with the commit above
+  and the whole gate rerun clean.
 
 ## Live-platform smoke
 
