@@ -1394,7 +1394,6 @@ func assertSingleProjectedMessage(t *testing.T, b storage.Engine, ctx context.Co
 	}
 }
 
-
 func cnSessionDeleteChannelDeliveries(t *testing.T, h Harness) {
 	b := fresh(t, h)
 	ctx := context.Background()
