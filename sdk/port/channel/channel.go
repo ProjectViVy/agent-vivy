@@ -117,14 +117,27 @@ type RunesLimiter interface{ MaxMessageRunes() int }
 type Typing interface {
 	Typing(context.Context, string) error
 }
+// MessageEditor rewrites one already-sent message (§1 Decision Record,
+// 2026-09-15): the chat id addresses the conversation, the message id the
+// sent message to update, and the payload replaces its text content.
 type MessageEditor interface {
-	EditMessage(context.Context, string, OutboundMessage) error
+	EditMessage(context.Context, string, string, OutboundMessage) error
 }
 type MessageDeleter interface {
 	DeleteMessage(context.Context, string, string) error
 }
+// ReactionSender adds one emoji reaction to a message and returns the
+// platform reaction id (empty when the platform does not mint one). An
+// empty emoji asks the adapter for its own default/configured reaction.
 type ReactionSender interface {
-	React(context.Context, string, string, string) error
+	React(context.Context, string, string, string) (string, error)
+}
+// ReactionRemover is the withdrawal half of the reaction ack (§1 Decision
+// Record, 2026-09-15): the reaction id returned by React addresses one
+// platform reaction for removal, so an ack never outlives its turn. The
+// Host treats Reaction as advertised only when an adapter has both faces.
+type ReactionRemover interface {
+	RemoveReaction(context.Context, string, string, string) error
 }
 type Placeholder interface {
 	Placeholder(context.Context, string) (string, error)
