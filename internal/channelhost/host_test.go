@@ -577,6 +577,94 @@ func TestSplitRunes(t *testing.T) {
 	}
 }
 
+// TestSplitRunesPreservesFencedCode pins the fence-aware rules: a block
+// whose closing fence fits inside the limit is pulled whole into the
+// chunk, a cut that would land inside an open fence closes the chunk with
+// ``` and reopens the remainder with the original fence line, and a block
+// with no body room in its window travels whole to the next chunk. Every
+// chunk stays within the limit and renders standalone (balanced fences);
+// the tail stays open when the source itself never closed the block.
+// Concatenation is intentionally not the original once close/reopen
+// markers are inserted.
+func TestSplitRunesPreservesFencedCode(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		limit   int
+		want    []string
+	}{
+		{"block fits between paragraph cuts", "hi\n```py\nprint(1)\n```\nbye", 24,
+			[]string{"hi\n```py\nprint(1)\n```\n", "bye"}},
+		{"closing fence pulled into the chunk", "```go\n" + strings.Repeat("x", 10) + "\n```\n" + strings.Repeat("y", 12), 20,
+			[]string{"```go\nxxxxxxxxxx\n```", "\nyyyyyyyyyyyy"}},
+		{"split inside reopens the info string", "```go\n" + strings.Repeat("a", 30) + "\n```\n", 20,
+			[]string{"```go\naaaaaaaaaa\n```", "```go\naaaaaaaaaa\n```", "```go\naaaaaaaaaa\n```", "\n"}},
+		{"block travels whole when the window has no body", "ab\n```go\n" + strings.Repeat("x", 14) + "\n```\ntail", 20,
+			[]string{"ab\n```go\nxxxxxxx\n```", "```go\nxxxxxxx\n```\n", "tail"}},
+		{"multibyte runes inside the fence", "```go\n" + strings.Repeat("字", 20) + "\n```\n", 16,
+			[]string{"```go\n字字字字字字\n```", "```go\n字字字字字字\n```", "```go\n字字字字字字\n```", "```go\n字字\n```\n"}},
+	}
+	for _, tc := range cases {
+		got := splitRunes(tc.content, tc.limit)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: splitRunes = %q, want %q", tc.name, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("%s: chunk %d = %q, want %q", tc.name, i, got[i], tc.want[i])
+			}
+		}
+		assertRenderableChunks(t, tc.name, got, tc.limit)
+	}
+
+	// An unterminated block: middle chunks stay balanced and closed; the
+	// tail reopens the fence and stays open, exactly like the source.
+	unterminated := "text\n```py\n" + strings.Repeat("p", 30)
+	got := splitRunes(unterminated, 16)
+	assertRenderableChunks(t, "unterminated", got, 16)
+	for _, chunk := range got[:len(got)-1] {
+		if strings.Count(chunk, "```")%2 != 0 {
+			t.Fatalf("unterminated: middle chunk unbalanced: %q", chunk)
+		}
+	}
+	if tail := got[len(got)-1]; !strings.HasPrefix(tail, "```py\n") || strings.Count(tail, "```")%2 == 0 {
+		t.Fatalf("unterminated: tail = %q, want a reopened open fence", tail)
+	}
+
+	// Below the fence-aware floor the splitter degrades to plain cutting:
+	// chunks reassemble to the original and no markers are synthesized.
+	degenerate := "```go\n" + strings.Repeat("a", 25) + "\n"
+	got = splitRunes(degenerate, 10)
+	var joined strings.Builder
+	for _, chunk := range got {
+		if utf8.RuneCountInString(chunk) > 10 {
+			t.Fatalf("degenerate: chunk %q exceeds limit", chunk)
+		}
+		joined.WriteString(chunk)
+	}
+	if joined.String() != degenerate {
+		t.Fatalf("degenerate: chunks %q do not reassemble to the original", got)
+	}
+}
+
+// assertRenderableChunks checks the invariants every fence-aware chunk
+// must hold: within the limit, never empty, and balanced fences except a
+// deliberately open tail.
+func assertRenderableChunks(t *testing.T, name string, chunks []string, limit int) {
+	t.Helper()
+	for i, chunk := range chunks {
+		if chunk == "" {
+			t.Fatalf("%s: empty chunk at %d", name, i)
+		}
+		if utf8.RuneCountInString(chunk) > limit {
+			t.Fatalf("%s: chunk %q exceeds limit %d", name, chunk, limit)
+		}
+		if strings.Count(chunk, "```")%2 != 0 && i != len(chunks)-1 {
+			t.Fatalf("%s: unbalanced middle chunk %q", name, chunk)
+		}
+	}
+}
+
 // TestDeliverySplitsAtAdapterRunesLimit drives CH-C4-N1 end to end: an
 // adapter declaring a bound receives an over-limit reply as sequential
 // in-order sends that reassemble to the original text; an adapter without
