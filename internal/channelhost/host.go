@@ -43,6 +43,10 @@ type outboundTarget struct {
 	// createdAtMs is the durable intent's creation stamp, carried through
 	// state transitions so the row's arrival order survives updates.
 	createdAtMs int64
+	// stopTyping closes to end the run's live-surface typing loop; nil when
+	// the adapter has no typing face. Closed under mu (terminal handler or
+	// StopAll), read by the loop goroutine.
+	stopTyping chan struct{}
 }
 
 // Host owns the started channel adapters and the inbound/outbound
@@ -171,6 +175,13 @@ func (h *Host) StopAll(ctx context.Context) {
 	h.draining = true
 	started := append([]plugin.Channel(nil), h.started...)
 	h.started = nil
+	// Live-surface typing loops die with the host: their runs will never
+	// see another terminal. A ping already in flight finishes against its
+	// 5s bound; the adapter may already be stopping — the loop ends on the
+	// error either way.
+	for _, t := range h.targets {
+		closeTyping(t)
+	}
 	h.mu.Unlock()
 	done := make(chan struct{})
 	go func() {

@@ -1494,3 +1494,52 @@ func TestHealthDeadAfterGiveUp(t *testing.T) {
 		return errors.As(err, &healthErr) && healthErr.Class == plugin.ClassDead
 	})
 }
+
+// TestTypingInputNotifyLoopback: plugin.Typing sends one InputNotify
+// (msg_type 6) anchored to the open passive window's msg_id. Without a
+// window there is nothing to anchor to — no request, no error (typing is
+// best-effort). InputNotify carries no msg_seq.
+func TestTypingInputNotifyLoopback(t *testing.T) {
+	lb := newLoopback(t)
+	h := newRealAPIHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.Typing(context.Background(), "OPENID-NOWINDOW"); err != nil {
+		t.Fatalf("typing without a window: %v", err)
+	}
+	if got := len(lb.sent()); got != 0 {
+		t.Fatalf("c2c posts without a window = %d, want 0", got)
+	}
+
+	h.dispatch(t, 7, c2cEvent("in-1", "OPENID1", "hello"))
+	if err := h.p.Typing(context.Background(), "OPENID1"); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	sent := lb.sent()
+	if len(sent) != 1 {
+		t.Fatalf("c2c posts = %d, want 1", len(sent))
+	}
+	if want := "/v2/users/OPENID1/messages"; sent[0].path != want {
+		t.Fatalf("post path = %s, want %s", sent[0].path, want)
+	}
+	var body struct {
+		MsgType     *int   `json:"msg_type"`
+		MsgID       string `json:"msg_id"`
+		InputNotify *struct {
+			InputType   int   `json:"input_type"`
+			InputSecond int32 `json:"input_second"`
+		} `json:"input_notify"`
+	}
+	if err := json.Unmarshal(sent[0].body, &body); err != nil {
+		t.Fatalf("body decode: %v (%s)", err, sent[0].body)
+	}
+	if body.MsgType == nil || *body.MsgType != 6 {
+		t.Fatalf("msg_type = %v, want 6 (input notify)", body.MsgType)
+	}
+	if body.MsgID != "in-1" {
+		t.Fatalf("msg_id = %q, want the passive window in-1", body.MsgID)
+	}
+	if body.InputNotify == nil || body.InputNotify.InputType != 1 || body.InputNotify.InputSecond != 10 {
+		t.Fatalf("input_notify = %+v, want input_type 1 for 10s", body.InputNotify)
+	}
+}

@@ -36,8 +36,10 @@ func (channelProvider) Construct(_ context.Context, host channel.Host) (channel.
 }
 
 // CapabilityTarget points capability discovery at the adapter's method set
-// without constructing one (plugin.CapabilitySource). The value is only
-// ever type-asserted, never called, so the typed nil is enough.
+// without constructing one (plugin.CapabilitySource). This bind-time probe
+// is only ever type-asserted; once Start has built the instance, the
+// boundChannel disclosure below exposes the live adapter for host call
+// paths (typing, health probes).
 func (channelProvider) CapabilityTarget() any { return (*Plugin)(nil) }
 
 type boundChannel struct {
@@ -50,6 +52,12 @@ func (c *boundChannel) Stop(ctx context.Context) error  { return c.adapter.Stop(
 func (c *boundChannel) Send(ctx context.Context, msg channel.OutboundMessage) ([]string, error) {
 	return c.adapter.Send(ctx, msg)
 }
+
+// CapabilityTarget discloses the live adapter (plugin.CapabilitySource):
+// once the instance exists, host call paths resolve to the adapter's own
+// method set through the wrapper instead of the bind-time typed nil.
+func (c *boundChannel) CapabilityTarget() any { return c.adapter }
+
 func (vivyModule) Descriptor() module.Descriptor {
 	return channelDescriptor("vivy/dingtalk", "vivy.dingtalk")
 }

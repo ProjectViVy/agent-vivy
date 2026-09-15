@@ -36,16 +36,13 @@ type Capabilities struct {
 	// ABI catalog but assert to nothing here and are not reported.
 }
 
-// Discover reports the optional capability interfaces a channel plugin
-// implements, via type assertions against the focused v1 Channel Port. A
-// plugin implementing none of them (the v1 text-only cut) yields the zero
-// value. Assembly wrappers are transparent: the probe follows
-// CapabilitySource links to the innermost target and asserts there, so a
-// bound channel reports exactly what its adapter implements — never what a
-// wrapper happens to declare. A missing or nil link falls back to
-// asserting the wrapper itself, which honestly reports nothing.
-func Discover(ch plugin.Channel) Capabilities {
-	var c Capabilities
+// capabilityTarget resolves the adapter object behind a bound channel by
+// following CapabilitySource links to the innermost target. A channel that
+// is not a source resolves to itself; a source without a target stops the
+// walk at the last non-nil object. Host call paths (typing, health) share
+// this resolution with Discover, so calls land on the same object the
+// advertised surface was asserted against.
+func capabilityTarget(ch plugin.Channel) any {
 	target := any(ch)
 	for {
 		source, ok := target.(plugin.CapabilitySource)
@@ -58,6 +55,20 @@ func Discover(ch plugin.Channel) Capabilities {
 		}
 		target = next
 	}
+	return target
+}
+
+// Discover reports the optional capability interfaces a channel plugin
+// implements, via type assertions against the focused v1 Channel Port. A
+// plugin implementing none of them (the v1 text-only cut) yields the zero
+// value. Assembly wrappers are transparent: the probe follows
+// CapabilitySource links to the innermost target and asserts there, so a
+// bound channel reports exactly what its adapter implements — never what a
+// wrapper happens to declare. A missing or nil link falls back to
+// asserting the wrapper itself, which honestly reports nothing.
+func Discover(ch plugin.Channel) Capabilities {
+	var c Capabilities
+	target := capabilityTarget(ch)
 	if _, ok := target.(plugin.Typing); ok {
 		c.Typing = true
 	}

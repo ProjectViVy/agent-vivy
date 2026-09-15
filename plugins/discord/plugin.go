@@ -136,6 +136,9 @@ type session interface {
 	Open() error
 	Close() error
 	ChannelMessageSend(channelID string, content string, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	// ChannelTyping broadcasts one "typing" indicator ping (REST POST
+	// /channels/{id}/typing); the Host re-pings on its own cadence.
+	ChannelTyping(channelID string, options ...discordgo.RequestOption) error
 }
 
 // Plugin is the transport implementation bound by the v1 ChannelProvider.
@@ -626,6 +629,19 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 		}
 	}
 	return ids, nil
+}
+
+// Typing implements plugin.Typing: one ChannelTyping REST ping. The Host
+// owns the resend cadence and stops at the run's terminal; Discord's
+// indicator expires platform-side within ~8 seconds either way.
+func (p *Plugin) Typing(_ context.Context, chatID string) error {
+	p.mu.Lock()
+	sender := p.sender
+	p.mu.Unlock()
+	if sender == nil {
+		return errors.New("discord: channel not started")
+	}
+	return sender.ChannelTyping(chatID)
 }
 
 // normalizeMessage maps one MESSAGE_CREATE event to a kernel inbound

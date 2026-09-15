@@ -115,10 +115,11 @@ type fakeSession struct {
 	sendFailAt int  // 1-based call index that starts failing (0 = never)
 	hanging    bool // Open blocks, then self-releases (dialer-timeout stand-in)
 
-	mu         sync.Mutex
-	openCalls  int
-	closeCalls int
-	sent       []sentCall
+	mu          sync.Mutex
+	openCalls   int
+	closeCalls  int
+	sent        []sentCall
+	typingCalls []string
 }
 
 // Open implements session. A hanging Open blocks briefly and fails: the
@@ -159,6 +160,21 @@ func (f *fakeSession) ChannelMessageSend(channelID, content string, _ ...discord
 		return nil, err
 	}
 	return &discordgo.Message{ID: fmt.Sprintf("sent-%d", call)}, nil
+}
+
+// ChannelTyping implements session: records the indicator ping target.
+func (f *fakeSession) ChannelTyping(channelID string, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	f.typingCalls = append(f.typingCalls, channelID)
+	f.mu.Unlock()
+	return nil
+}
+
+// typingSnapshot returns the recorded typing target channel ids.
+func (f *fakeSession) typingSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.typingCalls...)
 }
 
 // calls snapshots the counters.
@@ -1019,4 +1035,26 @@ func TestHealthClassifiesRedialingGateway(t *testing.T) {
 	waitFor(t, "healthy after reconnect", func() bool {
 		return h.p.Health(context.Background()) == nil
 	})
+}
+
+// --- Typing ------------------------------------------------------------------
+
+// TestTypingPingsTheSendClient: plugin.Typing rides the never-opened REST
+// send client — one ChannelTyping ping per call; the Host owns the resend
+// cadence and the stop. Typing before Start fails closed like Send.
+func TestTypingPingsTheSendClient(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.Typing(context.Background(), "chan-1"); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	calls := h.sender().typingSnapshot()
+	if len(calls) != 1 || calls[0] != "chan-1" {
+		t.Fatalf("typing calls = %v, want [chan-1]", calls)
+	}
+
+	if err := newAdapter().Typing(context.Background(), "chan-1"); err == nil {
+		t.Fatal("typing before start must fail closed")
+	}
 }

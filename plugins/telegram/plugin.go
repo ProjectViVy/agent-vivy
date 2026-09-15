@@ -234,6 +234,24 @@ func (p *Plugin) Send(ctx context.Context, msg plugin.OutboundMessage) ([]string
 	return ids, nil
 }
 
+// Typing implements plugin.Typing: one "typing" chat action ping. The Host
+// owns the resend cadence and stops at the run's terminal; the action
+// expires platform-side within ~5 seconds either way, so a trailing ping
+// is harmless.
+func (p *Plugin) Typing(ctx context.Context, chatID string) error {
+	if p.bot == nil {
+		return errors.New("telegram: channel not started")
+	}
+	id, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("telegram: invalid chat id %q: %w", chatID, err)
+	}
+	return p.bot.SendChatAction(ctx, &telego.SendChatActionParams{
+		ChatID: telego.ChatID{ID: id},
+		Action: telego.ChatActionTyping,
+	})
+}
+
 // normalizeUpdate maps one Telegram update to a kernel inbound envelope.
 // It accepts exactly one shape this slice — a new text message from a
 // human in a private chat — and reports everything else as not

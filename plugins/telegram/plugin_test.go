@@ -113,6 +113,8 @@ type telegramStub struct {
 
 	sends   chan sendMessageCall
 	sendSeq atomic.Int64
+
+	actions chan chatActionCall
 }
 
 type sendMessageCall struct {
@@ -123,11 +125,17 @@ type sendMessageCall struct {
 	ParseMode string          `json:"parse_mode"`
 }
 
+type chatActionCall struct {
+	ChatID json.RawMessage `json:"chat_id"`
+	Action string          `json:"action"`
+}
+
 func newTelegramStub(t *testing.T) *telegramStub {
 	t.Helper()
 	stub := &telegramStub{
 		updates: make(chan []map[string]any, 8),
 		sends:   make(chan sendMessageCall, 16),
+		actions: make(chan chatActionCall, 16),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +167,15 @@ func newTelegramStub(t *testing.T) *telegramStub {
 				"message_id": stub.sendSeq.Add(1),
 				"chat":       map[string]any{"id": 1, "type": "private"},
 			})
+		case strings.HasSuffix(r.URL.Path, "/sendChatAction"):
+			body, _ := io.ReadAll(r.Body)
+			var call chatActionCall
+			if err := json.Unmarshal(body, &call); err != nil {
+				writeTelegramError(w, "bad request")
+				return
+			}
+			stub.actions <- call
+			writeTelegramOK(w, true)
 		default:
 			http.NotFound(w, r)
 		}
@@ -180,6 +197,18 @@ func (s *telegramStub) waitForSend(t *testing.T) sendMessageCall {
 	case <-time.After(5 * time.Second):
 		t.Fatal("sendMessage was never called")
 		return sendMessageCall{}
+	}
+}
+
+// waitForAction reads one recorded sendChatAction call.
+func (s *telegramStub) waitForAction(t *testing.T) chatActionCall {
+	t.Helper()
+	select {
+	case call := <-s.actions:
+		return call
+	case <-time.After(5 * time.Second):
+		t.Fatal("sendChatAction was never called")
+		return chatActionCall{}
 	}
 }
 
@@ -505,6 +534,28 @@ func TestSendIsIdempotentAfterStop(t *testing.T) {
 	// The call may succeed (loopback race) or fail with a context error;
 	// the contract is "no panic, no deadlock".
 	_, _ = p.Send(context.Background(), plugin.OutboundMessage{ChatID: "123456", Parts: []plugin.Part{{Kind: plugin.PartText, Text: "after stop"}}})
+}
+
+// TestTypingSendsChatAction: plugin.Typing sends one "typing" chat action
+// for the numeric chat; the Host owns resend cadence and stop. Typing
+// before Start fails closed like Send.
+func TestTypingSendsChatAction(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+	if err := p.Typing(context.Background(), "123456"); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	call := stub.waitForAction(t)
+	if call.Action != "typing" {
+		t.Fatalf("chat action = %q, want typing", call.Action)
+	}
+	if string(call.ChatID) != "123456" {
+		t.Fatalf("chat id = %s, want the numeric 123456", call.ChatID)
+	}
+
+	if err := newAdapter().Typing(context.Background(), "123456"); err == nil {
+		t.Fatal("typing before start must fail closed")
+	}
 }
 
 // TestSendSurfacesAPIError: a platform error surfaces to the Host as a

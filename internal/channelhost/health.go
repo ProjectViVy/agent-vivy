@@ -27,9 +27,12 @@ type ChannelHealth struct {
 // probeHealth asks one adapter for its live state and classifies the
 // answer. Non-HealthChecker adapters have nothing to probe; a Health error
 // that is not a *HealthError defaults to temporary — the right assumption
-// for a supervised, redialing ear.
+// for a supervised, redialing ear. The probe resolves the live adapter
+// through the capability seam, so the call reaches the real method set
+// behind an assembly wrapper (the gate-0 record left call-path forwarding
+// to this batch).
 func (h *Host) probeHealth(ch plugin.Channel) *ChannelHealth {
-	hc, ok := ch.(plugin.HealthChecker)
+	hc, ok := capabilityTarget(ch).(plugin.HealthChecker)
 	if !ok {
 		return nil
 	}
