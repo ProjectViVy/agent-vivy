@@ -348,7 +348,7 @@ func (p *Plugin) Start(ctx context.Context, env plugin.ChannelEnv) error {
 // adapter does not serve this slice is dropped locally (the Host
 // allow-list is the policy layer, not this shape filter).
 func (p *Plugin) messageHandler(env plugin.ChannelEnv) messageHandlerFunc {
-	return func(_ *discordgo.Session, m *discordgo.MessageCreate) {
+	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Fence late events: discordgo dispatches every event on its own
 		// goroutine, so a frame read before the session closed can still
 		// reach this handler after Stop has returned. A stopped ear must
@@ -359,7 +359,15 @@ func (p *Plugin) messageHandler(env plugin.ChannelEnv) messageHandlerFunc {
 		if stopped {
 			return
 		}
-		msg, publishable := normalizeMessage(m)
+		// The bot's own user id comes from the session's READY state; it
+		// is the mention-only anchor for guild messages. A session without
+		// it (never opened, or a nil test double) simply cannot trigger on
+		// groups — DMs are unaffected.
+		botUserID := ""
+		if s != nil && s.State != nil && s.State.User != nil {
+			botUserID = s.State.User.ID
+		}
+		msg, publishable := normalizeMessage(m, botUserID)
 		if !publishable {
 			return
 		}
@@ -674,13 +682,18 @@ func (p *Plugin) Typing(_ context.Context, chatID string) error {
 // empty content, and envelopes the Host dispatch would drop anyway
 // (missing sender, message id, or chat id).
 //
+// Group trigger (tier-1 ruling, mention-only): a guild message publishes
+// only when its Mentions include the bot's own user id (the READY-state
+// identity the handler hands in); the mention markup is stripped from the
+// text and a bare "@bot" ping publishes nothing. DMs skip the gate.
+//
 // Addresses: ChatID is the channel id — for a DM the DM channel id,
 // which doubles as the ChannelMessageSend target; for a guild the text
 // channel id. Sender is "discord:<author id>". ReplyTo captures
-// referenced_message.id when Discord attaches it (type-19 replies); the
-// slot is filled but carries no threading behavior this slice. TopicID
-// stays empty (no forum topics).
-func normalizeMessage(m *discordgo.MessageCreate) (plugin.InboundMessage, bool) {
+// referenced_message.id when Discord attaches it (type-19 replies);
+// sendReply threads the outbound reply through it. TopicID stays empty
+// (no forum topics this slice).
+func normalizeMessage(m *discordgo.MessageCreate, botUserID string) (plugin.InboundMessage, bool) {
 	if m == nil || m.Message == nil {
 		return plugin.InboundMessage{}, false
 	}
@@ -707,6 +720,24 @@ func normalizeMessage(m *discordgo.MessageCreate) (plugin.InboundMessage, bool) 
 		return plugin.InboundMessage{}, false
 	}
 	content := strings.TrimSpace(m.Content)
+	// Group trigger (tier-1 ruling, mention-only): a guild message turns
+	// into a turn only when it explicitly mentions the bot. The mention
+	// markup is stripped from the text; a bare "@bot" ping has nothing
+	// left and is dropped by the empty-content guard below. DMs skip the
+	// gate entirely.
+	if m.GuildID != "" {
+		mentioned := false
+		for _, u := range m.Mentions {
+			if u != nil && u.ID == botUserID {
+				mentioned = true
+				break
+			}
+		}
+		if !mentioned {
+			return plugin.InboundMessage{}, false
+		}
+		content = strings.TrimSpace(stripBotMention(content, botUserID))
+	}
 	if content == "" {
 		// Attachments, embeds, stickers — no text part to publish.
 		return plugin.InboundMessage{}, false
@@ -733,8 +764,19 @@ func normalizeMessage(m *discordgo.MessageCreate) (plugin.InboundMessage, bool) 
 		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
 	}
 	if m.ReferencedMessage != nil && strings.TrimSpace(m.ReferencedMessage.ID) != "" {
-		// Fill the reply slot; no threading behavior this slice.
+		// Fill the reply slot; sendReply threads the outbound reply
+		// through it.
 		msg.ReplyTo = strings.TrimSpace(m.ReferencedMessage.ID)
 	}
 	return msg, true
+}
+
+// stripBotMention removes the bot's own mention token from a guild
+// message's content — Discord renders mentions as <@userid> (plain and
+// nickname variants) — so the markup never reaches the model as literal
+// text.
+func stripBotMention(content, botUserID string) string {
+	content = strings.ReplaceAll(content, "<@"+botUserID+">", "")
+	content = strings.ReplaceAll(content, "<@!"+botUserID+">", "")
+	return content
 }

@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -54,8 +55,16 @@ const ChannelName = "feishu"
 const senderPrefix = ChannelName + ":"
 
 // p2pChatType is the Feishu chat_type for one-to-one (single) chats; group
-// chats report "group" and are ignored this slice.
+// chats report "group" and publish only under the tier-1 mention-only
+// gate.
 const p2pChatType = "p2p"
+
+// groupChatType is the Feishu chat_type for group chats.
+const groupChatType = "group"
+
+// reMentionPlaceholder matches a leftover @_user_N mention placeholder the
+// mentions array did not key.
+var reMentionPlaceholder = regexp.MustCompile(`@_user_\d+`)
 
 // wsRedialDelay is how often the supervisor offers the event gateway a
 // fresh websocket after a healthy connection died. The SDK's own
@@ -603,12 +612,17 @@ func sendText(ctx context.Context, api *lark.Client, chatID, text string) (strin
 }
 
 // normalizeEvent maps one im.message.receive_v1 event to a kernel inbound
-// envelope. It accepts exactly one shape this slice — a p2p (single-chat)
-// TEXT message from a human sender — and reports everything else as not
-// publishable: group chats, non-text message types (post, image, audio,
-// interactive cards, ...), bot senders (the platform's or another bot's
-// echo), unparseable or empty text, and envelopes the Host dispatch would
-// drop anyway (missing sender, message id, or chat id).
+// envelope. P2p (single-chat) TEXT messages from a human sender publish as
+// before. Group chats follow the tier-1 mention-only ruling: a group text
+// message publishes only when a mention entry typed "bot" is present (the
+// event model does not carry our own open_id, so the check is by mention
+// type — a mention of ANOTHER bot would also trigger; recorded in the
+// batch log), and the @_user_N placeholders are stripped from the text.
+// Everything else reports as not publishable: other chat types, non-text
+// message types (post, image, audio, interactive cards, ...), bot senders
+// (the platform's or another bot's echo), unmentioned group messages,
+// unparseable or empty text, and envelopes the Host dispatch would drop
+// anyway (missing sender, message id, or chat id).
 //
 // Reaction events are separate event types (im.message.reaction.*), so
 // they never reach this handler; the dispatcher registers
@@ -621,7 +635,9 @@ func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bo
 	if message == nil {
 		return plugin.InboundMessage{}, false
 	}
-	if strings.TrimSpace(str(message.ChatType)) != p2pChatType {
+	chatType := strings.TrimSpace(str(message.ChatType))
+	isGroup := chatType == groupChatType
+	if chatType != p2pChatType && !isGroup {
 		return plugin.InboundMessage{}, false
 	}
 	if str(message.MessageType) != larkim.MsgTypeText {
@@ -638,6 +654,18 @@ func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bo
 	if content == "" {
 		return plugin.InboundMessage{}, false
 	}
+	if isGroup {
+		if !botMentioned(message.Mentions) {
+			// Mention-only: group chatter that never @-addresses a bot
+			// never becomes a turn.
+			return plugin.InboundMessage{}, false
+		}
+		content = strings.TrimSpace(stripMentionPlaceholders(content, message.Mentions))
+		if content == "" {
+			// A bare "@vivy" ping has nothing left to answer.
+			return plugin.InboundMessage{}, false
+		}
+	}
 	senderID := extractSenderID(sender)
 	if senderID == "" {
 		// No sender id: allow_from could never match this envelope.
@@ -651,8 +679,8 @@ func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bo
 	}
 	chatID := strings.TrimSpace(str(message.ChatId))
 	if chatID == "" {
-		// The p2p chat id is the Send addressing key; without it Vivy
-		// could not reply.
+		// The chat id is the Send addressing key; without it Vivy could
+		// not reply.
 		return plugin.InboundMessage{}, false
 	}
 	return plugin.InboundMessage{
@@ -660,12 +688,37 @@ func normalizeEvent(event *larkim.P2MessageReceiveV1) (plugin.InboundMessage, bo
 		ChatID:    chatID,
 		Sender:    senderPrefix + senderID,
 		MessageID: messageID,
-		// ReplyTo/TopicID stay empty this slice (p2p text, no reply
-		// threading, no forum topics).
+		// ReplyTo/TopicID stay empty (no reply threading this batch, no
+		// forum topics).
 		ReplyTo: "",
 		TopicID: "",
 		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
 	}, true
+}
+
+// botMentioned reports whether any mention entry is of type "bot" — the
+// closest identity signal the event model carries (the payload names the
+// mentioned party by key and open_id, but the adapter cannot learn its own
+// open_id from the pinned SDK).
+func botMentioned(mentions []*larkim.MentionEvent) bool {
+	for _, m := range mentions {
+		if m != nil && strings.TrimSpace(str(m.MentionedType)) == "bot" {
+			return true
+		}
+	}
+	return false
+}
+
+// stripMentionPlaceholders removes every @_user_N token the mentions array
+// keys, plus any leftover placeholder the payload referenced, so the
+// markup never reaches the model as literal text.
+func stripMentionPlaceholders(content string, mentions []*larkim.MentionEvent) string {
+	for _, m := range mentions {
+		if m != nil && m.Key != nil && *m.Key != "" {
+			content = strings.ReplaceAll(content, *m.Key, "")
+		}
+	}
+	return reMentionPlaceholder.ReplaceAllString(content, "")
 }
 
 // extractSenderID picks the sender identity for the allow_from entry:

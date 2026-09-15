@@ -516,12 +516,15 @@ func redactWebhookURLError(err error) error {
 }
 
 // normalizeCallback maps one DingTalk chatbot callback to a kernel inbound
-// envelope. It accepts exactly one shape this slice — a single-chat
-// (conversationType "1") TEXT message from a human other than the bot —
-// and reports everything else as not publishable: group chats, cards and
-// non-text payloads (their text.content is empty; media in is a later
-// slice), empty messages, and envelopes the Host dispatch would drop
-// anyway (missing sender or message id).
+// envelope. Direct chats (conversationType "1") publish as before. Group
+// chats follow the tier-1 mention-only ruling: a group message publishes
+// only when IsInAtList says the bot was @-addressed, and the leading
+// @-mention markup is stripped from the text (a bare "@vivy" ping has
+// nothing left and publishes nothing). Everything else reports as not
+// publishable: cards and non-text payloads (their text.content is empty;
+// media in is a later slice), unmentioned group messages, empty messages,
+// and envelopes the Host dispatch would drop anyway (missing sender or
+// message id).
 //
 // The bot-self guard compares the sender against ChatbotUserId: if the
 // platform ever echoes the bot's own outgoing message back through the
@@ -530,7 +533,10 @@ func normalizeCallback(data *chatbot.BotCallbackDataModel) (plugin.InboundMessag
 	if data == nil {
 		return plugin.InboundMessage{}, false
 	}
-	if data.ConversationType != singleChatType {
+	isGroup := data.ConversationType != singleChatType
+	if isGroup && !data.IsInAtList {
+		// Mention-only: group chatter the bot was not addressed in never
+		// becomes a turn.
 		return plugin.InboundMessage{}, false
 	}
 	if chatbotUserID := strings.TrimSpace(data.ChatbotUserId); chatbotUserID != "" &&
@@ -551,6 +557,12 @@ func normalizeCallback(data *chatbot.BotCallbackDataModel) (plugin.InboundMessag
 	if content == "" {
 		// Pictures, audio, cards — no text part to publish.
 		return plugin.InboundMessage{}, false
+	}
+	if isGroup {
+		content = stripLeadingAtMentions(content)
+		if content == "" {
+			return plugin.InboundMessage{}, false
+		}
 	}
 	sender := strings.TrimSpace(data.SenderStaffId)
 	if sender == "" {
@@ -578,10 +590,29 @@ func normalizeCallback(data *chatbot.BotCallbackDataModel) (plugin.InboundMessag
 		ChatID:    chatID,
 		Sender:    senderPrefix + sender,
 		MessageID: messageID,
-		// ReplyTo/TopicID stay empty this slice (single chat, no reply
-		// threading, no forum topics).
+		// ReplyTo/TopicID stay empty (no reply threading this batch, no
+		// forum topics).
 		ReplyTo: "",
 		TopicID: "",
 		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: content}},
 	}, true
+}
+
+// stripLeadingAtMentions removes the @-mention tokens DingTalk prepends to
+// group text content ("@张三 @vivy hello" -> "hello"), so the markup never
+// reaches the model as literal text. Only leading mentions are stripped —
+// a mid-sentence "@name" stays as the author wrote it.
+func stripLeadingAtMentions(text string) string {
+	for {
+		text = strings.TrimLeft(text, " \t")
+		if !strings.HasPrefix(text, "@") {
+			return strings.TrimRight(text, " \t")
+		}
+		rest := text[1:]
+		if idx := strings.IndexAny(rest, " \t"); idx >= 0 {
+			text = rest[idx+1:]
+		} else {
+			return ""
+		}
+	}
 }

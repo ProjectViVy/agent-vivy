@@ -326,9 +326,14 @@ func TestDecodeSettings(t *testing.T) {
 	}
 }
 
-// TestNormalizeUpdate: exactly one shape publishes — a private text message
-// from a human. Everything else is dropped locally (the Host allow-list is
-// the policy layer, not this shape filter).
+// testBotUser is the getMe identity the group mention gate matches
+// against in the normalize tests.
+var testBotUser = &telego.User{ID: 42, IsBot: true, Username: "vivy_test_bot"}
+
+// TestNormalizeUpdate: private text messages from a human publish; group
+// messages publish only under the mention-only gate; everything else is
+// dropped locally (the Host allow-list is the policy layer, not this
+// shape filter).
 func TestNormalizeUpdate(t *testing.T) {
 	privateText := telego.Update{Message: &telego.Message{
 		MessageID: 55,
@@ -336,7 +341,7 @@ func TestNormalizeUpdate(t *testing.T) {
 		Chat:      telego.Chat{ID: 123456, Type: "private"},
 		Text:      "hello vivy",
 	}}
-	msg, ok := normalizeUpdate(privateText)
+	msg, ok := normalizeUpdate(privateText, testBotUser)
 	if !ok {
 		t.Fatal("private text message must be publishable")
 	}
@@ -383,9 +388,71 @@ func TestNormalizeUpdate(t *testing.T) {
 		}},
 	}
 	for name, upd := range cases {
-		if msg, ok := normalizeUpdate(upd); ok {
+		if msg, ok := normalizeUpdate(upd, testBotUser); ok {
 			t.Fatalf("%s must not be publishable, got %+v", name, msg)
 		}
+	}
+
+	// --- group trigger (tier-1, mention-only) ---
+
+	// Telegram entities span exactly the mention text.
+	mentionEntity := []telego.MessageEntity{{Type: telego.EntityTypeMention, Offset: 0, Length: 14}}
+	mentionEntityMid := []telego.MessageEntity{{Type: telego.EntityTypeMention, Offset: 4, Length: 14}}
+	textMentionEntity := []telego.MessageEntity{{Type: telego.EntityTypeTextMention, Offset: 0, Length: 3, User: testBotUser}}
+	otherBotCommand := []telego.MessageEntity{{Type: telego.EntityTypeBotCommand, Offset: 0, Length: 17}}
+	thisBotCommand := []telego.MessageEntity{{Type: telego.EntityTypeBotCommand, Offset: 0, Length: 21}}
+
+	groupMsg := func(chatType string, text string, entities []telego.MessageEntity) telego.Update {
+		return telego.Update{Message: &telego.Message{
+			MessageID: 70, From: &telego.User{ID: 123456, IsBot: false},
+			Chat: telego.Chat{ID: -999, Type: chatType}, Text: text, Entities: entities,
+		}}
+	}
+
+	// A @username mention publishes with the markup stripped.
+	if msg, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot summarize", mentionEntity), testBotUser); !ok {
+		t.Fatal("mentioned group message must be publishable")
+	} else if msg.Parts[0].Text != "summarize" || msg.ChatID != "-999" {
+		t.Fatalf("group envelope = %+v, want the stripped text", msg)
+	}
+
+	// A mid-sentence mention strips cleanly (the two spaces around the
+	// removed span collapse at the edges only — an honest artifact).
+	if msg, ok := normalizeUpdate(groupMsg("supergroup", "hey @vivy_test_bot hi", mentionEntityMid), testBotUser); !ok {
+		t.Fatal("mid-sentence mention must be publishable")
+	} else if msg.Parts[0].Text != "hey  hi" {
+		t.Fatalf("stripped text = %q, want 'hey  hi'", msg.Parts[0].Text)
+	}
+
+	// A text_mention of the bot publishes.
+	if msg, ok := normalizeUpdate(groupMsg("group", "bot x", textMentionEntity), testBotUser); !ok {
+		t.Fatal("text_mention of the bot must be publishable")
+	} else if msg.Parts[0].Text != "x" {
+		t.Fatalf("stripped text = %q, want 'x'", msg.Parts[0].Text)
+	}
+
+	// A /command@thisbot publishes with the suffix stripped; another
+	// bot's command does not trigger.
+	if msg, ok := normalizeUpdate(groupMsg("group", "/status@vivy_test_bot", thisBotCommand), testBotUser); !ok {
+		t.Fatal("a /cmd@thisbot command must be publishable")
+	} else if msg.Parts[0].Text != "/status" {
+		t.Fatalf("command text = %q, want '/status'", msg.Parts[0].Text)
+	}
+	if _, ok := normalizeUpdate(groupMsg("group", "/status@other_bot", otherBotCommand), testBotUser); ok {
+		t.Fatal("another bot's command must not trigger")
+	}
+
+	// A bare mention leaves nothing to publish.
+	if _, ok := normalizeUpdate(groupMsg("group", "@vivy_test_bot", mentionEntity), testBotUser); ok {
+		t.Fatal("a bare mention has nothing left to publish")
+	}
+
+	// A forum topic carries its thread id in TopicID.
+	forum := groupMsg("supergroup", "@vivy_test_bot topic talk", mentionEntity)
+	forum.Message.MessageThreadID = 77
+	forum.Message.Chat.IsForum = true
+	if msg, ok := normalizeUpdate(forum, testBotUser); !ok || msg.TopicID != "77" {
+		t.Fatalf("forum topic envelope ok=%v TopicID=%q, want TopicID 77", ok, msg.TopicID)
 	}
 }
 

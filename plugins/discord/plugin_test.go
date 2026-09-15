@@ -332,7 +332,22 @@ func (h *harness) drop(t *testing.T, n int) {
 
 // message builds a minimal guild text MESSAGE_CREATE payload.
 func message(msgID, authorID, content string) *discordgo.MessageCreate {
+	// A DM-shaped message: the group (guild) trigger path has its own
+	// builder below, since mention-only gating applies there.
 	return &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        msgID,
+		ChannelID: "chan-1",
+		Content:   content,
+		Author:    &discordgo.User{ID: authorID},
+		Type:      discordgo.MessageTypeDefault,
+	}}
+}
+
+// groupMessage builds one guild text-channel message; mentioned records
+// whether the bot itself is among the Mentions (and renders the markup
+// into the content like Discord does).
+func groupMessage(msgID, authorID, content string, mentioned bool) *discordgo.MessageCreate {
+	m := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        msgID,
 		ChannelID: "chan-1",
 		GuildID:   "guild-1",
@@ -340,6 +355,17 @@ func message(msgID, authorID, content string) *discordgo.MessageCreate {
 		Author:    &discordgo.User{ID: authorID},
 		Type:      discordgo.MessageTypeDefault,
 	}}
+	if mentioned {
+		m.Message.Content = "<@bot-1> " + content
+		m.Message.Mentions = []*discordgo.User{{ID: "bot-1"}}
+	}
+	return m
+}
+
+// gatewaySession is a minimal live-session stand-in carrying the READY
+// state the group trigger reads the bot identity from.
+func gatewaySession(botUserID string) *discordgo.Session {
+	return &discordgo.Session{State: &discordgo.State{Ready: discordgo.Ready{User: &discordgo.User{ID: botUserID}}}}
 }
 
 // --- settings ----------------------------------------------------------------
@@ -575,7 +601,7 @@ func TestNormalizeMessage(t *testing.T) {
 		{
 			name: "reply captures the referenced message id",
 			m: &discordgo.MessageCreate{Message: &discordgo.Message{
-				ID: "m-3", ChannelID: "chan-1", GuildID: "guild-1", Content: "a reply",
+				ID: "m-3", ChannelID: "chan-1", Content: "a reply",
 				Author: &discordgo.User{ID: "U1"}, Type: discordgo.MessageTypeReply,
 				ReferencedMessage: &discordgo.Message{ID: "orig-9"},
 			}},
@@ -588,6 +614,53 @@ func TestNormalizeMessage(t *testing.T) {
 				ReplyTo:   "orig-9",
 				Parts:     []plugin.Part{{Kind: plugin.PartText, Text: "a reply"}},
 			},
+		},
+		{
+			name: "guild message with the bot mention publishes stripped",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-13", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "<@bot-1> what is up", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "bot-1"}},
+			}},
+			want: true,
+			msg: plugin.InboundMessage{
+				Channel:   "discord",
+				ChatID:    "chan-1",
+				Sender:    "discord:U1",
+				MessageID: "m-13",
+				Parts:     []plugin.Part{{Kind: plugin.PartText, Text: "what is up"}},
+			},
+		},
+		{
+			name: "guild message without the bot mention drops",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-14", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "just chatting", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "U2"}},
+			}},
+			want: false,
+		},
+		{
+			name: "guild message mentioning another user drops",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-15", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "hey <@U2> look", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "U2"}},
+			}},
+			want: false,
+		},
+		{
+			name: "guild bare mention leaves nothing to publish",
+			m: &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "m-16", ChannelID: "chan-1", GuildID: "guild-1",
+				Content: "<@!bot-1>", Type: discordgo.MessageTypeDefault,
+				Author:   &discordgo.User{ID: "U1"},
+				Mentions: []*discordgo.User{{ID: "bot-1"}},
+			}},
+			want: false,
 		},
 		{name: "nil event", m: nil, want: false},
 		{name: "nil message", m: &discordgo.MessageCreate{}, want: false},
@@ -674,7 +747,7 @@ func TestNormalizeMessage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, publishable := normalizeMessage(tc.m)
+			got, publishable := normalizeMessage(tc.m, "bot-1")
 			if publishable != tc.want {
 				t.Fatalf("publishable = %v, want %v", publishable, tc.want)
 			}
@@ -1110,4 +1183,43 @@ func TestSendThreadsViaMessageReference(t *testing.T) {
 	if calls[1].reference != "" || calls[1].content != "plain" {
 		t.Fatalf("call 1 = %+v, want a plain unthreaded send", calls[1])
 	}
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// dispatchFromSession feeds one MESSAGE_CREATE through the ear attempt's
+// handler with a live-shaped session (the group trigger reads the bot
+// identity from the session's READY state).
+func (h *harness) dispatchFromSession(t *testing.T, n int, s *discordgo.Session, m *discordgo.MessageCreate) {
+	t.Helper()
+	f := h.ear(n)
+	if f == nil {
+		t.Fatalf("no gateway attempt #%d built", n)
+	}
+	f.onMessage(s, m)
+}
+
+// TestGroupMentionOnlyGatesGuildMessages: a guild message mentioning the
+// bot publishes with the mention markup stripped (the identity comes from
+// the session's READY state); without the mention nothing publishes; a DM
+// skips the gate entirely.
+func TestGroupMentionOnlyGatesGuildMessages(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	h.dispatchFromSession(t, 0, gatewaySession("bot-1"), groupMessage("g-1", "U1", "what is up", true))
+	waitFor(t, "guild mention envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	got := h.env.snapshot()[0]
+	if got.Parts[0].Text != "what is up" || got.Sender != "discord:U1" || got.ChatID != "chan-1" {
+		t.Fatalf("guild envelope = %+v, want the stripped text from U1", got)
+	}
+
+	h.dispatchFromSession(t, 0, gatewaySession("bot-1"), groupMessage("g-2", "U1", "chatting", false))
+	if got := len(h.env.snapshot()); got != 1 {
+		t.Fatalf("envelopes = %d, want still 1 (unmentioned guild message must not publish)", got)
+	}
+
+	// A DM skips the gate (the nil-session dispatch stays legal there).
+	h.dispatch(t, 0, message("d-1", "U1", "dm hello"))
+	waitFor(t, "dm envelope", func() bool { return len(h.env.snapshot()) == 2 })
 }

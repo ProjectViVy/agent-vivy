@@ -1268,3 +1268,43 @@ func TestHealthClassifiesRedialingStream(t *testing.T) {
 		return p.Health(context.Background()) == nil
 	})
 }
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// TestGroupMentionOnlyGatesGroupChats: a group callback publishes only
+// when IsInAtList says the bot was @-addressed (the platform-authoritative
+// signal), with the leading @-mention markup stripped; an unmentioned
+// group message drops; a bare mention leaves nothing to publish.
+func TestGroupMentionOnlyGatesGroupChats(t *testing.T) {
+	group := func(content string, inAtList bool) *chatbot.BotCallbackDataModel {
+		d := textCallback()
+		d.ConversationType = "2"
+		d.ConversationId = "cid-group-77"
+		d.IsInAtList = inAtList
+		d.Text = chatbot.BotCallbackDataTextModel{Content: content}
+		return d
+	}
+
+	msg, publishable := normalizeCallback(group("@张三 @vivy please summarize", true))
+	if !publishable {
+		t.Fatal("mentioned group message must publish")
+	}
+	if msg.ChatID != "cid-group-77" || msg.Sender != "dingtalk:manager1234" || msg.Parts[0].Text != "please summarize" {
+		t.Fatalf("group envelope = %+v, want the group chat, the sender, and the stripped text", msg)
+	}
+
+	if _, publishable := normalizeCallback(group("@vivy please summarize", false)); publishable {
+		t.Fatal("unmentioned group message must drop")
+	}
+	if _, publishable := normalizeCallback(group("@vivy", true)); publishable {
+		t.Fatal("a bare mention leaves nothing to publish")
+	}
+	if _, publishable := normalizeCallback(group("late-arriving text", true)); !publishable {
+		t.Fatal("IsInAtList is authoritative even when the text carries no mention token")
+	}
+
+	// Direct chats keep publishing without any mention gate.
+	if _, publishable := normalizeCallback(textCallback()); !publishable {
+		t.Fatal("direct-chat path must stay ungated")
+	}
+}

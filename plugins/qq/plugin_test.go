@@ -205,13 +205,19 @@ type fakeAPI struct {
 	wsURL string
 	wsErr error
 
-	mu       sync.Mutex
-	c2cCalls []c2cCall
+	mu         sync.Mutex
+	c2cCalls   []c2cCall
+	groupCalls []groupCall
 }
 
 type c2cCall struct {
 	userID string
 	msg    dto.APIMessage
+}
+
+type groupCall struct {
+	groupOpenID string
+	msg         dto.APIMessage
 }
 
 func (a *fakeAPI) WS(context.Context, map[string]string, string) (*dto.WebsocketAP, error) {
@@ -232,6 +238,14 @@ func (a *fakeAPI) PostC2CMessage(_ context.Context, userID string, msg dto.APIMe
 	return &dto.Message{ID: "sent-via-stub"}, nil
 }
 
+// PostGroupMessage records the group post like its C2C sibling.
+func (a *fakeAPI) PostGroupMessage(_ context.Context, groupOpenID string, msg dto.APIMessage, _ ...options.Option) (*dto.Message, error) {
+	a.mu.Lock()
+	a.groupCalls = append(a.groupCalls, groupCall{groupOpenID: groupOpenID, msg: msg})
+	a.mu.Unlock()
+	return &dto.Message{ID: "sent-via-stub"}, nil
+}
+
 func (a *fakeAPI) c2cCount() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -248,6 +262,7 @@ type fakeWS struct {
 	resumeID  string
 	resumeSeq uint32
 	onC2C     event.C2CMessageEventHandler
+	onGroup   groupATMessageHandler
 	onReady   event.ReadyHandler
 
 	// assignedID is the gateway-assigned session id handed out at READY.
@@ -280,13 +295,14 @@ type wsFactorySpy struct {
 	onBuild func(n int, f *fakeWS)
 }
 
-func (s *wsFactorySpy) build(onC2C event.C2CMessageEventHandler, onReady event.ReadyHandler,
+func (s *wsFactorySpy) build(onC2C event.C2CMessageEventHandler, onGroup groupATMessageHandler, onReady event.ReadyHandler,
 	gatewayURL string, _ oauth2.TokenSource, resumeID string, resumeSeq uint32) wsClient {
 	f := &fakeWS{
 		url:        gatewayURL,
 		resumeID:   resumeID,
 		resumeSeq:  resumeSeq,
 		onC2C:      onC2C,
+		onGroup:    onGroup,
 		onReady:    onReady,
 		assignedID: "",
 		session:    &dto.Session{URL: gatewayURL, ID: resumeID, LastSeq: resumeSeq},
@@ -1653,4 +1669,88 @@ func TestSendThreadsToReplyTo(t *testing.T) {
 	if body.MsgSeq != 1 {
 		t.Fatalf("msg_seq = %d, want 1", body.MsgSeq)
 	}
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// wsGroupPayload builds the ws payload the group handler reads the resume
+// sequence from.
+func wsGroupPayload(seq uint32) *dto.WSPayload {
+	return &dto.WSPayload{WSPayloadBase: dto.WSPayloadBase{Seq: seq}}
+}
+
+// TestGroupATMessageRoundTrip: a group AT event publishes an envelope
+// keyed by the group_openid with the member openid sender, opens the
+// group's passive window, and the reply routes through the group endpoint
+// anchored to the event's msg_id. Group AT messages are mention-only by
+// construction (the platform strips the @bot prefix from content).
+func TestGroupATMessageRoundTrip(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	if err := h.p.onGroup(wsGroupPayload(9), &groupATMessage{
+		ID:          "gm-1",
+		Content:     "what is up",
+		GroupOpenID: "GROUPOPEN1",
+		Author:      groupAuthor("MEMBER1"),
+	}); err != nil {
+		t.Fatalf("group dispatch: %v", err)
+	}
+	waitFor(t, "group envelope", func() bool { return len(h.env.snapshot()) == 1 })
+	got := h.env.snapshot()[0]
+	if got.ChatID != "GROUPOPEN1" || got.Sender != "qq:user_MEMBER1" || got.MessageID != "gm-1" || got.Parts[0].Text != "what is up" {
+		t.Fatalf("group envelope = %+v", got)
+	}
+
+	ids, err := h.p.Send(context.Background(), plugin.OutboundMessage{
+		ChatID:  "GROUPOPEN1",
+		ReplyTo: "gm-1",
+		Parts:   []plugin.Part{{Kind: plugin.PartText, Text: "group reply"}},
+	})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("group send = ids %v err %v", ids, err)
+	}
+
+	h.p.mu.Lock()
+	api := h.p.api.(*fakeAPI)
+	h.p.mu.Unlock()
+	if got := api.c2cCount(); got != 0 {
+		t.Fatalf("c2c posts = %d, want 0 (the reply must route to the group endpoint)", got)
+	}
+	if len(api.groupCalls) != 1 || api.groupCalls[0].groupOpenID != "GROUPOPEN1" {
+		t.Fatalf("group calls = %+v, want one post to GROUPOPEN1", api.groupCalls)
+	}
+	body := api.groupCalls[0].msg.(*dto.MessageToCreate)
+	if body.Content != "group reply" || body.MsgID != "gm-1" || body.MsgSeq != 1 {
+		t.Fatalf("group body = %+v, want the reply anchored to gm-1 seq 1", body)
+	}
+}
+
+// TestNormalizeGroupShapeFilter: missing group address, sender, message
+// id, or content each drop the event locally.
+func TestNormalizeGroupShapeFilter(t *testing.T) {
+	valid := &groupATMessage{ID: "gm-9", Content: "hi", GroupOpenID: "GROUP1", Author: groupAuthor("MEMBER1")}
+	if msg, ok := normalizeGroup(valid); !ok || msg.ChatID != "GROUP1" || msg.Sender != "qq:user_MEMBER1" {
+		t.Fatalf("valid group event = %+v ok=%v", msg, ok)
+	}
+	for name, data := range map[string]*groupATMessage{
+		"nil":              nil,
+		"no content":       {ID: "gm-1", GroupOpenID: "G", Author: groupAuthor("M")},
+		"no group openid":  {ID: "gm-1", Content: "hi", Author: groupAuthor("M")},
+		"no member openid": {ID: "gm-1", Content: "hi", GroupOpenID: "G"},
+		"no message id":    {Content: "hi", GroupOpenID: "G", Author: groupAuthor("M")},
+	} {
+		if _, ok := normalizeGroup(data); ok {
+			t.Fatalf("%s must not be publishable", name)
+		}
+	}
+}
+
+// groupAuthor builds the anonymous author member of a groupATMessage.
+func groupAuthor(memberOpenID string) struct {
+	MemberOpenID string `json:"member_openid"`
+} {
+	return struct {
+		MemberOpenID string `json:"member_openid"`
+	}{MemberOpenID: memberOpenID}
 }

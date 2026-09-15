@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1409,4 +1410,54 @@ func TestHealthClassifiesRedialingGateway(t *testing.T) {
 	waitFor(t, "healthy after reconnect", func() bool {
 		return p.Health(context.Background()) == nil
 	})
+}
+
+// --- group trigger (tier-1, mention-only) --------------------------------------
+
+// TestGroupMentionOnlyGatesGroupChats: a group text message publishes only
+// when a mention entry typed "bot" is present (the closest identity signal
+// the event model carries — the adapter cannot learn its own open_id from
+// the pinned SDK), with the @_user_N placeholders stripped; user-only
+// mentions and mention-less group chatter drop.
+func TestGroupMentionOnlyGatesGroupChats(t *testing.T) {
+	groupEvent := func(content string, mentionTypes ...string) *larkim.P2MessageReceiveV1 {
+		return withField(p2pTextEvent(), func(m *larkim.P2MessageReceiveV1) {
+			m.Event.Message.ChatType = ptr("group")
+			m.Event.Message.Content = ptr(`{"text":` + strconv.Quote(content) + `}`)
+			var mentions []*larkim.MentionEvent
+			for i, typ := range mentionTypes {
+				mentions = append(mentions, &larkim.MentionEvent{
+					Key:           ptr("@_user_" + strconv.Itoa(i+1)),
+					MentionedType: ptr(typ),
+					Name:          ptr("member-" + typ),
+				})
+			}
+			m.Event.Message.Mentions = mentions
+		})
+	}
+
+	// A bot mention publishes, with every placeholder stripped.
+	msg, ok := normalizeEvent(groupEvent("@_user_1 @_user_2 summarize this", "user", "bot"))
+	if !ok {
+		t.Fatal("group message with a bot mention must publish")
+	}
+	if msg.Parts[0].Text != "summarize this" {
+		t.Fatalf("stripped text = %q, want the placeholders gone", msg.Parts[0].Text)
+	}
+	if msg.ChatID != "oc_chat_1" {
+		t.Fatalf("chat id = %q, want the group chat id", msg.ChatID)
+	}
+
+	// User-only mentions drop.
+	if _, ok := normalizeEvent(groupEvent("@_user_1 hello there", "user")); ok {
+		t.Fatal("a group message mentioning only users must drop")
+	}
+	// No mentions drop.
+	if _, ok := normalizeEvent(groupEvent("plain chatter")); ok {
+		t.Fatal("unmentioned group chatter must drop")
+	}
+	// A bare bot mention leaves nothing to publish.
+	if _, ok := normalizeEvent(groupEvent("@_user_1", "bot")); ok {
+		t.Fatal("a bare bot mention leaves nothing to publish")
+	}
 }
