@@ -110,6 +110,8 @@ type sentCall struct {
 	content   string
 	// reference is the reply-threading message id ("" for plain sends).
 	reference string
+	// fileNames lists the multipart file names of a complex send (media).
+	fileNames []string
 }
 
 // fakeSession is an in-memory session. It records the factory inputs and
@@ -180,8 +182,12 @@ func (f *fakeSession) ChannelMessageSendComplex(channelID string, data *discordg
 	if data.Reference != nil {
 		ref = data.Reference.MessageID
 	}
+	var fileNames []string
+	for _, file := range data.Files {
+		fileNames = append(fileNames, file.Name)
+	}
 	f.mu.Lock()
-	f.sent = append(f.sent, sentCall{channelID: channelID, content: data.Content, reference: ref})
+	f.sent = append(f.sent, sentCall{channelID: channelID, content: data.Content, reference: ref, fileNames: fileNames})
 	call := len(f.sent)
 	err, failAt := f.sendErr, f.sendFailAt
 	f.mu.Unlock()
@@ -1361,5 +1367,60 @@ func TestInboundImageDownloadsBounded(t *testing.T) {
 	env3 := h.env.snapshot()[0]
 	if len(env3.Parts) != 2 || env3.Parts[0].Text != "look" || env3.Parts[1].Text != "[image: pic.jpg]" {
 		t.Fatalf("failed-download envelope parts = %+v", env3.Parts)
+	}
+}
+
+// TestSendMediaOneComplexSend: the batch of media parts leaves as ONE
+// complex send with multipart files and no content (the reply text already
+// went out through Send); a failed batch fails whole.
+func TestSendMediaOneComplexSend(t *testing.T) {
+	h := newHarness(t, validSettings)
+	h.start(t)
+
+	ids, err := h.p.SendMedia(context.Background(), "chan-9", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", MimeType: "image/png", Data: []byte("png-bytes")}},
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "", MimeType: "image/jpeg"}}, // empty: skipped
+		{Kind: plugin.PartText, Text: "not media"},                                      // ignored
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "b.jpg", MimeType: "image/jpeg", Data: []byte("jpg-bytes")}},
+	})
+	if err != nil {
+		t.Fatalf("send media: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "sent-1" {
+		t.Fatalf("ids = %v, want one complex send", ids)
+	}
+	calls := h.sender().sentCalls()
+	if len(calls) != 1 {
+		t.Fatalf("send client calls = %d, want 1", len(calls))
+	}
+	call := calls[0]
+	if call.channelID != "chan-9" || call.content != "" {
+		t.Fatalf("call = %+v, want empty content to chan-9", call)
+	}
+	if len(call.fileNames) != 2 || call.fileNames[0] != "a.png" || call.fileNames[1] != "b.jpg" {
+		t.Fatalf("file names = %v, want both images", call.fileNames)
+	}
+	if ear := h.ear(0); len(ear.sentCalls()) != 0 {
+		t.Fatalf("ear session carried media, want send-client only")
+	}
+}
+
+// TestSendMediaFailClosed: not started fails closed; a send failure
+// surfaces so the Host burns the delivery attempt.
+func TestSendMediaFailClosed(t *testing.T) {
+	p := newAdapter()
+	if _, err := p.SendMedia(context.Background(), "chan-1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", Data: []byte("x")}},
+	}); err == nil {
+		t.Fatal("send media before start must fail closed")
+	}
+
+	h := newHarness(t, validSettings)
+	h.start(t)
+	h.sender().sendErr = errors.New("413 payload too large")
+	if _, err := h.p.SendMedia(context.Background(), "chan-1", []plugin.Part{
+		{Kind: plugin.PartMedia, Media: plugin.Media{Name: "a.png", MimeType: "image/png", Data: []byte("x")}},
+	}); err == nil {
+		t.Fatal("a failed complex send must surface")
 	}
 }
