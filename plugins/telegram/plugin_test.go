@@ -111,9 +111,10 @@ var stubPhotoBytes = append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{
 // telegramStub is a loopback stand-in for the Telegram Bot API serving the
 // calls the adapter makes this slice: getMe (authentication), getUpdates
 // (polling), sendMessage (outbound text with a formatted-send fallback),
-// sendChatAction (typing live surface), and getFile plus the /file/bot
-// path (inbound photo download). All routing is by path suffix because
-// the bot token is embedded in the URL path.
+// sendChatAction (typing live surface), editMessageText / deleteMessage
+// (interaction), and getFile plus the /file/bot path (inbound photo
+// download). All routing is by path suffix because the bot token is
+// embedded in the URL path.
 type telegramStub struct {
 	server  *httptest.Server
 	updates chan []map[string]any // one-shot update batches for getUpdates
@@ -126,6 +127,11 @@ type telegramStub struct {
 	sendFailures atomic.Int64
 
 	actions chan chatActionCall
+
+	edits           chan editMessageCall
+	editFailures    atomic.Int64 // remaining parse rejections for the plain-text edit fallback
+	editNotModified atomic.Bool  // answer "message is not modified" instead of success
+	deletes         chan deleteMessageCall
 
 	// Inbound photo behavior. Defaults serve stubPhotoBytes at
 	// photos/file_0.jpg with a truthful declared size; tests flip the
@@ -179,12 +185,26 @@ type chatActionCall struct {
 	Action string          `json:"action"`
 }
 
+type editMessageCall struct {
+	ChatID    json.RawMessage `json:"chat_id"`
+	MessageID int             `json:"message_id"`
+	Text      string          `json:"text"`
+	ParseMode string          `json:"parse_mode"`
+}
+
+type deleteMessageCall struct {
+	ChatID    json.RawMessage `json:"chat_id"`
+	MessageID int             `json:"message_id"`
+}
+
 func newTelegramStub(t *testing.T) *telegramStub {
 	t.Helper()
 	stub := &telegramStub{
 		updates:       make(chan []map[string]any, 8),
 		sends:         make(chan sendMessageCall, 16),
 		actions:       make(chan chatActionCall, 16),
+		edits:         make(chan editMessageCall, 16),
+		deletes:       make(chan deleteMessageCall, 16),
 		photoBytes:    append([]byte(nil), stubPhotoBytes...),
 		filePath:      "photos/file_0.jpg",
 		fileSize:      len(stubPhotoBytes),
@@ -234,6 +254,32 @@ func newTelegramStub(t *testing.T) *telegramStub {
 				return
 			}
 			stub.actions <- call
+			writeTelegramOK(w, true)
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			body, _ := io.ReadAll(r.Body)
+			var call editMessageCall
+			if err := json.Unmarshal(body, &call); err != nil {
+				writeTelegramError(w, "bad request")
+				return
+			}
+			stub.edits <- call
+			if stub.editNotModified.Load() {
+				writeTelegramError(w, "Bad Request: message is not modified")
+				return
+			}
+			if stub.editFailures.Add(-1) >= 0 {
+				writeTelegramError(w, "Bad Request: can't parse entities")
+				return
+			}
+			writeTelegramOK(w, true)
+		case strings.HasSuffix(r.URL.Path, "/deleteMessage"):
+			body, _ := io.ReadAll(r.Body)
+			var call deleteMessageCall
+			if err := json.Unmarshal(body, &call); err != nil {
+				writeTelegramError(w, "bad request")
+				return
+			}
+			stub.deletes <- call
 			writeTelegramOK(w, true)
 		case strings.HasSuffix(r.URL.Path, "/getFile"):
 			stub.photoMutex.Lock()
@@ -351,6 +397,38 @@ func (s *telegramStub) waitForAction(t *testing.T) chatActionCall {
 		return chatActionCall{}
 	}
 }
+
+// waitForEdit reads one recorded editMessageText call.
+func (s *telegramStub) waitForEdit(t *testing.T) editMessageCall {
+	t.Helper()
+	select {
+	case call := <-s.edits:
+		return call
+	case <-time.After(5 * time.Second):
+		t.Fatal("editMessageText was never called")
+		return editMessageCall{}
+	}
+}
+
+// waitForDelete reads one recorded deleteMessage call.
+func (s *telegramStub) waitForDelete(t *testing.T) deleteMessageCall {
+	t.Helper()
+	select {
+	case call := <-s.deletes:
+		return call
+	case <-time.After(5 * time.Second):
+		t.Fatal("deleteMessage was never called")
+		return deleteMessageCall{}
+	}
+}
+
+// failNextEdits makes the next n editMessageText calls answer with the
+// platform's parse rejection (the formatted-edit failure stand-in).
+func (s *telegramStub) failNextEdits(n int64) { s.editFailures.Add(n) }
+
+// answerNotModified makes every editMessageText call answer the platform's
+// "message is not modified" idempotency error.
+func (s *telegramStub) answerNotModified() { s.editNotModified.Store(true) }
 
 func writeTelegramOK(w http.ResponseWriter, result any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1306,5 +1384,115 @@ func TestSendMediaFailClosed(t *testing.T) {
 	stub.photoFail.Store(true)
 	if _, err := p.SendMedia(context.Background(), "123456", []plugin.Part{mediaPart("a.jpg", stubPhotoBytes)}); err == nil {
 		t.Fatal("a hard photo failure must surface for the ledger to retry")
+	}
+}
+
+// --- interaction capabilities (edit / delete / placeholder) ---
+
+// TestEditMessageRewritesWithHTMLAndFallsBackToPlainText: the formatted
+// edit carries the same markdown→HTML conversion as Send, and a platform
+// parse rejection degrades to the plain body instead of failing.
+func TestEditMessageRewritesWithHTMLAndFallsBackToPlainText(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	stub.failNextEdits(1)
+	err := p.EditMessage(context.Background(), "123456", "77", plugin.OutboundMessage{
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "**bold** text"}},
+	})
+	if err != nil {
+		t.Fatalf("edit with fallback: %v", err)
+	}
+	first := stub.waitForEdit(t)
+	if first.MessageID != 77 || first.ParseMode != telego.ModeHTML || !strings.Contains(first.Text, "<b>bold</b>") {
+		t.Fatalf("formatted edit = %+v", first)
+	}
+	second := stub.waitForEdit(t)
+	if second.MessageID != 77 || second.ParseMode != "" || second.Text != "**bold** text" {
+		t.Fatalf("plain-text retry = %+v", second)
+	}
+}
+
+// TestEditMessageTreatsNotModifiedAsSuccess: the platform's idempotency
+// answer ("the content already reads that way") is success, and no retry
+// is fired.
+func TestEditMessageTreatsNotModifiedAsSuccess(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	stub.answerNotModified()
+	if err := p.EditMessage(context.Background(), "123456", "77", plugin.OutboundMessage{
+		Parts: []plugin.Part{{Kind: plugin.PartText, Text: "same"}},
+	}); err != nil {
+		t.Fatalf("not-modified edit must succeed: %v", err)
+	}
+	stub.waitForEdit(t)
+	if got := len(stub.edits); got != 0 {
+		t.Fatalf("edit calls after the not-modified answer = %d, want none", got)
+	}
+}
+
+// TestEditMessageRejectsEmptyPayload: an edit with no text is a caller bug
+// and errors without touching the platform.
+func TestEditMessageRejectsEmptyPayload(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	if err := p.EditMessage(context.Background(), "123456", "77", plugin.OutboundMessage{}); err == nil {
+		t.Fatal("empty edit payload must fail")
+	}
+	if got := len(stub.edits); got != 0 {
+		t.Fatalf("edit calls for an empty payload = %d, want none", got)
+	}
+}
+
+// TestDeleteMessageRemovesTheSentMessage: the platform delete carries the
+// chat and message ids.
+func TestDeleteMessageRemovesTheSentMessage(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	if err := p.DeleteMessage(context.Background(), "123456", "77"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	call := stub.waitForDelete(t)
+	if call.MessageID != 77 || string(call.ChatID) != "123456" {
+		t.Fatalf("delete call = %+v", call)
+	}
+}
+
+// TestPlaceholderSendsFixedCopyAndReturnsTheID: the placeholder is the
+// fixed plain-text copy (no parse mode) and reports its message id for the
+// Host's terminal delete.
+func TestPlaceholderSendsFixedCopyAndReturnsTheID(t *testing.T) {
+	stub := newTelegramStub(t)
+	p := startForTest(t, envForStub(stubSettings(stub)))
+
+	id, err := p.Placeholder(context.Background(), "123456")
+	if err != nil {
+		t.Fatalf("placeholder: %v", err)
+	}
+	if id != "1" {
+		t.Fatalf("placeholder id = %q, want the first stub message id", id)
+	}
+	call := stub.waitForSend(t)
+	if call.Text != placeholderText || call.ParseMode != "" {
+		t.Fatalf("placeholder send = %+v, want fixed plain copy", call)
+	}
+}
+
+// TestInteractionFacesFailClosedWhenNotStarted: the optional faces are
+// useless before Start and must say so instead of panicking.
+func TestInteractionFacesFailClosedWhenNotStarted(t *testing.T) {
+	p := newAdapter()
+	ctx := context.Background()
+	if err := p.EditMessage(ctx, "1", "2", plugin.OutboundMessage{Parts: []plugin.Part{{Kind: plugin.PartText, Text: "x"}}}); err == nil {
+		t.Fatal("edit before start must fail")
+	}
+	if err := p.DeleteMessage(ctx, "1", "2"); err == nil {
+		t.Fatal("delete before start must fail")
+	}
+	if _, err := p.Placeholder(ctx, "1"); err == nil {
+		t.Fatal("placeholder before start must fail")
 	}
 }
