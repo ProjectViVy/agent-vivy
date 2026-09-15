@@ -138,6 +138,15 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	if ch != nil && typingFor(ch) != nil {
 		target.stopTyping = make(chan struct{})
 	}
+	// The placeholder/reaction half of the live surface (contract §1/§12,
+	// 2026-09-15): an accepted turn announces itself with a "Thinking…"
+	// placeholder and (feishu) an ack reaction on the triggering message.
+	// Same live-surface rules as typing — in-process bookkeeping only, no
+	// Journal events, no delivery-ledger rows; the surface goroutine
+	// settles it at the terminal, at StopAll, or at the 10-minute TTL.
+	if newLiveTarget(ch) {
+		target.live = newLiveSurface()
+	}
 	// The durable reply intent (CH-C3-N1): from this point a restart can
 	// finish or settle the delivery. A persistence failure never stops the
 	// in-process delivery — it only degrades this one reply back to the
@@ -155,6 +164,7 @@ func (h *Host) publishInbound(ctx context.Context, msg plugin.InboundMessage) er
 	h.targets[runID] = target
 	h.mu.Unlock()
 	h.startTyping(target)
+	h.startLiveSurface(target)
 	return nil
 }
 
@@ -255,6 +265,12 @@ func (h *Host) OnRunEvent(ctx context.Context, ev domain.RunEvent) {
 	target, tracked := h.targets[ev.RunID]
 	delete(h.targets, ev.RunID)
 	closeTyping(target)
+	// The placeholder/reaction half settles on every terminal the same way
+	// typing does: closing wakes the surface goroutine, which deletes the
+	// placeholder and withdraws the ack on its own time — the simple
+	// semantics (contract §1): the reply, if any, is a fresh durable send,
+	// never an edit of the placeholder. A non-tracked run has no surface.
+	closeLive(target)
 	h.mu.Unlock()
 	if !tracked {
 		return

@@ -53,6 +53,10 @@ type outboundTarget struct {
 	// the adapter has no typing face. Closed under mu (terminal handler or
 	// StopAll), read by the loop goroutine.
 	stopTyping chan struct{}
+	// live is the placeholder/reaction half of the run's live surface; nil
+	// when the adapter has neither face. Its goroutine settles itself when
+	// closeLive fires (terminal handler or StopAll) or the TTL fires.
+	live *liveSurface
 }
 
 // Host owns the started channel adapters and the inbound/outbound
@@ -184,9 +188,13 @@ func (h *Host) StopAll(ctx context.Context) {
 	// Live-surface typing loops die with the host: their runs will never
 	// see another terminal. A ping already in flight finishes against its
 	// 5s bound; the adapter may already be stopping — the loop ends on the
-	// error either way.
+	// error either way. The placeholder/reaction half settles the same way:
+	// the surface goroutines wake, delete the placeholder and withdraw the
+	// ack against bounded calls (still before the adapters stop), and the
+	// deliveryWG wait below joins them.
 	for _, t := range h.targets {
 		closeTyping(t)
+		closeLive(t)
 	}
 	h.mu.Unlock()
 	done := make(chan struct{})
