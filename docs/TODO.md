@@ -5,7 +5,7 @@
 > Acceptance and release records: `docs/logs/`.
 > Milestones map to PRD §11 (M0–M4). Acceptance anchors cite PRD FR/AS/D ids.
 > Architecture reference: `IMPLEMENTATION-PLAN.md`.
-> Updated: 2026-09-14
+> Updated: 2026-09-16
 > Development environment: `docs/architecture/VIVY-STUDIO.md`. Studio is the first-party daily IDE; other authorized tools work directly in this repository with their own capabilities.
 
 ---
@@ -32,7 +32,7 @@ the outer-loop fallback (RK-3 stop-loss) and this board is re-planned.
 > land; no outer-loop fallback needed.
 
 
-## 0.1 Open remaining (updated 2026-09-14)
+## 0.1 Open remaining (updated 2026-09-16)
 
 Completed rows have been moved to `docs/COMPLETE.MD`.
 This section retains only currently open, deferred, superseded, or otherwise unresolved work.
@@ -96,6 +96,9 @@ This section retains only currently open, deferred, superseded, or otherwise unr
 | UI-GOAL | No DSH-style goal kernel / GoalBar verbs | OPEN | The progress bar uses the current `in_progress` `active_form`/`subject` as its overview, not a standalone goal object. Porting `create_goal` requires a kernel proposal |
 | TUI-DETAIL-F8 | Show token/cost at message level (proposal F8): add fields to the surface protocol | OPEN | The 2026-09-07 TUI detail-polish proposal explicitly excludes this (a display-only branch adds no protocol/RPC). If implemented, add a per-message usage projection to `surface.Meta` or the message payload, without violating the surface comment that it must “not infer server truth.” Relevant paths: `sdk/tui/surface/surface.go`, `sdk/tui/live/`. See §5 of `docs/plans/2026-09-06-tui-detail-polish.md` |
 | TUI-DETAIL-CHROME-DUP | compact-mode chrome right segment duplicates title/host information already in the compact header | OPEN | After batch B of the 2026-09-07 spec implemented F12 chrome right-segment queued/host/title, the narrow (compact) header already had title·host and the chrome right segment displayed them again. This is a visual tradeoff: by width, compact mode could omit title/host candidates from the chrome segment. Relevant path: `sdk/tui/view/render.go` (`chromeMeta`/`renderCompact`). See `docs/logs/2026-09-07-tui-detail-polish/` |
+| WF-1 | Workflow system WF-1 slice: `internal/workflow` domain types + five-check validation + `${{ }}` grammar, `WorkflowStore`/`WorkflowRunStore` (SQLite `migration024` + Postgres V22 + CN-28), `workflow/*` RPC + capability tokens, six generated agent tools with proposal governance, Unavailable stub executor (`-32011`), removal semantics via optional `vivy/workflow` module, PLANNED port catalog entries | OPEN · DESIGN APPROVED 2026-09-16 · CRITICAL PATH HEAD | Issue #40 product layer. Design + detailed contracts: `docs/plans/workflow-system/README.md`, `DETAILED-DESIGN.md`, normative `schema/workflow-definition.schema.json` (commits `9385e1f`, `8b86977`). Implementable now — no dependency on PLG-P6..P9 or #39. When scheduled: own worktree lane + task-by-task implementation plan (plugin-platform style). |
+| WF-2 | #39 core orchestration design + real `PlanExecutor` (Eino `compose.NewGraph/NewWorkflow` adapted inside `internal/runtime`), unblocking end-to-end workflow execution | OPEN · CRITICAL PATH — DESIGN NOT STARTED | #39 is a proposal only. The workflow side is already fixed: seam types land with WF-1 (`internal/domain/workflow.go`) and seven WF-2 acceptance criteria are recorded in `docs/plans/workflow-system/DETAILED-DESIGN.md` §11. Can start once WF-1 seam types merge; #39 design must additionally cover its own core multi-agent/DAG scope beyond the workflow seam. Until this lands, `workflow/run` returns explicit `workflow.execution.unavailable`. |
+| WF-3 | Workflow follow-ups: trigger Port + single invocation entry, conditional edges/branch routing, node error policies (retry/skip), resume-after-interruption, structured (non-string) node IO, visual editor UI module, workflow nesting, version migration beyond schema v1, checkpoint-store mapping | DEFERRED | Umbrella for `DETAILED-DESIGN.md` §14 open items; none block WF-1/WF-2. Split into own rows when a slice is scheduled. |
 Weixin iLink, OneBot (external NapCat), Discord voice, and public webhooks
 are **not** on this board; they need their own capability proposal.
 
