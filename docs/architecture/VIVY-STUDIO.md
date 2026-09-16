@@ -10,7 +10,7 @@
 > - `VIVY-WORLDVIEW.md` — structural correspondence between product philosophy and worldview (does not replace development-environment strategy)
 > - `VIVY-GATEWAY-AND-STUDIO.md` — English decision IDs (NG-*)
 > - `VIVY-ASSEMBLY.md` / `VIVY-PLUGIN-SPEC.md` — recipes and user plugins
-> - `.workspace/deepseek-harness/upstream` — evidence source for the first development engine (official clone, `0d1f50007f`, synced 2026-09-16, dsh `0.1.6-alpha.1`)
+> - `.workspace/deepseek-harness/upstream` — evidence source for the first development engine (official clone, `0d1f50007f`, synced 2026-09-17, dsh `0.1.6-alpha.1`)
 
 ---
 

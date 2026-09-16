@@ -263,7 +263,7 @@ These numbers are quick scans, not authoritative totals — they exist only to c
 
 ### 3.18 deepseek-harness  (`.workspace/deepseek-harness/upstream/`)
 
-- **Source:** `https://github.com/deepseek-ai/deepseek-harness.git` (shallow clone 2026-08-15; last sync 2026-09-16, commit `0d1f50007f`, release `dsh-v0.1.6-alpha.1`, MIT).
+- **Source:** `https://github.com/deepseek-ai/deepseek-harness.git` (shallow clone 2026-08-15; last sync 2026-09-17, commit `0d1f50007f`, release `dsh-v0.1.6-alpha.1`, MIT).
 - **Language / stack:** TypeScript / pnpm workspaces / vendored Cordis.
 - **License:** MIT (`LICENSE` — Copyright 2026 DeepSeek).
 - **Why on disk:** evidence and first engine for the independent **Vivy Studio** app (`VIVY-STUDIO.md`). Not a V0 species dependency.
