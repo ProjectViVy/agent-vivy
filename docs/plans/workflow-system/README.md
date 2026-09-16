@@ -4,6 +4,8 @@
 > [#40 — Optional cold-pluggable workflow system with Agent authoring](https://github.com/ProjectViVy/agent-vivy/issues/40).
 > Design approved in session on 2026-09-16. Not yet an implementation
 > authorization; WF-1 scheduling is a separate decision.
+> Detailed WF-1 contracts: `DETAILED-DESIGN.md` (same directory);
+> normative definition schema: `schema/workflow-definition.schema.json`.
 >
 > Related: [#39 — core Agent DAG / bounded multi-agent orchestration](https://github.com/ProjectViVy/agent-vivy/issues/39)
 > (this design defines the seam #39 will implement), #38 (evolution
@@ -172,21 +174,25 @@ Failure and interruption semantics (first slice, explicit):
 
 ## 6. Invocation surfaces and Agent authoring
 
-RPC (following `internal/rpc` conventions):
-`workflow.list / get / validate / define / run / runs`.
+RPC (following `internal/rpc` slash-namespace conventions):
+`workflow/list`, `workflow/get`, `workflow/validate`, `workflow/define`,
+`workflow/run`, `workflow/runs`; capability tokens `workflow.definitions`
+and `workflow.run` advertised only when the module is present.
 
-Agent tools (contributed by the workflow module through ToolHost,
-namespace-qualified IDs, disjoint from the reserved T1 protected
-tools — no shadowing possible):
+Agent tools (contributed by the workflow module through ToolHost as
+generated `std/tool@v1` providers, snake_case IDs disjoint from the
+reserved T1 protected tools — no shadowing possible):
 
-- `workflow.list` — definitions with latest version;
-- `workflow.get` — definition by id/version;
-- `workflow.validate` — dry-run of the five checks returning
+- `workflow_list` — definitions with latest version;
+- `workflow_get` — definition by id/version;
+- `workflow_validate` — dry-run of the five checks returning
   structured diagnostics; the authoring-loop tool
   (draft → validate → fix → validate);
-- `workflow.run` — parameterized invocation under normal
+- `workflow_define` — save a new definition version as an
+  approval-requiring proposal;
+- `workflow_run` — parameterized invocation under normal
   Policy/approval governance;
-- `workflow.runs` — run history.
+- `workflow_runs` — run history.
 
 Agent authoring path: the Agent produces definition JSON, iterates via
 `workflow.validate`, and saves through the existing proposal/approval
