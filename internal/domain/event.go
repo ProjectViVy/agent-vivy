@@ -38,6 +38,9 @@ const (
 	EventChildCompleted        EventType = "child.completed"
 	EventChildFailed           EventType = "child.failed"
 	EventChildCancelled        EventType = "child.cancelled"
+	EventWorkflowInvoked       EventType = "workflow.invoked"
+	EventWorkflowNodeStarted   EventType = "workflow.node.started"
+	EventWorkflowNodeCompleted EventType = "workflow.node.completed"
 	EventContextCompacted      EventType = "context.compacted"
 	EventSessionTruncated      EventType = "session.truncated"
 	EventSessionForked         EventType = "session.forked"
@@ -80,6 +83,9 @@ var EventTypes = []EventType{
 	EventChildCompleted,
 	EventChildFailed,
 	EventChildCancelled,
+	EventWorkflowInvoked,
+	EventWorkflowNodeStarted,
+	EventWorkflowNodeCompleted,
 	EventContextCompacted,
 	EventSessionTruncated,
 	EventSessionForked,

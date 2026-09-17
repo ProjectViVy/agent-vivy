@@ -12,6 +12,7 @@ func TestCoreCatalogDefinesCanonicalClosedPorts(t *testing.T) {
 		testClosed("core/loop-driver@v1", "vivy/loop", CardinalityExactlyOne, RequirementAgent),
 		testClosed("core/chat-model-host@v1", "vivy/model", CardinalityExactlyOne, RequirementAgent),
 		testClosed("core/tool-host@v1", "vivy/tool-host", CardinalityExactlyOne, RequirementDefault),
+		testClosed("core/workflow-host@v1", "vivy/workflow", CardinalityExactlyOne, RequirementDefault),
 		testClosed("core/storage-engine@v1", "vivy/storage", CardinalityExactlyOne, RequirementAlways),
 		testClosed("core/checkpoint-store@v1", "vivy/checkpoint", CardinalityExactlyOne, RequirementAgent),
 		testClosed("core/credential-resolver@v1", "vivy/credential", CardinalityExactlyOne, RequirementAlways),

@@ -42,6 +42,15 @@ providers:
     env_key: ANTHROPIC_API_KEY
     default_model: claude-sonnet-4-5
 
+# Workflow definitions are validated against these host ceilings. Omit this
+# section to use the built-in defaults; the sealed Generation still decides
+# whether vivy/workflow is present.
+workflow:
+  max_nodes: 32
+  max_parallelism: 4
+  max_node_output_bytes: 65536
+  definition_max_bytes: 262144
+
 tui:
   # false keeps completed tool cards to a bounded preview. Set true only
   # while diagnosing a tool: complete results may contain sensitive data.

@@ -53,6 +53,7 @@ var migrations = []struct {
 	{21, migration021},
 	{22, migration022},
 	{23, migration023},
+	{24, migration024},
 }
 
 // Open opens (or creates) the database at path and applies all pending
@@ -659,4 +660,36 @@ const migration022 = `
 // each conversation. Empty means the existing default private workspace.
 const migration023 = `
 	ALTER TABLE sessions ADD COLUMN workspace_path TEXT NOT NULL DEFAULT '';
+`
+
+// migration024 adds the optional workflow definition and run projections.
+// Definitions are append-only; workflow runs reference the existing Journal
+// run/session rows so the product still has one lifecycle and one Journal.
+const migration024 = `
+CREATE TABLE workflow_definitions (
+	id TEXT NOT NULL,
+	rev INTEGER NOT NULL,
+	content_hash TEXT NOT NULL,
+	definition BLOB NOT NULL,
+	created_at_ms INTEGER NOT NULL,
+	PRIMARY KEY (id, rev)
+);
+CREATE INDEX workflow_definitions_latest_idx ON workflow_definitions(id, rev DESC);
+
+CREATE TABLE workflow_runs (
+	run_id TEXT PRIMARY KEY,
+	workflow_id TEXT NOT NULL,
+	workflow_rev INTEGER NOT NULL,
+	workflow_hash TEXT NOT NULL,
+	capability_json BLOB NOT NULL,
+	session_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	reason TEXT NOT NULL DEFAULT '',
+	node_outcomes_json BLOB NOT NULL DEFAULT '',
+	created_at_ms INTEGER NOT NULL,
+	updated_at_ms INTEGER NOT NULL,
+	FOREIGN KEY(run_id) REFERENCES runs(id),
+	FOREIGN KEY(session_id) REFERENCES sessions(id)
+);
+CREATE INDEX workflow_runs_definition_idx ON workflow_runs(workflow_id, created_at_ms);
 `

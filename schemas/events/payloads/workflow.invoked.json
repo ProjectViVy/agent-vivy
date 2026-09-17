@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.invoked.json",
+  "title": "Workflow invoked payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["definition_id", "rev", "hash", "capability_hash", "inputs_sha256"],
+  "properties": {
+    "definition_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "rev": { "type": "integer", "minimum": 1 },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "capability_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "inputs_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

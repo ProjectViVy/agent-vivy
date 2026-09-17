@@ -27,6 +27,9 @@ const (
 	InvalidParams  = -32602
 	InternalError  = -32603
 	ServerOverload = -32001
+	// CodeUnavailable means the selected Generation has the workflow
+	// definition surface but no concrete PlanExecutor (WF-1 stub state).
+	CodeUnavailable = -32011
 )
 
 var (

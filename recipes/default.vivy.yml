@@ -8,6 +8,7 @@ modules:
   - vivy/credential
   - vivy/sandbox
   - vivy/tool-host
+  - vivy/workflow
   - vivy/protected-tools
   - vivy/mcp-host
   - vivy/context-host

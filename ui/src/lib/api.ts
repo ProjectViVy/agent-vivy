@@ -14,6 +14,7 @@ export const RPC_METHODS = [
   'settings/providers', 'settings/providers/upsert', 'settings/providers/delete', 'settings/providers/refresh',
   'settings/mcp', 'settings/mcp/upsert', 'settings/mcp/delete', 'settings/mcp/probe',
   'tools/list', 'tools/set-active',
+  'workflow/list', 'workflow/get', 'workflow/validate', 'workflow/define', 'workflow/run', 'workflow/runs',
   'channel/inspect', 'channel/get', 'channel/update',
   'cron/list', 'cron/create', 'cron/update', 'cron/delete', 'cron/trigger', 'cron/stop',
   'stats/tokens',
@@ -64,6 +65,13 @@ export type ThinkingMode = 'auto' | 'on' | 'off';
 export interface MessageAttachment { name?: string; mime_type: string; data_url: string }
 export interface Run { id: string; session_id: string; status: RunStatus; created_at: number }
 export interface RunLogEvent { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }
+export interface WorkflowInputParameter { type: 'string' | 'number' | 'boolean'; description?: string; required?: boolean }
+export interface WorkflowNode { id: string; kind: 'model' | 'agent' | 'io'; config: Record<string, unknown>; timeout_ms: number }
+export interface WorkflowDefinition { schema_version: '1'; id: string; title: string; description?: string; inputs?: Record<string, WorkflowInputParameter>; nodes: WorkflowNode[]; edges: Array<{ from: string; to: string }>; outputs?: Array<{ name: string; template: string }> }
+export interface WorkflowSummary { id: string; latest_rev: number; hash: string; title: string; created_at: number }
+export interface WorkflowRecord { id: string; rev: number; hash: string; definition: WorkflowDefinition; created_at: number }
+export interface WorkflowDiagnostic { check: 'schema' | 'topology' | 'capability' | 'budget' | 'authority'; path: string; message: string }
+export interface WorkflowRunSummary { run_id: string; workflow_id: string; rev: number; hash: string; session_id: string; status: RunStatus; reason?: string; created_at: number; updated_at: number }
 /** session/context — 真实上下文压力（服务端装配口径）。 */
 export interface SessionContext {
   session_id: string;
@@ -231,7 +239,7 @@ export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); this.name = 'ApiError'; }
 }
 
-function mapCode(code: number) { return code === -32004 || code === -32601 ? [404, 'not_found'] as const : code === -32009 ? [409, 'conflict'] as const : code === -32602 ? [400, 'invalid_request'] as const : code === -32010 ? [502, 'bad_gateway'] as const : [500, 'internal_error'] as const; }
+function mapCode(code: number) { return code === -32004 || code === -32601 ? [404, 'not_found'] as const : code === -32009 ? [409, 'conflict'] as const : code === -32602 ? [400, 'invalid_request'] as const : code === -32010 ? [502, 'bad_gateway'] as const : code === -32011 ? [503, 'unavailable'] as const : [500, 'internal_error'] as const; }
 export async function request<T>(method: string, params?: unknown): Promise<T> {
   try { return await (await getRpcClient()).call<T>(method, params); }
   catch (error) {
@@ -269,6 +277,13 @@ export const interruptRun = (runId: string) => request<{ run_id: string; status:
 export const cancelRun = (runId: string) => request<{ run_id: string; status: string }>('run/cancel', { run_id: runId });
 export const getRun = (runId: string) => request<Run>('run/get', { run_id: runId });
 export const getRunLog = (runId: string, afterSeq = 0) => request<{ events: RunLogEvent[] }>('run/log', { run_id: runId, after_seq: afterSeq });
+export const listWorkflows = () => request<{ workflows: WorkflowSummary[] }>('workflow/list');
+export const getWorkflow = (id: string, rev?: number) => request<{ workflow: WorkflowRecord }>('workflow/get', { id, ...(rev === undefined ? {} : { rev }) });
+export const validateWorkflow = (definition: WorkflowDefinition) => request<{ valid: boolean; diagnostics: WorkflowDiagnostic[] }>('workflow/validate', { definition });
+export const defineWorkflow = (definition: WorkflowDefinition) => request<{ id: string; rev: number; hash: string }>('workflow/define', { definition });
+export const runWorkflow = (id: string, inputs: Record<string, unknown>, rev?: number, sessionId?: string) =>
+  request<{ run_id: string; status: RunStatus }>('workflow/run', { id, inputs, ...(rev === undefined ? {} : { rev }), ...(sessionId ? { session_id: sessionId } : {}) });
+export const listWorkflowRuns = (id: string, limit = 100) => request<{ runs: WorkflowRunSummary[] }>('workflow/runs', { id, limit });
 export const recoverBackgroundRuns = () => request<{ recovered: boolean }>('background/recover');
 export const listBackgroundRuns = () => request<{ runs: BackgroundRun[] }>('background/list');
 export const attachBackgroundRun = (runId: string) => request<BackgroundRun>('background/attach', { run_id: runId });

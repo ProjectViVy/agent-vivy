@@ -1355,6 +1355,75 @@ export interface FaceRunEvent {
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
+/** Workflow definition surface shared with the Web Face API (WF-1 slice). */
+export interface FaceWorkflowInputParameter {
+  readonly type: "string" | "number" | "boolean";
+  readonly description?: string;
+  readonly required?: boolean;
+}
+
+export interface FaceWorkflowNode {
+  readonly id: string;
+  readonly kind: "model" | "agent" | "io";
+  readonly config: Record<string, unknown>;
+  readonly timeout_ms: number;
+}
+
+export interface FaceWorkflowEdge {
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface FaceWorkflowOutput {
+  readonly name: string;
+  readonly template: string;
+}
+
+export interface FaceWorkflowDefinition {
+  readonly schema_version: "1";
+  readonly id: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly inputs?: Record<string, FaceWorkflowInputParameter>;
+  readonly nodes: readonly FaceWorkflowNode[];
+  readonly edges: readonly FaceWorkflowEdge[];
+  readonly outputs?: readonly FaceWorkflowOutput[];
+}
+
+export interface FaceWorkflowSummary {
+  readonly id: string;
+  readonly latest_rev: number;
+  readonly hash: string;
+  readonly title: string;
+  readonly created_at: number;
+}
+
+export interface FaceWorkflowRecord {
+  readonly id: string;
+  readonly rev: number;
+  readonly hash: string;
+  readonly definition: FaceWorkflowDefinition;
+  readonly created_at: number;
+}
+
+export interface FaceWorkflowDiagnostic {
+  readonly check: "schema" | "topology" | "capability" | "budget" | "authority";
+  readonly path: string;
+  readonly message: string;
+}
+
+export interface FaceWorkflowRunSummary {
+  readonly run_id: string;
+  readonly workflow_id: string;
+  readonly rev: number;
+  readonly hash: string;
+  readonly session_id: string;
+  readonly status: FaceRunStatus;
+  readonly reason?: string;
+  readonly created_at: number;
+  readonly updated_at: number;
+}
+
 /** Structural client surface aligned with the current Web Face API module. */
 export interface FaceClientAPI {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -1453,6 +1522,12 @@ export interface FaceClientAPI {
   deleteCronJob(id: string): Promise<{ readonly deleted: boolean }>;
   triggerCronJob(id: string): Promise<FaceCronJobResult>;
   stopCronJob(id: string): Promise<{ readonly stopped: boolean }>;
+  listWorkflows(): Promise<{ readonly workflows: readonly FaceWorkflowSummary[] }>;
+  getWorkflow(id: string, rev?: number): Promise<{ readonly workflow: FaceWorkflowRecord }>;
+  validateWorkflow(definition: FaceWorkflowDefinition): Promise<{ readonly valid: boolean; readonly diagnostics: readonly FaceWorkflowDiagnostic[] }>;
+  defineWorkflow(definition: FaceWorkflowDefinition): Promise<{ readonly id: string; readonly rev: number; readonly hash: string }>;
+  runWorkflow(id: string, inputs: Record<string, unknown>, rev?: number, sessionId?: string): Promise<{ readonly run_id: string; readonly status: FaceRunStatus }>;
+  listWorkflowRuns(id: string, limit?: number): Promise<{ readonly runs: readonly FaceWorkflowRunSummary[] }>;
   fetchSessionTrajectory(sessionId: string, limit?: number): Promise<FaceTrajectorySession>;
 }
 

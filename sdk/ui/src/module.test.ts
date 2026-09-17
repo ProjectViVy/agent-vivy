@@ -365,6 +365,12 @@ describe("full-code UI composition", () => {
         deleteCronJob: unavailableFaceOperation,
         triggerCronJob: unavailableFaceOperation,
         stopCronJob: unavailableFaceOperation,
+        listWorkflows: unavailableFaceOperation,
+        getWorkflow: unavailableFaceOperation,
+        validateWorkflow: unavailableFaceOperation,
+        defineWorkflow: unavailableFaceOperation,
+        runWorkflow: unavailableFaceOperation,
+        listWorkflowRuns: unavailableFaceOperation,
         fetchSessionTrajectory: unavailableFaceOperation,
       },
       rpc: {

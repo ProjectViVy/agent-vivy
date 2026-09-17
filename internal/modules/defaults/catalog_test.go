@@ -58,6 +58,7 @@ func TestDefaultCatalogBindsP4HostsAndSources(t *testing.T) {
 		"vivy/skill-host":     {port: "core/skill-host@v1"},
 		"vivy/skill-source":   {port: "std/skill-source@v1", provider: "SkillSourceProviders", collection: true},
 		"vivy/mcp-host":       {port: "core/mcp-host@v1", provider: "NewMCPProvider"},
+		"vivy/workflow":       {port: "core/workflow-host@v1", provider: "ToolProviders", collection: true},
 	}
 	seen := make(map[string]bool, len(want))
 	for _, record := range records {

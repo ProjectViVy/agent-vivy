@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
 )
 
 func TestPolicyDenyWinsOverAllowRegardlessOfRuleOrder(t *testing.T) {
@@ -82,5 +83,28 @@ func TestPolicySnapshotChangesWhenDefinitionChanges(t *testing.T) {
 	}
 	if first.Hash == second.Hash || first.Hash == "" {
 		t.Fatalf("snapshots = %+v / %+v, want distinct non-empty hashes", first, second)
+	}
+}
+
+func TestPolicyProfilesGateWorkflowToolsByEffect(t *testing.T) {
+	engine, err := NewPolicyEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.NewWorkflowTools(nil) {
+		spec := tool.Spec()
+		for _, profile := range []domain.PolicyProfile{domain.PolicyProfilePlan, domain.PolicyProfileReadOnly} {
+			eval, err := engine.Evaluate(profile, spec, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := domain.PolicyAllow
+			if !spec.Readonly {
+				want = domain.PolicyDeny
+			}
+			if eval.Decision != want {
+				t.Fatalf("%s/%s decision = %q, want %q", profile, spec.Name, eval.Decision, want)
+			}
+		}
 	}
 }

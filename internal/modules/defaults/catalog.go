@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/modules/optional"
+	workflowmodule "agent-vivy/internal/modules/workflow"
 	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
@@ -54,6 +55,13 @@ func Catalog(repoRoot string) ([]Record, error) {
 		if host.ModuleID == "vivy/mcp-host" {
 			provided = append(provided, port("std/tool-world@v1", "mcp"))
 		}
+		if host.ModuleID == workflowmodule.ID {
+			for _, provider := range workflowmodule.ToolProviders() {
+				provided = append(provided, port("std/tool@v1", provider.Definition().ID))
+			}
+			records = append(records, boundRecord(host.ModuleID, "agent-vivy/internal/modules/workflow", "workflow", host.Constructor, source, provided...))
+			continue
+		}
 		records = append(records, record(host.ModuleID, host.Constructor, source, provided...))
 	}
 	for i := range records {
@@ -75,9 +83,12 @@ func Catalog(repoRoot string) ([]Record, error) {
 			records[i].Binding.ProviderConstructor = "SkillSourceProviders"
 			records[i].Binding.ProviderCollection = true
 			records[i].Binding.SkillSourceProvider = true
+		case "vivy/workflow":
+			records[i].Binding.ProviderConstructor = "ToolProviders"
+			records[i].Binding.ProviderCollection = true
 		}
 		switch records[i].Descriptor.Module.ID {
-		case "vivy/protected-tools", "vivy/mcp-host":
+		case "vivy/protected-tools", "vivy/mcp-host", "vivy/workflow":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 		case "vivy/context-source":
 			records[i].Descriptor.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/context-host@v1"}, Provider: "vivy/context-host"}}

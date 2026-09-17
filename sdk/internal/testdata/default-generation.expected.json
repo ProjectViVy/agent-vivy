@@ -1,7 +1,7 @@
 {
-  "modules": ["vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"],
+  "modules": ["vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host", "vivy/workflow"],
   "channels": ["dingtalk", "discord", "feishu", "qq", "telegram"],
-  "protectedTools": ["ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"],
+  "protectedTools": ["ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view", "workflow_list", "workflow_get", "workflow_validate", "workflow_define", "workflow_run", "workflow_runs"],
   "actions": [],
   "toolWorldProviders": ["mcp"],
   "providerProfiles": ["openai", "anthropic"],

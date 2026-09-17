@@ -1,4 +1,4 @@
-// Package conformance is the D-032 backend suite (CN-01..CN-17).
+// Package conformance is the D-032 backend suite (CN-01..CN-28).
 package conformance
 
 import (
@@ -39,7 +39,7 @@ type Harness struct {
 	Setup    func(t *testing.T) Slot
 }
 
-// Run executes CN-01..CN-27.
+// Run executes CN-01..CN-28.
 func Run(t *testing.T, h Harness) {
 	t.Helper()
 	cases := []struct {
@@ -74,12 +74,72 @@ func Run(t *testing.T, h Harness) {
 		{"CN-25", "bounded modified-file sidebar projection", cnModifiedFiles},
 		{"CN-26", "attributed model usage projection", cnAttributedModelUsage},
 		{"CN-27", "durable immutable session workspace", cnSessionWorkspace},
+		{"CN-28", "workflow revisions and terminal projection", cnWorkflowProjection},
 	}
-	if len(cases) != 27 {
-		t.Fatalf("conformance suite must carry exactly 27 cases, got %d", len(cases))
+	if len(cases) != 28 {
+		t.Fatalf("conformance suite must carry exactly 28 cases, got %d", len(cases))
 	}
 	for _, c := range cases {
 		t.Run(c.id+" "+c.name, func(t *testing.T) { c.run(t, h) })
+	}
+}
+
+func cnWorkflowProjection(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	workflowStore, ok := b.(storage.WorkflowStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkflowStore")
+	}
+	runStore, ok := b.(storage.WorkflowRunStore)
+	if !ok {
+		t.Fatal("backend does not implement WorkflowRunStore")
+	}
+	definition := storage.WorkflowDefinitionRecord{
+		ID: "wf-cn28", Rev: 1, Hash: "hash-1", Definition: []byte(`{"id":"wf-cn28","schema_version":"1"}`), CreatedAt: 1,
+	}
+	if err := workflowStore.SaveDefinition(ctx, definition); err != nil {
+		t.Fatalf("SaveDefinition: %v", err)
+	}
+	if err := workflowStore.SaveDefinition(ctx, definition); !errors.Is(err, storage.ErrVersionConflict) {
+		t.Fatalf("duplicate workflow revision = %v, want ErrVersionConflict", err)
+	}
+	definition.Rev = 2
+	definition.Hash = "hash-2"
+	definition.Definition = []byte(`{"id":"wf-cn28","schema_version":"1","title":"second"}`)
+	if err := workflowStore.SaveDefinition(ctx, definition); err != nil {
+		t.Fatalf("SaveDefinition revision 2: %v", err)
+	}
+	latest, err := workflowStore.LatestDefinition(ctx, definition.ID)
+	if err != nil || latest.Rev != 2 || !bytes.Equal(latest.Definition, definition.Definition) {
+		t.Fatalf("LatestDefinition = %+v, %v", latest, err)
+	}
+
+	if err := b.CreateSession(ctx, domain.Session{ID: "sess-cn28", Title: "workflow", CreatedAt: 1}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	run := domain.Run{ID: "run-cn28", SessionID: "sess-cn28", Status: domain.RunActive, CreatedAt: 2, Kind: domain.RunKindWorkflow}
+	if err := b.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	runRecord := storage.WorkflowRunRecord{
+		RunID: "run-cn28", WorkflowID: definition.ID, Rev: definition.Rev, Hash: definition.Hash,
+		CapabilityJSON: []byte(`{"model":"openai"}`), SessionID: run.SessionID, Status: run.Status,
+		CreatedAt: 2, UpdatedAt: 2,
+	}
+	if err := runStore.SaveWorkflowRun(ctx, runRecord); err != nil {
+		t.Fatalf("SaveWorkflowRun: %v", err)
+	}
+	outcomes := []byte(`[{"node_id":"n1","status":"completed"}]`)
+	if err := runStore.SetWorkflowRunTerminal(ctx, run.ID, domain.RunCompleted, "done", outcomes); err != nil {
+		t.Fatalf("SetWorkflowRunTerminal: %v", err)
+	}
+	if err := runStore.SetWorkflowRunTerminal(ctx, run.ID, domain.RunFailed, "late", []byte(`[]`)); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("second terminal update = %v, want ErrNotFound", err)
+	}
+	loaded, err := runStore.GetWorkflowRun(ctx, run.ID)
+	if err != nil || loaded.Status != domain.RunCompleted || loaded.Reason != "done" || !bytes.Equal(loaded.NodeOutcomes, outcomes) {
+		t.Fatalf("workflow run after terminal = %+v, %v", loaded, err)
 	}
 }
 

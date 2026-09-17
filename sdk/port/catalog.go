@@ -39,6 +39,7 @@ type Catalog struct {
 func PublicCatalog() Catalog {
 	return Catalog{definitions: []Definition{
 		public("std/tool@v1", CardinalityMany, "core/tool-host@v1", false, toolGrants()...),
+		public("std/workflow-node@v1", CardinalityMany, "core/workflow-host@v1", false),
 		public("std/tool-world@v1", CardinalityMany, "core/tool-host@v1", false, toolGrants()...),
 		public("std/channel@v1", CardinalityMany, "core/channel-host@v1", false,
 			module.GrantChannelPoll, module.GrantChannelWebhook, module.GrantChannelListen,

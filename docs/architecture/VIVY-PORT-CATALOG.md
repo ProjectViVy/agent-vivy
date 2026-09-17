@@ -35,12 +35,16 @@
 | `std/ui-extension@v1` | `0..n`, ordered | PresentationHost | `SUPPORTED` |
 | `std/ui-root@v1` | `0..1` | PresentationHost | `SUPPORTED` |
 | `std/control-action@v1` | `0..n` | ActionHost | `SUPPORTED` |
+| `std/workflow-node@v1` | `0..n` | WorkflowHost | `SPECIFIED`/`PLANNED` |
 
-All 14 public Ports are `SUPPORTED` by the seven-artifact implementation
+The first 14 public Ports are `SUPPORTED` by the seven-artifact implementation
 evidence recorded in `sdk/internal/assembly/evidence.go` and projected by the
 compiler into the sealed Manifest. This is a capability status, not a blanket
 integration claim: release-wide conformance and rollback remain separately
-gated for each selected Generation.
+gated for each selected Generation. `std/workflow-node@v1` is cataloged with
+its Consumer but carries no support evidence yet (WF-1 ships the workflow
+definition surface; node Providers arrive with WF-2), so its derived state
+stays `SPECIFIED`/`PLANNED` until the seven-artifact standard completes.
 
 ## 3. Tool and ToolWorld
 
@@ -329,6 +333,7 @@ re-enters ToolHost.
 | `core/status-host@v1` | `0..1` | Required when a Status Source exists |
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
+| `core/workflow-host@v1` | `1` | Default-on; owned by `vivy/workflow`; inactive when the module is not selected |
 
 L0 owns ChannelHost and FaceHost authority; they are not replaceable Provider
 slots even though they consume public Ports.

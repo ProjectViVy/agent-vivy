@@ -10,6 +10,17 @@ import (
 	"agent-vivy/sdk/port"
 )
 
+// plannedPublicPorts lists cataloged public Ports that are deliberately
+// SPECIFIED/PLANNED because their seven-artifact support evidence is scheduled
+// for a later phase: std/workflow-node@v1 waits for the WF-2 real node
+// Provider, Failure Model, Conformance Suite, and Inspect Projection
+// (docs/architecture/VIVY-WORKFLOW.md §9). They are exempt from the
+// every-public-Port-is-SUPPORTED gate below, but the test still fails if such a
+// Port ever evaluates SUPPORTED without its evidence.
+var plannedPublicPorts = map[string]bool{
+	"std/workflow-node@v1": true,
+}
+
 func TestSupportStateRequiresEveryArtifactForEveryPublicPort(t *testing.T) {
 	catalog := port.PublicCatalog()
 	evidence := assemblyv1.SupportedPortEvidence()
@@ -19,6 +30,12 @@ func TestSupportStateRequiresEveryArtifactForEveryPublicPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, definition := range catalog.Definitions() {
+		if plannedPublicPorts[definition.Ref.Port] {
+			if got := releaseSupportState(records, definition.Ref.Port); got == port.SupportSupported {
+				t.Fatalf("planned Port %s = %s, want a non-SUPPORTED planned state", definition.Ref.Port, got)
+			}
+			continue
+		}
 		if got := releaseSupportState(records, definition.Ref.Port); got != port.SupportSupported {
 			t.Fatalf("release state for %s = %s, want %s", definition.Ref.Port, got, port.SupportSupported)
 		}

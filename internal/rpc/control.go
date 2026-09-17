@@ -228,6 +228,9 @@ type ControlDeps struct {
 	// ModelLists discovers the upstream OpenAI-compatible /models catalog for
 	// settings/providers/refresh. Nil uses the package default 15s client.
 	ModelLists *provider.ModelListClient
+	// Workflow is the optional WorkflowHost projection. A nil value means the
+	// sealed Generation omitted vivy/workflow and disables the full family.
+	Workflow tools.WorkflowOperations
 }
 
 type moduleActionParams struct {
@@ -1000,6 +1003,9 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		if h.deps.ActionHost != nil && len(h.deps.ActionHost.Definitions()) > 0 {
 			capabilities = append(capabilities, ModuleActionMethod)
 		}
+		if h.deps.Workflow != nil {
+			capabilities = append(capabilities, "workflow.definitions", "workflow.run")
+		}
 		return map[string]any{
 			"protocol_version": ProtocolVersion,
 			"capabilities":     capabilities,
@@ -1142,6 +1148,18 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.workspaceRead(ctx, request)
 	case "workspace/browse":
 		return h.workspaceBrowse(request)
+	case "workflow/list":
+		return h.listWorkflows(ctx)
+	case "workflow/get":
+		return h.getWorkflow(ctx, request)
+	case "workflow/validate":
+		return h.validateWorkflow(ctx, request)
+	case "workflow/define":
+		return h.defineWorkflow(ctx, request)
+	case "workflow/run":
+		return h.runWorkflow(ctx, peer, request)
+	case "workflow/runs":
+		return h.listWorkflowRuns(ctx, request)
 	case "approval/list":
 		return h.listApprovals(ctx)
 	case "approval/respond":

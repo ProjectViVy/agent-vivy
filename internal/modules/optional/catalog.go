@@ -14,6 +14,7 @@ type Definition struct {
 func Catalog() []Definition {
 	return []Definition{
 		{ModuleID: "vivy/tool-host", Port: "core/tool-host@v1", Constructor: "NewToolHost", DefaultOn: true},
+		{ModuleID: "vivy/workflow", Port: "core/workflow-host@v1", Constructor: "NewModule", DefaultOn: true, RequiredBy: []string{"std/workflow-node@v1"}},
 		{ModuleID: "vivy/context-host", Port: "core/context-host@v1", Constructor: "NewContextHost", DefaultOn: true, RequiredBy: []string{"std/context-source@v1"}},
 		{ModuleID: "vivy/skill-host", Port: "core/skill-host@v1", Constructor: "NewSkillHost", DefaultOn: true, RequiredBy: []string{"std/skill-source@v1"}},
 		{ModuleID: "vivy/mcp-host", Port: "core/mcp-host@v1", Constructor: "NewMCPHost", DefaultOn: true},

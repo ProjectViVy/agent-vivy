@@ -249,6 +249,48 @@ type RunStore interface {
 	ListRunsBySession(ctx context.Context, sessionID domain.SessionID) ([]domain.Run, error)
 }
 
+// WorkflowDefinitionRecord stores one immutable canonical workflow revision.
+// Definition is the exact canonical JSON bytes used to compute Hash.
+type WorkflowDefinitionRecord struct {
+	ID         string
+	Rev        int64
+	Hash       string
+	Definition []byte
+	CreatedAt  int64
+}
+
+// WorkflowStore persists append-only workflow definition revisions. There is
+// no update or delete operation in WF-1.
+type WorkflowStore interface {
+	SaveDefinition(context.Context, WorkflowDefinitionRecord) error
+	GetDefinition(context.Context, string, int64) (WorkflowDefinitionRecord, error)
+	LatestDefinition(context.Context, string) (WorkflowDefinitionRecord, error)
+	ListDefinitions(context.Context) ([]WorkflowDefinitionRecord, error)
+}
+
+// WorkflowRunRecord is the bounded run projection for one pinned definition.
+// NodeOutcomes contains bounded JSON and is written once at terminal state.
+type WorkflowRunRecord struct {
+	RunID          domain.RunID
+	WorkflowID     string
+	Rev            int64
+	Hash           string
+	CapabilityJSON []byte
+	SessionID      domain.SessionID
+	Status         domain.RunStatus
+	Reason         string
+	NodeOutcomes   []byte
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+type WorkflowRunStore interface {
+	SaveWorkflowRun(context.Context, WorkflowRunRecord) error
+	GetWorkflowRun(context.Context, domain.RunID) (WorkflowRunRecord, error)
+	ListWorkflowRunsByDefinition(context.Context, string, int) ([]WorkflowRunRecord, error)
+	SetWorkflowRunTerminal(context.Context, domain.RunID, domain.RunStatus, string, []byte) error
+}
+
 // LatestPrimaryRunStore is the bounded session-to-workspace lookup used by
 // optional active-workspace status surfaces. Keeping it optional preserves
 // small embedders that implement only RunStore.
@@ -592,6 +634,8 @@ type Engine interface {
 	MessageStore
 	NoteStore
 	RunStore
+	WorkflowStore
+	WorkflowRunStore
 	ApprovalStore
 	ApprovalTimeoutStore
 	ApprovalLifecycleStore

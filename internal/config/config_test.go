@@ -106,6 +106,56 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
+func TestWorkflowConfigDefaultsAndAuthoredSectionPresence(t *testing.T) {
+	cfg := Default()
+	if cfg.Workflow != nil {
+		t.Fatal("default config unexpectedly authored a workflow section")
+	}
+	if got := cfg.EffectiveWorkflowConfig(); got != DefaultWorkflowConfig() {
+		t.Fatalf("effective default workflow config = %+v", got)
+	}
+
+	loaded, err := Load(writeConfig(t, validDoc+`
+workflow:
+  max_nodes: 8
+`))
+	if err != nil {
+		t.Fatalf("Load workflow section: %v", err)
+	}
+	if loaded.Workflow == nil || loaded.Workflow.MaxNodes != 8 || loaded.Workflow.MaxParallelism != 4 ||
+		loaded.Workflow.MaxNodeOutputBytes != 64<<10 || loaded.Workflow.DefinitionMaxBytes != 256<<10 {
+		t.Fatalf("authored workflow config = %+v", loaded.Workflow)
+	}
+}
+
+func TestWorkflowConfigRejectsNonPositiveLimits(t *testing.T) {
+	base := DefaultWorkflowConfig()
+	for field, update := range map[string]func(*WorkflowConfig){
+		"max_nodes":             func(cfg *WorkflowConfig) { cfg.MaxNodes = 0 },
+		"max_parallelism":       func(cfg *WorkflowConfig) { cfg.MaxParallelism = -1 },
+		"max_node_output_bytes": func(cfg *WorkflowConfig) { cfg.MaxNodeOutputBytes = 0 },
+		"definition_max_bytes":  func(cfg *WorkflowConfig) { cfg.DefinitionMaxBytes = -1 },
+	} {
+		cfg := Default()
+		workflow := base
+		update(&workflow)
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "workflow."+field) {
+			t.Errorf("%s: validation error = %v", field, err)
+		}
+	}
+}
+
+func TestWorkflowConfigRejectsUnknownField(t *testing.T) {
+	if _, err := Load(writeConfig(t, validDoc+`
+workflow:
+  max_nodes: 8
+  unknown: true
+`)); err == nil || !strings.Contains(err.Error(), "workflow.unknown") {
+		t.Fatalf("unknown workflow field error = %v", err)
+	}
+}
+
 func TestMCPServerTransportValidation(t *testing.T) {
 	cfg := Default()
 	cfg.Runtime.MCPServers = []MCPServer{{

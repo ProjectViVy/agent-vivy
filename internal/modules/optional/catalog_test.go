@@ -8,6 +8,7 @@ import (
 func TestCatalogPinsDefaultAndConditionalHosts(t *testing.T) {
 	want := map[string]Definition{
 		"vivy/tool-host":         {ModuleID: "vivy/tool-host", Port: "core/tool-host@v1", Constructor: "NewToolHost", DefaultOn: true},
+		"vivy/workflow":          {ModuleID: "vivy/workflow", Port: "core/workflow-host@v1", Constructor: "NewModule", DefaultOn: true, RequiredBy: []string{"std/workflow-node@v1"}},
 		"vivy/context-host":      {ModuleID: "vivy/context-host", Port: "core/context-host@v1", Constructor: "NewContextHost", DefaultOn: true, RequiredBy: []string{"std/context-source@v1"}},
 		"vivy/skill-host":        {ModuleID: "vivy/skill-host", Port: "core/skill-host@v1", Constructor: "NewSkillHost", DefaultOn: true, RequiredBy: []string{"std/skill-source@v1"}},
 		"vivy/mcp-host":          {ModuleID: "vivy/mcp-host", Port: "core/mcp-host@v1", Constructor: "NewMCPHost", DefaultOn: true},

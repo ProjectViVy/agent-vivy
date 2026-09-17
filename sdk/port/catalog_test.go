@@ -10,6 +10,7 @@ import (
 func TestCatalogContainsExactlyApprovedPublicPorts(t *testing.T) {
 	want := []module.PortRef{
 		{Port: "std/tool@v1"},
+		{Port: "std/workflow-node@v1"},
 		{Port: "std/tool-world@v1"},
 		{Port: "std/channel@v1"},
 		{Port: "std/face@v1"},

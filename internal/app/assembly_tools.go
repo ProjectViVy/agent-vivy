@@ -174,6 +174,12 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 	legacyOrder := make([]string, 0, len(registry.Specs()))
 	generatedOrder := make([]string, 0, len(providers))
 	discoveryCtx := context.Background()
+	generatedIDs := make(map[string]struct{}, len(providers))
+	for _, provider := range providers {
+		if provider != nil && provider.Definition().ID != "" {
+			generatedIDs[provider.Definition().ID] = struct{}{}
+		}
+	}
 
 	for _, spec := range registry.Specs() {
 		implementation, ok := registry.Lookup(spec.Name)
@@ -201,6 +207,12 @@ func bindGeneratedTools(providers []toolport.ToolProvider, registry *tools.Regis
 			continue
 		}
 		if tools.IsAssemblyControlledTool(spec.Name) {
+			continue
+		}
+		if _, generated := generatedIDs[spec.Name]; generated {
+			// Generated providers are bound in the second pass below. Keeping
+			// their implementation in behaviorByID there avoids creating a
+			// legacy duplicate static binding for the same ToolHost identity.
 			continue
 		}
 		static = append(static, toolhost.StaticBinding{

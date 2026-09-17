@@ -146,15 +146,88 @@ const (
 
 // Config is the typed, validated configuration store.
 type Config struct {
-	Server     Server     `yaml:"server"`
-	Storage    Storage    `yaml:"storage"`
-	Providers  Providers  `yaml:"providers"`
-	Runtime    Runtime    `yaml:"runtime"`
-	Tools      Tools      `yaml:"tools"`
-	Governance Governance `yaml:"governance"`
-	Logging    Logging    `yaml:"logging"`
-	TUI        TUI        `yaml:"tui"`
-	Channels   Channels   `yaml:"channels"`
+	Server    Server    `yaml:"server"`
+	Storage   Storage   `yaml:"storage"`
+	Providers Providers `yaml:"providers"`
+	Runtime   Runtime   `yaml:"runtime"`
+	// Workflow is nil when the operator omitted the section. That distinction
+	// is intentional: a sealed generation without vivy/workflow must not be
+	// made to look workflow-enabled by default values alone.
+	Workflow   *WorkflowConfig `yaml:"workflow"`
+	Tools      Tools           `yaml:"tools"`
+	Governance Governance      `yaml:"governance"`
+	Logging    Logging         `yaml:"logging"`
+	TUI        TUI             `yaml:"tui"`
+	Channels   Channels        `yaml:"channels"`
+}
+
+// WorkflowConfig contains the operator ceilings for the WF-1 workflow
+// product layer. The pointer on Config tracks authored-section presence;
+// EffectiveWorkflowConfig supplies safe defaults to a compiled workflow host.
+type WorkflowConfig struct {
+	MaxNodes           int `yaml:"max_nodes"`
+	MaxParallelism     int `yaml:"max_parallelism"`
+	MaxNodeOutputBytes int `yaml:"max_node_output_bytes"`
+	DefinitionMaxBytes int `yaml:"definition_max_bytes"`
+}
+
+func DefaultWorkflowConfig() WorkflowConfig {
+	return WorkflowConfig{
+		MaxNodes:           32,
+		MaxParallelism:     4,
+		MaxNodeOutputBytes: 64 << 10,
+		DefinitionMaxBytes: 256 << 10,
+	}
+}
+
+func (c Config) EffectiveWorkflowConfig() WorkflowConfig {
+	if c.Workflow == nil {
+		return DefaultWorkflowConfig()
+	}
+	return *c.Workflow
+}
+
+// UnmarshalYAML merges an authored section over the built-in ceilings while
+// retaining explicit zero values for Validate to reject. Strict key checking
+// is repeated here because yaml.Node.Decode bypasses the outer decoder's
+// KnownFields walk once a custom unmarshaler owns the mapping.
+func (w *WorkflowConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return errors.New("workflow must be a mapping")
+	}
+	allowed := map[string]bool{
+		"max_nodes": true, "max_parallelism": true,
+		"max_node_output_bytes": true, "definition_max_bytes": true,
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if !allowed[node.Content[i].Value] {
+			return fmt.Errorf("workflow.%s is not a recognized field", node.Content[i].Value)
+		}
+	}
+	type workflowDocument struct {
+		MaxNodes           *int `yaml:"max_nodes"`
+		MaxParallelism     *int `yaml:"max_parallelism"`
+		MaxNodeOutputBytes *int `yaml:"max_node_output_bytes"`
+		DefinitionMaxBytes *int `yaml:"definition_max_bytes"`
+	}
+	var document workflowDocument
+	if err := node.Decode(&document); err != nil {
+		return fmt.Errorf("workflow: %w", err)
+	}
+	*w = DefaultWorkflowConfig()
+	if document.MaxNodes != nil {
+		w.MaxNodes = *document.MaxNodes
+	}
+	if document.MaxParallelism != nil {
+		w.MaxParallelism = *document.MaxParallelism
+	}
+	if document.MaxNodeOutputBytes != nil {
+		w.MaxNodeOutputBytes = *document.MaxNodeOutputBytes
+	}
+	if document.DefinitionMaxBytes != nil {
+		w.DefinitionMaxBytes = *document.DefinitionMaxBytes
+	}
+	return nil
 }
 
 // TUI configures presentation-only behavior for terminal faces. It does not
@@ -642,7 +715,7 @@ func Default() Config {
 			},
 		},
 		Tools: Tools{
-			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent"},
+			Enabled:       []string{"write_note", "list_notes", "read_note", "ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "skills_list", "skill_view", "workflow_list", "workflow_get", "workflow_validate", "workflow_define", "workflow_run", "workflow_runs", "skill_manage", "task_create", "task_get", "task_update", "task_list", "network_search", "http_request", "web_fetch", "download", "mcp_list_tools", "sequential_thinking", "execute", "commandline", "bash", "job_output", "job_kill", "grep", "glob", "agent"},
 			NetworkSearch: NetworkSearchConfig{Provider: ""},
 			Approval:      Approval{Expiration: 5 * time.Minute, expirationRaw: "5m"},
 		},
@@ -765,6 +838,21 @@ func (c *Config) Validate() error {
 	}
 	if c.Runtime.MaxRunRetries < 0 {
 		return errors.New("runtime.max_run_retries must not be negative")
+	}
+	if c.Workflow != nil {
+		workflow := c.Workflow
+		if workflow.MaxNodes <= 0 {
+			return errors.New("workflow.max_nodes must be positive")
+		}
+		if workflow.MaxParallelism <= 0 {
+			return errors.New("workflow.max_parallelism must be positive")
+		}
+		if workflow.MaxNodeOutputBytes <= 0 {
+			return errors.New("workflow.max_node_output_bytes must be positive")
+		}
+		if workflow.DefinitionMaxBytes <= 0 {
+			return errors.New("workflow.definition_max_bytes must be positive")
+		}
 	}
 	// small_model is an open-ended model id on the active provider; only
 	// structural sanity is checkable here. Unknown ids fail at generation

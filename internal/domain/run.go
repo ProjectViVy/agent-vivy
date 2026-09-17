@@ -34,12 +34,13 @@ var validTransitions = map[RunStatus][]RunStatus{
 type RunKind string
 
 const (
-	RunKindPrimary RunKind = "primary"
-	RunKindChild   RunKind = "child"
+	RunKindPrimary  RunKind = "primary"
+	RunKindChild    RunKind = "child"
+	RunKindWorkflow RunKind = "workflow"
 )
 
 func (k RunKind) Valid() bool {
-	return k == RunKindPrimary || k == RunKindChild
+	return k == RunKindPrimary || k == RunKindChild || k == RunKindWorkflow
 }
 
 // Terminal returns true for completed/failed/cancelled.

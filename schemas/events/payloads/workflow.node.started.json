@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vivy.local/schemas/events/payloads/workflow.node.started.json",
+  "title": "Workflow node started payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id", "kind"],
+  "properties": {
+    "node_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+    "kind": { "enum": ["model", "agent", "io"] }
+  }
+}

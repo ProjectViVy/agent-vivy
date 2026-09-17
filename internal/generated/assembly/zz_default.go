@@ -12,6 +12,7 @@ import (
 	model "agent-vivy/internal/modules/model"
 	sandbox "agent-vivy/internal/modules/sandbox"
 	storage "agent-vivy/internal/modules/storage"
+	workflow "agent-vivy/internal/modules/workflow"
 	"agent-vivy/sdk/generation"
 	"agent-vivy/sdk/module"
 	"agent-vivy/sdk/port/channel"
@@ -54,7 +55,7 @@ type RuntimeAssembly struct {
 
 func BuildDefault() RuntimeAssembly {
 	return RuntimeAssembly{
-		Tools:            append([]tool.ToolProvider{}, defaults.ProtectedToolProviders()...),
+		Tools:            append(append([]tool.ToolProvider{}, defaults.ProtectedToolProviders()...), workflow.ToolProviders()...),
 		Worlds:           []toolworld.Provider{defaults.NewMCPProvider()},
 		ProviderProfiles: append([]providerprofile.Provider{}, defaults.ProviderProfiles()...),
 		ContextSources:   append([]contextsource.Provider{}, defaults.ContextSourceProviders()...),
@@ -71,9 +72,9 @@ func BuildDefault() RuntimeAssembly {
 			"vivy.telegram": {{Name: module.Grant("channel.poll"), Constraints: map[string][]string{}}, {Name: module.Grant("net.client"), Constraints: map[string][]string{"hosts": {"api.telegram.org"}, "ports": {"443"}, "schemes": {"https"}}}, {Name: module.Grant("secret.read"), Constraints: map[string][]string{}}},
 		},
 		Manifest: generation.Manifest{
-			Modules:          []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host"},
+			Modules:          []string{"vivy/action-host", "vivy/channel-host", "vivy/checkpoint", "vivy/context-host", "vivy/context-source", "vivy/credential", "vivy/dingtalk", "vivy/discord", "vivy/face-host", "vivy/feishu", "vivy/loop", "vivy/mcp-host", "vivy/model", "vivy/observer-host", "vivy/presentation-host", "vivy/protected-tools", "vivy/provider-profiles", "vivy/qq", "vivy/sandbox", "vivy/skill-host", "vivy/skill-source", "vivy/status-host", "vivy/storage", "vivy/telegram", "vivy/tool-host", "vivy/workflow"},
 			Channels:         []string{"dingtalk", "discord", "feishu", "qq", "telegram"},
-			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"},
+			Tools:            []string{"ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view", "workflow_list", "workflow_get", "workflow_validate", "workflow_define", "workflow_run", "workflow_runs"},
 			Actions:          []string{},
 			ToolWorlds:       []string{"mcp"},
 			ProviderProfiles: []string{"openai", "anthropic"},
@@ -92,7 +93,7 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")
 	}
-	owners := make([]module.Instance, 0, 25)
+	owners := make([]module.Instance, 0, 26)
 	owner0, err := defaults.NewActionHost().Construct(ctx, hosts.ForModule("vivy/action-host"))
 	if err != nil {
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
@@ -218,6 +219,11 @@ func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) 
 		return errors.Join(err, module.CloseConstructed(ctx, owners))
 	}
 	owners = append(owners, owner24)
+	owner25, err := workflow.NewModule().Construct(ctx, hosts.ForModule("vivy/workflow"))
+	if err != nil {
+		return errors.Join(err, module.CloseConstructed(ctx, owners))
+	}
+	owners = append(owners, owner25)
 	generation, err := module.StartGeneration(ctx, owners)
 	if err != nil {
 		return err

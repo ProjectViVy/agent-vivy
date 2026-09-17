@@ -431,6 +431,28 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	var builtinRegistry *tools.Registry
 	var registryMu sync.RWMutex
 	var liveApplyMu sync.Mutex
+	var workflowOps tools.WorkflowOperations
+	if assemblyHasModule(runtimeAssembly.Manifest.Modules, "vivy/workflow") {
+		ops, workflowErr := newWorkflowOperations(cfg, backend, workflowCapabilitySource{
+			GenerationID:  runtimeAssembly.GenerationID,
+			CurrentModel:  resolver.Current,
+			ModelStatuses: modelHost.Statuses,
+			ToolSpecs: func() []domain.ToolSpec {
+				registryMu.RLock()
+				registry := builtinRegistry
+				registryMu.RUnlock()
+				if registry == nil {
+					return nil
+				}
+				return registry.Specs()
+			},
+		})
+		if workflowErr != nil {
+			_ = backend.Close()
+			return nil, workflowErr
+		}
+		workflowOps = ops
+	}
 	rebuildToolRegistry := func(providers []toolworldport.Provider) error {
 		staged, stageErr := bindToolWorlds(ctx, providers, runtimeAssembly.ToolWorldGrants, worldLookup, fileRecorder)
 		if stageErr != nil {
@@ -438,6 +460,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 		next := tools.BuiltinWithAgent(backend, fileOps, skillOps, todoOps, searchOps, httpOps, mcpOps, sequentialOps, commandOps, fetchOps, downloadOps, agentOps)
 		next = next.WithAdditional(staged...)
+		if workflowOps != nil {
+			next = next.WithAdditional(tools.NewWorkflowTools(workflowOps)...)
+		}
 		next, stageErr = bindGeneratedTools(runtimeAssembly.Tools, next)
 		if stageErr != nil {
 			return stageErr
@@ -490,6 +515,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		filtered := make([]string, 0, len(enabled))
 		for _, name := range enabled {
 			if _, compiled := registry.Lookup(name); !compiled && (tools.IsAssemblyControlledTool(name) || name == "mcp_list_tools" || name == "mcp_call") {
+				continue
+			}
+			if _, compiled := registry.Lookup(name); !compiled && tools.IsWorkflowTool(name) {
 				continue
 			}
 			if _, compiled := registry.Lookup(name); !compiled {
@@ -844,7 +872,8 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Compactions:    backend,
 		Truncations:    backend,
 		Crons:          backend, CronRunner: svc,
-		Studio: studioSvc,
+		Workflow: workflowOps,
+		Studio:   studioSvc,
 		Live: studio.LiveView{
 			Provider:      providerName,
 			PolicyProfile: liveProfile,

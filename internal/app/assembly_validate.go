@@ -23,6 +23,9 @@ func assemblyHasModule(moduleIDs []string, wanted string) bool {
 func validateRuntimeAssemblyConfig(assembly genassembly.RuntimeAssembly, cfg config.Config) error {
 	mcpCompiled := assemblyHasModule(assembly.Manifest.Modules, "vivy/mcp-host")
 	contextCompiled := assemblyHasModule(assembly.Manifest.Modules, "vivy/context-host")
+	if cfg.Workflow != nil && !assemblyHasModule(assembly.Manifest.Modules, "vivy/workflow") {
+		return fmt.Errorf("app: configured workflow section requires compiled WorkflowHost")
+	}
 	for _, server := range cfg.Runtime.MCPServers {
 		if !mcpCompiled {
 			return fmt.Errorf("app: configured MCP server %q requires compiled MCPHost", server.Name)

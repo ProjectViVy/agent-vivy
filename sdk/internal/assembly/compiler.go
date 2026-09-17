@@ -411,6 +411,11 @@ func validateClosedInternalSelection(selected map[string]SourceRecord, providers
 	var diagnostics []string
 	registry := moduleport.Catalog()
 	for _, definition := range registry.Definitions() {
+		if definition.Requirement == moduleport.RequirementDefault {
+			if _, selectedOwner := selected[definition.Owner]; !selectedOwner {
+				continue
+			}
+		}
 		count := len(providers[definition.Ref.Port])
 		switch definition.Cardinality {
 		case moduleport.CardinalityExactlyOne:

@@ -414,3 +414,35 @@ UPDATE sessions SET updated_at = created_at WHERE updated_at = 0;
 const schemaV21Upgrade = `
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS workspace_path TEXT NOT NULL DEFAULT '';
 `
+
+// schemaV22Upgrade adds the optional workflow definition and run projections.
+// Workflow runs reference the existing Journal run/session rows so WF-1 does
+// not create a second lifecycle or event store.
+const schemaV22Upgrade = `
+CREATE TABLE IF NOT EXISTS workflow_definitions (
+	id TEXT NOT NULL,
+	rev BIGINT NOT NULL,
+	content_hash TEXT NOT NULL,
+	definition BYTEA NOT NULL,
+	created_at_ms BIGINT NOT NULL,
+	PRIMARY KEY (id, rev)
+);
+CREATE INDEX IF NOT EXISTS workflow_definitions_latest_idx ON workflow_definitions(id, rev DESC);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+	run_id TEXT PRIMARY KEY,
+	workflow_id TEXT NOT NULL,
+	workflow_rev BIGINT NOT NULL,
+	workflow_hash TEXT NOT NULL,
+	capability_json BYTEA NOT NULL,
+	session_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	reason TEXT NOT NULL DEFAULT '',
+	node_outcomes_json BYTEA NOT NULL DEFAULT ''::bytea,
+	created_at_ms BIGINT NOT NULL,
+	updated_at_ms BIGINT NOT NULL,
+	FOREIGN KEY(run_id) REFERENCES runs(id),
+	FOREIGN KEY(session_id) REFERENCES sessions(id)
+);
+CREATE INDEX IF NOT EXISTS workflow_runs_definition_idx ON workflow_runs(workflow_id, created_at_ms);
+`

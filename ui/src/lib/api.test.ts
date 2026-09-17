@@ -34,6 +34,12 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('cron/delete');
     expect(api.RPC_METHODS).toContain('cron/trigger');
     expect(api.RPC_METHODS).toContain('cron/stop');
+    expect(api.RPC_METHODS).toContain('workflow/list');
+    expect(api.RPC_METHODS).toContain('workflow/get');
+    expect(api.RPC_METHODS).toContain('workflow/validate');
+    expect(api.RPC_METHODS).toContain('workflow/define');
+    expect(api.RPC_METHODS).toContain('workflow/run');
+    expect(api.RPC_METHODS).toContain('workflow/runs');
   });
   it('maps workspace selection and browsing to their wire methods', async () => {
     await api.createSession('', '/code/vivy');
@@ -42,6 +48,25 @@ describe('typed Vivy API', () => {
     expect(call).toHaveBeenLastCalledWith('session/set_workspace', { session_id: 's1', workspace_path: '/code/next' });
     await api.browseWorkspace('/code');
     expect(call).toHaveBeenLastCalledWith('workspace/browse', { path: '/code' });
+  });
+  it('maps workflow operations to their snake_case wire methods', async () => {
+    const definition = { schema_version: '1' as const, id: 'demo', title: 'Demo', nodes: [], edges: [] };
+    await api.listWorkflows();
+    expect(call).toHaveBeenLastCalledWith('workflow/list', undefined);
+    await api.getWorkflow('demo');
+    expect(call).toHaveBeenLastCalledWith('workflow/get', { id: 'demo' });
+    await api.getWorkflow('demo', 3);
+    expect(call).toHaveBeenLastCalledWith('workflow/get', { id: 'demo', rev: 3 });
+    await api.validateWorkflow(definition);
+    expect(call).toHaveBeenLastCalledWith('workflow/validate', { definition });
+    await api.defineWorkflow(definition);
+    expect(call).toHaveBeenLastCalledWith('workflow/define', { definition });
+    await api.runWorkflow('demo', { name: 'vivy' });
+    expect(call).toHaveBeenLastCalledWith('workflow/run', { id: 'demo', inputs: { name: 'vivy' } });
+    await api.runWorkflow('demo', { name: 'vivy' }, 2, 'sess-1');
+    expect(call).toHaveBeenLastCalledWith('workflow/run', { id: 'demo', inputs: { name: 'vivy' }, rev: 2, session_id: 'sess-1' });
+    await api.listWorkflowRuns('demo', 25);
+    expect(call).toHaveBeenLastCalledWith('workflow/runs', { id: 'demo', limit: 25 });
   });
   it('maps representative runtime and lifecycle operations to their wire methods', async () => {
     call.mockResolvedValueOnce({ session: { id: 's1', title: 'Session', created_at: 1 }, messages: [] });
