@@ -227,6 +227,14 @@ original four descriptions of "provider" — disk bundles, a Go metadata table, 
 generated TypeScript array, and an unowned upstream registry — are gone, and
 `ui/agent-diva-source/` no longer exists on disk.
 
+The original shape was worse than "four copies of one fact": the directory the
+runtime read at startup was `fixtures/provider/`, which `fixtures/README.md`
+describes as test data and which `PRD §6.2` forbids in production paths, while
+the shipped binary had no provider knowledge at all (no `//go:embed`, a
+worktree-relative default, a Docker `COPY`, a pack-time copy from the packing
+worktree). The diagnosis, with citations and the generalizable checks, is
+`notes.md` in this directory — it supersedes the framing used elsewhere.
+
 Not done, and deliberately: no push and no merge to `main`. The lane's branch is
 the deliverable; landing is the owner's call (`MIGRATION.md` §8.9 records the
 landing proposal).
