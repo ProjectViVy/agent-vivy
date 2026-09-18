@@ -64,13 +64,6 @@ import (
 // HTTP shutdown and the storage close must all fit inside (E4).
 const shutdownGrace = 5 * time.Second
 
-// transitionalVendorNames are the vendors config.yaml still names explicitly,
-// and therefore the ones the pre-baked Settings/TUI catalog advertises. The
-// compiled Profiles are keyed by adapter, so this list is what keeps the
-// payload identical until PROV-P3 removes the per-vendor config blocks and
-// PROV-P4 serves the whole embedded catalog.
-var transitionalVendorNames = []string{"deepseek", "openai", "anthropic"}
-
 // App is the composed process.
 type App struct {
 	cfg    config.Config
@@ -228,7 +221,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	if liveSettingsPath == "" {
 		liveSettingsPath = settings.Path(cfg.DataDirectory())
 	}
-	configProvider, configModel := providerConfigBaseline(cfg)
+	// The vendor the configuration file names, captured before the settings
+	// overlay: it is the "config default" the control plane reports, and the
+	// settings document may override it for this process only.
+	configVendor := cfg.Providers.Active
 	// Operator-managed preferences (network search, execute ceiling, the
 	// per-channel knobs) overlay the validated config. Provider keys are
 	// NOT applied to the process environment; ModelResolver reads
@@ -272,16 +268,26 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		return nil, fmt.Errorf("app: provider data does not match the sealed adapter set: %w", err)
 	}
 	catalog := provider.NewCatalog(vendors...)
+	// The configured vendor must exist in the data that was just loaded. The
+	// membership check lives here rather than in config.Validate because
+	// internal/config cannot depend on the provider registry (PROV-P3).
+	if _, ok := catalog.Vendor(cfg.Providers.Active); !ok {
+		_ = backend.Close()
+		return nil, fmt.Errorf("app: providers.active %q is not an embedded vendor; provider metadata is data now, "+
+			"so name one of the embedded vendors", cfg.Providers.Active)
+	}
+	configDefault := resolveVendorSelectionBestEffort(catalog, configVendor)
 	compiledProfiles := make([]providerprofile.Profile, 0, len(runtimeAssembly.ProviderProfiles))
 	for _, profileProvider := range runtimeAssembly.ProviderProfiles {
 		compiledProfiles = append(compiledProfiles, profileProvider.Definition())
 	}
-	// The Settings/TUI pre-baked catalog still carries the vendors config.yaml
-	// names, so this migration changes no payload byte. The compiled Profiles
-	// are keyed by adapter now, and PROV-P4 serves the whole embedded catalog
-	// here instead, which is when this list dies.
-	executableVendors := make([]provider.Vendor, 0, len(transitionalVendorNames))
-	for _, name := range transitionalVendorNames {
+	// The Settings/TUI pre-baked catalog still carries the vendors the
+	// pre-migration settings vocabulary could name, so this migration changes no
+	// payload byte. The compiled Profiles are keyed by adapter now, and PROV-P4
+	// serves the whole embedded catalog here instead, which is when this list
+	// dies with the payload it preserves.
+	executableVendors := make([]provider.Vendor, 0, 3)
+	for _, name := range settings.LegacyVendorNames() {
 		if vendor, ok := catalog.Vendor(name); ok {
 			executableVendors = append(executableVendors, vendor)
 		}
@@ -289,9 +295,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	credentialResolver, err := credentialmodule.Compose(credentialmodule.CompileScopes(
 		compiledProfiles,
 		cfg.Channels,
-		cfg.Providers.DeepSeek.EnvKey,
-		cfg.Providers.OpenAI.EnvKey,
-		cfg.Providers.Anthropic.EnvKey,
 	))
 	if err != nil {
 		_ = backend.Close()
@@ -307,11 +310,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
-		providerName = cfg.Providers.Active
+		providerName = configDefault.Vendor
 	}
 	modelID := cur.Model
 	if modelID == "" {
-		modelID = defaultModelFor(cfg, providerName)
+		modelID = configDefault.Model
 	}
 	chatModel := provider.NewResolvingChatModel(modelHost, catalog, resolver)
 	loopDriver, err := loopmodule.Compose(runtime.NewEngineFactory(chatModel))
@@ -867,16 +870,15 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		GenerationLocale: presentation.DefaultLocale,
 		DeveloperLocale:  developerLocale,
 		SealedGeneration: presentation.SealedGeneration,
-		ConfigProvider:   configProvider,
-		ConfigModel:      configModel,
+		ConfigProvider:   configDefault.Vendor,
+		ConfigModel:      configDefault.Model,
+		ConfigAdapter:    configDefault.Adapter,
 		ProviderVendors:  executableVendors,
 		ProviderProfileStatuses: func() []modelhost.ProfileStatus {
 			current := resolver.Current()
-			// The ModelHost is keyed by adapter; the stored selection is still
-			// vendor-keyed in this phase, so it is projected through the same
-			// endpoint lookup the resolver uses.
-			family := catalog.AdapterFamily(current.Provider, current.BaseURL)
-			return modelHost.Statuses(family, current.Ready)
+			// The ModelHost is keyed by the sealed adapter the live selection
+			// speaks (PROV-P3).
+			return modelHost.Statuses(current.Adapter, current.Ready)
 		},
 		RuntimeBaseURL:                 cur.BaseURL,
 		ConfigNetworkSearchProvider:    cfg.Tools.NetworkSearch.Provider,
@@ -902,7 +904,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// running process environment (base_url → VIVY_API_BASE, resolved
 		// api_key → active bundle env_key) immediately; the startup overlay
 		// replays the same document on the next launch.
-		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, cfg, s) },
+		ApplySettingsEnv: func(s settings.Settings) { applySettingsEnv(logger, catalog, cfg, s) },
 		TokenUsage:       backend,
 		FileVersions:     fileVersions,
 		// Model metadata rides the same provider catalog the runtime and
@@ -945,12 +947,12 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			resolver.Invalidate()
 			live := resolver.Current()
 			name := live.Provider
-			if name == "" {
-				name = cfg.Providers.Active
-			}
 			id := live.Model
+			if name == "" {
+				name = configDefault.Vendor
+			}
 			if id == "" {
-				id = defaultModelFor(cfg, name)
+				id = configDefault.Model
 			}
 			svc.SetModel(name, id)
 			applyLiveSandboxSettings(sandboxManager, liveSettingsPath, cfg)
@@ -1226,31 +1228,32 @@ func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	return strings.TrimSpace(id)
 }
 
-// applySettingsEnv applies the non-secret base URL and the active bundle
-// api_key overlays to the process environment. It is shared between the
-// startup overlay (next-launch semantics) and the write-time path, so a
-// settings save updates the environment immediately AND the next start
-// replays the same document. Secret values are never logged.
-func applySettingsEnv(logger *slog.Logger, cfg config.Config, s settings.Settings) {
+// applySettingsEnv applies the non-secret base URL and the active selection's
+// api_key overlay to the process environment. It is shared between the startup
+// overlay (next-launch semantics) and the write-time path, so a settings save
+// updates the environment immediately AND the next start replays the same
+// document. Secret values are never logged.
+//
+// The credential variable is the *vendor's*, read from the embedded data: a
+// selection that resolves to a third-party endpoint writes that vendor's
+// environment variable instead of one of the three former config blocks.
+func applySettingsEnv(logger *slog.Logger, catalog *provider.Catalog, cfg config.Config, s settings.Settings) {
 	if s.BaseURL != "" {
 		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
 			logger.Warn("settings base_url not applied", "err", err)
 		}
 	}
-	keyEnv := ""
-	switch s.Provider {
-	case settings.ProviderDeepSeek:
-		keyEnv = cfg.Providers.DeepSeek.EnvKey
-	case settings.ProviderOpenAI:
-		keyEnv = cfg.Providers.OpenAI.EnvKey
-	case settings.ProviderAnthropic:
-		keyEnv = cfg.Providers.Anthropic.EnvKey
+	selection, ok := resolveStoredSelection(catalog, cfg, s)
+	if !ok || selection.Vendor == "" {
+		return
 	}
-	if keyEnv != "" {
-		if key := settings.ActiveKey(s, s.Provider, s.BaseURL); key != "" {
-			if err := os.Setenv(keyEnv, key); err != nil {
-				logger.Warn("settings api_key not applied", "err", err)
-			}
+	vendor, ok := catalog.Vendor(selection.Vendor)
+	if !ok {
+		return
+	}
+	if key := resolveSettingsAPIKey(s, selection); key != "" {
+		if err := os.Setenv(vendor.EnvKey, key); err != nil {
+			logger.Warn("settings api_key not applied", "err", err)
 		}
 	}
 }
@@ -1277,20 +1280,12 @@ func applySettingsOverlayAt(ctx context.Context, logger *slog.Logger, cfg config
 		return cfg
 	}
 	if s.Provider != "" {
-		cfg.Providers.Active = s.Provider
-		switch s.Provider {
-		case settings.ProviderDeepSeek:
-			if s.DefaultModel != "" {
-				cfg.Providers.DeepSeek.DefaultModel = s.DefaultModel
-			}
-		case settings.ProviderOpenAI:
-			if s.DefaultModel != "" {
-				cfg.Providers.OpenAI.DefaultModel = s.DefaultModel
-			}
-		case settings.ProviderAnthropic:
-			if s.DefaultModel != "" {
-				cfg.Providers.Anthropic.DefaultModel = s.DefaultModel
-			}
+		// A pre-migration document named a vendor: keep that vendor active so
+		// an address-less selection still resolves to the endpoint it meant.
+		// A document that already names an adapter leaves the configured vendor
+		// in force (DESIGN.md §5): the adapter selects the endpoint variant.
+		if legacy := settings.NormalizeProviderSelection(s.Provider).LegacyVendor; legacy != "" {
+			cfg.Providers.Active = legacy
 		}
 	}
 	if s.NetworkSearch.Provider != "" {
@@ -1530,22 +1525,6 @@ func applyLiveHTTPSettings(backend *runtime.HTTPBackend, path string, cfg config
 		}
 	}
 	backend.SetConfig(hosts, timeout)
-}
-
-func defaultModelFor(cfg config.Config, providerName string) string {
-	switch providerName {
-	case "deepseek":
-		return cfg.Providers.DeepSeek.DefaultModel
-	case "anthropic":
-		return cfg.Providers.Anthropic.DefaultModel
-	default:
-		return cfg.Providers.OpenAI.DefaultModel
-	}
-}
-
-func providerConfigBaseline(cfg config.Config) (string, string) {
-	providerName := cfg.Providers.Active
-	return providerName, defaultModelFor(cfg, providerName)
 }
 
 // Run blocks until ctx is cancelled or the server fails. On cancellation

@@ -86,17 +86,19 @@ func TestCatalogRefForEndpointCarriesVendorIdentity(t *testing.T) {
 
 	for _, test := range []struct {
 		vendor   string
+		adapter  string
 		baseURL  string
 		wantEnv  string
 		wantBase string
 	}{
-		{"deepseek", "https://api.deepseek.com", "DEEPSEEK_API_KEY", "https://api.deepseek.com"},
-		{"deepseek", "https://api.deepseek.com/anthropic", "DEEPSEEK_API_KEY", "https://api.deepseek.com/anthropic"},
-		{"anthropic", "", "ANTHROPIC_API_KEY", "https://api.anthropic.com"},
+		{"deepseek", "", "https://api.deepseek.com", "DEEPSEEK_API_KEY", "https://api.deepseek.com"},
+		{"deepseek", AdapterAnthropicMessages, "", "DEEPSEEK_API_KEY", "https://api.deepseek.com/anthropic"},
+		{"deepseek", "", "https://api.deepseek.com/anthropic", "DEEPSEEK_API_KEY", "https://api.deepseek.com/anthropic"},
+		{"anthropic", "", "", "ANTHROPIC_API_KEY", "https://api.anthropic.com"},
 	} {
-		endpoint, vendor, err := catalog.EndpointForVendor(test.vendor, test.baseURL)
+		endpoint, vendor, err := catalog.EndpointForVendor(test.vendor, test.adapter, test.baseURL)
 		if err != nil {
-			t.Fatalf("EndpointForVendor(%q, %q): %v", test.vendor, test.baseURL, err)
+			t.Fatalf("EndpointForVendor(%q, %q, %q): %v", test.vendor, test.adapter, test.baseURL, err)
 		}
 		if endpoint.BaseURL != test.wantBase {
 			t.Fatalf("endpoint = %q, want %q", endpoint.BaseURL, test.wantBase)
@@ -141,22 +143,64 @@ func TestCatalogRefForEndpointRejectsUnknownVendor(t *testing.T) {
 // protocol and capabilities in force; the address itself comes from the spec.
 func TestCatalogEndpointForVendorFallsBackToDefault(t *testing.T) {
 	vendor := testDeepSeekVendor("https://api.deepseek.com")
-	declared, _, err := NewCatalog(vendor).EndpointForVendor("deepseek", "https://api.deepseek.com")
+	vendor.Endpoints = append(vendor.Endpoints, Endpoint{
+		Adapter: AdapterAnthropicMessages, BaseURL: "https://api.deepseek.com/anthropic",
+		DefaultModel: "deepseek-chat", Models: []Model{{ID: "deepseek-chat"}},
+	})
+	catalog := NewCatalog(vendor)
+	declared, _, err := catalog.EndpointForVendor("deepseek", "", "https://api.deepseek.com")
 	if err != nil {
 		t.Fatalf("declared endpoint: %v", err)
 	}
 	if declared.BaseURL != "https://api.deepseek.com" || !declared.HasCapability(CapabilityDeepSeekThinking) {
 		t.Fatalf("declared endpoint = %+v", declared)
 	}
-	proxy, _, err := NewCatalog(vendor).EndpointForVendor("deepseek", "https://my-proxy.example/v1")
+	proxy, _, err := catalog.EndpointForVendor("deepseek", "", "https://my-proxy.example/v1")
 	if err != nil {
 		t.Fatalf("undeclared endpoint: %v", err)
 	}
 	if proxy.BaseURL != "https://api.deepseek.com" || !proxy.HasCapability(CapabilityDeepSeekThinking) {
 		t.Fatalf("undeclared base URL must fall back to the vendor default, got %+v", proxy)
 	}
-	if _, _, err := NewCatalog(vendor).EndpointForVendor("nope", ""); err == nil {
+	// A proxy of the same vendor still speaks the protocol the selection
+	// named, which is what makes a third-party gateway usable.
+	variant, _, err := catalog.EndpointForVendor("deepseek", AdapterAnthropicMessages, "https://my-proxy.example/v1")
+	if err != nil {
+		t.Fatalf("undeclared variant endpoint: %v", err)
+	}
+	if variant.Adapter != AdapterAnthropicMessages || variant.BaseURL != "https://api.deepseek.com/anthropic" {
+		t.Fatalf("proxy variant = %+v, want the declared anthropic endpoint", variant)
+	}
+	if _, _, err := catalog.EndpointForVendor("deepseek", AdapterOpenAIResponses, ""); err == nil {
+		t.Fatal("a vendor with no endpoint for the requested adapter must fail")
+	}
+	if _, _, err := catalog.EndpointForVendor("nope", "", ""); err == nil {
 		t.Fatal("unknown vendor must fail")
+	}
+}
+
+// (adapter, base_url) is the endpoint identity, and data validation makes it
+// globally unique, so an explicit address identifies its vendor without any
+// per-vendor configuration.
+func TestCatalogVendorForEndpointIdentifiesTheVendor(t *testing.T) {
+	deepseek := testDeepSeekVendor("https://api.deepseek.com")
+	catalog := NewCatalog(deepseek, testClaudeVendor("https://api.anthropic.com"))
+
+	vendor, endpoint, ok := catalog.VendorForEndpoint(AdapterAnthropicMessages, "https://api.anthropic.com")
+	if !ok || vendor.Name != "anthropic" || endpoint.Adapter != AdapterAnthropicMessages {
+		t.Fatalf("VendorForEndpoint = %q, %+v, %v", vendor.Name, endpoint, ok)
+	}
+	if vendor, _, ok := catalog.VendorForEndpoint("", "https://api.deepseek.com"); !ok || vendor.Name != "deepseek" {
+		t.Fatalf("an empty adapter must still identify the endpoint's vendor, got %q, %v", vendor.Name, ok)
+	}
+	if _, _, ok := catalog.VendorForEndpoint(AdapterAnthropicMessages, "https://api.deepseek.com"); ok {
+		t.Fatal("an address that does not speak the requested adapter must not match")
+	}
+	if _, _, ok := catalog.VendorForEndpoint("", "https://gateway.example/v1"); ok {
+		t.Fatal("an address no vendor declares is a user gateway, not an embedded endpoint")
+	}
+	if _, _, ok := (*Catalog)(nil).VendorForEndpoint("", "https://api.deepseek.com"); ok {
+		t.Fatal("a nil catalog must not resolve endpoints")
 	}
 }
 

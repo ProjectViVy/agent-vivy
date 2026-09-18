@@ -35,6 +35,7 @@ import (
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/i18n"
+	"agent-vivy/internal/provider"
 )
 
 // DefaultDir is the independent agent working directory under the user data
@@ -47,7 +48,11 @@ const DefaultDir = "data/dev-home"
 // FileName is the settings document name inside DefaultDir.
 const FileName = "settings.yaml"
 
-// Stable Provider Profile IDs compiled into the default Generation.
+// The three vendor names older documents stored in `provider` and in a
+// registry entry's `bundle`. They are legacy *read* vocabulary only: since
+// PROV-P3 the stored value names a sealed protocol adapter, and
+// NormalizeProviderSelection translates these three wherever a stored value is
+// validated or used. Nothing writes them any more.
 const (
 	ProviderDeepSeek  = "deepseek"
 	ProviderOpenAI    = "openai"
@@ -461,9 +466,10 @@ func (s Settings) Validate() error {
 	switch s.Provider {
 	case "":
 		// empty => config default; allowed
-	case ProviderDeepSeek, ProviderOpenAI, ProviderAnthropic:
 	default:
-		return fmt.Errorf("settings: provider %q unsupported; want deepseek, openai or anthropic", s.Provider)
+		if !ValidProviderValue(s.Provider) {
+			return ProviderValueError("provider", s.Provider)
+		}
 	}
 	if s.Provider == "" && s.DefaultModel != "" {
 		return errors.New("settings: default_model requires a provider to be set")
@@ -747,10 +753,8 @@ func validateProviderEntries(entries []ProviderEntry) error {
 		if strings.TrimSpace(e.DisplayName) == "" {
 			return fmt.Errorf("settings: providers[%d].display_name must not be empty", i)
 		}
-		switch e.Bundle {
-		case ProviderDeepSeek, ProviderOpenAI, ProviderAnthropic:
-		default:
-			return fmt.Errorf("settings: providers[%d].bundle %q unsupported; want deepseek, openai or anthropic", i, e.Bundle)
+		if !ValidProviderValue(e.Bundle) {
+			return ProviderValueError(fmt.Sprintf("providers[%d].bundle", i), e.Bundle)
 		}
 		if !apiBasePattern.MatchString(e.BaseURL) {
 			return fmt.Errorf("settings: providers[%d].base_url %q must be an http(s) absolute URL", i, e.BaseURL)
@@ -763,7 +767,9 @@ func validateProviderEntries(entries []ProviderEntry) error {
 		if e.ApiKey != "" && strings.ContainsAny(e.ApiKey, "\r\n") {
 			return fmt.Errorf("settings: providers[%d].api_key must not contain newlines", i)
 		}
-		key := e.Bundle + "\x00" + e.BaseURL
+		// The uniqueness key is the endpoint identity, so a stored vendor name
+		// and the adapter it normalizes to cannot describe two entries.
+		key := NormalizeAdapter(e.Bundle) + "\x00" + e.BaseURL
 		if prev, ok := seen[key]; ok {
 			return fmt.Errorf("settings: providers[%d] (%s, %s) duplicates providers entry %q", i, e.Bundle, e.BaseURL, prev)
 		}
@@ -772,17 +778,26 @@ func validateProviderEntries(entries []ProviderEntry) error {
 	return nil
 }
 
-// FindProvider returns the registry entry whose (bundle, base_url) matches
-// the live selection, and whether a match exists. The active selection
-// resolves its API key from this entry (authoritative over the legacy
-// Settings.ApiKey overlay when the UI writes the registry).
+// FindProvider returns the registry entry whose (adapter, base_url) matches
+// the live selection, and whether a match exists. The comparison is made in the
+// normalized vocabulary, so an entry written before the migration with a vendor
+// name still matches the selection it describes. The active selection resolves
+// its API key from this entry (authoritative over the legacy Settings.ApiKey
+// overlay when the UI writes the registry).
 func (s Settings) FindProvider(bundle, baseURL string) (ProviderEntry, bool) {
+	adapter := NormalizeAdapter(bundle)
 	for _, e := range s.Providers {
-		if e.Bundle == bundle && e.BaseURL == baseURL {
+		if NormalizeAdapter(e.Bundle) == adapter && e.BaseURL == baseURL {
 			return e, true
 		}
 	}
 	return ProviderEntry{}, false
+}
+
+// IsOpenAICompatibleSelection reports whether a stored provider value names an
+// OpenAI-compatible protocol, which is the one list-models can probe.
+func IsOpenAICompatibleSelection(stored string) bool {
+	return NormalizeAdapter(stored) == provider.AdapterOpenAICompletions
 }
 
 // ActiveKey resolves the environment overlay key for the active selection:

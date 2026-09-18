@@ -62,29 +62,30 @@ func secretEnvName(name string) bool {
 
 // Credential environment reads are allowed only in the model resolver
 // (frozen ENV session) and must never happen inside provider construction.
+// PROV-P3 widened this to writes as well, because `applySettingsEnv` now
+// resolves the *vendor's* variable name from the embedded data: a literal
+// secret name written into the process environment is the same boundary
+// violation as reading one.
 func TestSecretEnvReadsStayOutOfProvider(t *testing.T) {
-	getenv := regexp.MustCompile(`os\.Getenv\("([^"]+)"\)`)
+	envAccess := regexp.MustCompile(`os\.(?:Getenv|LookupEnv|Setenv)\("([^"]+)"\)`)
 	var violations []string
 	walkGoSources(t, repoRoot(t), []string{"cmd", "internal"}, func(rel string, src []byte) {
+		// Tests arrange and observe the process environment; the D-010
+		// boundary governs production sources, which this walk still covers.
+		if strings.HasSuffix(rel, "_test.go") {
+			return
+		}
 		if strings.HasPrefix(rel, "internal/app/model.go") {
 			return
 		}
-		if strings.HasPrefix(rel, "internal/provider/") {
-			for _, m := range getenv.FindAllStringSubmatch(string(src), -1) {
-				if secretEnvName(m[1]) {
-					violations = append(violations, rel+": os.Getenv("+m[1]+")")
-				}
-			}
-			return
-		}
-		for _, m := range getenv.FindAllStringSubmatch(string(src), -1) {
+		for _, m := range envAccess.FindAllStringSubmatch(string(src), -1) {
 			if secretEnvName(m[1]) {
-				violations = append(violations, rel+": os.Getenv("+m[1]+")")
+				violations = append(violations, rel+": "+m[0])
 			}
 		}
 	})
 	if len(violations) > 0 {
-		t.Fatalf("credential reads outside the model resolver: %v", violations)
+		t.Fatalf("credential environment access outside the model resolver: %v", violations)
 	}
 }
 

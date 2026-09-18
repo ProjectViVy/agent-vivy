@@ -77,10 +77,9 @@ func Prepare(root string, iso Isolation) (Layout, error) {
 			"sqlite":  map[string]any{"path": layout.SQLitePath},
 		},
 		"providers": map[string]any{
-			"active":    "deepseek",
-			"deepseek":  map[string]any{"env_key": "DEEPSEEK_API_KEY", "default_model": "deepseek-flash"},
-			"openai":    map[string]any{"env_key": "OPENAI_API_KEY", "default_model": "gpt-4o-mini"},
-			"anthropic": map[string]any{"env_key": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-5"},
+			// The candidate config names the credential owner only: endpoints,
+			// protocols and models are embedded data (PROV-P3).
+			"active": "deepseek",
 		},
 		"runtime": map[string]any{
 			"workspace_root": layout.Workspace,

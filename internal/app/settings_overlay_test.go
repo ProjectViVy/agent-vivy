@@ -48,9 +48,8 @@ func TestDeveloperPresentationLocaleUsesRootDotEnvOnlyWhenUnsealed(t *testing.T)
 func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_NS"}},
-		Tools:     config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "bing"}},
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
+		Tools:   config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "bing"}},
 	}
 	if _, err := settings.Save(settings.Path(dir), settings.Settings{
 		NetworkSearch: settings.NetworkSearchSettings{Provider: "searxng"},
@@ -65,9 +64,8 @@ func TestApplySettingsOverlayAppliesNetworkSearchProvider(t *testing.T) {
 
 	dir2 := t.TempDir()
 	cfg2 := config.Config{
-		Storage:   config.Storage{DataDir: dir2, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_NS2"}},
-		Tools:     config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "wikipedia"}},
+		Storage: config.Storage{DataDir: dir2, Backend: "sqlite"},
+		Tools:   config.Tools{NetworkSearch: config.NetworkSearchConfig{Provider: "wikipedia"}},
 	}
 	if _, err := settings.Save(settings.Path(dir2), settings.Settings{}); err != nil {
 		t.Fatal(err)
@@ -108,8 +106,7 @@ func TestApplySettingsOverlayNormalizesLegacyToolSearch(t *testing.T) {
 func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{OpenAI: config.Provider{EnvKey: "VIVY_TEST_API_KEY_MISSING"}},
+		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
@@ -118,15 +115,15 @@ func TestApplySettingsOverlayNoDocumentIsNoop(t *testing.T) {
 	}
 }
 
-func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
+// A pre-migration document named a vendor, so the vendor level of the default
+// chain still follows it; a document that already names an adapter does not,
+// because the adapter selects an endpoint variant of the configured vendor.
+func TestApplySettingsOverlayAppliesLegacyProviderSelection(t *testing.T) {
 	sharedRoot := t.TempDir()
 	privateRoot := t.TempDir()
 	cfg := config.Config{
-		Storage: config.Storage{DataDir: privateRoot, Backend: "sqlite"},
-		Providers: config.Providers{
-			Active:    settings.ProviderDeepSeek,
-			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "old-model"},
-		},
+		Storage:   config.Storage{DataDir: privateRoot, Backend: "sqlite"},
+		Providers: config.Providers{Active: settings.ProviderDeepSeek},
 	}
 	path := settings.Path(sharedRoot)
 	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderAnthropic, DefaultModel: "claude-sonnet-4-5"}); err != nil {
@@ -135,52 +132,44 @@ func TestApplySettingsOverlayAtCanBeSharedOutsideRuntimeData(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	got := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
-	if got.Providers.Active != settings.ProviderAnthropic || got.Providers.Anthropic.DefaultModel != "claude-sonnet-4-5" {
-		t.Fatalf("shared settings not applied: %+v", got.Providers)
+	if got.Providers.Active != settings.ProviderAnthropic {
+		t.Fatalf("legacy provider value = %q, want the vendor it named", got.Providers.Active)
 	}
 	if got.DataDirectory() != privateRoot {
 		t.Fatalf("runtime data root = %q, want private %q", got.DataDirectory(), privateRoot)
 	}
+
+	// The adapter vocabulary leaves the configured vendor alone.
+	if _, err := settings.Save(path, settings.Settings{Provider: "anthropic-messages", DefaultModel: "claude-sonnet-4-5"}); err != nil {
+		t.Fatal(err)
+	}
+	got = applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
+	if got.Providers.Active != settings.ProviderDeepSeek {
+		t.Fatalf("adapter selection changed the configured vendor to %q", got.Providers.Active)
+	}
 }
 
-func TestProviderConfigBaselineSurvivesSettingsOverlay(t *testing.T) {
+// The reported "config default" is the configuration file's own vendor, captured
+// before the settings overlay: a settings document overrides it for this process
+// only, and never rewrites what the control plane calls the default.
+func TestConfigVendorSurvivesSettingsOverlay(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Storage: config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{
-			Active:    settings.ProviderDeepSeek,
-			DeepSeek:  config.Provider{DefaultModel: "deepseek-config"},
-			Anthropic: config.Provider{DefaultModel: "claude-config"},
-		},
+		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
+		Providers: config.Providers{Active: settings.ProviderDeepSeek},
 	}
 	path := settings.Path(dir)
 	if _, err := settings.Save(path, settings.Settings{Provider: settings.ProviderAnthropic, DefaultModel: "claude-overlay"}); err != nil {
 		t.Fatal(err)
 	}
-	providerName, modelID := providerConfigBaseline(cfg)
+	configVendor := cfg.Providers.Active
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	applied := applySettingsOverlayAt(context.Background(), logger, cfg, path, nil)
-	if providerName != settings.ProviderDeepSeek || modelID != "deepseek-config" {
-		t.Fatalf("captured baseline = %q/%q", providerName, modelID)
+	if configVendor != settings.ProviderDeepSeek {
+		t.Fatalf("captured config vendor = %q", configVendor)
 	}
-	if applied.Providers.Active != settings.ProviderAnthropic || applied.Providers.Anthropic.DefaultModel != "claude-overlay" {
+	if applied.Providers.Active != settings.ProviderAnthropic {
 		t.Fatalf("overlay was not independently applied: %+v", applied.Providers)
-	}
-}
-
-func TestApplySettingsOverlayAppliesProviderSelection(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.Config{
-		Storage:   config.Storage{DataDir: dir, Backend: "sqlite"},
-		Providers: config.Providers{DeepSeek: config.Provider{EnvKey: "VIVY_TEST_API_KEY_SELECTION"}},
-	}
-	if _, err := settings.Save(settings.Path(dir), settings.Settings{Provider: settings.ProviderDeepSeek}); err != nil {
-		t.Fatal(err)
-	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	applied := applySettingsOverlay(context.Background(), logger, cfg, nil)
-	if applied.Providers.Active != "deepseek" {
-		t.Fatalf("active = %q, want deepseek", applied.Providers.Active)
 	}
 }
 

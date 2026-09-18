@@ -52,40 +52,67 @@ func (c *Catalog) Vendors() []Vendor {
 	return vendors
 }
 
-// EndpointForVendor resolves the endpoint a selection addresses. An empty
-// baseURL, or one that is not declared by the vendor (a user-supplied gateway
-// URL), resolves to the vendor's default endpoint; otherwise the declared
-// endpoint at that address is returned. This keeps one vendor's protocol and
-// capabilities in force when the user points at a proxy of that vendor.
-func (c *Catalog) EndpointForVendor(vendor, baseURL string) (Endpoint, Vendor, error) {
+// VendorForEndpoint returns the vendor that declares one endpoint identity
+// (adapter, base_url) (DESIGN.md §4.1). Data validation makes that pair
+// globally unique, so a stored selection that names an address identifies at
+// most one vendor — which is how a selection naming a third-party endpoint
+// resolves that vendor's credential without any per-vendor configuration.
+//
+// An address no vendor declares is a user gateway or proxy, and the caller
+// keeps whatever vendor it already had.
+func (c *Catalog) VendorForEndpoint(adapter, baseURL string) (Vendor, Endpoint, bool) {
+	if c == nil || baseURL == "" {
+		return Vendor{}, Endpoint{}, false
+	}
+	for _, entry := range c.vendors {
+		for _, endpoint := range entry.Endpoints {
+			if endpoint.BaseURL != baseURL {
+				continue
+			}
+			if adapter != "" && endpoint.Adapter != adapter {
+				continue
+			}
+			return entry, endpoint, true
+		}
+	}
+	return Vendor{}, Endpoint{}, false
+}
+
+// EndpointForVendor resolves the endpoint a stored selection addresses.
+// (adapter, baseURL) is the endpoint identity; the vendor is the credential
+// owner, which the caller resolves first (startup configuration, a legacy
+// document's vendor, or VendorForEndpoint for an explicit address).
+//
+//   - a declared address wins, together with the adapter the data declares
+//     for it;
+//   - an empty adapter means "the vendor's default protocol";
+//   - an address the vendor does not declare (a user gateway or proxy) keeps
+//     the vendor's endpoint for the requested adapter, so a proxy of DeepSeek
+//     still speaks DeepSeek's protocol and capabilities.
+func (c *Catalog) EndpointForVendor(vendor, adapter, baseURL string) (Endpoint, Vendor, error) {
 	entry, ok := c.Vendor(vendor)
 	if !ok {
 		return Endpoint{}, Vendor{}, fmt.Errorf("provider %q: no embedded vendor data", vendor)
 	}
 	if baseURL != "" {
 		for _, endpoint := range entry.Endpoints {
-			if endpoint.BaseURL == baseURL {
+			if endpoint.BaseURL == baseURL && (adapter == "" || endpoint.Adapter == adapter) {
 				return endpoint, entry, nil
 			}
 		}
 	}
-	endpoint, ok := entry.DefaultEndpoint()
+	if adapter == "" {
+		endpoint, ok := entry.DefaultEndpoint()
+		if !ok {
+			return Endpoint{}, Vendor{}, fmt.Errorf("provider %q: no endpoint declared", vendor)
+		}
+		return endpoint, entry, nil
+	}
+	endpoint, ok := entry.EndpointForAdapter(adapter)
 	if !ok {
-		return Endpoint{}, Vendor{}, fmt.Errorf("provider %q: no endpoint declared", vendor)
+		return Endpoint{}, Vendor{}, fmt.Errorf("provider %q: no %s endpoint declared", vendor, adapter)
 	}
 	return endpoint, entry, nil
-}
-
-// AdapterFamily reports the sealed adapter the selection addresses, or "" when
-// the selection names no embedded vendor. The availability surface is keyed by
-// adapter while the stored selection is still vendor-keyed in this phase, so
-// this projection is how the two are related without a second lookup path.
-func (c *Catalog) AdapterFamily(vendor, baseURL string) string {
-	endpoint, _, err := c.EndpointForVendor(vendor, baseURL)
-	if err != nil {
-		return ""
-	}
-	return endpoint.Adapter
 }
 
 // Adapter resolves one sealed protocol family to the build-owned adapter that
@@ -164,13 +191,47 @@ func newAdapterRef(family string, vendor Vendor, endpoint Endpoint) (Ref, error)
 	}
 }
 
-// ResolveModelInfo looks up capacity metadata for a specific provider and
-// model combination from the embedded data. Zero values mean unknown and
-// callers must use conservative defaults.
+// ResolveModelInfo looks up capacity metadata for a specific vendor and model
+// combination from the embedded data. A vendor may speak several protocols and
+// offer different models on each, so the model id selects the endpoint that
+// declares it; an id no endpoint declares falls back to the vendor's default
+// endpoint, where zero values mean unknown and callers must use conservative
+// defaults.
 func (c *Catalog) ResolveModelInfo(ctx context.Context, providerName, modelID string) (domain.ModelInfo, error) {
-	ref, err := c.For(providerName)
-	if err != nil {
-		return domain.ModelInfo{}, err
+	vendor, ok := c.Vendor(providerName)
+	if !ok {
+		return domain.ModelInfo{}, fmt.Errorf("provider %q: no embedded vendor data", providerName)
 	}
-	return ref.ModelInfo(ctx, modelID)
+	if modelID != "" {
+		for _, endpoint := range vendor.Endpoints {
+			if _, declared := endpoint.Model(modelID); declared {
+				return modelInfoFor(vendor, endpoint, modelID), nil
+			}
+		}
+	}
+	endpoint, ok := vendor.DefaultEndpoint()
+	if !ok {
+		return domain.ModelInfo{}, fmt.Errorf("provider %q: no endpoint declared", providerName)
+	}
+	return modelInfoFor(vendor, endpoint, modelID), nil
+}
+
+// modelInfoFor projects one endpoint's declared metadata for modelID. It is a
+// pure data projection, so it reports the same values for a protocol this
+// build cannot execute and never constructs a model.
+func modelInfoFor(vendor Vendor, endpoint Endpoint, modelID string) domain.ModelInfo {
+	if modelID == "" {
+		modelID = endpoint.DefaultModel
+	}
+	meta, _ := endpoint.Model(modelID)
+	return domain.ModelInfo{
+		ID:               modelID,
+		Provider:         vendor.Name,
+		ContextWindow:    meta.ContextWindow, // zero means unknown; callers use defaults
+		MaxOutputTokens:  0,                  // varies by model; let the API decide
+		InputPerMTokens:  meta.InputPerMTok,
+		OutputPerMTokens: meta.OutputPerMTok,
+		SupportsImages:   meta.SupportsImages,
+		SupportsThinking: meta.SupportsThinking,
+	}
 }

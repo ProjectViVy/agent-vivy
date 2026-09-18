@@ -35,10 +35,7 @@ func newDeepSeekTestConfig(t *testing.T) config.Config {
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "facehost.db")}},
 		Providers: config.Providers{
-			Active:    "deepseek",
-			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"},
-			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
-			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
+			Active: "deepseek",
 		},
 		Runtime: config.Runtime{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, WorkspaceRoot: filepath.Join(t.TempDir(), "workspace")},
 		// write_note is non-readonly, so the ask approval policy holds the run

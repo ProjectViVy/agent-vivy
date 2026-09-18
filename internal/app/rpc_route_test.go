@@ -18,7 +18,7 @@ func TestRPCBootstrapRoutePrecedesUIShell(t *testing.T) {
 	a, err := New(context.Background(), config.Config{
 		Server:    config.Server{Addr: "127.0.0.1:0", AllowedOrigins: []string{"http://127.0.0.1:3015"}},
 		Storage:   config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "route.db")}},
-		Providers: config.Providers{Active: "deepseek", DeepSeek: config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: "deepseek-flash"}, OpenAI: config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"}, Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"}},
+		Providers: config.Providers{Active: "deepseek"},
 		Runtime:   config.Runtime{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10},
 		Tools:     config.Tools{Enabled: []string{"echo_info"}},
 	})

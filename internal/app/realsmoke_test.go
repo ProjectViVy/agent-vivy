@@ -69,10 +69,7 @@ func TestRealProviderSmoke(t *testing.T) {
 		Server:  config.Server{Addr: "127.0.0.1:0"},
 		Storage: config.Storage{Backend: "sqlite", SQLite: config.SQLite{Path: filepath.Join(t.TempDir(), "smoke.db")}},
 		Providers: config.Providers{
-			Active:    "deepseek",
-			DeepSeek:  config.Provider{EnvKey: "DEEPSEEK_API_KEY", DefaultModel: modelID},
-			OpenAI:    config.Provider{EnvKey: "OPENAI_API_KEY", DefaultModel: "gpt-4o-mini"},
-			Anthropic: config.Provider{EnvKey: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-5"},
+			Active: "deepseek",
 		},
 		Runtime: config.Runtime{StreamBuffer: 256, MaxEventPayloadBytes: 65536},
 		Tools:   config.Tools{Enabled: []string{"echo_info", "write_note"}, Approval: config.Approval{Expiration: 5 * time.Minute}},

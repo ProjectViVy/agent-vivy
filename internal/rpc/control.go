@@ -112,6 +112,10 @@ type ControlDeps struct {
 	ConfigProvider string
 	// ConfigModel is the production config default model (non-secret).
 	ConfigModel string
+	// ConfigAdapter is the sealed protocol adapter the config default speaks
+	// (PROV-P3). The stored selection names an adapter, so this is what the
+	// "configuration default" pair is compared against on a write.
+	ConfigAdapter string
 	// ProviderVendors is the redacted pre-baked model catalog loaded by the
 	// composition root: the embedded vendors the compiled Generation can
 	// execute. It stays separate from editable registry entries. PROV-P4
@@ -4576,7 +4580,13 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	if params.Provider == "" || params.Model == "" {
 		return nil, &Error{Code: InvalidParams, Message: "provider and model are required"}
 	}
-	if profileErr := h.profileSelectionError(params.Provider); profileErr != nil {
+	// A selection is validated as the sealed adapter it names: a client that
+	// still sends a pre-migration vendor name is understood here
+	// (MIGRATION.md §3 rule 1). The value is stored as sent, so the vendor a
+	// legacy client named survives in the document and keeps owning the
+	// credential for an undeclared gateway address.
+	adapter := settings.NormalizeAdapter(params.Provider)
+	if profileErr := h.profileSelectionError(adapter); profileErr != nil {
 		return nil, profileErr
 	}
 	h.modelChangeMu.Lock()
@@ -4586,16 +4596,16 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 	var updateErr *Error
 	changeErr := h.deps.Service.ChangeModelWhenIdle(params.Provider, params.Model, func() error {
 		saved, updateErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
-			allowed := params.Provider == h.deps.ConfigProvider &&
+			allowed := adapter == h.deps.ConfigAdapter &&
 				params.Model == h.deps.ConfigModel && params.BaseURL == ""
 			// Preserve a current legacy selection as an idempotent no-op even if
 			// its old registry row has since disappeared. It is not offered as a
 			// new target to other clients.
-			if !allowed && cur.Provider == params.Provider && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
+			if !allowed && settings.NormalizeAdapter(cur.Provider) == adapter && cur.DefaultModel == params.Model && cur.BaseURL == params.BaseURL {
 				allowed = true
 			}
 			for _, entry := range cur.Providers {
-				if entry.Bundle != params.Provider || entry.BaseURL != params.BaseURL {
+				if settings.NormalizeAdapter(entry.Bundle) != adapter || entry.BaseURL != params.BaseURL {
 					continue
 				}
 				if entry.DefaultModel == params.Model {
@@ -4608,12 +4618,20 @@ func (h *controlHandler) selectModel(ctx context.Context, request Request) (any,
 					}
 				}
 			}
+			// An address-less selection resolves to a vendor's declared endpoint for
+			// that adapter: the vendor a pre-migration client named, or else the
+			// configured one. That endpoint's model list is the embedded catalog a
+			// client may pick from.
 			if params.BaseURL == "" {
+				vendorName := settings.NormalizeProviderSelection(params.Provider).LegacyVendor
+				if vendorName == "" {
+					vendorName = h.deps.ConfigProvider
+				}
 				for _, vendor := range h.deps.ProviderVendors {
-					if vendor.Name != params.Provider {
+					if vendor.Name != vendorName {
 						continue
 					}
-					endpoint, ok := vendor.DefaultEndpoint()
+					endpoint, ok := vendor.EndpointForAdapter(adapter)
 					if !ok {
 						continue
 					}
@@ -4801,7 +4819,7 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 			return nil, &Error{Code: CodeNotFound, Message: "provider entry not found"}
 		}
 	default:
-		if params.Bundle != settings.ProviderOpenAI && params.Bundle != settings.ProviderDeepSeek {
+		if !settings.IsOpenAICompatibleSelection(params.Bundle) {
 			return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
 		}
 		baseURL := strings.TrimSpace(params.BaseURL)
@@ -4829,7 +4847,7 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 			}
 		}
 	}
-	if entry.Bundle != settings.ProviderOpenAI && entry.Bundle != settings.ProviderDeepSeek {
+	if !settings.IsOpenAICompatibleSelection(entry.Bundle) {
 		return nil, &Error{Code: InvalidParams, Message: "model refresh is only supported for OpenAI-compatible providers"}
 	}
 
