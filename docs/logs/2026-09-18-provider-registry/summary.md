@@ -186,10 +186,50 @@ Delivered:
   is gone from the launch checkout. It could never be deleted by the branch —
   worktrees do not share gitignored directories — so P4 removed it from the
   checkout itself, which is what makes the repository stand alone on disk.
+  Because it was gitignored it is in no commit either, and the only remaining
+  copy is the one the removal moved aside:
+  `C:\Users\Administrator\AppData\Local\Temp\2\prov-p4-agent-diva-source`
+  (861 files, 17.4 MB — the vendored upstream tree the data was re-derived
+  from). It is left in place deliberately: deleting the last copy is a separate
+  decision, not part of the branch. The re-derivation rules and the dropped
+  upstream fields live in `internal/provider/data/README.md`, and each vendor's
+  `provenance` block names its upstream entry, so the data stays traceable
+  without the tree.
 
 Not done (later phases, in order):
 
 - `PROV-P5` runs the single full `just ci` and closes the board.
+
+## Scope of this phase (`PROV-P5`)
+
+Delivered:
+
+- One `just ci` on the final tree: exit 0 across `fmt-check`, `ui-ci`, `vet`,
+  `test`, `headless-compile`, `plugin-ci`, with `sdk/internal` 506.8s and
+  `sdk/internal/conformance` 195.1s inside it. That same run is the digest's
+  proof, because the reproduction test recomputes the `internal` tree hash and
+  byte-compares the checked-in artifact.
+- The browser path re-exercised on the committed tree at
+  `http://127.0.0.1:3015` (14/14), and the e2e specs this program changed
+  (`model-refresh`, `welcome-wizard`) pass in the suite run.
+- Board closeout: `PROVIDER-REGISTRY-REDESIGN` moved to `docs/COMPLETE.MD` §0.1
+  with the program's history; the follow-ups it produced stay open in
+  `docs/TODO.md` §0.1 (`PROVIDER-AGENTIC-MIGRATION`,
+  `PROVIDER-DATA-CONFIG-EDIT`, `PROVIDER-PROFILE-DIGEST-PIN`,
+  `UI-PROVIDER-WIZARD-STEP`, `CI-E2E-NOT-IN-GATE`).
+
+What the program leaves behind: one embedded data file
+(`internal/provider/data/vendors.yaml`, 45 vendors / 47 endpoints / 168 models)
+validated at startup against exactly three sealed protocol adapters; a config
+that names one fallback vendor; credentials derived from the data; and two faces
+(the Web UI and the TUI) that render a payload instead of carrying a list. The
+original four descriptions of "provider" — disk bundles, a Go metadata table, a
+generated TypeScript array, and an unowned upstream registry — are gone, and
+`ui/agent-diva-source/` no longer exists on disk.
+
+Not done, and deliberately: no push and no merge to `main`. The lane's branch is
+the deliverable; landing is the owner's call (`MIGRATION.md` §8.9 records the
+landing proposal).
 
 ## Deviations worth knowing
 
@@ -228,10 +268,15 @@ Not done (later phases, in order):
 - The UI keeps exactly one vendor-shaped table: the read-side alias map
   `{deepseek, openai, anthropic} → adapter` in `provider-catalog.ts`, mirroring
   the backend's normalization table so a pre-migration document resolves the same
-  way on both sides. It is a compatibility vocabulary, not catalog data. The
-  welcome wizard also keeps a DeepSeek console URL (a help link for obtaining an
-  API key); the wizard's free-text model step is the last provider-shaped UX and
-  is tracked on the board as `UI-PROVIDER-WIZARD-STEP`.
+  way on both sides. It is a compatibility vocabulary, not catalog data. What
+  else still names a vendor under `ui/src` is demo material that never touches
+  the settings or selection path — `lib/demo-api.ts` and
+  `components/trajectory/trajectory-demo-data.ts`, both explicitly marked
+  demo/local-mock by `ui/AGENTS.md` — plus illustrative placeholder copy in the
+  wizard (a model id and an address shown as examples). The welcome wizard also
+  keeps a DeepSeek console URL (a help link for obtaining an API key); its
+  free-text model step is the last provider-shaped UX and is tracked on the board
+  as `UI-PROVIDER-WIZARD-STEP`.
 - Browser findings that are not this phase's defects: `just ui-e2e` is not part
   of `just ci` (`CI-E2E-NOT-IN-GATE`), and this workstation could not download
   Playwright's pinned Chromium revision, so the suite ran on the system Chrome

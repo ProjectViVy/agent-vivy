@@ -547,5 +547,36 @@ PROV-P1  data + embed + strict validation + startup consistency gate; delete fix
 PROV-P2  adapter table + sealed manifest + catalog-by-family + thinking capabilities; regenerate zz_default.go
 PROV-P3  config shrink + credential/env-key source + settings.yaml aliases + data-derived selection   [done]
 PROV-P4  catalog RPC + UI zero-data + loading state; delete the generator script and ui/agent-diva-source   [done]
-PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci
+PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci   [done]
 ```
+
+### 8.9 Landing proposal (not executed)
+
+The branch is ready to land and deliberately has not been pushed or merged: the
+owner authorized the program on the lane, not a landing.
+
+State at hand-off: `feat/provider-registry` is five commits ahead of `main`
+(`ff8a47d`) — `9c6f8c7` (plan), `3025405` (P1), `885382e` (P2), `ac9da30` (P3),
+`8c62886` (P4) — plus the closeout commit that carries this log. `main` has no
+commit the branch lacks, so the landing is a **fast-forward**, and the `just ci`
+run recorded in `docs/logs/2026-09-18-provider-registry/verification.md` was made
+on exactly the trees being merged.
+
+Proposed landing, when the owner authorizes it:
+
+```text
+git checkout main
+git merge --ff-only feat/provider-registry     # or --no-ff for a merge commit
+just ci                                        # optional: the same tree already passed
+git worktree remove .worktrees/provider-sot
+```
+
+Notes that matter for the landing:
+
+- `ui/agent-diva-source/` was removed from the launch checkout during P4. It is
+  gitignored, so it cannot travel with the branch; the removal is already done on
+  the machine, and a fresh clone simply will not have it.
+- The lane's `data/` and `.env` are per-checkout scratch (`.env` only held
+  `VIVY_DEFAULT_LOCALE=zh` for the e2e run); neither is committed.
+- If a revert is ever needed, `MIGRATION.md` §6 pairs the P4 backend and UI in
+  one revert; a split state leaves the UI without a catalog.
