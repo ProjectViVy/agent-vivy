@@ -113,3 +113,75 @@ vendor stops being an identity, and the copies lose their reason to exist.
    answer was one embedded data file, a projection for the compiler, a
    projection for the UI, and a deleted `fixtures/` — three of the four copies
    stopped existing rather than being kept in step.
+
+## Before and after, in one page
+
+Shape at the lane's base (`ff8a47d`): five inputs, four selection vocabularies,
+no owner.
+
+```text
+Agent-Diva registry (ui/agent-diva-source/…, 861 files, GITIGNORED — not in git)
+   └─ ui/scripts/gen-provider-catalog.py  (205 lines, run BY HAND, no gate)
+        └─ ui/src/components/settings/provider-catalog.ts  (265 lines, COMMITTED)
+             → "Source of truth: Agent-Diva provider registry"
+             → 45 display rows, all mapped onto bundle ∈ {openai, anthropic, deepseek}
+             → selection = (bundle, baseUrl, defaultModel); baseUrl is the escape hatch
+
+fixtures/provider/{deepseek,openai,anthropic}.yaml   (3 files, ~4.4 KB)
+   └─ app.go:255-270  LoadBundle(cfg.Providers.BundleDir + "/" + name + ".yaml")
+        bundle_dir defaults to "fixtures/provider" — RELATIVE TO THE CWD
+        └─ provider.NewCatalog(...) → rpc "bundles" → Web UI + TUI
+        └─ also copied by Docker (COPY), by studiocore pack (from the packing
+           worktree), and by the eval isolator's fallback
+   (fixtures/README.md: "deterministic fixtures for tests and offline
+    development"; PRD §6.2 forbids fixtures in production paths)
+
+config.yaml: providers.active + bundle_dir + deepseek/openai/anthropic
+             each with {env_key, default_model}
+internal/modules/defaults/providers.go: 3 hand-written Profiles restating
+             model ids + secret names; AdapterFamily "openai-compatible"
+internal/generated/assembly/zz_default.go: ProviderProfiles ["deepseek","openai","anthropic"]
+```
+
+Shape now (`c1da466`): one input, one vocabulary, owned by the binary.
+
+```text
+internal/provider/data/vendors.yaml (45 vendors / 47 endpoints / 168 models)
+                     + provider.schema.json + README.md
+   └─ //go:embed → ParseVendors (KnownFields) → validateVendors → LoadEmbedded
+        ├─ Catalog: reconcile data against adapterTable, resolve endpoint + credential
+        ├─ AdapterProfiles(): per protocol family, model ids and secrets UNIONED from
+        │     the data — the compiled Generation is derived, not restated
+        └─ rpc providerCatalogResult → settings/providers.catalog
+              ├─ Web UI: catalogRows/projectProviderRow — zero provider data
+              └─ TUI: iterates view.Catalog, keyed on the endpoint's adapter
+
+config.yaml: providers.active only (one fallback vendor, membership checked at
+             startup where the data is loaded)
+settings.yaml: {provider: <adapter>, base_url, default_model}; pre-migration
+             vendor names are READ-compatible through one alias table
+
+adapterTable = 3 sealed families:
+   openai-completions     SUPPORTED
+   openai-responses       DEFERRED-INDEFINITE   (visible, not selectable)
+   anthropic-messages     SUPPORTED
+```
+
+Quantities, same program:
+
+| | before | after |
+|---|---|---|
+| Truth sites | 4 (bundles, config, Go table, generated TS) + 1 input outside git | 1 (embedded YAML) |
+| Hand-synchronized artifacts | generated TS (265 lines) + 3 Profiles by hand + 3 config blocks + 3 fixture files | none (profiles and payload are projections) |
+| Sealed protocol vocabulary | one family name, `openai-compatible` (each vendor implemented it privately) | 3 adapters, capability-stated |
+| Vendors / endpoints / models | 3 / 3 / a few dozen | 45 / 47 / 168 |
+| UI's legal selection values | `'openai' \| 'anthropic' \| 'deepseek'` + a free-text address | `ProviderAdapterId` × the catalog row's declared endpoint |
+| Deployment steps to get data | Docker `COPY`, pack-time copy from the worktree, eval fallback, cwd-relative default | none — `//go:embed` |
+| Evidence coverage of the data | none (outside `internal/`, outside the digest) | inside it (five `sourceSha256` entries move with it) |
+| "Unavailable" expressed as | absent from the bundle set (invisible) | `DEFERRED-INDEFINITE` state (visible, disabled, badged) |
+
+What deliberately did **not** change: the adapter implementations themselves
+(`openai.go`, `claude.go` keep their request/response behaviour), the
+`providerprofile` Port contract and its SDK evidence anchors, `config.Validate`
+staying shape-only, and read-compatibility for documents that stored a legacy
+vendor name.
