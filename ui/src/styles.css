@@ -1,6 +1,33 @@
 @import "tailwindcss" source(none);
 @source "../src";
 @import "tw-animate-css";
+/* Markdown typography: every `.prose` surface (chat bubbles, persona memory,
+   channel tutorial) renders through this plugin. Without it `prose` is an
+   unknown class and Tailwind emits nothing, so markdown looked unstyled. */
+@plugin "@tailwindcss/typography";
+
+/* 主色气泡（用户消息）里的 markdown：正文/代码/链接沿用气泡自身的前景色，
+   而不是 typography 的灰阶，否则白字蓝底会变成灰字蓝底。
+   未分层声明故意压过 utilities 层里的 `.prose` 变量。 */
+.prose-inherit {
+  --tw-prose-body: currentColor;
+  --tw-prose-headings: currentColor;
+  --tw-prose-lead: currentColor;
+  --tw-prose-links: currentColor;
+  --tw-prose-bold: currentColor;
+  --tw-prose-counters: currentColor;
+  --tw-prose-bullets: currentColor;
+  --tw-prose-hr: currentColor;
+  --tw-prose-quotes: currentColor;
+  --tw-prose-quote-borders: currentColor;
+  --tw-prose-captions: currentColor;
+  --tw-prose-kbd: currentColor;
+  --tw-prose-code: currentColor;
+  --tw-prose-pre-code: currentColor;
+  --tw-prose-pre-bg: rgb(255 255 255 / 0.14);
+  --tw-prose-th-borders: currentColor;
+  --tw-prose-td-borders: currentColor;
+}
 
 /* 皮肤套数：:root 即 default 主题；每套皮肤一个 [data-theme] 完整令牌块。
    .dark 类只驱动 dark: 变体（深色皮肤由 applyThemeToDOM 同步挂上），

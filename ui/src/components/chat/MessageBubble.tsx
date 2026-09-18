@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Check, Copy, GitFork, Pencil, RefreshCw, Rewind, X } from 'lucide-react';
 import type { Message } from '@/lib/api';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 import { parseToolResultDiff } from '@/lib/diff';
+import { cn } from '@/lib/utils';
 import { DiffView } from '@/components/ui/DiffView';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -48,6 +50,17 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
       return false;
     }
   }
+}
+
+// Markdown 正文：GFM（表格 / 删除线 / 任务列表 / 自动链接）由 remark-gfm 提供；
+// 排版由 styles.css 的 @plugin "@tailwindcss/typography" 承担（.prose）。
+// className 用于主色气泡（用户消息）追加 .prose-inherit 保持前景色。
+function MarkdownBody({ content, className }: { content: string; className?: string }) {
+  return (
+    <div className={cn('prose prose-sm max-w-none break-words dark:prose-invert', className)}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
 }
 
 function ToolResultBubble({ message }: { message: Message }) {
@@ -116,6 +129,11 @@ export function MessageBubble({
   };
 
   if (message.role === 'tool') return <ToolResultBubble message={message} />;
+  // 空壳助手消息不渲染（空气泡）：内核为每个 tool.requested 都投影一条
+  // content 为空的 assistant 消息（internal/runtime/message_projector.go
+  // EventToolRequested），此前它渲染成一只空气泡 + 一整条操作栏。
+  // 工具调用自身的呈现是另一件事，不在这里补。
+  if (message.role !== 'user' && message.content.trim() === '' && !reasoning && !streaming) return null;
   // channel 出处徽章（CH-C1-N3）：ui 轮无 provenance，不出任何标记。
   const origin = message.provenance
     ? [message.provenance.channel || message.provenance.source, message.provenance.chat_id].filter(Boolean).join(' · ')
@@ -146,7 +164,7 @@ export function MessageBubble({
 			{actionError ? <p className="text-xs text-destructive" role="alert">{actionError}</p> : null}
           </div>
         ) : (
-          <div className="prose prose-sm max-w-none break-words dark:prose-invert"><ReactMarkdown>{message.content || (streaming ? '…' : '')}</ReactMarkdown></div>
+          <MarkdownBody content={message.content || (streaming ? '…' : '')} className="prose-inherit" />
         )}
       </div>
       {streaming || editing ? null : (
@@ -165,7 +183,7 @@ export function MessageBubble({
   return <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-start"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-start">
     <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-relaxed shadow-sm">
       {reasoning ? <details className="mb-3 border-b border-border pb-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{streaming ? t('chat.thinkingStreaming') : t('chat.thinking')}</summary><div className="mt-2 whitespace-pre-wrap">{reasoning}</div></details> : null}
-      <div className="prose prose-sm max-w-none break-words dark:prose-invert"><ReactMarkdown>{message.content || (streaming ? '…' : '')}</ReactMarkdown></div>
+      <MarkdownBody content={message.content || (streaming ? '…' : '')} />
     </div>
     {streaming ? null : (
       <div className="mt-1.5 flex items-center gap-0.5 px-1 opacity-60 transition-opacity group-hover:opacity-100 justify-start">
