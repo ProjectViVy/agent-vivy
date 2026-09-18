@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { PROVIDER_CATALOG } from './provider-catalog';
-import type { ProviderProfileStatus } from './provider-catalog';
+import type { ProviderCatalogEntry, ProviderEntry, ProviderProfileStatus } from '@/lib/api';
 import {
+  CATALOG_OVERLAY_PREFIX,
   allProviderEntries,
   catalogOverlayId,
   customApiKeySetFor,
   hasBaseUrlConflict,
   isCatalogOverlayEntry,
+  isProviderRegistryBundle,
   isValidCustomProvider,
   matchMergedProviderEntry,
   newCustomProviderId,
@@ -14,208 +15,219 @@ import {
   providerEntryByEndpoint,
   providerEntryById,
   searchMergedProviders,
-  splitMergedByFold,
   supportsModelRefresh,
-  type ProviderEntry,
+  type CustomProviderInput,
 } from './custom-providers';
 
-const ENTRY: ProviderEntry = {
-  id: 'custom-1',
-  display_name: '我的网关',
-  bundle: 'openai',
-  base_url: 'https://my-gateway.example.com/v1',
-  default_model: 'my-model',
-  models: ['my-model', 'my-model-2'],
-  api_key_set: true,
-};
-
-const INPUT = {
-  displayName: '我的网关',
-  bundle: 'openai' as const,
-  baseUrl: 'https://my-gateway.example.com/v1',
-  defaultModel: 'my-model',
-  models: ['my-model', 'my-model-2'],
-  apiKey: '',
-};
-
-describe('isValidCustomProvider 校验 wire 条目', () => {
-  it('合法条目通过', () => {
-    expect(isValidCustomProvider(ENTRY)).toBe(true);
-  });
-
-  it('缺字段/空白显示名/非法束名/模型列表非字符串数组整条拒绝', () => {
-    const bad: unknown[] = [
-      { id: '', display_name: 'A', bundle: 'openai', base_url: 'https://a.example/v1', default_model: '', models: [], api_key_set: false },
-      { id: 'custom-b', display_name: '  ', bundle: 'openai', base_url: 'https://b.example/v1', default_model: '', models: [], api_key_set: false },
-      { id: 'custom-c', display_name: 'C', bundle: 'unsupported', base_url: 'https://c.example/v1', default_model: '', models: [], api_key_set: false },
-      { id: 'custom-d', display_name: 'D', bundle: 'anthropic', base_url: 'https://d.example/v1', default_model: 'claude', models: ['claude', 42], api_key_set: false },
-      { display_name: 'E', bundle: 'openai', base_url: 'https://e.example/v1', default_model: '', models: [], api_key_set: false },
-      { ...ENTRY, api_key_set: 'yes' },
-    ];
-    for (const entry of bad) expect(isValidCustomProvider(entry)).toBe(false);
-  });
-});
-
-describe('hasBaseUrlConflict', () => {
-  it('注册表重名 (bundle, base_url) 冲突（编辑时排除自身）', () => {
-    expect(hasBaseUrlConflict([ENTRY], INPUT)).toBe(true);
-    expect(hasBaseUrlConflict([ENTRY], INPUT, 'custom-1')).toBe(false);
-  });
-
-  it('与静态目录同 (bundle, base_url) 冲突', () => {
-    expect(hasBaseUrlConflict([], { ...INPUT, displayName: '重复目录', baseUrl: 'https://api.302.ai/v1' })).toBe(true);
-    // DeepSeek 一等运行束的端点同样被占用：bundle=deepseek + 空 baseUrl。
-    expect(hasBaseUrlConflict([], { ...INPUT, displayName: '重复运行束', bundle: 'deepseek', baseUrl: '' })).toBe(true);
-  });
-
-  it('不同 bundle 同 URL 不冲突', () => {
-    expect(hasBaseUrlConflict([], { ...INPUT, bundle: 'anthropic' })).toBe(false);
-  });
-});
-
-describe('parseCustomModels 录入解析', () => {
-  it('换行 / 逗号 / 中文逗号分隔，去空白去重', () => {
-    expect(parseCustomModels('gpt-4o\ndeepseek-chat, claude-3-5')).toEqual(['gpt-4o', 'deepseek-chat', 'claude-3-5']);
-    expect(parseCustomModels('gpt-4o, gpt-4o，deepseek-chat')).toEqual(['gpt-4o', 'deepseek-chat']);
-  });
-
-  it('空/纯空白返回空数组', () => {
-    expect(parseCustomModels('')).toEqual([]);
-    expect(parseCustomModels('   \n,， ')).toEqual([]);
-  });
-});
-
-describe('id 生成', () => {
-  it('两次生成不相等且都带 custom- 前缀', () => {
-    const a = newCustomProviderId();
-    const b = newCustomProviderId();
-    expect(a.startsWith('custom-')).toBe(true);
-    expect(b.startsWith('custom-')).toBe(true);
-    expect(a).not.toBe(b);
-  });
-});
-
-describe('合并视图（目录 + 注册表）', () => {
-  it('allProviderEntries：目录在前、注册表在后；注册表带 custom 标记与 registryId', () => {
-    const entries = allProviderEntries([ENTRY]);
-    expect(entries).toHaveLength(PROVIDER_CATALOG.length + 1);
-    expect(entries[PROVIDER_CATALOG.length].custom).toBe(true);
-    expect(entries[PROVIDER_CATALOG.length].registryId).toBe(ENTRY.id);
-    expect(entries[PROVIDER_CATALOG.length].displayName).toBe('我的网关');
-    expect(entries[PROVIDER_CATALOG.length].apiKeySet).toBe(true);
-    expect(entries.slice(0, PROVIDER_CATALOG.length).every((entry) => entry.custom === false)).toBe(true);
-    expect(entries.slice(0, PROVIDER_CATALOG.length).every((entry) => entry.apiKeySet === false)).toBe(true);
-  });
-
-  it('按 Profile 状态投影目录与自定义端点，deferred 条目不可执行', () => {
-    const profiles: ProviderProfileStatus[] = [
-      { id: 'openai', adapter_family: 'openai-compatible', endpoint_class: 'gateway', model_ids: [], state: 'DEFERRED-INDEFINITE' },
-      { id: 'anthropic', adapter_family: 'anthropic', endpoint_class: 'native', model_ids: [], state: 'COMPILED' },
-    ];
-    const entries = allProviderEntries([ENTRY], profiles);
-    expect(entries.filter((entry) => entry.bundle === 'openai').every((entry) => !entry.executable)).toBe(true);
-    expect(entries.filter((entry) => entry.bundle === 'anthropic').every((entry) => entry.executable)).toBe(true);
-  });
-
-  it('坏 wire 条目被过滤，不进入合并视图', () => {
-    const bogus = { id: 'custom-x', display_name: '  ', bundle: 'unsupported', base_url: 'https://x.example/v1', default_model: '', models: [], api_key_set: false } as unknown as ProviderEntry;
-    const entries = allProviderEntries([ENTRY, bogus]);
-    expect(entries).toHaveLength(PROVIDER_CATALOG.length + 1);
-  });
-
-  it('searchMergedProviders：按显示名/名字检索注册表条目，空串返回全部', () => {
-    const entries = allProviderEntries([ENTRY]);
-    expect(searchMergedProviders(entries, '我的网关')[0]?.custom).toBe(true);
-    expect(searchMergedProviders(entries, 'deepseek').some((entry) => entry.name === 'deepseek')).toBe(true);
-    expect(searchMergedProviders(entries, '')).toHaveLength(PROVIDER_CATALOG.length + 1);
-  });
-
-  it('matchMergedProviderEntry：目录优先；注册表命中；base_url 空沿用束名回退；未知返回 undefined', () => {
-    const custom = { ...ENTRY, display_name: '自定义 OpenAI', base_url: 'https://api.openai.com/v1' };
-    expect(matchMergedProviderEntry([custom], 'openai', 'https://api.openai.com/v1')).toMatchObject({ name: 'openai', custom: false });
-    expect(matchMergedProviderEntry([ENTRY], 'deepseek', '')).toMatchObject({ name: 'deepseek', custom: false });
-    expect(matchMergedProviderEntry([ENTRY], 'openai', 'https://my-gateway.example.com/v1')).toMatchObject({ displayName: '我的网关', custom: true });
-    expect(matchMergedProviderEntry([ENTRY], 'openai', '')).toMatchObject({ name: 'openai' });
-    expect(matchMergedProviderEntry([ENTRY], 'unknown-bundle', '')).toBeUndefined();
-  });
-
-  it('providerEntryById：按 id 查注册表条目', () => {
-    expect(providerEntryById([ENTRY], 'custom-1')).toEqual(ENTRY);
-    expect(providerEntryById([ENTRY], 'custom-nope')).toBeUndefined();
-  });
-
-  it('splitMergedByFold：注册表永不入 more；搜索态平铺', () => {
-    const entries = allProviderEntries([ENTRY]);
-    const folded = splitMergedByFold(entries, false);
-    expect(folded.custom.map((entry) => entry.registryId)).toEqual([ENTRY.id]);
-    expect(folded.more.some((entry) => entry.custom)).toBe(false);
-    expect(folded.visible.length + folded.custom.length + folded.more.length).toBe(entries.length);
-    const searching = splitMergedByFold(searchMergedProviders(entries, '我的网关'), true);
-    expect(searching.visible.length).toBe(1);
-    expect(searching.custom).toEqual([]);
-    expect(searching.more).toEqual([]);
-  });
-});
-
-describe('customApiKeySetFor', () => {
-  it('自定义命中且已配密钥返回 true；未配/目录/未知/空 baseUrl 返回 false', () => {
-    expect(customApiKeySetFor([ENTRY], 'openai', 'https://my-gateway.example.com/v1')).toBe(true);
-    expect(customApiKeySetFor([{ ...ENTRY, api_key_set: false }], 'openai', 'https://my-gateway.example.com/v1')).toBe(false);
-    expect(customApiKeySetFor([ENTRY], 'openai', 'https://api.deepseek.com/v1')).toBe(false);
-    expect(customApiKeySetFor([ENTRY], 'openai', 'https://unknown.example/v1')).toBe(false);
-    expect(customApiKeySetFor([ENTRY], 'unsupported', '')).toBe(false);
-  });
-});
-
-describe('目录厂商密钥落地条（catalog overlay）', () => {
-  const overlay: ProviderEntry = {
-    id: 'catalog-deepseek',
+/** 合成目录：一厂商两端点（deepseek）、可执行 + deferred（openai）、第三方网关。 */
+const CATALOG: ProviderCatalogEntry[] = [
+  {
+    vendor: 'deepseek',
     display_name: 'DeepSeek',
-    bundle: 'deepseek',
-    base_url: '',
-    default_model: 'deepseek-flash',
-    models: ['deepseek-flash'],
-    api_key_set: true,
+    endpoints: [
+      { adapter: 'openai-completions', base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['deepseek-flash'], executable: true, state: 'SUPPORTED' },
+      { adapter: 'anthropic-messages', base_url: 'https://api.deepseek.com/anthropic', default_model: 'deepseek-flash', models: ['deepseek-flash'], executable: true, state: 'SUPPORTED' },
+    ],
+  },
+  {
+    vendor: 'openai',
+    display_name: 'OpenAI',
+    endpoints: [
+      { adapter: 'openai-completions', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', models: ['gpt-4o'], executable: true, state: 'SUPPORTED' },
+      { adapter: 'openai-responses', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', models: ['gpt-4o'], executable: false, state: 'DEFERRED-INDEFINITE' },
+    ],
+  },
+  {
+    vendor: 'anthropic',
+    display_name: 'Anthropic',
+    endpoints: [
+      { adapter: 'anthropic-messages', base_url: 'https://api.anthropic.com', default_model: 'claude-sonnet-4-5', models: ['claude-sonnet-4-5'], executable: true, state: 'SUPPORTED' },
+    ],
+  },
+  {
+    vendor: 'my-gateway',
+    display_name: 'My Gateway',
+    endpoints: [
+      { adapter: 'openai-completions', base_url: 'https://gw.example.com/v1', default_model: 'my-model', models: ['my-model'], executable: true, state: 'SUPPORTED' },
+    ],
+  },
+];
+
+const PROFILES: ProviderProfileStatus[] = [
+  { id: 'openai-completions', adapter_family: 'openai-completions', endpoint_class: 'native', model_ids: [], state: 'READY' },
+  { id: 'openai-responses', adapter_family: 'openai-responses', endpoint_class: 'native', model_ids: [], state: 'DEFERRED-INDEFINITE' },
+  { id: 'anthropic-messages', adapter_family: 'anthropic-messages', endpoint_class: 'native', model_ids: [], state: 'COMPILED' },
+];
+
+function wireEntry(over: Partial<ProviderEntry> = {}): ProviderEntry {
+  return {
+    id: 'custom-1',
+    display_name: '我的网关',
+    bundle: 'openai-completions',
+    base_url: 'https://custom.example.com/v1',
+    default_model: 'm',
+    models: ['m'],
+    api_key_set: false,
+    ...over,
   };
+}
 
-  it('catalogOverlayId 按目录 name 生成稳定 id；isCatalogOverlayEntry 判定前缀', () => {
-    expect(catalogOverlayId('deepseek')).toBe('catalog-deepseek');
-    expect(isCatalogOverlayEntry(overlay)).toBe(true);
-    expect(isCatalogOverlayEntry(ENTRY)).toBe(false);
+function input(over: Partial<CustomProviderInput> = {}): CustomProviderInput {
+  return {
+    displayName: '我的网关',
+    bundle: 'openai-completions',
+    baseUrl: 'https://custom.example.com/v1',
+    defaultModel: 'm',
+    models: ['m'],
+    apiKey: '',
+    ...over,
+  };
+}
+
+describe('注册表条目校验（wire 取值）', () => {
+  it('bundle 接受密封适配器 id 与旧运行束名，拒绝其它取值', () => {
+    expect(isProviderRegistryBundle('openai-completions')).toBe(true);
+    expect(isProviderRegistryBundle('openai-responses')).toBe(true);
+    expect(isProviderRegistryBundle('anthropic-messages')).toBe(true);
+    expect(isProviderRegistryBundle('deepseek')).toBe(true);
+    expect(isProviderRegistryBundle('unsupported')).toBe(false);
+    expect(isProviderRegistryBundle(undefined)).toBe(false);
   });
 
-  it('allProviderEntries 隐藏落地条，但保留普通自定义条目（克隆）', () => {
-    const clone: ProviderEntry = { ...ENTRY, id: 'custom-clone', display_name: 'DeepSeek 备用', bundle: 'deepseek', base_url: 'https://api.deepseek.com' };
-    const entries = allProviderEntries([overlay, clone]);
-    expect(entries).toHaveLength(PROVIDER_CATALOG.length + 1);
-    expect(entries.some((entry) => entry.custom && entry.registryId === clone.id)).toBe(true);
-    expect(entries.some((entry) => entry.custom && entry.registryId === overlay.id)).toBe(false);
+  it('坏数据整条丢弃：缺 id / 空白显示名 / 非法 bundle / 空地址 / models 非字符串数组', () => {
+    expect(isValidCustomProvider(wireEntry())).toBe(true);
+    expect(isValidCustomProvider(wireEntry({ bundle: 'deepseek' }))).toBe(true);
+    expect(isValidCustomProvider(wireEntry({ id: '  ' }))).toBe(false);
+    expect(isValidCustomProvider(wireEntry({ display_name: '' }))).toBe(false);
+    expect(isValidCustomProvider(wireEntry({ bundle: 'unsupported' as ProviderEntry['bundle'] }))).toBe(false);
+    expect(isValidCustomProvider(wireEntry({ base_url: ' ' }))).toBe(false);
+    expect(isValidCustomProvider(wireEntry({ models: [1 as unknown as string] }))).toBe(false);
+    expect(isValidCustomProvider({ ...wireEntry(), api_key_set: undefined })).toBe(false);
   });
 
-  it('providerEntryByEndpoint：按 (bundle, base_url) 命中（与后端 ActiveKey 同口径）', () => {
-    expect(providerEntryByEndpoint([overlay], 'deepseek', '')).toEqual(overlay);
-    expect(providerEntryByEndpoint([overlay], 'anthropic', '')).toBeUndefined();
-    expect(providerEntryByEndpoint([overlay], 'deepseek', 'https://api.deepseek.com')).toBeUndefined();
+  it('模型录入口径：换行 / 中英文逗号分隔，去空去重', () => {
+    expect(parseCustomModels('a, b\nc，d\n\na')).toEqual(['a', 'b', 'c', 'd']);
+    expect(parseCustomModels('')).toEqual([]);
   });
 
-  it('customApiKeySetFor：目录端点命中注册表密钥覆盖返回 true；无覆盖/未配密钥返回 false', () => {
-    expect(customApiKeySetFor([overlay], 'deepseek', '')).toBe(true);
-    expect(customApiKeySetFor([{ ...overlay, api_key_set: false }], 'deepseek', '')).toBe(false);
-    expect(customApiKeySetFor([], 'deepseek', '')).toBe(false);
+  it('自动 id 带 custom- 前缀且互不相同', () => {
+    const ids = new Set([newCustomProviderId(), newCustomProviderId()]);
+    expect(ids.size).toBe(2);
+    for (const id of ids) expect(id.startsWith('custom-')).toBe(true);
   });
+});
 
-  it('supportsModelRefresh：仅 OpenAI 兼容运行束且 base_url 为 http(s) 时才提供刷新', () => {
-    // OpenAI 兼容运行束 + 可寻址端点
+describe('supportsModelRefresh 门控（与后端同一适配器属性）', () => {
+  it('openai-completions + http(s) 才可刷新（旧运行束名归一后同样通过）', () => {
+    expect(supportsModelRefresh('openai-completions', 'https://gw.example.com/v1')).toBe(true);
+    expect(supportsModelRefresh('openai-completions', 'http://127.0.0.1:8080/v1')).toBe(true);
     expect(supportsModelRefresh('openai', 'https://gw.example.com/v1')).toBe(true);
     expect(supportsModelRefresh('deepseek', 'https://api.deepseek.com')).toBe(true);
-    expect(supportsModelRefresh('deepseek', '  https://api.deepseek.com  ')).toBe(true);
-    // 原生运行束的目录条目 base_url 为空：后端只接受 http(s)，不提供刷新
-    expect(supportsModelRefresh('deepseek', '')).toBe(false);
-    expect(supportsModelRefresh('openai', '')).toBe(false);
-    // Anthropic 原生端点没有 GET /models 协议
+  });
+
+  it('原生 Anthropic / responses / 非 http(s) 地址一律不可刷新', () => {
+    expect(supportsModelRefresh('anthropic-messages', 'https://api.anthropic.com')).toBe(false);
     expect(supportsModelRefresh('anthropic', 'https://api.anthropic.com')).toBe(false);
-    // 缺省 base_url 与显式空串同口径
-    expect(supportsModelRefresh('deepseek')).toBe(false);
-    expect(supportsModelRefresh('openai')).toBe(false);
+    expect(supportsModelRefresh('openai-responses', 'https://api.openai.com/v1')).toBe(false);
+    expect(supportsModelRefresh('openai-completions', '')).toBe(false);
+    expect(supportsModelRefresh('openai-completions', 'ftp://gw.example.com')).toBe(false);
+  });
+});
+
+describe('hasBaseUrlConflict 端点冲突', () => {
+  it('注册表同 (adapter, base_url) 冲突，旧运行束名归一后同样命中', () => {
+    const providers = [wireEntry({ bundle: 'openai' })];
+    expect(hasBaseUrlConflict([], providers, input())).toBe(true);
+    expect(hasBaseUrlConflict([], providers, input({ bundle: 'anthropic-messages' }))).toBe(false);
+  });
+
+  it('目录端点同样占用 (adapter, base_url)', () => {
+    expect(hasBaseUrlConflict(CATALOG, [], input({ baseUrl: 'https://api.deepseek.com' }))).toBe(true);
+    expect(hasBaseUrlConflict(CATALOG, [], input({ baseUrl: 'https://api.deepseek.com', bundle: 'anthropic-messages' }))).toBe(false);
+    // 同地址不同适配器可共存（DeepSeek 的两种协议端点）。
+    expect(hasBaseUrlConflict(CATALOG, [], input({ baseUrl: 'https://api.deepseek.com/anthropic', bundle: 'anthropic-messages' }))).toBe(true);
+  });
+
+  it('编辑自身时不与自己的旧条目冲突', () => {
+    const providers = [wireEntry({ id: 'custom-9' })];
+    expect(hasBaseUrlConflict([], providers, input(), 'custom-9')).toBe(false);
+    expect(hasBaseUrlConflict([], providers, input(), 'custom-1')).toBe(true);
+  });
+});
+
+describe('allProviderEntries 合并（目录端点在前，注册表在后）', () => {
+  it('一个端点一行：目录 6 行 + 注册表行，DeepSeek 两行共用一个显示名', () => {
+    const merged = allProviderEntries(CATALOG, [wireEntry()], PROFILES);
+    expect(merged.filter((entry) => !entry.custom)).toHaveLength(6);
+    const deepseek = merged.filter((entry) => entry.vendor === 'deepseek');
+    expect(deepseek.map((entry) => entry.adapter)).toEqual(['openai-completions', 'anthropic-messages']);
+    expect(new Set(deepseek.map((entry) => entry.displayName)).size).toBe(1);
+    const custom = merged.filter((entry) => entry.custom);
+    expect(custom).toHaveLength(1);
+    expect(custom[0]).toMatchObject({ registryId: 'custom-1', vendor: 'custom-1', apiKeySet: false });
+  });
+
+  it('目录密钥落地条（catalog-*）不显示为自定义行；坏条目直接丢弃', () => {
+    const merged = allProviderEntries(CATALOG, [
+      wireEntry({ id: catalogOverlayId('deepseek', 'openai-completions'), api_key_set: true }),
+      wireEntry({ id: 'broken', bundle: 'unsupported' as ProviderEntry['bundle'] }),
+    ], PROFILES);
+    expect(merged.filter((entry) => entry.custom)).toHaveLength(0);
+    // 但目录行本身仍在，且可执行性只由目录 + Profile 决定。
+    expect(merged.find((entry) => entry.vendor === 'deepseek' && entry.adapter === 'openai-completions')?.executable).toBe(true);
+  });
+
+  it('deferred 端点行不可执行（无 Profile 也保持端点声明的基线）', () => {
+    const merged = allProviderEntries(CATALOG, [], []);
+    expect(merged.find((entry) => entry.adapter === 'openai-responses')).toMatchObject({ executable: false, capabilityState: 'DEFERRED-INDEFINITE' });
+  });
+});
+
+describe('searchMergedProviders 检索', () => {
+  it('按显示名 / 厂商大小写不敏感检索，空串返回全部', () => {
+    const merged = allProviderEntries(CATALOG, [wireEntry()], PROFILES);
+    expect(searchMergedProviders(merged, '')).toHaveLength(merged.length);
+    expect(searchMergedProviders(merged, 'deepseek').every((entry) => entry.vendor === 'deepseek')).toBe(true);
+    expect(searchMergedProviders(merged, 'GATEWAY').map((entry) => entry.vendor)).toContain('my-gateway');
+    expect(searchMergedProviders(merged, '不存在的厂商')).toEqual([]);
+  });
+});
+
+describe('matchMergedProviderEntry / providerEntryByEndpoint 端点反查', () => {
+  it('目录优先：注册表同端点的自定义克隆不会顶掉目录行', () => {
+    const clone = wireEntry({ base_url: 'https://api.deepseek.com' });
+    const match = matchMergedProviderEntry(CATALOG, [clone], 'openai-completions', 'https://api.deepseek.com', PROFILES);
+    expect(match).toMatchObject({ vendor: 'deepseek', displayName: 'DeepSeek', custom: false });
+  });
+
+  it('目录未命中时回落到注册表条目；旧运行束名归一后仍命中', () => {
+    const match = matchMergedProviderEntry(CATALOG, [wireEntry({ bundle: 'openai' })], 'openai-completions', 'https://custom.example.com/v1', PROFILES);
+    expect(match).toMatchObject({ vendor: 'custom-1', custom: true, registryId: 'custom-1' });
+    expect(providerEntryByEndpoint([wireEntry({ bundle: 'openai' })], 'openai-completions', 'https://custom.example.com/v1')?.id).toBe('custom-1');
+  });
+
+  it('旧文档不带地址：回落该厂商在对应适配器下的目录端点；无匹配返回 undefined', () => {
+    expect(matchMergedProviderEntry(CATALOG, [], 'deepseek', '', PROFILES)).toMatchObject({ vendor: 'deepseek', adapter: 'openai-completions' });
+    expect(matchMergedProviderEntry(CATALOG, [], 'anthropic', '', PROFILES)).toMatchObject({ vendor: 'anthropic', adapter: 'anthropic-messages' });
+    expect(matchMergedProviderEntry(CATALOG, [], 'openai-completions', '', PROFILES)).toBeUndefined();
+    expect(matchMergedProviderEntry(CATALOG, [], 'anything', 'https://nope.example/v1', PROFILES)).toBeUndefined();
+    expect(providerEntryById([wireEntry()], 'custom-1')?.display_name).toBe('我的网关');
+    expect(providerEntryById([wireEntry()], 'custom-2')).toBeUndefined();
+  });
+});
+
+describe('目录密钥落地条与 key 提示', () => {
+  it('落地条 id 按 (vendor, adapter) 稳定生成且可识别', () => {
+    expect(catalogOverlayId('deepseek', 'openai-completions')).toBe(`${CATALOG_OVERLAY_PREFIX}deepseek-openai-completions`);
+    expect(catalogOverlayId('deepseek', 'anthropic-messages')).not.toBe(catalogOverlayId('deepseek', 'openai-completions'));
+    expect(isCatalogOverlayEntry(wireEntry({ id: catalogOverlayId('deepseek', 'openai-completions') }))).toBe(true);
+    expect(isCatalogOverlayEntry(wireEntry())).toBe(false);
+  });
+
+  it('「已配置 API Key」按端点判定且只读 api_key_set 布尔', () => {
+    const providers = [wireEntry({ bundle: 'openai', api_key_set: true })];
+    expect(customApiKeySetFor(providers, 'openai-completions', 'https://custom.example.com/v1')).toBe(true);
+    expect(customApiKeySetFor(providers, 'anthropic-messages', 'https://custom.example.com/v1')).toBe(false);
+    expect(customApiKeySetFor(providers, 'openai-completions', 'https://other.example.com/v1')).toBe(false);
   });
 });

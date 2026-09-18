@@ -102,8 +102,48 @@ program; each phase adds the checks it makes possible.
    environment variable is unset leaves the model not-ready and issues no
    network request during startup or status inspection.
 
+## `PROV-P4` — the catalog is served, and the UI holds none of it
+
+1. **Every embedded vendor is on screen, one row per endpoint.**
+   ```text
+   cd ui; pnpm dev        # then open http://127.0.0.1:3015/settings?tab=model
+   ```
+   The settings card lists 45 vendors / 47 endpoint rows, all loaded from
+   `settings/providers`. A vendor with two protocols contributes two rows:
+   `provider-row-deepseek-openai-completions` and
+   `provider-row-deepseek-anthropic-messages` share the display name `DeepSeek`
+   and print the adapter inline.
+
+2. **A deferred protocol is visible, explained, and not selectable.**
+   ```text
+   rg -n "provider-row-openai-openai-responses" ui/src/components/settings/ModelSettingsCard.tsx
+   ```
+   The `openai-responses` row renders with `disabled` and a
+   `DEFERRED-INDEFINITE` badge (`provider-capability-openai-openai-responses`),
+   because this Generation seals the adapter but cannot construct it. Clicking
+   it selects nothing.
+
+3. **Selecting a model writes the adapter and the declared address.**
+   ```text
+   cat data/agent-home/settings.yaml     # after clicking a row and then a model
+   ```
+   The document reads `provider: openai-completions`, `base_url:
+   https://api.deepseek.com`, `default_model: <model>` — the same
+   `(adapter, base_url)` endpoint the resolver reads back, with no vendor data
+   invented by the browser.
+
+4. **The UI bundle cannot serve a provider the backend does not know.**
+   ```text
+   rg -n "openrouter|aihubmix|PROVIDER_CATALOG|gen-provider-catalog" ui/src ui/scripts
+   ```
+   No hits: the vendor array and its generator are gone. Searching the card for a
+   vendor the data does not declare (`cherryin`) returns no row, while a declared
+   one does, so the rows provably come from the payload.
+
+5. **Both faces read the same list.** `settings/providers` is also what the TUI
+   consumes (`sdk/tui/live/rpc.go`), so a vendor added to the embedded data shows
+   up in the terminal switcher and the browser without a frontend change.
+
 ## Later phases
 
-- `PROV-P4`: the browser shows all 45 vendors at `http://127.0.0.1:3015` with no
-  provider data in the UI bundle.
 - `PROV-P5`: `just ci` green and the board closed.

@@ -59,18 +59,6 @@ func legacyAdapterFor(stored string) (string, bool) {
 	return "", false
 }
 
-// LegacyVendorNames lists the vendors the pre-migration settings vocabulary
-// could name. They are the address-less selections an old document can still
-// hold, so they are the vendors the pre-baked Settings/TUI catalog must keep
-// offering until the UI reads the embedded catalog itself (PROV-P4).
-func LegacyVendorNames() []string {
-	names := make([]string, 0, len(legacyProviderAliases))
-	for _, alias := range legacyProviderAliases {
-		names = append(names, alias.Vendor)
-	}
-	return names
-}
-
 // NormalizeProviderSelection translates one stored provider value. A value that
 // already names a sealed adapter passes through unchanged; a value this
 // vocabulary never held also passes through, so validation still rejects it on

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Check, ChevronDown, ChevronRight, CircleDot, Loader2, Settings2, X } from 'lucide-react';
 import { useVivyStore } from '@/lib/store';
-import { settingsUpdateFrom, type Settings } from '@/lib/api';
+import { settingsUpdateFrom, type ProviderCatalogEntry, type Settings } from '@/lib/api';
+import { normalizeProviderAdapter } from '@/components/settings/provider-catalog';
 import type { ProviderEntry } from '@/components/settings/custom-providers';
 import {
   removeSavedModel,
@@ -23,11 +24,11 @@ import { MaskIdentity } from '@/components/masks/MaskIdentity';
 import { maskOptions, setActiveMaskId, useActiveMask, type MaskOption } from '@/components/masks/mask-catalog';
 import { useTranslation } from '@/i18n';
 
-function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], t: ReturnType<typeof useTranslation>['t']): string {
-  // 目录/注册表命中时显示厂商名（如 provider=deepseek + 空 baseUrl → 一等运行束
-  // “DeepSeek”；provider=openai + DeepSeek 网关 → “DeepSeek”；自定义网关 →
-  // 注册的显示名，未注册 → baseUrl 主机名）。
-  return savedModelVendorLabel({ provider, baseUrl, model: '' }, providers) || t('maskSwitcher.defaultProvider');
+function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], catalog: readonly ProviderCatalogEntry[], t: ReturnType<typeof useTranslation>['t']): string {
+  // 目录/注册表命中时显示厂商名（如 provider=openai-completions + DeepSeek 端点
+  // → “DeepSeek”；自定义端点 → 注册的显示名，未注册 → baseUrl 主机名）；
+  // 旧文档的运行束名在匹配时归一。
+  return savedModelVendorLabel({ provider, baseUrl, model: '' }, providers, catalog) || t('maskSwitcher.defaultProvider');
 }
 
 function MaskMenu({ activeMask, onSelect }: { activeMask: MaskOption; onSelect: (id: string) => void }) {
@@ -67,6 +68,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const saveSettings = useVivyStore((state) => state.saveSettings);
   const settingsPhase = useVivyStore((state) => state.settingsPhase);
   const providers = useVivyStore((state) => state.providers);
+  const catalog = useVivyStore((state) => state.catalog);
   const savedModels = useSavedModels();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,20 +77,24 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const currentModel = settings?.default_model || settings?.config_model || '';
   const saving = settingsPhase === 'processing';
   const canChange = !!settings && !settings.read_only && !settings.frozen && !saving;
-  const providerLabel = displayProvider(currentProvider, currentBaseUrl, providers, t);
-  const savedOptions = savedModels.filter(
-    (entry) => !(entry.provider === currentProvider && entry.baseUrl === currentBaseUrl && entry.model === currentModel),
-  );
+  const providerLabel = displayProvider(currentProvider, currentBaseUrl, providers, catalog, t);
+  // 运行配置与快捷条目可能分别是旧运行束名 / 适配器 id：按适配器口径去重。
+  const isCurrentModel = (entry: SavedModelEntry) =>
+    normalizeProviderAdapter(entry.provider) === normalizeProviderAdapter(currentProvider) &&
+    entry.baseUrl === currentBaseUrl &&
+    entry.model === currentModel;
+  const savedOptions = savedModels.filter((entry) => !isCurrentModel(entry));
 
   const selectModel = async (entry: SavedModelEntry) => {
-    if (!settings || !canChange || (entry.provider === currentProvider && entry.baseUrl === currentBaseUrl && entry.model === currentModel)) return;
+    if (!settings || !canChange || isCurrentModel(entry)) return;
     setError(null);
     try {
 // settings/update replaces the whole document: carry the loaded
       // network_search preference and execute ceiling through unchanged;
       // the key overlay is resolved by the backend from the registry, so it
-      // is never sent or echoed on select.
-      await saveSettings({ ...settingsUpdateFrom(settings), provider: entry.provider, default_model: entry.model, base_url: entry.baseUrl });
+      // is never sent or echoed on select. The provider is written as the
+      // sealed adapter (a legacy saved entry is normalized here).
+      await saveSettings({ ...settingsUpdateFrom(settings), provider: normalizeProviderAdapter(entry.provider), default_model: entry.model, base_url: entry.baseUrl });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -129,7 +135,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><Bookmark className="h-4 w-4" /></span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{entry.model}</span>
-              <span className="block truncate text-xs text-muted-foreground">{savedModelVendorLabel(entry, providers)}</span>
+              <span className="block truncate text-xs text-muted-foreground">{savedModelVendorLabel(entry, providers, catalog)}</span>
             </span>
             <button
               type="button"

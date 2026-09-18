@@ -136,6 +136,61 @@ Not done (later phases, in order):
   deletes `ui/scripts/gen-provider-catalog.py` and `ui/agent-diva-source/`.
 - `PROV-P5` runs the single full `just ci` and closes the board.
 
+## Scope of this phase (`PROV-P4`)
+
+Delivered:
+
+- `settings/providers` carries the embedded catalog itself: `catalog:
+  [{vendor, display_name, endpoints: [{adapter, base_url, default_model,
+  models, executable, state}]}]`, built in `internal/rpc/control.go` from
+  `provider.Capabilities()`. `executable` is the adapter's capability state
+  (`modelhost.CapabilitySupported`), so the `DEFERRED-INDEFINITE`
+  `openai-responses` endpoint is **visible and not selectable** instead of
+  invisible. `Deps.ProviderVendors` widens from the three pre-migration vendors
+  to all 45, which also retires `settings.LegacyVendorNames()`.
+- The UI holds zero provider data. `ui/scripts/gen-provider-catalog.py` and the
+  46-entry `PROVIDER_CATALOG` array are gone; `provider-catalog.ts` is a pure
+  projection over the payload, `ModelSettingsCard.tsx` renders only loaded rows
+  (with an explicit loading state and no invented fallback list),
+  `custom-providers.ts` merges catalog rows with the registry and derives the
+  refresh rule from the adapter (`openai-completions` + `http(s)`), and
+  `saved-models.ts`/`GenerationParamsCard.tsx`/`MaskAndModelSwitcher.tsx` resolve
+  labels and selection from the catalog.
+- A vendor with two protocols is two rows. DeepSeek contributes
+  `openai-completions@https://api.deepseek.com` and
+  `anthropic-messages@https://api.deepseek.com/anthropic` under one display
+  name, so the adapter prints inline on a multi-endpoint vendor and the row
+  identity is `(vendor, adapter)`. The old fold ("More providers") was provider
+  data with no wire representation and is gone.
+- Selection writes the adapter: a row click plus a model click sends
+  `{provider: <adapter>, base_url: <the endpoint's declared address>,
+  default_model: <model>}` through `settings/update`, which the resolver reads
+  back as the same `(adapter, base_url)` endpoint.
+- `sdk/ui/src/module.ts` (the `@vivy/ui-sdk` face contract) names the real
+  vocabulary: `FaceProviderAdapter`/`FaceLegacyProviderBundle`/
+  `FaceProviderValue`, `FaceProviderEndpoint`/`FaceProviderCatalogEntry`, and
+  `catalog` on `FaceProvidersView` and `FaceStoreState`. The package version
+  stays `1.0.0`; the change is additive for module authors.
+- The TUI reads the same payload (`sdk/tui/live/rpc.go` iterates catalog
+  endpoints, keying `provider` on the adapter and skipping non-executable
+  endpoints), so both faces are projections of one backend list.
+- `ui/e2e/global-setup.ts` no longer writes the per-vendor config block that
+  PROV-P3 removed — the e2e suite is outside `just ci`, so it was the one
+  consumer still carrying the old shape, and strict config decoding rejected it.
+- The `internal` source digest moved `0d24ebe4…` → `5e386f84…` in the five
+  `internal`-rooted `sourceSha256` entries of
+  `sdk/internal/assembly/conformance_results.json` (`MIGRATION.md` §8.7). The
+  earlier value was written before the last `internal/` edit, which is the
+  manual step the board tracks as `PROVIDER-PROFILE-DIGEST-PIN`.
+- `ui/agent-diva-source/` (861 files, 17.4 MB, gitignored at `ui/.gitignore:31`)
+  is gone from the launch checkout. It could never be deleted by the branch —
+  worktrees do not share gitignored directories — so P4 removed it from the
+  checkout itself, which is what makes the repository stand alone on disk.
+
+Not done (later phases, in order):
+
+- `PROV-P5` runs the single full `just ci` and closes the board.
+
 ## Deviations worth knowing
 
 - Vendor and credential identifiers may now start with a digit, because the
@@ -165,3 +220,19 @@ Not done (later phases, in order):
   quarantine keeps that package out of a leaf config type). `Validate` checks the
   shape and the app's startup gate checks membership, one line after the data is
   loaded.
+- `@vivy/ui-sdk` stays at `1.0.0` although its provider types changed. The
+  version is a build pin (`sdk/ui/version.go`, `UI_BUILD_MANIFEST`), the change
+  is additive for module authors, and no rule in `VIVY-FACE-PACK.md` versions the
+  contract separately; bumping it would have meant touching the manifest test and
+  the Go pin for no product reason.
+- The UI keeps exactly one vendor-shaped table: the read-side alias map
+  `{deepseek, openai, anthropic} → adapter` in `provider-catalog.ts`, mirroring
+  the backend's normalization table so a pre-migration document resolves the same
+  way on both sides. It is a compatibility vocabulary, not catalog data. The
+  welcome wizard also keeps a DeepSeek console URL (a help link for obtaining an
+  API key); the wizard's free-text model step is the last provider-shaped UX and
+  is tracked on the board as `UI-PROVIDER-WIZARD-STEP`.
+- Browser findings that are not this phase's defects: `just ui-e2e` is not part
+  of `just ci` (`CI-E2E-NOT-IN-GATE`), and this workstation could not download
+  Playwright's pinned Chromium revision, so the suite ran on the system Chrome
+  through a scratch config that was never committed (`verification.md`).

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { isProviderRegistryBundle, matchMergedProviderEntry, type ProviderEntry } from './custom-providers';
+import type { ProviderCatalogEntry } from '@/lib/api';
 
 /**
  * 「已选模型」快捷切换列表（Agent-Diva savedModels 移植）。
@@ -7,6 +8,7 @@ import { isProviderRegistryBundle, matchMergedProviderEntry, type ProviderEntry 
  * - 唯一存储于 localStorage key `vivy.ui.savedModels`（真实功能，禁用 vivy.demo.*）。
  * - 模型是运行三元组 (provider, base_url, model) 的扁平数组：无密钥、无冗余 displayName，
  *   显示名渲染时经 savedModelVendorLabel / matchMergedProviderEntry 解析，单一权威来源。
+ *   provider 写侧是密封适配器 id（PROV-P4）；旧条目里的运行束名仍被归一读取。
  * - 与 mask-catalog.ts 同款持久化样板：模块级缓存 + useSyncExternalStore +
  *   自定义事件 / storage 事件广播，不进 zustand store。
  * - 移除只动本地列表，不会改写运行配置（不移植 Agent-Diva 的移除即清理副作用）。
@@ -17,15 +19,15 @@ export const SAVED_MODELS_KEY = 'vivy.ui.savedModels';
 const SAVED_MODELS_CHANGED_EVENT = 'vivy.ui.savedModels.changed';
 
 export type SavedModelEntry = {
-  /** Vivy 运行束名（保存到 settings.provider 的值，如 deepseek/openai/anthropic） */
+  /** 协议适配器 id（写到 settings.provider 的值，如 openai-completions）；旧条目可能是运行束名 */
   provider: string;
-  /** OpenAI 兼容网关地址；空使用运行束内置地址 */
+  /** 端点地址；空表示沿用该适配器条目的地址 */
   baseUrl: string;
   /** 原始模型 id（不携带网关前缀） */
   model: string;
 };
 
-/** 逐条校验：坏数据（缺字段/非字符串/空白/未知运行束）整条丢弃。 */
+/** 逐条校验：坏数据（缺字段/非字符串/空白/未知 provider 值）整条丢弃。 */
 function isValidEntry(value: unknown): value is SavedModelEntry {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
@@ -104,11 +106,16 @@ export function removeSavedModel(provider: string, baseUrl: string, model: strin
 /**
  * 快捷列表条目的厂商标签：
  * 目录/自定义注册表命中 → displayName；否则带 Base URL → 主机名（含端口）；
- * 再否则回退原始 provider 束名。标签经 baseUrl 关联，注册表重命名即全局生效。
- * providers 为后端权威的注册表快照（wire 形态，无密钥）。
+ * 再否则回退原始 provider 值。标签经端点关联，注册表重命名即全局生效。
+ * providers 为后端权威的注册表快照，catalog 为后端权威的目录快照（都是 wire
+ * 形态，无密钥）；两者都只在读侧参与，UI 不持有目录数据。
  */
-export function savedModelVendorLabel(entry: SavedModelEntry, providers: readonly ProviderEntry[]): string {
-  const merged = matchMergedProviderEntry(providers, entry.provider, entry.baseUrl);
+export function savedModelVendorLabel(
+  entry: SavedModelEntry,
+  providers: readonly ProviderEntry[],
+  catalog: readonly ProviderCatalogEntry[],
+): string {
+  const merged = matchMergedProviderEntry(catalog, providers, entry.provider, entry.baseUrl);
   if (merged) return merged.displayName;
   if (entry.baseUrl) {
     try {

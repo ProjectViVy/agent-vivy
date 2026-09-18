@@ -16,17 +16,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
+import { normalizeProviderAdapter } from '@/components/settings/provider-catalog';
 import { completeWelcome, useWelcomeOpen } from '@/hooks/use-welcome';
 import { cn } from '@/lib/utils';
 
 // 首次使用引导向导（移植自 Agent-Diva 的 WelcomeWizard）：
 // 介绍 → 模型配置 → 完成导航。模型配置走真实 settings/update；
 // 密钥按 D-010 只由运行环境注入，向导不收集任何 secret。
-// provider 是运行时的模型束名（deepseek/openai/anthropic）：DeepSeek 是一等
-// 运行束（自带内置地址，base_url 留空），其余 OpenAI 兼容服务通过 base_url
-// 网关接入，而不是自造 provider 名。默认值与后端默认一致（active=deepseek）。
+//
+// PROV-P4：向导不再持有任何 provider 数据。三个字段全部预填自后端 settings
+// 文档（provider / default_model / base_url，缺省留空由用户填写），写出的
+// provider 归一为密封适配器 id（openai-completions / openai-responses /
+// anthropic-messages）；地址与默认模型由后端按目录端点解析，前端不再内置
+// 「一等运行束」默认值。唯一保留的供应商相关常量是 DeepSeek 控制台链接
+// （获取 API Key 的文档入口，不是配置数据；见 docs/TODO.md §0.1）。
 const DEEPSEEK_PLATFORM_URL = 'https://platform.deepseek.com/';
-const SUGGESTED_DEFAULTS = { provider: 'deepseek', model: 'deepseek-flash', baseUrl: '' };
 
 type WelcomeNavigateTarget = 'chat' | 'settings' | 'skills';
 
@@ -57,16 +61,17 @@ export function WelcomeWizard() {
   ];
   const readOnly = settings?.read_only ?? false;
 
-  // 每次打开都从第一步重来，并按当前真实设置预填；未配置时给 DeepSeek 快速开始建议。
+  // 每次打开都从第一步重来，并按后端当前设置预填；未配置时字段留空，由用户
+  // 按占位提示（三个适配器）填写，前端不发明默认供应商。
   useEffect(() => {
     if (!open) return;
     setStep(0);
     setSaving(false);
     setError(null);
     setForm({
-      provider: settings?.provider || settings?.config_provider || SUGGESTED_DEFAULTS.provider,
-      default_model: settings?.default_model || settings?.config_model || SUGGESTED_DEFAULTS.model,
-      base_url: settings?.base_url || SUGGESTED_DEFAULTS.baseUrl,
+      provider: normalizeProviderAdapter(settings?.provider || settings?.config_provider || ''),
+      default_model: settings?.default_model || settings?.config_model || '',
+      base_url: settings?.base_url || '',
     });
     // settings 在打开瞬间取快照即可，向导内不再跟随外部变化
   }, [open]);
@@ -75,10 +80,16 @@ export function WelcomeWizard() {
 
   const goNext = async () => {
     if (step === 1 && !readOnly) {
+      // 写侧一律写密封适配器 id；空串等于「不覆盖」，由后端回落到配置默认。
+      const selection = {
+        provider: normalizeProviderAdapter(form.provider.trim()),
+        default_model: form.default_model.trim(),
+        base_url: form.base_url.trim(),
+      };
       const changed = !settings
-        || settings.provider !== form.provider
-        || settings.default_model !== form.default_model
-        || settings.base_url !== form.base_url;
+        || settings.provider !== selection.provider
+        || settings.default_model !== selection.default_model
+        || settings.base_url !== selection.base_url;
       if (changed) {
         setSaving(true);
         setError(null);
@@ -86,9 +97,9 @@ export function WelcomeWizard() {
 // settings/update replaces the whole document: pass the loaded
           // network_search preference and execute ceiling through unchanged.
           await saveSettings({
-            provider: form.provider,
-            default_model: form.default_model,
-            base_url: form.base_url,
+            provider: selection.provider,
+            default_model: selection.default_model,
+            base_url: selection.base_url,
             network_search: { provider: settings?.network_search?.provider ?? '' },
             execute_max_timeout_seconds: settings?.execute_max_timeout_seconds ?? 0,
           });
