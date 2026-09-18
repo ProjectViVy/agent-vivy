@@ -28,7 +28,6 @@ type Isolation struct {
 	ProductionSQLite    string
 	ProductionWorkspace string
 	ProductionListen    string
-	BundleDir           string
 }
 
 // Layout is one eval directory on disk.
@@ -71,13 +70,6 @@ func Prepare(root string, iso Isolation) (Layout, error) {
 	if err := os.MkdirAll(layout.Skills, 0o700); err != nil {
 		return Layout{}, fmt.Errorf("eval: mkdir skills: %w", err)
 	}
-	bundleDir := iso.BundleDir
-	if bundleDir == "" {
-		bundleDir = "fixtures/provider"
-	}
-	if abs, err := filepath.Abs(bundleDir); err == nil {
-		bundleDir = abs
-	}
 	doc := map[string]any{
 		"server": map[string]any{"addr": layout.Addr},
 		"storage": map[string]any{
@@ -85,11 +77,10 @@ func Prepare(root string, iso Isolation) (Layout, error) {
 			"sqlite":  map[string]any{"path": layout.SQLitePath},
 		},
 		"providers": map[string]any{
-			"active":     "deepseek",
-			"bundle_dir": bundleDir,
-			"deepseek":   map[string]any{"env_key": "DEEPSEEK_API_KEY", "default_model": "deepseek-flash"},
-			"openai":     map[string]any{"env_key": "OPENAI_API_KEY", "default_model": "gpt-4o-mini"},
-			"anthropic":  map[string]any{"env_key": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-5"},
+			"active":    "deepseek",
+			"deepseek":  map[string]any{"env_key": "DEEPSEEK_API_KEY", "default_model": "deepseek-flash"},
+			"openai":    map[string]any{"env_key": "OPENAI_API_KEY", "default_model": "gpt-4o-mini"},
+			"anthropic": map[string]any{"env_key": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-5"},
 		},
 		"runtime": map[string]any{
 			"workspace_root": layout.Workspace,

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,110 +16,9 @@ import (
 	"agent-vivy/internal/modelhost"
 )
 
-const fixturesDir = "../../fixtures/provider"
-
-func TestLoadBundleOpenAIFixture(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
-	if err != nil {
-		t.Fatalf("load openai bundle: %v", err)
-	}
-	if b.Name != "openai" || b.APIType != "openai" {
-		t.Fatalf("name/api_type = %s/%s, want openai/openai", b.Name, b.APIType)
-	}
-	if b.EnvKey != "OPENAI_API_KEY" {
-		t.Fatalf("env_key = %q, want OPENAI_API_KEY", b.EnvKey)
-	}
-	if b.DefaultModel != "gpt-4o" || b.DefaultAPIBase != "https://api.openai.com/v1" {
-		t.Fatalf("defaults = %q/%q", b.DefaultModel, b.DefaultAPIBase)
-	}
-	if b.Backend != BackendEinoOpenAI {
-		t.Fatalf("backend = %q, want %s", b.Backend, BackendEinoOpenAI)
-	}
-	if len(b.Models) != 12 {
-		t.Fatalf("models = %d entries, want 12", len(b.Models))
-	}
-	assertProvenance(t, b, "openai")
-}
-
-func TestLoadBundleAnthropicFixture(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "anthropic.yaml"))
-	if err != nil {
-		t.Fatalf("load anthropic bundle: %v", err)
-	}
-	if b.Name != "anthropic" || b.APIType != "anthropic" {
-		t.Fatalf("name/api_type = %s/%s, want anthropic/anthropic", b.Name, b.APIType)
-	}
-	if b.EnvKey != "ANTHROPIC_API_KEY" {
-		t.Fatalf("env_key = %q, want ANTHROPIC_API_KEY", b.EnvKey)
-	}
-	if b.Backend != BackendEinoClaude {
-		t.Fatalf("backend = %q, want %s", b.Backend, BackendEinoClaude)
-	}
-	assertProvenance(t, b, "anthropic")
-}
-
-func assertProvenance(t *testing.T, b Bundle, entry string) {
-	t.Helper()
-	p := b.Provenance
-	if p.Source == "" || p.Entry != entry || p.DerivedAt == "" {
-		t.Fatalf("provenance incomplete or wrong entry: %+v", p)
-	}
-}
-
-func TestParseBundleRejectsUnknownField(t *testing.T) {
-	bad := []byte("name: openai\nenv_key: OPENAI_API_KEY\nbogus_field: 1\n")
-	if _, err := ParseBundle(bad); err == nil {
-		t.Fatal("strict decode must reject unknown fields")
-	}
-}
-
-func TestParseBundleValidationErrors(t *testing.T) {
-	valid := Bundle{
-		Name: "openai", APIType: "openai", EnvKey: "OPENAI_API_KEY",
-		DisplayName: "OpenAI", DefaultModel: "gpt-4o",
-		DefaultAPIBase: "https://api.openai.com/v1", Backend: BackendEinoOpenAI,
-		Models:     []string{"gpt-4o"},
-		Provenance: Provenance{Source: "s", Entry: "openai", DerivedAt: "2026-08-07"},
-	}
-
-	cases := []struct {
-		name   string
-		mutate func(*Bundle)
-	}{
-		{"lowercase env_key", func(b *Bundle) { b.EnvKey = "openai_api_key" }},
-		{"bad bundle name", func(b *Bundle) { b.Name = "OpenAI" }},
-		{"default_model not listed", func(b *Bundle) { b.DefaultModel = "gpt-9" }},
-		{"empty models", func(b *Bundle) { b.Models = nil }},
-		{"missing provenance source", func(b *Bundle) { b.Provenance.Source = "" }},
-		{"unsupported backend", func(b *Bundle) { b.Backend = "langchain/openai" }},
-		{"unsupported api_type", func(b *Bundle) { b.APIType = "gemini" }},
-		{"missing display_name", func(b *Bundle) { b.DisplayName = "" }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			mut := valid
-			tc.mutate(&mut)
-			if errs := mut.validate(); errs == nil {
-				t.Fatalf("validate() accepted %s", tc.name)
-			}
-		})
-	}
-	if err := valid.validate(); err != nil {
-		t.Fatalf("valid bundle rejected: %v", err)
-	}
-}
-
 func TestOpenAIRefKeyMissing(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	_, err = NewCatalog(b).For("openai")
-	if err != nil {
-		t.Fatalf("catalog openai: %v", err)
-	}
-	ref := newOpenAIRef(b)
-	_, err = ref.Model(context.Background(), ModelSpec{})
+	ref := testRef(t, testOpenAIVendor("https://api.openai.com/v1"))
+	_, err := ref.Model(context.Background(), ModelSpec{})
 	var kme *KeyMissingError
 	if !errors.As(err, &kme) {
 		t.Fatalf("err = %v, want *KeyMissingError", err)
@@ -137,15 +35,8 @@ func TestOpenAIRefKeyMissing(t *testing.T) {
 // with a fake key and no network traffic: construction must not call
 // out, only the first Generate/Stream would.
 func TestOpenAIRefConstructsOffline(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	ref, err := NewCatalog(b).For("openai")
-	if err != nil {
-		t.Fatalf("catalog openai: %v", err)
-	}
-	m, err := ref.Model(context.Background(), ModelSpec{APIKey: "sk-fake-offline-test"})
+	m, err := testRef(t, testOpenAIVendor("https://api.openai.com/v1")).
+		Model(context.Background(), ModelSpec{APIKey: "sk-fake-offline-test"})
 	if err != nil {
 		t.Fatalf("construct model: %v", err)
 	}
@@ -155,15 +46,10 @@ func TestOpenAIRefConstructsOffline(t *testing.T) {
 }
 
 func TestOpenAIRefUsesSpecNotEnv(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
 	t.Setenv("OPENAI_API_KEY", "sk-from-env-must-not-win")
 	t.Setenv(APIBaseEnvVar, "https://env-gateway.example/v1")
 
-	ref := newOpenAIRef(b)
-	m, err := ref.Model(context.Background(), ModelSpec{
+	m, err := testRef(t, testOpenAIVendor("https://api.openai.com/v1")).Model(context.Background(), ModelSpec{
 		ID:      "gpt-4o-mini",
 		APIKey:  "sk-from-spec",
 		BaseURL: "https://spec-gateway.example/v1",
@@ -177,13 +63,9 @@ func TestOpenAIRefUsesSpecNotEnv(t *testing.T) {
 }
 
 func TestCatalogAnthropicResolvesClaudeRef(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "anthropic.yaml"))
+	ref, err := NewCatalog(testClaudeVendor("https://api.anthropic.com")).For("anthropic")
 	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	ref, err := NewCatalog(b).For("anthropic")
-	if err != nil {
-		t.Fatalf("anthropic must resolve via the claude backend: %v", err)
+		t.Fatalf("anthropic must resolve via the anthropic-messages adapter: %v", err)
 	}
 	if _, err := ref.Model(context.Background(), ModelSpec{ID: "claude-sonnet-4-5", APIKey: "k"}); err != nil {
 		t.Fatalf("model construction: %v", err)
@@ -210,12 +92,12 @@ func TestResolvingChatModelRejectsUnconfigured(t *testing.T) {
 
 func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *testing.T) {
 	t.Run("adapter failure becomes unavailable", func(t *testing.T) {
-		bundle := newOpenAITestBundle("https://network-must-not-run.invalid/v1")
-		profile := ProfileFromBundle(bundle)
+		vendor := testOpenAIVendor("https://network-must-not-run.invalid/v1")
+		profile := testProfile(t, vendor)
 		profile.AdapterFamily = AdapterFamilyAnthropic
 		host := routedHost(t, profile)
-		chatModel := NewResolvingChatModel(host, NewCatalog(bundle), staticSpec{live: LiveSpec{
-			Provider: bundle.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
+		chatModel := NewResolvingChatModel(host, NewCatalog(vendor), staticSpec{live: LiveSpec{
+			Provider: vendor.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
 		}})
 		if _, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); !errors.Is(err, ErrAdapterFamilyMismatch) {
 			t.Fatalf("adapter failure = %v, want ErrAdapterFamilyMismatch", err)
@@ -252,9 +134,9 @@ func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *te
 			http.Error(writer, "stream failed", http.StatusBadRequest)
 		}))
 		defer server.Close()
-		bundle := newOpenAITestBundle(server.URL)
-		chatModel := NewResolvingChatModel(routedHost(t, ProfileFromBundle(bundle)), NewCatalog(bundle), staticSpec{live: LiveSpec{
-			Provider: bundle.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
+		vendor := testOpenAIVendor(server.URL)
+		chatModel := NewResolvingChatModel(routedHost(t, testProfile(t, vendor)), NewCatalog(vendor), staticSpec{live: LiveSpec{
+			Provider: vendor.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
 		}})
 		if stream, err := chatModel.Stream(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err == nil {
 			if stream != nil {
@@ -271,9 +153,9 @@ func blockingResolvingModel(t *testing.T) (model.ToolCallingChatModel, func()) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		<-release
 	}))
-	bundle := newOpenAITestBundle(server.URL)
-	resolved := NewResolvingChatModel(routedHost(t, ProfileFromBundle(bundle)), NewCatalog(bundle), staticSpec{live: LiveSpec{
-		Provider: bundle.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
+	vendor := testOpenAIVendor(server.URL)
+	resolved := NewResolvingChatModel(routedHost(t, testProfile(t, vendor)), NewCatalog(vendor), staticSpec{live: LiveSpec{
+		Provider: vendor.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
 	}})
 	return resolved, func() {
 		close(release)
@@ -290,15 +172,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// TestOpenAIRefModelInfoMetadata covers the D9 metadata table: known ids
-// resolve reference pricing and image support; unknown ids stay zero
-// (callers must treat unpriced as unknown, never free).
+// TestOpenAIRefModelInfoMetadata covers the metadata path: known ids resolve
+// reference pricing and image support; unknown ids stay zero (callers must
+// treat unpriced as unknown, never free).
 func TestOpenAIRefModelInfoMetadata(t *testing.T) {
-	b, err := LoadBundle(filepath.Join(fixturesDir, "openai.yaml"))
-	if err != nil {
-		t.Fatalf("load bundle: %v", err)
-	}
-	ref := newOpenAIRef(b)
+	ref := testRef(t, testOpenAIVendor("https://api.openai.com/v1"))
 	ctx := context.Background()
 
 	info, err := ref.ModelInfo(ctx, "gpt-4o")

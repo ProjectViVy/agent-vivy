@@ -31,7 +31,6 @@ func TestMinimalArtifactPhysicallyOmitsOptionalModules(t *testing.T) {
 		probe, err := eval.Launch(context.Background(), eval.LaunchRequest{
 			Executable: packed.Binary,
 			EvalRoot:   filepath.Join(root, name+"-eval"),
-			Isolation:  eval.Isolation{BundleDir: filepath.Join("..", "..", "fixtures", "provider")},
 			Timeout:    20 * time.Second,
 		})
 		if err != nil {

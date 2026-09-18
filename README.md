@@ -141,14 +141,13 @@ internal/app/      composition and lifecycle
 internal/config/   config loading and validation (secret boundary)
 internal/domain/   Vivy-owned Session/Message/Run/RunEvent/... contract types
 internal/runtime/  Run service + Eino adapter (event mapping, interrupt)
-internal/provider/ openai-compatible / anthropic / deepseek; YAML bundles
+internal/provider/ sealed protocol adapters + embedded provider catalog
 internal/tools/    ToolSpec registry + approval policy
 internal/storage/  Journal/SnapshotStore/BlobStore/LeaseStore + SQLite backend
 internal/events/   event fan-out and after_seq replay cursor
 internal/rpc/      UI-facing command/query/event JSON-RPC control plane
 internal/tui/      remote WebSocket transport for `vivy tui --live`
-schemas/           RunEvent JSON Schema, provider bundle schema
-fixtures/          provider / event / recovery fixtures
+schemas/           RunEvent JSON Schema (provider data schema lives beside its data)
 ui/                only browser UI (React + Vite + Zustand + TanStack Router)
 studio/            git submodule → ProjectViVy/vivy-studio (Studio shell + plugins)
 cmd/vivy-studio/   Studio lifecycle CLI (pack/eval/release); stays in this repo

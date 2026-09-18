@@ -2,7 +2,6 @@ package app
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"agent-vivy/internal/app/settings"
@@ -19,39 +18,49 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// testVendors indexes the embedded catalog; the app tests exercise the three
+// compiled first-party vendors.
+func testVendors(t *testing.T) map[string]provider.Vendor {
+	t.Helper()
+	vendors, err := provider.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := make(map[string]provider.Vendor, len(vendors))
+	for _, vendor := range vendors {
+		index[vendor.Name] = vendor
+	}
+	for _, name := range []string{"deepseek", "openai", "anthropic"} {
+		if _, ok := index[name]; !ok {
+			t.Fatalf("embedded provider data lacks %q", name)
+		}
+	}
+	return index
+}
+
+func testProfile(t *testing.T, vendor provider.Vendor) providerprofile.Profile {
+	t.Helper()
+	endpoint, ok := vendor.DefaultEndpoint()
+	if !ok {
+		t.Fatalf("vendor %q has no default endpoint", vendor.Name)
+	}
+	return provider.ProfileFromEndpoint(vendor, endpoint)
+}
+
 func testCatalog(t *testing.T) *provider.Catalog {
 	t.Helper()
-	deepseek, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "deepseek.yaml"))
+	vendors, err := provider.LoadEmbedded()
 	if err != nil {
 		t.Fatal(err)
 	}
-	openai, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "openai.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	anthropic, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "anthropic.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return provider.NewCatalog(deepseek, openai, anthropic)
+	return provider.NewCatalog(vendors...)
 }
 
 func testModelHost(t *testing.T) *modelhost.Host {
 	t.Helper()
-	deepseek, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "deepseek.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	openai, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "openai.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	anthropic, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "anthropic.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	index := testVendors(t)
 	host, err := modelhost.New([]providerprofile.Profile{
-		provider.ProfileFromBundle(deepseek), provider.ProfileFromBundle(openai), provider.ProfileFromBundle(anthropic),
+		testProfile(t, index["deepseek"]), testProfile(t, index["openai"]), testProfile(t, index["anthropic"]),
 	}, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
@@ -148,11 +157,8 @@ func TestResolverCannotReadyUncompiledProfile(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	openai, err := provider.LoadBundle(filepath.Join("..", "..", "fixtures", "provider", "openai.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	host, err := modelhost.New([]providerprofile.Profile{provider.ProfileFromBundle(openai)}, modelhost.Capabilities{
+	openai := testVendors(t)["openai"]
+	host, err := modelhost.New([]providerprofile.Profile{testProfile(t, openai)}, modelhost.Capabilities{
 		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
 	})
 	if err != nil {

@@ -1,0 +1,823 @@
+# Vivy provider data — the single source of truth for providers.
+# Edited by hand or by data review; embedded at build time and validated at
+# startup. See README.md and provider.schema.json in this directory.
+# Derived once from the Diva catalog on 2026-09-18 (provenance per vendor).
+# Secrets never live here: env_key names the environment variable only (D-010).
+
+- name: 302ai
+  display_name: 302.AI
+  env_key: 302AI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.302.ai/v1
+      default_model: deepseek-chat
+      models:
+        - id: deepseek-chat
+        - id: deepseek-reasoner
+        - id: chatgpt-4o-latest
+        - id: o3
+        - id: claude-sonnet-4-20250514
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: 302ai
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: aihubmix
+  display_name: AiHubMix
+  env_key: OPENAI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://aihubmix.com/v1
+      default_model: claude-sonnet-4
+      models:
+        - id: claude-sonnet-4
+        - id: gpt-4o
+        - id: claude-3-5-sonnet-20240620
+        - id: deepseek-chat
+        - id: gpt-5
+        - id: gpt-5-mini
+        - id: o3
+        - id: DeepSeek-V3
+        - id: DeepSeek-R1
+        - id: gemini-2.5-pro
+        - id: gemini-2.5-flash
+        - id: kimi-k2-0711-preview
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: aihubmix
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: aionly
+  display_name: AIOnly
+  env_key: AIONLY_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.aiionly.com/v1
+      default_model: gpt-5.1
+      models:
+        - id: gpt-5.1
+        - id: claude-opus-4-5-20251101
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: aionly
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model; a stray leading colon in base_url was removed.
+- name: anthropic
+  display_name: Anthropic
+  env_key: ANTHROPIC_API_KEY
+  endpoints:
+    - adapter: anthropic-messages
+      base_url: https://api.anthropic.com
+      default_model: claude-sonnet-4-5
+      models:
+        - id: claude-3-5-sonnet-20240620
+        - id: claude-3-opus-20240229
+        - id: claude-3-sonnet-20240229
+        - id: claude-3-haiku-20240307
+        - id: claude-opus-4-6
+        - id: claude-sonnet-4-5
+          context_window: 200000
+          input_per_mtok: 3
+          output_per_mtok: 15
+          supports_images: true
+          supports_thinking: true
+        - id: claude-haiku-4-5
+          context_window: 200000
+          input_per_mtok: 1
+          output_per_mtok: 5
+          supports_images: true
+          supports_thinking: true
+        - id: claude-opus-4-5
+          context_window: 200000
+          input_per_mtok: 5
+          output_per_mtok: 25
+          supports_images: true
+          supports_thinking: true
+      supports_prompt_caching: true
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: anthropic
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md.
+- name: baichuan
+  display_name: Baichuan
+  env_key: BAICHUAN_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.baichuan-ai.com/v1
+      default_model: Baichuan4
+      models:
+        - id: Baichuan4
+        - id: Baichuan3-Turbo
+        - id: Baichuan4-Air
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: baichuan
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: baidu-cloud
+  display_name: Baidu Qianfan
+  env_key: QIANFAN_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://qianfan.baidubce.com/v2
+      default_model: ernie-4.0-8k-latest
+      models:
+        - id: ernie-4.0-8k-latest
+        - id: ernie-speed-8k
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: baidu-cloud
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: burncloud
+  display_name: BurnCloud
+  env_key: BURNCLOUD_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://ai.burncloud.com/v1
+      default_model: claude-opus-4-5-20251101
+      models:
+        - id: claude-opus-4-5-20251101
+        - id: gpt-5
+        - id: gemini-2.5-flash
+        - id: deepseek-reasoner
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: burncloud
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: cephalon
+  display_name: Cephalon
+  env_key: CEPHALON_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://cephalon.cloud/user-center/v1
+      default_model: DeepSeek-R1
+      models:
+        - id: DeepSeek-R1
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: cephalon
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: cerebras
+  display_name: Cerebras
+  env_key: CEREBRAS_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.cerebras.ai/v1
+      default_model: gpt-oss-120b
+      models:
+        - id: gpt-oss-120b
+        - id: zai-glm-4.6
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: cerebras
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: dashscope
+  display_name: DashScope
+  env_key: DASHSCOPE_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      default_model: qwen-max
+      models:
+        - id: qwen-max
+        - id: qwen-plus
+        - id: qwen-turbo
+        - id: qwen-vl-max
+        - id: qwen-vl-plus
+        - id: qwen3-max
+        - id: qwen3.5-plus
+        - id: text-embedding-v3
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: dashscope
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: deepseek
+  display_name: DeepSeek
+  env_key: DEEPSEEK_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.deepseek.com
+      default_model: deepseek-flash
+      models:
+        - id: deepseek-flash
+          context_window: 1000000
+          input_per_mtok: 0.3
+          output_per_mtok: 1.2
+          supports_images: true
+          supports_thinking: true
+        - id: deepseek-v4-pro
+          context_window: 1000000
+          input_per_mtok: 1.32
+          output_per_mtok: 3.96
+          supports_thinking: true
+        - id: deepseek-v4-flash
+          context_window: 1000000
+          input_per_mtok: 0.3
+          output_per_mtok: 1.2
+          supports_images: true
+          supports_thinking: true
+        - id: deepseek-chat
+        - id: deepseek-coder
+        - id: deepseek-reasoner
+          supports_thinking: true
+      capabilities:
+        - deepseek-thinking
+    - adapter: anthropic-messages
+      base_url: https://api.deepseek.com/anthropic
+      default_model: deepseek-chat
+      models:
+        - id: deepseek-chat
+      supports_prompt_caching: true
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: deepseek
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; Vivy-normalized default (deepseek-flash at https://api.deepseek.com) and DeepSeek's Anthropic-compatible endpoint declared.
+- name: doubao
+  display_name: Doubao (Ark)
+  env_key: DOUBAO_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://ark.cn-beijing.volces.com/api/v3
+      default_model: doubao-pro-32k
+      models:
+        - id: doubao-pro-32k
+        - id: doubao-lite-32k
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: doubao
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: fireworks
+  display_name: Fireworks AI
+  env_key: FIREWORKS_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.fireworks.ai/inference/v1
+      default_model: accounts/fireworks/models/llama-v3-70b-instruct
+      models:
+        - id: accounts/fireworks/models/llama-v3-70b-instruct
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: fireworks
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: gemini
+  display_name: Gemini
+  env_key: GEMINI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://generativelanguage.googleapis.com/v1beta
+      default_model: gemini-2.0-flash
+      models:
+        - id: gemini-2.0-flash
+        - id: gemini-1.5-pro
+        - id: gemini-1.5-flash
+        - id: gemini-2.0-flash-exp
+        - id: gemini-2.5-flash
+        - id: gemini-2.5-pro
+        - id: gemini-3-pro-preview
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: gemini
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: github
+  display_name: GitHub Models
+  env_key: GITHUB_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://models.inference.ai.azure.com
+      default_model: gpt-4o
+      models:
+        - id: gpt-4o
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: github
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: groq
+  display_name: Groq
+  env_key: GROQ_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.groq.com/openai/v1
+      default_model: llama-3.3-70b-versatile
+      models:
+        - id: llama-3.3-70b-versatile
+        - id: llama3-8b-8192
+        - id: llama3-70b-8192
+        - id: mixtral-8x7b-32768
+        - id: gemma-7b-it
+        - id: mistral-saba-24b
+        - id: gemma-9b-it
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: groq
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: hunyuan
+  display_name: Hunyuan
+  env_key: HUNYUAN_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.hunyuan.cloud.tencent.com/v1
+      default_model: hunyuan-pro
+      models:
+        - id: hunyuan-pro
+        - id: hunyuan-standard
+        - id: hunyuan-lite
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: hunyuan
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: hyperbolic
+  display_name: Hyperbolic
+  env_key: HYPERBOLIC_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.hyperbolic.xyz/v1
+      default_model: meta-llama/Meta-Llama-3.1-405B
+      models:
+        - id: meta-llama/Meta-Llama-3.1-405B
+        - id: Qwen/Qwen2-VL-72B-Instruct
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: hyperbolic
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: infini
+  display_name: Infini / Maas
+  env_key: INFINI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://cloud.infini-ai.com/maas/v1
+      default_model: deepseek-r1
+      models:
+        - id: deepseek-r1
+        - id: deepseek-v3
+        - id: qwen2.5-72b-instruct
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: infini
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: jina
+  display_name: Jina AI
+  env_key: JINA_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.jina.ai/v1
+      default_model: jina-embeddings-v3
+      models:
+        - id: jina-embeddings-v3
+        - id: jina-clip-v2
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: jina
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: lanyun
+  display_name: Lanyun
+  env_key: LANYUN_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://maas-api.lanyun.net/v1
+      default_model: deepseek-ai/DeepSeek-R1
+      models:
+        - id: deepseek-ai/DeepSeek-R1
+        - id: Qwen/Qwen2.5-72B-Instruct
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: lanyun
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: longcat
+  display_name: LongCat
+  env_key: LONGCAT_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.longcat.chat/openai/v1
+      default_model: LongCat-Flash-Chat
+      models:
+        - id: LongCat-Flash-Chat
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: longcat
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: mimo
+  display_name: Mimo
+  env_key: MIMO_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.xiaomimimo.com/v1
+      default_model: mimo-v2-flash
+      models:
+        - id: mimo-v2-flash
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: mimo
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: minimax
+  display_name: MiniMax
+  env_key: MINIMAX_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.minimaxi.com/v1
+      default_model: MiniMax-M2.1
+      models:
+        - id: MiniMax-M2.1
+        - id: abab6.5-chat
+        - id: abab6.5s-chat
+        - id: abab5.5-chat
+        - id: MiniMax-M2.5
+        - id: MiniMax-M2
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: minimax
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: mistral
+  display_name: Mistral AI
+  env_key: MISTRAL_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.mistral.ai/v1
+      default_model: mistral-large-latest
+      models:
+        - id: mistral-large-latest
+        - id: mistral-small-latest
+        - id: pixtral-12b-2409
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: mistral
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: modelscope
+  display_name: ModelScope
+  env_key: MODELSCOPE_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api-inference.modelscope.cn/v1
+      default_model: Qwen/Qwen2.5-72B-Instruct
+      models:
+        - id: Qwen/Qwen2.5-72B-Instruct
+        - id: deepseek-ai/DeepSeek-V3
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: modelscope
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: moonshot
+  display_name: Moonshot
+  env_key: MOONSHOT_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.moonshot.cn/v1
+      default_model: moonshot-v1-8k
+      models:
+        - id: moonshot-v1-8k
+        - id: moonshot-v1-32k
+        - id: moonshot-v1-128k
+        - id: kimi-k2.5
+        - id: kimi-k2-thinking
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: moonshot
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: nvidia
+  display_name: NVIDIA NIM
+  env_key: NVIDIA_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://integrate.api.nvidia.com/v1
+      default_model: meta/llama-3.1-405b-instruct
+      models:
+        - id: meta/llama-3.1-405b-instruct
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: nvidia
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: ocoolai
+  display_name: OcoolAI
+  env_key: OCOOLAI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.ocoolai.com/v1
+      default_model: deepseek-chat
+      models:
+        - id: deepseek-chat
+        - id: gpt-4o
+        - id: claude-3-5-sonnet-20240620
+        - id: gemini-1.5-pro
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: ocoolai
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: openai
+  display_name: OpenAI
+  env_key: OPENAI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.openai.com/v1
+      default_model: gpt-4o
+      models:
+        - id: gpt-4o
+          context_window: 128000
+          input_per_mtok: 2.5
+          output_per_mtok: 10
+          supports_images: true
+        - id: gpt-4o-mini
+          context_window: 128000
+          input_per_mtok: 0.15
+          output_per_mtok: 0.6
+          supports_images: true
+        - id: gpt-4-turbo
+          context_window: 128000
+          input_per_mtok: 10
+          output_per_mtok: 30
+          supports_images: true
+        - id: gpt-4
+          context_window: 8192
+          input_per_mtok: 30
+          output_per_mtok: 60
+        - id: gpt-3.5-turbo
+          context_window: 16385
+          input_per_mtok: 0.5
+          output_per_mtok: 1.5
+        - id: o1-preview
+        - id: o1-mini
+          context_window: 128000
+          input_per_mtok: 1.1
+          output_per_mtok: 4.4
+        - id: gpt-5.1
+        - id: gpt-5
+        - id: gpt-5-mini
+        - id: gpt-5-nano
+        - id: gpt-5-pro
+        - id: gpt-5-chat
+        - id: gpt-image-1
+    - adapter: openai-responses
+      base_url: https://api.openai.com/v1
+      default_model: gpt-5
+      models:
+        - id: gpt-5
+        - id: gpt-5-mini
+        - id: o3-mini
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: openai
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the deferred openai-responses endpoint is declared so the capability is visible; the vendor prefix was stripped from default_model.
+- name: openrouter
+  display_name: OpenRouter
+  env_key: OPENROUTER_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://openrouter.ai/api/v1
+      default_model: anthropic/claude-sonnet-4
+      models:
+        - id: anthropic/claude-sonnet-4
+        - id: google/gemini-2.5-flash-preview
+        - id: qwen/qwen-2.5-7b-instruct:free
+        - id: deepseek/deepseek-chat
+        - id: mistralai/mistral-7b-instruct:free
+        - id: google/gemini-2.0-flash-exp:free
+        - id: deepseek/deepseek-r1:free
+        - id: qwen/qwen-2.5-vl-72b-instruct:free
+      supports_prompt_caching: true
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: openrouter
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: perplexity
+  display_name: Perplexity
+  env_key: PERPLEXITY_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.perplexity.ai
+      default_model: sonar-pro
+      models:
+        - id: sonar-pro
+        - id: sonar-reasoning
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: perplexity
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: ph8
+  display_name: PH8
+  env_key: PH8_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://ph8.co/v1
+      default_model: deepseek-v3-241226
+      models:
+        - id: deepseek-v3-241226
+        - id: deepseek-r1-250120
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: ph8
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: poe
+  display_name: Poe
+  env_key: POE_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.poe.com/v1
+      default_model: gpt-4o
+      models:
+        - id: gpt-4o
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: poe
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: ppio
+  display_name: PPIO
+  env_key: PPIO_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.ppinfra.com/v3/openai
+      default_model: deepseek/deepseek-v3.2
+      models:
+        - id: deepseek/deepseek-v3.2
+        - id: minimax/minimax-m2
+        - id: qwen/qwen3-235b-a22b-instruct-2507
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: ppio
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: qiniu
+  display_name: Qiniu
+  env_key: QINIU_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.qnaigc.com/v1
+      default_model: deepseek-r1
+      models:
+        - id: deepseek-r1
+        - id: deepseek-v3
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: qiniu
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: silicon
+  display_name: SiliconFlow
+  env_key: SILICON_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.siliconflow.cn/v1
+      default_model: deepseek-ai/DeepSeek-V3.2
+      models:
+        - id: deepseek-ai/DeepSeek-V3.2
+        - id: Qwen/Qwen3-8B
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: silicon
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: stepfun
+  display_name: StepFun
+  env_key: STEPFUN_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.stepfun.com/v1
+      default_model: step-1-8k
+      models:
+        - id: step-1-8k
+        - id: step-1-flash
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: stepfun
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: together
+  display_name: Together AI
+  env_key: TOGETHER_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.together.xyz/v1
+      default_model: meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo
+      models:
+        - id: meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo
+        - id: google/gemma-2-27b-it
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: together
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: tokenflux
+  display_name: TokenFlux
+  env_key: TOKENFLUX_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.tokenflux.ai/openai/v1
+      default_model: gpt-4.1
+      models:
+        - id: gpt-4.1
+        - id: claude-3-7-sonnet
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: tokenflux
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: vllm
+  display_name: vLLM/Local
+  env_key: HOSTED_VLLM_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: http://localhost:11434/v1
+      default_model: meta-llama/Llama-3.3-70B-Instruct
+      models:
+        - id: meta-llama/Llama-3.3-70B-Instruct
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: vllm
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
+- name: voyageai
+  display_name: Voyage AI
+  env_key: VOYAGE_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.voyageai.com/v1
+      default_model: voyage-3
+      models:
+        - id: voyage-3
+        - id: voyage-code-3
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: voyageai
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: xai
+  display_name: xAI
+  env_key: XAI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.x.ai/v1
+      default_model: grok-beta
+      models:
+        - id: grok-beta
+        - id: grok-vision-beta
+        - id: grok-4
+        - id: grok-3
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: xai
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: yi
+  display_name: Yi (01.AI)
+  env_key: YI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.lingyiwanwu.com/v1
+      default_model: yi-lightning
+      models:
+        - id: yi-lightning
+        - id: yi-vision-v2
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: yi
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; default_model was empty upstream and falls back to the endpoint's first model.
+- name: zhipu
+  display_name: Zhipu AI
+  env_key: ZAI_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://open.bigmodel.cn/api/paas/v4
+      default_model: glm-4-flash
+      models:
+        - id: glm-4
+        - id: glm-4-air
+        - id: glm-4-flash
+        - id: glm-3-turbo
+        - id: glm-5
+        - id: glm-4.7
+        - id: glm-4.6
+        - id: glm-4.5
+        - id: embedding-3
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: zhipu
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.

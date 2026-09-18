@@ -374,7 +374,6 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 			EvalRoot:   filepath.Join(t.TempDir(), "evals"),
 			Isolation: eval.Isolation{
 				ProductionSQLite: filepath.Join(t.TempDir(), "prod.db"),
-				BundleDir:        filepath.Join("..", "..", "fixtures", "provider"),
 			},
 		}),
 		Children: childControllerStub{},
@@ -2152,9 +2151,21 @@ func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testin
 	}
 	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
 		deps.ProviderProfileStatuses = profiles
-		deps.ProviderBundles = []provider.Bundle{
-			{Name: "deepseek", Models: []string{"deepseek-flash"}},
-			{Name: "future", Models: []string{"future-1"}},
+		deps.ProviderVendors = []provider.Vendor{
+			{
+				Name: "deepseek", DisplayName: "DeepSeek",
+				Endpoints: []provider.Endpoint{{
+					Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://api.deepseek.com",
+					DefaultModel: "deepseek-flash", Models: []provider.Model{{ID: "deepseek-flash"}},
+				}},
+			},
+			{
+				Name: "future", DisplayName: "Future",
+				Endpoints: []provider.Endpoint{{
+					Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://future.invalid",
+					DefaultModel: "future-1", Models: []provider.Model{{ID: "future-1"}},
+				}},
+			},
 		}
 	})
 
@@ -2430,9 +2441,12 @@ func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
 	probe := &settingsApplierProbe{}
 	env, settingsPath := newSettingsHandlerEnvWith(t, probe, func(deps *ControlDeps) {
-		deps.ProviderBundles = []provider.Bundle{{
-			Name: "openai", DisplayName: "OpenAI", DefaultModel: "gpt-4o-mini",
-			Models: []string{"gpt-4o-mini", "gpt-5"},
+		deps.ProviderVendors = []provider.Vendor{{
+			Name: "openai", DisplayName: "OpenAI",
+			Endpoints: []provider.Endpoint{{
+				Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://api.openai.com/v1",
+				DefaultModel: "gpt-4o-mini", Models: []provider.Model{{ID: "gpt-4o-mini"}, {ID: "gpt-5"}},
+			}},
 		}}
 	})
 	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{

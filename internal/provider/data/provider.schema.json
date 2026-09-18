@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vivy.local/schemas/provider.schema.json",
+  "title": "Vivy provider data",
+  "description": "The single source of truth for provider configuration data (decision D1). Embedded at build time and validated at startup by internal/provider/vendor.go; this schema is the review surface for edits, and the Go validator is the authority. Additional rules that JSON Schema cannot express: (adapter, base_url) must be unique across the file; default_model must appear in that endpoint's models; a model id must not begin with its vendor's name or its adapter's name followed by '/'. Secrets never appear here: env_key is the NAME of an environment variable.",
+  "type": "array",
+  "minItems": 1,
+  "items": { "$ref": "#/$defs/vendor" },
+  "$defs": {
+    "vendor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "display_name", "env_key", "endpoints", "provenance"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Vendor id. Unique across the file; also the value of config.providers.active and the UI row identity."
+        },
+        "display_name": { "type": "string", "minLength": 1, "description": "Operator-facing label." },
+        "env_key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Name of the environment variable carrying this vendor's credential. Never a value. Several vendors may share one variable."
+        },
+        "endpoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/endpoint" },
+          "description": "One or more wire protocols for this vendor. A vendor speaking two protocols has two entries; the vendor's env_key is shared."
+        },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "base_url", "default_model", "models"],
+      "properties": {
+        "adapter": {
+          "enum": ["openai-completions", "openai-responses", "anthropic-messages"],
+          "description": "One of the sealed adapter families. openai-responses is DEFERRED-INDEFINITE: declaring it makes the capability visible, it is never executable."
+        },
+        "base_url": {
+          "type": "string",
+          "pattern": "^https?://",
+          "description": "Absolute http(s) base URL. Together with adapter it is the endpoint identity and must be unique across the file."
+        },
+        "default_model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must be one of this endpoint's models. Used when the user has not chosen a model."
+        },
+        "models": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/model" }
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["deepseek-thinking"] },
+          "description": "Closed endpoint-level capability vocabulary (DESIGN.md 3.3). A flag is legal only on an adapter that implements it; raw request injection is never accepted from data."
+        },
+        "supports_prompt_caching": {
+          "type": "boolean",
+          "description": "Enables automatic Anthropic cache breakpoints on this endpoint."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["capabilities"],
+            "properties": { "capabilities": { "contains": { "const": "deepseek-thinking" } } }
+          },
+          "then": {
+            "properties": { "adapter": { "const": "openai-completions" } }
+          }
+        }
+      ]
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\u0000\\r\\n][^\\u0000\\r\\n]*$",
+          "description": "The endpoint's raw model id, sent verbatim on the wire. Must not begin with '<vendor>/' or '<adapter>/'; a slash is legal when it is part of the real id."
+        },
+        "context_window": { "type": "integer", "minimum": 0, "description": "0 or absent means unknown; consumers fall back to 128000." },
+        "input_per_mtok": { "type": "number", "minimum": 0, "description": "Reference USD per million input tokens. 0 or absent means unpriced, never free." },
+        "output_per_mtok": { "type": "number", "minimum": 0, "description": "Reference USD per million output tokens. 0 or absent means unpriced, never free." },
+        "supports_images": { "type": "boolean", "description": "Absent means unknown; the image gate fails open for custom gateways." },
+        "supports_thinking": { "type": "boolean", "description": "Absent means unknown; no reasoning parameters are sent." }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "entry", "derived_at"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "entry": { "type": "string", "minLength": 1 },
+        "derived_at": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      },
+      "description": "D-025 review record: where this vendor's values came from and what was normalized."
+    }
+  }
+}
