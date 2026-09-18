@@ -4,7 +4,7 @@
   "protectedTools": ["ask_user", "list_dir", "read_file", "search_files", "write_file", "patch", "multiedit", "execute", "bash", "skills_list", "skill_view"],
   "actions": [],
   "toolWorldProviders": ["mcp"],
-  "providerProfiles": ["deepseek", "openai", "anthropic"],
+  "providerProfiles": ["openai-completions", "openai-responses", "anthropic-messages"],
   "contextSources": ["vivy.project-context"],
   "skillSources": ["vivy.default-skills"],
   "runObservers": [],

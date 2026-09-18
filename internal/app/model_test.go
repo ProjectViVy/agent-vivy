@@ -38,13 +38,19 @@ func testVendors(t *testing.T) map[string]provider.Vendor {
 	return index
 }
 
-func testProfile(t *testing.T, vendor provider.Vendor) providerprofile.Profile {
+// testProfiles projects the three compiled first-party vendors onto the adapter
+// Profiles the Generation seals: one Profile per sealed family, keyed by
+// adapter.
+func testProfiles(t *testing.T) []providerprofile.Profile {
 	t.Helper()
-	endpoint, ok := vendor.DefaultEndpoint()
-	if !ok {
-		t.Fatalf("vendor %q has no default endpoint", vendor.Name)
+	profiles, err := provider.AdapterProfiles()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return provider.ProfileFromEndpoint(vendor, endpoint)
+	if len(profiles) != 3 {
+		t.Fatalf("AdapterProfiles() = %d entries, want 3", len(profiles))
+	}
+	return profiles
 }
 
 func testCatalog(t *testing.T) *provider.Catalog {
@@ -58,13 +64,7 @@ func testCatalog(t *testing.T) *provider.Catalog {
 
 func testModelHost(t *testing.T) *modelhost.Host {
 	t.Helper()
-	index := testVendors(t)
-	host, err := modelhost.New([]providerprofile.Profile{
-		testProfile(t, index["deepseek"]), testProfile(t, index["openai"]), testProfile(t, index["anthropic"]),
-	}, modelhost.Capabilities{
-		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
-		provider.AdapterFamilyAnthropic:        modelhost.CapabilitySupported,
-	})
+	host, err := modelhost.New(testProfiles(t), provider.Capabilities())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,10 +157,13 @@ func TestResolverCannotReadyUncompiledProfile(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	openai := testVendors(t)["openai"]
-	host, err := modelhost.New([]providerprofile.Profile{testProfile(t, openai)}, modelhost.Capabilities{
-		provider.AdapterFamilyOpenAICompatible: modelhost.CapabilitySupported,
-	})
+	// The vendor and its endpoint exist in the embedded data, but this
+	// Generation compiles only the openai-completions adapter, so the selection
+	// cannot become ready.
+	if _, ok := testVendors(t)["anthropic"]; !ok {
+		t.Fatal("embedded data must still declare the anthropic vendor")
+	}
+	host, err := modelhost.New([]providerprofile.Profile{testProfiles(t)[0]}, provider.Capabilities())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,13 +182,18 @@ func TestResolverProjectsReadyProfileIdentityWithoutConfiguration(t *testing.T) 
 		t.Fatal(err)
 	}
 	host := testModelHost(t)
-	resolver := newModelResolver(config.Default(), path, testCatalog(t), host)
+	catalog := testCatalog(t)
+	resolver := newModelResolver(config.Default(), path, catalog, host)
 	current := resolver.Current()
-	statuses := host.Statuses(current.Provider, current.Ready)
-	if len(statuses) != 3 || statuses[1].ID != "deepseek" || statuses[1].State != modelhost.ProfileReady {
+	// The ModelHost is keyed by adapter: DeepSeek's default endpoint speaks
+	// openai-completions, which sorts second in the compiled Profile set. The
+	// projection from the stored vendor selection to that adapter is the same
+	// one the RPC status closure uses.
+	statuses := host.Statuses(catalog.AdapterFamily(current.Provider, current.BaseURL), current.Ready)
+	if len(statuses) != 3 || statuses[1].ID != provider.AdapterOpenAICompletions || statuses[1].State != modelhost.ProfileReady {
 		t.Fatalf("resolver Profile statuses = %#v", statuses)
 	}
-	if statuses[1].AdapterFamily != provider.AdapterFamilyOpenAICompatible || statuses[1].EndpointClass == "" {
+	if statuses[1].AdapterFamily != provider.AdapterOpenAICompletions || statuses[1].EndpointClass == "" {
 		t.Fatalf("resolver Profile provenance = %#v", statuses[1])
 	}
 }

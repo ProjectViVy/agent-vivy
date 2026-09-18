@@ -40,10 +40,36 @@ program; each phase adds the checks it makes possible.
    the same thinking controls; the Settings provider list still shows
    DeepSeek/OpenAI/Anthropic with the same models.
 
+## `PROV-P2` — the sealed unit is the protocol, not the vendor
+
+1. **An OpenAI reasoning model now asks for reasoning.**
+   ```text
+   go test ./internal/provider/ -run 'ReasoningEffort|DecideThinking' -count=1 -v
+   ```
+   The outbound body carries `reasoning_effort: high` and no DeepSeek
+   `thinking` object; a non-reasoning model on the same endpoint is untouched.
+
+2. **Two vendors can share one protocol without a synthetic vendor id.** The
+   DeepSeek Anthropic endpoint and the Anthropic endpoint resolve to the same
+   sealed `anthropic-messages` adapter while keeping their own `env_key` and
+   `base_url`; a missing key names the right environment variable:
+   ```text
+   go test ./internal/provider/ -run 'CarriesVendorIdentity' -count=1 -v
+   ```
+
+3. **The deferred protocol is visible and not executable.**
+   ```text
+   go test ./internal/provider/ ./internal/modules/defaults/ -run 'Deferred|Adapters' -count=1 -v
+   ```
+   `openai-responses` is in the table, in the compiled Profile set and in the
+   sealed manifest, and every attempt to construct through it fails closed.
+
+4. **Data cannot widen the executable set.** A vendor entry naming an adapter
+   outside the sealed three fails the startup gate; a Profile naming an unsealed
+   family fails to compile.
+
 ## Later phases
 
-- `PROV-P2`: the OpenAI reasoning request carries `reasoning_effort`; the
-  provider list shows three adapters, not three vendors.
 - `PROV-P3`: `config.yaml` holds `providers.active` and optional overrides only;
   existing `settings.yaml` selections keep working through the alias map.
 - `PROV-P4`: the browser shows all 45 vendors at `http://127.0.0.1:3015` with no

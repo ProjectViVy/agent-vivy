@@ -326,7 +326,100 @@ set.
 
 ---
 
-## 7. Migration sequence summary
+## 8. As-built record (`PROV-P2`)
+
+This section supersedes §1.1–§1.2, §2 of `DESIGN.md` where the design's letter
+and the landed code differ. It was written while landing the phase, from the
+actual diff.
+
+### 8.1 The adapter table is the sealed set
+
+`internal/provider/adapters.go` now owns `Adapter{Family, State}` and
+`Adapters()`, and every other projection is derived from it: `Capabilities()`
+(the ModelHost map), `AdapterFamilies()`, `AdapterState`, `IsSealedAdapter`.
+`internal/app/app.go` builds the ModelHost capability map from
+`provider.Capabilities()` instead of a hand-written two-entry literal, so the
+compiled capability set and the adapter table cannot drift.
+
+`ErrAdapterUnknown` and `ErrAdapterDeferred` replace `ErrAdapterFamilyMismatch`
+and `legacyAdapterFamily`: the mismatch the old error described is no longer
+representable, because the endpoint's `adapter` **is** the family.
+
+### 8.2 What "resolve by adapter" means in the call path
+
+| Call | Role |
+|---|---|
+| `Catalog.Adapter(family) (Ref, error)` | the sealed-set lookup. It returns a **vendor-neutral** Ref: address, credential and model id must come from the `ModelSpec`. Unknown and deferred families fail closed with distinct errors. |
+| `Catalog.RefForEndpoint(vendor string, ep Endpoint) (Ref, error)` | the construction path the runtime uses. It also carries the vendor's `env_key` (for `KeyMissingError`) and supplies the endpoint's `base_url`/`default_model` when the stored selection leaves them empty. |
+| `Catalog.AdapterFamily(vendor, baseURL) string` | the projection the availability surface needs while the stored selection is still vendor-keyed. |
+
+`Catalog.ForProfile` is gone, so `providerprofile` is no longer imported by
+`catalog.go`. The runtime gate and the availability marks in `resolving.go` are
+keyed by `endpoint.Adapter`; the RPC status closure and `ModelResolver.Current`
+use `AdapterFamily` to reach the same key.
+
+`ProfileFromEndpoint` is deleted. `provider.AdapterProfiles()` computes one
+Profile per sealed adapter, unioning the model ids and Secret references of every
+embedded endpoint that speaks it, and `defaults.ProviderProfiles()` delegates to
+it while keeping its name, signature and `defaultProviderOptionsSchema` — the
+compiled Generation owns the option surface, so it replaces the minimal schema
+the projection carries. The evidence anchors in
+`sdk/internal/assembly/evidence.go:77-80` and the test name cited by
+`sdk/internal/conformance/reproduction_test.go:456` therefore stay valid.
+
+### 8.3 Two contract rules had to widen
+
+| Rule | Was | Now | Why |
+|---|---|---|---|
+| `providerprofile.secretRefPattern` (`sdk/port/providerprofile/providerprofile.go:25`) | `^[A-Z][A-Z0-9_]*$` | `^[A-Z0-9][A-Z0-9_]*$` | The `openai-completions` union contains `302AI_API_KEY`. This is the same leading-digit case `config.ValidEnvKey` hit in P1; the two rules must agree, because the credential allowlist validates `SecretRefs` with `ValidEnvKey`. |
+| `providerprofile.Validate` native-prefix check | derived `openai/` from the family `openai-compatible` | derives `openai-completions/` | The family is now the adapter id, so the forbidden prefixes are the adapter names. No embedded model id collides with them; P1's family name would have rejected any `openai/…` id in the union. |
+
+### 8.4 Thinking rule, and the behaviour change it enables
+
+`resolving.go` now holds `decideThinking(adapter, deepSeekCapability,
+supportsThinking, mode) thinkingShape` — a pure function returning *what* the
+request carries; `thinkingShape.options()` renders it as Eino options. The rule
+is unchanged for Anthropic and DeepSeek.
+
+The real change: an OpenAI-compatible endpoint that is **not** DeepSeek now sends
+`reasoning_effort: high` for a model whose metadata declares thinking support,
+on `auto` and `on`. It sent nothing before, because the only per-model flag was
+DeepSeek's and the resolver returned early for every other vendor. The data
+therefore declares `supports_thinking: true` for `o1-preview`, `o1-mini`,
+`gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-pro` and `o3-mini`
+(the deferred endpoint). `gpt-5-chat` and `gpt-image-1` stay false:
+`reasoning_effort` is not a parameter of either.
+
+Because families are now deterministic, the reachable
+`MarkUnavailable` case is no longer a family mismatch but a credential that
+disappears between the readiness projection and construction; the conformance
+subtest drives exactly that case and asserts the profile reports `UNAVAILABLE`.
+
+### 8.5 Assembly, and one piece of transitional scaffolding
+
+`internal/modules/defaults/catalog.go` Port identities are the three adapter ids,
+and `internal/generated/assembly/zz_default.go` was regenerated — one line
+changed, the sealed `ProviderProfiles` list. Generating twice produced
+byte-identical output. `sdk/internal/testdata/default-generation.expected.json`
+was updated in the same commit, as was
+`internal/app/default_generation_test.go`'s assertion that the first compiled
+Profile is the default chain's adapter.
+
+`internal/app/app.go` gained `transitionalVendorNames`
+(`deepseek`, `openai`, `anthropic`). The compiled Profiles are keyed by adapter
+now, so this list is what keeps the pre-baked Settings/TUI `providers` payload
+byte-identical for this phase. `PROV-P3` removes the per-vendor config blocks and
+`PROV-P4` serves the whole embedded catalog here; the list dies with them.
+
+### 8.6 Conformance digest
+
+The `internal` digest moved `087b41ac…` → `978e0d42…` and the five
+`internal`-rooted entries in `sdk/internal/assembly/conformance_results.json`
+were refreshed in the same commit.
+
+---
+
+## 9. Migration sequence summary
 
 ```text
 PROV-P1  data + embed + strict validation + startup consistency gate; delete fixtures/ and bundle_dir

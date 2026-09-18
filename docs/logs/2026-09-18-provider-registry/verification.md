@@ -52,6 +52,59 @@ Not run in this phase, with reasons:
    refresh it again whenever they touch a file under `internal/`; `PROV-P5`
    still owns the final value.
 
+## `PROV-P2`
+
+| Command | Result |
+|---|---|
+| `go build ./...` / `go vet ./...` | exit 0 (vet found the four bundle-era helpers the boundary rewrite had to re-point, and then the test scaffolding) |
+| `go test ./internal/provider ./internal/modelhost ./internal/modules/defaults ./internal/app -count=1` | `ok` |
+| `go test ./internal/... -count=1` | every package `ok` |
+| `go test ./... -count=1` | every package `ok` except `sdk/internal`, which hit Go's **default 10-minute per-package timeout** (601.5s); see below |
+| `go run ./sdk/internal/cmd/generate-default --repo . --output internal/generated/assembly/zz_default.go` (twice, second to a temp path) | one line changed (the sealed `ProviderProfiles` list); both runs byte-identical, SHA-256 `156D7436…` |
+| digest refresh (`HashSourceTree(internal, "")`) + `go test ./sdk/internal/conformance/ -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1` | `978e0d42…` written to the five entries; re-run `ok` in 375.0s |
+| `go test ./sdk/internal -count=1 -timeout 25m` | `ok`, 768.6s, every test listed pass |
+| `just fmt-check` | exit 0 |
+
+### The one non-passing result, and why it is not a defect
+
+`sdk/internal` is the SDK's real pack/eval suite: ~20 tests each build a
+temporary repository module end to end. Measured per test, the heavy ones are
+119.6s, 89.3s, 59.9s, 54.8s, 50.4s, 48.7s, 47.1s, 44.6s, … — a 13 minute total on
+this host, which is why `go test ./...` with Go's default 10-minute per-package
+timeout kills it. The product gate does not use that default: `just test` passes
+`-timeout 20m` for exactly this reason (the recipe already documents it for
+`internal/runtime`; `sdk/internal` is the second such package).
+
+To rule out a P2 regression, the same test was measured on both revisions:
+
+| Revision | `TestPackAndInspectSealUIAssemblyIdentity` |
+|---|---|
+| `PROV-P1` (stashed working tree, `3025405`) | 39.50s |
+| `PROV-P2` | 37.78s |
+
+So the phase is not slower; the earlier 48.7s reading was taken while another
+test job was running.
+
+Not run in this phase, with reasons:
+
+- `just ci` as a whole: scheduled once at `PROV-P5`.
+- `just ui-ci`: no UI file changed. P2 deliberately keeps the
+  `settings/providers` payload byte-identical (`app.transitionalVendorNames`),
+  so there is nothing for the UI gate to see until `PROV-P3`/`PROV-P4`.
+- `headless-compile` and `plugin-ci`: `PROV-P5`.
+- Browser smoke at `http://127.0.0.1:3015`: the payload is unchanged, and the
+  provider list still shows three vendors. `PROV-P4` owns the browser check.
+
+### Failure-first evidence
+
+`decideThinking` was extracted as a pure function specifically so the rule table
+could be asserted without constructing a model; the table has 13 cases including
+the deferred and unknown adapters. The two API-level tests then assert the
+outbound body, which is what makes the OpenAI reasoning fix a behaviour change
+rather than a refactor: `reasoning_effort: high` with no `thinking` object on a
+non-DeepSeek endpoint, both fields on DeepSeek, and nothing on a model without
+the metadata.
+
 ## Failure-first evidence
 
 The data tests were written before the loader was wired, and the boundary

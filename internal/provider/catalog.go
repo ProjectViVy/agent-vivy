@@ -2,19 +2,12 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/sdk/port/providerprofile"
+	"agent-vivy/internal/modelhost"
 )
-
-// ErrAdapterFamilyMismatch reports that a compiled Profile's declared adapter
-// family disagrees with the adapter of the endpoint the selection resolved
-// to. PROV-P2 removes the mismatch by making the Profile's family the
-// endpoint's adapter, at which point this error is no longer representable.
-var ErrAdapterFamilyMismatch = errors.New("provider Profile adapter family does not match the embedded endpoint's adapter")
 
 // Catalog resolves a provider selection to live Refs over the embedded vendor
 // data. It holds no bundle document and no file path: the data is part of the
@@ -83,20 +76,53 @@ func (c *Catalog) EndpointForVendor(vendor, baseURL string) (Endpoint, Vendor, e
 	return endpoint, entry, nil
 }
 
-// RefForEndpoint builds the Ref for one vendor endpoint. An adapter that is
-// sealed but deferred, or a family this build does not know, fails closed
-// instead of falling back to a substitute.
-func (c *Catalog) RefForEndpoint(vendor Vendor, endpoint Endpoint) (Ref, error) {
-	switch endpoint.Adapter {
-	case AdapterOpenAICompletions:
-		return newOpenAIRef(vendor, endpoint), nil
-	case AdapterAnthropicMessages:
-		return newClaudeRef(vendor, endpoint), nil
-	case AdapterOpenAIResponses:
-		return nil, fmt.Errorf("provider %q: adapter %q is DEFERRED-INDEFINITE and has no implementation in this build", vendor.Name, endpoint.Adapter)
-	default:
-		return nil, fmt.Errorf("provider %q: unsupported adapter %q", vendor.Name, endpoint.Adapter)
+// AdapterFamily reports the sealed adapter the selection addresses, or "" when
+// the selection names no embedded vendor. The availability surface is keyed by
+// adapter while the stored selection is still vendor-keyed in this phase, so
+// this projection is how the two are related without a second lookup path.
+func (c *Catalog) AdapterFamily(vendor, baseURL string) string {
+	endpoint, _, err := c.EndpointForVendor(vendor, baseURL)
+	if err != nil {
+		return ""
 	}
+	return endpoint.Adapter
+}
+
+// Adapter resolves one sealed protocol family to the build-owned adapter that
+// implements it, independent of any vendor: every address, credential and model
+// id then has to come from the ModelSpec. It is the sealed-set lookup, and it
+// is what makes a deferred family fail closed instead of falling back to a
+// substitute.
+//
+// The runtime constructs models through RefForEndpoint rather than through this
+// Ref, because a vendor endpoint is what supplies the default address and the
+// default model when the stored selection leaves them empty, and what names the
+// environment key in KeyMissingError.
+func (c *Catalog) Adapter(family string) (Ref, error) {
+	if err := checkAdapter(family); err != nil {
+		return nil, err
+	}
+	return newAdapterRef(family, Vendor{}, Endpoint{})
+}
+
+// RefForEndpoint resolves one vendor endpoint (adapter + base URL) to its Ref.
+// An adapter that is sealed but deferred, or a family this build does not know,
+// fails closed instead of falling back to a substitute; so does a vendor the
+// embedded data does not describe, because only the vendor carries the
+// environment key and the identity an error message needs.
+func (c *Catalog) RefForEndpoint(vendor string, endpoint Endpoint) (Ref, error) {
+	entry, ok := c.Vendor(vendor)
+	if !ok {
+		return nil, fmt.Errorf("provider %q: no embedded vendor data", vendor)
+	}
+	if err := checkAdapter(endpoint.Adapter); err != nil {
+		return nil, fmt.Errorf("provider %q: %w", vendor, err)
+	}
+	ref, err := newAdapterRef(endpoint.Adapter, entry, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("provider %q: %w", vendor, err)
+	}
+	return ref, nil
 }
 
 // For resolves a vendor name to a Ref over that vendor's default endpoint.
@@ -109,29 +135,33 @@ func (c *Catalog) For(name string) (Ref, error) {
 	if !ok {
 		return nil, fmt.Errorf("provider %q: no endpoint declared", name)
 	}
-	return c.RefForEndpoint(vendor, endpoint)
+	return c.RefForEndpoint(vendor.Name, endpoint)
 }
 
-// ForProfile resolves one ModelHost-approved declarative Profile to its
-// build-owned executable adapter. The embedded data supplies the endpoint; the
-// Profile selects the adapter family. A mismatch fails closed.
-func (c *Catalog) ForProfile(profile providerprofile.Profile) (Ref, error) {
-	vendor, ok := c.Vendor(profile.ID)
-	if !ok {
-		return nil, fmt.Errorf("provider %q: no embedded vendor data", profile.ID)
+// checkAdapter is the one place that decides whether a family is executable:
+// unknown families and deferred families both fail closed.
+func checkAdapter(family string) error {
+	state, sealed := AdapterState(family)
+	if !sealed {
+		return fmt.Errorf("%w: %q", ErrAdapterUnknown, family)
 	}
-	endpoint, ok := vendor.DefaultEndpoint()
-	if !ok {
-		return nil, fmt.Errorf("provider %q: no endpoint declared", profile.ID)
+	if state != modelhost.CapabilitySupported {
+		return fmt.Errorf("%w: %q is %s", ErrAdapterDeferred, family, state)
 	}
-	wantFamily := legacyAdapterFamily(endpoint.Adapter)
-	if wantFamily == "" {
-		return nil, fmt.Errorf("provider %q: adapter %q is not executable in this build", profile.ID, endpoint.Adapter)
+	return nil
+}
+
+// newAdapterRef is the Eino binding point of the sealed table: the only two
+// constructors that import a pinned component.
+func newAdapterRef(family string, vendor Vendor, endpoint Endpoint) (Ref, error) {
+	switch family {
+	case AdapterOpenAICompletions:
+		return newOpenAIRef(vendor, endpoint), nil
+	case AdapterAnthropicMessages:
+		return newClaudeRef(vendor, endpoint), nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrAdapterUnknown, family)
 	}
-	if profile.AdapterFamily != wantFamily {
-		return nil, fmt.Errorf("%w: Profile %q declares %q, endpoint requires %q", ErrAdapterFamilyMismatch, profile.ID, profile.AdapterFamily, wantFamily)
-	}
-	return c.RefForEndpoint(vendor, endpoint)
 }
 
 // ResolveModelInfo looks up capacity metadata for a specific provider and

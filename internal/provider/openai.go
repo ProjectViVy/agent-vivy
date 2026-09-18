@@ -15,6 +15,10 @@ import (
 // eino-ext OpenAI chat model component. Construction happens at Model() call
 // time from the supplied ModelSpec; no network traffic happens before the
 // first Generate/Stream.
+//
+// A zero vendor means the sealed, vendor-neutral adapter returned by
+// Catalog.Adapter: there is no address, default model or environment key to
+// fall back to, so every one of them has to come from the ModelSpec.
 type openaiRef struct {
 	vendor   Vendor
 	endpoint Endpoint
@@ -24,7 +28,12 @@ func newOpenAIRef(vendor Vendor, endpoint Endpoint) Ref {
 	return &openaiRef{vendor: vendor, endpoint: endpoint}
 }
 
-func (r *openaiRef) Name() string { return r.vendor.Name }
+func (r *openaiRef) Name() string {
+	if r.vendor.Name == "" {
+		return AdapterOpenAICompletions
+	}
+	return r.vendor.Name
+}
 
 // APIBaseEnvVar is the process environment name that freezes a temporary
 // gateway URL for one process. Resolver reads it; this package does not.
@@ -37,7 +46,7 @@ func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallin
 	}
 	key := strings.TrimSpace(spec.APIKey)
 	if key == "" {
-		return nil, &KeyMissingError{Provider: r.vendor.Name, EnvKey: r.vendor.EnvKey}
+		return nil, &KeyMissingError{Provider: r.Name(), EnvKey: r.vendor.EnvKey}
 	}
 	baseURL := strings.TrimSpace(spec.BaseURL)
 	if baseURL == "" {
@@ -49,7 +58,7 @@ func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallin
 		Model:   modelID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("provider %s: construct openai model %q: %w", r.vendor.Name, modelID, err)
+		return nil, fmt.Errorf("provider %s: construct openai model %q: %w", r.Name(), modelID, err)
 	}
 	return cm, nil
 }
@@ -64,7 +73,7 @@ func (r *openaiRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 	meta, _ := r.endpoint.Model(modelID)
 	return domain.ModelInfo{
 		ID:               modelID,
-		Provider:         r.vendor.Name,
+		Provider:         r.Name(),
 		ContextWindow:    meta.ContextWindow, // zero means unknown; callers use defaults
 		MaxOutputTokens:  0,                  // varies by model; let API decide
 		InputPerMTokens:  meta.InputPerMTok,

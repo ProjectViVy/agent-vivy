@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-vivy/internal/modules/optional"
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/sourcehash"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/module"
@@ -47,7 +48,7 @@ func Catalog(repoRoot string) ([]Record, error) {
 		record("vivy/skill-source", "NewSkillSource", source, port("std/skill-source@v1", "vivy.default-skills")),
 		record("vivy/channel-host", "NewChannelHost", source, port("core/channel-host@v1", "vivy.channel-host")),
 		record("vivy/face-host", "NewFaceHost", source, port("core/face-host@v1", "vivy.face-host")),
-		record("vivy/provider-profiles", "NewProviderProfiles", source, port("std/provider-profile@v1", "deepseek"), port("std/provider-profile@v1", "openai"), port("std/provider-profile@v1", "anthropic")),
+		record("vivy/provider-profiles", "NewProviderProfiles", source, port("std/provider-profile@v1", provider.AdapterOpenAICompletions), port("std/provider-profile@v1", provider.AdapterOpenAIResponses), port("std/provider-profile@v1", provider.AdapterAnthropicMessages)),
 	}
 	for _, host := range optional.Catalog() {
 		provided := []module.PortRef{port(host.Port, "vivy."+strings.TrimPrefix(host.ModuleID, "vivy/"))}

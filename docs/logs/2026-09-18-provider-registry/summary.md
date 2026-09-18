@@ -54,6 +54,43 @@ resolve, the same `settings/providers` payload crosses the wire byte for byte,
 and the same DeepSeek/Anthropic request shapes are sent. The only user-visible
 difference is that provider metadata can no longer be pointed at a directory.
 
+## Scope of this phase (`PROV-P2`)
+
+Delivered:
+
+- `internal/provider/adapters.go` now carries `Adapter{Family, State}` and
+  `Adapters()`; `Capabilities()`, `AdapterFamilies()`, `AdapterState` and
+  `IsSealedAdapter` are all derived from that one table, and `app.go` builds the
+  ModelHost capability map from it.
+- The sealed unit is the adapter everywhere: `Catalog.Adapter(family)` is the
+  sealed lookup (vendor-neutral), `Catalog.RefForEndpoint(vendor, endpoint)` is
+  the vendor-bound construction path, `ForProfile`/`ProfileFromEndpoint`/
+  `ErrAdapterFamilyMismatch`/`legacyAdapterFamily` are gone, and the runtime gate
+  and availability marks are keyed by the endpoint's adapter.
+- `provider.AdapterProfiles()` projects the sealed adapters onto the compiled
+  Profile set, unioning each family's model ids and Secret references over every
+  embedded endpoint that speaks it; `defaults.ProviderProfiles()` delegates and
+  keeps the name and signature the SDK evidence anchors cite. The deferred
+  `openai-responses` family is a visible, non-executable Profile.
+- Thinking is decided by a pure function over adapter, endpoint capability, model
+  metadata and the run preference. **Behaviour fix:** OpenAI-compatible reasoning
+  models now receive `reasoning_effort: high` on `auto`/`on`; they received
+  nothing before.
+- `internal/generated/assembly/zz_default.go` regenerated (byte-reproducible),
+  `sdk/internal/testdata/default-generation.expected.json` updated, conformance
+  digest refreshed, and `MIGRATION.md` §8 records the as-built detail.
+
+Not done (later phases, in order):
+
+- `PROV-P3` reduces `config.Providers` to `active` plus stateless overrides,
+  moves credentials onto the embedded catalog, and adds the `settings.yaml`
+  alias map. `app.transitionalVendorNames` and `defaultModelFor` are its
+  removal targets.
+- `PROV-P4` serves the catalog over RPC and deletes the UI's generated catalog,
+  which is when the pre-baked Settings/TUI vendor list becomes the whole
+  embedded catalog.
+- `PROV-P5` runs the single full `just ci` and closes the board.
+
 ## Deviations worth knowing
 
 - Vendor and credential identifiers may now start with a digit, because the
@@ -64,3 +101,7 @@ difference is that provider metadata can no longer be pointed at a directory.
   remains reachable as a user-defined custom provider.
 - `Catalog.EndpointForVendor` and the `Deps.ProviderVendors` rename landed in
   P1 rather than P3/P4, because the types they replaced no longer exist.
+- `providerprofile.secretRefPattern` was widened in P2 for the same leading-digit
+  reason, so the Profile validator and `config.ValidEnvKey` agree.
+- P2 keeps the `settings/provider` payload byte-identical through
+  `transitionalVendorNames`; the wire vocabulary changes in P3, not here.

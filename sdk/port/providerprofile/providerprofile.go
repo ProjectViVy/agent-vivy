@@ -22,7 +22,11 @@ const (
 
 var (
 	profileIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*(?:[./][a-z0-9][a-z0-9_-]*)*$`)
-	secretRefPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	// A Secret reference is an environment-variable name. Like
+	// config.ValidEnvKey it permits a leading digit: real upstream keys exist
+	// that start with one (302AI_API_KEY), and the credential allowlist must
+	// accept exactly the names the vendor data declares.
+	secretRefPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_]*$`)
 )
 
 // Profile is pure configuration metadata. SecretRefs contains names only;

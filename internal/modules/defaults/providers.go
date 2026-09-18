@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"agent-vivy/internal/provider"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/contextsource"
 	"agent-vivy/sdk/port/providerprofile"
@@ -15,27 +16,32 @@ import (
 
 var defaultProviderOptionsSchema = json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"temperature":{"type":"number"},"top_p":{"type":"number"},"max_tokens":{"type":"integer"},"thinking":{"type":"boolean"}}}`)
 
+// ProviderProfiles returns the declarative projection of the sealed adapters:
+// one Profile per adapter family, not per vendor. The model ids and Secret
+// references are the union over the embedded endpoints that speak the family,
+// so the compiled Generation describes the protocols this build can reach.
 func ProviderProfiles() []providerprofile.Provider {
-	return []providerprofile.Provider{
-		providerProfile{profile: providerprofile.Profile{
-			ID: "deepseek", AdapterFamily: "openai-compatible",
-			ModelIDs:      []string{"deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-coder", "deepseek-reasoner"},
-			EndpointClass: providerprofile.EndpointNative,
-			SecretRefs:    []string{"DEEPSEEK_API_KEY"}, OptionsSchema: defaultProviderOptionsSchema,
-		}},
-		providerProfile{profile: providerprofile.Profile{
-			ID: "openai", AdapterFamily: "openai-compatible",
-			ModelIDs:      []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "o1-preview", "o1-mini", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro", "gpt-5-chat"},
-			EndpointClass: providerprofile.EndpointNative,
-			SecretRefs:    []string{"OPENAI_API_KEY"}, OptionsSchema: defaultProviderOptionsSchema,
-		}},
-		providerProfile{profile: providerprofile.Profile{
-			ID: "anthropic", AdapterFamily: "anthropic",
-			ModelIDs:      []string{"claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"},
-			EndpointClass: providerprofile.EndpointNative,
-			SecretRefs:    []string{"ANTHROPIC_API_KEY"}, OptionsSchema: defaultProviderOptionsSchema,
-		}},
+	profiles, err := provider.AdapterProfiles()
+	if err != nil {
+		// The embedded provider data is a build-time input: provider.LoadEmbedded
+		// validates it at generation time and the Catalog rejects the same
+		// documents at startup, so this error is not a runtime condition. The
+		// placeholder keeps the failure deterministic — the Assembly validator
+		// rejects the identities and names the cause — instead of compiling a
+		// silently smaller adapter set.
+		return []providerprofile.Provider{providerProfile{profile: providerprofile.Profile{
+			ID:            "invalid-embedded-provider-data",
+			AdapterFamily: err.Error(),
+		}}}
 	}
+	out := make([]providerprofile.Provider, 0, len(profiles))
+	for _, profile := range profiles {
+		// The compiled Generation owns the option surface its providers accept,
+		// so it replaces the minimal schema the data projection carries.
+		profile.OptionsSchema = append(json.RawMessage(nil), defaultProviderOptionsSchema...)
+		out = append(out, providerProfile{profile: profile})
+	}
+	return out
 }
 
 type providerProfile struct{ profile providerprofile.Profile }

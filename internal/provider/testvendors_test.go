@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"encoding/json"
 	"testing"
 
+	"agent-vivy/internal/modelhost"
 	"agent-vivy/sdk/port/providerprofile"
 )
 
@@ -58,16 +60,47 @@ func testEndpoint(t *testing.T, vendor Vendor) Endpoint {
 // path, so tests exercise the same switch production uses.
 func testRef(t *testing.T, vendor Vendor) Ref {
 	t.Helper()
-	ref, err := NewCatalog(vendor).RefForEndpoint(vendor, testEndpoint(t, vendor))
+	ref, err := NewCatalog(vendor).RefForEndpoint(vendor.Name, testEndpoint(t, vendor))
 	if err != nil {
 		t.Fatalf("RefForEndpoint(%q): %v", vendor.Name, err)
 	}
 	return ref
 }
 
-// testProfile projects the vendor's default endpoint into the declarative
-// Profile shape the ModelHost compiles.
+// testProfile projects one vendor endpoint into the declarative Profile shape
+// the ModelHost compiles: the Profile identity is the endpoint's sealed
+// adapter, which is what the ModelHost and its capability map are keyed by.
 func testProfile(t *testing.T, vendor Vendor) providerprofile.Profile {
 	t.Helper()
-	return ProfileFromEndpoint(vendor, testEndpoint(t, vendor))
+	endpoint := testEndpoint(t, vendor)
+	return providerprofile.Profile{
+		ID:            endpoint.Adapter,
+		AdapterFamily: endpoint.Adapter,
+		ModelIDs:      endpoint.ModelIDs(),
+		EndpointClass: providerprofile.EndpointNative,
+		SecretRefs:    []string{vendor.EnvKey},
+		OptionsSchema: append(json.RawMessage(nil), providerOptionsSchema...),
+	}
+}
+
+// testModelHost compiles a ModelHost over the given vendors' adapters, using
+// the real sealed capability map so a deferred family behaves as it does in
+// production.
+func testModelHost(t *testing.T, vendors ...Vendor) *modelhost.Host {
+	t.Helper()
+	profiles := make([]providerprofile.Profile, 0, len(vendors))
+	seen := make(map[string]struct{}, len(vendors))
+	for _, vendor := range vendors {
+		profile := testProfile(t, vendor)
+		if _, duplicate := seen[profile.ID]; duplicate {
+			continue
+		}
+		seen[profile.ID] = struct{}{}
+		profiles = append(profiles, profile)
+	}
+	host, err := modelhost.New(profiles, Capabilities())
+	if err != nil {
+		t.Fatalf("modelhost.New: %v", err)
+	}
+	return host
 }

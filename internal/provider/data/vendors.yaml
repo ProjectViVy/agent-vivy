@@ -558,15 +558,22 @@
           input_per_mtok: 0.5
           output_per_mtok: 1.5
         - id: o1-preview
+          supports_thinking: true
         - id: o1-mini
           context_window: 128000
           input_per_mtok: 1.1
           output_per_mtok: 4.4
+          supports_thinking: true
         - id: gpt-5.1
+          supports_thinking: true
         - id: gpt-5
+          supports_thinking: true
         - id: gpt-5-mini
+          supports_thinking: true
         - id: gpt-5-nano
+          supports_thinking: true
         - id: gpt-5-pro
+          supports_thinking: true
         - id: gpt-5-chat
         - id: gpt-image-1
     - adapter: openai-responses
@@ -576,11 +583,12 @@
         - id: gpt-5
         - id: gpt-5-mini
         - id: o3-mini
+          supports_thinking: true
   provenance:
     source: agent-diva/agent-diva-providers/src/providers.yaml
     entry: openai
     derived_at: "2026-09-18"
-    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the deferred openai-responses endpoint is declared so the capability is visible; the vendor prefix was stripped from default_model.
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the deferred openai-responses endpoint is declared so the capability is visible; the vendor prefix was stripped from default_model; the reasoning models (o1-preview, o1-mini, gpt-5 family except gpt-5-chat, o3-mini) declare supports_thinking so the OpenAI adapter sends reasoning_effort.
 - name: openrouter
   display_name: OpenRouter
   env_key: OPENROUTER_API_KEY
