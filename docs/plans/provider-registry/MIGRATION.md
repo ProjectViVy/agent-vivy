@@ -550,28 +550,42 @@ PROV-P4  catalog RPC + UI zero-data + loading state; delete the generator script
 PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci   [done]
 ```
 
-### 8.9 Landing proposal (not executed)
+### 8.9 Landing (executed 2026-09-18)
 
-The branch is ready to land and deliberately has not been pushed or merged: the
-owner authorized the program on the lane, not a landing.
+The owner authorized the landing; the branch was fast-forwarded into `main` and
+pushed. State that made it a clean fast-forward: `feat/provider-registry` is ten
+commits ahead of `main`'s then-tip `ff8a47d` — `9c6f8c7` (plan), `3025405` (P1),
+`885382e` (P2), `ac9da30` (P3), `8c62886` (P4), `7a833f0` (P5 closeout),
+`c1da466`/`dd759dc`/`c22584e` (the diagnosis, inventory and reflection in
+`notes.md`), `4755902` (the `AGENTS.md` rule) — and `main` had no commit the
+branch lacked. The `just ci` run recorded in
+`docs/logs/2026-09-18-provider-registry/verification.md` was made on the code
+tree at `8c62886`; the five commits after it touch `AGENTS.md` and `docs/` only
+(`git diff --stat 8c62886..HEAD` lists no code path), so no re-run was required.
 
-State at hand-off: `feat/provider-registry` is five commits ahead of `main`
-(`ff8a47d`) — `9c6f8c7` (plan), `3025405` (P1), `885382e` (P2), `ac9da30` (P3),
-`8c62886` (P4) — plus the closeout commit that carries this log. `main` has no
-commit the branch lacks, so the landing is a **fast-forward**, and the `just ci`
-run recorded in `docs/logs/2026-09-18-provider-registry/verification.md` was made
-on exactly the trees being merged.
-
-Proposed landing, when the owner authorizes it:
+Procedure actually used:
 
 ```text
-git checkout main
-git merge --ff-only feat/provider-registry     # or --no-ff for a merge commit
-just ci                                        # optional: the same tree already passed
-git worktree remove .worktrees/provider-sot
+git checkout main                          # root checkout, at ff8a47d
+git merge --ff-only feat/provider-registry
+git push origin main
 ```
 
-Notes that matter for the landing:
+Two things the operator should know:
+
+- `origin/main` was **eight commits behind** local `main` before this push
+  (`fe60b18` → `ff8a47d`): the DeepSeek-default commit and seven docs/scheduling
+  commits that had never been pushed. Pushing `main` publishes them too — that is
+  inherent to publishing the branch, not a side effect of this landing.
+- The root checkout carries another lane's untracked files under `internal/`
+  (`internal/workflow/`, `internal/domain/workflow_test_support.go`). They are
+  outside this branch, but because `internal/sourcehash` hashes every file under
+  `internal/`, a `just ci` run *in that checkout* computes a different digest
+  than the committed `5e386f84…`. The committed value is correct for the tree
+  this branch landed; the root checkout's value is tracked by
+  `PROVIDER-PROFILE-DIGEST-PIN` in `docs/TODO.md`.
+
+Notes unchanged from the proposal:
 
 - `ui/agent-diva-source/` was removed from the launch checkout during P4. It is
   gitignored, so it cannot travel with the branch; the removal is already done on
@@ -580,3 +594,5 @@ Notes that matter for the landing:
   `VIVY_DEFAULT_LOCALE=zh` for the e2e run); neither is committed.
 - If a revert is ever needed, `MIGRATION.md` §6 pairs the P4 backend and UI in
   one revert; a split state leaves the UI without a catalog.
+- The worktree was left in place for review; removing it
+  (`git worktree remove .worktrees/provider-sot`) is a separate housekeeping step.
