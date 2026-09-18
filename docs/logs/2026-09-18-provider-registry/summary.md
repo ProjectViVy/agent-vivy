@@ -235,9 +235,11 @@ worktree-relative default, a Docker `COPY`, a pack-time copy from the packing
 worktree). The diagnosis, with citations and the generalizable checks, is
 `notes.md` in this directory — it supersedes the framing used elsewhere.
 
-Not done, and deliberately: no push and no merge to `main`. The lane's branch is
-the deliverable; landing is the owner's call (`MIGRATION.md` §8.9 records the
-landing proposal).
+Not done by the program, and done since: the owner authorized landing on
+2026-09-18, so the branch was fast-forwarded into `main` and pushed
+(`MIGRATION.md` §8.9 records the procedure, the fact that `origin/main` was
+eight commits behind and this push also publishes those, and the digest caveat
+for a checkout that carries another lane's untracked files under `internal/`).
 
 ## Deviations worth knowing
 

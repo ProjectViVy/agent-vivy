@@ -14,6 +14,9 @@ Commands were run from the lane `.worktrees/provider-sot` (branch
 | canary experiment: add a vendor to the data only, restart the control plane, reload the untouched Vite bundle | 9/9 checks — row count 94 → 96, `provider-row-p5-canary-openai-completions` present with display name `P5 Canary`, selectable, `aria-pressed=true` after the click, its `p5-canary-model` offered as a model button, search finds it, no page errors |
 | canary without its `provenance` block (the fail-closed half) | startup aborts: `composition failed: ... provenance must carry source, entry and derived_at (D-025)` — no catalog is served |
 | revert the canary | tree clean, digest back to `5e386f84…` (bit-identical content → identical hash), and the 14-check smoke passes again at 94 rows / 45 vendors |
+| `git merge --ff-only feat/provider-registry` in the root checkout | fast-forward from `ff8a47d`; `main` and the branch share one tree, so the CI evidence above covers what landed |
+| `git push origin main` | `origin/main` advanced `fe60b18` → `ff8a47d` → the branch tip; the push also published eight previously-unpushed `main` commits (the DeepSeek-default change and seven docs/scheduling commits), which is inherent to publishing the branch |
+| docs-only tail after `8c62886` | `git diff --stat 8c62886..HEAD` lists `AGENTS.md` and `docs/` only, so no code path changed after the `just ci` run and no re-run was required |
 
 Docs-only commits after this run (this log, the board row, the plan status table)
 do not re-enter the build: nothing under `internal/` changes, so the digest and
