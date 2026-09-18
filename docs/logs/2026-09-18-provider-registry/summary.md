@@ -240,6 +240,9 @@ Not done by the program, and done since: the owner authorized landing on
 (`MIGRATION.md` §8.9 records the procedure, the fact that `origin/main` was
 eight commits behind and this push also publishes those, and the digest caveat
 for a checkout that carries another lane's untracked files under `internal/`).
+CI on the pushed tip passed `ui ci` and `backend ci`; the `full UI browser smoke`
+job failed for a pre-existing configuration reason that also fails on the
+previous `main` tip (tracked as `CI-BROWSER-SMOKE-WEBSERVER`).
 
 ## Deviations worth knowing
 

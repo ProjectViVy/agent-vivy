@@ -17,6 +17,7 @@ Commands were run from the lane `.worktrees/provider-sot` (branch
 | `git merge --ff-only feat/provider-registry` in the root checkout | fast-forward from `ff8a47d`; `main` and the branch share one tree, so the CI evidence above covers what landed |
 | `git push origin main` | `origin/main` advanced `fe60b18` → `ff8a47d` → the branch tip; the push also published eight previously-unpushed `main` commits (the DeepSeek-default change and seven docs/scheduling commits), which is inherent to publishing the branch |
 | docs-only tail after `8c62886` | `git diff --stat 8c62886..HEAD` lists `AGENTS.md` and `docs/` only, so no code path changed after the `just ci` run and no re-run was required |
+| CI on the pushed tip (run `35361729156`, `77be9c5`) | `ui ci` passed (1m35s) and `backend ci` passed (19m46s — Go tests, conformance suite and the `internal` digest on the pushed tree). `full UI browser smoke` failed with `Error: Timed out waiting 30000ms from config.webServer.`, and the `just ci` job failed in 4s only because it asserts `BROWSER_RESULT = success`. Pre-existing and unrelated: the same signature is on the previous `main` tip `fe60b18` (run `34944037203`). Mechanism and fix direction: `CI-BROWSER-SMOKE-WEBSERVER` in `docs/TODO.md` §0.1 |
 
 Docs-only commits after this run (this log, the board row, the plan status table)
 do not re-enter the build: nothing under `internal/` changes, so the digest and

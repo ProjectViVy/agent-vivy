@@ -553,14 +553,15 @@ PROV-P5  evidence, sourceSha256, TODO rows, iteration log, just ci   [done]
 ### 8.9 Landing (executed 2026-09-18)
 
 The owner authorized the landing; the branch was fast-forwarded into `main` and
-pushed. State that made it a clean fast-forward: `feat/provider-registry` is ten
-commits ahead of `main`'s then-tip `ff8a47d` — `9c6f8c7` (plan), `3025405` (P1),
-`885382e` (P2), `ac9da30` (P3), `8c62886` (P4), `7a833f0` (P5 closeout),
-`c1da466`/`dd759dc`/`c22584e` (the diagnosis, inventory and reflection in
-`notes.md`), `4755902` (the `AGENTS.md` rule) — and `main` had no commit the
-branch lacked. The `just ci` run recorded in
+pushed. The branch landed as `77be9c5`, eleven commits ahead of `main`'s
+then-tip `ff8a47d` — `9c6f8c7` (plan), `3025405` (P1), `885382e` (P2), `ac9da30`
+(P3), `8c62886` (P4), `7a833f0` (P5 closeout), `c1da466`/`dd759dc`/`c22584e`
+(the diagnosis, inventory and reflection in `notes.md`), `4755902` (the
+`AGENTS.md` rule), `77be9c5` (this landed record) — and `main` had no commit the
+branch lacked. The commit carrying this note is a docs-only follow-up pushed on
+top of the landing. The `just ci` run recorded in
 `docs/logs/2026-09-18-provider-registry/verification.md` was made on the code
-tree at `8c62886`; the five commits after it touch `AGENTS.md` and `docs/` only
+tree at `8c62886`; the commits after it touch `AGENTS.md` and `docs/` only
 (`git diff --stat 8c62886..HEAD` lists no code path), so no re-run was required.
 
 Procedure actually used:
@@ -577,6 +578,19 @@ Two things the operator should know:
   (`fe60b18` → `ff8a47d`): the DeepSeek-default commit and seven docs/scheduling
   commits that had never been pushed. Pushing `main` publishes them too — that is
   inherent to publishing the branch, not a side effect of this landing.
+- CI on the pushed tip (run `35361729156`): `ui ci` passed (1m35s) and
+  `backend ci` passed (19m46s, including the Go tests, the conformance suite and
+  the `internal` digest on the pushed tree). `full UI browser smoke` failed, and
+  the `just ci` aggregator job failed in 4s only because it is
+  `test "$BROWSER_RESULT" = "success"`. **The smoke failure is pre-existing and
+  not caused by this branch**: it fails with the identical
+  `Error: Timed out waiting 30000ms from config.webServer.` on the previous
+  `main` tip `fe60b18` (run `34944037203`, 2026-09-15, from PR #30). Mechanism:
+  the job starts the packed `.workspace/p9-full-ui/vivy.exe` on
+  `127.0.0.1:3015` and waits for `/healthz`, then runs Playwright, whose
+  `webServer` block (`ui/playwright.config.ts`) has `reuseExistingServer: false`
+  and therefore spawns a second `go run ./cmd/vivy` on the same occupied port
+  and times out. Tracked as `CI-BROWSER-SMOKE-WEBSERVER` in `docs/TODO.md` §0.1.
 - The root checkout carries another lane's untracked files under `internal/`
   (`internal/workflow/`, `internal/domain/workflow_test_support.go`). They are
   outside this branch, but because `internal/sourcehash` hashes every file under
