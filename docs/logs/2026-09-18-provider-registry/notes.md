@@ -185,3 +185,106 @@ What deliberately did **not** change: the adapter implementations themselves
 `providerprofile` Port contract and its SDK evidence anchors, `config.Validate`
 staying shape-only, and read-compatibility for documents that stored a legacy
 vendor name.
+
+## How it came to be, and how to catch the next one
+
+Nothing here was one bad decision. The shape was assembled by eight
+feature-driven deliveries in three weeks, each individually correct:
+
+| Date | Delivery | What it added to the provider picture |
+|---|---|---|
+| 2026-08-27 | `custom-provider-registry` | custom providers and models beyond the static catalog — provider facts become *writable user state* |
+| 2026-08-27 | `genparams-per-provider` | per-model generation parameters — another provider/model-shaped settings block |
+| 2026-08-27 | `provider-address-edit` | "still cannot see where to edit the model address" — the address becomes user-editable, i.e. the `base_url` escape hatch |
+| 2026-08-27 | `provider-catalog-fold` | ports Agent-Diva's 45-vendor catalog and fold logic into the frontend — **the borrowed domain model, the vendored tree, and the generated TS array all enter here** |
+| 2026-08-27 | `provider-edit-polish` | add-vs-edit dialog semantics on top of that catalog |
+| 2026-08-28 | `provider-direct-write` | owner: requiring env-var handling "is a problematic product direction" — provider writes and write-time env sync move into config |
+| 2026-09-01 | `vc2-claude-backend` | Anthropic wired through `eino-ext/claude` — the second protocol arrives as a *field on the bundle* (`api_type`/`backend`) |
+| 2026-09-16 | `deepseek-default-provider` | DeepSeek becomes the default and "single authoritative provider" — the vendor is promoted to a first-class runtime bundle |
+
+Then the two pressures that could not both be satisfied: the display set
+(45 vendors) and the capability set (3 constructible bundles). Everything that
+looks strange is a patch holding those two apart.
+
+### The six dynamics
+
+1. **Demand came from the "can the user do it" side; the abstraction was never
+   asked to pay.** Every delivery was a legitimate product request, and each one
+   needed one more place to remember a provider fact. No delivery's acceptance
+   criteria ever included "where does provider truth live", so the debt was
+   borrowed passively, one feature at a time.
+2. **The wrong path was ten times cheaper than the right one.** Displaying 45
+   vendors: generate a TS array from the vendored YAML — an afternoon. Serving
+   them from the backend: schema + runtime + config + RPC + UI. Reading provider
+   data at startup: three lines (`LoadBundle`). Embedding it: config struct,
+   Dockerfile, pack path, eval isolator, digest. When the locally wrong move is
+   much cheaper, every iteration takes it, and the bill arrives later as a
+   count mismatch.
+3. **A borrowed domain model silently defined our vocabulary.** The
+   `provider-catalog-fold` port carried a desktop client's provider model with
+   it: `api_type`, `keywords`, `is_gateway`, `is_local`, `gateway_prefix`,
+   `detect_by_key_prefix`, `detect_by_base_model`, `strip_model_prefix`,
+   `env_extras`, `model_overrides`. In that model the vendor is the identity, the
+   protocol is a field, a gateway is normal, and the client guesses the vendor
+   from a pasted key. Vivy is a single-active-provider runtime that never guesses
+   and never rewrites a model id — not one of those fields matches a behaviour we
+   have, but the vocabulary stayed, and it is why DeepSeek could only be a
+   "special first-class bundle" and why two protocols were unrepresentable.
+   Porting a catalog ports its abstractions, and abstractions are harder to
+   delete than code.
+4. **Every feedback loop asked "does the feature work", none asked "is this
+   still one system".** Each delivery had a log, acceptance notes and tests. But
+   the digest only hashed `internal/` (`fixtures/` was outside it), `just ci` did
+   not include e2e, Docker/pack/eval each copied the data with no cross-check,
+   and the tests were themselves consumers of `fixtures/provider`
+   (`fixturesDir = "../../fixtures/provider"`). **The test suite was an
+   accomplice, not a sentinel.** Nothing in the system could turn red on "there
+   are now four copies".
+5. **Docs and naming legitimized the defect.** `fixtures/README.md` says
+   "for tests and offline development" and PRD §6.2 forbids fixtures in
+   production paths. The rule was written down, which is exactly why nobody
+   looked: the directory was named `fixtures`, so it must be sample data, and a
+   rule existed, so someone must be enforcing it. The rules were true and
+   toothless at the same time.
+6. **The concept was finally recovered by asking a question, not by a gate.**
+   The turn came from the owner asking what the provider actually is, then
+   stating the single-source requirement, then diagnosing the vendor/protocol
+   confusion in one sentence. Debt of this kind does not surface on its own — it
+   gets fished out by re-asking a concept. That makes "re-ask the concept" a
+   process to schedule, not a stroke of luck to wait for.
+
+### The cheapest tripwire, in hindsight
+
+At `provider-catalog-fold` the same fact already had two different sizes: the UI
+showed **45 vendors**, the runtime could construct **3 bundles**. That single
+mismatch was the whole defect in visible form, three weeks early, and it cost
+nothing to notice — *when two layers report different counts for the same thing,
+stop and decide which layer owns it.* The other two cheap signals were "a field
+we never read" (the borrowed schema) and "a workaround performed every time"
+(copying `fixtures/provider` next to the cwd before each smoke).
+
+### Countermeasures worth keeping
+
+1. **Every fact that enters the run path must answer three questions**: is it in
+   the artifact, is it in the evidence/digest, and who changes it. Two out of
+   three is a defect, not a follow-up.
+2. **Displayed truth must come from capability truth.** Every row a face renders
+   must be declared by the backend, or explicitly marked deferred. This is now
+   true (catalog + capability state + the canary check); make it a gate rather
+   than a property.
+3. **Add a tripwire that turns red on a new copy**: a static check that the run
+   path never references `fixtures/`, and that a committed generated artifact
+   must ship with a comparison check. The repository already has `scripts/check-*`
+   precedent; this is cheap.
+4. **Audit borrowed schemas field by field**: for each imported field, "do we
+   have this behaviour?" — delete what we do not, and record why (the data
+   README records the drops; `provenance` records the origin).
+5. **Add one question to every delivery's acceptance**: *did this change give any
+   fact a second home?* Near-zero cost, and it catches most of this class.
+6. **Treat deletion as a deliverable.** Most of `PROV-P1`'s diff is removals
+   (`fixtures/`, `bundle_dir` at five sites, the `Bundle` type, the schema, the
+   generator, the array). If removing a copy earns no credit, copies only
+   accumulate.
+7. **Schedule the concept review.** After the third delivery in one domain,
+   force the question "how many things does this word mean now?" — the trigger
+   this time was a human asking, and that is not a mechanism.
